@@ -12,7 +12,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::filter::FilterKernel;
-use vortex_array::dtype::NativePType;
+use vortex_array::dtype::UnsignedPType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
@@ -104,7 +104,7 @@ impl FilterKernel for RunEnd {
 /// selected run value.
 ///
 /// Adapted from the [Apache Arrow Rust implementation](https://github.com/apache/arrow-rs/blob/b1f5c250ebb6c1252b4e7c51d15b8e77f4c361fa/arrow-select/src/filter.rs#L425).
-pub fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrimitive<u64>>(
+pub fn filter_run_end_primitive<R: UnsignedPType + AddAssign + From<bool> + AsPrimitive<u64>>(
     run_ends: &[R],
     offset: u64,
     length: u64,
@@ -118,7 +118,8 @@ pub fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrim
     filter_run_end_ranges(run_ends, offset, length, mask)
 }
 
-fn filter_run_end_ranges<R: NativePType + AddAssign + From<bool> + AsPrimitive<u64>>(
+#[doc(hidden)]
+pub fn filter_run_end_ranges<R: UnsignedPType + AddAssign + From<bool> + AsPrimitive<u64>>(
     run_ends: &[R],
     offset: u64,
     length: u64,
@@ -131,7 +132,8 @@ fn filter_run_end_ranges<R: NativePType + AddAssign + From<bool> + AsPrimitive<u
     let mut filtered_end = R::zero();
 
     let values_mask: Mask = BitBuffer::collect_bool(run_ends.len(), |run_idx| {
-        let run_end = min(run_ends[run_idx].as_() - offset, length);
+        let absolute_run_end: u64 = run_ends[run_idx].as_();
+        let run_end = min(absolute_run_end - offset, length);
 
         // Bulk popcount is SIMD-capable and avoids per-bit reads. The input contract and clamp prove
         // `run_start_idx <= run_end_idx <= mask.len()`.
@@ -166,15 +168,15 @@ fn filter_run_end_ranges<R: NativePType + AddAssign + From<bool> + AsPrimitive<u
 
 /// Recomputes run ends with one sequential cursor over the filter bitmap.
 ///
-/// The mask must contain `length` bits. The run ends must increase and cover the range that starts
-/// at `offset`.
+/// The mask must contain `length` bits. The first run end can equal `offset` for a sliced array.
+/// Later run ends must increase and cover the filtered range.
 ///
 /// # Panics
 ///
-/// Panics if the mask length differs from `length`, or if the run ends do not
-/// strictly increase and cover the filtered range.
+/// Panics if the mask length differs from `length`, or if the run ends violate the documented
+/// order.
 #[doc(hidden)]
-pub fn filter_run_end_sequential<R: NativePType + AddAssign + From<bool> + AsPrimitive<u64>>(
+pub fn filter_run_end_sequential<R: UnsignedPType + AddAssign + From<bool> + AsPrimitive<u64>>(
     run_ends: &[R],
     offset: u64,
     length: u64,
@@ -183,7 +185,11 @@ pub fn filter_run_end_sequential<R: NativePType + AddAssign + From<bool> + AsPri
     let mut filtered_run_ends = buffer_mut![R::zero(); run_ends.len()];
     let chunks = mask.chunks();
     let mask_length = usize::try_from(length).vortex_expect("mask length must fit in usize");
-    assert_eq!(mask.len(), mask_length);
+    assert_eq!(
+        mask.len(),
+        mask_length,
+        "filter mask length must equal the run-end array length"
+    );
     let mut mask_cursor = MaskCountCursor::new(chunks.iter_padded(), mask_length);
     let mut retained_run_count = 0;
     let mut filtered_end = R::zero();
@@ -191,7 +197,17 @@ pub fn filter_run_end_sequential<R: NativePType + AddAssign + From<bool> + AsPri
 
     let values_mask = BitBuffer::collect_bool(run_ends.len(), |run_index| {
         let absolute_run_end = run_ends[run_index].as_();
-        assert!(absolute_run_end > previous_absolute_run_end);
+        if run_index == 0 {
+            assert!(
+                absolute_run_end >= offset,
+                "first run end {absolute_run_end} is before offset {offset}"
+            );
+        } else {
+            assert!(
+                absolute_run_end > previous_absolute_run_end,
+                "run end {absolute_run_end} does not follow {previous_absolute_run_end}"
+            );
+        }
         previous_absolute_run_end = absolute_run_end;
         let run_end = min(absolute_run_end - offset, length)
             .try_into()
@@ -205,7 +221,10 @@ pub fn filter_run_end_sequential<R: NativePType + AddAssign + From<bool> + AsPri
         retain_run
     })
     .into();
-    assert_eq!(mask_cursor.position, mask_length);
+    assert_eq!(
+        mask_cursor.position, mask_length,
+        "run ends must cover the filtered range"
+    );
 
     filtered_run_ends.truncate(retained_run_count);
     (
@@ -261,12 +280,16 @@ impl<I: Iterator<Item = u64>> MaskCountCursor<I> {
 
 #[cfg(test)]
 mod tests {
+    use std::ops::AddAssign;
+
+    use num_traits::AsPrimitive;
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
+    use vortex_array::dtype::UnsignedPType;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::Buffer;
     use vortex_error::VortexExpect;
@@ -314,12 +337,28 @@ mod tests {
         assert_scan_matches_reference(&[7u32, 71, 72, 145, 146, 500, 501, 1_008], 5, 3, 1_003)
     }
 
-    fn assert_scan_matches_reference(
-        run_ends: &[u32],
+    #[test]
+    fn sequential_scan_accepts_empty_leading_run() -> VortexResult<()> {
+        assert_scan_matches_reference(&[64u32, 128, 192], 64, 0, 128)
+    }
+
+    #[test]
+    fn sequential_scan_supports_all_run_end_widths() -> VortexResult<()> {
+        assert_scan_matches_reference(&[7u8, 71, 72, 145, 146, 200], 5, 3, 195)?;
+        assert_scan_matches_reference(&[7u16, 71, 72, 145, 146, 200], 5, 3, 195)?;
+        assert_scan_matches_reference(&[7u32, 71, 72, 145, 146, 200], 5, 3, 195)?;
+        assert_scan_matches_reference(&[7u64, 71, 72, 145, 146, 200], 5, 3, 195)
+    }
+
+    fn assert_scan_matches_reference<R>(
+        run_ends: &[R],
         array_offset: usize,
         bitmap_offset: usize,
         length: usize,
-    ) -> VortexResult<()> {
+    ) -> VortexResult<()>
+    where
+        R: UnsignedPType + AddAssign + From<bool> + AsPrimitive<u64>,
+    {
         let backing_mask = BitBuffer::collect_bool(bitmap_offset + length, |index| {
             index >= bitmap_offset && !(index - bitmap_offset).is_multiple_of(5)
         });
@@ -330,10 +369,7 @@ mod tests {
         let (expected_ends, expected_values_mask) =
             filter_run_end_ranges(run_ends, array_offset as u64, length as u64, &mask)?;
 
-        assert_eq!(
-            actual_ends.as_slice::<u32>(),
-            expected_ends.as_slice::<u32>()
-        );
+        assert_eq!(actual_ends.as_slice::<R>(), expected_ends.as_slice::<R>());
         assert_eq!(actual_values_mask, expected_values_mask);
         Ok(())
     }
