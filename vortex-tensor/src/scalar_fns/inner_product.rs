@@ -6,41 +6,29 @@
 //! [`InnerProduct`] derives each result from the decoded input coordinates and preserves
 //! left-to-right floating-point accumulation.
 
-use num_traits::Float;
 use vortex_array::ArrayRef;
-use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
-use vortex_array::arrays::ExtensionArray;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::ScalarFnArray;
-use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayView;
 use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayParts;
 use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayVTable;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::NativePType;
-use vortex_array::dtype::Nullability;
-use vortex_array::expr::Expression;
-use vortex_array::expr::union_child_validities;
 use vortex_array::match_each_float_ptype;
-use vortex_array::scalar_fn::Arity;
-use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::EmptyOptions;
-use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ScalarFnId;
-use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
+use vortex_array::scalar_fn::unstable::row::InitializedElement;
+use vortex_array::scalar_fn::unstable::row::RowFn;
+use vortex_array::scalar_fn::unstable::row::RowVisitor;
+use vortex_array::scalar_fn::unstable::row::UninitElementSink;
 use vortex_array::serde::ArrayChildren;
-use vortex_buffer::Buffer;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
-use crate::matcher::AnyTensor;
+use crate::scalar_fns::arithmetic::inner_product_row;
+use crate::scalar_fns::row::TensorRow;
+use crate::scalar_fns::row::tensor_element_ptype;
 use crate::utils::BinaryTensorOpMetadata;
-use crate::utils::extract_flat_elements;
-use crate::utils::validate_binary_tensor_float_inputs;
 
 /// Inner product (dot product) between two columns.
 ///
@@ -69,95 +57,44 @@ impl InnerProduct {
     }
 }
 
-impl ScalarFnVTable for InnerProduct {
+impl RowFn for InnerProduct {
     type Options = EmptyOptions;
+
+    const ARG_NAMES: &'static [&'static str] = &["lhs", "rhs"];
+    const INFALLIBLE: bool = true;
 
     fn id(&self) -> ScalarFnId {
         static ID: CachedId = CachedId::new("vortex.tensor.inner_product");
         *ID
     }
 
-    fn arity(&self, _options: &Self::Options) -> Arity {
-        Arity::Exact(2)
+    fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(vec![]))
     }
 
-    fn child_name(&self, _options: &Self::Options, child_idx: usize) -> ChildName {
-        match child_idx {
-            0 => ChildName::from("lhs"),
-            1 => ChildName::from("rhs"),
-            _ => unreachable!("InnerProduct must have exactly two children"),
-        }
+    fn deserialize(
+        &self,
+        _metadata: &[u8],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Options> {
+        Ok(EmptyOptions)
     }
 
-    fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
-        let lhs = &arg_dtypes[0];
-        let rhs = &arg_dtypes[1];
-
-        // TODO(connor): relax the float-only gate once integer tensors are supported.
-        let tensor_match = validate_binary_tensor_float_inputs(lhs, rhs)?;
-        let ptype = tensor_match.element_ptype();
-        let nullability = Nullability::from(lhs.is_nullable() || rhs.is_nullable());
-        Ok(DType::Primitive(ptype, nullability))
-    }
-
-    fn execute(
+    fn dispatch<V: RowVisitor>(
         &self,
         _options: &Self::Options,
-        args: &dyn ExecutionArgs,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        let lhs_ref = args.get(0)?;
-        let rhs_ref = args.get(1)?;
-        let len = args.row_count();
-
-        // Compute combined validity.
-        let validity = lhs_ref.validity()?.and(rhs_ref.validity()?)?;
-
-        // Canonicalize so we can perform the math directly.
-        let lhs: ExtensionArray = lhs_ref.execute(ctx)?;
-        let rhs: ExtensionArray = rhs_ref.execute(ctx)?;
-
-        // We validated that both inputs have the same type.
-        let ext = lhs.dtype().as_extension();
-        let tensor_match = ext
-            .metadata_opt::<AnyTensor>()
-            .vortex_expect("we already validated this in `return_dtype`");
-        let dimensions = tensor_match.list_size() as usize;
-
-        // Extract the storage array from each extension input. We pass the storage (FSL) rather
-        // than the extension array to avoid canonicalizing the extension wrapper.
-        let lhs_storage = lhs.storage_array();
-        let rhs_storage = rhs.storage_array();
-
-        let lhs_flat = extract_flat_elements(lhs_storage, dimensions, ctx)?;
-        let rhs_flat = extract_flat_elements(rhs_storage, dimensions, ctx)?;
-
-        match_each_float_ptype!(lhs_flat.ptype(), |T| {
-            let buffer: Buffer<T> = (0..len)
-                .map(|i| inner_product_row(lhs_flat.row::<T>(i), rhs_flat.row::<T>(i)))
-                .collect();
-
-            // SAFETY: The buffer length equals `row_count`, which matches the source validity
-            // length.
-            Ok(unsafe { PrimitiveArray::new_unchecked(buffer, validity) }.into_array())
+        args: &[DType],
+        visitor: V,
+    ) -> VortexResult<V::VisitResult> {
+        match_each_float_ptype!(tensor_element_ptype(args)?, |T| {
+            visitor.visit_into::<(TensorRow<T>, TensorRow<T>), UninitElementSink<T>, _>(
+                (),
+                |(lhs, rhs), output| {
+                    // SAFETY: `output` is the `UninitElementSink` row supplied for this callback.
+                    unsafe { InitializedElement::write(output, inner_product_row(lhs, rhs)) }
+                },
+            )
         })
-    }
-
-    fn validity(
-        &self,
-        _options: &Self::Options,
-        expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
-        // The result is null if either input tensor is null.
-        union_child_validities(expression)
-    }
-
-    fn is_strict(&self, _options: &Self::Options) -> bool {
-        true
-    }
-
-    fn is_infallible(&self, _options: &Self::Options) -> bool {
-        true
     }
 }
 
@@ -187,16 +124,6 @@ impl ScalarFnArrayVTable for InnerProduct {
     }
 }
 
-/// Computes the inner product (dot product) of two equal-length float slices.
-///
-/// Returns `sum(a_i * b_i)`.
-fn inner_product_row<T: Float + NativePType>(a: &[T], b: &[T]) -> T {
-    a.iter()
-        .zip(b.iter())
-        .map(|(&x, &y)| x * y)
-        .fold(T::zero(), |acc, v| acc + v)
-}
-
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
@@ -208,21 +135,77 @@ mod tests {
     use vortex_array::arrays::MaskedArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin;
+    use vortex_array::dtype::NativePType;
     use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
 
     use crate::scalar_fns::inner_product::InnerProduct;
     use crate::tests::SESSION;
+    use crate::types::vector::Vector;
     use crate::utils::test_helpers::assert_close;
+    use crate::utils::test_helpers::literal_vector_array;
     use crate::utils::test_helpers::tensor_array;
     use crate::utils::test_helpers::vector_array;
+    use crate::utils::test_helpers::zero_width_vector_array;
 
-    /// Evaluates inner product between two tensor arrays and returns the result as `Vec<f64>`.
-    fn eval_inner_product(lhs: ArrayRef, rhs: ArrayRef) -> VortexResult<Vec<f64>> {
+    fn evaluate_inner_product<T: NativePType>(
+        lhs: ArrayRef,
+        rhs: ArrayRef,
+    ) -> VortexResult<Vec<T>> {
         let result = InnerProduct::try_new(lhs, rhs)?;
         let mut ctx = SESSION.create_execution_ctx();
-        let prim: PrimitiveArray = result.into_array().execute(&mut ctx)?;
-        Ok(prim.as_slice::<f64>().to_vec())
+        let output: PrimitiveArray = result.into_array().execute(&mut ctx)?;
+
+        Ok(output.as_slice::<T>().to_vec())
+    }
+
+    #[test]
+    fn test_zero_width_and_empty_inputs() -> VortexResult<()> {
+        let lhs = zero_width_vector_array::<f64>(3)?;
+        let rhs = zero_width_vector_array::<f64>(3)?;
+        assert_close(&evaluate_inner_product(lhs, rhs)?, &[0.0, 0.0, 0.0]);
+
+        let lhs = vector_array::<f64>(2, &[])?;
+        let rhs = vector_array::<f64>(2, &[])?;
+        assert!(evaluate_inner_product::<f64>(lhs, rhs)?.is_empty());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_encoded_constants_match_materialized_rows_bitwise() -> VortexResult<()> {
+        let lhs_row = [1.0e10f32, 1.0, -1.0e10];
+        let rhs_row = [1.0f32, 1.0, 1.0];
+        let materialized_lhs = vector_array(3, &[lhs_row, lhs_row, lhs_row].concat())?;
+        let materialized_rhs = vector_array(3, &[rhs_row, rhs_row, rhs_row].concat())?;
+        let expected: Vec<_> =
+            evaluate_inner_product::<f32>(materialized_lhs.clone(), materialized_rhs.clone())?
+                .into_iter()
+                .map(f32::to_bits)
+                .collect();
+        assert_eq!(expected, vec![0.0f32.to_bits(); 3]);
+
+        let cases = [
+            (
+                Vector::constant_array(&lhs_row, 3)?,
+                materialized_rhs.clone(),
+            ),
+            (literal_vector_array(&lhs_row, 3), materialized_rhs),
+            (
+                materialized_lhs.clone(),
+                Vector::constant_array(&rhs_row, 3)?,
+            ),
+            (materialized_lhs, literal_vector_array(&rhs_row, 3)),
+        ];
+        for (lhs, rhs) in cases {
+            let actual: Vec<_> = evaluate_inner_product::<f32>(lhs, rhs)?
+                .into_iter()
+                .map(f32::to_bits)
+                .collect();
+            assert_eq!(actual, expected);
+        }
+
+        Ok(())
     }
 
     /// Single-row inner product for various vector pairs.
@@ -243,7 +226,7 @@ mod tests {
     ) -> VortexResult<()> {
         let lhs = tensor_array(shape, lhs_elems)?;
         let rhs = tensor_array(shape, rhs_elems)?;
-        assert_close(&eval_inner_product(lhs, rhs)?, expected);
+        assert_close(&evaluate_inner_product(lhs, rhs)?, expected);
         Ok(())
     }
 
@@ -265,7 +248,7 @@ mod tests {
                 2.0, 2.0, 2.0, // tensor 2: dot = 6
             ],
         )?;
-        assert_close(&eval_inner_product(lhs, rhs)?, &[0.0, 25.0, 6.0]);
+        assert_close(&evaluate_inner_product(lhs, rhs)?, &[0.0, 25.0, 6.0]);
         Ok(())
     }
 
@@ -285,7 +268,7 @@ mod tests {
                 0.0, 1.0, // vector 1: dot = 0
             ],
         )?;
-        assert_close(&eval_inner_product(lhs, rhs)?, &[25.0, 0.0]);
+        assert_close(&evaluate_inner_product(lhs, rhs)?, &[25.0, 0.0]);
         Ok(())
     }
 
