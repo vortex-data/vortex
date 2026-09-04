@@ -258,6 +258,12 @@ impl Display for BloomOptions {
 /// ### Notice
 ///
 /// Only valid (non-null) scalar values are stored in the filter.
+///
+/// ### Stability
+///
+/// This aggregate is unstable. The hash function, the block layout, and the salt order can still
+/// change without a file format version bump. Do not persist `vortex.bloom_filter.sbbf` partials
+/// in a Vortex file.
 #[derive(Clone, Debug)]
 pub struct BloomFilter;
 
