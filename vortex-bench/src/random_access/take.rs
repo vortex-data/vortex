@@ -23,6 +23,11 @@ use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use parquet::arrow::arrow_reader::ArrowReaderMetadata;
 use parquet::arrow::arrow_reader::ArrowReaderOptions;
 use parquet::arrow::async_reader::AsyncFileReader;
+#[expect(
+    deprecated,
+    reason = "arrow-rs deprecated this in favour of a hand-rolled AsyncFileReader; \
+        keeping it holds the measured I/O path fixed (arrow-rs#10308)"
+)]
 use parquet::arrow::async_reader::ParquetObjectReader;
 use parquet::file::metadata::PageIndexPolicy;
 use stream::StreamExt;
@@ -221,6 +226,11 @@ enum ParquetSource {
     /// Path to a local Parquet file.
     Local(PathBuf),
     /// Reader for a Parquet file held in an object store.
+    #[expect(
+        deprecated,
+        reason = "arrow-rs deprecated this in favour of a hand-rolled AsyncFileReader; \
+        keeping it holds the measured I/O path fixed (arrow-rs#10308)"
+    )]
     Object(ParquetObjectReader),
 }
 
@@ -238,6 +248,11 @@ impl ParquetRandomAccessor {
         path: &Path,
         name: impl Into<String>,
     ) -> anyhow::Result<Self> {
+        #[expect(
+            deprecated,
+            reason = "arrow-rs deprecated this in favour of a hand-rolled AsyncFileReader; \
+        keeping it holds the measured I/O path fixed (arrow-rs#10308)"
+        )]
         let mut reader = ParquetObjectReader::new(
             Arc::clone(remote.store()),
             ObjectStorePath::from(remote.key(path)?),
@@ -341,6 +356,40 @@ impl RandomAccessor for ParquetRandomAccessor {
     }
 }
 
+/// Read `row_groups` from `reader` and take `row_group_indices` within each of them.
+async fn take_row_groups<T>(
+    reader: T,
+    metadata: ArrowReaderMetadata,
+    row_groups: Vec<usize>,
+    row_group_indices: &[Vec<i64>],
+) -> anyhow::Result<RandomAccessorRet>
+where
+    T: AsyncFileReader + Unpin + Send + 'static,
+{
+    let builder = ParquetRecordBatchStreamBuilder::new_with_metadata(reader, metadata);
+
+    let reader = builder
+        .with_row_groups(row_groups)
+        // FIXME(ngates): our indices code assumes the batch size == the row group sizes
+        .with_batch_size(10_000_000)
+        .build()?;
+
+    let schema = Arc::clone(reader.schema());
+
+    let batches = reader
+        .enumerate()
+        .map(|(idx, batch)| {
+            let batch = batch.unwrap();
+            let indices = PrimitiveArray::<Int64Type>::from(row_group_indices[idx].clone());
+            take_record_batch(&batch, &indices).unwrap()
+        })
+        .collect::<Vec<_>>()
+        .await;
+
+    let result = concat_batches(&schema, &batches)?;
+    Ok(RandomAccessorRet::RecordBatch(result))
+}
+
 #[cfg(test)]
 mod tests {
     use arrow_array::Int64Array;
@@ -379,38 +428,4 @@ mod tests {
         assert_eq!(actual, expected);
         Ok(())
     }
-}
-
-/// Read `row_groups` from `reader` and take `row_group_indices` within each of them.
-async fn take_row_groups<T>(
-    reader: T,
-    metadata: ArrowReaderMetadata,
-    row_groups: Vec<usize>,
-    row_group_indices: &[Vec<i64>],
-) -> anyhow::Result<RandomAccessorRet>
-where
-    T: AsyncFileReader + Unpin + Send + 'static,
-{
-    let builder = ParquetRecordBatchStreamBuilder::new_with_metadata(reader, metadata);
-
-    let reader = builder
-        .with_row_groups(row_groups)
-        // FIXME(ngates): our indices code assumes the batch size == the row group sizes
-        .with_batch_size(10_000_000)
-        .build()?;
-
-    let schema = Arc::clone(reader.schema());
-
-    let batches = reader
-        .enumerate()
-        .map(|(idx, batch)| {
-            let batch = batch.unwrap();
-            let indices = PrimitiveArray::<Int64Type>::from(row_group_indices[idx].clone());
-            take_record_batch(&batch, &indices).unwrap()
-        })
-        .collect::<Vec<_>>()
-        .await;
-
-    let result = concat_batches(&schema, &batches)?;
-    Ok(RandomAccessorRet::RecordBatch(result))
 }
