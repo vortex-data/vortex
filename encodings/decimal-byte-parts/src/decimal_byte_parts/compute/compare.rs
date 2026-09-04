@@ -39,6 +39,12 @@ impl CompareKernel for DecimalByteParts {
             return Ok(None);
         };
 
+        // The MSP alone only determines the ordering when it holds the whole value. With
+        // lower parts present, fall back to comparing the canonical decimal.
+        if !lhs.lower_parts().is_empty() {
+            return Ok(None);
+        }
+
         let nullability = lhs.dtype().nullability() | rhs.dtype().nullability();
         let scalar_type = lhs.msp().dtype().with_nullability(nullability);
 
@@ -158,10 +164,12 @@ mod tests {
     use vortex_array::scalar_fn::fns::operators::Operator;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use crate::DecimalByteParts;
+    use crate::decimal_byte_parts::testing::i128_parts;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = vortex_array::array_session();
@@ -217,6 +225,45 @@ mod tests {
             BoolArray::from_iter([None, Some(true), Some(true), Some(true)]).into_array();
         assert_arrays_eq!(res, expected, &mut SESSION.create_execution_ctx());
 
+        Ok(())
+    }
+
+    #[test]
+    fn compare_decimal_const_with_lower_parts() -> VortexResult<()> {
+        // The MSP-only pushdown is invalid once lower parts carry part of the value, so this
+        // must fall back to the canonical comparison rather than compare MSPs.
+        let values = vec![1i128 << 70, (1i128 << 70) + 1, 5, -(1i128 << 70)];
+        let lhs = i128_parts(values.clone(), Validity::NonNullable).into_array();
+        let decimal_dtype = *lhs
+            .dtype()
+            .as_decimal_opt()
+            .vortex_expect("decimal byte parts array");
+
+        let pivot = (1i128 << 70) + 1;
+        let rhs = ConstantArray::new(
+            Scalar::decimal(
+                DecimalValue::I128(pivot),
+                decimal_dtype,
+                Nullability::NonNullable,
+            ),
+            lhs.len(),
+        )
+        .into_array();
+
+        let mut ctx = SESSION.create_execution_ctx();
+        for (operator, predicate) in [
+            (Operator::Eq, (|v, p| v == p) as fn(i128, i128) -> bool),
+            (Operator::NotEq, |v, p| v != p),
+            (Operator::Lt, |v, p| v < p),
+            (Operator::Lte, |v, p| v <= p),
+            (Operator::Gt, |v, p| v > p),
+            (Operator::Gte, |v, p| v >= p),
+        ] {
+            let res = lhs.clone().binary(rhs.clone(), operator)?;
+            let expected =
+                BoolArray::from_iter(values.iter().map(|v| predicate(*v, pivot))).into_array();
+            assert_arrays_eq!(res, expected, &mut ctx);
+        }
         Ok(())
     }
 

@@ -11,6 +11,7 @@ use vortex_error::VortexResult;
 
 use crate::DecimalByteParts;
 use crate::decimal_byte_parts::DecimalBytePartsArraySlotsExt;
+use crate::decimal_byte_parts::with_msp;
 
 impl CastReduce for DecimalByteParts {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -29,9 +30,7 @@ impl CastReduce for DecimalByteParts {
             .msp()
             .cast(array.msp().dtype().with_nullability(*target_nullability))?;
 
-        Ok(Some(
-            DecimalByteParts::try_new(new_msp, *target_decimal)?.into_array(),
-        ))
+        with_msp(array, new_msp, *target_decimal).map(|a| Some(a.into_array()))
     }
 }
 
@@ -49,10 +48,14 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::DecimalDType;
     use vortex_array::dtype::Nullability;
+    use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
 
     use crate::DecimalByteParts;
     use crate::DecimalBytePartsArray;
+    use crate::decimal_byte_parts::testing::i128_parts;
+    use crate::decimal_byte_parts::testing::i256_of;
+    use crate::decimal_byte_parts::testing::i256_parts;
 
     #[test]
     fn test_cast_decimal_byte_parts_nullability() {
@@ -117,6 +120,14 @@ mod tests {
         buffer![-100i32, -200, 300, -400, 500].into_array(),
         DecimalDType::new(10, 2),
     ).unwrap())]
+    #[case::one_lower_part(i128_parts(
+        vec![1i128 << 70, -(1i128 << 70), 5, (1i128 << 64) - 1, 0],
+        Validity::NonNullable,
+    ))]
+    #[case::three_lower_parts(i256_parts(
+        vec![i256_of(1, 0), i256_of(-1, 5), i256_of(0, u128::MAX)],
+        Validity::NonNullable,
+    ))]
     fn test_cast_decimal_byte_parts_conformance(#[case] array: DecimalBytePartsArray) {
         test_cast_conformance(
             &array.into_array(),

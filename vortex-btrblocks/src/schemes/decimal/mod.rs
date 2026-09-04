@@ -10,12 +10,12 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
 use vortex_array::arrays::DecimalArray;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::decimal::narrowed_decimal;
-use vortex_array::dtype::DecimalType;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_decimal_byte_parts::DecimalByteParts;
+use vortex_decimal_byte_parts::DecimalBytePartsSlots;
+use vortex_decimal_byte_parts::split_decimal;
 use vortex_error::VortexResult;
 
 use crate::ArrayAndStats;
@@ -28,6 +28,10 @@ use crate::SchemeExt;
 ///
 /// Narrows the decimal to the smallest integer type, compresses the underlying primitive, and wraps
 /// the result in a `DecimalBytePartsArray`.
+///
+/// Only decimals that fit a single signed part are compressed. Anything still wider than 64
+/// bits after narrowing would need lower parts, which cannot be serialized, so those are left
+/// as the canonical decimal.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct DecimalScheme;
 
@@ -44,9 +48,9 @@ impl Scheme for DecimalScheme {
         vec![DecimalByteParts.id()]
     }
 
-    /// Children: primitive=0.
+    /// Children: msp=0. This scheme never emits lower parts.
     fn num_children(&self) -> usize {
-        1
+        DecimalBytePartsSlots::FIXED_COUNT
     }
 
     fn expected_compression_ratio(
@@ -66,22 +70,28 @@ impl Scheme for DecimalScheme {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        // TODO(joe): add support splitting i128/256 buffers into chunks of primitive values
-        // for compression. 2 for i128 and 4 for i256.
         let decimal = data.array().clone().execute::<DecimalArray>(exec_ctx)?;
         let decimal = narrowed_decimal(decimal);
-        let validity = decimal.validity()?;
-        let prim = match decimal.values_type() {
-            DecimalType::I8 => PrimitiveArray::new(decimal.buffer::<i8>(), validity),
-            DecimalType::I16 => PrimitiveArray::new(decimal.buffer::<i16>(), validity),
-            DecimalType::I32 => PrimitiveArray::new(decimal.buffer::<i32>(), validity),
-            DecimalType::I64 => PrimitiveArray::new(decimal.buffer::<i64>(), validity),
-            _ => return Ok(decimal.into_array()),
-        };
+        let parts = split_decimal(&decimal)?;
 
-        let compressed =
-            compressor.compress_child(&prim.into_array(), &compress_ctx, self.id(), 0, exec_ctx)?;
+        // A value too wide for one signed part splits into lower parts, which serialize under
+        // the v2 format id — one this scheme does not declare in `produced_encodings`, so a
+        // writer restricted to its editions could refuse it. Leave it as the canonical decimal
+        // rather than build something outside the scheme's declared output.
+        if !parts.lower_parts.is_empty() {
+            return Ok(decimal.into_array());
+        }
 
-        DecimalByteParts::try_new(compressed, decimal.decimal_dtype()).map(|d| d.into_array())
+        let msp = compressor.compress_child(
+            &parts.msp,
+            &compress_ctx,
+            self.id(),
+            DecimalBytePartsSlots::MSP,
+            exec_ctx,
+        )?;
+        DecimalByteParts::try_new(msp, decimal.decimal_dtype()).map(|d| d.into_array())
     }
 }
+
+#[cfg(test)]
+mod tests;
