@@ -16,6 +16,16 @@ use vortex_error::VortexExpect;
 ///
 /// Either an inlined representation (for values <= 12 bytes) or a reference
 /// to an external buffer (for values > 12 bytes).
+///
+/// # Comparison words
+///
+/// Every view stores the value's length and its zero-padded first four bytes, so most comparisons
+/// are answered from the view without reading the value. [`head`](Self::head) rules equality out;
+/// [`order_prefix`](Self::order_prefix) and [`order_tail`](Self::order_tail) order values. Each
+/// has an `_of` constructor for a value not held in a view.
+///
+/// Zero padding keeps the ordering exact: a lower word means the values differ at a byte both
+/// have, or the shorter is a proper prefix of the longer — and either way it orders first.
 #[derive(Clone, Copy)]
 #[repr(C, align(16))]
 pub union BinaryView {
@@ -246,12 +256,7 @@ impl BinaryView {
         unsafe { &mut self._ref }
     }
 
-    /// Returns the bytes of this value, reading out of `buffers` when it is not inlined.
-    ///
-    /// Unlike [`VarBinViewData::bytes_at`](crate::arrays::varbinview::VarBinViewData::bytes_at)
-    /// this borrows
-    /// from slices the caller has already resolved instead of cloning a buffer handle, so it is
-    /// safe to call once per row in a loop.
+    /// The bytes of this value, read out of `buffers` when it is not inlined.
     ///
     /// # Panics
     ///
@@ -264,6 +269,67 @@ impl BinaryView {
             let view = self.as_view();
             &buffers[view.buffer_index as usize][view.as_range()]
         }
+    }
+
+    /// The value's first four bytes, zero-padded; both view variants store them at this offset.
+    #[inline]
+    #[expect(clippy::cast_possible_truncation, reason = "intentional bit slicing")]
+    pub fn prefix(&self) -> [u8; 4] {
+        ((self.as_u128() >> 32) as u32).to_le_bytes()
+    }
+
+    /// The value's length and [`prefix`](Self::prefix) as stored. Equal values have equal heads.
+    #[inline]
+    #[expect(clippy::cast_possible_truncation, reason = "intentional bit slicing")]
+    pub fn head(&self) -> u64 {
+        self.as_u128() as u64
+    }
+
+    /// The [`prefix`](Self::prefix) as a big-endian `u32`, which orders as the values do.
+    #[inline]
+    pub fn order_prefix(&self) -> u32 {
+        u32::from_be_bytes(self.prefix())
+    }
+
+    /// Value bytes `4..12` of an inlined view as a big-endian `u64`, zero-padded. Meaningless for
+    /// a reference view, which stores its buffer index and offset there.
+    #[inline]
+    pub fn order_tail(&self) -> u64 {
+        debug_assert!(self.is_inlined(), "order_tail of a reference view");
+        ((self.as_u128() >> 64) as u64).swap_bytes()
+    }
+
+    /// The [`prefix`](Self::prefix) a view holding `value` would carry.
+    #[inline]
+    pub fn prefix_of(value: &[u8]) -> [u8; 4] {
+        let mut prefix = [0u8; 4];
+        let len = value.len().min(prefix.len());
+        prefix[..len].copy_from_slice(&value[..len]);
+        prefix
+    }
+
+    /// The [`head`](Self::head) a view holding `value` would carry; lengths over `u32::MAX`
+    /// saturate.
+    #[inline]
+    pub fn head_of(value: &[u8]) -> u64 {
+        let len = u32::try_from(value.len()).unwrap_or(u32::MAX);
+        u64::from(len) | (u64::from(u32::from_le_bytes(Self::prefix_of(value))) << 32)
+    }
+
+    /// The [`order_prefix`](Self::order_prefix) a view holding `value` would carry.
+    #[inline]
+    pub fn order_prefix_of(value: &[u8]) -> u32 {
+        u32::from_be_bytes(Self::prefix_of(value))
+    }
+
+    /// The [`order_tail`](Self::order_tail) an inlined view holding `value` would carry.
+    #[inline]
+    pub fn order_tail_of(value: &[u8]) -> u64 {
+        let mut tail = [0u8; 8];
+        let value = value.get(4..).unwrap_or_default();
+        let len = value.len().min(tail.len());
+        tail[..len].copy_from_slice(&value[..len]);
+        u64::from_be_bytes(tail)
     }
 
     /// Returns the binary view as u128 representation.
@@ -321,34 +387,4 @@ impl fmt::Debug for BinaryView {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[rstest::rstest]
-    // Just past the inline boundary, typical, and large values.
-    #[case(13, 7, 42)]
-    #[case(20, 7, 42)]
-    #[case(255, 7, 42)]
-    #[case(4096, 7, 42)]
-    // Zero buffer index/offset and the `u32` extremes, to confirm the `u128` field assembly does
-    // not overflow into neighbouring fields.
-    #[case(13, 0, 0)]
-    #[case(13, u32::MAX, u32::MAX)]
-    fn new_ref_matches_make_view(#[case] len: u32, #[case] buffer_index: u32, #[case] offset: u32) {
-        // `new_ref` assembles the reference view as a `u128`; it must be byte-identical to the
-        // value-inspecting `make_view` for any value longer than the inline limit.
-        let value: Vec<u8> = (0..len)
-            .map(|i| u8::try_from(i % 251).vortex_expect("i % 251 fits in u8"))
-            .collect();
-        let prefix = [value[0], value[1], value[2], value[3]];
-        let made = BinaryView::make_view(&value, buffer_index, offset);
-        let built = BinaryView::new_ref(len, prefix, buffer_index, offset);
-        assert_eq!(made.as_u128(), built.as_u128(), "mismatch at len {len}");
-        assert!(!built.is_inlined());
-        let r = built.as_view();
-        assert_eq!(r.size, len);
-        assert_eq!(r.prefix, prefix);
-        assert_eq!(r.buffer_index, buffer_index);
-        assert_eq!(r.offset, offset);
-    }
-}
+mod tests;

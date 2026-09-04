@@ -5,7 +5,7 @@ mod bool;
 mod decimal;
 mod extension;
 mod primitive;
-mod varbin;
+mod varbinview;
 
 use std::sync::LazyLock;
 
@@ -19,7 +19,7 @@ use self::bool::accumulate_bool;
 use self::decimal::accumulate_decimal;
 use self::extension::accumulate_extension;
 use self::primitive::accumulate_primitive;
-use self::varbin::accumulate_varbinview;
+use self::varbinview::accumulate_varbinview;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::Columnar;
