@@ -4,6 +4,7 @@
 use std::ops::Range;
 
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -16,6 +17,7 @@ use crate::match_each_native_ptype;
 use crate::patches::PATCH_CHUNK_SIZE;
 use crate::patches::Patches;
 use crate::validity::Validity;
+use crate::validity::check_patch_indices;
 
 impl PrimitiveArray {
     pub fn patch(self, patches: &Patches, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
@@ -30,7 +32,7 @@ impl PrimitiveArray {
             &patch_validity,
             ctx,
         )?;
-        Ok(match_each_integer_ptype!(patch_indices.ptype(), |I| {
+        match_each_integer_ptype!(patch_indices.ptype(), |I| {
             match_each_native_ptype!(self.ptype(), |T| {
                 self.patch_typed::<T, I>(
                     patch_indices,
@@ -39,7 +41,7 @@ impl PrimitiveArray {
                     patched_validity,
                 )
             })
-        }))
+        })
     }
 
     fn patch_typed<T, I>(
@@ -48,19 +50,23 @@ impl PrimitiveArray {
         patch_indices_offset: usize,
         patch_values: PrimitiveArray,
         patched_validity: Validity,
-    ) -> Self
+    ) -> VortexResult<Self>
     where
         T: NativePType,
         I: IntegerPType,
     {
+        let len = self.len();
         let mut own_values = self.into_buffer_mut::<T>();
 
         let patch_indices = patch_indices.as_slice::<I>();
         let patch_values = patch_values.as_slice::<T>();
+        // Checked up front so the write loop below cannot index out of range; see
+        // `check_patch_indices` for why construction is not enough.
+        check_patch_indices(patch_indices, patch_indices_offset, len)?;
         for (idx, value) in itertools::zip_eq(patch_indices, patch_values) {
             own_values[idx.as_() - patch_indices_offset] = *value;
         }
-        Self::new(own_values, patched_validity)
+        Ok(Self::new(own_values, patched_validity))
     }
 }
 
@@ -100,7 +106,8 @@ pub fn patch_chunk<T, I, C>(
     chunk_offsets_slice: &[C],
     chunk_idx: usize,
     offset_within_chunk: usize,
-) where
+) -> VortexResult<()>
+where
     T: NativePType,
     I: UnsignedPType,
     C: UnsignedPType,
@@ -124,10 +131,24 @@ pub fn patch_chunk<T, I, C>(
     let chunk_start = chunk_range(chunk_idx, patches_offset, /* ignore */ usize::MAX).start;
 
     for patches_idx in patches_start_idx..patches_end_idx {
-        let chunk_relative_index =
-            (patches_indices[patches_idx].as_() - patches_offset) - chunk_start;
+        // A patch index deserialized from a file need not lie inside this chunk, and
+        // neither subtraction is guaranteed not to wrap; reject instead of indexing
+        // blind. See `check_patch_indices` for why construction is not enough.
+        let absolute = patches_indices[patches_idx].as_();
+        let chunk_relative_index = absolute
+            .checked_sub(patches_offset)
+            .and_then(|i| i.checked_sub(chunk_start))
+            .filter(|i| *i < decoded_values.len())
+            .ok_or_else(|| {
+                vortex_err!(
+                    "patch index {absolute} is out of bounds for chunk {chunk_idx} \
+                     (offset {patches_offset}, chunk start {chunk_start}, chunk length {})",
+                    decoded_values.len()
+                )
+            })?;
         decoded_values[chunk_relative_index] = patches_values[patches_idx];
     }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -135,10 +156,113 @@ mod tests {
     use vortex_buffer::buffer;
 
     use super::*;
+    use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::array_session;
     use crate::assert_arrays_eq;
     use crate::validity::Validity;
+
+    /// The primitive counterpart of the reported crash: `own_values[idx - offset]`
+    /// indexed blind, so an out-of-range index read from a file panicked.
+    #[test]
+    fn patch_rejects_out_of_range_index() {
+        let mut ctx = array_session().create_execution_ctx();
+        let array = PrimitiveArray::new::<i32>(buffer![1i32, 2, 3, 4], Validity::NonNullable);
+        let patches = unsafe {
+            Patches::new_unchecked(
+                4,
+                0,
+                buffer![1u64, 288_230_376_151_712_349, 2].into_array(),
+                buffer![10i32, 20, 30].into_array(),
+                None,
+                None,
+            )
+        };
+
+        let err = array
+            .patch(&patches, &mut ctx)
+            .expect_err("out-of-range patch index must be rejected");
+        assert!(
+            err.to_string().contains("288230376151712349"),
+            "unexpected error: {err}"
+        );
+    }
+
+    /// A valid patch set must still be applied — the check must not over-reject.
+    #[test]
+    fn patch_accepts_in_range_indices() {
+        let mut ctx = array_session().create_execution_ctx();
+        let array = PrimitiveArray::new::<i32>(buffer![1i32, 2, 3, 4], Validity::NonNullable);
+        let patches = unsafe {
+            Patches::new_unchecked(
+                4,
+                0,
+                buffer![1u64, 3].into_array(),
+                buffer![20i32, 40].into_array(),
+                None,
+                None,
+            )
+        };
+
+        let patched = array.patch(&patches, &mut ctx).unwrap();
+        let expected = PrimitiveArray::new::<i32>(buffer![1i32, 20, 3, 40], Validity::NonNullable);
+        assert_arrays_eq!(patched, expected, &mut ctx);
+    }
+
+    /// A patch index below the offset must not wrap into a huge usize.
+    #[test]
+    fn patch_rejects_index_below_offset() {
+        let mut ctx = array_session().create_execution_ctx();
+        let array = PrimitiveArray::new::<i32>(buffer![1i32, 2], Validity::NonNullable);
+        let patches = unsafe {
+            Patches::new_unchecked(
+                2,
+                100,
+                buffer![3u64].into_array(),
+                buffer![10i32].into_array(),
+                None,
+                None,
+            )
+        };
+
+        array
+            .patch(&patches, &mut ctx)
+            .expect_err("index below the offset must be rejected");
+    }
+
+    /// A patch index past the end of the chunk must be an error, not an OOB write.
+    /// `Patches::new` cannot catch this: it derives the maximum from the last index,
+    /// which is only the maximum when the indices are sorted.
+    #[test]
+    fn patch_chunk_rejects_out_of_range_index() {
+        let mut decoded_values = vec![0.0f64; 8];
+        let patches_indices: Vec<u64> = vec![1, 402_653_634, 2];
+        let patches_values: Vec<f64> = vec![1.0, 2.0, 3.0];
+        let chunk_offsets: Vec<u32> = vec![0];
+
+        let err = patch_chunk(
+            &mut decoded_values,
+            &patches_indices,
+            &patches_values,
+            0,
+            &chunk_offsets,
+            0,
+            0,
+        )
+        .expect_err("out-of-range patch index must be rejected");
+        assert!(
+            err.to_string().contains("402653634"),
+            "unexpected error: {err}"
+        );
+    }
+
+    /// An index below the patches offset must not wrap.
+    #[test]
+    fn patch_chunk_rejects_index_below_offset() {
+        let mut decoded_values = vec![0.0f64; 8];
+        patch_chunk(&mut decoded_values, &[3u64], &[1.0f64], 100, &[0u32], 0, 0)
+            .expect_err("index below the offset must be rejected");
+    }
 
     /// Regression: patch_chunk must not OOB when chunk_offsets (chunk granularity)
     /// reference more patches than patches_indices (element granularity) contains.
@@ -162,7 +286,8 @@ mod tests {
             &chunk_offsets,
             1,
             3,
-        );
+        )
+        .unwrap();
 
         // Spot-check: patch index 4 (first in range) should be applied.
         assert_ne!(

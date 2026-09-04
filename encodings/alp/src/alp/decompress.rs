@@ -38,7 +38,7 @@ pub fn decompress_into_array(
         let patches_chunk_offsets = chunk_offsets.clone().execute::<PrimitiveArray>(ctx)?;
         let patches_indices = p.indices().clone().execute::<PrimitiveArray>(ctx)?;
         let patches_values = p.values().clone().execute::<PrimitiveArray>(ctx)?;
-        Ok(decompress_chunked_core(
+        decompress_chunked_core(
             prim_encoded,
             exponents,
             &patches_indices,
@@ -46,7 +46,7 @@ pub fn decompress_into_array(
             &patches_chunk_offsets,
             p,
             dtype,
-        ))
+        )
     } else {
         let encoded_prim = encoded.execute::<PrimitiveArray>(ctx)?;
         decompress_unchunked_core(encoded_prim, exponents, patches, dtype, ctx)
@@ -72,7 +72,7 @@ pub fn execute_decompress(array: ALPArray, ctx: &mut ExecutionCtx) -> VortexResu
         let patches_chunk_offsets = chunk_offsets.clone().execute::<PrimitiveArray>(ctx)?;
         let patches_indices = p.indices().clone().execute::<PrimitiveArray>(ctx)?;
         let patches_values = p.values().clone().execute::<PrimitiveArray>(ctx)?;
-        Ok(decompress_chunked_core(
+        decompress_chunked_core(
             encoded,
             exponents,
             &patches_indices,
@@ -80,7 +80,7 @@ pub fn execute_decompress(array: ALPArray, ctx: &mut ExecutionCtx) -> VortexResu
             &patches_chunk_offsets,
             p,
             dtype,
-        ))
+        )
     } else {
         let encoded = encoded.execute::<PrimitiveArray>(ctx)?;
         decompress_unchunked_core(encoded, exponents, patches, dtype, ctx)
@@ -103,7 +103,7 @@ fn decompress_chunked_core(
     patches_chunk_offsets: &PrimitiveArray,
     patches: &Patches,
     dtype: DType,
-) -> PrimitiveArray {
+) -> VortexResult<PrimitiveArray> {
     let validity = encoded
         .validity()
         .vortex_expect("ALP validity should be derivable");
@@ -135,11 +135,11 @@ fn decompress_chunked_core(
                         patches_chunk_offsets,
                         chunk_idx,
                         offset_within_chunk,
-                    );
+                    )?;
                 }
 
                 let decoded_buffer: BufferMut<T> = unsafe { transmute(alp_buffer) };
-                PrimitiveArray::new::<T>(decoded_buffer.freeze(), validity)
+                Ok(PrimitiveArray::new::<T>(decoded_buffer.freeze(), validity))
             })
         })
     })
