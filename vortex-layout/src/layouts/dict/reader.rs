@@ -15,7 +15,10 @@ use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::DictArray;
+use vortex_array::arrays::Shared;
 use vortex_array::arrays::SharedArray;
+use vortex_array::arrays::shared::SharedArraySlotsExt;
+use vortex_array::arrays::shared::current_array_ref_for_dispatch;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::Nullability;
@@ -27,6 +30,8 @@ use vortex_array::expr::label_bound_tree;
 use vortex_array::expr::root;
 use vortex_array::expr::transform::partition_bound_annotations;
 use vortex_array::optimizer::ArrayOptimizer;
+use vortex_array::scalar_fn::fns::like::Like;
+use vortex_array::scalar_fn::fns::like::try_execute_like_without_fallback;
 use vortex_array::scalar_fn::is_negative_cost;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
@@ -158,13 +163,49 @@ impl DictReader {
             return fut.clone();
         }
 
+        let direct_like = expr.is::<Like>();
+        let values = if direct_like {
+            // Keep the ordinary Shared value available as the fallback if the stored encoding
+            // cannot execute this LIKE directly.
+            self.values_array()
+        } else {
+            self.values_array_uncanonical()
+        };
+        let session = self.session.clone();
+
         self.values_evals
             .entry(key)
             .or_insert_with(|| {
-                self.values_array_uncanonical()
+                values
                     .map(move |array| {
-                        let array = array?.apply_bound(&expr)?;
-                        Ok(SharedArray::new(array).into_array())
+                        let array = array?;
+                        let evaluated = if direct_like {
+                            // Predicate availability must not depend on which projection populated
+                            // a cache first. Probe each immutable source, while preserving sticky
+                            // cached errors, and retain the original Shared array as the fallback.
+                            let mut source = array.clone();
+                            while let Some(shared) = source.as_opt::<Shared>() {
+                                current_array_ref_for_dispatch(shared)?;
+                                source = shared.source().clone();
+                            }
+
+                            let input = source.clone().apply_bound(expr.child(0))?;
+                            let pattern = source.clone().apply_bound(expr.child(1))?;
+                            let mut ctx = session.create_execution_ctx();
+                            match try_execute_like_without_fallback(
+                                &input,
+                                &pattern,
+                                *expr.as_::<Like>(),
+                                &mut ctx,
+                            )? {
+                                Some(result) => result,
+                                None => array.apply_bound(&expr)?,
+                            }
+                        } else {
+                            array.apply_bound(&expr)?
+                        };
+
+                        Ok(SharedArray::new(evaluated).into_array())
                     })
                     .boxed()
                     .shared()

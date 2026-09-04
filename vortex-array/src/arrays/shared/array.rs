@@ -94,7 +94,8 @@ impl<T: TypedArrayRef<Shared>> SharedArrayExt for T {}
 ///
 /// A cached error is propagated so delegated execution cannot bypass it.
 /// If another thread is currently materializing the cache, this returns the source snapshot.
-pub(crate) fn current_array_ref_for_dispatch<'a>(
+#[doc(hidden)]
+pub fn current_array_ref_for_dispatch<'a>(
     array: ArrayView<'a, Shared>,
 ) -> VortexResult<&'a ArrayRef> {
     let source = array.slots()[SharedSlots::SOURCE]
