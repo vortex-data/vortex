@@ -16,7 +16,6 @@ use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayView;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
-use vortex_array::dtype::PType;
 use vortex_array::dtype::proto::dtype as pb;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_buffer::Buffer;
@@ -60,7 +59,8 @@ pub fn validate_binary_tensor_float_inputs<'a>(
     validate_tensor_float_input(lhs)
 }
 
-/// The flat primitive elements of a tensor storage array, with typed row access.
+/// The flat primitive elements of a tensor storage array, with typed row access and its physical
+/// row layout.
 ///
 /// This struct hides the stride detail that arises from the [`ConstantArray`] optimization: a
 /// constant-backed input materializes only a single row that every index reads (`is_constant =
@@ -72,12 +72,6 @@ pub struct FlatElements {
 }
 
 impl FlatElements {
-    /// Returns the [`PType`] of the underlying elements.
-    #[must_use]
-    pub fn ptype(&self) -> PType {
-        self.elems.ptype()
-    }
-
     /// Returns the `i`-th row as a typed slice of length `list_size`.
     ///
     /// When the source was a constant-backed storage, all indices resolve to the single stored
