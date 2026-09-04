@@ -8,7 +8,7 @@
 set -eu
 cd "$(dirname "$0")"
 
-cmake -S . -B build -G Ninja \
+cmake -S . -B build \
     -DVORTEX_BUILD_TESTING=ON \
     -DCMAKE_CXX_FLAGS=--coverage
 cmake --build build --parallel
