@@ -594,7 +594,7 @@ jobs:
         env:
           RUSTUP_TOOLCHAIN: ${{ env.NIGHTLY_TOOLCHAIN }}
         run: |
-          cmake -S lang/cpp -B build -G Ninja \
+          cmake -S lang/cpp -B build \
             -DCMAKE_BUILD_TYPE=Debug \
             -DCMAKE_C_COMPILER=clang \
             -DCMAKE_CXX_COMPILER=clang++ \
