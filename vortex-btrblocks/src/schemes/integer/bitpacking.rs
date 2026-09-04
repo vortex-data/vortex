@@ -17,17 +17,28 @@ use vortex_compressor::scheme::DeferredEstimate;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexResult;
 use vortex_fastlanes::BitPacked;
+use vortex_fastlanes::BitPackedArray;
+use vortex_fastlanes::BitPackedArrayExt;
+use vortex_fastlanes::BitPackedArraySlotsExt;
+use vortex_fastlanes::BitPackedSlots;
 use vortex_fastlanes::bitpack_compress::bit_width_histogram;
 use vortex_fastlanes::bitpack_compress::bitpack_encode;
+use vortex_fastlanes::bitpack_compress::bitpack_to_best_chunk_widths;
 use vortex_fastlanes::bitpack_compress::find_best_bit_width;
+use vortex_fastlanes::bitpacked_v2_id;
 
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::Scheme;
+use crate::SchemeExt;
 use crate::compress_patches;
 
 /// BitPacking encoding for non-negative integers.
+///
+/// Every 1024-element chunk gets its own bit width when the compressor may use the
+/// `fastlanes.bitpacked_v2` format. Otherwise every chunk shares one width, which is the original
+/// `fastlanes.bitpacked` format.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct BitPackingScheme;
 
@@ -66,31 +77,51 @@ impl Scheme for BitPackingScheme {
 
     fn compress(
         &self,
-        _compressor: &CascadingCompressor,
+        compressor: &CascadingCompressor,
         data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
+        compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let primitive_array = data.array_as_primitive();
+        let full_width = primitive_array.ptype().bit_width();
 
-        let histogram = bit_width_histogram(primitive_array, exec_ctx)?;
-        let bw = find_best_bit_width(primitive_array.ptype(), &histogram)?;
+        // Per-chunk widths are the newer format of BitPacked. Produce them whenever the writer
+        // may serialize them; otherwise every chunk shares one width, the original format.
+        let packed = if compressor.allows_serialized_id(bitpacked_v2_id()) {
+            bitpack_to_best_chunk_widths(&data.array_as_primitive().into_owned(), exec_ctx)?
+        } else {
+            let histogram = bit_width_histogram(primitive_array, exec_ctx)?;
+            let bw = find_best_bit_width(primitive_array.ptype(), &histogram)?;
+            if bw as usize == full_width {
+                return Ok(primitive_array.array().clone());
+            }
+            bitpack_encode(
+                &data.array_as_primitive().into_owned(),
+                bw,
+                Some(&histogram),
+                exec_ctx,
+            )?
+        };
 
-        // If best bw is determined to be the current bit-width, return the original array.
-        if bw as usize == primitive_array.ptype().bit_width() {
+        // If every chunk needs the full bit-width, return the original array.
+        if packed.chunk_widths().uniform_width().map(usize::from) == Some(full_width) {
             return Ok(primitive_array.array().clone());
         }
-
-        // Otherwise we can bitpack the array.
-        let primitive_array = primitive_array.into_owned();
-        let packed = bitpack_encode(&primitive_array, bw, Some(&histogram), exec_ctx)?;
+        // Mostly patches means the values were never really packed: the array is sparse in all
+        // but name, and beats raw storage only by the bytes of the few values that did fit.
+        if packed
+            .patches()
+            .is_some_and(|p| p.num_patches() * 2 >= packed.len())
+        {
+            return Ok(primitive_array.array().clone());
+        }
 
         let packed_stats = packed.statistics().to_owned();
         let ptype = packed.dtype().as_ptype();
         let mut parts = BitPacked::into_parts(packed);
+        let patches = parts.patches.take();
 
-        let array = if use_experimental_patches() {
-            let patches = parts.patches.take();
+        if use_experimental_patches() {
             // Transpose patches into G-ALP style PatchedArray, wrapping an inner BitPackedArray.
             let array = BitPacked::try_new(
                 parts.packed,
@@ -100,36 +131,53 @@ impl Scheme for BitPackingScheme {
                 parts.widths,
                 parts.len,
                 parts.offset,
-            )?
-            .into_array();
-
-            match patches {
+            )?;
+            let array =
+                compress_width_table(compressor, array, &compress_ctx, exec_ctx)?.into_array();
+            return Ok(match patches {
                 None => array,
                 Some(p) => Patched::from_array_and_patches(array, &p, exec_ctx)?
                     .with_stats_set(packed_stats)
                     .into_array(),
-            }
-        } else {
-            // Compress patches and place back into BitPackedArray.
-            let patches = parts
-                .patches
-                .take()
-                .map(|p| compress_patches(p, exec_ctx))
-                .transpose()?;
-            parts.patches = patches;
-            BitPacked::try_new(
-                parts.packed,
-                ptype,
-                parts.validity,
-                parts.patches,
-                parts.widths,
-                parts.len,
-                parts.offset,
-            )?
-            .with_stats_set(packed_stats)
-            .into_array()
-        };
+            });
+        }
 
-        Ok(array)
+        // Compress patches and place back into BitPackedArray.
+        let patches = patches.map(|p| compress_patches(p, exec_ctx)).transpose()?;
+        let array = BitPacked::try_new(
+            parts.packed,
+            ptype,
+            parts.validity,
+            patches,
+            parts.widths,
+            parts.len,
+            parts.offset,
+        )?;
+        Ok(
+            compress_width_table(compressor, array, &compress_ctx, exec_ctx)?
+                .with_stats_set(packed_stats)
+                .into_array(),
+        )
     }
+}
+
+/// Re-encode the width table child through the compressor. Arrays whose chunks share one width
+/// have no table.
+fn compress_width_table(
+    compressor: &CascadingCompressor,
+    packed: BitPackedArray,
+    compress_ctx: &CompressorContext,
+    exec_ctx: &mut ExecutionCtx,
+) -> VortexResult<BitPackedArray> {
+    let Some(table) = packed.width_table().cloned() else {
+        return Ok(packed);
+    };
+    let compressed = compressor.compress_child(
+        &table,
+        compress_ctx,
+        BitPackingScheme.id(),
+        BitPackedSlots::WIDTH_TABLE,
+        exec_ctx,
+    )?;
+    BitPacked::with_width_table(packed, compressed)
 }

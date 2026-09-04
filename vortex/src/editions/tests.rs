@@ -1,7 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
+use parking_lot::Mutex;
+use vortex_array::ArrayDeserialization;
+use vortex_array::ArrayId;
+use vortex_array::ArrayPlugin;
 use vortex_array::ArrayRef;
+use vortex_array::ArraySerialization;
+use vortex_array::ArrayVTable;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::array_session;
@@ -15,6 +23,7 @@ use vortex_array::dtype::PType;
 use vortex_array::extension::datetime::Date;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::session::ArraySessionExt;
+use vortex_array::stream::ArrayStreamExt;
 use vortex_buffer::ByteBufferMut;
 use vortex_edition::ComponentKind;
 use vortex_edition::Edition;
@@ -28,6 +37,9 @@ use vortex_edition::EditionSessionExt;
 use vortex_edition::test_harness::validate_edition;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_fastlanes::BitPacked;
+use vortex_fastlanes::BitPackedPlugin;
+use vortex_fastlanes::bitpacked_v2_id;
 use vortex_file::OpenOptionsSessionExt;
 use vortex_file::WriteOptionsSessionExt;
 use vortex_file::WriteStrategyBuilder;
@@ -661,5 +673,153 @@ async fn serialization_context_accepts_supported_compressor_output() -> VortexRe
         )
         .await?;
 
+    Ok(())
+}
+
+/// Eight FastLanes chunks whose values need 1, 4, 7, ... 22 bits: a single global bit width wastes
+/// most of the array, so the compressor picks per-chunk widths whenever it may produce them.
+fn drifting_integers() -> PrimitiveArray {
+    PrimitiveArray::from_iter((0..8 * 1024u32).map(|i| {
+        let width = 1 + 3 * (i / 1024);
+        i.wrapping_mul(2_654_435_761) >> (32 - width)
+    }))
+}
+
+/// Stands in for `BitPackedPlugin` and records the serialized format ID of every bit-packed
+/// array it is asked to read, so a test can see which wire format a file actually carries.
+#[derive(Debug, Clone, Default)]
+struct RecordingBitPacked(Arc<Mutex<Vec<ArrayId>>>);
+
+impl ArrayPlugin for RecordingBitPacked {
+    fn id(&self) -> ArrayId {
+        BitPackedPlugin.id()
+    }
+
+    fn serialized_ids(&self) -> Vec<ArrayId> {
+        BitPackedPlugin.serialized_ids()
+    }
+
+    fn serialize(
+        &self,
+        array: &ArrayRef,
+        session: &VortexSession,
+    ) -> VortexResult<Option<ArraySerialization>> {
+        BitPackedPlugin.serialize(array, session)
+    }
+
+    fn deserialize(
+        &self,
+        parts: ArrayDeserialization<'_>,
+        session: &VortexSession,
+    ) -> VortexResult<ArrayRef> {
+        self.0.lock().push(parts.serialized_id);
+        BitPackedPlugin.deserialize(parts, session)
+    }
+}
+
+impl RecordingBitPacked {
+    /// Register a recorder on `session` in place of the stock `BitPackedPlugin`.
+    fn install(session: &VortexSession) -> Self {
+        let recorder = Self::default();
+        session.arrays().register(recorder.clone());
+        recorder
+    }
+
+    /// Read the whole file and return the distinct serialized IDs of the bit-packed arrays in it.
+    async fn ids_read(
+        &self,
+        session: &VortexSession,
+        buffer: ByteBufferMut,
+    ) -> VortexResult<Vec<ArrayId>> {
+        self.0.lock().clear();
+        session
+            .open_options()
+            .open_buffer(buffer)?
+            .scan()?
+            .into_array_stream()?
+            .read_all()
+            .await?;
+        let mut ids = self.0.lock().clone();
+        ids.sort_unstable();
+        ids.dedup();
+        Ok(ids)
+    }
+}
+
+/// A session with the default encodings and editions registered, enabling only the default core
+/// edition regardless of the `unstable_encodings` feature.
+fn core_only_session() -> VortexResult<VortexSession> {
+    let session = array_session()
+        .with::<EditionSession>()
+        .with::<LayoutSession>()
+        .with::<RuntimeSession>();
+    vortex_file::register_default_encodings(&session);
+    super::register_default_editions(&session);
+    session
+        .enable_edition(DEFAULT_CORE_EDITION)
+        .map_err(|error| vortex_err!("{error}"))?;
+    Ok(session)
+}
+
+/// Per-chunk bit widths are not in any core edition, so a core-only writer never emits them even
+/// when the compressor knows how to produce them.
+#[tokio::test]
+async fn core_writer_never_emits_bitpacked_v2() -> VortexResult<()> {
+    let session = core_only_session()?;
+    let recorder = RecordingBitPacked::install(&session);
+    let buffer = write_with(&session, drifting_integers().into_array()).await?;
+    let ids = recorder.ids_read(&session, buffer).await?;
+    assert_eq!(
+        ids,
+        [ArrayVTable::id(&BitPacked)],
+        "core-only write must bit-pack with the original format only"
+    );
+    Ok(())
+}
+
+const PER_CHUNK_TEST_EDITION: EditionId = EditionId::new("bitpacked-v2-test", 2026, 9, 0);
+
+/// A test-only edition permitting the per-chunk bit width format, standing in for whichever
+/// edition eventually ships it.
+static PER_CHUNK_TEST_DECLARATION: EditionDeclaration = EditionDeclaration {
+    edition: Edition {
+        id: PER_CHUNK_TEST_EDITION,
+        min_library_version: None,
+    },
+    added: &[EditionMember::array(&"fastlanes.bitpacked_v2")],
+};
+
+/// Once an enabled edition permits `fastlanes.bitpacked_v2`, the same compressor writes a
+/// drifting column in that format and it reads back unchanged.
+#[tokio::test]
+async fn permitting_writer_emits_bitpacked_v2() -> VortexResult<()> {
+    use vortex_array::VortexSessionExecute;
+
+    let session = core_only_session()?;
+    session
+        .register_edition(&PER_CHUNK_TEST_DECLARATION)
+        .map_err(|error| vortex_err!("{error}"))?;
+    session
+        .enable_edition(PER_CHUNK_TEST_EDITION)
+        .map_err(|error| vortex_err!("{error}"))?;
+    let recorder = RecordingBitPacked::install(&session);
+    let values = drifting_integers();
+    let buffer = write_with(&session, values.clone().into_array()).await?;
+
+    let read = session
+        .open_options()
+        .open_buffer(buffer.clone())?
+        .scan()?
+        .into_array_stream()?
+        .read_all()
+        .await?
+        .execute::<PrimitiveArray>(&mut session.create_execution_ctx())?;
+    assert_eq!(read.as_slice::<u32>(), values.as_slice::<u32>());
+
+    let ids = recorder.ids_read(&session, buffer).await?;
+    assert!(
+        ids.contains(&bitpacked_v2_id()),
+        "permitting write produced {ids:?}"
+    );
     Ok(())
 }

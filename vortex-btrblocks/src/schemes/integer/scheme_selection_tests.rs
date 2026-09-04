@@ -13,6 +13,7 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::Dict;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
@@ -272,4 +273,20 @@ fn has_nested_delta(array: &vortex_array::ArrayRef, under_delta: bool) -> bool {
         .children()
         .iter()
         .any(|child| has_nested_delta(child, under_delta || is_delta))
+}
+
+/// A few wide values pack at width 0 with nearly every value patched, which beats raw storage
+/// only by the bytes of the values that did fit. Such an array stays primitive.
+#[test]
+fn test_mostly_patched_stays_primitive() -> VortexResult<()> {
+    let values: Vec<i64> = vec![0, 1 << 40, 1 << 41, 1 << 42, 1 << 43, 1 << 44];
+    let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
+    let btr = BtrBlocksCompressor::default();
+    let compressed = btr.compress(&array.into_array(), &mut SESSION.create_execution_ctx())?;
+    assert!(
+        compressed.is::<Primitive>(),
+        "got {}",
+        compressed.encoding_id()
+    );
+    Ok(())
 }
