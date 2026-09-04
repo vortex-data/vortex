@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod nullable_reader;
 mod reader;
 pub mod writer;
 
 use std::sync::Arc;
 
+use nullable_reader::NullableStructReader;
 use reader::StructReader;
 use vortex_array::EmptyMetadata;
 use vortex_array::dtype::DType;
@@ -114,13 +116,23 @@ impl VTable for Struct {
         session: &VortexSession,
         ctx: &LayoutReaderContext,
     ) -> VortexResult<LayoutReaderRef> {
-        Ok(Arc::new(StructReader::try_new(
-            layout.clone(),
-            name,
-            segment_source,
-            session.session(),
-            ctx.clone(),
-        )?))
+        if layout.dtype().is_nullable() {
+            Ok(Arc::new(NullableStructReader::try_new(
+                layout.clone(),
+                name,
+                segment_source,
+                session.session(),
+                ctx.clone(),
+            )?))
+        } else {
+            Ok(Arc::new(StructReader::try_new(
+                layout.clone(),
+                name,
+                segment_source,
+                session.session(),
+                ctx.clone(),
+            )?))
+        }
     }
 }
 
