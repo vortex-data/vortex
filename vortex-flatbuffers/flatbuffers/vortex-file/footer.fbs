@@ -58,7 +58,15 @@ table PostscriptSegment {
 table FileStatistics {
     /// Statistics for each field in the root schema. If the root schema is not a struct, there will
     /// be a single entry in this array.
+    ///
+    /// When `is_nested` is true, entries follow a post-order walk of the root `DType` tree: each
+    /// leaf field gets an entry, and each nullable struct additionally gets a trailing null-count
+    /// entry inserted after its children's entries.
     field_stats: [ArrayStats];
+    /// Whether `field_stats` follows the post-order nested-struct layout (true) or the legacy
+    /// top-level-fields-only layout (false). Defaults to false for backward compatibility with
+    /// files written before nested field stats were supported.
+    is_nested: bool = false;
 }
 
 /// The `Registry` object stores dictionary-encoded configuration for segments,

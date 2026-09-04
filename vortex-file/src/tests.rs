@@ -33,6 +33,7 @@ use vortex_array::assert_arrays_eq;
 use vortex_array::builders::MapBuilder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
+use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::MapDType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
@@ -53,11 +54,13 @@ use vortex_array::expr::lt_eq;
 use vortex_array::expr::or;
 use vortex_array::expr::root;
 use vortex_array::expr::select;
+use vortex_array::expr::stats::Stat;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
 use vortex_array::extension::datetime::TimestampOptions;
 use vortex_array::field_path;
 use vortex_array::scalar::Scalar;
+use vortex_array::scalar::ScalarValue;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::fns::pack::Pack;
 use vortex_array::scalar_fn::fns::pack::PackOptions;
@@ -1303,27 +1306,40 @@ async fn file_take() -> VortexResult<()> {
 }
 
 #[tokio::test]
-#[should_panic(
-    expected = "FileStatsAccumulator temporarily does not support nullable top-level structs"
-)]
-async fn write_nullable_top_level_struct() {
+async fn write_nullable_top_level_struct() -> VortexResult<()> {
     let ages = PrimitiveArray::from_option_iter([Some(25), Some(31), None, Some(57), None]);
+    let row_validity = BoolArray::from_iter([true, true, false, true, false]).into_array();
 
     let array = StructArray::try_new(
         ["age"].into(),
         vec![ages.into_array()],
         5,
-        Validity::AllValid,
-    )
-    .unwrap()
+        Validity::Array(row_validity),
+    )?
     .into_array();
 
-    let mut writer = vec![];
-    SESSION
+    let mut buf = ByteBufferMut::empty();
+    let summary = SESSION
         .write_options()
-        .write(&mut writer, array.to_array_stream())
-        .await
-        .unwrap();
+        .with_file_statistics(PRUNING_STATS.to_vec())
+        .write(&mut buf, array.to_array_stream())
+        .await?;
+
+    // The root struct is nullable and has 2 null rows, so its own null-count entry (keyed by the
+    // root field path) should reflect that, in addition to the leaf `age` field's stats.
+    let stats = summary
+        .footer()
+        .statistics()
+        .expect("file statistics should be present");
+    let (root_stats, _) = stats
+        .get_by_path(&FieldPath::root())
+        .expect("root struct should have its own null-count stats entry");
+    assert_eq!(
+        root_stats.get(Stat::NullCount).as_exact(),
+        Some(ScalarValue::from(2u64))
+    );
+
+    Ok(())
 }
 
 async fn round_trip(
@@ -2717,6 +2733,66 @@ async fn test_can_prune_composite_predicates() -> VortexResult<()> {
     assert!(!file.can_prune(&gt(col("age"), lit(20)))?);
     assert!(!file.can_prune(&eq(col("age"), lit(18)))?);
     assert!(!file.can_prune(&and(gt(col("age"), lit(20)), gt(col("price"), lit(100))))?);
+
+    Ok(())
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_can_prune_nested_struct_field() -> VortexResult<()> {
+    // Regression test for vortex-data/vortex#6389: whole-file stats now cover nested struct
+    // fields, not just top-level ones, so `can_prune` should resolve `person.age`.
+    let person = StructArray::from_fields(&[("age", buffer![15i32, 18, 22, 25].into_array())])?;
+    let st = StructArray::try_new(
+        ["person"].into(),
+        vec![person.into_array()],
+        4,
+        Validity::NonNullable,
+    )?;
+
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .write(&mut buf, st.into_array().to_array_stream())
+        .await?;
+    let file = SESSION.open_options().open_buffer(buf)?;
+
+    let age = get_item("age", col("person"));
+    assert!(file.can_prune(&gt(age.clone(), lit(30)))?);
+    assert!(!file.can_prune(&gt(age, lit(20)))?);
+
+    Ok(())
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_can_prune_three_level_nested_struct_field() -> VortexResult<()> {
+    // Regression test for vortex-data/vortex#6389: whole-file stats resolve field paths at
+    // arbitrary nesting depth, not just one level.
+    let struct_z = StructArray::from_fields(&[("z", buffer![15i32, 18, 22, 25].into_array())])?;
+    let struct_y = StructArray::try_new(
+        ["y"].into(),
+        vec![struct_z.into_array()],
+        4,
+        Validity::NonNullable,
+    )?;
+    let struct_x = StructArray::try_new(
+        ["x"].into(),
+        vec![struct_y.into_array()],
+        4,
+        Validity::NonNullable,
+    )?;
+
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .write(&mut buf, struct_x.into_array().to_array_stream())
+        .await?;
+    let file = SESSION.open_options().open_buffer(buf)?;
+
+    let z_field = get_item("z", get_item("y", col("x")));
+    assert!(file.can_prune(&gt(z_field.clone(), lit(30)))?);
+    assert!(!file.can_prune(&gt(z_field, lit(20)))?);
 
     Ok(())
 }

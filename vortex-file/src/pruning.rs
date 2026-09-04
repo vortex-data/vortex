@@ -9,7 +9,6 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::NullArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
-use vortex_array::dtype::StructFields;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::bound::lit;
 use vortex_array::expr::stats::Stat;
@@ -29,17 +28,13 @@ pub(crate) fn can_prune_file_stats(
     expr: &BoundExpression,
     row_count: u64,
     file_stats: &FileStatistics,
-    struct_fields: &StructFields,
     session: &VortexSession,
 ) -> VortexResult<bool> {
     let Some(pruning_expr) = expr.falsify(session)? else {
         return Ok(false);
     };
 
-    let binder = FileStatsBinder {
-        file_stats,
-        struct_fields,
-    };
+    let binder = FileStatsBinder { file_stats };
     let pruning_expr = bind_stats(pruning_expr, &binder)?;
 
     if let Some(result) = pruning_expr.as_opt::<Literal>() {
@@ -62,7 +57,6 @@ pub(crate) fn can_prune_file_stats(
 
 struct FileStatsBinder<'a> {
     file_stats: &'a FileStatistics,
-    struct_fields: &'a StructFields,
 }
 
 impl StatBinder for FileStatsBinder<'_> {
@@ -84,18 +78,10 @@ impl StatBinder for FileStatsBinder<'_> {
 
 impl FileStatsBinder<'_> {
     fn stat_ref(&self, field_path: &FieldPath, stat: Stat) -> Option<BoundExpression> {
-        // FileStats currently only holds top-level field statistics.
-        if field_path.parts().len() != 1 {
-            return None;
-        }
-
-        let field_name = field_path.parts()[0].as_name()?;
-        let field_idx = self.struct_fields.find(field_name)?;
-        let field_stats = self.file_stats.stats_sets().get(field_idx)?;
+        let (field_stats, field_dtype) = self.file_stats.get_by_path(field_path)?;
 
         let stat_value = field_stats.get(stat).as_exact()?;
-        let field_dtype = self.struct_fields.field_by_index(field_idx)?;
-        let stat_dtype = stat.dtype(&field_dtype)?;
+        let stat_dtype = stat.dtype(field_dtype)?;
         let stat_scalar = Scalar::try_new(stat_dtype, Some(stat_value)).ok()?;
 
         Some(lit(stat_scalar))
