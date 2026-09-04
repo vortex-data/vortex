@@ -13,6 +13,8 @@ use std::fmt::Formatter;
 use std::hash::Hash;
 use std::num::NonZeroU32;
 
+pub use partial::BloomPartial;
+pub use partial::HashFn;
 use vortex_array::ArrayRef;
 use vortex_array::Columnar;
 use vortex_array::ExecutionCtx;
@@ -29,12 +31,9 @@ use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 mod canonical;
-mod partial;
-mod scalar_fn;
-
 pub(in crate::layouts::zoned) mod constant;
-pub use partial::BloomPartial;
-pub use partial::HashFn;
+mod partial;
+pub(in crate::layouts::zoned) mod scalar_fn;
 
 /// The default value is derived from the default `WriteStrategyBuilder::row_block_size`
 const DEFAULT_BLOCKS_COUNT: u32 = 256;

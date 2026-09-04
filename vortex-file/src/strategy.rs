@@ -56,6 +56,7 @@ pub struct WriteStrategyBuilder {
     row_block_size: usize,
     data_block_target_bytes: Option<u64>,
     field_writers: HashMap<FieldPath, Arc<dyn LayoutStrategy>>,
+    field_zoned_options: HashMap<FieldPath, ZonedLayoutOptions>,
     flat_strategy: Option<Arc<dyn LayoutStrategy>>,
     probe_compressor: Option<Arc<dyn CompressorPlugin>>,
     /// Whether to write list fields using [`ListLayoutStrategy`].
@@ -73,6 +74,7 @@ impl Default for WriteStrategyBuilder {
             row_block_size: 8192,
             data_block_target_bytes: Some(ONE_MEG),
             field_writers: HashMap::new(),
+            field_zoned_options: HashMap::new(),
             flat_strategy: None,
             probe_compressor: None,
             use_list_layout: use_experimental_list_layout(),
@@ -120,6 +122,20 @@ impl WriteStrategyBuilder {
         writer: Arc<dyn LayoutStrategy>,
     ) -> Self {
         self.field_writers.insert(field.into(), writer);
+        self
+    }
+
+    /// Override only the zoned-statistics options for a field while retaining the default
+    /// repartitioning, dictionary, compression, buffering, and flat-layout pipeline.
+    ///
+    /// This can attach custom per-zone aggregates without changing the physical data strategy for
+    /// the field.
+    pub fn with_field_zoned_options(
+        mut self,
+        field: impl Into<FieldPath>,
+        options: ZonedLayoutOptions,
+    ) -> Self {
+        self.field_zoned_options.insert(field.into(), options);
         self
     }
 
@@ -227,36 +243,57 @@ impl WriteStrategyBuilder {
 
         let row_block_size = NonZeroUsize::new(self.row_block_size).vortex_expect("must be non 0");
 
-        // 2. calculate stats for each row group
-        let stats = ZonedStrategy::new(
-            dict,
-            compress_then_flat.clone(),
-            ZonedLayoutOptions {
-                block_size: row_block_size,
-                ..Default::default()
-            },
-        );
+        // Helper function to build [ZonedStrategy] and [RepartitionStrategy] using
+        // custom [ZonedLayoutOptions]
+        //
+        // Fields can have custom writers, custom zone options, or just use defaults.
+        // Zone options and defaults use the same `ZonedStrategy` and `RepartitionStrategy`
+        // but with different options, so this helper builds that shared part for both cases.
+        let build_repartition =
+            |zone_layout_options: ZonedLayoutOptions| -> Arc<dyn LayoutStrategy> {
+                let zone_block_size = zone_layout_options.block_size.get();
 
-        // 1. repartition each column to fixed row counts
-        let repartition = RepartitionStrategy::new(
-            stats,
-            RepartitionWriterOptions {
-                // No minimum block size in bytes
-                block_size_minimum: 0,
-                // Always repartition into 8K row blocks
-                block_len_multiple: self.row_block_size,
-                block_size_target: None,
-                canonicalize: false,
-            },
-        );
+                // 2. calculate stats for each row group
+                let stats = ZonedStrategy::new(
+                    dict.clone(),
+                    compress_then_flat.clone(),
+                    zone_layout_options,
+                );
+
+                // 1. repartition each column to fixed row counts
+                Arc::new(RepartitionStrategy::new(
+                    stats,
+                    RepartitionWriterOptions {
+                        // No minimum block size in bytes
+                        block_size_minimum: 0,
+                        block_len_multiple: zone_block_size,
+                        block_size_target: None,
+                        canonicalize: false,
+                    },
+                ))
+            };
+
+        let repartition_strategy = build_repartition(ZonedLayoutOptions {
+            // Always repartition into 8K row blocks
+            block_size: row_block_size,
+            ..Default::default()
+        });
+
+        // Explicit field writers overrides writers built from zoned options.
+        let field_writers: HashMap<FieldPath, Arc<dyn LayoutStrategy>> = self
+            .field_zoned_options
+            .into_iter()
+            .map(|(field, options)| (field, build_repartition(options)))
+            .chain(self.field_writers)
+            .collect();
 
         // 0. start with splitting columns
         let validity_strategy = CollectStrategy::new(compress_then_flat.clone());
 
         // Take any field overrides from the builder and apply them to the final strategy.
         let mut table_strategy =
-            TableStrategy::new(Arc::new(validity_strategy), Arc::new(repartition))
-                .with_field_writers(self.field_writers);
+            TableStrategy::new(Arc::new(validity_strategy), repartition_strategy)
+                .with_field_writers(field_writers);
 
         if self.use_list_layout {
             // We need a closure here to enable recursive application of list layout.

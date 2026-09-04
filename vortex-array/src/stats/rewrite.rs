@@ -11,6 +11,7 @@ use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
 use vortex_utils::iter::ReduceBalancedIterExt;
 
+use crate::aggregate_fn::AggregateFnRef;
 use crate::dtype::DType;
 use crate::expr::BoundExpression;
 use crate::scalar_fn::ScalarFnId;
@@ -88,12 +89,16 @@ pub trait StatsRewriteRule: Debug + Send + Sync + 'static {
 /// Context passed to stats rewrite rules.
 pub struct StatsRewriteCtx<'a> {
     session: &'a VortexSession,
+    aggregate_fns: &'a [AggregateFnRef],
 }
 
 impl<'a> StatsRewriteCtx<'a> {
     /// Create a rewrite context for `session`.
     pub fn new(session: &'a VortexSession) -> Self {
-        Self { session }
+        Self {
+            session,
+            aggregate_fns: &[],
+        }
     }
 
     /// Returns the session that owns the rewrite registry.
@@ -125,6 +130,17 @@ impl<'a> StatsRewriteCtx<'a> {
             "Stats rewrites require a boolean predicate, got {dtype}",
         );
         Ok(())
+    }
+
+    /// Sets the aggregate functions available to stats rewrite rules.
+    pub fn with_aggregate_fns(mut self, aggregate_fns: &'a [AggregateFnRef]) -> Self {
+        self.aggregate_fns = aggregate_fns;
+        self
+    }
+
+    /// Returns the aggregate functions available to stats rewrite rules.
+    pub fn aggregate_fns(&self) -> &'a [AggregateFnRef] {
+        self.aggregate_fns
     }
 }
 

@@ -16,6 +16,7 @@ mod builder;
 mod pruning;
 mod reader;
 mod schema;
+pub mod skip_index;
 pub mod writer;
 pub mod zone_map;
 

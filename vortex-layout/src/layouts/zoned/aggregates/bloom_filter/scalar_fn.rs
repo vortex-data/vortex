@@ -54,7 +54,7 @@ use crate::layouts::zoned::aggregates::bloom_filter::BloomPartial;
 use crate::layouts::zoned::aggregates::bloom_filter::is_bloom_valid_dtype;
 
 #[derive(Clone, Debug)]
-struct BloomContains;
+pub(in crate::layouts::zoned) struct BloomContains;
 
 impl ScalarFnVTable for BloomContains {
     type Options = BloomOptions;
@@ -228,13 +228,8 @@ impl ScalarFnVTable for BloomContains {
 }
 
 /// Equality rewrite that turns a Bloom miss into a zone falsifier.
-///
-/// For now it is currently not enabled. This will be enabled
-/// when <https://github.com/vortex-data/vortex/pull/9413> lands.
 #[derive(Clone, Debug)]
-struct BloomEqRewrite {
-    options: BloomOptions,
-}
+pub(in crate::layouts::zoned) struct BloomEqRewrite;
 
 impl StatsRewriteRule for BloomEqRewrite {
     fn scalar_fn_id(&self) -> ScalarFnId {
@@ -251,6 +246,16 @@ impl StatsRewriteRule for BloomEqRewrite {
         expr: &BoundExpression,
         ctx: &StatsRewriteCtx<'_>,
     ) -> VortexResult<Option<BoundExpression>> {
+        let Some(aggregate_fn) = ctx
+            .aggregate_fns()
+            .iter()
+            .find(|aggregate_fn| aggregate_fn.is::<BloomFilter>())
+        else {
+            return Ok(None);
+        };
+
+        let options = aggregate_fn.as_::<BloomFilter>().clone();
+
         if *expr.as_::<Binary>() != Operator::Eq {
             return Ok(None);
         }
@@ -271,9 +276,8 @@ impl StatsRewriteRule for BloomEqRewrite {
             return Ok(None);
         }
 
-        let filter = bound_stat(column.clone(), BloomFilter.bind(self.options.clone()));
-        let contains =
-            BloomContains.try_new_bound_expr(self.options.clone(), [filter, literal.clone()])?;
+        let filter = bound_stat(column.clone(), BloomFilter.bind(options.clone()));
+        let contains = BloomContains.try_new_bound_expr(options, [filter, literal.clone()])?;
 
         Ok(Some(not(contains)))
     }
@@ -321,10 +325,10 @@ mod tests {
     use crate::layouts::zoned::aggregates::bloom_filter::scalar_fn::BloomEqRewrite;
     use crate::layouts::zoned::zone_map::ZoneMap;
 
-    fn register(session: &VortexSession, options: BloomOptions) {
+    fn register(session: &VortexSession) {
         session.aggregate_fns().register(BloomFilter);
         session.scalar_fns().register(BloomContains);
-        session.stats().register_rewrite(BloomEqRewrite { options });
+        session.stats().register_rewrite(BloomEqRewrite);
     }
 
     fn serialized_filter(options: &BloomOptions, values: &[Scalar]) -> VortexResult<Vec<u8>> {
@@ -340,7 +344,7 @@ mod tests {
         let options = BloomOptions::default();
         let aggregate_fn = BloomFilter.bind(options.clone());
         let session = array_session();
-        register(&session, options.clone());
+        register(&session);
 
         let filters = VarBinViewArray::from_iter_nullable_bin([
             Some(serialized_filter(
@@ -354,14 +358,18 @@ mod tests {
         let zone_map = ZoneMap::try_new(
             DType::Primitive(PType::I64, Nullability::NonNullable),
             StructArray::from_fields(&[(aggregate_fn.to_string(), filters)])?,
-            Arc::new([aggregate_fn]),
+            Arc::new([aggregate_fn.clone()]),
             1,
             2,
         )?;
 
         let dtype = DType::Primitive(PType::I64, Nullability::NonNullable);
-        let proof = eq(root(dtype), lit(42i64))
-            .falsify(&session)?
+        let predicate = eq(root(dtype), lit(42i64));
+        let available_aggregate_fns = [aggregate_fn];
+        let rewrite_ctx =
+            StatsRewriteCtx::new(&session).with_aggregate_fns(&available_aggregate_fns);
+        let proof = rewrite_ctx
+            .falsify(&predicate)?
             .ok_or_else(|| vortex_error::vortex_err!("equality should have a bloom falsifier"))?;
 
         let mut ctx = session.create_execution_ctx();
@@ -377,10 +385,9 @@ mod tests {
     fn bloom_rule_is_inconclusive_for_nulls() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I64, Nullability::Nullable);
         let session = array_session();
-        let ctx = StatsRewriteCtx::new(&session);
-        let rule = BloomEqRewrite {
-            options: BloomOptions::default(),
-        };
+        let available_aggregate_fns = [BloomFilter.bind(BloomOptions::default())];
+        let ctx = StatsRewriteCtx::new(&session).with_aggregate_fns(&available_aggregate_fns);
+        let rule = BloomEqRewrite;
 
         let non_literal = eq(root(dtype.clone()), root(dtype.clone()));
         assert!(rule.falsify(&non_literal, &ctx)?.is_none());
@@ -393,12 +400,17 @@ mod tests {
     #[test]
     fn missing_bloom_stat_stays_inconclusive() -> VortexResult<()> {
         let options = BloomOptions::default();
+        let aggregate_fn = BloomFilter.bind(options);
         let session = array_session();
-        register(&session, options);
+        register(&session);
 
         let dtype = DType::Primitive(PType::I64, Nullability::NonNullable);
-        let proof = eq(root(dtype.clone()), lit(42i64))
-            .falsify(&session)?
+        let predicate = eq(root(dtype.clone()), lit(42i64));
+        let available_aggregate_fns = [aggregate_fn];
+        let rewrite_ctx =
+            StatsRewriteCtx::new(&session).with_aggregate_fns(&available_aggregate_fns);
+        let proof = rewrite_ctx
+            .falsify(&predicate)?
             .ok_or_else(|| vortex_error::vortex_err!("equality should have a bloom falsifier"))?;
 
         let zone_map = ZoneMap::try_new(

@@ -22,6 +22,7 @@ use vortex_array::expr::BoundExpression;
 use vortex_array::expr::ExactBoundExpr;
 use vortex_array::expr::root;
 use vortex_array::scalar_fn::fns::dynamic::DynamicExprUpdates;
+use vortex_array::stats::rewrite::StatsRewriteCtx;
 use vortex_error::SharedVortexResult;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -132,11 +133,17 @@ impl PruningState {
         self.pruning_predicates
             .entry(key)
             .or_default()
-            .get_or_init(move || match expr.falsify(&self.session) {
-                Ok(predicate) => predicate,
-                Err(error) => {
-                    trace!(%expr, %error, "failed to construct stats rewrite predicate");
-                    None
+            .get_or_init(move || {
+                // Some equality rules need access to the options of the aggregate fns.
+                let ctx =
+                    StatsRewriteCtx::new(&self.session).with_aggregate_fns(&self.aggregate_fns);
+
+                match ctx.falsify(&expr) {
+                    Ok(predicate) => predicate,
+                    Err(error) => {
+                        trace!(%expr, %error, "failed to construct stats rewrite predicate");
+                        None
+                    }
                 }
             })
             .clone()
