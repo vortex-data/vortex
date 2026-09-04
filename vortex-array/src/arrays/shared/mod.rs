@@ -10,7 +10,8 @@ pub use array::SharedArraySlotsExt;
 pub use array::SharedData;
 pub use array::SharedSlots;
 pub use array::SharedSlotsView;
-pub(crate) use array::current_array_ref_for_dispatch;
+#[doc(hidden)]
+pub use array::current_array_ref_for_dispatch;
 pub use vtable::Shared;
 pub use vtable::SharedArray;
 

@@ -6,6 +6,7 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::ScalarFn;
@@ -47,6 +48,21 @@ pub trait LikeKernel: VTable {
         options: LikeOptions,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>>;
+}
+
+/// Try the registered encoding-specific LIKE kernel without canonicalizing `input` as a fallback.
+///
+/// This is intended for cache and layout adapters that need to retain control of the fallback
+/// input. Ordinary callers should execute a [`LikeExpr`] array instead.
+#[doc(hidden)]
+pub fn try_execute_like_without_fallback(
+    input: &ArrayRef,
+    pattern: &ArrayRef,
+    options: LikeOptions,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>> {
+    let parent = LikeExpr::try_new(input.clone(), pattern.clone(), options)?.into_array();
+    ctx.try_execute_parent_kernel(&parent, input, 0)
 }
 
 /// Adaptor that wraps a [`LikeReduce`] impl as an [`ArrayParentReduceRule`].
