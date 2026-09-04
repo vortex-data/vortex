@@ -38,6 +38,9 @@ option(VORTEX_ENABLE_CUDA "Build the CUDA-enabled Vortex FFI" OFF)
 set(VORTEX_CARGO_PROFILE "" CACHE STRING "Override the Cargo profile selected from CMAKE_BUILD_TYPE")
 set(VORTEX_SANITIZER "" CACHE STRING "Instrument Vortex and its consumers with asan or tsan")
 set_property(CACHE VORTEX_SANITIZER PROPERTY STRINGS "" asan tsan)
+option(VORTEX_SANITIZE_RUST_STD
+    "Rebuild Rust's standard library with sanitizer instrumentation"
+    OFF)
 
 # Standalone builds treat warnings as errors; embedded builds do not impose that
 # policy on a parent.

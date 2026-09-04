@@ -21,7 +21,10 @@ function(_vortex_resolve_cargo_profile configuration_output profile_output artif
             "RelWithDebInfo, or MinSizeRel")
     endif()
 
-    string(TOUPPER "${CMAKE_BUILD_TYPE}" _configuration)
+    # Normalize user input for comparisons and CMAKE_<LANG>_FLAGS_<CONFIG> lookups.
+    string(TOUPPER "${CMAKE_BUILD_TYPE}" _build_type)
+
+    # An explicit user override takes precedence over the CMake build-type mapping.
     if(VORTEX_CARGO_PROFILE)
         _vortex_reject_semicolon("VORTEX_CARGO_PROFILE" "${VORTEX_CARGO_PROFILE}")
         if(NOT VORTEX_CARGO_PROFILE MATCHES "^[A-Za-z0-9_-]+$")
@@ -36,43 +39,38 @@ function(_vortex_resolve_cargo_profile configuration_output profile_output artif
         endif()
 
         set(_cargo_profile "${VORTEX_CARGO_PROFILE}")
-        if(_cargo_profile STREQUAL "dev")
-            set(_artifact_directory "debug")
-        elseif(_cargo_profile STREQUAL "release")
-            set(_artifact_directory "release")
-        else()
-            set(_artifact_directory "${_cargo_profile}")
-        endif()
-    elseif(_configuration STREQUAL "DEBUG")
+    elseif(_build_type STREQUAL "DEBUG")
         set(_cargo_profile "dev")
-        set(_artifact_directory "debug")
-    elseif(_configuration STREQUAL "RELEASE")
+    elseif(_build_type STREQUAL "RELEASE")
         set(_cargo_profile "release")
-        set(_artifact_directory "release")
-    elseif(_configuration STREQUAL "RELWITHDEBINFO")
+    elseif(_build_type STREQUAL "RELWITHDEBINFO")
         set(_cargo_profile "release_debug")
-        set(_artifact_directory "release_debug")
-    elseif(_configuration STREQUAL "MINSIZEREL")
+    elseif(_build_type STREQUAL "MINSIZEREL")
         set(_cargo_profile "release_size")
-        set(_artifact_directory "release_size")
     else()
         message(WARNING
             "Vortex has no Cargo profile mapping for "
             "CMAKE_BUILD_TYPE='${CMAKE_BUILD_TYPE}'; using Cargo profile dev. "
             "Set VORTEX_CARGO_PROFILE to override it")
         set(_cargo_profile "dev")
-        set(_artifact_directory "debug")
     endif()
 
-    set(${configuration_output} "${_configuration}" PARENT_SCOPE)
+    if(_cargo_profile STREQUAL "dev")
+        set(_artifact_directory "debug")
+    elseif(_cargo_profile STREQUAL "release")
+        set(_artifact_directory "release")
+    else()
+        set(_artifact_directory "${_cargo_profile}")
+    endif()
+
+    set(${configuration_output} "${_build_type}" PARENT_SCOPE)
     set(${profile_output} "${_cargo_profile}" PARENT_SCOPE)
     set(${artifact_directory_output} "${_artifact_directory}" PARENT_SCOPE)
 endfunction()
 
-# Select the CPU or CUDA FFI package from a complete workspace checkout. Return
-# its package and archive names, public header directories, optional nvcc path,
-# and CUDA root;
-# missing workspace files and CUDA on non-Linux platforms are fatal.
+# Select the Vortex FFI package and archive for a CPU-only or CUDA-enabled
+# build. Return its include directories and optional CUDA tools. Fail when the
+# workspace is incomplete or CUDA is requested outside Linux.
 function(_vortex_resolve_ffi_package
     workspace_root
     package_output
@@ -115,52 +113,62 @@ function(_vortex_resolve_ffi_package
     set(${cuda_root_output} "${_cuda_root}" PARENT_SCOPE)
 endfunction()
 
-# Validate the sanitizer selection against the CMake configuration and resolved
-# Rust release. Return the native compiler flag, additional rustc arguments,
-# and whether Cargo must rebuild the standard library. Invalid names,
-# non-Debug builds, and non-nightly Rust toolchains are fatal.
+# Validate and configure the optional sanitizer for native and Rust code.
+# Sanitizers require Clang, a Debug build, and nightly Rust; standard-library
+# instrumentation is optional.
 function(_vortex_resolve_sanitizer
     configuration
     rustc_release
     native_flag_output
     rustflags_output
     build_std_output)
-    string(TOLOWER "${VORTEX_SANITIZER}" _sanitizer)
-    if(NOT _sanitizer STREQUAL "" AND
-        NOT _sanitizer STREQUAL "asan" AND
-        NOT _sanitizer STREQUAL "tsan")
+    string(TOUPPER "${VORTEX_SANITIZER}" VORTEX_SANITIZER)
+    if(NOT VORTEX_SANITIZER STREQUAL "" AND
+        NOT VORTEX_SANITIZER STREQUAL "ASAN" AND
+        NOT VORTEX_SANITIZER STREQUAL "TSAN")
         message(FATAL_ERROR
             "VORTEX_SANITIZER must be empty, asan, or tsan; got "
             "${VORTEX_SANITIZER}")
     endif()
-    if(NOT _sanitizer STREQUAL "" AND NOT configuration STREQUAL "DEBUG")
+    if(VORTEX_SANITIZE_RUST_STD AND VORTEX_SANITIZER STREQUAL "")
+        message(FATAL_ERROR
+            "VORTEX_SANITIZE_RUST_STD=ON requires VORTEX_SANITIZER=asan or tsan")
+    endif()
+    if(NOT VORTEX_SANITIZER STREQUAL "" AND
+        (NOT CMAKE_C_COMPILER_ID MATCHES "^(AppleClang|Clang)$" OR
+         NOT CMAKE_CXX_COMPILER_ID MATCHES "^(AppleClang|Clang)$"))
+        message(FATAL_ERROR
+            "Vortex sanitizer builds require Clang or AppleClang for C and C++; "
+            "found ${CMAKE_C_COMPILER_ID} and ${CMAKE_CXX_COMPILER_ID}")
+    endif()
+    if(NOT VORTEX_SANITIZER STREQUAL "" AND NOT configuration STREQUAL "DEBUG")
         message(FATAL_ERROR "Vortex sanitizer builds require CMAKE_BUILD_TYPE=Debug")
     endif()
-    if(NOT _sanitizer STREQUAL "" AND NOT rustc_release MATCHES "nightly")
+    if(NOT VORTEX_SANITIZER STREQUAL "" AND NOT rustc_release MATCHES "nightly")
         message(FATAL_ERROR
-            "VORTEX_SANITIZER=${_sanitizer} requires a nightly Rust "
+            "VORTEX_SANITIZER=${VORTEX_SANITIZER} requires a nightly Rust "
             "toolchain; found ${rustc_release}")
     endif()
 
     set(_native_flag "")
     set(_rust_sanitizer "")
-    if(_sanitizer STREQUAL "asan")
+    if(VORTEX_SANITIZER STREQUAL "ASAN")
         set(_native_flag "-fsanitize=address,undefined,leak")
         set(_rust_sanitizer "address,leak")
-    elseif(_sanitizer STREQUAL "tsan")
+    elseif(VORTEX_SANITIZER STREQUAL "TSAN")
         set(_native_flag "-fsanitize=thread")
         set(_rust_sanitizer "thread")
     endif()
 
     set(_rustflags)
-    set(_build_std OFF)
+    set(_build_std "${VORTEX_SANITIZE_RUST_STD}")
     if(_rust_sanitizer)
-        set(_build_std ON)
         list(APPEND _rustflags
             -A warnings
             -Cunsafe-allow-abi-mismatch=sanitizer
             -C debuginfo=2
             -C opt-level=0
+            # Use the sanitizer runtime linked by the final C++ target for both languages.
             -Zexternal-clangrt
             "-Zsanitizer=${_rust_sanitizer}")
     endif()

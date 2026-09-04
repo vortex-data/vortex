@@ -78,10 +78,12 @@ standalone build:
 - `VORTEX_WARNINGS_AS_ERRORS` promotes warnings only while compiling `vortex_cxx`; it does not affect
   tests, examples, consumers, Rust, or CUDA compilation. Default: `ON` standalone and `OFF` when
   embedded.
-- `VORTEX_SANITIZER=asan|tsan` requires `Debug`, nightly Rust, and `rust-src`. ASan also enables
-  undefined-behavior and leak checks for native code and address/leak instrumentation for Rust;
+- `VORTEX_SANITIZER=asan|tsan` requires `Debug`, Clang or AppleClang, and nightly Rust. ASan also
+  enables undefined-behavior and leak checks for native code and address/leak instrumentation for Rust;
   TSan enables thread instrumentation. Flags propagate to targets linking Vortex, but CUDA device
   code, the CUB helper, and nvCOMP are not sanitizer-instrumented. Default: empty.
+- `VORTEX_SANITIZE_RUST_STD=ON` rebuilds Rust's standard library with the selected sanitizer and
+  requires the nightly `rust-src` component. Default: `OFF`.
 
 The selected Cargo and rustc binaries are fixed until CMake is reconfigured. Cargo runs with the
 lockfile, the selected native target and profile, and the selected FFI package's default features
@@ -141,17 +143,22 @@ The `reader`, `writer`, `dtype`, `scan`, and `scan_to_arrow` executables are wri
 
 ### Sanitizers
 
-Install nightly Rust with `rust-src`, then select it explicitly:
+Install nightly Rust, then select it explicitly. CMake must use Clang or AppleClang:
 
 ```sh
-rustup toolchain install nightly --component rust-src
+rustup toolchain install nightly
 RUSTUP_TOOLCHAIN=nightly cmake -S lang/cpp -B build/cpp-asan -G Ninja \
     -DCMAKE_BUILD_TYPE=Debug \
+    -DCMAKE_C_COMPILER=clang \
+    -DCMAKE_CXX_COMPILER=clang++ \
     -DVORTEX_SANITIZER=asan \
     -DVORTEX_BUILD_TESTING=ON
 cmake --build build/cpp-asan --parallel
 ctest --test-dir build/cpp-asan --output-on-failure
 ```
+
+To also instrument Rust's standard library, install `rust-src` and configure with
+`-DVORTEX_SANITIZE_RUST_STD=ON`.
 
 ### Coverage
 
