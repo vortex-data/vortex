@@ -13,12 +13,10 @@ use flatbuffers::WIPOffset;
 use itertools::Itertools;
 use vortex_array::dtype::DType;
 use vortex_array::stats::StatsSet;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_flatbuffers::FlatBufferRoot;
 use vortex_flatbuffers::WriteFlatBuffer;
-use vortex_flatbuffers::array::ArrayStats;
 use vortex_flatbuffers::footer as fb;
 use vortex_session::VortexSession;
 
@@ -94,12 +92,11 @@ impl FileStatistics {
         session: &VortexSession,
     ) -> VortexResult<Self> {
         let field_stats = fb.field_stats().unwrap_or_default();
-        let mut array_stats: Vec<ArrayStats> = field_stats.iter().collect();
 
         if let DType::Struct(struct_fields, _) = file_dtype {
-            vortex_ensure_eq!(array_stats.len(), struct_fields.nfields());
+            vortex_ensure_eq!(field_stats.len(), struct_fields.nfields());
 
-            let stats_sets: Arc<[StatsSet]> = array_stats
+            let stats_sets: Arc<[StatsSet]> = field_stats
                 .into_iter()
                 .zip(struct_fields.fields())
                 .map(|(array_stat, field_dtype)| {
@@ -114,11 +111,9 @@ impl FileStatistics {
                 dtypes,
             })
         } else {
-            vortex_ensure_eq!(array_stats.len(), 1);
+            vortex_ensure_eq!(field_stats.len(), 1);
 
-            let array_stat = array_stats
-                .pop()
-                .vortex_expect("we just checked that there was 1 field");
+            let array_stat = field_stats.get(0);
             let stats_set = StatsSet::from_flatbuffer(&array_stat, file_dtype, session)?;
 
             Ok(Self {

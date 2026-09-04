@@ -22,7 +22,6 @@ use vortex::file::v2::FileStatsLayoutReader;
 use vortex::io::compat::Compat;
 use vortex::io::filesystem::FileSystemRef;
 use vortex::io::object_store::ObjectStoreFileSystem;
-use vortex::io::object_store::object_path_from_literal;
 use vortex::io::runtime::BlockingRuntime as _;
 use vortex::layout::LayoutReaderRef;
 use vortex::layout::scan::scan_builder::ScanBuilder;
@@ -97,14 +96,6 @@ fn resolve_filesystem(url: &Url) -> VortexResult<(FileSystemRef, String)> {
     ))
 }
 
-/// Same as resolve_filesystem but doesn't create filesystem object
-fn resolve_path(url: &Url) -> VortexResult<String> {
-    if url.scheme() == "file" {
-        return Ok(url.path().to_string());
-    }
-    Ok(REGISTRY.resolve(url)?.1.to_string())
-}
-
 pub struct OpenFileReader {
     pub reader: LayoutReaderRef,
     /// File splits stored in inverse order
@@ -114,11 +105,10 @@ pub struct OpenFileReader {
 }
 
 impl OpenFileReader {
-    async fn open(file_path: String) -> VortexResult<Self> {
-        let url = parse_uri_or_path(&file_path)?;
-        let (fs, path) = resolve_filesystem(&url)?;
-        let file = fs.open_read(&path).await?;
-        let file = open_cached(&SESSION, file, &path, None, &|options| options).await?;
+    async fn open(path: String) -> VortexResult<Self> {
+        let (fs, fs_path) = resolve_filesystem(&parse_uri_or_path(&path)?)?;
+        let source = fs.open_read(&fs_path).await?;
+        let file = open_cached(&SESSION, Some(&path), source, None, &|options| options).await?;
         Ok(OpenFileReader {
             reader: file.layout_reader()?,
             cache: ConversionCache::default(),
@@ -181,18 +171,14 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
 
     // Getting splits is non-trivial work so we prefer doing it here under file
     // lock and not in reader_try_initialize_scan under global lock.
-    let ordered = global.file_row_number_column_pos.is_some();
     let reader = Arc::clone(&file.reader);
     let filter = &global.filter;
-    let mut builder = ScanBuilder::new(SESSION.clone(), reader)
+    let builder = ScanBuilder::new(SESSION.clone(), reader)
         .with_projection(global.projection.clone())
-        .with_ordered(ordered)
         .with_some_filter(filter.filter.clone())
         .with_selection(filter.row_selection.clone());
-    if let Some(row_range) = filter.row_range.as_ref() {
-        builder = builder.with_row_range(row_range.clone());
-    }
-    let mut splits = builder.build()?;
+    let scan = builder.prepare()?;
+    let mut splits = scan.execute(filter.row_range.clone())?;
 
     // threads take last element of file.splits so we need to reverse
     splits.reverse();
@@ -296,7 +282,7 @@ pub fn reader_get_statistics(
     let dtype = fields.field_by_index(index)?;
 
     let stats = ColumnStatisticsAggregate::new(stats_sets.get(index)?);
-    match ColumnStatistics::try_from(&stats, dtype) {
+    match ColumnStatistics::try_from(stats, dtype) {
         Ok(stats) => Some(stats),
         Err(e) => vortex_panic!(e),
     }
@@ -328,10 +314,10 @@ pub fn can_get_partition_stats(bind: &BindState) -> bool {
 /// If any footer is not present, it sets a flag in BindState so we won't try
 /// again.
 pub fn footer_get_cached(bind: &mut BindState, path: &str) -> VortexResult<Option<Footer>> {
-    let url = parse_uri_or_path(path)?;
-    let path = resolve_path(&url)?;
-    let key = object_path_from_literal(&path).to_string();
-    let footer = SESSION.get::<MultiFileSession>().get_footer(&key);
+    let footer = SESSION
+        .get_opt::<MultiFileSession>()
+        .vortex_expect("MultiFileSession not found")
+        .get_footer(path);
     bind.no_footer_caches |= footer.is_none();
     Ok(footer)
 }
@@ -345,7 +331,7 @@ pub fn footer_get_statistics(footer: &Footer, index: usize) -> Option<ColumnStat
     let dtype = fields.field_by_index(index)?;
     let stats = stats.stats_sets().get(index)?;
     let stats = ColumnStatisticsAggregate::new(stats);
-    match ColumnStatistics::try_from(&stats, dtype) {
+    match ColumnStatistics::try_from(stats, dtype) {
         Ok(stats) => Some(stats),
         Err(e) => vortex_panic!(e),
     }

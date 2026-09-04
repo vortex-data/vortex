@@ -196,12 +196,9 @@ impl ToDuckDBScalar for ExtScalar<'_> {
             vortex_bail!("Cannot convert non-temporal extension scalar to duckdb value");
         };
 
+        let storage = PrimitiveScalar::try_new(self.ext_dtype().storage_dtype(), self.value())?;
         let value = || {
-            self.to_storage_scalar()
-                .as_primitive_opt()
-                .ok_or_else(|| {
-                    vortex_err!("Cannot have a temporal time type not packed by a primitive scalar")
-                })?
+            storage
                 .as_::<i64>()
                 .ok_or_else(|| vortex_err!("temporal types must be convertible to i64"))
         };
@@ -227,19 +224,10 @@ impl ToDuckDBScalar for ExtScalar<'_> {
                 }
             }
             TemporalMetadata::Date(unit) => match unit {
-                TimeUnit::Days => {
-                    let days = self
-                        .to_storage_scalar()
-                        .as_primitive_opt()
-                        .ok_or_else(|| {
-                            vortex_err!("temporal types must be backed by primitive scalars")
-                        })?
-                        .as_::<i32>();
-                    match days {
-                        Some(days) => Value::new_date(days),
-                        None => Value::null(&*ext_logical_type(self)?),
-                    }
-                }
+                TimeUnit::Days => match storage.as_::<i32>() {
+                    Some(days) => Value::new_date(days),
+                    None => Value::null(&*ext_logical_type(self)?),
+                },
                 _ => vortex_bail!("cannot have TimeUnit {unit}, so represent a day"),
             },
             TemporalMetadata::Time(unit) => match unit {
