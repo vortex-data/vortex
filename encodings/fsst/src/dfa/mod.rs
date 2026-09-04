@@ -1,25 +1,26 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! # FSST LIKE Pushdown via DFA Construction
+//! # FSST LIKE Pushdown
 //!
-//! This module implements DFA-based pattern matching directly on FSST-compressed
-//! strings, without decompressing them. It handles two pattern shapes:
+//! This module implements pattern matching directly on FSST-compressed strings,
+//! without decompressing them. It handles three pattern shapes:
 //!
 //! - **Prefix**: `'prefix%'`  — matches strings starting with a literal prefix.
 //! - **Contains**: `'%needle%'` — matches strings containing a literal substring.
+//! - **Suffix**: `'%suffix'` — matches strings ending with a literal suffix.
 //!
 //! Pushdown is intentionally conservative. If the pattern shape is unsupported,
 //! or if the pattern exceeds the DFA's representable state space, construction
 //! returns `None` and the caller must fall back to ordinary decompression-based
 //! LIKE evaluation.
 //!
-//! TODO(joe): suffix (`'%suffix'`) pushdown. Two approaches:
-//! - **Forward DFA**: use a non-sticky accept state with KMP fallback transitions,
-//!   check `state == accept` after processing all codes. Branchless and vectorizable.
-//! - **Backward scan**: walk the compressed code stream in reverse, comparing symbol
-//!   bytes from the end. Simpler, no DFA construction, but requires reverse parsing
-//!   of the FSST escape mechanism.
+//! Prefix and contains are DFAs over the code stream, described below. Suffix is not:
+//! a forward DFA cannot stop early, because a suffix match is only decided at the last
+//! code, and that measured slower than decompressing. [`suffix::SuffixMatcher`] takes the
+//! other route the original TODO sketched and walks the code stream backward from each
+//! row's end; the reverse parsing that route needs turns out to be local, and that module
+//! explains why.
 //!
 //! ## Background: FSST Encoding
 //!
@@ -108,7 +109,7 @@
 //!
 //! ## State-Space Limits
 //!
-//! The public behavior is shaped by two implementation limits, both measured in
+//! The public behavior is shaped by three implementation limits, all measured in
 //! pattern **bytes** rather than Unicode scalar values:
 //!
 //! - `prefix%` pushdown is limited to **253 bytes**. The flat prefix DFA uses
@@ -117,12 +118,16 @@
 //! - `%needle%` pushdown is limited to **254 bytes**. The contains DFA stores
 //!   states in `u8`, so it needs room for every match-progress state plus both
 //!   the accept state and the escape sentinel.
+//! - `%suffix` pushdown is limited to **254 bytes**. The tail matcher compares
+//!   bytes rather than holding states, so this bound only keeps it in step with
+//!   the other two.
 //!
 //! Patterns beyond those limits are still valid LIKE patterns; they simply do
 //! not use FSST pushdown and must be evaluated through the fallback path.
 
 mod flat_contains;
 mod prefix;
+mod suffix;
 #[cfg(test)]
 mod tests;
 
@@ -132,6 +137,7 @@ use flat_contains::FlatContainsDfa;
 use fsst::ESCAPE_CODE;
 use fsst::Symbol;
 use prefix::FlatPrefixDfa;
+use suffix::SuffixMatcher;
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -154,6 +160,7 @@ enum MatcherInner {
     MatchAll,
     Prefix(FlatPrefixDfa),
     Contains(FlatContainsDfa),
+    Suffix(SuffixMatcher),
 }
 
 impl FsstMatcher {
@@ -161,7 +168,7 @@ impl FsstMatcher {
     ///
     /// Returns `Ok(None)` if the pattern shape is not supported for pushdown
     /// (e.g. `_` wildcards, multiple non-bookend `%`, `prefix%` longer than
-    /// 253 bytes, or `%needle%` longer than 254 bytes).
+    /// 253 bytes, or `%needle%`/`%suffix` longer than 254 bytes).
     pub(crate) fn try_new(
         symbols: &[Symbol],
         symbol_lengths: &[u8],
@@ -172,7 +179,9 @@ impl FsstMatcher {
         };
 
         let inner = match like_kind {
-            LikeKind::Prefix(pattern) | LikeKind::Contains(pattern) if pattern.is_empty() => {
+            LikeKind::Prefix(pattern) | LikeKind::Contains(pattern) | LikeKind::Suffix(pattern)
+                if pattern.is_empty() =>
+            {
                 MatcherInner::MatchAll
             }
             LikeKind::Prefix(prefix) => {
@@ -195,6 +204,16 @@ impl FsstMatcher {
                     needle.as_ref(),
                 )?)
             }
+            LikeKind::Suffix(suffix) => {
+                if suffix.len() > SuffixMatcher::MAX_SUFFIX_LEN {
+                    return Ok(None);
+                }
+                MatcherInner::Suffix(SuffixMatcher::new(
+                    symbols,
+                    symbol_lengths,
+                    suffix.as_ref(),
+                )?)
+            }
         };
 
         Ok(Some(Self { inner }))
@@ -206,6 +225,7 @@ impl FsstMatcher {
             MatcherInner::MatchAll => true,
             MatcherInner::Prefix(dfa) => dfa.matches(codes),
             MatcherInner::Contains(dfa) => dfa.matches(codes),
+            MatcherInner::Suffix(matcher) => matcher.matches(codes),
         }
     }
 }
@@ -216,11 +236,15 @@ enum LikeKind<'a> {
     Prefix(Cow<'a, [u8]>),
     /// `%needle%`
     Contains(Cow<'a, [u8]>),
+    /// `%suffix`
+    Suffix(Cow<'a, [u8]>),
 }
 
 impl<'a> LikeKind<'a> {
     fn parse(pattern: &'a [u8]) -> Option<Self> {
-        Self::parse_prefix(pattern).or_else(|| Self::parse_contains(pattern))
+        Self::parse_prefix(pattern)
+            .or_else(|| Self::parse_contains(pattern))
+            .or_else(|| Self::parse_suffix(pattern))
     }
 
     fn parse_prefix(pattern: &'a [u8]) -> Option<Self> {
@@ -233,6 +257,46 @@ impl<'a> LikeKind<'a> {
         }
 
         Self::parse_literal_until_final_percent(pattern, 1).map(LikeKind::Contains)
+    }
+
+    fn parse_suffix(pattern: &'a [u8]) -> Option<Self> {
+        if !pattern.starts_with(b"%") {
+            return None;
+        }
+
+        Self::parse_literal_to_end(pattern, 1).map(LikeKind::Suffix)
+    }
+
+    /// Parse `pattern[literal_start..]` as a literal running to the end of the
+    /// pattern. Returns `None` if `_` or `%` is encountered, since either means
+    /// the tail is not a plain literal.
+    fn parse_literal_to_end(pattern: &'a [u8], literal_start: usize) -> Option<Cow<'a, [u8]>> {
+        let mut literal: Option<Vec<u8>> = None;
+        let mut idx = literal_start;
+        while idx < pattern.len() {
+            match pattern[idx] {
+                b'\\' => {
+                    // Trailing `\` is treated as a literal backslash.
+                    let escaped = pattern.get(idx + 1).copied().unwrap_or(b'\\');
+                    literal
+                        .get_or_insert_with(|| pattern[literal_start..idx].to_vec())
+                        .push(escaped);
+                    idx = (idx + 2).min(pattern.len());
+                }
+                b'%' | b'_' => return None,
+                byte => {
+                    // No-op on the borrowed path; only push once we've started copying.
+                    if let Some(literal) = &mut literal {
+                        literal.push(byte);
+                    }
+                    idx += 1;
+                }
+            }
+        }
+        Some(match literal {
+            Some(buf) => Cow::Owned(buf),
+            None => Cow::Borrowed(&pattern[literal_start..]),
+        })
     }
 
     /// Parse `pattern[literal_start..]` as a literal terminated by a single
