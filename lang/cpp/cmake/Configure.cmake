@@ -132,6 +132,7 @@ function(_vortex_resolve_sanitizer
     rustflags_output
     build_std_output)
     string(TOUPPER "${VORTEX_SANITIZER}" VORTEX_SANITIZER)
+    # Reject unknown names before deriving native and Rust compiler flags.
     if(NOT VORTEX_SANITIZER STREQUAL "" AND
         NOT VORTEX_SANITIZER STREQUAL "ASAN" AND
         NOT VORTEX_SANITIZER STREQUAL "TSAN")
@@ -139,10 +140,14 @@ function(_vortex_resolve_sanitizer
             "VORTEX_SANITIZER must be empty, asan, or tsan; got "
             "${VORTEX_SANITIZER}")
     endif()
+
+    # Rebuilding std is meaningful only when sanitizer instrumentation is enabled.
     if(VORTEX_SANITIZE_RUST_STD AND VORTEX_SANITIZER STREQUAL "")
         message(FATAL_ERROR
             "VORTEX_SANITIZE_RUST_STD=ON requires VORTEX_SANITIZER=asan or tsan")
     endif()
+
+    # Use Clang so Rust and native code share one compatible sanitizer runtime.
     if(NOT VORTEX_SANITIZER STREQUAL "" AND
         (NOT CMAKE_C_COMPILER_ID MATCHES "^(AppleClang|Clang)$" OR
          NOT CMAKE_CXX_COMPILER_ID MATCHES "^(AppleClang|Clang)$"))
@@ -150,9 +155,13 @@ function(_vortex_resolve_sanitizer
             "Vortex sanitizer builds require Clang or AppleClang for C and C++; "
             "found ${CMAKE_C_COMPILER_ID} and ${CMAKE_CXX_COMPILER_ID}")
     endif()
+
+    # Restrict sanitizer instrumentation to the supported Debug configuration.
     if(NOT VORTEX_SANITIZER STREQUAL "" AND NOT configuration STREQUAL "DEBUG")
         message(FATAL_ERROR "Vortex sanitizer builds require CMAKE_BUILD_TYPE=Debug")
     endif()
+
+    # Rust sanitizer instrumentation depends on nightly-only compiler flags.
     if(NOT VORTEX_SANITIZER STREQUAL "" AND NOT rustc_release MATCHES "nightly")
         message(FATAL_ERROR
             "VORTEX_SANITIZER=${VORTEX_SANITIZER} requires a nightly Rust "
@@ -169,7 +178,7 @@ function(_vortex_resolve_sanitizer
         set(_rust_sanitizer "thread")
     endif()
 
-    set(_rustflags)
+    set(_rustflags "")
     set(_build_std "${VORTEX_SANITIZE_RUST_STD}")
     if(_rust_sanitizer)
         list(APPEND _rustflags
@@ -187,53 +196,29 @@ function(_vortex_resolve_sanitizer
     set(${build_std_output} "${_build_std}" PARENT_SCOPE)
 endfunction()
 
-# Resolve the compile and link sysroots that Cargo-built native code and rustc
-# must inherit from CMake. Explicit compile/link sysroots take precedence over
-# the shared CMake sysroot and the resolved Apple SDK.
-function(_vortex_resolve_cargo_sysroots apple_sdkroot compile_output link_output)
-    if(CMAKE_SYSROOT_COMPILE)
-        set(_compile_sysroot "${CMAKE_SYSROOT_COMPILE}")
-    elseif(CMAKE_SYSROOT)
-        set(_compile_sysroot "${CMAKE_SYSROOT}")
-    elseif(APPLE)
-        set(_compile_sysroot "${apple_sdkroot}")
-    else()
-        set(_compile_sysroot "")
-    endif()
-
-    if(CMAKE_SYSROOT_LINK)
-        set(_link_sysroot "${CMAKE_SYSROOT_LINK}")
-    elseif(CMAKE_SYSROOT)
-        set(_link_sysroot "${CMAKE_SYSROOT}")
-    elseif(APPLE)
-        set(_link_sysroot "${apple_sdkroot}")
-    else()
-        set(_link_sysroot "")
-    endif()
-
-    set(${compile_output} "${_compile_sysroot}" PARENT_SCOPE)
-    set(${link_output} "${_link_sysroot}" PARENT_SCOPE)
-endfunction()
-
 # Reconstruct CMake's effective C and C++ flags for Cargo build scripts, then
-# append target, sysroot, deployment-target, sanitizer, and PIC requirements.
-# Return the effective C compiler target and shell-encoded C/C++ flag strings.
+# append target, deployment-target, sanitizer, and PIC requirements. Return the
+# shell-encoded C/C++ flag strings.
 function(_vortex_encode_native_flags
     configuration
-    compile_sysroot
     apple_deployment_target
     sanitizer_flag
-    c_target_output
     cflags_output
     cxxflags_output)
+
     if(CMAKE_C_COMPILER_TARGET AND CMAKE_C_COMPILER_ID MATCHES "^(AppleClang|Clang)$")
+        # Forward Clang's explicit C target to Cargo-built C dependencies.
         set(_c_target "${CMAKE_C_COMPILER_TARGET}")
     else()
+        # No explicit Clang C target needs forwarding.
         set(_c_target "")
     endif()
+
     if(CMAKE_CXX_COMPILER_TARGET AND CMAKE_CXX_COMPILER_ID MATCHES "^(AppleClang|Clang)$")
+        # Forward Clang's explicit C++ target to Cargo-built C++ dependencies.
         set(_cxx_target "${CMAKE_CXX_COMPILER_TARGET}")
     else()
+        # No explicit Clang C++ target needs forwarding.
         set(_cxx_target "")
     endif()
 
@@ -244,21 +229,24 @@ function(_vortex_encode_native_flags
     separate_arguments(_cflags UNIX_COMMAND "${_cmake_c_flags}")
     separate_arguments(_cxxflags UNIX_COMMAND "${_cmake_cxx_flags}")
 
-    if(compile_sysroot)
-        list(APPEND _cflags "--sysroot=${compile_sysroot}")
-        list(APPEND _cxxflags "--sysroot=${compile_sysroot}")
-    endif()
     if(_c_target)
+        # Preserve CMake's explicit Clang target for C dependencies.
         list(APPEND _cflags "--target=${_c_target}")
     endif()
+
     if(_cxx_target)
+        # Preserve CMake's explicit Clang target for C++ dependencies.
         list(APPEND _cxxflags "--target=${_cxx_target}")
     endif()
+
     if(apple_deployment_target)
+        # Match Cargo-built native code to CMake's minimum macOS version.
         list(APPEND _cflags "-mmacosx-version-min=${apple_deployment_target}")
         list(APPEND _cxxflags "-mmacosx-version-min=${apple_deployment_target}")
     endif()
+
     if(sanitizer_flag)
+        # Instrument Cargo-built native code with the selected sanitizer.
         list(APPEND _cflags "${sanitizer_flag}")
         list(APPEND _cxxflags "${sanitizer_flag}")
     endif()
@@ -269,33 +257,24 @@ function(_vortex_encode_native_flags
     _vortex_encode_shell_arguments(_cflags_shell ${_cflags})
     _vortex_encode_shell_arguments(_cxxflags_shell ${_cxxflags})
 
-    set(${c_target_output} "${_c_target}" PARENT_SCOPE)
     set(${cflags_output} "${_cflags_shell}" PARENT_SCOPE)
     set(${cxxflags_output} "${_cxxflags_shell}" PARENT_SCOPE)
 endfunction()
 
-# Add PIC, link-sysroot, and Clang-target requirements to optional sanitizer
-# rustflags, then encode the exact rustc argv with Cargo's ASCII unit separator.
-function(_vortex_encode_rustflags output link_sysroot c_compiler_target)
-    set(_rustflags ${ARGN})
-    list(APPEND _rustflags
-        -C force-frame-pointers=yes
-        -C relocation-model=pic)
-    if(link_sysroot)
-        list(APPEND _rustflags -C "link-arg=--sysroot=${link_sysroot}")
-    endif()
-    if(c_compiler_target)
-        list(APPEND _rustflags -C "link-arg=--target=${c_compiler_target}")
-    endif()
-
+# Add frame pointers and PIC to optional sanitizer rustflags, then
+# encode the exact rustc argv with Cargo's ASCII unit separator.
+function(_vortex_encode_rustflags output)
+    set(_rustflags "${ARGN}")
+    list(APPEND _rustflags -C force-frame-pointers=yes -C relocation-model=pic)
+    # Cargo separates CARGO_ENCODED_RUSTFLAGS arguments with ASCII unit separator.
     string(ASCII 31 _separator)
     string(JOIN "${_separator}" _encoded ${_rustflags})
     set(${output} "${_encoded}" PARENT_SCOPE)
 endfunction()
 
-# Generate compiler wrappers and flag payload files under the CMake-local support
-# directory. Return the compiler paths Cargo build scripts must use;
-# unchanged support files retain their timestamps.
+# Write the Rust, C, and C++ flags consumed by CargoBuild.cmake. Create compiler
+# wrappers when CMake configured prefix arguments, and return the compiler paths
+# Cargo build scripts should use. Avoid rewriting unchanged support files.
 function(_vortex_prepare_cargo_support
     support_dir
     encoded_rustflags
@@ -319,8 +298,8 @@ function(_vortex_prepare_cargo_support
     set(${cxx_compiler_output} "${_cxx_compiler}" PARENT_SCOPE)
 endfunction()
 
-# Orchestrate one source-local Cargo build and expose its staged archive as the
-# private dependency consumed by the public C++ target.
+# Configure Cargo and expose the staged FFI archive as a private dependency of
+# the public Vortex C++ target.
 block(SCOPE_FOR VARIABLES)
     _vortex_resolve_cargo_profile(_configuration _cargo_profile _cargo_artifact_directory)
 
@@ -342,7 +321,6 @@ block(SCOPE_FOR VARIABLES)
         _cargo_build_std)
     _vortex_resolve_native_target(_rust_target)
     _vortex_resolve_apple_settings(_apple_sdkroot _apple_deployment_target)
-    _vortex_resolve_cargo_sysroots("${_apple_sdkroot}" _compile_sysroot _link_sysroot)
 
     if(NOT "$ENV{CARGO_ENCODED_RUSTFLAGS}" STREQUAL "" OR NOT "$ENV{RUSTFLAGS}" STREQUAL "")
         message(STATUS "Vortex ignores ambient Rust flags in its Cargo build")
@@ -350,17 +328,11 @@ block(SCOPE_FOR VARIABLES)
 
     _vortex_encode_native_flags(
         "${_configuration}"
-        "${_compile_sysroot}"
         "${_apple_deployment_target}"
         "${_sanitizer_compile_flag}"
-        _native_c_compiler_target
         _native_c_flags
         _native_cxx_flags)
-    _vortex_encode_rustflags(
-        _encoded_rustflags
-        "${_link_sysroot}"
-        "${_native_c_compiler_target}"
-        ${_sanitizer_rustflags})
+    _vortex_encode_rustflags(_encoded_rustflags ${_sanitizer_rustflags})
 
     # Cargo owns incremental invalidation inside this CMake-build-local cache.
     # Registering the directory as additional clean state gives the standard
