@@ -68,7 +68,7 @@ serde_json = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-vortex = { path = ".", features = ["tokio"] }
+vortex = { path = ".", features = ["profile-throughput", "tokio"] }
 
 [features]
 default = ["files", "wasm-bindgen", "zstd"]
@@ -95,6 +95,8 @@ wasm-bindgen = [
     "vortex-layout/wasm-bindgen",
 ]
 pretty = ["vortex-array/table-display"]
+# Measured per-subtree decompression throughput for the array tree display.
+profile-throughput = ["vortex-array/profile-throughput"]
 serde = ["vortex-array/serde", "vortex-buffer/serde", "vortex-mask/serde"]
 # Exposes experimental row-function APIs without compatibility guarantees.
 unstable_row_fns = ["vortex-array/unstable_row_fns"]

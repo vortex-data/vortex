@@ -76,6 +76,8 @@ vortex-utils = { workspace = true, features = ["dyn-traits"] }
 arbitrary = ["dep:arbitrary", "dep:primitive-types"]
 canonical_counter = []
 cudarc = ["dep:cudarc"]
+# Measured per-subtree decompression throughput for the array tree display.
+profile-throughput = []
 table-display = ["dep:tabled"]
 _test-harness = ["dep:goldenfile", "dep:rstest", "dep:rstest_reuse"]
 serde = ["dep:serde", "vortex-buffer/serde", "vortex-mask/serde"]
@@ -95,6 +97,7 @@ serde_test = { workspace = true }
 test-with = { workspace = true }
 vortex-array = { path = ".", features = [
     "_test-harness",
+    "profile-throughput",
     "table-display",
     "unstable_row_fns",
 ] }
