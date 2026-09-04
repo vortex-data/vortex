@@ -126,7 +126,7 @@ jobs:
     name: "Benchmark with Codspeed (${{ matrix.features }})"
     timeout-minutes: 60
     runs-on: >-
-      runs-on=${{ github.run_id }}/runner=bench-dedicated/family=${{ matrix.family }}/image=${{ matrix.image }}/disk=large/extras=s3-cache/tag=bench-codspeed-cpu-features-${{ matrix.features }}
+      runs-on=${{ github.run_id }}/runner=bench-dedicated/family=${{ matrix.family }}/image=${{ matrix.image }}/volume=80gb/extras=s3-cache/tag=bench-codspeed-cpu-features-${{ matrix.features }}
     steps:
       - uses: runs-on/action@v2
         with:
