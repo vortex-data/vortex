@@ -360,12 +360,14 @@ mod test {
     use std::sync::Arc;
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex_buffer::Buffer;
     use vortex_buffer::ByteBuffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use super::BytesDictBuilder;
+    use super::bytes_dict_builder;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
@@ -383,6 +385,7 @@ mod test {
     use crate::builders::dict::dict_encoder;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
@@ -573,6 +576,21 @@ mod test {
         drop(encoder.reset());
         assert_eq!(encoder.encode(&first, &mut ctx)?.len(), 1);
         Ok(())
+    }
+
+    #[rstest]
+    #[case(usize::from(u8::MAX) + 1, PType::U8)]
+    #[case(usize::from(u8::MAX) + 2, PType::U16)]
+    #[case(usize::from(u16::MAX) + 1, PType::U16)]
+    #[case(usize::from(u16::MAX) + 2, PType::U32)]
+    fn selects_narrowest_code_type(#[case] max_len: usize, #[case] expected: PType) {
+        let constraints = DictConstraints {
+            max_bytes: usize::MAX,
+            max_len,
+        };
+        let encoder = bytes_dict_builder(DType::Utf8(Nullability::NonNullable), &constraints);
+
+        assert_eq!(encoder.codes_ptype(), expected);
     }
 
     #[test]

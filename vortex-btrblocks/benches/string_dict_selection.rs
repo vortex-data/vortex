@@ -22,7 +22,6 @@ mod benchmarks {
     #[derive(Clone, Copy)]
     enum Distribution {
         Uniform,
-        Skewed,
         Clustered,
         VariedPrefix,
     }
@@ -48,14 +47,6 @@ mod benchmarks {
             match self.distribution {
                 Distribution::Uniform | Distribution::VariedPrefix => index % self.distinct_values,
                 Distribution::Clustered => index * self.distinct_values / self.rows,
-                Distribution::Skewed => {
-                    let cold_start = self.rows * 9 / 10;
-                    if index < cold_start {
-                        index % 16
-                    } else {
-                        16 + (index - cold_start) % (self.distinct_values - 16)
-                    }
-                }
             }
         }
 
@@ -113,18 +104,11 @@ mod benchmarks {
         }
     }
 
-    const CASES: [Case; 17] = [
+    const CASES: [Case; 9] = [
         case("Inline4096", 65_536, 4096, 8, Distribution::Uniform),
         case("Outlined16", 65_536, 16, 28, Distribution::Uniform),
         case("Outlined4096", 65_536, 4096, 28, Distribution::Uniform),
         case("Outlined8192", 65_536, 8192, 28, Distribution::Uniform),
-        case(
-            "Outlined8192Large",
-            1_048_576,
-            8192,
-            28,
-            Distribution::Uniform,
-        ),
         Case {
             nullable: true,
             ..case(
@@ -135,19 +119,6 @@ mod benchmarks {
                 Distribution::Uniform,
             )
         },
-        case("Probe50", 8192, 4096, 28, Distribution::Uniform),
-        case("Probe75", 8192, 6144, 28, Distribution::Uniform),
-        case("Probe78", 8192, 6390, 28, Distribution::Uniform),
-        case(
-            "Probe78Large",
-            1_048_576,
-            817_889,
-            28,
-            Distribution::Uniform,
-        ),
-        case("Probe79", 8192, 6471, 28, Distribution::Uniform),
-        case("Probe80", 8192, 6554, 28, Distribution::Uniform),
-        case("Skewed4096", 65_536, 4096, 28, Distribution::Skewed),
         case("Clustered4096", 65_536, 4096, 28, Distribution::Clustered),
         case("Long256", 65_536, 4096, 256, Distribution::Uniform),
         case(

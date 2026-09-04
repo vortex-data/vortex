@@ -7,7 +7,8 @@
 //! This module builds one bounded dictionary candidate from the complete input.
 //!
 //! A distributed full-value probe protects high-cardinality inputs from that full pass.
-//! A rejected probe uses the existing sample estimator, so the probe changes work rather than selection policy.
+//! A high-cardinality probe rejects Dictionary. An inconclusive probe uses the existing sample
+//! estimator.
 //!
 //! If the trial dictionary wins, the compression phase reuses its completed output.
 
@@ -57,13 +58,16 @@ const PROBE_RANGE_SIZE: u32 = 64;
 /// Distributes this many probe ranges across the input.
 const PROBE_RANGE_COUNT: u32 = 128;
 
-/// Sets the numerator for the 80% work-admission threshold.
-const PROBE_DISTINCT_NUMERATOR: usize = 4;
+/// Sets the numerator for the 75% work-admission threshold.
+const PROBE_DISTINCT_NUMERATOR: usize = 3;
 
-/// Sets the denominator for the 80% work-admission threshold.
-const PROBE_DISTINCT_DENOMINATOR: usize = 5;
+/// Sets the denominator for the 75% work-admission threshold.
+const PROBE_DISTINCT_DENOMINATOR: usize = 4;
 
 /// Stores a completed dictionary result for reuse by the compression phase.
+///
+/// The containing [`ArrayAndStats`] exists for one selection and compression call. The cached
+/// result therefore cannot cross compressor configurations or compression contexts.
 #[derive(Debug)]
 pub(super) struct CachedStringDictionary(ArrayRef);
 
@@ -79,16 +83,20 @@ impl CachedStringDictionary {
 enum ProbeResult {
     /// Permits bounded trial dictionary construction.
     Candidate,
-    /// Uses ordinary sample estimation.
-    Sample,
+    /// Rejects Dictionary for a high-cardinality input.
+    Skip,
+    /// Uses ordinary sample estimation because the probe did not finish.
+    Inconclusive,
 }
 
 /// Reports the result of bounded trial dictionary construction.
 enum CandidateResult {
     /// Contains a complete trial dictionary.
     Complete(DictArray),
-    /// Reports that a resource bound stopped trial construction.
-    Sample,
+    /// Reports that a preflight bound prevented trial construction.
+    NotAttempted,
+    /// Reports that trial construction exhausted a bound after work started.
+    Exhausted,
 }
 
 /// Returns a deferred estimate that can reuse a completed dictionary result.
@@ -106,19 +114,23 @@ fn estimate_string_dictionary(
     compress_ctx: CompressorContext,
     exec_ctx: &mut ExecutionCtx,
 ) -> VortexResult<EstimateVerdict> {
-    if probe(data)? == ProbeResult::Sample {
-        return sample_verdict(compressor, data, best_so_far, compress_ctx, exec_ctx);
+    match probe(data)? {
+        ProbeResult::Candidate => {}
+        ProbeResult::Skip => return Ok(EstimateVerdict::Skip),
+        ProbeResult::Inconclusive => {
+            return sample_verdict(compressor, data, best_so_far, compress_ctx, exec_ctx);
+        }
     }
 
     let dictionary = match build_candidate(data, exec_ctx)? {
         CandidateResult::Complete(dictionary) => dictionary,
-        CandidateResult::Sample => {
+        CandidateResult::NotAttempted => {
             return sample_verdict(compressor, data, best_so_far, compress_ctx, exec_ctx);
         }
+        CandidateResult::Exhausted => return Ok(EstimateVerdict::Skip),
     };
     let compressed = compress_dictionary(compressor, &dictionary, compress_ctx, exec_ctx)?;
     let score = EstimateScore::from_sample_sizes(data.array().nbytes(), compressed.nbytes());
-
     if !score_is_best(score, best_so_far) {
         return Ok(EstimateVerdict::Skip);
     }
@@ -170,10 +182,10 @@ fn probe(data: &ArrayAndStats) -> VortexResult<ProbeResult> {
     let validity_bits = match &validity {
         vortex_array::validity::Validity::NonNullable
         | vortex_array::validity::Validity::AllValid => None,
-        vortex_array::validity::Validity::AllInvalid => return Ok(ProbeResult::Sample),
+        vortex_array::validity::Validity::AllInvalid => return Ok(ProbeResult::Inconclusive),
         vortex_array::validity::Validity::Array(validity) => {
             let Some(validity) = validity.as_opt::<Bool>() else {
-                return Ok(ProbeResult::Sample);
+                return Ok(ProbeResult::Inconclusive);
             };
             Some(validity.to_bit_buffer())
         }
@@ -185,7 +197,8 @@ fn probe(data: &ArrayAndStats) -> VortexResult<ProbeResult> {
         .sum::<usize>();
     let mut distinct_values = HashSet::with_capacity(sample_rows);
     let mut probed_bytes = 0usize;
-    let mut valid_rows = 0usize;
+    let mut probed_rows = 0usize;
+    let mut saw_null = false;
 
     let maximum_range_length = sample_ranges
         .iter()
@@ -199,10 +212,12 @@ fn probe(data: &ArrayAndStats) -> VortexResult<ProbeResult> {
             if index >= end {
                 continue;
             }
+            probed_rows += 1;
             if validity_bits
                 .as_ref()
                 .is_some_and(|validity| !validity.value(index))
             {
+                saw_null = true;
                 continue;
             }
             let value = view_bytes(&array, &views[index]);
@@ -213,18 +228,22 @@ fn probe(data: &ArrayAndStats) -> VortexResult<ProbeResult> {
                 break 'probe;
             }
             probed_bytes = next_probed_bytes;
-            valid_rows += 1;
             distinct_values.insert(value);
         }
     }
 
-    if valid_rows != 0
-        && distinct_values.len() * PROBE_DISTINCT_DENOMINATOR
-            <= valid_rows * PROBE_DISTINCT_NUMERATOR
-    {
+    if probed_rows == 0 {
+        return Ok(ProbeResult::Inconclusive);
+    }
+    if probed_rows != sample_rows {
+        return Ok(ProbeResult::Inconclusive);
+    }
+
+    let distinct_values = distinct_values.len() + usize::from(saw_null);
+    if distinct_values * PROBE_DISTINCT_DENOMINATOR <= probed_rows * PROBE_DISTINCT_NUMERATOR {
         Ok(ProbeResult::Candidate)
     } else {
-        Ok(ProbeResult::Sample)
+        Ok(ProbeResult::Skip)
     }
 }
 
@@ -234,10 +253,10 @@ fn build_candidate(
     exec_ctx: &mut ExecutionCtx,
 ) -> VortexResult<CandidateResult> {
     let Some(code_bytes) = candidate_code_bytes(data.array_len(), MAX_DICTIONARY_ENTRIES) else {
-        return Ok(CandidateResult::Sample);
+        return Ok(CandidateResult::NotAttempted);
     };
     if code_bytes > MAX_DICTIONARY_CODE_BYTES {
-        return Ok(CandidateResult::Sample);
+        return Ok(CandidateResult::NotAttempted);
     }
 
     let constraints = DictConstraints {
@@ -251,7 +270,7 @@ fn build_candidate(
         exec_ctx,
     )?;
     if dictionary.len() != data.array_len() {
-        return Ok(CandidateResult::Sample);
+        return Ok(CandidateResult::Exhausted);
     }
 
     Ok(CandidateResult::Complete(dictionary))
@@ -284,7 +303,6 @@ mod tests {
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::arrays::Dict;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
@@ -323,10 +341,27 @@ mod tests {
         ArrayAndStats::new(array, Default::default())
     }
 
+    /// Resolves the Dictionary estimate without another candidate scheme.
+    fn estimate_dictionary(
+        compressor: &CascadingCompressor,
+        data: &ArrayAndStats,
+        exec_ctx: &mut vortex_array::ExecutionCtx,
+    ) -> VortexResult<EstimateVerdict> {
+        let callback = match string_dictionary_estimate() {
+            CompressionEstimate::Deferred(DeferredEstimate::Callback(callback)) => callback,
+            estimate => {
+                return Err(vortex_error::vortex_err!(
+                    "dictionary estimation returned {estimate:?}"
+                ));
+            }
+        };
+        callback(compressor, data, None, CompressorContext::new(), exec_ctx)
+    }
+
     #[test]
     fn probe_distinct_ratio_boundary() -> VortexResult<()> {
         for (distinct_values, expected) in
-            [(6553, ProbeResult::Candidate), (6554, ProbeResult::Sample)]
+            [(6144, ProbeResult::Candidate), (6145, ProbeResult::Skip)]
         {
             let values = (0..8192)
                 .map(|index| {
@@ -344,7 +379,7 @@ mod tests {
     }
 
     #[test]
-    fn probe_distributes_rows_before_byte_limit() -> VortexResult<()> {
+    fn probe_reports_inconclusive_at_byte_limit() -> VortexResult<()> {
         let mut values = (0..65_536)
             .map(|index| Some(format!("{index:0256x}")))
             .collect::<Vec<_>>();
@@ -355,12 +390,40 @@ mod tests {
             values[start..end].fill(Some("x".repeat(256)));
         }
         let data = string_data(&values);
-        assert_eq!(probe(&data)?, ProbeResult::Sample);
+        assert_eq!(probe(&data)?, ProbeResult::Inconclusive);
         Ok(())
     }
 
     #[test]
-    fn candidate_defers_when_dictionary_storage_exceeds_limit() -> VortexResult<()> {
+    fn probe_counts_null_as_one_repeated_value() -> VortexResult<()> {
+        let values = (0..8192)
+            .map(|index| (index % 10 == 0).then(|| format!("unique-non-null-value-{index:08x}")))
+            .collect::<Vec<_>>();
+        let data = string_data(&values);
+
+        assert_eq!(probe(&data)?, ProbeResult::Candidate);
+        Ok(())
+    }
+
+    #[test]
+    fn high_cardinality_probe_is_terminal() -> VortexResult<()> {
+        let values = (0..8192)
+            .map(|index| Some(format!("unique-value-{index:08x}")))
+            .collect::<Vec<_>>();
+        let data = string_data(&values);
+        let compressor = CascadingCompressor::new(vec![&StringDictScheme]);
+        let mut exec_ctx = vortex_array::array_session().create_execution_ctx();
+
+        assert_eq!(probe(&data)?, ProbeResult::Skip);
+        assert!(matches!(
+            estimate_dictionary(&compressor, &data, &mut exec_ctx)?,
+            EstimateVerdict::Skip
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn candidate_stops_when_dictionary_storage_exceeds_limit() -> VortexResult<()> {
         let suffix = "x".repeat(70_000);
         let distinct_values = (0..64)
             .map(|value| format!("{value:08x}-{suffix}"))
@@ -373,7 +436,7 @@ mod tests {
 
         assert!(matches!(
             build_candidate(&data, &mut exec_ctx)?,
-            CandidateResult::Sample
+            CandidateResult::Exhausted
         ));
         Ok(())
     }
@@ -396,7 +459,7 @@ mod tests {
         let data = string_data(&values_past_limit);
         assert!(matches!(
             build_candidate(&data, &mut exec_ctx)?,
-            CandidateResult::Sample
+            CandidateResult::Exhausted
         ));
         Ok(())
     }
@@ -409,21 +472,7 @@ mod tests {
         let data = string_data(&values);
         let compressor = CascadingCompressor::new(vec![&StringDictScheme]);
         let mut exec_ctx = vortex_array::array_session().create_execution_ctx();
-        let callback = match string_dictionary_estimate() {
-            CompressionEstimate::Deferred(DeferredEstimate::Callback(callback)) => callback,
-            estimate => {
-                return Err(vortex_error::vortex_err!(
-                    "dictionary estimation returned {estimate:?}"
-                ));
-            }
-        };
-        let verdict = callback(
-            &compressor,
-            &data,
-            None,
-            CompressorContext::new(),
-            &mut exec_ctx,
-        )?;
+        let verdict = estimate_dictionary(&compressor, &data, &mut exec_ctx)?;
         assert!(matches!(verdict, EstimateVerdict::Ratio(_)));
         let cached = data
             .get::<CachedStringDictionary>()
@@ -436,50 +485,6 @@ mod tests {
         )?;
 
         assert!(ArrayRef::ptr_eq(cached.array(), &compressed));
-        Ok(())
-    }
-
-    #[test]
-    fn sample_fallback_can_select_dictionary() -> VortexResult<()> {
-        let mut values = (0..65_536)
-            .map(|index| Some(format!("repeated-value-{:08x}", index % 2)))
-            .collect::<Vec<_>>();
-        for (start, end) in sample_slices(values.len(), PROBE_RANGE_SIZE, PROBE_RANGE_COUNT) {
-            for index in start..end {
-                values[index] = Some(format!("probe-only-value-{index:08x}"));
-            }
-        }
-        let data = string_data(&values);
-        let compressor = CascadingCompressor::new(vec![&StringDictScheme]);
-        let mut exec_ctx = vortex_array::array_session().create_execution_ctx();
-
-        assert_eq!(probe(&data)?, ProbeResult::Sample);
-        let callback = match string_dictionary_estimate() {
-            CompressionEstimate::Deferred(DeferredEstimate::Callback(callback)) => callback,
-            estimate => {
-                return Err(vortex_error::vortex_err!(
-                    "dictionary estimation returned {estimate:?}"
-                ));
-            }
-        };
-        assert!(matches!(
-            callback(
-                &compressor,
-                &data,
-                None,
-                CompressorContext::new(),
-                &mut exec_ctx,
-            )?,
-            EstimateVerdict::Ratio(_)
-        ));
-        let compressed = StringDictScheme.compress(
-            &compressor,
-            &data,
-            CompressorContext::new(),
-            &mut exec_ctx,
-        )?;
-
-        assert!(compressed.is::<Dict>());
         Ok(())
     }
 }

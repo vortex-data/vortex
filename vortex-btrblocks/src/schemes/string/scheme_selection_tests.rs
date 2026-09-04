@@ -25,6 +25,12 @@ use crate::schemes::string::StringDictScheme;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
+#[derive(Clone, Copy, Debug)]
+enum Distribution {
+    Uniform,
+    Clustered,
+}
+
 #[test]
 fn test_constant_compressed() -> VortexResult<()> {
     let strings: Vec<Option<&str>> = vec![Some("constant_value"); 100];
@@ -52,14 +58,15 @@ fn test_dict_compressed() -> VortexResult<()> {
 }
 
 #[rstest]
-#[case::outlined_utf8(4096, 28, false)]
-#[case::nullable_utf8(4096, 28, true)]
-#[case::outlined_utf8_8192(8192, 28, false)]
-#[case::long_utf8(4096, 256, false)]
+#[case::outlined_utf8(4096, 28, false, Distribution::Uniform)]
+#[case::nullable_utf8(4096, 28, true, Distribution::Uniform)]
+#[case::outlined_utf8_8192(8192, 28, false, Distribution::Uniform)]
+#[case::clustered_utf8(4096, 28, false, Distribution::Clustered)]
 fn test_dict_compressed_with_more_values_than_sample(
     #[case] distinct_count: usize,
     #[case] value_length: usize,
     #[case] nullable: bool,
+    #[case] distribution: Distribution,
 ) -> VortexResult<()> {
     let distinct_values = (0..distinct_count)
         .map(|value| {
@@ -73,8 +80,11 @@ fn test_dict_compressed_with_more_values_than_sample(
         .collect::<Vec<_>>();
     let values = (0..65_536)
         .map(|index| {
-            (!nullable || index % 10 != 0)
-                .then_some(distinct_values[index % distinct_values.len()].as_bytes())
+            let value_index = match distribution {
+                Distribution::Uniform => index % distinct_values.len(),
+                Distribution::Clustered => index * distinct_values.len() / 65_536,
+            };
+            (!nullable || index % 10 != 0).then_some(distinct_values[value_index].as_bytes())
         })
         .collect::<Vec<_>>();
     let nullability = if nullable {
