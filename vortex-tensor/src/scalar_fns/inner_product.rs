@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Inner product expression for tensor-like types.
+//! Inner products for tensor-like columns.
+//!
+//! [`InnerProduct`] derives each result from the decoded input coordinates and preserves
+//! left-to-right floating-point accumulation.
 
 use num_traits::Float;
 use vortex_array::ArrayRef;
@@ -34,11 +37,9 @@ use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
-use crate::encodings::normalized::NormalizedOrientation;
 use crate::matcher::AnyTensor;
 use crate::utils::BinaryTensorOpMetadata;
 use crate::utils::extract_flat_elements;
-use crate::utils::extract_normalized_children;
 use crate::utils::validate_binary_tensor_float_inputs;
 
 /// Inner product (dot product) between two columns.
@@ -52,7 +53,7 @@ use crate::utils::validate_binary_tensor_float_inputs;
 ///
 /// [`FixedShapeTensor`]: crate::fixed_shape_tensor::FixedShapeTensor
 /// [`Vector`]: crate::vector::Vector
-#[derive(Clone)]
+#[derive(Clone, Debug, Default)]
 pub struct InnerProduct;
 
 impl InnerProduct {
@@ -61,8 +62,8 @@ impl InnerProduct {
     ///
     /// # Errors
     ///
-    /// Returns an error if the [`ScalarFnArray`] cannot be constructed (e.g. due to dtype
-    /// mismatches).
+    /// Returns an error unless both inputs are float tensors with the same dtype, ignoring
+    /// top-level nullability.
     pub fn try_new(lhs: ArrayRef, rhs: ArrayRef) -> VortexResult<ScalarFnArray> {
         ScalarFnArray::try_new(InnerProduct.bind(EmptyOptions), vec![lhs, rhs])
     }
@@ -108,20 +109,6 @@ impl ScalarFnVTable for InnerProduct {
         let lhs_ref = args.get(0)?;
         let rhs_ref = args.get(1)?;
         let len = args.row_count();
-
-        // Take any Normalized read-through fast path that applies.
-        match NormalizedOrientation::classify(&lhs_ref, &rhs_ref) {
-            NormalizedOrientation::Both { lhs, rhs } => {
-                return self.execute_both_normalized(lhs, rhs, len, ctx);
-            }
-            NormalizedOrientation::One {
-                normalized_array,
-                plain,
-            } => {
-                return self.execute_one_normalized(normalized_array, plain, len, ctx);
-            }
-            NormalizedOrientation::Neither => {}
-        }
 
         // Compute combined validity.
         let validity = lhs_ref.validity()?.and(rhs_ref.validity()?)?;
@@ -200,72 +187,6 @@ impl ScalarFnArrayVTable for InnerProduct {
     }
 }
 
-impl InnerProduct {
-    /// Both sides are [`Normalized`]-encoded: `inner_product = s_l * s_r * dot(n_l, n_r)`.
-    ///
-    /// [`Normalized`]: crate::encodings::normalized::Normalized
-    fn execute_both_normalized(
-        &self,
-        lhs_ref: &ArrayRef,
-        rhs_ref: &ArrayRef,
-        len: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        let validity = lhs_ref.validity()?.and(rhs_ref.validity()?)?;
-
-        let (normalized_l, norms_l) = extract_normalized_children(lhs_ref);
-        let (normalized_r, norms_r) = extract_normalized_children(rhs_ref);
-
-        let norms_l: PrimitiveArray = norms_l.execute(ctx)?;
-        let norms_r: PrimitiveArray = norms_r.execute(ctx)?;
-
-        let dot: PrimitiveArray = InnerProduct::try_new(normalized_l, normalized_r)?
-            .into_array()
-            .execute(ctx)?;
-
-        match_each_float_ptype!(dot.ptype(), |T| {
-            let dots = dot.as_slice::<T>();
-            let nl = norms_l.as_slice::<T>();
-            let nr = norms_r.as_slice::<T>();
-            let buffer: Buffer<T> = (0..len).map(|i| nl[i] * nr[i] * dots[i]).collect();
-
-            // SAFETY: The buffer length equals `len`, which matches the source validity length.
-            Ok(unsafe { PrimitiveArray::new_unchecked(buffer, validity) }.into_array())
-        })
-    }
-
-    /// One side is [`Normalized`]-encoded: `inner_product = s * dot(n, other)`.
-    ///
-    /// [`Normalized`]: crate::encodings::normalized::Normalized
-    ///
-    /// The caller must pass the [`Normalized`] array as `normalized_ref` and the plain array as `plain_ref`.
-    fn execute_one_normalized(
-        &self,
-        normalized_ref: &ArrayRef,
-        plain_ref: &ArrayRef,
-        len: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        let validity = normalized_ref.validity()?.and(plain_ref.validity()?)?;
-
-        let (normalized, norms) = extract_normalized_children(normalized_ref);
-        let normalized_norms: PrimitiveArray = norms.execute(ctx)?;
-
-        let dot: PrimitiveArray = InnerProduct::try_new(normalized, plain_ref.clone())?
-            .into_array()
-            .execute(ctx)?;
-
-        match_each_float_ptype!(dot.ptype(), |T| {
-            let dots = dot.as_slice::<T>();
-            let ns = normalized_norms.as_slice::<T>();
-            let buffer: Buffer<T> = (0..len).map(|i| ns[i] * dots[i]).collect();
-
-            // SAFETY: The buffer length equals `len`, which matches the source validity length.
-            Ok(unsafe { PrimitiveArray::new_unchecked(buffer, validity) }.into_array())
-        })
-    }
-}
-
 /// Computes the inner product (dot product) of two equal-length float slices.
 ///
 /// Returns `sum(a_i * b_i)`.
@@ -278,7 +199,6 @@ fn inner_product_row<T: Float + NativePType>(a: &[T], b: &[T]) -> T {
 
 #[cfg(test)]
 mod tests {
-
     use rstest::rstest;
     use vortex_array::ArrayDeserialization;
     use vortex_array::ArrayPlugin;
@@ -291,11 +211,9 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
 
-    use crate::encodings::normalized::Normalized;
     use crate::scalar_fns::inner_product::InnerProduct;
     use crate::tests::SESSION;
     use crate::utils::test_helpers::assert_close;
-    use crate::utils::test_helpers::normalized_array;
     use crate::utils::test_helpers::tensor_array;
     use crate::utils::test_helpers::vector_array;
 
@@ -405,78 +323,6 @@ mod tests {
         let rhs = vector_array(2, &[3.0_f64, 4.0])?;
         let result = InnerProduct::try_new(lhs, rhs);
         assert!(result.is_err());
-        Ok(())
-    }
-
-    #[test]
-    fn both_normalized() -> VortexResult<()> {
-        // LHS: [3.0, 4.0] = Normalized([0.6, 0.8], 5.0).
-        // RHS: [1.0, 0.0] = Normalized([1.0, 0.0], 1.0).
-        // dot([3.0, 4.0], [1.0, 0.0]) = 3.0.
-        let mut ctx = SESSION.create_execution_ctx();
-        let lhs = normalized_array(&[2], &[0.6, 0.8], &[5.0], &mut ctx)?;
-        let rhs = normalized_array(&[2], &[1.0, 0.0], &[1.0], &mut ctx)?;
-
-        // Expected: 5.0 * 1.0 * dot([0.6, 0.8], [1.0, 0.0]) = 5.0 * 0.6 = 3.0.
-        assert_close(&eval_inner_product(lhs, rhs)?, &[3.0]);
-        Ok(())
-    }
-
-    #[test]
-    fn both_normalized_multiple_rows() -> VortexResult<()> {
-        // Row 0: [3.0, 4.0] dot [3.0, 4.0] = 25.0.
-        // Row 1: [1.0, 0.0] dot [0.0, 1.0] = 0.0.
-        let mut ctx = SESSION.create_execution_ctx();
-        let lhs = normalized_array(&[2], &[0.6, 0.8, 1.0, 0.0], &[5.0, 1.0], &mut ctx)?;
-        let rhs = normalized_array(&[2], &[0.6, 0.8, 0.0, 1.0], &[5.0, 1.0], &mut ctx)?;
-
-        assert_close(&eval_inner_product(lhs, rhs)?, &[25.0, 0.0]);
-        Ok(())
-    }
-
-    #[test]
-    fn one_side_normalized_lhs() -> VortexResult<()> {
-        // LHS: Normalized([0.6, 0.8], 5.0) representing [3.0, 4.0].
-        // RHS: plain [1.0, 2.0].
-        // dot([3.0, 4.0], [1.0, 2.0]) = 3.0 + 8.0 = 11.0.
-        let mut ctx = SESSION.create_execution_ctx();
-        let lhs = normalized_array(&[2], &[0.6, 0.8], &[5.0], &mut ctx)?;
-        let rhs = tensor_array(&[2], &[1.0, 2.0])?;
-
-        assert_close(&eval_inner_product(lhs, rhs)?, &[11.0]);
-        Ok(())
-    }
-
-    #[test]
-    fn one_side_normalized_rhs() -> VortexResult<()> {
-        // LHS: plain [1.0, 2.0].
-        // RHS: Normalized([0.6, 0.8], 5.0) representing [3.0, 4.0].
-        // dot([1.0, 2.0], [3.0, 4.0]) = 3.0 + 8.0 = 11.0.
-        let mut ctx = SESSION.create_execution_ctx();
-        let lhs = tensor_array(&[2], &[1.0, 2.0])?;
-        let rhs = normalized_array(&[2], &[0.6, 0.8], &[5.0], &mut ctx)?;
-
-        assert_close(&eval_inner_product(lhs, rhs)?, &[11.0]);
-        Ok(())
-    }
-
-    #[test]
-    fn both_normalized_null_rows() -> VortexResult<()> {
-        let normalized_l = tensor_array(&[2], &[0.6, 0.8, 1.0, 0.0])?;
-        let norms_l = PrimitiveArray::from_iter([5.0f64, 1.0]).into_array();
-        let mut ctx = SESSION.create_execution_ctx();
-
-        let validity = Validity::from_iter([true, false]);
-        let lhs = Normalized::try_new(normalized_l, norms_l, validity, &mut ctx)?.into_array();
-        let rhs = normalized_array(&[2], &[0.6, 0.8, 1.0, 0.0], &[5.0, 1.0], &mut ctx)?;
-
-        let result = InnerProduct::try_new(lhs, rhs)?;
-        let prim: PrimitiveArray = result.into_array().execute(&mut ctx)?;
-
-        // Row 0: 5.0 * 5.0 * dot([0.6, 0.8], [0.6, 0.8]) = 25.0, row 1: null.
-        assert!(prim.is_valid(0, &mut ctx)?);
-        assert!(!prim.is_valid(1, &mut ctx)?);
-        assert_close(&[prim.as_slice::<f64>()[0]], &[25.0]);
         Ok(())
     }
 
