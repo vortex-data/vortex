@@ -7,6 +7,11 @@ include(FetchContent)
 project(VortexFFI
     VERSION 0.0.1
     LANGUAGES C)
+
+# Vortex does not use C++ modules, so it does not require compiler-specific
+# dependency scanners such as clang-scan-deps.
+set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
+
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Werror -Wextra -Wpedantic")
