@@ -49,6 +49,8 @@ final class VortexScan(
   private val hadoopConf =
     sparkSession.sessionState.newHadoopConfWithOptions(caseSensitiveOptions)
   private val io = VortexIo.create(options, hadoopConf)
+  private val caseSensitive =
+    sparkSession.sessionState.conf.caseSensitiveAnalysis
 
   override def isSplitable(path: Path): Boolean = false
 
@@ -75,7 +77,8 @@ final class VortexScan(
           dataSchema,
           readDataSchema,
           readPartitionSchema,
-          pushedFilters
+          pushedFilters,
+          caseSensitive
         )
     }
   }
@@ -117,6 +120,7 @@ final class VortexScan(
       super.equals(
         scan
       ) && dataSchema == scan.dataSchema && options == scan.options &&
+      caseSensitive == scan.caseSensitive &&
       equivalentFilters(pushedFilters, scan.pushedFilters) && aggregationsEqual
     case _ => false
   }

@@ -21,15 +21,11 @@ import org.apache.spark.sql.execution.datasources.{
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.sources.{DataSourceRegister, Filter}
 import org.apache.spark.sql.types.{DataType, StructType}
-import org.apache.spark.sql.vectorized.ColumnarBatch
+import org.apache.spark.sql.vectorized.{ColumnVector, ColumnarBatch}
 
 import dev.vortex.spark.VortexOptions
 import dev.vortex.spark.io.VortexIo
-import dev.vortex.spark.read.{
-  VortexArrowColumnVector,
-  VortexFooterReader,
-  VortexPartitionReader
-}
+import dev.vortex.spark.read.{VortexFooterReader, VortexPartitionReader}
 import dev.vortex.spark.write.{SparkToArrowSchema, VortexOutputWriterFactory}
 
 /** V1 fallback used for catalog tables and when Vortex is listed in
@@ -82,7 +78,7 @@ final class VortexFileFormat
   ): Option[Seq[String]] =
     Some(
       Seq.fill(requiredSchema.length)(
-        classOf[VortexArrowColumnVector].getName
+        classOf[ColumnVector].getName
       ) ++
         Seq.fill(partitionSchema.length)(classOf[ConstantColumnVector].getName)
     )
@@ -106,6 +102,7 @@ final class VortexFileFormat
   ): PartitionedFile => Iterator[InternalRow] = {
     val optionMap = VortexOptions.of(options.asJava)
     val io = VortexIo.create(optionMap, hadoopConf)
+    val caseSensitive = spark.sessionState.conf.caseSensitiveAnalysis
     (file: PartitionedFile) => {
       val reader = new VortexPartitionReader(
         file,
@@ -114,7 +111,8 @@ final class VortexFileFormat
         new StructType(),
         io,
         optionMap,
-        filters.toArray
+        filters.toArray,
+        caseSensitive
       )
       Option(TaskContext.get())
         .foreach(_.addTaskCompletionListener[Unit](_ => reader.close()))
@@ -176,6 +174,7 @@ final class VortexFileFormat
 
     val optionMap = VortexOptions.of(options.asJava)
     val io = VortexIo.create(optionMap, hadoopConf)
+    val caseSensitive = spark.sessionState.conf.caseSensitiveAnalysis
     (file: PartitionedFile) => {
       val reader = new VortexPartitionReader(
         file,
@@ -184,7 +183,8 @@ final class VortexFileFormat
         partitionSchema,
         io,
         optionMap,
-        filters.toArray
+        filters.toArray,
+        caseSensitive
       )
       Option(TaskContext.get()).foreach(
         _.addTaskCompletionListener[Unit](_ => reader.close())

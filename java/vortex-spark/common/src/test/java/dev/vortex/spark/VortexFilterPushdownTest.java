@@ -34,6 +34,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * Tests that Spark predicate pushdown into the Vortex datasource produces correct results.
@@ -67,6 +69,31 @@ public final class VortexFilterPushdownTest {
     public void tearDown() {
         if (spark != null) {
             spark.stop();
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void nullSafeEqualityPreservesNullsUnderNegation(boolean v1) {
+        SparkSession session = spark.newSession();
+        SparkSession.setActiveSession(session);
+        session.conf().set("spark.sql.sources.useV1SourceList", v1 ? "vortex" : "");
+        Dataset<Row> source = session.sql(
+                "SELECT 0 AS id, CAST(NULL AS BIGINT) AS value UNION ALL SELECT 1, 1L UNION ALL SELECT 2, 2L");
+        Path output = tempDir.resolve("null_safe_" + v1);
+        source.coalesce(1).write().format("vortex").save(output.toString());
+        Dataset<Row> data = session.read().format("vortex").load(output.toString());
+
+        for (String predicate : List.of(
+                "NOT (value <=> 1L)",
+                "value <=> 1L",
+                "value <=> NULL",
+                "NOT (value <=> NULL)",
+                "NOT ((value <=> 1L) OR id = 2)")) {
+            assertEquals(
+                    source.where(predicate).orderBy("id").collectAsList(),
+                    data.where(predicate).orderBy("id").collectAsList(),
+                    predicate);
         }
     }
 
@@ -574,6 +601,7 @@ public final class VortexFilterPushdownTest {
 
     @AfterEach
     public void cleanupTempFiles() throws IOException {
+        SparkSession.setActiveSession(spark);
         if (tempDir != null && Files.exists(tempDir)) {
             try (Stream<Path> paths = Files.walk(tempDir)) {
                 paths.sorted(Comparator.reverseOrder()).forEach(path -> {

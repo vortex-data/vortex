@@ -4,6 +4,7 @@
 package dev.vortex.spark;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
@@ -67,6 +68,27 @@ public final class VortexV1FallbackTest {
                 data.orderBy("id").limit(3).collectAsList().stream()
                         .map(row -> row.getInt(0))
                         .toList());
+    }
+
+    @Test
+    void readsMissingColumnsWithCodegen() {
+        Path output = tempDir.resolve("v1_merged");
+        spark.range(1).coalesce(1).write().format("vortex").save(output.toString());
+        spark.range(1, 2)
+                .selectExpr("id", "2.5D as added")
+                .coalesce(1)
+                .write()
+                .format("vortex")
+                .mode(SaveMode.Append)
+                .save(output.toString());
+
+        Dataset<Row> data =
+                spark.read().format("vortex").load(output.toString()).orderBy("id");
+        assertTrue(plan(data).contains("Batched: true"), plan(data));
+        List<Row> rows = data.collectAsList();
+        assertEquals(2, rows.size());
+        assertNull(rows.get(0).get(1));
+        assertEquals(2.5, rows.get(1).getDouble(1));
     }
 
     @Test

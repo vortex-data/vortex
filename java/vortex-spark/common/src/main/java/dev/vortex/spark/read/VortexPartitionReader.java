@@ -23,11 +23,12 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashSet;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
+import java.util.TreeMap;
 import org.apache.spark.sql.connector.read.PartitionReader;
 import org.apache.spark.sql.execution.datasources.PartitionedFile;
 import org.apache.spark.sql.execution.vectorized.ConstantColumnVector;
@@ -69,7 +70,8 @@ public final class VortexPartitionReader implements PartitionReader<ColumnarBatc
             StructType readPartitionSchema,
             VortexIo io,
             VortexOptions formatOptions,
-            Filter[] pushedFilters) {
+            Filter[] pushedFilters,
+            boolean caseSensitive) {
         this.file = file;
         this.readDataSchema = readDataSchema;
         this.readPartitionSchema = readPartitionSchema;
@@ -79,14 +81,15 @@ public final class VortexPartitionReader implements PartitionReader<ColumnarBatc
             readable = io.openReadable(new VortexFile(file.toPath().toString(), file.fileSize()));
             dataSource = DataSource.open(session, List.of(readable), io.readConcurrency());
 
-            Set<String> fileFields = fieldNames(dataSource);
+            Map<String, String> fileFields = fieldNames(dataSource, caseSensitive);
             List<String> projection = new ArrayList<>(readDataSchema.length());
             this.vectorSlots = new int[readDataSchema.length()];
             StructField[] fields = readDataSchema.fields();
             for (int i = 0; i < fields.length; i++) {
-                if (fileFields.contains(fields[i].name())) {
+                String fileName = fileFields.get(fields[i].name());
+                if (fileName != null) {
                     vectorSlots[i] = projection.size();
-                    projection.add(fields[i].name());
+                    projection.add(fileName);
                 } else if (fields[i].nullable()) {
                     vectorSlots[i] = -1;
                 } else {
@@ -113,17 +116,27 @@ public final class VortexPartitionReader implements PartitionReader<ColumnarBatc
         }
     }
 
-    private Set<String> fieldNames(DataSource source) {
-        Set<String> names = new HashSet<>();
+    private Map<String, String> fieldNames(DataSource source, boolean caseSensitive) {
+        Map<String, String> names = caseSensitive ? new HashMap<>() : new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         for (Field field : source.arrowSchema(allocator).getFields()) {
-            names.add(field.getName());
+            String name = field.getName();
+            String previous = names.putIfAbsent(name, name);
+            if (previous != null) {
+                throw new IllegalArgumentException(String.format(
+                        Locale.ROOT,
+                        "Ambiguous columns %s and %s in %s under Spark's case sensitivity setting",
+                        previous,
+                        name,
+                        file.toPath()));
+            }
         }
         return names;
     }
 
-    private static StructType restrictTo(StructType schema, Set<String> names) {
+    private static StructType restrictTo(StructType schema, Map<String, String> names) {
+        // Native filters use physical field names. Filters with different casing stay with Spark.
         StructField[] present = Arrays.stream(schema.fields())
-                .filter(field -> names.contains(field.name()))
+                .filter(field -> field.name().equals(names.get(field.name())))
                 .toArray(StructField[]::new);
         return present.length == schema.length() ? schema : new StructType(present);
     }

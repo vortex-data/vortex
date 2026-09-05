@@ -143,7 +143,12 @@ public final class SparkFilterToVortexExpression {
             return Optional.empty();
         }
         Optional<Expression> literal = literal(value, column.get().dataType());
-        return literal.map(expression -> Expression.binary(op, column.get().expression(), expression));
+        return literal.map(expression -> {
+            Expression field = column.get().expression();
+            Expression comparison = Expression.binary(op, field, expression);
+            // Null-safe equality must return false for a null field, including beneath NOT.
+            return nullSafe ? Expression.and(Expression.isNotNull(field), comparison) : comparison;
+        });
     }
 
     private static Optional<Expression> convertIn(In in, StructType dataSchema) {
