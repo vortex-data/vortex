@@ -32,6 +32,7 @@ The Java bindings are supported on the following architectures:
 * x86_64 Linux
 * ARM64 Linux
 * Apple Silicon macOS
+* x86_64 Windows
 
 They support any Linux distribution with a GLIBC version >= 2.31. This includes
 

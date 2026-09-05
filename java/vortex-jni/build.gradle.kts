@@ -129,7 +129,11 @@ val libExt =
         "win" -> ".dll"
         else -> throw GradleException("Unsupported OS short name: $osShortName")
     }
-val nativeLibrary = rustWorkspaceDir.resolve("target/debug/libvortex_jni$libExt")
+// Cargo emits `vortex_jni.dll` on Windows and `libvortex_jni.{so,dylib}` elsewhere. The
+// bundled resources always use the `lib` prefix so that NativeLoader can build one name.
+val bundledLibraryName = "libvortex_jni$libExt"
+val cargoLibraryName = if (osShortName == "win") "vortex_jni$libExt" else bundledLibraryName
+val nativeLibrary = rustWorkspaceDir.resolve("target/debug/$cargoLibraryName")
 val nativeLibraryDir = "src/main/resources/native/$osShortName-$osArch"
 
 val buildJniLibrary =
@@ -156,7 +160,9 @@ tasks.register<Copy>("makeTestFiles") {
 
     // Only populate the host-arch directory so cross-compiled libs for other
     // architectures (placed by the publish workflow) are preserved.
-    from(nativeLibrary)
+    from(nativeLibrary) {
+        rename { bundledLibraryName }
+    }
     into(nativeLibraryDir)
 }
 

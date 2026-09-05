@@ -30,6 +30,7 @@ jobs:
           - { os: macos, runs-on: "macos-15-intel", target: x86_64-apple-darwin }
           - { os: ubuntu, runs-on: "ubuntu-latest", target: aarch64-unknown-linux-gnu }
           - { os: ubuntu, runs-on: "ubuntu-latest", target: x86_64-unknown-linux-gnu }
+          - { os: windows, runs-on: "windows-latest", target: x86_64-pc-windows-msvc }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
@@ -46,6 +47,7 @@ jobs:
           tool: cargo-edit@0.13.10
 
       - name: Cargo Set Version
+        shell: bash
         run: |
           cargo set-version --workspace ${{ inputs.version }}
 
@@ -56,8 +58,11 @@ jobs:
       - name: Set Python extension version pins
         env:
           VERSION: ${{ inputs.version }}
+        shell: bash
         run: |
-          python3 - <<'PY'
+          # Not every runner image puts a `python3` on PATH; Windows may only have `python`.
+          PYTHON="$(command -v python3 || command -v python)"
+          "$PYTHON" - <<'PY'
           import os
           import re
           from pathlib import Path
@@ -79,8 +84,9 @@ jobs:
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7
-        # Latest macOS doesn't allow maturin to install stuff into the global Python interpreter
-        if: "${{ matrix.target.runs-on == 'macos-latest' }}"
+        # Latest macOS doesn't allow maturin to install stuff into the global Python interpreter.
+        # Windows has no versioned `python3.11` executable, so pin what `python` resolves to.
+        if: "${{ matrix.target.runs-on == 'macos-latest' || matrix.target.os == 'windows' }}"
         with:
           python-version: "3.11"
 
@@ -96,7 +102,7 @@ jobs:
             --release
             --manifest-path vortex-python/Cargo.toml
             --out dist
-            --interpreter python3.11
+            --interpreter ${{ (matrix.target.os == 'windows' && 'python') || 'python3.11' }}
         env:
           MATURIN_PEP517_USE_BASE_PYTHON: "true"
           # Keep this constant to avoid pyo3 invalidating itself
@@ -128,6 +134,44 @@ jobs:
         with:
           name: "libvortex_jni_aarch64-apple-darwin.zip"
           path: "target/release/libvortex_jni.dylib"
+          retention-days: 7
+          if-no-files-found: error
+
+  prepare-java-windows:
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/pool=windows-x64-pre/extras=s3-cache', github.run_id)
+          || 'windows-latest' }}
+    timeout-minutes: 90
+    steps:
+      - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
+        with:
+          sccache: s3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961  # v5
+        with:
+          distribution: "corretto"
+          java-version: "17"
+      - name: Setup (Windows)
+        run: |
+          echo "C:\rust\cargo\bin" >> $env:GITHUB_PATH
+      - uses: ./.github/actions/setup-prebuild
+        with:
+          enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
+      - run: cargo build --release --package vortex-jni
+        shell: bash
+      # Cargo names the Windows cdylib `vortex_jni.dll`; the bundled resource keeps the
+      # `lib` prefix used on every other platform so NativeLoader builds a single name.
+      - name: Rename JNI library
+        shell: bash
+        run: cp target/release/vortex_jni.dll target/release/libvortex_jni.dll
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        with:
+          name: "libvortex_jni_x86_64-pc-windows-msvc.zip"
+          path: "target/release/libvortex_jni.dll"
           retention-days: 7
           if-no-files-found: error
 
@@ -171,7 +215,7 @@ jobs:
           if-no-files-found: error
 
   prepare-all:
-    needs: [prepare-python, prepare-java-macos, prepare-java-linux]
+    needs: [prepare-python, prepare-java-macos, prepare-java-linux, prepare-java-windows]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
