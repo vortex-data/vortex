@@ -9,11 +9,12 @@ We provide two interfaces for working with Vortex from Java:
 
 ## Publishing
 
-We publish three artifacts out of this repo at CI time to Maven Central Sonatype:
+We publish the JNI artifacts and three Spark connector variants from this repo to Maven Central:
 
 * `vortex-jni` JAR containing the JNI code, plus compiled native libraries for all of the following targets: `aarch64-apple-darwin`, `aarch64-unknown-linux-gnu`, `x86_64-unknown-linux-gnu`
 * `vortex-jni-all` which is the "shadow JAR" containing all of `vortex-jni` as well as all upstream Java dependencies packaged in a single JAR.
-* `vortex-spark` which is the runtime JAR needed for the Vortex Spark bindings
+* `vortex-spark-3.5_2.12`, `vortex-spark-3.5_2.13`, and `vortex-spark-4.0_2.13`, which are the
+  Spark-versioned connector artifacts
 
 We use the [following GPG key](https://keyserver.ubuntu.com/pks/lookup?search=8745D1A87C0B2159&fingerprint=on&op=index) for publishing:
 
@@ -35,4 +36,3 @@ vWBCujQBRqlcCGIIawcI
 ```
 
 The private key and passphrase for the publish key are owned by the Vortex Dev Team.
-

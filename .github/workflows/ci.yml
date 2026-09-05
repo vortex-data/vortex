@@ -547,9 +547,11 @@ jobs:
       - uses: ./.github/actions/setup-prebuild
         with:
           enable-sccache: "true"
-      - run: ./gradlew javadoc
+      - name: Generate Java API documentation
+        run: ./gradlew javadoc
         working-directory: ./java
-      - run: ./gradlew check
+      - name: Check all Spark and Scala variants
+        run: ./gradlew check
         working-directory: ./java
 
   license-check-and-audit-check:

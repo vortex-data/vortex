@@ -1,115 +1,90 @@
 # vortex-spark
 
-A Spark DataSource V2 connector for reading and writing [Vortex](https://vortex.dev) files.
-It registers itself under the format name `vortex` and supports both the DataFrame API and
-Spark SQL.
+A Spark file data source for reading and writing [Vortex](https://vortex.dev) files. It
+registers itself as `vortex` and supports the DataFrame API and Spark SQL without session
+extensions or custom catalogs.
 
-Two flavors are published to Maven Central:
+Choose the artifact matching both Spark and Scala:
 
-| Artifact                      | Spark     | Scala |
-|-------------------------------|-----------|-------|
-| `dev.vortex:vortex-spark_2.13` | Spark 4.x | 2.13  |
-| `dev.vortex:vortex-spark_2.12` | Spark 3.5.x | 2.12 |
+| Artifact                           | Spark         | Scala |
+|------------------------------------|---------------|-------|
+| `dev.vortex:vortex-spark-3.5_2.12` | 3.5.x         | 2.12  |
+| `dev.vortex:vortex-spark-3.5_2.13` | 3.5.x         | 2.13  |
+| `dev.vortex:vortex-spark-4.0_2.13` | 4.0.x and 4.1.x | 2.13 |
 
-Use the `all` classifier JAR (e.g. `vortex-spark_2.13-0.85.0-all.jar`). It is self-contained:
-it bundles the Vortex JNI bindings, native libraries for Linux (x86_64 and aarch64) and macOS
-(aarch64), and relocates its Arrow, Guava, and Jackson dependencies to avoid classpath
-conflicts with Spark. The thin (unclassified) JAR does not work on its own because it
-references relocated classes that only ship in the `all` JAR.
+Use the `all` classifier JAR. It bundles the Vortex JNI bindings, native libraries, and
+relocated Arrow, Guava, and Jackson dependencies. The unclassified thin JAR is not usable by
+itself.
 
-## Getting Vortex into Spark
-
-Pass the `all` JAR to `spark-shell`, `spark-submit`, or `pyspark` with `--jars`. Spark accepts
-either a local path or a URL, so you can point directly at Maven Central:
+For example, with version `VERSION`:
 
 ```shell
-spark-shell --jars https://repo1.maven.org/maven2/dev/vortex/vortex-spark_2.13/0.85.0/vortex-spark_2.13-0.85.0-all.jar
+spark-shell --jars https://repo1.maven.org/maven2/dev/vortex/vortex-spark-4.0_2.13/VERSION/vortex-spark-4.0_2.13-VERSION-all.jar
 ```
 
-Or configure it on the session builder, e.g. in PySpark:
-
-```python
-spark = (
-    SparkSession.builder
-    .config("spark.jars", "/path/to/vortex-spark_2.13-0.85.0-all.jar")
-    .getOrCreate()
-)
-```
-
-Note that `--packages dev.vortex:vortex-spark_2.13:0.85.0` does not work: `--packages` cannot
-select the `all` classifier and resolves the thin JAR, which fails at runtime with
-`NoClassDefFoundError: dev/vortex/relocated/...`.
-
-To depend on the connector from a JVM project instead, add the `all` classifier to the
-dependency:
+Or add the classified artifact to a JVM project:
 
 ```kotlin
-implementation("dev.vortex:vortex-spark_2.13:0.85.0:all")
+implementation("dev.vortex:vortex-spark-4.0_2.13:VERSION:all")
 ```
+
+Spark's `--packages` flag cannot select the `all` classifier, so pass the classified JAR with
+`--jars` instead.
 
 ## Usage
 
-Paths may be local filesystem paths (`/path/to/data`) or URLs (`file:///path/to/data`,
-`s3://bucket/path/to/data`).
-
-### DataFrame API
-
 ```java
-// Write
 df.write()
     .format("vortex")
-    .option("path", "/path/to/output")
     .mode(SaveMode.Overwrite)
-    .save();
+    .save("/path/to/output");
 
-// Read a single file or a directory of .vortex files
-Dataset<Row> df = spark.read()
+Dataset<Row> result = spark.read()
     .format("vortex")
-    .option("path", "/path/to/output")
-    .load();
+    .load("/path/to/output");
 ```
 
-### Spark SQL
+Spark discovers files, Hive-style partitions, and storage credentials through its Hadoop
+configuration. This also enables standard file-source options such as `pathGlobFilter` and
+`recursiveFileLookup`. All file content is read and written through Hadoop streams.
+
+Every file in a Vortex dataset must end with `.vortex`. Writes produce that extension, and a
+dataset holding any other file is rejected rather than read in part.
 
 ```sql
--- Query existing Vortex files through a temporary view
-CREATE TEMPORARY VIEW people
-USING vortex
-OPTIONS (path '/path/to/data');
-
-SELECT name, age FROM people WHERE age > 30;
-
--- Create a table and write to it. With a LOCATION clause the table is external,
--- backed by the files at that path; without one it is managed by Spark.
-CREATE TABLE student (id INT, name STRING, age INT)
-USING vortex;
-
-INSERT INTO student VALUES (1, 'Alice', 20), (2, 'Bob', 21);
-
+CREATE TABLE student (id INT, name STRING) USING vortex;
+INSERT INTO student VALUES (1, 'Alice'), (2, 'Bob');
 SELECT * FROM student;
+
+SELECT * FROM vortex.`/path/to/output`;
 ```
 
-On Spark 3.5, `CREATE TABLE ... USING vortex` additionally requires replacing the session
-catalog with `spark.sql.catalog.spark_catalog=dev.vortex.spark.VortexSessionCatalog`,
-because Spark 3.5's built-in catalog cannot read tables backed by a DataSource V2-only
-connector. The extension delegates everything else to the built-in session catalog and
-leaves tables of other providers untouched; it is not needed on Spark 4.
+`CREATE TABLE ... USING vortex` and direct path queries work on Spark 3.5 and 4.x without
+catalog configuration. Catalog tables read and write through the V1 file format;
+`spark.sql.sources.useV1SourceList=vortex` puts every path on it, which is what the `_metadata`
+column and dynamic partition pruning need.
 
-### Direct file queries
+## Benchmarks
 
-Spark's built-in ``SELECT * FROM format.`path` `` syntax only works for built-in file
-formats, so the connector ships a path-based catalog that provides the equivalent for
-Vortex. Register it under the name `vortex` with this session config:
+JMH benchmarks live in `common/src/jmh/java`. They measure the per-file open cost of the
+framework's file-splitting model and the footer reads behind statistics and `COUNT(*)` pushdown.
+Run them for one variant and pass JMH arguments through `-PjmhArgs`:
 
-```
-spark.sql.catalog.vortex=dev.vortex.spark.VortexCatalog
-```
-
-Then query (or insert into) Vortex files directly by path:
-
-```sql
-SELECT * FROM vortex.`/path/to/data`;
+```bash
+cd java
+./gradlew :vortex-spark-4.0_2.13:jmh -PjmhArgs="SparkScanBenchmark -p fileCount=1,128"
+./gradlew :vortex-spark-4.0_2.13:jmh -PjmhArgs="FooterReadBenchmark -f 1 -wi 2 -i 5"
 ```
 
-See the [Spark user guide](https://docs.vortex.dev/user-guide/spark.html) for the full
-documentation, including supported types, write options, and S3 configuration.
+## Migrating from the old connector
+
+- Replace `vortex-spark_2.12` or `vortex-spark_2.13` with the versioned artifact above.
+- Remove `spark.sql.catalog.spark_catalog=dev.vortex.spark.VortexSessionCatalog` and
+  `spark.sql.catalog.vortex=dev.vortex.spark.VortexCatalog`; those classes no longer exist.
+- Configure remote filesystems through Hadoop and use their Hadoop schemes, such as `s3a://`
+  and `abfs://`. Spark's file index now owns listing and skips hidden `_`-prefixed files.
+- All reads and writes use Hadoop streams. The `vortex.io` option and Vortex's native storage
+  clients (with their `aws_*`/`azure_*` options) are no longer available from Spark.
+
+See the [Spark user guide](https://docs.vortex.dev/user-guide/spark.html) for supported types,
+options, partitioning, and remote storage details.
