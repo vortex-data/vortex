@@ -29,10 +29,14 @@ use crate::arrays::ScalarFnArray;
 use crate::arrays::bool::BoolArrayExt;
 use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::arrays::primitive::PrimitiveArrayExt;
+use crate::builders::builder_with_capacity;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
+use crate::expr::stats::Precision;
+use crate::expr::stats::Stat;
+use crate::expr::stats::StatsProviderExt;
 use crate::match_each_integer_ptype;
 use crate::match_each_unsigned_integer_ptype;
 use crate::scalar::ListScalar;
@@ -46,6 +50,12 @@ use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::operators::Operator;
+use crate::search_sorted::NullEquality;
+use crate::search_sorted::SortedArray;
+use crate::search_sorted::SortedDirection;
+use crate::search_sorted::SortedNulls;
+use crate::search_sorted::SortedOrder;
+use crate::search_sorted::sorted_membership_mask;
 use crate::validity::Validity;
 
 #[derive(Clone)]
@@ -189,7 +199,7 @@ fn compute_list_contains(
     if let Some(value_scalar) = value.as_constant() {
         list_contains_scalar(array, &value_scalar, nullability, ctx)
     } else if let Some(list_scalar) = array.as_constant() {
-        constant_list_scalar_contains(&list_scalar.as_list(), value, nullability)
+        constant_list_scalar_contains(&list_scalar.as_list(), value, nullability, ctx)
     } else {
         todo!("unsupported list contains with list and element as arrays")
     }
@@ -200,8 +210,13 @@ fn constant_list_scalar_contains(
     list_scalar: &ListScalar,
     values: &ArrayRef,
     nullability: Nullability,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let elements = list_scalar.elements().vortex_expect("non null");
+
+    if let Some(result) = try_sorted_membership_contains(&elements, values, nullability, ctx)? {
+        return Ok(result);
+    }
 
     let len = values.len();
     let false_scalar = Scalar::bool(false, nullability);
@@ -222,6 +237,105 @@ fn constant_list_scalar_contains(
         .try_reduce_balanced(|acc, res| acc.binary(res, Operator::Or))?;
 
     Ok(result.unwrap_or_else(|| ConstantArray::new(false_scalar, len).into_array()))
+}
+
+/// Fast path for `values IN (elements)` when `values` is already known sorted (ascending,
+/// nulls-first) via `Stat::IsSorted`/`Stat::IsStrictSorted`. Replaces the `O(elements *
+/// values.len())` equality fan-out below with a single sorted merge.
+///
+/// The literal `elements` are re-sorted and de-duplicated on every call rather than cached across
+/// chunks: `ScalarFnVTable::execute` runs once per chunk with no cross-chunk cache today, but IN
+/// lists are normally small, so `O(elements * log(elements))` per chunk is negligible next to the
+/// `O(elements * values.len())` fan-out it replaces.
+///
+/// Returns `Ok(None)` when the fast path does not apply (unsorted or unsorted-unknown `values`, or
+/// an unsupported/floating-point element dtype — float exclusion avoids a mismatch between
+/// `Scalar`'s `PartialOrd`, which cannot order NaN, and the total order `SortedArray` validates
+/// against), in which case the caller falls back to the equality fan-out unchanged.
+/// Below this many literal elements, the fixed cost of sorting the members and constructing a
+/// `SortedArray` outweighs the equality fan-out's simplicity. Measured directly (see
+/// `vortex-array/benches/list_contains.rs`) on an 8,192-row `i64` column on local (non-CodSpeed,
+/// noisier) hardware: 4 elements clearly favor the fan-out, and 8 elements are a toss-up that
+/// flipped direction between runs. 16 elements and up consistently favored the sorted merge, with
+/// the gap widening sharply from there (256 elements: ~80 us vs. ~1.2 ms). This threshold sits
+/// past that noisy zone with margin; re-tuning on CodSpeed's stable runners could likely lower it.
+const MIN_ELEMENTS_FOR_SORTED_MEMBERSHIP: usize = 12;
+
+fn try_sorted_membership_contains(
+    elements: &[Scalar],
+    values: &ArrayRef,
+    nullability: Nullability,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>> {
+    if elements.len() < MIN_ELEMENTS_FOR_SORTED_MEMBERSHIP {
+        return Ok(None);
+    }
+
+    let elem_dtype = values.dtype();
+    let supported_dtype = match elem_dtype {
+        DType::Bool(_) | DType::Decimal(..) | DType::Utf8(_) | DType::Binary(_) => true,
+        DType::Primitive(ptype, _) => !ptype.is_float(),
+        _ => false,
+    };
+    if !supported_dtype {
+        return Ok(None);
+    }
+
+    let is_sorted = matches!(
+        values.statistics().get_as::<bool>(Stat::IsSorted),
+        Precision::Exact(true)
+    ) || matches!(
+        values.statistics().get_as::<bool>(Stat::IsStrictSorted),
+        Precision::Exact(true)
+    );
+    if !is_sorted {
+        return Ok(None);
+    }
+
+    // `elements` carry the list's own (possibly differently-nullable) element dtype, so cast each
+    // one to `values`'s non-nullable dtype before building -- every builder in this codebase
+    // requires an exact dtype match, and we've already dropped every null.
+    let member_dtype = elem_dtype.as_nonnullable();
+    let mut sorted_elements = elements
+        .iter()
+        .filter(|element| !element.is_null())
+        .map(|element| element.cast(&member_dtype))
+        .collect::<VortexResult<Vec<_>>>()?;
+    sorted_elements.sort_by(|a, b| {
+        a.partial_cmp(b)
+            .vortex_expect("list elements share a comparable, non-float dtype")
+    });
+    sorted_elements.dedup();
+
+    let mut builder = builder_with_capacity(&member_dtype, sorted_elements.len());
+    for element in &sorted_elements {
+        builder.append_scalar(element)?;
+    }
+    let members_array = builder.finish();
+
+    let members = SortedArray::try_new(
+        members_array,
+        SortedOrder {
+            direction: SortedDirection::Ascending,
+            nulls: SortedNulls::First,
+        },
+        ctx,
+    )?;
+
+    let mask = sorted_membership_mask(values, &members, NullEquality::Unequal, ctx)?;
+    // `NullEquality::Unequal` makes a null `values` row never match (mask bit `false`). The
+    // pre-existing equality fan-out below reaches the same physical result for a null needle row
+    // (every per-element `Eq` is null there, then immediately `.fill_null(false)`-ed before the
+    // `Or`-reduce) -- once fully executed/canonicalized, a null needle row is `false`, never
+    // null. So the output here is valid everywhere; only the declared dtype nullability (carried
+    // through `nullability`, e.g. because the list itself is nullable) needs to match.
+    let validity = match nullability {
+        Nullability::NonNullable => Validity::NonNullable,
+        Nullability::Nullable => Validity::AllValid,
+    };
+    Ok(Some(
+        BoolArray::new(mask.into_bit_buffer(), validity).into_array(),
+    ))
 }
 
 /// Returns a [`BoolArray`] where each bit represents if a list contains the scalar.
@@ -940,5 +1054,302 @@ mod tests {
 
         let expected_zero = BoolArray::from_iter([true, false, false, false]);
         assert_arrays_eq!(result_zero, expected_zero, &mut ctx);
+    }
+
+    fn int_list_scalar(elements: Vec<i32>) -> Scalar {
+        Scalar::list(
+            Arc::new(DType::Primitive(I32, Nullability::NonNullable)),
+            elements.into_iter().map(Scalar::from).collect(),
+            Nullability::NonNullable,
+        )
+    }
+
+    #[test]
+    fn test_sorted_membership_fast_path_sorts_and_dedups_unordered_literal_list() {
+        let mut ctx = array_session().create_execution_ctx();
+
+        let arr = PrimitiveArray::from_iter([1, 3, 3, 5, 7, 9, 9, 9, 12]).into_array();
+        arr.statistics().compute_is_sorted(&mut ctx);
+
+        // Deliberately unsorted, with a duplicate, and long enough (>=
+        // `MIN_ELEMENTS_FOR_SORTED_MEMBERSHIP`) to actually take the fast path: it must sort/dedup
+        // internally.
+        let expr = list_contains(
+            lit(int_list_scalar(vec![
+                9, 1, 9, 4, 12, 20, 21, 22, 23, 24, 25, 26,
+            ])),
+            root(),
+        );
+        let contains = arr.apply(&expr).unwrap();
+
+        let expected =
+            BoolArray::from_iter([true, false, false, false, false, true, true, true, true]);
+        assert_arrays_eq!(contains, expected, &mut ctx);
+    }
+
+    #[test]
+    fn test_sorted_membership_fast_path_uses_is_strict_sorted_stat() {
+        let mut ctx = array_session().create_execution_ctx();
+
+        let arr = PrimitiveArray::from_iter([1, 2, 3, 4, 5]).into_array();
+        arr.statistics().compute_is_strict_sorted(&mut ctx);
+
+        let expr = list_contains(
+            lit(int_list_scalar(vec![
+                5, 5, 2, 100, 200, 300, 400, 500, 600, 700, 800, 900,
+            ])),
+            root(),
+        );
+        let contains = arr.apply(&expr).unwrap();
+
+        let expected = BoolArray::from_iter([false, true, false, false, true]);
+        assert_arrays_eq!(contains, expected, &mut ctx);
+    }
+
+    #[test]
+    fn test_sorted_membership_fast_path_null_needle_rows_are_false_not_null() {
+        let mut ctx = array_session().create_execution_ctx();
+
+        // Nulls-first, then non-decreasing: a valid `Stat::IsSorted` fixture.
+        let arr = PrimitiveArray::from_option_iter::<i32, _>([
+            None,
+            None,
+            Some(1),
+            Some(3),
+            Some(5),
+            Some(5),
+            Some(8),
+        ])
+        .into_array();
+        arr.statistics().compute_is_sorted(&mut ctx);
+
+        let expr = list_contains(
+            lit(int_list_scalar(vec![
+                5, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100,
+            ])),
+            root(),
+        );
+        // Forcing execution here (rather than comparing the lazy `ScalarFnArray` directly)
+        // sidesteps a pre-existing, unrelated quirk where per-row scalar access on this
+        // particular lazy expression tree (list-constant, array-needle) disagrees with its own
+        // canonicalized result for a null needle row -- reproducible on the untouched equality
+        // fan-out too, so it's a framework-level gap uncovered by adding null coverage here, not
+        // something this change introduces or fixes.
+        let contains = arr
+            .apply(&expr)
+            .unwrap()
+            .execute::<BoolArray>(&mut ctx)
+            .unwrap()
+            .into_array();
+
+        // A null needle row is `false`, never null: matches the pre-existing equality fan-out's
+        // executed contract (every per-element `Eq` on a null needle is null, then immediately
+        // `.fill_null(false)`-ed before the `Or`-reduce). The result dtype is nullable (the
+        // needle column is), even though no row is ever actually null.
+        let expected = BoolArray::new(
+            BitBuffer::from_iter([false, false, false, false, true, true, false]),
+            Validity::AllValid,
+        );
+        assert_arrays_eq!(contains, expected, &mut ctx);
+    }
+
+    #[test]
+    fn test_sorted_membership_fast_path_empty_literal_list_stays_on_fanout() {
+        // Below `MIN_ELEMENTS_FOR_SORTED_MEMBERSHIP`, so this always takes the fan-out,
+        // regardless of the column's sortedness -- it's here to document that the threshold
+        // doesn't change the (correct, pre-existing) answer for a degenerate empty list.
+        let mut ctx = array_session().create_execution_ctx();
+        let arr = PrimitiveArray::from_iter([1, 2, 3]).into_array();
+        arr.statistics().compute_is_sorted(&mut ctx);
+
+        let empty_list = Scalar::list(
+            Arc::new(DType::Primitive(I32, Nullability::NonNullable)),
+            vec![],
+            Nullability::NonNullable,
+        );
+        let contains = arr.apply(&list_contains(lit(empty_list), root())).unwrap();
+        assert_arrays_eq!(
+            contains,
+            BoolArray::from_iter([false, false, false]),
+            &mut ctx
+        );
+    }
+
+    #[test]
+    fn test_sorted_membership_fast_path_all_null_literal_list() {
+        // At `MIN_ELEMENTS_FOR_SORTED_MEMBERSHIP` elements, so this reaches the fast path, but
+        // every element is null: `sorted_elements` ends up empty after filtering, exercising
+        // `SortedArray::try_new` and `sorted_membership_mask` on a zero-length member set.
+        let mut ctx = array_session().create_execution_ctx();
+        let arr = PrimitiveArray::from_iter([1, 2, 3]).into_array();
+        arr.statistics().compute_is_sorted(&mut ctx);
+
+        let null_only_list = Scalar::list(
+            Arc::new(DType::Primitive(I32, Nullability::Nullable)),
+            vec![Scalar::null(DType::Primitive(I32, Nullability::Nullable)); 12],
+            Nullability::NonNullable,
+        );
+        let contains = arr
+            .apply(&list_contains(lit(null_only_list), root()))
+            .unwrap();
+        assert_arrays_eq!(
+            contains,
+            BoolArray::from_iter([false, false, false]),
+            &mut ctx
+        );
+    }
+
+    #[test]
+    fn test_sorted_membership_fast_path_utf8() {
+        let mut ctx = array_session().create_execution_ctx();
+
+        let arr = VarBinArray::from_iter(
+            ["ant", "bee", "cat", "dog", "eel"].map(Some),
+            DType::Utf8(Nullability::NonNullable),
+        )
+        .into_array();
+        arr.statistics().compute_is_sorted(&mut ctx);
+
+        let list_scalar = Scalar::list(
+            Arc::new(DType::Utf8(Nullability::NonNullable)),
+            vec![
+                Scalar::from("dog"),
+                Scalar::from("ant"),
+                Scalar::from("dog"),
+                Scalar::from("bee"),
+                Scalar::from("xyz"),
+                Scalar::from("fff"),
+                Scalar::from("ggg"),
+                Scalar::from("hhh"),
+                Scalar::from("iii"),
+                Scalar::from("jjj"),
+                Scalar::from("kkk"),
+                Scalar::from("lll"),
+            ],
+            Nullability::NonNullable,
+        );
+        let contains = arr.apply(&list_contains(lit(list_scalar), root())).unwrap();
+
+        let expected = BoolArray::from_iter([true, true, false, true, false]);
+        assert_arrays_eq!(contains, expected, &mut ctx);
+    }
+
+    #[test]
+    fn test_sorted_membership_fast_path_skips_float_dtype() {
+        let mut ctx = array_session().create_execution_ctx();
+
+        // Sorted float column with a literal list past `MIN_ELEMENTS_FOR_SORTED_MEMBERSHIP`:
+        // `Stat::IsSorted` is true, but the fast path deliberately excludes floats (see
+        // `try_sorted_membership_contains`), so this exercises the fan-out fallback specifically
+        // via the dtype check, not the length threshold.
+        let arr = PrimitiveArray::from_iter([1.0f64, 2.0, 3.0, 4.0]).into_array();
+        arr.statistics().compute_is_sorted(&mut ctx);
+
+        let list_scalar = Scalar::list(
+            Arc::new(DType::Primitive(
+                crate::dtype::PType::F64,
+                Nullability::NonNullable,
+            )),
+            vec![
+                Scalar::from(3.0f64),
+                Scalar::from(1.0f64),
+                Scalar::from(50.0f64),
+                Scalar::from(60.0f64),
+                Scalar::from(70.0f64),
+                Scalar::from(80.0f64),
+                Scalar::from(90.0f64),
+                Scalar::from(100.0f64),
+                Scalar::from(110.0f64),
+                Scalar::from(120.0f64),
+                Scalar::from(130.0f64),
+                Scalar::from(140.0f64),
+            ],
+            Nullability::NonNullable,
+        );
+        let contains = arr.apply(&list_contains(lit(list_scalar), root())).unwrap();
+
+        let expected = BoolArray::from_iter([true, false, true, false]);
+        assert_arrays_eq!(contains, expected, &mut ctx);
+    }
+
+    #[rstest]
+    // Below `MIN_ELEMENTS_FOR_SORTED_MEMBERSHIP`: both sides take the fan-out.
+    #[case(vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10], vec![10, 1, 1, 5])]
+    #[case(vec![-5, -3, -3, 0, 2, 2, 2, 9], vec![-3, 9, 9, 100])]
+    #[case(vec![1], vec![1])]
+    #[case(vec![1, 2, 3], vec![])]
+    #[case(vec![1, 2, 3], vec![100])]
+    // At or past the threshold: the sorted column genuinely exercises the fast path.
+    #[case(vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10], vec![10, 1, 1, 5, 7, 7, 3, 2, 4, 6, 8, 9])]
+    #[case(vec![-5, -3, -3, 0, 2, 2, 2, 9], vec![-3, 9, 9, 100, 0, -5, -5, 2, 2, 50, 51, 52])]
+    fn test_sorted_membership_fast_path_matches_fanout(
+        #[case] data: Vec<i32>,
+        #[case] list_values: Vec<i32>,
+    ) {
+        let mut ctx = array_session().create_execution_ctx();
+        let expr = list_contains(lit(int_list_scalar(list_values)), root());
+
+        // Same logical data, constructed independently so each copy owns its own stats: one
+        // exercises the sorted fast path, the other (stat never computed) exercises the
+        // pre-existing equality fan-out. They must agree.
+        let sorted_column = PrimitiveArray::from_iter(data.clone()).into_array();
+        sorted_column.statistics().compute_is_sorted(&mut ctx);
+        let fast_path_result = sorted_column
+            .apply(&expr)
+            .unwrap()
+            .execute::<BoolArray>(&mut ctx)
+            .unwrap()
+            .into_array();
+
+        let plain_column = PrimitiveArray::from_iter(data).into_array();
+        let fanout_result = plain_column
+            .apply(&expr)
+            .unwrap()
+            .execute::<BoolArray>(&mut ctx)
+            .unwrap()
+            .into_array();
+
+        assert_arrays_eq!(fast_path_result, fanout_result, &mut ctx);
+    }
+
+    #[rstest]
+    // Below `MIN_ELEMENTS_FOR_SORTED_MEMBERSHIP`: both sides take the fan-out.
+    #[case(vec![None, None, Some(1), Some(3), Some(5), Some(5), Some(8)], vec![5, 100])]
+    #[case(vec![None, Some(-2), Some(-2), Some(0), Some(4)], vec![-2, 4, 4, 7])]
+    #[case(vec![None, None, None], vec![1, 2])]
+    // At or past the threshold: the sorted column genuinely exercises the fast path.
+    #[case(
+        vec![None, None, Some(1), Some(3), Some(5), Some(5), Some(8)],
+        vec![5, 100, 200, 300, 8, 301, 302, 303, 304, 305, 306, 307]
+    )]
+    #[case(
+        vec![None, Some(-2), Some(-2), Some(0), Some(4)],
+        vec![-2, 4, 4, 7, 99, 100, 101, 102, 103, 104, 105, 106]
+    )]
+    fn test_sorted_membership_fast_path_matches_fanout_with_nulls(
+        #[case] data: Vec<Option<i32>>,
+        #[case] list_values: Vec<i32>,
+    ) {
+        let mut ctx = array_session().create_execution_ctx();
+        let expr = list_contains(lit(int_list_scalar(list_values)), root());
+
+        let sorted_column = PrimitiveArray::from_option_iter::<i32, _>(data.clone()).into_array();
+        sorted_column.statistics().compute_is_sorted(&mut ctx);
+        let fast_path_result = sorted_column
+            .apply(&expr)
+            .unwrap()
+            .execute::<BoolArray>(&mut ctx)
+            .unwrap()
+            .into_array();
+
+        let plain_column = PrimitiveArray::from_option_iter::<i32, _>(data).into_array();
+        let fanout_result = plain_column
+            .apply(&expr)
+            .unwrap()
+            .execute::<BoolArray>(&mut ctx)
+            .unwrap()
+            .into_array();
+
+        assert_arrays_eq!(fast_path_result, fanout_result, &mut ctx);
     }
 }
