@@ -19,18 +19,31 @@ use crate::scalar_fn::fns::operators::Operator;
 pub fn find_between(expr: Expression) -> Expression {
     // We search all pairs of cnfs to find any pair of expressions can be converted into a between
     // expression.
-    let mut conjuncts = conjuncts(&expr);
+    //
+    // Only leaf conjuncts (`GetItem op Literal`) can form a between; anything else is moved to the
+    // rest unexamined so pairs of non-leaf conjuncts are never compared.
+    let mut conjuncts = conjuncts(&expr)
+        .into_iter()
+        .map(|expression| {
+            let is_leaf = is_leaf_conjunct(&expression);
+            (expression, is_leaf)
+        })
+        .collect::<Vec<_>>();
     let mut rest = vec![];
 
     for idx in 0..conjuncts.len() {
-        let Some(c) = conjuncts.get(idx).cloned() else {
+        let Some((c, is_leaf)) = conjuncts.get(idx).cloned() else {
             continue;
         };
+        if !is_leaf {
+            rest.push(c);
+            continue;
+        }
         let mut matched = false;
         for idx2 in (idx + 1)..conjuncts.len() {
             // Since values are removed in iterations there might not be a value at idx2,
             // but all values will have been considered.
-            let Some(c2) = conjuncts.get(idx2) else {
+            let Some((c2, true)) = conjuncts.get(idx2) else {
                 continue;
             };
             if let Some(expr) = maybe_match(&c, c2) {
@@ -46,6 +59,21 @@ pub fn find_between(expr: Expression) -> Expression {
     }
 
     and_collect(rest).unwrap_or_else(|| lit(true))
+}
+
+/// A leaf conjunct is a strict-comparison binary between a `GetItem` and a `Literal`, in either
+/// order — the only shape that can be half of a between.
+fn is_leaf_conjunct(expr: &Expression) -> bool {
+    let Some(operator) = expr.as_opt::<Binary>() else {
+        return false;
+    };
+    if is_strict_comparison(*operator).is_none() {
+        return false;
+    }
+
+    let lhs = expr.child(0);
+    let rhs = expr.child(1);
+    (lhs.is::<GetItem>() && rhs.is::<Literal>()) || (rhs.is::<GetItem>() && lhs.is::<Literal>())
 }
 
 fn maybe_match(lhs: &Expression, rhs: &Expression) -> Option<Expression> {
@@ -328,6 +356,34 @@ mod tests {
                     }
                 ),
                 gt_eq(col("y"), lit(10)),
+            ),
+            &find
+        );
+    }
+
+    #[test]
+    fn test_match_between_skips_non_leaf_conjuncts() {
+        let lower = gt_eq(col("x"), lit(2));
+        let non_leaf = gt(col("y"), col("z"));
+        let upper = lt(col("x"), lit(5));
+        assert!(super::is_leaf_conjunct(&lower));
+        assert!(!super::is_leaf_conjunct(&non_leaf));
+        assert!(super::is_leaf_conjunct(&upper));
+
+        let find = find_between(and(and(lower, non_leaf.clone()), upper));
+
+        assert_eq!(
+            &and(
+                between(
+                    col("x"),
+                    lit(2),
+                    lit(5),
+                    BetweenOptions {
+                        lower_strict: StrictComparison::NonStrict,
+                        upper_strict: StrictComparison::Strict,
+                    }
+                ),
+                non_leaf,
             ),
             &find
         );
