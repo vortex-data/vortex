@@ -323,7 +323,7 @@ fn case_when_all_false(bencher: Bencher, size: usize) {
         });
 }
 
-/// Benchmark CASE WHEN cycling through 3 branches per row (triggers merge_row_by_row).
+/// Benchmark compact CASE WHEN assembly with three interleaved branches.
 /// Run length = 1; exercises branch 0, branch 1, and the else fallback at every 3rd row.
 #[divan::bench(args = [100, 400])]
 fn case_when_fragmented(bencher: Bencher, size: usize) {
