@@ -176,6 +176,13 @@ static bool projection_expression_pushdown(ClientContext &,
     if (error_out) {
         throw BinderException(IntoErrString(error_out));
     }
+
+    if (ret) {
+        MultiFileBindData &bind_data = input.get.bind_data->Cast<MultiFileBindData>();
+        bind_data.types[column_id] = input.expr.GetReturnType();
+        bind_data.columns[column_id].type = input.expr.GetReturnType();
+    }
+
     return ret;
 }
 

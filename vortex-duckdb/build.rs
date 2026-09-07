@@ -402,12 +402,12 @@ fn build_duckdb(version: &DuckDBVersion, duckdb_repo_dir: &Path) {
         ("1", "0")
     };
 
-    // If we're building from a commit we need to build benchmark
-    // extensions statically, otherwise DuckDB tries to load them from an http
-    // endpoint with version 0.0.1 (all non-tagged builds) which doesn't exist.
+    // If we're building from a commit we need to build some extensions
+    // statically, otherwise DuckDB tries to load them from an http endpoint
+    // with version 0.0.1 (all non-tagged builds) which doesn't exist.
     let static_extensions = match version {
         DuckDBVersion::Release(_) => "parquet",
-        DuckDBVersion::Commit(_) => "parquet;tpch;tpcds",
+        DuckDBVersion::Commit(_) => "parquet;tpch;tpcds;icu;spatial",
     };
 
     let envs = [
