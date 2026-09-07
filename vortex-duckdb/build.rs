@@ -407,7 +407,11 @@ fn build_duckdb(version: &DuckDBVersion, duckdb_repo_dir: &Path) {
     // with version 0.0.1 (all non-tagged builds) which doesn't exist.
     let static_extensions = match version {
         DuckDBVersion::Release(_) => "parquet",
-        DuckDBVersion::Commit(_) => "parquet;tpch;tpcds;icu;spatial",
+        // tpch/tpcds/parquet needed for benchmarks
+        // icu needed for timestamptz tests
+        // spatial needed for spatial override tests
+        // httpfs needed for s3 write test
+        DuckDBVersion::Commit(_) => "parquet;tpch;tpcds;icu;spatial;httpfs",
     };
 
     let envs = [
