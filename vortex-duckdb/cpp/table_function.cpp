@@ -38,22 +38,6 @@ static void *get_ffi_bind(const FunctionData *bind_data) {
     return bind_data->Cast<MultiFileBindData>().bind_data->Cast<VortexBindData>().ffi_bind_data->DataPtr();
 }
 
-bool projection_expression_pushdown(ClientContext &, const TableFunctionProjectionExpressionInput &input) {
-    duckdb_vx_expr ffi_expr = get_ffi_expr(input.expression);
-    void *const ffi_bind = get_ffi_bind(input.get.bind_data.get());
-    duckdb_vx_error error_out = nullptr;
-
-    const bool ret = duckdb_table_function_pushdown_projection_expression( //
-        ffi_bind,
-        ffi_expr,
-        input.projection_idx,
-        &error_out);
-    if (error_out) {
-        throw BinderException(IntoErrString(error_out));
-    }
-    return ret;
-}
-
 extern "C" {
 idx_t duckdb_vx_aggregate_len(duckdb_vx_agg_input ffi_input) {
     return reinterpret_cast<const TableFunctionUngroupedAggregateInput *>(ffi_input)->projections.size();
@@ -107,7 +91,7 @@ extern "C" void duckdb_vx_tfunc_bind_result_add_column(duckdb_bind_result ffi_re
     VortexBindResult &result = *reinterpret_cast<VortexBindResult *>(ffi_result);
     const LogicalType logical_type = *reinterpret_cast<LogicalType *>(ffi_type);
 
-    result.names.emplace_back(name_str, name_len);
+    result.names.emplace_back(string(name_str, name_len));
     result.return_types.emplace_back(logical_type);
 }
 
@@ -180,7 +164,7 @@ static vector<PartitionStatistics> get_partition_stats(ClientContext &, GetParti
 }
 
 duckdb_state register_table_function(DatabaseInstance &db, LogicalType parameter, const std::string &name) {
-    MultiFileFunction<VortexReaderInterface> fn(name);
+    MultiFileFunction<VortexReaderInterface> fn {Identifier(name)};
     fn.arguments[0] = parameter;
     fn.named_parameters = {{"filename", LogicalType::ANY},
                            {"allow_empty", LogicalType::BOOLEAN},
@@ -209,8 +193,8 @@ duckdb_state register_table_function(DatabaseInstance &db, LogicalType parameter
         return {COLUMN_IDENTIFIER_FILE_INDEX, COLUMN_IDENTIFIER_FILE_ROW_NUMBER};
     };
 
-    fn.statistics = MultiFileFunction<VortexReaderInterface>::MultiFileScanStats;
     fn.get_partition_stats = get_partition_stats;
+    fn.statistics_extended = MultiFileFunction<VortexReaderInterface>::MultiFileScanStatsExtended;
     fn.get_multi_file_reader = get_multi_file_reader;
 
     /**
