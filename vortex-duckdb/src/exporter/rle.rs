@@ -111,7 +111,7 @@ where
             pos += take;
         }
 
-        vector.reuse_dictionary(&self.values, &selection_vec);
+        vector.reuse_dictionary(&self.values, &selection_vec, len);
         Ok(())
     }
 }
@@ -150,7 +150,7 @@ mod tests {
         )?;
         chunk.set_len(len);
         let vector = chunk.get_vector(0);
-        vector.flatten(len as u64);
+        vector.flatten();
         Ok(vector.as_slice_with_len::<i32>(len).to_vec())
     }
 
@@ -278,7 +278,7 @@ mod tests {
         chunk.set_len(1024);
 
         let vector = chunk.get_vector(0);
-        vector.flatten(1024);
+        vector.flatten();
         let slice = vector.as_slice_with_len::<i32>(1024);
         for (i, expected) in source.iter().enumerate() {
             if let Some(v) = expected {
