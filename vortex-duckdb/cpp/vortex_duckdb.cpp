@@ -4,9 +4,7 @@
 #include "aggregate_fn_pushdown.hpp"
 #include "data.hpp"
 #include "error.hpp"
-#include "scalar_fn_pushdown.hpp"
 #include "spatial_overrides.hpp"
-#include "cast_pushdown.hpp"
 #include "vortex_duckdb.h"
 
 #include "duckdb/catalog/catalog.hpp"
@@ -16,6 +14,8 @@
 #include "duckdb/common/types/geometry_crs.hpp"
 #include "duckdb/common/types/value.hpp"
 #include "duckdb/common/types/vector.hpp"
+#include "duckdb/common/vector/dictionary_vector.hpp"
+#include "duckdb/logging/logger.hpp"
 #include "duckdb/main/capi/capi_internal.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/main/config.hpp"
@@ -173,7 +173,7 @@ static unique_ptr<TableRef> VortexScanReplacement(ClientContext &context,
 
     if (!FileSystem::HasGlob(table_name)) {
         auto &fs = FileSystem::GetFileSystem(context);
-        table_function->alias = fs.ExtractBaseName(table_name);
+        table_function->alias = Identifier(fs.ExtractBaseName(table_name));
     }
 
     return table_function;
@@ -197,7 +197,7 @@ extern "C" duckdb_state duckdb_vx_register_scan_replacement(duckdb_database duck
 
 // buffer_ptr is shared_ptr, two pointers long, but duckdb_vx_reusable_dict is
 // one pointer long, so we need a wrapper.
-using Buffer = buffer_ptr<VectorChildBuffer>;
+using Buffer = buffer_ptr<DictionaryEntry>;
 struct ReusableDict {
     Buffer buffer;
     ReusableDict(Buffer buffer) : buffer(std::move(buffer)) {
@@ -231,11 +231,12 @@ extern "C" void duckdb_vx_reusable_dict_set_vector(duckdb_vx_reusable_dict reusa
 
 extern "C" void duckdb_vx_vector_dictionary_reusable(duckdb_vector ffi_vector,
                                                      duckdb_vx_reusable_dict reusable,
-                                                     duckdb_selection_vector ffi_sel_vec) {
+                                                     duckdb_selection_vector ffi_sel_vec,
+                                                     idx_t sel_count) {
     auto vector = reinterpret_cast<Vector *>(ffi_vector);
     auto *wrapper = reinterpret_cast<ReusableDict *>(reusable);
     auto sel_vec = reinterpret_cast<SelectionVector *>(ffi_sel_vec);
-    vector->Dictionary(wrapper->buffer, *sel_vec);
+    vector->Dictionary(wrapper->buffer, *sel_vec, sel_count);
 }
 
 extern "C" duckdb_value duckdb_vx_value_create_null(duckdb_logical_type ty) {
@@ -271,8 +272,6 @@ extern "C" duckdb_blob duckdb_vx_value_get_geometry(duckdb_value value) {
 }
 
 static void VortexOptimizeFunction(OptimizerExtensionInput &input, unique_ptr<LogicalOperator> &plan) {
-    plan = TryPushdown<CastCollect, CastReplace>(input.context, std::move(plan));
-    plan = TryPushdown<ScalarFnCollect, ScalarFnReplace>(input.context, std::move(plan));
     plan = TryPushdownAggregateFunctions(input.context, std::move(plan));
 }
 
