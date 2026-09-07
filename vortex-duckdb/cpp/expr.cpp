@@ -20,13 +20,13 @@ extern "C" const char *duckdb_vx_sfunc_name(duckdb_vx_sfunc ffi_func) {
     if (!ffi_func) {
         return nullptr;
     }
-    auto func = reinterpret_cast<ScalarFunction *>(ffi_func);
-    return func->name.c_str();
+    auto func = reinterpret_cast<BoundScalarFunction *>(ffi_func);
+    return func->GetName().GetIdentifierName().c_str();
 }
 
 extern "C" const char *duckdb_vx_agg_func_name(duckdb_vx_agg_func ffi) {
     D_ASSERT(ffi);
-    return reinterpret_cast<AggregateFunction *>(ffi)->name.c_str();
+    return reinterpret_cast<BoundAggregateFunction *>(ffi)->GetName().GetIdentifierName().c_str();
 }
 
 extern "C" const char *duckdb_vx_expr_to_string(duckdb_vx_expr ffi_expr) {
@@ -57,7 +57,7 @@ extern "C" duckdb_vx_expr_class duckdb_vx_expr_get_class(duckdb_vx_expr ffi_expr
 extern "C" duckdb_logical_type duckdb_vx_expr_get_return_type(duckdb_vx_expr ffi_expr) {
     D_ASSERT(ffi_expr);
     auto expr = reinterpret_cast<Expression *>(ffi_expr);
-    return reinterpret_cast<duckdb_logical_type>(&expr->return_type);
+    return reinterpret_cast<duckdb_logical_type>(const_cast<LogicalType *>(&expr->GetReturnType()));
 }
 
 extern "C" const char *duckdb_vx_expr_get_bound_column_ref_get_name(duckdb_vx_expr ffi_expr) {
@@ -76,7 +76,7 @@ extern "C" duckdb_value duckdb_vx_expr_bound_constant_get_value(duckdb_vx_expr f
         return nullptr;
     }
     auto &expr = reinterpret_cast<Expression *>(ffi_expr)->Cast<BoundConstantExpression>();
-    return reinterpret_cast<duckdb_value>(&expr.value);
+    return reinterpret_cast<duckdb_value>(&expr.GetValueMutable());
 }
 
 extern "C" void duckdb_vx_expr_get_bound_comparison(duckdb_vx_expr ffi_expr,
@@ -84,10 +84,27 @@ extern "C" void duckdb_vx_expr_get_bound_comparison(duckdb_vx_expr ffi_expr,
     if (!ffi_expr || !out) {
         return;
     }
-    auto &expr = reinterpret_cast<Expression *>(ffi_expr)->Cast<BoundComparisonExpression>();
-    out->left = reinterpret_cast<duckdb_vx_expr>(expr.left.get());
-    out->right = reinterpret_cast<duckdb_vx_expr>(expr.right.get());
-    out->type = static_cast<duckdb_vx_expr_type>(expr.type);
+    auto &expr = reinterpret_cast<Expression *>(ffi_expr)->Cast<BoundFunctionExpression>();
+    out->left = reinterpret_cast<duckdb_vx_expr>(BoundComparisonExpression::LeftMutable(expr).get());
+    out->right = reinterpret_cast<duckdb_vx_expr>(BoundComparisonExpression::RightMutable(expr).get());
+    out->type = static_cast<duckdb_vx_expr_type>(expr.GetExpressionType());
+}
+
+extern "C" bool duckdb_vx_expr_is_comparison(duckdb_vx_expr ffi_expr) {
+    D_ASSERT(ffi_expr);
+    return BoundComparisonExpression::IsComparison(*reinterpret_cast<Expression *>(ffi_expr));
+}
+
+extern "C" bool duckdb_vx_expr_is_between(duckdb_vx_expr ffi_expr) {
+    D_ASSERT(ffi_expr);
+    auto expr = reinterpret_cast<Expression *>(ffi_expr);
+    return expr->GetExpressionClass() == ExpressionClass::BOUND_FUNCTION &&
+           expr->GetExpressionType() == ExpressionType::COMPARE_BETWEEN;
+}
+
+extern "C" bool duckdb_vx_expr_is_cast(duckdb_vx_expr ffi_expr) {
+    D_ASSERT(ffi_expr);
+    return BoundCastExpression::IsCast(*reinterpret_cast<Expression *>(ffi_expr));
 }
 
 extern "C" void duckdb_vx_expr_get_bound_conjunction(duckdb_vx_expr ffi_expr,
@@ -97,21 +114,21 @@ extern "C" void duckdb_vx_expr_get_bound_conjunction(duckdb_vx_expr ffi_expr,
     }
 
     auto &expr = reinterpret_cast<Expression *>(ffi_expr)->Cast<BoundConjunctionExpression>();
-    out->children_count = expr.children.size();
-    out->children = reinterpret_cast<duckdb_vx_expr *>(expr.children.data());
-    out->type = static_cast<duckdb_vx_expr_type>(expr.type);
+    out->children_count = expr.GetChildrenMutable().size();
+    out->children = reinterpret_cast<duckdb_vx_expr *>(expr.GetChildrenMutable().data());
+    out->type = static_cast<duckdb_vx_expr_type>(expr.GetExpressionType());
 }
 
 extern "C" void duckdb_vx_expr_get_bound_between(duckdb_vx_expr ffi_expr, duckdb_vx_expr_bound_between *out) {
     if (!ffi_expr || !out) {
         return;
     }
-    auto &expr = reinterpret_cast<Expression *>(ffi_expr)->Cast<BoundBetweenExpression>();
-    out->input = reinterpret_cast<duckdb_vx_expr>(expr.input.get());
-    out->lower = reinterpret_cast<duckdb_vx_expr>(expr.lower.get());
-    out->upper = reinterpret_cast<duckdb_vx_expr>(expr.upper.get());
-    out->lower_inclusive = expr.lower_inclusive;
-    out->upper_inclusive = expr.upper_inclusive;
+    auto &expr = reinterpret_cast<Expression *>(ffi_expr)->Cast<BoundFunctionExpression>();
+    out->input = reinterpret_cast<duckdb_vx_expr>(BoundBetweenExpression::InputMutable(expr).get());
+    out->lower = reinterpret_cast<duckdb_vx_expr>(BoundBetweenExpression::LowerBoundMutable(expr).get());
+    out->upper = reinterpret_cast<duckdb_vx_expr>(BoundBetweenExpression::UpperBoundMutable(expr).get());
+    out->lower_inclusive = BoundBetweenExpression::LowerInclusive(expr);
+    out->upper_inclusive = BoundBetweenExpression::UpperInclusive(expr);
 }
 
 extern "C" void duckdb_vx_expr_get_bound_operator(duckdb_vx_expr ffi_expr,
@@ -120,9 +137,9 @@ extern "C" void duckdb_vx_expr_get_bound_operator(duckdb_vx_expr ffi_expr,
         return;
     }
     auto &expr = reinterpret_cast<Expression *>(ffi_expr)->Cast<BoundOperatorExpression>();
-    out->children_count = expr.children.size();
-    out->children = reinterpret_cast<duckdb_vx_expr *>(expr.children.data());
-    out->type = static_cast<duckdb_vx_expr_type>(expr.type);
+    out->children_count = expr.GetChildrenMutable().size();
+    out->children = reinterpret_cast<duckdb_vx_expr *>(expr.GetChildrenMutable().data());
+    out->type = static_cast<duckdb_vx_expr_type>(expr.GetExpressionType());
 }
 
 extern "C" void duckdb_vx_expr_get_bound_function(duckdb_vx_expr ffi_expr,
@@ -131,26 +148,26 @@ extern "C" void duckdb_vx_expr_get_bound_function(duckdb_vx_expr ffi_expr,
         return;
     }
     auto &expr = reinterpret_cast<Expression *>(ffi_expr)->Cast<BoundFunctionExpression>();
-    out->children_count = expr.children.size();
-    out->children = reinterpret_cast<duckdb_vx_expr *>(expr.children.data());
-    out->scalar_function = reinterpret_cast<duckdb_vx_sfunc>(&expr.function);
-    out->bind_info = expr.bind_info.get();
+    out->children_count = expr.GetChildrenMutable().size();
+    out->children = reinterpret_cast<duckdb_vx_expr *>(expr.GetChildrenMutable().data());
+    out->scalar_function = reinterpret_cast<duckdb_vx_sfunc>(&expr.FunctionMutable());
+    out->bind_info = expr.BindInfoMutable().get();
 }
 
 extern "C" duckdb_vx_expr duckdb_vx_expr_get_bound_cast_child(duckdb_vx_expr ffi_expr) {
     D_ASSERT(ffi_expr);
-    auto &expr = reinterpret_cast<Expression *>(ffi_expr)->Cast<BoundCastExpression>();
-    return reinterpret_cast<duckdb_vx_expr>(expr.child.get());
+    auto &expr = reinterpret_cast<Expression *>(ffi_expr)->Cast<BoundFunctionExpression>();
+    return reinterpret_cast<duckdb_vx_expr>(BoundCastExpression::ChildMutable(expr).get());
 }
 
 extern "C" bool duckdb_vx_expr_get_bound_cast_is_try(duckdb_vx_expr ffi_expr) {
     D_ASSERT(ffi_expr);
-    auto &expr = reinterpret_cast<Expression *>(ffi_expr)->Cast<BoundCastExpression>();
-    return expr.try_cast;
+    auto &expr = reinterpret_cast<Expression *>(ffi_expr)->Cast<BoundFunctionExpression>();
+    return BoundCastExpression::IsTryCast(expr);
 }
 
 extern "C" duckdb_vx_agg_func duckdb_vx_expr_get_bound_aggregate_function(duckdb_vx_expr ffi_expr) {
     D_ASSERT(ffi_expr);
     auto &expr = reinterpret_cast<Expression *>(ffi_expr)->Cast<BoundAggregateExpression>();
-    return reinterpret_cast<duckdb_vx_agg_func>(&expr.function);
+    return reinterpret_cast<duckdb_vx_agg_func>(&expr.FunctionMutable());
 }
