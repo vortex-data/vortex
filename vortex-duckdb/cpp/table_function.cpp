@@ -163,6 +163,22 @@ static vector<PartitionStatistics> get_partition_stats(ClientContext &, GetParti
     return result;
 }
 
+static bool projection_expression_pushdown(ClientContext &,
+                                           const TableFunctionProjectionExpressionInput &input) {
+    duckdb_vx_expr ffi_expr = get_ffi_expr(input.expr);
+    void *const ffi_bind = get_ffi_bind(input.get.bind_data.get());
+    duckdb_vx_error error_out = nullptr;
+
+    const idx_t column_id = input.get.GetColumnIds()[input.column_index].GetPrimaryIndex();
+
+    const bool ret =
+        duckdb_table_function_pushdown_projection_expression(ffi_bind, ffi_expr, column_id, &error_out);
+    if (error_out) {
+        throw BinderException(IntoErrString(error_out));
+    }
+    return ret;
+}
+
 duckdb_state register_table_function(DatabaseInstance &db, LogicalType parameter, const std::string &name) {
     MultiFileFunction<VortexReaderInterface> fn {Identifier(name)};
     fn.arguments[0] = parameter;
@@ -184,6 +200,7 @@ duckdb_state register_table_function(DatabaseInstance &db, LogicalType parameter
     fn.pushdown_complex_filter = [](auto &, auto &, FunctionData *bind_data, FilterVec &filters) {
         pushdown_complex_filter(*bind_data, filters);
     };
+    fn.projection_expression_pushdown = projection_expression_pushdown;
     fn.to_string = to_string;
 
     fn.late_materialization = true;

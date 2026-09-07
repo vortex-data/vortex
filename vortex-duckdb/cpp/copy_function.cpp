@@ -147,7 +147,7 @@ void copy_to_finalize(ClientContext &, FunctionData &bind_data, GlobalFunctionDa
             column["has_nan"] = Value::BOOLEAN(col_stats.contains_nan);
         }
 
-        string quoted = SQLIdentifier::ToString(names[i]);
+        string quoted = SQLQuotedIdentifier::ToString(names[i]);
         global.written_stats->column_statistics.emplace(std::move(quoted), std::move(column));
     }
 }
