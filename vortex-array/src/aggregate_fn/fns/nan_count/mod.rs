@@ -115,29 +115,29 @@ impl AggregateFnVTable for NanCount {
         self.return_dtype(options, input_dtype)
     }
 
-    fn empty_partial(
+    fn partial_from_scalar(
         &self,
         _options: &Self::Options,
         _input_dtype: &DType,
+        scalar: Scalar,
     ) -> VortexResult<Self::Partial> {
-        Ok(0u64)
-    }
-
-    fn combine_partials(&self, partial: &mut Self::Partial, other: Scalar) -> VortexResult<()> {
-        let val = other
+        Ok(scalar
             .as_primitive()
             .typed_value::<u64>()
-            .vortex_expect("nan_count partial should not be null");
-        *partial += val;
-        Ok(())
+            .vortex_expect("nan_count partial should not be null"))
+    }
+
+    fn reduce_partials(
+        &self,
+        _options: &Self::Options,
+        _input_dtype: &DType,
+        partials: impl IntoIterator<Item = Self::Partial>,
+    ) -> VortexResult<Self::Partial> {
+        Ok(partials.into_iter().sum())
     }
 
     fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
         Ok(Scalar::primitive(*partial, NonNullable))
-    }
-
-    fn reset(&self, partial: &mut Self::Partial) {
-        *partial = 0;
     }
 
     #[inline]
@@ -201,7 +201,6 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::scalar::Scalar;
     use crate::validity::Validity;
 
     #[test]
@@ -247,16 +246,10 @@ mod tests {
     #[test]
     fn nan_count_state_merge() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
-        let mut state = NanCount.empty_partial(&EmptyOptions, &dtype)?;
 
-        let scalar1 = Scalar::primitive(5u64, Nullability::NonNullable);
-        NanCount.combine_partials(&mut state, scalar1)?;
-
-        let scalar2 = Scalar::primitive(3u64, Nullability::NonNullable);
-        NanCount.combine_partials(&mut state, scalar2)?;
+        let state = NanCount.reduce_partials(&EmptyOptions, &dtype, [5, 3])?;
 
         let result = NanCount.to_scalar(&state)?;
-        NanCount.reset(&mut state);
         assert_eq!(result.as_primitive().typed_value::<u64>(), Some(8));
         Ok(())
     }

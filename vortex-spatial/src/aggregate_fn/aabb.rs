@@ -153,19 +153,31 @@ impl AggregateFnVTable for GeometryAabb {
         self.return_dtype(options, input_dtype)
     }
 
-    fn empty_partial(
+    fn partial_from_scalar(
         &self,
         _options: &Self::Options,
         _input_dtype: &DType,
+        scalar: Scalar,
     ) -> VortexResult<Self::Partial> {
-        Ok(AabbPartial { rect: None })
+        // A null box is an empty group's AABB.
+        Ok(AabbPartial {
+            rect: rect_from_storage(&scalar)?,
+        })
     }
 
-    fn combine_partials(&self, partial: &mut Self::Partial, other: Scalar) -> VortexResult<()> {
-        if let Some(rect) = rect_from_storage(&other)? {
-            partial.merge(rect);
+    fn reduce_partials(
+        &self,
+        _options: &Self::Options,
+        _input_dtype: &DType,
+        partials: impl IntoIterator<Item = Self::Partial>,
+    ) -> VortexResult<Self::Partial> {
+        let mut acc = AabbPartial { rect: None };
+        for partial in partials {
+            if let Some(rect) = partial.rect {
+                acc.merge(rect);
+            }
         }
-        Ok(())
+        Ok(acc)
     }
 
     fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
@@ -173,10 +185,6 @@ impl AggregateFnVTable for GeometryAabb {
             Some(rect) => rect_to_storage(rect),
             None => Scalar::null(aabb_dtype()),
         })
-    }
-
-    fn reset(&self, partial: &mut Self::Partial) {
-        partial.rect = None;
     }
 
     fn is_saturated(&self, _partial: &Self::Partial) -> bool {
@@ -245,7 +253,6 @@ mod tests {
 
     use super::AabbPartial;
     use super::GeometryAabb;
-    use super::aabb_dtype;
     use super::rect_from_storage;
     use crate::test_harness::linestring_column;
     use crate::test_harness::multilinestring_column;
@@ -388,38 +395,37 @@ mod tests {
         Ok(())
     }
 
-    /// `combine_partials` unions partial boxes - the path the zoned writer takes when a zone's
+    /// `reduce_partials` unions partial boxes - the path the zoned writer takes when a zone's
     /// array is chunked.
     #[test]
-    fn combine_partials_unions_boxes() -> VortexResult<()> {
+    fn reduce_partials_unions_boxes() -> VortexResult<()> {
+        let dtype = point_column(vec![0.0], vec![0.0])?.dtype().clone();
         let bbox = |xmin, ymin, xmax, ymax| AabbPartial {
             rect: Some(SpatialRect::new((xmin, ymin), (xmax, ymax))),
         };
-        let mut partial = AabbPartial { rect: None };
-        GeometryAabb.combine_partials(
-            &mut partial,
-            GeometryAabb.to_scalar(&bbox(0.0, 0.0, 1.0, 1.0))?,
-        )?;
-        GeometryAabb.combine_partials(
-            &mut partial,
-            GeometryAabb.to_scalar(&bbox(5.0, -2.0, 7.0, 3.0))?,
+        let reduced = GeometryAabb.reduce_partials(
+            &EmptyOptions,
+            &dtype,
+            [bbox(0.0, 0.0, 1.0, 1.0), bbox(5.0, -2.0, 7.0, 3.0)],
         )?;
         assert_eq!(
-            aabb(&GeometryAabb.to_scalar(&partial)?)?,
+            aabb(&GeometryAabb.to_scalar(&reduced)?)?,
             (0.0, -2.0, 7.0, 3.0)
         );
         Ok(())
     }
 
-    /// A null partial (an empty group's AABB) is a no-op in `combine_partials`.
+    /// An empty partial (an empty group's AABB) is a no-op in `reduce_partials`.
     #[test]
-    fn combine_partials_ignores_null() -> VortexResult<()> {
-        let mut partial = AabbPartial {
+    fn reduce_partials_ignores_empty() -> VortexResult<()> {
+        let dtype = point_column(vec![0.0], vec![0.0])?.dtype().clone();
+        let empty = AabbPartial { rect: None };
+        let value = AabbPartial {
             rect: Some(SpatialRect::new((0.0, 0.0), (1.0, 1.0))),
         };
-        GeometryAabb.combine_partials(&mut partial, Scalar::null(aabb_dtype()))?;
+        let reduced = GeometryAabb.reduce_partials(&EmptyOptions, &dtype, [value, empty])?;
         assert_eq!(
-            aabb(&GeometryAabb.to_scalar(&partial)?)?,
+            aabb(&GeometryAabb.to_scalar(&reduced)?)?,
             (0.0, 0.0, 1.0, 1.0)
         );
         Ok(())

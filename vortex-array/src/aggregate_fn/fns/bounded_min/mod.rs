@@ -61,6 +61,15 @@ pub struct BoundedMinPartial {
 }
 
 impl BoundedMinPartial {
+    /// The state of a group with no accumulated values.
+    fn empty(options: &BoundedMinOptions, input_dtype: &DType) -> Self {
+        Self {
+            state: BoundedMinState::Empty,
+            element_dtype: input_dtype.clone(),
+            max_bytes: options.max_bytes,
+        }
+    }
+
     fn merge(&mut self, min: Scalar) {
         if min.is_null() {
             return;
@@ -143,21 +152,37 @@ impl AggregateFnVTable for BoundedMin {
         self.return_dtype(options, input_dtype)
     }
 
-    fn empty_partial(
+    fn partial_from_scalar(
         &self,
         options: &Self::Options,
         input_dtype: &DType,
+        scalar: Scalar,
     ) -> VortexResult<Self::Partial> {
+        // A null partial means the producing accumulator saw nothing valid.
+        let state = if scalar.is_null() {
+            BoundedMinState::Empty
+        } else {
+            BoundedMinState::Value(scalar)
+        };
         Ok(BoundedMinPartial {
-            state: BoundedMinState::Empty,
-            element_dtype: input_dtype.clone(),
-            max_bytes: options.max_bytes,
+            state,
+            ..BoundedMinPartial::empty(options, input_dtype)
         })
     }
 
-    fn combine_partials(&self, partial: &mut Self::Partial, other: Scalar) -> VortexResult<()> {
-        partial.merge(other);
-        Ok(())
+    fn reduce_partials(
+        &self,
+        options: &Self::Options,
+        input_dtype: &DType,
+        partials: impl IntoIterator<Item = Self::Partial>,
+    ) -> VortexResult<Self::Partial> {
+        let mut acc = BoundedMinPartial::empty(options, input_dtype);
+        for partial in partials {
+            if let BoundedMinState::Value(min) = partial.state {
+                acc.merge(min);
+            }
+        }
+        Ok(acc)
     }
 
     fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
@@ -166,10 +191,6 @@ impl AggregateFnVTable for BoundedMin {
             BoundedMinState::Empty => Ok(Scalar::null(dtype)),
             BoundedMinState::Value(min) => min.cast(&dtype),
         }
-    }
-
-    fn reset(&self, partial: &mut Self::Partial) {
-        partial.state = BoundedMinState::Empty;
     }
 
     fn is_saturated(&self, _partial: &Self::Partial) -> bool {
@@ -249,6 +270,8 @@ mod tests {
     use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::fns::bounded_min::BoundedMin;
     use crate::aggregate_fn::fns::bounded_min::BoundedMinOptions;
+    use crate::aggregate_fn::fns::bounded_min::BoundedMinPartial;
+    use crate::aggregate_fn::fns::bounded_min::BoundedMinState;
     use crate::aggregate_fn::fns::max::Max;
     use crate::aggregate_fn::fns::min::Min;
     use crate::array_session;
@@ -322,7 +345,11 @@ mod tests {
         )?;
 
         acc.accumulate(&values, &mut ctx)?;
-        acc.combine_partials(Scalar::null(values.dtype().as_nullable()))?;
+        acc.fold_partial(BoundedMinPartial {
+            state: BoundedMinState::Empty,
+            element_dtype: values.dtype().clone(),
+            max_bytes: max_bytes(2),
+        })?;
 
         assert_eq!(
             acc.finish()?,

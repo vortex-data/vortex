@@ -31,6 +31,7 @@ use crate::aggregate_fn::fns::sum::SumState;
 use crate::aggregate_fn::fns::sum::accumulate_bool;
 use crate::aggregate_fn::fns::sum::accumulate_decimal;
 use crate::aggregate_fn::fns::sum::accumulate_primitive;
+use crate::aggregate_fn::fns::sum::checked_add_sum_states;
 use crate::aggregate_fn::fns::sum::make_zero_state;
 use crate::aggregate_fn::fns::sum::multiply_constant;
 use crate::arrays::Struct;
@@ -145,43 +146,51 @@ impl AggregateFnVTable for SumV2 {
             .map(sum_v2_partial_dtype)
     }
 
-    fn empty_partial(
+    fn partial_from_scalar(
         &self,
         options: &Self::Options,
         input_dtype: &DType,
+        scalar: Scalar,
     ) -> VortexResult<Self::Partial> {
-        let return_dtype = self
-            .return_dtype(options, input_dtype)
-            .ok_or_else(|| vortex_err!("Unsupported sum_v2 dtype: {}", input_dtype))?;
-        let sum = make_zero_state(&return_dtype);
-        Ok(SumV2Partial {
-            return_dtype,
-            sum,
-            is_overflow: false,
-            is_empty: true,
-            skip_nans: options.skip_nans,
-        })
+        let mut partial = SumV2Partial::empty(options, input_dtype)?;
+        let (sum, is_overflow, is_empty) = decode_partial_scalar(scalar)?;
+        validate_sum_field_dtype(&sum, &partial.return_dtype)?;
+
+        // Adding the parsed value to the zero state cannot overflow; treat a decimal value that
+        // no longer fits its precision as an already-overflowed partial.
+        let overflowed = checked_add_sum_state(&mut partial.sum, &sum)?;
+        partial.is_overflow = is_overflow || overflowed;
+        partial.is_empty = is_empty && !partial.is_overflow;
+        Ok(partial)
     }
 
-    fn combine_partials(&self, partial: &mut Self::Partial, other: Scalar) -> VortexResult<()> {
-        let (other_sum, other_is_overflow, other_is_empty) = decode_partial_scalar(other)?;
-        validate_sum_field_dtype(&other_sum, &partial.return_dtype)?;
-
-        if partial.is_overflow {
-            return Ok(());
+    fn reduce_partials(
+        &self,
+        options: &Self::Options,
+        input_dtype: &DType,
+        partials: impl IntoIterator<Item = Self::Partial>,
+    ) -> VortexResult<Self::Partial> {
+        // Seed from the first partial so an overflowed state keeps its last valid sum.
+        let mut partials = partials.into_iter();
+        let Some(mut acc) = partials.next() else {
+            return SumV2Partial::empty(options, input_dtype);
+        };
+        for partial in partials {
+            if acc.is_overflow {
+                break;
+            }
+            if partial.is_overflow {
+                acc.is_overflow = true;
+                acc.is_empty = false;
+                continue;
+            }
+            if partial.is_empty {
+                continue;
+            }
+            acc.is_overflow = checked_add_sum_states(&mut acc.sum, &partial.sum)?;
+            acc.is_empty = false;
         }
-        if other_is_overflow {
-            partial.is_overflow = true;
-            partial.is_empty = false;
-            return Ok(());
-        }
-        if other_is_empty {
-            return Ok(());
-        }
-
-        partial.is_overflow = checked_add_sum_state(&mut partial.sum, &other_sum)?;
-        partial.is_empty = false;
-        Ok(())
+        Ok(acc)
     }
 
     fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
@@ -193,12 +202,6 @@ impl AggregateFnVTable for SumV2 {
                 Scalar::bool(partial.is_empty, Nullability::NonNullable),
             ],
         ))
-    }
-
-    fn reset(&self, partial: &mut Self::Partial) {
-        partial.sum = make_zero_state(&partial.return_dtype);
-        partial.is_overflow = false;
-        partial.is_empty = true;
     }
 
     fn is_saturated(&self, partial: &Self::Partial) -> bool {
@@ -335,6 +338,22 @@ pub struct SumV2Partial {
     is_overflow: bool,
     is_empty: bool,
     skip_nans: bool,
+}
+
+impl SumV2Partial {
+    /// The state of a group with no accumulated values, or an error for unsupported input dtypes.
+    fn empty(options: &NumericalAggregateOpts, input_dtype: &DType) -> VortexResult<Self> {
+        let return_dtype = SumV2
+            .return_dtype(options, input_dtype)
+            .ok_or_else(|| vortex_err!("Unsupported sum_v2 dtype: {}", input_dtype))?;
+        Ok(Self {
+            sum: make_zero_state(&return_dtype),
+            return_dtype,
+            is_overflow: false,
+            is_empty: true,
+            skip_nans: options.skip_nans,
+        })
+    }
 }
 
 fn has_valid_value(batch: &Columnar, ctx: &mut ExecutionCtx) -> VortexResult<bool> {

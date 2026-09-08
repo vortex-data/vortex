@@ -60,25 +60,26 @@ impl AggregateFnVTable for AllNonNan {
         self.return_dtype(options, input_dtype)
     }
 
-    fn empty_partial(
+    fn partial_from_scalar(
         &self,
         _options: &Self::Options,
         _input_dtype: &DType,
+        scalar: Scalar,
     ) -> VortexResult<Self::Partial> {
-        Ok(true)
+        bool::try_from(&scalar)
     }
 
-    fn combine_partials(&self, partial: &mut Self::Partial, other: Scalar) -> VortexResult<()> {
-        *partial &= bool::try_from(&other)?;
-        Ok(())
+    fn reduce_partials(
+        &self,
+        _options: &Self::Options,
+        _input_dtype: &DType,
+        partials: impl IntoIterator<Item = Self::Partial>,
+    ) -> VortexResult<Self::Partial> {
+        Ok(partials.into_iter().all(|partial| partial))
     }
 
     fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
         Ok(Scalar::bool(*partial, Nullability::Nullable))
-    }
-
-    fn reset(&self, partial: &mut Self::Partial) {
-        *partial = true;
     }
 
     fn is_saturated(&self, partial: &Self::Partial) -> bool {

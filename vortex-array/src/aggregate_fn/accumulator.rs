@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
+
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
@@ -27,6 +31,8 @@ pub type AccumulatorRef = Box<dyn DynAccumulator>;
 pub struct Accumulator<V: AggregateFnVTable> {
     /// The vtable of the aggregate function.
     vtable: V,
+    /// The options of the aggregate function.
+    options: V::Options,
     /// Type-erased aggregate function used for kernel dispatch.
     aggregate_fn: AggregateFnRef,
     /// The DType of the input.
@@ -36,7 +42,10 @@ pub struct Accumulator<V: AggregateFnVTable> {
     /// The DType of the accumulator state.
     partial_dtype: DType,
     /// The partial state of the accumulator, updated after each accumulate/merge call.
-    partial: V::Partial,
+    ///
+    /// `None` is the empty-group state; a live partial is only materialized when a batch is
+    /// accumulated in place, so empty accumulators and folds never construct one.
+    partial: Option<V::Partial>,
 }
 
 impl<V: AggregateFnVTable> Accumulator<V> {
@@ -55,17 +64,43 @@ impl<V: AggregateFnVTable> Accumulator<V> {
                 dtype
             )
         })?;
-        let partial = vtable.empty_partial(&options, &dtype)?;
-        let aggregate_fn = AggregateFn::new(vtable.clone(), options).erased();
+        let aggregate_fn = AggregateFn::new(vtable.clone(), options.clone()).erased();
 
         Ok(Self {
             vtable,
+            options,
             aggregate_fn,
             dtype,
             return_dtype,
             partial_dtype,
-            partial,
+            partial: None,
         })
+    }
+
+    /// The identity partial state: the state of a group with no accumulated values.
+    fn empty_partial(&self) -> VortexResult<V::Partial> {
+        self.vtable.reduce_partials(&self.options, &self.dtype, [])
+    }
+
+    /// Materialize the partial state in place so a batch can be accumulated into it.
+    fn ensure_partial(&mut self) -> VortexResult<()> {
+        if self.partial.is_none() {
+            self.partial = Some(self.empty_partial()?);
+        }
+        Ok(())
+    }
+
+    /// Reduce an incoming partial state into the accumulator's current state.
+    pub(crate) fn fold_partial(&mut self, other: V::Partial) -> VortexResult<()> {
+        self.partial = Some(match self.partial.take() {
+            // Reducing the incoming partial with the empty state is the identity.
+            None => other,
+            Some(current) => {
+                self.vtable
+                    .reduce_partials(&self.options, &self.dtype, [current, other])?
+            }
+        });
+        Ok(())
     }
 }
 
@@ -75,11 +110,11 @@ pub trait DynAccumulator: 'static + Send {
     /// Accumulate a new array into the accumulator's state.
     fn accumulate(&mut self, batch: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()>;
 
-    /// Fold an external partial-state scalar into this accumulator's state.
+    /// Drain another accumulator's state into this one, resetting `other`.
     ///
-    /// The scalar must have the dtype reported by the vtable's `partial_dtype` for the
-    /// options and input dtype used to construct this accumulator.
-    fn combine_partials(&mut self, other: Scalar) -> VortexResult<()>;
+    /// The other accumulator must have been constructed for the same aggregate function,
+    /// options, and input dtype as this one.
+    fn merge_from(&mut self, other: &mut dyn DynAccumulator) -> VortexResult<()>;
 
     /// Whether the accumulator's result is fully determined.
     fn is_saturated(&self) -> bool;
@@ -104,6 +139,16 @@ pub trait DynAccumulator: 'static + Send {
     ///
     /// Resets the accumulator state back to the initial state.
     fn finish(&mut self) -> VortexResult<Scalar>;
+
+    /// Access the accumulator as [`Any`], so it can be downcast to a typed [`Accumulator`].
+    fn as_any_mut(&mut self) -> &mut dyn Any;
+}
+
+impl dyn DynAccumulator {
+    /// Downcast to the typed [`Accumulator`] of the aggregate vtable `V`.
+    pub fn downcast_mut<V: AggregateFnVTable>(&mut self) -> Option<&mut Accumulator<V>> {
+        self.as_any_mut().downcast_mut()
+    }
 }
 
 impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
@@ -137,7 +182,10 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
                 );
                 partial.cast(&self.partial_dtype)?
             };
-            self.vtable.combine_partials(&mut self.partial, partial)?;
+            let parsed = self
+                .vtable
+                .partial_from_scalar(&self.options, &self.dtype, partial)?;
+            self.fold_partial(parsed)?;
             return Ok(());
         }
 
@@ -161,13 +209,18 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
                     result.dtype(),
                     self.partial_dtype,
                 );
-                self.vtable.combine_partials(&mut self.partial, result)?;
+                let parsed = self
+                    .vtable
+                    .partial_from_scalar(&self.options, &self.dtype, result)?;
+                self.fold_partial(parsed)?;
                 return Ok(());
             }
         }
 
         // 2. Allow the vtable to short-circuit on the raw array before decompression.
-        if self.vtable.try_accumulate(&mut self.partial, batch, ctx)? {
+        self.ensure_partial()?;
+        let partial = self.partial.as_mut().vortex_expect("partial materialized");
+        if self.vtable.try_accumulate(partial, batch, ctx)? {
             return Ok(());
         }
 
@@ -193,7 +246,10 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
                     result.dtype(),
                     self.partial_dtype,
                 );
-                self.vtable.combine_partials(&mut self.partial, result)?;
+                let parsed = self
+                    .vtable
+                    .partial_from_scalar(&self.options, &self.dtype, result)?;
+                self.fold_partial(parsed)?;
                 return Ok(());
             }
 
@@ -203,23 +259,48 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
         // 4. Otherwise, execute the batch until it is columnar and accumulate it into the state.
         let columnar = batch.execute::<Columnar>(ctx)?;
 
-        self.vtable.accumulate(&mut self.partial, &columnar, ctx)
+        self.ensure_partial()?;
+        let partial = self.partial.as_mut().vortex_expect("partial materialized");
+        self.vtable.accumulate(partial, &columnar, ctx)
     }
 
-    fn combine_partials(&mut self, other: Scalar) -> VortexResult<()> {
-        self.vtable.combine_partials(&mut self.partial, other)
+    fn merge_from(&mut self, other: &mut dyn DynAccumulator) -> VortexResult<()> {
+        let Some(other) = other.downcast_mut::<V>() else {
+            vortex_bail!(
+                "Cannot merge into a {} accumulator from an accumulator of a different aggregate",
+                self.aggregate_fn,
+            );
+        };
+        vortex_ensure!(
+            other.options == self.options && other.dtype == self.dtype,
+            "Cannot merge {} accumulators with different options or input dtypes",
+            self.aggregate_fn,
+        );
+        match other.partial.take() {
+            Some(partial) => self.fold_partial(partial),
+            None => Ok(()),
+        }
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
     }
 
     fn is_saturated(&self) -> bool {
-        self.vtable.is_saturated(&self.partial)
+        self.partial
+            .as_ref()
+            .is_some_and(|partial| self.vtable.is_saturated(partial))
     }
 
     fn reset(&mut self) {
-        self.vtable.reset(&mut self.partial);
+        self.partial = None;
     }
 
     fn partial_scalar(&self) -> VortexResult<Scalar> {
-        let partial = self.vtable.to_scalar(&self.partial)?;
+        let partial = match &self.partial {
+            Some(partial) => self.vtable.to_scalar(partial)?,
+            None => self.vtable.to_scalar(&self.empty_partial()?)?,
+        };
 
         #[cfg(debug_assertions)]
         {
@@ -235,7 +316,10 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
     }
 
     fn final_scalar(&self) -> VortexResult<Scalar> {
-        let result = self.vtable.finalize_scalar(&self.partial)?;
+        let result = match &self.partial {
+            Some(partial) => self.vtable.finalize_scalar(partial)?,
+            None => self.vtable.finalize_scalar(&self.empty_partial()?)?,
+        };
 
         vortex_ensure!(
             result.dtype() == &self.return_dtype,
@@ -272,6 +356,7 @@ mod tests {
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::Accumulator;
+    use crate::aggregate_fn::AccumulatorRef;
     use crate::aggregate_fn::AggregateFnRef;
     use crate::aggregate_fn::AggregateFnVTable;
     use crate::aggregate_fn::DynAccumulator;
@@ -279,6 +364,7 @@ mod tests {
     use crate::aggregate_fn::combined::Combined;
     use crate::aggregate_fn::combined::PairOptions;
     use crate::aggregate_fn::fns::mean::Mean;
+    use crate::aggregate_fn::fns::min::Min;
     use crate::aggregate_fn::fns::sum::Sum;
     use crate::aggregate_fn::kernels::DynAggregateKernel;
     use crate::aggregate_fn::session::AggregateFnSession;
@@ -288,7 +374,10 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::expr::stats::Precision;
+    use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
+    use crate::scalar::ScalarValue;
 
     /// Mean partial sentinel `{sum: 42.0, count: 1}` — distinguishable from the
     /// natural fan-out result `{sum: 7.0, count: 1}` that `Combined::try_accumulate`
@@ -320,7 +409,7 @@ mod tests {
         }
     }
 
-    /// Sum partial sentinel `42.0` — distinguishable from the natural Sum of
+    /// Sum partial sentinel `{sum: 42.0, is_overflow: false, is_empty: false}` — distinguishable from the natural Sum of
     /// `dict_of_seven()` which is `7.0`.
     #[derive(Debug)]
     struct SentinelSumPartialKernel;
@@ -446,6 +535,92 @@ mod tests {
             s.field("count").unwrap().as_primitive().as_::<u64>(),
             Some(1)
         );
+        Ok(())
+    }
+
+    #[test]
+    fn cached_sum_precedes_encoding_kernel() -> VortexResult<()> {
+        static KERNEL: SentinelSumPartialKernel = SentinelSumPartialKernel;
+        let session = fresh_session();
+        session
+            .get::<AggregateFnSession>()
+            .register_aggregate_kernel(Dict.id(), Some(Sum.id()), &KERNEL);
+        let mut ctx = session.create_execution_ctx();
+
+        let batch = dict_of_seven();
+        batch
+            .statistics()
+            .set(Stat::Sum, Precision::Exact(ScalarValue::from(11.0f64)));
+
+        let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
+        let mut acc = Accumulator::try_new(Sum, NumericalAggregateOpts::default(), dtype)?;
+        acc.accumulate(&batch, &mut ctx)?;
+
+        assert_eq!(acc.finish()?.as_primitive().as_::<f64>(), Some(11.0));
+        Ok(())
+    }
+
+    fn sum_i32_accumulator(options: NumericalAggregateOpts) -> VortexResult<AccumulatorRef> {
+        let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        Ok(Box::new(Accumulator::try_new(Sum, options, dtype)?))
+    }
+
+    #[test]
+    fn merge_from_drains_other_accumulator() -> VortexResult<()> {
+        let mut ctx = fresh_session().create_execution_ctx();
+        let mut global = sum_i32_accumulator(NumericalAggregateOpts::default())?;
+        let mut local = sum_i32_accumulator(NumericalAggregateOpts::default())?;
+
+        global.accumulate(&buffer![10i32, 20].into_array(), &mut ctx)?;
+        local.accumulate(&buffer![5i32].into_array(), &mut ctx)?;
+        global.merge_from(local.as_mut())?;
+
+        assert_eq!(
+            global.finish()?,
+            Scalar::primitive(35i64, Nullability::Nullable)
+        );
+        // The merged-from accumulator is reset back to the empty state.
+        assert_eq!(
+            local.finish()?,
+            Scalar::primitive(0i64, Nullability::Nullable)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn merge_from_rejects_a_different_aggregate() -> VortexResult<()> {
+        let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let mut sum = sum_i32_accumulator(NumericalAggregateOpts::default())?;
+        let mut min: AccumulatorRef = Box::new(Accumulator::try_new(
+            Min,
+            NumericalAggregateOpts::default(),
+            dtype,
+        )?);
+
+        assert!(sum.merge_from(min.as_mut()).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn merge_from_rejects_mismatched_options() -> VortexResult<()> {
+        let mut skipping = sum_i32_accumulator(NumericalAggregateOpts::skip_nans())?;
+        let mut including = sum_i32_accumulator(NumericalAggregateOpts::include_nans())?;
+
+        assert!(skipping.merge_from(including.as_mut()).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn merge_from_combines_child_accumulators() -> VortexResult<()> {
+        let mut ctx = fresh_session().create_execution_ctx();
+        let mut global: AccumulatorRef = Box::new(mean_f64_accumulator()?);
+        let mut local: AccumulatorRef = Box::new(mean_f64_accumulator()?);
+
+        global.accumulate(&buffer![1.0f64, 2.0].into_array(), &mut ctx)?;
+        local.accumulate(&buffer![6.0f64].into_array(), &mut ctx)?;
+        global.merge_from(local.as_mut())?;
+
+        assert_eq!(global.finish()?.as_primitive().as_::<f64>(), Some(3.0));
         Ok(())
     }
 }

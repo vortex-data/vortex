@@ -57,23 +57,30 @@ impl AggregateFnVTable for First {
         self.return_dtype(options, input_dtype)
     }
 
-    fn empty_partial(
+    fn partial_from_scalar(
         &self,
         _options: &Self::Options,
         input_dtype: &DType,
+        scalar: Scalar,
     ) -> VortexResult<Self::Partial> {
+        // A null partial means the producing accumulator saw nothing valid.
         Ok(FirstPartial {
             return_dtype: input_dtype.as_nullable(),
-            value: None,
+            value: (!scalar.is_null()).then_some(scalar),
         })
     }
 
-    fn combine_partials(&self, partial: &mut Self::Partial, other: Scalar) -> VortexResult<()> {
-        // Only the first non-null partial wins; later ones are ignored.
-        if partial.value.is_none() && !other.is_null() {
-            partial.value = Some(other);
-        }
-        Ok(())
+    fn reduce_partials(
+        &self,
+        _options: &Self::Options,
+        input_dtype: &DType,
+        partials: impl IntoIterator<Item = Self::Partial>,
+    ) -> VortexResult<Self::Partial> {
+        // The first non-empty partial in iteration order wins; later ones are ignored.
+        Ok(FirstPartial {
+            return_dtype: input_dtype.as_nullable(),
+            value: partials.into_iter().find_map(|partial| partial.value),
+        })
     }
 
     fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
@@ -81,10 +88,6 @@ impl AggregateFnVTable for First {
             Some(v) => v.clone(),
             None => Scalar::null(partial.return_dtype.clone()),
         })
-    }
-
-    fn reset(&self, partial: &mut Self::Partial) {
-        partial.value = None;
     }
 
     #[inline]
@@ -138,6 +141,7 @@ mod tests {
     use crate::aggregate_fn::DynAccumulator;
     use crate::aggregate_fn::EmptyOptions;
     use crate::aggregate_fn::fns::first::First;
+    use crate::aggregate_fn::fns::first::FirstPartial;
     use crate::aggregate_fn::fns::first::first;
     use crate::array_session;
     use crate::arrays::ChunkedArray;
@@ -259,17 +263,20 @@ mod tests {
     #[test]
     fn first_state_merge() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let mut state = First.empty_partial(&EmptyOptions, &dtype)?;
+        let partial_of = |value: Option<Scalar>| FirstPartial {
+            return_dtype: dtype.as_nullable(),
+            value,
+        };
 
-        // A null partial means the sub-accumulator saw nothing valid - should be ignored.
-        First.combine_partials(&mut state, Scalar::null(dtype.as_nullable()))?;
-        assert!(!First.is_saturated(&state));
+        // An empty partial means the sub-accumulator saw nothing valid - it is ignored.
+        let empty = partial_of(None);
+        assert!(!First.is_saturated(&empty));
 
-        First.combine_partials(&mut state, Scalar::primitive(5i32, Nullable))?;
+        // The first non-empty partial wins; subsequent valid partials are dropped.
+        let five = partial_of(Some(Scalar::primitive(5i32, Nullable)));
+        let seven = partial_of(Some(Scalar::primitive(7i32, Nullable)));
+        let state = First.reduce_partials(&EmptyOptions, &dtype, [empty, five, seven])?;
         assert!(First.is_saturated(&state));
-
-        // Subsequent valid partials are dropped.
-        First.combine_partials(&mut state, Scalar::primitive(7i32, Nullable))?;
         assert_eq!(First.to_scalar(&state)?, Scalar::primitive(5i32, Nullable));
         Ok(())
     }
