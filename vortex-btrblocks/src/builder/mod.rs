@@ -62,7 +62,7 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
     ////////////////////////////////////////////////////////////////////////////////////////////////
     &binary::BinaryDictScheme,
     // Decimal schemes.
-    &decimal::DecimalScheme,
+    &decimal::DecimalSchemeV2,
     // Temporal schemes.
     &temporal::TemporalScheme,
 ];
