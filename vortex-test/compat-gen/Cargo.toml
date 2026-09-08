@@ -20,6 +20,11 @@ name = "vortex-compat"
 path = "src/main.rs"
 test = false
 
+[features]
+# Fixtures for encodings whose on-disk shape is not yet stable. Kept out of the default
+# fixture set so a default build never publishes a file older readers cannot open.
+unstable_encodings = ["vortex/unstable_encodings"]
+
 [dependencies]
 # Vortex crates
 vortex = { workspace = true, features = ["files", "tokio", "zstd"] }
