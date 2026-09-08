@@ -93,7 +93,7 @@ impl CascadingCompressor {
 
         let child_ctx = parent_ctx
             .clone()
-            .descend_with_scheme(parent_id, child_index);
+            .descend_with_scheme(self.resolve_scheme_id(parent_id), child_index);
         self.compress_canonical(compact, child_ctx, exec_ctx)
     }
 

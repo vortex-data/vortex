@@ -9,14 +9,11 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::VTable;
 use vortex_array::VortexSessionExecute;
-use vortex_array::arrays::Bool;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::Map;
 use vortex_array::arrays::NullArray;
-use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::builders::MapBuilder;
@@ -29,7 +26,6 @@ use vortex_array::validity::Validity;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
-use vortex_utils::aliases::hash_set::HashSet;
 
 use super::CascadingCompressor;
 use super::ROOT_SCHEME_ID;
@@ -97,48 +93,6 @@ impl Scheme for DirectRatioScheme {
         _exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         unreachable!("test helper should never be selected for compression")
-    }
-}
-
-/// What the last `FormatRecordingScheme::compress` call saw for `allows_serialized_id`.
-static SEEN_FORMAT: Mutex<Option<bool>> = Mutex::new(None);
-
-/// Stands in for a scheme whose encoding has several wire formats: it asks the compressor whether
-/// the newer one is allowed and records the answer.
-#[derive(Debug)]
-struct FormatRecordingScheme;
-
-impl Scheme for FormatRecordingScheme {
-    fn scheme_name(&self) -> &'static str {
-        "test.format_recording"
-    }
-
-    fn matches(&self, canonical: &Canonical) -> bool {
-        matches_integer_primitive(canonical)
-    }
-
-    fn produced_encodings(&self) -> Vec<ArrayId> {
-        Vec::new()
-    }
-
-    fn expected_compression_ratio(
-        &self,
-        _data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
-        _exec_ctx: &mut ExecutionCtx,
-    ) -> CompressionEstimate {
-        CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
-    }
-
-    fn compress(
-        &self,
-        _compressor: &CascadingCompressor,
-        data: &ArrayAndStats,
-        compress_ctx: CompressorContext,
-        _exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        *SEEN_FORMAT.lock() = Some(compress_ctx.allows_serialized_id(Constant.id()));
-        Ok(data.array().clone())
     }
 }
 
@@ -420,12 +374,8 @@ fn immediate_always_use_wins_immediately() -> VortexResult<()> {
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    let winner = compressor.choose_best_scheme(
-        &schemes,
-        &data,
-        CompressorContext::new(None),
-        &mut exec_ctx,
-    )?;
+    let winner =
+        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
 
     assert!(matches!(
         winner,
@@ -442,12 +392,8 @@ fn callback_always_use_wins_immediately() -> VortexResult<()> {
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    let winner = compressor.choose_best_scheme(
-        &schemes,
-        &data,
-        CompressorContext::new(None),
-        &mut exec_ctx,
-    )?;
+    let winner =
+        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
 
     assert!(matches!(
         winner,
@@ -464,12 +410,8 @@ fn callback_skip_is_ignored() -> VortexResult<()> {
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    let winner = compressor.choose_best_scheme(
-        &schemes,
-        &data,
-        CompressorContext::new(None),
-        &mut exec_ctx,
-    )?;
+    let winner =
+        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
 
     assert!(matches!(
         winner,
@@ -486,12 +428,8 @@ fn callback_ratio_competes_numerically() -> VortexResult<()> {
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    let winner = compressor.choose_best_scheme(
-        &schemes,
-        &data,
-        CompressorContext::new(None),
-        &mut exec_ctx,
-    )?;
+    let winner =
+        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
 
     assert!(matches!(
         winner,
@@ -508,12 +446,8 @@ fn zero_byte_sample_loses_to_finite_ratio() -> VortexResult<()> {
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    let winner = compressor.choose_best_scheme(
-        &schemes,
-        &data,
-        CompressorContext::new(None),
-        &mut exec_ctx,
-    )?;
+    let winner =
+        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
 
     assert!(matches!(
         winner,
@@ -530,12 +464,8 @@ fn finite_ratio_displaces_zero_byte_sample() -> VortexResult<()> {
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    let winner = compressor.choose_best_scheme(
-        &schemes,
-        &data,
-        CompressorContext::new(None),
-        &mut exec_ctx,
-    )?;
+    let winner =
+        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
 
     assert!(matches!(
         winner,
@@ -552,12 +482,8 @@ fn zero_byte_sample_alone_selects_no_scheme() -> VortexResult<()> {
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    let winner = compressor.choose_best_scheme(
-        &schemes,
-        &data,
-        CompressorContext::new(None),
-        &mut exec_ctx,
-    )?;
+    let winner =
+        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
 
     assert!(winner.is_none());
     Ok(())
@@ -658,12 +584,8 @@ fn callback_always_use_overrides_pass_one_best() -> VortexResult<()> {
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    let winner = compressor.choose_best_scheme(
-        &schemes,
-        &data,
-        CompressorContext::new(None),
-        &mut exec_ctx,
-    )?;
+    let winner =
+        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
 
     assert!(matches!(
         winner,
@@ -683,7 +605,7 @@ fn threshold_reflects_pass_one_best() -> VortexResult<()> {
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(None), &mut exec_ctx)?;
+    compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
 
     let observed = *OBSERVED_THRESHOLD.lock();
     assert!(matches!(
@@ -704,7 +626,7 @@ fn threshold_is_none_when_only_prior_is_zero_bytes() -> VortexResult<()> {
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(None), &mut exec_ctx)?;
+    compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
 
     // The observing callback was invoked (outer `Some`) and `best_so_far` was `None` (inner
     // `None`) because the zero-byte sample is never stored as the best.
@@ -723,7 +645,7 @@ fn threshold_is_none_when_no_prior_scheme() -> VortexResult<()> {
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(None), &mut exec_ctx)?;
+    compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
 
     let observed = *OBSERVED_THRESHOLD.lock();
     assert_eq!(observed, Some(None));
@@ -743,7 +665,7 @@ fn threshold_updates_from_earlier_deferred_callback() -> VortexResult<()> {
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(None), &mut exec_ctx)?;
+    compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
 
     let observed = *OBSERVED_THRESHOLD.lock();
     assert!(matches!(
@@ -764,12 +686,8 @@ fn ratio_tie_between_immediate_and_deferred_favors_immediate() -> VortexResult<(
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    let winner = compressor.choose_best_scheme(
-        &schemes,
-        &data,
-        CompressorContext::new(None),
-        &mut exec_ctx,
-    )?;
+    let winner =
+        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
 
     assert!(matches!(
         winner,
@@ -816,7 +734,7 @@ fn sampling_uses_scheme_stats_options() -> VortexResult<()> {
     // A context with default stats_options (count_distinct_values = false) and
     // marked as a sample so the function skips the sampling step and compresses
     // the array directly.
-    let ctx = CompressorContext::new(None).with_sampling();
+    let ctx = CompressorContext::new().with_sampling();
 
     // Before the fix this panicked with:
     //   "this must be present since `DictScheme` declared that we need distinct values"
@@ -921,48 +839,5 @@ fn map_compression_preserves_repeated_entry_children() -> VortexResult<()> {
     assert!(compressed.is::<Map>());
     assert_eq!(compressed.dtype(), array.dtype());
     assert_arrays_eq!(&compressed, &array, &mut exec_ctx);
-    Ok(())
-}
-
-#[test]
-fn allowed_serialized_ids_default_to_everything_and_intersect() {
-    let compressor = compressor();
-    let root = compressor.root_context();
-    assert!(root.allows_serialized_id(Constant.id()));
-    assert!(root.allows_serialized_id(Bool.id()));
-
-    let restricted =
-        compressor.with_allowed_serialized_ids(HashSet::from([Primitive.id(), Constant.id()]));
-    let root = restricted.root_context();
-    assert!(root.allows_serialized_id(Constant.id()));
-    assert!(!root.allows_serialized_id(Bool.id()));
-
-    let narrowed =
-        restricted.with_allowed_serialized_ids(HashSet::from([Primitive.id(), Bool.id()]));
-    let root = narrowed.root_context();
-    assert!(root.allows_serialized_id(Primitive.id()));
-    assert!(!root.allows_serialized_id(Constant.id()));
-    assert!(!root.allows_serialized_id(Bool.id()));
-
-    // Descending keeps the set.
-    let child = root.descend_with_scheme(IntDictScheme.id(), 0);
-    assert!(child.allows_serialized_id(Primitive.id()));
-    assert!(!child.allows_serialized_id(Constant.id()));
-}
-
-/// A scheme sees the restriction through the compressor it is handed: everything is allowed until
-/// the writer narrows the set to its editions.
-#[test]
-fn schemes_see_the_allowed_serialized_ids() -> VortexResult<()> {
-    let array = PrimitiveArray::from_iter(0..4096i32).into_array();
-    let mut exec_ctx = SESSION.create_execution_ctx();
-
-    let unrestricted = CascadingCompressor::new(vec![&FormatRecordingScheme]);
-    unrestricted.compress(&array, &mut exec_ctx)?;
-    assert_eq!(*SEEN_FORMAT.lock(), Some(true));
-
-    let restricted = unrestricted.with_allowed_serialized_ids(HashSet::from([Primitive.id()]));
-    restricted.compress(&array, &mut exec_ctx)?;
-    assert_eq!(*SEEN_FORMAT.lock(), Some(false));
     Ok(())
 }

@@ -124,16 +124,30 @@ pub trait Scheme: Debug + Send + Sync {
     /// Whether this scheme can compress the given canonical array.
     fn matches(&self, canonical: &Canonical) -> bool;
 
-    /// The serialized IDs this scheme may write its output under.
+    /// The serialized IDs this scheme may write its output under. Every ID must be permitted before
+    /// this scheme can be selected.
     ///
     /// Cascaded children are compressed by other schemes, which declare their own IDs, so only
     /// arrays constructed directly by [`compress`](Scheme::compress) belong here. Canonical
     /// arrays the scheme merely rearranges do not need to be declared.
     ///
-    /// An encoding with several wire formats lists every one of them, oldest first. The writer
-    /// keeps the scheme while any of them is permitted, and the scheme picks the newest
-    /// permitted one as its compression mode.
+    /// Alternative versions belong in the [`predecessor`](Scheme::predecessor) chain, rather than
+    /// in this list. Once selected, a scheme must produce output compatible with these IDs without
+    /// consulting the writer's configuration.
     fn produced_encodings(&self) -> Vec<ArrayId>;
+
+    /// The preceding version of this scheme, used when this version's serialized IDs are unavailable.
+    ///
+    /// Register only the newest version. The compressor selects the first eligible version in
+    /// this chain during configuration, before matching, generating statistics, or estimating.
+    /// A predecessor is a compatibility fallback, not an alternative compression candidate.
+    ///
+    /// Versions must have distinct scheme IDs and form an acyclic chain. They must support the
+    /// same input types and preserve child indices, because exclusions and scheme dependencies
+    /// referring to any version in the registered chain apply to the selected version.
+    fn predecessor(&self) -> Option<&'static dyn Scheme> {
+        None
+    }
 
     /// Returns the stats generation options this scheme requires. The compressor merges all
     /// eligible schemes' options before generating stats so that a single stats pass satisfies

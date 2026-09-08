@@ -50,7 +50,7 @@ impl Scheme for OnPairScheme {
         canonical.dtype().is_utf8()
     }
 
-    fn produced_encodings(&self) -> Vec<ArrayId> {
+    fn required_serialized_ids(&self) -> Vec<ArrayId> {
         vec![OnPair.id()]
     }
 

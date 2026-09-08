@@ -4,11 +4,8 @@
 //! Compression context for recursive compression.
 
 use std::fmt;
-use std::sync::Arc;
 
-use vortex_array::ArrayId;
 use vortex_error::VortexExpect;
-use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::compressor::ROOT_SCHEME_ID;
 use crate::scheme::SchemeId;
@@ -41,24 +38,18 @@ pub struct CompressorContext {
     /// [`descendant_exclusions`]: crate::scheme::Scheme::descendant_exclusions
     /// [`ancestor_exclusions`]: crate::scheme::Scheme::ancestor_exclusions
     cascade_history: Vec<(SchemeId, usize)>,
-
-    /// The serialized IDs the writer may emit, or `None` for no restriction. Shared by every
-    /// context of one compress call, so cloning at each descent is a pointer bump.
-    allowed_serialized_ids: Option<Arc<HashSet<ArrayId>>>,
 }
 
 impl CompressorContext {
-    /// Creates a new root `CompressorContext` for a compressor that may emit the given serialized
-    /// IDs, or any ID when `None`.
+    /// Creates a new root `CompressorContext`.
     ///
     /// This should **only** be created by the compressor.
-    pub(crate) fn new(allowed_serialized_ids: Option<Arc<HashSet<ArrayId>>>) -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             is_sample: false,
             allowed_cascading: MAX_CASCADE,
             merged_stats_options: GenerateStatsOptions::default(),
             cascade_history: Vec::new(),
-            allowed_serialized_ids,
         }
     }
 }
@@ -66,7 +57,7 @@ impl CompressorContext {
 #[cfg(test)]
 impl Default for CompressorContext {
     fn default() -> Self {
-        Self::new(None)
+        Self::new()
     }
 }
 
@@ -74,18 +65,6 @@ impl CompressorContext {
     /// Whether this context is for sample compression (ratio estimation).
     pub fn is_sample(&self) -> bool {
         self.is_sample
-    }
-
-    /// Returns whether the writer may emit the serialized ID `id`.
-    ///
-    /// A scheme whose encoding has several wire formats picks its compression mode from this,
-    /// the newest permitted one, and the same answer is available while estimating and while
-    /// compressing. Without a restriction every ID is allowed. The serializer still emits the
-    /// oldest wire form the resulting array fits, and the serialization context validates it.
-    pub fn allows_serialized_id(&self, id: ArrayId) -> bool {
-        self.allowed_serialized_ids
-            .as_ref()
-            .is_none_or(|allowed| allowed.contains(&id))
     }
 
     /// Returns the merged stats generation options for this compression site.

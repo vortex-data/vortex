@@ -9,9 +9,8 @@ mod sample;
 mod select;
 mod structural;
 
-use std::sync::Arc;
-
 use vortex_array::ArrayId;
+use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::builtins::IntDictScheme;
@@ -53,16 +52,38 @@ pub struct CascadingCompressor {
     /// list offsets).
     root_exclusions: Vec<DescendantExclusion>,
 
-    /// The serialized IDs the writer may emit, or `None` for no restriction. Seeds every root
-    /// [`CompressorContext`], where schemes read it.
-    allowed_serialized_ids: Option<Arc<HashSet<ArrayId>>>,
+    /// Maps every registered version to the version selected for compression.
+    scheme_aliases: HashMap<SchemeId, SchemeId>,
+
+    /// Configuration only: retained so repeated restrictions intersect exactly.
+    allowed_serialized_ids: Option<HashSet<ArrayId>>,
 }
 
 impl CascadingCompressor {
     /// Creates a new compressor with the given schemes.
     ///
+    /// Register only the newest version of each scheme. Predecessor IDs are aliases for the
+    /// selected version in exclusions and [`has_scheme`](Self::has_scheme) checks.
     /// Root-level exclusion rules (e.g. excluding Dict from list offsets) are built automatically.
+    ///
+    /// # Panics
+    ///
+    /// Panics if predecessor chains contain a cycle or share a scheme ID, including when multiple
+    /// versions of the same scheme are registered separately.
     pub fn new(schemes: Vec<&'static dyn Scheme>) -> Self {
+        let mut scheme_aliases = HashMap::new();
+        for &scheme in &schemes {
+            let mut candidate = Some(scheme);
+            while let Some(version) = candidate {
+                assert!(
+                    scheme_aliases.insert(version.id(), scheme.id()).is_none(),
+                    "scheme {} appears more than once in the registered predecessor chains",
+                    version.id(),
+                );
+                candidate = version.predecessor();
+            }
+        }
+
         // Root exclusion: exclude IntDict from list/listview offsets (monotonically
         // increasing data where dictionary encoding is wasteful).
         let root_exclusions = vec![DescendantExclusion {
@@ -73,40 +94,68 @@ impl CascadingCompressor {
         Self {
             schemes,
             root_exclusions,
+            scheme_aliases,
             allowed_serialized_ids: None,
         }
     }
 
-    /// Hands the compressor the serialized IDs the writer may emit, intersecting with any earlier
-    /// call.
+    /// Selects the newest eligible version of each scheme, intersecting with any earlier call.
     ///
-    /// The file writer passes the serialized IDs its enabled editions permit. Schemes read the
-    /// set through [`CompressorContext::allows_serialized_id`], so a scheme whose encoding has
-    /// several wire formats picks the newest permitted one as its mode, while estimating and
-    /// while compressing alike.
+    /// A version is eligible only when all of its [`Scheme::required_serialized_ids`] are allowed.
+    /// Otherwise its predecessors are tried in order; the scheme is removed if none is eligible.
+    /// Selection preserves registration order and happens before any compression or estimation.
     pub fn with_allowed_serialized_ids(mut self, allowed: HashSet<ArrayId>) -> Self {
-        self.allowed_serialized_ids = Some(Arc::new(match self.allowed_serialized_ids.take() {
+        let allowed = match self.allowed_serialized_ids.take() {
             Some(existing) => existing.intersection(&allowed).copied().collect(),
             None => allowed,
-        }));
+        };
+        let mut replacements = HashMap::new();
+        self.schemes = self
+            .schemes
+            .into_iter()
+            .filter_map(|scheme| {
+                let mut candidate = Some(scheme);
+                while let Some(version) = candidate {
+                    if version
+                        .produced_encodings()
+                        .iter()
+                        .all(|id| allowed.contains(id))
+                    {
+                        replacements.insert(scheme.id(), version.id());
+                        return Some(version);
+                    }
+                    candidate = version.predecessor();
+                }
+                None
+            })
+            .collect();
+        self.scheme_aliases.retain(|_, selected| {
+            if let Some(replacement) = replacements.get(selected) {
+                *selected = *replacement;
+                true
+            } else {
+                false
+            }
+        });
+        self.allowed_serialized_ids = Some(allowed);
         self
-    }
-
-    /// The serialized IDs the writer may emit, or `None` when unrestricted.
-    pub fn allowed_serialized_ids(&self) -> Option<&HashSet<ArrayId>> {
-        self.allowed_serialized_ids.as_deref()
     }
 
     /// The context a compress call starts from.
     pub(crate) fn root_context(&self) -> CompressorContext {
-        CompressorContext::new(self.allowed_serialized_ids.clone())
+        CompressorContext::new()
     }
 
-    /// Returns whether the compressor was configured with `scheme`.
+    /// Returns whether a version of `scheme` is enabled.
+    ///
+    /// Any ID in a registered predecessor chain refers to the selected version, including when
+    /// the selected version is older or newer than the specified ID.
     pub fn has_scheme(&self, scheme: SchemeId) -> bool {
-        self.schemes
-            .iter()
-            .any(|candidate| candidate.id() == scheme)
+        self.scheme_aliases.contains_key(&scheme)
+    }
+
+    fn resolve_scheme_id(&self, scheme: SchemeId) -> SchemeId {
+        self.scheme_aliases.get(&scheme).copied().unwrap_or(scheme)
     }
 }
 
@@ -114,3 +163,6 @@ impl CascadingCompressor {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod version_tests;

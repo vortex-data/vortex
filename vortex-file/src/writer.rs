@@ -402,8 +402,6 @@ fn new_array_context(
             .registry()
             .read(|registry| registry.keys().copied().collect())
     };
-    // The compressor sees the same set: it keeps the schemes that can write one of these IDs, and
-    // an encoding with several wire formats produces the newest one permitted.
     let allowed_serialized_ids: HashSet<ArrayId> = serialized_ids.iter().copied().collect();
     let array_ctx = ArrayContext::new(serialized_ids.iter().copied().sorted().collect());
     let array_ctx = if enforce_editions {
