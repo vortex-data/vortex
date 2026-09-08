@@ -202,6 +202,16 @@ pub struct MinMaxPartial {
 }
 
 impl MinMaxPartial {
+    /// The state of a group with no accumulated values.
+    fn empty(options: &NumericalAggregateOpts, input_dtype: &DType) -> Self {
+        Self {
+            min: None,
+            max: None,
+            element_dtype: input_dtype.clone(),
+            skip_nans: options.skip_nans,
+        }
+    }
+
     /// Merge a local `MinMaxResult` into this partial state.
     fn merge(&mut self, local: Option<MinMaxResult>) {
         let Some(MinMaxResult { min, max }) = local else {
@@ -308,23 +318,31 @@ impl AggregateFnVTable for MinMax {
         self.return_dtype(options, input_dtype)
     }
 
-    fn empty_partial(
+    fn partial_from_scalar(
         &self,
         options: &Self::Options,
         input_dtype: &DType,
+        scalar: Scalar,
     ) -> VortexResult<Self::Partial> {
-        Ok(MinMaxPartial {
-            min: None,
-            max: None,
-            element_dtype: input_dtype.clone(),
-            skip_nans: options.skip_nans,
-        })
+        let mut partial = MinMaxPartial::empty(options, input_dtype);
+        // `merge` normalizes the parsed extrema: nulls stay empty and NaNs poison or drop.
+        partial.merge(MinMaxResult::from_scalar(scalar)?);
+        Ok(partial)
     }
 
-    fn combine_partials(&self, partial: &mut Self::Partial, other: Scalar) -> VortexResult<()> {
-        let local = MinMaxResult::from_scalar(other)?;
-        partial.merge(local);
-        Ok(())
+    fn reduce_partials(
+        &self,
+        options: &Self::Options,
+        input_dtype: &DType,
+        partials: impl IntoIterator<Item = Self::Partial>,
+    ) -> VortexResult<Self::Partial> {
+        let mut acc = MinMaxPartial::empty(options, input_dtype);
+        for partial in partials {
+            if let (Some(min), Some(max)) = (partial.min, partial.max) {
+                acc.merge(Some(MinMaxResult { min, max }));
+            }
+        }
+        Ok(acc)
     }
 
     fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
@@ -333,11 +351,6 @@ impl AggregateFnVTable for MinMax {
             (Some(min), Some(max)) => Scalar::struct_(dtype, vec![min.clone(), max.clone()]),
             _ => Scalar::null(dtype),
         })
-    }
-
-    fn reset(&self, partial: &mut Self::Partial) {
-        partial.min = None;
-        partial.max = None;
     }
 
     #[inline]
@@ -458,6 +471,7 @@ mod tests {
     use crate::aggregate_fn::DynAccumulator;
     use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::fns::min_max::MinMax;
+    use crate::aggregate_fn::fns::min_max::MinMaxPartial;
     use crate::aggregate_fn::fns::min_max::MinMaxResult;
     use crate::aggregate_fn::fns::min_max::make_minmax_dtype;
     use crate::aggregate_fn::fns::min_max::min_max;
@@ -656,17 +670,16 @@ mod tests {
     #[test]
     fn test_state_merge() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let mut state = MinMax.empty_partial(&NumericalAggregateOpts::default(), &dtype)?;
+        let options = NumericalAggregateOpts::default();
+        let partial_of = |min: i32, max: i32| MinMaxPartial {
+            min: Some(Scalar::from(min)),
+            max: Some(Scalar::from(max)),
+            element_dtype: dtype.clone(),
+            skip_nans: true,
+        };
 
-        let struct_dtype = make_minmax_dtype(&dtype);
-        let scalar1 = Scalar::struct_(
-            struct_dtype.clone(),
-            vec![Scalar::from(5i32), Scalar::from(15i32)],
-        );
-        MinMax.combine_partials(&mut state, scalar1)?;
-
-        let scalar2 = Scalar::struct_(struct_dtype, vec![Scalar::from(2i32), Scalar::from(10i32)]);
-        MinMax.combine_partials(&mut state, scalar2)?;
+        let state =
+            MinMax.reduce_partials(&options, &dtype, [partial_of(5, 15), partial_of(2, 10)])?;
 
         let result = MinMaxResult::from_scalar(MinMax.to_scalar(&state)?)?
             .vortex_expect("should have result");

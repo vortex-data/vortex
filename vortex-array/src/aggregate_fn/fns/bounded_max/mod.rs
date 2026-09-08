@@ -76,6 +76,15 @@ pub struct BoundedMaxPartial {
 }
 
 impl BoundedMaxPartial {
+    /// The state of a group with no accumulated values.
+    fn empty(options: &BoundedMaxOptions, input_dtype: &DType) -> Self {
+        Self {
+            state: BoundedMaxState::Empty,
+            element_dtype: input_dtype.clone(),
+            max_bytes: options.max_bytes,
+        }
+    }
+
     fn merge_bound(&mut self, max: Scalar) {
         if max.is_null() {
             return;
@@ -189,42 +198,61 @@ impl AggregateFnVTable for BoundedMax {
         supported_dtype(options, input_dtype).map(make_bounded_max_partial_dtype)
     }
 
-    fn empty_partial(
+    fn partial_from_scalar(
         &self,
         options: &Self::Options,
         input_dtype: &DType,
+        scalar: Scalar,
     ) -> VortexResult<Self::Partial> {
+        // A null partial means the producing accumulator saw nothing valid.
+        let state = if scalar.is_null() {
+            BoundedMaxState::Empty
+        } else {
+            let Some(fields) = scalar.as_struct_opt() else {
+                vortex_bail!(
+                    "BoundedMax partial must be a struct, got {}",
+                    scalar.dtype()
+                );
+            };
+            let Some(bound) = fields.field_by_idx(0) else {
+                vortex_bail!("BoundedMax partial is missing its bound field");
+            };
+            let Some(unknown) = fields
+                .field_by_idx(1)
+                .and_then(|unknown| unknown.as_bool().value())
+            else {
+                vortex_bail!("BoundedMax partial is missing its non-null unknown field");
+            };
+
+            if unknown {
+                BoundedMaxState::Unknown
+            } else if bound.is_null() {
+                BoundedMaxState::Empty
+            } else {
+                BoundedMaxState::Value(bound)
+            }
+        };
         Ok(BoundedMaxPartial {
-            state: BoundedMaxState::Empty,
-            element_dtype: input_dtype.clone(),
-            max_bytes: options.max_bytes,
+            state,
+            ..BoundedMaxPartial::empty(options, input_dtype)
         })
     }
 
-    fn combine_partials(&self, partial: &mut Self::Partial, other: Scalar) -> VortexResult<()> {
-        if other.is_null() {
-            return Ok(());
+    fn reduce_partials(
+        &self,
+        options: &Self::Options,
+        input_dtype: &DType,
+        partials: impl IntoIterator<Item = Self::Partial>,
+    ) -> VortexResult<Self::Partial> {
+        let mut acc = BoundedMaxPartial::empty(options, input_dtype);
+        for partial in partials {
+            match partial.state {
+                BoundedMaxState::Empty => {}
+                BoundedMaxState::Value(max) => acc.merge_bound(max),
+                BoundedMaxState::Unknown => acc.unknown(),
+            }
         }
-
-        let Some(other) = other.as_struct_opt() else {
-            vortex_bail!("BoundedMax partial must be a struct, got {}", other.dtype());
-        };
-        let Some(bound) = other.field_by_idx(0) else {
-            vortex_bail!("BoundedMax partial is missing its bound field");
-        };
-        let Some(unknown) = other
-            .field_by_idx(1)
-            .and_then(|unknown| unknown.as_bool().value())
-        else {
-            vortex_bail!("BoundedMax partial is missing its non-null unknown field");
-        };
-
-        if unknown {
-            partial.unknown();
-        } else {
-            partial.merge_bound(bound);
-        }
-        Ok(())
+        Ok(acc)
     }
 
     fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
@@ -247,10 +275,6 @@ impl AggregateFnVTable for BoundedMax {
                 ],
             )),
         }
-    }
-
-    fn reset(&self, partial: &mut Self::Partial) {
-        partial.state = BoundedMaxState::Empty;
     }
 
     fn is_saturated(&self, partial: &Self::Partial) -> bool {
@@ -332,7 +356,8 @@ mod tests {
     use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::fns::bounded_max::BoundedMax;
     use crate::aggregate_fn::fns::bounded_max::BoundedMaxOptions;
-    use crate::aggregate_fn::fns::bounded_max::make_bounded_max_partial_dtype;
+    use crate::aggregate_fn::fns::bounded_max::BoundedMaxPartial;
+    use crate::aggregate_fn::fns::bounded_max::BoundedMaxState;
     use crate::aggregate_fn::fns::max::Max;
     use crate::aggregate_fn::fns::min::Min;
     use crate::array_session;
@@ -442,7 +467,11 @@ mod tests {
         )?;
 
         acc.accumulate(&values, &mut ctx)?;
-        acc.combine_partials(Scalar::null(make_bounded_max_partial_dtype(values.dtype())))?;
+        acc.fold_partial(BoundedMaxPartial {
+            state: BoundedMaxState::Empty,
+            element_dtype: values.dtype().clone(),
+            max_bytes: max_bytes(2),
+        })?;
 
         assert_eq!(
             acc.finish()?,
@@ -463,17 +492,12 @@ mod tests {
             values.dtype().clone(),
         )?;
 
-        let partial_dtype = make_bounded_max_partial_dtype(values.dtype());
-        let unknown = Scalar::struct_(
-            partial_dtype,
-            vec![
-                Scalar::null(values.dtype().as_nullable()),
-                Scalar::bool(true, Nullability::NonNullable),
-            ],
-        );
-
         acc.accumulate(&values, &mut ctx)?;
-        acc.combine_partials(unknown)?;
+        acc.fold_partial(BoundedMaxPartial {
+            state: BoundedMaxState::Unknown,
+            element_dtype: values.dtype().clone(),
+            max_bytes: max_bytes(2),
+        })?;
 
         assert_eq!(acc.finish()?, Scalar::null(values.dtype().as_nullable()));
         Ok(())

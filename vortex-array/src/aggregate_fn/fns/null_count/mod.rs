@@ -84,29 +84,29 @@ impl AggregateFnVTable for NullCount {
         self.return_dtype(options, input_dtype)
     }
 
-    fn empty_partial(
+    fn partial_from_scalar(
         &self,
         _options: &Self::Options,
         _input_dtype: &DType,
+        scalar: Scalar,
     ) -> VortexResult<Self::Partial> {
-        Ok(0)
-    }
-
-    fn combine_partials(&self, partial: &mut Self::Partial, other: Scalar) -> VortexResult<()> {
-        let count = other
+        Ok(scalar
             .as_primitive()
             .typed_value::<u64>()
-            .vortex_expect("null_count partial should not be null");
-        *partial += count;
-        Ok(())
+            .vortex_expect("null_count partial should not be null"))
+    }
+
+    fn reduce_partials(
+        &self,
+        _options: &Self::Options,
+        _input_dtype: &DType,
+        partials: impl IntoIterator<Item = Self::Partial>,
+    ) -> VortexResult<Self::Partial> {
+        Ok(partials.into_iter().sum())
     }
 
     fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
         Ok(Scalar::primitive(*partial, NonNullable))
-    }
-
-    fn reset(&self, partial: &mut Self::Partial) {
-        *partial = 0;
     }
 
     #[inline]

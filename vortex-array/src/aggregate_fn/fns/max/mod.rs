@@ -43,6 +43,15 @@ pub struct MaxPartial {
 }
 
 impl MaxPartial {
+    /// The state of a group with no accumulated values.
+    fn empty(options: &NumericalAggregateOpts, input_dtype: &DType) -> Self {
+        Self {
+            max: None,
+            element_dtype: input_dtype.clone(),
+            skip_nans: options.skip_nans,
+        }
+    }
+
     fn merge(&mut self, max: Scalar) {
         if max.is_null() {
             return;
@@ -121,21 +130,31 @@ impl AggregateFnVTable for Max {
         self.return_dtype(options, input_dtype)
     }
 
-    fn empty_partial(
+    fn partial_from_scalar(
         &self,
         options: &Self::Options,
         input_dtype: &DType,
+        scalar: Scalar,
     ) -> VortexResult<Self::Partial> {
-        Ok(MaxPartial {
-            max: None,
-            element_dtype: input_dtype.clone(),
-            skip_nans: options.skip_nans,
-        })
+        let mut partial = MaxPartial::empty(options, input_dtype);
+        // `merge` normalizes the parsed scalar: nulls stay empty and NaNs poison or drop.
+        partial.merge(scalar);
+        Ok(partial)
     }
 
-    fn combine_partials(&self, partial: &mut Self::Partial, other: Scalar) -> VortexResult<()> {
-        partial.merge(other);
-        Ok(())
+    fn reduce_partials(
+        &self,
+        options: &Self::Options,
+        input_dtype: &DType,
+        partials: impl IntoIterator<Item = Self::Partial>,
+    ) -> VortexResult<Self::Partial> {
+        let mut acc = MaxPartial::empty(options, input_dtype);
+        for partial in partials {
+            if let Some(max) = partial.max {
+                acc.merge(max);
+            }
+        }
+        Ok(acc)
     }
 
     fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
@@ -144,10 +163,6 @@ impl AggregateFnVTable for Max {
             Some(max) => max.cast(&dtype),
             None => Ok(Scalar::null(dtype)),
         }
-    }
-
-    fn reset(&self, partial: &mut Self::Partial) {
-        partial.max = None;
     }
 
     fn is_saturated(&self, partial: &Self::Partial) -> bool {

@@ -57,23 +57,33 @@ impl AggregateFnVTable for Last {
         self.return_dtype(options, input_dtype)
     }
 
-    fn empty_partial(
+    fn partial_from_scalar(
         &self,
         _options: &Self::Options,
         input_dtype: &DType,
+        scalar: Scalar,
     ) -> VortexResult<Self::Partial> {
+        // A null partial means the producing accumulator saw nothing valid.
         Ok(LastPartial {
             return_dtype: input_dtype.as_nullable(),
-            value: None,
+            value: (!scalar.is_null()).then_some(scalar),
         })
     }
 
-    fn combine_partials(&self, partial: &mut Self::Partial, other: Scalar) -> VortexResult<()> {
-        // Each new non-null partial replaces the previous one; nulls are ignored.
-        if !other.is_null() {
-            partial.value = Some(other);
-        }
-        Ok(())
+    fn reduce_partials(
+        &self,
+        _options: &Self::Options,
+        input_dtype: &DType,
+        partials: impl IntoIterator<Item = Self::Partial>,
+    ) -> VortexResult<Self::Partial> {
+        // The last non-empty partial in iteration order wins; empty ones are ignored.
+        Ok(LastPartial {
+            return_dtype: input_dtype.as_nullable(),
+            value: partials
+                .into_iter()
+                .filter_map(|partial| partial.value)
+                .last(),
+        })
     }
 
     fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
@@ -81,10 +91,6 @@ impl AggregateFnVTable for Last {
             Some(v) => v.clone(),
             None => Scalar::null(partial.return_dtype.clone()),
         })
-    }
-
-    fn reset(&self, partial: &mut Self::Partial) {
-        partial.value = None;
     }
 
     #[inline]
@@ -136,6 +142,7 @@ mod tests {
     use crate::aggregate_fn::DynAccumulator;
     use crate::aggregate_fn::EmptyOptions;
     use crate::aggregate_fn::fns::last::Last;
+    use crate::aggregate_fn::fns::last::LastPartial;
     use crate::aggregate_fn::fns::last::last;
     use crate::array_session;
     use crate::arrays::ChunkedArray;
@@ -256,17 +263,18 @@ mod tests {
     #[test]
     fn last_state_merge() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let mut state = Last.empty_partial(&EmptyOptions, &dtype)?;
+        let partial_of = |value: Option<Scalar>| LastPartial {
+            return_dtype: dtype.as_nullable(),
+            value,
+        };
 
-        Last.combine_partials(&mut state, Scalar::primitive(5i32, Nullable))?;
-        assert_eq!(Last.to_scalar(&state)?, Scalar::primitive(5i32, Nullable));
+        let five = partial_of(Some(Scalar::primitive(5i32, Nullable)));
+        let seven = partial_of(Some(Scalar::primitive(7i32, Nullable)));
+        // An empty partial must not clobber a prior value.
+        let empty = partial_of(None);
 
-        // A later non-null partial replaces the prior value.
-        Last.combine_partials(&mut state, Scalar::primitive(7i32, Nullable))?;
-        assert_eq!(Last.to_scalar(&state)?, Scalar::primitive(7i32, Nullable));
-
-        // A null partial must not clobber the stored value.
-        Last.combine_partials(&mut state, Scalar::null(dtype.as_nullable()))?;
+        // The last non-empty partial in order replaces the prior values.
+        let state = Last.reduce_partials(&EmptyOptions, &dtype, [five, seven, empty])?;
         assert_eq!(Last.to_scalar(&state)?, Scalar::primitive(7i32, Nullable));
         Ok(())
     }

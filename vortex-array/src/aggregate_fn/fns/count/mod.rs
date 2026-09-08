@@ -58,32 +58,35 @@ impl AggregateFnVTable for Count {
         self.return_dtype(options, input_dtype)
     }
 
-    fn empty_partial(
+    fn partial_from_scalar(
         &self,
         options: &Self::Options,
         input_dtype: &DType,
+        scalar: Scalar,
     ) -> VortexResult<Self::Partial> {
         Ok(CountPartial {
-            count: 0,
+            count: scalar
+                .as_primitive()
+                .typed_value::<u64>()
+                .vortex_expect("count partial should not be null"),
             exclude_nans: options.skip_nans && input_dtype.is_float(),
         })
     }
 
-    fn combine_partials(&self, partial: &mut Self::Partial, other: Scalar) -> VortexResult<()> {
-        let val = other
-            .as_primitive()
-            .typed_value::<u64>()
-            .vortex_expect("count partial should not be null");
-        partial.count += val;
-        Ok(())
+    fn reduce_partials(
+        &self,
+        options: &Self::Options,
+        input_dtype: &DType,
+        partials: impl IntoIterator<Item = Self::Partial>,
+    ) -> VortexResult<Self::Partial> {
+        Ok(CountPartial {
+            count: partials.into_iter().map(|partial| partial.count).sum(),
+            exclude_nans: options.skip_nans && input_dtype.is_float(),
+        })
     }
 
     fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
         Ok(Scalar::primitive(partial.count, Nullability::NonNullable))
-    }
-
-    fn reset(&self, partial: &mut Self::Partial) {
-        partial.count = 0;
     }
 
     #[inline]
@@ -142,6 +145,7 @@ mod tests {
     use crate::aggregate_fn::DynAccumulator;
     use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::fns::count::Count;
+    use crate::aggregate_fn::fns::count::CountPartial;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
@@ -246,16 +250,15 @@ mod tests {
     #[test]
     fn count_state_merge() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let mut state = Count.empty_partial(&NumericalAggregateOpts::default(), &dtype)?;
+        let options = NumericalAggregateOpts::default();
 
-        let scalar1 = Scalar::primitive(5u64, Nullability::NonNullable);
-        Count.combine_partials(&mut state, scalar1)?;
-
-        let scalar2 = Scalar::primitive(3u64, Nullability::NonNullable);
-        Count.combine_partials(&mut state, scalar2)?;
+        let partial_of = |count: u64| CountPartial {
+            count,
+            exclude_nans: false,
+        };
+        let state = Count.reduce_partials(&options, &dtype, [partial_of(5), partial_of(3)])?;
 
         let result = Count.to_scalar(&state)?;
-        Count.reset(&mut state);
         assert_eq!(result.as_primitive().typed_value::<u64>(), Some(8));
         Ok(())
     }

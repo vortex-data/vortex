@@ -116,6 +116,8 @@ mod tests {
     use crate::aggregate_fn::AggregateFnVTable;
     use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::fns::sum::Sum;
+    use crate::aggregate_fn::fns::sum::SumPartial;
+    use crate::aggregate_fn::fns::sum::SumState;
     use crate::aggregate_fn::fns::sum::sum;
     use crate::array_session;
     use crate::arrays::DecimalArray;
@@ -128,6 +130,18 @@ mod tests {
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
     use crate::validity::Validity;
+
+    /// A partial whose running decimal sum is `value` (test-only helper bypassing scalar parsing).
+    fn partial_with_decimal(value: DecimalValue, decimal_dtype: DecimalDType) -> SumPartial {
+        SumPartial {
+            return_dtype: DType::Decimal(decimal_dtype, Nullable),
+            current: Some(SumState::Decimal {
+                value,
+                dtype: decimal_dtype,
+            }),
+            skip_nans: true,
+        }
+    }
 
     #[test]
     fn sum_decimal_basic() -> VortexResult<()> {
@@ -355,20 +369,16 @@ mod tests {
     fn sum_decimal_near_precision_boundary() -> VortexResult<()> {
         // Input precision 4 → return precision min(76, 4+10) = 14.
         // Native type for precision 14 is I64 (max precision 18), so 14 < 18.
-        // Use combine_partials to push state near (but under) 10^14.
+        // Reduce partials to push state near (but under) 10^14.
         let input_dtype = DType::Decimal(DecimalDType::new(4, 0), Nullability::NonNullable);
-        let mut state = Sum.empty_partial(&NumericalAggregateOpts::default(), &input_dtype)?;
+        let options = NumericalAggregateOpts::default();
+        let sum_decimal = DecimalDType::new(14, 0);
 
-        let near_limit = Scalar::decimal(
-            DecimalValue::from(99_999_999_999_990i64),
-            DecimalDType::new(14, 0),
-            Nullable,
-        );
-        Sum.combine_partials(&mut state, near_limit)?;
-
+        let near_limit =
+            partial_with_decimal(DecimalValue::from(99_999_999_999_990i64), sum_decimal);
         // Add a small value that keeps us just under 10^14.
-        let small = Scalar::decimal(DecimalValue::from(9i64), DecimalDType::new(14, 0), Nullable);
-        Sum.combine_partials(&mut state, small)?;
+        let small = partial_with_decimal(DecimalValue::from(9i64), sum_decimal);
+        let state = Sum.reduce_partials(&options, &input_dtype, [near_limit, small])?;
 
         let result = Sum.to_scalar(&state)?;
         assert!(!result.is_null());
@@ -385,21 +395,16 @@ mod tests {
         // The max representable value for precision 14 is 10^14 - 1.
         // When the sum reaches exactly 10^14, fits_in_precision fails even though
         // i256 arithmetic does not overflow. This tests the precision-based
-        // saturation path in combine_partials.
+        // saturation path in reduce_partials.
         let input_dtype = DType::Decimal(DecimalDType::new(4, 0), Nullability::NonNullable);
-        let mut state = Sum.empty_partial(&NumericalAggregateOpts::default(), &input_dtype)?;
+        let options = NumericalAggregateOpts::default();
+        let sum_decimal = DecimalDType::new(14, 0);
 
-        let near_limit = Scalar::decimal(
-            DecimalValue::from(99_999_999_999_999i64),
-            DecimalDType::new(14, 0),
-            Nullable,
-        );
-        Sum.combine_partials(&mut state, near_limit)?;
-
+        let near_limit =
+            partial_with_decimal(DecimalValue::from(99_999_999_999_999i64), sum_decimal);
         // Push the sum to exactly 10^14, exceeding precision 14.
-        let one_more =
-            Scalar::decimal(DecimalValue::from(1i64), DecimalDType::new(14, 0), Nullable);
-        Sum.combine_partials(&mut state, one_more)?;
+        let one_more = partial_with_decimal(DecimalValue::from(1i64), sum_decimal);
+        let state = Sum.reduce_partials(&options, &input_dtype, [near_limit, one_more])?;
 
         let result = Sum.to_scalar(&state)?;
         assert!(result.is_null());
@@ -414,21 +419,13 @@ mod tests {
     fn sum_decimal_precision_overflow_negative() -> VortexResult<()> {
         // Same setup but with negative values: sum reaches -10^14.
         let input_dtype = DType::Decimal(DecimalDType::new(4, 0), Nullability::NonNullable);
-        let mut state = Sum.empty_partial(&NumericalAggregateOpts::default(), &input_dtype)?;
+        let options = NumericalAggregateOpts::default();
+        let sum_decimal = DecimalDType::new(14, 0);
 
-        let near_limit = Scalar::decimal(
-            DecimalValue::from(-99_999_999_999_999i64),
-            DecimalDType::new(14, 0),
-            Nullable,
-        );
-        Sum.combine_partials(&mut state, near_limit)?;
-
-        let one_more = Scalar::decimal(
-            DecimalValue::from(-1i64),
-            DecimalDType::new(14, 0),
-            Nullable,
-        );
-        Sum.combine_partials(&mut state, one_more)?;
+        let near_limit =
+            partial_with_decimal(DecimalValue::from(-99_999_999_999_999i64), sum_decimal);
+        let one_more = partial_with_decimal(DecimalValue::from(-1i64), sum_decimal);
+        let state = Sum.reduce_partials(&options, &input_dtype, [near_limit, one_more])?;
 
         let result = Sum.to_scalar(&state)?;
         assert!(result.is_null());
@@ -437,22 +434,17 @@ mod tests {
 
     #[test]
     fn sum_decimal_accumulate_precision_overflow() -> VortexResult<()> {
-        // Test precision overflow via the accumulate_decimal path (not combine_partials).
+        // Test precision overflow via the accumulate_decimal path (not reduce_partials).
         // Input precision 28 (I128 storage) → return precision min(76, 38) = 38.
         // Native for precision 38 is I128 (max 38), so 38 = 38.
         // Use precision 27 → return 37. Native for 37 is I128 (max 38), so 37 < 38.
         //
-        // We use combine_partials to get the state close to 10^37, then accumulate
-        // a real array that pushes it over.
-        let input_dtype = DType::Decimal(DecimalDType::new(27, 0), Nullability::NonNullable);
+        // We seed the state close to 10^37, then accumulate a real array that pushes it over.
         let return_dtype = DecimalDType::new(37, 0);
-        let mut state = Sum.empty_partial(&NumericalAggregateOpts::default(), &input_dtype)?;
 
-        // Set state to 10^37 - 1 via combine_partials.
+        // Set state to 10^37 - 1.
         let near_limit_val: i128 = 10i128.pow(37) - 1;
-        let near_limit =
-            Scalar::decimal(DecimalValue::from(near_limit_val), return_dtype, Nullable);
-        Sum.combine_partials(&mut state, near_limit)?;
+        let mut state = partial_with_decimal(DecimalValue::from(near_limit_val), return_dtype);
 
         // Now accumulate a real i128 array with a single element = 1 to overflow precision.
         let decimal =

@@ -131,31 +131,32 @@ impl AggregateFnVTable for UncompressedSizeInBytes {
         self.return_dtype(options, input_dtype)
     }
 
-    fn empty_partial(
+    fn partial_from_scalar(
         &self,
         _options: &Self::Options,
         _input_dtype: &DType,
+        scalar: Scalar,
     ) -> VortexResult<Self::Partial> {
-        Ok(0)
-    }
-
-    fn combine_partials(&self, partial: &mut Self::Partial, other: Scalar) -> VortexResult<()> {
-        let size = other
+        Ok(scalar
             .as_primitive()
             .typed_value::<u64>()
-            .vortex_expect("uncompressed_size_in_bytes partial should not be null");
-        *partial = partial
-            .checked_add(size)
-            .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))?;
-        Ok(())
+            .vortex_expect("uncompressed_size_in_bytes partial should not be null"))
+    }
+
+    fn reduce_partials(
+        &self,
+        _options: &Self::Options,
+        _input_dtype: &DType,
+        partials: impl IntoIterator<Item = Self::Partial>,
+    ) -> VortexResult<Self::Partial> {
+        partials.into_iter().try_fold(0u64, |acc, partial| {
+            acc.checked_add(partial)
+                .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))
+        })
     }
 
     fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
         Ok(Scalar::primitive(*partial, NonNullable))
-    }
-
-    fn reset(&self, partial: &mut Self::Partial) {
-        *partial = 0;
     }
 
     #[inline]
@@ -686,19 +687,10 @@ mod tests {
     #[test]
     fn state_merge() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let mut state = UncompressedSizeInBytes.empty_partial(&EmptyOptions, &dtype)?;
 
-        UncompressedSizeInBytes.combine_partials(
-            &mut state,
-            Scalar::primitive(5u64, Nullability::NonNullable),
-        )?;
-        UncompressedSizeInBytes.combine_partials(
-            &mut state,
-            Scalar::primitive(3u64, Nullability::NonNullable),
-        )?;
+        let state = UncompressedSizeInBytes.reduce_partials(&EmptyOptions, &dtype, [5, 3])?;
 
         let result = UncompressedSizeInBytes.to_scalar(&state)?;
-        UncompressedSizeInBytes.reset(&mut state);
         assert_eq!(result.as_primitive().typed_value::<u64>(), Some(8));
         Ok(())
     }
