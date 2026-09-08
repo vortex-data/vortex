@@ -207,26 +207,22 @@ impl BtrBlocksCompressorBuilder {
         self
     }
 
-    /// Retains only schemes whose produced encodings all belong to `allowed`.
+    /// Restricts compression to the serialized IDs in `allowed`, intersecting with any earlier
+    /// call.
     ///
-    /// The file writer uses this to restrict compression to the encodings of its configured
-    /// editions.
-    pub fn retain_allowed_encodings(mut self, allowed: &HashSet<ArrayId>) -> Self {
-        self.schemes
-            .retain(|s| s.produced_encodings().iter().all(|id| allowed.contains(id)));
-        self
-    }
-
-    /// Hands the compressor the serialized IDs the writer may emit, intersecting with any earlier
-    /// call. A scheme whose encoding has several wire formats picks its compression mode from this
-    /// set: the newest permitted one.
+    /// A scheme stays when at least one of its [produced IDs](Scheme::produced_encodings) is
+    /// permitted, and the compressor is handed the set so a scheme whose encoding has several
+    /// wire formats picks its compression mode from it: the newest permitted one.
     ///
     /// The file writer passes the serialized IDs its enabled editions permit.
     pub fn allow_serialized_ids(mut self, allowed: &HashSet<ArrayId>) -> Self {
-        self.allowed_serialized_ids = Some(match self.allowed_serialized_ids.take() {
+        let allowed: HashSet<ArrayId> = match self.allowed_serialized_ids.take() {
             Some(existing) => existing.intersection(allowed).copied().collect(),
             None => allowed.clone(),
-        });
+        };
+        self.schemes
+            .retain(|s| s.produced_encodings().iter().any(|id| allowed.contains(id)));
+        self.allowed_serialized_ids = Some(allowed);
         self
     }
 
@@ -242,11 +238,20 @@ impl BtrBlocksCompressorBuilder {
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::ArrayRef;
+    use vortex_array::Canonical;
+    use vortex_array::ExecutionCtx;
     use vortex_array::VTable;
     use vortex_array::arrays::Bool;
+    use vortex_array::arrays::Primitive;
+    use vortex_compressor::scheme::CompressionEstimate;
+    use vortex_compressor::scheme::EstimateVerdict;
+    use vortex_error::VortexResult;
     use vortex_fastlanes::FoR;
 
     use super::*;
+    use crate::ArrayAndStats;
+    use crate::CompressorContext;
 
     #[test]
     fn empty_starts_with_no_schemes() {
@@ -261,24 +266,78 @@ mod tests {
     }
 
     #[test]
-    fn retain_allowed_encodings_filters_schemes() {
+    fn allow_serialized_ids_filters_schemes() {
         let allowed: HashSet<ArrayId> = [FoR.id()].into_iter().collect();
-        let builder = BtrBlocksCompressorBuilder::default().retain_allowed_encodings(&allowed);
+        let builder = BtrBlocksCompressorBuilder::default().allow_serialized_ids(&allowed);
         assert_eq!(builder.schemes.len(), 1);
         assert_eq!(builder.schemes[0].id(), integer::FoRScheme.id());
 
-        let none = BtrBlocksCompressorBuilder::default().retain_allowed_encodings(&HashSet::new());
+        let none = BtrBlocksCompressorBuilder::default().allow_serialized_ids(&HashSet::new());
         assert!(none.schemes.is_empty());
     }
 
     #[test]
-    fn retaining_all_declared_outputs_keeps_every_scheme() {
+    fn allowing_all_declared_outputs_keeps_every_scheme() {
         let allowed: HashSet<ArrayId> = ALL_SCHEMES
             .iter()
             .flat_map(|scheme| scheme.produced_encodings())
             .collect();
-        let builder = BtrBlocksCompressorBuilder::default().retain_allowed_encodings(&allowed);
+        let builder = BtrBlocksCompressorBuilder::default().allow_serialized_ids(&allowed);
         assert_eq!(builder.schemes.len(), ALL_SCHEMES.len());
+    }
+
+    /// Stands in for a scheme whose encoding has two wire formats.
+    #[derive(Debug)]
+    struct TwoFormatScheme;
+
+    impl Scheme for TwoFormatScheme {
+        fn scheme_name(&self) -> &'static str {
+            "test.two_formats"
+        }
+
+        fn matches(&self, _canonical: &Canonical) -> bool {
+            false
+        }
+
+        fn produced_encodings(&self) -> Vec<ArrayId> {
+            vec![FoR.id(), Bool.id()]
+        }
+
+        fn expected_compression_ratio(
+            &self,
+            _data: &ArrayAndStats,
+            _compress_ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
+        ) -> CompressionEstimate {
+            CompressionEstimate::Verdict(EstimateVerdict::Skip)
+        }
+
+        fn compress(
+            &self,
+            _compressor: &CascadingCompressor,
+            _data: &ArrayAndStats,
+            _compress_ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
+        ) -> VortexResult<ArrayRef> {
+            unreachable!("test helper never matches")
+        }
+    }
+
+    /// A scheme with several wire formats stays while any of them is permitted; which one it
+    /// produces is decided when compressing.
+    #[test]
+    fn any_permitted_format_keeps_the_scheme() {
+        static TWO_FORMATS: TwoFormatScheme = TwoFormatScheme;
+
+        let newer_only = BtrBlocksCompressorBuilder::empty()
+            .with_new_scheme(&TWO_FORMATS)
+            .allow_serialized_ids(&HashSet::from([Bool.id()]));
+        assert_eq!(newer_only.schemes.len(), 1);
+
+        let neither = BtrBlocksCompressorBuilder::empty()
+            .with_new_scheme(&TWO_FORMATS)
+            .allow_serialized_ids(&HashSet::from([Primitive.id()]));
+        assert!(neither.schemes.is_empty());
     }
 
     #[test]
