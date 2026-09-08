@@ -30,7 +30,6 @@ pub use bitpacking::*;
 pub use delta::*;
 pub use r#for::*;
 pub use rle::*;
-pub use transposed_bool::*;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::bool::BoolArrayExt;
@@ -39,31 +38,12 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 
-pub mod bit_transpose;
 mod bitpacking;
 mod delta;
 mod r#for;
 mod rle;
-mod transposed_bool;
 
 pub const FL_CHUNK_SIZE: usize = 1024;
-
-/// Returns the position in a `FastLanes`-transposed chunk that holds logical element `idx`.
-///
-/// The inverse of [`fastlanes::transpose`], which reads the other way round: it returns the
-/// logical element held by a given transposed position. `fastlanes` exports only that direction,
-/// so accessors that address a transposed chunk by logical index need this one.
-///
-/// `fastlanes::transpose` composes `lane`, `order` and `row` as
-/// `lane * 64 + FL_ORDER[order] * 8 + row`, so recovering them from the transposed position only
-/// needs `FL_ORDER` inverted, and `FL_ORDER` is its own inverse.
-pub(crate) const fn untranspose_idx(idx: usize) -> usize {
-    let lane = idx / 64;
-    let order = fastlanes::FL_ORDER[(idx % 64) / 8];
-    let row = idx % 8;
-
-    row * 128 + order * 16 + lane
-}
 
 use bitpacking::compute::is_constant::BitPackedIsConstantKernel;
 use r#for::compute::is_constant::FoRIsConstantKernel;
@@ -89,7 +69,6 @@ pub fn initialize(session: &VortexSession) {
     session.arrays().register(Delta);
     session.arrays().register(FoR);
     session.arrays().register(RLE);
-    session.arrays().register(TransposedBool);
     bitpacking::initialize(session);
     r#for::initialize(session);
     rle::initialize(session);
@@ -112,19 +91,27 @@ pub fn initialize(session: &VortexSession) {
     );
 }
 
+/// What the fill-forward carry does when it enters a new [`FL_CHUNK_SIZE`] chunk.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub(crate) enum ChunkBoundary {
+    /// Restart from `T::default()`. Encodings whose values are chunk-local, such as RLE
+    /// indices, must not see a value from the previous chunk.
+    Reset,
+    /// Keep the last valid value. Delta encodes each chunk against its own bases, so a
+    /// carried value only keeps the first residual small.
+    Carry,
+}
+
 /// Fill-forward null values in a buffer, replacing each null with the last valid value seen.
 ///
-/// The fill-forward state resets to `T::default()` at every [`FL_CHUNK_SIZE`] boundary
-/// so that values from one chunk never leak into the next. This is important because
-/// both RLE and Delta encodings treat each chunk independently: a fill-forwarded value
-/// that crosses a chunk boundary can become an invalid chunk-local index (for RLE) or
-/// an incorrect delta base (for Delta).
+/// `boundary` decides whether the carried value survives a [`FL_CHUNK_SIZE`] boundary.
 ///
 /// Returns the original buffer if there are no nulls (i.e. the validity is
 /// `NonNullable` or `AllValid`), avoiding any allocation or copy.
 pub(crate) fn fill_forward_nulls<T: Copy + Default>(
     values: Buffer<T>,
     validity: &Validity,
+    boundary: ChunkBoundary,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Buffer<T>> {
     match validity {
@@ -136,6 +123,7 @@ pub(crate) fn fill_forward_nulls<T: Copy + Default>(
                 .execute::<BoolArray>(ctx)?
                 .to_bit_buffer();
             let mut last_valid = T::default();
+            let resets = boundary == ChunkBoundary::Reset;
             match values.try_into_mut() {
                 Ok(mut to_fill_mut) => {
                     for (i, (v, is_valid)) in
@@ -143,9 +131,10 @@ pub(crate) fn fill_forward_nulls<T: Copy + Default>(
                     {
                         if is_valid {
                             last_valid = *v;
-                        } else if i.is_multiple_of(FL_CHUNK_SIZE) {
-                            last_valid = T::default();
                         } else {
+                            if resets && i.is_multiple_of(FL_CHUNK_SIZE) {
+                                last_valid = T::default();
+                            }
                             *v = last_valid;
                         }
                     }
@@ -165,7 +154,7 @@ pub(crate) fn fill_forward_nulls<T: Copy + Default>(
                     {
                         if is_valid {
                             last_valid = *v;
-                        } else if i.is_multiple_of(FL_CHUNK_SIZE) {
+                        } else if resets && i.is_multiple_of(FL_CHUNK_SIZE) {
                             last_valid = T::default();
                         }
                         out.write(last_valid);
@@ -182,6 +171,7 @@ pub(crate) fn fill_forward_nulls<T: Copy + Default>(
 mod test {
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex_array::VortexSessionExecute;
     use vortex_buffer::BitBufferMut;
     use vortex_session::VortexSession;
@@ -194,44 +184,34 @@ mod test {
         session
     });
 
-    /// `untranspose_idx` derives the inverse of `fastlanes::transpose` from `FL_ORDER` being
-    /// its own inverse, so prove the round trip over a whole chunk in both directions.
-    #[test]
-    fn untranspose_idx_inverts_transpose() {
-        for idx in 0..FL_CHUNK_SIZE {
-            assert_eq!(untranspose_idx(fastlanes::transpose(idx)), idx, "idx={idx}");
-            assert_eq!(fastlanes::transpose(untranspose_idx(idx)), idx, "idx={idx}");
-        }
-    }
-
-    #[test]
-    fn fill_forward_nulls_resets_at_chunk_boundary() -> VortexResult<()> {
+    /// Only one value is valid, the last of chunk 0. Chunk 1 is all null and must either
+    /// restart from zero or repeat that value, and the shared-buffer copy path must agree.
+    #[rstest]
+    #[case::reset_owned(ChunkBoundary::Reset, false, 0)]
+    #[case::reset_shared(ChunkBoundary::Reset, true, 0)]
+    #[case::carry_owned(ChunkBoundary::Carry, false, 42)]
+    #[case::carry_shared(ChunkBoundary::Carry, true, 42)]
+    fn fill_forward_nulls_at_chunk_boundary(
+        #[case] boundary: ChunkBoundary,
+        #[case] shared: bool,
+        #[case] next_chunk_fill: u32,
+    ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        // Build a buffer spanning two chunks where the last valid value in chunk 0
-        // is non-zero. Null positions at the start of chunk 1 must get T::default()
-        // (0), not the carry-over from chunk 0.
-        let mut values = BufferMut::zeroed(2 * FL_CHUNK_SIZE);
-        // Place a non-zero valid value near the end of chunk 0.
+        let mut values = BufferMut::from_iter(std::iter::repeat_n(99u32, 2 * FL_CHUNK_SIZE));
         values[FL_CHUNK_SIZE - 1] = 42;
 
         let mut validity_bits = BitBufferMut::new_unset(2 * FL_CHUNK_SIZE);
-        validity_bits.set(FL_CHUNK_SIZE - 1); // only this position is valid
+        validity_bits.set(FL_CHUNK_SIZE - 1);
 
         let validity = Validity::from(validity_bits.freeze());
-        let result = fill_forward_nulls(values.freeze(), &validity, &mut ctx)?;
+        let values = values.freeze();
+        let _shared = shared.then(|| values.clone());
+        let result = fill_forward_nulls(values, &validity, boundary, &mut ctx)?;
 
-        // Within chunk 0, nulls before the valid element get 0 (default), and the
-        // valid element itself is 42.
-        assert_eq!(result[FL_CHUNK_SIZE - 1], 42);
-
-        // Chunk 1 has no valid elements. Every position must be T::default() (0),
-        // NOT 42 carried over from chunk 0.
-        for i in FL_CHUNK_SIZE..2 * FL_CHUNK_SIZE {
-            assert_eq!(
-                result[i], 0,
-                "position {i} should be 0, not carried from chunk 0"
-            );
-        }
+        let mut expected = BufferMut::zeroed(2 * FL_CHUNK_SIZE);
+        expected[FL_CHUNK_SIZE - 1] = 42;
+        expected[FL_CHUNK_SIZE..].fill(next_chunk_fill);
+        assert_eq!(result, expected.freeze());
         Ok(())
     }
 }
