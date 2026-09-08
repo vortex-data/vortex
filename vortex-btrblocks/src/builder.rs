@@ -371,13 +371,15 @@ mod tests {
     #[test]
     fn allowed_serialized_ids_reach_the_compressor() {
         let default = BtrBlocksCompressorBuilder::default().build();
-        assert!(default.0.allows_serialized_id(Bool.id()));
+        assert!(default.0.allowed_serialized_ids().is_none());
 
         let narrowed = BtrBlocksCompressorBuilder::default()
             .allow_serialized_ids(&HashSet::from([FoR.id()]))
             .build();
-        assert!(narrowed.0.allows_serialized_id(FoR.id()));
-        assert!(!narrowed.0.allows_serialized_id(Bool.id()));
+        assert_eq!(
+            narrowed.0.allowed_serialized_ids(),
+            Some(&HashSet::from([FoR.id()]))
+        );
     }
 
     #[test]

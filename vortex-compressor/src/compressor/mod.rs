@@ -9,11 +9,14 @@ mod sample;
 mod select;
 mod structural;
 
+use std::sync::Arc;
+
 use vortex_array::ArrayId;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::builtins::IntDictScheme;
 use crate::scheme::ChildSelection;
+use crate::scheme::CompressorContext;
 use crate::scheme::DescendantExclusion;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
@@ -50,9 +53,9 @@ pub struct CascadingCompressor {
     /// list offsets).
     root_exclusions: Vec<DescendantExclusion>,
 
-    /// The serialized IDs the output may use, or `None` for no restriction. See
-    /// [`allows_serialized_id`](Self::allows_serialized_id).
-    allowed_serialized_ids: Option<HashSet<ArrayId>>,
+    /// The serialized IDs the writer may emit, or `None` for no restriction. Seeds every root
+    /// [`CompressorContext`], where schemes read it.
+    allowed_serialized_ids: Option<Arc<HashSet<ArrayId>>>,
 }
 
 impl CascadingCompressor {
@@ -77,27 +80,26 @@ impl CascadingCompressor {
     /// Hands the compressor the serialized IDs the writer may emit, intersecting with any earlier
     /// call.
     ///
-    /// The file writer passes the serialized IDs its enabled editions permit. A scheme whose
-    /// encoding has several wire formats picks its compression mode from this set, the newest
-    /// permitted one, before estimating or compressing.
+    /// The file writer passes the serialized IDs its enabled editions permit. Schemes read the
+    /// set through [`CompressorContext::allows_serialized_id`], so a scheme whose encoding has
+    /// several wire formats picks the newest permitted one as its mode, while estimating and
+    /// while compressing alike.
     pub fn with_allowed_serialized_ids(mut self, allowed: HashSet<ArrayId>) -> Self {
-        self.allowed_serialized_ids = Some(match self.allowed_serialized_ids.take() {
+        self.allowed_serialized_ids = Some(Arc::new(match self.allowed_serialized_ids.take() {
             Some(existing) => existing.intersection(&allowed).copied().collect(),
             None => allowed,
-        });
+        }));
         self
     }
 
-    /// Returns whether the writer may emit the serialized ID `id`.
-    ///
-    /// Schemes whose encoding has several wire formats consult this to pick their compression
-    /// mode. Without a restriction every ID is allowed, so the newest mode is chosen. The
-    /// serializer still emits the oldest wire form the resulting array fits, and the
-    /// serialization context validates that ID.
-    pub fn allows_serialized_id(&self, id: ArrayId) -> bool {
-        self.allowed_serialized_ids
-            .as_ref()
-            .is_none_or(|allowed| allowed.contains(&id))
+    /// The serialized IDs the writer may emit, or `None` when unrestricted.
+    pub fn allowed_serialized_ids(&self) -> Option<&HashSet<ArrayId>> {
+        self.allowed_serialized_ids.as_deref()
+    }
+
+    /// The context a compress call starts from.
+    pub(crate) fn root_context(&self) -> CompressorContext {
+        CompressorContext::new(self.allowed_serialized_ids.clone())
     }
 
     /// Returns whether the compressor was configured with `scheme`.
