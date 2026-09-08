@@ -231,7 +231,7 @@ impl BtrBlocksCompressorBuilder {
     /// call.
     ///
     /// At build time, each scheme is replaced by the newest version in its predecessor chain
-    /// whose [`required_serialized_ids`](Scheme::required_serialized_ids) are all permitted.
+    /// whose [`produced_encodings`](Scheme::produced_encodings) are all permitted.
     /// Schemes with no eligible version are removed. This also applies to schemes added after
     /// this call. The file writer passes the serialized IDs its enabled editions permit.
     pub fn allow_serialized_ids(mut self, allowed: &HashSet<ArrayId>) -> Self {

@@ -101,7 +101,7 @@ impl CascadingCompressor {
 
     /// Selects the newest eligible version of each scheme, intersecting with any earlier call.
     ///
-    /// A version is eligible only when all of its [`Scheme::required_serialized_ids`] are allowed.
+    /// A version is eligible only when all of its [`Scheme::produced_encodings`] are allowed.
     /// Otherwise its predecessors are tried in order; the scheme is removed if none is eligible.
     /// Selection preserves registration order and happens before any compression or estimation.
     pub fn with_allowed_serialized_ids(mut self, allowed: HashSet<ArrayId>) -> Self {
@@ -154,6 +154,7 @@ impl CascadingCompressor {
         self.scheme_aliases.contains_key(&scheme)
     }
 
+    /// Resolves a registered version to the selected version, leaving unknown IDs unchanged.
     fn resolve_scheme_id(&self, scheme: SchemeId) -> SchemeId {
         self.scheme_aliases.get(&scheme).copied().unwrap_or(scheme)
     }

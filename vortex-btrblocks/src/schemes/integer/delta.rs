@@ -97,7 +97,7 @@ impl Scheme for DeltaScheme {
         canonical.dtype().is_int()
     }
 
-    fn required_serialized_ids(&self) -> Vec<ArrayId> {
+    fn produced_encodings(&self) -> Vec<ArrayId> {
         vec![Delta.id()]
     }
 
