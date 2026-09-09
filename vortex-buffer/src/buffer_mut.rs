@@ -719,8 +719,10 @@ impl<T> BufferMut<T> {
         T: Copy,
     {
         self.reserve(slice.len());
-        // SAFETY: reserve guarantees at least slice.len() spare slots.
-        let dst = unsafe { self.spare_capacity_mut().get_unchecked_mut(..slice.len()) };
+        let dst = self
+            .spare_capacity_mut()
+            .get_mut(..slice.len())
+            .vortex_expect("reserve guarantees sufficient spare capacity");
         dst.write_copy_of_slice(slice);
         self.length += slice.len();
     }
