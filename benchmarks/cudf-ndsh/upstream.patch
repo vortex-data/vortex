@@ -1,0 +1,167 @@
+diff --git a/cpp/benchmarks/CMakeLists.txt b/cpp/benchmarks/CMakeLists.txt
+index 8fa9593..4f5127a 100644
+--- a/cpp/benchmarks/CMakeLists.txt
++++ b/cpp/benchmarks/CMakeLists.txt
+@@ -129,6 +129,7 @@ ConfigureNVBench(NDSH_Q05_NVBENCH ndsh/q05.cpp ndsh/utilities.cpp)
+ ConfigureNVBench(NDSH_Q06_NVBENCH ndsh/q06.cpp ndsh/utilities.cpp)
+ ConfigureNVBench(NDSH_Q09_NVBENCH ndsh/q09.cpp ndsh/utilities.cpp)
+ ConfigureNVBench(NDSH_Q10_NVBENCH ndsh/q10.cpp ndsh/utilities.cpp)
++include(ndsh/vortex.cmake)
+ 
+ # ##################################################################################################
+ # * filter benchmark -------------------------------------------------------------------
+diff --git a/cpp/benchmarks/ndsh/VORTEX.md b/cpp/benchmarks/ndsh/VORTEX.md
+new file mode 100644
+index 0000000..ac13779
+--- /dev/null
++++ b/cpp/benchmarks/ndsh/VORTEX.md
+@@ -0,0 +1,47 @@
++# Experimental Vortex build integration
++
++`CUDF_NDSH_WITH_VORTEX=ON` enables the pinned Vortex dependency for Q1 and Q6 only.
++It defaults to `OFF`: ordinary builds neither fetch Vortex nor require Rust.
++This is build scaffolding; the benchmarks still read Parquet until the Vortex
++reader/writer adapter is added.
++
++In a configured RAPIDS development environment, from the repository root:
++
++```sh
++cmake -S cpp -B cpp/build-vortex -G Ninja \
++  -DCMAKE_BUILD_TYPE=Release \
++  -DBUILD_TESTS=OFF -DBUILD_BENCHMARKS=ON \
++  -DCUDF_NDSH_WITH_VORTEX=ON \
++  -DCMAKE_CUDA_ARCHITECTURES=90
++cmake --build cpp/build-vortex --target NDSH_VORTEX_BUILD_SMOKE --parallel 2
++cpp/build-vortex/benchmarks/NDSH_VORTEX_BUILD_SMOKE
++cmake --build cpp/build-vortex --target NDSH_Q06_NVBENCH NDSH_Q01_NVBENCH --parallel 2
++```
++
++`90` targets Hopper; choose the architecture for your GPU. To use a local,
++complete Vortex checkout, also pass
++`-DFETCHCONTENT_SOURCE_DIR_VORTEX=/absolute/path/to/vortex` at configure time.
++The default fetch is pinned to Vortex commit
++`bffdca1109e99e6957ea2fc18f4a7809c88e0a0c`.
++
++Additional requirements and limitations:
++
++- Linux, Rust 1.95+, and libclang are required. Cargo and the CUDA build scripts
++  download uncached dependencies. Set `CARGO_BUILD_JOBS` to limit Rust parallelism;
++  CMake's `--parallel` does not limit Cargo.
++- Use one toolkit consistently through `CMAKE_CUDA_COMPILER` and
++  `CUDAToolkit_ROOT`. Cargo-owned NVCC invocations do not currently inherit
++  `CMAKE_CUDA_HOST_COMPILER`; set `NVCC_CCBIN` to the same compiler when needed.
++  Check Conda's `NVCC_PREPEND_FLAGS` for conflicting compiler settings.
++- Vortex tests/examples stay disabled, avoiding another nanoarrow dependency.
++  Only the CUDA-enabled Rust FFI archive is linked, through `Vortex::cpp_static`.
++- The smoke target checks cuDF, the Vortex C++ wrapper, and CUDA-session
++  initialization in one process. It does not validate decoding or CUB/nvCOMP
++  execution, which load lazily.
++- Vortex currently builds its own CUB helper and downloads nvCOMP 5.1.0.21 for
++  CUDA 12 independently of cuDF's nvCOMP. Keep the Vortex Cargo build tree intact:
++  these runtime libraries are not packaged by this POC. Successful linking does
++  not establish relocatable deployment or nvCOMP coexistence.
++- Use `RelWithDebInfo` for a symbolized host build. Vortex maps it to Cargo's
++  `release_debug` profile; device line information can be enabled with
++  `NVCC_APPEND_FLAGS=-lineinfo`.
+diff --git a/cpp/benchmarks/ndsh/vortex.cmake b/cpp/benchmarks/ndsh/vortex.cmake
+new file mode 100644
+index 0000000..7a76917
+--- /dev/null
++++ b/cpp/benchmarks/ndsh/vortex.cmake
+@@ -0,0 +1,48 @@
++# =============================================================================
++# cmake-format: off
++# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
++# SPDX-License-Identifier: Apache-2.0
++# cmake-format: on
++# =============================================================================
++
++option(CUDF_NDSH_WITH_VORTEX "Build the experimental Vortex integration for NDS-H Q1/Q6" OFF)
++if(NOT CUDF_NDSH_WITH_VORTEX)
++  return()
++endif()
++
++if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
++  message(FATAL_ERROR "CUDF_NDSH_WITH_VORTEX requires Linux and a CUDA toolkit")
++endif()
++
++include(FetchContent)
++
++# Scope Vortex's options to this dependency; do not change the parent's cache or warning policy.
++block()
++set(VORTEX_ENABLE_CUDA ON)
++set(VORTEX_BUILD_TESTS OFF)
++set(VORTEX_BUILD_EXAMPLES OFF)
++set(VORTEX_WARNINGS_AS_ERRORS OFF)
++
++# A complete checkout is required by Cargo. For local development, use
++# FETCHCONTENT_SOURCE_DIR_VORTEX rather than replacing this immutable revision.
++FetchContent_Declare(
++  Vortex
++  GIT_REPOSITORY https://github.com/vortex-data/vortex.git
++  GIT_TAG bffdca1109e99e6957ea2fc18f4a7809c88e0a0c
++  GIT_SHALLOW FALSE
++  SOURCE_SUBDIR lang/cpp EXCLUDE_FROM_ALL SYSTEM
++)
++FetchContent_MakeAvailable(Vortex)
++endblock()
++
++foreach(benchmark IN ITEMS NDSH_Q01_NVBENCH NDSH_Q06_NVBENCH)
++  target_link_libraries(${benchmark} PRIVATE Vortex::cpp_static)
++  target_compile_definitions(${benchmark} PRIVATE CUDF_NDSH_WITH_VORTEX=1)
++endforeach()
++
++# Explicit target: exercise real cuDF, C++ wrapper, and CUDA FFI symbols before building NDS-H.
++add_executable(
++  NDSH_VORTEX_BUILD_SMOKE EXCLUDE_FROM_ALL "${CMAKE_CURRENT_LIST_DIR}/vortex_build_smoke.cpp"
++)
++target_compile_features(NDSH_VORTEX_BUILD_SMOKE PRIVATE cxx_std_20)
++target_link_libraries(NDSH_VORTEX_BUILD_SMOKE PRIVATE cudf::cudf Vortex::cpp_static)
+diff --git a/cpp/benchmarks/ndsh/vortex_build_smoke.cpp b/cpp/benchmarks/ndsh/vortex_build_smoke.cpp
+new file mode 100644
+index 0000000..f2b904f
+--- /dev/null
++++ b/cpp/benchmarks/ndsh/vortex_build_smoke.cpp
+@@ -0,0 +1,42 @@
++/*
++ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++#include <cudf/utilities/default_stream.hpp>
++
++#include <vortex/session.hpp>
++#include <vortex_cuda.h>
++
++#include <exception>
++#include <iostream>
++#include <memory>
++#include <string_view>
++
++int main()
++{
++  try {
++    auto const stream = cudf::get_default_stream();
++    stream.synchronize();
++    vortex::Session host_session;
++    vx_error* error = nullptr;
++    auto session    = std::unique_ptr<vx_session, decltype(&vx_session_free)>{
++      vx_cuda_session_new(&error), vx_session_free};
++    auto owned_error = std::unique_ptr<vx_error, decltype(&vx_error_free)>{error, vx_error_free};
++    if (!session) {
++      std::cerr << "Vortex CUDA session creation failed";
++      if (owned_error) {
++        auto const message = vx_error_message(owned_error.get());
++        std::cerr << ": " << std::string_view{message.ptr, message.len};
++      }
++      std::cerr << '\n';
++      return 1;
++    }
++    stream.synchronize();
++    std::cout << "cuDF + Vortex C++/CUDA FFI initialization succeeded\n";
++    return 0;
++  } catch (std::exception const& error) {
++    std::cerr << "cuDF/Vortex build smoke failed: " << error.what() << '\n';
++    return 1;
++  }
++}
