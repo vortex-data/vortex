@@ -22,4 +22,5 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
         EditionMember::array(&"vortex.sequence"),
         EditionMember::array(&"vortex.zstd"),
     ],
+    removed: &[],
 };

@@ -30,6 +30,7 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
         min_library_version: None,
     },
     added: &[EditionMember::array(&"vortex.zstd_buffers")],
+    removed: &[],
 };
 
 #[cfg(test)]

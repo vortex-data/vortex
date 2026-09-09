@@ -45,6 +45,7 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
         EditionMember::dtype(&"vortex.st.wkb"),
         EditionMember::aggregate(&"vortex.st.aabb"),
     ],
+    removed: &[],
 };
 
 #[cfg(test)]

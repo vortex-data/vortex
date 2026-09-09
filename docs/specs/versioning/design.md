@@ -194,8 +194,9 @@ component. A frozen edition gives that inventory a stable name and records a lib
 supports all its members. New formats require a later edition, leaving the earlier target available
 to writers targeting older versions.
 
-An _edition family_ groups editions for related components. Membership is cumulative within a
-family: each later edition includes all earlier members.
+An _edition family_ groups editions for related components. Each later edition inherits the earlier
+membership, applies its removals, and adds new members. Only draft editions may remove components,
+and members inherited from a frozen edition cannot be removed.
 
 The `core` family covers the default writer's formats, while optional features have independent
 families. A writer can select one `core` edition and one `tensor` edition, for example, and use the
@@ -227,7 +228,7 @@ format, and reader version.
    formats, including those writers no longer choose. Edition selection does not restrict what a
    reader can read.
 4. **Frozen edition records are immutable.** Membership, origin, and recorded minimum stay fixed.
-   Later editions include all earlier members within their family, while selecting editions from
+   Later editions retain all frozen members within their family, while selecting editions from
    multiple families permits the union of their members.
 5. **Edition enforcement covers the whole output.** Every serialized component must be permitted,
    including children and nested dependencies, so compressor declarations alone are insufficient.
@@ -251,8 +252,9 @@ historical writing implementation.
 
 A new format starts in a draft edition so it can be tested before its origin commits to reading it
 indefinitely. Drafts have no recorded minimum version or frozen guarantee. A format intended for
-`core` can progress from its own family to `preview` for broader testing, then to `core` for default
-use. Promotion preserves its wire ID and interpretation. The
+`core` can progress from the shared `unstable` family to `preview` for broader testing, then to
+`core` for default use. Draft editions may replace a defective ID by removing it and adding its
+successor. Promotion preserves its wire ID and interpretation. The
 [registry instructions](editions.md#format-testing-and-promotion) cover promotion, freezing, and
 recording the minimum version.
 

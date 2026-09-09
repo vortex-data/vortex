@@ -12,6 +12,7 @@ use crate::EditionFamily;
 use crate::EditionId;
 use crate::EditionInclusion;
 use crate::EditionMember;
+use crate::EditionRemoval;
 use crate::EditionSession;
 use crate::EditionSessionExt;
 use crate::EnabledEditions;
@@ -41,6 +42,7 @@ static DECLARATIONS: &[EditionDeclaration] = &[
             EditionMember::array(&"test.alpha"),
             EditionMember::array(&"test.beta"),
         ],
+        removed: &[],
     },
     EditionDeclaration {
         edition: Edition {
@@ -51,6 +53,7 @@ static DECLARATIONS: &[EditionDeclaration] = &[
             EditionMember::array(&"test.alpha_v2"),
             EditionMember::array(&"test.gamma"),
         ],
+        removed: &[],
     },
 ];
 
@@ -226,6 +229,7 @@ fn enabled_editions_are_independent_across_families() -> VortexResult<()> {
             min_library_version: None,
         },
         added: &[EditionMember::array(&"other.delta")],
+        removed: &[],
     };
 
     let session = VortexSession::empty().with::<EditionSession>();
@@ -253,6 +257,7 @@ fn serialized_array_ids_can_be_added_by_an_opt_in_family() -> VortexResult<()> {
             min_library_version: None,
         },
         added: &[EditionMember::array(&"test.alpha_v2")],
+        removed: &[],
     };
 
     let session = VortexSession::empty().with::<EditionSession>();
@@ -416,6 +421,7 @@ fn kinds_are_resolved_independently() -> VortexResult<()> {
             EditionMember::layout(&"test.alpha"),
             EditionMember::layout(&"test.flat"),
         ],
+        removed: &[],
     };
 
     let session = VortexSession::empty().with::<EditionSession>();
@@ -441,6 +447,184 @@ fn kinds_are_resolved_independently() -> VortexResult<()> {
             .editions()
             .declare_inclusion(EditionInclusion::array("test.alpha", FIRST))
             .is_err()
+    );
+    Ok(())
+}
+
+#[test]
+fn draft_can_add_and_remove_members_together() -> Result<(), crate::EditionError> {
+    const THIRD: EditionId = EditionId::new("test", 2026, 8, 0);
+    static REPLACEMENT: EditionDeclaration = EditionDeclaration {
+        edition: Edition {
+            id: SECOND,
+            min_library_version: None,
+        },
+        added: &[EditionMember::array(&"test.alpha_v2")],
+        removed: &[EditionMember::array(&"test.alpha")],
+    };
+    let session = VortexSession::empty().with::<EditionSession>();
+    session.editions().declare_family(&TEST_FAMILY)?;
+    // Registration order does not change the edition's history.
+    session.register_edition(&REPLACEMENT)?;
+    session.register_edition(&DECLARATIONS[0])?;
+    session.editions().declare_edition(Edition {
+        id: THIRD,
+        min_library_version: None,
+    })?;
+    session.editions().validate()?;
+
+    for (edition, expected) in [
+        (FIRST, ["test.alpha", "test.beta"]),
+        (SECOND, ["test.alpha_v2", "test.beta"]),
+        (THIRD, ["test.alpha_v2", "test.beta"]),
+        (FIRST, ["test.alpha", "test.beta"]),
+    ] {
+        session.enable_edition(edition)?;
+        assert_eq!(
+            session
+                .enabled_component_ids(ComponentKind::Array)
+                .iter()
+                .map(|id| id.as_str())
+                .collect::<Vec<_>>(),
+            expected,
+        );
+    }
+    let removals = session
+        .editions()
+        .removals_in(&SECOND, ComponentKind::Array);
+    assert_eq!(removals.len(), 1);
+    assert_eq!(removals[0].component_id.as_str(), "test.alpha");
+    assert!(
+        session
+            .editions()
+            .removals_in(&THIRD, ComponentKind::Array)
+            .is_empty()
+    );
+    Ok(())
+}
+
+#[test]
+fn removals_are_scoped_to_kind_and_family() -> Result<(), crate::EditionError> {
+    let editions = session();
+    const OTHER: EditionId = EditionId::new("other", 2026, 1, 0);
+    editions.declare_family(&OTHER_FAMILY)?;
+    editions.declare_edition(Edition {
+        id: OTHER,
+        min_library_version: Some("0.70.0"),
+    })?;
+    editions.declare_inclusion(EditionInclusion::array("test.alpha", OTHER))?;
+    editions.declare_inclusion(EditionInclusion::new(
+        ComponentKind::Layout,
+        "test.alpha",
+        FIRST,
+    ))?;
+    editions.declare_removal(EditionRemoval::new(
+        ComponentKind::Array,
+        "test.alpha",
+        SECOND,
+    ))?;
+    editions.validate()?;
+    assert!(
+        editions
+            .components_in(&SECOND, ComponentKind::Array)
+            .iter()
+            .all(|i| i.component_id.as_str() != "test.alpha")
+    );
+    assert_eq!(
+        editions.components_in(&SECOND, ComponentKind::Layout).len(),
+        1
+    );
+    assert_eq!(
+        editions.components_in(&OTHER, ComponentKind::Array).len(),
+        1
+    );
+    Ok(())
+}
+
+#[test]
+fn removals_require_an_inherited_member() -> Result<(), crate::EditionError> {
+    for (kind, id, since) in [
+        (ComponentKind::Array, "test.unknown", SECOND),
+        (ComponentKind::Layout, "test.alpha", SECOND),
+        (ComponentKind::Array, "test.alpha", FIRST),
+        (ComponentKind::Array, "test.alpha_v2", FIRST),
+    ] {
+        let editions = session();
+        editions.declare_removal(EditionRemoval::new(kind, id, since))?;
+        assert!(
+            editions
+                .validate()
+                .is_err_and(|error| error.to_string().contains("not an inherited member"))
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn removals_cannot_change_frozen_membership() -> Result<(), crate::EditionError> {
+    for removed_in in [FIRST, SECOND] {
+        let editions = EditionSession::empty();
+        editions.declare_family(&TEST_FAMILY)?;
+        editions.declare_edition(Edition {
+            id: FIRST,
+            min_library_version: Some("0.70.0"),
+        })?;
+        editions.declare_edition(Edition {
+            id: SECOND,
+            min_library_version: None,
+        })?;
+        editions.declare_inclusion(EditionInclusion::array("test.alpha", FIRST))?;
+        editions.declare_removal(EditionRemoval::new(
+            ComponentKind::Array,
+            "test.alpha",
+            removed_in,
+        ))?;
+        assert!(
+            editions
+                .validate()
+                .is_err_and(|error| error.to_string().contains("frozen edition"))
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn draft_can_remove_only_its_unfrozen_members() -> Result<(), crate::EditionError> {
+    let editions = EditionSession::empty();
+    editions.declare_family(&TEST_FAMILY)?;
+    editions.declare_edition(Edition {
+        id: EditionId::new("test", 2025, 1, 0),
+        min_library_version: Some("0.60.0"),
+    })?;
+    for declaration in DECLARATIONS {
+        editions.declare(declaration)?;
+    }
+    editions.declare_removal(EditionRemoval::new(
+        ComponentKind::Array,
+        "test.alpha",
+        SECOND,
+    ))?;
+    editions.validate()?;
+    Ok(())
+}
+
+#[test]
+fn duplicate_and_undeclared_removals_are_rejected() -> Result<(), crate::EditionError> {
+    let editions = session();
+    let removal = EditionRemoval::new(ComponentKind::Array, "test.alpha", SECOND);
+    editions.declare_removal(removal)?;
+    assert!(editions.declare_removal(removal).is_err());
+
+    let editions = session();
+    editions.declare_removal(EditionRemoval::new(
+        ComponentKind::Array,
+        "test.alpha",
+        EditionId::new("test", 2027, 1, 0),
+    ))?;
+    assert!(
+        editions
+            .validate()
+            .is_err_and(|error| error.to_string().contains("undeclared edition"))
     );
     Ok(())
 }

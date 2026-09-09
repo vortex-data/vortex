@@ -35,6 +35,7 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
         min_library_version: None,
     },
     added: &[EditionMember::dtype(&"vortex.json")],
+    removed: &[],
 };
 
 #[cfg(test)]

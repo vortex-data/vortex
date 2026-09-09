@@ -30,6 +30,7 @@ pub use vortex_edition::EditionFamily;
 pub use vortex_edition::EditionId;
 pub use vortex_edition::EditionInclusion;
 pub use vortex_edition::EditionMember;
+pub use vortex_edition::EditionRemoval;
 pub use vortex_edition::EditionSession;
 pub use vortex_edition::EditionSessionExt;
 pub use vortex_edition::EnabledEditions;
@@ -43,6 +44,8 @@ pub use vortex_edition::declarations::core::CORE_2026_08_2;
 pub use vortex_edition::declarations::core::CORE_2026_08_3;
 pub use vortex_edition::declarations::preview;
 pub use vortex_edition::declarations::preview::PREVIEW_2026_08_0;
+pub use vortex_edition::declarations::unstable;
+pub use vortex_edition::declarations::unstable::UNSTABLE_2026_08_0;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
@@ -52,6 +55,9 @@ pub const DEFAULT_CORE_EDITION: EditionId = CORE_2026_08_3;
 
 /// The newest `preview` edition. The default Vortex session registers it but does not enable it.
 pub const DEFAULT_PREVIEW_EDITION: EditionId = PREVIEW_2026_08_0;
+
+/// The newest `unstable` edition. The default Vortex session registers it but does not enable it.
+pub const DEFAULT_UNSTABLE_EDITION: EditionId = UNSTABLE_2026_08_0;
 
 /// Register the Vortex edition families and declarations with the session's
 /// [`EditionSession`].

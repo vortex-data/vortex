@@ -12342,6 +12342,7 @@ dependencies = [
  "toml 1.1.6+spec-1.1.0",
  "vortex-edition",
  "vortex-json",
+ "vortex-session",
  "vortex-spatial",
  "vortex-tensor",
  "vortex-zstd",

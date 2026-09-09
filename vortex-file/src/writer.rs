@@ -787,6 +787,7 @@ mod tests {
                 min_library_version: None,
             },
             added: &[EditionMember::array(&"vortex.primitive")],
+            removed: &[],
         };
 
         let session = array_session().with::<EditionSession>();
@@ -849,6 +850,7 @@ mod tests {
                 min_library_version: None,
             },
             added: &[EditionMember::array(&"vortex.primitive")],
+            removed: &[],
         };
 
         let session = array_session().with::<EditionSession>();
@@ -893,6 +895,7 @@ mod tests {
                 min_library_version: None,
             },
             added: &[EditionMember::dtype(&"vortex.date")],
+            removed: &[],
         };
 
         let session = array_session().with::<EditionSession>();

@@ -22,4 +22,5 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
         EditionMember::array(&"vortex.variant"),
         EditionMember::dtype(&"vortex.uuid"),
     ],
+    removed: &[],
 };

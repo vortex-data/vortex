@@ -45,12 +45,15 @@ no components prevents the writer from serializing any component governed by edi
 ## Edition families
 
 An _edition family_ groups editions for related formats. The `core` family covers the default
-writer's formats. Optional features have their own families, such as `tensor` and `zstd`, so they
-can add formats without changing an application's `core` selection.
+writer's formats. Core-maintained formats not yet in `core` are tested in the shared `unstable` and
+`preview` families, which must be enabled explicitly. Optional features have their own families,
+such as `tensor` and `zstd`, so they can add formats without changing an application's `core`
+selection.
 
 A writer selects at most one edition per family. Selecting `core2026.08.0` and `tensor2026.04.0`
-permits every component in either edition. Within one family, a later edition includes all earlier
-members. Across families, however, the selections are independent.
+permits every component in either edition. Within one family, a later edition inherits the earlier
+membership, minus any removals a draft declares; members of frozen editions are never removed.
+Across families, however, the selections are independent.
 
 Check the [registry](editions.md#edition-registry) before enabling an optional family. For example,
 `tensor2026.04.0` is a draft and has no frozen minimum reader version. Adding it does not extend

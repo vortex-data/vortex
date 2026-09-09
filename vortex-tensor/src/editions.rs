@@ -38,6 +38,7 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
         EditionMember::dtype(&"vortex.tensor.fixed_shape_tensor"),
         EditionMember::dtype(&"vortex.tensor.vector"),
     ],
+    removed: &[],
 };
 
 #[cfg(test)]

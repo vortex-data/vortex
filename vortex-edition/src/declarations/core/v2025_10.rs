@@ -23,4 +23,5 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
         EditionMember::array(&"vortex.listview"),
         EditionMember::array(&"vortex.masked"),
     ],
+    removed: &[],
 };

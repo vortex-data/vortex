@@ -34,6 +34,7 @@ pub static DECLARATION_0: EditionDeclaration = EditionDeclaration {
         EditionMember::aggregate(&"vortex.nan_count"),
         EditionMember::aggregate(&"vortex.null_count"),
     ],
+    removed: &[],
 };
 
 /// The second August 2026 edition of the `core` family, adding OnPair arrays.
@@ -46,4 +47,5 @@ pub static DECLARATION_1: EditionDeclaration = EditionDeclaration {
         min_library_version: Some("0.84.0"),
     },
     added: &[EditionMember::array(&"vortex.onpair")],
+    removed: &[],
 };

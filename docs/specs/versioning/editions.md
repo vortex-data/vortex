@@ -1,7 +1,8 @@
 # Edition registry
 
-Each entry lists the components added by that edition, which also permits every component from
-earlier editions in the same family. See [Using editions](using-editions.md) for configuration and
+Each entry lists the components added and removed by that edition. An edition inherits the
+resulting membership of the preceding edition in its family; members of frozen editions remain
+included forever. See [Using editions](using-editions.md) for configuration and
 [Versioning design](design.md) for the compatibility rules.
 
 ## Frozen `core` editions
@@ -67,6 +68,15 @@ or revision requires a new draft edition. Vortex-maintained draft formats are ex
 compatible unless a defect blocks promotion into `core`, while independent plugin projects state
 their own policy.
 
+### `unstable2026.08.0`
+
+- `array`: `fastlanes.delta`, `vortex.patched`, `vortex.union`
+- `layout`: `vortex.list`
+- `aggregate`: `vortex.bloom_filter.sbbf`, `vortex.sum_v2`
+
+This edition removes no components. The list layout is distinct from the `vortex.list` array
+encoding already in core.
+
 ### `preview2026.08.0`
 
 This edition currently adds no components.
@@ -113,17 +123,29 @@ For example, `core2026.08.0` declares `min`, `max`, `bounded_min`, `bounded_max`
 statistics, however, do store sums, in a fixed legacy field governed by the enclosing format's
 contract.
 
+Aggregate serialization support alone does not make an aggregate an edition member. Editions
+declare aggregate IDs intended for persisted zone maps. The `all_*` aggregates are in-memory pruning
+predicates and do not need entries. Legacy file statistics also do not need entries.
+
 ## Format testing and promotion
 
-A format intended for `core` starts in a dedicated edition family. Its first edition is a draft,
-with no recorded `min_library_version` and no frozen compatibility guarantee. Even at this draft
-stage, the format is expected to be complete. If testing reveals a defect whose correction changes
-what readers must understand, the correction needs a new wire ID and a later edition.
+A format intended for `core` starts in a draft edition of the shared `unstable` family. A draft has
+no recorded `min_library_version` and no frozen compatibility guarantee. Even at this draft stage,
+the format is expected to be complete. If testing reveals a defect whose correction changes what
+readers must understand, the correction needs a new wire ID and a later edition.
+
+Only draft editions may remove components. A later draft can remove an inherited ID and add its
+replacement in the same declaration, for example removing `vortex.foo` and adding `vortex.foo_v2`.
+The earlier edition still records its original members. Removals are scoped to a component kind and
+family, so removing an array does not remove a layout with the same ID or membership in another
+family. An edition cannot remove an absent component or add and remove the same ID. Components
+inherited from a frozen edition cannot be removed.
 
 After initial testing, the format can enter a new `preview` edition for broader opt-in use, then a
 later `core` edition for default use. Promotion changes which editions permit the format while
-preserving its contract and wire ID. The current `preview` edition is empty, so its first component
-must go into a new edition.
+preserving its contract and wire ID. The `unstable` and `preview` editions are registered but must
+be enabled explicitly. The current `preview` edition is empty, so its first component must go into a
+new edition.
 
 ## Freezing an edition
 
@@ -144,8 +166,9 @@ Default declarations live in `vortex-edition/src/declarations/`. Optional module
 with their implementation code. The exported TOML records are under `vortex/editions/`, grouped by
 family.
 
-1. For a new component, declare its own family and draft edition. For a revision, add a later
-   edition to the family that owns the earlier ID.
+1. For a new core-maintained component, add it to a new draft edition in the `unstable` family.
+   Optional modules use their own families. For a revision, add a later draft edition that may
+   remove the earlier ID and add its replacement.
 2. To promote a tested format, add it to new `preview` and `core` editions without changing its ID
    or contract.
 3. When an edition freezes, record the first release of its origin that supports every permitted

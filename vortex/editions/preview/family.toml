@@ -6,7 +6,8 @@ name = "preview"
 origin = "vortex"
 
 doc = """
-Additive, opt-in components maintained as part of Vortex but not yet adopted by the default
-core writer. Components enter preview only once their serialized contracts are ready for
-broad testing; independently evolving work remains in its own family until then.
+Opt-in components maintained as part of Vortex but not yet adopted by the default core
+writer. Components move from unstable into preview once their serialized contracts are ready
+for broad testing, then join core with the same IDs and wire contracts. Draft preview
+editions may add and remove components together; frozen members cannot be removed.
 """

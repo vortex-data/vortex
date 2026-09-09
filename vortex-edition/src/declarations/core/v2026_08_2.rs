@@ -18,4 +18,5 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
         min_library_version: Some("0.85.0"),
     },
     added: &[EditionMember::array(&"vortex.map")],
+    removed: &[],
 };

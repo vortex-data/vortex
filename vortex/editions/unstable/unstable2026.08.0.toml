@@ -5,26 +5,24 @@
 # to a new edition; after an origin release is known, min_library_version is backfilled to document
 # its freeze. A frozen record never changes.
 
-edition = "spatial2026.08.0"
-family = "spatial"
-origin = "vortex-spatial"
+edition = "unstable2026.08.0"
+family = "unstable"
+origin = "vortex"
 
 # Components added by this edition.
 [added]
-arrays = []
-layouts = []
-dtypes = [
-    "vortex.st.box",
-    "vortex.st.linestring",
-    "vortex.st.multilinestring",
-    "vortex.st.multipoint",
-    "vortex.st.multipolygon",
-    "vortex.st.point",
-    "vortex.st.polygon",
-    "vortex.st.wkb",
+arrays = [
+    "fastlanes.delta",
+    "vortex.patched",
+    "vortex.union",
 ]
+layouts = [
+    "vortex.list",
+]
+dtypes = []
 aggregates = [
-    "vortex.st.aabb",
+    "vortex.bloom_filter.sbbf",
+    "vortex.sum_v2",
 ]
 
 # Components removed by this edition.
@@ -37,18 +35,16 @@ aggregates = []
 # The edition's full membership: the members above, plus every member of earlier
 # editions of the family, excluding components removed at or before this edition.
 [components]
-arrays = []
-layouts = []
-dtypes = [
-    "vortex.st.box",
-    "vortex.st.linestring",
-    "vortex.st.multilinestring",
-    "vortex.st.multipoint",
-    "vortex.st.multipolygon",
-    "vortex.st.point",
-    "vortex.st.polygon",
-    "vortex.st.wkb",
+arrays = [
+    "fastlanes.delta",
+    "vortex.patched",
+    "vortex.union",
 ]
+layouts = [
+    "vortex.list",
+]
+dtypes = []
 aggregates = [
-    "vortex.st.aabb",
+    "vortex.bloom_filter.sbbf",
+    "vortex.sum_v2",
 ]

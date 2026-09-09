@@ -50,4 +50,5 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
         EditionMember::dtype(&"vortex.time"),
         EditionMember::dtype(&"vortex.timestamp"),
     ],
+    removed: &[],
 };

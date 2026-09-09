@@ -263,9 +263,9 @@ impl Display for BloomOptions {
 ///
 /// ### Stability
 ///
-/// This aggregate is unstable. The hash function, the block layout, and the salt order can still
-/// change without a file format version bump. Do not persist `vortex.bloom_filter.sbbf` partials
-/// in a Vortex file.
+/// This aggregate belongs to the opt-in `unstable` edition. Persisted filters carry no
+/// read-forever guarantee. A change to the hash function, block layout, or salt order that
+/// affects readers requires a new wire ID.
 #[derive(Clone, Debug)]
 pub struct BloomFilter;
 

@@ -18,8 +18,15 @@ layouts = []
 dtypes = []
 aggregates = []
 
+# Components removed by this edition.
+[removed]
+arrays = []
+layouts = []
+dtypes = []
+aggregates = []
+
 # The edition's full membership: the members above, plus every member of earlier
-# editions of the family.
+# editions of the family, excluding components removed at or before this edition.
 [components]
 arrays = [
     "vortex.zstd_buffers",

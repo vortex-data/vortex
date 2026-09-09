@@ -17,7 +17,6 @@ version = { workspace = true }
 
 [[bin]]
 name = "xtask"
-test = false
 
 [dependencies]
 anyhow = { workspace = true }
@@ -26,6 +25,7 @@ git2 = { workspace = true }
 toml = { workspace = true }
 vortex-edition = { workspace = true }
 vortex-json = { workspace = true }
+vortex-session = { workspace = true }
 vortex-spatial = { workspace = true }
 vortex-tensor = { workspace = true }
 vortex-zstd = { workspace = true }

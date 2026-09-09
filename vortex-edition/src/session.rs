@@ -22,6 +22,7 @@ use crate::EditionDeclaration;
 use crate::EditionFamily;
 use crate::EditionId;
 use crate::EditionInclusion;
+use crate::EditionRemoval;
 use crate::parse_release;
 
 /// The session's registry of editions and edition inclusions.
@@ -46,6 +47,8 @@ struct Inner {
     /// within a kind. An id may have one inclusion per family. Ordered by kind, then by the id's
     /// string form.
     inclusions: BTreeMap<ComponentKind, BTreeMap<Id, Vec<EditionInclusion>>>,
+    /// A component can leave each family once; a replacement uses a new wire ID.
+    removals: BTreeMap<(ComponentKind, Id, &'static str), EditionRemoval>,
 }
 
 /// Registry of enabled editions, keyed by interned edition family.
@@ -86,12 +89,19 @@ impl EditionSession {
         }
     }
 
-    /// Declare an edition together with the members added at it. Each entry's membership
-    /// (`since`) is the declared edition; earlier entries are inherited and must not be restated.
+    /// Declare an edition together with its additions and removals. Each change's `since`
+    /// is the declared edition; unchanged earlier entries are inherited and must not be restated.
     pub fn declare(&self, declaration: &EditionDeclaration) -> VortexResult<()> {
         self.declare_edition(declaration.edition)?;
         for member in declaration.added {
             self.declare_inclusion(EditionInclusion::new(
+                member.kind,
+                member.component,
+                declaration.edition.id,
+            ))?;
+        }
+        for member in declaration.removed {
+            self.declare_removal(EditionRemoval::new(
                 member.kind,
                 member.component,
                 declaration.edition.id,
@@ -172,6 +182,34 @@ impl EditionSession {
         Ok(())
     }
 
+    /// Declare a component's removal from a family. Duplicate removals are rejected here;
+    /// [`Self::validate`] checks that the member is inherited and has never been frozen in
+    /// this family, and that the removing edition is a draft. Declarations may be registered
+    /// in any order before validation.
+    pub fn declare_removal(&self, removal: EditionRemoval) -> Result<(), EditionError> {
+        let mut inner = self.inner.write();
+        let key = (removal.kind, removal.component_id, removal.since.family);
+        if let Some(previous) = inner.removals.get(&key) {
+            return Err(EditionError::new(format!(
+                "{} {} already removed from family {} in edition {}",
+                removal.kind, removal.component_id, removal.since.family, previous.since,
+            )));
+        }
+        inner.removals.insert(key, removal);
+        Ok(())
+    }
+
+    /// The removals declared at exactly this edition for one kind, sorted by component id.
+    pub fn removals_in(&self, edition: &EditionId, kind: ComponentKind) -> Vec<EditionRemoval> {
+        self.inner
+            .read()
+            .removals
+            .values()
+            .filter(|removal| removal.kind == kind && removal.since == *edition)
+            .copied()
+            .collect()
+    }
+
     /// All declared editions, sorted by family and then chronologically. The newest frozen
     /// edition of each family is that family's `current` edition; unversioned editions are
     /// drafts.
@@ -194,7 +232,8 @@ impl EditionSession {
     }
 
     /// Compute an edition's members of one kind, sorted by component id. For each id, this returns
-    /// its inclusion in the edition's family when it joined at or before the requested edition.
+    /// its inclusion in the edition's family when it joined at or before the requested edition
+    /// and has not been removed at or before that edition.
     /// Only that kind's declarations are scanned.
     pub fn components_in(&self, edition: &EditionId, kind: ComponentKind) -> Vec<EditionInclusion> {
         let inner = self.inner.read();
@@ -202,8 +241,14 @@ impl EditionSession {
             return vec![];
         };
         by_id
-            .values()
-            .filter_map(|history| {
+            .iter()
+            .filter(|(id, _)| {
+                !inner
+                    .removals
+                    .get(&(kind, **id, edition.family))
+                    .is_some_and(|removal| removal.since.is_at_or_before(edition))
+            })
+            .filter_map(|(_, history)| {
                 history
                     .iter()
                     .filter(|inclusion| inclusion.since.is_at_or_before(edition))
@@ -222,7 +267,8 @@ impl EditionSession {
     /// Validate all registered declarations. Errors on editions in undeclared families,
     /// inclusions referencing undeclared editions, editions out of chronological order within
     /// a family (unversioned drafts must be newest), malformed version strings, and members
-    /// requiring a release newer than their edition declares.
+    /// requiring a release newer than their edition declares. Removals must reference an
+    /// inherited member and a draft edition, and cannot remove a frozen member of that family.
     pub fn validate(&self) -> VortexResult<()> {
         let editions = self.editions();
 
@@ -293,6 +339,47 @@ impl EditionSession {
                     inclusion.required_vortex_release.unwrap_or_default(),
                     edition.id,
                 );
+            }
+        }
+
+        for removal in inner.removals.values() {
+            let Some(edition) = inner.editions.get(&removal.since.to_string()) else {
+                return Err(EditionError::new(format!(
+                    "{} {} is removed in undeclared edition {}",
+                    removal.kind, removal.component_id, removal.since,
+                )));
+            };
+            if !edition.is_draft() {
+                return Err(EditionError::new(format!(
+                    "frozen edition {} cannot declare removals",
+                    edition.id,
+                )));
+            }
+            let inclusion = inner
+                .inclusions
+                .get(&removal.kind)
+                .and_then(|by_id| by_id.get(&removal.component_id))
+                .and_then(|history| {
+                    history.iter().find(|inclusion| {
+                        inclusion.since != removal.since
+                            && inclusion.since.is_at_or_before(&removal.since)
+                    })
+                })
+                .ok_or_else(|| {
+                    EditionError::new(format!(
+                        "{} {} removed in {} is not an inherited member of that family",
+                        removal.kind, removal.component_id, removal.since,
+                    ))
+                })?;
+            if let Some(frozen) = editions.iter().find(|edition| {
+                !edition.is_draft()
+                    && inclusion.since.is_at_or_before(&edition.id)
+                    && edition.id.is_at_or_before(&removal.since)
+            }) {
+                return Err(EditionError::new(format!(
+                    "{} {} removed in {} belongs to frozen edition {} and cannot be removed",
+                    removal.kind, removal.component_id, removal.since, frozen.id,
+                )));
             }
         }
 

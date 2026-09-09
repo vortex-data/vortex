@@ -8,8 +8,8 @@
 //! editions and [`EnabledEditions`] selects which of them a writer may emit. Declarations
 //! are plain constants — an [`EditionId`] plus an [`Edition`] record, and one
 //! [`EditionInclusion`] per member stating that it is a member of an edition *and every
-//! later edition of the same family*. Any crate can register declarations into a session,
-//! so inclusions can live next to the component they describe.
+//! later edition of the same family until an [`EditionRemoval`]*. Any crate can register
+//! declarations into a session, so inclusions can live next to the component they describe.
 //!
 //! Every membership is typed by a [`ComponentKind`], and members are resolved one kind at a
 //! time with [`EditionSessionExt::enabled_component_ids`]: the file writer restricts the
@@ -53,7 +53,7 @@ use vortex_session::registry::Id;
 
 /// The identifier of an edition, e.g. `core2026.07.0`.
 ///
-/// The `family` names an independently versioned, additive group of members (`core` is the set
+/// The `family` names an independently versioned group of members (`core` is the set
 /// available to the default writer). For `core`, the date components record when the edition
 /// freezes; that date is prospective while the edition is still a draft. Dates order editions
 /// chronologically *within* a family; there is no ordering across families.
@@ -117,7 +117,7 @@ impl Display for EditionId {
     }
 }
 
-/// A family of editions: an independently versioned, additive group of members, registered
+/// A family of editions: an independently versioned group of members, registered
 /// with [`EditionSession::declare_family`].
 ///
 /// Every [`EditionId`] names one. Declaring the family is what makes the name real:
@@ -192,7 +192,7 @@ impl Display for ComponentKind {
 /// An edition: a named set of serialized components that can acquire a read-compatibility
 /// guarantee, registered with [`EditionSession::declare_edition`].
 /// The set itself is computed from the registered [`EditionInclusion`]s by
-/// [`EditionSession::components_in`].
+/// [`EditionSession::components_in`], excluding components removed by [`EditionRemoval`]s.
 #[derive(Clone, Copy, Debug)]
 pub struct Edition {
     /// The edition identifier. For a `core` edition, its date records when it freezes.
@@ -221,7 +221,7 @@ impl Edition {
 }
 
 /// Declares that a serialized component is a member of an edition — and of every later edition of
-/// the same family. Registered with [`EditionSession::declare_inclusion`].
+/// the same family until removed. Registered with [`EditionSession::declare_inclusion`].
 #[derive(Clone, Copy, Debug)]
 pub struct EditionInclusion {
     /// What the membership covers. Ids are unique per kind, so this is part of the
@@ -234,6 +234,34 @@ pub struct EditionInclusion {
     /// The earliest Vortex release supporting this member, recorded from evidence (e.g.
     /// compat-fixture history for serialized components). `None` until recorded.
     pub required_vortex_release: Option<&'static str>,
+}
+
+/// Removes a component from a draft edition and every later edition of the same family.
+/// Members inherited from frozen editions cannot be removed. Registered with
+/// [`EditionSession::declare_removal`].
+#[derive(Clone, Copy, Debug)]
+pub struct EditionRemoval {
+    /// The kind of component being removed.
+    pub kind: ComponentKind,
+    /// The interned component id.
+    pub component_id: Id,
+    /// The first edition that no longer includes this component.
+    pub since: EditionId,
+}
+
+impl EditionRemoval {
+    /// Remove a component from `since` onward within its family.
+    pub fn new<C: AsComponentId + ?Sized>(
+        kind: ComponentKind,
+        component: &C,
+        since: EditionId,
+    ) -> Self {
+        Self {
+            kind,
+            component_id: component.component_id(),
+            since,
+        }
+    }
 }
 
 /// A source of a component id for edition declarations.
@@ -271,7 +299,7 @@ impl AsComponentId for &'static str {
     }
 }
 
-/// A member that joins an edition, named by id string or vtable and tagged with its kind.
+/// A member added to or removed from an edition, named by id string or vtable and tagged with its kind.
 /// Built with the per-kind constructors, so a declaration reads
 /// as `EditionMember::array(&"vortex.alp")`.
 #[derive(Clone, Copy, Debug)]
@@ -316,7 +344,7 @@ impl EditionMember {
     }
 }
 
-/// Declares an edition together with its new members in one block. Registered with
+/// Declares an edition together with its additions and removals in one block. Registered with
 /// [`EditionSession::declare`], which derives each entry's membership (`since` = the declared
 /// edition) from the block structure.
 #[derive(Clone, Copy, Debug)]
@@ -326,11 +354,15 @@ pub struct EditionDeclaration {
     /// The members that join the family at this edition, each tagged with its [`ComponentKind`].
     /// Earlier entries are inherited and never restated.
     pub added: &'static [EditionMember],
+    /// The members removed at this edition. Only draft editions may remove members, and
+    /// members inherited from a frozen edition cannot be removed. A replacement wire ID
+    /// can be added in the same declaration.
+    pub removed: &'static [EditionMember],
 }
 
 impl EditionInclusion {
     /// Declare that a component of `kind` is a member of `since` and every later edition of
-    /// the same family. The component can be named by id string or by vtable.
+    /// the same family until removed. The component can be named by id string or by vtable.
     pub fn new<C: AsComponentId + ?Sized>(
         kind: ComponentKind,
         component: &C,
@@ -345,13 +377,13 @@ impl EditionInclusion {
     }
 
     /// Declare that an array encoding is a member of `since` and every later edition of the
-    /// same family.
+    /// same family until removed.
     pub fn array<C: AsComponentId + ?Sized>(encoding: &C, since: EditionId) -> Self {
         Self::new(ComponentKind::Array, encoding, since)
     }
 
     /// Declare that an extension dtype is a member of `since` and every later edition of the
-    /// same family.
+    /// same family until removed.
     pub fn dtype<C: AsComponentId + ?Sized>(dtype: &C, since: EditionId) -> Self {
         Self::new(ComponentKind::DType, dtype, since)
     }
