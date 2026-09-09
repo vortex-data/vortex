@@ -1,68 +1,33 @@
-# cuDF integration: benchmark-only POC
+# cuDF NDS-H Vortex POC
 
-**Goal:** Submit `[POC] Add Vortex reader to libcudf NDS-H benchmarks`, with a
-Parquet comparison and Nsight Systems profiles at **SF100**.
+**Goal:** [Benchmark-only upstream POC](https://github.com/NVIDIA/cudf/issues/23877#issuecomment-5457730105)
+comparing Vortex with Parquet, with Nsight Systems profiles at **SF100**.
 
-- [Upstream proposal and maintainer request](https://github.com/NVIDIA/cudf/issues/23877#issuecomment-5457730105)
-- [NDS-H benchmarks](https://github.com/NVIDIA/cudf/tree/main/cpp/benchmarks/ndsh)
-- [Vortex CMake integration](lang/cpp/CMakeLists.txt)
-- [Existing CUDA C API](vortex-cuda/ffi/cinclude/vortex_cuda.h)
+1. **Opt-in build support:** embed CUDA-enabled Vortex; link only Q1/Q6.
+   Implemented; default cuDF builds remain unchanged.
+2. **Read/write adapters:** chunked host Arrow → CPU Vortex writer;
+   CUDA scan → Arrow Device import → owning cuDF tables. Implemented with
+   ownership/synchronization tests. Q1/Q6 still read Parquet.
+3. **Matched comparison:** generate identical data, use local files for both
+   formats, add Vortex projection, and apply equivalent post-read cuDF filters.
+   Report Parquet pushdown separately.
+4. **Validate and scale:** read-only comparison → Q6 → Q1;
+   SF0.01 → SF1 → SF10 → SF100. Check schemas, values, nulls, decimals, batch
+   boundaries, and query results. Bound intermediates; track Vortex and RMM memory.
+5. **Profile and publish:** add NVTX ranges and capture matched-cache SF100 runs.
+   Report read latency, size, HtoD traffic/overlap, decode/adapter cost, and peak
+   memory. Time the complete read, including import, copies, concatenation, and
+   GPU completion; exclude fixture writing. Publish commands and pinned revisions.
 
-## 1. Add opt-in build integration
+## Status and scope
 
-- Pin Vortex and embed its existing CMake targets with `VORTEX_ENABLE_CUDA=ON`.
-- Link only the participating NDS-H benchmarks; leave default cuDF builds unchanged.
-- Validate the RAPIDS toolchain, CUDA architecture, and CUB/nvCOMP runtime dependencies first.
+[Patch and setup](benchmarks/cudf-ndsh/README.md) ·
+[Validation](benchmarks/cudf-ndsh/VALIDATION.md)
 
-Build scaffolding and offline tests are available in [benchmarks/cudf-ndsh](benchmarks/cudf-ndsh/README.md).
-See its validation notes for completed checks and the remaining full cuDF build validation.
+The adapter passes GPU tests against cuDF 26.08; current pinned cuDF is
+compile-only validated. Publish the local Vortex prerequisites and update the
+pin before submitting the upstream POC.
 
-## 2. Implement benchmark-local `write_vortex` / `read_vortex`
-
-- **Write:** generated cuDF table → chunked host Arrow export → existing CUDA-compatible
-  Vortex writer. This is **CPU writing**, not GPU compression.
-- **Read:** existing CUDA file scan → `ArrowDeviceArrayStream` →
-  `cudf::from_arrow_device` → owning cuDF table.
-- Handle Arrow ownership and cross-stream synchronization explicitly. Include import,
-  copies, and concatenation in read timing.
-
-## 3. Make the comparison fair
-
-- Generate identical data and serialize it into both formats.
-- Initially use **local files for both**: existing NDS-H Parquet inputs are host buffers,
-  whereas Vortex's dedicated CUDA reader currently accepts file paths.
-- Add column projection to the Vortex CUDA scan API.
-- Start with equivalent projections and post-read cuDF filtering; retain Parquet pushdown
-  as a separately labeled baseline.
-
-## 4. Validate and scale
-
-- Add a read-only comparison, then integrate **Q6**, followed by **Q1**.
-- Progress through SF0.01 → SF1 → SF10 → **SF100**.
-- Verify values, schemas, decimals, nulls, batch boundaries, and query results.
-- Bound staging/intermediate memory and measure Vortex allocations separately from RMM.
-
-## 5. Profile and publish
-
-- Add NVTX ranges for reading, import/materialization, query execution, and writing.
-- Capture SF100 Nsight Systems profiles with matched hardware and cache policy.
-- Report wall-clock latency, file size, HtoD traffic/overlap, decode time, adapter overhead,
-  and peak memory.
-- Keep fixture generation outside read timing; ensure timing includes completion of all
-  contributing Vortex and cuDF GPU work.
-- Publish reproducible commands and pinned revisions.
-
-## I/O scope
-
-Vortex currently reads compressed file data into pooled pinned host buffers, transfers it
-HtoD, and decodes on GPU; metadata stays on host. This is **not GPUDirect Storage**.
-
-## Out of scope
-
-Public cuDF/Python APIs, GPU writing, general cuDF datasource integration,
-remote/device-buffer inputs, and full RMM integration.
-
-## Deliverables
-
-A small Vortex prerequisite PR if needed, followed by the cuDF benchmark POC with
-correctness results and SF100 profiles.
+I/O uses pooled pinned-host staging → HtoD → GPU decode, with host metadata;
+**not GPUDirect Storage**. Public cuDF/Python APIs, GPU writing, general cuDF
+datasources, remote/device-buffer inputs, and full RMM integration are out of scope.

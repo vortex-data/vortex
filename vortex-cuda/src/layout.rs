@@ -13,6 +13,7 @@ use async_trait::async_trait;
 use futures::FutureExt;
 use futures::StreamExt;
 use futures::future::BoxFuture;
+use parking_lot::Mutex;
 use vortex::array::ArrayRef;
 use vortex::array::ArrayVTable;
 use vortex::array::MaskFuture;
@@ -30,9 +31,16 @@ use vortex::buffer::BufferString;
 use vortex::buffer::ByteBuffer;
 use vortex::dtype::DType;
 use vortex::dtype::FieldMask;
+use vortex::editions::Edition;
+use vortex::editions::EditionDeclaration;
+use vortex::editions::EditionFamily;
+use vortex::editions::EditionId;
+use vortex::editions::EditionMember;
+use vortex::editions::EditionSessionExt;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex::error::vortex_err;
 use vortex::error::vortex_panic;
 use vortex::layout::Layout;
 use vortex::layout::LayoutChildType;
@@ -55,6 +63,7 @@ use vortex::layout::segments::SegmentSinkRef;
 use vortex::layout::segments::SegmentSource;
 use vortex::layout::sequence::SendableSequentialStream;
 use vortex::layout::sequence::SequencePointer;
+use vortex::layout::session::LayoutSessionExt;
 use vortex::mask::Mask;
 use vortex::scalar::Scalar;
 use vortex::scalar::ScalarTruncation;
@@ -534,12 +543,192 @@ fn extract_constant_buffers(chunk: &ArrayRef) -> Vec<InlinedBuffer> {
     result
 }
 
-/// Register the [`CudaFlatLayoutEncoding`] in the session's layout registry.
+const CUDA_EDITION: EditionId = EditionId::new("cuda", 2026, 9, 0);
+static CUDA_EDITION_DECLARATION: EditionDeclaration = EditionDeclaration {
+    edition: Edition {
+        id: CUDA_EDITION,
+        min_library_version: None,
+    },
+    added: &[EditionMember::layout(&"vortex.cuda_flat")],
+};
+
+/// Register the [`CudaFlatLayoutEncoding`] and enable its draft `cuda` edition for writing.
+///
+/// This opts into only the CUDA-flat layout; the session's other edition selections and checks
+/// remain unchanged. The draft has no cross-version compatibility guarantee, and readers must
+/// register the CUDA layout to read these files.
 ///
 /// Call this alongside [`crate::initialize_cuda`] when setting up a CUDA-enabled session.
+/// Registration itself does not require a GPU.
 pub fn register_cuda_layout(session: &VortexSession) {
-    use vortex::layout::session::LayoutSessionExt;
     session
         .layouts()
         .register(LayoutEncodingRef::new_ref(&CudaFlat));
+
+    // CUDA FFI entry points register repeatedly, including through concurrent session clones.
+    // Edition declaration rejects duplicates, so serialize the check and registration.
+    static REGISTRATION_LOCK: Mutex<()> = Mutex::new(());
+    let _guard = REGISTRATION_LOCK.lock();
+    if session.editions().find(&CUDA_EDITION).is_none() {
+        session
+            .editions()
+            .declare_family(&EditionFamily {
+                name: "cuda",
+                origin: "vortex-cuda",
+                doc: "CUDA-readable layouts, enabled only when CUDA layout support is registered.",
+            })
+            .map_err(|error| vortex_err!("{error}"))
+            .vortex_expect("CUDA edition family is valid");
+        session
+            .register_edition(&CUDA_EDITION_DECLARATION)
+            .map_err(|error| vortex_err!("{error}"))
+            .vortex_expect("CUDA edition declaration is valid");
+    }
+    session
+        .enable_edition(CUDA_EDITION)
+        .map_err(|error| vortex_err!("{error}"))
+        .vortex_expect("CUDA edition is registered");
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use vortex::VortexSessionDefault;
+    use vortex::array::IntoArray;
+    use vortex::array::arrays::StructArray;
+    use vortex::array::assert_arrays_eq;
+    use vortex::array::stream::ArrayStreamExt;
+    use vortex::buffer::ByteBufferMut;
+    use vortex::buffer::buffer;
+    use vortex::compressor::BtrBlocksCompressorBuilder;
+    use vortex::editions::CORE_2025_05_0;
+    use vortex::editions::ComponentKind;
+    use vortex::editions::DEFAULT_CORE_EDITION;
+    use vortex::file::OpenOptionsSessionExt;
+    use vortex::file::WriteOptionsSessionExt;
+    use vortex::file::WriteStrategyBuilder;
+    use vortex::io::runtime::BlockingRuntime;
+    use vortex::io::runtime::current::CurrentThreadRuntime;
+    use vortex::io::session::RuntimeSessionExt;
+
+    use super::*;
+
+    #[test]
+    fn test_cuda_compatible_write_on_host() -> VortexResult<()> {
+        let runtime = CurrentThreadRuntime::new();
+        let session = VortexSession::default().with_handle(runtime.handle());
+        runtime.block_on(async {
+            register_cuda_layout(&session);
+            let array =
+                StructArray::from_fields(&[("numbers", buffer![1i32, 4, 9, 16].into_array())])?
+                    .into_array();
+            let strategy = WriteStrategyBuilder::default()
+                .with_btrblocks_builder(
+                    BtrBlocksCompressorBuilder::default().only_cuda_compatible(),
+                )
+                .with_flat_strategy(Arc::new(CudaFlatLayoutStrategy::default()))
+                .build();
+
+            let mut buffer = ByteBufferMut::empty();
+            session
+                .write_options()
+                .with_strategy(strategy)
+                .write(&mut buffer, array.to_array_stream())
+                .await?;
+
+            let file = session.open_options().open_buffer(buffer)?;
+            let mut layouts = vec![file.footer().layout().to_layout()];
+            let mut has_cuda_flat = false;
+            while let Some(layout) = layouts.pop() {
+                has_cuda_flat |= layout.encoding_id() == CudaFlat.id();
+                layouts.extend(layout.children()?);
+            }
+            assert!(has_cuda_flat);
+            let result = file.scan()?.into_array_stream()?.read_all().await?;
+            assert_arrays_eq!(array, result, &mut session.create_execution_ctx());
+            Ok(())
+        })
+    }
+
+    #[rstest]
+    fn test_cuda_registration_preserves_edition_policy(
+        #[values(DEFAULT_CORE_EDITION, CORE_2025_05_0)] core: EditionId,
+    ) -> VortexResult<()> {
+        let session = VortexSession::default();
+        session
+            .enable_edition(core)
+            .map_err(|error| vortex_err!("{error}"))?;
+        let kinds = [
+            ComponentKind::Array,
+            ComponentKind::Layout,
+            ComponentKind::DType,
+            ComponentKind::Aggregate,
+        ];
+        let expected_ids = kinds.map(|kind| {
+            let mut ids = session.enabled_component_ids(kind);
+            if kind == ComponentKind::Layout {
+                assert!(!ids.contains(&CudaFlat.id()));
+                ids.push(CudaFlat.id());
+                ids.sort_unstable();
+            }
+            ids
+        });
+        let mut expected_editions = session.enabled_editions().editions();
+        expected_editions.push(CUDA_EDITION);
+        expected_editions.sort_unstable();
+
+        std::thread::scope(|scope| {
+            for _ in 0..4 {
+                let session = session.clone();
+                scope.spawn(move || register_cuda_layout(&session));
+            }
+        });
+        register_cuda_layout(&session);
+
+        for (kind, expected) in kinds.into_iter().zip(expected_ids) {
+            assert_eq!(session.enabled_component_ids(kind), expected);
+        }
+        let mut enabled_editions = session.enabled_editions().editions();
+        enabled_editions.sort_unstable();
+        assert_eq!(enabled_editions, expected_editions);
+        session
+            .editions()
+            .validate()
+            .map_err(|error| vortex_err!("{error}"))?;
+        assert!(
+            !VortexSession::default()
+                .enabled_component_ids(ComponentKind::Layout)
+                .contains(&CudaFlat.id())
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_registry_alone_does_not_permit_cuda_flat() -> VortexResult<()> {
+        let runtime = CurrentThreadRuntime::new();
+        let session = VortexSession::default().with_handle(runtime.handle());
+        session
+            .layouts()
+            .register(LayoutEncodingRef::new_ref(&CudaFlat));
+        runtime.block_on(async {
+            let mut buffer = ByteBufferMut::empty();
+            let error = session
+                .write_options()
+                .with_strategy(Arc::new(CudaFlatLayoutStrategy::default()))
+                .write(
+                    &mut buffer,
+                    buffer![1i32, 4, 9, 16].into_array().to_array_stream(),
+                )
+                .await
+                .err()
+                .ok_or_else(|| vortex_err!("write permitted an uneditioned CUDA layout"))?;
+            assert!(
+                error
+                    .to_string()
+                    .contains("Layout encoding vortex.cuda_flat not permitted by ctx"),
+                "unexpected error: {error}"
+            );
+            Ok(())
+        })
+    }
 }

@@ -97,11 +97,16 @@ vx_array_sink *vx_cuda_array_sink_open_file_block_rows(const vx_session *session
 /**
  * Options for scanning a CUDA-compatible Vortex file.
  *
- * Zero-initialize this struct to use buffered file I/O and layout-derived batch splitting.
+ * Zero-initialize this struct to use buffered file I/O, layout-derived batch splitting, and
+ * dictionary-preserving Arrow exports.
  */
 /** Bypass the operating system page cache for pooled data-plane reads.
  * Footer and zone-map reads remain buffered. Supported only on Linux. */
 #define VX_CUDA_SCAN_FLAG_DIRECT_IO (UINT32_C(1) << 0)
+/** Decode dictionaries on CUDA, including nested children, and export their logical plain Arrow
+ * types. Allows batches to vary between dictionary/plain encodings or dictionary index widths.
+ * Applies only to this scan; other scans and array exports keep their session's policy. */
+#define VX_CUDA_SCAN_FLAG_DECODE_DICTIONARIES (UINT32_C(1) << 1)
 
 typedef struct vx_cuda_scan_options {
     /** Bitwise combination of `VX_CUDA_SCAN_FLAG_*` values. */
@@ -146,7 +151,8 @@ int vx_cuda_scan_path_arrow_device_stream_batch_rows(const vx_session *session,
  *
  * This has the same ownership and file compatibility requirements as
  * `vx_cuda_scan_path_arrow_device_stream`. Pass NULL or a zero-initialized options struct to use
- * buffered file I/O and layout-derived batch splitting.
+ * buffered file I/O, layout-derived batch splitting, and dictionary-preserving exports.
+ * Set VX_CUDA_SCAN_FLAG_DECODE_DICTIONARIES for logical plain Arrow types across batches.
  */
 int vx_cuda_scan_path_arrow_device_stream_with_options(const vx_session *session,
                                                        vx_view path,

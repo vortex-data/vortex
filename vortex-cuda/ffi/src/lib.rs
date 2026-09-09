@@ -13,6 +13,7 @@ use std::ptr;
 use std::sync::Arc;
 
 use arrow_schema::ffi::FFI_ArrowSchema;
+use vortex::VortexSessionDefault;
 use vortex::array::stream::ArrayStreamExt;
 use vortex::compressor::BtrBlocksCompressorBuilder;
 use vortex::editions::ComponentKind;
@@ -27,6 +28,7 @@ use vortex::session::SessionExt;
 use vortex::session::VortexSession;
 use vortex_cuda::CudaOpenOptionsExt;
 use vortex_cuda::CudaSession;
+use vortex_cuda::DictionaryExport;
 use vortex_cuda::PooledFileReadAtOptions;
 use vortex_cuda::arrow::ArrowDeviceArray;
 use vortex_cuda::arrow::ArrowDeviceArrayStream;
@@ -54,11 +56,15 @@ const VX_CUDA_ERR: c_int = 1;
 
 /// Enable direct I/O for pooled CUDA file reads.
 pub const VX_CUDA_SCAN_FLAG_DIRECT_IO: u32 = 1 << 0;
-const VX_CUDA_SCAN_KNOWN_FLAGS: u32 = VX_CUDA_SCAN_FLAG_DIRECT_IO;
+/// Decode dictionaries on CUDA and export their logical plain Arrow types across scan batches.
+pub const VX_CUDA_SCAN_FLAG_DECODE_DICTIONARIES: u32 = 1 << 1;
+const VX_CUDA_SCAN_KNOWN_FLAGS: u32 =
+    VX_CUDA_SCAN_FLAG_DIRECT_IO | VX_CUDA_SCAN_FLAG_DECODE_DICTIONARIES;
 
 /// Options for scanning a CUDA-compatible Vortex file.
 ///
-/// Zero-initialize this struct to use buffered file I/O and layout-derived batch splitting.
+/// Zero-initialize this struct to use buffered file I/O, layout-derived batch splitting, and
+/// dictionary-preserving Arrow exports.
 #[repr(C)]
 #[derive(Default)]
 pub struct vx_cuda_scan_options {
@@ -249,7 +255,10 @@ pub unsafe extern "C-unwind" fn vx_cuda_scan_path_arrow_device_stream_batch_rows
 ///
 /// This has the same ownership and file compatibility requirements as
 /// [`vx_cuda_scan_path_arrow_device_stream`]. Pass a null `options` pointer or a zero-initialized
-/// [`vx_cuda_scan_options`] to use buffered file I/O and layout-derived batch splitting.
+/// [`vx_cuda_scan_options`] to use buffered file I/O, layout-derived batch splitting, and
+/// dictionary-preserving exports. Set [`VX_CUDA_SCAN_FLAG_DECODE_DICTIONARIES`] to export logical
+/// plain types even when batches vary between dictionary/plain encodings or dictionary index widths.
+/// The export policy applies only to this scan, not to the caller's session.
 ///
 /// # Safety
 ///
@@ -286,7 +295,9 @@ pub unsafe extern "C-unwind" fn vx_cuda_scan_path_arrow_device_stream_with_optio
             };
             Ok::<_, vortex::error::VortexError>(scan.into_array_stream()?.boxed())
         })?;
-        let device_stream = array_stream.export_device_array_stream(&session, ffi_runtime())?;
+        let export_session = scan_export_session(&session, &options);
+        let device_stream =
+            array_stream.export_device_array_stream(&export_session, ffi_runtime())?;
 
         unsafe { ptr::write(out_stream, device_stream) };
         Ok(VX_CUDA_OK)
@@ -296,6 +307,21 @@ pub unsafe extern "C-unwind" fn vx_cuda_scan_path_arrow_device_stream_with_optio
 struct CudaScanOptions {
     read_at_options: PooledFileReadAtOptions,
     batch_rows: usize,
+    dictionary_export: DictionaryExport,
+}
+
+fn scan_export_session(session: &VortexSession, options: &CudaScanOptions) -> VortexSession {
+    if options.dictionary_export == DictionaryExport::Preserve {
+        return session.clone();
+    }
+
+    // VortexSession clones share their variable store. Use an independent export session so
+    // opting in cannot change subsequent scans/exports through the caller's session. Cloning
+    // CudaSession still shares the context, kernels, streams, and pinned buffer pool.
+    let cuda_session = (*session.get::<CudaSession>())
+        .clone()
+        .with_dictionary_export(options.dictionary_export);
+    VortexSession::default().with_some(cuda_session)
 }
 
 unsafe fn scan_options(options: *const vx_cuda_scan_options) -> VortexResult<CudaScanOptions> {
@@ -330,6 +356,11 @@ unsafe fn scan_options(options: *const vx_cuda_scan_options) -> VortexResult<Cud
     Ok(CudaScanOptions {
         read_at_options,
         batch_rows,
+        dictionary_export: if flags & VX_CUDA_SCAN_FLAG_DECODE_DICTIONARIES == 0 {
+            DictionaryExport::Preserve
+        } else {
+            DictionaryExport::Decode
+        },
     })
 }
 
@@ -421,11 +452,13 @@ mod tests {
     use std::ptr;
     use std::sync::Arc;
 
+    use arrow_schema::DataType;
     use arrow_schema::Field;
     use arrow_schema::Schema;
     use vortex::VortexSessionDefault;
     use vortex::array::ArrayRef;
     use vortex::array::IntoArray;
+    use vortex::array::arrays::DictArray;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::StructArray;
     use vortex::array::validity::Validity;
@@ -437,16 +470,56 @@ mod tests {
     use super::*;
 
     #[test]
-    fn scan_options_default_to_buffered_io() {
+    fn scan_options_default_to_buffered_io() -> VortexResult<()> {
         let options = vx_cuda_scan_options::default();
         assert_eq!(options.flags, 0);
         assert_eq!(options.batch_rows, 0);
+        for pointer in [ptr::null(), &raw const options] {
+            // SAFETY: Each pointer is either null or points to the live options above.
+            let parsed = unsafe { scan_options(pointer) }?;
+            assert_eq!(parsed.read_at_options, PooledFileReadAtOptions::default());
+            assert_eq!(parsed.batch_rows, 0);
+            assert_eq!(parsed.dictionary_export, DictionaryExport::Preserve);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn maps_decode_dictionaries_scan_option() -> VortexResult<()> {
+        let options = vx_cuda_scan_options {
+            flags: VX_CUDA_SCAN_FLAG_DECODE_DICTIONARIES,
+            batch_rows: 8192,
+        };
+        // SAFETY: options lives for the duration of parsing.
+        let parsed = unsafe { scan_options(&raw const options) }?;
+        assert_eq!(parsed.dictionary_export, DictionaryExport::Decode);
+        assert_eq!(parsed.read_at_options, PooledFileReadAtOptions::default());
+        assert_eq!(parsed.batch_rows, 8192);
+        Ok(())
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn combines_direct_io_and_decode_dictionaries_scan_options() -> VortexResult<()> {
+        let options = vx_cuda_scan_options {
+            flags: VX_CUDA_SCAN_FLAG_DIRECT_IO | VX_CUDA_SCAN_FLAG_DECODE_DICTIONARIES,
+            batch_rows: 8192,
+        };
+        // SAFETY: options lives for the duration of parsing.
+        let parsed = unsafe { scan_options(&raw const options) }?;
+        assert_eq!(parsed.dictionary_export, DictionaryExport::Decode);
+        assert_eq!(
+            parsed.read_at_options,
+            PooledFileReadAtOptions::default().with_direct_io()
+        );
+        assert_eq!(parsed.batch_rows, 8192);
+        Ok(())
     }
 
     #[test]
     fn rejects_unknown_scan_option_flags() {
         let options = vx_cuda_scan_options {
-            flags: 1 << 31,
+            flags: VX_CUDA_SCAN_FLAG_DECODE_DICTIONARIES | (1 << 2),
             ..Default::default()
         };
         assert!(unsafe { scan_options(&raw const options) }.is_err());
@@ -476,6 +549,54 @@ mod tests {
             unsafe { scan_options(&raw const options) }?.batch_rows,
             8192
         );
+        Ok(())
+    }
+
+    #[cuda_test]
+    fn scan_dictionary_policy_is_isolated_and_reuses_cuda_resources() -> VortexResult<()> {
+        let session = VortexSession::default().with_some(CudaSession::try_default()?);
+        let options = vx_cuda_scan_options {
+            flags: VX_CUDA_SCAN_FLAG_DECODE_DICTIONARIES,
+            ..Default::default()
+        };
+        // SAFETY: options lives for the duration of parsing.
+        let options = unsafe { scan_options(&raw const options) }?;
+        let export_session = scan_export_session(&session, &options);
+        assert_eq!(
+            session.get::<CudaSession>().dictionary_export(),
+            DictionaryExport::Preserve
+        );
+        assert_eq!(
+            export_session.get::<CudaSession>().dictionary_export(),
+            DictionaryExport::Decode
+        );
+        assert!(Arc::ptr_eq(
+            session.get::<CudaSession>().pinned_buffer_pool(),
+            export_session.get::<CudaSession>().pinned_buffer_pool(),
+        ));
+        let array = DictArray::try_new(
+            PrimitiveArray::from_iter([1u8, 0, 1]).into_array(),
+            PrimitiveArray::from_iter([10i32, 20]).into_array(),
+        )?
+        .into_array();
+        for (session, expected_type, preserved) in [
+            (&export_session, DataType::Int32, false),
+            (
+                &session,
+                DataType::Dictionary(Box::new(DataType::Int16), Box::new(DataType::Int32)),
+                true,
+            ),
+        ] {
+            let mut ctx = CudaSession::create_execution_ctx(session)?;
+            let mut exported =
+                ffi_runtime().block_on(array.clone().export_device_array_with_schema(&mut ctx))?;
+            assert_eq!(
+                Field::try_from(&exported.schema)?.data_type(),
+                &expected_type
+            );
+            assert_eq!(!exported.array.array.dictionary.is_null(), preserved);
+            vortex_cuda::arrow::release_device_array(&mut exported.array);
+        }
         Ok(())
     }
 

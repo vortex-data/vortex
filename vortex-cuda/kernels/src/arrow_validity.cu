@@ -18,13 +18,16 @@ __device__ uint64_t load_input_word(const uint8_t *const input, int64_t word_idx
     if (byte_idx >= input_bytes) {
         return 0;
     }
-    if (byte_idx + sizeof(uint64_t) <= input_bytes) {
-        return reinterpret_cast<const uint64_t *>(input)[word_idx];
+    const uint64_t available_bytes = input_bytes - byte_idx;
+    if (available_bytes >= sizeof(uint64_t) &&
+        reinterpret_cast<uintptr_t>(input + byte_idx) % alignof(uint64_t) == 0) {
+        return reinterpret_cast<const uint64_t *>(input + byte_idx)[0];
     }
-    // Trailing partial word: assemble byte-by-byte to avoid reading past the buffer.
+    // Byte-sliced inputs may be unaligned. Assemble at most one word, bounded by the
+    // logical input extent, without rounding the pointer down or overreading the tail.
     uint64_t word = 0;
-    for (uint64_t i = byte_idx; i < input_bytes; i++) {
-        word |= static_cast<uint64_t>(input[i]) << ((i - byte_idx) * 8);
+    for (uint64_t i = 0; i < sizeof(uint64_t) && i < available_bytes; i++) {
+        word |= static_cast<uint64_t>(input[byte_idx + i]) << (i * 8);
     }
     return word;
 }

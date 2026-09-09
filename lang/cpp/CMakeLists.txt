@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-# Entry point for the static Vortex C++ wrapper. It consumes the Rust FFI
 # archive from vortex-ffi and exports Vortex::cpp_static. It supports standalone
 # configuration and add_subdirectory() from the repository root or a parent.
 

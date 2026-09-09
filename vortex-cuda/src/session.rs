@@ -40,6 +40,20 @@ pub enum VarBinExportLayout {
     VarBinView,
 }
 
+/// Arrow Device export policy for dictionary-encoded arrays, including nested children.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum DictionaryExport {
+    /// Preserve dictionary values and indices in the Arrow schema and device array.
+    #[default]
+    Preserve,
+    /// Decode dictionaries on CUDA and export their logical plain type.
+    ///
+    /// This allows chunks with different dictionary index widths or plain encodings to share
+    /// one Arrow Device stream schema. Dictionary decoding must be supported by CUDA for
+    /// device-resident inputs; it does not enable CPU fallback for those inputs.
+    Decode,
+}
+
 /// CUDA session for GPU accelerated execution.
 ///
 /// Maintains a registry of CUDA kernel implementations for array encodings.
@@ -50,6 +64,7 @@ pub struct CudaSession {
     kernels: Arc<DashMap<ArrayId, &'static dyn CudaExecute>>,
     export_device_array: Arc<dyn ExportDeviceArray>,
     varbin_export_layout: VarBinExportLayout,
+    dictionary_export: DictionaryExport,
     kernel_loader: Arc<KernelLoader>,
     stream_pool: Arc<VortexCudaStreamPool>,
     pinned_buffer_pool: Arc<PinnedByteBufferPool>,
@@ -77,6 +92,7 @@ impl CudaSession {
             kernel_loader: Arc::new(KernelLoader::new()),
             export_device_array: Arc::new(CanonicalDeviceArrayExport),
             varbin_export_layout: VarBinExportLayout::default(),
+            dictionary_export: DictionaryExport::default(),
             stream_pool,
             pinned_buffer_pool,
         }
@@ -91,6 +107,17 @@ impl CudaSession {
     /// Returns the Arrow Device layout used for variable-length UTF-8 and binary exports.
     pub fn varbin_export_layout(&self) -> VarBinExportLayout {
         self.varbin_export_layout
+    }
+
+    /// Selects whether Arrow Device exports preserve or decode dictionaries.
+    pub fn with_dictionary_export(mut self, policy: DictionaryExport) -> Self {
+        self.dictionary_export = policy;
+        self
+    }
+
+    /// Returns the dictionary policy used for Arrow Device exports.
+    pub fn dictionary_export(&self) -> DictionaryExport {
+        self.dictionary_export
     }
 
     /// Creates a default CUDA session using device 0, with all GPU array kernels preloaded.

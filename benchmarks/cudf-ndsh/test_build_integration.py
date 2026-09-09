@@ -13,6 +13,9 @@ ROOT = Path(__file__).resolve().parents[2]
 PATCH = Path(__file__).with_name("upstream.patch")
 MODULE = Path("cpp/benchmarks/ndsh/vortex.cmake")
 SMOKE = MODULE.with_name("vortex_build_smoke.cpp")
+IO = MODULE.with_name("vortex_io.cpp")
+IO_TEST = MODULE.with_name("vortex_io_test.cpp")
+CUDA_HEADER = Path("vortex-cuda/ffi/cinclude/vortex_cuda.h")
 
 PARENT = """
 cmake_minimum_required(VERSION 3.28)
@@ -54,6 +57,10 @@ endforeach()
 
 add_library(cudf INTERFACE)
 add_library(cudf::cudf INTERFACE IMPORTED)
+add_library(nanoarrow::nanoarrow INTERFACE IMPORTED)
+add_library(CUDA::cudart INTERFACE IMPORTED)
+target_compile_definitions(nanoarrow::nanoarrow INTERFACE NANOARROW_FAKE_LINK=1)
+target_compile_definitions(CUDA::cudart INTERFACE CUDA_FAKE_LINK=1)
 add_library(ndsh_utilities INTERFACE)
 set(benchmarks NDSH_Q01_NVBENCH NDSH_Q06_NVBENCH NDSH_Q05_NVBENCH
                NDSH_Q09_NVBENCH NDSH_Q10_NVBENCH NDSH_HELPER)
@@ -77,7 +84,7 @@ foreach(target IN LISTS benchmarks)
   set(links "cudf::cudf;ndsh_utilities")
   set(definitions "")
   if(CUDF_NDSH_WITH_VORTEX AND target MATCHES "^NDSH_Q0[16]_NVBENCH$")
-    list(APPEND links Vortex::cpp_static)
+    list(APPEND links NDSH_VORTEX_IO)
     set(definitions CUDF_NDSH_WITH_VORTEX=1)
   endif()
   assert_property(${target} LINK_LIBRARIES "${links}")
@@ -95,18 +102,45 @@ foreach(target IN ITEMS cudf cudf::cudf ndsh_utilities unrelated)
   endforeach()
 endforeach()
 
+foreach(target IN ITEMS nanoarrow::nanoarrow CUDA::cudart)
+  foreach(property IN ITEMS LINK_LIBRARIES INTERFACE_LINK_LIBRARIES COMPILE_DEFINITIONS)
+    assert_property(${target} ${property} "")
+  endforeach()
+endforeach()
+assert_property(nanoarrow::nanoarrow INTERFACE_COMPILE_DEFINITIONS NANOARROW_FAKE_LINK=1)
+assert_property(CUDA::cudart INTERFACE_COMPILE_DEFINITIONS CUDA_FAKE_LINK=1)
+
+set(integration_targets NDSH_VORTEX_IO NDSH_VORTEX_BUILD_SMOKE NDSH_VORTEX_IO_TEST)
 if(CUDF_NDSH_WITH_VORTEX)
-  if(NOT TARGET Vortex::cpp_static OR NOT TARGET NDSH_VORTEX_BUILD_SMOKE)
-    message(FATAL_ERROR "Missing enabled Vortex targets")
-  endif()
-  assert_property(NDSH_VORTEX_BUILD_SMOKE EXCLUDE_FROM_ALL TRUE)
+  foreach(target IN ITEMS Vortex::cpp_static ${integration_targets})
+    if(NOT TARGET ${target})
+      message(FATAL_ERROR "Missing enabled Vortex target: ${target}")
+    endif()
+  endforeach()
+  foreach(target IN LISTS integration_targets)
+    assert_property(${target} EXCLUDE_FROM_ALL TRUE)
+    assert_property(${target} COMPILE_DEFINITIONS "")
+    assert_property(${target} INTERFACE_COMPILE_DEFINITIONS "")
+  endforeach()
+  assert_property(NDSH_VORTEX_IO TYPE STATIC_LIBRARY)
+  assert_property(NDSH_VORTEX_IO LINK_LIBRARIES "cudf::cudf;Vortex::cpp_static;nanoarrow::nanoarrow;CUDA::cudart")
+  assert_property(NDSH_VORTEX_IO INTERFACE_LINK_LIBRARIES
+                  "cudf::cudf;$<LINK_ONLY:Vortex::cpp_static>;$<LINK_ONLY:nanoarrow::nanoarrow>;$<LINK_ONLY:CUDA::cudart>")
+  assert_property(NDSH_VORTEX_IO COMPILE_FEATURES cxx_std_20)
+  assert_property(NDSH_VORTEX_IO INTERFACE_COMPILE_FEATURES cxx_std_20)
+  assert_property(NDSH_VORTEX_IO INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/cpp/benchmarks/ndsh")
+  assert_property(NDSH_VORTEX_IO INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/cpp/benchmarks/ndsh")
   assert_property(NDSH_VORTEX_BUILD_SMOKE LINK_LIBRARIES "cudf::cudf;Vortex::cpp_static")
   assert_property(NDSH_VORTEX_BUILD_SMOKE INTERFACE_LINK_LIBRARIES "")
   assert_property(NDSH_VORTEX_BUILD_SMOKE COMPILE_FEATURES cxx_std_20)
+  assert_property(NDSH_VORTEX_IO_TEST LINK_LIBRARIES "NDSH_VORTEX_IO;nanoarrow::nanoarrow;CUDA::cudart")
+  assert_property(NDSH_VORTEX_IO_TEST INTERFACE_LINK_LIBRARIES "")
 else()
-  if(TARGET Vortex::cpp_static OR TARGET NDSH_VORTEX_BUILD_SMOKE OR TARGET vortex_unwanted)
-    message(FATAL_ERROR "Disabled integration created Vortex targets")
-  endif()
+  foreach(target IN ITEMS Vortex::cpp_static vortex_unwanted ${integration_targets})
+    if(TARGET ${target})
+      message(FATAL_ERROR "Disabled integration created Vortex target: ${target}")
+    endif()
+  endforeach()
 endif()
 """
 
@@ -130,14 +164,34 @@ DUMMY = """
 #ifndef PARENT_CXX_FLAG
 #error Parent compiler flags were lost
 #endif
-#ifdef EXPECT_VORTEX
-#if !defined(VORTEX_FAKE_LINK) || CUDF_NDSH_WITH_VORTEX != 1
-#error Missing private Vortex usage requirements
+#if defined(VORTEX_FAKE_LINK) || defined(NANOARROW_FAKE_LINK) || defined(CUDA_FAKE_LINK)
+#error Private adapter dependency usage requirements leaked
 #endif
-#elif defined(VORTEX_FAKE_LINK) || defined(CUDF_NDSH_WITH_VORTEX)
-#error Vortex usage requirements leaked
+#ifdef EXPECT_VORTEX
+#if !defined(CUDF_NDSH_WITH_VORTEX) || CUDF_NDSH_WITH_VORTEX != 1
+#error Missing private benchmark Vortex definition
+#endif
+int ndsh_vortex_io_stub();
+int main() { return ndsh_vortex_io_stub(); }
+#else
+#ifdef CUDF_NDSH_WITH_VORTEX
+#error Benchmark Vortex definition leaked
 #endif
 int main() { return 0; }
+#endif
+"""
+
+IO_STUB = """
+#ifndef PARENT_CXX_FLAG
+#error Parent compiler flags were lost
+#endif
+#if !defined(VORTEX_FAKE_LINK) || !defined(NANOARROW_FAKE_LINK) || !defined(CUDA_FAKE_LINK)
+#error Missing private adapter dependency usage requirements
+#endif
+#if defined(CUDF_NDSH_WITH_VORTEX) || defined(EXPECT_VORTEX)
+#error Benchmark definitions leaked into the adapter
+#endif
+int ndsh_vortex_io_stub() { return 0; }
 """
 
 
@@ -163,11 +217,19 @@ class BuildIntegrationTests(unittest.TestCase):
         self.fake = self.source / "fake-vortex"
         # A separate repository prevents git apply from treating this as a workspace subdirectory.
         self.run_command("git", "init", "--quiet")
-        self.run_command("git", "apply", "--include", str(MODULE), "--include", str(SMOKE), str(PATCH))
+        files = (MODULE, SMOKE, IO, IO.with_suffix(".hpp"), IO_TEST)
+        includes = [argument for path in files for argument in ("--include", str(path))]
+        self.run_command("git", "apply", *includes, str(PATCH))
+        for path in files:
+            self.assertTrue((self.source / path).is_file(), f"Patch is missing {path}")
+        # Compile tests cover wiring with a stub; the real adapter needs separate GPU validation.
+        # Leave the smoke/I/O test sources intact: neither may build implicitly without CUDA/Rust.
+        self.write(IO, IO_STUB)
         self.write("CMakeLists.txt", PARENT)
         self.write("dummy.cpp", DUMMY)
         self.write("fake-vortex/CMakeLists.txt", 'message(FATAL_ERROR "Expected SOURCE_SUBDIR lang/cpp")')
         self.write("fake-vortex/lang/cpp/CMakeLists.txt", FAKE_VORTEX)
+        self.write(Path("fake-vortex") / CUDA_HEADER, "#define VX_CUDA_SCAN_FLAG_DECODE_DICTIONARIES (1U << 1)\n")
 
     def write(self, path, content):
         destination = self.source / path
@@ -184,7 +246,8 @@ class BuildIntegrationTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0, f"{command} unexpectedly succeeded\n{result.stdout}")
         return result.stdout
 
-    def configure(self, *options, succeeds=True):
+    def configure(self, *options, local_source=True, succeeds=True):
+        source_override = (f"-DFETCHCONTENT_SOURCE_DIR_VORTEX={self.fake}",) if local_source else ()
         return self.run_command(
             "cmake",
             "-S",
@@ -195,7 +258,7 @@ class BuildIntegrationTests(unittest.TestCase):
             "-DCMAKE_SYSTEM_NAME=Linux",
             "-DCMAKE_BUILD_TYPE=Debug",
             "-DFETCHCONTENT_FULLY_DISCONNECTED=ON",
-            f"-DFETCHCONTENT_SOURCE_DIR_VORTEX={self.fake}",
+            *source_override,
             *options,
             succeeds=succeeds,
         )
@@ -220,14 +283,62 @@ class BuildIntegrationTests(unittest.TestCase):
         self.build("unrelated")
         # Also check ALL: explicitly building unrelated alone cannot detect a missing exclusion.
         self.build()
-        self.build(
-            "NDSH_Q01_NVBENCH",
-            "NDSH_Q06_NVBENCH",
-            "NDSH_Q05_NVBENCH",
-            "NDSH_Q09_NVBENCH",
-            "NDSH_Q10_NVBENCH",
-            "NDSH_HELPER",
+        archive = self.binary / "libNDSH_VORTEX_IO.a"
+        self.assertFalse(archive.exists(), "Default build included the adapter")
+        self.build("NDSH_Q05_NVBENCH", "NDSH_Q09_NVBENCH", "NDSH_Q10_NVBENCH", "NDSH_HELPER")
+        self.assertFalse(archive.exists(), "Unselected benchmarks built the adapter")
+        self.build("NDSH_Q01_NVBENCH", "NDSH_Q06_NVBENCH")
+        self.assertTrue(archive.is_file(), "Selected benchmarks did not build the static adapter")
+        for target in ("NDSH_VORTEX_BUILD_SMOKE", "NDSH_VORTEX_IO_TEST"):
+            self.assertFalse((self.binary / target).exists(), f"Explicit target {target} was built implicitly")
+
+    def test_disabled_ignores_missing_or_stale_local_source(self):
+        (self.fake / CUDA_HEADER).unlink()
+        for setting in (None, "OFF"):
+            for index, override in enumerate((None, "", self.fake, self.source / "missing-vortex")):
+                with self.subTest(setting=setting, override=override):
+                    self.binary = self.source / f"disabled-{setting}-{index}"
+                    self.configure(
+                        *(() if setting is None else (f"-DCUDF_NDSH_WITH_VORTEX={setting}",)),
+                        *(() if override is None else (f"-DFETCHCONTENT_SOURCE_DIR_VORTEX={override}",)),
+                        local_source=False,
+                    )
+
+    def test_missing_local_source_fails_offline(self):
+        for index, override in enumerate((None, "")):
+            with self.subTest(override=override):
+                self.binary = self.source / f"missing-{index}"
+                output = self.configure(
+                    "-DCUDF_NDSH_WITH_VORTEX=ON",
+                    *(() if override is None else (f"-DFETCHCONTENT_SOURCE_DIR_VORTEX={override}",)),
+                    local_source=False,
+                    succeeds=False,
+                )
+                message = " ".join(output.split())
+                self.assertIn("local Vortex checkout with prerequisite fixes", message)
+                self.assertIn("-DFETCHCONTENT_SOURCE_DIR_VORTEX=/path/to/vortex", message)
+                self.assertIn("published immutable revision", message)
+
+    def test_stale_local_header_fails_offline(self):
+        # Do not inspect Rust implementation details: only require the public FFI capability marker.
+        headers = (
+            None,
+            "#pragma once\n",
+            "// VX_CUDA_SCAN_FLAG_DECODE_DICTIONARIES is not available\n",
+            "#define VX_CUDA_SCAN_FLAG_DECODE_DICTIONARIES_OLD (1U << 1)\n",
         )
+        for index, header in enumerate(headers):
+            with self.subTest(header=header):
+                self.binary = self.source / f"stale-{index}"
+                if header is None:
+                    (self.fake / CUDA_HEADER).unlink()
+                else:
+                    self.write(Path("fake-vortex") / CUDA_HEADER, header)
+                output = self.configure("-DCUDF_NDSH_WITH_VORTEX=ON", succeeds=False)
+                message = " ".join(output.split())
+                self.assertIn("VX_CUDA_SCAN_FLAG_DECODE_DICTIONARIES", message)
+                self.assertIn(str(self.fake / CUDA_HEADER), output)
+                self.assertIn("local Vortex checkout with prerequisite fixes", message)
 
     def test_invalid_local_source_fails_offline(self):
         missing = self.source / "missing-vortex"

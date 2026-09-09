@@ -12,63 +12,70 @@ index 8fa9593..4f5127a 100644
  # * filter benchmark -------------------------------------------------------------------
 diff --git a/cpp/benchmarks/ndsh/VORTEX.md b/cpp/benchmarks/ndsh/VORTEX.md
 new file mode 100644
-index 0000000..ac13779
+index 0000000..bfb5600
 --- /dev/null
 +++ b/cpp/benchmarks/ndsh/VORTEX.md
-@@ -0,0 +1,47 @@
-+# Experimental Vortex build integration
+@@ -0,0 +1,54 @@
++# Experimental Vortex adapter
 +
-+`CUDF_NDSH_WITH_VORTEX=ON` enables the pinned Vortex dependency for Q1 and Q6 only.
-+It defaults to `OFF`: ordinary builds neither fetch Vortex nor require Rust.
-+This is build scaffolding; the benchmarks still read Parquet until the Vortex
-+reader/writer adapter is added.
++`CUDF_NDSH_WITH_VORTEX=ON` adds benchmark-local I/O support for Q1/Q6.
++Default **OFF** leaves other builds unchanged. **Queries still read Parquet.**
 +
-+In a configured RAPIDS development environment, from the repository root:
++## Build
++
++Use a complete local Vortex checkout with CUDA-layout edition registration,
++device decimal slicing, bitmap alignment/padding, and
++`VX_CUDA_SCAN_FLAG_DECODE_DICTIONARIES`. The retained pin lacks these fixes;
++publish a fixed revision before removing the local-only gate. The header-flag
++check alone does not verify all runtime fixes.
++
++From the cuDF root in a RAPIDS development environment:
 +
 +```sh
 +cmake -S cpp -B cpp/build-vortex -G Ninja \
 +  -DCMAKE_BUILD_TYPE=Release \
 +  -DBUILD_TESTS=OFF -DBUILD_BENCHMARKS=ON \
 +  -DCUDF_NDSH_WITH_VORTEX=ON \
++  -DFETCHCONTENT_SOURCE_DIR_VORTEX=/absolute/path/to/updated/vortex \
 +  -DCMAKE_CUDA_ARCHITECTURES=90
-+cmake --build cpp/build-vortex --target NDSH_VORTEX_BUILD_SMOKE --parallel 2
++CARGO_BUILD_JOBS=4 cmake --build cpp/build-vortex \
++  --target NDSH_VORTEX_BUILD_SMOKE NDSH_VORTEX_IO_TEST --parallel 2
 +cpp/build-vortex/benchmarks/NDSH_VORTEX_BUILD_SMOKE
-+cmake --build cpp/build-vortex --target NDSH_Q06_NVBENCH NDSH_Q01_NVBENCH --parallel 2
++cpp/build-vortex/benchmarks/NDSH_VORTEX_IO_TEST
++compute-sanitizer --tool memcheck --error-exitcode 99 \
++  cpp/build-vortex/benchmarks/NDSH_VORTEX_IO_TEST
 +```
 +
-+`90` targets Hopper; choose the architecture for your GPU. To use a local,
-+complete Vortex checkout, also pass
-+`-DFETCHCONTENT_SOURCE_DIR_VORTEX=/absolute/path/to/vortex` at configure time.
-+The default fetch is pinned to Vortex commit
-+`bffdca1109e99e6957ea2fc18f4a7809c88e0a0c`.
++Requires Linux, Rust 1.95+, libclang, CUDA, and matching cuDF headers/libraries.
++Choose your GPU architecture (`90` is Hopper). Use a consistent compiler/sysroot
++and toolkit; set `CMAKE_CUDA_COMPILER`, `CUDAToolkit_ROOT`, and Cargo's `NVCC_CCBIN`
++when needed. Check Conda's `NVCC_PREPEND_FLAGS` for conflicts.
 +
-+Additional requirements and limitations:
++Uncached dependencies need network access. Vortex uses its own CUB/nvCOMP;
++keep the Cargo build tree intact because runtime libraries are not packaged here.
 +
-+- Linux, Rust 1.95+, and libclang are required. Cargo and the CUDA build scripts
-+  download uncached dependencies. Set `CARGO_BUILD_JOBS` to limit Rust parallelism;
-+  CMake's `--parallel` does not limit Cargo.
-+- Use one toolkit consistently through `CMAKE_CUDA_COMPILER` and
-+  `CUDAToolkit_ROOT`. Cargo-owned NVCC invocations do not currently inherit
-+  `CMAKE_CUDA_HOST_COMPILER`; set `NVCC_CCBIN` to the same compiler when needed.
-+  Check Conda's `NVCC_PREPEND_FLAGS` for conflicting compiler settings.
-+- Vortex tests/examples stay disabled, avoiding another nanoarrow dependency.
-+  Only the CUDA-enabled Rust FFI archive is linked, through `Vortex::cpp_static`.
-+- The smoke target checks cuDF, the Vortex C++ wrapper, and CUDA-session
-+  initialization in one process. It does not validate decoding or CUB/nvCOMP
-+  execution, which load lazily.
-+- Vortex currently builds its own CUB helper and downloads nvCOMP 5.1.0.21 for
-+  CUDA 12 independently of cuDF's nvCOMP. Keep the Vortex Cargo build tree intact:
-+  these runtime libraries are not packaged by this POC. Successful linking does
-+  not establish relocatable deployment or nvCOMP coexistence.
-+- Use `RelWithDebInfo` for a symbolized host build. Vortex maps it to Cargo's
-+  `release_debug` profile; device line information can be enabled with
++## Contract and scope
++
++- `write_vortex`: cuDF chunks → compact host Arrow → CPU-compressed local file.
++- `read_vortex`: pinned-host staging → HtoD → GPU decode → Arrow Device import →
++  owning cuDF copies and concatenation. Dictionary compression exports as plain
++  values. **No GPUDirect Storage.**
++- Contexts are single-threaded, device 0. Caller stream/resource must outlive the
++  context and returned tables. Reads finish consumer work and temporary cleanup;
++  results outlive the context/file. See `vortex_io.hpp` for argument constraints.
++- Flat typed columns only. No projection/pushdown, remote/device-buffer sources,
++  GPU writing, or full RMM integration. Row chunking is not a byte budget; peak
++  read memory includes batches plus the concatenated result.
++- Time the complete read, including schema export, import, copies, concatenation,
++  and GPU completion; exclude writing. Tests establish correctness, not SF100
++  readiness or performance. For profiling, use `RelWithDebInfo` and optionally
 +  `NVCC_APPEND_FLAGS=-lineinfo`.
 diff --git a/cpp/benchmarks/ndsh/vortex.cmake b/cpp/benchmarks/ndsh/vortex.cmake
 new file mode 100644
-index 0000000..7a76917
+index 0000000..840b62d
 --- /dev/null
 +++ b/cpp/benchmarks/ndsh/vortex.cmake
-@@ -0,0 +1,48 @@
+@@ -0,0 +1,90 @@
 +# =============================================================================
 +# cmake-format: off
 +# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
@@ -89,13 +96,43 @@ index 0000000..7a76917
 +
 +# Scope Vortex's options to this dependency; do not change the parent's cache or warning policy.
 +block()
++# Local-only until the pin includes the prerequisites; the header check cannot verify runtime fixes.
++string(
++  CONCAT
++    vortex_local_required
++    "CUDF_NDSH_WITH_VORTEX=ON requires a local Vortex checkout with prerequisite fixes. "
++    "Use -DFETCHCONTENT_SOURCE_DIR_VORTEX=/path/to/vortex. "
++    "Fetching is disabled pending a fixed published immutable revision."
++)
++if(NOT DEFINED FETCHCONTENT_SOURCE_DIR_VORTEX OR FETCHCONTENT_SOURCE_DIR_VORTEX STREQUAL "")
++  message(FATAL_ERROR "${vortex_local_required}")
++endif()
++if(NOT IS_DIRECTORY "${FETCHCONTENT_SOURCE_DIR_VORTEX}")
++  message(
++    FATAL_ERROR
++      "FETCHCONTENT_SOURCE_DIR_VORTEX is not an existing directory: ${FETCHCONTENT_SOURCE_DIR_VORTEX}\n"
++      "${vortex_local_required}"
++  )
++endif()
++set(vortex_cuda_header "${FETCHCONTENT_SOURCE_DIR_VORTEX}/vortex-cuda/ffi/cinclude/vortex_cuda.h")
++set(vortex_cuda_decode_flag "")
++if(EXISTS "${vortex_cuda_header}" AND NOT IS_DIRECTORY "${vortex_cuda_header}")
++  file(STRINGS "${vortex_cuda_header}" vortex_cuda_decode_flag
++       REGEX "^[ \t]*#[ \t]*define[ \t]+VX_CUDA_SCAN_FLAG_DECODE_DICTIONARIES[ \t]+"
++  )
++endif()
++if(NOT vortex_cuda_decode_flag)
++  message(FATAL_ERROR "${vortex_cuda_header} must export VX_CUDA_SCAN_FLAG_DECODE_DICTIONARIES.\n"
++                      "${vortex_local_required}"
++  )
++endif()
++
 +set(VORTEX_ENABLE_CUDA ON)
 +set(VORTEX_BUILD_TESTS OFF)
 +set(VORTEX_BUILD_EXAMPLES OFF)
 +set(VORTEX_WARNINGS_AS_ERRORS OFF)
 +
-+# A complete checkout is required by Cargo. For local development, use
-+# FETCHCONTENT_SOURCE_DIR_VORTEX rather than replacing this immutable revision.
++# Cargo requires a complete checkout. Replace this base pin when the fixes are published.
 +FetchContent_Declare(
 +  Vortex
 +  GIT_REPOSITORY https://github.com/vortex-data/vortex.git
@@ -106,8 +143,17 @@ index 0000000..7a76917
 +FetchContent_MakeAvailable(Vortex)
 +endblock()
 +
++add_library(NDSH_VORTEX_IO STATIC EXCLUDE_FROM_ALL "${CMAKE_CURRENT_LIST_DIR}/vortex_io.cpp")
++target_compile_features(NDSH_VORTEX_IO PUBLIC cxx_std_20)
++target_include_directories(NDSH_VORTEX_IO PUBLIC "${CMAKE_CURRENT_LIST_DIR}")
++target_link_libraries(
++  NDSH_VORTEX_IO
++  PUBLIC cudf::cudf
++  PRIVATE Vortex::cpp_static nanoarrow::nanoarrow CUDA::cudart
++)
++
 +foreach(benchmark IN ITEMS NDSH_Q01_NVBENCH NDSH_Q06_NVBENCH)
-+  target_link_libraries(${benchmark} PRIVATE Vortex::cpp_static)
++  target_link_libraries(${benchmark} PRIVATE NDSH_VORTEX_IO)
 +  target_compile_definitions(${benchmark} PRIVATE CUDF_NDSH_WITH_VORTEX=1)
 +endforeach()
 +
@@ -117,9 +163,12 @@ index 0000000..7a76917
 +)
 +target_compile_features(NDSH_VORTEX_BUILD_SMOKE PRIVATE cxx_std_20)
 +target_link_libraries(NDSH_VORTEX_BUILD_SMOKE PRIVATE cudf::cudf Vortex::cpp_static)
++
++add_executable(NDSH_VORTEX_IO_TEST EXCLUDE_FROM_ALL "${CMAKE_CURRENT_LIST_DIR}/vortex_io_test.cpp")
++target_link_libraries(NDSH_VORTEX_IO_TEST PRIVATE NDSH_VORTEX_IO nanoarrow::nanoarrow CUDA::cudart)
 diff --git a/cpp/benchmarks/ndsh/vortex_build_smoke.cpp b/cpp/benchmarks/ndsh/vortex_build_smoke.cpp
 new file mode 100644
-index 0000000..f2b904f
+index 0000000..4a9eecb
 --- /dev/null
 +++ b/cpp/benchmarks/ndsh/vortex_build_smoke.cpp
 @@ -0,0 +1,42 @@
@@ -142,7 +191,7 @@ index 0000000..f2b904f
 +{
 +  try {
 +    auto const stream = cudf::get_default_stream();
-+    stream.synchronize();
++    stream.sync();
 +    vortex::Session host_session;
 +    vx_error* error = nullptr;
 +    auto session    = std::unique_ptr<vx_session, decltype(&vx_session_free)>{
@@ -157,11 +206,1255 @@ index 0000000..f2b904f
 +      std::cerr << '\n';
 +      return 1;
 +    }
-+    stream.synchronize();
++    stream.sync();
 +    std::cout << "cuDF + Vortex C++/CUDA FFI initialization succeeded\n";
 +    return 0;
 +  } catch (std::exception const& error) {
 +    std::cerr << "cuDF/Vortex build smoke failed: " << error.what() << '\n';
++    return 1;
++  }
++}
+diff --git a/cpp/benchmarks/ndsh/vortex_io.cpp b/cpp/benchmarks/ndsh/vortex_io.cpp
+new file mode 100644
+index 0000000..3a273d6
+--- /dev/null
++++ b/cpp/benchmarks/ndsh/vortex_io.cpp
+@@ -0,0 +1,377 @@
++/*
++ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++#include "vortex_io.hpp"
++
++#include <cudf/concatenate.hpp>
++#include <cudf/copying.hpp>
++#include <cudf/dictionary/dictionary_column_view.hpp>
++#include <cudf/dictionary/encode.hpp>
++#include <cudf/interop.hpp>
++#include <cudf/strings/strings_column_view.hpp>
++#include <cudf/utilities/default_stream.hpp>
++
++#include <nanoarrow/nanoarrow.hpp>
++
++// Use cuDF's nanoarrow definitions instead of redeclaring the Arrow C ABI structs.
++#define USE_OWN_ARROW
++using FFI_ArrowSchema      = ArrowSchema;
++using FFI_ArrowArray       = ArrowArray;
++using FFI_ArrowArrayStream = ArrowArrayStream;
++#include <vortex_cuda.h>
++
++#include <algorithm>
++#include <exception>
++#include <limits>
++#include <optional>
++#include <stdexcept>
++#include <string_view>
++#include <utility>
++
++namespace ndsh {
++namespace {
++
++using cudf_stream = decltype(cudf::get_default_stream());
++using session_ptr = std::unique_ptr<vx_session, decltype(&vx_session_free)>;
++using array_ptr   = std::unique_ptr<vx_array const, decltype(&vx_array_free)>;
++using dtype_ptr   = std::unique_ptr<vx_dtype const, decltype(&vx_dtype_free)>;
++using sink_ptr    = std::unique_ptr<vx_array_sink, decltype(&vx_array_sink_abort)>;
++
++void check_cuda(cudaError_t status)
++{
++  if (status != cudaSuccess) {
++    throw std::runtime_error(std::string{"Vortex I/O CUDA error: "} + cudaGetErrorString(status));
++  }
++}
++
++void check_device()
++{
++  int device = -1;
++  check_cuda(cudaGetDevice(&device));
++  if (device != 0) {
++    throw std::invalid_argument("Vortex benchmark I/O currently requires CUDA device 0");
++  }
++}
++
++vx_view path_view(std::string const& path)
++{
++  if (path.empty() || path.find('\0') != std::string::npos) {
++    throw std::invalid_argument("Vortex I/O requires a nonempty local path without NUL bytes");
++  }
++  return {path.data(), path.size()};
++}
++
++void check_error(vx_error*& error, std::string const& operation)
++{
++  auto owned = std::unique_ptr<vx_error, decltype(&vx_error_free)>{std::exchange(error, nullptr),
++                                                                   vx_error_free};
++  if (owned) {
++    auto const message = vx_error_message(owned.get());
++    throw std::runtime_error(operation + ": " + std::string{message.ptr, message.len});
++  }
++}
++
++// Declare after buffer owners to drain before unwinding releases them. Failed
++// synchronization is fatal: producer memory may still be in use.
++class stream_drain {
++ public:
++  explicit stream_drain(cudaStream_t stream) : stream_{stream} {}
++  ~stream_drain()
++  {
++    if (pending_ && cudaStreamSynchronize(stream_) != cudaSuccess) { std::terminate(); }
++  }
++  void wait()
++  {
++    check_cuda(cudaStreamSynchronize(stream_));
++    pending_ = false;
++  }
++
++ private:
++  cudaStream_t stream_;
++  bool pending_{true};
++};
++
++struct device_stream {
++  ArrowDeviceArrayStream value{};
++  ~device_stream()
++  {
++    if (value.release) { value.release(&value); }
++  }
++  void check(int status, std::string const& operation)
++  {
++    if (status != 0) {
++      auto const* error = value.get_last_error ? value.get_last_error(&value) : nullptr;
++      throw std::runtime_error(operation + ": " + (error ? error : "Arrow device stream failed"));
++    }
++  }
++};
++
++struct device_array {
++  ArrowDeviceArray value{};
++  ~device_array()
++  {
++    if (value.array.release) { value.array.release(&value.array); }
++  }
++};
++
++}  // namespace
++
++// Implementation details with external linkage for focused tests, not public adapter API.
++namespace detail {
++
++cudf::unique_device_array_t stage_host_chunk(cudf::table_view chunk,
++                                             cudaStream_t stream,
++                                             rmm::device_async_resource_ref mr)
++{
++  cudf::unique_device_array_t host{nullptr, nullptr};
++  {
++    std::vector<std::unique_ptr<cudf::column>> owned_strings;
++    std::vector<cudf::column_view> columns;
++    columns.reserve(chunk.num_columns());
++    owned_strings.reserve(chunk.num_columns());
++    stream_drain drain{stream};
++    for (auto const& column : chunk) {
++      if (column.type().id() == cudf::type_id::STRING && column.size() != 0) {
++        auto const strings = cudf::strings_column_view{column};
++        if (strings.offset() != 0 || strings.size() != strings.offsets().size() - 1) {
++          // Compact the slice: host export otherwise copies the parent's entire chars buffer.
++          owned_strings.push_back(std::make_unique<cudf::column>(column, cudf_stream{stream}, mr));
++          columns.push_back(owned_strings.back()->view());
++          continue;
++        }
++      }
++      columns.push_back(column);
++    }
++    host = cudf::to_arrow_host(cudf::table_view{columns}, cudf_stream{stream}, mr);
++    drain.wait();
++  }
++  // Include async frees of the staging copies.
++  check_cuda(cudaStreamSynchronize(stream));
++  return host;
++}
++
++void check_flat_schema(ArrowSchema const& schema)
++{
++  if (!schema.format || std::string_view{schema.format} != "+s" || schema.n_children < 0 ||
++      schema.n_children > std::numeric_limits<cudf::size_type>::max()) {
++    throw std::runtime_error("read_vortex requires a table-shaped Arrow schema");
++  }
++  if (schema.n_children == 0) {
++    throw std::runtime_error("read_vortex requires at least one column");
++  }
++  for (int64_t i = 0; i < schema.n_children; ++i) {
++    auto const& field  = *schema.children[i];
++    auto const& values = field.dictionary ? *field.dictionary : field;
++    if (values.n_children != 0 || values.dictionary) {
++      throw std::runtime_error("read_vortex currently supports flat columns only");
++    }
++  }
++}
++
++}  // namespace detail
++
++namespace {
++
++std::unique_ptr<cudf::table> copy_batch(ArrowSchema const& schema,
++                                        ArrowDeviceArray const& batch,
++                                        cudaStream_t stream,
++                                        rmm::device_async_resource_ref mr)
++{
++  if (batch.device_type != ARROW_DEVICE_CUDA || batch.device_id != 0) {
++    throw std::runtime_error("read_vortex expected an Arrow CUDA batch on device 0");
++  }
++  std::optional<cudf::unique_table_view_t> borrowed;
++  std::vector<std::unique_ptr<cudf::column>> columns;
++  stream_drain drain{stream};
++  borrowed.emplace(cudf::from_arrow_device(&schema, &batch, cudf_stream{stream}, mr));
++  columns.reserve((*borrowed)->num_columns());
++  for (auto const& column : **borrowed) {
++    // Compression dictionaries are an implementation detail, not the file's logical dtype.
++    if (column.type().id() == cudf::type_id::DICTIONARY32) {
++      columns.push_back(
++        cudf::dictionary::decode(cudf::dictionary_column_view{column}, cudf_stream{stream}, mr));
++    } else {
++      columns.push_back(std::make_unique<cudf::column>(column, cudf_stream{stream}, mr));
++    }
++  }
++  drain.wait();
++  // Free scratch after consumption; read_vortex waits for its async frees.
++  borrowed.reset();
++  return std::make_unique<cudf::table>(std::move(columns));
++}
++
++std::unique_ptr<cudf::table> empty_table(ArrowSchema const& schema,
++                                         cudaStream_t stream,
++                                         rmm::device_async_resource_ref mr)
++{
++  nanoarrow::UniqueArray empty;
++  NANOARROW_THROW_NOT_OK(ArrowArrayInitFromSchema(empty.get(), &schema, nullptr));
++  NANOARROW_THROW_NOT_OK(ArrowArrayStartAppending(empty.get()));
++  NANOARROW_THROW_NOT_OK(ArrowArrayFinishBuildingDefault(empty.get(), nullptr));
++  std::unique_ptr<cudf::table> result;
++  stream_drain drain{stream};
++  result = cudf::from_arrow(&schema, empty.get(), cudf_stream{stream}, mr);
++  drain.wait();
++  return result;
++}
++
++}  // namespace
++
++struct vortex_io::impl {
++  session_ptr session{nullptr, vx_session_free};
++  cudaStream_t stream;
++  rmm::device_async_resource_ref mr;
++
++  impl(cudaStream_t stream, rmm::device_async_resource_ref mr) : stream{stream}, mr{mr}
++  {
++    check_device();
++    // Validate the supplied consumer stream before creating Vortex's independent stream pool.
++    unsigned int flags = 0;
++    check_cuda(cudaStreamGetFlags(stream, &flags));
++    vx_error* error = nullptr;
++    session.reset(vx_cuda_session_new(&error));
++    check_error(error, "create Vortex CUDA session");
++    if (!session) { throw std::runtime_error("Vortex CUDA session creation returned null"); }
++  }
++};
++
++vortex_io::vortex_io(cudaStream_t stream, rmm::device_async_resource_ref mr)
++  : impl_{std::make_unique<impl>(stream, mr)}
++{
++}
++
++vortex_io::~vortex_io() = default;
++
++void vortex_io::write_vortex(std::string const& path,
++                             cudf::table_view table,
++                             std::vector<std::string> const& column_names,
++                             cudf::size_type chunk_rows) const
++{
++  check_device();
++  auto const file_path = path_view(path);
++  if (chunk_rows <= 0) { throw std::invalid_argument("write_vortex chunk_rows must be positive"); }
++  if (column_names.size() != static_cast<std::size_t>(table.num_columns())) {
++    throw std::invalid_argument("write_vortex requires one name per column");
++  }
++  if (table.num_columns() == 0) {
++    throw std::invalid_argument("write_vortex requires at least one column");
++  }
++  for (auto const& column : table) {
++    auto const id = column.type().id();
++    if (id == cudf::type_id::LIST || id == cudf::type_id::STRUCT ||
++        id == cudf::type_id::DICTIONARY32 || id == cudf::type_id::EMPTY) {
++      throw std::invalid_argument(
++        "write_vortex supports flat, typed, non-dictionary input columns");
++    }
++  }
++  std::vector<cudf::column_metadata> metadata;
++  metadata.reserve(column_names.size());
++  for (auto const& name : column_names) {
++    if (name.find('\0') != std::string::npos) {
++      throw std::invalid_argument("write_vortex column names must not contain NUL bytes");
++    }
++    metadata.emplace_back(name);
++  }
++
++  sink_ptr sink{nullptr, vx_array_sink_abort};
++  vx_error* error        = nullptr;
++  auto const operation   = "write_vortex(" + path + ")";
++  cudf::size_type offset = 0;
++  do {
++    auto const end    = offset + std::min(chunk_rows, table.num_rows() - offset);
++    auto const chunks = cudf::slice(table, {offset, end}, cudf_stream{impl_->stream});
++    // Use the original schema for every slice, including slices with no nulls.
++    auto schema = cudf::to_arrow_schema(table, metadata);
++    auto host   = detail::stage_host_chunk(chunks.front(), impl_->stream, impl_->mr);
++    if (host->device_type != ARROW_DEVICE_CPU) {
++      throw std::runtime_error(operation + ": cuDF host export returned non-host data");
++    }
++    auto array = array_ptr{
++      vx_array_from_arrow(impl_->session.get(), &host->array, schema.get(), false, &error),
++      vx_array_free};
++    check_error(error, operation);
++    if (!array) { throw std::runtime_error(operation + ": Arrow import returned null"); }
++    if (!sink) {
++      auto dtype = dtype_ptr{vx_array_dtype(array.get()), vx_dtype_free};
++      sink.reset(
++        vx_cuda_array_sink_open_file(impl_->session.get(), file_path, dtype.get(), &error));
++      check_error(error, operation);
++      if (!sink) { throw std::runtime_error(operation + ": writer returned null"); }
++    }
++    vx_array_sink_push(sink.get(), array.get(), &error);
++    check_error(error, operation);
++    offset = end;
++  } while (offset < table.num_rows());
++  // close consumes the sink even on failure.
++  vx_array_sink_close(sink.release(), &error);
++  check_error(error, operation);
++}
++
++cudf::io::table_with_metadata vortex_io::read_vortex(std::string const& path,
++                                                     std::size_t batch_rows) const
++{
++  check_device();
++  auto const file_path = path_view(path);
++  if (batch_rows > static_cast<std::size_t>(std::numeric_limits<cudf::size_type>::max())) {
++    throw std::invalid_argument("read_vortex batch_rows exceeds the cuDF row limit");
++  }
++  auto const operation = "read_vortex(" + path + ")";
++  device_stream input;
++  vx_error* error = nullptr;
++  vx_cuda_scan_options options{};
++  options.flags      = VX_CUDA_SCAN_FLAG_DECODE_DICTIONARIES;
++  options.batch_rows = batch_rows;
++  auto const status  = vx_cuda_scan_path_arrow_device_stream_with_options(
++    impl_->session.get(), file_path, &options, &input.value, &error);
++  check_error(error, operation);
++  if (status != 0) { throw std::runtime_error(operation + ": Vortex scan failed"); }
++
++  nanoarrow::UniqueSchema schema;
++  input.check(input.value.get_schema(&input.value, schema.get()), operation);
++  detail::check_flat_schema(*schema.get());
++  cudf::io::table_with_metadata result;
++  for (int64_t i = 0; i < schema->n_children; ++i) {
++    cudf::io::column_name_info info;
++    auto const& field = *schema->children[i];
++    info.name         = field.name ? field.name : "";
++    info.is_nullable  = (field.flags & ARROW_FLAG_NULLABLE) != 0;
++    result.metadata.schema_info.push_back(std::move(info));
++  }
++
++  std::vector<std::unique_ptr<cudf::table>> batches;
++  int64_t rows = 0;
++  while (true) {
++    device_array batch;
++    input.check(input.value.get_next(&input.value, &batch.value), operation);
++    if (!batch.value.array.release) { break; }
++    auto const count = batch.value.array.length;
++    if (count < 0 || count > std::numeric_limits<cudf::size_type>::max() - rows) {
++      throw std::overflow_error(operation + ": result exceeds the cuDF row limit");
++    }
++    rows += count;
++    batches.push_back(copy_batch(*schema.get(), batch.value, impl_->stream, impl_->mr));
++  }
++  if (batches.empty()) {
++    result.tbl = empty_table(*schema.get(), impl_->stream, impl_->mr);
++  } else if (batches.size() == 1) {
++    result.tbl = std::move(batches.front());
++  } else {
++    std::vector<cudf::table_view> views;
++    views.reserve(batches.size());
++    for (auto const& batch : batches) {
++      views.push_back(batch->view());
++    }
++    stream_drain drain{impl_->stream};
++    result.tbl = cudf::concatenate(views, cudf_stream{impl_->stream}, impl_->mr);
++    drain.wait();
++  }
++  result.metadata.num_rows_per_source = {static_cast<std::size_t>(rows)};
++  // Include async frees of concatenation inputs and import scratch.
++  batches.clear();
++  check_cuda(cudaStreamSynchronize(impl_->stream));
++  return result;
++}
++
++}  // namespace ndsh
+diff --git a/cpp/benchmarks/ndsh/vortex_io.hpp b/cpp/benchmarks/ndsh/vortex_io.hpp
+new file mode 100644
+index 0000000..bbd0695
+--- /dev/null
++++ b/cpp/benchmarks/ndsh/vortex_io.hpp
+@@ -0,0 +1,59 @@
++/*
++ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
++ * SPDX-License-Identifier: Apache-2.0
++ */
++#pragma once
++
++#include <cudf/io/types.hpp>
++#include <cudf/table/table.hpp>
++#include <cudf/table/table_view.hpp>
++#include <cudf/utilities/memory_resource.hpp>
++
++#include <cuda_runtime_api.h>
++
++#include <cstddef>
++#include <memory>
++#include <string>
++#include <vector>
++
++namespace ndsh {
++
++/**
++ * Single-threaded, device-0 I/O context reusing CUDA state and pinned staging.
++ * Caller stream/resource must outlive this context and returned tables.
++ * Requires at least one flat, typed column; zero-row tables are supported.
++ */
++class vortex_io {
++ public:
++  explicit vortex_io(cudaStream_t stream,
++                     rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
++  ~vortex_io();
++  vortex_io(vortex_io const&)            = delete;
++  vortex_io& operator=(vortex_io const&) = delete;
++
++  /**
++   * Write a CUDA-readable local file on CPU via host Arrow chunks. Requires positive
++   * chunk_rows, non-dictionary input, and NUL-free column names. Partial string
++   * slices are compacted on device. Chunking bounds rows, not total bytes/queue memory.
++   * Finalizes before return; failed writes may leave an invalid file.
++   */
++  void write_vortex(std::string const& path,
++                    cudf::table_view table,
++                    std::vector<std::string> const& column_names,
++                    cudf::size_type chunk_rows = 1 << 20) const;
++
++  /**
++   * GPU-read all columns of a local CUDA-compatible file into an owning cuDF table.
++   * Includes dictionary decode, import/copies, concatenation, and consumer completion
++   * including temporary cleanup. Zero batch_rows uses layout-derived splitting.
++   * Peak memory includes owned batches plus the concatenated result.
++   */
++  [[nodiscard]] cudf::io::table_with_metadata read_vortex(std::string const& path,
++                                                          std::size_t batch_rows = 1 << 20) const;
++
++ private:
++  struct impl;
++  std::unique_ptr<impl> impl_;
++};
++
++}  // namespace ndsh
+diff --git a/cpp/benchmarks/ndsh/vortex_io_test.cpp b/cpp/benchmarks/ndsh/vortex_io_test.cpp
+new file mode 100644
+index 0000000..12c1b20
+--- /dev/null
++++ b/cpp/benchmarks/ndsh/vortex_io_test.cpp
+@@ -0,0 +1,790 @@
++/*
++ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++#include "vortex_io.hpp"
++
++#include <cudf/copying.hpp>
++#include <cudf/interop.hpp>
++#include <cudf/types.hpp>
++#include <cudf/utilities/default_stream.hpp>
++
++#if __has_include(<rmm/mr/cuda_async_memory_resource.hpp>)
++#include <rmm/mr/cuda_async_memory_resource.hpp>
++#else
++#include <rmm/mr/device/cuda_async_memory_resource.hpp>
++#endif
++
++#include <cuda_runtime_api.h>
++
++#include <nanoarrow/nanoarrow.h>
++#include <nanoarrow/nanoarrow.hpp>
++#include <nanoarrow/nanoarrow_device.h>
++
++#include <array>
++#include <cerrno>
++#include <cstdint>
++#include <cstdlib>
++#include <cstring>
++#include <exception>
++#include <filesystem>
++#include <iostream>
++#include <limits>
++#include <memory>
++#include <optional>
++#include <stdexcept>
++#include <string>
++#include <string_view>
++#include <system_error>
++#include <utility>
++#include <vector>
++
++// Production helpers deliberately absent from the public header. Test the staging
++// boundary and schema validation without exposing test-only API or depending on FFI headers.
++namespace ndsh::detail {
++cudf::unique_device_array_t stage_host_chunk(cudf::table_view chunk,
++                                             cudaStream_t stream,
++                                             rmm::device_async_resource_ref mr);
++void check_flat_schema(ArrowSchema const& schema);
++}  // namespace ndsh::detail
++
++namespace {
++
++void require(bool condition, std::string const& message)
++{
++  if (!condition) { throw std::runtime_error(message); }
++}
++
++void check_cuda(cudaError_t status, char const* operation)
++{
++  if (status != cudaSuccess) {
++    throw std::runtime_error(std::string{operation} + ": " + cudaGetErrorString(status));
++  }
++}
++
++void check_arrow(int status, char const* operation, ArrowError const& error = {})
++{
++  if (status != NANOARROW_OK) {
++    throw std::runtime_error(std::string{operation} + " (" + std::to_string(status) +
++                             "): " + error.message);
++  }
++}
++
++class temporary_directory {
++ public:
++  temporary_directory()
++  {
++    auto pattern = (std::filesystem::temp_directory_path() / "ndsh-vortex-io-XXXXXX").string();
++    std::vector<char> buffer(pattern.begin(), pattern.end());
++    buffer.push_back('\0');
++    auto const created = ::mkdtemp(buffer.data());
++    if (created == nullptr) {
++      throw std::runtime_error(std::string{"mkdtemp: "} + std::strerror(errno));
++    }
++    path_ = created;
++  }
++
++  ~temporary_directory()
++  {
++    std::error_code error;
++    std::filesystem::remove_all(path_, error);
++    if (error) { std::cerr << "Temporary directory cleanup failed: " << error.message() << '\n'; }
++  }
++
++  temporary_directory(temporary_directory const&)            = delete;
++  temporary_directory& operator=(temporary_directory const&) = delete;
++
++  std::string file(std::string const& name) const { return (path_ / name).string(); }
++
++ private:
++  std::filesystem::path path_;
++};
++
++class cuda_stream {
++ public:
++  cuda_stream()
++  {
++    check_cuda(cudaStreamCreateWithFlags(&stream_, cudaStreamNonBlocking), "create stream");
++  }
++
++  ~cuda_stream()
++  {
++    auto const completed = cudaStreamSynchronize(stream_);
++    auto const destroyed = cudaStreamDestroy(stream_);
++    if (completed != cudaSuccess || destroyed != cudaSuccess) {
++      std::cerr << "CUDA stream cleanup failed: " << cudaGetErrorString(completed) << ", "
++                << cudaGetErrorString(destroyed) << '\n';
++    }
++  }
++
++  cuda_stream(cuda_stream const&)            = delete;
++  cuda_stream& operator=(cuda_stream const&) = delete;
++
++  cudaStream_t get() const { return stream_; }
++
++ private:
++  cudaStream_t stream_{};
++};
++
++// Declare after host Arrow owners so even exception unwinding waits before releasing their buffers.
++class host_buffer_fence {
++ public:
++  explicit host_buffer_fence(cudaStream_t stream) : stream_{stream} {}
++  ~host_buffer_fence()
++  {
++    if (pending_) {
++      auto const status = cudaStreamSynchronize(stream_);
++      if (status != cudaSuccess) {
++        std::cerr << "Host buffer fence failed: " << cudaGetErrorString(status) << '\n';
++      }
++    }
++  }
++
++  host_buffer_fence(host_buffer_fence const&)            = delete;
++  host_buffer_fence& operator=(host_buffer_fence const&) = delete;
++
++  void wait()
++  {
++    check_cuda(cudaStreamSynchronize(stream_), "synchronize Arrow transfer");
++    pending_ = false;
++  }
++
++ private:
++  cudaStream_t stream_;
++  bool pending_{true};
++};
++
++// Current cuDF takes cuda::stream_ref; the older 26.08 library takes rmm::cuda_stream_view.
++auto cudf_stream(cudaStream_t stream) { return decltype(cudf::get_default_stream()){stream}; }
++
++struct column_spec {
++  char const* name;
++  ArrowType arrow_type;
++  cudf::type_id cudf_type;
++  int32_t precision{0};
++  int32_t arrow_scale{0};
++};
++
++std::array const columns{
++  column_spec{"bool flag", NANOARROW_TYPE_BOOL, cudf::type_id::BOOL8},
++  column_spec{"i8", NANOARROW_TYPE_INT8, cudf::type_id::INT8},
++  column_spec{"i16", NANOARROW_TYPE_INT16, cudf::type_id::INT16},
++  column_spec{"i32", NANOARROW_TYPE_INT32, cudf::type_id::INT32},
++  column_spec{"i64", NANOARROW_TYPE_INT64, cudf::type_id::INT64},
++  column_spec{"u8", NANOARROW_TYPE_UINT8, cudf::type_id::UINT8},
++  column_spec{"u16", NANOARROW_TYPE_UINT16, cudf::type_id::UINT16},
++  column_spec{"u32", NANOARROW_TYPE_UINT32, cudf::type_id::UINT32},
++  column_spec{"u64", NANOARROW_TYPE_UINT64, cudf::type_id::UINT64},
++  column_spec{"f32", NANOARROW_TYPE_FLOAT, cudf::type_id::FLOAT32},
++  column_spec{"f64", NANOARROW_TYPE_DOUBLE, cudf::type_id::FLOAT64},
++  column_spec{"utf8.text", NANOARROW_TYPE_STRING, cudf::type_id::STRING},
++  column_spec{"date_days", NANOARROW_TYPE_DATE32, cudf::type_id::TIMESTAMP_DAYS},
++  column_spec{"decimal32", NANOARROW_TYPE_DECIMAL32, cudf::type_id::DECIMAL32, 9, 2},
++  column_spec{"decimal64", NANOARROW_TYPE_DECIMAL64, cudf::type_id::DECIMAL64, 18, 4},
++  column_spec{"decimal128", NANOARROW_TYPE_DECIMAL128, cudf::type_id::DECIMAL128, 38, 6},
++  column_spec{
++    "decimal_negative_scale", NANOARROW_TYPE_DECIMAL128, cudf::type_id::DECIMAL128, 38, -2},
++  column_spec{"all_valid", NANOARROW_TYPE_INT32, cudf::type_id::INT32},
++  column_spec{"all_null", NANOARROW_TYPE_INT32, cudf::type_id::INT32}};
++
++std::vector<std::string> column_names()
++{
++  std::vector<std::string> names;
++  for (auto const& spec : columns) {
++    names.emplace_back(spec.name);
++  }
++  return names;
++}
++
++struct host_table {
++  nanoarrow::UniqueSchema schema;
++  nanoarrow::UniqueArray array;
++};
++
++int decimal_bitwidth(ArrowType type)
++{
++  switch (type) {
++    case NANOARROW_TYPE_DECIMAL32: return 32;
++    case NANOARROW_TYPE_DECIMAL64: return 64;
++    case NANOARROW_TYPE_DECIMAL128: return 128;
++    default: throw std::runtime_error("Not a supported decimal type");
++  }
++}
++
++template <typename T>
++int append_signed(ArrowArray* array, int64_t row)
++{
++  auto const value = row % 17 == 0   ? std::numeric_limits<T>::min()
++                     : row % 17 == 1 ? std::numeric_limits<T>::max()
++                                     : static_cast<T>(row % 201 - 100);
++  return ArrowArrayAppendInt(array, value);
++}
++
++template <typename T>
++int append_unsigned(ArrowArray* array, int64_t row)
++{
++  auto const value = row % 17 == 0 ? std::numeric_limits<T>::max() : static_cast<T>(row % 251);
++  return ArrowArrayAppendUInt(array, value);
++}
++
++int append_fixture_value(ArrowArray* array, column_spec const& spec, int64_t row)
++{
++  switch (spec.arrow_type) {
++    case NANOARROW_TYPE_BOOL: return ArrowArrayAppendInt(array, row % 2);
++    case NANOARROW_TYPE_INT8: return append_signed<int8_t>(array, row);
++    case NANOARROW_TYPE_INT16: return append_signed<int16_t>(array, row);
++    case NANOARROW_TYPE_INT32: return append_signed<int32_t>(array, row);
++    case NANOARROW_TYPE_INT64: return append_signed<int64_t>(array, row);
++    case NANOARROW_TYPE_UINT8: return append_unsigned<uint8_t>(array, row);
++    case NANOARROW_TYPE_UINT16: return append_unsigned<uint16_t>(array, row);
++    case NANOARROW_TYPE_UINT32: return append_unsigned<uint32_t>(array, row);
++    case NANOARROW_TYPE_UINT64: return append_unsigned<uint64_t>(array, row);
++    case NANOARROW_TYPE_FLOAT:
++    case NANOARROW_TYPE_DOUBLE: return ArrowArrayAppendDouble(array, (row % 1001 - 500) * 0.25);
++    case NANOARROW_TYPE_DATE32: return ArrowArrayAppendInt(array, row % 40001 - 20000);
++    case NANOARROW_TYPE_STRING: {
++      // Repetition encourages dictionary compression without depending on the writer's heuristics.
++      constexpr std::array<std::string_view, 8> strings{
++        "",
++        "repeated string long enough to make dictionary compression worthwhile",
++        "repeated string long enough to make dictionary compression worthwhile",
++        "caf\xc3\xa9",
++        std::string_view{"a\0b", 3},
++        "another repeated string long enough to make dictionary compression worthwhile",
++        "",
++        "\xe6\x97\xa5\xe6\x9c\xac"};
++      auto const value = strings[static_cast<std::size_t>(row) % strings.size()];
++      return ArrowArrayAppendString(array, {value.data(), static_cast<int64_t>(value.size())});
++    }
++    case NANOARROW_TYPE_DECIMAL32:
++    case NANOARROW_TYPE_DECIMAL64:
++    case NANOARROW_TYPE_DECIMAL128: {
++      ArrowDecimal value;
++      ArrowDecimalInit(&value, decimal_bitwidth(spec.arrow_type), spec.precision, spec.arrow_scale);
++      if (spec.arrow_type == NANOARROW_TYPE_DECIMAL128 && row % 7 < 2) {
++        check_arrow(ArrowDecimalSetDigits(
++                      &value,
++                      ArrowCharView(row % 7 == 0 ? "12345678901234567890123456789012345678"
++                                                 : "-12345678901234567890123456789012345678")),
++                    "set wide decimal");
++      } else {
++        ArrowDecimalSetInt(&value, (row % 10001 - 5000) * 101);
++      }
++      return ArrowArrayAppendDecimal(array, &value);
++    }
++    default: throw std::runtime_error("Unsupported fixture type");
++  }
++}
++
++host_table make_fixture(int64_t first_row, cudf::size_type rows)
++{
++  host_table result;
++  ArrowSchemaInit(result.schema.get());
++  check_arrow(ArrowSchemaSetTypeStruct(result.schema.get(), columns.size()), "create table schema");
++  result.schema->flags &= ~ARROW_FLAG_NULLABLE;
++  for (std::size_t c = 0; c < columns.size(); ++c) {
++    auto const& spec = columns[c];
++    auto child       = result.schema->children[c];
++    if (spec.precision != 0) {
++      check_arrow(
++        ArrowSchemaSetTypeDecimal(child, spec.arrow_type, spec.precision, spec.arrow_scale),
++        "set decimal schema");
++    } else {
++      check_arrow(ArrowSchemaSetType(child, spec.arrow_type), "set column schema");
++    }
++    check_arrow(ArrowSchemaSetName(child, spec.name), "set column name");
++    if (c == columns.size() - 2) { child->flags &= ~ARROW_FLAG_NULLABLE; }
++  }
++
++  ArrowError error{};
++  check_arrow(ArrowArrayInitFromSchema(result.array.get(), result.schema.get(), &error),
++              "initialize fixture",
++              error);
++  check_arrow(ArrowArrayStartAppending(result.array.get()), "start fixture");
++  for (int64_t i = 0; i < rows; ++i) {
++    auto const row = first_row + i;
++    for (std::size_t c = 0; c < columns.size(); ++c) {
++      bool const is_null =
++        c == columns.size() - 1 ||
++        (c != columns.size() - 2 && (row + static_cast<int64_t>(c) * 3) % 11 == 3);
++      check_arrow(is_null ? ArrowArrayAppendNull(result.array->children[c], 1)
++                          : append_fixture_value(result.array->children[c], columns[c], row),
++                  columns[c].name);
++    }
++    check_arrow(ArrowArrayFinishElement(result.array.get()), "finish fixture row");
++  }
++  check_arrow(ArrowArrayFinishBuilding(result.array.get(), NANOARROW_VALIDATION_LEVEL_FULL, &error),
++              "finish fixture",
++              error);
++  return result;
++}
++
++std::unique_ptr<cudf::table> make_source(cudaStream_t stream, int64_t first, cudf::size_type rows)
++{
++  auto fixture = make_fixture(first, rows);
++  host_buffer_fence fence{stream};
++  auto source = cudf::from_arrow(fixture.schema.get(), fixture.array.get(), cudf_stream(stream));
++  fence.wait();
++  return source;
++}
++
++nanoarrow::UniqueArrayView array_view(ArrowSchema const* schema, ArrowArray const* array)
++{
++  nanoarrow::UniqueArrayView view;
++  ArrowError error{};
++  check_arrow(
++    ArrowArrayViewInitFromSchema(view.get(), schema, &error), "initialize array view", error);
++  check_arrow(ArrowArrayViewSetArray(view.get(), array, &error), "set array view", error);
++  check_arrow(ArrowArrayViewValidate(view.get(), NANOARROW_VALIDATION_LEVEL_FULL, &error),
++              "validate array view",
++              error);
++  return view;
++}
++
++// nanoarrow 0.7/0.8 only provide IDENTICAL comparison. Rebuild logical values to normalize offsets,
++// ignored null payloads, optional all-valid masks, and bitmap padding before comparing entire
++// arrays. No data values are compared element by element.
++nanoarrow::UniqueArray canonical_array(ArrowSchema const* schema, ArrowArray const* array)
++{
++  auto view = array_view(schema, array);
++  require(view->storage_type == NANOARROW_TYPE_STRUCT && view->null_count == 0,
++          "Expected a non-nullable Arrow table");
++  require(view->n_children == static_cast<int64_t>(columns.size()), "Arrow column count differs");
++  nanoarrow::UniqueArray result;
++  ArrowError error{};
++  check_arrow(
++    ArrowArrayInitFromSchema(result.get(), schema, &error), "initialize canonical array", error);
++  check_arrow(ArrowArrayStartAppending(result.get()), "start canonical array");
++  for (int64_t row = 0; row < view->length; ++row) {
++    for (int64_t c = 0; c < view->n_children; ++c) {
++      auto const child = view->children[c];
++      auto out         = result->children[c];
++      require(child->dictionary == nullptr, "Expected decoded logical values, not a dictionary");
++      require(child->length == view->length, "Arrow child length differs");
++      if (ArrowArrayViewIsNull(child, row)) {
++        check_arrow(ArrowArrayAppendNull(out, 1), "append canonical null");
++        continue;
++      }
++      int status = NANOARROW_OK;
++      switch (child->storage_type) {
++        case NANOARROW_TYPE_BOOL:
++        case NANOARROW_TYPE_INT8:
++        case NANOARROW_TYPE_INT16:
++        case NANOARROW_TYPE_INT32:
++        case NANOARROW_TYPE_INT64:
++          status = ArrowArrayAppendInt(out, ArrowArrayViewGetIntUnsafe(child, row));
++          break;
++        case NANOARROW_TYPE_UINT8:
++        case NANOARROW_TYPE_UINT16:
++        case NANOARROW_TYPE_UINT32:
++        case NANOARROW_TYPE_UINT64:
++          status = ArrowArrayAppendUInt(out, ArrowArrayViewGetUIntUnsafe(child, row));
++          break;
++        case NANOARROW_TYPE_FLOAT:
++        case NANOARROW_TYPE_DOUBLE:
++          status = ArrowArrayAppendDouble(out, ArrowArrayViewGetDoubleUnsafe(child, row));
++          break;
++        case NANOARROW_TYPE_STRING:
++          status = ArrowArrayAppendString(out, ArrowArrayViewGetStringUnsafe(child, row));
++          break;
++        case NANOARROW_TYPE_DECIMAL32:
++        case NANOARROW_TYPE_DECIMAL64:
++        case NANOARROW_TYPE_DECIMAL128: {
++          ArrowDecimal value;
++          auto const& spec = columns[static_cast<std::size_t>(c)];
++          ArrowDecimalInit(
++            &value, decimal_bitwidth(child->storage_type), spec.precision, spec.arrow_scale);
++          ArrowArrayViewGetDecimalUnsafe(child, row, &value);
++          status = ArrowArrayAppendDecimal(out, &value);
++          break;
++        }
++        default: throw std::runtime_error("Unsupported Arrow comparison storage type");
++      }
++      check_arrow(status, "append canonical value");
++    }
++    check_arrow(ArrowArrayFinishElement(result.get()), "finish canonical row");
++  }
++  if (auto const remainder = view->length % 8; remainder != 0) {
++    auto const mask = static_cast<uint8_t>((1U << remainder) - 1);
++    for (int64_t c = 0; c < view->n_children; ++c) {
++      auto bitmap = ArrowArrayValidityBitmap(result->children[c]);
++      if (bitmap->buffer.size_bytes != 0) {
++        bitmap->buffer.data[bitmap->buffer.size_bytes - 1] &= mask;
++      }
++      if (view->children[c]->storage_type == NANOARROW_TYPE_BOOL) {
++        auto values = ArrowArrayBuffer(result->children[c], 1);
++        values->data[values->size_bytes - 1] &= mask;
++      }
++    }
++  }
++  check_arrow(ArrowArrayFinishBuilding(result.get(), NANOARROW_VALIDATION_LEVEL_FULL, &error),
++              "finish canonical array",
++              error);
++  return result;
++}
++
++void check_arrow_arrays(ArrowSchema const* schema,
++                        ArrowArray const* array,
++                        host_table const& expected)
++{
++  auto normalized_actual   = canonical_array(schema, array);
++  auto normalized_expected = canonical_array(expected.schema.get(), expected.array.get());
++  auto actual_view         = array_view(schema, normalized_actual.get());
++  auto expected_view       = array_view(expected.schema.get(), normalized_expected.get());
++  ArrowError reason{};
++  int equal = 0;
++  check_arrow(
++    ArrowArrayViewCompare(
++      actual_view.get(), expected_view.get(), NANOARROW_COMPARE_IDENTICAL, &equal, &reason),
++    "compare full Arrow arrays",
++    reason);
++  require(equal != 0, std::string{"Arrow arrays differ: "} + reason.message);
++}
++
++void check_types(cudf::table_view table)
++{
++  require(table.num_columns() == static_cast<cudf::size_type>(columns.size()),
++          "Column count differs");
++  for (cudf::size_type c = 0; c < table.num_columns(); ++c) {
++    auto const& spec = columns[static_cast<std::size_t>(c)];
++    auto const type  = table.column(c).type();
++    require(type.id() == spec.cudf_type, std::string{spec.name} + ": dtype differs");
++    if (spec.precision != 0) {
++      require(type.scale() == -spec.arrow_scale,
++              std::string{spec.name} + ": decimal scale differs");
++    }
++  }
++}
++
++void check_table(cudf::io::table_with_metadata const& actual,
++                 host_table const& expected,
++                 cudaStream_t stream)
++{
++  require(actual.tbl != nullptr, "Reader returned no owning table");
++  require(actual.tbl->num_rows() == expected.array->length, "Row count differs");
++  check_types(actual.tbl->view());
++  require(actual.metadata.schema_info.size() == columns.size(), "Metadata column count differs");
++  std::vector<cudf::column_metadata> metadata;
++  for (std::size_t c = 0; c < columns.size(); ++c) {
++    require(actual.metadata.schema_info[c].name == columns[c].name,
++            "Column name differs at index " + std::to_string(c));
++    require(actual.tbl->view().column(static_cast<cudf::size_type>(c)).null_count() ==
++              expected.array->children[c]->null_count,
++            std::string{columns[c].name} + ": null count differs");
++    metadata.emplace_back(columns[c].name);
++  }
++
++  auto schema = cudf::to_arrow_schema(actual.tbl->view(), {metadata.data(), metadata.size()});
++  auto host   = cudf::to_arrow_host(actual.tbl->view(), cudf_stream(stream));
++  host_buffer_fence fence{stream};
++  fence.wait();
++  require(host->device_type == ARROW_DEVICE_CPU, "to_arrow_host did not return host data");
++  check_arrow_arrays(schema.get(), &host->array, expected);
++}
++
++cudf::io::table_with_metadata read_completed(ndsh::vortex_io const& io,
++                                             std::string const& path,
++                                             cudaStream_t stream,
++                                             std::optional<std::size_t> batch_rows)
++{
++  auto result = batch_rows ? io.read_vortex(path, *batch_rows) : io.read_vortex(path);
++  // Check before any test-side synchronization could hide an unfinished consumer stream.
++  check_cuda(cudaStreamQuery(stream), "read_vortex must complete the consumer stream");
++  return result;
++}
++
++void write_source(ndsh::vortex_io const& io,
++                  std::string const& path,
++                  cudaStream_t stream,
++                  int64_t first,
++                  cudf::size_type rows,
++                  cudf::size_type slice_begin,
++                  std::optional<cudf::size_type> chunk_rows)
++{
++  auto source = make_source(stream, first, rows + (slice_begin == 0 ? 0 : slice_begin + 4));
++  auto input  = source->view();
++  if (slice_begin != 0) {
++    input = cudf::slice(input, {slice_begin, slice_begin + rows}, cudf_stream(stream)).front();
++    require(input.column(0).offset() == slice_begin, "Test input is not actually sliced");
++  }
++  check_types(input);
++  if (chunk_rows) {
++    io.write_vortex(path, input, column_names(), *chunk_rows);
++  } else {
++    io.write_vortex(path, input, column_names());
++  }
++}
++
++void round_trip(temporary_directory const& directory,
++                cudaStream_t stream,
++                std::string const& name,
++                cudf::size_type rows,
++                cudf::size_type slice_begin,
++                std::optional<cudf::size_type> chunk_rows,
++                std::vector<std::optional<std::size_t>> const& batches)
++{
++  auto const path = directory.file(name + ".vortex");
++  {
++    ndsh::vortex_io writer{stream};
++    write_source(writer, path, stream, 0, rows, slice_begin, chunk_rows);
++  }
++  auto expected = make_fixture(slice_begin, rows);
++  std::vector<cudf::io::table_with_metadata> results;
++  {
++    ndsh::vortex_io reader{stream, cudf::get_current_device_resource_ref()};
++    for (auto batch : batches) {
++      results.push_back(read_completed(reader, path, stream, batch));
++    }
++  }
++  require(std::filesystem::remove(path), "Failed to remove the test's completed file");
++  for (std::size_t i = 0; i < results.size(); ++i) {
++    try {
++      check_table(results[i], expected, stream);
++    } catch (std::exception const& error) {
++      throw std::runtime_error("Read " + std::to_string(i) + ": " + error.what());
++    }
++  }
++}
++
++void test_staged_string_bytes(cudaStream_t stream)
++{
++  constexpr cudf::size_type parent_rows = 4096;
++  auto source                           = make_source(stream, 0, parent_rows);
++  std::vector<cudf::column_metadata> metadata;
++  for (auto const& name : column_names()) {
++    metadata.emplace_back(name);
++  }
++  auto schema = cudf::to_arrow_schema(source->view(), metadata);
++  // Prefix, offset/non-byte-aligned slice, suffix, empty slice, and unsliced input.
++  std::array<std::array<cudf::size_type, 2>, 5> const ranges{
++    {{0, 7}, {5, 12}, {parent_rows - 7, parent_rows}, {5, 5}, {0, parent_rows}}};
++  for (auto const& range : ranges) {
++    auto input    = cudf::slice(source->view(), {range[0], range[1]}, cudf_stream(stream)).front();
++    auto expected = make_fixture(range[0], range[1] - range[0]);
++    auto host =
++      ndsh::detail::stage_host_chunk(input, stream, cudf::get_current_device_resource_ref());
++    check_cuda(cudaStreamQuery(stream), "host staging must complete the consumer stream");
++    require(host->device_type == ARROW_DEVICE_CPU, "Staging returned non-host data");
++    for (std::size_t c = 0; c < columns.size(); ++c) {
++      if (columns[c].cudf_type != cudf::type_id::STRING) { continue; }
++      // Both arrays are nanoarrow-owned. Inspect actual buffer sizes: ArrayView's
++      // inferred size would miss an unnecessarily retained trailing parent payload.
++      auto const* chars          = ArrowArrayBuffer(host->array.children[c], 2);
++      auto const* expected_chars = ArrowArrayBuffer(expected.array->children[c], 2);
++      require(chars->size_bytes == expected_chars->size_bytes,
++              "String staging retained bytes outside the row chunk");
++    }
++    check_arrow_arrays(schema.get(), &host->array, expected);
++  }
++}
++
++void test_async_resource(temporary_directory const& directory, cudaStream_t stream)
++{
++  rmm::mr::cuda_async_memory_resource resource;
++  // This fence runs after all table destructors, before the explicit resource dies.
++  host_buffer_fence resource_fence{stream};
++  {
++    auto const path = directory.file("async-resource.vortex");
++    auto expected   = make_fixture(0, 37);
++    auto source     = make_source(stream, 0, 37);
++    std::vector<cudf::io::table_with_metadata> results;
++    {
++      ndsh::vortex_io io{stream, rmm::device_async_resource_ref{resource}};
++      io.write_vortex(path, source->view(), column_names(), 13);
++      check_cuda(cudaStreamQuery(stream), "write staging cleanup must complete the stream");
++      // Boolean import scratch is allocated even for one batch; smaller batches
++      // additionally exercise destruction of concatenation inputs before the final wait.
++      for (auto const batch_rows : {64U, 7U, 0U}) {
++        results.push_back(read_completed(io, path, stream, batch_rows));
++      }
++      auto empty            = make_source(stream, 0, 0);
++      auto const empty_path = directory.file("async-resource-empty.vortex");
++      io.write_vortex(empty_path, empty->view(), column_names(), 7);
++      auto result = read_completed(io, empty_path, stream, 7);
++      check_table(result, make_fixture(0, 0), stream);
++    }
++    source.reset();
++    require(std::filesystem::remove(path), "Failed to remove async-resource file");
++    for (auto const& result : results) {
++      check_table(result, expected, stream);
++    }
++  }
++  resource_fence.wait();
++}
++
++void test_owned_reads(temporary_directory const& directory, cudaStream_t stream)
++{
++  auto const first_path  = directory.file("owned-first.vortex");
++  auto const second_path = directory.file("owned-second.vortex");
++  {
++    ndsh::vortex_io writer{stream};
++    write_source(writer, first_path, stream, 0, 101, 0, 17);
++    write_source(writer, second_path, stream, 10000, 101, 0, 23);
++  }
++
++  std::vector<cudf::io::table_with_metadata> results;
++  {
++    ndsh::vortex_io reader{stream};
++    results.push_back(read_completed(reader, first_path, stream, 9));
++    // A different file must not overwrite buffers held by an earlier returned table.
++    results.push_back(read_completed(reader, second_path, stream, 7));
++    results.push_back(read_completed(reader, first_path, stream, 13));
++    results.push_back(read_completed(reader, first_path, stream, 0));
++  }
++  require(std::filesystem::remove(first_path), "Failed to remove first owned-read file");
++  require(std::filesystem::remove(second_path), "Failed to remove second owned-read file");
++  auto first  = make_fixture(0, 101);
++  auto second = make_fixture(10000, 101);
++  for (std::size_t i = 0; i < results.size(); ++i) {
++    check_table(results[i], i == 1 ? second : first, stream);
++  }
++}
++
++template <typename Function>
++void expect_error(char const* label, Function&& function)
++{
++  try {
++    function();
++  } catch (std::exception const&) {
++    return;
++  }
++  throw std::runtime_error(std::string{label} + ": expected an exception");
++}
++
++template <typename Function>
++void expect_error_containing(char const* message, Function&& function)
++{
++  try {
++    function();
++  } catch (std::exception const& error) {
++    require(std::string_view{error.what()}.find(message) != std::string_view::npos,
++            std::string{"Unexpected error: "} + error.what());
++    return;
++  }
++  throw std::runtime_error(std::string{"Expected an exception containing: "} + message);
++}
++
++void test_zero_columns(temporary_directory const& directory, cudaStream_t stream)
++{
++  nanoarrow::UniqueSchema schema;
++  ArrowSchemaInit(schema.get());
++  check_arrow(ArrowSchemaSetTypeStruct(schema.get(), 0), "create zero-column schema");
++  for (auto const flags : {int64_t{0}, int64_t{ARROW_FLAG_NULLABLE}}) {
++    schema->flags = flags;
++    // Rejection is schema-level, independent of whether any batches/rows exist.
++    expect_error_containing("read_vortex requires at least one column",
++                            [&] { ndsh::detail::check_flat_schema(*schema.get()); });
++  }
++  auto empty = make_fixture(0, 0);
++  ndsh::detail::check_flat_schema(*empty.schema.get());
++
++  ndsh::vortex_io io{stream};
++  auto const path = directory.file("zero-columns.vortex");
++  expect_error_containing("write_vortex requires at least one column",
++                          [&] { io.write_vortex(path, cudf::table_view{}, {}); });
++  require(!std::filesystem::exists(path), "Rejected zero-column write created a file");
++}
++
++void test_nul_column_names(temporary_directory const& directory, cudaStream_t stream)
++{
++  auto source = make_source(stream, 0, 9);
++  auto names  = column_names();
++  ndsh::vortex_io io{stream};
++  auto const path = directory.file("nul-column-name.vortex");
++  for (auto const& name : {std::string{"a\0b", 3}, std::string{"\0a", 2}, std::string{"a\0", 2}}) {
++    names.back() = name;
++    expect_error_containing("column names must not contain NUL bytes",
++                            [&] { io.write_vortex(path, source->view(), names, 3); });
++    require(!std::filesystem::exists(path), "Rejected column name created a file");
++  }
++  io.write_vortex(path, source->view(), column_names(), 3);
++  auto result = read_completed(io, path, stream, 64);
++  check_table(result, make_fixture(0, 9), stream);
++}
++
++void test_errors(temporary_directory const& directory, cudaStream_t stream)
++{
++  auto source = make_source(stream, 0, 9);
++  auto names  = column_names();
++  ndsh::vortex_io io{stream};
++  expect_error("zero chunk_rows", [&] {
++    io.write_vortex(directory.file("invalid-zero.vortex"), source->view(), names, 0);
++  });
++  expect_error("negative chunk_rows", [&] {
++    io.write_vortex(directory.file("invalid-negative.vortex"), source->view(), names, -1);
++  });
++  auto too_few = names;
++  too_few.pop_back();
++  expect_error("too few column names", [&] {
++    io.write_vortex(directory.file("invalid-few.vortex"), source->view(), too_few, 3);
++  });
++  auto too_many = names;
++  too_many.emplace_back("extra");
++  expect_error("too many column names", [&] {
++    io.write_vortex(directory.file("invalid-many.vortex"), source->view(), too_many, 3);
++  });
++  auto const missing = directory.file("does-not-exist.vortex");
++  require(!std::filesystem::exists(missing), "Missing-path test unexpectedly has a file");
++  expect_error("missing read path", [&] { static_cast<void>(io.read_vortex(missing, 3)); });
++
++  auto const valid = directory.file("after-errors.vortex");
++  io.write_vortex(valid, source->view(), names, 3);
++  auto result = read_completed(io, valid, stream, 2);
++  check_table(result, make_fixture(0, 9), stream);
++}
++
++}  // namespace
++
++int main()
++{
++  std::string current_test = "initialization";
++  try {
++    check_cuda(cudaSetDevice(0), "select CUDA device 0");
++    // Never replace the process's current resource: it and this stream outlive all contexts/tables.
++    cuda_stream stream;
++    temporary_directory directory;
++    int passed = 0;
++    auto run   = [&](char const* name, auto&& test) {
++      current_test = name;
++      test();
++      check_cuda(cudaStreamSynchronize(stream.get()), "complete test allocations/deallocations");
++      ++passed;
++      std::cout << "[PASS] " << name << '\n';
++    };
++    run("bounded string host staging", [&] { test_staged_string_bytes(stream.get()); });
++    run("zero-column schema and write rejection",
++        [&] { test_zero_columns(directory, stream.get()); });
++    run("embedded NUL column names", [&] { test_nul_column_names(directory, stream.get()); });
++    run("explicit async resource stream completion",
++        [&] { test_async_resource(directory, stream.get()); });
++    run("default chunk and batch sizes", [&] {
++      round_trip(directory, stream.get(), "defaults", 37, 0, std::nullopt, {std::nullopt});
++    });
++    run("multiple write/read chunks",
++        [&] { round_trip(directory, stream.get(), "chunks", 257, 0, 31, {1, 7, 43, 0, 512}); });
++    run("non-byte-aligned sliced input", [&] {
++      round_trip(directory, stream.get(), "sliced", 69, 5, 11, {1, 7, 23, 0});
++      round_trip(directory, stream.get(), "word-boundary", 520, 0, 520, {13, 507, 0});
++    });
++    run("single row with empty string and all-null column",
++        [&] { round_trip(directory, stream.get(), "single", 1, 0, 1, {1, 0}); });
++    run("empty table preserves schema",
++        [&] { round_trip(directory, stream.get(), "empty", 0, 0, 7, {std::nullopt, 1, 0}); });
++    run("low-cardinality logical values", [&] {
++      round_trip(directory, stream.get(), "low-cardinality", 8193, 0, 2048, {127, 1024, 0});
++    });
++    run("results outlive sources, repeated reads, contexts, and files",
++        [&] { test_owned_reads(directory, stream.get()); });
++    run("invalid arguments, missing path, and context reuse",
++        [&] { test_errors(directory, stream.get()); });
++    std::cout << "vortex_io: " << passed << " tests passed on CUDA device 0 (non-default stream)\n";
++    return 0;
++  } catch (std::exception const& error) {
++    std::cerr << "[FAIL] " << current_test << ": " << error.what() << '\n';
++    return 1;
++  } catch (...) {
++    std::cerr << "[FAIL] " << current_test << ": unknown exception\n";
 +    return 1;
 +  }
 +}
