@@ -295,6 +295,31 @@ __device__ inline void fsst_decode_string(const FSSTArgs<CodeOffsetT, OutputOffs
         FSST_GRID_STRIDE_LOOP(CodeOffsetT, int32_t, args)                                                    \
     }
 
+#define GENERATE_FSST_VARBINVIEW_KERNEL(suffix, CodeOffsetT)                                                 \
+    extern "C" __global__ void fsst_varbinview_##suffix(const uint8_t *__restrict codes_bytes,               \
+                                                        const CodeOffsetT *__restrict codes_offsets,         \
+                                                        const uint64_t *__restrict symbols,                  \
+                                                        const uint8_t *__restrict symbol_lengths,            \
+                                                        const int32_t *__restrict output_offsets,            \
+                                                        const uint8_t *__restrict validity_bits,             \
+                                                        uint64_t validity_bit_offset,                        \
+                                                        uint8_t *__restrict output_bytes,                    \
+                                                        uint4 *__restrict output_views,                      \
+                                                        uint64_t num_strings) {                              \
+        const FSSTArgs<CodeOffsetT, int32_t> args = {                                                        \
+            codes_bytes,                                                                                     \
+            codes_offsets,                                                                                   \
+            symbols,                                                                                         \
+            symbol_lengths,                                                                                  \
+            output_bytes,                                                                                    \
+            output_offsets,                                                                                  \
+            validity_bits,                                                                                   \
+            validity_bit_offset,                                                                             \
+            output_views,                                                                                    \
+        };                                                                                                   \
+        FSST_GRID_STRIDE_LOOP(CodeOffsetT, int32_t, args)                                                    \
+    }
+
 GENERATE_FSST_VIEW_KERNEL(u8, uint8_t)
 GENERATE_FSST_VIEW_KERNEL(u16, uint16_t)
 GENERATE_FSST_VIEW_KERNEL(u32, uint32_t)
@@ -304,3 +329,8 @@ GENERATE_FSST_VARBIN_KERNEL(u8, uint8_t)
 GENERATE_FSST_VARBIN_KERNEL(u16, uint16_t)
 GENERATE_FSST_VARBIN_KERNEL(u32, uint32_t)
 GENERATE_FSST_VARBIN_KERNEL(u64, uint64_t)
+
+GENERATE_FSST_VARBINVIEW_KERNEL(u8, uint8_t)
+GENERATE_FSST_VARBINVIEW_KERNEL(u16, uint16_t)
+GENERATE_FSST_VARBINVIEW_KERNEL(u32, uint32_t)
+GENERATE_FSST_VARBINVIEW_KERNEL(u64, uint64_t)
