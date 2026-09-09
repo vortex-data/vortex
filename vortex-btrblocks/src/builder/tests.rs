@@ -200,7 +200,8 @@ fn restrictions_select_predecessors_of_schemes_added_later() {
         .with_new_scheme(&NewFoRScheme)
         .build();
     assert!(compressor.has_scheme(integer::FoRScheme.id()));
-    assert!(compressor.has_scheme(NewFoRScheme.id()));
+    assert!(compressor.has_scheme_family(NewFoRScheme.id()));
+    assert!(!compressor.has_scheme(NewFoRScheme.id()));
 }
 
 #[rstest]
@@ -211,6 +212,6 @@ fn excluding_any_version_removes_the_chain(#[case] excluded: SchemeId) {
         .with_new_scheme(&NewFoRScheme)
         .exclude_schemes([excluded])
         .build();
-    assert!(!compressor.has_scheme(integer::FoRScheme.id()));
-    assert!(!compressor.has_scheme(NewFoRScheme.id()));
+    assert!(!compressor.has_scheme_family(integer::FoRScheme.id()));
+    assert!(!compressor.has_scheme_family(NewFoRScheme.id()));
 }

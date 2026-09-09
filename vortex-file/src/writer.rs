@@ -402,7 +402,14 @@ fn new_array_context(
             .registry()
             .read(|registry| registry.keys().copied().collect())
     };
-    let allowed_serialized_ids: HashSet<ArrayId> = serialized_ids.iter().copied().collect();
+    // Editions grant permission to use a wire format, but it also must be registered in the session.
+    let allowed_serialized_ids = arrays.registry().read(|registry| {
+        serialized_ids
+            .iter()
+            .copied()
+            .filter(|id| registry.contains_key(id))
+            .collect()
+    });
     let array_ctx = ArrayContext::new(serialized_ids.iter().copied().sorted().collect());
     let array_ctx = if enforce_editions {
         // Only permit serialized IDs in the enabled editions.

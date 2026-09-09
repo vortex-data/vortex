@@ -152,8 +152,13 @@ fn newest_eligible_version_is_selected_before_estimation() -> VortexResult<()> {
         )?;
         assert_eq!(winner.map(|(scheme, _)| scheme.id()), Some(expected));
         for version in [&V1, &V2, &V3] {
-            assert!(compressor.has_scheme(version.id()));
+            assert!(compressor.has_scheme_family(version.id()));
+            assert_eq!(
+                compressor.has_scheme(version.id()),
+                version.id() == expected
+            );
         }
+        assert!(!compressor.has_scheme(OTHER.id()));
     }
     Ok(())
 }
@@ -164,6 +169,7 @@ fn no_eligible_version_removes_the_entire_chain() {
         let compressor = CascadingCompressor::new(vec![&V3]).with_allowed_serialized_ids(allowed);
         assert!(compressor.schemes.is_empty());
         for version in [&V1, &V2, &V3] {
+            assert!(!compressor.has_scheme_family(version.id()));
             assert!(!compressor.has_scheme(version.id()));
         }
     }
@@ -193,7 +199,7 @@ fn successive_restrictions_keep_aliases_and_intersect_wire_ids() {
 
     let compressor = compressor.with_allowed_serialized_ids(HashSet::from([*V2_ID, *AUX_ID]));
     assert!(compressor.schemes.is_empty());
-    assert!(!compressor.has_scheme(V3.id()));
+    assert!(!compressor.has_scheme_family(V3.id()));
 }
 
 static PUSH_OLD: TestScheme = TestScheme {

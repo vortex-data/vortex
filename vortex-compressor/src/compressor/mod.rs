@@ -63,7 +63,7 @@ impl CascadingCompressor {
     /// Creates a new compressor with the given schemes.
     ///
     /// Register only the newest version of each scheme. Predecessor IDs are aliases for the
-    /// selected version in exclusions and [`has_scheme`](Self::has_scheme) checks.
+    /// selected version in exclusions and [`has_scheme_family`](Self::has_scheme_family) checks.
     /// Root-level exclusion rules (e.g. excluding Dict from list offsets) are built automatically.
     ///
     /// # Panics
@@ -146,12 +146,19 @@ impl CascadingCompressor {
         CompressorContext::new()
     }
 
-    /// Returns whether a version of `scheme` is enabled.
+    /// Returns whether any version in the scheme's family is enabled.
     ///
-    /// Any ID in a registered predecessor chain refers to the selected version, including when
-    /// the selected version is older or newer than the specified ID.
-    pub fn has_scheme(&self, scheme: SchemeId) -> bool {
+    /// A family is a registered scheme and its predecessor chain. `scheme` may name any version
+    /// in that chain. Use [`Self::has_scheme`] to check the exact selected version.
+    pub fn has_scheme_family(&self, scheme: SchemeId) -> bool {
         self.scheme_aliases.contains_key(&scheme)
+    }
+
+    /// Returns whether this exact scheme version is selected for compression.
+    ///
+    /// Use this before invoking a specific implementation directly.
+    pub fn has_scheme(&self, scheme: SchemeId) -> bool {
+        self.scheme_aliases.get(&scheme) == Some(&scheme)
     }
 
     /// Resolves a registered version to the selected version, leaving unknown IDs unchanged.
