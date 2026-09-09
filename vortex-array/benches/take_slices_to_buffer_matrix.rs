@@ -4,7 +4,7 @@
 //! Microbenchmarks for primitive `take_slices_to_buffer` copy-loop variants.
 //!
 //! The matrix covers:
-//! - append via `BufferMut::extend_from_slice`, indexed cursor copy, and advancing pointer copy
+//! - append via `BufferMut::copy_from_slice`, indexed cursor copy, and advancing pointer copy
 //!   into spare output capacity
 //! - ordinary checked slicing vs a preverification pass followed by unchecked slicing
 //! - fixed-width short slices at the run counts used by the FSL take benchmarks
@@ -157,7 +157,7 @@ fn take_extend_safe(
 ) -> Buffer<u16> {
     let mut result = BufferMut::<u16>::with_capacity(output_len);
     for (&start, &length) in starts.iter().zip(lengths) {
-        result.extend_from_slice(&values[start..start + length]);
+        result.copy_from_slice(&values[start..start + length]);
     }
     result.freeze()
 }
@@ -223,7 +223,7 @@ fn take_preverify_extend_unchecked(
     for (&start, &length) in starts.iter().zip(lengths) {
         // SAFETY: `preverify` checked every source range.
         unsafe {
-            result.extend_from_slice(values.get_unchecked(start..start + length));
+            result.copy_from_slice(values.get_unchecked(start..start + length));
         }
     }
     result.freeze()
@@ -290,8 +290,7 @@ fn preverify(source_len: usize, starts: &[usize], lengths: &[usize], output_len:
 
 fn copy_to_spare(result: &mut BufferMut<u16>, cursor: usize, source: &[u16]) {
     let dst = &mut result.spare_capacity_mut()[cursor..][..source.len()];
-    // SAFETY: `dst` has exactly `source.len()` spare slots and does not overlap with source.
-    unsafe { copy_to_uninit(dst.as_mut_ptr().cast(), source) };
+    dst.write_copy_of_slice(source);
 }
 
 unsafe fn copy_to_spare_unchecked(result: &mut BufferMut<u16>, cursor: usize, source: &[u16]) {
@@ -301,8 +300,7 @@ unsafe fn copy_to_spare_unchecked(result: &mut BufferMut<u16>, cursor: usize, so
             .spare_capacity_mut()
             .get_unchecked_mut(cursor..cursor + source.len())
     };
-    // SAFETY: `dst` has exactly `source.len()` spare slots and does not overlap with source.
-    unsafe { copy_to_uninit(dst.as_mut_ptr().cast(), source) };
+    dst.write_copy_of_slice(source);
 }
 
 unsafe fn copy_to_uninit(dst: *mut u16, source: &[u16]) {

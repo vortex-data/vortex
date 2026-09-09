@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ptr;
-
 use itertools::Itertools as _;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
@@ -103,15 +101,7 @@ fn copy_slices(
         let byte_start = start * byte_width;
         let byte_length = length * byte_width;
         let source = &values[byte_start..][..byte_length];
-        // SAFETY: `source` and the checked spare-capacity range have equal lengths and do not
-        // overlap.
-        unsafe {
-            ptr::copy_nonoverlapping(
-                source.as_ptr(),
-                spare[cursor..][..source.len()].as_mut_ptr().cast::<u8>(),
-                source.len(),
-            );
-        }
+        spare[cursor..][..source.len()].write_copy_of_slice(source);
         cursor += source.len();
     }
 

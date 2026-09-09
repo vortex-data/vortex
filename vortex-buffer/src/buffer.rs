@@ -167,12 +167,18 @@ impl<T> Buffer<T> {
     /// of the provided `Vec<T>` while maintaining the ability to convert it back into a mutable
     /// buffer. We could fix this by forking `Bytes`, or in many other complex ways, but for now
     /// callers should prefer to construct `Buffer<T>` from a `BufferMut<T>`.
-    pub fn copy_from(values: impl AsRef<[T]>) -> Self {
+    pub fn copy_from(values: impl AsRef<[T]>) -> Self
+    where
+        T: Copy,
+    {
         BufferMut::copy_from(values).freeze()
     }
 
     /// Returns a new `Buffer<T>` copied with the provided allocator.
-    pub fn copy_from_in(values: impl AsRef<[T]>, allocator: BufferAllocatorRef) -> Self {
+    pub fn copy_from_in(values: impl AsRef<[T]>, allocator: BufferAllocatorRef) -> Self
+    where
+        T: Copy,
+    {
         BufferMut::copy_from_in(values, allocator).freeze()
     }
 
@@ -182,7 +188,10 @@ impl<T> Buffer<T> {
     /// `alignment`. Use [`copy_from_preferred_aligned`] to control the over-alignment.
     ///
     /// [`copy_from_preferred_aligned`]: Self::copy_from_preferred_aligned
-    pub fn copy_from_aligned(values: impl AsRef<[T]>, alignment: Alignment) -> Self {
+    pub fn copy_from_aligned(values: impl AsRef<[T]>, alignment: Alignment) -> Self
+    where
+        T: Copy,
+    {
         Self::copy_from_preferred_aligned(values, alignment, Some(Alignment::DEFAULT_ALIGNMENT))
     }
 
@@ -194,7 +203,10 @@ impl<T> Buffer<T> {
         values: impl AsRef<[T]>,
         alignment: Alignment,
         preferred_alignment: Option<Alignment>,
-    ) -> Self {
+    ) -> Self
+    where
+        T: Copy,
+    {
         BufferMut::copy_from_preferred_aligned(values, alignment, preferred_alignment).freeze()
     }
 
@@ -667,7 +679,10 @@ impl<T> Buffer<T> {
     }
 
     /// Convert self into `BufferMut<T>`, cloning the data if there are multiple strong references.
-    pub fn into_mut(self) -> BufferMut<T> {
+    pub fn into_mut(self) -> BufferMut<T>
+    where
+        T: Copy,
+    {
         self.try_into_mut().unwrap_or_else(|buffer| {
             let allocator = buffer.allocator().clone();
             BufferMut::<T>::copy_from_aligned_in(&buffer, buffer.alignment, allocator)
@@ -680,7 +695,10 @@ impl<T> Buffer<T> {
     }
 
     /// Return a `Buffer<T>` with the given alignment. Where possible, this will be zero-copy.
-    pub fn aligned(mut self, alignment: Alignment) -> Self {
+    pub fn aligned(mut self, alignment: Alignment) -> Self
+    where
+        T: Copy,
+    {
         if alignment.is_ptr_aligned(self.as_ptr()) {
             self.alignment = alignment;
             self

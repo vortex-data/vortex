@@ -159,7 +159,7 @@ impl<T: NativePType> PrimitiveBuilder<T> {
             "Cannot append primitive array with different ptype"
         );
 
-        self.values.extend_from_slice(array.as_slice::<T>());
+        self.values.copy_from_slice(array.as_slice::<T>());
         self.nulls.append_validity_mask(
             &array
                 .as_ref()
@@ -320,14 +320,11 @@ impl<T> UninitRange<'_, T> {
             "tried to copy a slice into a `UninitRange` past its boundary"
         );
 
-        // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout.
-        let uninit_src: &[MaybeUninit<T>] = unsafe { std::mem::transmute(src) };
-
         // Note: spare_capacity_mut() returns the spare capacity starting from the current length,
         // so we just use local_offset directly.
         let dst =
             &mut self.builder.values.spare_capacity_mut()[local_offset..local_offset + src.len()];
-        dst.copy_from_slice(uninit_src);
+        dst.write_copy_of_slice(src);
     }
 
     /// Get a mutable slice of uninitialized memory at the specified offset within this range.

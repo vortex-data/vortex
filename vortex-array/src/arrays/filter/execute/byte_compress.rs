@@ -128,17 +128,14 @@ fn filter_chunk_into<T: Copy>(
         return;
     }
 
-    let out_ptr = out.spare_capacity_mut().as_mut_ptr();
     if chunk.len() == 8 && mask_byte == 0xFF {
         // All 8 selected, so bulk copy.
-        // SAFETY: write_pos + 8 <= capacity.
-        unsafe {
-            std::ptr::copy_nonoverlapping(chunk.as_ptr(), out_ptr.add(*write_pos).cast::<T>(), 8);
-        }
+        out.spare_capacity_mut()[*write_pos..][..8].write_copy_of_slice(chunk);
         *write_pos += 8;
         return;
     }
 
+    let out_ptr = out.spare_capacity_mut().as_mut_ptr();
     let (perm, count) = &BYTE_COMPRESS_LUT[mask_byte as usize];
     let count = *count as usize;
     debug_assert_eq!(mask_byte & !low_bits_mask(chunk.len()), 0);

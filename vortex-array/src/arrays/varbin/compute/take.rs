@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::iter;
-use std::ptr;
 use std::sync::Arc;
 
 use itertools::Itertools as _;
@@ -390,7 +389,7 @@ fn take<Index: IntegerPType, Offset: IntegerPType>(
         let stop = offsets[idx + 1]
             .to_usize()
             .vortex_expect("Failed to cast max offset to usize");
-        new_data.extend_from_slice(&data[start..stop]);
+        new_data.copy_from_slice(&data[start..stop]);
     }
 
     let array_validity = Validity::from(dtype.nullability());
@@ -642,14 +641,7 @@ where
         let byte_start = offset_range[0].as_();
         let byte_end = offset_range[length].as_();
         let src = &data[byte_start..byte_end];
-        // SAFETY: `src` and the checked `spare` range have equal lengths and cannot overlap.
-        unsafe {
-            ptr::copy_nonoverlapping(
-                src.as_ptr(),
-                spare[cursor..][..src.len()].as_mut_ptr().cast::<u8>(),
-                src.len(),
-            );
-        }
+        spare[cursor..][..src.len()].write_copy_of_slice(src);
         cursor += src.len();
     }
     // SAFETY: the loop initialized the prefix `0..cursor` of the spare capacity.
@@ -735,14 +727,7 @@ where
         let byte_start = offset_range[0].as_();
         let byte_end = offset_range[length].as_();
         let src = &data[byte_start..byte_end];
-        // SAFETY: `src` and the checked `spare` range have equal lengths and cannot overlap.
-        unsafe {
-            ptr::copy_nonoverlapping(
-                src.as_ptr(),
-                spare[cursor..][..src.len()].as_mut_ptr().cast::<u8>(),
-                src.len(),
-            );
-        }
+        spare[cursor..][..src.len()].write_copy_of_slice(src);
         cursor += src.len();
     }
     // SAFETY: the loop initialized the prefix `0..cursor` of the spare capacity.
@@ -813,7 +798,7 @@ fn take_nullable<Index: IntegerPType, Offset: IntegerPType>(
         let stop = offsets[data_idx + 1]
             .to_usize()
             .vortex_expect("Failed to cast max offset to usize");
-        new_data.extend_from_slice(&data[start..stop]);
+        new_data.copy_from_slice(&data[start..stop]);
     }
 
     let array_validity = Validity::from(validity_buffer.freeze());
