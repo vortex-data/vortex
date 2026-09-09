@@ -20,6 +20,7 @@ use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::DynGroupedAccumulator;
 use crate::aggregate_fn::GroupedAccumulator;
 use crate::aggregate_fn::NumericalAggregateOpts;
+use crate::aggregate_fn::OwnedAggregateDTypes;
 use crate::aggregate_fn::fns::sum::Sum;
 use crate::array_session;
 use crate::arrays::BoolArray;
@@ -290,9 +291,14 @@ fn merge_from_overflow_is_absorbing() -> VortexResult<()> {
     );
 
     // The overflow flag survives the scalar round trip.
-    let propagated = SumV2.partial_from_scalar(&options, &dtype, overflow_partial)?;
-    assert!(SumV2.is_saturated(&propagated));
-    assert!(SumV2.finalize_scalar(&propagated)?.is_null());
+    let dtypes = OwnedAggregateDTypes::try_new(&SumV2, &options, dtype)?;
+    let propagated = SumV2.partial_from_scalar(&options, dtypes.borrow(), overflow_partial)?;
+    assert!(SumV2.is_saturated(&options, dtypes.borrow(), &propagated));
+    assert!(
+        SumV2
+            .finalize_scalar(&options, dtypes.borrow(), &propagated)?
+            .is_null()
+    );
     Ok(())
 }
 
@@ -372,7 +378,10 @@ fn finalize_struct_applies_partial_and_struct_validity(
     )?
     .into_array();
 
-    let result = SumV2.finalize(partials)?;
+    let options = NumericalAggregateOpts::default();
+    let dtypes =
+        OwnedAggregateDTypes::try_new(&SumV2, &options, DType::Primitive(PType::I64, Nullable))?;
+    let result = SumV2.finalize(&options, dtypes.borrow(), partials)?;
     let expected = PrimitiveArray::from_option_iter(expected).into_array();
     assert_arrays_eq!(
         &result,

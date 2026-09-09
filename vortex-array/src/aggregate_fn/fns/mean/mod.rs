@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::registry::CachedId;
@@ -9,6 +10,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::aggregate_fn::Accumulator;
+use crate::aggregate_fn::AggregateDTypes;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::NumericalAggregateOpts;
@@ -88,15 +90,21 @@ impl BinaryCombined for Mean {
         "count"
     }
 
-    fn return_dtype(&self, input_dtype: &DType) -> Option<DType> {
+    fn return_dtype(&self, _options: &CombinedOptions<Self>, input_dtype: &DType) -> Option<DType> {
         Some(mean_output_dtype(input_dtype)?.with_nullability(Nullability::Nullable))
     }
 
-    fn finalize(&self, sum: ArrayRef, count: ArrayRef) -> VortexResult<ArrayRef> {
+    fn finalize(
+        &self,
+        _options: &CombinedOptions<Self>,
+        dtypes: AggregateDTypes<'_>,
+        sum: ArrayRef,
+        count: ArrayRef,
+    ) -> VortexResult<ArrayRef> {
         if let DType::Decimal(..) = sum.dtype() {
             vortex_bail!("grouped mean over decimals is not yet supported");
         }
-        let target = DType::Primitive(PType::F64, Nullability::Nullable);
+        let target = dtypes.result.clone();
         let sum = sum.cast(target.clone())?;
         let count = count.cast(target.clone())?;
 
@@ -114,12 +122,23 @@ impl BinaryCombined for Mean {
         sum.binary(count, Operator::Div)
     }
 
-    fn finalize_scalar(&self, left_scalar: Scalar, right_scalar: Scalar) -> VortexResult<Scalar> {
+    fn finalize_scalar(
+        &self,
+        _options: &CombinedOptions<Self>,
+        dtypes: AggregateDTypes<'_>,
+        left_scalar: Scalar,
+        right_scalar: Scalar,
+    ) -> VortexResult<Scalar> {
         if let DType::Decimal(decimal_dtype, _) = *left_scalar.dtype() {
-            return finalize_decimal_scalar(&left_scalar, &right_scalar, decimal_dtype);
+            return finalize_decimal_scalar(
+                &left_scalar,
+                &right_scalar,
+                decimal_dtype,
+                dtypes.result,
+            );
         }
 
-        let target = DType::Primitive(PType::F64, Nullability::Nullable);
+        let target = dtypes.result.clone();
         let sum_cast = left_scalar.cast(&target)?;
         let count_cast = right_scalar.cast(&target)?;
 
@@ -163,18 +182,20 @@ fn finalize_decimal_scalar(
     sum: &Scalar,
     count: &Scalar,
     sum_decimal: DecimalDType,
+    target_dtype: &DType,
 ) -> VortexResult<Scalar> {
-    let target_decimal_dtype = mean_decimal_dtype(&sum_decimal);
-    let target_dtype = DType::Decimal(target_decimal_dtype, Nullability::Nullable);
+    let target_decimal_dtype = *target_dtype
+        .as_decimal_opt()
+        .vortex_expect("decimal mean result dtype");
 
     // overflow
     let Some(sum_value) = sum.as_decimal().decimal_value() else {
-        return Ok(Scalar::null(target_dtype));
+        return Ok(Scalar::null(target_dtype.clone()));
     };
     // empty input
     let count = count.as_primitive().typed_value::<u64>().unwrap_or(0);
     if count == 0 {
-        return Ok(Scalar::null(target_dtype));
+        return Ok(Scalar::null(target_dtype.clone()));
     }
 
     let Ok(sum) = DecimalValue::rescale_i256(
@@ -182,12 +203,12 @@ fn finalize_decimal_scalar(
         sum_decimal.scale(),
         target_decimal_dtype.scale(),
     ) else {
-        return Ok(Scalar::null(target_dtype));
+        return Ok(Scalar::null(target_dtype.clone()));
     };
     let mean = sum / i256::from_i128(i128::from(count));
 
     let Ok(mean) = DecimalValue::try_from_i256(mean, target_decimal_dtype) else {
-        return Ok(Scalar::null(target_dtype));
+        return Ok(Scalar::null(target_dtype.clone()));
     };
     Ok(Scalar::decimal(
         mean,

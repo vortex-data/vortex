@@ -17,6 +17,7 @@ use crate::ArrayRef;
 use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::aggregate_fn::AggregateDTypes;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnSatisfaction;
@@ -56,20 +57,9 @@ enum BoundedMinState {
 /// Partial accumulator state for the bounded minimum aggregate.
 pub struct BoundedMinPartial {
     state: BoundedMinState,
-    element_dtype: DType,
-    max_bytes: NonZeroUsize,
 }
 
 impl BoundedMinPartial {
-    /// The state of a group with no accumulated values.
-    fn empty(options: &BoundedMinOptions, input_dtype: &DType) -> Self {
-        Self {
-            state: BoundedMinState::Empty,
-            element_dtype: input_dtype.clone(),
-            max_bytes: options.max_bytes,
-        }
-    }
-
     fn merge(&mut self, min: Scalar) {
         if min.is_null() {
             return;
@@ -152,10 +142,20 @@ impl AggregateFnVTable for BoundedMin {
         self.return_dtype(options, input_dtype)
     }
 
+    fn empty_partial(
+        &self,
+        _options: &Self::Options,
+        _dtypes: AggregateDTypes<'_>,
+    ) -> VortexResult<Self::Partial> {
+        Ok(BoundedMinPartial {
+            state: BoundedMinState::Empty,
+        })
+    }
+
     fn partial_from_scalar(
         &self,
-        options: &Self::Options,
-        input_dtype: &DType,
+        _options: &Self::Options,
+        _dtypes: AggregateDTypes<'_>,
         scalar: Scalar,
     ) -> VortexResult<Self::Partial> {
         // A null partial means the producing accumulator saw nothing valid.
@@ -164,41 +164,48 @@ impl AggregateFnVTable for BoundedMin {
         } else {
             BoundedMinState::Value(scalar)
         };
-        Ok(BoundedMinPartial {
-            state,
-            ..BoundedMinPartial::empty(options, input_dtype)
-        })
+        Ok(BoundedMinPartial { state })
     }
 
-    fn reduce_partials(
+    fn merge_partials(
         &self,
-        options: &Self::Options,
-        input_dtype: &DType,
-        partials: impl IntoIterator<Item = Self::Partial>,
+        _options: &Self::Options,
+        _dtypes: AggregateDTypes<'_>,
+        mut first: Self::Partial,
+        second: Self::Partial,
     ) -> VortexResult<Self::Partial> {
-        let mut acc = BoundedMinPartial::empty(options, input_dtype);
-        for partial in partials {
-            if let BoundedMinState::Value(min) = partial.state {
-                acc.merge(min);
-            }
+        if let BoundedMinState::Value(min) = second.state {
+            first.merge(min);
         }
-        Ok(acc)
+        Ok(first)
     }
 
-    fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
-        let dtype = partial.element_dtype.as_nullable();
+    fn to_scalar(
+        &self,
+        _options: &Self::Options,
+        dtypes: AggregateDTypes<'_>,
+        partial: &Self::Partial,
+    ) -> VortexResult<Scalar> {
+        let dtype = dtypes.input.as_nullable();
         match &partial.state {
             BoundedMinState::Empty => Ok(Scalar::null(dtype)),
             BoundedMinState::Value(min) => min.cast(&dtype),
         }
     }
 
-    fn is_saturated(&self, _partial: &Self::Partial) -> bool {
+    fn is_saturated(
+        &self,
+        _options: &Self::Options,
+        _dtypes: AggregateDTypes<'_>,
+        _partial: &Self::Partial,
+    ) -> bool {
         false
     }
 
     fn accumulate(
         &self,
+        options: &Self::Options,
+        _dtypes: AggregateDTypes<'_>,
         partial: &mut Self::Partial,
         batch: &Columnar,
         ctx: &mut ExecutionCtx,
@@ -212,18 +219,28 @@ impl AggregateFnVTable for BoundedMin {
         let Some(result) = min_max(&array, ctx, NumericalAggregateOpts::default())? else {
             return Ok(());
         };
-        if let Some(bound) = truncate_min(result.min, partial.max_bytes.get())? {
+        if let Some(bound) = truncate_min(result.min, options.max_bytes.get())? {
             partial.merge(bound);
         }
         Ok(())
     }
 
-    fn finalize(&self, partials: ArrayRef) -> VortexResult<ArrayRef> {
+    fn finalize(
+        &self,
+        _options: &Self::Options,
+        _dtypes: AggregateDTypes<'_>,
+        partials: ArrayRef,
+    ) -> VortexResult<ArrayRef> {
         Ok(partials)
     }
 
-    fn finalize_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
-        self.to_scalar(partial)
+    fn finalize_scalar(
+        &self,
+        options: &Self::Options,
+        dtypes: AggregateDTypes<'_>,
+        partial: &Self::Partial,
+    ) -> VortexResult<Scalar> {
+        self.to_scalar(options, dtypes, partial)
     }
 }
 
@@ -347,8 +364,6 @@ mod tests {
         acc.accumulate(&values, &mut ctx)?;
         acc.fold_partial(BoundedMinPartial {
             state: BoundedMinState::Empty,
-            element_dtype: values.dtype().clone(),
-            max_bytes: max_bytes(2),
         })?;
 
         assert_eq!(

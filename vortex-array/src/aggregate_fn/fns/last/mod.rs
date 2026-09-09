@@ -8,6 +8,7 @@ use crate::ArrayRef;
 use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::aggregate_fn::Accumulator;
+use crate::aggregate_fn::AggregateDTypes;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
@@ -30,8 +31,6 @@ pub struct Last;
 
 /// Partial accumulator state for the [`Last`] aggregate.
 pub struct LastPartial {
-    /// The nullable version of the input dtype, used for the result and for empty/all-null inputs.
-    return_dtype: DType,
     /// The last non-null value seen so far, or `None` if no non-null value has been observed.
     value: Option<Scalar>,
 }
@@ -57,50 +56,66 @@ impl AggregateFnVTable for Last {
         self.return_dtype(options, input_dtype)
     }
 
+    fn empty_partial(
+        &self,
+        _options: &Self::Options,
+        _dtypes: AggregateDTypes<'_>,
+    ) -> VortexResult<Self::Partial> {
+        Ok(LastPartial { value: None })
+    }
+
     fn partial_from_scalar(
         &self,
         _options: &Self::Options,
-        input_dtype: &DType,
+        _dtypes: AggregateDTypes<'_>,
         scalar: Scalar,
     ) -> VortexResult<Self::Partial> {
         // A null partial means the producing accumulator saw nothing valid.
         Ok(LastPartial {
-            return_dtype: input_dtype.as_nullable(),
             value: (!scalar.is_null()).then_some(scalar),
         })
     }
 
-    fn reduce_partials(
+    fn merge_partials(
         &self,
         _options: &Self::Options,
-        input_dtype: &DType,
-        partials: impl IntoIterator<Item = Self::Partial>,
+        _dtypes: AggregateDTypes<'_>,
+        first: Self::Partial,
+        second: Self::Partial,
     ) -> VortexResult<Self::Partial> {
-        // The last non-empty partial in iteration order wins; empty ones are ignored.
+        // The later non-empty partial wins; an empty later partial changes nothing.
         Ok(LastPartial {
-            return_dtype: input_dtype.as_nullable(),
-            value: partials
-                .into_iter()
-                .filter_map(|partial| partial.value)
-                .last(),
+            value: second.value.or(first.value),
         })
     }
 
-    fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
+    fn to_scalar(
+        &self,
+        _options: &Self::Options,
+        dtypes: AggregateDTypes<'_>,
+        partial: &Self::Partial,
+    ) -> VortexResult<Scalar> {
         Ok(match &partial.value {
             Some(v) => v.clone(),
-            None => Scalar::null(partial.return_dtype.clone()),
+            None => Scalar::null(dtypes.result.clone()),
         })
     }
 
     #[inline]
-    fn is_saturated(&self, _partial: &Self::Partial) -> bool {
+    fn is_saturated(
+        &self,
+        _options: &Self::Options,
+        _dtypes: AggregateDTypes<'_>,
+        _partial: &Self::Partial,
+    ) -> bool {
         // Last can never short-circuit: a later batch can always supersede the current value.
         false
     }
 
     fn try_accumulate(
         &self,
+        _options: &Self::Options,
+        _dtypes: AggregateDTypes<'_>,
         partial: &mut Self::Partial,
         batch: &ArrayRef,
         ctx: &mut ExecutionCtx,
@@ -114,6 +129,8 @@ impl AggregateFnVTable for Last {
 
     fn accumulate(
         &self,
+        _options: &Self::Options,
+        _dtypes: AggregateDTypes<'_>,
         _partial: &mut Self::Partial,
         _batch: &Columnar,
         _ctx: &mut ExecutionCtx,
@@ -121,12 +138,22 @@ impl AggregateFnVTable for Last {
         unreachable!("Last::try_accumulate handles all arrays")
     }
 
-    fn finalize(&self, partials: ArrayRef) -> VortexResult<ArrayRef> {
+    fn finalize(
+        &self,
+        _options: &Self::Options,
+        _dtypes: AggregateDTypes<'_>,
+        partials: ArrayRef,
+    ) -> VortexResult<ArrayRef> {
         Ok(partials)
     }
 
-    fn finalize_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
-        self.to_scalar(partial)
+    fn finalize_scalar(
+        &self,
+        options: &Self::Options,
+        dtypes: AggregateDTypes<'_>,
+        partial: &Self::Partial,
+    ) -> VortexResult<Scalar> {
+        self.to_scalar(options, dtypes, partial)
     }
 }
 
@@ -141,6 +168,7 @@ mod tests {
     use crate::aggregate_fn::AggregateFnVTable;
     use crate::aggregate_fn::DynAccumulator;
     use crate::aggregate_fn::EmptyOptions;
+    use crate::aggregate_fn::OwnedAggregateDTypes;
     use crate::aggregate_fn::fns::last::Last;
     use crate::aggregate_fn::fns::last::LastPartial;
     use crate::aggregate_fn::fns::last::last;
@@ -263,10 +291,9 @@ mod tests {
     #[test]
     fn last_state_merge() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let partial_of = |value: Option<Scalar>| LastPartial {
-            return_dtype: dtype.as_nullable(),
-            value,
-        };
+        let owned = OwnedAggregateDTypes::try_new(&Last, &EmptyOptions, dtype)?;
+        let dtypes = owned.borrow();
+        let partial_of = |value: Option<Scalar>| LastPartial { value };
 
         let five = partial_of(Some(Scalar::primitive(5i32, Nullable)));
         let seven = partial_of(Some(Scalar::primitive(7i32, Nullable)));
@@ -274,8 +301,11 @@ mod tests {
         let empty = partial_of(None);
 
         // The last non-empty partial in order replaces the prior values.
-        let state = Last.reduce_partials(&EmptyOptions, &dtype, [five, seven, empty])?;
-        assert_eq!(Last.to_scalar(&state)?, Scalar::primitive(7i32, Nullable));
+        let state = Last.reduce_partials(&EmptyOptions, dtypes, [five, seven, empty])?;
+        assert_eq!(
+            Last.to_scalar(&EmptyOptions, dtypes, &state)?,
+            Scalar::primitive(7i32, Nullable)
+        );
         Ok(())
     }
 

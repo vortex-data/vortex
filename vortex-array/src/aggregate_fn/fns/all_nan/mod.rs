@@ -9,6 +9,7 @@ use crate::ArrayRef;
 use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::aggregate_fn::AggregateDTypes;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::EmptyOptions;
@@ -60,34 +61,55 @@ impl AggregateFnVTable for AllNan {
         self.return_dtype(options, input_dtype)
     }
 
+    fn empty_partial(
+        &self,
+        _options: &Self::Options,
+        _dtypes: AggregateDTypes<'_>,
+    ) -> VortexResult<Self::Partial> {
+        Ok(true)
+    }
+
     fn partial_from_scalar(
         &self,
         _options: &Self::Options,
-        _input_dtype: &DType,
+        _dtypes: AggregateDTypes<'_>,
         scalar: Scalar,
     ) -> VortexResult<Self::Partial> {
         bool::try_from(&scalar)
     }
 
-    fn reduce_partials(
+    fn merge_partials(
         &self,
         _options: &Self::Options,
-        _input_dtype: &DType,
-        partials: impl IntoIterator<Item = Self::Partial>,
+        _dtypes: AggregateDTypes<'_>,
+        first: Self::Partial,
+        second: Self::Partial,
     ) -> VortexResult<Self::Partial> {
-        Ok(partials.into_iter().all(|partial| partial))
+        Ok(first && second)
     }
 
-    fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
+    fn to_scalar(
+        &self,
+        _options: &Self::Options,
+        _dtypes: AggregateDTypes<'_>,
+        partial: &Self::Partial,
+    ) -> VortexResult<Scalar> {
         Ok(Scalar::bool(*partial, Nullability::Nullable))
     }
 
-    fn is_saturated(&self, partial: &Self::Partial) -> bool {
+    fn is_saturated(
+        &self,
+        _options: &Self::Options,
+        _dtypes: AggregateDTypes<'_>,
+        partial: &Self::Partial,
+    ) -> bool {
         !*partial
     }
 
     fn try_accumulate(
         &self,
+        _options: &Self::Options,
+        _dtypes: AggregateDTypes<'_>,
         state: &mut Self::Partial,
         batch: &ArrayRef,
         ctx: &mut ExecutionCtx,
@@ -103,6 +125,8 @@ impl AggregateFnVTable for AllNan {
 
     fn accumulate(
         &self,
+        _options: &Self::Options,
+        _dtypes: AggregateDTypes<'_>,
         partial: &mut Self::Partial,
         batch: &Columnar,
         ctx: &mut ExecutionCtx,
@@ -122,12 +146,22 @@ impl AggregateFnVTable for AllNan {
         Ok(())
     }
 
-    fn finalize(&self, partials: ArrayRef) -> VortexResult<ArrayRef> {
+    fn finalize(
+        &self,
+        _options: &Self::Options,
+        _dtypes: AggregateDTypes<'_>,
+        partials: ArrayRef,
+    ) -> VortexResult<ArrayRef> {
         Ok(partials)
     }
 
-    fn finalize_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
-        self.to_scalar(partial)
+    fn finalize_scalar(
+        &self,
+        options: &Self::Options,
+        dtypes: AggregateDTypes<'_>,
+        partial: &Self::Partial,
+    ) -> VortexResult<Scalar> {
+        self.to_scalar(options, dtypes, partial)
     }
 }
 

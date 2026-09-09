@@ -31,6 +31,7 @@ use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::aggregate_fn::Accumulator;
+use crate::aggregate_fn::AggregateDTypes;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
@@ -219,16 +220,14 @@ pub struct IsConstantPartial {
     is_constant: bool,
     /// None = empty (no values seen), Some(null) = all nulls, Some(v) = first value seen.
     first_value: Option<Scalar>,
-    element_dtype: DType,
 }
 
 impl IsConstantPartial {
     /// The state of a group with no accumulated values.
-    fn empty(input_dtype: &DType) -> Self {
+    fn empty() -> Self {
         Self {
             is_constant: true,
             first_value: None,
-            element_dtype: input_dtype.clone(),
         }
     }
 
@@ -292,15 +291,23 @@ impl AggregateFnVTable for IsConstant {
         }
     }
 
+    fn empty_partial(
+        &self,
+        _options: &Self::Options,
+        _dtypes: AggregateDTypes<'_>,
+    ) -> VortexResult<Self::Partial> {
+        Ok(IsConstantPartial::empty())
+    }
+
     fn partial_from_scalar(
         &self,
         _options: &Self::Options,
-        input_dtype: &DType,
+        _dtypes: AggregateDTypes<'_>,
         scalar: Scalar,
     ) -> VortexResult<Self::Partial> {
         // A null struct means the producing accumulator was empty.
         if scalar.is_null() {
-            return Ok(IsConstantPartial::empty(input_dtype));
+            return Ok(IsConstantPartial::empty());
         }
 
         let is_constant = scalar
@@ -312,32 +319,32 @@ impl AggregateFnVTable for IsConstant {
         Ok(IsConstantPartial {
             is_constant,
             first_value: scalar.as_struct().field_by_idx(1),
-            element_dtype: input_dtype.clone(),
         })
     }
 
-    fn reduce_partials(
+    fn merge_partials(
         &self,
         _options: &Self::Options,
-        input_dtype: &DType,
-        partials: impl IntoIterator<Item = Self::Partial>,
+        _dtypes: AggregateDTypes<'_>,
+        mut acc: Self::Partial,
+        partial: Self::Partial,
     ) -> VortexResult<Self::Partial> {
-        let mut acc = IsConstantPartial::empty(input_dtype);
-        for partial in partials {
-            if !partial.is_constant {
-                acc.is_constant = false;
-                break;
-            }
-            if let Some(value) = partial.first_value {
-                acc.check_value(value);
-            }
+        if !partial.is_constant {
+            acc.is_constant = false;
+        } else if let Some(value) = partial.first_value {
+            acc.check_value(value);
         }
         Ok(acc)
     }
 
-    fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
-        let dtype = make_is_constant_partial_dtype(&partial.element_dtype);
-        let element_dtype = partial.element_dtype.as_nullable();
+    fn to_scalar(
+        &self,
+        _options: &Self::Options,
+        dtypes: AggregateDTypes<'_>,
+        partial: &Self::Partial,
+    ) -> VortexResult<Scalar> {
+        let dtype = dtypes.partial.clone();
+        let element_dtype = dtypes.input.as_nullable();
         // Only a constant partial that saw no values is the empty (null) state: a non-constant
         // verdict stands regardless of whether a value was observed.
         let first_value = match &partial.first_value {
@@ -355,12 +362,19 @@ impl AggregateFnVTable for IsConstant {
     }
 
     #[inline]
-    fn is_saturated(&self, partial: &Self::Partial) -> bool {
+    fn is_saturated(
+        &self,
+        _options: &Self::Options,
+        _dtypes: AggregateDTypes<'_>,
+        partial: &Self::Partial,
+    ) -> bool {
         !partial.is_constant
     }
 
     fn accumulate(
         &self,
+        _options: &Self::Options,
+        dtypes: AggregateDTypes<'_>,
         partial: &mut Self::Partial,
         batch: &Columnar,
         ctx: &mut ExecutionCtx,
@@ -384,7 +398,7 @@ impl AggregateFnVTable for IsConstant {
 
                 let all_invalid = array_ref.all_invalid(ctx)?;
                 if all_invalid {
-                    partial.check_value(Scalar::null(partial.element_dtype.as_nullable()));
+                    partial.check_value(Scalar::null(dtypes.input.as_nullable()));
                     return Ok(());
                 }
 
@@ -431,11 +445,21 @@ impl AggregateFnVTable for IsConstant {
         }
     }
 
-    fn finalize(&self, partials: ArrayRef) -> VortexResult<ArrayRef> {
+    fn finalize(
+        &self,
+        _options: &Self::Options,
+        _dtypes: AggregateDTypes<'_>,
+        partials: ArrayRef,
+    ) -> VortexResult<ArrayRef> {
         partials.get_item(NAMES.get(0).vortex_expect("out of bounds").clone())
     }
 
-    fn finalize_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
+    fn finalize_scalar(
+        &self,
+        _options: &Self::Options,
+        _dtypes: AggregateDTypes<'_>,
+        partial: &Self::Partial,
+    ) -> VortexResult<Scalar> {
         if partial.first_value.is_none() {
             // Empty accumulator → return false.
             return Ok(Scalar::bool(false, Nullability::NonNullable));
@@ -457,6 +481,7 @@ mod tests {
     use crate::aggregate_fn::AggregateFnVTable;
     use crate::aggregate_fn::DynAccumulator;
     use crate::aggregate_fn::EmptyOptions;
+    use crate::aggregate_fn::OwnedAggregateDTypes;
     use crate::aggregate_fn::fns::is_constant::IsConstant;
     use crate::aggregate_fn::fns::is_constant::IsConstantPartial;
     use crate::aggregate_fn::fns::is_constant::is_constant;
@@ -794,17 +819,18 @@ mod tests {
     #[test]
     fn non_constant_partial_without_value_is_not_empty() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let owned = OwnedAggregateDTypes::try_new(&IsConstant, &EmptyOptions, dtype)?;
+        let dtypes = owned.borrow();
         let partial = IsConstantPartial {
             is_constant: false,
             first_value: None,
-            element_dtype: dtype.clone(),
         };
 
-        let scalar = IsConstant.to_scalar(&partial)?;
+        let scalar = IsConstant.to_scalar(&EmptyOptions, dtypes, &partial)?;
         assert!(!scalar.is_null());
-        let parsed = IsConstant.partial_from_scalar(&EmptyOptions, &dtype, scalar)?;
+        let parsed = IsConstant.partial_from_scalar(&EmptyOptions, dtypes, scalar)?;
         assert_eq!(
-            IsConstant.finalize_scalar(&parsed)?,
+            IsConstant.finalize_scalar(&EmptyOptions, dtypes, &parsed)?,
             Scalar::bool(false, Nullability::NonNullable)
         );
         Ok(())

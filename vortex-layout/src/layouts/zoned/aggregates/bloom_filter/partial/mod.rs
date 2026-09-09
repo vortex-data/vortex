@@ -93,14 +93,18 @@ impl TryFrom<u32> for HashFn {
 /// ```rust
 /// use vortex_array::dtype::{DType, Nullability};
 /// use vortex_layout::layouts::zoned::aggregates::bloom_filter::{BloomFilter, BloomOptions};
-/// use vortex_array::aggregate_fn::AggregateFnVTable;
+/// use vortex_array::aggregate_fn::{AggregateFnVTable, OwnedAggregateDTypes};
 ///
 /// let filter = BloomFilter {};
+/// let options = BloomOptions::default();
+/// let dtypes = OwnedAggregateDTypes::try_new(
+///     &filter,
+///     &options,
+///     DType::Binary(Nullability::NonNullable),
+/// )
+/// .expect("valid input dtype");
 /// let mut zone = filter
-///     .empty_partial(
-///         &BloomOptions::default(),
-///         &DType::Binary(Nullability::NonNullable),
-///     )
+///     .empty_partial(&options, dtypes.borrow())
 ///     .expect("valid partial");
 ///
 /// zone.insert(b"Denmark");
@@ -109,9 +113,9 @@ impl TryFrom<u32> for HashFn {
 /// assert_eq!(zone.contains(b"Japan"), false);
 /// assert_eq!(zone.contains(b"Brazil"), false);
 /// ```
+#[derive(PartialEq, Eq)]
 pub struct BloomPartial {
     blocks: Vec<[u32; 8]>,
-    hash_fn: HashFn,
 }
 
 impl BloomPartial {
@@ -238,31 +242,20 @@ impl BloomPartial {
 /// start an empty partial from [`super::BloomFilter`].
 impl From<&BloomOptions> for BloomPartial {
     fn from(options: &BloomOptions) -> Self {
-        Self {
-            blocks: vec![[0u32; 8]; options.blocks_count.get() as usize],
-            hash_fn: options.hash_fn,
+        // The hash function lives in the options, not the partial: adding a variant must
+        // revisit how partials are hashed, so match exhaustively here.
+        match options.hash_fn {
+            HashFn::XxHash3_64 => Self {
+                blocks: vec![[0u32; 8]; options.blocks_count.get() as usize],
+            },
         }
-    }
-}
-
-impl PartialEq for BloomPartial {
-    fn eq(&self, other: &Self) -> bool {
-        // Currently, the Bloom filter only supports one hash function,
-        // so two partials with the same blocks are equal.
-        // If the filter supports more hash functions in the future,
-        // this would no longer be true, because the same blocks could represent
-        // different values.
-        self.blocks == other.blocks && self.hash_fn == other.hash_fn
     }
 }
 
 #[cfg(test)]
 impl From<Vec<[u32; 8]>> for BloomPartial {
     fn from(value: Vec<[u32; 8]>) -> Self {
-        BloomPartial {
-            blocks: value,
-            hash_fn: HashFn::XxHash3_64, // Default. Only used for tests.
-        }
+        BloomPartial { blocks: value }
     }
 }
 
