@@ -401,7 +401,7 @@ impl<T> BufferMut<T> {
             preferred_alignment,
             allocator,
         );
-        buffer.copy_from_slice(other);
+        buffer.extend_from_slice(other);
         debug_assert_eq!(buffer.alignment(), alignment);
         buffer
     }
@@ -688,40 +688,9 @@ impl<T> BufferMut<T> {
         self.length += n;
     }
 
-    /// Appends a slice by cloning its elements, growing the internal buffer as needed.
-    ///
-    /// Prefer [`Self::copy_from_slice`] when `T` implements `Copy`.
-    ///
-    /// # Panics
-    ///
-    /// If cloning an element panics, the buffer's length and existing values are unchanged.
-    ///
-    /// # Example:
-    ///
-    /// ```
-    /// # use vortex_buffer::BufferMut;
-    ///
-    /// let mut builder = BufferMut::<u16>::with_capacity(10);
-    /// builder.extend_from_slice(&[42, 44, 46]);
-    ///
-    /// assert_eq!(builder.len(), 3);
-    /// ```
-    #[inline]
-    pub fn extend_from_slice(&mut self, slice: &[T])
-    where
-        T: Clone,
-    {
-        self.reserve(slice.len());
-        // SAFETY: reserve guarantees at least slice.len() spare slots.
-        let dst = unsafe { self.spare_capacity_mut().get_unchecked_mut(..slice.len()) };
-        dst.write_clone_of_slice(slice);
-        self.length += slice.len();
-    }
-
     /// Appends a slice by copying its elements, growing the internal buffer as needed.
     ///
-    /// This does not call [`Clone::clone`]. For types that only implement `Clone`, use
-    /// [`Self::extend_from_slice`].
+    /// This does not call [`Clone::clone`].
     ///
     /// # Example
     ///
@@ -729,7 +698,7 @@ impl<T> BufferMut<T> {
     /// use vortex_buffer::BufferMut;
     ///
     /// let mut buffer = BufferMut::from_iter([1, 2]);
-    /// buffer.copy_from_slice(&[3, 4]);
+    /// buffer.extend_from_slice(&[3, 4]);
     /// assert_eq!(buffer.as_slice(), &[1, 2, 3, 4]);
     /// ```
     ///
@@ -742,10 +711,10 @@ impl<T> BufferMut<T> {
     /// struct NotCopy(u32);
     ///
     /// let mut buffer = BufferMut::with_capacity(1);
-    /// buffer.copy_from_slice(&[NotCopy(1)]);
+    /// buffer.extend_from_slice(&[NotCopy(1)]);
     /// ```
     #[inline]
-    pub fn copy_from_slice(&mut self, slice: &[T])
+    pub fn extend_from_slice(&mut self, slice: &[T])
     where
         T: Copy,
     {
@@ -811,7 +780,7 @@ impl<T> BufferMut<T> {
             let capacity = self.capacity();
             let allocator = self.allocation.allocator().clone();
             let mut aligned = Self::with_capacity_aligned_in(capacity, alignment, allocator);
-            aligned.copy_from_slice(&self);
+            aligned.extend_from_slice(&self);
             aligned.capacity = capacity;
             aligned
         }
@@ -847,7 +816,7 @@ impl<T> BufferMut<T> {
     }
 }
 
-impl<T: Clone> Clone for BufferMut<T> {
+impl<T: Copy> Clone for BufferMut<T> {
     fn clone(&self) -> Self {
         let mut buffer = BufferMut::<T>::with_capacity_aligned_in(
             self.capacity(),
@@ -1066,8 +1035,6 @@ impl<T> FromIterator<T> for BufferMut<T> {
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
-    use std::panic::AssertUnwindSafe;
-    use std::panic::catch_unwind;
 
     use allocator_api2::alloc::Global;
 
@@ -1076,75 +1043,35 @@ mod tests {
     use crate::BufferMut;
     use crate::buffer_mut;
 
-    #[derive(Clone, Debug, PartialEq)]
-    struct CloneOnly(u32);
-
     #[derive(Copy, Debug, PartialEq)]
     struct CopyWithCloneCounter<'a> {
         value: u32,
         clones: &'a Cell<usize>,
-        panic_at: Option<usize>,
     }
 
     #[allow(clippy::non_canonical_clone_impl)]
     impl Clone for CopyWithCloneCounter<'_> {
         fn clone(&self) -> Self {
             self.clones.set(self.clones.get() + 1);
-            assert_ne!(Some(self.clones.get()), self.panic_at, "clone panicked");
             *self
         }
     }
 
     #[test]
-    fn extend_from_slice_supports_clone_only() {
-        let mut buffer = BufferMut::empty();
-        buffer.push(CloneOnly(1));
-        buffer.extend_from_slice(&[CloneOnly(2), CloneOnly(3)]);
-
-        assert_eq!(
-            buffer.as_slice(),
-            &[CloneOnly(1), CloneOnly(2), CloneOnly(3)]
-        );
-        assert_eq!(buffer.clone().as_slice(), buffer.as_slice());
-    }
-
-    #[test]
-    fn copy_from_slice_skips_clone() {
+    fn extend_from_slice_skips_clone() {
         let clones = Cell::new(0);
         let source = [CopyWithCloneCounter {
             value: 42,
             clones: &clones,
-            panic_at: None,
         }];
         let mut buffer = BufferMut::empty();
         buffer.extend_from_slice(&source);
-        assert_eq!(clones.get(), 1);
-
-        buffer.copy_from_slice(&source);
-        buffer.copy_from_slice(&[]);
-        assert_eq!(clones.get(), 1);
+        buffer.extend_from_slice(&source);
+        buffer.extend_from_slice(&[]);
+        assert_eq!(clones.get(), 0);
         assert_eq!(buffer.as_slice(), &[source[0], source[0]]);
-    }
-
-    #[test]
-    fn extend_from_slice_preserves_buffer_on_clone_panic() {
-        let clones = Cell::new(0);
-        let source = [CopyWithCloneCounter {
-            value: 42,
-            clones: &clones,
-            panic_at: Some(2),
-        }; 2];
-        let mut buffer = BufferMut::empty();
-        buffer.push(source[0]);
-
-        let result = catch_unwind(AssertUnwindSafe(|| buffer.extend_from_slice(&source)));
-        assert!(result.is_err());
-        assert_eq!(clones.get(), 2);
-        assert_eq!(buffer.as_slice(), &source[..1]);
-
-        buffer.copy_from_slice(&source);
-        assert_eq!(clones.get(), 2);
-        assert_eq!(buffer.as_slice(), &[source[0]; 3]);
+        assert_eq!(buffer.clone().as_slice(), buffer.as_slice());
+        assert_eq!(clones.get(), 0);
     }
 
     #[test]

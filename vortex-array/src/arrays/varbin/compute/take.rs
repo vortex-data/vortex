@@ -389,7 +389,7 @@ fn take<Index: IntegerPType, Offset: IntegerPType>(
         let stop = offsets[idx + 1]
             .to_usize()
             .vortex_expect("Failed to cast max offset to usize");
-        new_data.copy_from_slice(&data[start..stop]);
+        new_data.extend_from_slice(&data[start..stop]);
     }
 
     let array_validity = Validity::from(dtype.nullability());
@@ -798,7 +798,7 @@ fn take_nullable<Index: IntegerPType, Offset: IntegerPType>(
         let stop = offsets[data_idx + 1]
             .to_usize()
             .vortex_expect("Failed to cast max offset to usize");
-        new_data.copy_from_slice(&data[start..stop]);
+        new_data.extend_from_slice(&data[start..stop]);
     }
 
     let array_validity = Validity::from(validity_buffer.freeze());

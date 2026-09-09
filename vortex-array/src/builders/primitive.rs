@@ -159,7 +159,7 @@ impl<T: NativePType> PrimitiveBuilder<T> {
             "Cannot append primitive array with different ptype"
         );
 
-        self.values.copy_from_slice(array.as_slice::<T>());
+        self.values.extend_from_slice(array.as_slice::<T>());
         self.nulls.append_validity_mask(
             &array
                 .as_ref()

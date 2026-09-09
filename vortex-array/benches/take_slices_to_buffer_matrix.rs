@@ -4,7 +4,7 @@
 //! Microbenchmarks for primitive `take_slices_to_buffer` copy-loop variants.
 //!
 //! The matrix covers:
-//! - append via `BufferMut::copy_from_slice`, indexed cursor copy, and advancing pointer copy
+//! - append via `BufferMut::extend_from_slice`, indexed cursor copy, and advancing pointer copy
 //!   into spare output capacity
 //! - ordinary checked slicing vs a preverification pass followed by unchecked slicing
 //! - fixed-width short slices at the run counts used by the FSL take benchmarks
@@ -157,7 +157,7 @@ fn take_extend_safe(
 ) -> Buffer<u16> {
     let mut result = BufferMut::<u16>::with_capacity(output_len);
     for (&start, &length) in starts.iter().zip(lengths) {
-        result.copy_from_slice(&values[start..start + length]);
+        result.extend_from_slice(&values[start..start + length]);
     }
     result.freeze()
 }
@@ -223,7 +223,7 @@ fn take_preverify_extend_unchecked(
     for (&start, &length) in starts.iter().zip(lengths) {
         // SAFETY: `preverify` checked every source range.
         unsafe {
-            result.copy_from_slice(values.get_unchecked(start..start + length));
+            result.extend_from_slice(values.get_unchecked(start..start + length));
         }
     }
     result.freeze()

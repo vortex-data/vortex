@@ -131,7 +131,7 @@ pub(super) fn filter_slice_by_slices<T: Copy>(
 ) -> Buffer<T> {
     let mut out = BufferMut::<T>::with_capacity_in(output_len, allocator.clone());
     for (start, end) in slices {
-        out.copy_from_slice(&slice[*start..*end]);
+        out.extend_from_slice(&slice[*start..*end]);
     }
 
     out.freeze()
