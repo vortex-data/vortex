@@ -43,6 +43,8 @@ pub use vortex_edition::declarations::core::CORE_2026_08_2;
 pub use vortex_edition::declarations::core::CORE_2026_08_3;
 pub use vortex_edition::declarations::preview;
 pub use vortex_edition::declarations::preview::PREVIEW_2026_08_0;
+pub use vortex_edition::declarations::unstable;
+pub use vortex_edition::declarations::unstable::UNSTABLE;
 use vortex_error::VortexExpect;
 use vortex_session::VortexSession;
 
@@ -77,3 +79,6 @@ pub fn enable_default_editions(session: &VortexSession) {
         .enable_edition(DEFAULT_CORE_EDITION)
         .vortex_expect("default core edition is registered");
 }
+
+#[cfg(all(test, feature = "files"))]
+mod unstable_tests;

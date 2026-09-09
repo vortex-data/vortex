@@ -597,6 +597,7 @@ const CUDA_EDITION: EditionId = EditionId::new("cuda", 2026, 9, 0);
 static CUDA_EDITION_DECLARATION: EditionDeclaration = EditionDeclaration {
     edition: Edition {
         id: CUDA_EDITION,
+        unstable: false,
         min_library_version: None,
     },
     added: &[EditionMember::layout(&"vortex.cuda_flat")],
@@ -806,6 +807,7 @@ mod tests {
         session.register_edition(&EditionDeclaration {
             edition: Edition {
                 id: OTHER_CUDA_EDITION,
+                unstable: false,
                 min_library_version: None,
             },
             added: &[],

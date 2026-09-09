@@ -75,7 +75,10 @@ forbids, or a custom strategy can choose an unsupported layout. The
 selection.
 
 [Draft editions](versioning/editions.md#draft-editions) have no frozen compatibility guarantee.
-Custom wire formats written with edition checks disabled also fall outside the edition guarantee.
+The [unstable edition](versioning/using-editions.md#unstable-edition), `UNSTABLE`, additionally
+permits membership and wire contracts to change under existing IDs. It uses ordinary edition
+selection and accepts plugin-defined members. Readers need matching implementations for those
+formats. Custom wire formats written with edition checks disabled also fall outside the guarantee.
 
 ## Upgrades
 

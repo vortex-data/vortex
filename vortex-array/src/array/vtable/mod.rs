@@ -117,9 +117,14 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
 
     /// Serialize encoding metadata into a byte buffer for IPC or file storage.
     ///
-    /// Return `None` if the array cannot be serialized by this encoding. Buffers and children are
-    /// serialized separately through [`buffer`](Self::buffer), [`nbuffers`](Self::nbuffers), and
-    /// child traversal.
+    /// Buffers and children are serialized separately through [`buffer`](Self::buffer),
+    /// [`nbuffers`](Self::nbuffers), and child traversal.
+    ///
+    /// Return `Ok(None)` if this encoding cannot be serialized. This includes in-memory-only
+    /// encodings and encodings whose wire format is owned by a separate
+    /// [`ArrayPlugin`](crate::array::ArrayPlugin). Do not return an error for this case: the
+    /// caller decides how to report an unserializable array. Return an error only when an array
+    /// that can be serialized fails to serialize.
     fn serialize(
         array: ArrayView<'_, Self>,
         session: &VortexSession,

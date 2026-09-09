@@ -3,12 +3,13 @@
 
 //! Check that frozen edition records under `vortex/editions` never change.
 //!
+//! An unstable record can change or be deleted without compatibility constraints.
 //! A draft record carries no read-forever guarantee and is not mechanically locked by this check.
 //! Once `min_library_version` is backfilled, the record captures the frozen edition's complete
 //! membership and may never change again. Whether a record was frozen is read from the base
 //! revision, so a change cannot unfreeze an edition and edit it in the same diff.
 //!
-//! A newly added record must also be newer than every edition already recorded for its
+//! A newly added non-unstable record must also be newer than every edition already recorded for its
 //! family: editions are only ever added going forward. Records are grouped by family, so
 //! `vortex/editions/core/core2025.05.0.toml` must sit under the family its name declares. The
 //! `family.toml` beside them documents the family rather than pinning a contract, so it is
@@ -40,6 +41,14 @@ pub const RECORD_DIR: &str = "vortex/editions";
 /// A record carries this key once the edition's freeze has been documented.
 const FROZEN_MARKER: &str = "min_library_version";
 
+pub(super) fn record_is_unstable(record: &Table) -> bool {
+    record.get("unstable").and_then(|value| value.as_bool()) == Some(true)
+}
+
+pub(super) fn record_is_frozen(record: &Table) -> bool {
+    !record_is_unstable(record) && record.contains_key(FROZEN_MARKER)
+}
+
 const REMEDY: &str = "\
 A frozen edition is immutable. To add component IDs, declare a NEW edition in
   the family's declaration module and regenerate the records with
@@ -50,6 +59,9 @@ type Chronology = (u16, u8, u8);
 
 /// Split a record file name into its family and its place in that family's chronology.
 fn parse_name(name: &str) -> anyhow::Result<(&str, Chronology)> {
+    if name == "unstable.toml" {
+        return Ok(("unstable", (0, 0, 0)));
+    }
     let malformed = || {
         anyhow!(
             "{RECORD_DIR}/{name} is not a valid record name. Records are named after the \
@@ -113,6 +125,15 @@ fn newest_recorded(
         if !name.ends_with(".toml") || name == FAMILY_FILE {
             return TreeWalkResult::Ok;
         }
+        let record = repo.find_blob(entry.id()).ok().and_then(|blob| {
+            std::str::from_utf8(blob.content())
+                .ok()?
+                .parse::<Table>()
+                .ok()
+        });
+        if record.as_ref().is_some_and(record_is_unstable) {
+            return TreeWalkResult::Ok;
+        }
         match parse_name(name) {
             Ok((family, chronology)) => {
                 let slot = newest.entry(family.to_string()).or_insert(chronology);
@@ -170,7 +191,8 @@ fn check_addition(
         .ok_or_else(|| anyhow!("{path} has no file name"))?;
     let (family, chronology) = parse_name(name)?;
 
-    if let Some(previous) = newest.get(family)
+    if !record_is_unstable(record)
+        && let Some(previous) = newest.get(family)
         && chronology <= *previous
     {
         errors.push(format!(
@@ -270,7 +292,7 @@ pub fn check_editions(base: &str) -> anyhow::Result<()> {
         let Some(before) = read_record(&repo, &base_commit, &old)? else {
             continue;
         };
-        if !before.contains_key(FROZEN_MARKER) {
+        if !record_is_frozen(&before) {
             continue;
         }
 
@@ -317,4 +339,33 @@ pub fn check_editions(base: &str) -> anyhow::Result<()> {
         .collect::<Vec<_>>()
         .join("\n");
     bail!("This change breaks the edition records in {RECORD_DIR}:\n\n{listed}\n\n{REMEDY}");
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use toml::Table;
+
+    use super::check_addition;
+    use super::check_modification;
+    use super::record_is_frozen;
+
+    #[test]
+    fn unstable_records_do_not_weaken_frozen_contracts() -> anyhow::Result<()> {
+        let frozen: Table = "edition = 'core2026.08.0'\nmin_library_version = '0.84.0'".parse()?;
+        let mut changed = frozen.clone();
+        changed.insert("unstable".into(), true.into());
+        assert!(record_is_frozen(&frozen));
+        assert!(!check_modification(&frozen, &changed, "core2026.08.0.toml").is_empty());
+
+        let unstable: Table = "edition = 'unstable'\norigin = 'vortex'\nunstable = true".parse()?;
+        assert!(!record_is_frozen(&unstable));
+        let newest = BTreeMap::from([("unstable".into(), (2026, 8, 0))]);
+        assert!(
+            check_addition("vortex/editions/unstable/unstable.toml", &unstable, &newest)?
+                .is_empty()
+        );
+        Ok(())
+    }
 }

@@ -195,7 +195,8 @@ supports all its members. New formats require a later edition, leaving the earli
 to writers targeting older versions.
 
 An _edition family_ groups editions for related components. Membership is cumulative within a
-family: each later edition includes all earlier members.
+family: each later non-unstable edition includes all earlier non-unstable members. Unstable
+editions have independent membership.
 
 The `core` family covers the default writer's formats, while optional features have independent
 families. A writer can select one `core` edition and one `tensor` edition, for example, and use the
@@ -227,8 +228,8 @@ format, and reader version.
    formats, including those writers no longer choose. Edition selection does not restrict what a
    reader can read.
 4. **Frozen edition records are immutable.** Membership, origin, and recorded minimum stay fixed.
-   Later editions include all earlier members within their family, while selecting editions from
-   multiple families permits the union of their members.
+   Later editions include earlier non-unstable members within their family, while selecting editions
+   from multiple families permits the union of their members.
 5. **Edition enforcement covers the whole output.** Every serialized component must be permitted,
    including children and nested dependencies, so compressor declarations alone are insufficient.
 6. **Recorded reader requirements are sound.** Each recorded origin version supplies readers for
@@ -249,10 +250,19 @@ historical writing implementation.
 
 ## New formats
 
-A new format starts in a draft edition so it can be tested before its origin commits to reading it
-indefinitely. Drafts have no recorded minimum version or frozen guarantee. A format intended for
-`core` can progress from its own family to `preview` for broader testing, then to `core` for default
-use. Promotion preserves its wire ID and interpretation. The
+A format whose contract is still changing belongs in `UNSTABLE`, an ordinary edition selection
+without compatibility guarantees. Plugins register its members through ordinary edition inclusions.
+Membership and wire contracts may change under existing IDs, so producers and readers need matching
+implementations. The wire ID alone cannot distinguish earlier experimental contracts.
+
+Unstable membership is never inherited by another edition. Once a contract is settled, its owner
+explicitly adds it to a new draft edition and removes its unstable inclusion. The ID can stay the
+same, but this does not make earlier experimental files compatible. A format intended for `core`
+enters `preview` for broader testing, then `core` for default use. Promotion preserves the settled
+wire ID and contract. A contract frozen in any edition remains immutable regardless of whether
+`UNSTABLE` also includes it; reader-visible corrections then require a new ID.
+
+Draft editions have no recorded minimum version or frozen guarantee. The
 [registry instructions](editions.md#format-testing-and-promotion) cover promotion, freezing, and
 recording the minimum version.
 
@@ -271,9 +281,9 @@ variant, which splits values too wide for one 64-bit child into several children
 `vortex.decimal_byte_parts.v2` is allowed. Otherwise its v1 variant constructs only single-child
 arrays, and values too wide for one child remain in the standard uncompressed decimal
 representation. The v2 variant also writes the v1 ID for arrays that fit the v1 format, so allowing
-only the v2 ID excludes the scheme. No declared edition permits `vortex.decimal_byte_parts.v2` yet,
-so a writer that enforces editions writes only single-child decimal arrays.
+only the v2 ID excludes the scheme. Only `UNSTABLE` permits `vortex.decimal_byte_parts.v2`, so a
+writer that enforces editions writes multi-child decimal arrays only when `UNSTABLE` is selected.
 
 [^decimal-availability]:
-    No declared edition currently permits the multi-child format. The
+    The multi-child format requires selecting `UNSTABLE`. The
     [compression section](#compression) describes what the default compressor produces today.

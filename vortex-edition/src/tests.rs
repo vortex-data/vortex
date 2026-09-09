@@ -35,6 +35,7 @@ static DECLARATIONS: &[EditionDeclaration] = &[
     EditionDeclaration {
         edition: Edition {
             id: FIRST,
+            unstable: false,
             min_library_version: None,
         },
         added: &[
@@ -45,6 +46,7 @@ static DECLARATIONS: &[EditionDeclaration] = &[
     EditionDeclaration {
         edition: Edition {
             id: SECOND,
+            unstable: false,
             min_library_version: None,
         },
         added: &[
@@ -148,12 +150,14 @@ fn drafts_and_current() {
     editions
         .declare_edition(Edition {
             id: FIRST,
+            unstable: false,
             min_library_version: Some("0.60.0"),
         })
         .unwrap();
     editions
         .declare_edition(Edition {
             id: SECOND,
+            unstable: false,
             min_library_version: None,
         })
         .unwrap();
@@ -223,6 +227,7 @@ fn enabled_editions_are_independent_across_families() -> VortexResult<()> {
     static OTHER_DECLARATION: EditionDeclaration = EditionDeclaration {
         edition: Edition {
             id: OTHER,
+            unstable: false,
             min_library_version: None,
         },
         added: &[EditionMember::array(&"other.delta")],
@@ -250,6 +255,7 @@ fn serialized_array_ids_can_be_added_by_an_opt_in_family() -> VortexResult<()> {
     static OPT_IN_DECLARATION: EditionDeclaration = EditionDeclaration {
         edition: Edition {
             id: OPT_IN,
+            unstable: false,
             min_library_version: None,
         },
         added: &[EditionMember::array(&"test.alpha_v2")],
@@ -282,6 +288,7 @@ fn duplicate_declarations_error() {
         editions
             .declare_edition(Edition {
                 id: FIRST,
+                unstable: false,
                 min_library_version: None,
             })
             .is_err()
@@ -311,6 +318,7 @@ fn validate_rejects_inconsistent_declarations() -> VortexResult<()> {
     editions.declare_family(&TEST_FAMILY)?;
     editions.declare_edition(Edition {
         id: FIRST,
+        unstable: false,
         min_library_version: Some("0.70.0"),
     })?;
     editions.declare_inclusion(EditionInclusion {
@@ -330,10 +338,12 @@ fn validate_rejects_inconsistent_declarations() -> VortexResult<()> {
     editions.declare_family(&TEST_FAMILY)?;
     editions.declare_edition(Edition {
         id: FIRST,
+        unstable: false,
         min_library_version: None,
     })?;
     editions.declare_edition(Edition {
         id: SECOND,
+        unstable: false,
         min_library_version: Some("0.70.0"),
     })?;
     assert!(
@@ -352,6 +362,7 @@ fn validate_rejects_inconsistent_declarations() -> VortexResult<()> {
         editions.declare_family(&TEST_FAMILY)?;
         editions.declare_edition(Edition {
             id,
+            unstable: false,
             min_library_version: None,
         })?;
         let error = editions.validate().unwrap_err().to_string();
@@ -363,6 +374,7 @@ fn validate_rejects_inconsistent_declarations() -> VortexResult<()> {
     editions.declare_family(&TEST_FAMILY)?;
     editions.declare_edition(Edition {
         id: FIRST,
+        unstable: false,
         min_library_version: None,
     })?;
     editions.declare_inclusion(EditionInclusion::array("Test.ALPHA", FIRST))?;
@@ -441,6 +453,7 @@ fn kinds_are_resolved_independently() -> VortexResult<()> {
     static MIXED: EditionDeclaration = EditionDeclaration {
         edition: Edition {
             id: FIRST,
+            unstable: false,
             min_library_version: None,
         },
         added: &[
@@ -474,6 +487,46 @@ fn kinds_are_resolved_independently() -> VortexResult<()> {
             .editions()
             .declare_inclusion(EditionInclusion::array("test.alpha", FIRST))
             .is_err()
+    );
+    Ok(())
+}
+
+/// Unstable membership is independent, so editing it cannot change a later frozen edition.
+#[test]
+fn unstable_members_require_explicit_promotion() -> VortexResult<()> {
+    const EXPERIMENT: EditionId = EditionId::new("test", 2026, 2, 0);
+    let editions = EditionSession::empty();
+    editions.declare_family(&TEST_FAMILY)?;
+    for (id, unstable, min_library_version) in [
+        (FIRST, false, Some("1.0.0")),
+        (EXPERIMENT, true, None),
+        (SECOND, false, Some("2.0.0")),
+        (EditionId::new("test", 2026, 8, 0), true, None),
+    ] {
+        editions.declare_edition(Edition {
+            id,
+            unstable,
+            min_library_version,
+        })?;
+    }
+    editions.declare_inclusion(EditionInclusion::array("test.original", FIRST))?;
+    editions.declare_inclusion(EditionInclusion::array("test.promoted", EXPERIMENT))?;
+    editions.declare_inclusion(EditionInclusion::array("test.changing", EXPERIMENT))?;
+    editions.declare_inclusion(EditionInclusion::array("test.promoted", SECOND))?;
+    editions.validate()?;
+
+    let ids = |edition| {
+        editions
+            .components_in(&edition, ComponentKind::Array)
+            .into_iter()
+            .map(|inclusion| inclusion.component_id.to_string())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(ids(EXPERIMENT), ["test.changing", "test.promoted"]);
+    assert_eq!(ids(SECOND), ["test.original", "test.promoted"]);
+    assert_eq!(
+        editions.current("test").map(|edition| edition.id),
+        Some(SECOND)
     );
     Ok(())
 }

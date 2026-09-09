@@ -50,7 +50,7 @@ can add formats without changing an application's `core` selection.
 
 A writer selects at most one edition per family. Selecting `core2026.08.0` and `tensor2026.04.0`
 permits every component in either edition. Within one family, a later edition includes all earlier
-members. Across families, however, the selections are independent.
+non-unstable members. Across families, however, the selections are independent.
 
 Check the [registry](editions.md#edition-registry) before enabling an optional family. For example,
 `tensor2026.04.0` is a draft and has no frozen minimum reader version. Adding it does not extend
@@ -72,6 +72,62 @@ For editions with the same origin, use at least the highest recorded minimum, wh
 different origins require a separate version check for each project. In both cases, the reader must
 register the required implementations, since meeting the version requirement alone does not make a
 plugin available.
+
+## Unstable edition
+
+`UNSTABLE` is an ordinary edition selection with no compatibility guarantee. Its membership and
+wire contracts may change under existing IDs, without creating a new edition. The default session
+registers it but does not enable it.
+
+Enable it before constructing a compressor or starting a write:
+
+```rust
+use vortex::VortexSessionDefault;
+use vortex::editions::EditionSessionExt;
+use vortex::editions::UNSTABLE;
+use vortex::error::VortexResult;
+use vortex::session::VortexSession;
+
+fn experimental_session() -> VortexResult<VortexSession> {
+    let session = VortexSession::default();
+    session.enable_edition(UNSTABLE)?;
+    Ok(session)
+}
+```
+
+This permits the union of the selected `core` edition and `UNSTABLE`. The writer still checks every
+serialized component, including children, layouts, extension dtypes, and stored aggregates.
+
+Plugins can add members using the ordinary edition registry; the built-in declarations are not a
+closed list. For example, after registering the plugin's serializer and reader:
+
+```rust
+use vortex::editions::ComponentKind;
+use vortex::editions::EditionInclusion;
+use vortex::editions::EditionSessionExt;
+use vortex::editions::UNSTABLE;
+use vortex::error::VortexResult;
+use vortex::session::VortexSession;
+
+fn register_experiment(session: &VortexSession) -> VortexResult<()> {
+    session.editions().declare_inclusion(EditionInclusion::new(
+        ComponentKind::Array,
+        "my_plugin.experimental_encoding",
+        UNSTABLE,
+    ))
+}
+```
+
+Registration does not enable the edition or install an implementation. Use
+`session.editions().components_in(&UNSTABLE, kind)` to discover its registered members.
+
+Producers and readers of unstable formats need matching implementations. Selecting a frozen `core`
+edition alongside `UNSTABLE` does not extend its guarantee to unstable formats. A contract already
+frozen in any edition remains immutable, even if its ID is also registered in `UNSTABLE`.
+
+Unstable membership is independent and is never inherited by other editions. A settled format must
+be explicitly added to an ordinary edition, and it can keep its ID. Earlier experimental files
+remain outside the compatibility guarantee.
 
 ## Write errors
 
@@ -102,6 +158,8 @@ array and a layout can share the same ID string while describing different forma
   required optional module.
 - For a draft edition, obtain a build that implements the component from the producer. A draft does
   not promise support in a published release.
+- For an unstable format, obtain the matching implementation from the producer. The same ID in
+  another build may describe a different contract.
 - For a component absent from the registry, obtain its implementation from the producer and register
   it with the session.
 
