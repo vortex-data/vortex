@@ -1,18 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Wide `DecimalByteParts` fixtures: values that need lower parts.
-//!
-//! These live in their own fixture file rather than as extra columns on
-//! `decimal_byte_parts.vortex` because a fixture's `build()` is immutable once published.
-//! `check` compares files written by older releases against what `build()` produces today,
-//! so changing an existing fixture's schema fails the check against every previously
-//! published version — see "Fixture evolution" in `DESIGN.md`, which requires a new fixture
-//! file with a new name for a new type, encoding, or structural pattern.
-//!
-//! So `decimal_byte_parts.vortex` keeps testing exactly what it always did, decimals whose
-//! values fit a single signed part, and the MSP-plus-lower-parts layout added alongside it
-//! is covered here instead.
+//! `DecimalByteParts` fixture for wide decimal values that need lower parts.
 
 use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
