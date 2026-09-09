@@ -12,6 +12,7 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::Columnar;
 use crate::ExecutionCtx;
+use crate::aggregate_fn::AggregateDTypes;
 use crate::aggregate_fn::AggregateFn;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnRef;
@@ -77,34 +78,55 @@ impl AggregateFnVTable for ForeignAggregateFnVTable {
         None
     }
 
+    fn empty_partial(
+        &self,
+        _options: &Self::Options,
+        _dtypes: AggregateDTypes<'_>,
+    ) -> VortexResult<Self::Partial> {
+        vortex_bail!("Cannot execute unknown aggregate function '{}'", self.id)
+    }
+
     fn partial_from_scalar(
         &self,
         _options: &Self::Options,
-        _input_dtype: &DType,
+        _dtypes: AggregateDTypes<'_>,
         _scalar: Scalar,
     ) -> VortexResult<Self::Partial> {
         vortex_bail!("Cannot execute unknown aggregate function '{}'", self.id)
     }
 
-    fn reduce_partials(
+    fn merge_partials(
         &self,
         _options: &Self::Options,
-        _input_dtype: &DType,
-        _partials: impl IntoIterator<Item = Self::Partial>,
+        _dtypes: AggregateDTypes<'_>,
+        _first: Self::Partial,
+        _second: Self::Partial,
     ) -> VortexResult<Self::Partial> {
         vortex_bail!("Cannot execute unknown aggregate function '{}'", self.id)
     }
 
-    fn to_scalar(&self, _partial: &Self::Partial) -> VortexResult<Scalar> {
+    fn to_scalar(
+        &self,
+        _options: &Self::Options,
+        _dtypes: AggregateDTypes<'_>,
+        _partial: &Self::Partial,
+    ) -> VortexResult<Scalar> {
         vortex_bail!("Cannot execute unknown aggregate function '{}'", self.id)
     }
 
-    fn is_saturated(&self, _state: &Self::Partial) -> bool {
+    fn is_saturated(
+        &self,
+        _options: &Self::Options,
+        _dtypes: AggregateDTypes<'_>,
+        _state: &Self::Partial,
+    ) -> bool {
         false
     }
 
     fn accumulate(
         &self,
+        _options: &Self::Options,
+        _dtypes: AggregateDTypes<'_>,
         _state: &mut Self::Partial,
         _batch: &Columnar,
         _ctx: &mut ExecutionCtx,
@@ -112,11 +134,21 @@ impl AggregateFnVTable for ForeignAggregateFnVTable {
         vortex_bail!("Cannot execute unknown aggregate function '{}'", self.id)
     }
 
-    fn finalize(&self, _states: ArrayRef) -> VortexResult<ArrayRef> {
+    fn finalize(
+        &self,
+        _options: &Self::Options,
+        _dtypes: AggregateDTypes<'_>,
+        _states: ArrayRef,
+    ) -> VortexResult<ArrayRef> {
         vortex_bail!("Cannot execute unknown aggregate function '{}'", self.id)
     }
 
-    fn finalize_scalar(&self, _partial: &Self::Partial) -> VortexResult<Scalar> {
+    fn finalize_scalar(
+        &self,
+        _options: &Self::Options,
+        _dtypes: AggregateDTypes<'_>,
+        _partial: &Self::Partial,
+    ) -> VortexResult<Scalar> {
         vortex_bail!("Cannot execute unknown aggregate function '{}'", self.id)
     }
 }

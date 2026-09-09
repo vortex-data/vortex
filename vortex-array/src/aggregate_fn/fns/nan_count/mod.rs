@@ -16,6 +16,7 @@ use crate::Canonical;
 use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::aggregate_fn::Accumulator;
+use crate::aggregate_fn::AggregateDTypes;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
@@ -115,10 +116,18 @@ impl AggregateFnVTable for NanCount {
         self.return_dtype(options, input_dtype)
     }
 
+    fn empty_partial(
+        &self,
+        _options: &Self::Options,
+        _dtypes: AggregateDTypes<'_>,
+    ) -> VortexResult<Self::Partial> {
+        Ok(0)
+    }
+
     fn partial_from_scalar(
         &self,
         _options: &Self::Options,
-        _input_dtype: &DType,
+        _dtypes: AggregateDTypes<'_>,
         scalar: Scalar,
     ) -> VortexResult<Self::Partial> {
         Ok(scalar
@@ -127,26 +136,39 @@ impl AggregateFnVTable for NanCount {
             .vortex_expect("nan_count partial should not be null"))
     }
 
-    fn reduce_partials(
+    fn merge_partials(
         &self,
         _options: &Self::Options,
-        _input_dtype: &DType,
-        partials: impl IntoIterator<Item = Self::Partial>,
+        _dtypes: AggregateDTypes<'_>,
+        first: Self::Partial,
+        second: Self::Partial,
     ) -> VortexResult<Self::Partial> {
-        Ok(partials.into_iter().sum())
+        Ok(first + second)
     }
 
-    fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
+    fn to_scalar(
+        &self,
+        _options: &Self::Options,
+        _dtypes: AggregateDTypes<'_>,
+        partial: &Self::Partial,
+    ) -> VortexResult<Scalar> {
         Ok(Scalar::primitive(*partial, NonNullable))
     }
 
     #[inline]
-    fn is_saturated(&self, _partial: &Self::Partial) -> bool {
+    fn is_saturated(
+        &self,
+        _options: &Self::Options,
+        _dtypes: AggregateDTypes<'_>,
+        _partial: &Self::Partial,
+    ) -> bool {
         false
     }
 
     fn accumulate(
         &self,
+        _options: &Self::Options,
+        _dtypes: AggregateDTypes<'_>,
         partial: &mut Self::Partial,
         batch: &Columnar,
         ctx: &mut ExecutionCtx,
@@ -172,12 +194,22 @@ impl AggregateFnVTable for NanCount {
         }
     }
 
-    fn finalize(&self, partials: ArrayRef) -> VortexResult<ArrayRef> {
+    fn finalize(
+        &self,
+        _options: &Self::Options,
+        _dtypes: AggregateDTypes<'_>,
+        partials: ArrayRef,
+    ) -> VortexResult<ArrayRef> {
         Ok(partials)
     }
 
-    fn finalize_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
-        self.to_scalar(partial)
+    fn finalize_scalar(
+        &self,
+        options: &Self::Options,
+        dtypes: AggregateDTypes<'_>,
+        partial: &Self::Partial,
+    ) -> VortexResult<Scalar> {
+        self.to_scalar(options, dtypes, partial)
     }
 }
 
@@ -192,6 +224,7 @@ mod tests {
     use crate::aggregate_fn::AggregateFnVTable;
     use crate::aggregate_fn::DynAccumulator;
     use crate::aggregate_fn::EmptyOptions;
+    use crate::aggregate_fn::OwnedAggregateDTypes;
     use crate::aggregate_fn::fns::nan_count::NanCount;
     use crate::aggregate_fn::fns::nan_count::nan_count;
     use crate::array_session;
@@ -246,10 +279,11 @@ mod tests {
     #[test]
     fn nan_count_state_merge() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
+        let dtypes = OwnedAggregateDTypes::try_new(&NanCount, &EmptyOptions, dtype)?;
 
-        let state = NanCount.reduce_partials(&EmptyOptions, &dtype, [5, 3])?;
+        let state = NanCount.reduce_partials(&EmptyOptions, dtypes.borrow(), [5, 3])?;
 
-        let result = NanCount.to_scalar(&state)?;
+        let result = NanCount.to_scalar(&EmptyOptions, dtypes.borrow(), &state)?;
         assert_eq!(result.as_primitive().typed_value::<u64>(), Some(8));
         Ok(())
     }

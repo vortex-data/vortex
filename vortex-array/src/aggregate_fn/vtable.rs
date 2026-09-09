@@ -10,6 +10,7 @@ use std::hash::Hash;
 use prost::Message;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
@@ -23,6 +24,83 @@ use crate::dtype::DType;
 use crate::proto::expr as pb;
 use crate::scalar::Scalar;
 
+/// Resolved dtypes of one aggregate function bound to its options and input.
+///
+/// Accumulators resolve these once and lend them to every execution method, so partial states
+/// only hold accumulated values. Combined aggregates resolve a separate set for each child.
+#[derive(Clone, Copy, Debug)]
+pub struct AggregateDTypes<'a> {
+    /// The dtype of the values being aggregated.
+    pub input: &'a DType,
+    /// The dtype of the partial state scalar, as reported by [`AggregateFnVTable::partial_dtype`].
+    pub partial: &'a DType,
+    /// The dtype of the final aggregate result, as reported by [`AggregateFnVTable::return_dtype`].
+    pub result: &'a DType,
+}
+
+/// Owned [`AggregateDTypes`], resolved once from an aggregate's options and input dtype.
+#[derive(Clone, Debug)]
+pub struct OwnedAggregateDTypes {
+    input: DType,
+    partial: DType,
+    result: DType,
+}
+
+impl OwnedAggregateDTypes {
+    /// Resolve the partial and result dtypes of `vtable` bound to `options` over `input`.
+    ///
+    /// Fails if the aggregate cannot be applied to `input`.
+    pub fn try_new<V: AggregateFnVTable>(
+        vtable: &V,
+        options: &V::Options,
+        input: DType,
+    ) -> VortexResult<Self> {
+        let result = vtable.return_dtype(options, &input).ok_or_else(|| {
+            vortex_err!(
+                "Aggregate function {} cannot be applied to dtype {}",
+                vtable.id(),
+                input
+            )
+        })?;
+        let partial = vtable.partial_dtype(options, &input).ok_or_else(|| {
+            vortex_err!(
+                "Aggregate function {} cannot be applied to dtype {}",
+                vtable.id(),
+                input
+            )
+        })?;
+        Ok(Self {
+            input,
+            partial,
+            result,
+        })
+    }
+
+    /// The dtype of the values being aggregated.
+    pub fn input(&self) -> &DType {
+        &self.input
+    }
+
+    /// The dtype of the partial state scalar.
+    pub fn partial(&self) -> &DType {
+        &self.partial
+    }
+
+    /// The dtype of the final aggregate result.
+    pub fn result(&self) -> &DType {
+        &self.result
+    }
+
+    /// Lend the dtypes to an execution method.
+    pub fn borrow(&self) -> AggregateDTypes<'_> {
+        AggregateDTypes {
+            input: &self.input,
+            partial: &self.partial,
+            result: &self.result,
+        }
+    }
+}
+
 /// Defines the interface for aggregate function vtables.
 ///
 /// This trait is non-object-safe and allows the implementer to make use of associated types
@@ -32,6 +110,10 @@ use crate::scalar::Scalar;
 /// The [`AggregateFnVTable`] trait should be implemented for a struct that holds global data across
 /// all instances of the aggregate. In almost all cases, this struct will be an empty unit
 /// struct, since most aggregates do not require any global state.
+///
+/// Execution methods receive the options and the resolved [`AggregateDTypes`] of the aggregate
+/// they operate on, so partial states only hold accumulated values. Callers must pass the same
+/// options and dtypes for the whole lifetime of a partial state.
 pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
     /// Options for this aggregate function.
     type Options: 'static + Send + Sync + Clone + Debug + Display + PartialEq + Eq + Hash;
@@ -103,58 +185,102 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
     /// Returns `None` if the aggregate function cannot be applied to the input dtype.
     fn partial_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType>;
 
-    /// Parse a partial scalar into the typed partial accumulator state.
+    /// The partial state of a group with no accumulated values.
     ///
-    /// The scalar must have the DType specified by `partial_dtype` for the given options and
-    /// input dtype; this is the inverse of [`to_scalar`]. Partial scalars are produced by
-    /// aggregate kernels, cached statistics, and other accumulators' [`to_scalar`].
+    /// This is the identity of [`merge_partials`]: merging it with any partial state, on either
+    /// side, yields that state.
+    ///
+    /// [`merge_partials`]: AggregateFnVTable::merge_partials
+    fn empty_partial(
+        &self,
+        options: &Self::Options,
+        dtypes: AggregateDTypes<'_>,
+    ) -> VortexResult<Self::Partial>;
+
+    /// Parse a partial scalar into the typed partial state.
+    ///
+    /// The scalar must have dtype `dtypes.partial`; this is the inverse of [`to_scalar`]. Partial
+    /// scalars are produced by aggregate kernels, cached statistics, and other accumulators'
+    /// [`to_scalar`].
     ///
     /// Implementations should only parse the scalar here; combining states belongs in
-    /// [`reduce_partials`].
+    /// [`merge_partials`].
     ///
     /// [`to_scalar`]: AggregateFnVTable::to_scalar
-    /// [`reduce_partials`]: AggregateFnVTable::reduce_partials
+    /// [`merge_partials`]: AggregateFnVTable::merge_partials
     fn partial_from_scalar(
         &self,
         options: &Self::Options,
-        input_dtype: &DType,
+        dtypes: AggregateDTypes<'_>,
         scalar: Scalar,
     ) -> VortexResult<Self::Partial>;
 
-    /// Reduce a sequence of partial states into a single partial state.
+    /// Merge two partial states into one.
     ///
-    /// Partials must be reduced in iteration order, since some aggregates (e.g. first/last or
-    /// is_sorted) are order-dependent. Reducing an empty sequence returns the identity: the
-    /// partial state of a group with no accumulated values.
+    /// `first` accumulated the input preceding `second`'s. Order-dependent aggregates (e.g.
+    /// first/last or is_sorted) rely on this, so the merge need not be commutative. Merging with
+    /// [`empty_partial`] on either side is the identity.
+    ///
+    /// [`empty_partial`]: AggregateFnVTable::empty_partial
+    fn merge_partials(
+        &self,
+        options: &Self::Options,
+        dtypes: AggregateDTypes<'_>,
+        first: Self::Partial,
+        second: Self::Partial,
+    ) -> VortexResult<Self::Partial>;
+
+    /// Reduce a sequence of partial states in iteration order, starting from [`empty_partial`].
+    ///
+    /// [`empty_partial`]: AggregateFnVTable::empty_partial
     fn reduce_partials(
         &self,
         options: &Self::Options,
-        input_dtype: &DType,
+        dtypes: AggregateDTypes<'_>,
         partials: impl IntoIterator<Item = Self::Partial>,
-    ) -> VortexResult<Self::Partial>;
+    ) -> VortexResult<Self::Partial> {
+        partials
+            .into_iter()
+            .try_fold(self.empty_partial(options, dtypes)?, |acc, partial| {
+                self.merge_partials(options, dtypes, acc, partial)
+            })
+    }
 
-    /// Convert the partial state into a partial scalar.
+    /// Convert the partial state into a partial scalar of dtype `dtypes.partial`.
     ///
-    /// The returned scalar must have the same DType as specified by `partial_dtype` for the
-    /// options and input dtype used to construct the state. This is the inverse of
-    /// [`partial_from_scalar`].
+    /// This is the inverse of [`partial_from_scalar`]: parsing the returned scalar must
+    /// reconstruct a state that behaves identically under accumulation, merging, saturation, and
+    /// finalization.
     ///
     /// [`partial_from_scalar`]: AggregateFnVTable::partial_from_scalar
-    fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar>;
+    fn to_scalar(
+        &self,
+        options: &Self::Options,
+        dtypes: AggregateDTypes<'_>,
+        partial: &Self::Partial,
+    ) -> VortexResult<Scalar>;
 
-    /// Is the partial accumulator state is "saturated", i.e. has it reached a state where the
-    /// final result is fully determined.
-    fn is_saturated(&self, state: &Self::Partial) -> bool;
+    /// Is the partial state "saturated", i.e. has it reached a state where the final result is
+    /// fully determined.
+    fn is_saturated(
+        &self,
+        options: &Self::Options,
+        dtypes: AggregateDTypes<'_>,
+        partial: &Self::Partial,
+    ) -> bool;
 
     /// Try to accumulate the raw array before decompression.
     ///
-    /// Returns `true` if the array was handled, `false` to fall through to
-    /// the default kernel dispatch and canonicalization path.
+    /// Returns `true` if the array was handled, `false` to fall through to the default kernel
+    /// dispatch and canonicalization path. When returning `false`, the partial state must be
+    /// unchanged, since the same batch is then accumulated by the fallback path.
     ///
     /// This is useful for aggregates that only depend on array metadata (e.g., validity)
     /// rather than the encoded data, avoiding unnecessary decompression.
     fn try_accumulate(
         &self,
+        _options: &Self::Options,
+        _dtypes: AggregateDTypes<'_>,
         _state: &mut Self::Partial,
         _batch: &ArrayRef,
         _ctx: &mut ExecutionCtx,
@@ -162,25 +288,33 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
         Ok(false)
     }
 
-    /// Accumulate a new canonical array into the accumulator state.
+    /// Accumulate a new canonical array into the partial state.
     fn accumulate(
         &self,
+        options: &Self::Options,
+        dtypes: AggregateDTypes<'_>,
         state: &mut Self::Partial,
         batch: &Columnar,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()>;
 
-    /// Finalize an array of accumulator states into an array of aggregate results.
+    /// Finalize an array of partial states into an array of aggregate results.
     ///
-    /// The provides `states` array has dtype as specified by `state_dtype`, the result array
-    /// must have dtype as specified by `return_dtype`.
-    fn finalize(&self, states: ArrayRef) -> VortexResult<ArrayRef>;
+    /// The `states` array has dtype `dtypes.partial`; the result must have dtype `dtypes.result`.
+    fn finalize(
+        &self,
+        options: &Self::Options,
+        dtypes: AggregateDTypes<'_>,
+        states: ArrayRef,
+    ) -> VortexResult<ArrayRef>;
 
-    /// Finalize a scalar accumulator state into an aggregate result.
-    ///
-    /// The provided `state` has dtype as specified by `state_dtype`, the result scalar must have
-    /// dtype as specified by `return_dtype`.
-    fn finalize_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar>;
+    /// Finalize a partial state into an aggregate result of dtype `dtypes.result`.
+    fn finalize_scalar(
+        &self,
+        options: &Self::Options,
+        dtypes: AggregateDTypes<'_>,
+        partial: &Self::Partial,
+    ) -> VortexResult<Scalar>;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

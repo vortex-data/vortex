@@ -8,6 +8,7 @@ use vortex_array::ArrayRef;
 use vortex_array::Columnar;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::aggregate_fn::AggregateDTypes;
 use vortex_array::aggregate_fn::AggregateFnId;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::AggregateFnVTable;
@@ -153,10 +154,18 @@ impl AggregateFnVTable for GeometryAabb {
         self.return_dtype(options, input_dtype)
     }
 
+    fn empty_partial(
+        &self,
+        _options: &Self::Options,
+        _dtypes: AggregateDTypes<'_>,
+    ) -> VortexResult<Self::Partial> {
+        Ok(AabbPartial { rect: None })
+    }
+
     fn partial_from_scalar(
         &self,
         _options: &Self::Options,
-        _input_dtype: &DType,
+        _dtypes: AggregateDTypes<'_>,
         scalar: Scalar,
     ) -> VortexResult<Self::Partial> {
         // A null box is an empty group's AABB.
@@ -165,35 +174,45 @@ impl AggregateFnVTable for GeometryAabb {
         })
     }
 
-    fn reduce_partials(
+    fn merge_partials(
         &self,
         _options: &Self::Options,
-        _input_dtype: &DType,
-        partials: impl IntoIterator<Item = Self::Partial>,
+        _dtypes: AggregateDTypes<'_>,
+        mut first: Self::Partial,
+        second: Self::Partial,
     ) -> VortexResult<Self::Partial> {
-        let mut acc = AabbPartial { rect: None };
-        for partial in partials {
-            if let Some(rect) = partial.rect {
-                acc.merge(rect);
-            }
+        if let Some(rect) = second.rect {
+            first.merge(rect);
         }
-        Ok(acc)
+        Ok(first)
     }
 
-    fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
+    fn to_scalar(
+        &self,
+        _options: &Self::Options,
+        dtypes: AggregateDTypes<'_>,
+        partial: &Self::Partial,
+    ) -> VortexResult<Scalar> {
         Ok(match partial.rect {
             Some(rect) => rect_to_storage(rect),
-            None => Scalar::null(aabb_dtype()),
+            None => Scalar::null(dtypes.partial.clone()),
         })
     }
 
-    fn is_saturated(&self, _partial: &Self::Partial) -> bool {
+    fn is_saturated(
+        &self,
+        _options: &Self::Options,
+        _dtypes: AggregateDTypes<'_>,
+        _partial: &Self::Partial,
+    ) -> bool {
         // An AABB can always grow, so it is never saturated.
         false
     }
 
     fn accumulate(
         &self,
+        _options: &Self::Options,
+        _dtypes: AggregateDTypes<'_>,
         partial: &mut Self::Partial,
         batch: &Columnar,
         ctx: &mut ExecutionCtx,
@@ -225,13 +244,23 @@ impl AggregateFnVTable for GeometryAabb {
         Ok(())
     }
 
-    fn finalize(&self, partials: ArrayRef) -> VortexResult<ArrayRef> {
+    fn finalize(
+        &self,
+        _options: &Self::Options,
+        _dtypes: AggregateDTypes<'_>,
+        partials: ArrayRef,
+    ) -> VortexResult<ArrayRef> {
         // The stored partial is already the AABB struct, so finalizing is the identity.
         Ok(partials)
     }
 
-    fn finalize_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
-        self.to_scalar(partial)
+    fn finalize_scalar(
+        &self,
+        options: &Self::Options,
+        dtypes: AggregateDTypes<'_>,
+        partial: &Self::Partial,
+    ) -> VortexResult<Scalar> {
+        self.to_scalar(options, dtypes, partial)
     }
 }
 
@@ -244,6 +273,7 @@ mod tests {
     use vortex_array::aggregate_fn::AggregateFnVTable;
     use vortex_array::aggregate_fn::DynAccumulator;
     use vortex_array::aggregate_fn::EmptyOptions;
+    use vortex_array::aggregate_fn::OwnedAggregateDTypes;
     use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
@@ -400,16 +430,17 @@ mod tests {
     #[test]
     fn reduce_partials_unions_boxes() -> VortexResult<()> {
         let dtype = point_column(vec![0.0], vec![0.0])?.dtype().clone();
+        let dtypes = OwnedAggregateDTypes::try_new(&GeometryAabb, &EmptyOptions, dtype)?;
         let bbox = |xmin, ymin, xmax, ymax| AabbPartial {
             rect: Some(SpatialRect::new((xmin, ymin), (xmax, ymax))),
         };
         let reduced = GeometryAabb.reduce_partials(
             &EmptyOptions,
-            &dtype,
+            dtypes.borrow(),
             [bbox(0.0, 0.0, 1.0, 1.0), bbox(5.0, -2.0, 7.0, 3.0)],
         )?;
         assert_eq!(
-            aabb(&GeometryAabb.to_scalar(&reduced)?)?,
+            aabb(&GeometryAabb.to_scalar(&EmptyOptions, dtypes.borrow(), &reduced)?)?,
             (0.0, -2.0, 7.0, 3.0)
         );
         Ok(())
@@ -419,13 +450,15 @@ mod tests {
     #[test]
     fn reduce_partials_ignores_empty() -> VortexResult<()> {
         let dtype = point_column(vec![0.0], vec![0.0])?.dtype().clone();
+        let dtypes = OwnedAggregateDTypes::try_new(&GeometryAabb, &EmptyOptions, dtype)?;
         let empty = AabbPartial { rect: None };
         let value = AabbPartial {
             rect: Some(SpatialRect::new((0.0, 0.0), (1.0, 1.0))),
         };
-        let reduced = GeometryAabb.reduce_partials(&EmptyOptions, &dtype, [value, empty])?;
+        let reduced =
+            GeometryAabb.reduce_partials(&EmptyOptions, dtypes.borrow(), [value, empty])?;
         assert_eq!(
-            aabb(&GeometryAabb.to_scalar(&reduced)?)?,
+            aabb(&GeometryAabb.to_scalar(&EmptyOptions, dtypes.borrow(), &reduced)?)?,
             (0.0, 0.0, 1.0, 1.0)
         );
         Ok(())
