@@ -22,6 +22,7 @@ use vortex_array::dtype::PType;
 mod array;
 mod assemble;
 pub(crate) mod compute;
+mod plugin;
 #[cfg(test)]
 mod prop_tests;
 mod rules;
@@ -30,6 +31,8 @@ mod split;
 mod testing;
 
 pub use array::*;
+pub use plugin::DecimalBytePartsPlugin;
+pub use plugin::decimal_byte_parts_v2_id;
 pub use split::DecimalParts;
 pub use split::dbp_encode;
 pub use split::split_decimal;
