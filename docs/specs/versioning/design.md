@@ -195,7 +195,8 @@ supports all its members. New formats require a later edition, leaving the earli
 to writers targeting older versions.
 
 An _edition family_ groups editions for related components. Membership is cumulative within a
-family: each later edition includes all earlier members.
+family: each later edition includes all earlier members. The `unstable` family is the exception. It
+has one undated edition that never freezes, and its members change in place.
 
 The `core` family covers the default writer's formats, while optional features have independent
 families. A writer can select one `core` edition and one `tensor` edition, for example, and use the
@@ -251,8 +252,9 @@ historical writing implementation.
 
 A new format starts in a draft edition so it can be tested before its origin commits to reading it
 indefinitely. Drafts have no recorded minimum version or frozen guarantee. A format intended for
-`core` can progress from its own family to `preview` for broader testing, then to `core` for default
-use. Promotion preserves its wire ID and interpretation. The
+`core` can progress from the shared `unstable` edition to `preview` for broader testing, then to
+`core` for default use. A defective ID can leave the `unstable` edition when its successor joins.
+Promotion preserves its wire ID and interpretation. The
 [registry instructions](editions.md#format-testing-and-promotion) cover promotion, freezing, and
 recording the minimum version.
 

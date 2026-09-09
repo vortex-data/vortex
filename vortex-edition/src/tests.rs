@@ -444,3 +444,68 @@ fn kinds_are_resolved_independently() -> VortexResult<()> {
     );
     Ok(())
 }
+
+#[test]
+fn undated_edition_changes_in_place() -> VortexResult<()> {
+    const UNDATED: EditionId = EditionId::undated("other");
+    static DECLARATION: EditionDeclaration = EditionDeclaration {
+        edition: Edition {
+            id: UNDATED,
+            min_library_version: None,
+        },
+        added: &[EditionMember::array(&"other.delta")],
+    };
+
+    assert_eq!(UNDATED.to_string(), "other");
+    assert!(UNDATED.is_undated());
+    assert!(!FIRST.is_undated());
+
+    let session = VortexSession::empty().with::<EditionSession>();
+    session.editions().declare_family(&OTHER_FAMILY)?;
+    session.register_edition(&DECLARATION)?;
+    crate::test_harness::validate_edition(&session.editions(), &UNDATED)?;
+
+    session.enable_edition(UNDATED)?;
+    assert_eq!(
+        session
+            .enabled_component_ids(ComponentKind::Array)
+            .iter()
+            .map(|id| id.as_str())
+            .collect::<Vec<_>>(),
+        ["other.delta"],
+    );
+    Ok(())
+}
+
+#[test]
+fn undated_edition_cannot_freeze() -> VortexResult<()> {
+    let editions = EditionSession::empty();
+    editions.declare_family(&OTHER_FAMILY)?;
+    editions.declare_edition(Edition {
+        id: EditionId::undated("other"),
+        min_library_version: Some("0.70.0"),
+    })?;
+
+    assert!(
+        editions
+            .validate()
+            .is_err_and(|error| error.to_string().contains("cannot freeze"))
+    );
+    Ok(())
+}
+
+#[test]
+fn undated_edition_is_alone_in_its_family() -> VortexResult<()> {
+    let editions = session();
+    editions.declare_edition(Edition {
+        id: EditionId::undated("test"),
+        min_library_version: None,
+    })?;
+
+    assert!(
+        editions
+            .validate()
+            .is_err_and(|error| error.to_string().contains("only edition of its family"))
+    );
+    Ok(())
+}

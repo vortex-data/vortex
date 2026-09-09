@@ -3,9 +3,10 @@
 
 //! Export the edition records under `vortex/editions`.
 //!
-//! Every declared edition gets one TOML file recording what it contains: the identifier, the
+//! Every dated edition gets one TOML file recording what it contains: the identifier, the
 //! origin library or project, the minimum origin version whose reader supports it once frozen,
-//! and its full member set. Records are grouped by
+//! and its full member set. An undated edition, such as `unstable`, never freezes and gets only
+//! its `family.toml`. Records are grouped by
 //! family — `vortex/editions/core/core2025.05.0.toml` — and collected from both the default
 //! declarations in `vortex-edition` and optional-component declarations in their owning crates.
 //!
@@ -247,7 +248,12 @@ pub fn generate_editions() -> anyhow::Result<()> {
             .with_context(|| format!("writing {}", path.display()))?;
     }
 
-    for edition in session.editions() {
+    // An undated edition never freezes and changes in place, so a record would pin nothing.
+    for edition in session
+        .editions()
+        .into_iter()
+        .filter(|edition| !edition.id.is_undated())
+    {
         let relative = format!("{}/{}.toml", edition.id.family, edition.id);
         let path = dir.join(&relative);
         expected.insert(relative);

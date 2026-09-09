@@ -30,6 +30,9 @@ use tpch::benchmark::TpcHBenchmark;
 pub use utils::file::*;
 pub use utils::logging::*;
 use vortex::compressor::BtrBlocksCompressorBuilder;
+use vortex::editions::DEFAULT_PREVIEW_EDITION;
+use vortex::editions::EditionSessionExt;
+use vortex::editions::UNSTABLE;
 use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
 use vortex::file::VortexWriteOptions;
@@ -83,8 +86,19 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::default().with_tokio();
     vortex_spatial::initialize(&session);
+    enable_benchmark_editions(&session);
     session
 });
+
+/// Enable the `preview` and `unstable` editions in addition to the default editions, so
+/// benchmarks also measure the components that await stabilization.
+pub fn enable_benchmark_editions(session: &VortexSession) {
+    for edition in [DEFAULT_PREVIEW_EDITION, UNSTABLE] {
+        session
+            .enable_edition(edition)
+            .vortex_expect("benchmark edition is registered");
+    }
+}
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Target {

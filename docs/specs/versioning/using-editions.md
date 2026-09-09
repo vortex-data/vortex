@@ -45,8 +45,11 @@ no components prevents the writer from serializing any component governed by edi
 ## Edition families
 
 An _edition family_ groups editions for related formats. The `core` family covers the default
-writer's formats. Optional features have their own families, such as `tensor` and `zstd`, so they
-can add formats without changing an application's `core` selection.
+writer's formats. Core-maintained formats not yet in `core` are tested in the shared `unstable` and
+`preview` families, which must be enabled explicitly. The `unstable` family has one undated edition,
+`unstable`, whose members change in place. Optional features have their own families,
+such as `tensor` and `zstd`, so they can add formats without changing an application's `core`
+selection.
 
 A writer selects at most one edition per family. Selecting `core2026.08.0` and `tensor2026.04.0`
 permits every component in either edition. Within one family, a later edition includes all earlier
