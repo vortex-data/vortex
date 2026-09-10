@@ -83,7 +83,7 @@ endforeach()
 foreach(target IN LISTS benchmarks)
   set(links "cudf::cudf;ndsh_utilities")
   set(definitions "")
-  if(CUDF_NDSH_WITH_VORTEX AND target MATCHES "^NDSH_Q0[16]_NVBENCH$")
+  if(CUDF_NDSH_WITH_VORTEX AND target MATCHES "^NDSH_Q0[156]_NVBENCH$")
     list(APPEND links NDSH_VORTEX_IO)
     set(definitions CUDF_NDSH_WITH_VORTEX=1)
   endif()
@@ -280,7 +280,7 @@ class BuildIntegrationTests(unittest.TestCase):
                 cache = (self.binary / "CMakeCache.txt").read_text(encoding="utf-8")
                 self.assertIn("CUDF_NDSH_WITH_VORTEX:BOOL=OFF", cache)
                 self.build()
-                self.build("NDSH_Q01_NVBENCH", "NDSH_Q06_NVBENCH")
+                self.build("NDSH_Q01_NVBENCH", "NDSH_Q05_NVBENCH", "NDSH_Q06_NVBENCH")
 
     def test_enabled_private_links_and_excluded_targets(self):
         self.configure("-DCUDF_NDSH_WITH_VORTEX=ON")
@@ -289,9 +289,9 @@ class BuildIntegrationTests(unittest.TestCase):
         self.build()
         archive = self.binary / "libNDSH_VORTEX_IO.a"
         self.assertFalse(archive.exists(), "Default build included the adapter")
-        self.build("NDSH_Q05_NVBENCH", "NDSH_Q09_NVBENCH", "NDSH_Q10_NVBENCH", "NDSH_HELPER")
+        self.build("NDSH_Q09_NVBENCH", "NDSH_Q10_NVBENCH", "NDSH_HELPER")
         self.assertFalse(archive.exists(), "Unselected benchmarks built the adapter")
-        self.build("NDSH_Q01_NVBENCH", "NDSH_Q06_NVBENCH")
+        self.build("NDSH_Q01_NVBENCH", "NDSH_Q05_NVBENCH", "NDSH_Q06_NVBENCH")
         self.assertTrue(archive.is_file(), "Selected benchmarks did not build the static adapter")
         for target in ("NDSH_VORTEX_BUILD_SMOKE", "NDSH_VORTEX_IO_TEST"):
             self.assertFalse((self.binary / target).exists(), f"Explicit target {target} was built implicitly")

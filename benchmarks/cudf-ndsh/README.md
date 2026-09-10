@@ -1,13 +1,14 @@
 # cuDF NDS-H Vortex POC
 
-[Plan](../../CUDF_POC_PLAN.md) · [Validation](VALIDATION.md)
+[Plan](../../CUDF_POC_PLAN.md) · [Validation](VALIDATION.md) · [Resume here](PROGRESS.md)
 
 `upstream.patch` adds default-OFF build support, `write_vortex` / `read_vortex`,
-and **Q1/Q6/read-only Parquet vs Vortex comparisons** using identical local files,
-scan-level projection, and shared post-read filters. Original Parquet-pushdown
-benchmarks remain separate; Q5/Q9/Q10 are unchanged and Parquet-only.
-The patch also separates discount's RNG seed and fixes price-row alignment,
-changing data for **all** NDS-H consumers, including Vortex-OFF builds; regenerate fixtures.
+and **Q1/Q5/Q6/read-only Parquet vs Vortex comparisons** using shared full-table
+fixtures, scan-level projection, and shared post-read filters. Original Parquet-pushdown
+benchmarks remain separate; Q9/Q10 are still Parquet-only.
+Generator fixes separate discount's RNG seed, align prices with rows, and preserve
+fractional supplier scale factors. They affect **all** NDS-H consumers, including
+Vortex-OFF builds; regenerate fixtures.
 
 - Write: chunked cuDF → host Arrow → CPU-written, CUDA-readable Vortex file.
 - Read: pinned-host staging → HtoD → GPU decode → owning cuDF batches → concatenation.
@@ -41,8 +42,8 @@ ruff check benchmarks/cudf-ndsh/test_build_integration.py
 ruff format --check benchmarks/cudf-ndsh/test_build_integration.py
 ```
 
-At SF0.01, Q1 has 44,973 matches/four groups and Q6 has 563 matches. Both GPU
-formats agree with independent CPU references; all eight read/query states pass
-memcheck (0 errors). Pinned Q1/Q6 compilation passes; the full cuDF build timed out.
-Debug-cuDF timings are supplemental, not full TPC-H generator conformance.
-Pinned runtime, scaling, and Nsight profiles remain.
+At SF0.01, Q1 has 44,973 matches/four groups, Q5 has 35 matches/four countries,
+and Q6 has 563 matches. Both GPU formats agree with independent CPU references;
+all 12 read/query states pass memcheck (0 errors). Pinned compilation passes;
+the full cuDF build timed out. Debug-cuDF timings are supplemental, not full TPC-H
+conformance. Next: Q9/Q10 at SF0.01, then pinned runtime, scaling, and Nsight.
