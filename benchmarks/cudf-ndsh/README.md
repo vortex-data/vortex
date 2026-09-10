@@ -3,9 +3,9 @@
 [Plan](../../CUDF_POC_PLAN.md) · [Validation](VALIDATION.md)
 
 `upstream.patch` adds default-OFF build support, `write_vortex` / `read_vortex`,
-and **Q6/read-only Parquet vs Vortex comparisons** using identical local files,
-four-column projection, and shared post-read filters. Q1/other queries remain
-Parquet-only; the original Q6 Parquet-pushdown benchmark remains separate.
+and **Q1/Q6/read-only Parquet vs Vortex comparisons** using identical local files,
+scan-level projection, and shared post-read filters. Original Parquet-pushdown
+benchmarks remain separate; Q5/Q9/Q10 are unchanged and Parquet-only.
 The patch also separates discount's RNG seed and fixes price-row alignment,
 changing data for **all** NDS-H consumers, including Vortex-OFF builds; regenerate fixtures.
 
@@ -41,8 +41,8 @@ ruff check benchmarks/cudf-ndsh/test_build_integration.py
 ruff format --check benchmarks/cudf-ndsh/test_build_integration.py
 ```
 
-SF0.01 now has 563 Q6 matches: both GPU formats agree with an independent CPU
-reference on the same fixture. Memcheck reports 0 errors. Pinned cuDF compilation
-passes, but its full build timed out. Debug-cuDF timings remain supplemental;
-other generator correlations remain; this is not full TPC-H generator conformance.
-Q1 integration, pinned runtime, scaling, and Nsight profiles remain.
+At SF0.01, Q1 has 44,973 matches/four groups and Q6 has 563 matches. Both GPU
+formats agree with independent CPU references; all eight read/query states pass
+memcheck (0 errors). Pinned Q1/Q6 compilation passes; the full cuDF build timed out.
+Debug-cuDF timings are supplemental, not full TPC-H generator conformance.
+Pinned runtime, scaling, and Nsight profiles remain.
