@@ -105,6 +105,22 @@ fn test_mask_first() {
 }
 
 #[test]
+fn test_mask_last() {
+    assert_eq!(Mask::new_true(5).last(), Some(4));
+    assert_eq!(Mask::new_false(5).last(), None);
+
+    let buffer = BitBuffer::from_iter([true, false, true, false, true, false, true]);
+    let values = Mask::from_buffer(buffer.slice(1..6));
+    assert_eq!(values.last(), Some(3));
+
+    let values_indices = Mask::from_indices(5, vec![1, 3]);
+    assert_eq!(values_indices.last(), Some(3));
+
+    let values_slices = Mask::from_slices(5, vec![(1, 2), (3, 4)]);
+    assert_eq!(values_slices.last(), Some(3));
+}
+
+#[test]
 fn test_mask_false_count() {
     assert_eq!(Mask::new_true(5).false_count(), 0);
     assert_eq!(Mask::new_false(5).false_count(), 5);
