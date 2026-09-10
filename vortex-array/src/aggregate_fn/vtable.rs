@@ -32,11 +32,12 @@ use crate::scalar::Scalar;
 #[derive(Clone, Debug)]
 pub struct AggregateDTypes {
     /// The DType of the input.
-    dtype: DType,
-    /// The DType of the aggregate.
-    return_dtype: DType,
-    /// The DType of the partial accumulator state.
-    partial_dtype: DType,
+    pub dtype: DType,
+    /// The DType of the aggregate, as reported by [`AggregateFnVTable::return_dtype`].
+    pub return_dtype: DType,
+    /// The DType of the partial accumulator state, as reported by
+    /// [`AggregateFnVTable::partial_dtype`].
+    pub partial_dtype: DType,
 }
 
 impl AggregateDTypes {
@@ -67,21 +68,6 @@ impl AggregateDTypes {
             return_dtype,
             partial_dtype,
         })
-    }
-
-    /// The DType of the input.
-    pub fn dtype(&self) -> &DType {
-        &self.dtype
-    }
-
-    /// The DType of the aggregate.
-    pub fn return_dtype(&self) -> &DType {
-        &self.return_dtype
-    }
-
-    /// The DType of the partial accumulator state.
-    pub fn partial_dtype(&self) -> &DType {
-        &self.partial_dtype
     }
 
     /// Lend the dtypes to an execution method.

@@ -217,8 +217,8 @@ impl<T: BinaryCombined> AggregateFnVTable for Combined<T> {
             let r_field = s
                 .field(rname)
                 .ok_or_else(|| vortex_err!("BinaryCombined partial missing `{}` field", rname))?;
-            left.combine_partial_scalar(l_field)?;
-            right.combine_partial_scalar(r_field)?;
+            left.combine_partial(l_field)?;
+            right.combine_partial(r_field)?;
         }
         Ok((left, right))
     }

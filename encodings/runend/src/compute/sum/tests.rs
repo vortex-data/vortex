@@ -54,7 +54,7 @@ fn check_sum(array: ArrayRef, options: NumericalAggregateOpts) -> VortexResult<(
             .aggregate(&aggregate, &array, &mut ctx)?
             .vortex_expect("The fixture has a primitive dtype supported by the run-end sum kernel");
         let mut direct = aggregate.accumulator(array.dtype())?;
-        direct.combine_partials(partial)?;
+        direct.combine_partial(partial)?;
 
         let mut dispatched = aggregate.accumulator(array.dtype())?;
         dispatched.accumulate(&array, &mut ctx)?;

@@ -442,8 +442,8 @@ mod tests {
         let options = NumericalAggregateOpts::default();
         let dtypes = AggregateDTypes::try_new(&Sum, &options, input_dtype)?;
         assert_eq!(
-            dtypes.return_dtype(),
-            &DType::Decimal(DecimalDType::new(37, 0), Nullable)
+            dtypes.return_dtype,
+            DType::Decimal(DecimalDType::new(37, 0), Nullable)
         );
 
         // Set state to 10^37 - 1.
