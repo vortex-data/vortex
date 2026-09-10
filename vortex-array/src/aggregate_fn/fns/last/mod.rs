@@ -170,7 +170,6 @@ mod tests {
     use crate::aggregate_fn::DynAccumulator;
     use crate::aggregate_fn::EmptyOptions;
     use crate::aggregate_fn::fns::last::Last;
-    use crate::aggregate_fn::fns::last::LastPartial;
     use crate::aggregate_fn::fns::last::last;
     use crate::array_session;
     use crate::arrays::ChunkedArray;
@@ -293,12 +292,14 @@ mod tests {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let owned = AggregateDTypes::try_new(&Last, &EmptyOptions, dtype)?;
         let dtypes = owned.borrow();
-        let partial_of = |value: Option<Scalar>| LastPartial { value };
+        let partial_of = |value: i32| {
+            Last.partial_from_scalar(&EmptyOptions, dtypes, Scalar::primitive(value, Nullable))
+        };
 
-        let five = partial_of(Some(Scalar::primitive(5i32, Nullable)));
-        let seven = partial_of(Some(Scalar::primitive(7i32, Nullable)));
+        let five = partial_of(5)?;
+        let seven = partial_of(7)?;
         // An empty partial must not clobber a prior value.
-        let empty = partial_of(None);
+        let empty = Last.empty_partial(&EmptyOptions, dtypes)?;
 
         // The last non-empty partial in order replaces the prior values.
         let merge = |first, second| Last.merge_partials(&EmptyOptions, dtypes, first, second);

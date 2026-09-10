@@ -172,7 +172,6 @@ mod tests {
     use crate::aggregate_fn::DynAccumulator;
     use crate::aggregate_fn::EmptyOptions;
     use crate::aggregate_fn::fns::first::First;
-    use crate::aggregate_fn::fns::first::FirstPartial;
     use crate::aggregate_fn::fns::first::first;
     use crate::array_session;
     use crate::arrays::ChunkedArray;
@@ -296,15 +295,17 @@ mod tests {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let owned = AggregateDTypes::try_new(&First, &EmptyOptions, dtype)?;
         let dtypes = owned.borrow();
-        let partial_of = |value: Option<Scalar>| FirstPartial { value };
+        let partial_of = |value: i32| {
+            First.partial_from_scalar(&EmptyOptions, dtypes, Scalar::primitive(value, Nullable))
+        };
 
         // An empty partial means the sub-accumulator saw nothing valid - it is ignored.
-        let empty = partial_of(None);
+        let empty = First.empty_partial(&EmptyOptions, dtypes)?;
         assert!(!First.is_saturated(&EmptyOptions, dtypes, &empty));
 
         // The first non-empty partial wins; subsequent valid partials are dropped.
-        let five = partial_of(Some(Scalar::primitive(5i32, Nullable)));
-        let seven = partial_of(Some(Scalar::primitive(7i32, Nullable)));
+        let five = partial_of(5)?;
+        let seven = partial_of(7)?;
         let merge = |first, second| First.merge_partials(&EmptyOptions, dtypes, first, second);
         let state = merge(merge(empty, five)?, seven)?;
         assert!(First.is_saturated(&EmptyOptions, dtypes, &state));
