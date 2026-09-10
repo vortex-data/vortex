@@ -259,6 +259,7 @@ impl Shr<Self> for i256 {
 impl Shl<usize> for i256 {
     type Output = Self;
 
+    #[inline]
     fn shl(self, rhs: usize) -> Self::Output {
         use num_traits::ToPrimitive;
         Self(

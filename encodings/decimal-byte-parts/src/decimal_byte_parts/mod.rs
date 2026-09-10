@@ -9,8 +9,17 @@ use vortex_array::Array;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayView;
 pub(crate) mod compute;
+mod limbs;
+pub use limbs::DecimalParts;
+pub use limbs::MAX_LOWER_PARTS;
+pub use limbs::split_decimal;
 mod rules;
 mod slice;
+
+#[doc(hidden)]
+pub mod _benchmarking {
+    pub use super::limbs::assemble_decimal;
+}
 
 use prost::Message as _;
 use vortex_array::ArrayEq;
