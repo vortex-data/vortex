@@ -2,8 +2,10 @@
 
 [Plan](../../CUDF_POC_PLAN.md) · [Validation](VALIDATION.md)
 
-`upstream.patch` adds default-OFF build support and benchmark-local
-`write_vortex` / `read_vortex` adapters. **Q1/Q6 still read Parquet.**
+`upstream.patch` adds default-OFF build support, `write_vortex` / `read_vortex`,
+and **Q6/read-only Parquet vs Vortex comparisons** using identical local files,
+four-column projection, and shared post-read filters. Q1/other queries remain
+Parquet-only; the original Q6 Parquet-pushdown benchmark remains separate.
 
 - Write: chunked cuDF → host Arrow → CPU-written, CUDA-readable Vortex file.
 - Read: pinned-host staging → HtoD → GPU decode → owning cuDF batches → concatenation.
@@ -25,7 +27,7 @@ Build instructions are in the patched `cpp/benchmarks/ndsh/VORTEX.md`.
 
 **Local Vortex sources are required:** the retained base pin
 `bffdca1109e99e6957ea2fc18f4a7809c88e0a0c` lacks the CUDA-layout edition,
-device decimal slicing, bitmap alignment/padding, and dictionary-export fixes.
+device decimal slicing, bitmap alignment/padding, dictionary export, and projected scan API.
 Publish these prerequisites and update the immutable pin before removing the gate.
 
 ## Checks
@@ -37,6 +39,8 @@ ruff check benchmarks/cudf-ndsh/test_build_integration.py
 ruff format --check benchmarks/cudf-ndsh/test_build_integration.py
 ```
 
-12 GPU adapter tests pass on prebuilt cuDF 26.08; Compute Sanitizer reports
-0 errors. Current pinned cuDF compiles the adapter, but its full library build
-is blocked. Q1/Q6 execution, SF100, and performance remain unvalidated.
+15 adapter tests and all four SF0.01 Q6/read states pass on prebuilt cuDF 26.08,
+including Compute Sanitizer (0 errors). Pinned cuDF compilation passes; its full
+build timed out. Generated Q6 is empty due to correlated discount/quantity RNG;
+these Debug-cuDF runs are validation, not representative performance evidence.
+Q1 integration, representative Q6 data, scaling, and Nsight profiles remain.

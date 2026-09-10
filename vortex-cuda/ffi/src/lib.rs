@@ -14,15 +14,23 @@ use std::sync::Arc;
 
 use arrow_schema::ffi::FFI_ArrowSchema;
 use vortex::VortexSessionDefault;
+use vortex::array::ArrayRef;
 use vortex::array::stream::ArrayStreamExt;
 use vortex::compressor::BtrBlocksCompressorBuilder;
+use vortex::dtype::FieldName;
+use vortex::dtype::FieldNames;
 use vortex::editions::ComponentKind;
 use vortex::editions::EditionSessionExt;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
+use vortex::error::vortex_err;
+use vortex::expr::root;
+use vortex::expr::select;
 use vortex::file::OpenOptionsSessionExt;
+use vortex::file::VortexFile;
 use vortex::file::WriteStrategyBuilder;
 use vortex::io::runtime::BlockingRuntime;
+use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::layout::scan::split_by::SplitBy;
 use vortex::session::SessionExt;
 use vortex::session::VortexSession;
@@ -274,12 +282,55 @@ pub unsafe extern "C-unwind" fn vx_cuda_scan_path_arrow_device_stream_with_optio
     out_stream: *mut ArrowDeviceArrayStream,
     error_out: *mut *mut vx_error,
 ) -> c_int {
+    // SAFETY: The caller supplies valid borrowed inputs and writable outputs.
+    unsafe {
+        vx_cuda_scan_path_arrow_device_stream_projected(
+            session,
+            path,
+            options,
+            ptr::null(),
+            0,
+            out_stream,
+            error_out,
+        )
+    }
+}
+
+/// Scan selected top-level columns of a local Vortex file as an Arrow C Device stream.
+///
+/// This has the same options, ownership, and file compatibility requirements as
+/// [`vx_cuda_scan_path_arrow_device_stream_with_options`]. Zero `ncolumns` selects all columns and
+/// ignores `columns`. Otherwise, names are case-sensitive literal top-level field names (not field
+/// paths), returned in the requested order. Unknown or duplicate names and non-struct file dtypes
+/// are rejected. Projection is applied by the scan builder before reading or decoding column data.
+///
+/// Names are copied during this call; the stream does not borrow them. The projected schema is
+/// available even for a zero-row file. On error, `out_stream` is left unchanged.
+///
+/// # Safety
+///
+/// `session`, `path`, `options`, `out_stream`, and `error_out` must satisfy the requirements of
+/// [`vx_cuda_scan_path_arrow_device_stream_with_options`]. For nonzero `ncolumns`, `columns` must
+/// point to that many initialized, aligned [`vx_view`] values. Each name must point to `len`
+/// readable bytes for this call, or be null with zero length. Names must contain UTF-8.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_cuda_scan_path_arrow_device_stream_projected(
+    session: *const vx_session,
+    path: vx_view,
+    options: *const vx_cuda_scan_options,
+    columns: *const vx_view,
+    ncolumns: usize,
+    out_stream: *mut ArrowDeviceArrayStream,
+    error_out: *mut *mut vx_error,
+) -> c_int {
     try_or(error_out, VX_CUDA_ERR, || {
         vortex_ensure!(!out_stream.is_null(), "null ArrowDeviceArrayStream output");
 
+        // SAFETY: The caller keeps the borrowed options and column views alive for this call.
+        let options = unsafe { scan_options(options) }?;
+        let columns = unsafe { scan_columns(columns, ncolumns) }?;
         let path = unsafe { path.as_str() }?.to_owned();
         let session = session_with_cuda(unsafe { vx_session_ref(session) }?)?;
-        let options = unsafe { scan_options(options) }?;
         let array_stream = ffi_runtime().block_on(async {
             let file = session
                 .open_options()
@@ -287,12 +338,7 @@ pub unsafe extern "C-unwind" fn vx_cuda_scan_path_arrow_device_stream_with_optio
                 .with_read_at_options(options.read_at_options)
                 .open_path(path)
                 .await?;
-            let scan = file.scan()?;
-            let scan = if options.batch_rows == 0 {
-                scan
-            } else {
-                scan.with_split_by(SplitBy::RowCount(options.batch_rows))
-            };
+            let scan = projected_scan(&file, columns, options.batch_rows)?;
             Ok::<_, vortex::error::VortexError>(scan.into_array_stream()?.boxed())
         })?;
         let export_session = scan_export_session(&session, &options);
@@ -302,6 +348,64 @@ pub unsafe extern "C-unwind" fn vx_cuda_scan_path_arrow_device_stream_with_optio
         unsafe { ptr::write(out_stream, device_stream) };
         Ok(VX_CUDA_OK)
     })
+}
+
+unsafe fn scan_columns(columns: *const vx_view, ncolumns: usize) -> VortexResult<FieldNames> {
+    if ncolumns == 0 {
+        return Ok(FieldNames::default());
+    }
+    vortex_ensure!(
+        !columns.is_null(),
+        "null CUDA scan columns with nonzero count"
+    );
+    vortex_ensure!(columns.is_aligned(), "unaligned CUDA scan columns pointer");
+    vortex_ensure!(
+        ncolumns <= isize::MAX as usize / size_of::<vx_view>(),
+        "CUDA scan column count is too large"
+    );
+    // SAFETY: Null, alignment, and size were checked; the caller guarantees readable views.
+    let columns = unsafe { std::slice::from_raw_parts(columns, ncolumns) };
+    let mut names = Vec::<FieldName>::with_capacity(ncolumns);
+    for (index, column) in columns.iter().enumerate() {
+        vortex_ensure!(
+            column.len <= isize::MAX as usize,
+            "CUDA scan column {index} name is too long"
+        );
+        // SAFETY: The caller guarantees readable name bytes. as_str checks null and UTF-8.
+        let name = unsafe { column.as_str() }
+            .map_err(|error| vortex_err!("invalid CUDA scan column {index}: {error}"))?;
+        vortex_ensure!(
+            !names.iter().any(|existing| existing.as_ref() == name),
+            "duplicate CUDA scan column: {name:?}"
+        );
+        names.push(FieldName::from(name));
+    }
+    Ok(names.into())
+}
+
+fn projected_scan(
+    file: &VortexFile,
+    columns: FieldNames,
+    batch_rows: usize,
+) -> VortexResult<ScanBuilder<ArrayRef>> {
+    let mut scan = file.scan()?;
+    if !columns.is_empty() {
+        let fields = file.dtype().as_struct_fields_opt().ok_or_else(|| {
+            vortex_err!("CUDA scan column projection requires a struct file dtype")
+        })?;
+        for name in columns.iter() {
+            vortex_ensure!(
+                fields.find(name).is_some(),
+                "unknown CUDA scan column: {name:?}"
+            );
+        }
+        let projection = select(columns, root()).optimize_recursive(file.dtype())?;
+        scan = scan.with_projection(projection.bind(file.dtype())?);
+    }
+    if batch_rows != 0 {
+        scan = scan.with_split_by(SplitBy::RowCount(batch_rows));
+    }
+    Ok(scan)
 }
 
 struct CudaScanOptions {
@@ -449,6 +553,8 @@ pub unsafe extern "C-unwind" fn vx_cuda_partition_scan_arrow_device_stream(
 
 #[cfg(test)]
 mod tests {
+    mod projection;
+
     use std::ptr;
     use std::sync::Arc;
 

@@ -161,6 +161,29 @@ int vx_cuda_scan_path_arrow_device_stream_with_options(const vx_session *session
                                                        vx_error **error_out);
 
 /**
+ * Scan selected top-level columns of a local CUDA-compatible Vortex file.
+ *
+ * Same options and ownership as `vx_cuda_scan_path_arrow_device_stream_with_options`.
+ * `ncolumns == 0` selects all columns and ignores `columns` (which may be NULL). Otherwise,
+ * `columns` must point to `ncolumns` valid vx_view values containing case-sensitive UTF-8 names.
+ * Names are literal top-level fields, not nested paths, and output follows the requested order.
+ * Unknown/duplicate names and non-struct file dtypes are errors. A NULL name pointer requires
+ * zero length and denotes the empty field name. Views and name bytes are borrowed only for this
+ * call; the stream does not retain them.
+ *
+ * Projection is applied before reading/decoding column data, not after export. Footer and other
+ * shared metadata may still be read. A zero-row file retains the projected schema.
+ * Returns 0 on success, or 1 with an optional `vx_error`; on error `out_stream` is unchanged.
+ */
+int vx_cuda_scan_path_arrow_device_stream_projected(const vx_session *session,
+                                                    vx_view path,
+                                                    const vx_cuda_scan_options *options,
+                                                    const vx_view *columns,
+                                                    size_t ncolumns,
+                                                    struct ArrowDeviceArrayStream *out_stream,
+                                                    vx_error **error_out);
+
+/**
  * Export a borrowed Vortex array for cuDF's Arrow Device import path.
  *
  * On success returns 0 and writes independently releasable `out_schema` and `out_array`; the caller

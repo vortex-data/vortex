@@ -229,7 +229,11 @@ class BuildIntegrationTests(unittest.TestCase):
         self.write("dummy.cpp", DUMMY)
         self.write("fake-vortex/CMakeLists.txt", 'message(FATAL_ERROR "Expected SOURCE_SUBDIR lang/cpp")')
         self.write("fake-vortex/lang/cpp/CMakeLists.txt", FAKE_VORTEX)
-        self.write(Path("fake-vortex") / CUDA_HEADER, "#define VX_CUDA_SCAN_FLAG_DECODE_DICTIONARIES (1U << 1)\n")
+        self.write(
+            Path("fake-vortex") / CUDA_HEADER,
+            "#define VX_CUDA_SCAN_FLAG_DECODE_DICTIONARIES (1U << 1)\n"
+            "int vx_cuda_scan_path_arrow_device_stream_projected(void);\n",
+        )
 
     def write(self, path, content):
         destination = self.source / path
@@ -339,6 +343,15 @@ class BuildIntegrationTests(unittest.TestCase):
                 self.assertIn("VX_CUDA_SCAN_FLAG_DECODE_DICTIONARIES", message)
                 self.assertIn(str(self.fake / CUDA_HEADER), output)
                 self.assertIn("local Vortex checkout with prerequisite fixes", message)
+
+    def test_local_header_missing_projection_fails_offline(self):
+        self.write(Path("fake-vortex") / CUDA_HEADER, "#define VX_CUDA_SCAN_FLAG_DECODE_DICTIONARIES (1U << 1)\n")
+        output = self.configure("-DCUDF_NDSH_WITH_VORTEX=ON", succeeds=False)
+        message = " ".join(output.split())
+        self.assertIn("vx_cuda_scan_path_arrow_device_stream_projected", message)
+        self.assertIn(str(self.fake / CUDA_HEADER), output)
+        self.assertIn("local Vortex checkout with prerequisite fixes", message)
+        self.assertIn("-DFETCHCONTENT_SOURCE_DIR_VORTEX=/path/to/vortex", message)
 
     def test_invalid_local_source_fails_offline(self):
         missing = self.source / "missing-vortex"

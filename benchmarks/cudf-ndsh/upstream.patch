@@ -12,20 +12,21 @@ index 8fa9593..4f5127a 100644
  # * filter benchmark -------------------------------------------------------------------
 diff --git a/cpp/benchmarks/ndsh/VORTEX.md b/cpp/benchmarks/ndsh/VORTEX.md
 new file mode 100644
-index 0000000..bfb5600
+index 0000000..1bbd3f8
 --- /dev/null
 +++ b/cpp/benchmarks/ndsh/VORTEX.md
-@@ -0,0 +1,54 @@
+@@ -0,0 +1,75 @@
 +# Experimental Vortex adapter
 +
-+`CUDF_NDSH_WITH_VORTEX=ON` adds benchmark-local I/O support for Q1/Q6.
-+Default **OFF** leaves other builds unchanged. **Queries still read Parquet.**
++`CUDF_NDSH_WITH_VORTEX=ON` adds a local-file Parquet/Vortex comparison for Q6
++and projected reads. Default **OFF** leaves other builds unchanged. Q1 and other
++queries remain Parquet-only.
 +
 +## Build
 +
 +Use a complete local Vortex checkout with CUDA-layout edition registration,
-+device decimal slicing, bitmap alignment/padding, and
-+`VX_CUDA_SCAN_FLAG_DECODE_DICTIONARIES`. The retained pin lacks these fixes;
++device decimal slicing, bitmap alignment/padding, dictionary export, and
++`vx_cuda_scan_path_arrow_device_stream_projected`. The retained pin lacks these fixes;
 +publish a fixed revision before removing the local-only gate. The header-flag
 +check alone does not verify all runtime fixes.
 +
@@ -39,7 +40,7 @@ index 0000000..bfb5600
 +  -DFETCHCONTENT_SOURCE_DIR_VORTEX=/absolute/path/to/updated/vortex \
 +  -DCMAKE_CUDA_ARCHITECTURES=90
 +CARGO_BUILD_JOBS=4 cmake --build cpp/build-vortex \
-+  --target NDSH_VORTEX_BUILD_SMOKE NDSH_VORTEX_IO_TEST --parallel 2
++  --target NDSH_VORTEX_BUILD_SMOKE NDSH_VORTEX_IO_TEST NDSH_Q06_NVBENCH --parallel 2
 +cpp/build-vortex/benchmarks/NDSH_VORTEX_BUILD_SMOKE
 +cpp/build-vortex/benchmarks/NDSH_VORTEX_IO_TEST
 +compute-sanitizer --tool memcheck --error-exitcode 99 \
@@ -54,6 +55,25 @@ index 0000000..bfb5600
 +Uncached dependencies need network access. Vortex uses its own CUB/nvCOMP;
 +keep the Cargo build tree intact because runtime libraries are not packaged here.
 +
++## Q6 comparison
++
++```sh
++cpp/build-vortex/benchmarks/NDSH_Q06_NVBENCH \
++  --benchmark ndsh_q6_local_warm --axis scale_factor=0.01 \
++  --min-samples 3 --timeout 3 --json q6-sf001.json
++```
++
++Runs `format={parquet,vortex}` × `workload={read,q6}` on identical full lineitem
++files. Both project the same four columns; Q6 applies all filters after reading.
++Schema/values/revenue are checked outside timing, plus an independent boundary/null
++fixture. Warm-page-cache timing includes result destruction and GPU completion,
++not fixture writing. Compare CPU wall time; RMM peaks exclude Vortex allocations.
++The original `ndsh_q6` retains its host-buffer Parquet/date-pushdown path separately.
++
++**Data caveat:** the current generator correlates discount and quantity, yielding
++no Q6 matches. Output labels the NULL revenue as empty; increasing SF is not a fix.
++Resolve generator independence before claiming representative Q6 performance.
++
 +## Contract and scope
 +
 +- `write_vortex`: cuDF chunks → compact host Arrow → CPU-compressed local file.
@@ -63,19 +83,319 @@ index 0000000..bfb5600
 +- Contexts are single-threaded, device 0. Caller stream/resource must outlive the
 +  context and returned tables. Reads finish consumer work and temporary cleanup;
 +  results outlive the context/file. See `vortex_io.hpp` for argument constraints.
-+- Flat typed columns only. No projection/pushdown, remote/device-buffer sources,
-+  GPU writing, or full RMM integration. Row chunking is not a byte budget; peak
++- Flat typed columns and ordered top-level projection only. No predicate pushdown,
++  remote/device-buffer sources, GPU writing, or full RMM integration. Row chunking
++  is not a byte budget; peak
 +  read memory includes batches plus the concatenated result.
 +- Time the complete read, including schema export, import, copies, concatenation,
 +  and GPU completion; exclude writing. Tests establish correctness, not SF100
 +  readiness or performance. For profiling, use `RelWithDebInfo` and optionally
 +  `NVCC_APPEND_FLAGS=-lineinfo`.
+diff --git a/cpp/benchmarks/ndsh/q06.cpp b/cpp/benchmarks/ndsh/q06.cpp
+index c152871..652d6c1 100644
+--- a/cpp/benchmarks/ndsh/q06.cpp
++++ b/cpp/benchmarks/ndsh/q06.cpp
+@@ -16,6 +16,25 @@
+ 
+ #include <nvbench/nvbench.cuh>
+ 
++#ifdef CUDF_NDSH_WITH_VORTEX
++#include "vortex_io.hpp"
++
++#include <cudf_test/column_wrapper.hpp>
++
++#include <cudf/copying.hpp>
++#include <cudf/reduction.hpp>
++
++#include <cmath>
++#include <filesystem>
++#include <map>
++#include <optional>
++#endif
++
++namespace {
++std::vector<std::string> const q6_columns{
++  "l_extendedprice", "l_discount", "l_shipdate", "l_quantity"};
++}
++
+ /**
+  * @file q06.cpp
+  * @brief Implement query 6 of the NDS-H benchmark.
+@@ -54,14 +73,10 @@
+   return revenue;
+ }
+ 
+-void run_ndsh_q6(nvbench::state& state,
+-                 std::unordered_map<std::string, cuio_source_sink_pair>& sources)
++template <typename Read>
++std::unique_ptr<table_with_names> execute_q6(Read&& read, bool filter_shipdate)
+ {
+-  // Read out the `lineitem` table from parquet file
+-  std::vector<std::string> const lineitem_cols = {
+-    "l_extendedprice", "l_discount", "l_shipdate", "l_quantity"};
+-  auto const shipdate_ref = cudf::ast::column_reference(std::distance(
+-    lineitem_cols.begin(), std::find(lineitem_cols.begin(), lineitem_cols.end(), "l_shipdate")));
++  auto const shipdate_ref = cudf::ast::column_reference(2);
+   auto shipdate_lower =
+     cudf::timestamp_scalar<cudf::timestamp_D>(days_since_epoch(1994, 1, 1), true);
+   auto const shipdate_lower_literal = cudf::ast::literal(shipdate_lower);
+@@ -74,8 +89,8 @@ void run_ndsh_q6(nvbench::state& state,
+     cudf::ast::operation(cudf::ast::ast_operator::LESS, shipdate_ref, shipdate_upper_literal);
+   auto const lineitem_pred = std::make_unique<cudf::ast::operation>(
+     cudf::ast::ast_operator::LOGICAL_AND, shipdate_pred_a, shipdate_pred_b);
+-  auto lineitem = read_parquet(
+-    sources.at("lineitem").make_source_info(), lineitem_cols, std::move(lineitem_pred));
++  auto lineitem = read(q6_columns, lineitem_pred);
++  if (filter_shipdate) { lineitem = apply_filter(lineitem, *lineitem_pred); }
+ 
+   // Cast the discount and quantity columns to float32 and append to lineitem table
+   auto discout_float =
+@@ -115,10 +130,17 @@ void run_ndsh_q6(nvbench::state& state,
+ 
+   // Sum the `revenue` column
+   auto const revenue_view = revenue->view();
+-  auto const result_table = apply_reduction(revenue_view, cudf::aggregation::Kind::SUM, "revenue");
++  return apply_reduction(revenue_view, cudf::aggregation::Kind::SUM, "revenue");
++}
+ 
+-  // Write query result to a parquet file
+-  result_table->to_parquet("q6.parquet");
++void run_ndsh_q6(nvbench::state&, std::unordered_map<std::string, cuio_source_sink_pair>& sources)
++{
++  execute_q6(
++    [&](auto const& columns, auto const& predicate) {
++      return read_parquet(sources.at("lineitem").make_source_info(), columns, predicate);
++    },
++    false)
++    ->to_parquet("q6.parquet");
+ }
+ 
+ void ndsh_q6(nvbench::state& state)
+@@ -128,7 +150,7 @@ void ndsh_q6(nvbench::state& state)
+   std::unordered_map<std::string, cuio_source_sink_pair> sources;
+   generate_parquet_data_sources(scale_factor, {"lineitem"}, sources);
+ 
+-  auto stream = cudf::get_default_stream();
++  cuda::stream_ref stream = cudf::get_default_stream();
+   state.set_cuda_stream(nvbench::make_cuda_stream_view(stream.get()));
+   auto const mem_stats_logger = cudf::memory_stats_logger();
+   state.exec(nvbench::exec_tag::sync,
+@@ -138,3 +160,169 @@ void ndsh_q6(nvbench::state& state)
+ }
+ 
+ NVBENCH_BENCH(ndsh_q6).set_name("ndsh_q6").add_float64_axis("scale_factor", {0.01, 0.1, 1});
++
++#ifdef CUDF_NDSH_WITH_VORTEX
++namespace {
++
++std::unique_ptr<table_with_names> read_q6_file(std::string const& path,
++                                               bool vortex,
++                                               ndsh::vortex_io const& io)
++{
++  if (!vortex) { return read_parquet(cudf::io::source_info{path}, q6_columns); }
++  auto result = io.read_vortex(path, 1 << 20, q6_columns);
++  std::vector<std::string> names;
++  for (auto const& field : result.metadata.schema_info) {
++    names.push_back(field.name);
++  }
++  return std::make_unique<table_with_names>(std::move(result.tbl), std::move(names));
++}
++
++void check_projection(cudf::table_view expected, table_with_names const& actual)
++{
++  CUDF_EXPECTS(
++    actual.column_names() == q6_columns && actual.table().num_rows() == expected.num_rows(),
++    "Q6 projected schema/row count mismatch");
++  for (cudf::size_type i = 0; i < expected.num_columns(); ++i) {
++    auto const lhs = expected.column(i);
++    auto const rhs = actual.table().column(i);
++    CUDF_EXPECTS(lhs.type() == rhs.type(), "Q6 projected type mismatch");
++    if (lhs.is_empty()) { continue; }
++    auto equal = cudf::binary_operation(
++      lhs, rhs, cudf::binary_operator::NULL_EQUALS, cudf::data_type{cudf::type_id::BOOL8});
++    auto all = cudf::reduce(equal->view(),
++                            *cudf::make_all_aggregation<cudf::reduce_aggregation>(),
++                            cudf::data_type{cudf::type_id::BOOL8});
++    CUDF_EXPECTS(all->is_valid() && static_cast<cudf::numeric_scalar<bool> const&>(*all).value(),
++                 "Q6 projected values mismatch");
++  }
++}
++
++std::optional<double> revenue_value(table_with_names const& result)
++{
++  auto value = cudf::get_element(result.column("revenue"), 0);
++  if (!value->is_valid()) { return std::nullopt; }
++  return static_cast<cudf::numeric_scalar<double> const&>(*value).value();
++}
++
++void check_q6_boundaries()
++{
++  cudf::test::fixed_width_column_wrapper<double> price{
++    {100, 100, 100, 100, 100, 100, 100, 100, 100}};
++  cudf::test::fixed_width_column_wrapper<double> discount{
++    {0.06, 0.05, 0.07, 0.06, 0.049, 0.071, 0.06, 0.06, 0.06},
++    {true, true, true, true, true, true, true, true, false}};
++  // Epoch days: 1993-12-31, 1994-01-01, 1994-12-31, 1995-01-01.
++  cudf::test::fixed_width_column_wrapper<cudf::timestamp_D, int32_t> shipdate{
++    {8765, 8766, 9130, 9131, 8766, 8766, 8766, 8766, 8766}};
++  cudf::test::fixed_width_column_wrapper<double> quantity{{23, 23, 23, 23, 23, 23, 24, 23, 23}};
++  CUDF_CUDA_TRY(cudaDeviceSynchronize());
++  auto result = execute_q6(
++    [&](auto const& columns, auto const&) {
++      return std::make_unique<table_with_names>(
++        std::make_unique<cudf::table>(cudf::table_view{{price, discount, shipdate, quantity}}),
++        columns);
++    },
++    true);
++  auto value = revenue_value(*result);
++  CUDF_EXPECTS(value && std::abs(*value - 18.0) < 1e-8, "Q6 boundary/null regression");
++}
++
++struct q6_files {
++  temp_directory directory{"ndsh_q6_local"};
++  std::string parquet{directory.path() + "lineitem.parquet"};
++  std::string vortex{directory.path() + "lineitem.vortex"};
++  cudf::size_type rows;
++  std::optional<double> revenue;
++
++  q6_files(double scale_factor, ndsh::vortex_io const& io)
++  {
++    auto generated = generate_lineitem(scale_factor);
++    rows           = generated->table().num_rows();
++    generated->to_parquet(parquet);
++    io.write_vortex(vortex, generated->table(), generated->column_names());
++    auto expected = execute_q6(
++      [&](auto const& columns, auto const&) {
++        return std::make_unique<table_with_names>(
++          std::make_unique<cudf::table>(generated->select(columns)), columns);
++      },
++      true);
++    revenue = revenue_value(*expected);
++    for (bool use_vortex : {false, true}) {
++      auto input = read_q6_file(path(use_vortex), use_vortex, io);
++      check_projection(generated->select(q6_columns), *input);
++      auto result = execute_q6([&](auto const&, auto const&) { return std::move(input); }, true);
++      auto value  = revenue_value(*result);
++      CUDF_EXPECTS(
++        value.has_value() == revenue.has_value() &&
++          (!value || (std::isfinite(*value) &&
++                      std::abs(*value - *revenue) <= 1e-10 * std::max(1.0, std::abs(*revenue)))),
++        "Q6 revenue mismatch");
++    }
++    CUDF_CUDA_TRY(cudaDeviceSynchronize());
++  }
++
++  std::string const& path(bool use_vortex) const { return use_vortex ? vortex : parquet; }
++};
++
++q6_files const& q6_fixture(double scale_factor)
++{
++  // Cache only files/host results, so all format/workload states use identical rows.
++  static std::map<double, std::unique_ptr<q6_files>> fixtures;
++  auto& files = fixtures[scale_factor];
++  if (!files) {
++    check_q6_boundaries();
++    ndsh::vortex_io io{cuda::stream_ref{cudf::get_default_stream()}.get()};
++    files = std::make_unique<q6_files>(scale_factor, io);
++  }
++  return *files;
++}
++
++void ndsh_q6_local(nvbench::state& state)
++{
++  auto const format   = state.get_string("format");
++  auto const workload = state.get_string("workload");
++  CUDF_EXPECTS(format == "parquet" || format == "vortex", "Unknown Q6 format");
++  CUDF_EXPECTS(workload == "read" || workload == "q6", "Unknown Q6 workload");
++  auto const use_vortex         = format == "vortex";
++  auto const& files             = q6_fixture(state.get_float64("scale_factor"));
++  cuda::stream_ref const stream = cudf::get_default_stream();
++  state.set_cuda_stream(nvbench::make_cuda_stream_view(stream.get()));
++  auto const memory = cudf::memory_stats_logger();
++  ndsh::vortex_io io{stream.get()};
++  auto read = [&] { return read_q6_file(files.path(use_vortex), use_vortex, io); };
++  // Warm the selected reader and OS page cache; this is not a cold-storage benchmark.
++  {
++    auto warmup = read();
++  }
++  CUDF_CUDA_TRY(cudaDeviceSynchronize());
++  state.add_element_count(files.rows, "Rows");
++  state.exec(nvbench::exec_tag::sync, [&](nvbench::launch&) {
++    {
++      auto result = workload == "read"
++                      ? read()
++                      : execute_q6([&](auto const&, auto const&) { return read(); }, true);
++      CUDF_CUDA_TRY(cudaStreamSynchronize(stream.get()));
++    }
++    // Include cleanup queued on Vortex's independent producer streams, for both formats.
++    CUDF_CUDA_TRY(cudaDeviceSynchronize());
++  });
++  state.add_buffer_size(
++    std::filesystem::file_size(files.path(use_vortex)), "file_size", "File size");
++  state.add_buffer_size(memory.peak_memory_usage(), "rmm_peak", "RMM peak (excludes Vortex)");
++  auto& summary = state.add_summary("ndsh/q6/revenue");
++  summary.set_string("name", "Verified revenue");
++  if (files.revenue) {
++    summary.set_float64("value", *files.revenue);
++  } else {
++    summary.set_string("value", "null (empty Q6 result)");
++  }
++}
++
++}  // namespace
++
++NVBENCH_BENCH(ndsh_q6_local)
++  .set_name("ndsh_q6_local_warm")
++  .add_float64_axis("scale_factor", {0.01, 0.1, 1})
++  .add_string_axis("format", {"parquet", "vortex"})
++  .add_string_axis("workload", {"read", "q6"});
++#endif
+diff --git a/cpp/benchmarks/ndsh/utilities.cpp b/cpp/benchmarks/ndsh/utilities.cpp
+index 915d93f..4ede894 100644
+--- a/cpp/benchmarks/ndsh/utilities.cpp
++++ b/cpp/benchmarks/ndsh/utilities.cpp
+@@ -386,6 +386,12 @@ void write_to_parquet_device_buffer(std::unique_ptr<cudf::table> const& table,
+   cudf::io::write_parquet(options, stream);
+ }
+ 
++std::unique_ptr<table_with_names> generate_lineitem(double scale_factor)
++{
++  auto [orders, lineitem, part] = cudf::datagen::generate_orders_lineitem_part(scale_factor);
++  return std::make_unique<table_with_names>(std::move(lineitem), LINEITEM_SCHEMA);
++}
++
+ void generate_parquet_data_sources(double scale_factor,
+                                    std::vector<std::string> const& table_names,
+                                    std::unordered_map<std::string, cuio_source_sink_pair>& sources)
+diff --git a/cpp/benchmarks/ndsh/utilities.hpp b/cpp/benchmarks/ndsh/utilities.hpp
+index 7864e54..e887b96 100644
+--- a/cpp/benchmarks/ndsh/utilities.hpp
++++ b/cpp/benchmarks/ndsh/utilities.hpp
+@@ -18,7 +18,7 @@
+ class table_with_names {
+  public:
+   table_with_names(std::unique_ptr<cudf::table> tbl, std::vector<std::string> col_names)
+-    : tbl(std::move(tbl)), col_names(col_names) {};
++    : tbl(std::move(tbl)), col_names(col_names){};
+   /**
+    * @brief Return the table view
+    */
+@@ -198,6 +198,9 @@ void write_to_parquet_device_buffer(std::unique_ptr<cudf::table> const& table,
+                                     std::vector<std::string> const& col_names,
+                                     cuio_source_sink_pair& source);
+ 
++/** Generate one owning lineitem table for shared-format fixtures. */
++[[nodiscard]] std::unique_ptr<table_with_names> generate_lineitem(double scale_factor);
++
+ /**
+  * @brief Generate NDS-H tables and write to parquet device buffers
+  *
 diff --git a/cpp/benchmarks/ndsh/vortex.cmake b/cpp/benchmarks/ndsh/vortex.cmake
 new file mode 100644
-index 0000000..840b62d
+index 0000000..e93e121
 --- /dev/null
 +++ b/cpp/benchmarks/ndsh/vortex.cmake
-@@ -0,0 +1,90 @@
+@@ -0,0 +1,101 @@
 +# =============================================================================
 +# cmake-format: off
 +# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
@@ -98,11 +418,10 @@ index 0000000..840b62d
 +block()
 +# Local-only until the pin includes the prerequisites; the header check cannot verify runtime fixes.
 +string(
-+  CONCAT
-+    vortex_local_required
-+    "CUDF_NDSH_WITH_VORTEX=ON requires a local Vortex checkout with prerequisite fixes. "
-+    "Use -DFETCHCONTENT_SOURCE_DIR_VORTEX=/path/to/vortex. "
-+    "Fetching is disabled pending a fixed published immutable revision."
++  CONCAT vortex_local_required
++         "CUDF_NDSH_WITH_VORTEX=ON requires a local Vortex checkout with prerequisite fixes. "
++         "Use -DFETCHCONTENT_SOURCE_DIR_VORTEX=/path/to/vortex. "
++         "Fetching is disabled pending a fixed published immutable revision."
 +)
 +if(NOT DEFINED FETCHCONTENT_SOURCE_DIR_VORTEX OR FETCHCONTENT_SOURCE_DIR_VORTEX STREQUAL "")
 +  message(FATAL_ERROR "${vortex_local_required}")
@@ -116,14 +435,26 @@ index 0000000..840b62d
 +endif()
 +set(vortex_cuda_header "${FETCHCONTENT_SOURCE_DIR_VORTEX}/vortex-cuda/ffi/cinclude/vortex_cuda.h")
 +set(vortex_cuda_decode_flag "")
++set(vortex_cuda_projected_scan "")
 +if(EXISTS "${vortex_cuda_header}" AND NOT IS_DIRECTORY "${vortex_cuda_header}")
 +  file(STRINGS "${vortex_cuda_header}" vortex_cuda_decode_flag
 +       REGEX "^[ \t]*#[ \t]*define[ \t]+VX_CUDA_SCAN_FLAG_DECODE_DICTIONARIES[ \t]+"
++  )
++  file(STRINGS "${vortex_cuda_header}" vortex_cuda_projected_scan
++       REGEX "^[ \t]*int[ \t]+vx_cuda_scan_path_arrow_device_stream_projected[ \t]*[(]"
 +  )
 +endif()
 +if(NOT vortex_cuda_decode_flag)
 +  message(FATAL_ERROR "${vortex_cuda_header} must export VX_CUDA_SCAN_FLAG_DECODE_DICTIONARIES.\n"
 +                      "${vortex_local_required}"
++  )
++endif()
++
++if(NOT vortex_cuda_projected_scan)
++  message(
++    FATAL_ERROR
++      "${vortex_cuda_header} must declare vx_cuda_scan_path_arrow_device_stream_projected.\n"
++      "${vortex_local_required}"
 +  )
 +endif()
 +
@@ -216,10 +547,10 @@ index 0000000..4a9eecb
 +}
 diff --git a/cpp/benchmarks/ndsh/vortex_io.cpp b/cpp/benchmarks/ndsh/vortex_io.cpp
 new file mode 100644
-index 0000000..3a273d6
+index 0000000..3a9992b
 --- /dev/null
 +++ b/cpp/benchmarks/ndsh/vortex_io.cpp
-@@ -0,0 +1,377 @@
+@@ -0,0 +1,390 @@
 +/*
 + * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 + * SPDX-License-Identifier: Apache-2.0
@@ -532,7 +863,8 @@ index 0000000..3a273d6
 +}
 +
 +cudf::io::table_with_metadata vortex_io::read_vortex(std::string const& path,
-+                                                     std::size_t batch_rows) const
++                                                     std::size_t batch_rows,
++                                                     std::vector<std::string> const& columns) const
 +{
 +  check_device();
 +  auto const file_path = path_view(path);
@@ -545,8 +877,20 @@ index 0000000..3a273d6
 +  vx_cuda_scan_options options{};
 +  options.flags      = VX_CUDA_SCAN_FLAG_DECODE_DICTIONARIES;
 +  options.batch_rows = batch_rows;
-+  auto const status  = vx_cuda_scan_path_arrow_device_stream_with_options(
-+    impl_->session.get(), file_path, &options, &input.value, &error);
++  std::vector<vx_view> column_views;
++  column_views.reserve(columns.size());
++  for (auto const& name : columns) {
++    column_views.push_back({name.data(), name.size()});
++  }
++  // FFI copies names during the call; neither the views nor their bytes escape.
++  auto const status = vx_cuda_scan_path_arrow_device_stream_projected(
++    impl_->session.get(),
++    file_path,
++    &options,
++    column_views.empty() ? nullptr : column_views.data(),
++    column_views.size(),
++    &input.value,
++    &error);
 +  check_error(error, operation);
 +  if (status != 0) { throw std::runtime_error(operation + ": Vortex scan failed"); }
 +
@@ -599,10 +943,10 @@ index 0000000..3a273d6
 +}  // namespace ndsh
 diff --git a/cpp/benchmarks/ndsh/vortex_io.hpp b/cpp/benchmarks/ndsh/vortex_io.hpp
 new file mode 100644
-index 0000000..bbd0695
+index 0000000..96d22c7
 --- /dev/null
 +++ b/cpp/benchmarks/ndsh/vortex_io.hpp
-@@ -0,0 +1,59 @@
+@@ -0,0 +1,63 @@
 +/*
 + * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 + * SPDX-License-Identifier: Apache-2.0
@@ -648,13 +992,17 @@ index 0000000..bbd0695
 +                    cudf::size_type chunk_rows = 1 << 20) const;
 +
 +  /**
-+   * GPU-read all columns of a local CUDA-compatible file into an owning cuDF table.
-+   * Includes dictionary decode, import/copies, concatenation, and consumer completion
++   * GPU-read a local CUDA-compatible file into an owning cuDF table. An empty column
++   * list selects all; otherwise scan literal top-level names in order. Unknown or
++   * duplicate names are errors. Includes dictionary decode, import/copies,
++   * concatenation, and consumer completion
 +   * including temporary cleanup. Zero batch_rows uses layout-derived splitting.
 +   * Peak memory includes owned batches plus the concatenated result.
 +   */
-+  [[nodiscard]] cudf::io::table_with_metadata read_vortex(std::string const& path,
-+                                                          std::size_t batch_rows = 1 << 20) const;
++  [[nodiscard]] cudf::io::table_with_metadata read_vortex(
++    std::string const& path,
++    std::size_t batch_rows                  = 1 << 20,
++    std::vector<std::string> const& columns = {}) const;
 +
 + private:
 +  struct impl;
@@ -664,10 +1012,10 @@ index 0000000..bbd0695
 +}  // namespace ndsh
 diff --git a/cpp/benchmarks/ndsh/vortex_io_test.cpp b/cpp/benchmarks/ndsh/vortex_io_test.cpp
 new file mode 100644
-index 0000000..12c1b20
+index 0000000..2c1fab0
 --- /dev/null
 +++ b/cpp/benchmarks/ndsh/vortex_io_test.cpp
-@@ -0,0 +1,790 @@
+@@ -0,0 +1,854 @@
 +/*
 + * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 + * SPDX-License-Identifier: Apache-2.0
@@ -947,14 +1295,18 @@ index 0000000..12c1b20
 +  }
 +}
 +
-+host_table make_fixture(int64_t first_row, cudf::size_type rows)
++host_table make_fixture(int64_t first_row,
++                        cudf::size_type rows,
++                        std::vector<std::size_t> const& selected = {})
 +{
++  auto const count = selected.empty() ? columns.size() : selected.size();
 +  host_table result;
 +  ArrowSchemaInit(result.schema.get());
-+  check_arrow(ArrowSchemaSetTypeStruct(result.schema.get(), columns.size()), "create table schema");
++  check_arrow(ArrowSchemaSetTypeStruct(result.schema.get(), count), "create table schema");
 +  result.schema->flags &= ~ARROW_FLAG_NULLABLE;
-+  for (std::size_t c = 0; c < columns.size(); ++c) {
-+    auto const& spec = columns[c];
++  for (std::size_t c = 0; c < count; ++c) {
++    auto const index = selected.empty() ? c : selected[c];
++    auto const& spec = columns[index];
 +    auto child       = result.schema->children[c];
 +    if (spec.precision != 0) {
 +      check_arrow(
@@ -964,7 +1316,7 @@ index 0000000..12c1b20
 +      check_arrow(ArrowSchemaSetType(child, spec.arrow_type), "set column schema");
 +    }
 +    check_arrow(ArrowSchemaSetName(child, spec.name), "set column name");
-+    if (c == columns.size() - 2) { child->flags &= ~ARROW_FLAG_NULLABLE; }
++    if (index == columns.size() - 2) { child->flags &= ~ARROW_FLAG_NULLABLE; }
 +  }
 +
 +  ArrowError error{};
@@ -974,13 +1326,14 @@ index 0000000..12c1b20
 +  check_arrow(ArrowArrayStartAppending(result.array.get()), "start fixture");
 +  for (int64_t i = 0; i < rows; ++i) {
 +    auto const row = first_row + i;
-+    for (std::size_t c = 0; c < columns.size(); ++c) {
++    for (std::size_t c = 0; c < count; ++c) {
++      auto const index = selected.empty() ? c : selected[c];
 +      bool const is_null =
-+        c == columns.size() - 1 ||
-+        (c != columns.size() - 2 && (row + static_cast<int64_t>(c) * 3) % 11 == 3);
++        index == columns.size() - 1 ||
++        (index != columns.size() - 2 && (row + static_cast<int64_t>(index) * 3) % 11 == 3);
 +      check_arrow(is_null ? ArrowArrayAppendNull(result.array->children[c], 1)
-+                          : append_fixture_value(result.array->children[c], columns[c], row),
-+                  columns[c].name);
++                          : append_fixture_value(result.array->children[c], columns[index], row),
++                  columns[index].name);
 +    }
 +    check_arrow(ArrowArrayFinishElement(result.array.get()), "finish fixture row");
 +  }
@@ -1020,7 +1373,7 @@ index 0000000..12c1b20
 +  auto view = array_view(schema, array);
 +  require(view->storage_type == NANOARROW_TYPE_STRUCT && view->null_count == 0,
 +          "Expected a non-nullable Arrow table");
-+  require(view->n_children == static_cast<int64_t>(columns.size()), "Arrow column count differs");
++
 +  nanoarrow::UniqueArray result;
 +  ArrowError error{};
 +  check_arrow(
@@ -1062,9 +1415,13 @@ index 0000000..12c1b20
 +        case NANOARROW_TYPE_DECIMAL64:
 +        case NANOARROW_TYPE_DECIMAL128: {
 +          ArrowDecimal value;
-+          auto const& spec = columns[static_cast<std::size_t>(c)];
-+          ArrowDecimalInit(
-+            &value, decimal_bitwidth(child->storage_type), spec.precision, spec.arrow_scale);
++          ArrowSchemaView field{};
++          check_arrow(ArrowSchemaViewInit(&field, schema->children[c], nullptr),
++                      "read decimal schema");
++          ArrowDecimalInit(&value,
++                           decimal_bitwidth(child->storage_type),
++                           field.decimal_precision,
++                           field.decimal_scale);
 +          ArrowArrayViewGetDecimalUnsafe(child, row, &value);
 +          status = ArrowArrayAppendDecimal(out, &value);
 +          break;
@@ -1112,12 +1469,13 @@ index 0000000..12c1b20
 +  require(equal != 0, std::string{"Arrow arrays differ: "} + reason.message);
 +}
 +
-+void check_types(cudf::table_view table)
++void check_types(cudf::table_view table, std::vector<std::size_t> const& selected = {})
 +{
-+  require(table.num_columns() == static_cast<cudf::size_type>(columns.size()),
-+          "Column count differs");
++  auto const count = selected.empty() ? columns.size() : selected.size();
++  require(table.num_columns() == static_cast<cudf::size_type>(count), "Column count differs");
 +  for (cudf::size_type c = 0; c < table.num_columns(); ++c) {
-+    auto const& spec = columns[static_cast<std::size_t>(c)];
++    auto const index = static_cast<std::size_t>(c);
++    auto const& spec = columns[selected.empty() ? index : selected[index]];
 +    auto const type  = table.column(c).type();
 +    require(type.id() == spec.cudf_type, std::string{spec.name} + ": dtype differs");
 +    if (spec.precision != 0) {
@@ -1129,20 +1487,23 @@ index 0000000..12c1b20
 +
 +void check_table(cudf::io::table_with_metadata const& actual,
 +                 host_table const& expected,
-+                 cudaStream_t stream)
++                 cudaStream_t stream,
++                 std::vector<std::size_t> const& selected = {})
 +{
 +  require(actual.tbl != nullptr, "Reader returned no owning table");
 +  require(actual.tbl->num_rows() == expected.array->length, "Row count differs");
-+  check_types(actual.tbl->view());
-+  require(actual.metadata.schema_info.size() == columns.size(), "Metadata column count differs");
++  check_types(actual.tbl->view(), selected);
++  auto const count = selected.empty() ? columns.size() : selected.size();
++  require(actual.metadata.schema_info.size() == count, "Metadata column count differs");
 +  std::vector<cudf::column_metadata> metadata;
-+  for (std::size_t c = 0; c < columns.size(); ++c) {
-+    require(actual.metadata.schema_info[c].name == columns[c].name,
++  for (std::size_t c = 0; c < count; ++c) {
++    auto const& spec = columns[selected.empty() ? c : selected[c]];
++    require(actual.metadata.schema_info[c].name == spec.name,
 +            "Column name differs at index " + std::to_string(c));
 +    require(actual.tbl->view().column(static_cast<cudf::size_type>(c)).null_count() ==
 +              expected.array->children[c]->null_count,
-+            std::string{columns[c].name} + ": null count differs");
-+    metadata.emplace_back(columns[c].name);
++            std::string{spec.name} + ": null count differs");
++    metadata.emplace_back(spec.name);
 +  }
 +
 +  auto schema = cudf::to_arrow_schema(actual.tbl->view(), {metadata.data(), metadata.size()});
@@ -1335,6 +1696,52 @@ index 0000000..12c1b20
 +  throw std::runtime_error(std::string{"Expected an exception containing: "} + message);
 +}
 +
++void test_projection(temporary_directory const& directory,
++                     cudaStream_t stream,
++                     cudf::size_type rows)
++{
++  std::vector<std::size_t> const selected{11, 16, 0, 8, 18, 12};
++  auto source     = make_source(stream, 0, rows);
++  auto expected   = make_fixture(0, rows, selected);
++  auto const path = directory.file("projection-" + std::to_string(rows) + ".vortex");
++  ndsh::vortex_io io{stream};
++  io.write_vortex(path, source->view(), column_names(), 13);
++  for (auto const batch_rows : {7U, 0U, 64U}) {
++    auto result = io.read_vortex(
++      path,
++      batch_rows,
++      {"utf8.text", "decimal_negative_scale", "bool flag", "u64", "all_null", "date_days"});
++    check_cuda(cudaStreamQuery(stream), "projected read must complete the consumer stream");
++    check_table(result, expected, stream, selected);
++    require(result.metadata.num_rows_per_source ==
++              std::vector<std::size_t>{static_cast<std::size_t>(rows)},
++            "Projected row metadata differs");
++    for (std::size_t c = 0; c < selected.size(); ++c) {
++      require(result.metadata.schema_info[c].is_nullable ==
++                source->view().column(static_cast<cudf::size_type>(selected[c])).nullable(),
++              "Projected nullability metadata differs");
++    }
++  }
++}
++
++void test_projection_errors(temporary_directory const& directory, cudaStream_t stream)
++{
++  auto source     = make_source(stream, 0, 37);
++  auto const path = directory.file("projection-errors.vortex");
++  ndsh::vortex_io io{stream};
++  io.write_vortex(path, source->view(), column_names(), 13);
++  expect_error_containing("unknown CUDA scan column",
++                          [&] { static_cast<void>(io.read_vortex(path, 7, {"i32", "missing"})); });
++  auto subset = io.read_vortex(path, 7, {"i32"});
++  check_cuda(cudaStreamQuery(stream), "projected read after error must complete the stream");
++  check_table(subset, make_fixture(0, 37, {3}), stream, {3});
++  expect_error_containing("duplicate CUDA scan column",
++                          [&] { static_cast<void>(io.read_vortex(path, 7, {"i32", "i32"})); });
++  auto all = io.read_vortex(path, 64, {});
++  check_cuda(cudaStreamQuery(stream), "all-column read after error must complete the stream");
++  check_table(all, make_fixture(0, 37), stream);
++}
++
 +void test_zero_columns(temporary_directory const& directory, cudaStream_t stream)
 +{
 +  nanoarrow::UniqueSchema schema;
@@ -1422,6 +1829,11 @@ index 0000000..12c1b20
 +      ++passed;
 +      std::cout << "[PASS] " << name << '\n';
 +    };
++    run("reordered projection metadata and values",
++        [&] { test_projection(directory, stream.get(), 37); });
++    run("projected typed empty table", [&] { test_projection(directory, stream.get(), 0); });
++    run("invalid projection and context reuse",
++        [&] { test_projection_errors(directory, stream.get()); });
 +    run("bounded string host staging", [&] { test_staged_string_bytes(stream.get()); });
 +    run("zero-column schema and write rejection",
 +        [&] { test_zero_columns(directory, stream.get()); });

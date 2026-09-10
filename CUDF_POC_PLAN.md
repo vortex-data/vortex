@@ -7,10 +7,10 @@ comparing Vortex with Parquet, with Nsight Systems profiles at **SF100**.
    Implemented; default cuDF builds remain unchanged.
 2. **Read/write adapters:** chunked host Arrow → CPU Vortex writer;
    CUDA scan → Arrow Device import → owning cuDF tables. Implemented with
-   ownership/synchronization tests. Q1/Q6 still read Parquet.
-3. **Matched comparison:** generate identical data, use local files for both
-   formats, add Vortex projection, and apply equivalent post-read cuDF filters.
-   Report Parquet pushdown separately.
+   ownership/synchronization tests.
+3. **Matched comparison:** implemented for Q6 and projected reads: identical
+   local-file fixtures, scan-level projection, and shared post-read cuDF filters.
+   The original Parquet-pushdown benchmark remains separate; Q1 is still Parquet-only.
 4. **Validate and scale:** read-only comparison → Q6 → Q1;
    SF0.01 → SF1 → SF10 → SF100. Check schemas, values, nulls, decimals, batch
    boundaries, and query results. Bound intermediates; track Vortex and RMM memory.
@@ -24,9 +24,11 @@ comparing Vortex with Parquet, with Nsight Systems profiles at **SF100**.
 [Patch and setup](benchmarks/cudf-ndsh/README.md) ·
 [Validation](benchmarks/cudf-ndsh/VALIDATION.md)
 
-The adapter passes GPU tests against cuDF 26.08; current pinned cuDF is
-compile-only validated. Publish the local Vortex prerequisites and update the
-pin before submitting the upstream POC.
+Q6/read SF0.01 and 15 adapter tests pass on prebuilt cuDF 26.08, including
+Compute Sanitizer. Pinned cuDF is compile-only validated; its full build timed out.
+Generated Q6 has no matching rows because discount/quantity share an RNG stream;
+resolve that upstream before representative Q6 scaling. Then finish pinned-runtime
+validation, Q1, and SF100 profiling. Publish Vortex prerequisites and update the pin.
 
 I/O uses pooled pinned-host staging → HtoD → GPU decode, with host metadata;
 **not GPUDirect Storage**. Public cuDF/Python APIs, GPU writing, general cuDF
