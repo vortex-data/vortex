@@ -287,8 +287,6 @@ mod tests {
     use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::fns::bounded_min::BoundedMin;
     use crate::aggregate_fn::fns::bounded_min::BoundedMinOptions;
-    use crate::aggregate_fn::fns::bounded_min::BoundedMinPartial;
-    use crate::aggregate_fn::fns::bounded_min::BoundedMinState;
     use crate::aggregate_fn::fns::max::Max;
     use crate::aggregate_fn::fns::min::Min;
     use crate::array_session;
@@ -362,9 +360,8 @@ mod tests {
         )?;
 
         acc.accumulate(&values, &mut ctx)?;
-        acc.fold_partial(BoundedMinPartial {
-            state: BoundedMinState::Empty,
-        })?;
+        let empty = acc.empty_partial()?;
+        acc.fold_partial(empty)?;
 
         assert_eq!(
             acc.finish()?,

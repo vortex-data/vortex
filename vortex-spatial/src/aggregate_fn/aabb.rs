@@ -452,7 +452,7 @@ mod tests {
     fn merge_partials_ignores_empty() -> VortexResult<()> {
         let dtype = point_column(vec![0.0], vec![0.0])?.dtype().clone();
         let dtypes = AggregateDTypes::try_new(&GeometryAabb, &EmptyOptions, dtype)?;
-        let empty = AabbPartial { rect: None };
+        let empty = GeometryAabb.empty_partial(&EmptyOptions, dtypes.borrow())?;
         let value = AabbPartial {
             rect: Some(SpatialRect::new((0.0, 0.0), (1.0, 1.0))),
         };

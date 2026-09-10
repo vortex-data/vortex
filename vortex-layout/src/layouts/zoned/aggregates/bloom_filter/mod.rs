@@ -493,7 +493,7 @@ pub(in crate::layouts::zoned::aggregates::bloom_filter) mod test_utils {
     fn mismatched_block_counts_are_rejected() -> VortexResult<()> {
         let smaller = BloomOptions::new(NonZeroU32::new(4).unwrap(), HashFn::XxHash3_64);
         let dtypes = binary_dtypes(&smaller)?;
-        let bigger = BloomPartial::from(&BloomOptions::default());
+        let bigger = BloomFilter.empty_partial(&BloomOptions::default(), dtypes.borrow())?;
 
         let bigger_scalar =
             BloomFilter.to_scalar(&BloomOptions::default(), dtypes.borrow(), &bigger)?;
@@ -509,7 +509,7 @@ pub(in crate::layouts::zoned::aggregates::bloom_filter) mod test_utils {
                 .merge_partials(
                     &smaller,
                     dtypes.borrow(),
-                    BloomPartial::from(&smaller),
+                    BloomFilter.empty_partial(&smaller, dtypes.borrow())?,
                     bigger
                 )
                 .is_err(),
@@ -521,24 +521,25 @@ pub(in crate::layouts::zoned::aggregates::bloom_filter) mod test_utils {
     #[test]
     fn merge_partials_unions_two_disjoint_partials() -> VortexResult<()> {
         let options = BloomOptions::default();
-        let mut partial = BloomPartial::from(&options);
+        let dtypes = binary_dtypes(&options)?;
+
+        let mut partial = BloomFilter.empty_partial(&options, dtypes.borrow())?;
         for i in 0..50i64 {
             partial.insert(i.to_le_bytes());
         }
 
-        let mut secondary_partial = BloomPartial::from(&options);
+        let mut secondary_partial = BloomFilter.empty_partial(&options, dtypes.borrow())?;
         for i in 50..100i64 {
             secondary_partial.insert(i.to_le_bytes());
         }
 
         // The following expected works because seed is equal for all.
         // If the seed is different for both partials, then this will fail.
-        let mut expected = BloomPartial::from(&options);
+        let mut expected = BloomFilter.empty_partial(&options, dtypes.borrow())?;
         for i in 0..100i64 {
             expected.insert(i.to_le_bytes());
         }
 
-        let dtypes = binary_dtypes(&options)?;
         let partial =
             BloomFilter.merge_partials(&options, dtypes.borrow(), partial, secondary_partial)?;
 

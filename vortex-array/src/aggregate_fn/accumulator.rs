@@ -59,7 +59,7 @@ impl<V: AggregateFnVTable> Accumulator<V> {
     }
 
     /// The identity partial state: the state of a group with no accumulated values.
-    fn empty_partial(&self) -> VortexResult<V::Partial> {
+    pub(crate) fn empty_partial(&self) -> VortexResult<V::Partial> {
         self.vtable
             .empty_partial(&self.options, self.dtypes.borrow())
     }

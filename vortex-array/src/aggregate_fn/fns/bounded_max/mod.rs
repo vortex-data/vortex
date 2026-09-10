@@ -484,9 +484,8 @@ mod tests {
         )?;
 
         acc.accumulate(&values, &mut ctx)?;
-        acc.fold_partial(BoundedMaxPartial {
-            state: BoundedMaxState::Empty,
-        })?;
+        let empty = acc.empty_partial()?;
+        acc.fold_partial(empty)?;
 
         assert_eq!(
             acc.finish()?,
