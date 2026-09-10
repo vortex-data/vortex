@@ -1,8 +1,20 @@
 diff --git a/cpp/benchmarks/CMakeLists.txt b/cpp/benchmarks/CMakeLists.txt
-index 8fa9593..4f5127a 100644
+index 8fa9593..da69664 100644
 --- a/cpp/benchmarks/CMakeLists.txt
 +++ b/cpp/benchmarks/CMakeLists.txt
-@@ -129,6 +129,7 @@ ConfigureNVBench(NDSH_Q05_NVBENCH ndsh/q05.cpp ndsh/utilities.cpp)
+@@ -55,6 +55,11 @@ target_include_directories(
+          "$<BUILD_INTERFACE:${CUDF_SOURCE_DIR}/src>"
+ )
+ 
++add_executable(
++  NDSH_DATA_GENERATOR_TEST EXCLUDE_FROM_ALL common/ndsh_data_generator/ndsh_data_generator_test.cpp
++)
++target_link_libraries(NDSH_DATA_GENERATOR_TEST PRIVATE ndsh_data_generator CUDA::cudart)
++
+ # ##################################################################################################
+ # * compiler function -----------------------------------------------------------------------------
+ 
+@@ -129,6 +134,7 @@ ConfigureNVBench(NDSH_Q05_NVBENCH ndsh/q05.cpp ndsh/utilities.cpp)
  ConfigureNVBench(NDSH_Q06_NVBENCH ndsh/q06.cpp ndsh/utilities.cpp)
  ConfigureNVBench(NDSH_Q09_NVBENCH ndsh/q09.cpp ndsh/utilities.cpp)
  ConfigureNVBench(NDSH_Q10_NVBENCH ndsh/q10.cpp ndsh/utilities.cpp)
@@ -10,16 +22,310 @@ index 8fa9593..4f5127a 100644
  
  # ##################################################################################################
  # * filter benchmark -------------------------------------------------------------------
+diff --git a/cpp/benchmarks/common/ndsh_data_generator/ndsh_data_generator.cpp b/cpp/benchmarks/common/ndsh_data_generator/ndsh_data_generator.cpp
+index 540cc71..40e10ee 100644
+--- a/cpp/benchmarks/common/ndsh_data_generator/ndsh_data_generator.cpp
++++ b/cpp/benchmarks/common/ndsh_data_generator/ndsh_data_generator.cpp
+@@ -29,6 +29,7 @@
+ #include <cuda/stream>
+ 
+ #include <array>
++#include <cstdint>
+ #include <string>
+ #include <vector>
+ 
+@@ -309,8 +310,11 @@ std::unique_ptr<cudf::table> generate_lineitem_partial(cudf::table_view const& o
+   // Generate the `l_quantity` column
+   auto l_quantity = generate_random_numeric_column<int8_t>(1, 50, l_num_rows, stream, mr);
+ 
+-  // Generate the `l_discount` column
+-  auto l_discount = generate_random_numeric_column<double>(0.00, 0.10, l_num_rows, stream, mr);
++  // Separate discount from the default-seeded draws using the first SHA-256 IV word
++  // (fractional bits of sqrt(2)), chosen independently of query predicates.
++  constexpr uint32_t l_discount_seed = 0x6a09e667u;
++  auto l_discount =
++    generate_random_numeric_column<double>(0.00, 0.10, l_num_rows, stream, mr, l_discount_seed);
+ 
+   // Generate the `l_tax` column
+   auto l_tax = generate_random_numeric_column<double>(0.00, 0.08, l_num_rows, stream, mr);
+diff --git a/cpp/benchmarks/common/ndsh_data_generator/ndsh_data_generator_test.cpp b/cpp/benchmarks/common/ndsh_data_generator/ndsh_data_generator_test.cpp
+new file mode 100644
+index 0000000..fb8b27a
+--- /dev/null
++++ b/cpp/benchmarks/common/ndsh_data_generator/ndsh_data_generator_test.cpp
+@@ -0,0 +1,146 @@
++/*
++ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++#include "ndsh_data_generator.hpp"
++#include "random_column_generator.hpp"
++
++#include <benchmarks/ndsh/q6_reference.hpp>
++
++#include <cudf_test/column_wrapper.hpp>
++
++#include <cudf/copying.hpp>
++#include <cudf/detail/utilities/vector_factories.hpp>
++#include <cudf/utilities/error.hpp>
++#include <cudf/wrappers/timestamps.hpp>
++
++#include <cuda_runtime_api.h>
++#include <thrust/random.h>
++
++#include <algorithm>
++#include <cmath>
++#include <cstdint>
++#include <exception>
++#include <iomanip>
++#include <iostream>
++#include <limits>
++#include <type_traits>
++
++namespace {
++template <typename T>
++auto host_values(cudf::column_view column, cuda::stream_ref stream)
++{
++  CUDF_EXPECTS(column.type() == cudf::data_type{cudf::type_to_id<T>()} && !column.has_nulls(),
++               "Unexpected generated type or nulls");
++  return cudf::detail::make_host_vector(
++    cudf::device_span<T const>{column.data<T>(), static_cast<std::size_t>(column.size())}, stream);
++}
++
++template <typename T>
++void test_numeric(T lower, T upper, cuda::stream_ref stream)
++{
++  constexpr cudf::size_type rows = 257;
++  auto mr                        = cudf::get_current_device_resource_ref();
++  auto draw                      = [&](cudf::size_type count, uint32_t seed) {
++    auto column =
++      cudf::datagen::generate_random_numeric_column<T>(lower, upper, count, stream, mr, seed);
++    CUDF_EXPECTS(column->size() == count, "Generated row count changed");
++    return host_values<T>(column->view(), stream);
++  };
++  auto default_draw = [&] {
++    return host_values<T>(
++      cudf::datagen::generate_random_numeric_column<T>(lower, upper, rows, stream, mr)->view(),
++      stream);
++  };
++  auto const defaults = default_draw();
++  CUDF_EXPECTS(defaults == draw(rows, 1), "Default seed differs from explicit seed 1");
++
++  // Replay the legacy per-index engine on the CPU, without the new seed API.
++  using distribution = std::conditional_t<std::is_integral_v<T>,
++                                          thrust::uniform_int_distribution<T>,
++                                          thrust::uniform_real_distribution<T>>;
++  for (cudf::size_type i = 0; i < rows; ++i) {
++    thrust::default_random_engine engine;
++    engine.discard(i);
++    auto const expected = distribution(lower, upper)(engine);
++    if constexpr (std::is_integral_v<T>) {
++      CUDF_EXPECTS(defaults[i] == expected, "Legacy integer sequence changed");
++    } else {
++      // Allow host/device floating-point rounding differences.
++      CUDF_EXPECTS(std::abs(defaults[i] - expected) <=
++                     4 * std::numeric_limits<T>::epsilon() * std::max(T{1}, std::abs(expected)),
++                   "Legacy floating-point sequence changed");
++    }
++  }
++
++  auto const seeded    = draw(rows, 42);
++  auto const alternate = draw(rows, 43);
++  CUDF_EXPECTS(seeded != defaults && seeded != alternate, "Seed does not change output");
++  CUDF_EXPECTS(seeded == draw(rows, 42), "Seeded output depends on call order");
++  CUDF_EXPECTS(defaults == default_draw(), "Default output depends on call order");
++  auto const prefix = draw(31, 42);
++  CUDF_EXPECTS(std::equal(prefix.begin(), prefix.end(), seeded.begin()), "Seeded prefix changed");
++  for (auto const* values : {&defaults, &seeded, &alternate, &prefix}) {
++    CUDF_EXPECTS(
++      std::all_of(
++        values->begin(), values->end(), [=](T value) { return lower <= value && value <= upper; }),
++      "Generated value outside bounds");
++  }
++}
++
++void test_q6_reference(cuda::stream_ref stream)
++{
++  using cudf::test::fixed_width_column_wrapper;
++  // Exclude a matching sentinel; near-boundary doubles qualify only after the float32 cast.
++  fixed_width_column_wrapper<double> price{{1000, 100, 100, 100, 100, 100, 100, 100, 100}};
++  fixed_width_column_wrapper<double> discount{
++    {0.06, 0.06, 0.05 - 1e-10, 0.07 + 1e-10, 0.06, 0.06, 0.049, 0.071, 0.06}};
++  fixed_width_column_wrapper<cudf::timestamp_D, int32_t> shipdate{
++    {8766, 8766, 8766, 9130, 8765, 9131, 8766, 8766, 8766}};
++  fixed_width_column_wrapper<int8_t> quantity{{23, 23, 23, 23, 23, 23, 23, 23, 24}};
++  CUDF_CUDA_TRY(cudaDeviceSynchronize());
++  auto const input  = cudf::table_view{{price, discount, shipdate, quantity}};
++  auto const result = ndsh::q6_cpu_reference(cudf::slice(input, {1, 9}, stream).front(), stream);
++  CUDF_EXPECTS(result.matched == 3 && std::abs(result.revenue - 18.0) < 1e-12,
++               "Q6 CPU reference boundary/slice regression");
++}
++
++void test_lineitem_q6(cuda::stream_ref stream)
++{
++  auto [orders, lineitem, part] = cudf::datagen::generate_orders_lineitem_part(0.01, stream);
++  CUDF_EXPECTS(lineitem->num_columns() == 16, "Unexpected lineitem schema");
++  // LINEITEM_SCHEMA in ndsh/utilities.cpp: extendedprice, discount, shipdate, quantity.
++  auto const projected = lineitem->view().select({5, 6, 10, 4});
++  auto const result    = ndsh::q6_cpu_reference(projected, stream);
++  std::cout << "lineitem_q6 sf=0.01 rows=" << projected.num_rows() << " matched=" << result.matched
++            << " revenue=" << std::setprecision(17) << result.revenue << '\n';
++  CUDF_EXPECTS(result.matched > 0, "Q6 has no survivors: quantity/discount correlation regressed");
++  CUDF_EXPECTS(std::isfinite(result.revenue) && result.revenue > 0,
++               "Q6 revenue must be positive and finite");
++}
++}  // namespace
++
++int main()
++{
++  char const* current_test = "initialization";
++  try {
++    cuda::stream_ref const stream = cudf::get_default_stream();
++    auto run                      = [&](char const* name, auto&& test) {
++      current_test = name;
++      test();
++      stream.sync();
++      std::cout << "[PASS] " << name << '\n';
++    };
++    run("int8", [&] { test_numeric<int8_t>(-10, 20, stream); });
++    run("int16", [&] { test_numeric<int16_t>(-1000, 2000, stream); });
++    run("size_type", [&] { test_numeric<cudf::size_type>(-100000, 200000, stream); });
++    run("double", [&] { test_numeric<double>(0.0, 0.1, stream); });
++    run("q6_reference_boundaries_slice", [&] { test_q6_reference(stream); });
++    run("lineitem_q6", [&] { test_lineitem_q6(stream); });
++    return 0;
++  } catch (std::exception const& error) {
++    std::cerr << "[FAIL] " << current_test << ": " << error.what() << '\n';
++    return 1;
++  }
++}
+diff --git a/cpp/benchmarks/common/ndsh_data_generator/random_column_generator.cu b/cpp/benchmarks/common/ndsh_data_generator/random_column_generator.cu
+index afc3ded..7bb69dd 100644
+--- a/cpp/benchmarks/common/ndsh_data_generator/random_column_generator.cu
++++ b/cpp/benchmarks/common/ndsh_data_generator/random_column_generator.cu
+@@ -55,18 +55,22 @@ template <typename T>
+ struct random_number_generator {
+   T lower;
+   T upper;
++  uint32_t seed;
+ 
+-  CUDF_HOST_DEVICE random_number_generator(T lower, T upper) : lower(lower), upper(upper) {}
++  CUDF_HOST_DEVICE random_number_generator(T lower, T upper, uint32_t seed = 1)
++    : lower(lower), upper(upper), seed(seed)
++  {
++  }
+ 
+   __device__ T operator()(int64_t const idx) const
+   {
+     if constexpr (cudf::is_integral<T>()) {
+-      thrust::default_random_engine engine;
++      thrust::default_random_engine engine(seed);
+       thrust::uniform_int_distribution<T> dist(lower, upper);
+       engine.discard(idx);
+       return dist(engine);
+     } else {
+-      thrust::default_random_engine engine;
++      thrust::default_random_engine engine(seed);
+       thrust::uniform_real_distribution<T> dist(lower, upper);
+       engine.discard(idx);
+       return dist(engine);
+@@ -108,7 +112,8 @@ std::unique_ptr<cudf::column> generate_random_numeric_column(T lower,
+                                                              T upper,
+                                                              cudf::size_type num_rows,
+                                                              cuda::stream_ref stream,
+-                                                             rmm::device_async_resource_ref mr)
++                                                             rmm::device_async_resource_ref mr,
++                                                             uint32_t seed)
+ {
+   CUDF_BENCHMARK_RANGE();
+   auto col = cudf::make_numeric_column(
+@@ -119,7 +124,7 @@ std::unique_ptr<cudf::column> generate_random_numeric_column(T lower,
+                     cuda::counting_iterator{begin},
+                     cuda::counting_iterator{end},
+                     col->mutable_view().begin<T>(),
+-                    random_number_generator<T>(lower, upper));
++                    random_number_generator<T>(lower, upper, seed));
+   return col;
+ }
+ 
+@@ -128,28 +133,32 @@ template std::unique_ptr<cudf::column> generate_random_numeric_column<int8_t>(
+   int8_t upper,
+   cudf::size_type num_rows,
+   cuda::stream_ref stream,
+-  rmm::device_async_resource_ref mr);
++  rmm::device_async_resource_ref mr,
++  uint32_t seed);
+ 
+ template std::unique_ptr<cudf::column> generate_random_numeric_column<int16_t>(
+   int16_t lower,
+   int16_t upper,
+   cudf::size_type num_rows,
+   cuda::stream_ref stream,
+-  rmm::device_async_resource_ref mr);
++  rmm::device_async_resource_ref mr,
++  uint32_t seed);
+ 
+ template std::unique_ptr<cudf::column> generate_random_numeric_column<cudf::size_type>(
+   cudf::size_type lower,
+   cudf::size_type upper,
+   cudf::size_type num_rows,
+   cuda::stream_ref stream,
+-  rmm::device_async_resource_ref mr);
++  rmm::device_async_resource_ref mr,
++  uint32_t seed);
+ 
+ template std::unique_ptr<cudf::column> generate_random_numeric_column<double>(
+   double lower,
+   double upper,
+   cudf::size_type num_rows,
+   cuda::stream_ref stream,
+-  rmm::device_async_resource_ref mr);
++  rmm::device_async_resource_ref mr,
++  uint32_t seed);
+ 
+ std::unique_ptr<cudf::column> generate_primary_key_column(cudf::scalar const& start,
+                                                           cudf::size_type num_rows,
+diff --git a/cpp/benchmarks/common/ndsh_data_generator/random_column_generator.hpp b/cpp/benchmarks/common/ndsh_data_generator/random_column_generator.hpp
+index a98ab25..4e46d19 100644
+--- a/cpp/benchmarks/common/ndsh_data_generator/random_column_generator.hpp
++++ b/cpp/benchmarks/common/ndsh_data_generator/random_column_generator.hpp
+@@ -9,6 +9,7 @@
+ #include <cudf/utilities/default_stream.hpp>
+ #include <cudf/utilities/memory_resource.hpp>
+ 
++#include <cstdint>
+ #include <string>
+ 
+ namespace cudf::datagen {
+@@ -45,6 +46,7 @@ std::unique_ptr<cudf::column> generate_random_string_column(
+  * @param num_rows The number of rows in the column
+  * @param stream CUDA stream used for device memory operations and kernel launches
+  * @param mr Device memory resource used to allocate the returned column's device memory
++ * @param seed Seed passed directly to Thrust's default random engine; 1 preserves legacy output
+  */
+ template <typename T>
+ std::unique_ptr<cudf::column> generate_random_numeric_column(
+@@ -52,7 +54,8 @@ std::unique_ptr<cudf::column> generate_random_numeric_column(
+   T upper,
+   cudf::size_type num_rows,
+   cuda::stream_ref stream           = cudf::get_default_stream(),
+-  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
++  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref(),
++  uint32_t seed                     = 1);
+ 
+ /**
+  * @brief Generate a primary key column
 diff --git a/cpp/benchmarks/ndsh/VORTEX.md b/cpp/benchmarks/ndsh/VORTEX.md
 new file mode 100644
-index 0000000..1bbd3f8
+index 0000000..88614bf
 --- /dev/null
 +++ b/cpp/benchmarks/ndsh/VORTEX.md
-@@ -0,0 +1,75 @@
+@@ -0,0 +1,79 @@
 +# Experimental Vortex adapter
 +
 +`CUDF_NDSH_WITH_VORTEX=ON` adds a local-file Parquet/Vortex comparison for Q6
-+and projected reads. Default **OFF** leaves other builds unchanged. Q1 and other
++and projected reads. Default **OFF** adds no Vortex dependency. Q1 and other
 +queries remain Parquet-only.
 +
 +## Build
@@ -40,9 +346,11 @@ index 0000000..1bbd3f8
 +  -DFETCHCONTENT_SOURCE_DIR_VORTEX=/absolute/path/to/updated/vortex \
 +  -DCMAKE_CUDA_ARCHITECTURES=90
 +CARGO_BUILD_JOBS=4 cmake --build cpp/build-vortex \
-+  --target NDSH_VORTEX_BUILD_SMOKE NDSH_VORTEX_IO_TEST NDSH_Q06_NVBENCH --parallel 2
++  --target NDSH_VORTEX_BUILD_SMOKE NDSH_VORTEX_IO_TEST \
++    NDSH_DATA_GENERATOR_TEST NDSH_Q06_NVBENCH --parallel 2
 +cpp/build-vortex/benchmarks/NDSH_VORTEX_BUILD_SMOKE
 +cpp/build-vortex/benchmarks/NDSH_VORTEX_IO_TEST
++cpp/build-vortex/benchmarks/NDSH_DATA_GENERATOR_TEST
 +compute-sanitizer --tool memcheck --error-exitcode 99 \
 +  cpp/build-vortex/benchmarks/NDSH_VORTEX_IO_TEST
 +```
@@ -65,14 +373,17 @@ index 0000000..1bbd3f8
 +
 +Runs `format={parquet,vortex}` × `workload={read,q6}` on identical full lineitem
 +files. Both project the same four columns; Q6 applies all filters after reading.
-+Schema/values/revenue are checked outside timing, plus an independent boundary/null
-+fixture. Warm-page-cache timing includes result destruction and GPU completion,
-+not fixture writing. Compare CPU wall time; RMM peaks exclude Vortex allocations.
++Schema/values are checked against the generated input; both GPU revenues must match
++a bounded-batch CPU reference of that same table. Empty Q6 is rejected. Checks and
++writing are outside timing. Warm-page-cache timing includes result destruction and
++GPU completion. Compare CPU wall time; RMM peaks exclude Vortex allocations.
 +The original `ndsh_q6` retains its host-buffer Parquet/date-pushdown path separately.
 +
-+**Data caveat:** the current generator correlates discount and quantity, yielding
-+no Q6 matches. Output labels the NULL revenue as empty; increasing SF is not a fix.
-+Resolve generator independence before claiming representative Q6 performance.
++**Data change:** discount uses a separate fixed RNG seed, removing Q6's zero-match
++correlation with quantity. This changes lineitem and dependent values for all NDS-H
++queries, even with Vortex OFF; regenerate fixtures. Other correlations and an existing
++price-row-ordering defect remain. Separate generations can differ, so compare formats
++using the shared fixture, not old results. `NDSH_DATA_GENERATOR_TEST` is Vortex-independent.
 +
 +## Contract and scope
 +
@@ -85,21 +396,21 @@ index 0000000..1bbd3f8
 +  results outlive the context/file. See `vortex_io.hpp` for argument constraints.
 +- Flat typed columns and ordered top-level projection only. No predicate pushdown,
 +  remote/device-buffer sources, GPU writing, or full RMM integration. Row chunking
-+  is not a byte budget; peak
-+  read memory includes batches plus the concatenated result.
++  is not a byte budget; peak read memory includes batches plus the concatenated result.
 +- Time the complete read, including schema export, import, copies, concatenation,
 +  and GPU completion; exclude writing. Tests establish correctness, not SF100
 +  readiness or performance. For profiling, use `RelWithDebInfo` and optionally
 +  `NVCC_APPEND_FLAGS=-lineinfo`.
 diff --git a/cpp/benchmarks/ndsh/q06.cpp b/cpp/benchmarks/ndsh/q06.cpp
-index c152871..652d6c1 100644
+index c152871..82733ee 100644
 --- a/cpp/benchmarks/ndsh/q06.cpp
 +++ b/cpp/benchmarks/ndsh/q06.cpp
-@@ -16,6 +16,25 @@
+@@ -16,6 +16,26 @@
  
  #include <nvbench/nvbench.cuh>
  
 +#ifdef CUDF_NDSH_WITH_VORTEX
++#include "q6_reference.hpp"
 +#include "vortex_io.hpp"
 +
 +#include <cudf_test/column_wrapper.hpp>
@@ -121,7 +432,7 @@ index c152871..652d6c1 100644
  /**
   * @file q06.cpp
   * @brief Implement query 6 of the NDS-H benchmark.
-@@ -54,14 +73,10 @@
+@@ -54,14 +74,10 @@
    return revenue;
  }
  
@@ -139,7 +450,7 @@ index c152871..652d6c1 100644
    auto shipdate_lower =
      cudf::timestamp_scalar<cudf::timestamp_D>(days_since_epoch(1994, 1, 1), true);
    auto const shipdate_lower_literal = cudf::ast::literal(shipdate_lower);
-@@ -74,8 +89,8 @@ void run_ndsh_q6(nvbench::state& state,
+@@ -74,8 +90,8 @@ void run_ndsh_q6(nvbench::state& state,
      cudf::ast::operation(cudf::ast::ast_operator::LESS, shipdate_ref, shipdate_upper_literal);
    auto const lineitem_pred = std::make_unique<cudf::ast::operation>(
      cudf::ast::ast_operator::LOGICAL_AND, shipdate_pred_a, shipdate_pred_b);
@@ -150,7 +461,7 @@ index c152871..652d6c1 100644
  
    // Cast the discount and quantity columns to float32 and append to lineitem table
    auto discout_float =
-@@ -115,10 +130,17 @@ void run_ndsh_q6(nvbench::state& state,
+@@ -115,10 +131,17 @@ void run_ndsh_q6(nvbench::state& state,
  
    // Sum the `revenue` column
    auto const revenue_view = revenue->view();
@@ -171,7 +482,7 @@ index c152871..652d6c1 100644
  }
  
  void ndsh_q6(nvbench::state& state)
-@@ -128,7 +150,7 @@ void ndsh_q6(nvbench::state& state)
+@@ -128,7 +151,7 @@ void ndsh_q6(nvbench::state& state)
    std::unordered_map<std::string, cuio_source_sink_pair> sources;
    generate_parquet_data_sources(scale_factor, {"lineitem"}, sources);
  
@@ -180,7 +491,7 @@ index c152871..652d6c1 100644
    state.set_cuda_stream(nvbench::make_cuda_stream_view(stream.get()));
    auto const mem_stats_logger = cudf::memory_stats_logger();
    state.exec(nvbench::exec_tag::sync,
-@@ -138,3 +160,169 @@ void ndsh_q6(nvbench::state& state)
+@@ -138,3 +161,166 @@ void ndsh_q6(nvbench::state& state)
  }
  
  NVBENCH_BENCH(ndsh_q6).set_name("ndsh_q6").add_float64_axis("scale_factor", {0.01, 0.1, 1});
@@ -256,7 +567,8 @@ index c152871..652d6c1 100644
 +  std::string parquet{directory.path() + "lineitem.parquet"};
 +  std::string vortex{directory.path() + "lineitem.vortex"};
 +  cudf::size_type rows;
-+  std::optional<double> revenue;
++  cudf::size_type matched;
++  double revenue;
 +
 +  q6_files(double scale_factor, ndsh::vortex_io const& io)
 +  {
@@ -264,23 +576,20 @@ index c152871..652d6c1 100644
 +    rows           = generated->table().num_rows();
 +    generated->to_parquet(parquet);
 +    io.write_vortex(vortex, generated->table(), generated->column_names());
-+    auto expected = execute_q6(
-+      [&](auto const& columns, auto const&) {
-+        return std::make_unique<table_with_names>(
-+          std::make_unique<cudf::table>(generated->select(columns)), columns);
-+      },
-+      true);
-+    revenue = revenue_value(*expected);
++    auto const reference =
++      ndsh::q6_cpu_reference(generated->select(q6_columns), cudf::get_default_stream());
++    matched = reference.matched;
++    revenue = reference.revenue;
++    CUDF_EXPECTS(matched > 0 && std::isfinite(revenue) && revenue > 0,
++                 "Q6 fixture has no positive revenue; check generator RNG streams");
 +    for (bool use_vortex : {false, true}) {
 +      auto input = read_q6_file(path(use_vortex), use_vortex, io);
 +      check_projection(generated->select(q6_columns), *input);
 +      auto result = execute_q6([&](auto const&, auto const&) { return std::move(input); }, true);
 +      auto value  = revenue_value(*result);
-+      CUDF_EXPECTS(
-+        value.has_value() == revenue.has_value() &&
-+          (!value || (std::isfinite(*value) &&
-+                      std::abs(*value - *revenue) <= 1e-10 * std::max(1.0, std::abs(*revenue)))),
-+        "Q6 revenue mismatch");
++      CUDF_EXPECTS(value && std::isfinite(*value) &&
++                     std::abs(*value - revenue) <= 1e-10 * std::max(1.0, std::abs(revenue)),
++                   "Q6 GPU revenue differs from CPU reference");
 +    }
 +    CUDF_CUDA_TRY(cudaDeviceSynchronize());
 +  }
@@ -335,11 +644,10 @@ index c152871..652d6c1 100644
 +  state.add_buffer_size(memory.peak_memory_usage(), "rmm_peak", "RMM peak (excludes Vortex)");
 +  auto& summary = state.add_summary("ndsh/q6/revenue");
 +  summary.set_string("name", "Verified revenue");
-+  if (files.revenue) {
-+    summary.set_float64("value", *files.revenue);
-+  } else {
-+    summary.set_string("value", "null (empty Q6 result)");
-+  }
++  summary.set_float64("value", files.revenue);
++  auto& matched = state.add_summary("ndsh/q6/matched_rows");
++  matched.set_string("name", "Q6 matched rows");
++  matched.set_int64("value", files.matched);
 +}
 +
 +}  // namespace
@@ -350,6 +658,71 @@ index c152871..652d6c1 100644
 +  .add_string_axis("format", {"parquet", "vortex"})
 +  .add_string_axis("workload", {"read", "q6"});
 +#endif
+diff --git a/cpp/benchmarks/ndsh/q6_reference.hpp b/cpp/benchmarks/ndsh/q6_reference.hpp
+new file mode 100644
+index 0000000..db33df8
+--- /dev/null
++++ b/cpp/benchmarks/ndsh/q6_reference.hpp
+@@ -0,0 +1,59 @@
++/*
++ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++#pragma once
++
++#include <cudf/copying.hpp>
++#include <cudf/detail/utilities/vector_factories.hpp>
++#include <cudf/utilities/error.hpp>
++#include <cudf/wrappers/timestamps.hpp>
++
++#include <algorithm>
++#include <cstdint>
++
++namespace ndsh {
++namespace detail {
++template <typename T>
++auto q6_host_values(cudf::column_view column, cuda::stream_ref stream)
++{
++  CUDF_EXPECTS(column.type() == cudf::data_type{cudf::type_to_id<T>()} && !column.has_nulls(),
++               "Unexpected generated type or nulls");
++  return cudf::detail::make_host_vector(
++    cudf::device_span<T const>{column.data<T>(), static_cast<std::size_t>(column.size())}, stream);
++}
++}  // namespace detail
++
++struct q6_reference_result {
++  cudf::size_type matched = 0;
++  double revenue          = 0;
++};
++
++// Independent CPU reference for generated, non-null Q6 inputs; never part of timed execution.
++inline q6_reference_result q6_cpu_reference(cudf::table_view projected, cuda::stream_ref stream)
++{
++  CUDF_EXPECTS(projected.num_columns() == 4, "Expected the four Q6 columns in projection order");
++  q6_reference_result result;
++  for (cudf::size_type offset = 0; offset < projected.num_rows();) {
++    auto const end   = offset + std::min<cudf::size_type>(1 << 20, projected.num_rows() - offset);
++    auto const batch = cudf::slice(projected, {offset, end}).front();
++    auto const price = detail::q6_host_values<double>(batch.column(0), stream);
++    auto const discount = detail::q6_host_values<double>(batch.column(1), stream);
++    auto const shipdate = detail::q6_host_values<cudf::timestamp_D>(batch.column(2), stream);
++    auto const quantity = detail::q6_host_values<int8_t>(batch.column(3), stream);
++    for (cudf::size_type i = 0; i < batch.num_rows(); ++i) {
++      auto const date = shipdate[i].time_since_epoch().count();
++      auto const d    = static_cast<float>(discount[i]);
++      auto const q    = static_cast<float>(quantity[i]);
++      // Epoch days: 1994-01-01 inclusive, 1995-01-01 exclusive.
++      if (8766 <= date && date < 9131 && 0.05f <= d && d <= 0.07f && q < 24.0f) {
++        ++result.matched;
++        result.revenue += price[i] * discount[i];
++      }
++    }
++    offset = end;
++  }
++  return result;
++}
++}  // namespace ndsh
 diff --git a/cpp/benchmarks/ndsh/utilities.cpp b/cpp/benchmarks/ndsh/utilities.cpp
 index 915d93f..4ede894 100644
 --- a/cpp/benchmarks/ndsh/utilities.cpp

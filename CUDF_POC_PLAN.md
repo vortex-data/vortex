@@ -4,7 +4,7 @@
 comparing Vortex with Parquet, with Nsight Systems profiles at **SF100**.
 
 1. **Opt-in build support:** embed CUDA-enabled Vortex; link only Q1/Q6.
-   Implemented; default cuDF builds remain unchanged.
+   Implemented; Vortex adds no dependency when disabled.
 2. **Read/write adapters:** chunked host Arrow → CPU Vortex writer;
    CUDA scan → Arrow Device import → owning cuDF tables. Implemented with
    ownership/synchronization tests.
@@ -26,9 +26,10 @@ comparing Vortex with Parquet, with Nsight Systems profiles at **SF100**.
 
 Q6/read SF0.01 and 15 adapter tests pass on prebuilt cuDF 26.08, including
 Compute Sanitizer. Pinned cuDF is compile-only validated; its full build timed out.
-Generated Q6 has no matching rows because discount/quantity share an RNG stream;
-resolve that upstream before representative Q6 scaling. Then finish pinned-runtime
-validation, Q1, and SF100 profiling. Publish Vortex prerequisites and update the pin.
+A separate discount RNG seed now gives nonempty Q6 data; both formats are checked
+against a CPU reference of the same fixture. Other generator issues, including
+price-row ordering, remain. Next: pinned-runtime validation, Q1, and SF100 profiling.
+Publish Vortex prerequisites and update the pin before upstream submission.
 
 I/O uses pooled pinned-host staging → HtoD → GPU decode, with host metadata;
 **not GPUDirect Storage**. Public cuDF/Python APIs, GPU writing, general cuDF
