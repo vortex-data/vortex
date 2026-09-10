@@ -23,7 +23,7 @@ use crate::Canonical;
 use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::aggregate_fn::Accumulator;
-use crate::aggregate_fn::AggregateDTypes;
+use crate::aggregate_fn::AggregateDTypesRef;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
@@ -151,24 +151,24 @@ impl AggregateFnVTable for SumV2 {
     fn empty_partial(
         &self,
         _options: &Self::Options,
-        dtypes: AggregateDTypes<'_>,
+        dtypes: AggregateDTypesRef<'_>,
     ) -> VortexResult<Self::Partial> {
-        Ok(SumV2Partial::empty(dtypes.result))
+        Ok(SumV2Partial::empty(dtypes.return_dtype))
     }
 
     fn partial_from_scalar(
         &self,
         _options: &Self::Options,
-        dtypes: AggregateDTypes<'_>,
+        dtypes: AggregateDTypesRef<'_>,
         scalar: Scalar,
     ) -> VortexResult<Self::Partial> {
-        let mut partial = SumV2Partial::empty(dtypes.result);
+        let mut partial = SumV2Partial::empty(dtypes.return_dtype);
         let (sum, is_overflow, is_empty) = decode_partial_scalar(scalar)?;
-        validate_sum_field_dtype(&sum, dtypes.result)?;
+        validate_sum_field_dtype(&sum, dtypes.return_dtype)?;
 
         // Adding the parsed value to the zero state cannot overflow; treat a decimal value that
         // no longer fits its precision as an already-overflowed partial.
-        let overflowed = checked_add_sum_state(&mut partial.sum, dtypes.result, &sum)?;
+        let overflowed = checked_add_sum_state(&mut partial.sum, dtypes.return_dtype, &sum)?;
         partial.is_overflow = is_overflow || overflowed;
         partial.is_empty = is_empty && !partial.is_overflow;
         Ok(partial)
@@ -177,7 +177,7 @@ impl AggregateFnVTable for SumV2 {
     fn merge_partials(
         &self,
         _options: &Self::Options,
-        dtypes: AggregateDTypes<'_>,
+        dtypes: AggregateDTypesRef<'_>,
         mut acc: Self::Partial,
         partial: Self::Partial,
     ) -> VortexResult<Self::Partial> {
@@ -197,7 +197,7 @@ impl AggregateFnVTable for SumV2 {
         if partial.is_empty {
             return Ok(acc);
         }
-        acc.is_overflow = checked_add_sum_states(&mut acc.sum, dtypes.result, &partial.sum)?;
+        acc.is_overflow = checked_add_sum_states(&mut acc.sum, dtypes.return_dtype, &partial.sum)?;
         acc.is_empty = false;
         Ok(acc)
     }
@@ -205,13 +205,13 @@ impl AggregateFnVTable for SumV2 {
     fn to_scalar(
         &self,
         _options: &Self::Options,
-        dtypes: AggregateDTypes<'_>,
+        dtypes: AggregateDTypesRef<'_>,
         partial: &Self::Partial,
     ) -> VortexResult<Scalar> {
         Ok(Scalar::struct_(
-            dtypes.partial.clone(),
+            dtypes.partial_dtype.clone(),
             vec![
-                sum_state_scalar(partial, dtypes.result, Nullability::NonNullable),
+                sum_state_scalar(partial, dtypes.return_dtype, Nullability::NonNullable),
                 Scalar::bool(partial.is_overflow, Nullability::NonNullable),
                 Scalar::bool(partial.is_empty, Nullability::NonNullable),
             ],
@@ -221,7 +221,7 @@ impl AggregateFnVTable for SumV2 {
     fn is_saturated(
         &self,
         _options: &Self::Options,
-        _dtypes: AggregateDTypes<'_>,
+        _dtypes: AggregateDTypesRef<'_>,
         partial: &Self::Partial,
     ) -> bool {
         partial.is_overflow || matches!(&partial.sum, SumState::Float(value) if value.is_nan())
@@ -230,7 +230,7 @@ impl AggregateFnVTable for SumV2 {
     fn try_accumulate(
         &self,
         options: &Self::Options,
-        _dtypes: AggregateDTypes<'_>,
+        _dtypes: AggregateDTypesRef<'_>,
         partial: &mut Self::Partial,
         batch: &ArrayRef,
         _ctx: &mut ExecutionCtx,
@@ -256,7 +256,7 @@ impl AggregateFnVTable for SumV2 {
     fn accumulate(
         &self,
         options: &Self::Options,
-        dtypes: AggregateDTypes<'_>,
+        dtypes: AggregateDTypesRef<'_>,
         partial: &mut Self::Partial,
         batch: &Columnar,
         ctx: &mut ExecutionCtx,
@@ -278,14 +278,14 @@ impl AggregateFnVTable for SumV2 {
                 return Ok(());
             }
             if let Some(product) =
-                multiply_constant(constant.scalar(), constant.len(), dtypes.result)?
+                multiply_constant(constant.scalar(), constant.len(), dtypes.return_dtype)?
             {
                 if product.is_null() {
                     partial.is_overflow = true;
                     partial.is_empty = false;
                 } else {
                     partial.is_overflow =
-                        checked_add_sum_state(&mut partial.sum, dtypes.result, &product)?;
+                        checked_add_sum_state(&mut partial.sum, dtypes.return_dtype, &product)?;
                     partial.is_empty = false;
                 }
             }
@@ -300,7 +300,7 @@ impl AggregateFnVTable for SumV2 {
                 }
                 Canonical::Bool(array) => accumulate_bool(&mut partial.sum, array, ctx),
                 Canonical::Decimal(array) => {
-                    accumulate_decimal(&mut partial.sum, dtypes.result, array, ctx)
+                    accumulate_decimal(&mut partial.sum, dtypes.return_dtype, array, ctx)
                 }
                 _ => vortex_bail!("Unsupported canonical type for sum_v2: {}", batch.dtype()),
             },
@@ -320,7 +320,7 @@ impl AggregateFnVTable for SumV2 {
     fn finalize(
         &self,
         _options: &Self::Options,
-        _dtypes: AggregateDTypes<'_>,
+        _dtypes: AggregateDTypesRef<'_>,
         partials: ArrayRef,
     ) -> VortexResult<ArrayRef> {
         if let Some(partials) = partials.as_opt::<Struct>() {
@@ -338,15 +338,15 @@ impl AggregateFnVTable for SumV2 {
     fn finalize_scalar(
         &self,
         _options: &Self::Options,
-        dtypes: AggregateDTypes<'_>,
+        dtypes: AggregateDTypesRef<'_>,
         partial: &Self::Partial,
     ) -> VortexResult<Scalar> {
         if partial.is_overflow || partial.is_empty {
-            return Ok(Scalar::null(dtypes.result.as_nullable()));
+            return Ok(Scalar::null(dtypes.return_dtype.as_nullable()));
         }
         Ok(sum_state_scalar(
             partial,
-            dtypes.result,
+            dtypes.return_dtype,
             Nullability::Nullable,
         ))
     }

@@ -118,9 +118,9 @@ mod tests {
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::aggregate_fn::AggregateDTypes;
     use crate::aggregate_fn::AggregateFnVTable;
     use crate::aggregate_fn::NumericalAggregateOpts;
-    use crate::aggregate_fn::OwnedAggregateDTypes;
     use crate::aggregate_fn::fns::sum::Sum;
     use crate::aggregate_fn::fns::sum::SumPartial;
     use crate::aggregate_fn::fns::sum::SumState;
@@ -373,12 +373,12 @@ mod tests {
         // Reduce partials to push state near (but under) 10^14.
         let input_dtype = DType::Decimal(DecimalDType::new(4, 0), Nullability::NonNullable);
         let options = NumericalAggregateOpts::default();
-        let dtypes = OwnedAggregateDTypes::try_new(&Sum, &options, input_dtype)?;
+        let dtypes = AggregateDTypes::try_new(&Sum, &options, input_dtype)?;
 
         let near_limit = partial_with_decimal(DecimalValue::from(99_999_999_999_990i64));
         // Add a small value that keeps us just under 10^14.
         let small = partial_with_decimal(DecimalValue::from(9i64));
-        let state = Sum.reduce_partials(&options, dtypes.borrow(), [near_limit, small])?;
+        let state = Sum.merge_partials(&options, dtypes.borrow(), near_limit, small)?;
 
         let result = Sum.to_scalar(&options, dtypes.borrow(), &state)?;
         assert!(!result.is_null());
@@ -395,15 +395,15 @@ mod tests {
         // The max representable value for precision 14 is 10^14 - 1.
         // When the sum reaches exactly 10^14, fits_in_precision fails even though
         // i256 arithmetic does not overflow. This tests the precision-based
-        // saturation path in reduce_partials.
+        // saturation path in merge_partials.
         let input_dtype = DType::Decimal(DecimalDType::new(4, 0), Nullability::NonNullable);
         let options = NumericalAggregateOpts::default();
-        let dtypes = OwnedAggregateDTypes::try_new(&Sum, &options, input_dtype)?;
+        let dtypes = AggregateDTypes::try_new(&Sum, &options, input_dtype)?;
 
         let near_limit = partial_with_decimal(DecimalValue::from(99_999_999_999_999i64));
         // Push the sum to exactly 10^14, exceeding precision 14.
         let one_more = partial_with_decimal(DecimalValue::from(1i64));
-        let state = Sum.reduce_partials(&options, dtypes.borrow(), [near_limit, one_more])?;
+        let state = Sum.merge_partials(&options, dtypes.borrow(), near_limit, one_more)?;
 
         let result = Sum.to_scalar(&options, dtypes.borrow(), &state)?;
         assert!(result.is_null());
@@ -419,11 +419,11 @@ mod tests {
         // Same setup but with negative values: sum reaches -10^14.
         let input_dtype = DType::Decimal(DecimalDType::new(4, 0), Nullability::NonNullable);
         let options = NumericalAggregateOpts::default();
-        let dtypes = OwnedAggregateDTypes::try_new(&Sum, &options, input_dtype)?;
+        let dtypes = AggregateDTypes::try_new(&Sum, &options, input_dtype)?;
 
         let near_limit = partial_with_decimal(DecimalValue::from(-99_999_999_999_999i64));
         let one_more = partial_with_decimal(DecimalValue::from(-1i64));
-        let state = Sum.reduce_partials(&options, dtypes.borrow(), [near_limit, one_more])?;
+        let state = Sum.merge_partials(&options, dtypes.borrow(), near_limit, one_more)?;
 
         let result = Sum.to_scalar(&options, dtypes.borrow(), &state)?;
         assert!(result.is_null());
@@ -432,7 +432,7 @@ mod tests {
 
     #[test]
     fn sum_decimal_accumulate_precision_overflow() -> VortexResult<()> {
-        // Test precision overflow via the accumulate_decimal path (not reduce_partials).
+        // Test precision overflow via the accumulate_decimal path (not merge_partials).
         // Input precision 28 (I128 storage) → return precision min(76, 38) = 38.
         // Native for precision 38 is I128 (max 38), so 38 = 38.
         // Use precision 27 → return 37. Native for 37 is I128 (max 38), so 37 < 38.
@@ -440,9 +440,9 @@ mod tests {
         // We seed the state close to 10^37, then accumulate a real array that pushes it over.
         let input_dtype = DType::Decimal(DecimalDType::new(27, 0), Nullability::NonNullable);
         let options = NumericalAggregateOpts::default();
-        let dtypes = OwnedAggregateDTypes::try_new(&Sum, &options, input_dtype)?;
+        let dtypes = AggregateDTypes::try_new(&Sum, &options, input_dtype)?;
         assert_eq!(
-            dtypes.result(),
+            dtypes.return_dtype(),
             &DType::Decimal(DecimalDType::new(37, 0), Nullable)
         );
 

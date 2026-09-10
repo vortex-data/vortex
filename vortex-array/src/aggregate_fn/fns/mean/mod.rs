@@ -10,7 +10,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::aggregate_fn::Accumulator;
-use crate::aggregate_fn::AggregateDTypes;
+use crate::aggregate_fn::AggregateDTypesRef;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::NumericalAggregateOpts;
@@ -97,14 +97,14 @@ impl BinaryCombined for Mean {
     fn finalize(
         &self,
         _options: &CombinedOptions<Self>,
-        dtypes: AggregateDTypes<'_>,
+        dtypes: AggregateDTypesRef<'_>,
         sum: ArrayRef,
         count: ArrayRef,
     ) -> VortexResult<ArrayRef> {
         if let DType::Decimal(..) = sum.dtype() {
             vortex_bail!("grouped mean over decimals is not yet supported");
         }
-        let target = dtypes.result.clone();
+        let target = dtypes.return_dtype.clone();
         let sum = sum.cast(target.clone())?;
         let count = count.cast(target.clone())?;
 
@@ -125,7 +125,7 @@ impl BinaryCombined for Mean {
     fn finalize_scalar(
         &self,
         _options: &CombinedOptions<Self>,
-        dtypes: AggregateDTypes<'_>,
+        dtypes: AggregateDTypesRef<'_>,
         left_scalar: Scalar,
         right_scalar: Scalar,
     ) -> VortexResult<Scalar> {
@@ -134,11 +134,11 @@ impl BinaryCombined for Mean {
                 &left_scalar,
                 &right_scalar,
                 decimal_dtype,
-                dtypes.result,
+                dtypes.return_dtype,
             );
         }
 
-        let target = dtypes.result.clone();
+        let target = dtypes.return_dtype.clone();
         let sum_cast = left_scalar.cast(&target)?;
         let count_cast = right_scalar.cast(&target)?;
 

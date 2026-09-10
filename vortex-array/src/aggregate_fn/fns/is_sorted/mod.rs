@@ -26,7 +26,7 @@ use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::aggregate_fn::Accumulator;
-use crate::aggregate_fn::AggregateDTypes;
+use crate::aggregate_fn::AggregateDTypesRef;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
@@ -290,7 +290,7 @@ impl AggregateFnVTable for IsSorted {
     fn empty_partial(
         &self,
         _options: &Self::Options,
-        _dtypes: AggregateDTypes<'_>,
+        _dtypes: AggregateDTypesRef<'_>,
     ) -> VortexResult<Self::Partial> {
         Ok(IsSortedPartial::empty())
     }
@@ -298,7 +298,7 @@ impl AggregateFnVTable for IsSorted {
     fn partial_from_scalar(
         &self,
         _options: &Self::Options,
-        _dtypes: AggregateDTypes<'_>,
+        _dtypes: AggregateDTypesRef<'_>,
         scalar: Scalar,
     ) -> VortexResult<Self::Partial> {
         // A null struct means the producing accumulator was empty.
@@ -323,7 +323,7 @@ impl AggregateFnVTable for IsSorted {
     fn merge_partials(
         &self,
         options: &Self::Options,
-        _dtypes: AggregateDTypes<'_>,
+        _dtypes: AggregateDTypesRef<'_>,
         mut acc: Self::Partial,
         partial: Self::Partial,
     ) -> VortexResult<Self::Partial> {
@@ -382,10 +382,10 @@ impl AggregateFnVTable for IsSorted {
     fn to_scalar(
         &self,
         options: &Self::Options,
-        dtypes: AggregateDTypes<'_>,
+        dtypes: AggregateDTypesRef<'_>,
         partial: &Self::Partial,
     ) -> VortexResult<Scalar> {
-        let dtype = dtypes.partial.clone();
+        let dtype = dtypes.partial_dtype.clone();
         // Only a sorted partial that saw no values is the empty (null) state: an unsorted verdict
         // stands regardless of which boundaries were observed.
         if partial.is_sorted && partial.first_value.is_none() {
@@ -394,7 +394,7 @@ impl AggregateFnVTable for IsSorted {
         let first_value = partial
             .first_value
             .clone()
-            .unwrap_or_else(|| Scalar::null(dtypes.input.as_nullable()));
+            .unwrap_or_else(|| Scalar::null(dtypes.dtype.as_nullable()));
         // A partial that saw a single value carries it as both boundaries.
         let last_value = partial
             .last_value
@@ -415,7 +415,7 @@ impl AggregateFnVTable for IsSorted {
     fn is_saturated(
         &self,
         _options: &Self::Options,
-        _dtypes: AggregateDTypes<'_>,
+        _dtypes: AggregateDTypesRef<'_>,
         partial: &Self::Partial,
     ) -> bool {
         !partial.is_sorted
@@ -424,7 +424,7 @@ impl AggregateFnVTable for IsSorted {
     fn accumulate(
         &self,
         options: &Self::Options,
-        _dtypes: AggregateDTypes<'_>,
+        _dtypes: AggregateDTypesRef<'_>,
         partial: &mut Self::Partial,
         batch: &Columnar,
         ctx: &mut ExecutionCtx,
@@ -541,7 +541,7 @@ impl AggregateFnVTable for IsSorted {
     fn finalize(
         &self,
         _options: &Self::Options,
-        _dtypes: AggregateDTypes<'_>,
+        _dtypes: AggregateDTypesRef<'_>,
         partials: ArrayRef,
     ) -> VortexResult<ArrayRef> {
         partials.get_item(NAMES.get(0).vortex_expect("out of bounds").clone())
@@ -550,7 +550,7 @@ impl AggregateFnVTable for IsSorted {
     fn finalize_scalar(
         &self,
         _options: &Self::Options,
-        _dtypes: AggregateDTypes<'_>,
+        _dtypes: AggregateDTypesRef<'_>,
         partial: &Self::Partial,
     ) -> VortexResult<Scalar> {
         // The empty state is vacuously sorted, so the verdict stands on its own.
@@ -594,9 +594,9 @@ mod tests {
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::Accumulator;
+    use crate::aggregate_fn::AggregateDTypes;
     use crate::aggregate_fn::AggregateFnVTable;
     use crate::aggregate_fn::DynAccumulator;
-    use crate::aggregate_fn::OwnedAggregateDTypes;
     use crate::aggregate_fn::fns::is_sorted::IsSorted;
     use crate::aggregate_fn::fns::is_sorted::IsSortedOptions;
     use crate::aggregate_fn::fns::is_sorted::IsSortedPartial;
@@ -791,7 +791,7 @@ mod tests {
     fn unsorted_partial_without_boundaries_is_not_empty() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let options = IsSortedOptions { strict: false };
-        let owned = OwnedAggregateDTypes::try_new(&IsSorted, &options, dtype)?;
+        let owned = AggregateDTypes::try_new(&IsSorted, &options, dtype)?;
         let dtypes = owned.borrow();
         let partial = IsSortedPartial {
             is_sorted: false,

@@ -7,7 +7,7 @@ use super::MinMaxPartial;
 use super::MinMaxResult;
 use super::min_max;
 use crate::ExecutionCtx;
-use crate::aggregate_fn::AggregateDTypes;
+use crate::aggregate_fn::AggregateDTypesRef;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::arrays::ExtensionArray;
 use crate::arrays::extension::ExtensionArrayExt;
@@ -16,7 +16,7 @@ use crate::scalar::Scalar;
 
 pub(super) fn accumulate_extension(
     options: &NumericalAggregateOpts,
-    dtypes: AggregateDTypes<'_>,
+    dtypes: AggregateDTypesRef<'_>,
     partial: &mut MinMaxPartial,
     array: &ExtensionArray,
     ctx: &mut ExecutionCtx,

@@ -17,7 +17,7 @@ use crate::ArrayRef;
 use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::aggregate_fn::AggregateDTypes;
+use crate::aggregate_fn::AggregateDTypesRef;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnSatisfaction;
@@ -145,7 +145,7 @@ impl AggregateFnVTable for BoundedMin {
     fn empty_partial(
         &self,
         _options: &Self::Options,
-        _dtypes: AggregateDTypes<'_>,
+        _dtypes: AggregateDTypesRef<'_>,
     ) -> VortexResult<Self::Partial> {
         Ok(BoundedMinPartial {
             state: BoundedMinState::Empty,
@@ -155,7 +155,7 @@ impl AggregateFnVTable for BoundedMin {
     fn partial_from_scalar(
         &self,
         _options: &Self::Options,
-        _dtypes: AggregateDTypes<'_>,
+        _dtypes: AggregateDTypesRef<'_>,
         scalar: Scalar,
     ) -> VortexResult<Self::Partial> {
         // A null partial means the producing accumulator saw nothing valid.
@@ -170,7 +170,7 @@ impl AggregateFnVTable for BoundedMin {
     fn merge_partials(
         &self,
         _options: &Self::Options,
-        _dtypes: AggregateDTypes<'_>,
+        _dtypes: AggregateDTypesRef<'_>,
         mut first: Self::Partial,
         second: Self::Partial,
     ) -> VortexResult<Self::Partial> {
@@ -183,10 +183,10 @@ impl AggregateFnVTable for BoundedMin {
     fn to_scalar(
         &self,
         _options: &Self::Options,
-        dtypes: AggregateDTypes<'_>,
+        dtypes: AggregateDTypesRef<'_>,
         partial: &Self::Partial,
     ) -> VortexResult<Scalar> {
-        let dtype = dtypes.input.as_nullable();
+        let dtype = dtypes.dtype.as_nullable();
         match &partial.state {
             BoundedMinState::Empty => Ok(Scalar::null(dtype)),
             BoundedMinState::Value(min) => min.cast(&dtype),
@@ -196,7 +196,7 @@ impl AggregateFnVTable for BoundedMin {
     fn is_saturated(
         &self,
         _options: &Self::Options,
-        _dtypes: AggregateDTypes<'_>,
+        _dtypes: AggregateDTypesRef<'_>,
         _partial: &Self::Partial,
     ) -> bool {
         false
@@ -205,7 +205,7 @@ impl AggregateFnVTable for BoundedMin {
     fn accumulate(
         &self,
         options: &Self::Options,
-        _dtypes: AggregateDTypes<'_>,
+        _dtypes: AggregateDTypesRef<'_>,
         partial: &mut Self::Partial,
         batch: &Columnar,
         ctx: &mut ExecutionCtx,
@@ -228,7 +228,7 @@ impl AggregateFnVTable for BoundedMin {
     fn finalize(
         &self,
         _options: &Self::Options,
-        _dtypes: AggregateDTypes<'_>,
+        _dtypes: AggregateDTypesRef<'_>,
         partials: ArrayRef,
     ) -> VortexResult<ArrayRef> {
         Ok(partials)
@@ -237,7 +237,7 @@ impl AggregateFnVTable for BoundedMin {
     fn finalize_scalar(
         &self,
         options: &Self::Options,
-        dtypes: AggregateDTypes<'_>,
+        dtypes: AggregateDTypesRef<'_>,
         partial: &Self::Partial,
     ) -> VortexResult<Scalar> {
         self.to_scalar(options, dtypes, partial)

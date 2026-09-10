@@ -93,11 +93,11 @@ impl TryFrom<u32> for HashFn {
 /// ```rust
 /// use vortex_array::dtype::{DType, Nullability};
 /// use vortex_layout::layouts::zoned::aggregates::bloom_filter::{BloomFilter, BloomOptions};
-/// use vortex_array::aggregate_fn::{AggregateFnVTable, OwnedAggregateDTypes};
+/// use vortex_array::aggregate_fn::{AggregateFnVTable, AggregateDTypes};
 ///
 /// let filter = BloomFilter {};
 /// let options = BloomOptions::default();
-/// let dtypes = OwnedAggregateDTypes::try_new(
+/// let dtypes = AggregateDTypes::try_new(
 ///     &filter,
 ///     &options,
 ///     DType::Binary(Nullability::NonNullable),
