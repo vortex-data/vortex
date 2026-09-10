@@ -46,39 +46,33 @@ pub struct OnPairScheme {
 }
 
 impl OnPairScheme {
-    /// Create an OnPair scheme with the indexes used by the default compressor.
-    ///
-    /// Indexes are built only after OnPair wins full-column scheme selection,
-    /// so they do not affect its sampling estimate.
+    /// Create an OnPair scheme without auxiliary indexes.
     pub const fn new() -> Self {
         Self {
-            indexes: OnPairIndexSet::empty().with_token_frequency(),
+            indexes: OnPairIndexSet::empty(),
         }
     }
 
-    /// Configure the auxiliary indexes persisted by full-column compression.
+    /// Include the token-frequency index used by substring prefiltering.
     ///
-    /// Sampling remains unindexed, so indexes do not affect whether OnPair is
-    /// selected over another string compression scheme.
-    ///
-    /// Pass an empty set to opt out of auxiliary index storage:
+    /// The index is built only after OnPair wins full-column scheme selection,
+    /// so it does not affect the sampling estimate.
     ///
     /// ```
     /// use vortex_btrblocks::schemes::string::OnPairScheme;
     /// use vortex_btrblocks::{BtrBlocksCompressorBuilder, SchemeExt};
-    /// use vortex_onpair::OnPairIndexSet;
     ///
-    /// const UNINDEXED_ONPAIR: OnPairScheme =
-    ///     OnPairScheme::new().with_indexes(OnPairIndexSet::empty());
+    /// const FREQUENCY_INDEXED_ONPAIR: OnPairScheme =
+    ///     OnPairScheme::new().with_token_frequency_index();
     ///
     /// let compressor = BtrBlocksCompressorBuilder::default()
     ///     .exclude_schemes([OnPairScheme::new().id()])
-    ///     .with_new_scheme(&UNINDEXED_ONPAIR)
+    ///     .with_new_scheme(&FREQUENCY_INDEXED_ONPAIR)
     ///     .build();
     /// # let _ = compressor;
     /// ```
-    pub const fn with_indexes(mut self, indexes: OnPairIndexSet) -> Self {
-        self.indexes = indexes;
+    pub const fn with_token_frequency_index(mut self) -> Self {
+        self.indexes = self.indexes.with_token_frequency();
         self
     }
 }

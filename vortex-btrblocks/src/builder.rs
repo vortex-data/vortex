@@ -52,7 +52,9 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
     // Both string-fragmentation schemes are registered; the sample-based
     // selector keeps whichever is smaller per column.
     &string::FSSTScheme,
-    &string::OnPairScheme::new(),
+    // TODO: Remove this explicit opt-in before opening the PR so the optional
+    // index is disabled by default.
+    &string::OnPairScheme::new().with_token_frequency_index(),
     &string::NullDominatedSparseScheme,
     ////////////////////////////////////////////////////////////////////////////////////////////////
     // Binary schemes.

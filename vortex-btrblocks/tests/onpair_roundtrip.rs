@@ -25,13 +25,12 @@ use vortex_error::VortexResult;
 use vortex_onpair::OnPair;
 use vortex_onpair::OnPairArrayExt;
 use vortex_onpair::OnPairArraySlotsExt;
-use vortex_onpair::OnPairIndexSet;
 use vortex_session::VortexSession;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
-const DEFAULT_ONPAIR: OnPairScheme = OnPairScheme::new();
-const UNINDEXED_ONPAIR: OnPairScheme = OnPairScheme::new().with_indexes(OnPairIndexSet::empty());
+const UNINDEXED_ONPAIR: OnPairScheme = OnPairScheme::new();
+const FREQUENCY_INDEXED_ONPAIR: OnPairScheme = OnPairScheme::new().with_token_frequency_index();
 
 /// Helper: synthetic short-string corpus that the cascading compressor should
 /// route through OnPair.
@@ -67,7 +66,7 @@ fn onpair_indexes_are_configurable() -> VortexResult<()> {
     )
     .into_array();
     let compressor = BtrBlocksCompressorBuilder::empty()
-        .with_new_scheme(&DEFAULT_ONPAIR)
+        .with_new_scheme(&FREQUENCY_INDEXED_ONPAIR)
         .build();
     let mut ctx = SESSION.create_execution_ctx();
     let compressed = compressor.compress(&array, &mut ctx)?;
