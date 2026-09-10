@@ -8,7 +8,7 @@ use vortex_mask::Mask;
 use super::MinMaxPartial;
 use super::MinMaxResult;
 use crate::ExecutionCtx;
-use crate::aggregate_fn::AggregateDTypes;
+use crate::aggregate_fn::AggregateDTypesRef;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::arrays::PrimitiveArray;
 use crate::dtype::NativePType;
@@ -19,7 +19,7 @@ use crate::scalar::Scalar;
 
 pub(super) fn accumulate_primitive(
     options: &NumericalAggregateOpts,
-    dtypes: AggregateDTypes<'_>,
+    dtypes: AggregateDTypesRef<'_>,
     partial: &mut MinMaxPartial,
     p: &PrimitiveArray,
     ctx: &mut ExecutionCtx,

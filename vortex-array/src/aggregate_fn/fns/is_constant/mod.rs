@@ -31,7 +31,7 @@ use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::aggregate_fn::Accumulator;
-use crate::aggregate_fn::AggregateDTypes;
+use crate::aggregate_fn::AggregateDTypesRef;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
@@ -294,7 +294,7 @@ impl AggregateFnVTable for IsConstant {
     fn empty_partial(
         &self,
         _options: &Self::Options,
-        _dtypes: AggregateDTypes<'_>,
+        _dtypes: AggregateDTypesRef<'_>,
     ) -> VortexResult<Self::Partial> {
         Ok(IsConstantPartial::empty())
     }
@@ -302,7 +302,7 @@ impl AggregateFnVTable for IsConstant {
     fn partial_from_scalar(
         &self,
         _options: &Self::Options,
-        _dtypes: AggregateDTypes<'_>,
+        _dtypes: AggregateDTypesRef<'_>,
         scalar: Scalar,
     ) -> VortexResult<Self::Partial> {
         // A null struct means the producing accumulator was empty.
@@ -325,7 +325,7 @@ impl AggregateFnVTable for IsConstant {
     fn merge_partials(
         &self,
         _options: &Self::Options,
-        _dtypes: AggregateDTypes<'_>,
+        _dtypes: AggregateDTypesRef<'_>,
         mut acc: Self::Partial,
         partial: Self::Partial,
     ) -> VortexResult<Self::Partial> {
@@ -340,11 +340,11 @@ impl AggregateFnVTable for IsConstant {
     fn to_scalar(
         &self,
         _options: &Self::Options,
-        dtypes: AggregateDTypes<'_>,
+        dtypes: AggregateDTypesRef<'_>,
         partial: &Self::Partial,
     ) -> VortexResult<Scalar> {
-        let dtype = dtypes.partial.clone();
-        let element_dtype = dtypes.input.as_nullable();
+        let dtype = dtypes.partial_dtype.clone();
+        let element_dtype = dtypes.dtype.as_nullable();
         // Only a constant partial that saw no values is the empty (null) state: a non-constant
         // verdict stands regardless of whether a value was observed.
         let first_value = match &partial.first_value {
@@ -365,7 +365,7 @@ impl AggregateFnVTable for IsConstant {
     fn is_saturated(
         &self,
         _options: &Self::Options,
-        _dtypes: AggregateDTypes<'_>,
+        _dtypes: AggregateDTypesRef<'_>,
         partial: &Self::Partial,
     ) -> bool {
         !partial.is_constant
@@ -374,7 +374,7 @@ impl AggregateFnVTable for IsConstant {
     fn accumulate(
         &self,
         _options: &Self::Options,
-        dtypes: AggregateDTypes<'_>,
+        dtypes: AggregateDTypesRef<'_>,
         partial: &mut Self::Partial,
         batch: &Columnar,
         ctx: &mut ExecutionCtx,
@@ -398,7 +398,7 @@ impl AggregateFnVTable for IsConstant {
 
                 let all_invalid = array_ref.all_invalid(ctx)?;
                 if all_invalid {
-                    partial.check_value(Scalar::null(dtypes.input.as_nullable()));
+                    partial.check_value(Scalar::null(dtypes.dtype.as_nullable()));
                     return Ok(());
                 }
 
@@ -448,7 +448,7 @@ impl AggregateFnVTable for IsConstant {
     fn finalize(
         &self,
         _options: &Self::Options,
-        _dtypes: AggregateDTypes<'_>,
+        _dtypes: AggregateDTypesRef<'_>,
         partials: ArrayRef,
     ) -> VortexResult<ArrayRef> {
         partials.get_item(NAMES.get(0).vortex_expect("out of bounds").clone())
@@ -457,7 +457,7 @@ impl AggregateFnVTable for IsConstant {
     fn finalize_scalar(
         &self,
         _options: &Self::Options,
-        _dtypes: AggregateDTypes<'_>,
+        _dtypes: AggregateDTypesRef<'_>,
         partial: &Self::Partial,
     ) -> VortexResult<Scalar> {
         if partial.first_value.is_none() {
@@ -478,10 +478,10 @@ mod tests {
     use crate::IntoArray as _;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::Accumulator;
+    use crate::aggregate_fn::AggregateDTypes;
     use crate::aggregate_fn::AggregateFnVTable;
     use crate::aggregate_fn::DynAccumulator;
     use crate::aggregate_fn::EmptyOptions;
-    use crate::aggregate_fn::OwnedAggregateDTypes;
     use crate::aggregate_fn::fns::is_constant::IsConstant;
     use crate::aggregate_fn::fns::is_constant::IsConstantPartial;
     use crate::aggregate_fn::fns::is_constant::is_constant;
@@ -819,7 +819,7 @@ mod tests {
     #[test]
     fn non_constant_partial_without_value_is_not_empty() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let owned = OwnedAggregateDTypes::try_new(&IsConstant, &EmptyOptions, dtype)?;
+        let owned = AggregateDTypes::try_new(&IsConstant, &EmptyOptions, dtype)?;
         let dtypes = owned.borrow();
         let partial = IsConstantPartial {
             is_constant: false,

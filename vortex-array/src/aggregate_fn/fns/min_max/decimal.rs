@@ -8,7 +8,7 @@ use vortex_mask::Mask;
 use super::MinMaxPartial;
 use super::MinMaxResult;
 use crate::ExecutionCtx;
-use crate::aggregate_fn::AggregateDTypes;
+use crate::aggregate_fn::AggregateDTypesRef;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::arrays::DecimalArray;
 use crate::dtype::DecimalDType;
@@ -20,7 +20,7 @@ use crate::scalar::Scalar;
 
 pub(super) fn accumulate_decimal(
     options: &NumericalAggregateOpts,
-    dtypes: AggregateDTypes<'_>,
+    dtypes: AggregateDTypesRef<'_>,
     partial: &mut MinMaxPartial,
     array: &DecimalArray,
     ctx: &mut ExecutionCtx,

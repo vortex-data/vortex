@@ -9,7 +9,7 @@ use vortex_mask::AllOr;
 use super::MinMaxPartial;
 use super::MinMaxResult;
 use crate::ExecutionCtx;
-use crate::aggregate_fn::AggregateDTypes;
+use crate::aggregate_fn::AggregateDTypesRef;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::arrays::BoolArray;
 use crate::arrays::bool::BoolArrayExt;
@@ -18,7 +18,7 @@ use crate::scalar::Scalar;
 
 pub(super) fn accumulate_bool(
     options: &NumericalAggregateOpts,
-    dtypes: AggregateDTypes<'_>,
+    dtypes: AggregateDTypesRef<'_>,
     partial: &mut MinMaxPartial,
     array: &BoolArray,
     ctx: &mut ExecutionCtx,

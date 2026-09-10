@@ -8,7 +8,7 @@ use vortex_error::vortex_panic;
 use super::MinMaxPartial;
 use super::MinMaxResult;
 use crate::ExecutionCtx;
-use crate::aggregate_fn::AggregateDTypes;
+use crate::aggregate_fn::AggregateDTypesRef;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::arrays::VarBinViewArray;
 use crate::dtype::DType;
@@ -17,7 +17,7 @@ use crate::scalar::Scalar;
 
 pub(super) fn accumulate_varbinview(
     options: &NumericalAggregateOpts,
-    dtypes: AggregateDTypes<'_>,
+    dtypes: AggregateDTypesRef<'_>,
     partial: &mut MinMaxPartial,
     array: &VarBinViewArray,
     ctx: &mut ExecutionCtx,

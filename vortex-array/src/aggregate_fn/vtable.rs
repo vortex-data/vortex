@@ -26,79 +26,84 @@ use crate::scalar::Scalar;
 
 /// Resolved dtypes of one aggregate function bound to its options and input.
 ///
-/// Accumulators resolve these once and lend them to every execution method, so partial states
-/// only hold accumulated values. Combined aggregates resolve a separate set for each child.
-#[derive(Clone, Copy, Debug)]
-pub struct AggregateDTypes<'a> {
-    /// The dtype of the values being aggregated.
-    pub input: &'a DType,
-    /// The dtype of the partial state scalar, as reported by [`AggregateFnVTable::partial_dtype`].
-    pub partial: &'a DType,
-    /// The dtype of the final aggregate result, as reported by [`AggregateFnVTable::return_dtype`].
-    pub result: &'a DType,
-}
-
-/// Owned [`AggregateDTypes`], resolved once from an aggregate's options and input dtype.
+/// Accumulators resolve these once and lend them to every execution method as an
+/// [`AggregateDTypesRef`], so partial states only hold accumulated values. Combined aggregates
+/// resolve a separate set for each child.
 #[derive(Clone, Debug)]
-pub struct OwnedAggregateDTypes {
-    input: DType,
-    partial: DType,
-    result: DType,
+pub struct AggregateDTypes {
+    /// The DType of the input.
+    dtype: DType,
+    /// The DType of the aggregate.
+    return_dtype: DType,
+    /// The DType of the partial accumulator state.
+    partial_dtype: DType,
 }
 
-impl OwnedAggregateDTypes {
-    /// Resolve the partial and result dtypes of `vtable` bound to `options` over `input`.
+impl AggregateDTypes {
+    /// Resolve the return and partial dtypes of `vtable` bound to `options` over `dtype`.
     ///
-    /// Fails if the aggregate cannot be applied to `input`.
+    /// Fails if the aggregate cannot be applied to `dtype`.
     pub fn try_new<V: AggregateFnVTable>(
         vtable: &V,
         options: &V::Options,
-        input: DType,
+        dtype: DType,
     ) -> VortexResult<Self> {
-        let result = vtable.return_dtype(options, &input).ok_or_else(|| {
+        let return_dtype = vtable.return_dtype(options, &dtype).ok_or_else(|| {
             vortex_err!(
                 "Aggregate function {} cannot be applied to dtype {}",
                 vtable.id(),
-                input
+                dtype
             )
         })?;
-        let partial = vtable.partial_dtype(options, &input).ok_or_else(|| {
+        let partial_dtype = vtable.partial_dtype(options, &dtype).ok_or_else(|| {
             vortex_err!(
                 "Aggregate function {} cannot be applied to dtype {}",
                 vtable.id(),
-                input
+                dtype
             )
         })?;
         Ok(Self {
-            input,
-            partial,
-            result,
+            dtype,
+            return_dtype,
+            partial_dtype,
         })
     }
 
-    /// The dtype of the values being aggregated.
-    pub fn input(&self) -> &DType {
-        &self.input
+    /// The DType of the input.
+    pub fn dtype(&self) -> &DType {
+        &self.dtype
     }
 
-    /// The dtype of the partial state scalar.
-    pub fn partial(&self) -> &DType {
-        &self.partial
+    /// The DType of the aggregate.
+    pub fn return_dtype(&self) -> &DType {
+        &self.return_dtype
     }
 
-    /// The dtype of the final aggregate result.
-    pub fn result(&self) -> &DType {
-        &self.result
+    /// The DType of the partial accumulator state.
+    pub fn partial_dtype(&self) -> &DType {
+        &self.partial_dtype
     }
 
     /// Lend the dtypes to an execution method.
-    pub fn borrow(&self) -> AggregateDTypes<'_> {
-        AggregateDTypes {
-            input: &self.input,
-            partial: &self.partial,
-            result: &self.result,
+    pub fn borrow(&self) -> AggregateDTypesRef<'_> {
+        AggregateDTypesRef {
+            dtype: &self.dtype,
+            return_dtype: &self.return_dtype,
+            partial_dtype: &self.partial_dtype,
         }
     }
+}
+
+/// A borrowed [`AggregateDTypes`], lent to every aggregate execution method.
+#[derive(Clone, Copy, Debug)]
+pub struct AggregateDTypesRef<'a> {
+    /// The DType of the input.
+    pub dtype: &'a DType,
+    /// The DType of the aggregate, as reported by [`AggregateFnVTable::return_dtype`].
+    pub return_dtype: &'a DType,
+    /// The DType of the partial accumulator state, as reported by
+    /// [`AggregateFnVTable::partial_dtype`].
+    pub partial_dtype: &'a DType,
 }
 
 /// Defines the interface for aggregate function vtables.
@@ -111,7 +116,7 @@ impl OwnedAggregateDTypes {
 /// all instances of the aggregate. In almost all cases, this struct will be an empty unit
 /// struct, since most aggregates do not require any global state.
 ///
-/// Execution methods receive the options and the resolved [`AggregateDTypes`] of the aggregate
+/// Execution methods receive the options and the resolved [`AggregateDTypesRef`] of the aggregate
 /// they operate on, so partial states only hold accumulated values. Callers must pass the same
 /// options and dtypes for the whole lifetime of a partial state.
 pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
@@ -194,12 +199,12 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
     fn empty_partial(
         &self,
         options: &Self::Options,
-        dtypes: AggregateDTypes<'_>,
+        dtypes: AggregateDTypesRef<'_>,
     ) -> VortexResult<Self::Partial>;
 
     /// Parse a partial scalar into the typed partial state.
     ///
-    /// The scalar must have dtype `dtypes.partial`; this is the inverse of [`to_scalar`]. Partial
+    /// The scalar must have dtype `dtypes.partial_dtype`; this is the inverse of [`to_scalar`]. Partial
     /// scalars are produced by aggregate kernels, cached statistics, and other accumulators'
     /// [`to_scalar`].
     ///
@@ -211,7 +216,7 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
     fn partial_from_scalar(
         &self,
         options: &Self::Options,
-        dtypes: AggregateDTypes<'_>,
+        dtypes: AggregateDTypesRef<'_>,
         scalar: Scalar,
     ) -> VortexResult<Self::Partial>;
 
@@ -225,28 +230,12 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
     fn merge_partials(
         &self,
         options: &Self::Options,
-        dtypes: AggregateDTypes<'_>,
+        dtypes: AggregateDTypesRef<'_>,
         first: Self::Partial,
         second: Self::Partial,
     ) -> VortexResult<Self::Partial>;
 
-    /// Reduce a sequence of partial states in iteration order, starting from [`empty_partial`].
-    ///
-    /// [`empty_partial`]: AggregateFnVTable::empty_partial
-    fn reduce_partials(
-        &self,
-        options: &Self::Options,
-        dtypes: AggregateDTypes<'_>,
-        partials: impl IntoIterator<Item = Self::Partial>,
-    ) -> VortexResult<Self::Partial> {
-        partials
-            .into_iter()
-            .try_fold(self.empty_partial(options, dtypes)?, |acc, partial| {
-                self.merge_partials(options, dtypes, acc, partial)
-            })
-    }
-
-    /// Convert the partial state into a partial scalar of dtype `dtypes.partial`.
+    /// Convert the partial state into a partial scalar of dtype `dtypes.partial_dtype`.
     ///
     /// This is the inverse of [`partial_from_scalar`]: parsing the returned scalar must
     /// reconstruct a state that behaves identically under accumulation, merging, saturation, and
@@ -256,7 +245,7 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
     fn to_scalar(
         &self,
         options: &Self::Options,
-        dtypes: AggregateDTypes<'_>,
+        dtypes: AggregateDTypesRef<'_>,
         partial: &Self::Partial,
     ) -> VortexResult<Scalar>;
 
@@ -265,7 +254,7 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
     fn is_saturated(
         &self,
         options: &Self::Options,
-        dtypes: AggregateDTypes<'_>,
+        dtypes: AggregateDTypesRef<'_>,
         partial: &Self::Partial,
     ) -> bool;
 
@@ -280,7 +269,7 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
     fn try_accumulate(
         &self,
         _options: &Self::Options,
-        _dtypes: AggregateDTypes<'_>,
+        _dtypes: AggregateDTypesRef<'_>,
         _state: &mut Self::Partial,
         _batch: &ArrayRef,
         _ctx: &mut ExecutionCtx,
@@ -292,7 +281,7 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
     fn accumulate(
         &self,
         options: &Self::Options,
-        dtypes: AggregateDTypes<'_>,
+        dtypes: AggregateDTypesRef<'_>,
         state: &mut Self::Partial,
         batch: &Columnar,
         ctx: &mut ExecutionCtx,
@@ -300,19 +289,19 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
 
     /// Finalize an array of partial states into an array of aggregate results.
     ///
-    /// The `states` array has dtype `dtypes.partial`; the result must have dtype `dtypes.result`.
+    /// The `states` array has dtype `dtypes.partial_dtype`; the result must have dtype `dtypes.return_dtype`.
     fn finalize(
         &self,
         options: &Self::Options,
-        dtypes: AggregateDTypes<'_>,
+        dtypes: AggregateDTypesRef<'_>,
         states: ArrayRef,
     ) -> VortexResult<ArrayRef>;
 
-    /// Finalize a partial state into an aggregate result of dtype `dtypes.result`.
+    /// Finalize a partial state into an aggregate result of dtype `dtypes.return_dtype`.
     fn finalize_scalar(
         &self,
         options: &Self::Options,
-        dtypes: AggregateDTypes<'_>,
+        dtypes: AggregateDTypesRef<'_>,
         partial: &Self::Partial,
     ) -> VortexResult<Scalar>;
 }
