@@ -23,7 +23,7 @@ index 8fa9593..da69664 100644
  # ##################################################################################################
  # * filter benchmark -------------------------------------------------------------------
 diff --git a/cpp/benchmarks/common/ndsh_data_generator/ndsh_data_generator.cpp b/cpp/benchmarks/common/ndsh_data_generator/ndsh_data_generator.cpp
-index 540cc71..40e10ee 100644
+index 540cc71..dc357e4 100644
 --- a/cpp/benchmarks/common/ndsh_data_generator/ndsh_data_generator.cpp
 +++ b/cpp/benchmarks/common/ndsh_data_generator/ndsh_data_generator.cpp
 @@ -29,6 +29,7 @@
@@ -48,12 +48,35 @@ index 540cc71..40e10ee 100644
  
    // Generate the `l_tax` column
    auto l_tax = generate_random_numeric_column<double>(0.00, 0.08, l_num_rows, stream, mr);
+@@ -719,17 +723,12 @@ generate_orders_lineitem_part(double scale_factor,
+   // Generate the `part` table
+   auto part = generate_part(scale_factor, stream, mr);
+ 
+-  // Join the `part` and partial `lineitem` tables, then calculate the `l_extendedprice` column
++  // Retail price depends only on part key. Compute it in lineitem order, not join output order.
+   auto l_extendedprice = [&]() {
+-    auto const left = cudf::table_view(
+-      {lineitem_partial->get_column(2).view(), lineitem_partial->get_column(5).view()});
+-    auto const right = cudf::table_view({part->get_column(0).view(), part->get_column(7).view()});
+-    auto const joined_table   = perform_left_join(left, right, {0}, {0}, stream, mr);
+-    auto joined_table_columns = joined_table->release();
+-    auto const l_quantity     = std::move(joined_table_columns[1]);
+-    auto const l_quantity_fp =
+-      cudf::cast(l_quantity->view(), cudf::data_type{cudf::type_id::FLOAT64}, stream, mr);
+-    auto const p_retailprice = std::move(joined_table_columns[3]);
++    auto const l_quantity_fp = cudf::cast(
++      lineitem_partial->get_column(5).view(), cudf::data_type{cudf::type_id::FLOAT64}, stream, mr);
++    auto const p_retailprice =
++      calculate_p_retailprice(lineitem_partial->get_column(2).view(), stream, mr);
+     return cudf::binary_operation(l_quantity_fp->view(),
+                                   p_retailprice->view(),
+                                   cudf::binary_operator::MUL,
 diff --git a/cpp/benchmarks/common/ndsh_data_generator/ndsh_data_generator_test.cpp b/cpp/benchmarks/common/ndsh_data_generator/ndsh_data_generator_test.cpp
 new file mode 100644
-index 0000000..fb8b27a
+index 0000000..ef6adbc
 --- /dev/null
 +++ b/cpp/benchmarks/common/ndsh_data_generator/ndsh_data_generator_test.cpp
-@@ -0,0 +1,146 @@
+@@ -0,0 +1,165 @@
 +/*
 + * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 + * SPDX-License-Identifier: Apache-2.0
@@ -81,6 +104,7 @@ index 0000000..fb8b27a
 +#include <iomanip>
 +#include <iostream>
 +#include <limits>
++#include <map>
 +#include <type_traits>
 +
 +namespace {
@@ -165,7 +189,25 @@ index 0000000..fb8b27a
 +void test_lineitem_q6(cuda::stream_ref stream)
 +{
 +  auto [orders, lineitem, part] = cudf::datagen::generate_orders_lineitem_part(0.01, stream);
-+  CUDF_EXPECTS(lineitem->num_columns() == 16, "Unexpected lineitem schema");
++  CUDF_EXPECTS(lineitem->num_columns() == 16 && part->num_columns() == 9,
++               "Unexpected lineitem/part schema");
++  auto const part_keys = host_values<cudf::size_type>(part->view().column(0), stream);
++  auto const retail    = host_values<double>(part->view().column(7), stream);
++  std::map<cudf::size_type, double> retail_by_key;
++  for (cudf::size_type i = 0; i < part->num_rows(); ++i) {
++    CUDF_EXPECTS(retail_by_key.emplace(part_keys[i], retail[i]).second, "Duplicate part key");
++  }
++  auto const item_keys = host_values<cudf::size_type>(lineitem->view().column(1), stream);
++  auto const quantity  = host_values<int8_t>(lineitem->view().column(4), stream);
++  auto const price     = host_values<double>(lineitem->view().column(5), stream);
++  // Resolve by key on the CPU, independently of GPU join output order.
++  for (cudf::size_type i = 0; i < lineitem->num_rows(); ++i) {
++    auto const part_row = retail_by_key.find(item_keys[i]);
++    CUDF_EXPECTS(part_row != retail_by_key.end(), "Missing lineitem part key");
++    auto const expected = static_cast<double>(quantity[i]) * part_row->second;
++    CUDF_EXPECTS(std::abs(price[i] - expected) <= 1e-12 * std::max(1.0, std::abs(expected)),
++                 "l_extendedprice is not aligned with its lineitem row");
++  }
 +  // LINEITEM_SCHEMA in ndsh/utilities.cpp: extendedprice, discount, shipdate, quantity.
 +  auto const projected = lineitem->view().select({5, 6, 10, 4});
 +  auto const result    = ndsh::q6_cpu_reference(projected, stream);
@@ -318,7 +360,7 @@ index a98ab25..4e46d19 100644
   * @brief Generate a primary key column
 diff --git a/cpp/benchmarks/ndsh/VORTEX.md b/cpp/benchmarks/ndsh/VORTEX.md
 new file mode 100644
-index 0000000..88614bf
+index 0000000..e51959d
 --- /dev/null
 +++ b/cpp/benchmarks/ndsh/VORTEX.md
 @@ -0,0 +1,79 @@
@@ -379,11 +421,11 @@ index 0000000..88614bf
 +GPU completion. Compare CPU wall time; RMM peaks exclude Vortex allocations.
 +The original `ndsh_q6` retains its host-buffer Parquet/date-pushdown path separately.
 +
-+**Data change:** discount uses a separate fixed RNG seed, removing Q6's zero-match
-+correlation with quantity. This changes lineitem and dependent values for all NDS-H
-+queries, even with Vortex OFF; regenerate fixtures. Other correlations and an existing
-+price-row-ordering defect remain. Separate generations can differ, so compare formats
-+using the shared fixture, not old results. `NDSH_DATA_GENERATOR_TEST` is Vortex-independent.
++**Data changes:** a separate discount RNG seed removes Q6's zero-match correlation;
++retail prices are computed in lineitem order instead of unordered join order.
++Both fixes affect all NDS-H consumers, even with Vortex OFF; regenerate fixtures.
++Other correlations remain. Compare formats on the shared fixture, not old results.
++`NDSH_DATA_GENERATOR_TEST` checks seed behavior and per-row prices without Vortex.
 +
 +## Contract and scope
 +

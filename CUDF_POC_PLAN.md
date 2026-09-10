@@ -26,9 +26,9 @@ comparing Vortex with Parquet, with Nsight Systems profiles at **SF100**.
 
 Q6/read SF0.01 and 15 adapter tests pass on prebuilt cuDF 26.08, including
 Compute Sanitizer. Pinned cuDF is compile-only validated; its full build timed out.
-A separate discount RNG seed now gives nonempty Q6 data; both formats are checked
-against a CPU reference of the same fixture. Other generator issues, including
-price-row ordering, remain. Next: pinned-runtime validation, Q1, and SF100 profiling.
+Separate discount RNG draws and row-aligned prices now give repeatable, nonempty
+Q6 results in tested runs; both formats match a CPU reference of the same fixture.
+Other generator correlations remain. Next: pinned runtime, Q1, and SF100 profiling.
 Publish Vortex prerequisites and update the pin before upstream submission.
 
 I/O uses pooled pinned-host staging → HtoD → GPU decode, with host metadata;
