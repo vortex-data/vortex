@@ -10,9 +10,11 @@ use std::task::Context;
 use std::task::Poll;
 use std::task::ready;
 
+use futures::FutureExt;
 use futures::Stream;
 use futures::StreamExt;
 use futures::future;
+use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use itertools::Either;
 use itertools::Itertools;
@@ -25,6 +27,7 @@ use vortex_array::stream::ArrayStream;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_io::runtime::BlockingRuntime;
 use vortex_io::runtime::Handle;
 use vortex_io::runtime::Task;
@@ -218,6 +221,36 @@ impl Stream for ScheduledTaskStream {
     }
 }
 impl RepeatedScan {
+    /// Create split futures for an executor that schedules its own scan work.
+    ///
+    /// No tasks are spawned. Each future returns the projected array, or `None` when its split
+    /// is filtered out. The futures may be polled independently in any order.
+    ///
+    /// Scans with row limits must use [`Self::execute_array_stream`] or
+    /// [`Self::execute_array_iter`] so the scan can coordinate the limit across splits.
+    pub fn execute(
+        &self,
+        row_range: Option<Range<u64>>,
+    ) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<ArrayRef>>>>> {
+        if self.limit.is_some() || self.row_limit.is_some() {
+            vortex_bail!("Split futures do not support row limits; use a scan stream or iterator");
+        }
+
+        Ok(self
+            .execute_tasks(row_range, None)?
+            .into_iter()
+            .map(|task| {
+                async move {
+                    match task.await {
+                        TaskResult::Array(array) => Ok(array),
+                        TaskResult::Recoverable(error) | TaskResult::Terminal(error) => Err(error),
+                    }
+                }
+                .boxed()
+            })
+            .collect())
+    }
+
     pub fn dtype(&self) -> &DType {
         &self.dtype
     }
@@ -348,7 +381,7 @@ impl RepeatedScan {
         }
     }
 
-    pub(crate) fn execute(
+    fn execute_tasks(
         &self,
         row_range: Option<Range<u64>>,
         row_limit: Option<RowLimit>,
@@ -416,9 +449,9 @@ impl RepeatedScan {
         }
 
         // No filter (or no limit): build every task eagerly so the IO system sees all split
-        // ranges up front. A no-filter limit is applied to each selection mask inside `execute`,
+        // ranges up front. A no-filter limit is applied to each selection mask inside `execute_tasks`,
         // which reserves in split order and so stays exact for ordered scans too.
-        let tasks = TaskStream::eager(handle, self.execute(row_range, row_limit)?);
+        let tasks = TaskStream::eager(handle, self.execute_tasks(row_range, row_limit)?);
 
         let ordered = self.ordered;
         Ok(ScheduledTaskStream::new(tasks, ordered, concurrency))

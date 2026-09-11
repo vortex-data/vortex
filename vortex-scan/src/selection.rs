@@ -226,6 +226,31 @@ mod tests {
     }
 
     #[test]
+    fn test_row_count_in_range_roaring_boundaries() {
+        let roaring = [0, 3, u64::from(u32::MAX) + 1, u64::MAX - 1, u64::MAX]
+            .into_iter()
+            .collect::<roaring::RoaringTreemap>();
+        let include = Selection::IncludeRoaring(roaring.clone());
+        let exclude = Selection::ExcludeRoaring(roaring);
+
+        for (range, expected) in [
+            (0..0, 0),
+            (0..1, 1),
+            (1..3, 0),
+            (3..4, 1),
+            (u64::from(u32::MAX)..u64::from(u32::MAX) + 2, 1),
+            (u64::MAX - 1..u64::MAX, 1),
+            (0..u64::MAX, 4),
+        ] {
+            assert_eq!(include.row_count_in_range(&range), expected);
+            assert_eq!(
+                exclude.row_count_in_range(&range),
+                range.end - range.start - expected
+            );
+        }
+    }
+
+    #[test]
     fn test_row_mask_all() {
         let selection = include([1, 3, 5, 7]);
         let range = 1..8;

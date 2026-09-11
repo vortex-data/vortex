@@ -1068,7 +1068,7 @@ mod tests {
         let data_size =
             write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch.clone()).await?;
         let file = PartitionedFile::new(file_path.to_string(), data_size);
-        let table_schema = TableSchema::from_file_schema(batch.schema());
+        let table_schema = TableSchema::from(batch.schema());
         // `a > 3` excludes the first three rows, so a limit applied *before* filtering would take
         // rows [1, 2, 3] and filter them all out (yielding nothing), whereas a limit applied
         // *after* filtering yields the first three matching rows [4, 5, 6]. Asserting the values

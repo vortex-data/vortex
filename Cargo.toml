@@ -239,7 +239,7 @@ reqwest = { version = "0.13.0", features = [
     "rustls",
     "system-proxy",
 ], default-features = false }
-roaring = "0.11.0"
+roaring = "0.11.4"
 rstest = "0.26.1"
 rstest_reuse = "0.7.0"
 rustc-hash = "2.1.1"
