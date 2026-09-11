@@ -427,6 +427,7 @@ pub(in crate::layouts::zoned::aggregates::bloom_filter) mod test_utils {
     use vortex_array::aggregate_fn::DynAccumulator;
     use vortex_array::test_harness::check_metadata;
 
+    use super::partial::BLOCK_SIZE;
     use super::*;
 
     pub fn setup() -> VortexResult<ExecutionCtx> {
@@ -482,8 +483,14 @@ pub(in crate::layouts::zoned::aggregates::bloom_filter) mod test_utils {
     fn saturation_true_when_every_block_is_full() -> VortexResult<()> {
         let options = BloomOptions::default();
         let dtypes = binary_dtypes(&options)?;
-        let blocks = vec![[u32::MAX; 8]; 4];
-        let partial = BloomPartial::from(blocks);
+
+        // Every bit of every block set - the only state the filter reports as saturated.
+        let full = vec![u8::MAX; options.blocks_count().get() as usize * BLOCK_SIZE];
+        let partial = BloomFilter.partial_from_scalar(
+            &options,
+            dtypes.borrow(),
+            Scalar::binary(full, Nullability::NonNullable),
+        )?;
 
         assert!(BloomFilter.is_saturated(&options, dtypes.borrow(), &partial));
         Ok(())
