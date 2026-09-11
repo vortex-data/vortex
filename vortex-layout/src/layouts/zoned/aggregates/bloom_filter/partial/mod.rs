@@ -253,13 +253,6 @@ impl From<&BloomOptions> for BloomPartial {
 }
 
 #[cfg(test)]
-impl From<Vec<[u32; 8]>> for BloomPartial {
-    fn from(value: Vec<[u32; 8]>) -> Self {
-        BloomPartial { blocks: value }
-    }
-}
-
-#[cfg(test)]
 mod tests {
     use std::num::NonZeroU32;
 
