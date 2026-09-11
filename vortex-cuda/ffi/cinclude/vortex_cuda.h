@@ -81,12 +81,11 @@ vx_array_sink *vx_cuda_array_sink_open_file(const vx_session *session,
  *
  * `block_rows` controls the row granularity of CUDA-flat data blocks. Passing zero uses the default
  * writer strategy: 8,192-row blocks may be coalesced into data blocks targeting 1 MiB. Passing any
- * nonzero value disables this byte-size coalescing, so passing 8,192 is not equivalent to passing
- * zero.
+ * nonzero value disables this byte-size coalescing and layout dictionaries, so passing 8,192 is not
+ * equivalent to passing zero.
  *
- * Write and scan sizing are independent. To align on-disk row blocks with scan batches, pass the
- * same nonzero value to this function and `vx_cuda_scan_path_arrow_device_stream_batch_rows`; the
- * API does not enforce a match.
+ * Write and scan sizing are independent. Scan batches preserve these on-disk row-block
+ * boundaries.
  */
 vx_array_sink *vx_cuda_array_sink_open_file_block_rows(const vx_session *session,
                                                        vx_view path,
@@ -111,7 +110,8 @@ vx_array_sink *vx_cuda_array_sink_open_file_block_rows(const vx_session *session
 typedef struct vx_cuda_scan_options {
     /** Bitwise combination of `VX_CUDA_SCAN_FLAG_*` values. */
     uint32_t flags;
-    /** Number of rows in each output ArrowDeviceArray. Zero uses layout-derived splitting. */
+    /** Maximum rows in each output ArrowDeviceArray. Zero uses layout-derived splitting.
+     * Physical layout boundaries may produce shorter batches. */
     size_t batch_rows;
 } vx_cuda_scan_options;
 
@@ -131,14 +131,13 @@ int vx_cuda_scan_path_arrow_device_stream(const vx_session *session,
                                           vx_error **error_out);
 
 /**
- * Scan a local CUDA-compatible Vortex file with fixed-size row batches.
+ * Scan a local CUDA-compatible Vortex file with bounded row batches.
  *
- * `batch_rows` controls the number of rows in each output `ArrowDeviceArray`. Pass zero to use the
- * layout-derived splitting of `vx_cuda_scan_path_arrow_device_stream`.
+ * `batch_rows` sets the maximum number of rows in each output `ArrowDeviceArray`. Physical layout
+ * boundaries may produce shorter batches. Pass zero to use the layout-derived splitting of
+ * `vx_cuda_scan_path_arrow_device_stream`.
  *
- * Scan and write sizing are independent. To align scan batches with on-disk row blocks, pass the
- * same nonzero value to this function and `vx_cuda_array_sink_open_file_block_rows`; the API does
- * not enforce a match.
+ * Scan and write sizing are independent; scan batches preserve on-disk layout boundaries.
  */
 int vx_cuda_scan_path_arrow_device_stream_batch_rows(const vx_session *session,
                                                      vx_view path,

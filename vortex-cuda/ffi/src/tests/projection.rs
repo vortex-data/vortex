@@ -119,10 +119,7 @@ fn table(rows: usize) -> VortexResult<ArrayRef> {
 fn file_bytes(session: &VortexSession, array: ArrayRef, cuda: bool) -> VortexResult<ByteBuffer> {
     let strategy: Arc<dyn LayoutStrategy> = if cuda {
         register_cuda_layout(session);
-        WriteStrategyBuilder::default()
-            .with_btrblocks_builder(BtrBlocksCompressorBuilder::default().only_cuda_compatible())
-            .with_flat_strategy(Arc::new(CudaFlatLayoutStrategy::default()))
-            .build()
+        cuda_write_strategy(session, 0)
     } else {
         let flat = Arc::new(FlatLayoutStrategy::default());
         Arc::new(TableStrategy::new(
@@ -138,6 +135,46 @@ fn file_bytes(session: &VortexSession, array: ArrayRef, cuda: bool) -> VortexRes
             .write(&mut bytes, array.to_array_stream()),
     )?;
     Ok(bytes.freeze())
+}
+
+fn blocked_cuda_file_bytes(
+    session: &VortexSession,
+    array: ArrayRef,
+    block_rows: usize,
+) -> VortexResult<ByteBuffer> {
+    register_cuda_layout(session);
+    let strategy = cuda_write_strategy(session, block_rows);
+    let mut bytes = ByteBufferMut::empty();
+    ffi_runtime().block_on(
+        session
+            .write_options()
+            .with_strategy(strategy)
+            .write(&mut bytes, array.to_array_stream()),
+    )?;
+    Ok(bytes.freeze())
+}
+
+#[test]
+fn test_cuda_write_strategy_preserves_high_cardinality_row_blocks() -> VortexResult<()> {
+    let session = session();
+    let unique = 70_000u32;
+    let ids = PrimitiveArray::from_iter((0..unique).chain(0..unique)).into_array();
+    let rows = ids.len();
+    let input =
+        StructArray::try_new(["ids"].into(), vec![ids], rows, Validity::NonNullable)?.into_array();
+    let file = session
+        .open_options()
+        .open_buffer(blocked_cuda_file_bytes(&session, input, rows)?)?;
+    let batches: Vec<_> = ffi_runtime().block_on(
+        projected_scan(&file, names(&["ids"])?, rows)?
+            .into_array_stream()?
+            .try_collect(),
+    )?;
+    assert_eq!(
+        batches.iter().map(|batch| batch.len()).collect::<Vec<_>>(),
+        [rows]
+    );
+    Ok(())
 }
 
 #[test]
@@ -178,6 +215,28 @@ fn test_projection_cpu_scan_order_dtype_empty_and_defaults() -> VortexResult<()>
                 );
             }
         }
+    }
+    Ok(())
+}
+
+#[test]
+fn test_projected_scan_batch_rows_preserve_cuda_layout_boundaries() -> VortexResult<()> {
+    let session = session();
+    let file =
+        session
+            .open_options()
+            .open_buffer(blocked_cuda_file_bytes(&session, table(5)?, 2)?)?;
+
+    for columns in [vec!["値.x", "ids"], vec![]] {
+        let batches: Vec<_> = ffi_runtime().block_on(
+            projected_scan(&file, names(&columns)?, 3)?
+                .into_array_stream()?
+                .try_collect(),
+        )?;
+        assert_eq!(
+            batches.iter().map(|batch| batch.len()).collect::<Vec<_>>(),
+            [2, 2, 1]
+        );
     }
     Ok(())
 }
@@ -484,6 +543,99 @@ fn test_projection_gpu_local_file_schema_batches_empty_and_defaults() -> VortexR
                     release(&raw mut stream);
                 }
             }
+        }
+    }
+    Ok(())
+}
+
+#[cuda_test]
+fn test_projection_gpu_preserves_cuda_layout_boundaries() -> VortexResult<()> {
+    let session = session().with_some(CudaSession::try_default()?);
+    let file = LocalFile::new(&blocked_cuda_file_bytes(&session, table(5)?, 2)?)?;
+    let path = file
+        .0
+        .to_str()
+        .ok_or_else(|| vortex_err!("non-UTF-8 test path"))?;
+    let options = vx_cuda_scan_options {
+        flags: VX_CUDA_SCAN_FLAG_DECODE_DICTIONARIES,
+        batch_rows: 3,
+    };
+    let columns = [view("値.x"), view("ids")];
+
+    for projected in [true, false] {
+        let mut output = MaybeUninit::<ArrowDeviceArrayStream>::uninit();
+        let mut error = ptr::null_mut();
+        let handle = test_session(session.clone());
+        // SAFETY: All borrowed inputs and writable outputs are live for this call.
+        let status = unsafe {
+            if projected {
+                vx_cuda_scan_path_arrow_device_stream_projected(
+                    handle,
+                    view(path),
+                    &raw const options,
+                    columns.as_ptr(),
+                    columns.len(),
+                    output.as_mut_ptr(),
+                    &raw mut error,
+                )
+            } else {
+                vx_cuda_scan_path_arrow_device_stream_with_options(
+                    handle,
+                    view(path),
+                    &raw const options,
+                    output.as_mut_ptr(),
+                    &raw mut error,
+                )
+            }
+        };
+        unsafe { free_test_session(handle) };
+        assert_eq!(status, VX_CUDA_OK);
+        assert!(error.is_null());
+
+        // SAFETY: A successful call initialized the stream, which owns its session state.
+        let mut stream = unsafe { output.assume_init() };
+        let mut schema = FFI_ArrowSchema::empty();
+        let get_schema = stream
+            .get_schema
+            .ok_or_else(|| vortex_err!("missing get_schema"))?;
+        // SAFETY: This live stream owns the callback; schema is writable.
+        assert_eq!(
+            unsafe { get_schema(&raw mut stream, (&raw mut schema).cast()) },
+            0,
+            "{}",
+            stream_error(&mut stream)
+        );
+
+        let get_next = stream
+            .get_next
+            .ok_or_else(|| vortex_err!("missing get_next"))?;
+        let mut lengths = Vec::new();
+        loop {
+            let mut array = empty_device_array();
+            // SAFETY: This live stream owns the callback; array is writable.
+            assert_eq!(
+                unsafe { get_next(&raw mut stream, &raw mut array) },
+                0,
+                "{}",
+                stream_error(&mut stream)
+            );
+            if array.array.release.is_none() {
+                break;
+            }
+            assert_eq!(array.device_type, ARROW_DEVICE_CUDA);
+            assert_eq!(array.array.n_children, if projected { 2 } else { 3 });
+            lengths.push(array.array.length);
+            unsafe { release_device_array(&mut array) };
+        }
+        assert_eq!(lengths, [2, 2, 1]);
+
+        let release = stream
+            .release
+            .ok_or_else(|| vortex_err!("missing release"))?;
+        // SAFETY: Both objects are live and released exactly once.
+        unsafe {
+            release_schema(&mut schema);
+            release(&raw mut stream);
         }
     }
     Ok(())

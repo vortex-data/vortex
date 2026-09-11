@@ -30,6 +30,7 @@ use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
 use vortex::file::WriteStrategyBuilder;
 use vortex::io::runtime::BlockingRuntime;
+use vortex::layout::LayoutStrategy;
 use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::layout::scan::split_by::SplitBy;
 use vortex::session::SessionExt;
@@ -78,7 +79,8 @@ const VX_CUDA_SCAN_KNOWN_FLAGS: u32 =
 pub struct vx_cuda_scan_options {
     /// A bitwise combination of `VX_CUDA_SCAN_FLAG_*` values.
     pub flags: u32,
-    /// Number of rows in each output batch. Zero uses layout-derived splitting.
+    /// Maximum rows in each output batch. Zero uses layout-derived splitting.
+    /// Physical layout boundaries may produce shorter batches.
     pub batch_rows: usize,
 }
 
@@ -90,6 +92,29 @@ fn session_with_cuda(session: &VortexSession) -> VortexResult<VortexSession> {
     session.get::<CudaSession>();
     register_cuda_layout(session);
     Ok(session.clone())
+}
+
+fn cuda_write_strategy(session: &VortexSession, block_rows: usize) -> Arc<dyn LayoutStrategy> {
+    let allowed_encodings = session
+        .enabled_component_ids(ComponentKind::Array)
+        .into_iter()
+        .collect();
+    let mut strategy = WriteStrategyBuilder::default()
+        .with_btrblocks_builder(
+            BtrBlocksCompressorBuilder::default()
+                .only_cuda_compatible()
+                .retain_allowed_encodings(&allowed_encodings),
+        )
+        .with_flat_strategy(Arc::new(CudaFlatLayoutStrategy::default()));
+    if block_rows > 0 {
+        // Preserve explicit row blocks: layout dictionaries can otherwise split a high-cardinality
+        // block into u16-sized dictionary runs, while a byte target can coalesce adjacent blocks.
+        strategy = strategy
+            .with_probe_compressor(BtrBlocksCompressorBuilder::empty().build())
+            .with_row_block_size(block_rows)
+            .with_data_block_target_bytes(None);
+    }
+    strategy.build()
 }
 
 /// Create a CUDA Vortex session.
@@ -139,7 +164,7 @@ pub unsafe extern "C-unwind" fn vx_cuda_array_sink_open_file(
 ///
 /// `block_rows` controls the row granularity of CUDA-flat data blocks. Passing zero preserves the
 /// default writer strategy used by [`vx_cuda_array_sink_open_file`]. Any nonzero value disables
-/// byte-size coalescing so data blocks retain the requested row granularity.
+/// byte-size coalescing and layout dictionaries so data blocks retain the requested row granularity.
 ///
 /// Write and scan sizing are independent. To align on-disk row blocks with scan batches, pass the
 /// same nonzero value to this function and [`vx_cuda_scan_path_arrow_device_stream_batch_rows`].
@@ -160,27 +185,14 @@ pub unsafe extern "C-unwind" fn vx_cuda_array_sink_open_file_block_rows(
     try_or(error_out, ptr::null_mut(), || {
         let vortex_session = unsafe { vx_session_ref(session) }?;
         session_with_cuda(vortex_session)?;
-        let allowed_encodings = vortex_session
-            .enabled_component_ids(ComponentKind::Array)
-            .into_iter()
-            .collect();
-        let mut strategy = WriteStrategyBuilder::default()
-            .with_btrblocks_builder(
-                BtrBlocksCompressorBuilder::default()
-                    .only_cuda_compatible()
-                    .retain_allowed_encodings(&allowed_encodings),
+        unsafe {
+            vx_array_sink_open_file_with_strategy(
+                session,
+                path,
+                dtype,
+                cuda_write_strategy(vortex_session, block_rows),
             )
-            .with_flat_strategy(Arc::new(CudaFlatLayoutStrategy::default()));
-        if block_rows > 0 {
-            // The default byte-size target can coalesce several row blocks into one data block.
-            // A scan using the same row count would then split inside that data block, defeating
-            // the requested alignment. The explicit block row count already defines the desired
-            // granularity for this opt-in path, so a separate byte-size target is unnecessary.
-            strategy = strategy
-                .with_row_block_size(block_rows)
-                .with_data_block_target_bytes(None);
         }
-        unsafe { vx_array_sink_open_file_with_strategy(session, path, dtype, strategy.build()) }
     })
 }
 
@@ -223,13 +235,13 @@ pub unsafe extern "C-unwind" fn vx_cuda_scan_path_arrow_device_stream(
     }
 }
 
-/// Scan a local Vortex file and export an Arrow C Device stream with fixed-size row batches.
+/// Scan a local Vortex file and export an Arrow C Device stream with bounded row batches.
 ///
-/// `batch_rows` controls the number of rows in each output batch. Passing zero preserves the
-/// layout-derived splitting used by [`vx_cuda_scan_path_arrow_device_stream`].
+/// `batch_rows` sets the maximum number of rows in each output batch. Physical layout boundaries
+/// may produce shorter batches. Passing zero preserves the layout-derived splitting used by
+/// [`vx_cuda_scan_path_arrow_device_stream`].
 ///
-/// Scan and write sizing are independent. To align scan batches with on-disk row blocks, pass the
-/// same nonzero value to this function and [`vx_cuda_array_sink_open_file_block_rows`].
+/// Scan and write sizing are independent; scan batches preserve on-disk layout boundaries.
 ///
 /// # Safety
 ///
@@ -403,7 +415,9 @@ fn projected_scan(
         scan = scan.with_projection(projection.bind(file.dtype())?);
     }
     if batch_rows != 0 {
-        scan = scan.with_split_by(SplitBy::RowCount(batch_rows));
+        let max_rows = u64::try_from(batch_rows)
+            .map_err(|_| vortex_err!("CUDA scan batch row count is too large"))?;
+        scan = scan.with_split_by(SplitBy::LayoutSubSplitting { max_rows });
     }
     Ok(scan)
 }

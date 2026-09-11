@@ -622,9 +622,15 @@ mod tests {
             let array =
                 StructArray::from_fields(&[("numbers", buffer![1i32, 4, 9, 16].into_array())])?
                     .into_array();
+            let allowed_encodings = session
+                .enabled_component_ids(ComponentKind::Array)
+                .into_iter()
+                .collect();
             let strategy = WriteStrategyBuilder::default()
                 .with_btrblocks_builder(
-                    BtrBlocksCompressorBuilder::default().only_cuda_compatible(),
+                    BtrBlocksCompressorBuilder::default()
+                        .only_cuda_compatible()
+                        .retain_allowed_encodings(&allowed_encodings),
                 )
                 .with_flat_strategy(Arc::new(CudaFlatLayoutStrategy::default()))
                 .build();
