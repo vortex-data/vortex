@@ -482,6 +482,7 @@ mod test {
     use crate::LayoutReader;
     use crate::RowSplits;
     use crate::SplitRange;
+    use crate::scan::limit::RowLimit;
     use crate::scan::test::SCAN_SESSION;
     use crate::scan::test::TestLayoutReader;
     use crate::scan::test::collect_scan_values;
@@ -1084,6 +1085,50 @@ mod test {
         drain_runtime(&runtime);
 
         assert_eq!(values, [1, 3, 5]);
+        Ok(())
+    }
+
+    #[test]
+    fn prepared_scan_split_futures_can_be_polled_in_reverse() -> VortexResult<()> {
+        let runtime = SingleThreadRuntime::default();
+        let session = session_with_handle(runtime.handle());
+        let projection_masks = Arc::new(Mutex::new(Vec::new()));
+        let reader = Arc::new(
+            TestLayoutReader::new(8)
+                .with_split_size(2)
+                .with_keep_row(keep_odd)
+                .with_projection_masks(Arc::clone(&projection_masks)),
+        );
+        let filter = root().bind(reader.dtype())?;
+        let scan = ScanBuilder::new(session, reader)
+            .with_filter(filter)
+            .prepare()?;
+        let tasks = scan.execute(Some(1..7))?;
+        assert!(projection_masks.lock().is_empty());
+
+        let mut arrays = Vec::new();
+        for task in tasks.into_iter().rev() {
+            if let Some(array) = runtime.block_on(task)? {
+                arrays.push(Ok(array));
+            }
+        }
+        assert_eq!(collect_scan_values(arrays)?, [5, 3, 1]);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(false)]
+    #[case(true)]
+    fn prepared_scan_split_futures_reject_limits(#[case] shared: bool) -> VortexResult<()> {
+        let reader = Arc::new(TestLayoutReader::new(8).with_split_size(2));
+        let builder = ScanBuilder::new(SCAN_SESSION.clone(), reader);
+        let builder = if shared {
+            builder.with_some_row_limit(Some(RowLimit::new(1)))
+        } else {
+            builder.with_limit(1)
+        };
+
+        assert!(builder.prepare()?.execute(None).is_err());
         Ok(())
     }
 
