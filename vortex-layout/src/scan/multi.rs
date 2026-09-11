@@ -571,8 +571,7 @@ impl Partition for MultiLayoutPartition {
         let Some(row_range) = self.request.row_range.as_ref() else {
             return Precision::Absent;
         };
-        let row_count = row_range.end - row_range.start;
-        let row_count = self.request.selection.row_count(row_count);
+        let row_count = self.request.selection.row_count_in_range(row_range);
         let row_count = self
             .request
             .limit

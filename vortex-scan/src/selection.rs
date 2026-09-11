@@ -41,6 +41,22 @@ impl Selection {
         }
     }
 
+    /// Count the selected rows that fall within `range`.
+    pub fn row_count_in_range(&self, range: &Range<u64>) -> u64 {
+        let range_len = range.end.saturating_sub(range.start);
+        match self {
+            Selection::All => range_len,
+            Selection::IncludeByIndex(include) => count_in_range(range, include),
+            Selection::ExcludeByIndex(exclude) => {
+                range_len.saturating_sub(count_in_range(range, exclude))
+            }
+            Selection::IncludeRoaring(roaring) => roaring.range_cardinality(range.clone()),
+            Selection::ExcludeRoaring(roaring) => {
+                range_len.saturating_sub(roaring.range_cardinality(range.clone()))
+            }
+        }
+    }
+
     /// Extract the [`RowMask`] for the given range from this selection.
     pub fn row_mask(&self, range: &Range<u64>) -> RowMask {
         if range.start >= range.end {
@@ -109,6 +125,11 @@ impl Selection {
     }
 }
 
+/// Count the entries of the sorted `row_indices` that fall within `range`.
+fn count_in_range(range: &Range<u64>, row_indices: &[u64]) -> u64 {
+    indices_range(range, row_indices).map_or(0, |idx_range| idx_range.len() as u64)
+}
+
 /// Build the mask of positions within `range` that are named by the given sorted row indices.
 fn index_mask(range: &Range<u64>, range_len: usize, row_indices: &[u64]) -> Mask {
     indices_range(range, row_indices)
@@ -175,6 +196,33 @@ mod tests {
 
     fn exclude(indices: impl IntoIterator<Item = u64>) -> Selection {
         Selection::ExcludeByIndex(strict_sorted(indices))
+    }
+
+    #[test]
+    fn test_row_count_in_range() {
+        let range = 2..8;
+        assert_eq!(Selection::All.row_count_in_range(&range), 6);
+        // Indices 3, 5, 7 fall inside the range; 1 and 9 do not.
+        assert_eq!(include([1, 3, 5, 7, 9]).row_count_in_range(&range), 3);
+        assert_eq!(exclude([1, 3, 5, 7, 9]).row_count_in_range(&range), 3);
+        assert_eq!(include([10, 11]).row_count_in_range(&range), 0);
+        assert_eq!(include([1, 3]).row_count_in_range(&(8..8)), 0);
+    }
+
+    #[test]
+    fn test_row_count_in_range_roaring() {
+        let mut roaring = roaring::RoaringTreemap::new();
+        roaring.insert_range(1..10u64);
+
+        let range = 2..8;
+        assert_eq!(
+            Selection::IncludeRoaring(roaring.clone()).row_count_in_range(&range),
+            6
+        );
+        assert_eq!(
+            Selection::ExcludeRoaring(roaring).row_count_in_range(&range),
+            0
+        );
     }
 
     #[test]
