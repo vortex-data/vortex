@@ -11,11 +11,15 @@ comparing Vortex with Parquet, with Nsight Systems profiles at **SF100**.
 3. **Matched comparison:** implemented for Q1/Q5/Q6/Q9/Q10 and projected reads: identical
    local-file fixtures, scan-level projection, and shared post-read cuDF filters.
    Original Parquet-pushdown benchmarks remain separate.
-4. **Finish query coverage before scaling:** implemented for Q1/Q5/Q6/Q9/Q10 at
-   SF0.01 with matched fixtures and result checks. Next validate pinned runtime, then
-   scale SF1 → SF10 → SF100 while checking schemas, nulls, decimals, batches,
-   results, and Vortex/RMM memory.
-5. **Profile and publish:** add NVTX ranges and capture matched-cache SF100 runs.
+4. **Finish query coverage before scaling:** Q1/Q5/Q6/Q9/Q10 pass at SF0.01 and
+   pinned cuDF Release SF1/SF10 with matched fixtures and result checks. SF10 profiling
+   exposed per-batch CUDA API/event overhead and high-cardinality layout dictionaries
+   fragmenting explicit blocks. The benchmark now uses 16,777,216-row blocks, disables
+   layout dictionaries for explicit CUDA blocks, retains 2 GiB in CUDA's pool, and performs
+   one final owning cuDF materialization. Next scale to SF100 while checking schemas,
+   nulls, decimals, batches, results, and Vortex/RMM memory.
+5. **Profile and publish:** adapter NVTX ranges and focused SF10 profiles are implemented;
+   capture matched-cache SF100 runs.
    Report read latency, size, HtoD traffic/overlap, decode/adapter cost, and peak
    memory. Time the complete read, including import, copies, concatenation, and
    GPU completion; exclude fixture writing. Publish commands and pinned revisions.
@@ -26,12 +30,14 @@ comparing Vortex with Parquet, with Nsight Systems profiles at **SF100**.
 [Validation](benchmarks/cudf-ndsh/VALIDATION.md) ·
 [Resume here](benchmarks/cudf-ndsh/PROGRESS.md)
 
-Q1/Q5/Q6/Q9/Q10 run on GPU at SF0.01; both formats match independent CPU
-references, and all 28 states are memcheck-clean. Pinned cuDF is compile-only
-validated; its full build timed out. Generator fixes separate discount and order-date
-RNG streams, align prices, and preserve fractional supplier scale factors; other
-correlations remain. Next: pinned runtime, then scaling/profiling. Publish Vortex
-prerequisites and update the pin before submission.
+Q1/Q5/Q6/Q9/Q10 run on GPU at SF0.01 and pinned cuDF Release SF1/SF10; both
+formats match independent CPU references. All 28 SF0.01 states are memcheck-clean, all
+28 SF1 states pass normal execution, and all 20 selected SF10 states pass. Vortex is
+faster in every optimized pinned Release comparison. Focused Nsight traces validate the
+batching and allocator changes; SF100 profiling remains. Generator fixes separate discount
+and order-date RNG streams, align prices, and preserve fractional supplier scale factors;
+other correlations remain. Next: SF100 and memory accounting, then publish Vortex
+prerequisites, update the pin, and prepare the submission.
 
 I/O uses pooled pinned-host staging → HtoD → GPU decode, with host metadata;
 **not GPUDirect Storage**. Public cuDF/Python APIs, GPU writing, general cuDF
