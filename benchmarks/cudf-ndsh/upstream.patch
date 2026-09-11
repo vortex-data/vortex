@@ -528,10 +528,10 @@ index 1f35b6a..bd46e42 100644
    rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 diff --git a/cpp/benchmarks/ndsh/VORTEX.md b/cpp/benchmarks/ndsh/VORTEX.md
 new file mode 100644
-index 0000000..6cb4e82
+index 0000000..92729bb
 --- /dev/null
 +++ b/cpp/benchmarks/ndsh/VORTEX.md
-@@ -0,0 +1,95 @@
+@@ -0,0 +1,105 @@
 +# Experimental Vortex adapter
 +
 +`CUDF_NDSH_WITH_VORTEX=ON` adds local-file Parquet/Vortex comparisons for
@@ -614,22 +614,32 @@ index 0000000..6cb4e82
 +## Contract and scope
 +
 +- `write_vortex`: cuDF chunks → compact host Arrow → CPU-compressed local file.
-+- `read_vortex`: pinned-host staging → HtoD → GPU decode → Arrow Device import →
-+  owning cuDF copies and concatenation. Dictionary compression exports as plain
-+  values. **No GPUDirect Storage.**
++  The benchmark uses 16,777,216-row physical CUDA-flat blocks. Explicit row blocks
++  disable byte coalescing and layout dictionaries so high-cardinality `u16` dictionary
++  runs cannot fragment the requested granularity.
++- `read_vortex`: pooled pinned-host staging → HtoD → GPU decode → retained Arrow Device
++  imports → one final owning cuDF copy/concatenation, using the same 16,777,216-row
++  maximum. The adapter retains up to 2 GiB in CUDA's default memory pool between
++  synchronized reads. Dictionary-compressed arrays export as plain values.
++  **No GPUDirect Storage.**
 +- Contexts are single-threaded, device 0. Caller stream/resource must outlive the
-+  context and returned tables. Reads finish consumer work and temporary cleanup;
-+  results outlive the context/file. See `vortex_io.hpp` for argument constraints.
++  context and returned tables. Reads finish consumer work before releasing temporary
++  inputs; release cleanup may remain queued on Vortex producer streams. Results outlive
++  the context/file. See `vortex_io.hpp` for argument constraints.
 +- Flat typed columns and ordered top-level projection only. No predicate pushdown,
 +  remote/device-buffer sources, GPU writing, or full RMM integration. Row chunking
-+  is not a byte budget; peak read memory includes batches plus the concatenated result.
-+- Time the complete read, including schema export, import, copies, concatenation,
-+  and GPU completion; exclude writing. Tests establish correctness, not SF100
-+  readiness or performance. For profiling, use `RelWithDebInfo` and optionally
-+  `NVCC_APPEND_FLAGS=-lineinfo`.
++  is not a byte budget; peak read memory includes retained Vortex batches plus the
++  owning result.
++- Time the complete read, including schema export, import, final copy/concatenation,
++  release cleanup, and GPU completion; exclude writing. Query/read benchmarks finish
++  with a device-wide synchronization that includes queued producer cleanup. The adapter
++  emits `vortex.read`, `vortex.scan_open`, `vortex.get_next`,
++  `vortex.arrow_device_import`, `vortex.materialize`, `vortex.consumer_sync`, and
++  `vortex.release_batches` NVTX ranges. Tests establish correctness, not SF100 readiness.
++  For profiling, use `RelWithDebInfo` and optionally `NVCC_APPEND_FLAGS=-lineinfo`.
 diff --git a/cpp/benchmarks/ndsh/local_io.hpp b/cpp/benchmarks/ndsh/local_io.hpp
 new file mode 100644
-index 0000000..792e399
+index 0000000..6a3a7da
 --- /dev/null
 +++ b/cpp/benchmarks/ndsh/local_io.hpp
 @@ -0,0 +1,94 @@
@@ -696,7 +706,7 @@ index 0000000..792e399
 +                                                         std::vector<std::string> const& columns)
 +{
 +  if (!use_vortex) { return read_parquet(cudf::io::source_info{path}, columns); }
-+  auto result = io.read_vortex(path, 1 << 20, columns);
++  auto result = io.read_vortex(path, 16 << 20, columns);
 +  std::vector<std::string> names;
 +  for (auto const& field : result.metadata.schema_info) {
 +    names.push_back(field.name);
@@ -728,10 +738,18 @@ index 0000000..792e399
 +}
 +}  // namespace ndsh
 diff --git a/cpp/benchmarks/ndsh/q01.cpp b/cpp/benchmarks/ndsh/q01.cpp
-index 4eec239..6e2c80d 100644
+index 4eec239..c027326 100644
 --- a/cpp/benchmarks/ndsh/q01.cpp
 +++ b/cpp/benchmarks/ndsh/q01.cpp
-@@ -16,6 +16,31 @@
+@@ -6,6 +6,7 @@
+ #include "utilities.hpp"
+ 
+ #include <benchmarks/common/memory_stats.hpp>
++#include <benchmarks/common/nvtx_ranges.hpp>
+ 
+ #include <cudf/ast/expressions.hpp>
+ #include <cudf/binaryop.hpp>
+@@ -16,6 +17,31 @@
  
  #include <nvbench/nvbench.cuh>
  
@@ -763,7 +781,7 @@ index 4eec239..6e2c80d 100644
  /**
   * @file q01.cpp
   * @brief Implement query 1 of the NDS-H benchmark.
-@@ -95,27 +120,18 @@
+@@ -95,27 +121,18 @@
      disc_price, one_plus_tax->view(), cudf::binary_operator::MUL, tax.type(), stream, mr);
  }
  
@@ -796,7 +814,7 @@ index 4eec239..6e2c80d 100644
  
    // Calculate the discount price and charge columns and append to lineitem table
    auto disc_price =
-@@ -148,12 +164,17 @@ void run_ndsh_q1(nvbench::state& state, cudf::io::source_info const& source)
+@@ -148,12 +165,17 @@ void run_ndsh_q1(nvbench::state& state, cudf::io::source_info const& source)
        }});
  
    // Perform the order by operation
@@ -819,7 +837,7 @@ index 4eec239..6e2c80d 100644
  }
  
  void ndsh_q1(nvbench::state& state)
-@@ -174,7 +195,7 @@ void ndsh_q1(nvbench::state& state)
+@@ -174,7 +196,7 @@ void ndsh_q1(nvbench::state& state)
      return cudf::io::source_info(filename);
    }();
  
@@ -828,7 +846,7 @@ index 4eec239..6e2c80d 100644
    state.set_cuda_stream(nvbench::make_cuda_stream_view(stream.get()));
    auto const mem_stats_logger = cudf::memory_stats_logger();
    state.exec(nvbench::exec_tag::sync, [&](nvbench::launch& launch) { run_ndsh_q1(state, source); });
-@@ -186,3 +207,150 @@ NVBENCH_BENCH(ndsh_q1)
+@@ -186,3 +208,151 @@ NVBENCH_BENCH(ndsh_q1)
    .set_name("ndsh_q1")
    .add_string_axis("filename", {""})
    .add_float64_axis("scale_factor", {0.01, 0.1, 1});
@@ -951,6 +969,7 @@ index 4eec239..6e2c80d 100644
 +  CUDF_CUDA_TRY(cudaDeviceSynchronize());
 +  state.add_element_count(files.rows, "Rows");
 +  state.exec(nvbench::exec_tag::sync, [&](nvbench::launch&) {
++    cudf::benchmark::scoped_range timed_range{"ndsh_q1_local_timed"};
 +    {
 +      auto result = workload == "read"
 +                      ? read()
@@ -1880,10 +1899,18 @@ index 3fd1aa6..ab2f670 100644
 +  .add_string_axis("engine", {"binaryop", "ast", "transform"});
 +#endif
 diff --git a/cpp/benchmarks/ndsh/q10.cpp b/cpp/benchmarks/ndsh/q10.cpp
-index 16f63ce..5f299d7 100644
+index 16f63ce..d6c3d44 100644
 --- a/cpp/benchmarks/ndsh/q10.cpp
 +++ b/cpp/benchmarks/ndsh/q10.cpp
-@@ -15,6 +15,31 @@
+@@ -6,6 +6,7 @@
+ #include "utilities.hpp"
+ 
+ #include <benchmarks/common/memory_stats.hpp>
++#include <benchmarks/common/nvtx_ranges.hpp>
+ 
+ #include <cudf/ast/expressions.hpp>
+ #include <cudf/binaryop.hpp>
+@@ -15,6 +16,31 @@
  
  #include <nvbench/nvbench.cuh>
  
@@ -1915,7 +1942,7 @@ index 16f63ce..5f299d7 100644
  /**
   * @file q10.cpp
   * @brief Implement query 10 of the NDS-H benchmark.
-@@ -84,12 +109,12 @@
+@@ -84,12 +110,12 @@
    return revenue;
  }
  
@@ -1932,7 +1959,7 @@ index 16f63ce..5f299d7 100644
      orders_cols.begin(), std::find(orders_cols.begin(), orders_cols.end(), "o_orderdate")));
    auto o_orderdate_lower =
      cudf::timestamp_scalar<cudf::timestamp_D>(days_since_epoch(1993, 10, 1), true);
-@@ -110,19 +135,15 @@ void run_ndsh_q10(nvbench::state& state,
+@@ -110,19 +136,15 @@ void run_ndsh_q10(nvbench::state& state,
    auto const lineitem_pred    = std::make_unique<cudf::ast::operation>(
      cudf::ast::ast_operator::EQUAL, l_returnflag_ref, r_literal);
  
@@ -1961,7 +1988,7 @@ index 16f63ce..5f299d7 100644
  
    // Perform the joins
    auto const join_a       = apply_inner_join(customer, nation, {"c_nationkey"}, {"n_nationkey"});
-@@ -144,11 +165,26 @@ void run_ndsh_q10(nvbench::state& state,
+@@ -144,11 +166,26 @@ void run_ndsh_q10(nvbench::state& state,
        }});
  
    // Perform the order by operation
@@ -1992,7 +2019,7 @@ index 16f63ce..5f299d7 100644
  }
  
  void ndsh_q10(nvbench::state& state)
-@@ -156,8 +192,7 @@ void ndsh_q10(nvbench::state& state)
+@@ -156,8 +193,7 @@ void ndsh_q10(nvbench::state& state)
    // Generate the required parquet files in device buffers
    double const scale_factor = state.get_float64("scale_factor");
    std::unordered_map<std::string, cuio_source_sink_pair> sources;
@@ -2002,7 +2029,7 @@ index 16f63ce..5f299d7 100644
  
    auto stream = cudf::get_default_stream();
    state.set_cuda_stream(nvbench::make_cuda_stream_view(stream.get()));
-@@ -169,3 +204,239 @@ void ndsh_q10(nvbench::state& state)
+@@ -169,3 +205,240 @@ void ndsh_q10(nvbench::state& state)
  }
  
  NVBENCH_BENCH(ndsh_q10).set_name("ndsh_q10").add_float64_axis("scale_factor", {0.01, 0.1, 1});
@@ -2214,6 +2241,7 @@ index 16f63ce..5f299d7 100644
 +  CUDF_CUDA_TRY(cudaDeviceSynchronize());
 +  state.add_element_count(files.tables.rows, "Rows");
 +  state.exec(nvbench::exec_tag::sync, [&](nvbench::launch&) {
++    cudf::benchmark::scoped_range timed_range{"ndsh_q10_local_timed"};
 +    if (workload == "read") {
 +      auto inputs = read_q10_tables(read);
 +      CUDF_CUDA_TRY(cudaStreamSynchronize(stream.get()));
@@ -3417,10 +3445,10 @@ index 0000000..4a9eecb
 +}
 diff --git a/cpp/benchmarks/ndsh/vortex_io.cpp b/cpp/benchmarks/ndsh/vortex_io.cpp
 new file mode 100644
-index 0000000..3a9992b
+index 0000000..c9e3e71
 --- /dev/null
 +++ b/cpp/benchmarks/ndsh/vortex_io.cpp
-@@ -0,0 +1,390 @@
+@@ -0,0 +1,430 @@
 +/*
 + * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 + * SPDX-License-Identifier: Apache-2.0
@@ -3430,11 +3458,11 @@ index 0000000..3a9992b
 +
 +#include <cudf/concatenate.hpp>
 +#include <cudf/copying.hpp>
-+#include <cudf/dictionary/dictionary_column_view.hpp>
-+#include <cudf/dictionary/encode.hpp>
 +#include <cudf/interop.hpp>
 +#include <cudf/strings/strings_column_view.hpp>
 +#include <cudf/utilities/default_stream.hpp>
++
++#include <nvtx3/nvtx3.hpp>
 +
 +#include <nanoarrow/nanoarrow.hpp>
 +
@@ -3476,6 +3504,14 @@ index 0000000..3a9992b
 +  if (device != 0) {
 +    throw std::invalid_argument("Vortex benchmark I/O currently requires CUDA device 0");
 +  }
++}
++
++void retain_vortex_cuda_pool_memory()
++{
++  std::uint64_t release_threshold = 2ULL << 30;
++  cudaMemPool_t pool{};
++  check_cuda(cudaDeviceGetMemPool(&pool, 0));
++  check_cuda(cudaMemPoolSetAttribute(pool, cudaMemPoolAttrReleaseThreshold, &release_threshold));
 +}
 +
 +vx_view path_view(std::string const& path)
@@ -3531,11 +3567,34 @@ index 0000000..3a9992b
 +  }
 +};
 +
-+struct device_array {
++struct device_batch {
 +  ArrowDeviceArray value{};
-+  ~device_array()
++  std::optional<cudf::unique_table_view_t> view;
++
++  device_batch()                               = default;
++  device_batch(device_batch const&)            = delete;
++  device_batch& operator=(device_batch const&) = delete;
++  device_batch(device_batch&& other) noexcept
++    : value{std::exchange(other.value, ArrowDeviceArray{})}, view{std::move(other.view)}
 +  {
++  }
++  device_batch& operator=(device_batch&& other) noexcept
++  {
++    if (this != &other) {
++      reset();
++      value = std::exchange(other.value, ArrowDeviceArray{});
++      view  = std::move(other.view);
++    }
++    return *this;
++  }
++  ~device_batch() { reset(); }
++
++ private:
++  void reset() noexcept
++  {
++    view.reset();
 +    if (value.array.release) { value.array.release(&value.array); }
++    value = {};
 +  }
 +};
 +
@@ -3597,34 +3656,6 @@ index 0000000..3a9992b
 +
 +namespace {
 +
-+std::unique_ptr<cudf::table> copy_batch(ArrowSchema const& schema,
-+                                        ArrowDeviceArray const& batch,
-+                                        cudaStream_t stream,
-+                                        rmm::device_async_resource_ref mr)
-+{
-+  if (batch.device_type != ARROW_DEVICE_CUDA || batch.device_id != 0) {
-+    throw std::runtime_error("read_vortex expected an Arrow CUDA batch on device 0");
-+  }
-+  std::optional<cudf::unique_table_view_t> borrowed;
-+  std::vector<std::unique_ptr<cudf::column>> columns;
-+  stream_drain drain{stream};
-+  borrowed.emplace(cudf::from_arrow_device(&schema, &batch, cudf_stream{stream}, mr));
-+  columns.reserve((*borrowed)->num_columns());
-+  for (auto const& column : **borrowed) {
-+    // Compression dictionaries are an implementation detail, not the file's logical dtype.
-+    if (column.type().id() == cudf::type_id::DICTIONARY32) {
-+      columns.push_back(
-+        cudf::dictionary::decode(cudf::dictionary_column_view{column}, cudf_stream{stream}, mr));
-+    } else {
-+      columns.push_back(std::make_unique<cudf::column>(column, cudf_stream{stream}, mr));
-+    }
-+  }
-+  drain.wait();
-+  // Free scratch after consumption; read_vortex waits for its async frees.
-+  borrowed.reset();
-+  return std::make_unique<cudf::table>(std::move(columns));
-+}
-+
 +std::unique_ptr<cudf::table> empty_table(ArrowSchema const& schema,
 +                                         cudaStream_t stream,
 +                                         rmm::device_async_resource_ref mr)
@@ -3650,6 +3681,7 @@ index 0000000..3a9992b
 +  impl(cudaStream_t stream, rmm::device_async_resource_ref mr) : stream{stream}, mr{mr}
 +  {
 +    check_device();
++    retain_vortex_cuda_pool_memory();
 +    // Validate the supplied consumer stream before creating Vortex's independent stream pool.
 +    unsigned int flags = 0;
 +    check_cuda(cudaStreamGetFlags(stream, &flags));
@@ -3718,8 +3750,11 @@ index 0000000..3a9992b
 +    if (!array) { throw std::runtime_error(operation + ": Arrow import returned null"); }
 +    if (!sink) {
 +      auto dtype = dtype_ptr{vx_array_dtype(array.get()), vx_dtype_free};
-+      sink.reset(
-+        vx_cuda_array_sink_open_file(impl_->session.get(), file_path, dtype.get(), &error));
++      sink.reset(vx_cuda_array_sink_open_file_block_rows(impl_->session.get(),
++                                                         file_path,
++                                                         dtype.get(),
++                                                         static_cast<std::size_t>(chunk_rows),
++                                                         &error));
 +      check_error(error, operation);
 +      if (!sink) { throw std::runtime_error(operation + ": writer returned null"); }
 +    }
@@ -3736,6 +3771,7 @@ index 0000000..3a9992b
 +                                                     std::size_t batch_rows,
 +                                                     std::vector<std::string> const& columns) const
 +{
++  nvtx3::scoped_range read_range{"vortex.read"};
 +  check_device();
 +  auto const file_path = path_view(path);
 +  if (batch_rows > static_cast<std::size_t>(std::numeric_limits<cudf::size_type>::max())) {
@@ -3753,14 +3789,18 @@ index 0000000..3a9992b
 +    column_views.push_back({name.data(), name.size()});
 +  }
 +  // FFI copies names during the call; neither the views nor their bytes escape.
-+  auto const status = vx_cuda_scan_path_arrow_device_stream_projected(
-+    impl_->session.get(),
-+    file_path,
-+    &options,
-+    column_views.empty() ? nullptr : column_views.data(),
-+    column_views.size(),
-+    &input.value,
-+    &error);
++  int status;
++  {
++    nvtx3::scoped_range range{"vortex.scan_open"};
++    status = vx_cuda_scan_path_arrow_device_stream_projected(
++      impl_->session.get(),
++      file_path,
++      &options,
++      column_views.empty() ? nullptr : column_views.data(),
++      column_views.size(),
++      &input.value,
++      &error);
++  }
 +  check_error(error, operation);
 +  if (status != 0) { throw std::runtime_error(operation + ": Vortex scan failed"); }
 +
@@ -3776,47 +3816,75 @@ index 0000000..3a9992b
 +    result.metadata.schema_info.push_back(std::move(info));
 +  }
 +
-+  std::vector<std::unique_ptr<cudf::table>> batches;
++  std::vector<device_batch> batches;
++  stream_drain drain{impl_->stream};
 +  int64_t rows = 0;
 +  while (true) {
-+    device_array batch;
-+    input.check(input.value.get_next(&input.value, &batch.value), operation);
-+    if (!batch.value.array.release) { break; }
++    batches.emplace_back();
++    auto& batch = batches.back();
++    {
++      nvtx3::scoped_range range{"vortex.get_next"};
++      input.check(input.value.get_next(&input.value, &batch.value), operation);
++    }
++    if (!batch.value.array.release) {
++      batches.pop_back();
++      break;
++    }
++    if (batch.value.device_type != ARROW_DEVICE_CUDA || batch.value.device_id != 0) {
++      throw std::runtime_error("read_vortex expected an Arrow CUDA batch on device 0");
++    }
 +    auto const count = batch.value.array.length;
 +    if (count < 0 || count > std::numeric_limits<cudf::size_type>::max() - rows) {
 +      throw std::overflow_error(operation + ": result exceeds the cuDF row limit");
 +    }
 +    rows += count;
-+    batches.push_back(copy_batch(*schema.get(), batch.value, impl_->stream, impl_->mr));
-+  }
-+  if (batches.empty()) {
-+    result.tbl = empty_table(*schema.get(), impl_->stream, impl_->mr);
-+  } else if (batches.size() == 1) {
-+    result.tbl = std::move(batches.front());
-+  } else {
-+    std::vector<cudf::table_view> views;
-+    views.reserve(batches.size());
-+    for (auto const& batch : batches) {
-+      views.push_back(batch->view());
++    {
++      nvtx3::scoped_range range{"vortex.arrow_device_import"};
++      batch.view.emplace(
++        cudf::from_arrow_device(schema.get(), &batch.value, cudf_stream{impl_->stream}, impl_->mr));
 +    }
-+    stream_drain drain{impl_->stream};
-+    result.tbl = cudf::concatenate(views, cudf_stream{impl_->stream}, impl_->mr);
++    for (auto const& column : **batch.view) {
++      if (column.type().id() == cudf::type_id::DICTIONARY32) {
++        throw std::runtime_error(operation + ": decoded scan returned a dictionary column");
++      }
++    }
++  }
++  {
++    nvtx3::scoped_range range{"vortex.materialize"};
++    if (batches.empty()) {
++      result.tbl = empty_table(*schema.get(), impl_->stream, impl_->mr);
++    } else if (batches.size() == 1) {
++      result.tbl = std::make_unique<cudf::table>(
++        **batches.front().view, cudf_stream{impl_->stream}, impl_->mr);
++    } else {
++      std::vector<cudf::table_view> views;
++      views.reserve(batches.size());
++      for (auto const& batch : batches) {
++        views.push_back(**batch.view);
++      }
++      result.tbl = cudf::concatenate(views, cudf_stream{impl_->stream}, impl_->mr);
++    }
++  }
++  {
++    nvtx3::scoped_range range{"vortex.consumer_sync"};
 +    drain.wait();
 +  }
 +  result.metadata.num_rows_per_source = {static_cast<std::size_t>(rows)};
-+  // Include async frees of concatenation inputs and import scratch.
-+  batches.clear();
-+  check_cuda(cudaStreamSynchronize(impl_->stream));
++  // Import scratch and Vortex buffers are released only after materialization completes.
++  {
++    nvtx3::scoped_range range{"vortex.release_batches"};
++    batches.clear();
++  }
 +  return result;
 +}
 +
 +}  // namespace ndsh
 diff --git a/cpp/benchmarks/ndsh/vortex_io.hpp b/cpp/benchmarks/ndsh/vortex_io.hpp
 new file mode 100644
-index 0000000..96d22c7
+index 0000000..e8ea330
 --- /dev/null
 +++ b/cpp/benchmarks/ndsh/vortex_io.hpp
-@@ -0,0 +1,63 @@
+@@ -0,0 +1,67 @@
 +/*
 + * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 + * SPDX-License-Identifier: Apache-2.0
@@ -3839,6 +3907,7 @@ index 0000000..96d22c7
 +
 +/**
 + * Single-threaded, device-0 I/O context reusing CUDA state and pinned staging.
++ * Retains up to 2 GiB in CUDA's default memory pool between synchronized reads.
 + * Caller stream/resource must outlive this context and returned tables.
 + * Requires at least one flat, typed column; zero-row tables are supported.
 + */
@@ -3852,26 +3921,29 @@ index 0000000..96d22c7
 +
 +  /**
 +   * Write a CUDA-readable local file on CPU via host Arrow chunks. Requires positive
-+   * chunk_rows, non-dictionary input, and NUL-free column names. Partial string
-+   * slices are compacted on device. Chunking bounds rows, not total bytes/queue memory.
-+   * Finalizes before return; failed writes may leave an invalid file.
++   * chunk_rows, non-dictionary input, and NUL-free column names. chunk_rows also sets
++   * the physical CUDA-flat row-block size and disables byte coalescing/layout dictionaries. Partial
++   * string slices are compacted on device. Finalizes before return; failed writes may
++   * leave an invalid file.
 +   */
 +  void write_vortex(std::string const& path,
 +                    cudf::table_view table,
 +                    std::vector<std::string> const& column_names,
-+                    cudf::size_type chunk_rows = 1 << 20) const;
++                    cudf::size_type chunk_rows = 16 << 20) const;
 +
 +  /**
 +   * GPU-read a local CUDA-compatible file into an owning cuDF table. An empty column
 +   * list selects all; otherwise scan literal top-level names in order. Unknown or
-+   * duplicate names are errors. Includes dictionary decode, import/copies,
-+   * concatenation, and consumer completion
-+   * including temporary cleanup. Zero batch_rows uses layout-derived splitting.
-+   * Peak memory includes owned batches plus the concatenated result.
++   * duplicate names are errors. Includes dictionary decode, Arrow Device import, one
++   * final owning copy/concatenation, and consumer-stream completion before releasing
++   * temporary inputs. Vortex release cleanup may remain queued on producer streams.
++   * Nonzero batch_rows sets a maximum; physical layout boundaries may produce shorter
++   * batches. Zero uses layout-derived splitting. Peak memory includes retained Vortex
++   * batches plus the owning result.
 +   */
 +  [[nodiscard]] cudf::io::table_with_metadata read_vortex(
 +    std::string const& path,
-+    std::size_t batch_rows                  = 1 << 20,
++    std::size_t batch_rows                  = 16 << 20,
 +    std::vector<std::string> const& columns = {}) const;
 +
 + private:
@@ -3882,7 +3954,7 @@ index 0000000..96d22c7
 +}  // namespace ndsh
 diff --git a/cpp/benchmarks/ndsh/vortex_io_test.cpp b/cpp/benchmarks/ndsh/vortex_io_test.cpp
 new file mode 100644
-index 0000000..2c1fab0
+index 0000000..856172c
 --- /dev/null
 +++ b/cpp/benchmarks/ndsh/vortex_io_test.cpp
 @@ -0,0 +1,854 @@
@@ -4495,7 +4567,7 @@ index 0000000..2c1fab0
 +      io.write_vortex(path, source->view(), column_names(), 13);
 +      check_cuda(cudaStreamQuery(stream), "write staging cleanup must complete the stream");
 +      // Boolean import scratch is allocated even for one batch; smaller batches
-+      // additionally exercise destruction of concatenation inputs before the final wait.
++      // additionally exercise retained Arrow Device inputs and final concatenation.
 +      for (auto const batch_rows : {64U, 7U, 0U}) {
 +        results.push_back(read_completed(io, path, stream, batch_rows));
 +      }
