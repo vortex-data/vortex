@@ -15,8 +15,3 @@ before publishing the draft:
    only after all builds succeed. Failed runs can be retried while the release remains a draft.
 4. Review the draft and publish it manually. This triggers the **Publish** workflow for crates.io,
    PyPI, Maven Central, and compatibility fixtures.
-
-Enable **Settings → General → Releases → Enable release immutability** after this workflow is in
-place and any older release binary uploads have finished. GitHub then locks the tag and assets of
-future releases at publication. Do not publish a draft before its binary workflow succeeds;
-missing or incorrect binaries after publication require a new release version.
