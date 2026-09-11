@@ -10,9 +10,9 @@ use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::fns::binary::Binary;
 use vortex_array::scalar_fn::fns::literal::Literal;
 use vortex_array::scalar_fn::fns::operators::Operator;
-use vortex_array::stats::rewrite::StatsRewriteCtx;
 use vortex_array::stats::rewrite::StatsRewriteRule;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use super::aabb_stat;
 use super::geometry_and_constant;
@@ -43,7 +43,7 @@ impl StatsRewriteRule for SpatialDistancePrune {
     fn falsify(
         &self,
         expr: &BoundExpression,
-        ctx: &StatsRewriteCtx<'_>,
+        session: &VortexSession,
     ) -> VortexResult<Option<BoundExpression>> {
         // Only the ordered comparisons prune today. `== r` could prune in the future (a chunk is
         // provably empty when `r` lies outside its box's [min, max] distance interval), it's just
@@ -77,10 +77,10 @@ impl StatsRewriteRule for SpatialDistancePrune {
             return Ok(None);
         }
 
-        let Some((geom, constant)) = geometry_and_constant(distance, ctx)? else {
+        let Some((geom, constant)) = geometry_and_constant(distance)? else {
             return Ok(None);
         };
-        let Some(query) = query_aabb(constant, ctx)? else {
+        let Some(query) = query_aabb(constant, session)? else {
             return Ok(None);
         };
         Ok(distance_prune_proof(geom, query, op, radius))
@@ -140,7 +140,6 @@ mod tests {
     use vortex_array::scalar_fn::ScalarFnVTableExt;
     use vortex_array::scalar_fn::fns::binary::Binary;
     use vortex_array::scalar_fn::fns::operators::Operator;
-    use vortex_array::stats::rewrite::StatsRewriteCtx;
     use vortex_array::stats::rewrite::StatsRewriteRule;
     use vortex_error::VortexResult;
 
@@ -174,7 +173,7 @@ mod tests {
             .new_expr(operator, [distance, lit(radius.into())])
             .bind(&scope)?;
 
-        SpatialDistancePrune.falsify(&predicate, &StatsRewriteCtx::new(&session))
+        SpatialDistancePrune.falsify(&predicate, &session)
     }
 
     /// A null geometry literal (`ST_Distance(geom, NULL) <= r`) declines cleanly instead of
@@ -190,8 +189,11 @@ mod tests {
             .new_expr(Operator::Lte, [distance, lit(0.5f64)])
             .bind(&scope)?;
 
-        let ctx = StatsRewriteCtx::new(&session);
-        assert!(SpatialDistancePrune.falsify(&predicate, &ctx)?.is_none());
+        assert!(
+            SpatialDistancePrune
+                .falsify(&predicate, &session)?
+                .is_none()
+        );
         Ok(())
     }
 
@@ -283,8 +285,11 @@ mod tests {
         let scope = point_column(vec![0.0], vec![0.0])?.dtype().clone();
 
         let predicate = lt_eq(lit(1.0f64), lit(2.0f64)).bind(&scope)?;
-        let ctx = StatsRewriteCtx::new(&session);
-        assert!(SpatialDistancePrune.falsify(&predicate, &ctx)?.is_none());
+        assert!(
+            SpatialDistancePrune
+                .falsify(&predicate, &session)?
+                .is_none()
+        );
         Ok(())
     }
 

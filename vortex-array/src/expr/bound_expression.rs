@@ -22,7 +22,8 @@ use crate::expr::traversal::TraversalOrder;
 use crate::expr::traversal::pre_order_visit_down;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::stats::rewrite::StatsRewriteCtx;
+use crate::stats::rewrite::falsify;
+use crate::stats::rewrite::satisfy;
 
 /// An [`Expression`] that has been type-checked against a [`Scope`].
 ///
@@ -242,12 +243,12 @@ impl BoundExpression {
 
     /// Return an expression that proves this predicate is definitely false from statistics.
     pub fn falsify(&self, session: &VortexSession) -> VortexResult<Option<BoundExpression>> {
-        StatsRewriteCtx::new(session).falsify(self)
+        falsify(self, session)
     }
 
     /// Return an expression that proves this predicate is definitely true from statistics.
     pub fn satisfy(&self, session: &VortexSession) -> VortexResult<Option<BoundExpression>> {
-        StatsRewriteCtx::new(session).satisfy(self)
+        satisfy(self, session)
     }
 
     /// Display the bound expression as a formatted tree structure.

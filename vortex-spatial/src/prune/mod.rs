@@ -37,8 +37,8 @@ use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::literal::Literal;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::stats::bound::stat;
-use vortex_array::stats::rewrite::StatsRewriteCtx;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::aggregate_fn::GeometryAabb;
 use crate::extension::is_native_geometry;
@@ -51,10 +51,9 @@ use crate::extension::single_geometry;
 /// shape (in either operand order), or the column's dtype carries no [`GeometryAabb`] statistic.
 /// An asymmetric predicate (e.g. a future contains) must recover which operand is the column
 /// itself instead of calling this.
-fn geometry_and_constant<'a>(
-    expr: &'a BoundExpression,
-    ctx: &StatsRewriteCtx<'_>,
-) -> VortexResult<Option<(&'a BoundExpression, &'a Scalar)>> {
+fn geometry_and_constant(
+    expr: &BoundExpression,
+) -> VortexResult<Option<(&BoundExpression, &Scalar)>> {
     // The predicate is symmetric, so the column (scope root) and the constant may be on either
     // side.
     let (lhs, rhs) = (expr.child(0), expr.child(1));
@@ -68,7 +67,7 @@ fn geometry_and_constant<'a>(
 
     // A `GeometryAabb` stat reference only binds for dtypes it supports; anything else (e.g. a
     // WKB column) must fall through to the scan.
-    if !is_native_geometry(&ctx.return_dtype(geom)?) {
+    if !is_native_geometry(geom.dtype()) {
         return Ok(None);
     }
 
@@ -82,7 +81,7 @@ fn geometry_and_constant<'a>(
 /// so whatever holds for the box holds for the geometry.
 fn query_aabb(
     constant: &Scalar,
-    ctx: &StatsRewriteCtx<'_>,
+    session: &VortexSession,
 ) -> VortexResult<Option<SpatialRect<f64>>> {
     // A null geometry literal has no extent to prove against, so it can never prune.
     if constant.is_null() {
@@ -90,7 +89,7 @@ fn query_aabb(
     }
     // Decoding the constant into a concrete geometry runs through the compute stack, which needs
     // an execution context.
-    let mut exec = ctx.session().create_execution_ctx();
+    let mut exec = session.create_execution_ctx();
     Ok(single_geometry(constant, &mut exec)?.bounding_rect())
 }
 
