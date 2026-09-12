@@ -30,12 +30,13 @@
 //!
 //! # How boundaries are chosen
 //!
-//! Every row is reduced to a 64-bit *whitened digest* per leaf value (a SplitMix64-style mix of
-//! the validity marker and the value's bytes). The digest's eight bytes update a 64-bit GEAR
-//! rolling hash `h = (h << 1) + table[byte]`, whose value depends only on the last few rows
-//! fed. The table is [`gearhash::DEFAULT_TABLE`], which the [Xet chunking spec] references
-//! normatively; a test pins its contents, since cut positions (and therefore the written bytes)
-//! are a function of it. A boundary becomes *eligible* at any digest byte where the top
+//! Each incoming chunk is canonicalized and reduced to one digest per row, along with how many
+//! bytes that row's content would occupy serialized. The eight bytes of a row's digest update a
+//! 64-bit GEAR rolling hash
+//! `h = (h << 1) + table[byte]`, whose value depends only on the last few rows fed. The table is
+//! [`gearhash::DEFAULT_TABLE`], which the [Xet chunking spec] references normatively; a test
+//! pins its contents, since cut positions (and therefore the written bytes) are a function of
+//! it. A boundary becomes *eligible* at any digest byte where the top
 //! [`boundary_mask_bits`](ContentDefinedChunkingOptions::boundary_mask_bits) bits of `h` are all
 //! zero, and the pending chunk already spans at least
 //! [`min_chunk_bytes`](ContentDefinedChunkingOptions::min_chunk_bytes) of serialized values. The
@@ -44,18 +45,12 @@
 //! [`max_chunk_bytes`](ContentDefinedChunkingOptions::max_chunk_bytes) of serialized values, a
 //! cut is forced at the next row end.
 //!
-//! Hashing whitened digests instead of raw value bytes matters for columnar data: typical
-//! columns (sequential ids, near-constant timestamps, low-cardinality categories) have very low
-//! per-byte entropy, which starves a raw GEAR hash of boundary candidates and makes cut
-//! positions degrade into fixed-size strides that never re-align after a row shift. Mixing each
-//! value through SplitMix64 restores a uniform candidate distribution for any content while
-//! remaining a pure function of the row's logical bytes.
-//!
 //! Chunk size budgets are measured in *serialized value bytes* (a deterministic function of the
 //! logical content), not encoded on-disk bytes.
 //!
 //! [Xet chunking spec]: https://huggingface.co/docs/xet/chunking
 
+mod digest;
 pub mod xet;
 
 use std::sync::Arc;
@@ -67,25 +62,15 @@ use futures::pin_mut;
 use gearhash::DEFAULT_TABLE;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
-use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
-use vortex_array::arrays::VarBinViewArray;
-use vortex_array::arrays::extension::ExtensionArraySlotsExt;
-use vortex_array::arrays::primitive::PrimitiveArrayExt;
-use vortex_array::arrays::struct_::StructArrayExt;
-use vortex_array::arrays::varbinview::VarBinViewArrayExt;
-use vortex_array::dtype::Nullability;
-use vortex_array::match_each_native_ptype;
-use vortex_array::validity::Validity;
-use vortex_buffer::BitBuffer;
-use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
-use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
+use self::digest::RowDigest;
+use self::digest::row_digests;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
 use crate::LayoutWriterContext;
@@ -202,10 +187,10 @@ impl LayoutStrategy for CdcRepartitionStrategy {
                 let mut sequence_pointer = sequence_id.descend();
 
                 let canonical = chunk.execute::<Canonical>(&mut exec_ctx)?;
-                let feeds = row_feeds(&canonical, &mut exec_ctx)?;
+                let digests = row_digests(&canonical, &mut exec_ctx)?;
                 let canonical = canonical.into_array();
 
-                let cuts = cutter.process_rows(&feeds, canonical.len());
+                let cuts = cutter.process_rows(&digests);
                 let mut start = 0usize;
                 for cut in cuts {
                     let part = canonical.slice(start..cut)?;
@@ -248,33 +233,6 @@ impl LayoutStrategy for CdcRepartitionStrategy {
     }
 }
 
-/// A SplitMix64-style finalizer used to whiten row content before it reaches the GEAR hash.
-#[inline]
-fn mix64(value: u64) -> u64 {
-    let mut z = value.wrapping_add(0x9E37_79B9_7F4A_7C15);
-    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-    z ^ (z >> 31)
-}
-
-/// Fold a byte string into a digest, eight little-endian bytes at a time.
-#[inline]
-fn fold_bytes(mut digest: u64, bytes: &[u8]) -> u64 {
-    let mut chunks = bytes.chunks_exact(8);
-    for word in &mut chunks {
-        let mut buf = [0u8; 8];
-        buf.copy_from_slice(word);
-        digest = mix64(digest ^ u64::from_le_bytes(buf));
-    }
-    let tail = chunks.remainder();
-    if !tail.is_empty() {
-        let mut word = [0u8; 8];
-        word[..tail.len()].copy_from_slice(tail);
-        digest = mix64(digest ^ u64::from_le_bytes(word));
-    }
-    digest
-}
-
 /// Rolling GEAR hash state that survives across incoming chunks of a column stream.
 struct RollingCutter {
     hash: u64,
@@ -297,23 +255,17 @@ impl RollingCutter {
         }
     }
 
-    /// Roll the whitened digest of one row value into the hash, after accounting for the
-    /// value's serialized width.
+    /// Feed one row's digest, returning whether a chunk boundary falls after it.
     #[inline]
-    fn feed_digest(&mut self, digest: u64, serialized_width: u64) {
-        self.serialized_bytes += serialized_width;
-        for byte in digest.to_le_bytes() {
+    fn feed_row(&mut self, row: RowDigest) -> bool {
+        self.serialized_bytes += row.width;
+        for byte in row.hash.to_le_bytes() {
             self.hash = (self.hash << 1).wrapping_add(DEFAULT_TABLE[byte as usize]);
             if self.serialized_bytes >= self.min_chunk_bytes && self.hash & self.boundary_mask == 0
             {
                 self.boundary_eligible = true;
             }
         }
-    }
-
-    /// Close out the current row, returning whether a chunk boundary falls after it.
-    #[inline]
-    fn end_row(&mut self) -> bool {
         if self.boundary_eligible || self.serialized_bytes >= self.max_chunk_bytes {
             self.hash = 0;
             self.serialized_bytes = 0;
@@ -323,166 +275,17 @@ impl RollingCutter {
         false
     }
 
-    /// Feed `row_count` rows described by `feeds` and return the ascending row ends (exclusive)
-    /// after which a chunk boundary is placed.
-    fn process_rows(&mut self, feeds: &[RowFeed], row_count: usize) -> Vec<usize> {
+    /// Feed a chunk's rows and return the ascending row ends (exclusive) after which a chunk
+    /// boundary is placed.
+    fn process_rows(&mut self, rows: &[RowDigest]) -> Vec<usize> {
         let mut cuts = Vec::new();
-        for row in 0..row_count {
-            for feed in feeds {
-                let (marker, marker_width) = match &feed.marker {
-                    MarkerFeed::NonNullable => (0u64, 0u64),
-                    MarkerFeed::Constant(byte) => (1 + u64::from(*byte), 1),
-                    MarkerFeed::Bytes(bytes) => (1 + u64::from(bytes[row]), 1),
-                };
-                let (digest, width) = match &feed.values {
-                    ValueFeed::Fixed { bytes, width } => (
-                        fold_bytes(marker, &bytes.as_slice()[row * width..(row + 1) * width]),
-                        *width as u64,
-                    ),
-                    ValueFeed::Views { array } => {
-                        let view = &array.views()[row];
-                        let digest = mix64(marker ^ u64::from(view.len()));
-                        let digest = if view.is_inlined() {
-                            fold_bytes(digest, view.as_inlined().value())
-                        } else {
-                            let r = view.as_view();
-                            fold_bytes(
-                                digest,
-                                &array.buffer(r.buffer_index as usize).as_slice()[r.as_range()],
-                            )
-                        };
-                        (digest, 4 + u64::from(view.len()))
-                    }
-                    // No content is visible, so the digest is constant: no boundary candidates
-                    // arise and cuts degrade to `max_chunk_bytes` strides.
-                    ValueFeed::Opaque => (mix64(marker), 8),
-                };
-                self.feed_digest(digest, marker_width + width);
-            }
-            if self.end_row() {
+        for (row, digest) in rows.iter().enumerate() {
+            if self.feed_row(*digest) {
                 cuts.push(row + 1);
             }
         }
         cuts
     }
-}
-
-/// Per-row validity marker bytes fed into the rolling hash ahead of the value bytes.
-enum MarkerFeed {
-    /// The dtype is non-nullable: no marker byte is fed.
-    NonNullable,
-    /// Every row feeds the same marker byte (all-valid or all-null).
-    Constant(u8),
-    /// Row `i` feeds `bytes[i]` (1 = valid, 0 = null).
-    Bytes(Vec<u8>),
-}
-
-/// The serialized value bytes of one (possibly nested) leaf of a chunk.
-enum ValueFeed {
-    /// Fixed-width values: row `i` feeds `bytes[i * width..(i + 1) * width]`.
-    Fixed { bytes: ByteBuffer, width: usize },
-    /// Variable-width values behind binary views: each row feeds its length (4 LE bytes)
-    /// followed by its content bytes.
-    Views { array: VarBinViewArray },
-    /// Values this prototype cannot inspect (lists, maps, unions, ...): rows feed no value
-    /// bytes, degrading boundary selection to `max_chunk_bytes`-sized cuts.
-    Opaque,
-}
-
-struct RowFeed {
-    marker: MarkerFeed,
-    values: ValueFeed,
-}
-
-/// Flatten a canonical chunk into the ordered list of feeds that serialize each row.
-fn row_feeds(canonical: &Canonical, ctx: &mut ExecutionCtx) -> VortexResult<Vec<RowFeed>> {
-    let mut feeds = Vec::new();
-    collect_row_feeds(canonical, ctx, &mut feeds)?;
-    Ok(feeds)
-}
-
-fn collect_row_feeds(
-    canonical: &Canonical,
-    ctx: &mut ExecutionCtx,
-    feeds: &mut Vec<RowFeed>,
-) -> VortexResult<()> {
-    match canonical {
-        Canonical::Primitive(array) => {
-            let marker = marker_feed(&array.validity()?, array.len(), ctx)?;
-            let width = array.ptype().byte_width();
-            let bytes = match_each_native_ptype!(array.ptype(), |P| {
-                array.to_buffer::<P>().into_byte_buffer()
-            });
-            feeds.push(RowFeed {
-                marker,
-                values: ValueFeed::Fixed { bytes, width },
-            });
-        }
-        Canonical::Bool(array) => {
-            let marker = marker_feed(&array.validity()?, array.len(), ctx)?;
-            let bytes = ByteBuffer::from(bits_to_bytes(&array.clone().into_bit_buffer()));
-            feeds.push(RowFeed {
-                marker,
-                values: ValueFeed::Fixed { bytes, width: 1 },
-            });
-        }
-        Canonical::VarBinView(array) => {
-            let marker = marker_feed(&array.varbinview_validity(), array.len(), ctx)?;
-            feeds.push(RowFeed {
-                marker,
-                values: ValueFeed::Views {
-                    array: array.clone(),
-                },
-            });
-        }
-        Canonical::Struct(array) => {
-            let marker = marker_feed(&array.struct_validity(), array.len(), ctx)?;
-            feeds.push(RowFeed {
-                marker,
-                values: ValueFeed::Opaque,
-            });
-            for field in array.iter_unmasked_fields() {
-                let child = field.clone().execute::<Canonical>(ctx)?;
-                collect_row_feeds(&child, ctx, feeds)?;
-            }
-        }
-        Canonical::Extension(array) => {
-            let storage = array.storage().clone().execute::<Canonical>(ctx)?;
-            collect_row_feeds(&storage, ctx, feeds)?;
-        }
-        // Decimal, list, map, fixed-size list, union, variant, and null values are not yet
-        // serialized by this prototype: their rows contribute no value bytes, so boundary
-        // selection for them degrades to fixed `max_chunk_bytes`-sized cuts.
-        _ => {
-            feeds.push(RowFeed {
-                marker: MarkerFeed::NonNullable,
-                values: ValueFeed::Opaque,
-            });
-        }
-    }
-    Ok(())
-}
-
-fn marker_feed(
-    validity: &Validity,
-    row_count: usize,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<MarkerFeed> {
-    if validity.nullability() == Nullability::NonNullable {
-        return Ok(MarkerFeed::NonNullable);
-    }
-    Ok(match validity.execute_mask(row_count, ctx)? {
-        Mask::AllTrue(_) => MarkerFeed::Constant(1),
-        Mask::AllFalse(_) => MarkerFeed::Constant(0),
-        Mask::Values(values) => MarkerFeed::Bytes(bits_to_bytes(values.bit_buffer())),
-    })
-}
-
-/// Materialize a bit buffer into one byte per bit, so row loops avoid per-bit accessor calls.
-fn bits_to_bytes(bits: &BitBuffer) -> Vec<u8> {
-    let mut bytes = Vec::with_capacity(bits.len());
-    bytes.extend((0..bits.len()).map(|i| bits.value(i) as u8));
-    bytes
 }
 
 #[cfg(test)]

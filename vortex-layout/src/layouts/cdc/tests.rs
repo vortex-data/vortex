@@ -10,12 +10,37 @@ use std::sync::Arc;
 use rstest::rstest;
 use vortex_array::ArrayContext;
 use vortex_array::IntoArray;
+use vortex_array::array_session;
+use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::ChunkedArray;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::ExtensionArray;
+use vortex_array::arrays::FixedSizeListArray;
+use vortex_array::arrays::ListViewArray;
+use vortex_array::arrays::MapArray;
+use vortex_array::arrays::NullArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_buffer::ByteBuffer;
+use vortex_array::arrays::StructArray;
+use vortex_array::arrays::UnionArray;
+use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::VariantArray;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::DecimalDType;
+use vortex_array::dtype::MapDType;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
+use vortex_array::dtype::UnionVariants;
+use vortex_array::extension::datetime::TimeUnit;
+use vortex_array::extension::datetime::Timestamp;
+use vortex_array::scalar::Scalar;
+use vortex_array::validity::Validity;
+use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_io::runtime::single::block_on;
 use vortex_io::session::RuntimeSessionExt;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use super::*;
 use crate::layouts::cdc::xet::XET_BOUNDARY_MASK;
@@ -48,15 +73,10 @@ fn random_rows(seed: u64, len: usize) -> Vec<u64> {
     (0..len).map(|_| rng.next()).collect()
 }
 
-fn fixed_feed(rows: &[u64]) -> RowFeed {
-    let bytes: Vec<u8> = rows.iter().flat_map(|v| v.to_le_bytes()).collect();
-    RowFeed {
-        marker: MarkerFeed::NonNullable,
-        values: ValueFeed::Fixed {
-            bytes: ByteBuffer::from(bytes),
-            width: 8,
-        },
-    }
+fn digests_of(rows: &[u64]) -> VortexResult<Vec<RowDigest>> {
+    let mut ctx = array_session().create_execution_ctx();
+    let array = PrimitiveArray::from_iter(rows.iter().copied());
+    row_digests(&Canonical::Primitive(array), &mut ctx)
 }
 
 fn test_options() -> ContentDefinedChunkingOptions {
@@ -68,16 +88,15 @@ fn test_options() -> ContentDefinedChunkingOptions {
     }
 }
 
-fn cuts_for(rows: &[u64], options: &ContentDefinedChunkingOptions) -> Vec<usize> {
-    let mut cutter = RollingCutter::new(options);
-    cutter.process_rows(&[fixed_feed(rows)], rows.len())
+fn cuts_for(rows: &[u64], options: &ContentDefinedChunkingOptions) -> VortexResult<Vec<usize>> {
+    Ok(RollingCutter::new(options).process_rows(&digests_of(rows)?))
 }
 
 #[test]
-fn cuts_respect_min_and_max_sizes() {
+fn cuts_respect_min_and_max_sizes() -> VortexResult<()> {
     let rows = random_rows(0, 100_000);
     let options = test_options();
-    let cuts = cuts_for(&rows, &options);
+    let cuts = cuts_for(&rows, &options)?;
     assert!(cuts.len() > 10, "expected many cuts, got {}", cuts.len());
 
     let mut prev = 0usize;
@@ -95,13 +114,14 @@ fn cuts_respect_min_and_max_sizes() {
         );
         prev = cut;
     }
+    Ok(())
 }
 
 #[test]
-fn cuts_are_invariant_to_incoming_chunk_splits() {
+fn cuts_are_invariant_to_incoming_chunk_splits() -> VortexResult<()> {
     let rows = random_rows(1, 50_000);
     let options = test_options();
-    let whole = cuts_for(&rows, &options);
+    let whole = cuts_for(&rows, &options)?;
 
     // Feeding the same rows in arbitrary increments must produce identical boundaries.
     let mut cutter = RollingCutter::new(&options);
@@ -109,16 +129,17 @@ fn cuts_are_invariant_to_incoming_chunk_splits() {
     let mut offset = 0usize;
     for piece in [1usize, 7, 100, 8192, 1000, 40_700] {
         let end = (offset + piece).min(rows.len());
-        let cuts = cutter.process_rows(&[fixed_feed(&rows[offset..end])], end - offset);
+        let cuts = cutter.process_rows(&digests_of(&rows[offset..end])?);
         split_cuts.extend(cuts.into_iter().map(|cut| cut + offset));
         offset = end;
     }
     assert_eq!(offset, rows.len());
     assert_eq!(whole, split_cuts);
+    Ok(())
 }
 
 #[test]
-fn cuts_resynchronize_after_insert() {
+fn cuts_resynchronize_after_insert() -> VortexResult<()> {
     let options = test_options();
     let v1 = random_rows(2, 100_000);
     // Insert 1000 fresh rows at 40%, leaving every other row's content unchanged.
@@ -127,8 +148,8 @@ fn cuts_resynchronize_after_insert() {
     let mut inserted = random_rows(3, 1000);
     v2.splice(insert_at..insert_at, inserted.drain(..));
 
-    let cuts1 = cuts_for(&v1, &options);
-    let cuts2 = cuts_for(&v2, &options);
+    let cuts1 = cuts_for(&v1, &options)?;
+    let cuts2 = cuts_for(&v2, &options)?;
 
     // Cuts strictly before the insertion point must be identical.
     let before1: Vec<_> = cuts1
@@ -158,10 +179,11 @@ fn cuts_resynchronize_after_insert() {
             "cut at end-distance {end_distance} did not re-synchronize"
         );
     }
+    Ok(())
 }
 
 #[test]
-fn cuts_resynchronize_for_low_entropy_columns() {
+fn cuts_resynchronize_for_low_entropy_columns() -> VortexResult<()> {
     // Sequential values (ids, near-constant timestamps) have almost no per-byte entropy. Raw
     // GEAR hashing starves on such input and cut positions degrade into fixed strides that
     // never re-align after a row shift; whitening each row through mix64 restores uniform
@@ -172,8 +194,8 @@ fn cuts_resynchronize_for_low_entropy_columns() {
     let mut v2 = v1.clone();
     v2.drain(delete_at..delete_at + 1000);
 
-    let cuts1 = cuts_for(&v1, &options);
-    let cuts2 = cuts_for(&v2, &options);
+    let cuts1 = cuts_for(&v1, &options)?;
+    let cuts2 = cuts_for(&v2, &options)?;
 
     // Every cut sufficiently far past the edit must re-align with the content (identical
     // distance from the end of the data).
@@ -191,12 +213,13 @@ fn cuts_resynchronize_for_low_entropy_columns() {
             "cut at end-distance {end_distance} did not re-synchronize"
         );
     }
+    Ok(())
 }
 
 #[test]
 fn strategy_emits_content_defined_blocks() -> VortexResult<()> {
     let rows = random_rows(4, 200_000);
-    let expected_cuts = cuts_for(&rows, &test_options());
+    let expected_cuts = cuts_for(&rows, &test_options())?;
     let array = PrimitiveArray::from_iter(rows.iter().copied());
 
     let ctx = ArrayContext::empty();
@@ -255,6 +278,177 @@ fn xet_chunks_cover_data_within_size_bounds() {
 fn xet_chunks_handle_tiny_input() {
     assert!(xet_chunks(&[]).is_empty());
     assert_eq!(xet_chunks(&[1, 2, 3]), vec![0..3]);
+}
+
+/// A four-row canonical array of `kind`, whose rows all differ in content.
+fn sample_rows(kind: &str) -> VortexResult<Canonical> {
+    Ok(match kind {
+        "null" => Canonical::Null(NullArray::new(4)),
+        "bool" => Canonical::Bool(BoolArray::from_iter([true, false, true, true])),
+        "primitive" => Canonical::Primitive(PrimitiveArray::from_iter([1i64, 2, 3, 4])),
+        "decimal" => Canonical::Decimal(DecimalArray::from_iter(
+            [10i128, 20, 30, 40],
+            DecimalDType::new(10, 2),
+        )),
+        "varbinview" => {
+            Canonical::VarBinView(VarBinViewArray::from_iter_str(["a", "bb", "ccc", "dddd"]))
+        }
+        // Offsets need not ascend and views may overlap, so the sample exercises both.
+        "list" => Canonical::List(ListViewArray::new(
+            PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]).into_array(),
+            PrimitiveArray::from_iter([2u32, 0, 3, 1]).into_array(),
+            PrimitiveArray::from_iter([2u32, 1, 3, 2]).into_array(),
+            Validity::NonNullable,
+        )),
+        "map" => {
+            let map_dtype = MapDType::try_new(
+                DType::Primitive(PType::I32, Nullability::NonNullable),
+                DType::Utf8(Nullability::NonNullable),
+                false,
+            )?;
+            let keys = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]).into_array();
+            let values =
+                VarBinViewArray::from_iter_str(["a", "b", "c", "d", "e", "f"]).into_array();
+            let entries = StructArray::try_from_iter([("key", keys), ("value", values)])?;
+            let entries = ListViewArray::new(
+                entries.into_array(),
+                PrimitiveArray::from_iter([0u32, 2, 3, 5]).into_array(),
+                PrimitiveArray::from_iter([2u32, 1, 2, 1]).into_array(),
+                Validity::NonNullable,
+            );
+            Canonical::Map(MapArray::try_new(map_dtype, entries)?)
+        }
+        "fixed_size_list" => Canonical::FixedSizeList(FixedSizeListArray::new(
+            PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6, 7, 8]).into_array(),
+            2,
+            Validity::NonNullable,
+            4,
+        )),
+        "struct" => Canonical::Struct(StructArray::try_from_iter([
+            ("a", PrimitiveArray::from_iter([1i32, 2, 3, 4]).into_array()),
+            (
+                "b",
+                VarBinViewArray::from_iter_str(["w", "x", "y", "z"]).into_array(),
+            ),
+        ])?),
+        "union" => Canonical::Union(UnionArray::try_new(
+            PrimitiveArray::from_iter([5u8, 9, 5, 9]).into_array(),
+            UnionVariants::try_new(
+                ["number", "flag"].into(),
+                vec![
+                    DType::Primitive(PType::I32, Nullability::NonNullable),
+                    DType::Bool(Nullability::NonNullable),
+                ],
+                vec![5, 9],
+            )?,
+            vec![
+                PrimitiveArray::from_iter([10i32, 0, 30, 0]).into_array(),
+                BoolArray::from_iter([false, true, false, false]).into_array(),
+            ],
+        )?),
+        "extension" => Canonical::Extension(ExtensionArray::new(
+            Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased(),
+            PrimitiveArray::from_iter([1i64, 2, 3, 4]).into_array(),
+        )),
+        "variant" => {
+            let core_storage = ChunkedArray::try_new(
+                [1i32, 2, 3, 4].map(|value| {
+                    ConstantArray::new(
+                        Scalar::variant(Scalar::primitive(value, Nullability::NonNullable)),
+                        1,
+                    )
+                    .into_array()
+                }),
+                DType::Variant(Nullability::NonNullable),
+            )?;
+            Canonical::Variant(VariantArray::try_new(core_storage.into_array(), None)?)
+        }
+        _ => vortex_panic!("unknown sample kind {kind}"),
+    })
+}
+
+/// Every value type must be inspected deeply enough that rows differing in content digest
+/// differently. Types whose content the digest pass cannot see would produce one repeated
+/// digest, offering the rolling hash no boundary candidates at all.
+#[rstest]
+fn digests_distinguish_rows_of_every_value_type(
+    #[values(
+        "null",
+        "bool",
+        "primitive",
+        "decimal",
+        "varbinview",
+        "list",
+        "map",
+        "fixed_size_list",
+        "struct",
+        "union",
+        "extension",
+        "variant"
+    )]
+    kind: &str,
+) -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let array = sample_rows(kind)?;
+    let digests = row_digests(&array, &mut ctx)?;
+
+    assert_eq!(digests.len(), array.len());
+    // Boundaries must be reproducible, or two writes of the same data would not share chunks.
+    assert_eq!(digests, row_digests(&array, &mut ctx)?);
+    // A row of zero width never advances the chunk budget, so such a column is never cut.
+    assert!(
+        digests.iter().all(|digest| digest.width > 0),
+        "{kind}: rows carry no serialized width"
+    );
+
+    let distinct: HashSet<u64> = digests.iter().map(|digest| digest.hash).collect();
+    if kind == "null" {
+        // A null column genuinely has no content to tell its rows apart.
+        assert_eq!(distinct.len(), 1);
+    } else {
+        assert!(
+            distinct.len() > 1,
+            "{kind}: rows with differing content digested identically"
+        );
+    }
+    Ok(())
+}
+
+/// Nulls must digest from their validity marker alone: the storage behind a null is undefined
+/// padding, and letting it reach the digest would tie boundaries to how nulls were encoded.
+#[test]
+fn null_rows_ignore_the_values_behind_them() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let validity = Validity::from_iter([true, false, true]);
+    let mut digests = |values: [i64; 3]| -> VortexResult<Vec<RowDigest>> {
+        let array = PrimitiveArray::new(buffer![values[0], values[1], values[2]], validity.clone());
+        row_digests(&Canonical::Primitive(array), &mut ctx)
+    };
+
+    // The two arrays differ only in the value sitting behind the null in row 1.
+    let padded_with_seven = digests([1, 7, 3])?;
+    let padded_with_999 = digests([1, 999, 3])?;
+    assert_eq!(padded_with_seven, padded_with_999);
+    Ok(())
+}
+
+/// The same holds one level down: the fields behind a null struct are undefined too.
+#[test]
+fn null_struct_rows_ignore_their_fields() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let mut digests = |hidden: i32| -> VortexResult<Vec<RowDigest>> {
+        let field = PrimitiveArray::from_iter([1i32, hidden, 3]).into_array();
+        let array = StructArray::try_new(
+            ["a"].into(),
+            vec![field],
+            3,
+            Validity::from_iter([true, false, true]),
+        )?;
+        row_digests(&Canonical::Struct(array), &mut ctx)
+    };
+
+    assert_eq!(digests(7)?, digests(999)?);
+    Ok(())
 }
 
 #[test]
