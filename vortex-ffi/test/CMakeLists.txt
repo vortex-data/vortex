@@ -24,12 +24,8 @@ target_compile_options(vortex_ffi_test PRIVATE -Wall -Wextra -Wpedantic)
 if(VORTEX_WARNINGS_AS_ERRORS)
     target_compile_options(vortex_ffi_test PRIVATE -Werror)
 endif()
-if(BUILD_SHARED_LIBS)
-    target_link_libraries(vortex_ffi_test PRIVATE Vortex::ffi_shared)
-else()
-    target_link_libraries(vortex_ffi_test PRIVATE Vortex::ffi_static)
-endif()
 target_link_libraries(vortex_ffi_test PRIVATE
+    ${_vortex_ffi_target}
     Catch2::Catch2WithMain
     nanoarrow_shared)
 

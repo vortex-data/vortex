@@ -32,7 +32,6 @@ target_link_libraries(my_c_target PRIVATE Vortex::ffi_shared)
 
 Vortex leaves parent build settings unchanged. Its archives are position-independent.
 
-`BUILD_SHARED_LIBS=ON` also selects shared Catch2 libraries when building tests.
 For static linkage, use `Vortex::ffi_static` and `Vortex::cpp_static`; these targets remain
 available in either mode. CMake supplies build-tree runtime paths; deployment requires
 configuring runtime search paths for the application and its shared libraries.
@@ -44,7 +43,7 @@ options. Defaults below are for standalone builds.
 
 | Option                      | Default  | Purpose                                                     |
 | --------------------------- | -------- | ----------------------------------------------------------- |
-| `BUILD_SHARED_LIBS`         | `OFF`    | Select shared Vortex libraries and test dependencies.       |
+| `BUILD_SHARED_LIBS`         | `OFF`    | Build shared Vortex libraries and Catch2.                   |
 | `VORTEX_BUILD_TESTS`        | `OFF`    | C API and C++23 wrapper tests.                              |
 | `VORTEX_BUILD_EXAMPLES`     | `OFF`    | C/C++ examples.                                             |
 | `VORTEX_WARNINGS_AS_ERRORS` | `ON`     | Warnings as errors for Vortex targets only.                 |

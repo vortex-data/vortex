@@ -56,6 +56,7 @@ add_library(vortex_cxx STATIC ${_vortex_cpp_sources})
 set_target_properties(vortex_cxx PROPERTIES CXX_VISIBILITY_PRESET hidden)
 target_link_libraries(vortex_cxx PUBLIC Vortex::ffi_static)
 add_library(Vortex::cpp_static ALIAS vortex_cxx)
+set(_vortex_cpp_target Vortex::cpp_static)
 set(_vortex_cpp_targets vortex_cxx)
 if(BUILD_SHARED_LIBS)
     set_target_properties(vortex_cxx PROPERTIES EXCLUDE_FROM_ALL TRUE)
@@ -65,6 +66,7 @@ if(BUILD_SHARED_LIBS)
         CXX_VISIBILITY_PRESET default)
     target_link_libraries(vortex_cxx_shared PUBLIC Vortex::ffi_shared)
     add_library(Vortex::cpp_shared ALIAS vortex_cxx_shared)
+    set(_vortex_cpp_target Vortex::cpp_shared)
     list(APPEND _vortex_cpp_targets vortex_cxx_shared)
 endif()
 
@@ -92,12 +94,7 @@ if(VORTEX_BUILD_TESTS OR VORTEX_BUILD_EXAMPLES)
         SYSTEM
         GIT_REPOSITORY https://github.com/apache/arrow-nanoarrow
         GIT_TAG apache-arrow-nanoarrow-0.8.0)
-    FetchContent_GetProperties(Nanoarrow POPULATED _vortex_nanoarrow_populated)
     FetchContent_MakeAvailable(Nanoarrow)
-    if(NOT _vortex_nanoarrow_populated)
-        # Build only the shared variant used below, without altering a parent's dependency.
-        set_property(DIRECTORY "${nanoarrow_SOURCE_DIR}" PROPERTY EXCLUDE_FROM_ALL TRUE)
-    endif()
     # Suppress Nanoarrow warnings.
     target_compile_options(nanoarrow_static PRIVATE -w)
     target_compile_options(nanoarrow_shared PRIVATE -w)

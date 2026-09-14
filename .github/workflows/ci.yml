@@ -677,8 +677,6 @@ jobs:
             -DVORTEX_DEBUG_INFO=2 \
             -DCMAKE_C_COMPILER=clang \
             -DCMAKE_CXX_COMPILER=clang++ \
-            -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=mold \
-            -DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=mold \
             -DVORTEX_SANITIZER=asan \
             -DVORTEX_SANITIZE_RUST_STD=ON \
             -DVORTEX_BUILD_TESTS=ON \
