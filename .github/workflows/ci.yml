@@ -741,20 +741,24 @@ jobs:
         shell: bash
         run: |
           cargo nextest run --cargo-profile ci --locked -p vortex-duckdb --no-run
-      - name: Start MinIO
+      - name: Start RustFS
         shell: bash
         run: |
-          curl -sSL https://dl.min.io/server/minio/release/linux-amd64/minio -o "${RUNNER_TEMP}/minio"
-          chmod +x "${RUNNER_TEMP}/minio"
-          mkdir -p "${RUNNER_TEMP}/minio-data/vortex-test"
-          MINIO_ROOT_USER=minioadmin MINIO_ROOT_PASSWORD=minioadmin \
-            "${RUNNER_TEMP}/minio" server "${RUNNER_TEMP}/minio-data" --address 127.0.0.1:9000 &
-          until curl -sf http://127.0.0.1:9000/minio/health/live; do sleep 1; done
+          curl -sSL https://dl.rustfs.com/artifacts/rustfs/release/rustfs-linux-x86_64-musl-latest.zip \
+            -o "${RUNNER_TEMP}/rustfs.zip"
+          unzip -o -q "${RUNNER_TEMP}/rustfs.zip" rustfs -d "${RUNNER_TEMP}"
+          chmod +x "${RUNNER_TEMP}/rustfs"
+          mkdir -p "${RUNNER_TEMP}/rustfs-data"
+          RUSTFS_ACCESS_KEY=rustfsadmin RUSTFS_SECRET_KEY=rustfsadmin \
+            "${RUNNER_TEMP}/rustfs" "${RUNNER_TEMP}/rustfs-data" --address 127.0.0.1:9000 &
+          until curl -sf http://127.0.0.1:9000/health; do sleep 1; done
+          curl -sf -X PUT "http://127.0.0.1:9000/vortex-test" \
+            --user "rustfsadmin:rustfsadmin" --aws-sigv4 "aws:amz:us-east-1:s3"
       - name: Run tests
         shell: bash
         env:
-          AWS_ACCESS_KEY_ID: minioadmin
-          AWS_SECRET_ACCESS_KEY: minioadmin
+          AWS_ACCESS_KEY_ID: rustfsadmin
+          AWS_SECRET_ACCESS_KEY: rustfsadmin
           AWS_ENDPOINT: "http://127.0.0.1:9000"
           AWS_REGION: "us-east-1"
           AWS_ALLOW_HTTP: "true"
