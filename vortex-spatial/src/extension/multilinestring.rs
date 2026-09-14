@@ -177,7 +177,7 @@ impl MultiLineStringData {
 
 impl ArrowExportVTable for MultiLineString {
     fn export_key(&self) -> ArrowExportKey {
-        ArrowExportKey::arrow_extension(*ARROW_MULTILINESTRING, self.id())
+        ArrowExportKey::extension(self.id(), *ARROW_MULTILINESTRING)
     }
 
     fn to_arrow_field(
@@ -190,7 +190,9 @@ impl ArrowExportVTable for MultiLineString {
         let spatial_metadata = ext_type.metadata::<MultiLineString>();
         let dimension = multilinestring_dimension(ext_type.storage_dtype())?;
 
-        let mut field = session.to_arrow_field(name, ext_type.storage_dtype())?;
+        let Some(mut field) = session.to_arrow_field(name, ext_type.storage_dtype())? else {
+            return Ok(None);
+        };
         field.try_with_extension_type(multilinestring_type(spatial_metadata, dimension))?;
 
         Ok(Some(field))

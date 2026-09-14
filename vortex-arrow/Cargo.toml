@@ -35,6 +35,7 @@ vortex-error = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-runend = { workspace = true }
 vortex-session = { workspace = true }
+vortex-utils = { workspace = true }
 
 [dev-dependencies]
 divan = { workspace = true }

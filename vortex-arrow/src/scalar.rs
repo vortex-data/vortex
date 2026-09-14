@@ -29,6 +29,7 @@ use vortex_error::VortexError;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
+use crate::dtype::no_arrow_type;
 use crate::dtype::to_data_type_naive;
 
 /// Arrow represents scalars as single-element arrays. This constant is the length of those arrays.
@@ -133,7 +134,8 @@ fn decimal_to_arrow(scalar: DecimalScalar<'_>) -> Result<Arc<dyn Datum>, VortexE
             }
         }
         None => {
-            let data_type = to_data_type_naive(scalar.dtype())?;
+            let data_type =
+                to_data_type_naive(scalar.dtype()).ok_or_else(|| no_arrow_type(scalar.dtype()))?;
             Ok(Arc::new(ArrowScalar::new(new_null_array(
                 &data_type,
                 SCALAR_ARRAY_LEN,
@@ -171,10 +173,14 @@ fn map_to_arrow(scalar: MapScalar<'_>) -> Result<Arc<dyn Datum>, VortexError> {
     let map_dtype = scalar.map_dtype();
     let key_dtype = map_dtype.key_dtype();
     let value_dtype = map_dtype.value_dtype();
-    let key_field = Field::new("key", to_data_type_naive(&key_dtype)?, false);
+    let key_field = Field::new(
+        "key",
+        to_data_type_naive(&key_dtype).ok_or_else(|| no_arrow_type(&key_dtype))?,
+        false,
+    );
     let value_field = Field::new(
         "value",
-        to_data_type_naive(&value_dtype)?,
+        to_data_type_naive(&value_dtype).ok_or_else(|| no_arrow_type(&value_dtype))?,
         value_dtype.is_nullable(),
     );
     let fields = Fields::from(vec![key_field, value_field]);
@@ -224,7 +230,8 @@ fn concat_scalar_arrays(
     dtype: &DType,
 ) -> Result<ArrayRef, VortexError> {
     if scalars.is_empty() {
-        return Ok(new_empty_array(&to_data_type_naive(dtype)?));
+        let data_type = to_data_type_naive(dtype).ok_or_else(|| no_arrow_type(dtype))?;
+        return Ok(new_empty_array(&data_type));
     }
 
     let arrays = scalars

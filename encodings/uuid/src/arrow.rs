@@ -59,7 +59,7 @@ static ARROW_UUID: CachedId = CachedId::new(ArrowUuid::NAME);
 
 impl ArrowExportVTable for Uuid {
     fn export_key(&self) -> ArrowExportKey {
-        ArrowExportKey::arrow_extension(*ARROW_UUID, Uuid.id())
+        ArrowExportKey::extension(Uuid.id(), *ARROW_UUID)
     }
 
     // Encode all of these.
@@ -259,11 +259,18 @@ mod tests {
         )
     }
 
+    /// The Arrow [`Field`] for `dtype`, which every test here requires to exist.
+    fn arrow_field(session: &ArrowSession, name: &str, dtype: &DType) -> VortexResult<Field> {
+        session
+            .to_arrow_field(name, dtype)?
+            .ok_or_else(|| vortex_err!("DType {dtype} cannot be converted to an Arrow type"))
+    }
+
     #[test]
     fn to_arrow_field_top_level_uuid_carries_extension_metadata() -> VortexResult<()> {
         let vortex_session = uuid_session();
         let session = vortex_session.arrow();
-        let field = session.to_arrow_field("id", &uuid_dtype(false))?;
+        let field = arrow_field(&session, "id", &uuid_dtype(false))?;
         assert!(field.has_valid_extension_type::<ArrowUuid>());
         Ok(())
     }
@@ -276,7 +283,7 @@ mod tests {
             StructFields::from_iter([(FieldName::from("id"), uuid_dtype(false))]),
             Nullability::NonNullable,
         );
-        let field = session.to_arrow_field("row", &dtype)?;
+        let field = arrow_field(&session, "row", &dtype)?;
         let DataType::Struct(inner) = field.data_type() else {
             panic!("expected Struct, got {:?}", field.data_type());
         };
@@ -291,7 +298,7 @@ mod tests {
         let vortex_session = uuid_session();
         let session = vortex_session.arrow();
         let dtype = DType::List(Arc::new(uuid_dtype(true)), Nullability::NonNullable);
-        let field = session.to_arrow_field("ids", &dtype)?;
+        let field = arrow_field(&session, "ids", &dtype)?;
         let DataType::List(elem) = field.data_type() else {
             panic!("expected List, got {:?}", field.data_type());
         };
@@ -304,7 +311,7 @@ mod tests {
         let vortex_session = uuid_session();
         let session = vortex_session.arrow();
         let dtype = DType::FixedSizeList(Arc::new(uuid_dtype(false)), 3, Nullability::NonNullable);
-        let field = session.to_arrow_field("triple", &dtype)?;
+        let field = arrow_field(&session, "triple", &dtype)?;
         let DataType::FixedSizeList(elem, size) = field.data_type() else {
             panic!("expected FixedSizeList, got {:?}", field.data_type());
         };

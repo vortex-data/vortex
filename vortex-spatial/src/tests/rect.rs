@@ -20,6 +20,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
 use super::SESSION;
+use super::arrow_field;
 use crate::extension::Rect;
 use crate::test_harness::rect_column;
 
@@ -37,7 +38,7 @@ fn box_field(name: &str, dim: GeoArrowDimension, nullable: bool, crs: Option<&st
 #[test]
 fn export_field_carries_extension() -> VortexResult<()> {
     let array = rect_column(vec![(0.0, 0.0, 1.0, 1.0)])?;
-    let field = SESSION.arrow().to_arrow_field("bbox", array.dtype())?;
+    let field = arrow_field("bbox", array.dtype())?;
 
     assert_eq!(field.extension_type_name(), Some(BoxType::NAME));
     let DataType::Struct(fields) = field.data_type() else {

@@ -23,6 +23,7 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
@@ -211,7 +212,10 @@ fn test_serde() -> VortexResult<()> {
         &ReadContext::new(context.to_ids()),
         &SESSION,
     )?;
-    let data_type = SESSION.arrow().to_arrow_field("", data.dtype())?;
+    let data_type = SESSION
+        .arrow()
+        .to_arrow_field("", data.dtype())?
+        .ok_or_else(|| vortex_err!("dtype has no Arrow field"))?;
     let pco_arrow = SESSION
         .arrow()
         .execute_arrow(pco, Some(&data_type), &mut ctx)?;

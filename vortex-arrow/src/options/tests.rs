@@ -88,7 +88,7 @@ static TEST_OPTION_ID: CachedId = CachedId::new("test.options");
 
 impl ArrowExportVTable for Plugin {
     fn export_key(&self) -> ArrowExportKey {
-        ArrowExportKey::arrow_extension(*TEST_OPTION_ID, *TEST_OPTION_ID)
+        ArrowExportKey::extension(*TEST_OPTION_ID, *TEST_OPTION_ID)
     }
 
     fn to_arrow_field(

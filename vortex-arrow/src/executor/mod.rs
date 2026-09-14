@@ -44,6 +44,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
 
 use crate::ArrowExporter;
+use crate::dtype::no_arrow_type;
 use crate::executor::bool::to_arrow_bool;
 use crate::executor::byte::to_arrow_byte_array;
 use crate::executor::byte_view::to_arrow_byte_view;
@@ -286,7 +287,8 @@ pub(crate) fn infer_nearest_arrow_field(
     ctx.session()
         .clone()
         .arrow()
-        .to_arrow_field(name, array.dtype())
+        .to_arrow_field(name, array.dtype())?
+        .ok_or_else(|| no_arrow_type(array.dtype()))
 }
 
 #[cfg(test)]

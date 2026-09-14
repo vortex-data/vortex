@@ -796,7 +796,8 @@ fn arrow_device_export_field(
         .execution_ctx()
         .session()
         .arrow()
-        .to_arrow_field(name.as_ref(), dtype)?;
+        .to_arrow_field(name.as_ref(), dtype)?
+        .ok_or_else(|| vortex_err!("dtype {dtype} has no Arrow type"))?;
 
     let data_type =
         match (ctx.cuda_session().varbin_export_layout(), dtype) {

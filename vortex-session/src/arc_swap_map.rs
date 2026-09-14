@@ -132,6 +132,23 @@ impl<K: Eq + Hash, V, S: BuildHasher> ArcSwapMap<K, V, S> {
         });
     }
 
+    /// Replace the value under `key` with `f(current)`, where `current` is `None` if the key is
+    /// absent.
+    ///
+    /// The update is copy-on-write via [`ArcSwap::rcu`], so `f` may run more than once under
+    /// contention and must not move out of its captures.
+    pub fn update(&self, key: K, f: impl Fn(Option<&V>) -> V)
+    where
+        K: Clone,
+        V: Clone,
+        S: Clone,
+    {
+        self.modify(|map| {
+            let value = f(map.get(&key));
+            map.insert(key.clone(), value);
+        });
+    }
+
     /// Insert `value` under `key` only if no value is stored there yet.
     ///
     /// If a concurrent writer publishes a value under `key` first, that value

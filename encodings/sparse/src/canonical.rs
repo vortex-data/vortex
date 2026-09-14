@@ -908,6 +908,7 @@ mod test {
     use vortex_buffer::buffer_mut;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
     use vortex_mask::Mask;
     use vortex_session::VortexSession;
 
@@ -2001,7 +2002,10 @@ mod test {
         assert_arrays_eq!(&actual, &expected, &mut ctx);
 
         // Note that the preferred arrow list representation is `List` (not `ListView`).
-        let arrow_dtype = SESSION.arrow().to_arrow_field("", expected.dtype())?;
+        let arrow_dtype = SESSION
+            .arrow()
+            .to_arrow_field("", expected.dtype())?
+            .ok_or_else(|| vortex_err!("dtype has no Arrow field"))?;
         let actual = SESSION
             .arrow()
             .execute_arrow(actual, Some(&arrow_dtype), &mut ctx)?;

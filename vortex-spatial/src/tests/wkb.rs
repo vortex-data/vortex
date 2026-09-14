@@ -37,6 +37,7 @@ use vortex_error::vortex_err;
 use wkb::writer::WriteOptions;
 
 use super::SESSION;
+use super::arrow_field;
 use crate::extension::SpatialMetadata;
 use crate::extension::WellKnownBinary;
 
@@ -127,7 +128,7 @@ fn scalar_unpacks_to_geometry() -> VortexResult<()> {
 #[test]
 fn export_field_carries_extension() -> VortexResult<()> {
     let (_, array) = wkb_extension_array()?;
-    let field = SESSION.arrow().to_arrow_field("geom", array.dtype())?;
+    let field = arrow_field("geom", array.dtype())?;
     assert_eq!(field.extension_type_name(), Some(WkbType::NAME));
     assert_eq!(field.data_type(), &DataType::BinaryView);
     Ok(())

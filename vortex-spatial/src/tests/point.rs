@@ -27,6 +27,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
 use super::SESSION;
+use super::arrow_field;
 use crate::extension::Point;
 use crate::extension::coordinate::Coordinate;
 use crate::test_harness::coordinate_from_scalar;
@@ -63,7 +64,7 @@ fn arrow_point_struct(xs: Vec<f64>, ys: Vec<f64>) -> ArrowStructArray {
 #[test]
 fn export_field_carries_extension() -> VortexResult<()> {
     let array = point_column(vec![1.0], vec![2.0])?;
-    let field = SESSION.arrow().to_arrow_field("loc", array.dtype())?;
+    let field = arrow_field("loc", array.dtype())?;
 
     assert_eq!(field.extension_type_name(), Some(PointType::NAME));
     let DataType::Struct(fields) = field.data_type() else {

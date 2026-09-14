@@ -19,6 +19,7 @@ use vortex_arrow::ArrowSessionExt;
 use vortex_error::VortexResult;
 
 use super::SESSION;
+use super::arrow_field;
 use crate::extension::LineString;
 
 /// A `geoarrow.linestring` Arrow field with separated (struct) XY coordinates.
@@ -76,7 +77,7 @@ fn export_field_carries_extension() -> VortexResult<()> {
         SESSION
             .arrow()
             .from_arrow_field(&linestring_field("geom", false, Some("EPSG:4326")))?;
-    let field = SESSION.arrow().to_arrow_field("geom", &imported)?;
+    let field = arrow_field("geom", &imported)?;
 
     assert_eq!(field.extension_type_name(), Some(LineStringType::NAME));
     assert!(

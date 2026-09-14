@@ -154,7 +154,7 @@ pub(crate) fn point_geometries(
 
 impl ArrowExportVTable for Point {
     fn export_key(&self) -> ArrowExportKey {
-        ArrowExportKey::arrow_extension(*ARROW_POINT, self.id())
+        ArrowExportKey::extension(self.id(), *ARROW_POINT)
     }
 
     fn to_arrow_field(
@@ -167,7 +167,9 @@ impl ArrowExportVTable for Point {
         let spatial_metadata = ext_type.metadata::<Point>();
         let dimension = coordinate_dimension(ext_type.storage_dtype())?;
 
-        let mut field = session.to_arrow_field(name, ext_type.storage_dtype())?;
+        let Some(mut field) = session.to_arrow_field(name, ext_type.storage_dtype())? else {
+            return Ok(None);
+        };
         field.try_with_extension_type(point_type(spatial_metadata, dimension))?;
 
         Ok(Some(field))

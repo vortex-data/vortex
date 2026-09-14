@@ -17,7 +17,6 @@ use parquet_variant_compute::unshred_variant;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::VTable;
 use vortex_array::arrays::Variant;
 use vortex_array::arrays::variant::VariantArraySlotsExt;
 use vortex_array::dtype::DType;
@@ -159,7 +158,7 @@ pub(crate) fn parquet_variant_for_export(
 
 impl ArrowExportVTable for ParquetVariant {
     fn export_key(&self) -> ArrowExportKey {
-        ArrowExportKey::arrow_extension(*ARROW_PARQUET_VARIANT, ParquetVariant.id())
+        ArrowExportKey::to_extension(*ARROW_PARQUET_VARIANT)
     }
 
     fn to_arrow_field(

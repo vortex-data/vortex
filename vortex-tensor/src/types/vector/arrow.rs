@@ -63,7 +63,7 @@ fn is_supported_float(data_type: &DataType) -> bool {
 
 impl ArrowExportVTable for Vector {
     fn export_key(&self) -> ArrowExportKey {
-        ArrowExportKey::arrow_extension(*ARROW_VECTOR, Vector.id())
+        ArrowExportKey::extension(Vector.id(), *ARROW_VECTOR)
     }
 
     fn to_arrow_field(
@@ -81,7 +81,9 @@ impl ArrowExportVTable for Vector {
         }
 
         // Delegate to Arrow encoding of storage type.
-        let mut field = session.to_arrow_field(name, dtype.storage_dtype())?;
+        let Some(mut field) = session.to_arrow_field(name, dtype.storage_dtype())? else {
+            return Ok(None);
+        };
         field.set_metadata(vector_extension_metadata());
         Ok(Some(field))
     }
@@ -200,6 +202,7 @@ mod tests {
     use vortex_arrow::ArrowSession;
     use vortex_arrow::ArrowSessionExt;
     use vortex_buffer::buffer;
+    use vortex_error::vortex_err;
 
     use super::*;
     use crate::tests::SESSION;
@@ -237,6 +240,13 @@ mod tests {
         ))
     }
 
+    /// The Arrow [`Field`] for `dtype`, which every test here requires to exist.
+    fn arrow_field(session: &ArrowSession, name: &str, dtype: &DType) -> VortexResult<Field> {
+        session
+            .to_arrow_field(name, dtype)?
+            .ok_or_else(|| vortex_err!("dtype {dtype} has no Arrow field"))
+    }
+
     fn session_with_vector() -> ArrowSession {
         let session = ArrowSession::default();
         session.register_exporter(Arc::new(Vector));
@@ -247,7 +257,7 @@ mod tests {
     #[test]
     fn to_arrow_field_attaches_extension_metadata() -> VortexResult<()> {
         let session = session_with_vector();
-        let field = session.to_arrow_field("embedding", &vector_dtype(false))?;
+        let field = arrow_field(&session, "embedding", &vector_dtype(false))?;
         assert_eq!(
             field.extension_type_name(),
             Some(ARROW_VECTOR_EXTENSION_NAME),
@@ -264,7 +274,7 @@ mod tests {
     #[test]
     fn from_arrow_field_recovers_vector_dtype() -> VortexResult<()> {
         let session = session_with_vector();
-        let arrow_field = session.to_arrow_field("embedding", &vector_dtype(true))?;
+        let arrow_field = arrow_field(&session, "embedding", &vector_dtype(true))?;
         let dtype = session.from_arrow_field(&arrow_field)?;
         assert_eq!(dtype, vector_dtype(true));
         Ok(())
@@ -321,7 +331,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let session = SESSION.arrow();
         let original = sample_vector_array();
-        let field = session.to_arrow_field("embedding", original.dtype())?;
+        let field = arrow_field(&session, "embedding", original.dtype())?;
         let arrow = session.execute_arrow(original.clone(), Some(&field), &mut ctx)?;
 
         assert!(matches!(arrow.data_type(), DataType::FixedSizeList(_, n) if *n == DIM as i32));
@@ -424,7 +434,7 @@ mod tests {
         let original = sample_vector_array();
         let arrow = session.execute_arrow(original.clone(), None, &mut ctx)?;
 
-        let field = session.to_arrow_field("v", original.dtype())?;
+        let field = arrow_field(&session, "v", original.dtype())?;
         let imported = session.from_arrow_array(arrow, &field)?;
         assert_eq!(imported.dtype(), original.dtype());
         vortex_array::assert_arrays_eq!(imported, original, &mut ctx);

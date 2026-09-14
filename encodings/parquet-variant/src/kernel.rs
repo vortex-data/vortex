@@ -163,7 +163,11 @@ fn json_strings_to_variant(
     } else {
         let mut builder = ShreddedSchemaBuilder::new();
         for (path, dtype) in parent.options.shredding().fields() {
-            let field: FieldRef = Arc::new(session.arrow().to_arrow_field("shredded", dtype)?);
+            let field = session
+                .arrow()
+                .to_arrow_field("shredded", dtype)?
+                .map(FieldRef::new)
+                .ok_or_else(|| vortex_err!("shredded field {dtype} has no Arrow type"))?;
             builder = builder.with_path(to_parquet_variant_path(path)?, field)?;
         }
         shred_variant(&arrow_variant, &builder.build())?
@@ -226,11 +230,9 @@ fn to_arrow_as_type(
     session: &ArrowSession,
 ) -> VortexResult<Option<FieldRef>> {
     match dtype {
-        Some(dtype) if !dtype.is_variant() => Ok(Some(Arc::new(
-            session
-                .to_arrow_field("variant_get", dtype)?
-                .with_nullable(true),
-        ))),
+        Some(dtype) if !dtype.is_variant() => Ok(session
+            .to_arrow_field("variant_get", dtype)?
+            .map(|field| FieldRef::new(field.with_nullable(true)))),
         Some(_) | None => Ok(None),
     }
 }

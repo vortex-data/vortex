@@ -171,7 +171,7 @@ static ARROW_WKB: CachedId = CachedId::new(WkbType::NAME);
 
 impl ArrowExportVTable for WellKnownBinary {
     fn export_key(&self) -> ArrowExportKey {
-        ArrowExportKey::arrow_extension(*ARROW_WKB, self.id())
+        ArrowExportKey::extension(self.id(), *ARROW_WKB)
     }
 
     fn to_arrow_field(
@@ -183,7 +183,9 @@ impl ArrowExportVTable for WellKnownBinary {
         let ext_type = dtype.as_extension();
         let spatial_metadata = ext_type.metadata::<WellKnownBinary>();
 
-        let mut field = session.to_arrow_field(name, ext_type.storage_dtype())?;
+        let Some(mut field) = session.to_arrow_field(name, ext_type.storage_dtype())? else {
+            return Ok(None);
+        };
         field.try_with_extension_type(wkb_type(spatial_metadata))?;
 
         Ok(Some(field))

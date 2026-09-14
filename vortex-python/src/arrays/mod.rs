@@ -49,6 +49,7 @@ use vortex::buffer::ByteBuffer;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::error::VortexResult;
+use vortex::error::vortex_err;
 use vortex::flatbuffers::WriteFlatBufferExt;
 use vortex::ipc::messages::EncoderMessage;
 use vortex::ipc::messages::MessageEncoder;
@@ -516,7 +517,10 @@ impl PyArray {
             } else {
                 inferred_field = session()
                     .arrow()
-                    .to_arrow_field("", chunked_array.dtype())?;
+                    .to_arrow_field("", chunked_array.dtype())?
+                    .ok_or_else(|| {
+                        vortex_err!("dtype {} has no Arrow type", chunked_array.dtype())
+                    })?;
                 &inferred_field
             };
 

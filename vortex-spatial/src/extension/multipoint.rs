@@ -165,7 +165,7 @@ impl MultiPointData {
 
 impl ArrowExportVTable for MultiPoint {
     fn export_key(&self) -> ArrowExportKey {
-        ArrowExportKey::arrow_extension(*ARROW_MULTIPOINT, self.id())
+        ArrowExportKey::extension(self.id(), *ARROW_MULTIPOINT)
     }
 
     fn to_arrow_field(
@@ -178,7 +178,9 @@ impl ArrowExportVTable for MultiPoint {
         let spatial_metadata = ext_type.metadata::<MultiPoint>();
         let dimension = multipoint_dimension(ext_type.storage_dtype())?;
 
-        let mut field = session.to_arrow_field(name, ext_type.storage_dtype())?;
+        let Some(mut field) = session.to_arrow_field(name, ext_type.storage_dtype())? else {
+            return Ok(None);
+        };
         field.try_with_extension_type(multipoint_type(spatial_metadata, dimension))?;
 
         Ok(Some(field))

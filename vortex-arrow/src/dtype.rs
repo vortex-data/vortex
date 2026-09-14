@@ -38,13 +38,13 @@ use vortex_array::extension::datetime::TemporalMetadata;
 use vortex_array::extension::datetime::Time;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
+use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
-use vortex_error::vortex_panic;
 
 /// Trait for converting Arrow types to Vortex types.
 #[deprecated(
@@ -302,7 +302,7 @@ fn to_arrow_schema_naive(dtype: &DType) -> VortexResult<Schema> {
         } else {
             Field::new(
                 field_name.as_ref(),
-                to_data_type_naive(&field_dtype)?,
+                to_data_type_naive(&field_dtype).ok_or_else(|| no_arrow_type(&field_dtype))?,
                 field_dtype.is_nullable(),
             )
         };
@@ -313,8 +313,11 @@ fn to_arrow_schema_naive(dtype: &DType) -> VortexResult<Schema> {
 }
 
 /// Naive conversion from a Vortex `DType` to the nearest Arrow physical data type.
-pub(crate) fn to_data_type_naive(dtype: &DType) -> VortexResult<DataType> {
-    Ok(match dtype {
+///
+/// Returns `None` for a dtype with no naive Arrow type: an unsupported extension, or a
+/// [`DType::Variant`], which needs the metadata only an Arrow [`Field`] carries.
+pub(crate) fn to_data_type_naive(dtype: &DType) -> Option<DataType> {
+    Some(match dtype {
         DType::Null => DataType::Null,
         DType::Bool(_) => DataType::Boolean,
         DType::Primitive(ptype, _) => match ptype {
@@ -385,42 +388,37 @@ pub(crate) fn to_data_type_naive(dtype: &DType) -> VortexResult<DataType> {
 
             DataType::Struct(Fields::from(fields))
         }
-        DType::Union(..) => vortex_bail!("TODO(connor)[Union]: unimplemented"),
-        DType::Variant(_) => vortex_bail!(
-            "DType::Variant requires Arrow Field metadata; use to_arrow_schema or a Field helper"
-        ),
-        DType::Extension(ext_dtype) => {
-            // NOTE: Temporal are the only builtin and default-loaded extension types, and they map
-            // directly onto non-extension Arrow physical encodings. For this reason, we
-            // choose to special-case them as part of this function rather than implementing them
-            // as an import/export VTable.
-            if let Some(temporal) = ext_dtype.metadata_opt::<AnyTemporal>() {
-                return Ok(match temporal {
-                    TemporalMetadata::Timestamp(unit, tz) => {
-                        DataType::Timestamp(to_arrow_time_unit(*unit)?, tz.clone())
-                    }
-                    TemporalMetadata::Date(unit) => match unit {
-                        TimeUnit::Days => DataType::Date32,
-                        TimeUnit::Milliseconds => DataType::Date64,
-                        TimeUnit::Nanoseconds | TimeUnit::Microseconds | TimeUnit::Seconds => {
-                            vortex_panic!(InvalidArgument: "Invalid TimeUnit {} for {}", unit, ext_dtype.id())
-                        }
-                    },
-                    TemporalMetadata::Time(unit) => match unit {
-                        TimeUnit::Seconds => DataType::Time32(ArrowTimeUnit::Second),
-                        TimeUnit::Milliseconds => DataType::Time32(ArrowTimeUnit::Millisecond),
-                        TimeUnit::Microseconds => DataType::Time64(ArrowTimeUnit::Microsecond),
-                        TimeUnit::Nanoseconds => DataType::Time64(ArrowTimeUnit::Nanosecond),
-                        TimeUnit::Days => {
-                            vortex_panic!(InvalidArgument: "Invalid TimeUnit {} for {}", unit, ext_dtype.id())
-                        }
-                    },
-                });
-            };
-
-            vortex_bail!("Unsupported extension type \"{}\"", ext_dtype.id())
-        }
+        // TODO(connor)[Union]: unimplemented
+        DType::Union(..) => return None,
+        // Variant needs the `ARROW:extension:name` only a Field carries.
+        DType::Variant(_) => return None,
+        // NOTE: Temporal are the only builtin and default-loaded extension types, and they map
+        // directly onto non-extension Arrow physical encodings. For this reason, we
+        // choose to special-case them as part of this function rather than implementing them
+        // as an import/export VTable. Every other extension needs an export plugin.
+        DType::Extension(ext_dtype) => match ext_dtype.metadata_opt::<AnyTemporal>()? {
+            TemporalMetadata::Timestamp(unit, tz) => {
+                DataType::Timestamp(to_arrow_time_unit(*unit).ok()?, tz.clone())
+            }
+            TemporalMetadata::Date(unit) => match unit {
+                TimeUnit::Days => DataType::Date32,
+                TimeUnit::Milliseconds => DataType::Date64,
+                TimeUnit::Nanoseconds | TimeUnit::Microseconds | TimeUnit::Seconds => return None,
+            },
+            TemporalMetadata::Time(unit) => match unit {
+                TimeUnit::Seconds => DataType::Time32(ArrowTimeUnit::Second),
+                TimeUnit::Milliseconds => DataType::Time32(ArrowTimeUnit::Millisecond),
+                TimeUnit::Microseconds => DataType::Time64(ArrowTimeUnit::Microsecond),
+                TimeUnit::Nanoseconds => DataType::Time64(ArrowTimeUnit::Nanosecond),
+                TimeUnit::Days => return None,
+            },
+        },
     })
+}
+
+/// The error for a [`DType`] that has no Arrow representation.
+pub(crate) fn no_arrow_type(dtype: &DType) -> VortexError {
+    vortex_err!("DType {dtype} cannot be converted to an Arrow type")
 }
 
 fn variant_storage_fields_minimal() -> Fields {
@@ -527,7 +525,7 @@ mod deprecated_impls {
         }
 
         fn to_arrow_dtype(&self) -> VortexResult<DataType> {
-            to_data_type_naive(self)
+            to_data_type_naive(self).ok_or_else(|| no_arrow_type(self))
         }
     }
 }
@@ -618,7 +616,7 @@ mod test {
             .to_arrow_dtype()
             .unwrap_err()
             .to_string();
-        assert!(err.contains("Variant"));
+        assert!(err.contains("variant"));
     }
 
     #[test]

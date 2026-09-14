@@ -175,7 +175,7 @@ impl MultiPolygonData {
 
 impl ArrowExportVTable for MultiPolygon {
     fn export_key(&self) -> ArrowExportKey {
-        ArrowExportKey::arrow_extension(*ARROW_MULTIPOLYGON, self.id())
+        ArrowExportKey::extension(self.id(), *ARROW_MULTIPOLYGON)
     }
 
     fn to_arrow_field(
@@ -188,7 +188,9 @@ impl ArrowExportVTable for MultiPolygon {
         let spatial_metadata = ext_type.metadata::<MultiPolygon>();
         let dimension = multipolygon_dimension(ext_type.storage_dtype())?;
 
-        let mut field = session.to_arrow_field(name, ext_type.storage_dtype())?;
+        let Some(mut field) = session.to_arrow_field(name, ext_type.storage_dtype())? else {
+            return Ok(None);
+        };
         field.try_with_extension_type(multipolygon_type(spatial_metadata, dimension))?;
 
         Ok(Some(field))

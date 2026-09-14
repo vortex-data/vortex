@@ -239,6 +239,7 @@ mod tests {
 
     use crate::ArrowArrayExecutor;
     use crate::convert::from_arrow_dyn;
+    use crate::dtype::no_arrow_type;
     use crate::dtype::to_data_type_naive;
 
     #[test]
@@ -350,7 +351,8 @@ mod tests {
             ),
         ])?);
 
-        let arrow_dtype = to_data_type_naive(array.dtype())?;
+        let arrow_dtype =
+            to_data_type_naive(array.dtype()).ok_or_else(|| no_arrow_type(array.dtype()))?;
         assert_eq!(
             &array
                 .into_array()

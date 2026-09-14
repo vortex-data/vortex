@@ -11,6 +11,14 @@ use datafusion_common::exec_datafusion_err;
 use vortex::dtype::DType;
 use vortex_arrow::ArrowSession;
 
+/// The Arrow [`Field`] a Vortex [`DType`] converts to, as a DataFusion error if it has none.
+fn arrow_field(session: &ArrowSession, name: &str, dtype: &DType) -> DFResult<Field> {
+    session
+        .to_arrow_field(name, dtype)
+        .map_err(|e| exec_datafusion_err!("Failed to convert dtype to arrow: {e}"))?
+        .ok_or_else(|| exec_datafusion_err!("Failed to convert dtype to arrow: {dtype}"))
+}
+
 /// Calculate the physical Arrow schema for a Vortex file given its DType and the expected logical schema.
 ///
 /// Some Arrow types don't roundtrip cleanly through Vortex's DType system:
@@ -59,9 +67,7 @@ pub fn calculate_physical_schema(
                             .with_metadata(logical_field.metadata().clone()),
                     )
                 }
-                None => arrow_session
-                    .to_arrow_field(name.as_ref(), &field_dtype)
-                    .map_err(|e| exec_datafusion_err!("Failed to convert dtype to arrow: {e}")),
+                None => arrow_field(arrow_session, name.as_ref(), &field_dtype),
             }
         })
         .collect::<DFResult<Vec<_>>>()?;
@@ -106,35 +112,30 @@ fn calculate_physical_field_type(
                 inner = ext.storage_dtype();
             }
             if let DType::Struct(struct_dtype, _) = inner {
-                let physical_fields: Vec<Field> = struct_dtype
-                    .names()
-                    .iter()
-                    .zip(struct_dtype.fields())
-                    .map(|(name, field_dtype)| {
-                        match logical_fields.iter().find(|f| f.name() == name.as_ref()) {
-                            Some(logical_field) => {
-                                let arrow_type = calculate_physical_field_type(
-                                    &field_dtype,
-                                    logical_field.data_type(),
-                                    arrow_session,
-                                )?;
-                                Ok(
-                                    Field::new(
+                let physical_fields: Vec<Field> =
+                    struct_dtype
+                        .names()
+                        .iter()
+                        .zip(struct_dtype.fields())
+                        .map(|(name, field_dtype)| {
+                            match logical_fields.iter().find(|f| f.name() == name.as_ref()) {
+                                Some(logical_field) => {
+                                    let arrow_type = calculate_physical_field_type(
+                                        &field_dtype,
+                                        logical_field.data_type(),
+                                        arrow_session,
+                                    )?;
+                                    Ok(Field::new(
                                         name.as_ref(),
                                         arrow_type,
                                         field_dtype.is_nullable(),
                                     )
-                                    .with_metadata(logical_field.metadata().clone()),
-                                )
+                                    .with_metadata(logical_field.metadata().clone()))
+                                }
+                                None => arrow_field(arrow_session, name.as_ref(), &field_dtype),
                             }
-                            None => arrow_session
-                                .to_arrow_field(name.as_ref(), &field_dtype)
-                                .map_err(|e| {
-                                    exec_datafusion_err!("Failed to convert dtype to arrow: {e}")
-                                }),
-                        }
-                    })
-                    .collect::<DFResult<Vec<_>>>()?;
+                        })
+                        .collect::<DFResult<Vec<_>>>()?;
 
                 DataType::Struct(physical_fields.into())
             } else {
@@ -265,11 +266,7 @@ fn calculate_physical_field_type(
         }
         // All other types roundtrip cleanly, use the session-aware Arrow Field inference
         // (canonical for non-extension dtypes, plugin-routed for extensions like UUID).
-        _ => arrow_session
-            .to_arrow_field("", dtype)
-            .map_err(|e| exec_datafusion_err!("Failed to convert dtype to arrow: {e}"))?
-            .data_type()
-            .clone(),
+        _ => arrow_field(arrow_session, "", dtype)?.data_type().clone(),
     })
 }
 

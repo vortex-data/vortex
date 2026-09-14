@@ -230,7 +230,7 @@ impl PolygonData {
 
 impl ArrowExportVTable for Polygon {
     fn export_key(&self) -> ArrowExportKey {
-        ArrowExportKey::arrow_extension(*ARROW_POLYGON, self.id())
+        ArrowExportKey::extension(self.id(), *ARROW_POLYGON)
     }
 
     fn to_arrow_field(
@@ -243,7 +243,9 @@ impl ArrowExportVTable for Polygon {
         let spatial_metadata = ext_type.metadata::<Polygon>();
         let dimension = polygon_dimension(ext_type.storage_dtype())?;
 
-        let mut field = session.to_arrow_field(name, ext_type.storage_dtype())?;
+        let Some(mut field) = session.to_arrow_field(name, ext_type.storage_dtype())? else {
+            return Ok(None);
+        };
         field.try_with_extension_type(polygon_type(spatial_metadata, dimension))?;
 
         Ok(Some(field))

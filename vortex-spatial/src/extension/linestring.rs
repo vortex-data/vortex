@@ -247,7 +247,7 @@ impl LineStringData {
 
 impl ArrowExportVTable for LineString {
     fn export_key(&self) -> ArrowExportKey {
-        ArrowExportKey::arrow_extension(*ARROW_LINESTRING, self.id())
+        ArrowExportKey::extension(self.id(), *ARROW_LINESTRING)
     }
 
     fn to_arrow_field(
@@ -260,7 +260,9 @@ impl ArrowExportVTable for LineString {
         let spatial_metadata = ext_type.metadata::<LineString>();
         let dimension = linestring_dimension(ext_type.storage_dtype())?;
 
-        let mut field = session.to_arrow_field(name, ext_type.storage_dtype())?;
+        let Some(mut field) = session.to_arrow_field(name, ext_type.storage_dtype())? else {
+            return Ok(None);
+        };
         field.try_with_extension_type(linestring_type(spatial_metadata, dimension))?;
 
         Ok(Some(field))
