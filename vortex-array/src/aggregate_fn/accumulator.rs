@@ -37,10 +37,7 @@ pub struct Accumulator<V: AggregateFnVTable> {
     aggregate_fn: AggregateFnRef,
     /// The input, partial, and result dtypes lent to every vtable call.
     dtypes: AggregateDTypes,
-    /// The partial state of the accumulator, updated after each accumulate/merge call.
-    ///
-    /// `None` is the empty-group state; a live partial is only materialized when a batch is
-    /// accumulated in place, so empty accumulators and folds never construct one.
+    /// The partial state of the accumulator, with `None` as the empty group.
     partial: Option<V::Partial>,
 }
 
@@ -58,13 +55,12 @@ impl<V: AggregateFnVTable> Accumulator<V> {
         })
     }
 
-    /// The identity partial state: the state of a group with no accumulated values.
+    /// The state of a group with no accumulated values.
     pub(crate) fn empty_partial(&self) -> VortexResult<V::Partial> {
         self.vtable
             .empty_partial(&self.options, self.dtypes.borrow())
     }
 
-    /// Materialize the partial state in place so a batch can be accumulated into it.
     fn ensure_partial(&mut self) -> VortexResult<()> {
         if self.partial.is_none() {
             self.partial = Some(self.empty_partial()?);
@@ -72,10 +68,9 @@ impl<V: AggregateFnVTable> Accumulator<V> {
         Ok(())
     }
 
-    /// Merge an incoming partial state into the accumulator's current state.
     pub(crate) fn fold_partial(&mut self, other: V::Partial) -> VortexResult<()> {
         self.partial = Some(match self.partial.take() {
-            // Merging the incoming partial with the empty state is the identity.
+            // The empty state is the identity of the merge.
             None => other,
             Some(current) => {
                 self.vtable
@@ -85,9 +80,6 @@ impl<V: AggregateFnVTable> Accumulator<V> {
         Ok(())
     }
 
-    /// Parse a partial scalar of dtype `dtypes.partial_dtype` and merge it into the current state.
-    ///
-    /// Both steps go through the typed vtable of `V`, so they inline into one monomorphized call.
     fn fold_partial_scalar(&mut self, scalar: Scalar) -> VortexResult<()> {
         let other = self
             .vtable
@@ -110,10 +102,8 @@ pub trait DynAccumulator: 'static + Send {
 
     /// Parse a partial scalar and merge it into this accumulator's state.
     ///
-    /// The scalar must have the dtype reported by the vtable's `partial_dtype` for this
-    /// accumulator's options and input dtype, and represents input following the input already
-    /// accumulated. Parsing and merging both run through the typed vtable, so they inline into
-    /// a single monomorphized call per aggregate.
+    /// The scalar must have the dtype reported by the vtable's `partial_dtype`, and represents
+    /// input following the input already accumulated.
     fn combine_partials(&mut self, partial: Scalar) -> VortexResult<()>;
 
     /// Whether the accumulator's result is fully determined.
@@ -426,8 +416,7 @@ mod tests {
         }
     }
 
-    /// Sum partial sentinel `{sum: 42.0, is_overflow: false, is_empty: false}` — distinguishable from the natural Sum of
-    /// `dict_of_seven()` which is `7.0`.
+    /// A sentinel sum of `42.0`, distinguishable from `dict_of_seven()`'s natural sum of `7.0`.
     #[derive(Debug)]
     struct SentinelSumPartialKernel;
     impl DynAggregateKernel for SentinelSumPartialKernel {

@@ -83,7 +83,7 @@ impl AggregateFnVTable for First {
         first: Self::Partial,
         second: Self::Partial,
     ) -> VortexResult<Self::Partial> {
-        // The earlier non-empty partial wins; the later one is ignored.
+        // The earlier value wins.
         Ok(FirstPartial {
             value: first.value.or(second.value),
         })
@@ -299,11 +299,10 @@ mod tests {
             First.partial_from_scalar(&EmptyOptions, dtypes, Scalar::primitive(value, Nullable))
         };
 
-        // An empty partial means the sub-accumulator saw nothing valid - it is ignored.
         let empty = First.empty_partial(&EmptyOptions, dtypes)?;
         assert!(!First.is_saturated(&EmptyOptions, dtypes, &empty));
 
-        // The first non-empty partial wins; subsequent valid partials are dropped.
+        // The first non-empty partial wins; later ones are dropped.
         let five = partial_of(5)?;
         let seven = partial_of(7)?;
         let merge = |first, second| First.merge_partials(&EmptyOptions, dtypes, first, second);

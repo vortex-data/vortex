@@ -309,9 +309,8 @@ impl AggregateFnVTable for BloomFilter {
 
     /// Parses a serialized filter into a partial with the configured block count.
     ///
-    /// A null scalar is an empty filter. This assumes that `scalar` was created using the same
-    /// hash function as `options`. Ideally, an assertion here about which `hash_fn` was used to
-    /// create `scalar` would catch this invariant.
+    /// A null scalar is an empty filter. `scalar` is assumed to have been created with the same
+    /// hash function as `options`; nothing here checks that.
     fn partial_from_scalar(
         &self,
         options: &Self::Options,
@@ -484,7 +483,6 @@ pub(in crate::layouts::zoned::aggregates::bloom_filter) mod test_utils {
         let options = BloomOptions::default();
         let dtypes = binary_dtypes(&options)?;
 
-        // Every bit of every block set - the only state the filter reports as saturated.
         let full = vec![u8::MAX; options.blocks_count().get() as usize * BLOCK_SIZE];
         let partial = BloomFilter.partial_from_scalar(
             &options,

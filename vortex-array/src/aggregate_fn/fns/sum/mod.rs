@@ -276,7 +276,6 @@ impl AggregateFnVTable for Sum {
         batch: &Columnar,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        // Constants compute scalar * len and merge the product into the running state.
         if let Columnar::Constant(c) = batch {
             // NaN constants are treated as missing when skipping NaNs.
             if options.skip_nans && c.scalar().as_primitive_opt().is_some_and(|p| p.is_nan()) {

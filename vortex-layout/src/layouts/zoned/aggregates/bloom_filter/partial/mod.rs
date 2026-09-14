@@ -242,8 +242,7 @@ impl BloomPartial {
 /// start an empty partial from [`super::BloomFilter`].
 impl From<&BloomOptions> for BloomPartial {
     fn from(options: &BloomOptions) -> Self {
-        // The hash function lives in the options, not the partial: adding a variant must
-        // revisit how partials are hashed, so match exhaustively here.
+        // Matched exhaustively: a new hash function must revisit how partials are hashed.
         match options.hash_fn {
             HashFn::XxHash3_64 => Self {
                 blocks: vec![[0u32; 8]; options.blocks_count.get() as usize],

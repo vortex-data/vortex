@@ -230,8 +230,7 @@ impl<T: BinaryCombined> AggregateFnVTable for Combined<T> {
         (mut left, mut right): Self::Partial,
         (mut other_left, mut other_right): Self::Partial,
     ) -> VortexResult<Self::Partial> {
-        // The children are typed accumulators of the same child aggregates, so they merge state
-        // directly without any scalar interchange.
+        // Typed child accumulators merge directly, without any scalar interchange.
         left.merge_from(&mut other_left)?;
         right.merge_from(&mut other_right)?;
         Ok((left, right))

@@ -350,7 +350,6 @@ impl AggregateFnVTable for IsSorted {
         // A partial that saw a single value carries it as both boundaries.
         let last = partial.last_value.unwrap_or_else(|| first.clone());
 
-        // Check boundary: acc.last_value vs partial.first_value
         if let Some(acc_last) = &acc.last_value {
             if !acc_last.is_null() && !first.is_null() {
                 let boundary_ok = if options.strict {
@@ -370,7 +369,6 @@ impl AggregateFnVTable for IsSorted {
             }
         }
 
-        // Update first_value if this is the first non-empty partial.
         if acc.first_value.is_none() {
             acc.first_value = Some(first);
         }
