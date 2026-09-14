@@ -42,7 +42,6 @@ vortex-decimal-byte-parts = { workspace = true }
 vortex-edition = { workspace = true }
 vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
-vortex-flatbuffers = { workspace = true, features = ["file"] }
 vortex-fsst = { workspace = true }
 vortex-io = { workspace = true }
 vortex-layout = { workspace = true }
@@ -59,6 +58,9 @@ vortex-tensor = { workspace = true, optional = true }
 vortex-utils = { workspace = true, features = ["dashmap"] }
 vortex-zigzag = { workspace = true }
 vortex-zstd = { workspace = true, optional = true }
+
+[build-dependencies]
+vortex-build = { workspace = true }
 
 [dev-dependencies]
 allocator-api2 = { workspace = true }

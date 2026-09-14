@@ -62,7 +62,7 @@ Readers do not load the opaque metadata values by default. Opt-in metadata reads
 locator separately, allowing values outside the initial file-tail read to be fetched without reading
 the intervening file contents.
 
-:::{literalinclude} ../../vortex-flatbuffers/flatbuffers/vortex-file/footer.fbs
+:::{literalinclude} ../../vortex-file/flatbuffers/vortex-file/footer.fbs
 :start-after: [postscript]
 :end-before: [postscript]
 :::
@@ -87,7 +87,7 @@ The footer is a flat buffer serialized `Footer` object. This object contains all
 load the root `Layout` object into a usable `LayoutReader`).
 For example, it contains the locations, compression schemes, encryption schemes, and required alignment of all segments in the file.
 
-:::{literalinclude} ../../vortex-flatbuffers/flatbuffers/vortex-file/footer.fbs
+:::{literalinclude} ../../vortex-file/flatbuffers/vortex-file/footer.fbs
 :start-after: [footer]
 :end-before: [footer]
 :::

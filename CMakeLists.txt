@@ -16,6 +16,9 @@ cmake_minimum_required(VERSION 3.25)
 
 project(Vortex DESCRIPTION "Vortex C and C++ libraries" LANGUAGES NONE)
 
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 # Directory-scoped developer defaults; an embedded root resets inherited ownership.
 set(_vortex_top_level "${PROJECT_IS_TOP_LEVEL}")
 

@@ -105,6 +105,7 @@
 
 mod counting;
 mod file;
+pub mod flatbuffers;
 mod footer;
 pub mod multi;
 mod open;

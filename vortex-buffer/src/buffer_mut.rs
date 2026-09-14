@@ -395,9 +395,16 @@ impl<T> BufferMut<T> {
         self.alignment
     }
 
-    /// Returns the allocator that owns this buffer.
-    pub fn allocator(&self) -> &BufferAllocatorRef {
+    #[cfg(test)]
+    pub(crate) fn allocator(&self) -> &BufferAllocatorRef {
         self.allocation.allocator()
+    }
+
+    /// Takes the buffer, leaving an empty buffer with the same alignment and allocator.
+    pub fn take(&mut self) -> Self {
+        let replacement =
+            Self::empty_aligned_in(self.alignment, self.allocation.allocator().clone());
+        std::mem::replace(self, replacement)
     }
 
     /// Returns the length of the buffer.
@@ -995,7 +1002,10 @@ impl<T> FromIterator<T> for BufferMut<T> {
 
 #[cfg(test)]
 mod test {
+    use allocator_api2::alloc::Global;
+
     use crate::Alignment;
+    use crate::BufferAllocatorRef;
     use crate::BufferMut;
     use crate::buffer_mut;
 
@@ -1012,6 +1022,22 @@ mod test {
         }
 
         assert_eq!(buf.alignment(), Alignment::new(1024));
+    }
+
+    #[test]
+    fn take_preserves_alignment_and_allocator() {
+        let alignment = Alignment::new(1024);
+        let allocator = BufferAllocatorRef::new(Global);
+        let mut buffer = BufferMut::with_capacity_aligned_in(4, alignment, allocator.clone());
+        buffer.extend([1u32, 2, 3]);
+
+        let taken = buffer.take();
+
+        assert_eq!(taken.as_slice(), [1, 2, 3]);
+        assert!(taken.allocator().ptr_eq(&allocator));
+        assert!(buffer.is_empty());
+        assert_eq!(buffer.alignment(), alignment);
+        assert!(buffer.allocator().ptr_eq(&allocator));
     }
 
     #[test]

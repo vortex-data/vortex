@@ -9,11 +9,10 @@ members = [
     "vortex-utils",
     "vortex-session",
     "vortex-edition",
-    "vortex-flatbuffers",
+    "vortex-build",
     "vortex-metrics",
     "vortex-io",
     "vortex-cloud",
-    "vortex-proto",
     "vortex-array",
     "vortex-arrow",
     "vortex-row",
@@ -221,6 +220,7 @@ proc-macro2 = "1.0.95"
 prost = "0.14"
 prost-build = "0.14"
 prost-types = "0.14"
+protox = "0.9.1"
 pyo3 = { version = "0.29.0" }
 pyo3-bytes = "0.7"
 pyo3-log = "0.13.0"
@@ -289,7 +289,6 @@ url = "2.5.7"
 uuid = "1.23"
 wasm-bindgen-futures = "0.4.58"
 wkb = "0.9.2"
-xshell = "0.2.6"
 zigzag = "0.1.0"
 zip = "8.0.0"
 zstd = { version = "0.13.3", default-features = false, features = [
@@ -304,6 +303,7 @@ vortex-array-macros = { version = "0.1.0", path = "./vortex-array-macros" }
 vortex-arrow = { version = "0.1.0", path = "./vortex-arrow", default-features = false }
 vortex-btrblocks = { version = "0.1.0", path = "./vortex-btrblocks", default-features = false }
 vortex-buffer = { version = "0.1.0", path = "./vortex-buffer", default-features = false }
+vortex-build = { version = "0.1.0", path = "./vortex-build" }
 vortex-bytebool = { version = "0.1.0", path = "./encodings/bytebool", default-features = false }
 vortex-cloud = { version = "0.1.0", path = "./vortex-cloud", default-features = false }
 vortex-compressor = { version = "0.1.0", path = "./vortex-compressor", default-features = false }
@@ -315,7 +315,6 @@ vortex-edition = { version = "0.1.0", path = "./vortex-edition", default-feature
 vortex-error = { version = "0.1.0", path = "./vortex-error", default-features = false }
 vortex-fastlanes = { version = "0.1.0", path = "./encodings/fastlanes", default-features = false }
 vortex-file = { version = "0.1.0", path = "./vortex-file", default-features = false }
-vortex-flatbuffers = { version = "0.1.0", path = "./vortex-flatbuffers", default-features = false }
 vortex-fsst = { version = "0.1.0", path = "./encodings/fsst", default-features = false }
 vortex-io = { version = "0.1.0", path = "./vortex-io", default-features = false }
 vortex-ipc = { version = "0.1.0", path = "./vortex-ipc", default-features = false }
@@ -326,7 +325,6 @@ vortex-metrics = { version = "0.1.0", path = "./vortex-metrics", default-feature
 vortex-onpair = { version = "0.1.0", path = "./encodings/onpair", default-features = false }
 vortex-parquet-variant = { version = "0.1.0", path = "./encodings/parquet-variant" }
 vortex-pco = { version = "0.1.0", path = "./encodings/pco", default-features = false }
-vortex-proto = { version = "0.1.0", path = "./vortex-proto", default-features = false }
 vortex-row = { version = "0.1.0", path = "./vortex-row", default-features = false }
 vortex-runend = { version = "0.1.0", path = "./encodings/runend", default-features = false }
 vortex-scan = { version = "0.1.0", path = "./vortex-scan", default-features = false }

@@ -5,7 +5,6 @@ use prost::Message;
 use rstest::rstest;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
-use vortex_proto::expr as pb;
 
 use super::SumV2;
 use super::sum_v2;
@@ -38,6 +37,7 @@ use crate::dtype::Nullability::Nullable;
 use crate::dtype::PType;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
+use crate::proto::expr as pb;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 use crate::validity::Validity;

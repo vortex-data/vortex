@@ -10,6 +10,9 @@ cmake_minimum_required(VERSION 3.25)
 
 project(VortexFFI DESCRIPTION "Vortex C FFI" LANGUAGES C CXX)
 
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 # Standalone entry points own their defaults; otherwise inherit Vortex's marker.
 if(PROJECT_IS_TOP_LEVEL)
     set(_vortex_top_level ON)

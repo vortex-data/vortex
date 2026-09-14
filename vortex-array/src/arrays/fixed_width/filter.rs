@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
@@ -19,9 +20,18 @@ use crate::arrays::filter::filter_validity;
 #[expect(clippy::cast_possible_truncation)]
 mod tests;
 
-pub(crate) fn filter<V: FixedWidthArray>(array: &Array<V>, mask: &MaskValuesRef) -> Array<V> {
+pub(crate) fn filter<V: FixedWidthArray>(
+    array: &Array<V>,
+    mask: &MaskValuesRef,
+    allocator: &BufferAllocatorRef,
+) -> Array<V> {
     let array = array.as_view();
-    let values = filter_records(V::values(array), V::byte_width(array), mask.as_ref());
+    let values = filter_records(
+        V::values(array),
+        V::byte_width(array),
+        mask.as_ref(),
+        allocator,
+    );
     let validity = filter_validity(
         array
             .validity()
@@ -32,7 +42,12 @@ pub(crate) fn filter<V: FixedWidthArray>(array: &Array<V>, mask: &MaskValuesRef)
         .vortex_expect("filtering fixed-width values preserves array invariants")
 }
 
-fn filter_records(values: ByteBuffer, byte_width: usize, mask: &MaskValues) -> ByteBuffer {
+fn filter_records(
+    values: ByteBuffer,
+    byte_width: usize,
+    mask: &MaskValues,
+    allocator: &BufferAllocatorRef,
+) -> ByteBuffer {
     let alignment = values.alignment();
 
     match_each_record_width!(
@@ -41,7 +56,7 @@ fn filter_records(values: ByteBuffer, byte_width: usize, mask: &MaskValues) -> B
             let records = Buffer::<[u8; W]>::from_byte_buffer(values);
             // `filter_buffer` picks between in-place compaction, cached indices/slices,
             // byte-compress, and bitmap iteration based on record width and mask density.
-            let filtered = filter_buffer(records, mask);
+            let filtered = filter_buffer(records, mask, allocator);
             filtered.into_byte_buffer().aligned(alignment)
         },
         _ => {
@@ -57,7 +72,10 @@ fn filter_records(values: ByteBuffer, byte_width: usize, mask: &MaskValues) -> B
                     values.freeze().into_byte_buffer().aligned(alignment)
                 }
                 Err(values) => {
-                    let mut filtered = BufferMut::with_capacity(mask.true_count() * byte_width);
+                    let mut filtered = BufferMut::with_capacity_in(
+                        mask.true_count() * byte_width,
+                        allocator.clone(),
+                    );
                     mask.bit_buffer().for_each_set_index(|index| {
                         let start = index * byte_width;
                         filtered.extend_from_slice(&values[start..start + byte_width]);

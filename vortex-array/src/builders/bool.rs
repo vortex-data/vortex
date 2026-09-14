@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
-use std::mem;
 
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferAllocatorRef;
@@ -80,8 +79,7 @@ impl BoolBuilder {
             "Null count and value count should match when calling BoolBuilder::finish."
         );
 
-        let allocator = self.inner.allocator().clone();
-        let inner = mem::replace(&mut self.inner, BitBufferMut::empty_in(allocator)).freeze();
+        let inner = self.inner.take().freeze();
         BoolArray::new(
             inner,
             self.nulls.finish_with_nullability(self.dtype.nullability()),

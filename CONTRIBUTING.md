@@ -36,6 +36,18 @@ The contribution process is outlined below:
 
 ## Development Workflows
 
+### Build prerequisites
+
+Bindings for the `.fbs` and `.proto` schemas are generated at build time into `OUT_DIR` by the
+`build.rs` of the crate that owns each schema, and are never checked in.
+
+FlatBuffers generation shells out to the [`flatc`](https://github.com/google/flatbuffers/releases)
+compiler, so building any Vortex crate requires it on `PATH`, or its location in the `FLATC`
+environment variable. CI pins version `25.12.19`; other recent versions work, but may produce
+cosmetically different generated code.
+
+Protocol Buffers generation parses schemas in pure Rust, so `protoc` is not required.
+
 The repository uses [`uv`](https://docs.astral.sh/uv/) to manage its Python workspace. From the
 repository root, create or update the development environment with:
 

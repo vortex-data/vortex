@@ -8,6 +8,7 @@ use bytes::Buf;
 use flatbuffers::root;
 use flatbuffers::root_unchecked;
 use vortex_array::ArrayId;
+use vortex_array::flatbuffers::FlatBuffer;
 use vortex_array::serde::SerializedArray;
 use vortex_buffer::AlignedBuf;
 use vortex_buffer::Alignment;
@@ -16,11 +17,11 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_flatbuffers::FlatBuffer;
-use vortex_flatbuffers::message as fb;
-use vortex_flatbuffers::message::MessageHeader;
-use vortex_flatbuffers::message::MessageVersion;
 use vortex_session::registry::ReadContext;
+
+use crate::flatbuffers::message as fb;
+use crate::flatbuffers::message::MessageHeader;
+use crate::flatbuffers::message::MessageVersion;
 
 /// A message decoded from an IPC stream.
 #[derive(Debug)]

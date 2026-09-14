@@ -4,13 +4,13 @@
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::new_foreign_aggregate_fn;
 use crate::aggregate_fn::session::AggregateFnSessionExt;
+use crate::proto::expr as pb;
 
 impl AggregateFnRef {
     /// Serialize this aggregate function to its protobuf representation.
@@ -63,7 +63,6 @@ mod tests {
     use rstest::rstest;
     use vortex_error::VortexResult;
     use vortex_error::vortex_panic;
-    use vortex_proto::expr as pb;
     use vortex_session::VortexSession;
 
     use crate::ArrayRef;
@@ -79,6 +78,7 @@ mod tests {
     use crate::aggregate_fn::session::AggregateFnSession;
     use crate::aggregate_fn::session::AggregateFnSessionExt;
     use crate::dtype::DType;
+    use crate::proto::expr as pb;
     use crate::scalar::Scalar;
 
     /// A minimal serializable aggregate function used solely to exercise the serde round-trip.

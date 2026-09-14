@@ -48,7 +48,6 @@ use vortex::array::session::ArraySessionExt;
 use vortex::buffer::ByteBuffer;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
-use vortex::dtype::PType;
 use vortex::flatbuffers::WriteFlatBufferExt;
 use vortex::ipc::messages::EncoderMessage;
 use vortex::ipc::messages::MessageEncoder;
@@ -415,11 +414,7 @@ impl PyArray {
             };
             (*ptype, dtype)
         } else {
-            let ptype = if start > 0 && stop > 0 {
-                PType::U64
-            } else {
-                PType::I64
-            };
+            let ptype = range_to_sequence::range_ptype(start, stop, step);
             let dtype = DType::Primitive(ptype, Nullability::NonNullable);
             (ptype, dtype)
         };
