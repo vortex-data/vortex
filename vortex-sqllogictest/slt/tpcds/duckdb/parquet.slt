@@ -4,12 +4,8 @@
 include ../../setup.slt.no
 
 let FILE_FORMAT
-SELECT 'vortex';
-
-statement ok
-SET explain_output = 'all';
+SELECT 'parquet';
 
 include ./create.slt.no
 include ./results/*.slt.no
-include ./plans/*.slt.no
 include ./drop.slt.no

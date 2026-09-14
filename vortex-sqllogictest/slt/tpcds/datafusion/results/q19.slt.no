@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query ITITR
+SELECT i_brand_id brand_id,
+       i_brand brand,
+       i_manufact_id,
+       i_manufact,
+       sum(ss_ext_sales_price) ext_price
+FROM date_dim,
+     store_sales,
+     item,
+     customer,
+     customer_address,
+     store
+WHERE d_date_sk = ss_sold_date_sk
+  AND ss_item_sk = i_item_sk
+  AND i_manager_id=8
+  AND d_moy=11
+  AND d_year=1998
+  AND ss_customer_sk = c_customer_sk
+  AND c_current_addr_sk = ca_address_sk
+  AND SUBSTRING(ca_zip, 1, 5) <> SUBSTRING(s_zip, 1, 5)
+  AND ss_store_sk = s_store_sk
+GROUP BY i_brand,
+         i_brand_id,
+         i_manufact_id,
+         i_manufact
+ORDER BY ext_price DESC,
+         i_brand,
+         i_brand_id,
+         i_manufact_id,
+         i_manufact
+LIMIT 100 ;
+----
+1002002 importoamalg #2 489 n steingese 25908.9
+3001002 amalgexporti #2 448 eingeseese 19805.73
+4003001 exportiedu pack #1 659 n stantically 17669.8
+10009003 maxiunivamalg #3 389 n steingpri 15308.21
+1002002 importoamalg #2 50 baranti 15077.51
+3004001 edu packexporti #1 119 n stoughtought 14958.01
+8016009 corpmaxi #9 734 esepriation 14304.64
+6011004 amalgbrand #4 9 n st 13791.82
+3002002 importoexporti #2 597 ationn stanti 12402.87
+9002011 importomaxi #11 606 callybarcally 6591.58

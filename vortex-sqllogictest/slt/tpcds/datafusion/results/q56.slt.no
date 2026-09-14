@@ -1,0 +1,116 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TR
+WITH ss AS
+  (SELECT i_item_id,
+          sum(ss_ext_sales_price) total_sales
+   FROM store_sales,
+        date_dim,
+        customer_address,
+        item
+   WHERE i_item_id IN
+       (SELECT i_item_id
+        FROM item
+        WHERE i_color IN ('slate',
+                          'blanched',
+                          'burnished'))
+     AND ss_item_sk = i_item_sk
+     AND ss_sold_date_sk = d_date_sk
+     AND d_year = 2001
+     AND d_moy = 2
+     AND ss_addr_sk = ca_address_sk
+     AND ca_gmt_offset = -5
+   GROUP BY i_item_id),
+     cs AS
+  (SELECT i_item_id,
+          sum(cs_ext_sales_price) total_sales
+   FROM catalog_sales,
+        date_dim,
+        customer_address,
+        item
+   WHERE i_item_id IN
+       (SELECT i_item_id
+        FROM item
+        WHERE i_color IN ('slate',
+                          'blanched',
+                          'burnished'))
+     AND cs_item_sk = i_item_sk
+     AND cs_sold_date_sk = d_date_sk
+     AND d_year = 2001
+     AND d_moy = 2
+     AND cs_bill_addr_sk = ca_address_sk
+     AND ca_gmt_offset = -5
+   GROUP BY i_item_id),
+     ws AS
+  (SELECT i_item_id,
+          sum(ws_ext_sales_price) total_sales
+   FROM web_sales,
+        date_dim,
+        customer_address,
+        item
+   WHERE i_item_id IN
+       (SELECT i_item_id
+        FROM item
+        WHERE i_color IN ('slate',
+                          'blanched',
+                          'burnished'))
+     AND ws_item_sk = i_item_sk
+     AND ws_sold_date_sk = d_date_sk
+     AND d_year = 2001
+     AND d_moy = 2
+     AND ws_bill_addr_sk = ca_address_sk
+     AND ca_gmt_offset = -5
+   GROUP BY i_item_id)
+SELECT i_item_id,
+       sum(total_sales) total_sales
+FROM
+  (SELECT *
+   FROM ss
+   UNION ALL SELECT *
+   FROM cs
+   UNION ALL SELECT *
+   FROM ws) tmp1
+GROUP BY i_item_id
+ORDER BY total_sales  NULLS FIRST,
+         i_item_id NULLS FIRST
+LIMIT 100;
+----
+AAAAAAAAEADAAAAA 26.6
+AAAAAAAAGJEAAAAA 62.32
+AAAAAAAACIBAAAAA 222.08
+AAAAAAAAGDBAAAAA 645.66
+AAAAAAAAGEGAAAAA 1030.86
+AAAAAAAAIDFAAAAA 1127.2
+AAAAAAAAEDDAAAAA 1861.76
+AAAAAAAAIKCAAAAA 2043.76
+AAAAAAAAMMCAAAAA 2229.64
+AAAAAAAAEMEAAAAA 2508
+AAAAAAAAMOAAAAAA 2906.05
+AAAAAAAAMCDAAAAA 2934.36
+AAAAAAAAAMCAAAAA 3384.05
+AAAAAAAAMEEAAAAA 4498.65
+AAAAAAAAGGFAAAAA 4808.1
+AAAAAAAAOCEAAAAA 5297.03
+AAAAAAAAAEGAAAAA 5481.27
+AAAAAAAAONBAAAAA 6117.36
+AAAAAAAACHBAAAAA 6166.34
+AAAAAAAAGAHAAAAA 6663.08
+AAAAAAAANCEAAAAA 6719
+AAAAAAAAGBEAAAAA 6820.83
+AAAAAAAAGEBAAAAA 9834.93
+AAAAAAAAGHAAAAAA 10180.36
+AAAAAAAAEGBAAAAA 10325.31
+AAAAAAAAIGGAAAAA 10532.16
+AAAAAAAABJDAAAAA 10698.54
+AAAAAAAAJKAAAAAA 11994.03
+AAAAAAAAIACAAAAA 12150.48
+AAAAAAAAGOGAAAAA 12611.68
+AAAAAAAAIBBAAAAA 15290.6
+AAAAAAAAIOAAAAAA 17549.14
+AAAAAAAAEICAAAAA 18410.43
+AAAAAAAANEFAAAAA 18416.45
+AAAAAAAAIKFAAAAA 21295.44
+AAAAAAAAGIFAAAAA 22390.73
+AAAAAAAAKBCAAAAA 22567.04
+AAAAAAAAFCGAAAAA 22627.31

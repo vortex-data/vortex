@@ -1,0 +1,94 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TTTTTTTTTTTTTRTR
+WITH customer_total_return AS
+  (SELECT cr_returning_customer_sk AS ctr_customer_sk ,
+          ca_state AS ctr_state,
+          sum(cr_return_amt_inc_tax) AS ctr_total_return
+   FROM catalog_returns ,
+        date_dim ,
+        customer_address
+   WHERE cr_returned_date_sk = d_date_sk
+     AND d_year = 2000
+     AND cr_returning_addr_sk = ca_address_sk
+   GROUP BY cr_returning_customer_sk ,
+            ca_state)
+SELECT c_customer_id,
+       c_salutation,
+       c_first_name,
+       c_last_name,
+       ca_street_number,
+       ca_street_name ,
+       ca_street_type,
+       ca_suite_number,
+       ca_city,
+       ca_county,
+       ca_state,
+       ca_zip,
+       ca_country,
+       ca_gmt_offset ,
+       ca_location_type,
+       ctr_total_return
+FROM customer_total_return ctr1 ,
+     customer_address ,
+     customer
+WHERE ctr1.ctr_total_return >
+    (SELECT avg(ctr_total_return)*1.2
+     FROM customer_total_return ctr2
+     WHERE ctr1.ctr_state = ctr2.ctr_state)
+  AND ca_address_sk = c_current_addr_sk
+  AND ca_state = 'GA'
+  AND ctr1.ctr_customer_sk = c_customer_sk
+ORDER BY c_customer_id,
+         c_salutation,
+         c_first_name,
+         c_last_name,
+         ca_street_number,
+         ca_street_name ,
+         ca_street_type,
+         ca_suite_number,
+         ca_city,
+         ca_county,
+         ca_state,
+         ca_zip,
+         ca_country,
+         ca_gmt_offset ,
+         ca_location_type,
+         ctr_total_return
+LIMIT 100;
+----
+AAAAAAAAAEECAAAA Dr. Anne NULL 419 View Miller Wy Suite 360 Pleasant Grove Cobb County GA 34136 United States -5 single family 2379.62
+AAAAAAAAAGBAAAAA Sir Steven Moore 612 5th Elm Boulevard Suite D Riverdale Fayette County GA 39391 United States -5 condo 1760.8
+AAAAAAAAANIBAAAA Miss Luisa Russell 767 6th  Road Suite 430 Franklin Rockdale County GA 39101 United States -5 condo 2711.28
+AAAAAAAABLBAAAAA Sir Robert Leatherman 29 11th 4th Pkwy Suite J Walnut Grove Walker County GA 37752 United States -5 condo 2286.79
+AAAAAAAABMCAAAAA Miss Heather Cady 406 Sunset Maple Boulevard Suite Q Oakwood Richmond County GA 30169 United States -5 condo 3231.94
+AAAAAAAACBIAAAAA Dr. Michael Maynard 91 Sunset Lincoln Ln Suite 390 Unionville Tift County GA 31711 United States -5 apartment 3135.73
+AAAAAAAACGCCAAAA Mrs. Sheila Rawlings 128 12th  Wy Suite V Wilson Effingham County GA 36971 United States -5 apartment 4345.31
+AAAAAAAACKBAAAAA Dr. Maurice Morales 918 Lake  Drive Suite T Shelby Lincoln County GA 36575 United States -5 condo 3317.24
+AAAAAAAADCBAAAAA Mr. Ralph Johnson 492 View Oak Avenue Suite C Walnut Grove Houston County GA 37752 United States -5 apartment 4740.04
+AAAAAAAADLABAAAA Mrs. Sharla Buchanan 227 Adams  Dr. Suite 380 Greenwood Wilkinson County GA 38828 United States -5 apartment 2270.49
+AAAAAAAAEFDBAAAA Mrs. Helen Cartwright 29 Ash  Avenue Suite 320 Riverside Douglas County GA 39231 United States -5 apartment 4829.73
+AAAAAAAAEJIAAAAA Mr. James Penn 260 Second Sixth Cir. Suite M Oak Hill Oglethorpe County GA 37838 United States -5 single family 1358.75
+AAAAAAAAFEAAAAAA Sir Steven Mcclellan 954 8th  Pkwy Suite 30 Hillcrest Bleckley County GA 33003 United States -5 single family 7569.1
+AAAAAAAAFIHAAAAA Miss Dorothy Burrell 453 Davis Pine Way Suite 410 Wildwood Peach County GA 36871 United States -5 condo 9146.12
+AAAAAAAAGFIAAAAA Mr. James Bravo 961 Mill  Pkwy Suite P Pleasant Hill Lee County GA 33604 United States -5 apartment 2885.76
+AAAAAAAAGFIAAAAA Mr. James Bravo 961 Mill  Pkwy Suite P Pleasant Hill Lee County GA 33604 United States -5 apartment 2925.84
+AAAAAAAAGGDCAAAA Mr. Zachary Hendrickson 530 Sunset Second Way Suite 40 Lincoln Elbert County GA 31289 United States -5 single family 1986.74
+AAAAAAAAGGGBAAAA Dr. Timothy Werner 983 Cedar Johnson Cir. Suite 360 Edgewood Jenkins County GA 30069 United States -5 condo 8088.23
+AAAAAAAAGHABAAAA Mrs. Lina Abbott 173 Woodland  Road Suite T Bunker Hill Candler County GA 30150 United States -5 apartment 2877.6
+AAAAAAAAHMOBAAAA Sir Harry Jones 492 View Oak Avenue Suite C Walnut Grove Houston County GA 37752 United States -5 apartment 7524.53
+AAAAAAAAIFEAAAAA Miss Lisa Flannery 321 Valley Maple Ct. Suite 430 Bunker Hill Gordon County GA 30150 United States -5 single family 4362
+AAAAAAAAJEEBAAAA Mrs. Mabel Cunningham 626 Oak Oak Lane Suite E Spring Valley Early County GA 36060 United States -5 condo 3240.57
+AAAAAAAAJFMBAAAA Dr. Donna Chaney 645 Seventh  ST Suite 230 Lincoln Rockdale County GA 31289 United States -5 single family 3176.03
+AAAAAAAAJGEAAAAA Miss Kenya Park 571 Oak Miller Ln Suite 290 Newport Rabun County GA 31521 United States -5 single family 5495.04
+AAAAAAAAKAAAAAAA Ms. Albert Brunson 307 7th Hillcrest Street Suite 70 Wildwood Union County GA 36871 United States -5 apartment 1605.24
+AAAAAAAAKGCAAAAA Sir James Mueller 545 Sixth  RD Suite U Plainview Long County GA 33683 United States -5 apartment 1257.75
+AAAAAAAALMBAAAAA Dr. Howard Chan 645 Oak Hillcrest ST Suite A Shady Grove Newton County GA 32812 United States -5 apartment 3363.44
+AAAAAAAAMCCCAAAA Dr. Julie Keys 242 North 3rd Pkwy Suite M Oak Ridge Marion County GA 38371 United States -5 single family 2134.59
+AAAAAAAAMJHBAAAA Dr. Cynthia Hutton 942 Sunset  Blvd Suite S Concord Wilkes County GA 34107 United States -5 single family 5181.96
+AAAAAAAAMKABAAAA Sir Brandon Fahey 911 Second  RD Suite A Harmony Lee County GA 35804 United States -5 apartment 4397.65
+AAAAAAAANBFAAAAA Sir Charles Francis 321 Pine Woodland Avenue Suite 40 Five Points Spalding County GA 36098 United States -5 apartment 5095.19
+AAAAAAAANJFAAAAA Mrs. Tina Jordan 321 Pine Woodland Avenue Suite 40 Five Points Spalding County GA 36098 United States -5 apartment 4259.08
+AAAAAAAAOCLAAAAA Dr. Lori Moore 619 Cedar  Cir. Suite N Cedar Grove Camden County GA 30411 United States -5 single family 2992.22
+AAAAAAAAOJIAAAAA Sir Troy Joyner 692 Central  Way Suite 270 Riverdale Dougherty County GA 39391 United States -5 condo 2385.06
