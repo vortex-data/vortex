@@ -83,7 +83,7 @@ impl AggregateFnVTable for Last {
         first: Self::Partial,
         second: Self::Partial,
     ) -> VortexResult<Self::Partial> {
-        // The later non-empty partial wins; an empty later partial changes nothing.
+        // The later value wins.
         Ok(LastPartial {
             value: second.value.or(first.value),
         })
@@ -298,10 +298,9 @@ mod tests {
 
         let five = partial_of(5)?;
         let seven = partial_of(7)?;
-        // An empty partial must not clobber a prior value.
         let empty = Last.empty_partial(&EmptyOptions, dtypes)?;
 
-        // The last non-empty partial in order replaces the prior values.
+        // The last non-empty partial wins, and a trailing empty one changes nothing.
         let merge = |first, second| Last.merge_partials(&EmptyOptions, dtypes, first, second);
         let state = merge(merge(five, seven)?, empty)?;
         assert_eq!(

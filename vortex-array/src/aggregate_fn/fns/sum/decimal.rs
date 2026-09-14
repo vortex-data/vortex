@@ -370,7 +370,7 @@ mod tests {
     fn sum_decimal_near_precision_boundary() -> VortexResult<()> {
         // Input precision 4 → return precision min(76, 4+10) = 14.
         // Native type for precision 14 is I64 (max precision 18), so 14 < 18.
-        // Reduce partials to push state near (but under) 10^14.
+        // Merge partials to push state near (but under) 10^14.
         let input_dtype = DType::Decimal(DecimalDType::new(4, 0), Nullability::NonNullable);
         let options = NumericalAggregateOpts::default();
         let dtypes = AggregateDTypes::try_new(&Sum, &options, input_dtype)?;
@@ -446,7 +446,6 @@ mod tests {
             DType::Decimal(DecimalDType::new(37, 0), Nullable)
         );
 
-        // Set state to 10^37 - 1.
         let near_limit_val: i128 = 10i128.pow(37) - 1;
         let mut state = partial_with_decimal(DecimalValue::from(near_limit_val));
 

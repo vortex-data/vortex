@@ -27,8 +27,7 @@ use crate::scalar::Scalar;
 /// Resolved dtypes of one aggregate function bound to its options and input.
 ///
 /// Accumulators resolve these once and lend them to every execution method as an
-/// [`AggregateDTypesRef`], so partial states only hold accumulated values. Combined aggregates
-/// resolve a separate set for each child.
+/// [`AggregateDTypesRef`], so partial states only hold accumulated values.
 #[derive(Clone, Debug)]
 pub struct AggregateDTypes {
     /// The DType of the input.
@@ -70,7 +69,6 @@ impl AggregateDTypes {
         })
     }
 
-    /// Lend the dtypes to an execution method.
     pub fn borrow(&self) -> AggregateDTypesRef<'_> {
         AggregateDTypesRef {
             dtype: &self.dtype,
@@ -102,9 +100,8 @@ pub struct AggregateDTypesRef<'a> {
 /// all instances of the aggregate. In almost all cases, this struct will be an empty unit
 /// struct, since most aggregates do not require any global state.
 ///
-/// Execution methods receive the options and the resolved [`AggregateDTypesRef`] of the aggregate
-/// they operate on, so partial states only hold accumulated values. Callers must pass the same
-/// options and dtypes for the whole lifetime of a partial state.
+/// Execution methods take the aggregate's options and [`AggregateDTypesRef`], which must be the
+/// same ones for the whole lifetime of a partial state.
 pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
     /// Options for this aggregate function.
     type Options: 'static + Send + Sync + Clone + Debug + Display + PartialEq + Eq + Hash;
@@ -190,10 +187,7 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
 
     /// Parse a partial scalar into the typed partial state.
     ///
-    /// The scalar must have dtype `dtypes.partial_dtype`; this is the inverse of [`to_scalar`]. Partial
-    /// scalars are produced by aggregate kernels, cached statistics, and other accumulators'
-    /// [`to_scalar`].
-    ///
+    /// The scalar must have dtype `dtypes.partial_dtype`; this is the inverse of [`to_scalar`].
     /// Implementations should only parse the scalar here; combining states belongs in
     /// [`merge_partials`].
     ///
@@ -224,8 +218,7 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
     /// Convert the partial state into a partial scalar of dtype `dtypes.partial_dtype`.
     ///
     /// This is the inverse of [`partial_from_scalar`]: parsing the returned scalar must
-    /// reconstruct a state that behaves identically under accumulation, merging, saturation, and
-    /// finalization.
+    /// reconstruct an equivalent state.
     ///
     /// [`partial_from_scalar`]: AggregateFnVTable::partial_from_scalar
     fn to_scalar(
