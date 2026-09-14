@@ -1,0 +1,147 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT asceding.rnk,
+       i1.i_product_name best_performing,
+       i2.i_product_name worst_performing
+FROM
+  (SELECT *
+   FROM
+     (SELECT item_sk,
+             rank() OVER (
+                          ORDER BY rank_col ASC) rnk
+      FROM
+        (SELECT ss_item_sk item_sk,
+                avg(ss_net_profit) rank_col
+         FROM store_sales ss1
+         WHERE ss_store_sk = 4
+         GROUP BY ss_item_sk
+         HAVING avg(ss_net_profit) > 0.9*
+           (SELECT avg(ss_net_profit) rank_col
+            FROM store_sales
+            WHERE ss_store_sk = 4
+              AND ss_addr_sk IS NULL
+            GROUP BY ss_store_sk))V1)V11
+   WHERE rnk < 11) asceding,
+  (SELECT *
+   FROM
+     (SELECT item_sk,
+             rank() OVER (
+                          ORDER BY rank_col DESC) rnk
+      FROM
+        (SELECT ss_item_sk item_sk,
+                avg(ss_net_profit) rank_col
+         FROM store_sales ss1
+         WHERE ss_store_sk = 4
+         GROUP BY ss_item_sk
+         HAVING avg(ss_net_profit) > 0.9*
+           (SELECT avg(ss_net_profit) rank_col
+            FROM store_sales
+            WHERE ss_store_sk = 4
+              AND ss_addr_sk IS NULL
+            GROUP BY ss_store_sk))V2)V21
+   WHERE rnk < 11) descending,
+     item i1,
+     item i2
+WHERE asceding.rnk = descending.rnk
+  AND i1.i_item_sk=asceding.item_sk
+  AND i2.i_item_sk=descending.item_sk
+ORDER BY asceding.rnk
+LIMIT 100;
+----
+logical_plan
+01)Sort: asceding.rnk ASC NULLS LAST, fetch=100
+02)--Projection: asceding.rnk, i1.i_product_name AS best_performing, i2.i_product_name AS worst_performing
+03)----Inner Join: descending.item_sk = i2.i_item_sk
+04)------Projection: asceding.rnk, descending.item_sk, i1.i_product_name
+05)--------Inner Join: asceding.item_sk = i1.i_item_sk
+06)----------Projection: asceding.item_sk, asceding.rnk, descending.item_sk
+07)------------Inner Join: asceding.rnk = descending.rnk
+08)--------------SubqueryAlias: asceding
+09)----------------SubqueryAlias: v11
+10)------------------Projection: v1.item_sk, rank() ORDER BY [v1.rank_col ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW AS rnk
+11)--------------------Filter: rank() ORDER BY [v1.rank_col ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW < UInt64(11)
+12)----------------------Projection: v1.item_sk, rank() ORDER BY [v1.rank_col ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+13)------------------------WindowAggr: windowExpr=[[rank() ORDER BY [v1.rank_col ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW]]
+14)--------------------------SubqueryAlias: v1
+15)----------------------------Projection: ss1.ss_item_sk AS item_sk, avg(ss1.ss_net_profit) AS rank_col
+16)------------------------------Filter: CAST(avg(ss1.ss_net_profit) AS Decimal128(30, 15)) > CAST(Float64(0.9) * (<subquery>) AS Decimal128(30, 15))
+17)--------------------------------Subquery:
+18)----------------------------------Projection: CAST(avg(store_sales.ss_net_profit) AS rank_col AS Float64)
+19)------------------------------------Aggregate: groupBy=[[store_sales.ss_store_sk]], aggr=[[avg(store_sales.ss_net_profit)]]
+20)--------------------------------------Projection: store_sales.ss_store_sk, store_sales.ss_net_profit
+21)----------------------------------------Filter: store_sales.ss_store_sk = Int64(4) AND store_sales.ss_addr_sk IS NULL
+22)------------------------------------------TableScan: store_sales projection=[ss_addr_sk, ss_store_sk, ss_net_profit], partial_filters=[store_sales.ss_store_sk = Int64(4), store_sales.ss_addr_sk IS NULL]
+23)--------------------------------Aggregate: groupBy=[[ss1.ss_item_sk]], aggr=[[avg(ss1.ss_net_profit)]]
+24)----------------------------------SubqueryAlias: ss1
+25)------------------------------------Projection: store_sales.ss_item_sk, store_sales.ss_net_profit
+26)--------------------------------------Filter: store_sales.ss_store_sk = Int64(4)
+27)----------------------------------------TableScan: store_sales projection=[ss_item_sk, ss_store_sk, ss_net_profit], partial_filters=[store_sales.ss_store_sk = Int64(4)]
+28)--------------SubqueryAlias: descending
+29)----------------SubqueryAlias: v21
+30)------------------Projection: v2.item_sk, rank() ORDER BY [v2.rank_col DESC NULLS FIRST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW AS rnk
+31)--------------------Filter: rank() ORDER BY [v2.rank_col DESC NULLS FIRST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW < UInt64(11)
+32)----------------------Projection: v2.item_sk, rank() ORDER BY [v2.rank_col DESC NULLS FIRST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+33)------------------------WindowAggr: windowExpr=[[rank() ORDER BY [v2.rank_col DESC NULLS FIRST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW]]
+34)--------------------------SubqueryAlias: v2
+35)----------------------------Projection: ss1.ss_item_sk AS item_sk, avg(ss1.ss_net_profit) AS rank_col
+36)------------------------------Filter: CAST(avg(ss1.ss_net_profit) AS Decimal128(30, 15)) > CAST(Float64(0.9) * (<subquery>) AS Decimal128(30, 15))
+37)--------------------------------Subquery:
+38)----------------------------------Projection: CAST(avg(store_sales.ss_net_profit) AS rank_col AS Float64)
+39)------------------------------------Aggregate: groupBy=[[store_sales.ss_store_sk]], aggr=[[avg(store_sales.ss_net_profit)]]
+40)--------------------------------------Projection: store_sales.ss_store_sk, store_sales.ss_net_profit
+41)----------------------------------------Filter: store_sales.ss_store_sk = Int64(4) AND store_sales.ss_addr_sk IS NULL
+42)------------------------------------------TableScan: store_sales projection=[ss_addr_sk, ss_store_sk, ss_net_profit], partial_filters=[store_sales.ss_store_sk = Int64(4), store_sales.ss_addr_sk IS NULL]
+43)--------------------------------Aggregate: groupBy=[[ss1.ss_item_sk]], aggr=[[avg(ss1.ss_net_profit)]]
+44)----------------------------------SubqueryAlias: ss1
+45)------------------------------------Projection: store_sales.ss_item_sk, store_sales.ss_net_profit
+46)--------------------------------------Filter: store_sales.ss_store_sk = Int64(4)
+47)----------------------------------------TableScan: store_sales projection=[ss_item_sk, ss_store_sk, ss_net_profit], partial_filters=[store_sales.ss_store_sk = Int64(4)]
+48)----------SubqueryAlias: i1
+49)------------TableScan: item projection=[i_item_sk, i_product_name]
+50)------SubqueryAlias: i2
+51)--------TableScan: item projection=[i_item_sk, i_product_name]
+physical_plan
+01)ScalarSubqueryExec: subqueries=1
+02)--SortExec: TopK(fetch=100), expr=[rnk@0 ASC NULLS LAST], preserve_partitioning=[false]
+03)----ProjectionExec: expr=[rnk@0 as rnk, i_product_name@1 as best_performing, i_product_name@2 as worst_performing]
+04)------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(item_sk@1, i_item_sk@0)], projection=[rnk@0, i_product_name@2, i_product_name@4]
+05)--------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(item_sk@0, i_item_sk@0)], projection=[rnk@1, item_sk@2, i_product_name@4]
+06)----------CoalescePartitionsExec
+07)------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(rnk@1, rnk@1)], projection=[item_sk@0, rnk@1, item_sk@2]
+08)--------------CoalescePartitionsExec
+09)----------------ProjectionExec: expr=[item_sk@0 as item_sk, rank() ORDER BY [v1.rank_col ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@1 as rnk]
+10)------------------FilterExec: rank() ORDER BY [v1.rank_col ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@1 < 11
+11)--------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1, maintains_sort_order=true
+12)----------------------ProjectionExec: expr=[item_sk@0 as item_sk, rank() ORDER BY [v1.rank_col ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@2 as rank() ORDER BY [v1.rank_col ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW]
+13)------------------------BoundedWindowAggExec: wdw=[rank() ORDER BY [v1.rank_col ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW: Field { "rank() ORDER BY [v1.rank_col ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW": UInt64 }, frame: RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW], mode=[Sorted]
+14)--------------------------SortPreservingMergeExec: [rank_col@1 ASC NULLS LAST]
+15)----------------------------ProjectionExec: expr=[ss_item_sk@0 as item_sk, avg(ss1.ss_net_profit)@1 as rank_col]
+16)------------------------------SortExec: expr=[avg(ss1.ss_net_profit)@1 ASC NULLS LAST], preserve_partitioning=[true]
+17)--------------------------------FilterExec: CAST(avg(ss1.ss_net_profit)@1 AS Decimal128(30, 15)) > CAST(0.9 * scalar_subquery(<pending>) AS Decimal128(30, 15))
+18)----------------------------------AggregateExec: mode=FinalPartitioned, gby=[ss_item_sk@0 as ss_item_sk], aggr=[avg(ss1.ss_net_profit)]
+19)------------------------------------RepartitionExec: partitioning=Hash([ss_item_sk@0], 4), input_partitions=4
+20)--------------------------------------AggregateExec: mode=Partial, gby=[ss_item_sk@0 as ss_item_sk], aggr=[avg(ss1.ss_net_profit)]
+21)----------------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_item_sk, ss_net_profit], file_type=vortex, predicate: ss_store_sk@7 = 4
+22)--------------ProjectionExec: expr=[item_sk@0 as item_sk, rank() ORDER BY [v2.rank_col DESC NULLS FIRST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@1 as rnk]
+23)----------------FilterExec: rank() ORDER BY [v2.rank_col DESC NULLS FIRST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@1 < 11
+24)------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1, maintains_sort_order=true
+25)--------------------ProjectionExec: expr=[item_sk@0 as item_sk, rank() ORDER BY [v2.rank_col DESC NULLS FIRST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@2 as rank() ORDER BY [v2.rank_col DESC NULLS FIRST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW]
+26)----------------------BoundedWindowAggExec: wdw=[rank() ORDER BY [v2.rank_col DESC NULLS FIRST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW: Field { "rank() ORDER BY [v2.rank_col DESC NULLS FIRST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW": UInt64 }, frame: RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW], mode=[Sorted]
+27)------------------------SortPreservingMergeExec: [rank_col@1 DESC]
+28)--------------------------ProjectionExec: expr=[ss_item_sk@0 as item_sk, avg(ss1.ss_net_profit)@1 as rank_col]
+29)----------------------------SortExec: expr=[avg(ss1.ss_net_profit)@1 DESC], preserve_partitioning=[true]
+30)------------------------------FilterExec: CAST(avg(ss1.ss_net_profit)@1 AS Decimal128(30, 15)) > CAST(0.9 * scalar_subquery(<pending>) AS Decimal128(30, 15))
+31)--------------------------------AggregateExec: mode=FinalPartitioned, gby=[ss_item_sk@0 as ss_item_sk], aggr=[avg(ss1.ss_net_profit)]
+32)----------------------------------RepartitionExec: partitioning=Hash([ss_item_sk@0], 4), input_partitions=4
+33)------------------------------------AggregateExec: mode=Partial, gby=[ss_item_sk@0 as ss_item_sk], aggr=[avg(ss1.ss_net_profit)]
+34)--------------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_item_sk, ss_net_profit], file_type=vortex, predicate: ss_store_sk@7 = 4
+35)----------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_product_name], file_type=vortex
+36)--------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_product_name], file_type=vortex
+37)--ProjectionExec: expr=[CAST(avg(store_sales.ss_net_profit)@1 AS Float64) as rank_col]
+38)----AggregateExec: mode=FinalPartitioned, gby=[ss_store_sk@0 as ss_store_sk], aggr=[avg(store_sales.ss_net_profit)], ordering_mode=Sorted
+39)------RepartitionExec: partitioning=Hash([ss_store_sk@0], 4), input_partitions=4
+40)--------AggregateExec: mode=Partial, gby=[ss_store_sk@0 as ss_store_sk], aggr=[avg(store_sales.ss_net_profit)], ordering_mode=Sorted
+41)----------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_store_sk, ss_net_profit], file_type=vortex, predicate: ss_store_sk@7 = 4 AND ss_addr_sk@6 IS NULL

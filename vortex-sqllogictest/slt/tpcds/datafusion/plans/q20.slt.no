@@ -1,0 +1,63 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT i_item_id ,
+       i_item_desc,
+       i_category,
+       i_class,
+       i_current_price ,
+       sum(cs_ext_sales_price) AS itemrevenue,
+       sum(cs_ext_sales_price)*100.0000/sum(sum(cs_ext_sales_price)) OVER (PARTITION BY i_class) AS revenueratio
+FROM catalog_sales ,
+     item,
+     date_dim
+WHERE cs_item_sk = i_item_sk
+  AND i_category IN ('Sports',
+                     'Books',
+                     'Home')
+  AND cs_sold_date_sk = d_date_sk
+  AND d_date BETWEEN cast('1999-02-22' AS date) AND cast('1999-03-24' AS date)
+GROUP BY i_item_id ,
+         i_item_desc,
+         i_category ,
+         i_class ,
+         i_current_price
+ORDER BY i_category NULLS FIRST,
+         i_class NULLS FIRST,
+         i_item_id NULLS FIRST,
+         i_item_desc NULLS FIRST,
+         revenueratio NULLS FIRST
+LIMIT 100;
+----
+logical_plan
+01)Sort: item.i_category ASC NULLS FIRST, item.i_class ASC NULLS FIRST, item.i_item_id ASC NULLS FIRST, item.i_item_desc ASC NULLS FIRST, revenueratio ASC NULLS FIRST, fetch=100
+02)--Projection: item.i_item_id, item.i_item_desc, item.i_category, item.i_class, item.i_current_price, sum(catalog_sales.cs_ext_sales_price) AS itemrevenue, CAST(sum(catalog_sales.cs_ext_sales_price) AS Float64) * Float64(100) / CAST(sum(sum(catalog_sales.cs_ext_sales_price)) PARTITION BY [item.i_class] ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING AS Float64) AS revenueratio
+03)----WindowAggr: windowExpr=[[sum(sum(catalog_sales.cs_ext_sales_price)) PARTITION BY [item.i_class] ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING]]
+04)------Aggregate: groupBy=[[item.i_item_id, item.i_item_desc, item.i_category, item.i_class, item.i_current_price]], aggr=[[sum(catalog_sales.cs_ext_sales_price)]]
+05)--------Projection: catalog_sales.cs_ext_sales_price, item.i_item_id, item.i_item_desc, item.i_current_price, item.i_class, item.i_category
+06)----------Inner Join: catalog_sales.cs_sold_date_sk = date_dim.d_date_sk
+07)------------Projection: catalog_sales.cs_sold_date_sk, catalog_sales.cs_ext_sales_price, item.i_item_id, item.i_item_desc, item.i_current_price, item.i_class, item.i_category
+08)--------------Inner Join: catalog_sales.cs_item_sk = item.i_item_sk
+09)----------------TableScan: catalog_sales projection=[cs_sold_date_sk, cs_item_sk, cs_ext_sales_price]
+10)----------------Filter: item.i_category = Utf8View("Sports") OR item.i_category = Utf8View("Books") OR item.i_category = Utf8View("Home")
+11)------------------TableScan: item projection=[i_item_sk, i_item_id, i_item_desc, i_current_price, i_class, i_category], partial_filters=[item.i_category = Utf8View("Sports") OR item.i_category = Utf8View("Books") OR item.i_category = Utf8View("Home")]
+12)------------Projection: date_dim.d_date_sk
+13)--------------Filter: date_dim.d_date >= Date32("1999-02-22") AND date_dim.d_date <= Date32("1999-03-24")
+14)----------------TableScan: date_dim projection=[d_date_sk, d_date], partial_filters=[date_dim.d_date >= Date32("1999-02-22"), date_dim.d_date <= Date32("1999-03-24")]
+physical_plan
+01)SortPreservingMergeExec: [i_category@2 ASC, i_class@3 ASC, i_item_id@0 ASC, i_item_desc@1 ASC, revenueratio@6 ASC], fetch=100
+02)--SortExec: TopK(fetch=100), expr=[i_category@2 ASC, i_class@3 ASC, i_item_id@0 ASC, i_item_desc@1 ASC, revenueratio@6 ASC], preserve_partitioning=[true]
+03)----ProjectionExec: expr=[i_item_id@0 as i_item_id, i_item_desc@1 as i_item_desc, i_category@2 as i_category, i_class@3 as i_class, i_current_price@4 as i_current_price, sum(catalog_sales.cs_ext_sales_price)@5 as itemrevenue, CAST(sum(catalog_sales.cs_ext_sales_price)@5 AS Float64) * 100 / CAST(sum(sum(catalog_sales.cs_ext_sales_price)) PARTITION BY [item.i_class] ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING@6 AS Float64) as revenueratio]
+04)------WindowAggExec: wdw=[sum(sum(catalog_sales.cs_ext_sales_price)) PARTITION BY [item.i_class] ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING: Ok(Field { name: "sum(sum(catalog_sales.cs_ext_sales_price)) PARTITION BY [item.i_class] ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING", data_type: Decimal128(27, 2), nullable: true }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }]
+05)--------SortExec: expr=[i_class@3 ASC NULLS LAST], preserve_partitioning=[true]
+06)----------RepartitionExec: partitioning=Hash([i_class@3], 4), input_partitions=4
+07)------------AggregateExec: mode=FinalPartitioned, gby=[i_item_id@0 as i_item_id, i_item_desc@1 as i_item_desc, i_category@2 as i_category, i_class@3 as i_class, i_current_price@4 as i_current_price], aggr=[sum(catalog_sales.cs_ext_sales_price)]
+08)--------------RepartitionExec: partitioning=Hash([i_item_id@0, i_item_desc@1, i_category@2, i_class@3, i_current_price@4], 4), input_partitions=4
+09)----------------AggregateExec: mode=Partial, gby=[i_item_id@1 as i_item_id, i_item_desc@2 as i_item_desc, i_category@5 as i_category, i_class@4 as i_class, i_current_price@3 as i_current_price], aggr=[sum(catalog_sales.cs_ext_sales_price)]
+10)------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, cs_sold_date_sk@0)], projection=[cs_ext_sales_price@2, i_item_id@3, i_item_desc@4, i_current_price@5, i_class@6, i_category@7]
+11)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_date@2 >= 1999-02-22 AND d_date@2 <= 1999-03-24
+12)--------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, cs_item_sk@1)], projection=[cs_sold_date_sk@6, cs_ext_sales_price@8, i_item_id@1, i_item_desc@2, i_current_price@3, i_class@4, i_category@5]
+13)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_item_id, i_item_desc, i_current_price, i_class, i_category], file_type=vortex, predicate: i_category@12 = Sports OR i_category@12 = Books OR i_category@12 = Home
+14)----------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>]]}, projection=[cs_sold_date_sk, cs_item_sk, cs_ext_sales_price], file_type=vortex

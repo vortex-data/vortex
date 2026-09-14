@@ -1,0 +1,618 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN (FORMAT json)
+SELECT c_customer_id AS customer_id ,
+       concat(concat(coalesce(c_last_name, '') , ', '), coalesce(c_first_name, '')) AS customername
+FROM customer ,
+     customer_address ,
+     customer_demographics ,
+     household_demographics ,
+     income_band ,
+     store_returns
+WHERE ca_city = 'Edgewood'
+  AND c_current_addr_sk = ca_address_sk
+  AND ib_lower_bound >= 38128
+  AND ib_upper_bound <= 38128 + 50000
+  AND ib_income_band_sk = hd_income_band_sk
+  AND cd_demo_sk = c_current_cdemo_sk
+  AND hd_demo_sk = c_current_hdemo_sk
+  AND sr_cdemo_sk = cd_demo_sk
+ORDER BY c_customer_id NULLS FIRST
+LIMIT 100;
+----
+logical_plan [
+    {
+        "name": "LIMIT",
+        "children": [
+            {
+                "name": "ORDER_BY",
+                "children": [
+                    {
+                        "name": "PROJECTION",
+                        "children": [
+                            {
+                                "name": "FILTER",
+                                "children": [
+                                    {
+                                        "name": "CROSS_PRODUCT",
+                                        "children": [
+                                            {
+                                                "name": "CROSS_PRODUCT",
+                                                "children": [
+                                                    {
+                                                        "name": "CROSS_PRODUCT",
+                                                        "children": [
+                                                            {
+                                                                "name": "CROSS_PRODUCT",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "CROSS_PRODUCT",
+                                                                        "children": [
+                                                                            {
+                                                                                "name": "PROJECTION",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "READ_VORTEX",
+                                                                                        "children": [],
+                                                                                        "extra_info": {
+                                                                                            "Filters": "",
+                                                                                            "Function": "Vortex Scan"
+                                                                                        }
+                                                                                    }
+                                                                                ],
+                                                                                "extra_info": {
+                                                                                    "Expressions": [
+                                                                                        "c_customer_sk",
+                                                                                        "c_customer_id",
+                                                                                        "c_current_cdemo_sk",
+                                                                                        "c_current_hdemo_sk",
+                                                                                        "c_current_addr_sk",
+                                                                                        "c_first_shipto_date_sk",
+                                                                                        "c_first_sales_date_sk",
+                                                                                        "c_salutation",
+                                                                                        "c_first_name",
+                                                                                        "c_last_name",
+                                                                                        "c_preferred_cust_flag",
+                                                                                        "c_birth_day",
+                                                                                        "c_birth_month",
+                                                                                        "c_birth_year",
+                                                                                        "c_birth_country",
+                                                                                        "c_login",
+                                                                                        "c_email_address",
+                                                                                        "c_last_review_date_sk"
+                                                                                    ]
+                                                                                }
+                                                                            },
+                                                                            {
+                                                                                "name": "PROJECTION",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "READ_VORTEX",
+                                                                                        "children": [],
+                                                                                        "extra_info": {
+                                                                                            "Filters": "",
+                                                                                            "Function": "Vortex Scan"
+                                                                                        }
+                                                                                    }
+                                                                                ],
+                                                                                "extra_info": {
+                                                                                    "Expressions": [
+                                                                                        "ca_address_sk",
+                                                                                        "ca_address_id",
+                                                                                        "ca_street_number",
+                                                                                        "ca_street_name",
+                                                                                        "ca_street_type",
+                                                                                        "ca_suite_number",
+                                                                                        "ca_city",
+                                                                                        "ca_county",
+                                                                                        "ca_state",
+                                                                                        "ca_zip",
+                                                                                        "ca_country",
+                                                                                        "ca_gmt_offset",
+                                                                                        "ca_location_type"
+                                                                                    ]
+                                                                                }
+                                                                            }
+                                                                        ],
+                                                                        "extra_info": {
+                                                                            "Expressions": ""
+                                                                        }
+                                                                    },
+                                                                    {
+                                                                        "name": "PROJECTION",
+                                                                        "children": [
+                                                                            {
+                                                                                "name": "READ_VORTEX",
+                                                                                "children": [],
+                                                                                "extra_info": {
+                                                                                    "Filters": "",
+                                                                                    "Function": "Vortex Scan"
+                                                                                }
+                                                                            }
+                                                                        ],
+                                                                        "extra_info": {
+                                                                            "Expressions": [
+                                                                                "cd_demo_sk",
+                                                                                "cd_gender",
+                                                                                "cd_marital_status",
+                                                                                "cd_education_status",
+                                                                                "cd_purchase_estimate",
+                                                                                "cd_credit_rating",
+                                                                                "cd_dep_count",
+                                                                                "cd_dep_employed_count",
+                                                                                "cd_dep_college_count"
+                                                                            ]
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Expressions": ""
+                                                                }
+                                                            },
+                                                            {
+                                                                "name": "PROJECTION",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "READ_VORTEX",
+                                                                        "children": [],
+                                                                        "extra_info": {
+                                                                            "Filters": "",
+                                                                            "Function": "Vortex Scan"
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Expressions": [
+                                                                        "hd_demo_sk",
+                                                                        "hd_income_band_sk",
+                                                                        "hd_buy_potential",
+                                                                        "hd_dep_count",
+                                                                        "hd_vehicle_count"
+                                                                    ]
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Expressions": ""
+                                                        }
+                                                    },
+                                                    {
+                                                        "name": "PROJECTION",
+                                                        "children": [
+                                                            {
+                                                                "name": "READ_VORTEX",
+                                                                "children": [],
+                                                                "extra_info": {
+                                                                    "Filters": "",
+                                                                    "Function": "Vortex Scan"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Expressions": [
+                                                                "ib_income_band_sk",
+                                                                "ib_lower_bound",
+                                                                "ib_upper_bound"
+                                                            ]
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Expressions": ""
+                                                }
+                                            },
+                                            {
+                                                "name": "PROJECTION",
+                                                "children": [
+                                                    {
+                                                        "name": "READ_VORTEX",
+                                                        "children": [],
+                                                        "extra_info": {
+                                                            "Filters": "",
+                                                            "Function": "Vortex Scan"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Expressions": [
+                                                        "sr_returned_date_sk",
+                                                        "sr_return_time_sk",
+                                                        "sr_item_sk",
+                                                        "sr_customer_sk",
+                                                        "sr_cdemo_sk",
+                                                        "sr_hdemo_sk",
+                                                        "sr_addr_sk",
+                                                        "sr_store_sk",
+                                                        "sr_reason_sk",
+                                                        "sr_ticket_number",
+                                                        "sr_return_quantity",
+                                                        "sr_return_amt",
+                                                        "sr_return_tax",
+                                                        "sr_return_amt_inc_tax",
+                                                        "sr_fee",
+                                                        "sr_return_ship_cost",
+                                                        "sr_refunded_cash",
+                                                        "sr_reversed_charge",
+                                                        "sr_store_credit",
+                                                        "sr_net_loss"
+                                                    ]
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Expressions": ""
+                                        }
+                                    }
+                                ],
+                                "extra_info": {
+                                    "Expressions": [
+                                        "(ca_city = CAST('Edgewood' AS VARCHAR))",
+                                        "(c_current_addr_sk = ca_address_sk)",
+                                        "(ib_lower_bound >= CAST(38128 AS BIGINT))",
+                                        "(ib_upper_bound <= (38128 + 50000))",
+                                        "(ib_income_band_sk = hd_income_band_sk)",
+                                        "(cd_demo_sk = c_current_cdemo_sk)",
+                                        "(hd_demo_sk = c_current_hdemo_sk)",
+                                        "(sr_cdemo_sk = cd_demo_sk)"
+                                    ]
+                                }
+                            }
+                        ],
+                        "extra_info": {
+                            "Expressions": [
+                                "customer_id",
+                                "customername"
+                            ]
+                        }
+                    }
+                ],
+                "extra_info": {
+                    "Order By": "memory.main.customer.c_customer_id"
+                }
+            }
+        ],
+        "extra_info": {
+            "Expressions": ""
+        }
+    }
+]
+logical_opt [
+    {
+        "name": "TOP_N",
+        "children": [
+            {
+                "name": "PROJECTION",
+                "children": [
+                    {
+                        "name": "COMPARISON_JOIN",
+                        "children": [
+                            {
+                                "name": "PROJECTION",
+                                "children": [
+                                    {
+                                        "name": "READ_VORTEX",
+                                        "children": [],
+                                        "extra_info": {
+                                            "Filters": "(7i64 <= $.cd_demo_sk <= 192051i64)",
+                                            "Function": "Vortex Scan",
+                                            "Estimated Cardinality": "192080"
+                                        }
+                                    }
+                                ],
+                                "extra_info": {
+                                    "Expressions": "cd_demo_sk",
+                                    "Estimated Cardinality": "192080"
+                                }
+                            },
+                            {
+                                "name": "COMPARISON_JOIN",
+                                "children": [
+                                    {
+                                        "name": "PROJECTION",
+                                        "children": [
+                                            {
+                                                "name": "READ_VORTEX",
+                                                "children": [],
+                                                "extra_info": {
+                                                    "Filters": "(7i64 <= $.sr_cdemo_sk <= 192051i64)",
+                                                    "Function": "Vortex Scan",
+                                                    "Estimated Cardinality": "28576"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Expressions": "sr_cdemo_sk",
+                                            "Estimated Cardinality": "28576"
+                                        }
+                                    },
+                                    {
+                                        "name": "COMPARISON_JOIN",
+                                        "children": [
+                                            {
+                                                "name": "COMPARISON_JOIN",
+                                                "children": [
+                                                    {
+                                                        "name": "PROJECTION",
+                                                        "children": [
+                                                            {
+                                                                "name": "READ_VORTEX",
+                                                                "children": [],
+                                                                "extra_info": {
+                                                                    "Filters": "",
+                                                                    "Function": "Vortex Scan",
+                                                                    "Estimated Cardinality": "7200"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Expressions": [
+                                                                "hd_demo_sk",
+                                                                "hd_income_band_sk"
+                                                            ],
+                                                            "Estimated Cardinality": "7200"
+                                                        }
+                                                    },
+                                                    {
+                                                        "name": "COMPARISON_JOIN",
+                                                        "children": [
+                                                            {
+                                                                "name": "PROJECTION",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "READ_VORTEX",
+                                                                        "children": [],
+                                                                        "extra_info": {
+                                                                            "Filters": "",
+                                                                            "Function": "Vortex Scan",
+                                                                            "Estimated Cardinality": "10000"
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Expressions": [
+                                                                        "c_customer_id",
+                                                                        "c_current_cdemo_sk",
+                                                                        "c_current_hdemo_sk",
+                                                                        "c_current_addr_sk",
+                                                                        "c_first_name",
+                                                                        "c_last_name"
+                                                                    ],
+                                                                    "Estimated Cardinality": "10000"
+                                                                }
+                                                            },
+                                                            {
+                                                                "name": "PROJECTION",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "READ_VORTEX",
+                                                                        "children": [],
+                                                                        "extra_info": {
+                                                                            "Filters": "($.ca_city = \"Edgewood\")",
+                                                                            "Function": "Vortex Scan",
+                                                                            "Estimated Cardinality": "200"
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Expressions": "ca_address_sk",
+                                                                    "Estimated Cardinality": "200"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Join Type": "INNER",
+                                                            "Conditions": "(c_current_addr_sk = ca_address_sk)",
+                                                            "Estimated Cardinality": "2000"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Join Type": "INNER",
+                                                    "Conditions": "(hd_demo_sk = c_current_hdemo_sk)",
+                                                    "Estimated Cardinality": "2000"
+                                                }
+                                            },
+                                            {
+                                                "name": "PROJECTION",
+                                                "children": [
+                                                    {
+                                                        "name": "READ_VORTEX",
+                                                        "children": [],
+                                                        "extra_info": {
+                                                            "Filters": [
+                                                                "($.ib_lower_bound >= 38128i64)",
+                                                                "($.ib_upper_bound <= 88128i32)"
+                                                            ],
+                                                            "Function": "Vortex Scan",
+                                                            "Estimated Cardinality": "4"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Expressions": "ib_income_band_sk",
+                                                    "Estimated Cardinality": "4"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Join Type": "INNER",
+                                            "Conditions": "(hd_income_band_sk = ib_income_band_sk)",
+                                            "Estimated Cardinality": "2000"
+                                        }
+                                    }
+                                ],
+                                "extra_info": {
+                                    "Join Type": "INNER",
+                                    "Conditions": "(sr_cdemo_sk = c_current_cdemo_sk)",
+                                    "Estimated Cardinality": "5715"
+                                }
+                            }
+                        ],
+                        "extra_info": {
+                            "Join Type": "INNER",
+                            "Conditions": "(cd_demo_sk = c_current_cdemo_sk)",
+                            "Estimated Cardinality": "109777"
+                        }
+                    }
+                ],
+                "extra_info": {
+                    "Expressions": [
+                        "customer_id",
+                        "customername"
+                    ],
+                    "Estimated Cardinality": "109777"
+                }
+            }
+        ],
+        "extra_info": {
+            "Expressions": "",
+            "Estimated Cardinality": "100"
+        }
+    }
+]
+physical_plan [
+    {
+        "name": "TOP_N",
+        "children": [
+            {
+                "name": "PROJECTION",
+                "children": [
+                    {
+                        "name": "HASH_JOIN",
+                        "children": [
+                            {
+                                "name": "READ_VORTEX",
+                                "children": [],
+                                "extra_info": {
+                                    "Function": "Vortex Scan",
+                                    "Filters": "(7i64 <= $.cd_demo_sk <= 192051i64)",
+                                    "Projections": "cd_demo_sk",
+                                    "Estimated Cardinality": "192080"
+                                }
+                            },
+                            {
+                                "name": "HASH_JOIN",
+                                "children": [
+                                    {
+                                        "name": "READ_VORTEX",
+                                        "children": [],
+                                        "extra_info": {
+                                            "Function": "Vortex Scan",
+                                            "Filters": "(7i64 <= $.sr_cdemo_sk <= 192051i64)",
+                                            "Projections": "sr_cdemo_sk",
+                                            "Estimated Cardinality": "28576"
+                                        }
+                                    },
+                                    {
+                                        "name": "HASH_JOIN",
+                                        "children": [
+                                            {
+                                                "name": "HASH_JOIN",
+                                                "children": [
+                                                    {
+                                                        "name": "READ_VORTEX",
+                                                        "children": [],
+                                                        "extra_info": {
+                                                            "Function": "Vortex Scan",
+                                                            "Projections": [
+                                                                "hd_demo_sk",
+                                                                "hd_income_band_sk"
+                                                            ],
+                                                            "Estimated Cardinality": "7200"
+                                                        }
+                                                    },
+                                                    {
+                                                        "name": "HASH_JOIN",
+                                                        "children": [
+                                                            {
+                                                                "name": "READ_VORTEX",
+                                                                "children": [],
+                                                                "extra_info": {
+                                                                    "Function": "Vortex Scan",
+                                                                    "Projections": [
+                                                                        "c_customer_id",
+                                                                        "c_current_cdemo_sk",
+                                                                        "c_current_hdemo_sk",
+                                                                        "c_current_addr_sk",
+                                                                        "c_first_name",
+                                                                        "c_last_name"
+                                                                    ],
+                                                                    "Estimated Cardinality": "10000"
+                                                                }
+                                                            },
+                                                            {
+                                                                "name": "READ_VORTEX",
+                                                                "children": [],
+                                                                "extra_info": {
+                                                                    "Function": "Vortex Scan",
+                                                                    "Filters": "ca_city='Edgewood'",
+                                                                    "Projections": "ca_address_sk",
+                                                                    "Estimated Cardinality": "200"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Join Type": "INNER",
+                                                            "Conditions": "c_current_addr_sk = ca_address_sk",
+                                                            "Estimated Cardinality": "2000"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Join Type": "INNER",
+                                                    "Conditions": "hd_demo_sk = c_current_hdemo_sk",
+                                                    "Estimated Cardinality": "2000"
+                                                }
+                                            },
+                                            {
+                                                "name": "READ_VORTEX",
+                                                "children": [],
+                                                "extra_info": {
+                                                    "Function": "Vortex Scan",
+                                                    "Filters": [
+                                                        "($.ib_lower_bound >= 38128i64)",
+                                                        "($.ib_upper_bound <= 88128i32)"
+                                                    ],
+                                                    "Projections": "ib_income_band_sk",
+                                                    "Estimated Cardinality": "4"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Join Type": "INNER",
+                                            "Conditions": "hd_income_band_sk = ib_income_band_sk",
+                                            "Estimated Cardinality": "2000"
+                                        }
+                                    }
+                                ],
+                                "extra_info": {
+                                    "Join Type": "INNER",
+                                    "Conditions": "sr_cdemo_sk = c_current_cdemo_sk",
+                                    "Estimated Cardinality": "5715"
+                                }
+                            }
+                        ],
+                        "extra_info": {
+                            "Join Type": "INNER",
+                            "Conditions": "cd_demo_sk = c_current_cdemo_sk",
+                            "Estimated Cardinality": "109777"
+                        }
+                    }
+                ],
+                "extra_info": {
+                    "Projections": [
+                        "customer_id",
+                        "customername"
+                    ],
+                    "Estimated Cardinality": "109777"
+                }
+            }
+        ],
+        "extra_info": {
+            "Top": "100",
+            "Order By": "memory.main.customer.c_customer_id ASC"
+        }
+    }
+]

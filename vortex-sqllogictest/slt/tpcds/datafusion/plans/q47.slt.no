@@ -1,0 +1,190 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+WITH v1 AS
+  (SELECT i_category,
+          i_brand,
+          s_store_name,
+          s_company_name,
+          d_year,
+          d_moy,
+          sum(ss_sales_price) sum_sales,
+          avg(sum(ss_sales_price)) OVER (PARTITION BY i_category,
+                                                      i_brand,
+                                                      s_store_name,
+                                                      s_company_name,
+                                                      d_year) avg_monthly_sales,
+                                        rank() OVER (PARTITION BY i_category,
+                                                                  i_brand,
+                                                                  s_store_name,
+                                                                  s_company_name
+                                                     ORDER BY d_year,
+                                                              d_moy) rn
+   FROM item,
+        store_sales,
+        date_dim,
+        store
+   WHERE ss_item_sk = i_item_sk
+     AND ss_sold_date_sk = d_date_sk
+     AND ss_store_sk = s_store_sk
+     AND (d_year = 1999
+          OR (d_year = 1999-1
+              AND d_moy =12)
+          OR (d_year = 1999+1
+              AND d_moy =1))
+   GROUP BY i_category,
+            i_brand,
+            s_store_name,
+            s_company_name,
+            d_year,
+            d_moy),
+     v2 AS
+  (SELECT v1.i_category,
+          v1.i_brand,
+          v1.s_store_name,
+          v1.s_company_name,
+          v1.d_year,
+          v1.d_moy,
+          v1.avg_monthly_sales,
+          v1.sum_sales,
+          v1_lag.sum_sales psum,
+          v1_lead.sum_sales nsum
+   FROM v1,
+        v1 v1_lag,
+        v1 v1_lead
+   WHERE v1.i_category = v1_lag.i_category
+     AND v1.i_category = v1_lead.i_category
+     AND v1.i_brand = v1_lag.i_brand
+     AND v1.i_brand = v1_lead.i_brand
+     AND v1.s_store_name = v1_lag.s_store_name
+     AND v1.s_store_name = v1_lead.s_store_name
+     AND v1.s_company_name = v1_lag.s_company_name
+     AND v1.s_company_name = v1_lead.s_company_name
+     AND v1.rn = v1_lag.rn + 1
+     AND v1.rn = v1_lead.rn - 1)
+SELECT *
+FROM v2
+WHERE d_year = 1999
+  AND avg_monthly_sales > 0
+  AND CASE
+          WHEN avg_monthly_sales > 0 THEN abs(sum_sales - avg_monthly_sales) / avg_monthly_sales
+          ELSE NULL
+      END > 0.1
+ORDER BY sum_sales - avg_monthly_sales, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10
+LIMIT 100;
+----
+logical_plan
+01)Sort: v2.sum_sales - v2.avg_monthly_sales ASC NULLS LAST, v2.i_category ASC NULLS LAST, v2.i_brand ASC NULLS LAST, v2.s_store_name ASC NULLS LAST, v2.s_company_name ASC NULLS LAST, v2.d_year ASC NULLS LAST, v2.d_moy ASC NULLS LAST, v2.psum ASC NULLS LAST, v2.nsum ASC NULLS LAST, fetch=100
+02)--SubqueryAlias: v2
+03)----Projection: v1.i_category, v1.i_brand, v1.s_store_name, v1.s_company_name, v1.d_year, v1.d_moy, v1.avg_monthly_sales, v1.sum_sales, v1_lag.sum_sales AS psum, v1_lead.sum_sales AS nsum
+04)------Inner Join: v1.i_category = v1_lead.i_category, v1.i_brand = v1_lead.i_brand, v1.s_store_name = v1_lead.s_store_name, v1.s_company_name = v1_lead.s_company_name, CAST(v1.rn AS Decimal128(21, 0)) = CAST(v1_lead.rn AS Decimal128(20, 0)) - Decimal128(1,20,0)
+05)--------Projection: v1.i_category, v1.i_brand, v1.s_store_name, v1.s_company_name, v1.d_year, v1.d_moy, v1.sum_sales, v1.avg_monthly_sales, v1.rn, v1_lag.sum_sales
+06)----------Inner Join: v1.i_category = v1_lag.i_category, v1.i_brand = v1_lag.i_brand, v1.s_store_name = v1_lag.s_store_name, v1.s_company_name = v1_lag.s_company_name, CAST(v1.rn AS Decimal128(21, 0)) = CAST(v1_lag.rn AS Decimal128(20, 0)) + Decimal128(1,20,0)
+07)------------SubqueryAlias: v1
+08)--------------Projection: item.i_category, item.i_brand, store.s_store_name, store.s_company_name, date_dim.d_year, date_dim.d_moy, sum(store_sales.ss_sales_price) AS sum_sales, avg(sum(store_sales.ss_sales_price)) PARTITION BY [item.i_category, item.i_brand, store.s_store_name, store.s_company_name, date_dim.d_year] ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING AS avg_monthly_sales, rank() PARTITION BY [item.i_category, item.i_brand, store.s_store_name, store.s_company_name] ORDER BY [date_dim.d_year ASC NULLS LAST, date_dim.d_moy ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW AS rn
+09)----------------Filter: __common_expr_3 AND CASE WHEN __common_expr_3 THEN abs(sum(store_sales.ss_sales_price) - avg(sum(store_sales.ss_sales_price)) PARTITION BY [item.i_category, item.i_brand, store.s_store_name, store.s_company_name, date_dim.d_year] ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) / avg(sum(store_sales.ss_sales_price)) PARTITION BY [item.i_category, item.i_brand, store.s_store_name, store.s_company_name, date_dim.d_year] ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING ELSE Decimal128(NULL,32,10) END > Decimal128(0.1000000000,32,10)
+10)------------------Projection: avg(sum(store_sales.ss_sales_price)) PARTITION BY [item.i_category, item.i_brand, store.s_store_name, store.s_company_name, date_dim.d_year] ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING > Decimal128(0.000000,21,6) AS __common_expr_3, item.i_category, item.i_brand, store.s_store_name, store.s_company_name, date_dim.d_year, date_dim.d_moy, sum(store_sales.ss_sales_price), rank() PARTITION BY [item.i_category, item.i_brand, store.s_store_name, store.s_company_name] ORDER BY [date_dim.d_year ASC NULLS LAST, date_dim.d_moy ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW, avg(sum(store_sales.ss_sales_price)) PARTITION BY [item.i_category, item.i_brand, store.s_store_name, store.s_company_name, date_dim.d_year] ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+11)--------------------WindowAggr: windowExpr=[[avg(sum(store_sales.ss_sales_price)) PARTITION BY [item.i_category, item.i_brand, store.s_store_name, store.s_company_name, date_dim.d_year] ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING]]
+12)----------------------Filter: date_dim.d_year = Int64(1999)
+13)------------------------WindowAggr: windowExpr=[[rank() PARTITION BY [item.i_category, item.i_brand, store.s_store_name, store.s_company_name] ORDER BY [date_dim.d_year ASC NULLS LAST, date_dim.d_moy ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW]]
+14)--------------------------Aggregate: groupBy=[[item.i_category, item.i_brand, store.s_store_name, store.s_company_name, date_dim.d_year, date_dim.d_moy]], aggr=[[sum(store_sales.ss_sales_price)]]
+15)----------------------------Projection: item.i_brand, item.i_category, store_sales.ss_sales_price, date_dim.d_year, date_dim.d_moy, store.s_store_name, store.s_company_name
+16)------------------------------Inner Join: store_sales.ss_store_sk = store.s_store_sk
+17)--------------------------------Projection: item.i_brand, item.i_category, store_sales.ss_store_sk, store_sales.ss_sales_price, date_dim.d_year, date_dim.d_moy
+18)----------------------------------Inner Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
+19)------------------------------------Projection: item.i_brand, item.i_category, store_sales.ss_sold_date_sk, store_sales.ss_store_sk, store_sales.ss_sales_price
+20)--------------------------------------Inner Join: item.i_item_sk = store_sales.ss_item_sk
+21)----------------------------------------TableScan: item projection=[i_item_sk, i_brand, i_category]
+22)----------------------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_item_sk, ss_store_sk, ss_sales_price]
+23)------------------------------------Filter: date_dim.d_year = Int64(1999) OR date_dim.d_year = Int64(1998) AND date_dim.d_moy = Int64(12) OR date_dim.d_year = Int64(2000) AND date_dim.d_moy = Int64(1)
+24)--------------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_year = Int64(1999) OR date_dim.d_year = Int64(1998) AND date_dim.d_moy = Int64(12) OR date_dim.d_year = Int64(2000) AND date_dim.d_moy = Int64(1)]
+25)--------------------------------TableScan: store projection=[s_store_sk, s_store_name, s_company_name]
+26)------------SubqueryAlias: v1_lag
+27)--------------SubqueryAlias: v1
+28)----------------Projection: item.i_category, item.i_brand, store.s_store_name, store.s_company_name, sum(store_sales.ss_sales_price) AS sum_sales, rank() PARTITION BY [item.i_category, item.i_brand, store.s_store_name, store.s_company_name] ORDER BY [date_dim.d_year ASC NULLS LAST, date_dim.d_moy ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW AS rn
+29)------------------WindowAggr: windowExpr=[[rank() PARTITION BY [item.i_category, item.i_brand, store.s_store_name, store.s_company_name] ORDER BY [date_dim.d_year ASC NULLS LAST, date_dim.d_moy ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW]]
+30)--------------------Aggregate: groupBy=[[item.i_category, item.i_brand, store.s_store_name, store.s_company_name, date_dim.d_year, date_dim.d_moy]], aggr=[[sum(store_sales.ss_sales_price)]]
+31)----------------------Projection: item.i_brand, item.i_category, store_sales.ss_sales_price, date_dim.d_year, date_dim.d_moy, store.s_store_name, store.s_company_name
+32)------------------------Inner Join: store_sales.ss_store_sk = store.s_store_sk
+33)--------------------------Projection: item.i_brand, item.i_category, store_sales.ss_store_sk, store_sales.ss_sales_price, date_dim.d_year, date_dim.d_moy
+34)----------------------------Inner Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
+35)------------------------------Projection: item.i_brand, item.i_category, store_sales.ss_sold_date_sk, store_sales.ss_store_sk, store_sales.ss_sales_price
+36)--------------------------------Inner Join: item.i_item_sk = store_sales.ss_item_sk
+37)----------------------------------TableScan: item projection=[i_item_sk, i_brand, i_category]
+38)----------------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_item_sk, ss_store_sk, ss_sales_price]
+39)------------------------------Filter: date_dim.d_year = Int64(1999) OR date_dim.d_year = Int64(1998) AND date_dim.d_moy = Int64(12) OR date_dim.d_year = Int64(2000) AND date_dim.d_moy = Int64(1)
+40)--------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_year = Int64(1999) OR date_dim.d_year = Int64(1998) AND date_dim.d_moy = Int64(12) OR date_dim.d_year = Int64(2000) AND date_dim.d_moy = Int64(1)]
+41)--------------------------TableScan: store projection=[s_store_sk, s_store_name, s_company_name]
+42)--------SubqueryAlias: v1_lead
+43)----------SubqueryAlias: v1
+44)------------Projection: item.i_category, item.i_brand, store.s_store_name, store.s_company_name, sum(store_sales.ss_sales_price) AS sum_sales, rank() PARTITION BY [item.i_category, item.i_brand, store.s_store_name, store.s_company_name] ORDER BY [date_dim.d_year ASC NULLS LAST, date_dim.d_moy ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW AS rn
+45)--------------WindowAggr: windowExpr=[[rank() PARTITION BY [item.i_category, item.i_brand, store.s_store_name, store.s_company_name] ORDER BY [date_dim.d_year ASC NULLS LAST, date_dim.d_moy ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW]]
+46)----------------Aggregate: groupBy=[[item.i_category, item.i_brand, store.s_store_name, store.s_company_name, date_dim.d_year, date_dim.d_moy]], aggr=[[sum(store_sales.ss_sales_price)]]
+47)------------------Projection: item.i_brand, item.i_category, store_sales.ss_sales_price, date_dim.d_year, date_dim.d_moy, store.s_store_name, store.s_company_name
+48)--------------------Inner Join: store_sales.ss_store_sk = store.s_store_sk
+49)----------------------Projection: item.i_brand, item.i_category, store_sales.ss_store_sk, store_sales.ss_sales_price, date_dim.d_year, date_dim.d_moy
+50)------------------------Inner Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
+51)--------------------------Projection: item.i_brand, item.i_category, store_sales.ss_sold_date_sk, store_sales.ss_store_sk, store_sales.ss_sales_price
+52)----------------------------Inner Join: item.i_item_sk = store_sales.ss_item_sk
+53)------------------------------TableScan: item projection=[i_item_sk, i_brand, i_category]
+54)------------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_item_sk, ss_store_sk, ss_sales_price]
+55)--------------------------Filter: date_dim.d_year = Int64(1999) OR date_dim.d_year = Int64(1998) AND date_dim.d_moy = Int64(12) OR date_dim.d_year = Int64(2000) AND date_dim.d_moy = Int64(1)
+56)----------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_year = Int64(1999) OR date_dim.d_year = Int64(1998) AND date_dim.d_moy = Int64(12) OR date_dim.d_year = Int64(2000) AND date_dim.d_moy = Int64(1)]
+57)----------------------TableScan: store projection=[s_store_sk, s_store_name, s_company_name]
+physical_plan
+01)SortPreservingMergeExec: [sum_sales@7 - avg_monthly_sales@6 ASC NULLS LAST, i_category@0 ASC NULLS LAST, i_brand@1 ASC NULLS LAST, s_store_name@2 ASC NULLS LAST, s_company_name@3 ASC NULLS LAST, d_year@4 ASC NULLS LAST, d_moy@5 ASC NULLS LAST, psum@8 ASC NULLS LAST, nsum@9 ASC NULLS LAST], fetch=100
+02)--SortExec: TopK(fetch=100), expr=[sum_sales@7 - avg_monthly_sales@6 ASC NULLS LAST, i_category@0 ASC NULLS LAST, i_brand@1 ASC NULLS LAST, s_store_name@2 ASC NULLS LAST, s_company_name@3 ASC NULLS LAST, d_moy@5 ASC NULLS LAST, psum@8 ASC NULLS LAST, nsum@9 ASC NULLS LAST], preserve_partitioning=[true]
+03)----ProjectionExec: expr=[i_category@0 as i_category, i_brand@1 as i_brand, s_store_name@2 as s_store_name, s_company_name@3 as s_company_name, d_year@4 as d_year, d_moy@5 as d_moy, avg_monthly_sales@6 as avg_monthly_sales, sum_sales@7 as sum_sales, sum_sales@8 as psum, sum_sales@9 as nsum]
+04)------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_category@0, i_category@0), (i_brand@1, i_brand@1), (s_store_name@2, s_store_name@2), (s_company_name@3, s_company_name@3), (CAST(v1.rn AS Decimal128(21, 0))@10, v1_lead.rn - Decimal128(1,20,0)@6)], projection=[i_category@0, i_brand@1, s_store_name@2, s_company_name@3, d_year@4, d_moy@5, avg_monthly_sales@7, sum_sales@6, sum_sales@9, sum_sales@15]
+05)--------CoalescePartitionsExec
+06)----------ProjectionExec: expr=[i_category@0 as i_category, i_brand@1 as i_brand, s_store_name@2 as s_store_name, s_company_name@3 as s_company_name, d_year@4 as d_year, d_moy@5 as d_moy, sum_sales@6 as sum_sales, avg_monthly_sales@7 as avg_monthly_sales, rn@8 as rn, sum_sales@9 as sum_sales, CAST(rn@8 AS Decimal128(21, 0)) as CAST(v1.rn AS Decimal128(21, 0))]
+07)------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_category@0, i_category@0), (i_brand@1, i_brand@1), (s_store_name@2, s_store_name@2), (s_company_name@3, s_company_name@3), (CAST(v1.rn AS Decimal128(21, 0))@9, v1_lag.rn + Decimal128(1,20,0)@6)], projection=[i_category@0, i_brand@1, s_store_name@2, s_company_name@3, d_year@4, d_moy@5, sum_sales@6, avg_monthly_sales@7, rn@8, sum_sales@14]
+08)--------------CoalescePartitionsExec
+09)----------------ProjectionExec: expr=[i_category@0 as i_category, i_brand@1 as i_brand, s_store_name@2 as s_store_name, s_company_name@3 as s_company_name, d_year@4 as d_year, d_moy@5 as d_moy, sum(store_sales.ss_sales_price)@6 as sum_sales, avg(sum(store_sales.ss_sales_price)) PARTITION BY [item.i_category, item.i_brand, store.s_store_name, store.s_company_name, date_dim.d_year] ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING@7 as avg_monthly_sales, rank() PARTITION BY [item.i_category, item.i_brand, store.s_store_name, store.s_company_name] ORDER BY [date_dim.d_year ASC NULLS LAST, date_dim.d_moy ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@8 as rn, CAST(rank() PARTITION BY [item.i_category, item.i_brand, store.s_store_name, store.s_company_name] ORDER BY [date_dim.d_year ASC NULLS LAST, date_dim.d_moy ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@8 AS Decimal128(21, 0)) as CAST(v1.rn AS Decimal128(21, 0))]
+10)------------------FilterExec: __common_expr_3@0 AND CASE WHEN __common_expr_3@0 THEN abs(sum(store_sales.ss_sales_price)@7 - avg(sum(store_sales.ss_sales_price)) PARTITION BY [item.i_category, item.i_brand, store.s_store_name, store.s_company_name, date_dim.d_year] ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING@9) / avg(sum(store_sales.ss_sales_price)) PARTITION BY [item.i_category, item.i_brand, store.s_store_name, store.s_company_name, date_dim.d_year] ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING@9 END > 0.1000000000, projection=[i_category@1, i_brand@2, s_store_name@3, s_company_name@4, d_year@5, d_moy@6, sum(store_sales.ss_sales_price)@7, avg(sum(store_sales.ss_sales_price)) PARTITION BY [item.i_category, item.i_brand, store.s_store_name, store.s_company_name, date_dim.d_year] ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING@9, rank() PARTITION BY [item.i_category, item.i_brand, store.s_store_name, store.s_company_name] ORDER BY [date_dim.d_year ASC NULLS LAST, date_dim.d_moy ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@8]
+11)--------------------ProjectionExec: expr=[avg(sum(store_sales.ss_sales_price)) PARTITION BY [item.i_category, item.i_brand, store.s_store_name, store.s_company_name, date_dim.d_year] ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING@8 > 0.000000 as __common_expr_3, i_category@0 as i_category, i_brand@1 as i_brand, s_store_name@2 as s_store_name, s_company_name@3 as s_company_name, d_year@4 as d_year, d_moy@5 as d_moy, sum(store_sales.ss_sales_price)@6 as sum(store_sales.ss_sales_price), rank() PARTITION BY [item.i_category, item.i_brand, store.s_store_name, store.s_company_name] ORDER BY [date_dim.d_year ASC NULLS LAST, date_dim.d_moy ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@7 as rank() PARTITION BY [item.i_category, item.i_brand, store.s_store_name, store.s_company_name] ORDER BY [date_dim.d_year ASC NULLS LAST, date_dim.d_moy ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW, avg(sum(store_sales.ss_sales_price)) PARTITION BY [item.i_category, item.i_brand, store.s_store_name, store.s_company_name, date_dim.d_year] ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING@8 as avg(sum(store_sales.ss_sales_price)) PARTITION BY [item.i_category, item.i_brand, store.s_store_name, store.s_company_name, date_dim.d_year] ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING]
+12)----------------------WindowAggExec: wdw=[avg(sum(store_sales.ss_sales_price)) PARTITION BY [item.i_category, item.i_brand, store.s_store_name, store.s_company_name, date_dim.d_year] ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING: Ok(Field { name: "avg(sum(store_sales.ss_sales_price)) PARTITION BY [item.i_category, item.i_brand, store.s_store_name, store.s_company_name, date_dim.d_year] ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING", data_type: Decimal128(21, 6), nullable: true }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }]
+13)------------------------FilterExec: d_year@4 = 1999
+14)--------------------------BoundedWindowAggExec: wdw=[rank() PARTITION BY [item.i_category, item.i_brand, store.s_store_name, store.s_company_name] ORDER BY [date_dim.d_year ASC NULLS LAST, date_dim.d_moy ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW: Field { "rank() PARTITION BY [item.i_category, item.i_brand, store.s_store_name, store.s_company_name] ORDER BY [date_dim.d_year ASC NULLS LAST, date_dim.d_moy ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW": UInt64 }, frame: RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW], mode=[Sorted]
+15)----------------------------SortExec: expr=[i_category@0 ASC NULLS LAST, i_brand@1 ASC NULLS LAST, s_store_name@2 ASC NULLS LAST, s_company_name@3 ASC NULLS LAST, d_year@4 ASC NULLS LAST, d_moy@5 ASC NULLS LAST], preserve_partitioning=[true]
+16)------------------------------RepartitionExec: partitioning=Hash([i_category@0, i_brand@1, s_store_name@2, s_company_name@3], 4), input_partitions=4
+17)--------------------------------AggregateExec: mode=FinalPartitioned, gby=[i_category@0 as i_category, i_brand@1 as i_brand, s_store_name@2 as s_store_name, s_company_name@3 as s_company_name, d_year@4 as d_year, d_moy@5 as d_moy], aggr=[sum(store_sales.ss_sales_price)]
+18)----------------------------------RepartitionExec: partitioning=Hash([i_category@0, i_brand@1, s_store_name@2, s_company_name@3, d_year@4, d_moy@5], 4), input_partitions=4
+19)------------------------------------AggregateExec: mode=Partial, gby=[i_category@1 as i_category, i_brand@0 as i_brand, s_store_name@5 as s_store_name, s_company_name@6 as s_company_name, d_year@3 as d_year, d_moy@4 as d_moy], aggr=[sum(store_sales.ss_sales_price)]
+20)--------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_store_sk@0, ss_store_sk@2)], projection=[i_brand@3, i_category@4, ss_sales_price@6, d_year@7, d_moy@8, s_store_name@1, s_company_name@2]
+21)----------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store.vortex]]}, projection=[s_store_sk, s_store_name, s_company_name], file_type=vortex
+22)----------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@2)], projection=[i_brand@3, i_category@4, ss_store_sk@6, ss_sales_price@7, d_year@1, d_moy@2]
+23)------------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_year, d_moy], file_type=vortex, predicate: d_year@6 = 1999 OR d_year@6 = 1998 AND d_moy@8 = 12 OR d_year@6 = 2000 AND d_moy@8 = 1
+24)------------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, ss_item_sk@1)], projection=[i_brand@1, i_category@2, ss_sold_date_sk@3, ss_store_sk@5, ss_sales_price@6]
+25)--------------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_brand, i_category], file_type=vortex
+26)--------------------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_item_sk, ss_store_sk, ss_sales_price], file_type=vortex
+27)--------------ProjectionExec: expr=[i_category@0 as i_category, i_brand@1 as i_brand, s_store_name@2 as s_store_name, s_company_name@3 as s_company_name, sum(store_sales.ss_sales_price)@6 as sum_sales, rank() PARTITION BY [item.i_category, item.i_brand, store.s_store_name, store.s_company_name] ORDER BY [date_dim.d_year ASC NULLS LAST, date_dim.d_moy ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@7 as rn, CAST(rank() PARTITION BY [item.i_category, item.i_brand, store.s_store_name, store.s_company_name] ORDER BY [date_dim.d_year ASC NULLS LAST, date_dim.d_moy ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@7 AS Decimal128(20, 0)) + 1 as v1_lag.rn + Decimal128(1,20,0)]
+28)----------------BoundedWindowAggExec: wdw=[rank() PARTITION BY [item.i_category, item.i_brand, store.s_store_name, store.s_company_name] ORDER BY [date_dim.d_year ASC NULLS LAST, date_dim.d_moy ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW: Field { "rank() PARTITION BY [item.i_category, item.i_brand, store.s_store_name, store.s_company_name] ORDER BY [date_dim.d_year ASC NULLS LAST, date_dim.d_moy ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW": UInt64 }, frame: RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW], mode=[Sorted]
+29)------------------SortExec: expr=[i_category@0 ASC NULLS LAST, i_brand@1 ASC NULLS LAST, s_store_name@2 ASC NULLS LAST, s_company_name@3 ASC NULLS LAST, d_year@4 ASC NULLS LAST, d_moy@5 ASC NULLS LAST], preserve_partitioning=[true]
+30)--------------------RepartitionExec: partitioning=Hash([i_category@0, i_brand@1, s_store_name@2, s_company_name@3], 4), input_partitions=4
+31)----------------------AggregateExec: mode=FinalPartitioned, gby=[i_category@0 as i_category, i_brand@1 as i_brand, s_store_name@2 as s_store_name, s_company_name@3 as s_company_name, d_year@4 as d_year, d_moy@5 as d_moy], aggr=[sum(store_sales.ss_sales_price)]
+32)------------------------RepartitionExec: partitioning=Hash([i_category@0, i_brand@1, s_store_name@2, s_company_name@3, d_year@4, d_moy@5], 4), input_partitions=4
+33)--------------------------AggregateExec: mode=Partial, gby=[i_category@1 as i_category, i_brand@0 as i_brand, s_store_name@5 as s_store_name, s_company_name@6 as s_company_name, d_year@3 as d_year, d_moy@4 as d_moy], aggr=[sum(store_sales.ss_sales_price)]
+34)----------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_store_sk@0, ss_store_sk@2)], projection=[i_brand@3, i_category@4, ss_sales_price@6, d_year@7, d_moy@8, s_store_name@1, s_company_name@2]
+35)------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store.vortex]]}, projection=[s_store_sk, s_store_name, s_company_name], file_type=vortex
+36)------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@2)], projection=[i_brand@3, i_category@4, ss_store_sk@6, ss_sales_price@7, d_year@1, d_moy@2]
+37)--------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_year, d_moy], file_type=vortex, predicate: d_year@6 = 1999 OR d_year@6 = 1998 AND d_moy@8 = 12 OR d_year@6 = 2000 AND d_moy@8 = 1
+38)--------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, ss_item_sk@1)], projection=[i_brand@1, i_category@2, ss_sold_date_sk@3, ss_store_sk@5, ss_sales_price@6]
+39)----------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_brand, i_category], file_type=vortex
+40)----------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_item_sk, ss_store_sk, ss_sales_price], file_type=vortex
+41)--------ProjectionExec: expr=[i_category@0 as i_category, i_brand@1 as i_brand, s_store_name@2 as s_store_name, s_company_name@3 as s_company_name, sum(store_sales.ss_sales_price)@6 as sum_sales, rank() PARTITION BY [item.i_category, item.i_brand, store.s_store_name, store.s_company_name] ORDER BY [date_dim.d_year ASC NULLS LAST, date_dim.d_moy ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@7 as rn, CAST(rank() PARTITION BY [item.i_category, item.i_brand, store.s_store_name, store.s_company_name] ORDER BY [date_dim.d_year ASC NULLS LAST, date_dim.d_moy ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@7 AS Decimal128(20, 0)) - 1 as v1_lead.rn - Decimal128(1,20,0)]
+42)----------BoundedWindowAggExec: wdw=[rank() PARTITION BY [item.i_category, item.i_brand, store.s_store_name, store.s_company_name] ORDER BY [date_dim.d_year ASC NULLS LAST, date_dim.d_moy ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW: Field { "rank() PARTITION BY [item.i_category, item.i_brand, store.s_store_name, store.s_company_name] ORDER BY [date_dim.d_year ASC NULLS LAST, date_dim.d_moy ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW": UInt64 }, frame: RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW], mode=[Sorted]
+43)------------SortExec: expr=[i_category@0 ASC NULLS LAST, i_brand@1 ASC NULLS LAST, s_store_name@2 ASC NULLS LAST, s_company_name@3 ASC NULLS LAST, d_year@4 ASC NULLS LAST, d_moy@5 ASC NULLS LAST], preserve_partitioning=[true]
+44)--------------RepartitionExec: partitioning=Hash([i_category@0, i_brand@1, s_store_name@2, s_company_name@3], 4), input_partitions=4
+45)----------------AggregateExec: mode=FinalPartitioned, gby=[i_category@0 as i_category, i_brand@1 as i_brand, s_store_name@2 as s_store_name, s_company_name@3 as s_company_name, d_year@4 as d_year, d_moy@5 as d_moy], aggr=[sum(store_sales.ss_sales_price)]
+46)------------------RepartitionExec: partitioning=Hash([i_category@0, i_brand@1, s_store_name@2, s_company_name@3, d_year@4, d_moy@5], 4), input_partitions=4
+47)--------------------AggregateExec: mode=Partial, gby=[i_category@1 as i_category, i_brand@0 as i_brand, s_store_name@5 as s_store_name, s_company_name@6 as s_company_name, d_year@3 as d_year, d_moy@4 as d_moy], aggr=[sum(store_sales.ss_sales_price)]
+48)----------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_store_sk@0, ss_store_sk@2)], projection=[i_brand@3, i_category@4, ss_sales_price@6, d_year@7, d_moy@8, s_store_name@1, s_company_name@2]
+49)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store.vortex]]}, projection=[s_store_sk, s_store_name, s_company_name], file_type=vortex
+50)------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@2)], projection=[i_brand@3, i_category@4, ss_store_sk@6, ss_sales_price@7, d_year@1, d_moy@2]
+51)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_year, d_moy], file_type=vortex, predicate: d_year@6 = 1999 OR d_year@6 = 1998 AND d_moy@8 = 12 OR d_year@6 = 2000 AND d_moy@8 = 1
+52)--------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, ss_item_sk@1)], projection=[i_brand@1, i_category@2, ss_sold_date_sk@3, ss_store_sk@5, ss_sales_price@6]
+53)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_brand, i_category], file_type=vortex
+54)----------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_item_sk, ss_store_sk, ss_sales_price], file_type=vortex

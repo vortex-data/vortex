@@ -1,0 +1,74 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+statement ok
+DROP VIEW web_site;
+
+statement ok
+DROP VIEW web_sales;
+
+statement ok
+DROP VIEW web_returns;
+
+statement ok
+DROP VIEW web_page;
+
+statement ok
+DROP VIEW warehouse;
+
+statement ok
+DROP VIEW time_dim;
+
+statement ok
+DROP VIEW store_sales;
+
+statement ok
+DROP VIEW store_returns;
+
+statement ok
+DROP VIEW store;
+
+statement ok
+DROP VIEW ship_mode;
+
+statement ok
+DROP VIEW reason;
+
+statement ok
+DROP VIEW promotion;
+
+statement ok
+DROP VIEW item;
+
+statement ok
+DROP VIEW inventory;
+
+statement ok
+DROP VIEW income_band;
+
+statement ok
+DROP VIEW household_demographics;
+
+statement ok
+DROP VIEW date_dim;
+
+statement ok
+DROP VIEW customer_demographics;
+
+statement ok
+DROP VIEW customer_address;
+
+statement ok
+DROP VIEW customer;
+
+statement ok
+DROP VIEW catalog_sales;
+
+statement ok
+DROP VIEW catalog_returns;
+
+statement ok
+DROP VIEW catalog_page;
+
+statement ok
+DROP VIEW call_center;

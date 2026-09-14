@@ -1,0 +1,91 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT ca_zip,
+       ca_city,
+       sum(ws_sales_price)
+FROM web_sales,
+     customer,
+     customer_address,
+     date_dim,
+     item
+WHERE ws_bill_customer_sk = c_customer_sk
+  AND c_current_addr_sk = ca_address_sk
+  AND ws_item_sk = i_item_sk
+  AND (SUBSTRING(ca_zip,1,5) IN ('85669',
+                              '86197',
+                              '88274',
+                              '83405',
+                              '86475',
+                              '85392',
+                              '85460',
+                              '80348',
+                              '81792')
+       OR i_item_id IN
+         (SELECT i_item_id
+          FROM item
+          WHERE i_item_sk IN (2,
+                              3,
+                              5,
+                              7,
+                              11,
+                              13,
+                              17,
+                              19,
+                              23,
+                              29) ))
+  AND ws_sold_date_sk = d_date_sk
+  AND d_qoy = 2
+  AND d_year = 2001
+GROUP BY ca_zip,
+         ca_city
+ORDER BY ca_zip,
+         ca_city
+LIMIT 100;
+----
+logical_plan
+01)Sort: customer_address.ca_zip ASC NULLS LAST, customer_address.ca_city ASC NULLS LAST, fetch=100
+02)--Aggregate: groupBy=[[customer_address.ca_zip, customer_address.ca_city]], aggr=[[sum(web_sales.ws_sales_price)]]
+03)----Projection: web_sales.ws_sales_price, customer_address.ca_city, customer_address.ca_zip
+04)------Filter: substr(customer_address.ca_zip, Int64(1), Int64(5)) IN ([Utf8View("85669"), Utf8View("86197"), Utf8View("88274"), Utf8View("83405"), Utf8View("86475"), Utf8View("85392"), Utf8View("85460"), Utf8View("80348"), Utf8View("81792")]) OR __correlated_sq_1.mark
+05)--------Projection: web_sales.ws_sales_price, customer_address.ca_city, customer_address.ca_zip, __correlated_sq_1.mark
+06)----------LeftMark Join: item.i_item_id = __correlated_sq_1.i_item_id
+07)------------Projection: web_sales.ws_sales_price, customer_address.ca_city, customer_address.ca_zip, item.i_item_id
+08)--------------Inner Join: web_sales.ws_item_sk = item.i_item_sk
+09)----------------Projection: web_sales.ws_item_sk, web_sales.ws_sales_price, customer_address.ca_city, customer_address.ca_zip
+10)------------------Inner Join: web_sales.ws_sold_date_sk = date_dim.d_date_sk
+11)--------------------Projection: web_sales.ws_sold_date_sk, web_sales.ws_item_sk, web_sales.ws_sales_price, customer_address.ca_city, customer_address.ca_zip
+12)----------------------Inner Join: customer.c_current_addr_sk = customer_address.ca_address_sk
+13)------------------------Projection: web_sales.ws_sold_date_sk, web_sales.ws_item_sk, web_sales.ws_sales_price, customer.c_current_addr_sk
+14)--------------------------Inner Join: web_sales.ws_bill_customer_sk = customer.c_customer_sk
+15)----------------------------TableScan: web_sales projection=[ws_sold_date_sk, ws_item_sk, ws_bill_customer_sk, ws_sales_price]
+16)----------------------------TableScan: customer projection=[c_customer_sk, c_current_addr_sk]
+17)------------------------TableScan: customer_address projection=[ca_address_sk, ca_city, ca_zip]
+18)--------------------Projection: date_dim.d_date_sk
+19)----------------------Filter: date_dim.d_qoy = Int64(2) AND date_dim.d_year = Int64(2001)
+20)------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_qoy], partial_filters=[date_dim.d_qoy = Int64(2), date_dim.d_year = Int64(2001)]
+21)----------------TableScan: item projection=[i_item_sk, i_item_id]
+22)------------SubqueryAlias: __correlated_sq_1
+23)--------------Projection: item.i_item_id
+24)----------------Filter: item.i_item_sk IN ([Int64(2), Int64(3), Int64(5), Int64(7), Int64(11), Int64(13), Int64(17), Int64(19), Int64(23), Int64(29)])
+25)------------------TableScan: item projection=[i_item_sk, i_item_id], partial_filters=[item.i_item_sk IN ([Int64(2), Int64(3), Int64(5), Int64(7), Int64(11), Int64(13), Int64(17), Int64(19), Int64(23), Int64(29)])]
+physical_plan
+01)SortPreservingMergeExec: [ca_zip@0 ASC NULLS LAST, ca_city@1 ASC NULLS LAST], fetch=100
+02)--SortExec: TopK(fetch=100), expr=[ca_zip@0 ASC NULLS LAST, ca_city@1 ASC NULLS LAST], preserve_partitioning=[true]
+03)----AggregateExec: mode=FinalPartitioned, gby=[ca_zip@0 as ca_zip, ca_city@1 as ca_city], aggr=[sum(web_sales.ws_sales_price)]
+04)------RepartitionExec: partitioning=Hash([ca_zip@0, ca_city@1], 4), input_partitions=4
+05)--------AggregateExec: mode=Partial, gby=[ca_zip@2 as ca_zip, ca_city@1 as ca_city], aggr=[sum(web_sales.ws_sales_price)]
+06)----------FilterExec: substr(ca_zip@2, 1, 5) IN (SET) ([85669, 86197, 88274, 83405, 86475, 85392, 85460, 80348, 81792]) OR mark@3, projection=[ws_sales_price@0, ca_city@1, ca_zip@2]
+07)------------HashJoinExec: mode=CollectLeft, join_type=RightMark, on=[(i_item_id@0, i_item_id@3)], projection=[ws_sales_price@0, ca_city@1, ca_zip@2, mark@4]
+08)--------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_id], file_type=vortex, predicate: i_item_sk@0 IN (SET) ([2, 3, 5, 7, 11, 13, 17, 19, 23, 29])
+09)--------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, ws_item_sk@0)], projection=[ws_sales_price@3, ca_city@4, ca_zip@5, i_item_id@1]
+10)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_item_id], file_type=vortex
+11)----------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ws_sold_date_sk@0)], projection=[ws_item_sk@2, ws_sales_price@3, ca_city@4, ca_zip@5]
+12)------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_qoy@10 = 2 AND d_year@6 = 2001
+13)------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(ca_address_sk@0, c_current_addr_sk@3)], projection=[ws_sold_date_sk@3, ws_item_sk@4, ws_sales_price@5, ca_city@1, ca_zip@2]
+14)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk, ca_city, ca_zip], file_type=vortex
+15)--------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(c_customer_sk@0, ws_bill_customer_sk@2)], projection=[ws_sold_date_sk@2, ws_item_sk@3, ws_sales_price@5, c_current_addr_sk@1]
+16)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer.vortex]]}, projection=[c_customer_sk, c_current_addr_sk], file_type=vortex
+17)----------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>]]}, projection=[ws_sold_date_sk, ws_item_sk, ws_bill_customer_sk, ws_sales_price], file_type=vortex

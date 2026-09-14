@@ -1,0 +1,112 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT s_store_name,
+       s_company_id,
+       s_street_number,
+       s_street_name,
+       s_street_type,
+       s_suite_number,
+       s_city,
+       s_county,
+       s_state,
+       s_zip,
+       sum(CASE
+               WHEN (sr_returned_date_sk - ss_sold_date_sk <= 30) THEN 1
+               ELSE 0
+           END) AS "30 days",
+       sum(CASE
+               WHEN (sr_returned_date_sk - ss_sold_date_sk > 30)
+                    AND (sr_returned_date_sk - ss_sold_date_sk <= 60) THEN 1
+               ELSE 0
+           END) AS "31-60 days",
+       sum(CASE
+               WHEN (sr_returned_date_sk - ss_sold_date_sk > 60)
+                    AND (sr_returned_date_sk - ss_sold_date_sk <= 90) THEN 1
+               ELSE 0
+           END) AS "61-90 days",
+       sum(CASE
+               WHEN (sr_returned_date_sk - ss_sold_date_sk > 90)
+                    AND (sr_returned_date_sk - ss_sold_date_sk <= 120) THEN 1
+               ELSE 0
+           END) AS "91-120 days",
+       sum(CASE
+               WHEN (sr_returned_date_sk - ss_sold_date_sk > 120) THEN 1
+               ELSE 0
+           END) AS ">120 days"
+FROM store_sales,
+     store_returns,
+     store,
+     date_dim d1,
+     date_dim d2
+WHERE d2.d_year = 2001
+  AND d2.d_moy = 8
+  AND ss_ticket_number = sr_ticket_number
+  AND ss_item_sk = sr_item_sk
+  AND ss_sold_date_sk = d1.d_date_sk
+  AND sr_returned_date_sk = d2.d_date_sk
+  AND ss_customer_sk = sr_customer_sk
+  AND ss_store_sk = s_store_sk
+GROUP BY s_store_name,
+         s_company_id,
+         s_street_number,
+         s_street_name,
+         s_street_type,
+         s_suite_number,
+         s_city,
+         s_county,
+         s_state,
+         s_zip
+ORDER BY s_store_name,
+         s_company_id,
+         s_street_number,
+         s_street_name,
+         s_street_type,
+         s_suite_number,
+         s_city,
+         s_county,
+         s_state,
+         s_zip
+LIMIT 100;
+----
+logical_plan
+01)Sort: store.s_store_name ASC NULLS LAST, store.s_company_id ASC NULLS LAST, store.s_street_number ASC NULLS LAST, store.s_street_name ASC NULLS LAST, store.s_street_type ASC NULLS LAST, store.s_suite_number ASC NULLS LAST, store.s_city ASC NULLS LAST, store.s_county ASC NULLS LAST, store.s_state ASC NULLS LAST, store.s_zip ASC NULLS LAST, fetch=100
+02)--Projection: store.s_store_name, store.s_company_id, store.s_street_number, store.s_street_name, store.s_street_type, store.s_suite_number, store.s_city, store.s_county, store.s_state, store.s_zip, sum(CASE WHEN store_returns.sr_returned_date_sk - store_sales.ss_sold_date_sk <= Int64(30) THEN Int64(1) ELSE Int64(0) END) AS 30 days, sum(CASE WHEN store_returns.sr_returned_date_sk - store_sales.ss_sold_date_sk > Int64(30) AND store_returns.sr_returned_date_sk - store_sales.ss_sold_date_sk <= Int64(60) THEN Int64(1) ELSE Int64(0) END) AS 31-60 days, sum(CASE WHEN store_returns.sr_returned_date_sk - store_sales.ss_sold_date_sk > Int64(60) AND store_returns.sr_returned_date_sk - store_sales.ss_sold_date_sk <= Int64(90) THEN Int64(1) ELSE Int64(0) END) AS 61-90 days, sum(CASE WHEN store_returns.sr_returned_date_sk - store_sales.ss_sold_date_sk > Int64(90) AND store_returns.sr_returned_date_sk - store_sales.ss_sold_date_sk <= Int64(120) THEN Int64(1) ELSE Int64(0) END) AS 91-120 days, sum(CASE WHEN store_returns.sr_returned_date_sk - store_sales.ss_sold_date_sk > Int64(120) THEN Int64(1) ELSE Int64(0) END) AS >120 days
+03)----Aggregate: groupBy=[[store.s_store_name, store.s_company_id, store.s_street_number, store.s_street_name, store.s_street_type, store.s_suite_number, store.s_city, store.s_county, store.s_state, store.s_zip]], aggr=[[sum(CASE WHEN __common_expr_1 AS store_returns.sr_returned_date_sk - store_sales.ss_sold_date_sk <= Int64(30) THEN Int64(1) ELSE Int64(0) END), sum(CASE WHEN __common_expr_1 AS store_returns.sr_returned_date_sk - store_sales.ss_sold_date_sk > Int64(30) AND __common_expr_1 AS store_returns.sr_returned_date_sk - store_sales.ss_sold_date_sk <= Int64(60) THEN Int64(1) ELSE Int64(0) END), sum(CASE WHEN __common_expr_1 AS store_returns.sr_returned_date_sk - store_sales.ss_sold_date_sk > Int64(60) AND __common_expr_1 AS store_returns.sr_returned_date_sk - store_sales.ss_sold_date_sk <= Int64(90) THEN Int64(1) ELSE Int64(0) END), sum(CASE WHEN __common_expr_1 AS store_returns.sr_returned_date_sk - store_sales.ss_sold_date_sk > Int64(90) AND __common_expr_1 AS store_returns.sr_returned_date_sk - store_sales.ss_sold_date_sk <= Int64(120) THEN Int64(1) ELSE Int64(0) END), sum(CASE WHEN __common_expr_1 AS store_returns.sr_returned_date_sk - store_sales.ss_sold_date_sk > Int64(120) THEN Int64(1) ELSE Int64(0) END)]]
+04)------Projection: store_returns.sr_returned_date_sk - store_sales.ss_sold_date_sk AS __common_expr_1, store.s_store_name, store.s_company_id, store.s_street_number, store.s_street_name, store.s_street_type, store.s_suite_number, store.s_city, store.s_county, store.s_state, store.s_zip
+05)--------Inner Join: store_returns.sr_returned_date_sk = d2.d_date_sk
+06)----------Projection: store_sales.ss_sold_date_sk, store_returns.sr_returned_date_sk, store.s_store_name, store.s_company_id, store.s_street_number, store.s_street_name, store.s_street_type, store.s_suite_number, store.s_city, store.s_county, store.s_state, store.s_zip
+07)------------Inner Join: store_sales.ss_sold_date_sk = d1.d_date_sk
+08)--------------Projection: store_sales.ss_sold_date_sk, store_returns.sr_returned_date_sk, store.s_store_name, store.s_company_id, store.s_street_number, store.s_street_name, store.s_street_type, store.s_suite_number, store.s_city, store.s_county, store.s_state, store.s_zip
+09)----------------Inner Join: store_sales.ss_store_sk = store.s_store_sk
+10)------------------Projection: store_sales.ss_sold_date_sk, store_sales.ss_store_sk, store_returns.sr_returned_date_sk
+11)--------------------Inner Join: store_sales.ss_ticket_number = store_returns.sr_ticket_number, store_sales.ss_item_sk = store_returns.sr_item_sk, store_sales.ss_customer_sk = store_returns.sr_customer_sk
+12)----------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_item_sk, ss_customer_sk, ss_store_sk, ss_ticket_number]
+13)----------------------TableScan: store_returns projection=[sr_returned_date_sk, sr_item_sk, sr_customer_sk, sr_ticket_number]
+14)------------------TableScan: store projection=[s_store_sk, s_store_name, s_company_id, s_street_number, s_street_name, s_street_type, s_suite_number, s_city, s_county, s_state, s_zip]
+15)--------------SubqueryAlias: d1
+16)----------------TableScan: date_dim projection=[d_date_sk]
+17)----------SubqueryAlias: d2
+18)------------Projection: date_dim.d_date_sk
+19)--------------Filter: date_dim.d_year = Int64(2001) AND date_dim.d_moy = Int64(8)
+20)----------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_year = Int64(2001), date_dim.d_moy = Int64(8)]
+physical_plan
+01)SortPreservingMergeExec: [s_store_name@0 ASC NULLS LAST, s_company_id@1 ASC NULLS LAST, s_street_number@2 ASC NULLS LAST, s_street_name@3 ASC NULLS LAST, s_street_type@4 ASC NULLS LAST, s_suite_number@5 ASC NULLS LAST, s_city@6 ASC NULLS LAST, s_county@7 ASC NULLS LAST, s_state@8 ASC NULLS LAST, s_zip@9 ASC NULLS LAST], fetch=100
+02)--ProjectionExec: expr=[s_store_name@0 as s_store_name, s_company_id@1 as s_company_id, s_street_number@2 as s_street_number, s_street_name@3 as s_street_name, s_street_type@4 as s_street_type, s_suite_number@5 as s_suite_number, s_city@6 as s_city, s_county@7 as s_county, s_state@8 as s_state, s_zip@9 as s_zip, sum(CASE WHEN store_returns.sr_returned_date_sk - store_sales.ss_sold_date_sk <= Int64(30) THEN Int64(1) ELSE Int64(0) END)@10 as 30 days, sum(CASE WHEN store_returns.sr_returned_date_sk - store_sales.ss_sold_date_sk > Int64(30) AND store_returns.sr_returned_date_sk - store_sales.ss_sold_date_sk <= Int64(60) THEN Int64(1) ELSE Int64(0) END)@11 as 31-60 days, sum(CASE WHEN store_returns.sr_returned_date_sk - store_sales.ss_sold_date_sk > Int64(60) AND store_returns.sr_returned_date_sk - store_sales.ss_sold_date_sk <= Int64(90) THEN Int64(1) ELSE Int64(0) END)@12 as 61-90 days, sum(CASE WHEN store_returns.sr_returned_date_sk - store_sales.ss_sold_date_sk > Int64(90) AND store_returns.sr_returned_date_sk - store_sales.ss_sold_date_sk <= Int64(120) THEN Int64(1) ELSE Int64(0) END)@13 as 91-120 days, sum(CASE WHEN store_returns.sr_returned_date_sk - store_sales.ss_sold_date_sk > Int64(120) THEN Int64(1) ELSE Int64(0) END)@14 as >120 days]
+03)----SortExec: TopK(fetch=100), expr=[s_store_name@0 ASC NULLS LAST, s_company_id@1 ASC NULLS LAST, s_street_number@2 ASC NULLS LAST, s_street_name@3 ASC NULLS LAST, s_street_type@4 ASC NULLS LAST, s_suite_number@5 ASC NULLS LAST, s_city@6 ASC NULLS LAST, s_county@7 ASC NULLS LAST, s_state@8 ASC NULLS LAST, s_zip@9 ASC NULLS LAST], preserve_partitioning=[true]
+04)------AggregateExec: mode=FinalPartitioned, gby=[s_store_name@0 as s_store_name, s_company_id@1 as s_company_id, s_street_number@2 as s_street_number, s_street_name@3 as s_street_name, s_street_type@4 as s_street_type, s_suite_number@5 as s_suite_number, s_city@6 as s_city, s_county@7 as s_county, s_state@8 as s_state, s_zip@9 as s_zip], aggr=[sum(CASE WHEN store_returns.sr_returned_date_sk - store_sales.ss_sold_date_sk <= Int64(30) THEN Int64(1) ELSE Int64(0) END), sum(CASE WHEN store_returns.sr_returned_date_sk - store_sales.ss_sold_date_sk > Int64(30) AND store_returns.sr_returned_date_sk - store_sales.ss_sold_date_sk <= Int64(60) THEN Int64(1) ELSE Int64(0) END), sum(CASE WHEN store_returns.sr_returned_date_sk - store_sales.ss_sold_date_sk > Int64(60) AND store_returns.sr_returned_date_sk - store_sales.ss_sold_date_sk <= Int64(90) THEN Int64(1) ELSE Int64(0) END), sum(CASE WHEN store_returns.sr_returned_date_sk - store_sales.ss_sold_date_sk > Int64(90) AND store_returns.sr_returned_date_sk - store_sales.ss_sold_date_sk <= Int64(120) THEN Int64(1) ELSE Int64(0) END), sum(CASE WHEN store_returns.sr_returned_date_sk - store_sales.ss_sold_date_sk > Int64(120) THEN Int64(1) ELSE Int64(0) END)]
+05)--------RepartitionExec: partitioning=Hash([s_store_name@0, s_company_id@1, s_street_number@2, s_street_name@3, s_street_type@4, s_suite_number@5, s_city@6, s_county@7, s_state@8, s_zip@9], 4), input_partitions=4
+06)----------AggregateExec: mode=Partial, gby=[s_store_name@1 as s_store_name, s_company_id@2 as s_company_id, s_street_number@3 as s_street_number, s_street_name@4 as s_street_name, s_street_type@5 as s_street_type, s_suite_number@6 as s_suite_number, s_city@7 as s_city, s_county@8 as s_county, s_state@9 as s_state, s_zip@10 as s_zip], aggr=[sum(CASE WHEN store_returns.sr_returned_date_sk - store_sales.ss_sold_date_sk <= Int64(30) THEN Int64(1) ELSE Int64(0) END), sum(CASE WHEN store_returns.sr_returned_date_sk - store_sales.ss_sold_date_sk > Int64(30) AND store_returns.sr_returned_date_sk - store_sales.ss_sold_date_sk <= Int64(60) THEN Int64(1) ELSE Int64(0) END), sum(CASE WHEN store_returns.sr_returned_date_sk - store_sales.ss_sold_date_sk > Int64(60) AND store_returns.sr_returned_date_sk - store_sales.ss_sold_date_sk <= Int64(90) THEN Int64(1) ELSE Int64(0) END), sum(CASE WHEN store_returns.sr_returned_date_sk - store_sales.ss_sold_date_sk > Int64(90) AND store_returns.sr_returned_date_sk - store_sales.ss_sold_date_sk <= Int64(120) THEN Int64(1) ELSE Int64(0) END), sum(CASE WHEN store_returns.sr_returned_date_sk - store_sales.ss_sold_date_sk > Int64(120) THEN Int64(1) ELSE Int64(0) END)]
+07)------------ProjectionExec: expr=[sr_returned_date_sk@0 - ss_sold_date_sk@1 as __common_expr_1, s_store_name@2 as s_store_name, s_company_id@3 as s_company_id, s_street_number@4 as s_street_number, s_street_name@5 as s_street_name, s_street_type@6 as s_street_type, s_suite_number@7 as s_suite_number, s_city@8 as s_city, s_county@9 as s_county, s_state@10 as s_state, s_zip@11 as s_zip]
+08)--------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, sr_returned_date_sk@1)], projection=[sr_returned_date_sk@2, ss_sold_date_sk@1, s_store_name@3, s_company_id@4, s_street_number@5, s_street_name@6, s_street_type@7, s_suite_number@8, s_city@9, s_county@10, s_state@11, s_zip@12]
+09)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_year@6 = 2001 AND d_moy@8 = 8
+10)----------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@0)], projection=[ss_sold_date_sk@1, sr_returned_date_sk@2, s_store_name@3, s_company_id@4, s_street_number@5, s_street_name@6, s_street_type@7, s_suite_number@8, s_city@9, s_county@10, s_state@11, s_zip@12]
+11)------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex
+12)------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_store_sk@0, ss_store_sk@1)], projection=[ss_sold_date_sk@11, sr_returned_date_sk@13, s_store_name@1, s_company_id@2, s_street_number@3, s_street_name@4, s_street_type@5, s_suite_number@6, s_city@7, s_county@8, s_state@9, s_zip@10]
+13)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store.vortex]]}, projection=[s_store_sk, s_store_name, s_company_id, s_street_number, s_street_name, s_street_type, s_suite_number, s_city, s_county, s_state, s_zip], file_type=vortex
+14)--------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(sr_ticket_number@3, ss_ticket_number@4), (sr_item_sk@1, ss_item_sk@1), (sr_customer_sk@2, ss_customer_sk@2)], projection=[ss_sold_date_sk@4, ss_store_sk@7, sr_returned_date_sk@0]
+15)----------------------CoalescePartitionsExec
+16)------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>]]}, projection=[sr_returned_date_sk, sr_item_sk, sr_customer_sk, sr_ticket_number], file_type=vortex
+17)----------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_item_sk, ss_customer_sk, ss_store_sk, ss_ticket_number], file_type=vortex

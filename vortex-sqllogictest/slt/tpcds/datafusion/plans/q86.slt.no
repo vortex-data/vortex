@@ -1,0 +1,60 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT sum(ws_net_paid) AS total_sum ,
+       i_category ,
+       i_class ,
+       grouping(i_category)+grouping(i_class) AS lochierarchy ,
+       rank() OVER ( PARTITION BY grouping(i_category)+grouping(i_class),
+                                  CASE
+                                      WHEN grouping(i_class) = 0 THEN i_category
+                                  END
+                    ORDER BY sum(ws_net_paid) DESC) AS rank_within_parent
+FROM web_sales ,
+     date_dim d1 ,
+     item
+WHERE d1.d_month_seq BETWEEN 1200 AND 1200+11
+  AND d1.d_date_sk = ws_sold_date_sk
+  AND i_item_sk = ws_item_sk
+GROUP BY rollup(i_category,i_class)
+ORDER BY lochierarchy DESC NULLS FIRST,
+         CASE
+             WHEN grouping(i_category)+grouping(i_class) = 0 THEN i_category
+         END NULLS FIRST,
+         rank_within_parent NULLS FIRST
+LIMIT 100;
+----
+logical_plan
+01)Sort: lochierarchy DESC NULLS FIRST, CASE WHEN lochierarchy = Int32(0) THEN item.i_category END AS CASE WHEN lochierarchy = Int64(0) THEN item.i_category END ASC NULLS FIRST, rank_within_parent ASC NULLS FIRST, fetch=100
+02)--Projection: sum(web_sales.ws_net_paid) AS total_sum, item.i_category, item.i_class, grouping(item.i_category) + grouping(item.i_class) AS lochierarchy, rank() PARTITION BY [grouping(item.i_category) + grouping(item.i_class), CASE WHEN grouping(item.i_class) = Int64(0) THEN item.i_category END] ORDER BY [sum(web_sales.ws_net_paid) DESC NULLS FIRST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW AS rank_within_parent
+03)----WindowAggr: windowExpr=[[rank() PARTITION BY [grouping(item.i_category) + grouping(item.i_class), CASE WHEN grouping(item.i_class) = Int32(0) THEN item.i_category END] ORDER BY [sum(web_sales.ws_net_paid) DESC NULLS FIRST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW AS rank() PARTITION BY [grouping(item.i_category) + grouping(item.i_class), CASE WHEN grouping(item.i_class) = Int64(0) THEN item.i_category END] ORDER BY [sum(web_sales.ws_net_paid) DESC NULLS FIRST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW]]
+04)------Projection: item.i_category, item.i_class, sum(web_sales.ws_net_paid), CAST(__grouping_id & UInt8(2) >> UInt8(1) AS Int32) AS grouping(item.i_category), CAST(__grouping_id & UInt8(1) AS Int32) AS grouping(item.i_class)
+05)--------Aggregate: groupBy=[[ROLLUP (item.i_category, item.i_class)]], aggr=[[sum(web_sales.ws_net_paid)]]
+06)----------Projection: web_sales.ws_net_paid, item.i_class, item.i_category
+07)------------Inner Join: web_sales.ws_item_sk = item.i_item_sk
+08)--------------Projection: web_sales.ws_item_sk, web_sales.ws_net_paid
+09)----------------Inner Join: web_sales.ws_sold_date_sk = d1.d_date_sk
+10)------------------TableScan: web_sales projection=[ws_sold_date_sk, ws_item_sk, ws_net_paid]
+11)------------------SubqueryAlias: d1
+12)--------------------Projection: date_dim.d_date_sk
+13)----------------------Filter: date_dim.d_month_seq >= Int64(1200) AND date_dim.d_month_seq <= Int64(1211)
+14)------------------------TableScan: date_dim projection=[d_date_sk, d_month_seq], partial_filters=[date_dim.d_month_seq >= Int64(1200), date_dim.d_month_seq <= Int64(1211)]
+15)--------------TableScan: item projection=[i_item_sk, i_class, i_category]
+physical_plan
+01)SortPreservingMergeExec: [lochierarchy@3 DESC, CASE WHEN lochierarchy@3 = 0 THEN i_category@1 END ASC, rank_within_parent@4 ASC], fetch=100
+02)--SortExec: TopK(fetch=100), expr=[lochierarchy@3 DESC, CASE WHEN lochierarchy@3 = 0 THEN i_category@1 END ASC, rank_within_parent@4 ASC], preserve_partitioning=[true]
+03)----ProjectionExec: expr=[sum(web_sales.ws_net_paid)@2 as total_sum, i_category@0 as i_category, i_class@1 as i_class, grouping(item.i_category)@3 + grouping(item.i_class)@4 as lochierarchy, rank() PARTITION BY [grouping(item.i_category) + grouping(item.i_class), CASE WHEN grouping(item.i_class) = Int64(0) THEN item.i_category END] ORDER BY [sum(web_sales.ws_net_paid) DESC NULLS FIRST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@5 as rank_within_parent]
+04)------BoundedWindowAggExec: wdw=[rank() PARTITION BY [grouping(item.i_category) + grouping(item.i_class), CASE WHEN grouping(item.i_class) = Int64(0) THEN item.i_category END] ORDER BY [sum(web_sales.ws_net_paid) DESC NULLS FIRST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW: Field { "rank() PARTITION BY [grouping(item.i_category) + grouping(item.i_class), CASE WHEN grouping(item.i_class) = Int64(0) THEN item.i_category END] ORDER BY [sum(web_sales.ws_net_paid) DESC NULLS FIRST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW": UInt64 }, frame: RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW], mode=[Sorted]
+05)--------SortExec: expr=[grouping(item.i_category)@3 + grouping(item.i_class)@4 ASC NULLS LAST, CASE WHEN grouping(item.i_class)@4 = 0 THEN i_category@0 END ASC NULLS LAST, sum(web_sales.ws_net_paid)@2 DESC], preserve_partitioning=[true]
+06)----------RepartitionExec: partitioning=Hash([grouping(item.i_category)@3 + grouping(item.i_class)@4, CASE WHEN grouping(item.i_class)@4 = 0 THEN i_category@0 END], 4), input_partitions=4
+07)------------ProjectionExec: expr=[i_category@0 as i_category, i_class@1 as i_class, sum(web_sales.ws_net_paid)@3 as sum(web_sales.ws_net_paid), CAST(__grouping_id@2 & 2 >> 1 AS Int32) as grouping(item.i_category), CAST(__grouping_id@2 & 1 AS Int32) as grouping(item.i_class)]
+08)--------------AggregateExec: mode=FinalPartitioned, gby=[i_category@0 as i_category, i_class@1 as i_class, __grouping_id@2 as __grouping_id], aggr=[sum(web_sales.ws_net_paid)]
+09)----------------RepartitionExec: partitioning=Hash([i_category@0, i_class@1, __grouping_id@2], 4), input_partitions=4
+10)------------------AggregateExec: mode=Partial, gby=[(NULL as i_category, NULL as i_class), (i_category@2 as i_category, NULL as i_class), (i_category@2 as i_category, i_class@1 as i_class)], aggr=[sum(web_sales.ws_net_paid)]
+11)--------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, ws_item_sk@0)], projection=[ws_net_paid@4, i_class@1, i_category@2]
+12)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_class, i_category], file_type=vortex
+13)----------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ws_sold_date_sk@0)], projection=[ws_item_sk@2, ws_net_paid@3]
+14)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_month_seq@3 >= 1200 AND d_month_seq@3 <= 1211
+15)------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>]]}, projection=[ws_sold_date_sk, ws_item_sk, ws_net_paid], file_type=vortex

@@ -1,0 +1,109 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT i_item_id ,
+       i_item_desc ,
+       s_store_id ,
+       s_store_name ,
+       sum(ss_net_profit) AS store_sales_profit ,
+       sum(sr_net_loss) AS store_returns_loss ,
+       sum(cs_net_profit) AS catalog_sales_profit
+FROM store_sales ,
+     store_returns ,
+     catalog_sales ,
+     date_dim d1 ,
+     date_dim d2 ,
+     date_dim d3 ,
+     store ,
+     item
+WHERE d1.d_moy = 4
+  AND d1.d_year = 2001
+  AND d1.d_date_sk = ss_sold_date_sk
+  AND i_item_sk = ss_item_sk
+  AND s_store_sk = ss_store_sk
+  AND ss_customer_sk = sr_customer_sk
+  AND ss_item_sk = sr_item_sk
+  AND ss_ticket_number = sr_ticket_number
+  AND sr_returned_date_sk = d2.d_date_sk
+  AND d2.d_moy BETWEEN 4 AND 10
+  AND d2.d_year = 2001
+  AND sr_customer_sk = cs_bill_customer_sk
+  AND sr_item_sk = cs_item_sk
+  AND cs_sold_date_sk = d3.d_date_sk
+  AND d3.d_moy BETWEEN 4 AND 10
+  AND d3.d_year = 2001
+GROUP BY i_item_id ,
+         i_item_desc ,
+         s_store_id ,
+         s_store_name
+ORDER BY i_item_id ,
+         i_item_desc ,
+         s_store_id ,
+         s_store_name
+LIMIT 100;
+----
+logical_plan
+01)Sort: item.i_item_id ASC NULLS LAST, item.i_item_desc ASC NULLS LAST, store.s_store_id ASC NULLS LAST, store.s_store_name ASC NULLS LAST, fetch=100
+02)--Projection: item.i_item_id, item.i_item_desc, store.s_store_id, store.s_store_name, sum(store_sales.ss_net_profit) AS store_sales_profit, sum(store_returns.sr_net_loss) AS store_returns_loss, sum(catalog_sales.cs_net_profit) AS catalog_sales_profit
+03)----Aggregate: groupBy=[[item.i_item_id, item.i_item_desc, store.s_store_id, store.s_store_name]], aggr=[[sum(store_sales.ss_net_profit), sum(store_returns.sr_net_loss), sum(catalog_sales.cs_net_profit)]]
+04)------Projection: store_sales.ss_net_profit, store_returns.sr_net_loss, catalog_sales.cs_net_profit, store.s_store_id, store.s_store_name, item.i_item_id, item.i_item_desc
+05)--------Inner Join: store_sales.ss_item_sk = item.i_item_sk
+06)----------Projection: store_sales.ss_item_sk, store_sales.ss_net_profit, store_returns.sr_net_loss, catalog_sales.cs_net_profit, store.s_store_id, store.s_store_name
+07)------------Inner Join: store_sales.ss_store_sk = store.s_store_sk
+08)--------------Projection: store_sales.ss_item_sk, store_sales.ss_store_sk, store_sales.ss_net_profit, store_returns.sr_net_loss, catalog_sales.cs_net_profit
+09)----------------Inner Join: catalog_sales.cs_sold_date_sk = d3.d_date_sk
+10)------------------Projection: store_sales.ss_item_sk, store_sales.ss_store_sk, store_sales.ss_net_profit, store_returns.sr_net_loss, catalog_sales.cs_sold_date_sk, catalog_sales.cs_net_profit
+11)--------------------Inner Join: store_returns.sr_returned_date_sk = d2.d_date_sk
+12)----------------------Projection: store_sales.ss_item_sk, store_sales.ss_store_sk, store_sales.ss_net_profit, store_returns.sr_returned_date_sk, store_returns.sr_net_loss, catalog_sales.cs_sold_date_sk, catalog_sales.cs_net_profit
+13)------------------------Inner Join: store_sales.ss_sold_date_sk = d1.d_date_sk
+14)--------------------------Projection: store_sales.ss_sold_date_sk, store_sales.ss_item_sk, store_sales.ss_store_sk, store_sales.ss_net_profit, store_returns.sr_returned_date_sk, store_returns.sr_net_loss, catalog_sales.cs_sold_date_sk, catalog_sales.cs_net_profit
+15)----------------------------Inner Join: store_returns.sr_customer_sk = catalog_sales.cs_bill_customer_sk, store_returns.sr_item_sk = catalog_sales.cs_item_sk
+16)------------------------------Projection: store_sales.ss_sold_date_sk, store_sales.ss_item_sk, store_sales.ss_store_sk, store_sales.ss_net_profit, store_returns.sr_returned_date_sk, store_returns.sr_item_sk, store_returns.sr_customer_sk, store_returns.sr_net_loss
+17)--------------------------------Inner Join: store_sales.ss_customer_sk = store_returns.sr_customer_sk, store_sales.ss_item_sk = store_returns.sr_item_sk, store_sales.ss_ticket_number = store_returns.sr_ticket_number
+18)----------------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_item_sk, ss_customer_sk, ss_store_sk, ss_ticket_number, ss_net_profit]
+19)----------------------------------TableScan: store_returns projection=[sr_returned_date_sk, sr_item_sk, sr_customer_sk, sr_ticket_number, sr_net_loss]
+20)------------------------------TableScan: catalog_sales projection=[cs_sold_date_sk, cs_bill_customer_sk, cs_item_sk, cs_net_profit]
+21)--------------------------SubqueryAlias: d1
+22)----------------------------Projection: date_dim.d_date_sk
+23)------------------------------Filter: date_dim.d_moy = Int64(4) AND date_dim.d_year = Int64(2001)
+24)--------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_moy = Int64(4), date_dim.d_year = Int64(2001)]
+25)----------------------SubqueryAlias: d2
+26)------------------------Projection: date_dim.d_date_sk
+27)--------------------------Filter: date_dim.d_moy >= Int64(4) AND date_dim.d_moy <= Int64(10) AND date_dim.d_year = Int64(2001)
+28)----------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_moy >= Int64(4), date_dim.d_moy <= Int64(10), date_dim.d_year = Int64(2001)]
+29)------------------SubqueryAlias: d3
+30)--------------------Projection: date_dim.d_date_sk
+31)----------------------Filter: date_dim.d_moy >= Int64(4) AND date_dim.d_moy <= Int64(10) AND date_dim.d_year = Int64(2001)
+32)------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_moy >= Int64(4), date_dim.d_moy <= Int64(10), date_dim.d_year = Int64(2001)]
+33)--------------TableScan: store projection=[s_store_sk, s_store_id, s_store_name]
+34)----------TableScan: item projection=[i_item_sk, i_item_id, i_item_desc]
+physical_plan
+01)SortPreservingMergeExec: [i_item_id@0 ASC NULLS LAST, i_item_desc@1 ASC NULLS LAST, s_store_id@2 ASC NULLS LAST, s_store_name@3 ASC NULLS LAST], fetch=100
+02)--ProjectionExec: expr=[i_item_id@0 as i_item_id, i_item_desc@1 as i_item_desc, s_store_id@2 as s_store_id, s_store_name@3 as s_store_name, sum(store_sales.ss_net_profit)@4 as store_sales_profit, sum(store_returns.sr_net_loss)@5 as store_returns_loss, sum(catalog_sales.cs_net_profit)@6 as catalog_sales_profit]
+03)----SortExec: TopK(fetch=100), expr=[i_item_id@0 ASC NULLS LAST, i_item_desc@1 ASC NULLS LAST, s_store_id@2 ASC NULLS LAST, s_store_name@3 ASC NULLS LAST], preserve_partitioning=[true]
+04)------AggregateExec: mode=FinalPartitioned, gby=[i_item_id@0 as i_item_id, i_item_desc@1 as i_item_desc, s_store_id@2 as s_store_id, s_store_name@3 as s_store_name], aggr=[sum(store_sales.ss_net_profit), sum(store_returns.sr_net_loss), sum(catalog_sales.cs_net_profit)]
+05)--------RepartitionExec: partitioning=Hash([i_item_id@0, i_item_desc@1, s_store_id@2, s_store_name@3], 4), input_partitions=4
+06)----------AggregateExec: mode=Partial, gby=[i_item_id@5 as i_item_id, i_item_desc@6 as i_item_desc, s_store_id@3 as s_store_id, s_store_name@4 as s_store_name], aggr=[sum(store_sales.ss_net_profit), sum(store_returns.sr_net_loss), sum(catalog_sales.cs_net_profit)]
+07)------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+08)--------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(ss_item_sk@0, i_item_sk@0)], projection=[ss_net_profit@1, sr_net_loss@2, cs_net_profit@3, s_store_id@4, s_store_name@5, i_item_id@7, i_item_desc@8]
+09)----------------CoalescePartitionsExec
+10)------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_store_sk@0, ss_store_sk@1)], projection=[ss_item_sk@3, ss_net_profit@5, sr_net_loss@6, cs_net_profit@7, s_store_id@1, s_store_name@2]
+11)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store.vortex]]}, projection=[s_store_sk, s_store_id, s_store_name], file_type=vortex
+12)--------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, cs_sold_date_sk@4)], projection=[ss_item_sk@1, ss_store_sk@2, ss_net_profit@3, sr_net_loss@4, cs_net_profit@6]
+13)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_moy@8 >= 4 AND d_moy@8 <= 10 AND d_year@6 = 2001
+14)----------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, sr_returned_date_sk@3)], projection=[ss_item_sk@1, ss_store_sk@2, ss_net_profit@3, sr_net_loss@5, cs_sold_date_sk@6, cs_net_profit@7]
+15)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_moy@8 >= 4 AND d_moy@8 <= 10 AND d_year@6 = 2001
+16)------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@0)], projection=[ss_item_sk@2, ss_store_sk@3, ss_net_profit@4, sr_returned_date_sk@5, sr_net_loss@6, cs_sold_date_sk@7, cs_net_profit@8]
+17)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_moy@8 = 4 AND d_year@6 = 2001
+18)--------------------------HashJoinExec: mode=Partitioned, join_type=Inner, on=[(cs_bill_customer_sk@1, sr_customer_sk@6), (cs_item_sk@2, sr_item_sk@5)], projection=[ss_sold_date_sk@4, ss_item_sk@5, ss_store_sk@6, ss_net_profit@7, sr_returned_date_sk@8, sr_net_loss@11, cs_sold_date_sk@0, cs_net_profit@3]
+19)----------------------------RepartitionExec: partitioning=Hash([cs_bill_customer_sk@1, cs_item_sk@2], 4), input_partitions=4
+20)------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>]]}, projection=[cs_sold_date_sk, cs_bill_customer_sk, cs_item_sk, cs_net_profit], file_type=vortex
+21)----------------------------RepartitionExec: partitioning=Hash([sr_customer_sk@6, sr_item_sk@5], 4), input_partitions=4
+22)------------------------------HashJoinExec: mode=Partitioned, join_type=Inner, on=[(sr_customer_sk@2, ss_customer_sk@2), (sr_item_sk@1, ss_item_sk@1), (sr_ticket_number@3, ss_ticket_number@4)], projection=[ss_sold_date_sk@5, ss_item_sk@6, ss_store_sk@8, ss_net_profit@10, sr_returned_date_sk@0, sr_item_sk@1, sr_customer_sk@2, sr_net_loss@4]
+23)--------------------------------RepartitionExec: partitioning=Hash([sr_customer_sk@2, sr_item_sk@1, sr_ticket_number@3], 4), input_partitions=4
+24)----------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>]]}, projection=[sr_returned_date_sk, sr_item_sk, sr_customer_sk, sr_ticket_number, sr_net_loss], file_type=vortex
+25)--------------------------------RepartitionExec: partitioning=Hash([ss_customer_sk@2, ss_item_sk@1, ss_ticket_number@4], 4), input_partitions=4
+26)----------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_item_sk, ss_customer_sk, ss_store_sk, ss_ticket_number, ss_net_profit], file_type=vortex
+27)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_item_id, i_item_desc], file_type=vortex

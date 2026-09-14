@@ -1,0 +1,181 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+WITH results AS
+  (SELECT i_item_id,
+          s_state,
+          0 AS g_state,
+          ss_quantity agg1,
+          ss_list_price agg2,
+          ss_coupon_amt agg3,
+          ss_sales_price agg4
+   FROM store_sales,
+        customer_demographics,
+        date_dim,
+        store,
+        item
+   WHERE ss_sold_date_sk = d_date_sk
+     AND ss_item_sk = i_item_sk
+     AND ss_store_sk = s_store_sk
+     AND ss_cdemo_sk = cd_demo_sk
+     AND cd_gender = 'M'
+     AND cd_marital_status = 'S'
+     AND cd_education_status = 'College'
+     AND d_year = 2002
+     AND s_state = 'TN' )
+SELECT i_item_id,
+       s_state,
+       g_state,
+       agg1,
+       agg2,
+       agg3,
+       agg4
+FROM
+  ( SELECT i_item_id,
+           s_state,
+           0 AS g_state,
+           avg(agg1) agg1,
+           avg(agg2) agg2,
+           avg(agg3) agg3,
+           avg(agg4) agg4
+   FROM results
+   GROUP BY i_item_id ,
+            s_state
+   UNION ALL SELECT i_item_id,
+                    NULL AS s_state,
+                    1 AS g_state,
+                    avg(agg1) agg1,
+                    avg(agg2) agg2,
+                    avg(agg3) agg3,
+                    avg(agg4) agg4
+   FROM results
+   GROUP BY i_item_id
+   UNION ALL SELECT NULL AS i_item_id,
+                    NULL AS s_state,
+                    1 AS g_state,
+                    avg(agg1) agg1,
+                    avg(agg2) agg2,
+                    avg(agg3) agg3,
+                    avg(agg4) agg4
+   FROM results ) foo
+ORDER BY i_item_id NULLS FIRST,
+         s_state NULLS FIRST
+LIMIT 100;
+----
+logical_plan
+01)Sort: foo.i_item_id ASC NULLS FIRST, foo.s_state ASC NULLS FIRST, fetch=100
+02)--SubqueryAlias: foo
+03)----Union
+04)------Projection: results.i_item_id, results.s_state, Int64(0) AS g_state, avg(results.agg1) AS agg1, avg(results.agg2) AS agg2, avg(results.agg3) AS agg3, avg(results.agg4) AS agg4
+05)--------Aggregate: groupBy=[[results.i_item_id, results.s_state]], aggr=[[avg(CAST(results.agg1 AS Float64)), avg(results.agg2), avg(results.agg3), avg(results.agg4)]]
+06)----------SubqueryAlias: results
+07)------------Projection: item.i_item_id, store.s_state, store_sales.ss_quantity AS agg1, store_sales.ss_list_price AS agg2, store_sales.ss_coupon_amt AS agg3, store_sales.ss_sales_price AS agg4
+08)--------------Inner Join: store_sales.ss_item_sk = item.i_item_sk
+09)----------------Projection: store_sales.ss_item_sk, store_sales.ss_quantity, store_sales.ss_list_price, store_sales.ss_sales_price, store_sales.ss_coupon_amt, store.s_state
+10)------------------Inner Join: store_sales.ss_store_sk = store.s_store_sk
+11)--------------------Projection: store_sales.ss_item_sk, store_sales.ss_store_sk, store_sales.ss_quantity, store_sales.ss_list_price, store_sales.ss_sales_price, store_sales.ss_coupon_amt
+12)----------------------Inner Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
+13)------------------------Projection: store_sales.ss_sold_date_sk, store_sales.ss_item_sk, store_sales.ss_store_sk, store_sales.ss_quantity, store_sales.ss_list_price, store_sales.ss_sales_price, store_sales.ss_coupon_amt
+14)--------------------------Inner Join: store_sales.ss_cdemo_sk = customer_demographics.cd_demo_sk
+15)----------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_item_sk, ss_cdemo_sk, ss_store_sk, ss_quantity, ss_list_price, ss_sales_price, ss_coupon_amt]
+16)----------------------------Projection: customer_demographics.cd_demo_sk
+17)------------------------------Filter: customer_demographics.cd_gender = Utf8View("M") AND customer_demographics.cd_marital_status = Utf8View("S") AND customer_demographics.cd_education_status = Utf8View("College")
+18)--------------------------------TableScan: customer_demographics projection=[cd_demo_sk, cd_gender, cd_marital_status, cd_education_status], partial_filters=[customer_demographics.cd_gender = Utf8View("M"), customer_demographics.cd_marital_status = Utf8View("S"), customer_demographics.cd_education_status = Utf8View("College")]
+19)------------------------Projection: date_dim.d_date_sk
+20)--------------------------Filter: date_dim.d_year = Int64(2002)
+21)----------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int64(2002)]
+22)--------------------Filter: store.s_state = Utf8View("TN")
+23)----------------------TableScan: store projection=[s_store_sk, s_state], partial_filters=[store.s_state = Utf8View("TN")]
+24)----------------TableScan: item projection=[i_item_sk, i_item_id]
+25)------Projection: results.i_item_id, Utf8View(NULL) AS s_state, Int64(1) AS g_state, avg(results.agg1) AS agg1, avg(results.agg2) AS agg2, avg(results.agg3) AS agg3, avg(results.agg4) AS agg4
+26)--------Aggregate: groupBy=[[results.i_item_id]], aggr=[[avg(CAST(results.agg1 AS Float64)), avg(results.agg2), avg(results.agg3), avg(results.agg4)]]
+27)----------SubqueryAlias: results
+28)------------Projection: item.i_item_id, store_sales.ss_quantity AS agg1, store_sales.ss_list_price AS agg2, store_sales.ss_coupon_amt AS agg3, store_sales.ss_sales_price AS agg4
+29)--------------Inner Join: store_sales.ss_item_sk = item.i_item_sk
+30)----------------Projection: store_sales.ss_item_sk, store_sales.ss_quantity, store_sales.ss_list_price, store_sales.ss_sales_price, store_sales.ss_coupon_amt
+31)------------------Inner Join: store_sales.ss_store_sk = store.s_store_sk
+32)--------------------Projection: store_sales.ss_item_sk, store_sales.ss_store_sk, store_sales.ss_quantity, store_sales.ss_list_price, store_sales.ss_sales_price, store_sales.ss_coupon_amt
+33)----------------------Inner Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
+34)------------------------Projection: store_sales.ss_sold_date_sk, store_sales.ss_item_sk, store_sales.ss_store_sk, store_sales.ss_quantity, store_sales.ss_list_price, store_sales.ss_sales_price, store_sales.ss_coupon_amt
+35)--------------------------Inner Join: store_sales.ss_cdemo_sk = customer_demographics.cd_demo_sk
+36)----------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_item_sk, ss_cdemo_sk, ss_store_sk, ss_quantity, ss_list_price, ss_sales_price, ss_coupon_amt]
+37)----------------------------Projection: customer_demographics.cd_demo_sk
+38)------------------------------Filter: customer_demographics.cd_gender = Utf8View("M") AND customer_demographics.cd_marital_status = Utf8View("S") AND customer_demographics.cd_education_status = Utf8View("College")
+39)--------------------------------TableScan: customer_demographics projection=[cd_demo_sk, cd_gender, cd_marital_status, cd_education_status], partial_filters=[customer_demographics.cd_gender = Utf8View("M"), customer_demographics.cd_marital_status = Utf8View("S"), customer_demographics.cd_education_status = Utf8View("College")]
+40)------------------------Projection: date_dim.d_date_sk
+41)--------------------------Filter: date_dim.d_year = Int64(2002)
+42)----------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int64(2002)]
+43)--------------------Projection: store.s_store_sk
+44)----------------------Filter: store.s_state = Utf8View("TN")
+45)------------------------TableScan: store projection=[s_store_sk, s_state], partial_filters=[store.s_state = Utf8View("TN")]
+46)----------------TableScan: item projection=[i_item_sk, i_item_id]
+47)------Projection: Utf8View(NULL) AS i_item_id, Utf8View(NULL) AS s_state, Int64(1) AS g_state, avg(results.agg1) AS agg1, avg(results.agg2) AS agg2, avg(results.agg3) AS agg3, avg(results.agg4) AS agg4
+48)--------Aggregate: groupBy=[[]], aggr=[[avg(CAST(results.agg1 AS Float64)), avg(results.agg2), avg(results.agg3), avg(results.agg4)]]
+49)----------SubqueryAlias: results
+50)------------Projection: store_sales.ss_quantity AS agg1, store_sales.ss_list_price AS agg2, store_sales.ss_coupon_amt AS agg3, store_sales.ss_sales_price AS agg4
+51)--------------Inner Join: store_sales.ss_item_sk = item.i_item_sk
+52)----------------Projection: store_sales.ss_item_sk, store_sales.ss_quantity, store_sales.ss_list_price, store_sales.ss_sales_price, store_sales.ss_coupon_amt
+53)------------------Inner Join: store_sales.ss_store_sk = store.s_store_sk
+54)--------------------Projection: store_sales.ss_item_sk, store_sales.ss_store_sk, store_sales.ss_quantity, store_sales.ss_list_price, store_sales.ss_sales_price, store_sales.ss_coupon_amt
+55)----------------------Inner Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
+56)------------------------Projection: store_sales.ss_sold_date_sk, store_sales.ss_item_sk, store_sales.ss_store_sk, store_sales.ss_quantity, store_sales.ss_list_price, store_sales.ss_sales_price, store_sales.ss_coupon_amt
+57)--------------------------Inner Join: store_sales.ss_cdemo_sk = customer_demographics.cd_demo_sk
+58)----------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_item_sk, ss_cdemo_sk, ss_store_sk, ss_quantity, ss_list_price, ss_sales_price, ss_coupon_amt]
+59)----------------------------Projection: customer_demographics.cd_demo_sk
+60)------------------------------Filter: customer_demographics.cd_gender = Utf8View("M") AND customer_demographics.cd_marital_status = Utf8View("S") AND customer_demographics.cd_education_status = Utf8View("College")
+61)--------------------------------TableScan: customer_demographics projection=[cd_demo_sk, cd_gender, cd_marital_status, cd_education_status], partial_filters=[customer_demographics.cd_gender = Utf8View("M"), customer_demographics.cd_marital_status = Utf8View("S"), customer_demographics.cd_education_status = Utf8View("College")]
+62)------------------------Projection: date_dim.d_date_sk
+63)--------------------------Filter: date_dim.d_year = Int64(2002)
+64)----------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int64(2002)]
+65)--------------------Projection: store.s_store_sk
+66)----------------------Filter: store.s_state = Utf8View("TN")
+67)------------------------TableScan: store projection=[s_store_sk, s_state], partial_filters=[store.s_state = Utf8View("TN")]
+68)----------------TableScan: item projection=[i_item_sk]
+physical_plan
+01)SortPreservingMergeExec: [i_item_id@0 ASC, s_state@1 ASC], fetch=100
+02)--SortExec: TopK(fetch=100), expr=[i_item_id@0 ASC], preserve_partitioning=[true]
+03)----UnionExec
+04)------ProjectionExec: expr=[i_item_id@0 as i_item_id, s_state@1 as s_state, 0 as g_state, avg(results.agg1)@2 as agg1, avg(results.agg2)@3 as agg2, avg(results.agg3)@4 as agg3, avg(results.agg4)@5 as agg4]
+05)--------AggregateExec: mode=FinalPartitioned, gby=[i_item_id@0 as i_item_id, s_state@1 as s_state], aggr=[avg(results.agg1), avg(results.agg2), avg(results.agg3), avg(results.agg4)], ordering_mode=PartiallySorted([1])
+06)----------RepartitionExec: partitioning=Hash([i_item_id@0, s_state@1], 4), input_partitions=4
+07)------------AggregateExec: mode=Partial, gby=[i_item_id@0 as i_item_id, s_state@1 as s_state], aggr=[avg(results.agg1), avg(results.agg2), avg(results.agg3), avg(results.agg4)], ordering_mode=PartiallySorted([1])
+08)--------------ProjectionExec: expr=[i_item_id@0 as i_item_id, s_state@1 as s_state, ss_quantity@2 as agg1, ss_list_price@3 as agg2, ss_coupon_amt@4 as agg3, ss_sales_price@5 as agg4]
+09)----------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, ss_item_sk@0)], projection=[i_item_id@1, s_state@7, ss_quantity@3, ss_list_price@4, ss_coupon_amt@6, ss_sales_price@5]
+10)------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_item_id], file_type=vortex
+11)------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_store_sk@0, ss_store_sk@1)], projection=[ss_item_sk@2, ss_quantity@4, ss_list_price@5, ss_sales_price@6, ss_coupon_amt@7, s_state@1]
+12)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store.vortex]]}, projection=[s_store_sk, s_state], file_type=vortex, predicate: s_state@24 = TN
+13)--------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@0)], projection=[ss_item_sk@2, ss_store_sk@3, ss_quantity@4, ss_list_price@5, ss_sales_price@6, ss_coupon_amt@7]
+14)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_year@6 = 2002
+15)----------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(cd_demo_sk@0, ss_cdemo_sk@2)], projection=[ss_sold_date_sk@1, ss_item_sk@2, ss_store_sk@4, ss_quantity@5, ss_list_price@6, ss_sales_price@7, ss_coupon_amt@8]
+16)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_demographics.vortex]]}, projection=[cd_demo_sk], file_type=vortex, predicate: cd_gender@1 = M AND cd_marital_status@2 = S AND cd_education_status@3 = College
+17)------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_item_sk, ss_cdemo_sk, ss_store_sk, ss_quantity, ss_list_price, ss_sales_price, ss_coupon_amt], file_type=vortex
+18)------ProjectionExec: expr=[i_item_id@0 as i_item_id, NULL as s_state, 1 as g_state, avg(results.agg1)@1 as agg1, avg(results.agg2)@2 as agg2, avg(results.agg3)@3 as agg3, avg(results.agg4)@4 as agg4]
+19)--------AggregateExec: mode=FinalPartitioned, gby=[i_item_id@0 as i_item_id], aggr=[avg(results.agg1), avg(results.agg2), avg(results.agg3), avg(results.agg4)]
+20)----------RepartitionExec: partitioning=Hash([i_item_id@0], 4), input_partitions=4
+21)------------AggregateExec: mode=Partial, gby=[i_item_id@0 as i_item_id], aggr=[avg(results.agg1), avg(results.agg2), avg(results.agg3), avg(results.agg4)]
+22)--------------ProjectionExec: expr=[i_item_id@0 as i_item_id, ss_quantity@1 as agg1, ss_list_price@2 as agg2, ss_coupon_amt@3 as agg3, ss_sales_price@4 as agg4]
+23)----------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, ss_item_sk@0)], projection=[i_item_id@1, ss_quantity@3, ss_list_price@4, ss_coupon_amt@6, ss_sales_price@5]
+24)------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_item_id], file_type=vortex
+25)------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_store_sk@0, ss_store_sk@1)], projection=[ss_item_sk@1, ss_quantity@3, ss_list_price@4, ss_sales_price@5, ss_coupon_amt@6]
+26)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store.vortex]]}, projection=[s_store_sk], file_type=vortex, predicate: s_state@24 = TN
+27)--------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@0)], projection=[ss_item_sk@2, ss_store_sk@3, ss_quantity@4, ss_list_price@5, ss_sales_price@6, ss_coupon_amt@7]
+28)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_year@6 = 2002
+29)----------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(cd_demo_sk@0, ss_cdemo_sk@2)], projection=[ss_sold_date_sk@1, ss_item_sk@2, ss_store_sk@4, ss_quantity@5, ss_list_price@6, ss_sales_price@7, ss_coupon_amt@8]
+30)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_demographics.vortex]]}, projection=[cd_demo_sk], file_type=vortex, predicate: cd_gender@1 = M AND cd_marital_status@2 = S AND cd_education_status@3 = College
+31)------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_item_sk, ss_cdemo_sk, ss_store_sk, ss_quantity, ss_list_price, ss_sales_price, ss_coupon_amt], file_type=vortex
+32)------ProjectionExec: expr=[NULL as i_item_id, NULL as s_state, 1 as g_state, avg(results.agg1)@0 as agg1, avg(results.agg2)@1 as agg2, avg(results.agg3)@2 as agg3, avg(results.agg4)@3 as agg4]
+33)--------AggregateExec: mode=Final, gby=[], aggr=[avg(results.agg1), avg(results.agg2), avg(results.agg3), avg(results.agg4)]
+34)----------CoalescePartitionsExec
+35)------------AggregateExec: mode=Partial, gby=[], aggr=[avg(results.agg1), avg(results.agg2), avg(results.agg3), avg(results.agg4)]
+36)--------------ProjectionExec: expr=[ss_quantity@0 as agg1, ss_list_price@1 as agg2, ss_coupon_amt@2 as agg3, ss_sales_price@3 as agg4]
+37)----------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, ss_item_sk@0)], projection=[ss_quantity@2, ss_list_price@3, ss_coupon_amt@5, ss_sales_price@4]
+38)------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk], file_type=vortex
+39)------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_store_sk@0, ss_store_sk@1)], projection=[ss_item_sk@1, ss_quantity@3, ss_list_price@4, ss_sales_price@5, ss_coupon_amt@6]
+40)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store.vortex]]}, projection=[s_store_sk], file_type=vortex, predicate: s_state@24 = TN
+41)--------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@0)], projection=[ss_item_sk@2, ss_store_sk@3, ss_quantity@4, ss_list_price@5, ss_sales_price@6, ss_coupon_amt@7]
+42)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_year@6 = 2002
+43)----------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(cd_demo_sk@0, ss_cdemo_sk@2)], projection=[ss_sold_date_sk@1, ss_item_sk@2, ss_store_sk@4, ss_quantity@5, ss_list_price@6, ss_sales_price@7, ss_coupon_amt@8]
+44)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_demographics.vortex]]}, projection=[cd_demo_sk], file_type=vortex, predicate: cd_gender@1 = M AND cd_marital_status@2 = S AND cd_education_status@3 = College
+45)------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_item_sk, ss_cdemo_sk, ss_store_sk, ss_quantity, ss_list_price, ss_sales_price, ss_coupon_amt], file_type=vortex

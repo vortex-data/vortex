@@ -1,0 +1,100 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT case when pmc=0 then null else cast(amc AS decimal(15,4))/cast(pmc AS decimal(15,4)) end am_pm_ratio
+FROM
+  (SELECT count(*) amc
+   FROM web_sales,
+        household_demographics,
+        time_dim,
+        web_page
+   WHERE ws_sold_time_sk = time_dim.t_time_sk
+     AND ws_ship_hdemo_sk = household_demographics.hd_demo_sk
+     AND ws_web_page_sk = web_page.wp_web_page_sk
+     AND time_dim.t_hour BETWEEN 8 AND 8+1
+     AND household_demographics.hd_dep_count = 6
+     AND web_page.wp_char_count BETWEEN 5000 AND 5200) "at",
+  (SELECT count(*) pmc
+   FROM web_sales,
+        household_demographics,
+        time_dim,
+        web_page
+   WHERE ws_sold_time_sk = time_dim.t_time_sk
+     AND ws_ship_hdemo_sk = household_demographics.hd_demo_sk
+     AND ws_web_page_sk = web_page.wp_web_page_sk
+     AND time_dim.t_hour BETWEEN 19 AND 19+1
+     AND household_demographics.hd_dep_count = 6
+     AND web_page.wp_char_count BETWEEN 5000 AND 5200) pt
+ORDER BY am_pm_ratio
+LIMIT 100;
+----
+logical_plan
+01)Sort: am_pm_ratio ASC NULLS LAST, fetch=100
+02)--Projection: CASE WHEN pt.pmc = Int64(0) THEN Decimal128(NULL,23,8) ELSE CAST(at.amc AS Decimal128(15, 4)) / CAST(pt.pmc AS Decimal128(15, 4)) END AS am_pm_ratio
+03)----Cross Join:
+04)------SubqueryAlias: at
+05)--------Projection: count(Int64(1)) AS count(*) AS amc
+06)----------Aggregate: groupBy=[[]], aggr=[[count(Int64(1))]]
+07)------------Projection:
+08)--------------Inner Join: web_sales.ws_web_page_sk = web_page.wp_web_page_sk
+09)----------------Projection: web_sales.ws_web_page_sk
+10)------------------Inner Join: web_sales.ws_sold_time_sk = time_dim.t_time_sk
+11)--------------------Projection: web_sales.ws_sold_time_sk, web_sales.ws_web_page_sk
+12)----------------------Inner Join: web_sales.ws_ship_hdemo_sk = household_demographics.hd_demo_sk
+13)------------------------TableScan: web_sales projection=[ws_sold_time_sk, ws_ship_hdemo_sk, ws_web_page_sk]
+14)------------------------Projection: household_demographics.hd_demo_sk
+15)--------------------------Filter: household_demographics.hd_dep_count = Int64(6)
+16)----------------------------TableScan: household_demographics projection=[hd_demo_sk, hd_dep_count], partial_filters=[household_demographics.hd_dep_count = Int64(6)]
+17)--------------------Projection: time_dim.t_time_sk
+18)----------------------Filter: time_dim.t_hour >= Int64(8) AND time_dim.t_hour <= Int64(9)
+19)------------------------TableScan: time_dim projection=[t_time_sk, t_hour], partial_filters=[time_dim.t_hour >= Int64(8), time_dim.t_hour <= Int64(9)]
+20)----------------Projection: web_page.wp_web_page_sk
+21)------------------Filter: web_page.wp_char_count >= Int64(5000) AND web_page.wp_char_count <= Int64(5200)
+22)--------------------TableScan: web_page projection=[wp_web_page_sk, wp_char_count], partial_filters=[web_page.wp_char_count >= Int64(5000), web_page.wp_char_count <= Int64(5200)]
+23)------SubqueryAlias: pt
+24)--------Projection: count(Int64(1)) AS count(*) AS pmc
+25)----------Aggregate: groupBy=[[]], aggr=[[count(Int64(1))]]
+26)------------Projection:
+27)--------------Inner Join: web_sales.ws_web_page_sk = web_page.wp_web_page_sk
+28)----------------Projection: web_sales.ws_web_page_sk
+29)------------------Inner Join: web_sales.ws_sold_time_sk = time_dim.t_time_sk
+30)--------------------Projection: web_sales.ws_sold_time_sk, web_sales.ws_web_page_sk
+31)----------------------Inner Join: web_sales.ws_ship_hdemo_sk = household_demographics.hd_demo_sk
+32)------------------------TableScan: web_sales projection=[ws_sold_time_sk, ws_ship_hdemo_sk, ws_web_page_sk]
+33)------------------------Projection: household_demographics.hd_demo_sk
+34)--------------------------Filter: household_demographics.hd_dep_count = Int64(6)
+35)----------------------------TableScan: household_demographics projection=[hd_demo_sk, hd_dep_count], partial_filters=[household_demographics.hd_dep_count = Int64(6)]
+36)--------------------Projection: time_dim.t_time_sk
+37)----------------------Filter: time_dim.t_hour >= Int64(19) AND time_dim.t_hour <= Int64(20)
+38)------------------------TableScan: time_dim projection=[t_time_sk, t_hour], partial_filters=[time_dim.t_hour >= Int64(19), time_dim.t_hour <= Int64(20)]
+39)----------------Projection: web_page.wp_web_page_sk
+40)------------------Filter: web_page.wp_char_count >= Int64(5000) AND web_page.wp_char_count <= Int64(5200)
+41)--------------------TableScan: web_page projection=[wp_web_page_sk, wp_char_count], partial_filters=[web_page.wp_char_count >= Int64(5000), web_page.wp_char_count <= Int64(5200)]
+physical_plan
+01)SortExec: TopK(fetch=100), expr=[am_pm_ratio@0 ASC NULLS LAST], preserve_partitioning=[false]
+02)--ProjectionExec: expr=[CASE WHEN pmc@1 = 0 THEN NULL ELSE CAST(amc@0 AS Decimal128(15, 4)) / CAST(pmc@1 AS Decimal128(15, 4)) END as am_pm_ratio]
+03)----CrossJoinExec
+04)------ProjectionExec: expr=[count(Int64(1))@0 as amc]
+05)--------AggregateExec: mode=Final, gby=[], aggr=[count(Int64(1))]
+06)----------CoalescePartitionsExec
+07)------------AggregateExec: mode=Partial, gby=[], aggr=[count(Int64(1))]
+08)--------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(wp_web_page_sk@0, ws_web_page_sk@0)], projection=[]
+09)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/web_page.vortex]]}, projection=[wp_web_page_sk], file_type=vortex, predicate: wp_char_count@10 >= 5000 AND wp_char_count@10 <= 5200
+10)----------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(t_time_sk@0, ws_sold_time_sk@0)], projection=[ws_web_page_sk@2]
+11)------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/time_dim.vortex]]}, projection=[t_time_sk], file_type=vortex, predicate: t_hour@3 >= 8 AND t_hour@3 <= 9
+12)------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(hd_demo_sk@0, ws_ship_hdemo_sk@1)], projection=[ws_sold_time_sk@1, ws_web_page_sk@3]
+13)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/household_demographics.vortex]]}, projection=[hd_demo_sk], file_type=vortex, predicate: hd_dep_count@3 = 6
+14)--------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>]]}, projection=[ws_sold_time_sk, ws_ship_hdemo_sk, ws_web_page_sk], file_type=vortex
+15)------ProjectionExec: expr=[count(Int64(1))@0 as pmc]
+16)--------AggregateExec: mode=Final, gby=[], aggr=[count(Int64(1))]
+17)----------CoalescePartitionsExec
+18)------------AggregateExec: mode=Partial, gby=[], aggr=[count(Int64(1))]
+19)--------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(wp_web_page_sk@0, ws_web_page_sk@0)], projection=[]
+20)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/web_page.vortex]]}, projection=[wp_web_page_sk], file_type=vortex, predicate: wp_char_count@10 >= 5000 AND wp_char_count@10 <= 5200
+21)----------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(t_time_sk@0, ws_sold_time_sk@0)], projection=[ws_web_page_sk@2]
+22)------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/time_dim.vortex]]}, projection=[t_time_sk], file_type=vortex, predicate: t_hour@3 >= 19 AND t_hour@3 <= 20
+23)------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(hd_demo_sk@0, ws_ship_hdemo_sk@1)], projection=[ws_sold_time_sk@1, ws_web_page_sk@3]
+24)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/household_demographics.vortex]]}, projection=[hd_demo_sk], file_type=vortex, predicate: hd_dep_count@3 = 6
+25)--------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>]]}, projection=[ws_sold_time_sk, ws_ship_hdemo_sk, ws_web_page_sk], file_type=vortex

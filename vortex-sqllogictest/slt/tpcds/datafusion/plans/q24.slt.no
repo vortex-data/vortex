@@ -1,0 +1,164 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+WITH ssales AS
+  (SELECT c_last_name,
+          c_first_name,
+          s_store_name,
+          ca_state,
+          s_state,
+          i_color,
+          i_current_price,
+          i_manager_id,
+          i_units,
+          i_size,
+          sum(ss_net_paid) netpaid
+   FROM store_sales,
+        store_returns,
+        store,
+        item,
+        customer,
+        customer_address
+   WHERE ss_ticket_number = sr_ticket_number
+     AND ss_item_sk = sr_item_sk
+     AND ss_customer_sk = c_customer_sk
+     AND ss_item_sk = i_item_sk
+     AND ss_store_sk = s_store_sk
+     AND c_current_addr_sk = ca_address_sk
+     AND c_birth_country <> upper(ca_country)
+     AND s_zip = ca_zip
+     AND s_market_id=8
+   GROUP BY c_last_name,
+            c_first_name,
+            s_store_name,
+            ca_state,
+            s_state,
+            i_color,
+            i_current_price,
+            i_manager_id,
+            i_units,
+            i_size)
+SELECT c_last_name,
+       c_first_name,
+       s_store_name,
+       sum(netpaid) paid
+FROM ssales
+WHERE i_color = 'peach'
+GROUP BY c_last_name,
+         c_first_name,
+         s_store_name
+HAVING sum(netpaid) >
+  (SELECT 0.05*avg(netpaid)
+   FROM ssales)
+ORDER BY c_last_name,
+         c_first_name,
+         s_store_name ;
+----
+logical_plan
+01)Sort: ssales.c_last_name ASC NULLS LAST, ssales.c_first_name ASC NULLS LAST, ssales.s_store_name ASC NULLS LAST
+02)--Projection: ssales.c_last_name, ssales.c_first_name, ssales.s_store_name, sum(ssales.netpaid) AS paid
+03)----Filter: CAST(sum(ssales.netpaid) AS Decimal128(38, 15)) > (<subquery>)
+04)------Subquery:
+05)--------Projection: CAST(Float64(0.05) * CAST(avg(ssales.netpaid) AS Float64) AS Decimal128(38, 15))
+06)----------Aggregate: groupBy=[[]], aggr=[[avg(ssales.netpaid)]]
+07)------------SubqueryAlias: ssales
+08)--------------Projection: sum(store_sales.ss_net_paid) AS netpaid
+09)----------------Aggregate: groupBy=[[customer.c_last_name, customer.c_first_name, store.s_store_name, customer_address.ca_state, store.s_state, item.i_color, item.i_current_price, item.i_manager_id, item.i_units, item.i_size]], aggr=[[sum(store_sales.ss_net_paid)]]
+10)------------------Projection: store_sales.ss_net_paid, store.s_store_name, store.s_state, item.i_current_price, item.i_size, item.i_color, item.i_units, item.i_manager_id, customer.c_first_name, customer.c_last_name, customer_address.ca_state
+11)--------------------Inner Join: customer.c_current_addr_sk = customer_address.ca_address_sk, store.s_zip = customer_address.ca_zip Filter: customer.c_birth_country != upper(customer_address.ca_country)
+12)----------------------Projection: store_sales.ss_net_paid, store.s_store_name, store.s_state, store.s_zip, item.i_current_price, item.i_size, item.i_color, item.i_units, item.i_manager_id, customer.c_current_addr_sk, customer.c_first_name, customer.c_last_name, customer.c_birth_country
+13)------------------------Inner Join: store_sales.ss_customer_sk = customer.c_customer_sk
+14)--------------------------Projection: store_sales.ss_customer_sk, store_sales.ss_net_paid, store.s_store_name, store.s_state, store.s_zip, item.i_current_price, item.i_size, item.i_color, item.i_units, item.i_manager_id
+15)----------------------------Inner Join: store_sales.ss_item_sk = item.i_item_sk
+16)------------------------------Projection: store_sales.ss_item_sk, store_sales.ss_customer_sk, store_sales.ss_net_paid, store.s_store_name, store.s_state, store.s_zip
+17)--------------------------------Inner Join: store_sales.ss_store_sk = store.s_store_sk
+18)----------------------------------Projection: store_sales.ss_item_sk, store_sales.ss_customer_sk, store_sales.ss_store_sk, store_sales.ss_net_paid
+19)------------------------------------Inner Join: store_sales.ss_ticket_number = store_returns.sr_ticket_number, store_sales.ss_item_sk = store_returns.sr_item_sk
+20)--------------------------------------TableScan: store_sales projection=[ss_item_sk, ss_customer_sk, ss_store_sk, ss_ticket_number, ss_net_paid]
+21)--------------------------------------TableScan: store_returns projection=[sr_item_sk, sr_ticket_number]
+22)----------------------------------Projection: store.s_store_sk, store.s_store_name, store.s_state, store.s_zip
+23)------------------------------------Filter: store.s_market_id = Int64(8)
+24)--------------------------------------TableScan: store projection=[s_store_sk, s_store_name, s_market_id, s_state, s_zip], partial_filters=[store.s_market_id = Int64(8)]
+25)------------------------------TableScan: item projection=[i_item_sk, i_current_price, i_size, i_color, i_units, i_manager_id]
+26)--------------------------TableScan: customer projection=[c_customer_sk, c_current_addr_sk, c_first_name, c_last_name, c_birth_country]
+27)----------------------TableScan: customer_address projection=[ca_address_sk, ca_state, ca_zip, ca_country]
+28)------Aggregate: groupBy=[[ssales.c_last_name, ssales.c_first_name, ssales.s_store_name]], aggr=[[sum(ssales.netpaid)]]
+29)--------SubqueryAlias: ssales
+30)----------Projection: customer.c_last_name, customer.c_first_name, store.s_store_name, sum(store_sales.ss_net_paid) AS netpaid
+31)------------Aggregate: groupBy=[[customer.c_last_name, customer.c_first_name, store.s_store_name, customer_address.ca_state, store.s_state, item.i_color, item.i_current_price, item.i_manager_id, item.i_units, item.i_size]], aggr=[[sum(store_sales.ss_net_paid)]]
+32)--------------Projection: store_sales.ss_net_paid, store.s_store_name, store.s_state, item.i_current_price, item.i_size, item.i_color, item.i_units, item.i_manager_id, customer.c_first_name, customer.c_last_name, customer_address.ca_state
+33)----------------Inner Join: customer.c_current_addr_sk = customer_address.ca_address_sk, store.s_zip = customer_address.ca_zip Filter: customer.c_birth_country != upper(customer_address.ca_country)
+34)------------------Projection: store_sales.ss_net_paid, store.s_store_name, store.s_state, store.s_zip, item.i_current_price, item.i_size, item.i_color, item.i_units, item.i_manager_id, customer.c_current_addr_sk, customer.c_first_name, customer.c_last_name, customer.c_birth_country
+35)--------------------Inner Join: store_sales.ss_customer_sk = customer.c_customer_sk
+36)----------------------Projection: store_sales.ss_customer_sk, store_sales.ss_net_paid, store.s_store_name, store.s_state, store.s_zip, item.i_current_price, item.i_size, item.i_color, item.i_units, item.i_manager_id
+37)------------------------Inner Join: store_sales.ss_item_sk = item.i_item_sk
+38)--------------------------Projection: store_sales.ss_item_sk, store_sales.ss_customer_sk, store_sales.ss_net_paid, store.s_store_name, store.s_state, store.s_zip
+39)----------------------------Inner Join: store_sales.ss_store_sk = store.s_store_sk
+40)------------------------------Projection: store_sales.ss_item_sk, store_sales.ss_customer_sk, store_sales.ss_store_sk, store_sales.ss_net_paid
+41)--------------------------------Inner Join: store_sales.ss_ticket_number = store_returns.sr_ticket_number, store_sales.ss_item_sk = store_returns.sr_item_sk
+42)----------------------------------TableScan: store_sales projection=[ss_item_sk, ss_customer_sk, ss_store_sk, ss_ticket_number, ss_net_paid]
+43)----------------------------------TableScan: store_returns projection=[sr_item_sk, sr_ticket_number]
+44)------------------------------Projection: store.s_store_sk, store.s_store_name, store.s_state, store.s_zip
+45)--------------------------------Filter: store.s_market_id = Int64(8)
+46)----------------------------------TableScan: store projection=[s_store_sk, s_store_name, s_market_id, s_state, s_zip], partial_filters=[store.s_market_id = Int64(8)]
+47)--------------------------Filter: item.i_color = Utf8View("peach")
+48)----------------------------TableScan: item projection=[i_item_sk, i_current_price, i_size, i_color, i_units, i_manager_id], partial_filters=[item.i_color = Utf8View("peach")]
+49)----------------------TableScan: customer projection=[c_customer_sk, c_current_addr_sk, c_first_name, c_last_name, c_birth_country]
+50)------------------TableScan: customer_address projection=[ca_address_sk, ca_state, ca_zip, ca_country]
+physical_plan
+01)ScalarSubqueryExec: subqueries=1
+02)--SortPreservingMergeExec: [c_last_name@0 ASC NULLS LAST, c_first_name@1 ASC NULLS LAST, s_store_name@2 ASC NULLS LAST]
+03)----ProjectionExec: expr=[c_last_name@0 as c_last_name, c_first_name@1 as c_first_name, s_store_name@2 as s_store_name, sum(ssales.netpaid)@3 as paid]
+04)------SortExec: expr=[c_last_name@0 ASC NULLS LAST, c_first_name@1 ASC NULLS LAST, s_store_name@2 ASC NULLS LAST], preserve_partitioning=[true]
+05)--------FilterExec: CAST(sum(ssales.netpaid)@3 AS Decimal128(38, 15)) > scalar_subquery(<pending>)
+06)----------AggregateExec: mode=FinalPartitioned, gby=[c_last_name@0 as c_last_name, c_first_name@1 as c_first_name, s_store_name@2 as s_store_name], aggr=[sum(ssales.netpaid)]
+07)------------RepartitionExec: partitioning=Hash([c_last_name@0, c_first_name@1, s_store_name@2], 4), input_partitions=4
+08)--------------AggregateExec: mode=Partial, gby=[c_last_name@0 as c_last_name, c_first_name@1 as c_first_name, s_store_name@2 as s_store_name], aggr=[sum(ssales.netpaid)]
+09)----------------ProjectionExec: expr=[c_last_name@0 as c_last_name, c_first_name@1 as c_first_name, s_store_name@2 as s_store_name, sum(store_sales.ss_net_paid)@10 as netpaid]
+10)------------------AggregateExec: mode=FinalPartitioned, gby=[c_last_name@0 as c_last_name, c_first_name@1 as c_first_name, s_store_name@2 as s_store_name, ca_state@3 as ca_state, s_state@4 as s_state, i_color@5 as i_color, i_current_price@6 as i_current_price, i_manager_id@7 as i_manager_id, i_units@8 as i_units, i_size@9 as i_size], aggr=[sum(store_sales.ss_net_paid)], ordering_mode=PartiallySorted([5])
+11)--------------------RepartitionExec: partitioning=Hash([c_last_name@0, c_first_name@1, s_store_name@2, ca_state@3, s_state@4, i_color@5, i_current_price@6, i_manager_id@7, i_units@8, i_size@9], 4), input_partitions=4
+12)----------------------AggregateExec: mode=Partial, gby=[c_last_name@9 as c_last_name, c_first_name@8 as c_first_name, s_store_name@1 as s_store_name, ca_state@10 as ca_state, s_state@2 as s_state, i_color@5 as i_color, i_current_price@3 as i_current_price, i_manager_id@7 as i_manager_id, i_units@6 as i_units, i_size@4 as i_size], aggr=[sum(store_sales.ss_net_paid)], ordering_mode=PartiallySorted([5])
+13)------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+14)--------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(c_current_addr_sk@9, ca_address_sk@0), (s_zip@3, ca_zip@2)], filter=c_birth_country@0 != upper(ca_country@1), projection=[ss_net_paid@0, s_store_name@1, s_state@2, i_current_price@4, i_size@5, i_color@6, i_units@7, i_manager_id@8, c_first_name@10, c_last_name@11, ca_state@14]
+15)----------------------------CoalescePartitionsExec
+16)------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(ss_customer_sk@0, c_customer_sk@0)], projection=[ss_net_paid@1, s_store_name@2, s_state@3, s_zip@4, i_current_price@5, i_size@6, i_color@7, i_units@8, i_manager_id@9, c_current_addr_sk@11, c_first_name@12, c_last_name@13, c_birth_country@14]
+17)--------------------------------CoalescePartitionsExec
+18)----------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(ss_item_sk@0, i_item_sk@0)], projection=[ss_customer_sk@1, ss_net_paid@2, s_store_name@3, s_state@4, s_zip@5, i_current_price@7, i_size@8, i_color@9, i_units@10, i_manager_id@11]
+19)------------------------------------CoalescePartitionsExec
+20)--------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_store_sk@0, ss_store_sk@2)], projection=[ss_item_sk@4, ss_customer_sk@5, ss_net_paid@7, s_store_name@1, s_state@2, s_zip@3]
+21)----------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store.vortex]]}, projection=[s_store_sk, s_store_name, s_state, s_zip], file_type=vortex, predicate: s_market_id@10 = 8
+22)----------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(sr_ticket_number@1, ss_ticket_number@3), (sr_item_sk@0, ss_item_sk@0)], projection=[ss_item_sk@2, ss_customer_sk@3, ss_store_sk@4, ss_net_paid@6]
+23)------------------------------------------CoalescePartitionsExec
+24)--------------------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>]]}, projection=[sr_item_sk, sr_ticket_number], file_type=vortex
+25)------------------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_item_sk, ss_customer_sk, ss_store_sk, ss_ticket_number, ss_net_paid], file_type=vortex
+26)------------------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+27)--------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_current_price, i_size, i_color, i_units, i_manager_id], file_type=vortex, predicate: i_color@17 = peach
+28)--------------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+29)----------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer.vortex]]}, projection=[c_customer_sk, c_current_addr_sk, c_first_name, c_last_name, c_birth_country], file_type=vortex
+30)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk, ca_state, ca_zip, ca_country], file_type=vortex
+31)--ProjectionExec: expr=[CAST(0.05 * CAST(avg(ssales.netpaid)@0 AS Float64) AS Decimal128(38, 15)) as Float64(0.05) * avg(ssales.netpaid)]
+32)----AggregateExec: mode=Final, gby=[], aggr=[avg(ssales.netpaid)]
+33)------CoalescePartitionsExec
+34)--------AggregateExec: mode=Partial, gby=[], aggr=[avg(ssales.netpaid)]
+35)----------ProjectionExec: expr=[sum(store_sales.ss_net_paid)@10 as netpaid]
+36)------------AggregateExec: mode=FinalPartitioned, gby=[c_last_name@0 as c_last_name, c_first_name@1 as c_first_name, s_store_name@2 as s_store_name, ca_state@3 as ca_state, s_state@4 as s_state, i_color@5 as i_color, i_current_price@6 as i_current_price, i_manager_id@7 as i_manager_id, i_units@8 as i_units, i_size@9 as i_size], aggr=[sum(store_sales.ss_net_paid)]
+37)--------------RepartitionExec: partitioning=Hash([c_last_name@0, c_first_name@1, s_store_name@2, ca_state@3, s_state@4, i_color@5, i_current_price@6, i_manager_id@7, i_units@8, i_size@9], 4), input_partitions=4
+38)----------------AggregateExec: mode=Partial, gby=[c_last_name@9 as c_last_name, c_first_name@8 as c_first_name, s_store_name@1 as s_store_name, ca_state@10 as ca_state, s_state@2 as s_state, i_color@5 as i_color, i_current_price@3 as i_current_price, i_manager_id@7 as i_manager_id, i_units@6 as i_units, i_size@4 as i_size], aggr=[sum(store_sales.ss_net_paid)]
+39)------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+40)--------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(c_current_addr_sk@9, ca_address_sk@0), (s_zip@3, ca_zip@2)], filter=c_birth_country@0 != upper(ca_country@1), projection=[ss_net_paid@0, s_store_name@1, s_state@2, i_current_price@4, i_size@5, i_color@6, i_units@7, i_manager_id@8, c_first_name@10, c_last_name@11, ca_state@14]
+41)----------------------CoalescePartitionsExec
+42)------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(ss_customer_sk@0, c_customer_sk@0)], projection=[ss_net_paid@1, s_store_name@2, s_state@3, s_zip@4, i_current_price@5, i_size@6, i_color@7, i_units@8, i_manager_id@9, c_current_addr_sk@11, c_first_name@12, c_last_name@13, c_birth_country@14]
+43)--------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(ss_item_sk@0, i_item_sk@0)], projection=[ss_customer_sk@1, ss_net_paid@2, s_store_name@3, s_state@4, s_zip@5, i_current_price@7, i_size@8, i_color@9, i_units@10, i_manager_id@11]
+44)----------------------------CoalescePartitionsExec
+45)------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_store_sk@0, ss_store_sk@2)], projection=[ss_item_sk@4, ss_customer_sk@5, ss_net_paid@7, s_store_name@1, s_state@2, s_zip@3]
+46)--------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store.vortex]]}, projection=[s_store_sk, s_store_name, s_state, s_zip], file_type=vortex, predicate: s_market_id@10 = 8
+47)--------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(sr_ticket_number@1, ss_ticket_number@3), (sr_item_sk@0, ss_item_sk@0)], projection=[ss_item_sk@2, ss_customer_sk@3, ss_store_sk@4, ss_net_paid@6]
+48)----------------------------------CoalescePartitionsExec
+49)------------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>]]}, projection=[sr_item_sk, sr_ticket_number], file_type=vortex
+50)----------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_item_sk, ss_customer_sk, ss_store_sk, ss_ticket_number, ss_net_paid], file_type=vortex
+51)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_current_price, i_size, i_color, i_units, i_manager_id], file_type=vortex
+52)--------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+53)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer.vortex]]}, projection=[c_customer_sk, c_current_addr_sk, c_first_name, c_last_name, c_birth_country], file_type=vortex
+54)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk, ca_state, ca_zip, ca_country], file_type=vortex

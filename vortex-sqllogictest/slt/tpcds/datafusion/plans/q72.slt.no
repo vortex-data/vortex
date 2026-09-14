@@ -1,0 +1,120 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT i_item_desc,
+       w_warehouse_name,
+       d1.d_week_seq,
+       sum(CASE
+               WHEN p_promo_sk IS NULL THEN 1
+               ELSE 0
+           END) no_promo,
+       sum(CASE
+               WHEN p_promo_sk IS NOT NULL THEN 1
+               ELSE 0
+           END) promo,
+       count(*) total_cnt
+FROM catalog_sales
+JOIN inventory ON (cs_item_sk = inv_item_sk)
+JOIN warehouse ON (w_warehouse_sk=inv_warehouse_sk)
+JOIN item ON (i_item_sk = cs_item_sk)
+JOIN customer_demographics ON (cs_bill_cdemo_sk = cd_demo_sk)
+JOIN household_demographics ON (cs_bill_hdemo_sk = hd_demo_sk)
+JOIN date_dim d1 ON (cs_sold_date_sk = d1.d_date_sk)
+JOIN date_dim d2 ON (inv_date_sk = d2.d_date_sk)
+JOIN date_dim d3 ON (cs_ship_date_sk = d3.d_date_sk)
+LEFT OUTER JOIN promotion ON (cs_promo_sk=p_promo_sk)
+LEFT OUTER JOIN catalog_returns ON (cr_item_sk = cs_item_sk
+                                    AND cr_order_number = cs_order_number)
+WHERE d1.d_week_seq = d2.d_week_seq
+  AND inv_quantity_on_hand < cs_quantity
+  AND d3.d_date > (d1.d_date + INTERVAL '5' DAY)
+  AND hd_buy_potential = '>10000'
+  AND d1.d_year = 1999
+  AND cd_marital_status = 'D'
+GROUP BY i_item_desc,
+         w_warehouse_name,
+         d1.d_week_seq
+ORDER BY total_cnt DESC NULLS FIRST,
+         i_item_desc NULLS FIRST,
+         w_warehouse_name NULLS FIRST,
+         d1.d_week_seq NULLS FIRST
+LIMIT 100;
+----
+logical_plan
+01)Sort: total_cnt DESC NULLS FIRST, item.i_item_desc ASC NULLS FIRST, warehouse.w_warehouse_name ASC NULLS FIRST, d1.d_week_seq ASC NULLS FIRST, fetch=100
+02)--Projection: item.i_item_desc, warehouse.w_warehouse_name, d1.d_week_seq, sum(CASE WHEN promotion.p_promo_sk IS NULL THEN Int64(1) ELSE Int64(0) END) AS no_promo, sum(CASE WHEN promotion.p_promo_sk IS NOT NULL THEN Int64(1) ELSE Int64(0) END) AS promo, count(Int64(1)) AS count(*) AS total_cnt
+03)----Aggregate: groupBy=[[item.i_item_desc, warehouse.w_warehouse_name, d1.d_week_seq]], aggr=[[sum(CASE WHEN promotion.p_promo_sk IS NULL THEN Int64(1) ELSE Int64(0) END), sum(CASE WHEN promotion.p_promo_sk IS NOT NULL THEN Int64(1) ELSE Int64(0) END), count(Int64(1))]]
+04)------Projection: warehouse.w_warehouse_name, item.i_item_desc, d1.d_week_seq, promotion.p_promo_sk
+05)--------Left Join: catalog_sales.cs_item_sk = catalog_returns.cr_item_sk, catalog_sales.cs_order_number = catalog_returns.cr_order_number
+06)----------Projection: catalog_sales.cs_item_sk, catalog_sales.cs_order_number, warehouse.w_warehouse_name, item.i_item_desc, d1.d_week_seq, promotion.p_promo_sk
+07)------------Left Join: catalog_sales.cs_promo_sk = promotion.p_promo_sk
+08)--------------Projection: catalog_sales.cs_item_sk, catalog_sales.cs_promo_sk, catalog_sales.cs_order_number, warehouse.w_warehouse_name, item.i_item_desc, d1.d_week_seq
+09)----------------Inner Join: catalog_sales.cs_ship_date_sk = d3.d_date_sk Filter: d3.d_date > d1.d_date + IntervalMonthDayNano("IntervalMonthDayNano { months: 0, days: 5, nanoseconds: 0 }")
+10)------------------Projection: catalog_sales.cs_ship_date_sk, catalog_sales.cs_item_sk, catalog_sales.cs_promo_sk, catalog_sales.cs_order_number, warehouse.w_warehouse_name, item.i_item_desc, d1.d_date, d1.d_week_seq
+11)--------------------Inner Join: inventory.inv_date_sk = d2.d_date_sk, d1.d_week_seq = d2.d_week_seq
+12)----------------------Projection: catalog_sales.cs_ship_date_sk, catalog_sales.cs_item_sk, catalog_sales.cs_promo_sk, catalog_sales.cs_order_number, inventory.inv_date_sk, warehouse.w_warehouse_name, item.i_item_desc, d1.d_date, d1.d_week_seq
+13)------------------------Inner Join: catalog_sales.cs_sold_date_sk = d1.d_date_sk
+14)--------------------------Projection: catalog_sales.cs_sold_date_sk, catalog_sales.cs_ship_date_sk, catalog_sales.cs_item_sk, catalog_sales.cs_promo_sk, catalog_sales.cs_order_number, inventory.inv_date_sk, warehouse.w_warehouse_name, item.i_item_desc
+15)----------------------------Inner Join: catalog_sales.cs_bill_hdemo_sk = household_demographics.hd_demo_sk
+16)------------------------------Projection: catalog_sales.cs_sold_date_sk, catalog_sales.cs_ship_date_sk, catalog_sales.cs_bill_hdemo_sk, catalog_sales.cs_item_sk, catalog_sales.cs_promo_sk, catalog_sales.cs_order_number, inventory.inv_date_sk, warehouse.w_warehouse_name, item.i_item_desc
+17)--------------------------------Inner Join: catalog_sales.cs_bill_cdemo_sk = customer_demographics.cd_demo_sk
+18)----------------------------------Projection: catalog_sales.cs_sold_date_sk, catalog_sales.cs_ship_date_sk, catalog_sales.cs_bill_cdemo_sk, catalog_sales.cs_bill_hdemo_sk, catalog_sales.cs_item_sk, catalog_sales.cs_promo_sk, catalog_sales.cs_order_number, inventory.inv_date_sk, warehouse.w_warehouse_name, item.i_item_desc
+19)------------------------------------Inner Join: catalog_sales.cs_item_sk = item.i_item_sk
+20)--------------------------------------Projection: catalog_sales.cs_sold_date_sk, catalog_sales.cs_ship_date_sk, catalog_sales.cs_bill_cdemo_sk, catalog_sales.cs_bill_hdemo_sk, catalog_sales.cs_item_sk, catalog_sales.cs_promo_sk, catalog_sales.cs_order_number, inventory.inv_date_sk, warehouse.w_warehouse_name
+21)----------------------------------------Inner Join: inventory.inv_warehouse_sk = warehouse.w_warehouse_sk
+22)------------------------------------------Projection: catalog_sales.cs_sold_date_sk, catalog_sales.cs_ship_date_sk, catalog_sales.cs_bill_cdemo_sk, catalog_sales.cs_bill_hdemo_sk, catalog_sales.cs_item_sk, catalog_sales.cs_promo_sk, catalog_sales.cs_order_number, inventory.inv_date_sk, inventory.inv_warehouse_sk
+23)--------------------------------------------Inner Join: catalog_sales.cs_item_sk = inventory.inv_item_sk Filter: CAST(inventory.inv_quantity_on_hand AS Int64) < catalog_sales.cs_quantity
+24)----------------------------------------------TableScan: catalog_sales projection=[cs_sold_date_sk, cs_ship_date_sk, cs_bill_cdemo_sk, cs_bill_hdemo_sk, cs_item_sk, cs_promo_sk, cs_order_number, cs_quantity]
+25)----------------------------------------------TableScan: inventory projection=[inv_date_sk, inv_item_sk, inv_warehouse_sk, inv_quantity_on_hand]
+26)------------------------------------------TableScan: warehouse projection=[w_warehouse_sk, w_warehouse_name]
+27)--------------------------------------TableScan: item projection=[i_item_sk, i_item_desc]
+28)----------------------------------Projection: customer_demographics.cd_demo_sk
+29)------------------------------------Filter: customer_demographics.cd_marital_status = Utf8View("D")
+30)--------------------------------------TableScan: customer_demographics projection=[cd_demo_sk, cd_marital_status], partial_filters=[customer_demographics.cd_marital_status = Utf8View("D")]
+31)------------------------------Projection: household_demographics.hd_demo_sk
+32)--------------------------------Filter: household_demographics.hd_buy_potential = Utf8View(">10000")
+33)----------------------------------TableScan: household_demographics projection=[hd_demo_sk, hd_buy_potential], partial_filters=[household_demographics.hd_buy_potential = Utf8View(">10000")]
+34)--------------------------SubqueryAlias: d1
+35)----------------------------Projection: date_dim.d_date_sk, date_dim.d_date, date_dim.d_week_seq
+36)------------------------------Filter: date_dim.d_year = Int64(1999)
+37)--------------------------------TableScan: date_dim projection=[d_date_sk, d_date, d_week_seq, d_year], partial_filters=[date_dim.d_year = Int64(1999)]
+38)----------------------SubqueryAlias: d2
+39)------------------------TableScan: date_dim projection=[d_date_sk, d_week_seq]
+40)------------------SubqueryAlias: d3
+41)--------------------TableScan: date_dim projection=[d_date_sk, d_date]
+42)--------------TableScan: promotion projection=[p_promo_sk]
+43)----------TableScan: catalog_returns projection=[cr_item_sk, cr_order_number]
+physical_plan
+01)SortPreservingMergeExec: [total_cnt@5 DESC, i_item_desc@0 ASC, w_warehouse_name@1 ASC, d_week_seq@2 ASC], fetch=100
+02)--ProjectionExec: expr=[i_item_desc@0 as i_item_desc, w_warehouse_name@1 as w_warehouse_name, d_week_seq@2 as d_week_seq, sum(CASE WHEN promotion.p_promo_sk IS NULL THEN Int64(1) ELSE Int64(0) END)@3 as no_promo, sum(CASE WHEN promotion.p_promo_sk IS NOT NULL THEN Int64(1) ELSE Int64(0) END)@4 as promo, count(Int64(1))@5 as total_cnt]
+03)----SortExec: TopK(fetch=100), expr=[count(Int64(1))@5 DESC, i_item_desc@0 ASC, w_warehouse_name@1 ASC, d_week_seq@2 ASC], preserve_partitioning=[true]
+04)------AggregateExec: mode=FinalPartitioned, gby=[i_item_desc@0 as i_item_desc, w_warehouse_name@1 as w_warehouse_name, d_week_seq@2 as d_week_seq], aggr=[sum(CASE WHEN promotion.p_promo_sk IS NULL THEN Int64(1) ELSE Int64(0) END), sum(CASE WHEN promotion.p_promo_sk IS NOT NULL THEN Int64(1) ELSE Int64(0) END), count(Int64(1))]
+05)--------RepartitionExec: partitioning=Hash([i_item_desc@0, w_warehouse_name@1, d_week_seq@2], 4), input_partitions=4
+06)----------AggregateExec: mode=Partial, gby=[i_item_desc@1 as i_item_desc, w_warehouse_name@0 as w_warehouse_name, d_week_seq@2 as d_week_seq], aggr=[sum(CASE WHEN promotion.p_promo_sk IS NULL THEN Int64(1) ELSE Int64(0) END), sum(CASE WHEN promotion.p_promo_sk IS NOT NULL THEN Int64(1) ELSE Int64(0) END), count(Int64(1))]
+07)------------HashJoinExec: mode=CollectLeft, join_type=Right, on=[(cr_item_sk@0, cs_item_sk@0), (cr_order_number@1, cs_order_number@1)], projection=[w_warehouse_name@4, i_item_desc@5, d_week_seq@6, p_promo_sk@7]
+08)--------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/catalog_returns.vortex]]}, projection=[cr_item_sk, cr_order_number], file_type=vortex
+09)--------------HashJoinExec: mode=CollectLeft, join_type=Right, on=[(p_promo_sk@0, cs_promo_sk@1)], projection=[cs_item_sk@1, cs_order_number@3, w_warehouse_name@4, i_item_desc@5, d_week_seq@6, p_promo_sk@0]
+10)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/promotion.vortex]]}, projection=[p_promo_sk], file_type=vortex
+11)----------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, cs_ship_date_sk@0)], filter=d_date@1 > d_date@0 + IntervalMonthDayNano { months: 0, days: 5, nanoseconds: 0 }, projection=[cs_item_sk@3, cs_promo_sk@4, cs_order_number@5, w_warehouse_name@6, i_item_desc@7, d_week_seq@9]
+12)------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_date], file_type=vortex
+13)------------------HashJoinExec: mode=Partitioned, join_type=Inner, on=[(d_date_sk@0, inv_date_sk@4), (d_week_seq@1, d_week_seq@8)], projection=[cs_ship_date_sk@2, cs_item_sk@3, cs_promo_sk@4, cs_order_number@5, w_warehouse_name@7, i_item_desc@8, d_date@9, d_week_seq@10]
+14)--------------------RepartitionExec: partitioning=Hash([d_date_sk@0, d_week_seq@1], 4), input_partitions=1
+15)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_week_seq], file_type=vortex
+16)--------------------RepartitionExec: partitioning=Hash([inv_date_sk@4, d_week_seq@8], 4), input_partitions=4
+17)----------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, cs_sold_date_sk@0)], projection=[cs_ship_date_sk@4, cs_item_sk@5, cs_promo_sk@6, cs_order_number@7, inv_date_sk@8, w_warehouse_name@9, i_item_desc@10, d_date@1, d_week_seq@2]
+18)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_date, d_week_seq], file_type=vortex, predicate: d_year@6 = 1999
+19)------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(hd_demo_sk@0, cs_bill_hdemo_sk@2)], projection=[cs_sold_date_sk@1, cs_ship_date_sk@2, cs_item_sk@4, cs_promo_sk@5, cs_order_number@6, inv_date_sk@7, w_warehouse_name@8, i_item_desc@9]
+20)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/household_demographics.vortex]]}, projection=[hd_demo_sk], file_type=vortex, predicate: hd_buy_potential@2 = >10000
+21)--------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(cd_demo_sk@0, cs_bill_cdemo_sk@2)], projection=[cs_sold_date_sk@1, cs_ship_date_sk@2, cs_bill_hdemo_sk@4, cs_item_sk@5, cs_promo_sk@6, cs_order_number@7, inv_date_sk@8, w_warehouse_name@9, i_item_desc@10]
+22)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_demographics.vortex]]}, projection=[cd_demo_sk], file_type=vortex, predicate: cd_marital_status@2 = D
+23)----------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, cs_item_sk@4)], projection=[cs_sold_date_sk@2, cs_ship_date_sk@3, cs_bill_cdemo_sk@4, cs_bill_hdemo_sk@5, cs_item_sk@6, cs_promo_sk@7, cs_order_number@8, inv_date_sk@9, w_warehouse_name@10, i_item_desc@1]
+24)------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_item_desc], file_type=vortex
+25)------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(w_warehouse_sk@0, inv_warehouse_sk@8)], projection=[cs_sold_date_sk@2, cs_ship_date_sk@3, cs_bill_cdemo_sk@4, cs_bill_hdemo_sk@5, cs_item_sk@6, cs_promo_sk@7, cs_order_number@8, inv_date_sk@9, w_warehouse_name@1]
+26)--------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/warehouse.vortex]]}, projection=[w_warehouse_sk, w_warehouse_name], file_type=vortex
+27)--------------------------------HashJoinExec: mode=Partitioned, join_type=Inner, on=[(inv_item_sk@1, cs_item_sk@4)], filter=CAST(inv_quantity_on_hand@1 AS Int64) < cs_quantity@0, projection=[cs_sold_date_sk@4, cs_ship_date_sk@5, cs_bill_cdemo_sk@6, cs_bill_hdemo_sk@7, cs_item_sk@8, cs_promo_sk@9, cs_order_number@10, inv_date_sk@0, inv_warehouse_sk@2]
+28)----------------------------------RepartitionExec: partitioning=Hash([inv_item_sk@1], 4), input_partitions=1
+29)------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/inventory.vortex]]}, projection=[inv_date_sk, inv_item_sk, inv_warehouse_sk, inv_quantity_on_hand], file_type=vortex
+30)----------------------------------RepartitionExec: partitioning=Hash([cs_item_sk@4], 4), input_partitions=4
+31)------------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>]]}, projection=[cs_sold_date_sk, cs_ship_date_sk, cs_bill_cdemo_sk, cs_bill_hdemo_sk, cs_item_sk, cs_promo_sk, cs_order_number, cs_quantity], file_type=vortex

@@ -1,0 +1,236 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+WITH ssr AS
+  (SELECT s_store_id AS store_id,
+          sum(ss_ext_sales_price) AS sales,
+          sum(coalesce(sr_return_amt, 0)) AS returns_,
+          sum(ss_net_profit - coalesce(sr_net_loss, 0)) AS profit
+   FROM store_sales
+   LEFT OUTER JOIN store_returns ON (ss_item_sk = sr_item_sk
+                                     AND ss_ticket_number = sr_ticket_number), date_dim,
+                                                                               store,
+                                                                               item,
+                                                                               promotion
+   WHERE ss_sold_date_sk = d_date_sk
+     AND d_date BETWEEN cast('2000-08-23' AS date) AND cast('2000-09-22' AS date)
+     AND ss_store_sk = s_store_sk
+     AND ss_item_sk = i_item_sk
+     AND i_current_price > 50
+     AND ss_promo_sk = p_promo_sk
+     AND p_channel_tv = 'N'
+   GROUP BY s_store_id) ,
+     csr AS
+  (SELECT cp_catalog_page_id AS catalog_page_id,
+          sum(cs_ext_sales_price) AS sales,
+          sum(coalesce(cr_return_amount, 0)) AS returns_,
+          sum(cs_net_profit - coalesce(cr_net_loss, 0)) AS profit
+   FROM catalog_sales
+   LEFT OUTER JOIN catalog_returns ON (cs_item_sk = cr_item_sk
+                                       AND cs_order_number = cr_order_number), date_dim,
+                                                                               catalog_page,
+                                                                               item,
+                                                                               promotion
+   WHERE cs_sold_date_sk = d_date_sk
+     AND d_date BETWEEN cast('2000-08-23' AS date) AND cast('2000-09-22' AS date)
+     AND cs_catalog_page_sk = cp_catalog_page_sk
+     AND cs_item_sk = i_item_sk
+     AND i_current_price > 50
+     AND cs_promo_sk = p_promo_sk
+     AND p_channel_tv = 'N'
+   GROUP BY cp_catalog_page_id) ,
+     wsr AS
+  (SELECT web_site_id,
+          sum(ws_ext_sales_price) AS sales,
+          sum(coalesce(wr_return_amt, 0)) AS returns_,
+          sum(ws_net_profit - coalesce(wr_net_loss, 0)) AS profit
+   FROM web_sales
+   LEFT OUTER JOIN web_returns ON (ws_item_sk = wr_item_sk
+                                   AND ws_order_number = wr_order_number), date_dim,
+                                                                           web_site,
+                                                                           item,
+                                                                           promotion
+   WHERE ws_sold_date_sk = d_date_sk
+     AND d_date BETWEEN cast('2000-08-23' AS date) AND cast('2000-09-22' AS date)
+     AND ws_web_site_sk = web_site_sk
+     AND ws_item_sk = i_item_sk
+     AND i_current_price > 50
+     AND ws_promo_sk = p_promo_sk
+     AND p_channel_tv = 'N'
+   GROUP BY web_site_id)
+SELECT channel ,
+       id ,
+       sum(sales) AS sales ,
+       sum(returns_) AS returns_ ,
+       sum(profit) AS profit
+FROM
+  (SELECT 'store channel' AS channel ,
+          concat('store', store_id) AS id ,
+          sales ,
+          returns_ ,
+          profit
+   FROM ssr
+   UNION ALL SELECT 'catalog channel' AS channel ,
+                    concat('catalog_page', catalog_page_id) AS id ,
+                    sales ,
+                    returns_ ,
+                    profit
+   FROM csr
+   UNION ALL SELECT 'web channel' AS channel ,
+                    concat('web_site', web_site_id) AS id ,
+                    sales ,
+                    returns_ ,
+                    profit
+   FROM wsr ) x
+GROUP BY ROLLUP (channel,
+                 id)
+ORDER BY channel NULLS FIRST,
+         id NULLS FIRST
+LIMIT 100;
+----
+logical_plan
+01)Sort: x.channel ASC NULLS FIRST, x.id ASC NULLS FIRST, fetch=100
+02)--Projection: x.channel, x.id, sum(x.sales) AS sales, sum(x.returns_) AS returns_, sum(x.profit) AS profit
+03)----Aggregate: groupBy=[[ROLLUP (x.channel, x.id)]], aggr=[[sum(x.sales), sum(x.returns_), sum(x.profit)]]
+04)------SubqueryAlias: x
+05)--------Union
+06)----------Projection: Utf8("store channel") AS channel, concat(Utf8View("store"), ssr.store_id) AS id, ssr.sales, ssr.returns_, ssr.profit
+07)------------SubqueryAlias: ssr
+08)--------------Projection: store.s_store_id AS store_id, sum(store_sales.ss_ext_sales_price) AS sales, sum(coalesce(store_returns.sr_return_amt,Int64(0))) AS returns_, sum(store_sales.ss_net_profit - coalesce(store_returns.sr_net_loss,Int64(0))) AS profit
+09)----------------Aggregate: groupBy=[[store.s_store_id]], aggr=[[sum(store_sales.ss_ext_sales_price), sum(CASE WHEN __common_expr_1 IS NOT NULL THEN __common_expr_1 ELSE Decimal128(0.00,22,2) END) AS sum(coalesce(store_returns.sr_return_amt,Int64(0))), sum(store_sales.ss_net_profit - CASE WHEN __common_expr_2 IS NOT NULL THEN __common_expr_2 ELSE Decimal128(0.00,22,2) END) AS sum(store_sales.ss_net_profit - coalesce(store_returns.sr_net_loss,Int64(0)))]]
+10)------------------Projection: CAST(store_returns.sr_return_amt AS Decimal128(22, 2)) AS __common_expr_1, CAST(store_returns.sr_net_loss AS Decimal128(22, 2)) AS __common_expr_2, store_sales.ss_ext_sales_price, store_sales.ss_net_profit, store.s_store_id
+11)--------------------Inner Join: store_sales.ss_promo_sk = promotion.p_promo_sk
+12)----------------------Projection: store_sales.ss_promo_sk, store_sales.ss_ext_sales_price, store_sales.ss_net_profit, store_returns.sr_return_amt, store_returns.sr_net_loss, store.s_store_id
+13)------------------------Inner Join: store_sales.ss_item_sk = item.i_item_sk
+14)--------------------------Projection: store_sales.ss_item_sk, store_sales.ss_promo_sk, store_sales.ss_ext_sales_price, store_sales.ss_net_profit, store_returns.sr_return_amt, store_returns.sr_net_loss, store.s_store_id
+15)----------------------------Inner Join: store_sales.ss_store_sk = store.s_store_sk
+16)------------------------------Projection: store_sales.ss_item_sk, store_sales.ss_store_sk, store_sales.ss_promo_sk, store_sales.ss_ext_sales_price, store_sales.ss_net_profit, store_returns.sr_return_amt, store_returns.sr_net_loss
+17)--------------------------------Inner Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
+18)----------------------------------Projection: store_sales.ss_sold_date_sk, store_sales.ss_item_sk, store_sales.ss_store_sk, store_sales.ss_promo_sk, store_sales.ss_ext_sales_price, store_sales.ss_net_profit, store_returns.sr_return_amt, store_returns.sr_net_loss
+19)------------------------------------Left Join: store_sales.ss_item_sk = store_returns.sr_item_sk, store_sales.ss_ticket_number = store_returns.sr_ticket_number
+20)--------------------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_item_sk, ss_store_sk, ss_promo_sk, ss_ticket_number, ss_ext_sales_price, ss_net_profit]
+21)--------------------------------------TableScan: store_returns projection=[sr_item_sk, sr_ticket_number, sr_return_amt, sr_net_loss]
+22)----------------------------------Projection: date_dim.d_date_sk
+23)------------------------------------Filter: date_dim.d_date >= Date32("2000-08-23") AND date_dim.d_date <= Date32("2000-09-22")
+24)--------------------------------------TableScan: date_dim projection=[d_date_sk, d_date], partial_filters=[date_dim.d_date >= Date32("2000-08-23"), date_dim.d_date <= Date32("2000-09-22")]
+25)------------------------------TableScan: store projection=[s_store_sk, s_store_id]
+26)--------------------------Projection: item.i_item_sk
+27)----------------------------Filter: item.i_current_price > Decimal128(50.00,7,2)
+28)------------------------------TableScan: item projection=[i_item_sk, i_current_price], partial_filters=[item.i_current_price > Decimal128(50.00,7,2)]
+29)----------------------Projection: promotion.p_promo_sk
+30)------------------------Filter: promotion.p_channel_tv = Utf8View("N")
+31)--------------------------TableScan: promotion projection=[p_promo_sk, p_channel_tv], partial_filters=[promotion.p_channel_tv = Utf8View("N")]
+32)----------Projection: Utf8("catalog channel") AS channel, concat(Utf8View("catalog_page"), csr.catalog_page_id) AS id, csr.sales, csr.returns_, csr.profit
+33)------------SubqueryAlias: csr
+34)--------------Projection: catalog_page.cp_catalog_page_id AS catalog_page_id, sum(catalog_sales.cs_ext_sales_price) AS sales, sum(coalesce(catalog_returns.cr_return_amount,Int64(0))) AS returns_, sum(catalog_sales.cs_net_profit - coalesce(catalog_returns.cr_net_loss,Int64(0))) AS profit
+35)----------------Aggregate: groupBy=[[catalog_page.cp_catalog_page_id]], aggr=[[sum(catalog_sales.cs_ext_sales_price), sum(CASE WHEN __common_expr_3 IS NOT NULL THEN __common_expr_3 ELSE Decimal128(0.00,22,2) END) AS sum(coalesce(catalog_returns.cr_return_amount,Int64(0))), sum(catalog_sales.cs_net_profit - CASE WHEN __common_expr_4 IS NOT NULL THEN __common_expr_4 ELSE Decimal128(0.00,22,2) END) AS sum(catalog_sales.cs_net_profit - coalesce(catalog_returns.cr_net_loss,Int64(0)))]]
+36)------------------Projection: CAST(catalog_returns.cr_return_amount AS Decimal128(22, 2)) AS __common_expr_3, CAST(catalog_returns.cr_net_loss AS Decimal128(22, 2)) AS __common_expr_4, catalog_sales.cs_ext_sales_price, catalog_sales.cs_net_profit, catalog_page.cp_catalog_page_id
+37)--------------------Inner Join: catalog_sales.cs_promo_sk = promotion.p_promo_sk
+38)----------------------Projection: catalog_sales.cs_promo_sk, catalog_sales.cs_ext_sales_price, catalog_sales.cs_net_profit, catalog_returns.cr_return_amount, catalog_returns.cr_net_loss, catalog_page.cp_catalog_page_id
+39)------------------------Inner Join: catalog_sales.cs_item_sk = item.i_item_sk
+40)--------------------------Projection: catalog_sales.cs_item_sk, catalog_sales.cs_promo_sk, catalog_sales.cs_ext_sales_price, catalog_sales.cs_net_profit, catalog_returns.cr_return_amount, catalog_returns.cr_net_loss, catalog_page.cp_catalog_page_id
+41)----------------------------Inner Join: catalog_sales.cs_catalog_page_sk = catalog_page.cp_catalog_page_sk
+42)------------------------------Projection: catalog_sales.cs_catalog_page_sk, catalog_sales.cs_item_sk, catalog_sales.cs_promo_sk, catalog_sales.cs_ext_sales_price, catalog_sales.cs_net_profit, catalog_returns.cr_return_amount, catalog_returns.cr_net_loss
+43)--------------------------------Inner Join: catalog_sales.cs_sold_date_sk = date_dim.d_date_sk
+44)----------------------------------Projection: catalog_sales.cs_sold_date_sk, catalog_sales.cs_catalog_page_sk, catalog_sales.cs_item_sk, catalog_sales.cs_promo_sk, catalog_sales.cs_ext_sales_price, catalog_sales.cs_net_profit, catalog_returns.cr_return_amount, catalog_returns.cr_net_loss
+45)------------------------------------Left Join: catalog_sales.cs_item_sk = catalog_returns.cr_item_sk, catalog_sales.cs_order_number = catalog_returns.cr_order_number
+46)--------------------------------------TableScan: catalog_sales projection=[cs_sold_date_sk, cs_catalog_page_sk, cs_item_sk, cs_promo_sk, cs_order_number, cs_ext_sales_price, cs_net_profit]
+47)--------------------------------------TableScan: catalog_returns projection=[cr_item_sk, cr_order_number, cr_return_amount, cr_net_loss]
+48)----------------------------------Projection: date_dim.d_date_sk
+49)------------------------------------Filter: date_dim.d_date >= Date32("2000-08-23") AND date_dim.d_date <= Date32("2000-09-22")
+50)--------------------------------------TableScan: date_dim projection=[d_date_sk, d_date], partial_filters=[date_dim.d_date >= Date32("2000-08-23"), date_dim.d_date <= Date32("2000-09-22")]
+51)------------------------------TableScan: catalog_page projection=[cp_catalog_page_sk, cp_catalog_page_id]
+52)--------------------------Projection: item.i_item_sk
+53)----------------------------Filter: item.i_current_price > Decimal128(50.00,7,2)
+54)------------------------------TableScan: item projection=[i_item_sk, i_current_price], partial_filters=[item.i_current_price > Decimal128(50.00,7,2)]
+55)----------------------Projection: promotion.p_promo_sk
+56)------------------------Filter: promotion.p_channel_tv = Utf8View("N")
+57)--------------------------TableScan: promotion projection=[p_promo_sk, p_channel_tv], partial_filters=[promotion.p_channel_tv = Utf8View("N")]
+58)----------Projection: Utf8("web channel") AS channel, concat(Utf8View("web_site"), wsr.web_site_id) AS id, wsr.sales, wsr.returns_, wsr.profit
+59)------------SubqueryAlias: wsr
+60)--------------Projection: web_site.web_site_id, sum(web_sales.ws_ext_sales_price) AS sales, sum(coalesce(web_returns.wr_return_amt,Int64(0))) AS returns_, sum(web_sales.ws_net_profit - coalesce(web_returns.wr_net_loss,Int64(0))) AS profit
+61)----------------Aggregate: groupBy=[[web_site.web_site_id]], aggr=[[sum(web_sales.ws_ext_sales_price), sum(CASE WHEN __common_expr_5 IS NOT NULL THEN __common_expr_5 ELSE Decimal128(0.00,22,2) END) AS sum(coalesce(web_returns.wr_return_amt,Int64(0))), sum(web_sales.ws_net_profit - CASE WHEN __common_expr_6 IS NOT NULL THEN __common_expr_6 ELSE Decimal128(0.00,22,2) END) AS sum(web_sales.ws_net_profit - coalesce(web_returns.wr_net_loss,Int64(0)))]]
+62)------------------Projection: CAST(web_returns.wr_return_amt AS Decimal128(22, 2)) AS __common_expr_5, CAST(web_returns.wr_net_loss AS Decimal128(22, 2)) AS __common_expr_6, web_sales.ws_ext_sales_price, web_sales.ws_net_profit, web_site.web_site_id
+63)--------------------Inner Join: web_sales.ws_promo_sk = promotion.p_promo_sk
+64)----------------------Projection: web_sales.ws_promo_sk, web_sales.ws_ext_sales_price, web_sales.ws_net_profit, web_returns.wr_return_amt, web_returns.wr_net_loss, web_site.web_site_id
+65)------------------------Inner Join: web_sales.ws_item_sk = item.i_item_sk
+66)--------------------------Projection: web_sales.ws_item_sk, web_sales.ws_promo_sk, web_sales.ws_ext_sales_price, web_sales.ws_net_profit, web_returns.wr_return_amt, web_returns.wr_net_loss, web_site.web_site_id
+67)----------------------------Inner Join: web_sales.ws_web_site_sk = web_site.web_site_sk
+68)------------------------------Projection: web_sales.ws_item_sk, web_sales.ws_web_site_sk, web_sales.ws_promo_sk, web_sales.ws_ext_sales_price, web_sales.ws_net_profit, web_returns.wr_return_amt, web_returns.wr_net_loss
+69)--------------------------------Inner Join: web_sales.ws_sold_date_sk = date_dim.d_date_sk
+70)----------------------------------Projection: web_sales.ws_sold_date_sk, web_sales.ws_item_sk, web_sales.ws_web_site_sk, web_sales.ws_promo_sk, web_sales.ws_ext_sales_price, web_sales.ws_net_profit, web_returns.wr_return_amt, web_returns.wr_net_loss
+71)------------------------------------Left Join: web_sales.ws_item_sk = web_returns.wr_item_sk, web_sales.ws_order_number = web_returns.wr_order_number
+72)--------------------------------------TableScan: web_sales projection=[ws_sold_date_sk, ws_item_sk, ws_web_site_sk, ws_promo_sk, ws_order_number, ws_ext_sales_price, ws_net_profit]
+73)--------------------------------------TableScan: web_returns projection=[wr_item_sk, wr_order_number, wr_return_amt, wr_net_loss]
+74)----------------------------------Projection: date_dim.d_date_sk
+75)------------------------------------Filter: date_dim.d_date >= Date32("2000-08-23") AND date_dim.d_date <= Date32("2000-09-22")
+76)--------------------------------------TableScan: date_dim projection=[d_date_sk, d_date], partial_filters=[date_dim.d_date >= Date32("2000-08-23"), date_dim.d_date <= Date32("2000-09-22")]
+77)------------------------------TableScan: web_site projection=[web_site_sk, web_site_id]
+78)--------------------------Projection: item.i_item_sk
+79)----------------------------Filter: item.i_current_price > Decimal128(50.00,7,2)
+80)------------------------------TableScan: item projection=[i_item_sk, i_current_price], partial_filters=[item.i_current_price > Decimal128(50.00,7,2)]
+81)----------------------Projection: promotion.p_promo_sk
+82)------------------------Filter: promotion.p_channel_tv = Utf8View("N")
+83)--------------------------TableScan: promotion projection=[p_promo_sk, p_channel_tv], partial_filters=[promotion.p_channel_tv = Utf8View("N")]
+physical_plan
+01)SortPreservingMergeExec: [channel@0 ASC, id@1 ASC], fetch=100
+02)--SortExec: TopK(fetch=100), expr=[channel@0 ASC, id@1 ASC], preserve_partitioning=[true]
+03)----ProjectionExec: expr=[channel@0 as channel, id@1 as id, sum(x.sales)@3 as sales, sum(x.returns_)@4 as returns_, sum(x.profit)@5 as profit]
+04)------AggregateExec: mode=FinalPartitioned, gby=[channel@0 as channel, id@1 as id, __grouping_id@2 as __grouping_id], aggr=[sum(x.sales), sum(x.returns_), sum(x.profit)]
+05)--------RepartitionExec: partitioning=Hash([channel@0, id@1, __grouping_id@2], 4), input_partitions=12
+06)----------AggregateExec: mode=Partial, gby=[(NULL as channel, NULL as id), (channel@0 as channel, NULL as id), (channel@0 as channel, id@1 as id)], aggr=[sum(x.sales), sum(x.returns_), sum(x.profit)]
+07)------------UnionExec
+08)--------------ProjectionExec: expr=[store channel as channel, concat(store, s_store_id@0) as id, sum(store_sales.ss_ext_sales_price)@1 as sales, sum(coalesce(store_returns.sr_return_amt,Int64(0)))@2 as returns_, sum(store_sales.ss_net_profit - coalesce(store_returns.sr_net_loss,Int64(0)))@3 as profit]
+09)----------------AggregateExec: mode=FinalPartitioned, gby=[s_store_id@0 as s_store_id], aggr=[sum(store_sales.ss_ext_sales_price), sum(CASE WHEN __common_expr_1 IS NOT NULL THEN __common_expr_1 ELSE 0.00 END) as sum(coalesce(store_returns.sr_return_amt,Int64(0))), sum(store_sales.ss_net_profit - CASE WHEN __common_expr_2 IS NOT NULL THEN __common_expr_2 ELSE 0.00 END) as sum(store_sales.ss_net_profit - coalesce(store_returns.sr_net_loss,Int64(0)))]
+10)------------------RepartitionExec: partitioning=Hash([s_store_id@0], 4), input_partitions=4
+11)--------------------AggregateExec: mode=Partial, gby=[s_store_id@4 as s_store_id], aggr=[sum(store_sales.ss_ext_sales_price), sum(CASE WHEN __common_expr_1 IS NOT NULL THEN __common_expr_1 ELSE 0.00 END) as sum(coalesce(store_returns.sr_return_amt,Int64(0))), sum(store_sales.ss_net_profit - CASE WHEN __common_expr_2 IS NOT NULL THEN __common_expr_2 ELSE 0.00 END) as sum(store_sales.ss_net_profit - coalesce(store_returns.sr_net_loss,Int64(0)))]
+12)----------------------ProjectionExec: expr=[CAST(sr_return_amt@0 AS Decimal128(22, 2)) as __common_expr_1, CAST(sr_net_loss@1 AS Decimal128(22, 2)) as __common_expr_2, ss_ext_sales_price@2 as ss_ext_sales_price, ss_net_profit@3 as ss_net_profit, s_store_id@4 as s_store_id]
+13)------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(p_promo_sk@0, ss_promo_sk@0)], projection=[sr_return_amt@4, sr_net_loss@5, ss_ext_sales_price@2, ss_net_profit@3, s_store_id@6]
+14)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/promotion.vortex]]}, projection=[p_promo_sk], file_type=vortex, predicate: p_channel_tv@11 = N
+15)--------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, ss_item_sk@0)], projection=[ss_promo_sk@2, ss_ext_sales_price@3, ss_net_profit@4, sr_return_amt@5, sr_net_loss@6, s_store_id@7]
+16)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk], file_type=vortex, predicate: i_current_price@5 > 50.00
+17)----------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_store_sk@0, ss_store_sk@1)], projection=[ss_item_sk@2, ss_promo_sk@4, ss_ext_sales_price@5, ss_net_profit@6, sr_return_amt@7, sr_net_loss@8, s_store_id@1]
+18)------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store.vortex]]}, projection=[s_store_sk, s_store_id], file_type=vortex
+19)------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@0)], projection=[ss_item_sk@2, ss_store_sk@3, ss_promo_sk@4, ss_ext_sales_price@5, ss_net_profit@6, sr_return_amt@7, sr_net_loss@8]
+20)--------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_date@2 >= 2000-08-23 AND d_date@2 <= 2000-09-22
+21)--------------------------------HashJoinExec: mode=Partitioned, join_type=Right, on=[(sr_item_sk@0, ss_item_sk@1), (sr_ticket_number@1, ss_ticket_number@4)], projection=[ss_sold_date_sk@4, ss_item_sk@5, ss_store_sk@6, ss_promo_sk@7, ss_ext_sales_price@9, ss_net_profit@10, sr_return_amt@2, sr_net_loss@3]
+22)----------------------------------RepartitionExec: partitioning=Hash([sr_item_sk@0, sr_ticket_number@1], 4), input_partitions=4
+23)------------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>]]}, projection=[sr_item_sk, sr_ticket_number, sr_return_amt, sr_net_loss], file_type=vortex
+24)----------------------------------RepartitionExec: partitioning=Hash([ss_item_sk@1, ss_ticket_number@4], 4), input_partitions=4
+25)------------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_item_sk, ss_store_sk, ss_promo_sk, ss_ticket_number, ss_ext_sales_price, ss_net_profit], file_type=vortex
+26)--------------ProjectionExec: expr=[catalog channel as channel, concat(catalog_page, cp_catalog_page_id@0) as id, sum(catalog_sales.cs_ext_sales_price)@1 as sales, sum(coalesce(catalog_returns.cr_return_amount,Int64(0)))@2 as returns_, sum(catalog_sales.cs_net_profit - coalesce(catalog_returns.cr_net_loss,Int64(0)))@3 as profit]
+27)----------------AggregateExec: mode=FinalPartitioned, gby=[cp_catalog_page_id@0 as cp_catalog_page_id], aggr=[sum(catalog_sales.cs_ext_sales_price), sum(CASE WHEN __common_expr_3 IS NOT NULL THEN __common_expr_3 ELSE 0.00 END) as sum(coalesce(catalog_returns.cr_return_amount,Int64(0))), sum(catalog_sales.cs_net_profit - CASE WHEN __common_expr_4 IS NOT NULL THEN __common_expr_4 ELSE 0.00 END) as sum(catalog_sales.cs_net_profit - coalesce(catalog_returns.cr_net_loss,Int64(0)))]
+28)------------------RepartitionExec: partitioning=Hash([cp_catalog_page_id@0], 4), input_partitions=4
+29)--------------------AggregateExec: mode=Partial, gby=[cp_catalog_page_id@4 as cp_catalog_page_id], aggr=[sum(catalog_sales.cs_ext_sales_price), sum(CASE WHEN __common_expr_3 IS NOT NULL THEN __common_expr_3 ELSE 0.00 END) as sum(coalesce(catalog_returns.cr_return_amount,Int64(0))), sum(catalog_sales.cs_net_profit - CASE WHEN __common_expr_4 IS NOT NULL THEN __common_expr_4 ELSE 0.00 END) as sum(catalog_sales.cs_net_profit - coalesce(catalog_returns.cr_net_loss,Int64(0)))]
+30)----------------------ProjectionExec: expr=[CAST(cr_return_amount@0 AS Decimal128(22, 2)) as __common_expr_3, CAST(cr_net_loss@1 AS Decimal128(22, 2)) as __common_expr_4, cs_ext_sales_price@2 as cs_ext_sales_price, cs_net_profit@3 as cs_net_profit, cp_catalog_page_id@4 as cp_catalog_page_id]
+31)------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(p_promo_sk@0, cs_promo_sk@0)], projection=[cr_return_amount@4, cr_net_loss@5, cs_ext_sales_price@2, cs_net_profit@3, cp_catalog_page_id@6]
+32)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/promotion.vortex]]}, projection=[p_promo_sk], file_type=vortex, predicate: p_channel_tv@11 = N
+33)--------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, cs_item_sk@0)], projection=[cs_promo_sk@2, cs_ext_sales_price@3, cs_net_profit@4, cr_return_amount@5, cr_net_loss@6, cp_catalog_page_id@7]
+34)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk], file_type=vortex, predicate: i_current_price@5 > 50.00
+35)----------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(cs_catalog_page_sk@0, cp_catalog_page_sk@0)], projection=[cs_item_sk@1, cs_promo_sk@2, cs_ext_sales_price@3, cs_net_profit@4, cr_return_amount@5, cr_net_loss@6, cp_catalog_page_id@8]
+36)------------------------------CoalescePartitionsExec
+37)--------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, cs_sold_date_sk@0)], projection=[cs_catalog_page_sk@2, cs_item_sk@3, cs_promo_sk@4, cs_ext_sales_price@5, cs_net_profit@6, cr_return_amount@7, cr_net_loss@8]
+38)----------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_date@2 >= 2000-08-23 AND d_date@2 <= 2000-09-22
+39)----------------------------------HashJoinExec: mode=CollectLeft, join_type=Right, on=[(cr_item_sk@0, cs_item_sk@2), (cr_order_number@1, cs_order_number@4)], projection=[cs_sold_date_sk@4, cs_catalog_page_sk@5, cs_item_sk@6, cs_promo_sk@7, cs_ext_sales_price@9, cs_net_profit@10, cr_return_amount@2, cr_net_loss@3]
+40)------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/catalog_returns.vortex]]}, projection=[cr_item_sk, cr_order_number, cr_return_amount, cr_net_loss], file_type=vortex
+41)------------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>]]}, projection=[cs_sold_date_sk, cs_catalog_page_sk, cs_item_sk, cs_promo_sk, cs_order_number, cs_ext_sales_price, cs_net_profit], file_type=vortex
+42)------------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+43)--------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/catalog_page.vortex]]}, projection=[cp_catalog_page_sk, cp_catalog_page_id], file_type=vortex
+44)--------------ProjectionExec: expr=[web channel as channel, concat(web_site, web_site_id@0) as id, sum(web_sales.ws_ext_sales_price)@1 as sales, sum(coalesce(web_returns.wr_return_amt,Int64(0)))@2 as returns_, sum(web_sales.ws_net_profit - coalesce(web_returns.wr_net_loss,Int64(0)))@3 as profit]
+45)----------------AggregateExec: mode=FinalPartitioned, gby=[web_site_id@0 as web_site_id], aggr=[sum(web_sales.ws_ext_sales_price), sum(CASE WHEN __common_expr_5 IS NOT NULL THEN __common_expr_5 ELSE 0.00 END) as sum(coalesce(web_returns.wr_return_amt,Int64(0))), sum(web_sales.ws_net_profit - CASE WHEN __common_expr_6 IS NOT NULL THEN __common_expr_6 ELSE 0.00 END) as sum(web_sales.ws_net_profit - coalesce(web_returns.wr_net_loss,Int64(0)))]
+46)------------------RepartitionExec: partitioning=Hash([web_site_id@0], 4), input_partitions=4
+47)--------------------AggregateExec: mode=Partial, gby=[web_site_id@4 as web_site_id], aggr=[sum(web_sales.ws_ext_sales_price), sum(CASE WHEN __common_expr_5 IS NOT NULL THEN __common_expr_5 ELSE 0.00 END) as sum(coalesce(web_returns.wr_return_amt,Int64(0))), sum(web_sales.ws_net_profit - CASE WHEN __common_expr_6 IS NOT NULL THEN __common_expr_6 ELSE 0.00 END) as sum(web_sales.ws_net_profit - coalesce(web_returns.wr_net_loss,Int64(0)))]
+48)----------------------ProjectionExec: expr=[CAST(wr_return_amt@0 AS Decimal128(22, 2)) as __common_expr_5, CAST(wr_net_loss@1 AS Decimal128(22, 2)) as __common_expr_6, ws_ext_sales_price@2 as ws_ext_sales_price, ws_net_profit@3 as ws_net_profit, web_site_id@4 as web_site_id]
+49)------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(p_promo_sk@0, ws_promo_sk@0)], projection=[wr_return_amt@4, wr_net_loss@5, ws_ext_sales_price@2, ws_net_profit@3, web_site_id@6]
+50)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/promotion.vortex]]}, projection=[p_promo_sk], file_type=vortex, predicate: p_channel_tv@11 = N
+51)--------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, ws_item_sk@0)], projection=[ws_promo_sk@2, ws_ext_sales_price@3, ws_net_profit@4, wr_return_amt@5, wr_net_loss@6, web_site_id@7]
+52)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk], file_type=vortex, predicate: i_current_price@5 > 50.00
+53)----------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(web_site_sk@0, ws_web_site_sk@1)], projection=[ws_item_sk@2, ws_promo_sk@4, ws_ext_sales_price@5, ws_net_profit@6, wr_return_amt@7, wr_net_loss@8, web_site_id@1]
+54)------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/web_site.vortex]]}, projection=[web_site_sk, web_site_id], file_type=vortex
+55)------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ws_sold_date_sk@0)], projection=[ws_item_sk@2, ws_web_site_sk@3, ws_promo_sk@4, ws_ext_sales_price@5, ws_net_profit@6, wr_return_amt@7, wr_net_loss@8]
+56)--------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_date@2 >= 2000-08-23 AND d_date@2 <= 2000-09-22
+57)--------------------------------HashJoinExec: mode=CollectLeft, join_type=Right, on=[(wr_item_sk@0, ws_item_sk@1), (wr_order_number@1, ws_order_number@4)], projection=[ws_sold_date_sk@4, ws_item_sk@5, ws_web_site_sk@6, ws_promo_sk@7, ws_ext_sales_price@9, ws_net_profit@10, wr_return_amt@2, wr_net_loss@3]
+58)----------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/web_returns.vortex]]}, projection=[wr_item_sk, wr_order_number, wr_return_amt, wr_net_loss], file_type=vortex
+59)----------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>]]}, projection=[ws_sold_date_sk, ws_item_sk, ws_web_site_sk, ws_promo_sk, ws_order_number, ws_ext_sales_price, ws_net_profit], file_type=vortex

@@ -1,0 +1,87 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+WITH ssci AS
+  (SELECT ss_customer_sk customer_sk ,
+          ss_item_sk item_sk
+   FROM store_sales,
+        date_dim
+   WHERE ss_sold_date_sk = d_date_sk
+     AND d_month_seq BETWEEN 1200 AND 1200 + 11
+   GROUP BY ss_customer_sk ,
+            ss_item_sk),
+     csci as
+  ( SELECT cs_bill_customer_sk customer_sk ,cs_item_sk item_sk
+   FROM catalog_sales,date_dim
+   WHERE cs_sold_date_sk = d_date_sk
+     AND d_month_seq BETWEEN 1200 AND 1200 + 11
+   GROUP BY cs_bill_customer_sk ,cs_item_sk)
+SELECT sum(CASE
+               WHEN ssci.customer_sk IS NOT NULL
+                    AND csci.customer_sk IS NULL THEN 1
+               ELSE 0
+           END) store_only ,
+       sum(CASE
+               WHEN ssci.customer_sk IS NULL
+                    AND csci.customer_sk IS NOT NULL THEN 1
+               ELSE 0
+           END) catalog_only ,
+       sum(CASE
+               WHEN ssci.customer_sk IS NOT NULL
+                    AND csci.customer_sk IS NOT NULL THEN 1
+               ELSE 0
+           END) store_and_catalog
+FROM ssci
+FULL OUTER JOIN csci ON (ssci.customer_sk=csci.customer_sk
+                         AND ssci.item_sk = csci.item_sk)
+LIMIT 100;
+----
+logical_plan
+01)Projection: sum(CASE WHEN ssci.customer_sk IS NOT NULL AND csci.customer_sk IS NULL THEN Int64(1) ELSE Int64(0) END) AS store_only, sum(CASE WHEN ssci.customer_sk IS NULL AND csci.customer_sk IS NOT NULL THEN Int64(1) ELSE Int64(0) END) AS catalog_only, sum(CASE WHEN ssci.customer_sk IS NOT NULL AND csci.customer_sk IS NOT NULL THEN Int64(1) ELSE Int64(0) END) AS store_and_catalog
+02)--Limit: skip=0, fetch=100
+03)----Aggregate: groupBy=[[]], aggr=[[sum(CASE WHEN __common_expr_1 AS ssci.customer_sk IS NOT NULL AND csci.customer_sk IS NULL THEN Int64(1) ELSE Int64(0) END), sum(CASE WHEN ssci.customer_sk IS NULL AND csci.customer_sk IS NOT NULL THEN Int64(1) ELSE Int64(0) END), sum(CASE WHEN __common_expr_1 AS ssci.customer_sk IS NOT NULL AND csci.customer_sk IS NOT NULL THEN Int64(1) ELSE Int64(0) END)]]
+04)------Projection: ssci.customer_sk IS NOT NULL AS __common_expr_1, ssci.customer_sk, csci.customer_sk
+05)--------Full Join: ssci.customer_sk = csci.customer_sk, ssci.item_sk = csci.item_sk
+06)----------SubqueryAlias: ssci
+07)------------Projection: store_sales.ss_customer_sk AS customer_sk, store_sales.ss_item_sk AS item_sk
+08)--------------Aggregate: groupBy=[[store_sales.ss_customer_sk, store_sales.ss_item_sk]], aggr=[[]]
+09)----------------Projection: store_sales.ss_item_sk, store_sales.ss_customer_sk
+10)------------------LeftSemi Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
+11)--------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_item_sk, ss_customer_sk]
+12)--------------------Projection: date_dim.d_date_sk
+13)----------------------Filter: date_dim.d_month_seq >= Int64(1200) AND date_dim.d_month_seq <= Int64(1211)
+14)------------------------TableScan: date_dim projection=[d_date_sk, d_month_seq], partial_filters=[date_dim.d_month_seq >= Int64(1200), date_dim.d_month_seq <= Int64(1211)]
+15)----------SubqueryAlias: csci
+16)------------Projection: catalog_sales.cs_bill_customer_sk AS customer_sk, catalog_sales.cs_item_sk AS item_sk
+17)--------------Aggregate: groupBy=[[catalog_sales.cs_bill_customer_sk, catalog_sales.cs_item_sk]], aggr=[[]]
+18)----------------Projection: catalog_sales.cs_bill_customer_sk, catalog_sales.cs_item_sk
+19)------------------LeftSemi Join: catalog_sales.cs_sold_date_sk = date_dim.d_date_sk
+20)--------------------TableScan: catalog_sales projection=[cs_sold_date_sk, cs_bill_customer_sk, cs_item_sk]
+21)--------------------Projection: date_dim.d_date_sk
+22)----------------------Filter: date_dim.d_month_seq >= Int64(1200) AND date_dim.d_month_seq <= Int64(1211)
+23)------------------------TableScan: date_dim projection=[d_date_sk, d_month_seq], partial_filters=[date_dim.d_month_seq >= Int64(1200), date_dim.d_month_seq <= Int64(1211)]
+physical_plan
+01)ProjectionExec: expr=[sum(CASE WHEN ssci.customer_sk IS NOT NULL AND csci.customer_sk IS NULL THEN Int64(1) ELSE Int64(0) END)@0 as store_only, sum(CASE WHEN ssci.customer_sk IS NULL AND csci.customer_sk IS NOT NULL THEN Int64(1) ELSE Int64(0) END)@1 as catalog_only, sum(CASE WHEN ssci.customer_sk IS NOT NULL AND csci.customer_sk IS NOT NULL THEN Int64(1) ELSE Int64(0) END)@2 as store_and_catalog]
+02)--GlobalLimitExec: skip=0, fetch=100
+03)----AggregateExec: mode=Final, gby=[], aggr=[sum(CASE WHEN ssci.customer_sk IS NOT NULL AND csci.customer_sk IS NULL THEN Int64(1) ELSE Int64(0) END), sum(CASE WHEN ssci.customer_sk IS NULL AND csci.customer_sk IS NOT NULL THEN Int64(1) ELSE Int64(0) END), sum(CASE WHEN ssci.customer_sk IS NOT NULL AND csci.customer_sk IS NOT NULL THEN Int64(1) ELSE Int64(0) END)]
+04)------CoalescePartitionsExec
+05)--------AggregateExec: mode=Partial, gby=[], aggr=[sum(CASE WHEN ssci.customer_sk IS NOT NULL AND csci.customer_sk IS NULL THEN Int64(1) ELSE Int64(0) END), sum(CASE WHEN ssci.customer_sk IS NULL AND csci.customer_sk IS NOT NULL THEN Int64(1) ELSE Int64(0) END), sum(CASE WHEN ssci.customer_sk IS NOT NULL AND csci.customer_sk IS NOT NULL THEN Int64(1) ELSE Int64(0) END)]
+06)----------ProjectionExec: expr=[customer_sk@0 IS NOT NULL as __common_expr_1, customer_sk@0 as customer_sk, customer_sk@1 as customer_sk]
+07)------------HashJoinExec: mode=CollectLeft, join_type=Full, on=[(customer_sk@0, customer_sk@0), (item_sk@1, item_sk@1)], projection=[customer_sk@2, customer_sk@0]
+08)--------------CoalescePartitionsExec
+09)----------------ProjectionExec: expr=[cs_bill_customer_sk@0 as customer_sk, cs_item_sk@1 as item_sk]
+10)------------------AggregateExec: mode=FinalPartitioned, gby=[cs_bill_customer_sk@0 as cs_bill_customer_sk, cs_item_sk@1 as cs_item_sk], aggr=[]
+11)--------------------RepartitionExec: partitioning=Hash([cs_bill_customer_sk@0, cs_item_sk@1], 4), input_partitions=4
+12)----------------------AggregateExec: mode=Partial, gby=[cs_bill_customer_sk@0 as cs_bill_customer_sk, cs_item_sk@1 as cs_item_sk], aggr=[]
+13)------------------------HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(d_date_sk@0, cs_sold_date_sk@0)], projection=[cs_bill_customer_sk@1, cs_item_sk@2]
+14)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_month_seq@3 >= 1200 AND d_month_seq@3 <= 1211
+15)--------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>]]}, projection=[cs_sold_date_sk, cs_bill_customer_sk, cs_item_sk], file_type=vortex
+16)--------------ProjectionExec: expr=[ss_customer_sk@0 as customer_sk, ss_item_sk@1 as item_sk]
+17)----------------AggregateExec: mode=FinalPartitioned, gby=[ss_customer_sk@0 as ss_customer_sk, ss_item_sk@1 as ss_item_sk], aggr=[]
+18)------------------RepartitionExec: partitioning=Hash([ss_customer_sk@0, ss_item_sk@1], 4), input_partitions=4
+19)--------------------AggregateExec: mode=Partial, gby=[ss_customer_sk@1 as ss_customer_sk, ss_item_sk@0 as ss_item_sk], aggr=[]
+20)----------------------HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(d_date_sk@0, ss_sold_date_sk@0)], projection=[ss_item_sk@1, ss_customer_sk@2]
+21)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_month_seq@3 >= 1200 AND d_month_seq@3 <= 1211
+22)------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_item_sk, ss_customer_sk], file_type=vortex
