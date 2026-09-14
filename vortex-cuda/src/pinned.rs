@@ -9,10 +9,12 @@ use cudarc::driver::CudaContext;
 use cudarc::driver::CudaEvent;
 use cudarc::driver::CudaStream;
 use cudarc::driver::HostSlice;
-use cudarc::driver::PinnedHostSlice;
 use cudarc::driver::SyncOnDrop;
+use cudarc::driver::result;
+use cudarc::driver::sys::CUevent_flags;
 use parking_lot::Mutex;
 use vortex::error::VortexResult;
+use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 use vortex::error::vortex_panic;
 use vortex::utils::aliases::hash_map::HashMap;
@@ -25,9 +27,16 @@ use crate::stream::VortexCudaStream;
 /// This is intended as a staging buffer for H2D transfers. Contents are uninitialized after
 /// allocation.
 pub(crate) struct PinnedByteBuffer {
-    inner: PinnedHostSlice<u8>,
+    ptr: *mut u8,
+    capacity: usize,
     logical_len: usize,
+    event: CudaEvent,
 }
+
+// The allocation is uniquely owned, mutable only through `&mut self`, and retained by the pool
+// while CUDA reads it asynchronously.
+unsafe impl Send for PinnedByteBuffer {}
+unsafe impl Sync for PinnedByteBuffer {}
 
 #[expect(clippy::same_name_method)]
 impl PinnedByteBuffer {
@@ -40,13 +49,23 @@ impl PinnedByteBuffer {
         capacity: usize,
         logical_len: usize,
     ) -> VortexResult<Self> {
-        // alloc_pinned uses CU_MEMHOSTALLOC_WRITECOMBINED: fast for host writes
-        // and H2D transfers, but very slow for host-side reads.
-        let inner = unsafe {
-            ctx.alloc_pinned::<u8>(capacity)
-                .map_err(|e| vortex_err!("failed to allocate pinned host buffer: {e}"))?
-        };
-        Ok(Self { inner, logical_len })
+        vortex_ensure!(
+            capacity < isize::MAX as usize,
+            "pinned host buffer capacity is too large: {capacity}"
+        );
+        let event = ctx
+            .new_event(Some(CUevent_flags::CU_EVENT_BLOCKING_SYNC))
+            .map_err(|e| vortex_err!("failed to create pinned host buffer event: {e}"))?;
+        let ptr = unsafe { result::malloc_host(capacity, 0) }
+            .map_err(|e| vortex_err!("failed to allocate pinned host buffer: {e}"))?
+            .cast::<u8>();
+        vortex_ensure!(!ptr.is_null(), "CUDA returned a null pinned host buffer");
+        Ok(Self {
+            ptr,
+            capacity,
+            logical_len,
+            event,
+        })
     }
 
     /// Returns the length of the buffer in bytes.
@@ -55,19 +74,19 @@ impl PinnedByteBuffer {
     }
 
     pub(crate) fn capacity(&self) -> usize {
-        self.inner.len()
+        self.capacity
     }
 
     /// Returns the buffer as a mutable slice.
     pub(crate) fn as_mut_slice(&mut self) -> VortexResult<&mut [u8]> {
-        self.inner
-            .as_mut_slice()
-            .map(|slice| &mut slice[..self.logical_len])
-            .map_err(|e| vortex_err!("failed to access pinned host buffer: {e}"))
+        self.event
+            .synchronize()
+            .map_err(|e| vortex_err!("failed to access pinned host buffer: {e}"))?;
+        Ok(unsafe { std::slice::from_raw_parts_mut(self.ptr, self.logical_len) })
     }
 
     fn set_logical_len(&mut self, len: usize) {
-        assert!(len <= self.inner.len());
+        assert!(len <= self.capacity);
         self.logical_len = len;
     }
 }
@@ -81,20 +100,30 @@ impl HostSlice<u8> for PinnedByteBuffer {
         &'a self,
         stream: &'a CudaStream,
     ) -> (&'a [u8], SyncOnDrop<'a>) {
-        let (slice, sync) = unsafe {
-            <PinnedHostSlice<u8> as HostSlice<u8>>::stream_synced_slice(&self.inner, stream)
-        };
-        (&slice[..self.logical_len], sync)
+        stream.context().record_err(stream.wait(&self.event));
+        (
+            unsafe { std::slice::from_raw_parts(self.ptr, self.logical_len) },
+            SyncOnDrop::Record(Some((&self.event, stream))),
+        )
     }
 
     unsafe fn stream_synced_mut_slice<'a>(
         &'a mut self,
         stream: &'a CudaStream,
     ) -> (&'a mut [u8], SyncOnDrop<'a>) {
-        let (slice, sync) = unsafe {
-            <PinnedHostSlice<u8> as HostSlice<u8>>::stream_synced_mut_slice(&mut self.inner, stream)
-        };
-        (&mut slice[..self.logical_len], sync)
+        stream.context().record_err(stream.wait(&self.event));
+        (
+            unsafe { std::slice::from_raw_parts_mut(self.ptr, self.logical_len) },
+            SyncOnDrop::Record(Some((&self.event, stream))),
+        )
+    }
+}
+
+impl Drop for PinnedByteBuffer {
+    fn drop(&mut self) {
+        let context = self.event.context();
+        context.record_err(self.event.synchronize());
+        context.record_err(unsafe { result::free_host(self.ptr.cast()) });
     }
 }
 
@@ -338,8 +367,7 @@ impl PooledPinnedBuffer {
 
         let mut cuda_slice = stream.device_alloc::<u8>(len)?;
 
-        // Async because the pinned buffer is page-locked: memcpy_htod returns a
-        // SyncOnDrop::Record (non-blocking) rather than SyncOnDrop::Sync.
+        // The page-locked source and its completion event keep this asynchronous.
         stream
             .memcpy_htod(pinned, &mut cuda_slice)
             .map_err(|e| vortex_err!("Failed to schedule H2D copy: {}", e))?;
