@@ -680,7 +680,7 @@ jobs:
             -DVORTEX_SANITIZE_RUST_STD=ON \
             -DVORTEX_BUILD_TESTS=ON \
             -DVORTEX_BUILD_EXAMPLES=ON
-          cmake --build build --parallel 2
+          cmake --build build --parallel "$(nproc)"
       - name: Run C++ tests
         run: ctest --test-dir build --output-on-failure
       - name: Run C++ examples

@@ -51,11 +51,6 @@ options. Defaults below are for standalone builds.
 Embedded builds default `VORTEX_WARNINGS_AS_ERRORS` to `OFF`. Parents must call
 `enable_testing()` to register tests.
 
-`VORTEX_DEBUG_INFO` maps to `-g<level>` for C/C++ and `-C debuginfo=<level>` for Rust,
-independently of the build type or sanitizer selection. It covers CMake targets (including
-fetched dependencies), Cargo target crates and rebuilt std, and C/C++ dependencies compiled
-by `build.rs`. Rust host build tools retain their Cargo profile settings.
-
 ### Cargo profiles
 
 Standalone builds default to `Debug`. Unless overridden, Cargo uses:
