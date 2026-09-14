@@ -24,6 +24,8 @@ Cross-compilation, universal binaries, Windows, musl, and shared Vortex targets 
 Vendor or fetch a pinned, complete checkout:
 
 ```cmake
+# Optional: override Cargo's build directory.
+set(VORTEX_CARGO_TARGET_DIR "/absolute/path/to/cargo-target")
 add_subdirectory(path/to/vortex vortex)
 target_link_libraries(my_cpp_target PRIVATE Vortex::cpp_static)
 target_link_libraries(my_c_target PRIVATE Vortex::ffi_static)
@@ -42,6 +44,7 @@ options. Defaults below are for standalone builds.
 | `VORTEX_BUILD_EXAMPLES`     | `OFF`    | C/C++ examples.                                             |
 | `VORTEX_WARNINGS_AS_ERRORS` | `ON`     | Warnings as errors for Vortex targets only.                 |
 | `VORTEX_CARGO_PROFILE`      | Inferred | Override the mapping below.                                 |
+| `VORTEX_CARGO_TARGET_DIR`   | Empty    | Absolute Cargo target directory; preserved by `clean`.       |
 | `VORTEX_RUSTUP_TOOLCHAIN`   | Inferred | [Rust toolchain override](#toolchain-and-build-behavior).   |
 | `VORTEX_SANITIZER`          | Empty    | [Sanitizers](#sanitizers): `asan`, `lsan`, `ubsan`, `tsan`. |
 | `VORTEX_SANITIZE_RUST_STD`  | `OFF`    | Also instrument Rust's standard library.                    |
@@ -75,8 +78,11 @@ Cargo's `test` and `bench` profiles are unsupported.
 - Cargo's native dependencies use CMake's compilers, archiver, SDK, and C/C++ flags, except
   warning-as-error flags. Global flags can override dependency choices, including language standards.
   Prefer target-scoped flags or Vortex options.
-- Cargo caches under the FFI build directory (`ffi/cargo-target` in C++/root builds).
-  `clean` removes this cache and staged headers, not checkout headers.
+- Cargo caches under the FFI build directory (`ffi/cargo-target` in C++/root builds) by default.
+  Set `VORTEX_CARGO_TARGET_DIR` to an absolute path to override it; the environment's
+  `CARGO_TARGET_DIR` is not used. Only the default cache is registered for removal by `clean`;
+  custom Cargo directories and checkout headers are preserved. Staged archives and headers
+  remain in the CMake build directory.
 - Nightly builds without Rust sanitizers may regenerate `vortex.h`.
   Nightly and CUDA builds need a writable checkout for generated sources.
 

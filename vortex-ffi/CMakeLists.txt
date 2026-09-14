@@ -37,6 +37,12 @@ option(VORTEX_BUILD_TESTS "Build Vortex tests" OFF)
 option(VORTEX_BUILD_EXAMPLES "Build Vortex examples" OFF)
 option(VORTEX_ENABLE_CUDA "Build the CUDA-enabled Vortex FFI" OFF)
 set(VORTEX_CARGO_PROFILE "" CACHE STRING "Override the Cargo profile selected from CMAKE_BUILD_TYPE")
+# Check before CACHE PATH makes untyped command-line values absolute.
+if(VORTEX_CARGO_TARGET_DIR AND NOT IS_ABSOLUTE "${VORTEX_CARGO_TARGET_DIR}")
+    message(FATAL_ERROR "VORTEX_CARGO_TARGET_DIR must be an absolute path")
+endif()
+set(VORTEX_CARGO_TARGET_DIR "" CACHE PATH
+    "Override the Cargo target directory with an absolute path (preserved by clean)")
 
 # Sanitizers instrument the Rust archive, its C dependencies, and every target
 # that links Vortex::ffi_static; Configure.cmake enforces the toolchain constraints.

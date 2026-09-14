@@ -118,6 +118,78 @@ class ConfigureTests(CMakeTest):
         self.cmake_build(build, "--target", "vortex_ffi_cargo_build")
         self.assertEqual((build / "ffi/vortex-artifacts/libvortex_ffi.a").read_bytes(), b"recorded archive")
 
+    def test_cargo_target_directory_override(self) -> None:
+        self.env["CARGO_TARGET_DIR"] = str(self.work / "ambient-target")
+        for name, source, ffi_directory in (
+            ("root", ".", "ffi"),
+            ("ffi", "vortex-ffi", "."),
+            ("cpp", "lang/cpp", "ffi"),
+        ):
+            with self.subTest(entrypoint=name):
+                target = self.work / f"{name} cargo directory's"
+                self.configure(name, f"-DVORTEX_CARGO_TARGET_DIR={target}", source=self.repo / source)
+                build = self.work / name
+                ffi_build = build / ffi_directory
+                self.cmake_build(build, "--target", "vortex_ffi_cargo_build")
+                args = self.cargo_recording(target)["args"]
+                self.assertEqual(args[args.index("--target-dir") + 1], str(target))
+                archive = ffi_build / "vortex-artifacts/libvortex_ffi.a"
+                self.assertEqual(archive.read_bytes(), b"recorded archive")
+                self.assertFalse((ffi_build / "cargo-target").exists())
+                self.cmake_build(build, "--target", "clean")
+                self.assertTrue((target / "environment.json").exists())
+                self.assertTrue(list(target.rglob("libvortex_ffi.a")))
+                self.assertFalse(archive.exists())
+                self.assertFalse((ffi_build / "vortex-artifacts/include/vortex.h").exists())
+        self.assertFalse((self.work / "ambient-target").exists())
+
+    def test_cargo_target_directory_reset(self) -> None:
+        target = self.work / "custom-target"
+        build = self.work / "ffi"
+        self.configure("ffi", f"-DVORTEX_CARGO_TARGET_DIR={target}")
+        self.cmake_build(build)
+        self.configure("ffi", "-DVORTEX_CARGO_TARGET_DIR=")
+        self.cmake_build(build)
+        self.assertTrue((build / "cargo-target/environment.json").exists())
+        self.cmake_build(build, "--target", "clean")
+        self.assertFalse((build / "cargo-target").exists())
+        self.assertTrue((target / "environment.json").exists())
+
+    def test_embedded_cargo_target_directory(self) -> None:
+        target = self.work / "parent-cargo-target"
+        source = self.write(
+            "parent/CMakeLists.txt",
+            f"""\
+            cmake_minimum_required(VERSION 3.25)
+            project(Parent LANGUAGES C CXX)
+            set(VORTEX_CARGO_TARGET_DIR "{target}")
+            add_subdirectory("{self.repo}" vortex EXCLUDE_FROM_ALL)
+            if(NOT VORTEX_CARGO_TARGET_DIR STREQUAL "{target}")
+                message(FATAL_ERROR "Vortex changed the parent's Cargo target directory")
+            endif()
+            """,
+        ).parent
+        self.configure("embedded-target", source=source)
+        build = self.work / "embedded-target"
+        self.cmake_build(build, "--target", "vortex_ffi_cargo_build")
+        args = self.cargo_recording(target)["args"]
+        self.assertEqual(args[args.index("--target-dir") + 1], str(target))
+        self.assertEqual((build / "vortex/ffi/vortex-artifacts/libvortex_ffi.a").read_bytes(), b"recorded archive")
+        self.cmake_build(build, "--target", "clean")
+        self.assertTrue((target / "environment.json").exists())
+
+    def test_cargo_target_directory_rejections(self) -> None:
+        for index, type_hint in enumerate(("", ":PATH")):
+            for directory, message in (
+                ("relative-target", "VORTEX_CARGO_TARGET_DIR must be an absolute path"),
+                (str(self.work / "cargo;target"), "VORTEX_CARGO_TARGET_DIR contains a semicolon"),
+            ):
+                with self.subTest(directory=directory, type_hint=type_hint):
+                    result = self.configure(
+                        f"invalid-target-{index}", f"-DVORTEX_CARGO_TARGET_DIR{type_hint}={directory}", success=False
+                    )
+                    self.assertIn(message, result.stdout + result.stderr)
+
     def test_profile_mapping_and_override(self) -> None:
         for config, override, expected in (
             ("Release", "", "release"),
