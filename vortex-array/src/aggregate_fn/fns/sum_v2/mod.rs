@@ -2,6 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! SQL-style sums with explicit overflow and empty-input state.
+//!
+//! [`SumV2`] returns null when there are no valid values, while [`Sum`] returns zero. Tracking empty
+//! input separately from overflow requires a different partial representation. A separate aggregate
+//! preserves compatibility with the scalar partials stored by older Vortex files.
 
 mod grouped;
 pub(crate) use grouped::PrimitiveGroupedSumV2EncodingKernel;
