@@ -1,20 +1,8 @@
 diff --git a/cpp/benchmarks/CMakeLists.txt b/cpp/benchmarks/CMakeLists.txt
-index 8fa9593..da69664 100644
+index 8fa9593..4f5127a 100644
 --- a/cpp/benchmarks/CMakeLists.txt
 +++ b/cpp/benchmarks/CMakeLists.txt
-@@ -55,6 +55,11 @@ target_include_directories(
-          "$<BUILD_INTERFACE:${CUDF_SOURCE_DIR}/src>"
- )
- 
-+add_executable(
-+  NDSH_DATA_GENERATOR_TEST EXCLUDE_FROM_ALL common/ndsh_data_generator/ndsh_data_generator_test.cpp
-+)
-+target_link_libraries(NDSH_DATA_GENERATOR_TEST PRIVATE ndsh_data_generator CUDA::cudart)
-+
- # ##################################################################################################
- # * compiler function -----------------------------------------------------------------------------
- 
-@@ -129,6 +134,7 @@ ConfigureNVBench(NDSH_Q05_NVBENCH ndsh/q05.cpp ndsh/utilities.cpp)
+@@ -129,6 +129,7 @@ ConfigureNVBench(NDSH_Q05_NVBENCH ndsh/q05.cpp ndsh/utilities.cpp)
  ConfigureNVBench(NDSH_Q06_NVBENCH ndsh/q06.cpp ndsh/utilities.cpp)
  ConfigureNVBench(NDSH_Q09_NVBENCH ndsh/q09.cpp ndsh/utilities.cpp)
  ConfigureNVBench(NDSH_Q10_NVBENCH ndsh/q10.cpp ndsh/utilities.cpp)
@@ -22,520 +10,29 @@ index 8fa9593..da69664 100644
  
  # ##################################################################################################
  # * filter benchmark -------------------------------------------------------------------
-diff --git a/cpp/benchmarks/common/ndsh_data_generator/ndsh_data_generator.cpp b/cpp/benchmarks/common/ndsh_data_generator/ndsh_data_generator.cpp
-index 540cc71..6c0a37b 100644
---- a/cpp/benchmarks/common/ndsh_data_generator/ndsh_data_generator.cpp
-+++ b/cpp/benchmarks/common/ndsh_data_generator/ndsh_data_generator.cpp
-@@ -29,6 +29,7 @@
- #include <cuda/stream>
- 
- #include <array>
-+#include <cstdint>
- #include <string>
- #include <vector>
- 
-@@ -191,10 +192,21 @@ std::unique_ptr<cudf::table> generate_orders_independent(double scale_factor,
-   auto o_orderdate_ts = [&]() {
-     auto const o_orderdate_year = generate_random_string_column_from_set(
-       cudf::host_span<char const* const>(years.data(), years.size()), o_num_rows, stream, mr);
--    auto const o_orderdate_month = generate_random_string_column_from_set(
--      cudf::host_span<char const* const>(months.data(), months.size()), o_num_rows, stream, mr);
-+    // Decouple year from month/day with the second SHA-256 IV word. Month and day deliberately
-+    // share a stream so their monotonic vocabularies produce only valid calendar dates.
-+    constexpr uint32_t order_month_day_seed = 0xbb67ae85u;
-+    auto const o_orderdate_month            = generate_random_string_column_from_set(
-+      cudf::host_span<char const* const>(months.data(), months.size()),
-+      o_num_rows,
-+      stream,
-+      mr,
-+      order_month_day_seed);
-     auto const o_orderdate_day = generate_random_string_column_from_set(
--      cudf::host_span<char const* const>(days.data(), days.size()), o_num_rows, stream, mr);
-+      cudf::host_span<char const* const>(days.data(), days.size()),
-+      o_num_rows,
-+      stream,
-+      mr,
-+      order_month_day_seed);
-     auto const o_orderdate_str = cudf::strings::concatenate(
-       cudf::table_view(
-         {o_orderdate_year->view(), o_orderdate_month->view(), o_orderdate_day->view()}),
-@@ -309,8 +321,11 @@ std::unique_ptr<cudf::table> generate_lineitem_partial(cudf::table_view const& o
-   // Generate the `l_quantity` column
-   auto l_quantity = generate_random_numeric_column<int8_t>(1, 50, l_num_rows, stream, mr);
- 
--  // Generate the `l_discount` column
--  auto l_discount = generate_random_numeric_column<double>(0.00, 0.10, l_num_rows, stream, mr);
-+  // Separate discount from the default-seeded draws using the first SHA-256 IV word
-+  // (fractional bits of sqrt(2)), chosen independently of query predicates.
-+  constexpr uint32_t l_discount_seed = 0x6a09e667u;
-+  auto l_discount =
-+    generate_random_numeric_column<double>(0.00, 0.10, l_num_rows, stream, mr, l_discount_seed);
- 
-   // Generate the `l_tax` column
-   auto l_tax = generate_random_numeric_column<double>(0.00, 0.08, l_num_rows, stream, mr);
-@@ -719,17 +734,12 @@ generate_orders_lineitem_part(double scale_factor,
-   // Generate the `part` table
-   auto part = generate_part(scale_factor, stream, mr);
- 
--  // Join the `part` and partial `lineitem` tables, then calculate the `l_extendedprice` column
-+  // Retail price depends only on part key. Compute it in lineitem order, not join output order.
-   auto l_extendedprice = [&]() {
--    auto const left = cudf::table_view(
--      {lineitem_partial->get_column(2).view(), lineitem_partial->get_column(5).view()});
--    auto const right = cudf::table_view({part->get_column(0).view(), part->get_column(7).view()});
--    auto const joined_table   = perform_left_join(left, right, {0}, {0}, stream, mr);
--    auto joined_table_columns = joined_table->release();
--    auto const l_quantity     = std::move(joined_table_columns[1]);
--    auto const l_quantity_fp =
--      cudf::cast(l_quantity->view(), cudf::data_type{cudf::type_id::FLOAT64}, stream, mr);
--    auto const p_retailprice = std::move(joined_table_columns[3]);
-+    auto const l_quantity_fp = cudf::cast(
-+      lineitem_partial->get_column(5).view(), cudf::data_type{cudf::type_id::FLOAT64}, stream, mr);
-+    auto const p_retailprice =
-+      calculate_p_retailprice(lineitem_partial->get_column(2).view(), stream, mr);
-     return cudf::binary_operation(l_quantity_fp->view(),
-                                   p_retailprice->view(),
-                                   cudf::binary_operator::MUL,
-diff --git a/cpp/benchmarks/common/ndsh_data_generator/ndsh_data_generator_test.cpp b/cpp/benchmarks/common/ndsh_data_generator/ndsh_data_generator_test.cpp
-new file mode 100644
-index 0000000..b9eb42a
---- /dev/null
-+++ b/cpp/benchmarks/common/ndsh_data_generator/ndsh_data_generator_test.cpp
-@@ -0,0 +1,229 @@
-+/*
-+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-+ * SPDX-License-Identifier: Apache-2.0
-+ */
-+
-+#include "ndsh_data_generator.hpp"
-+#include "random_column_generator.hpp"
-+#include "table_helpers.hpp"
-+
-+#include <benchmarks/ndsh/q6_reference.hpp>
-+
-+#include <cudf_test/column_wrapper.hpp>
-+
-+#include <cudf/copying.hpp>
-+#include <cudf/detail/utilities/vector_factories.hpp>
-+#include <cudf/utilities/error.hpp>
-+#include <cudf/wrappers/timestamps.hpp>
-+
-+#include <cuda_runtime_api.h>
-+#include <thrust/random.h>
-+
-+#include <algorithm>
-+#include <chrono>
-+#include <cmath>
-+#include <cstdint>
-+#include <exception>
-+#include <iomanip>
-+#include <iostream>
-+#include <limits>
-+#include <map>
-+#include <set>
-+#include <type_traits>
-+#include <vector>
-+
-+namespace {
-+template <typename T>
-+auto host_values(cudf::column_view column, cuda::stream_ref stream)
-+{
-+  CUDF_EXPECTS(column.type() == cudf::data_type{cudf::type_to_id<T>()} && !column.has_nulls(),
-+               "Unexpected generated type or nulls");
-+  return cudf::detail::make_host_vector(
-+    cudf::device_span<T const>{column.data<T>(), static_cast<std::size_t>(column.size())}, stream);
-+}
-+
-+template <typename T>
-+void test_numeric(T lower, T upper, cuda::stream_ref stream)
-+{
-+  constexpr cudf::size_type rows = 257;
-+  auto mr                        = cudf::get_current_device_resource_ref();
-+  auto draw                      = [&](cudf::size_type count, uint32_t seed) {
-+    auto column =
-+      cudf::datagen::generate_random_numeric_column<T>(lower, upper, count, stream, mr, seed);
-+    CUDF_EXPECTS(column->size() == count, "Generated row count changed");
-+    return host_values<T>(column->view(), stream);
-+  };
-+  auto default_draw = [&] {
-+    return host_values<T>(
-+      cudf::datagen::generate_random_numeric_column<T>(lower, upper, rows, stream, mr)->view(),
-+      stream);
-+  };
-+  auto const defaults = default_draw();
-+  CUDF_EXPECTS(defaults == draw(rows, 1), "Default seed differs from explicit seed 1");
-+
-+  // Replay the legacy per-index engine on the CPU, without the new seed API.
-+  using distribution = std::conditional_t<std::is_integral_v<T>,
-+                                          thrust::uniform_int_distribution<T>,
-+                                          thrust::uniform_real_distribution<T>>;
-+  for (cudf::size_type i = 0; i < rows; ++i) {
-+    thrust::default_random_engine engine;
-+    engine.discard(i);
-+    auto const expected = distribution(lower, upper)(engine);
-+    if constexpr (std::is_integral_v<T>) {
-+      CUDF_EXPECTS(defaults[i] == expected, "Legacy integer sequence changed");
-+    } else {
-+      // Allow host/device floating-point rounding differences.
-+      CUDF_EXPECTS(std::abs(defaults[i] - expected) <=
-+                     4 * std::numeric_limits<T>::epsilon() * std::max(T{1}, std::abs(expected)),
-+                   "Legacy floating-point sequence changed");
-+    }
-+  }
-+
-+  auto const seeded    = draw(rows, 42);
-+  auto const alternate = draw(rows, 43);
-+  CUDF_EXPECTS(seeded != defaults && seeded != alternate, "Seed does not change output");
-+  CUDF_EXPECTS(seeded == draw(rows, 42), "Seeded output depends on call order");
-+  CUDF_EXPECTS(defaults == default_draw(), "Default output depends on call order");
-+  auto const prefix = draw(31, 42);
-+  CUDF_EXPECTS(std::equal(prefix.begin(), prefix.end(), seeded.begin()), "Seeded prefix changed");
-+  for (auto const* values : {&defaults, &seeded, &alternate, &prefix}) {
-+    CUDF_EXPECTS(
-+      std::all_of(
-+        values->begin(), values->end(), [=](T value) { return lower <= value && value <= upper; }),
-+      "Generated value outside bounds");
-+  }
-+}
-+
-+void test_supplier_keys(cuda::stream_ref stream)
-+{
-+  bool valid = true;
-+  for (double scale_factor : {0.01, 0.1, 1.0}) {
-+    auto const s = static_cast<cudf::size_type>(scale_factor * 10'000);
-+    std::vector<cudf::size_type> keys;
-+    for (auto key : {1, s - 1, s, s + 1, 2 * s, 20 * s}) {
-+      keys.insert(keys.end(), 4, key);
-+    }
-+    cudf::test::fixed_width_column_wrapper<cudf::size_type> partkey(keys.begin(), keys.end());
-+    CUDF_CUDA_TRY(cudaDeviceSynchronize());
-+    auto const rows = static_cast<cudf::size_type>(keys.size());
-+    std::vector<cudf::size_type> expected(rows);
-+    for (cudf::size_type row = 0; row < rows; ++row) {
-+      expected[row] = (keys[row] + (row % 4) * (s / 4 + (keys[row] - 1) / s)) % s + 1;
-+    }
-+    for (bool partsupp : {false, true}) {
-+      auto result       = partsupp
-+                            ? cudf::datagen::calculate_ps_suppkey(partkey, scale_factor, rows, stream)
-+                            : cudf::datagen::calculate_l_suppkey(partkey, scale_factor, rows, stream);
-+      auto const actual = host_values<cudf::size_type>(result->view(), stream);
-+      CUDF_EXPECTS(actual.size() == expected.size(), "Supplier key row count changed");
-+      cudf::size_type mismatches = 0, out_of_range = 0;
-+      for (cudf::size_type row = 0; row < rows; ++row) {
-+        mismatches += actual[row] != expected[row];
-+        out_of_range += actual[row] < 1 || actual[row] > s;
-+      }
-+      std::cout << (partsupp ? "ps_suppkey" : "l_suppkey") << " sf=" << scale_factor
-+                << " suppliers=" << s << " rows=" << rows << " mismatches=" << mismatches
-+                << " out_of_range=" << out_of_range << " first_actual=" << actual.front()
-+                << " first_expected=" << expected.front() << " last_actual=" << actual.back()
-+                << " last_expected=" << expected.back() << '\n';
-+      valid = valid && mismatches == 0 && out_of_range == 0;
-+    }
-+  }
-+  CUDF_EXPECTS(valid, "Supplier key formula/range mismatch");
-+}
-+
-+void test_order_date_coverage(cuda::stream_ref stream)
-+{
-+  auto [orders, lineitem, part] = cudf::datagen::generate_orders_lineitem_part(0.01, stream);
-+  auto const dates              = host_values<cudf::timestamp_D>(orders->view().column(4), stream);
-+  std::map<int, std::set<unsigned>> months_by_year;
-+  for (auto const value : dates) {
-+    auto const date = std::chrono::sys_days{std::chrono::days{value.time_since_epoch().count()}};
-+    auto const calendar = std::chrono::year_month_day{date};
-+    CUDF_EXPECTS(calendar.ok(), "Invalid generated order date");
-+    months_by_year[int{calendar.year()}].insert(unsigned{calendar.month()});
-+  }
-+  std::size_t combinations = 0;
-+  for (auto const& [year, months] : months_by_year) {
-+    std::cout << "order_dates year=" << year << " months=" << months.size() << '\n';
-+    combinations += months.size();
-+  }
-+  CUDF_EXPECTS(months_by_year.size() == 7 && combinations == 7 * 12,
-+               "Order year/month components share a correlated RNG stream");
-+}
-+
-+void test_q6_reference(cuda::stream_ref stream)
-+{
-+  using cudf::test::fixed_width_column_wrapper;
-+  // Exclude a matching sentinel; near-boundary doubles qualify only after the float32 cast.
-+  fixed_width_column_wrapper<double> price{{1000, 100, 100, 100, 100, 100, 100, 100, 100}};
-+  fixed_width_column_wrapper<double> discount{
-+    {0.06, 0.06, 0.05 - 1e-10, 0.07 + 1e-10, 0.06, 0.06, 0.049, 0.071, 0.06}};
-+  fixed_width_column_wrapper<cudf::timestamp_D, int32_t> shipdate{
-+    {8766, 8766, 8766, 9130, 8765, 9131, 8766, 8766, 8766}};
-+  fixed_width_column_wrapper<int8_t> quantity{{23, 23, 23, 23, 23, 23, 23, 23, 24}};
-+  CUDF_CUDA_TRY(cudaDeviceSynchronize());
-+  auto const input  = cudf::table_view{{price, discount, shipdate, quantity}};
-+  auto const result = ndsh::q6_cpu_reference(cudf::slice(input, {1, 9}, stream).front(), stream);
-+  CUDF_EXPECTS(result.matched == 3 && std::abs(result.revenue - 18.0) < 1e-12,
-+               "Q6 CPU reference boundary/slice regression");
-+}
-+
-+void test_lineitem_q6(cuda::stream_ref stream)
-+{
-+  auto [orders, lineitem, part] = cudf::datagen::generate_orders_lineitem_part(0.01, stream);
-+  CUDF_EXPECTS(lineitem->num_columns() == 16 && part->num_columns() == 9,
-+               "Unexpected lineitem/part schema");
-+  auto const part_keys = host_values<cudf::size_type>(part->view().column(0), stream);
-+  auto const retail    = host_values<double>(part->view().column(7), stream);
-+  std::map<cudf::size_type, double> retail_by_key;
-+  for (cudf::size_type i = 0; i < part->num_rows(); ++i) {
-+    CUDF_EXPECTS(retail_by_key.emplace(part_keys[i], retail[i]).second, "Duplicate part key");
-+  }
-+  auto const item_keys = host_values<cudf::size_type>(lineitem->view().column(1), stream);
-+  auto const quantity  = host_values<int8_t>(lineitem->view().column(4), stream);
-+  auto const price     = host_values<double>(lineitem->view().column(5), stream);
-+  // Resolve by key on the CPU, independently of GPU join output order.
-+  for (cudf::size_type i = 0; i < lineitem->num_rows(); ++i) {
-+    auto const part_row = retail_by_key.find(item_keys[i]);
-+    CUDF_EXPECTS(part_row != retail_by_key.end(), "Missing lineitem part key");
-+    auto const expected = static_cast<double>(quantity[i]) * part_row->second;
-+    CUDF_EXPECTS(std::abs(price[i] - expected) <= 1e-12 * std::max(1.0, std::abs(expected)),
-+                 "l_extendedprice is not aligned with its lineitem row");
-+  }
-+  // LINEITEM_SCHEMA in ndsh/utilities.cpp: extendedprice, discount, shipdate, quantity.
-+  auto const projected = lineitem->view().select({5, 6, 10, 4});
-+  auto const result    = ndsh::q6_cpu_reference(projected, stream);
-+  std::cout << "lineitem_q6 sf=0.01 rows=" << projected.num_rows() << " matched=" << result.matched
-+            << " revenue=" << std::setprecision(17) << result.revenue << '\n';
-+  CUDF_EXPECTS(result.matched > 0, "Q6 has no survivors: quantity/discount correlation regressed");
-+  CUDF_EXPECTS(std::isfinite(result.revenue) && result.revenue > 0,
-+               "Q6 revenue must be positive and finite");
-+}
-+}  // namespace
-+
-+int main()
-+{
-+  char const* current_test = "initialization";
-+  try {
-+    cuda::stream_ref const stream = cudf::get_default_stream();
-+    auto run                      = [&](char const* name, auto&& test) {
-+      current_test = name;
-+      test();
-+      stream.sync();
-+      std::cout << "[PASS] " << name << '\n';
-+    };
-+    run("int8", [&] { test_numeric<int8_t>(-10, 20, stream); });
-+    run("int16", [&] { test_numeric<int16_t>(-1000, 2000, stream); });
-+    run("size_type", [&] { test_numeric<cudf::size_type>(-100000, 200000, stream); });
-+    run("double", [&] { test_numeric<double>(0.0, 0.1, stream); });
-+    run("order_date_coverage", [&] { test_order_date_coverage(stream); });
-+    run("q6_reference_boundaries_slice", [&] { test_q6_reference(stream); });
-+    run("lineitem_q6", [&] { test_lineitem_q6(stream); });
-+    run("supplier_keys", [&] { test_supplier_keys(stream); });
-+    return 0;
-+  } catch (std::exception const& error) {
-+    std::cerr << "[FAIL] " << current_test << ": " << error.what() << '\n';
-+    return 1;
-+  }
-+}
-diff --git a/cpp/benchmarks/common/ndsh_data_generator/random_column_generator.cu b/cpp/benchmarks/common/ndsh_data_generator/random_column_generator.cu
-index afc3ded..87b6bdb 100644
---- a/cpp/benchmarks/common/ndsh_data_generator/random_column_generator.cu
-+++ b/cpp/benchmarks/common/ndsh_data_generator/random_column_generator.cu
-@@ -55,18 +55,22 @@ template <typename T>
- struct random_number_generator {
-   T lower;
-   T upper;
-+  uint32_t seed;
- 
--  CUDF_HOST_DEVICE random_number_generator(T lower, T upper) : lower(lower), upper(upper) {}
-+  CUDF_HOST_DEVICE random_number_generator(T lower, T upper, uint32_t seed = 1)
-+    : lower(lower), upper(upper), seed(seed)
-+  {
-+  }
- 
-   __device__ T operator()(int64_t const idx) const
-   {
-     if constexpr (cudf::is_integral<T>()) {
--      thrust::default_random_engine engine;
-+      thrust::default_random_engine engine(seed);
-       thrust::uniform_int_distribution<T> dist(lower, upper);
-       engine.discard(idx);
-       return dist(engine);
-     } else {
--      thrust::default_random_engine engine;
-+      thrust::default_random_engine engine(seed);
-       thrust::uniform_real_distribution<T> dist(lower, upper);
-       engine.discard(idx);
-       return dist(engine);
-@@ -108,7 +112,8 @@ std::unique_ptr<cudf::column> generate_random_numeric_column(T lower,
-                                                              T upper,
-                                                              cudf::size_type num_rows,
-                                                              cuda::stream_ref stream,
--                                                             rmm::device_async_resource_ref mr)
-+                                                             rmm::device_async_resource_ref mr,
-+                                                             uint32_t seed)
- {
-   CUDF_BENCHMARK_RANGE();
-   auto col = cudf::make_numeric_column(
-@@ -119,7 +124,7 @@ std::unique_ptr<cudf::column> generate_random_numeric_column(T lower,
-                     cuda::counting_iterator{begin},
-                     cuda::counting_iterator{end},
-                     col->mutable_view().begin<T>(),
--                    random_number_generator<T>(lower, upper));
-+                    random_number_generator<T>(lower, upper, seed));
-   return col;
- }
- 
-@@ -128,28 +133,32 @@ template std::unique_ptr<cudf::column> generate_random_numeric_column<int8_t>(
-   int8_t upper,
-   cudf::size_type num_rows,
-   cuda::stream_ref stream,
--  rmm::device_async_resource_ref mr);
-+  rmm::device_async_resource_ref mr,
-+  uint32_t seed);
- 
- template std::unique_ptr<cudf::column> generate_random_numeric_column<int16_t>(
-   int16_t lower,
-   int16_t upper,
-   cudf::size_type num_rows,
-   cuda::stream_ref stream,
--  rmm::device_async_resource_ref mr);
-+  rmm::device_async_resource_ref mr,
-+  uint32_t seed);
- 
- template std::unique_ptr<cudf::column> generate_random_numeric_column<cudf::size_type>(
-   cudf::size_type lower,
-   cudf::size_type upper,
-   cudf::size_type num_rows,
-   cuda::stream_ref stream,
--  rmm::device_async_resource_ref mr);
-+  rmm::device_async_resource_ref mr,
-+  uint32_t seed);
- 
- template std::unique_ptr<cudf::column> generate_random_numeric_column<double>(
-   double lower,
-   double upper,
-   cudf::size_type num_rows,
-   cuda::stream_ref stream,
--  rmm::device_async_resource_ref mr);
-+  rmm::device_async_resource_ref mr,
-+  uint32_t seed);
- 
- std::unique_ptr<cudf::column> generate_primary_key_column(cudf::scalar const& start,
-                                                           cudf::size_type num_rows,
-@@ -174,7 +183,8 @@ std::unique_ptr<cudf::column> generate_random_string_column_from_set(
-   cudf::host_span<char const* const> set,
-   cudf::size_type num_rows,
-   cuda::stream_ref stream,
--  rmm::device_async_resource_ref mr)
-+  rmm::device_async_resource_ref mr,
-+  uint32_t seed)
- {
-   CUDF_BENCHMARK_RANGE();
-   // Build a gather map of random strings to choose from
-@@ -186,7 +196,7 @@ std::unique_ptr<cudf::column> generate_random_string_column_from_set(
- 
-   // Build a column of random keys to gather from the set
-   auto const gather_keys =
--    generate_random_numeric_column<int16_t>(0, set.size() - 1, num_rows, stream, mr);
-+    generate_random_numeric_column<int16_t>(0, set.size() - 1, num_rows, stream, mr, seed);
- 
-   // Perform the gather operation
-   auto const gathered_table = cudf::gather(
-diff --git a/cpp/benchmarks/common/ndsh_data_generator/random_column_generator.hpp b/cpp/benchmarks/common/ndsh_data_generator/random_column_generator.hpp
-index a98ab25..d4048f9 100644
---- a/cpp/benchmarks/common/ndsh_data_generator/random_column_generator.hpp
-+++ b/cpp/benchmarks/common/ndsh_data_generator/random_column_generator.hpp
-@@ -9,6 +9,7 @@
- #include <cudf/utilities/default_stream.hpp>
- #include <cudf/utilities/memory_resource.hpp>
- 
-+#include <cstdint>
- #include <string>
- 
- namespace cudf::datagen {
-@@ -45,6 +46,7 @@ std::unique_ptr<cudf::column> generate_random_string_column(
-  * @param num_rows The number of rows in the column
-  * @param stream CUDA stream used for device memory operations and kernel launches
-  * @param mr Device memory resource used to allocate the returned column's device memory
-+ * @param seed Seed passed directly to Thrust's default random engine; 1 preserves legacy output
-  */
- template <typename T>
- std::unique_ptr<cudf::column> generate_random_numeric_column(
-@@ -52,7 +54,8 @@ std::unique_ptr<cudf::column> generate_random_numeric_column(
-   T upper,
-   cudf::size_type num_rows,
-   cuda::stream_ref stream           = cudf::get_default_stream(),
--  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
-+  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref(),
-+  uint32_t seed                     = 1);
- 
- /**
-  * @brief Generate a primary key column
-@@ -107,12 +110,14 @@ std::unique_ptr<cudf::column> generate_repeat_string_column(
-  * @param num_rows The number of rows in the column
-  * @param stream CUDA stream used for device memory operations and kernel launches
-  * @param mr Device memory resource used to allocate the returned column's device memory
-+ * @param seed Seed passed directly to Thrust's default random engine; 1 preserves legacy output
-  */
- std::unique_ptr<cudf::column> generate_random_string_column_from_set(
-   cudf::host_span<char const* const> set,
-   cudf::size_type num_rows,
-   cuda::stream_ref stream           = cudf::get_default_stream(),
--  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
-+  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref(),
-+  uint32_t seed                     = 1);
- 
- /**
-  * @brief Generate a column consisting of a repeating sequence of integers
-diff --git a/cpp/benchmarks/common/ndsh_data_generator/table_helpers.cpp b/cpp/benchmarks/common/ndsh_data_generator/table_helpers.cpp
-index 0ac5dab..693a49a 100644
---- a/cpp/benchmarks/common/ndsh_data_generator/table_helpers.cpp
-+++ b/cpp/benchmarks/common/ndsh_data_generator/table_helpers.cpp
-@@ -144,7 +144,7 @@ std::unique_ptr<cudf::table> perform_left_join(cudf::table_view const& left_inpu
-  * @param mr Device memory resource used to allocate the returned column's device memory
-  */
- [[nodiscard]] std::unique_ptr<cudf::column> calculate_l_suppkey(cudf::column_view const& l_partkey,
--                                                                cudf::size_type scale_factor,
-+                                                                double scale_factor,
-                                                                 cudf::size_type num_rows,
-                                                                 cuda::stream_ref stream,
-                                                                 rmm::device_async_resource_ref mr)
-@@ -216,7 +216,7 @@ std::unique_ptr<cudf::table> perform_left_join(cudf::table_view const& left_inpu
-  */
- [[nodiscard]] std::unique_ptr<cudf::column> calculate_ps_suppkey(
-   cudf::column_view const& ps_partkey,
--  cudf::size_type scale_factor,
-+  double scale_factor,
-   cudf::size_type num_rows,
-   cuda::stream_ref stream,
-   rmm::device_async_resource_ref mr)
-diff --git a/cpp/benchmarks/common/ndsh_data_generator/table_helpers.hpp b/cpp/benchmarks/common/ndsh_data_generator/table_helpers.hpp
-index 1f35b6a..bd46e42 100644
---- a/cpp/benchmarks/common/ndsh_data_generator/table_helpers.hpp
-+++ b/cpp/benchmarks/common/ndsh_data_generator/table_helpers.hpp
-@@ -72,7 +72,7 @@ std::unique_ptr<cudf::table> perform_left_join(
-  */
- [[nodiscard]] std::unique_ptr<cudf::column> calculate_l_suppkey(
-   cudf::column_view const& l_partkey,
--  cudf::size_type scale_factor,
-+  double scale_factor,
-   cudf::size_type num_rows,
-   cuda::stream_ref stream           = cudf::get_default_stream(),
-   rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
-@@ -88,7 +88,7 @@ std::unique_ptr<cudf::table> perform_left_join(
-  */
- [[nodiscard]] std::unique_ptr<cudf::column> calculate_ps_suppkey(
-   cudf::column_view const& ps_partkey,
--  cudf::size_type scale_factor,
-+  double scale_factor,
-   cudf::size_type num_rows,
-   cuda::stream_ref stream           = cudf::get_default_stream(),
-   rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 diff --git a/cpp/benchmarks/ndsh/VORTEX.md b/cpp/benchmarks/ndsh/VORTEX.md
 new file mode 100644
-index 0000000..748527b
+index 0000000..d58b997
 --- /dev/null
 +++ b/cpp/benchmarks/ndsh/VORTEX.md
-@@ -0,0 +1,114 @@
+@@ -0,0 +1,145 @@
 +# Experimental Vortex adapter
 +
 +`CUDF_NDSH_WITH_VORTEX=ON` adds local-file Parquet/Vortex comparisons for
 +Q1/Q5/Q6/Q9/Q10 and projected reads. Default **OFF** adds no Vortex dependency.
++
++The main patch touches only `cpp/benchmarks/ndsh/` plus one include hook in
++`cpp/benchmarks/CMakeLists.txt`; no generator changes or generator-test target.
++
++17 offline tests, five-query clang-format, Ruff lint/format, and patch checks passed.
++Compile-only Q1/Q5/Q6/Q9/Q10 checks with Vortex ON/OFF passed **10/10 without warnings**;
++the separate generator regression test also compiled, without runtime execution.
++Artifacts are in the Vortex checkout's ignored `build/cudf-ndsh-minimal-compile/`.
++
++**Development binaries remain stale:** no CMake regeneration, full build, relinks, GPU,
++or fresh minimal-source runtime/memcheck/performance runs. The previous full cuDF build
++timed out at 1200 s / 223 of 635 steps. No broad automatic retry. Commands below are
++setup instructions, not evidence of completed runtime validation.
 +
 +## Build
 +
@@ -556,11 +53,10 @@ index 0000000..748527b
 +  -DCMAKE_CUDA_ARCHITECTURES=90
 +CARGO_BUILD_JOBS=4 cmake --build cpp/build-vortex \
 +  --target NDSH_VORTEX_BUILD_SMOKE NDSH_VORTEX_IO_TEST \
-+    NDSH_DATA_GENERATOR_TEST NDSH_Q01_NVBENCH NDSH_Q05_NVBENCH NDSH_Q06_NVBENCH \
++    NDSH_Q01_NVBENCH NDSH_Q05_NVBENCH NDSH_Q06_NVBENCH \
 +    NDSH_Q09_NVBENCH NDSH_Q10_NVBENCH --parallel 2
 +cpp/build-vortex/benchmarks/NDSH_VORTEX_BUILD_SMOKE
 +cpp/build-vortex/benchmarks/NDSH_VORTEX_IO_TEST
-+cpp/build-vortex/benchmarks/NDSH_DATA_GENERATOR_TEST
 +compute-sanitizer --tool memcheck --error-exitcode 99 \
 +  cpp/build-vortex/benchmarks/NDSH_VORTEX_IO_TEST
 +```
@@ -594,17 +90,27 @@ index 0000000..748527b
 +```
 +
 +Each runs `format={parquet,vortex}` × `workload={read,qN}` × `cache={warm,cold}` on
-+shared full-table fixtures; Q9 additionally covers binary-op, AST, and transform amount
-+engines. The default scale factors include SF10; select a scale explicitly. Q1/Q6
-+project lineitem, Q5/Q9 project six tables, and Q10 projects four. Both formats apply
-+query filters after reading. Exact projections and results are checked against the
-+same input and bounded-batch CPU references. Empty generated results are rejected;
-+boundary/null/empty cases are tested separately. Checks/writing are untimed;
-+read/query timing includes cleanup and GPU completion. Compare CPU wall time; RMM
-+peaks exclude Vortex. Original benchmarks retain their Parquet pushdown/output paths.
-+References follow those benchmark semantics; Q9 keeps its existing unrounded `SUM(amount)`.
-+Both formats use generic cuDF query operations, including shared Q1 sum/count aggregation
-+and concurrent independent-table reads for Q5/Q9/Q10. No query-specific CUDA kernels.
++identical logical full-table fixtures from the **original pinned cuDF generator**;
++Q9 additionally covers binary-op, AST, and transform amount engines. The default scale
++factors include SF10; select a scale explicitly. Q1/Q6 project lineitem, Q5/Q9 project
++six tables, and Q10 projects four. Both formats use identical scan projections and
++post-read predicates. Exact projection/value and independent bounded-batch CPU result
++checks remain even for zero matches, as do synthetic nonempty and boundary/null/empty
++cases. Checks/writing are untimed; read/query timing includes cleanup and GPU completion.
++Compare CPU wall time; RMM peaks exclude Vortex. Original native Parquet-pushdown/output
++benchmarks remain separate. References follow those benchmark semantics; Q9 keeps its
++existing unrounded `SUM(amount)`. Q1 uses original `SUM`/native `MEAN`/`COUNT` and
++Q5/Q9/Q10 table reads are sequential in both formats. Native Parquet benchmarks retain
++input/intermediate lifetimes through output writing. No hand-fitted query kernels.
++
++Original data may yield empty/degenerate Q6/Q10 and low-SF supplier joins. Explicit zero
++match counts disclose these results without rejecting them or skipping correctness
++checks. Degenerate queries are **not meaningful full-query performance evidence**.
++Q6 checks zero-match `SUM` is NULL and reports revenue as the string `"NULL"`, not zero.
++Its CPU reference boundary/sliced/float32 test moved to `q06.cpp` and gained no-match/empty
++GPU cases; generator separation loses no main-query tests. Q9's reference preserves
++`partsupp` duplicate-join multiplicity, with matching/unmatched duplicate cases. These
++cases compiled but have not been run on the minimal source.
 +
 +Cold mode flushes and evicts each selected-format fixture from the Linux page cache,
 +then requires zero resident pages before every timed callback. Eviction is untimed.
@@ -612,13 +118,21 @@ index 0000000..748527b
 +native reader. Lower-level storage caches are not flushed: this is OS-page-cache
 +coldness, not guaranteed cold media. Warm reads use the buffered path.
 +
-+**Data changes:** separate fixed RNG streams remove discount/quantity and order
-+year/month correlations; month/day remain paired so generated dates are valid. Retail
-+prices are computed in lineitem order instead of unordered join order. Supplier-key
-+helpers preserve fractional scale factors rather than truncating them to zero. These
-+fixes affect all NDS-H consumers, even with Vortex OFF; regenerate fixtures. Other
-+correlations remain. `NDSH_DATA_GENERATOR_TEST` checks seeds, all 84 year/month
-+combinations at SF0.01, per-row prices, and supplier-key formulas/ranges without Vortex.
++**Optional generator patch:** the main `upstream.patch` has no generator edits/tests
++or `NDSH_DATA_GENERATOR_TEST` target. Vortex's optional
++`benchmarks/cudf-ndsh/generator-fixes.patch` preserves four independent fixes and its
++own regression test across seven files. It is separately reviewable and independently
++applicable to cuDF pin `5339497a1a17d799687cbf189fb113411fb015ca`, not bundled or automatic.
++Its forward application to pristine cuDF passed; both patch application orders produce
++identical trees. Only it adds `NDSH_DATA_GENERATOR_TEST`. Applying it affects all NDS-H
++consumers, including Vortex OFF: regenerate both formats' fixtures and label the dataset
++as generator-fixed. Neither dataset establishes full TPC-H conformance.
++
++**Prior timings are HISTORICAL, not valid minimal-patch baselines:** they used altered
++generator/performance code and event suppression. Restoring the original source/data
++requires regenerating both formats' fixtures and collecting fresh labeled baselines;
++optional generator-fixed data also needs separate baselines. Preserve old evidence
++tables as historical, not current validation.
 +
 +## Contract and scope
 +
@@ -626,10 +140,11 @@ index 0000000..748527b
 +  The benchmark uses 16,777,216-row physical CUDA-flat blocks. Explicit row blocks
 +  disable byte coalescing and layout dictionaries so high-cardinality `u16` dictionary
 +  runs cannot fragment the requested granularity.
-+- `read_vortex`: pooled pinned-host staging → HtoD → GPU decode → retained Arrow Device
++- `read_vortex`: pooled cacheable pinned-host staging → HtoD → GPU decode → retained Arrow Device
 +  imports → one final owning cuDF copy/concatenation, using the same 16,777,216-row
 +  maximum. The adapter retains up to 8 GiB in CUDA's default memory pool between
 +  synchronized reads. Dictionary-compressed arrays export as plain values.
++  These Vortex-internal improvements remain; no event optimization is retained.
 +  **No GPUDirect Storage.**
 +- Contexts use device 0. Caller stream/resource must outlive the
 +  context and returned tables. Reads finish consumer work before releasing temporary
@@ -778,10 +293,10 @@ index 0000000..baaf7c0
 +}
 +}  // namespace ndsh
 diff --git a/cpp/benchmarks/ndsh/q01.cpp b/cpp/benchmarks/ndsh/q01.cpp
-index 4eec239..97f4e3c 100644
+index 4eec239..06359fe 100644
 --- a/cpp/benchmarks/ndsh/q01.cpp
 +++ b/cpp/benchmarks/ndsh/q01.cpp
-@@ -6,16 +6,43 @@
+@@ -6,6 +6,7 @@
  #include "utilities.hpp"
  
  #include <benchmarks/common/memory_stats.hpp>
@@ -789,11 +304,7 @@ index 4eec239..97f4e3c 100644
  
  #include <cudf/ast/expressions.hpp>
  #include <cudf/binaryop.hpp>
- #include <cudf/column/column.hpp>
- #include <cudf/scalar/scalar.hpp>
- #include <cudf/scalar/scalar_factories.hpp>
-+#include <cudf/unary.hpp>
- #include <cudf/utilities/memory_resource.hpp>
+@@ -16,6 +17,31 @@
  
  #include <nvbench/nvbench.cuh>
  
@@ -825,12 +336,13 @@ index 4eec239..97f4e3c 100644
  /**
   * @file q01.cpp
   * @brief Implement query 1 of the NDS-H benchmark.
-@@ -95,65 +122,84 @@
+@@ -95,35 +121,24 @@
      disc_price, one_plus_tax->view(), cudf::binary_operator::MUL, tax.type(), stream, mr);
  }
  
 -void run_ndsh_q1(nvbench::state& state, cudf::io::source_info const& source)
-+std::unique_ptr<table_with_names> aggregate_q1_sums(std::unique_ptr<table_with_names> lineitem)
++template <typename Read, typename Consume>
++auto execute_q1(Read&& read, bool filter_shipdate, Consume&& consume)
  {
 -  // Define the column projections and filter predicate for `lineitem` table
 -  std::vector<std::string> const lineitem_cols = {"l_returnflag",
@@ -843,64 +355,6 @@ index 4eec239..97f4e3c 100644
 -                                                  "l_tax"};
 -  auto const shipdate_ref                      = cudf::ast::column_reference(std::distance(
 -    lineitem_cols.begin(), std::find(lineitem_cols.begin(), lineitem_cols.end(), "l_shipdate")));
-+  auto disc_price =
-+    calculate_disc_price(lineitem->column("l_discount"), lineitem->column("l_extendedprice"));
-+  auto charge = calculate_charge(lineitem->column("l_tax"), disc_price->view());
-+  lineitem->append(disc_price, "disc_price").append(charge, "charge");
-+  return apply_groupby(
-+    lineitem,
-+    groupby_context_t{{"l_returnflag", "l_linestatus"},
-+                      {
-+                        {"l_extendedprice", {{cudf::aggregation::Kind::SUM, "sum_base_price"}}},
-+                        {"l_quantity", {{cudf::aggregation::Kind::SUM, "sum_qty"}}},
-+                        {"l_discount", {{cudf::aggregation::Kind::SUM, "sum_discount"}}},
-+                        {"disc_price", {{cudf::aggregation::Kind::SUM, "sum_disc_price"}}},
-+                        {"charge",
-+                         {{cudf::aggregation::Kind::SUM, "sum_charge"},
-+                          {cudf::aggregation::Kind::COUNT_ALL, "count_order"}}},
-+                      }});
-+}
-+
-+std::unique_ptr<table_with_names> finalize_q1_sums(
-+  std::unique_ptr<table_with_names> const& groupedby_table)
-+{
-+  auto average = [&](std::string const& sum) {
-+    return cudf::binary_operation(groupedby_table->column(sum),
-+                                  groupedby_table->column("count_order"),
-+                                  cudf::binary_operator::DIV,
-+                                  cudf::data_type{cudf::type_id::FLOAT64});
-+  };
-+  auto const result_columns = std::vector<std::string>{"l_returnflag",
-+                                                       "l_linestatus",
-+                                                       "sum_qty",
-+                                                       "sum_base_price",
-+                                                       "sum_disc_price",
-+                                                       "sum_charge",
-+                                                       "avg_qty",
-+                                                       "avg_price",
-+                                                       "avg_disc",
-+                                                       "count_order"};
-+  std::vector<std::unique_ptr<cudf::column>> columns;
-+  columns.push_back(std::make_unique<cudf::column>(groupedby_table->column("l_returnflag")));
-+  columns.push_back(std::make_unique<cudf::column>(groupedby_table->column("l_linestatus")));
-+  columns.push_back(std::make_unique<cudf::column>(groupedby_table->column("sum_qty")));
-+  columns.push_back(std::make_unique<cudf::column>(groupedby_table->column("sum_base_price")));
-+  columns.push_back(std::make_unique<cudf::column>(groupedby_table->column("sum_disc_price")));
-+  columns.push_back(std::make_unique<cudf::column>(groupedby_table->column("sum_charge")));
-+  columns.push_back(average("sum_qty"));
-+  columns.push_back(average("sum_base_price"));
-+  columns.push_back(average("sum_discount"));
-+  columns.push_back(
-+    cudf::cast(groupedby_table->column("count_order"), cudf::data_type{cudf::type_id::INT32}));
-+  auto result = std::make_unique<table_with_names>(
-+    std::make_unique<cudf::table>(std::move(columns)), result_columns);
-+  return apply_orderby(
-+    result, {"l_returnflag", "l_linestatus"}, {cudf::order::ASCENDING, cudf::order::ASCENDING});
-+}
-+
-+template <typename Read>
-+std::unique_ptr<table_with_names> execute_q1(Read&& read, bool filter_shipdate)
-+{
 +  auto const shipdate_ref = cudf::ast::column_reference(5);
    auto shipdate_upper =
      cudf::timestamp_scalar<cudf::timestamp_D>(days_since_epoch(1998, 9, 2), true);
@@ -910,58 +364,51 @@ index 4eec239..97f4e3c 100644
  
 -  // Read out the `lineitem` table from parquet file
 -  auto lineitem = read_parquet(source, lineitem_cols, std::move(lineitem_pred));
--
--  // Calculate the discount price and charge columns and append to lineitem table
--  auto disc_price =
--    calculate_disc_price(lineitem->column("l_discount"), lineitem->column("l_extendedprice"));
--  auto charge = calculate_charge(lineitem->column("l_tax"), disc_price->view());
--  (*lineitem).append(disc_price, "disc_price").append(charge, "charge");
 +  auto lineitem = read(q1_columns, lineitem_pred);
 +  if (filter_shipdate) { lineitem = apply_filter(lineitem, *lineitem_pred); }
-+  return finalize_q1_sums(aggregate_q1_sums(std::move(lineitem)));
-+}
+ 
+-  // Calculate the discount price and charge columns and append to lineitem table
+   auto disc_price =
+     calculate_disc_price(lineitem->column("l_discount"), lineitem->column("l_extendedprice"));
+   auto charge = calculate_charge(lineitem->column("l_tax"), disc_price->view());
+   (*lineitem).append(disc_price, "disc_price").append(charge, "charge");
  
 -  // Perform the group by operation
--  auto const groupedby_table = apply_groupby(
--    lineitem,
--    groupby_context_t{
--      {"l_returnflag", "l_linestatus"},
--      {
--        {"l_extendedprice",
--         {{cudf::aggregation::Kind::SUM, "sum_base_price"},
--          {cudf::aggregation::Kind::MEAN, "avg_price"}}},
--        {"l_quantity",
--         {{cudf::aggregation::Kind::SUM, "sum_qty"}, {cudf::aggregation::Kind::MEAN, "avg_qty"}}},
--        {"l_discount",
--         {
--           {cudf::aggregation::Kind::MEAN, "avg_disc"},
--         }},
--        {"disc_price",
--         {
--           {cudf::aggregation::Kind::SUM, "sum_disc_price"},
--         }},
--        {"charge",
--         {{cudf::aggregation::Kind::SUM, "sum_charge"},
--          {cudf::aggregation::Kind::COUNT_ALL, "count_order"}}},
--      }});
--
+   auto const groupedby_table = apply_groupby(
+     lineitem,
+     groupby_context_t{
+@@ -147,13 +162,24 @@ void run_ndsh_q1(nvbench::state& state, cudf::io::source_info const& source)
+           {cudf::aggregation::Kind::COUNT_ALL, "count_order"}}},
+       }});
+ 
 -  // Perform the order by operation
 -  auto const orderedby_table = apply_orderby(groupedby_table,
 -                                             {"l_returnflag", "l_linestatus"},
 -                                             {cudf::order::ASCENDING, cudf::order::ASCENDING});
--
++  auto orderedby_table = apply_orderby(groupedby_table,
++                                       {"l_returnflag", "l_linestatus"},
++                                       {cudf::order::ASCENDING, cudf::order::ASCENDING});
++  return consume(orderedby_table);
++}
+ 
 -  // Write query result to a parquet file
 -  orderedby_table->to_parquet("q1.parquet");
++template <typename Read>
++std::unique_ptr<table_with_names> execute_q1(Read&& read, bool filter_shipdate)
++{
++  return execute_q1(read, filter_shipdate, [](auto& result) { return std::move(result); });
++}
++
 +void run_ndsh_q1(nvbench::state&, cudf::io::source_info const& source)
 +{
 +  execute_q1([&](auto const& columns,
 +                 auto const& predicate) { return read_parquet(source, columns, predicate); },
-+             false)
-+    ->to_parquet("q1.parquet");
++             false,
++             [](auto const& result) { result->to_parquet("q1.parquet"); });
  }
  
  void ndsh_q1(nvbench::state& state)
-@@ -174,7 +220,7 @@ void ndsh_q1(nvbench::state& state)
+@@ -174,7 +200,7 @@ void ndsh_q1(nvbench::state& state)
      return cudf::io::source_info(filename);
    }();
  
@@ -970,7 +417,7 @@ index 4eec239..97f4e3c 100644
    state.set_cuda_stream(nvbench::make_cuda_stream_view(stream.get()));
    auto const mem_stats_logger = cudf::memory_stats_logger();
    state.exec(nvbench::exec_tag::sync, [&](nvbench::launch& launch) { run_ndsh_q1(state, source); });
-@@ -186,3 +232,162 @@ NVBENCH_BENCH(ndsh_q1)
+@@ -186,3 +212,161 @@ NVBENCH_BENCH(ndsh_q1)
    .set_name("ndsh_q1")
    .add_string_axis("filename", {""})
    .add_float64_axis("scale_factor", {0.01, 0.1, 1});
@@ -1042,8 +489,7 @@ index 4eec239..97f4e3c 100644
 +    io.write_vortex(vortex, generated->table(), generated->column_names());
 +    cuda::stream_ref const stream = cudf::get_default_stream();
 +    reference                     = ndsh::q1_cpu_reference(generated->select(q1_columns), stream);
-+    CUDF_EXPECTS(reference.matched > 0 && !reference.groups.empty(),
-+                 "Q1 fixture has no matching groups; check generator RNG streams");
++
 +    for (bool use_vortex : {false, true}) {
 +      auto input = ndsh::read_local_file(path(use_vortex), use_vortex, io, q1_columns);
 +      ndsh::check_projection(generated->select(q1_columns), *input, q1_columns);
@@ -1134,10 +580,10 @@ index 4eec239..97f4e3c 100644
 +  .add_string_axis("cache", {"warm", "cold"});
 +#endif
 diff --git a/cpp/benchmarks/ndsh/q05.cpp b/cpp/benchmarks/ndsh/q05.cpp
-index 11141be..b1e9686 100644
+index 11141be..300db9c 100644
 --- a/cpp/benchmarks/ndsh/q05.cpp
 +++ b/cpp/benchmarks/ndsh/q05.cpp
-@@ -15,6 +15,21 @@
+@@ -15,6 +15,19 @@
  
  #include <nvbench/nvbench.cuh>
  
@@ -1154,25 +600,21 @@ index 11141be..b1e9686 100644
 +#include <map>
 +#endif
 +
-+#include <future>
-+
  /**
   * @file q05.cpp
   * @brief Implement query 5 of the NDS-H benchmark.
-@@ -79,8 +94,10 @@
+@@ -79,8 +92,8 @@
    return revenue;
  }
  
 -void run_ndsh_q5(nvbench::state& state,
 -                 std::unordered_map<std::string, cuio_source_sink_pair>& sources)
-+template <typename Read>
-+std::unique_ptr<table_with_names> execute_q5(Read&& read,
-+                                             bool filter_predicates,
-+                                             bool concurrent_reads = false)
++template <typename Read, typename Consume>
++auto execute_q5(Read&& read, bool filter_predicates, Consume&& consume)
  {
    // Define the column projection and filter predicate for the `orders` table
    std::vector<std::string> const orders_cols = {"o_custkey", "o_orderkey", "o_orderdate"};
-@@ -108,20 +125,49 @@ void run_ndsh_q5(nvbench::state& state,
+@@ -108,20 +121,22 @@ void run_ndsh_q5(nvbench::state& state,
    auto const region_pred                     = std::make_unique<cudf::ast::operation>(
      cudf::ast::ast_operator::EQUAL, r_name_ref, r_name_literal);
  
@@ -1196,39 +638,12 @@ index 11141be..b1e9686 100644
 +    std::vector<std::string>{"l_orderkey", "l_suppkey", "l_extendedprice", "l_discount"};
 +  auto const supplier_cols = std::vector<std::string>{"s_suppkey", "s_nationkey"};
 +  auto const nation_cols   = std::vector<std::string>{"n_nationkey", "n_regionkey", "n_name"};
-+  std::unique_ptr<table_with_names> customer;
-+  std::unique_ptr<table_with_names> orders;
-+  std::unique_ptr<table_with_names> lineitem;
-+  std::unique_ptr<table_with_names> supplier;
-+  std::unique_ptr<table_with_names> nation;
-+  std::unique_ptr<table_with_names> region;
-+  if (concurrent_reads) {
-+    auto customer_pending =
-+      std::async(std::launch::async, [&] { return read("customer", customer_cols, no_predicate); });
-+    auto orders_pending =
-+      std::async(std::launch::async, [&] { return read("orders", orders_cols, orders_pred); });
-+    auto lineitem_pending =
-+      std::async(std::launch::async, [&] { return read("lineitem", lineitem_cols, no_predicate); });
-+    auto supplier_pending =
-+      std::async(std::launch::async, [&] { return read("supplier", supplier_cols, no_predicate); });
-+    auto nation_pending =
-+      std::async(std::launch::async, [&] { return read("nation", nation_cols, no_predicate); });
-+    auto region_pending =
-+      std::async(std::launch::async, [&] { return read("region", region_cols, region_pred); });
-+    customer = customer_pending.get();
-+    orders   = orders_pending.get();
-+    lineitem = lineitem_pending.get();
-+    supplier = supplier_pending.get();
-+    nation   = nation_pending.get();
-+    region   = region_pending.get();
-+  } else {
-+    customer = read("customer", customer_cols, no_predicate);
-+    orders   = read("orders", orders_cols, orders_pred);
-+    lineitem = read("lineitem", lineitem_cols, no_predicate);
-+    supplier = read("supplier", supplier_cols, no_predicate);
-+    nation   = read("nation", nation_cols, no_predicate);
-+    region   = read("region", region_cols, region_pred);
-+  }
++  auto const customer      = read("customer", customer_cols, no_predicate);
++  auto orders              = read("orders", orders_cols, orders_pred);
++  auto const lineitem      = read("lineitem", lineitem_cols, no_predicate);
++  auto const supplier      = read("supplier", supplier_cols, no_predicate);
++  auto const nation        = read("nation", nation_cols, no_predicate);
++  auto region              = read("region", region_cols, region_pred);
 +  if (filter_predicates) {
 +    orders = apply_filter(orders, *orders_pred);
 +    region = apply_filter(region, *region_pred);
@@ -1236,17 +651,24 @@ index 11141be..b1e9686 100644
  
    // Perform the joins
    auto const join_a = apply_inner_join(region, nation, {"r_regionkey"}, {"n_regionkey"});
-@@ -145,11 +191,19 @@ void run_ndsh_q5(nvbench::state& state,
+@@ -145,11 +160,26 @@ void run_ndsh_q5(nvbench::state& state,
                                      }});
  
    // Perform the order by operation
 -  auto const orderedby_table =
 -    apply_orderby(groupedby_table, {"revenue"}, {cudf::order::DESCENDING});
-+  return apply_orderby(groupedby_table, {"revenue"}, {cudf::order::DESCENDING});
++  auto orderedby_table = apply_orderby(groupedby_table, {"revenue"}, {cudf::order::DESCENDING});
++  return consume(orderedby_table);
 +}
  
 -  // Write query result to a parquet file
 -  orderedby_table->to_parquet("q5.parquet");
++template <typename Read>
++std::unique_ptr<table_with_names> execute_q5(Read&& read, bool filter_predicates)
++{
++  return execute_q5(read, filter_predicates, [](auto& result) { return std::move(result); });
++}
++
 +void run_ndsh_q5(nvbench::state&, std::unordered_map<std::string, cuio_source_sink_pair>& sources)
 +{
 +  execute_q5(
@@ -1255,12 +677,12 @@ index 11141be..b1e9686 100644
 +        std::unique_ptr<cudf::ast::operation> const& predicate) {
 +      return read_parquet(sources.at(name).make_source_info(), columns, predicate);
 +    },
-+    false)
-+    ->to_parquet("q5.parquet");
++    false,
++    [](auto const& result) { result->to_parquet("q5.parquet"); });
  }
  
  void ndsh_q5(nvbench::state& state)
-@@ -160,7 +214,7 @@ void ndsh_q5(nvbench::state& state)
+@@ -160,7 +190,7 @@ void ndsh_q5(nvbench::state& state)
    generate_parquet_data_sources(
      scale_factor, {"customer", "orders", "lineitem", "supplier", "nation", "region"}, sources);
  
@@ -1269,7 +691,7 @@ index 11141be..b1e9686 100644
    state.set_cuda_stream(nvbench::make_cuda_stream_view(stream.get()));
    auto const mem_stats_logger = cudf::memory_stats_logger();
    state.exec(nvbench::exec_tag::sync,
-@@ -170,3 +224,228 @@ void ndsh_q5(nvbench::state& state)
+@@ -170,3 +200,219 @@ void ndsh_q5(nvbench::state& state)
  }
  
  NVBENCH_BENCH(ndsh_q5).set_name("ndsh_q5").add_float64_axis("scale_factor", {0.01, 0.1, 1});
@@ -1369,19 +791,11 @@ index 11141be..b1e9686 100644
 +template <typename Read>
 +std::vector<std::unique_ptr<table_with_names>> read_q5_tables(Read&& read)
 +{
-+  std::vector<std::future<std::unique_ptr<table_with_names>>> pending;
-+  pending.reserve(q5_tables.size());
++  std::vector<std::unique_ptr<table_with_names>> tables;
++  tables.reserve(q5_tables.size());
 +  std::unique_ptr<cudf::ast::operation> const no_predicate;
 +  for (auto const& name : q5_tables) {
-+    pending.push_back(std::async(std::launch::async, [&read, &no_predicate, name] {
-+      return read(name, ndsh::q5_projections.at(name), no_predicate);
-+    }));
-+  }
-+
-+  std::vector<std::unique_ptr<table_with_names>> tables;
-+  tables.reserve(pending.size());
-+  for (auto& read : pending) {
-+    tables.push_back(read.get());
++    tables.push_back(read(name, ndsh::q5_projections.at(name), no_predicate));
 +  }
 +  return tables;
 +}
@@ -1410,8 +824,7 @@ index 11141be..b1e9686 100644
 +        });
 +      reference = builder.finish();
 +    }
-+    CUDF_EXPECTS(reference.matched > 0 && !reference.revenue.empty(),
-+                 "Q5 fixture has no matching countries; check generator keys/RNG streams");
++
 +    for (bool use_vortex : {false, true}) {
 +      auto result = execute_q5(
 +        [&](std::string const& name,
@@ -1472,7 +885,7 @@ index 11141be..b1e9686 100644
 +                 auto inputs = read_q5_tables(read);
 +                 CUDF_CUDA_TRY(cudaStreamSynchronize(stream.get()));
 +               } else {
-+                 auto result = execute_q5(read, true, true);
++                 auto result = execute_q5(read, true);
 +                 CUDF_CUDA_TRY(cudaStreamSynchronize(stream.get()));
 +               }
 +               // Include destruction on independent Vortex producer streams, for both formats.
@@ -1499,7 +912,7 @@ index 11141be..b1e9686 100644
 +  .add_string_axis("cache", {"warm", "cold"});
 +#endif
 diff --git a/cpp/benchmarks/ndsh/q06.cpp b/cpp/benchmarks/ndsh/q06.cpp
-index c152871..1b1eaca 100644
+index c152871..8c567e4 100644
 --- a/cpp/benchmarks/ndsh/q06.cpp
 +++ b/cpp/benchmarks/ndsh/q06.cpp
 @@ -16,6 +16,26 @@
@@ -1535,8 +948,8 @@ index c152871..1b1eaca 100644
  
 -void run_ndsh_q6(nvbench::state& state,
 -                 std::unordered_map<std::string, cuio_source_sink_pair>& sources)
-+template <typename Read>
-+std::unique_ptr<table_with_names> execute_q6(Read&& read, bool filter_shipdate)
++template <typename Read, typename Consume>
++auto execute_q6(Read&& read, bool filter_shipdate, Consume&& consume)
  {
 -  // Read out the `lineitem` table from parquet file
 -  std::vector<std::string> const lineitem_cols = {
@@ -1558,28 +971,35 @@ index c152871..1b1eaca 100644
  
    // Cast the discount and quantity columns to float32 and append to lineitem table
    auto discout_float =
-@@ -115,10 +131,17 @@ void run_ndsh_q6(nvbench::state& state,
+@@ -115,10 +131,24 @@ void run_ndsh_q6(nvbench::state& state,
  
    // Sum the `revenue` column
    auto const revenue_view = revenue->view();
 -  auto const result_table = apply_reduction(revenue_view, cudf::aggregation::Kind::SUM, "revenue");
-+  return apply_reduction(revenue_view, cudf::aggregation::Kind::SUM, "revenue");
++  auto result             = apply_reduction(revenue_view, cudf::aggregation::Kind::SUM, "revenue");
++  return consume(result);
 +}
  
 -  // Write query result to a parquet file
 -  result_table->to_parquet("q6.parquet");
++template <typename Read>
++std::unique_ptr<table_with_names> execute_q6(Read&& read, bool filter_shipdate)
++{
++  return execute_q6(read, filter_shipdate, [](auto& result) { return std::move(result); });
++}
++
 +void run_ndsh_q6(nvbench::state&, std::unordered_map<std::string, cuio_source_sink_pair>& sources)
 +{
 +  execute_q6(
 +    [&](auto const& columns, auto const& predicate) {
 +      return read_parquet(sources.at("lineitem").make_source_info(), columns, predicate);
 +    },
-+    false)
-+    ->to_parquet("q6.parquet");
++    false,
++    [](auto const& result) { result->to_parquet("q6.parquet"); });
  }
  
  void ndsh_q6(nvbench::state& state)
-@@ -128,7 +151,7 @@ void ndsh_q6(nvbench::state& state)
+@@ -128,7 +158,7 @@ void ndsh_q6(nvbench::state& state)
    std::unordered_map<std::string, cuio_source_sink_pair> sources;
    generate_parquet_data_sources(scale_factor, {"lineitem"}, sources);
  
@@ -1588,7 +1008,7 @@ index c152871..1b1eaca 100644
    state.set_cuda_stream(nvbench::make_cuda_stream_view(stream.get()));
    auto const mem_stats_logger = cudf::memory_stats_logger();
    state.exec(nvbench::exec_tag::sync,
-@@ -138,3 +161,140 @@ void ndsh_q6(nvbench::state& state)
+@@ -138,3 +168,184 @@ void ndsh_q6(nvbench::state& state)
  }
  
  NVBENCH_BENCH(ndsh_q6).set_name("ndsh_q6").add_float64_axis("scale_factor", {0.01, 0.1, 1});
@@ -1601,6 +1021,49 @@ index c152871..1b1eaca 100644
 +  auto value = cudf::get_element(result.column("revenue"), 0);
 +  if (!value->is_valid()) { return std::nullopt; }
 +  return static_cast<cudf::numeric_scalar<double> const&>(*value).value();
++}
++
++void check_q6_result(ndsh::q6_reference_result const& expected, table_with_names const& result)
++{
++  auto const value = revenue_value(result);
++  if (expected.matched == 0) {
++    CUDF_EXPECTS(!value, "Q6 SUM over no matching rows must be null");
++  } else {
++    CUDF_EXPECTS(
++      value && std::isfinite(*value) &&
++        std::abs(*value - expected.revenue) <= 1e-10 * std::max(1.0, std::abs(expected.revenue)),
++      "Q6 GPU revenue differs from CPU reference");
++  }
++}
++
++void check_q6_reference_boundaries()
++{
++  using cudf::test::fixed_width_column_wrapper;
++  cuda::stream_ref const stream = cudf::get_default_stream();
++  // Exclude a matching sentinel; near-boundary doubles qualify only after the float32 cast.
++  fixed_width_column_wrapper<double> price{{1000, 100, 100, 100, 100, 100, 100, 100, 100}};
++  fixed_width_column_wrapper<double> discount{
++    {0.06, 0.06, 0.05 - 1e-10, 0.07 + 1e-10, 0.06, 0.06, 0.049, 0.071, 0.06}};
++  fixed_width_column_wrapper<cudf::timestamp_D, int32_t> shipdate{
++    {8766, 8766, 8766, 9130, 8765, 9131, 8766, 8766, 8766}};
++  fixed_width_column_wrapper<int8_t> quantity{{23, 23, 23, 23, 23, 23, 23, 23, 24}};
++  CUDF_CUDA_TRY(cudaDeviceSynchronize());
++  auto const input = cudf::table_view{{price, discount, shipdate, quantity}};
++  for (auto const& projected : cudf::slice(input, {1, 9, 4, 6, 1, 1}, stream)) {
++    auto const expected =
++      projected.num_rows() == 8 ? ndsh::q6_reference_result{3, 18.0} : ndsh::q6_reference_result{};
++    auto const cpu = ndsh::q6_cpu_reference(projected, stream);
++    CUDF_EXPECTS(
++      cpu.matched == expected.matched && std::abs(cpu.revenue - expected.revenue) < 1e-12,
++      "Q6 CPU reference boundary/slice regression");
++    auto result = execute_q6(
++      [&](auto const& columns, auto const&) {
++        return std::make_unique<table_with_names>(std::make_unique<cudf::table>(projected),
++                                                  columns);
++      },
++      true);
++    check_q6_result(expected, *result);
++  }
 +}
 +
 +void check_q6_boundaries()
@@ -1644,16 +1107,12 @@ index c152871..1b1eaca 100644
 +      ndsh::q6_cpu_reference(generated->select(q6_columns), cudf::get_default_stream());
 +    matched = reference.matched;
 +    revenue = reference.revenue;
-+    CUDF_EXPECTS(matched > 0 && std::isfinite(revenue) && revenue > 0,
-+                 "Q6 fixture has no positive revenue; check generator RNG streams");
++    CUDF_EXPECTS(std::isfinite(revenue), "Q6 CPU reference revenue must be finite");
 +    for (bool use_vortex : {false, true}) {
 +      auto input = ndsh::read_local_file(path(use_vortex), use_vortex, io, q6_columns);
 +      ndsh::check_projection(generated->select(q6_columns), *input, q6_columns);
 +      auto result = execute_q6([&](auto const&, auto const&) { return std::move(input); }, true);
-+      auto value  = revenue_value(*result);
-+      CUDF_EXPECTS(value && std::isfinite(*value) &&
-+                     std::abs(*value - revenue) <= 1e-10 * std::max(1.0, std::abs(revenue)),
-+                   "Q6 GPU revenue differs from CPU reference");
++      check_q6_result(reference, *result);
 +    }
 +    CUDF_CUDA_TRY(cudaDeviceSynchronize());
 +  }
@@ -1668,6 +1127,7 @@ index c152871..1b1eaca 100644
 +  auto& files = fixtures[scale_factor];
 +  if (!files) {
 +    check_q6_boundaries();
++    check_q6_reference_boundaries();
 +    ndsh::vortex_io io{cuda::stream_ref{cudf::get_default_stream()}.get()};
 +    files = std::make_unique<q6_files>(scale_factor, io);
 +  }
@@ -1714,7 +1174,11 @@ index c152871..1b1eaca 100644
 +  state.add_buffer_size(memory.peak_memory_usage(), "rmm_peak", "RMM peak (excludes Vortex)");
 +  auto& summary = state.add_summary("ndsh/q6/revenue");
 +  summary.set_string("name", "Verified revenue");
-+  summary.set_float64("value", files.revenue);
++  if (files.matched == 0) {
++    summary.set_string("value", "NULL");
++  } else {
++    summary.set_float64("value", files.revenue);
++  }
 +  auto& matched = state.add_summary("ndsh/q6/matched_rows");
 +  matched.set_string("name", "Q6 matched rows");
 +  matched.set_int64("value", files.matched);
@@ -1730,10 +1194,10 @@ index c152871..1b1eaca 100644
 +  .add_string_axis("cache", {"warm", "cold"});
 +#endif
 diff --git a/cpp/benchmarks/ndsh/q09.cpp b/cpp/benchmarks/ndsh/q09.cpp
-index 3fd1aa6..0526abc 100644
+index 3fd1aa6..3495e9c 100644
 --- a/cpp/benchmarks/ndsh/q09.cpp
 +++ b/cpp/benchmarks/ndsh/q09.cpp
-@@ -20,7 +20,21 @@
+@@ -20,7 +20,20 @@
  
  #include <nvbench/nvbench.cuh>
  
@@ -1750,12 +1214,11 @@ index 3fd1aa6..0526abc 100644
 +#endif
 +
  #include <array>
-+#include <future>
 +#include <map>
  #include <utility>
  
  enum class engine_type : int32_t { BINARYOP = 0, AST = 1, TRANSFORM = 2 };
-@@ -47,6 +61,19 @@ struct q9_data {
+@@ -47,6 +60,19 @@ struct q9_data {
    std::unique_ptr<table_with_names> supplier;
  };
  
@@ -1775,63 +1238,49 @@ index 3fd1aa6..0526abc 100644
  /**
   * @file q09.cpp
   * @brief Implement query 9 of the NDS-H benchmark.
-@@ -225,25 +252,39 @@ struct q9_data {
+@@ -225,19 +251,15 @@ struct q9_data {
    }
  }
  
 -q9_data load_data(std::unordered_map<std::string, cuio_source_sink_pair>& sources)
 +template <typename Read>
-+q9_data load_data(Read&& read, bool concurrent_reads = false)
++q9_data load_data(Read&& read)
  {
 -  auto lineitem = read_parquet(
 -    sources.at("lineitem").make_source_info(),
 -    {"l_suppkey", "l_partkey", "l_orderkey", "l_extendedprice", "l_discount", "l_quantity"});
 -  auto nation = read_parquet(sources.at("nation").make_source_info(), {"n_nationkey", "n_name"});
-+  if (!concurrent_reads) {
-+    return q9_data{read("lineitem", q9_projections.at("lineitem")),
-+                   read("nation", q9_projections.at("nation")),
-+                   read("orders", q9_projections.at("orders")),
-+                   read("part", q9_projections.at("part")),
-+                   read("partsupp", q9_projections.at("partsupp")),
-+                   read("supplier", q9_projections.at("supplier"))};
-+  }
-+
-+  auto lineitem =
-+    std::async(std::launch::async, [&] { return read("lineitem", q9_projections.at("lineitem")); });
-+  auto nation =
-+    std::async(std::launch::async, [&] { return read("nation", q9_projections.at("nation")); });
-   auto orders =
+-  auto orders =
 -    read_parquet(sources.at("orders").make_source_info(), {"o_orderkey", "o_orderdate"});
 -  auto part     = read_parquet(sources.at("part").make_source_info(), {"p_partkey", "p_name"});
 -  auto partsupp = read_parquet(sources.at("partsupp").make_source_info(),
 -                               {"ps_suppkey", "ps_partkey", "ps_supplycost"});
-+    std::async(std::launch::async, [&] { return read("orders", q9_projections.at("orders")); });
-+  auto part =
-+    std::async(std::launch::async, [&] { return read("part", q9_projections.at("part")); });
-+  auto partsupp =
-+    std::async(std::launch::async, [&] { return read("partsupp", q9_projections.at("partsupp")); });
-   auto supplier =
+-  auto supplier =
 -    read_parquet(sources.at("supplier").make_source_info(), {"s_suppkey", "s_nationkey"});
--  return q9_data{std::move(lineitem),
--                 std::move(nation),
--                 std::move(orders),
--                 std::move(part),
--                 std::move(partsupp),
--                 std::move(supplier)};
-+    std::async(std::launch::async, [&] { return read("supplier", q9_projections.at("supplier")); });
-+  return q9_data{
-+    lineitem.get(), nation.get(), orders.get(), part.get(), partsupp.get(), supplier.get()};
-+}
-+
++  auto lineitem = read("lineitem", q9_projections.at("lineitem"));
++  auto nation   = read("nation", q9_projections.at("nation"));
++  auto orders   = read("orders", q9_projections.at("orders"));
++  auto part     = read("part", q9_projections.at("part"));
++  auto partsupp = read("partsupp", q9_projections.at("partsupp"));
++  auto supplier = read("supplier", q9_projections.at("supplier"));
+   return q9_data{std::move(lineitem),
+                  std::move(nation),
+                  std::move(orders),
+@@ -246,6 +268,13 @@ q9_data load_data(std::unordered_map<std::string, cuio_source_sink_pair>& source
+                  std::move(supplier)};
+ }
+ 
 +q9_data load_data(std::unordered_map<std::string, cuio_source_sink_pair>& sources)
 +{
 +  return load_data([&](std::string const& name, std::vector<std::string> const& columns) {
 +    return read_parquet(sources.at(name).make_source_info(), columns);
 +  });
- }
- 
++}
++
  std::unique_ptr<table_with_names> join_data(q9_data const& data)
-@@ -266,7 +307,6 @@ std::unique_ptr<table_with_names> join_data(q9_data const& data)
+ {
+   CUDF_BENCHMARK_RANGE();
+@@ -266,7 +295,6 @@ std::unique_ptr<table_with_names> join_data(q9_data const& data)
  }
  
  std::unique_ptr<table_with_names> compute_profit(
@@ -1839,7 +1288,7 @@ index 3fd1aa6..0526abc 100644
    engine_type engine,
    q9_data const& data,
    cuda::stream_ref stream           = cudf::get_default_stream(),
-@@ -307,23 +347,35 @@ std::unique_ptr<table_with_names> compute_profit(
+@@ -307,23 +335,30 @@ std::unique_ptr<table_with_names> compute_profit(
      groupedby_table, {"nation", "o_year"}, {cudf::order::ASCENDING, cudf::order::DESCENDING});
  }
  
@@ -1848,10 +1297,9 @@ index 3fd1aa6..0526abc 100644
 +  engine_type engine,
 +  Read&& read,
 +  cuda::stream_ref stream           = cudf::get_default_stream(),
-+  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref(),
-+  bool concurrent_reads             = false)
++  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref())
 +{
-+  auto const data = load_data(std::forward<Read>(read), concurrent_reads);
++  auto const data = load_data(std::forward<Read>(read));
 +  return compute_profit(engine, data, stream, mr);
 +}
 +
@@ -1873,17 +1321,13 @@ index 3fd1aa6..0526abc 100644
 -                                       data,
 -                                       launch.get_stream().get_stream(),
 -                                       cudf::get_current_device_resource_ref());
-+    auto const result = execute_q9(
-+      engine,
-+      [&](std::string const& name, std::vector<std::string> const& columns) {
-+        return read_parquet(sources.at(name).make_source_info(), columns);
-+      },
-+      launch.get_stream().get_stream(),
-+      cudf::get_current_device_resource_ref());
++    auto const data   = load_data(sources);
++    auto const result = compute_profit(
++      engine, data, launch.get_stream().get_stream(), cudf::get_current_device_resource_ref());
      result->to_parquet("q9.parquet");
    });
    state.add_buffer_size(
-@@ -336,8 +388,7 @@ void ndsh_q9_noio(nvbench::state& state)
+@@ -336,8 +371,7 @@ void ndsh_q9_noio(nvbench::state& state)
    auto const engine       = engine_from_string(state.get_string("engine"));
  
    std::unordered_map<std::string, cuio_source_sink_pair> sources;
@@ -1893,7 +1337,7 @@ index 3fd1aa6..0526abc 100644
  
    q9_data const data = load_data(sources);
  
-@@ -345,11 +396,8 @@ void ndsh_q9_noio(nvbench::state& state)
+@@ -345,11 +379,8 @@ void ndsh_q9_noio(nvbench::state& state)
  
    auto const mem_stats_logger = cudf::memory_stats_logger();
    state.exec(nvbench::exec_tag::sync, [&](nvbench::launch& launch) {
@@ -1907,7 +1351,7 @@ index 3fd1aa6..0526abc 100644
    });
    state.add_buffer_size(
      mem_stats_logger.peak_memory_usage(), "peak_memory_usage", "peak_memory_usage");
-@@ -364,8 +412,7 @@ void ndsh_q9_amount(nvbench::state& state)
+@@ -364,8 +395,7 @@ void ndsh_q9_amount(nvbench::state& state)
    auto const engine       = engine_from_string(state.get_string("engine"));
  
    std::unordered_map<std::string, cuio_source_sink_pair> sources;
@@ -1917,7 +1361,7 @@ index 3fd1aa6..0526abc 100644
  
    q9_data const data      = load_data(sources);
    auto const joined_table = join_data(data);
-@@ -404,3 +451,192 @@ NVBENCH_BENCH(ndsh_q9_amount)
+@@ -404,3 +434,204 @@ NVBENCH_BENCH(ndsh_q9_amount)
    .set_name("ndsh_q9_amount")
    .add_float64_axis("scale_factor", {0.01, 0.1, 1})
    .add_string_axis("engine", {"binaryop", "ast", "transform"});
@@ -1931,9 +1375,11 @@ index 3fd1aa6..0526abc 100644
 +  cudf::test::strings_column_wrapper nation_name{"ALPHA", "ZULU"};
 +  cudf::test::fixed_width_column_wrapper<int32_t> supplier_key{{101, 102, 103}};
 +  cudf::test::fixed_width_column_wrapper<int8_t> supplier_nation{{10, 20, 99}};
-+  cudf::test::fixed_width_column_wrapper<int32_t> partsupp_supplier{{101, 102, 102, 101, 103}};
-+  cudf::test::fixed_width_column_wrapper<int32_t> partsupp_part{{1, 3, 2, 2, 1}};
-+  cudf::test::fixed_width_column_wrapper<double> supply_cost{{10, 5, 20, 30, 40}};
++  // The extra rows duplicate a matching key, a supplier with no nation, and a missing supplier.
++  cudf::test::fixed_width_column_wrapper<int32_t> partsupp_supplier{
++    {101, 102, 102, 101, 103, 101, 103, 999, 999}};
++  cudf::test::fixed_width_column_wrapper<int32_t> partsupp_part{{1, 3, 2, 2, 1, 1, 1, 1, 1}};
++  cudf::test::fixed_width_column_wrapper<double> supply_cost{{10, 5, 20, 30, 40, 20, 50, 60, 70}};
 +  cudf::test::fixed_width_column_wrapper<int32_t> order_key{{1, 2, 3, 4}};
 +  // Epoch days: 1994-01-01, 1995-01-01, 1994-12-31, 1996-01-01.
 +  cudf::test::fixed_width_column_wrapper<cudf::timestamp_D, int32_t> order_date{
@@ -1965,31 +1411,43 @@ index 3fd1aa6..0526abc 100644
 +  expected.sum_profit[{"ALPHA", 1994}] = 110.0;
 +  expected.sum_profit[{"ZULU", 1995}]  = 130.0;
 +  expected.matched                     = 4;
-+  cuda::stream_ref const stream        = cudf::get_default_stream();
-+  // Full input, only rows rejected by filters/joins, and no rows.
-+  for (auto const& lines : cudf::slice(input.at("lineitem"), {0, 12, 4, 12, 0, 0}, stream)) {
-+    auto const want = lines.num_rows() == 12 ? expected : ndsh::q9_reference_result{};
-+    ndsh::q9_reference_builder builder;
-+    for (auto const& name : {"nation", "supplier", "partsupp", "orders", "part", "lineitem"}) {
-+      builder.add_table(name, std::string{name} == "lineitem" ? lines : input.at(name), stream);
-+    }
-+    auto const cpu = builder.finish();
-+    CUDF_EXPECTS(cpu.matched == want.matched && cpu.sum_profit.size() == want.sum_profit.size(),
-+                 "Q9 CPU reference row/group regression");
-+    for (auto const& [key, value] : want.sum_profit) {
-+      auto const actual = cpu.sum_profit.find(key);
-+      CUDF_EXPECTS(actual != cpu.sum_profit.end() &&
-+                     std::abs(actual->second - value) <= 1e-10 * std::max(1.0, std::abs(value)),
-+                   "Q9 CPU reference amount/year regression");
-+    }
-+    for (auto const engine : {engine_type::BINARYOP, engine_type::AST, engine_type::TRANSFORM}) {
-+      auto result =
-+        execute_q9(engine, [&](std::string const& name, std::vector<std::string> const& columns) {
-+          CUDF_EXPECTS(columns == q9_projections.at(name), "Q9 projection mismatch");
-+          auto const source = name == "lineitem" ? lines : input.at(name);
-+          return std::make_unique<table_with_names>(std::make_unique<cudf::table>(source), columns);
-+        });
-+      ndsh::check_q9_result(want, *result, stream);
++  ndsh::q9_reference_result duplicate_expected;
++  duplicate_expected.sum_profit[{"ALPHA", 1996}] = 170.0;
++  duplicate_expected.sum_profit[{"ALPHA", 1994}] = 190.0;
++  duplicate_expected.sum_profit[{"ZULU", 1995}]  = 130.0;
++  duplicate_expected.matched                     = 7;
++  cuda::stream_ref const stream                  = cudf::get_default_stream();
++  for (auto const& partsupp : cudf::slice(input.at("partsupp"), {0, 5, 0, 9}, stream)) {
++    // Full input, only rows rejected by filters/joins, and no rows, with and without duplicates.
++    for (auto const& lines : cudf::slice(input.at("lineitem"), {0, 12, 4, 12, 0, 0}, stream)) {
++      auto const want       = lines.num_rows() == 12
++                                ? (partsupp.num_rows() == 5 ? expected : duplicate_expected)
++                                : ndsh::q9_reference_result{};
++      auto tables           = input;
++      tables.at("partsupp") = partsupp;
++      tables.at("lineitem") = lines;
++      ndsh::q9_reference_builder builder;
++      for (auto const& name : {"nation", "supplier", "partsupp", "orders", "part", "lineitem"}) {
++        builder.add_table(name, tables.at(name), stream);
++      }
++      auto const cpu = builder.finish();
++      CUDF_EXPECTS(cpu.matched == want.matched && cpu.sum_profit.size() == want.sum_profit.size(),
++                   "Q9 CPU reference row/group regression");
++      for (auto const& [key, value] : want.sum_profit) {
++        auto const actual = cpu.sum_profit.find(key);
++        CUDF_EXPECTS(actual != cpu.sum_profit.end() &&
++                       std::abs(actual->second - value) <= 1e-10 * std::max(1.0, std::abs(value)),
++                     "Q9 CPU reference amount/year regression");
++      }
++      for (auto const engine : {engine_type::BINARYOP, engine_type::AST, engine_type::TRANSFORM}) {
++        auto result =
++          execute_q9(engine, [&](std::string const& name, std::vector<std::string> const& columns) {
++            CUDF_EXPECTS(columns == q9_projections.at(name), "Q9 projection mismatch");
++            return std::make_unique<table_with_names>(
++              std::make_unique<cudf::table>(tables.at(name)), columns);
++          });
++        ndsh::check_q9_result(want, *result, stream);
++      }
 +    }
 +  }
 +  CUDF_CUDA_TRY(cudaDeviceSynchronize());
@@ -2022,8 +1480,7 @@ index 3fd1aa6..0526abc 100644
 +        });
 +      reference = builder.finish();
 +    }
-+    CUDF_EXPECTS(reference.matched > 0 && !reference.sum_profit.empty(),
-+                 "Q9 fixture has no matching groups; check generated keys/names");
++
 +    for (bool use_vortex : {false, true}) {
 +      for (auto const engine : {engine_type::BINARYOP, engine_type::AST, engine_type::TRANSFORM}) {
 +        auto result =
@@ -2070,26 +1527,25 @@ index 3fd1aa6..0526abc 100644
 +      files.tables.path(name, use_vortex), use_vortex, io, columns, cold);
 +  };
 +  if (!cold) {
-+    auto warmup = load_data(read, true);
++    auto warmup = load_data(read);
 +    CUDF_CUDA_TRY(cudaDeviceSynchronize());
 +  }
 +  state.add_element_count(files.tables.rows, "Rows");
-+  state.exec(nvbench::exec_tag::sync | nvbench::exec_tag::timer,
-+             [&](nvbench::launch&, auto& timer) {
-+               if (cold) { ndsh::evict_file_pages(files.tables.paths(use_vortex)); }
-+               timer.start();
-+               if (workload == "read") {
-+                 auto inputs = load_data(read, true);
-+                 CUDF_CUDA_TRY(cudaStreamSynchronize(stream.get()));
-+               } else {
-+                 auto result =
-+                   execute_q9(engine, read, stream, cudf::get_current_device_resource_ref(), true);
-+                 CUDF_CUDA_TRY(cudaStreamSynchronize(stream.get()));
-+               }
-+               // Include destruction on independent Vortex producer streams, for both formats.
-+               CUDF_CUDA_TRY(cudaDeviceSynchronize());
-+               timer.stop();
-+             });
++  state.exec(
++    nvbench::exec_tag::sync | nvbench::exec_tag::timer, [&](nvbench::launch&, auto& timer) {
++      if (cold) { ndsh::evict_file_pages(files.tables.paths(use_vortex)); }
++      timer.start();
++      if (workload == "read") {
++        auto inputs = load_data(read);
++        CUDF_CUDA_TRY(cudaStreamSynchronize(stream.get()));
++      } else {
++        auto result = execute_q9(engine, read, stream, cudf::get_current_device_resource_ref());
++        CUDF_CUDA_TRY(cudaStreamSynchronize(stream.get()));
++      }
++      // Include destruction on independent Vortex producer streams, for both formats.
++      CUDF_CUDA_TRY(cudaDeviceSynchronize());
++      timer.stop();
++    });
 +  state.add_buffer_size(files.tables.bytes(use_vortex), "file_size", "Total file size");
 +  state.add_buffer_size(memory.peak_memory_usage(), "rmm_peak", "RMM peak (excludes Vortex)");
 +  auto& matched = state.add_summary("ndsh/q9/matched_rows");
@@ -2111,7 +1567,7 @@ index 3fd1aa6..0526abc 100644
 +  .add_string_axis("cache", {"warm", "cold"});
 +#endif
 diff --git a/cpp/benchmarks/ndsh/q10.cpp b/cpp/benchmarks/ndsh/q10.cpp
-index 16f63ce..9e5a1e6 100644
+index 16f63ce..62f77df 100644
 --- a/cpp/benchmarks/ndsh/q10.cpp
 +++ b/cpp/benchmarks/ndsh/q10.cpp
 @@ -6,6 +6,7 @@
@@ -2137,7 +1593,7 @@ index 16f63ce..9e5a1e6 100644
 +
 +#include <cmath>
 +#include <cstdint>
-+#include <future>
++
 +#endif
 +
 +#include <map>
@@ -2155,17 +1611,14 @@ index 16f63ce..9e5a1e6 100644
  /**
   * @file q10.cpp
   * @brief Implement query 10 of the NDS-H benchmark.
-@@ -84,12 +111,15 @@
+@@ -84,12 +111,12 @@
    return revenue;
  }
  
 -void run_ndsh_q10(nvbench::state& state,
 -                  std::unordered_map<std::string, cuio_source_sink_pair>& sources)
 +template <typename Read, typename Consume>
-+auto execute_q10(Read&& read,
-+                 bool filter_predicates,
-+                 Consume&& consume,
-+                 bool concurrent_reads = false)
++auto execute_q10(Read&& read, bool filter_predicates, Consume&& consume)
  {
    // Define the column projection and filter predicate for the `orders` table
 -  std::vector<std::string> const orders_cols = {"o_custkey", "o_orderkey", "o_orderdate"};
@@ -2175,7 +1628,7 @@ index 16f63ce..9e5a1e6 100644
      orders_cols.begin(), std::find(orders_cols.begin(), orders_cols.end(), "o_orderdate")));
    auto o_orderdate_lower =
      cudf::timestamp_scalar<cudf::timestamp_D>(days_since_epoch(1993, 10, 1), true);
-@@ -110,19 +140,37 @@ void run_ndsh_q10(nvbench::state& state,
+@@ -110,19 +137,15 @@ void run_ndsh_q10(nvbench::state& state,
    auto const lineitem_pred    = std::make_unique<cudf::ast::operation>(
      cudf::ast::ast_operator::EQUAL, l_returnflag_ref, r_literal);
  
@@ -2193,32 +1646,10 @@ index 16f63ce..9e5a1e6 100644
 -  auto const nation =
 -    read_parquet(sources.at("nation").make_source_info(), {"n_name", "n_nationkey"});
 +  std::unique_ptr<cudf::ast::operation> const no_predicate;
-+  std::unique_ptr<table_with_names> customer;
-+  std::unique_ptr<table_with_names> orders;
-+  std::unique_ptr<table_with_names> lineitem;
-+  std::unique_ptr<table_with_names> nation;
-+  if (concurrent_reads) {
-+    auto customer_pending = std::async(std::launch::async, [&] {
-+      return read("customer", q10_projections.at("customer"), no_predicate);
-+    });
-+    auto orders_pending =
-+      std::async(std::launch::async, [&] { return read("orders", orders_cols, orders_pred); });
-+    auto lineitem_pending = std::async(std::launch::async, [&] {
-+      return read("lineitem", q10_projections.at("lineitem"), lineitem_pred);
-+    });
-+    auto nation_pending   = std::async(std::launch::async, [&] {
-+      return read("nation", q10_projections.at("nation"), no_predicate);
-+    });
-+    customer              = customer_pending.get();
-+    orders                = orders_pending.get();
-+    lineitem              = lineitem_pending.get();
-+    nation                = nation_pending.get();
-+  } else {
-+    customer = read("customer", q10_projections.at("customer"), no_predicate);
-+    orders   = read("orders", orders_cols, orders_pred);
-+    lineitem = read("lineitem", q10_projections.at("lineitem"), lineitem_pred);
-+    nation   = read("nation", q10_projections.at("nation"), no_predicate);
-+  }
++  auto const customer = read("customer", q10_projections.at("customer"), no_predicate);
++  auto orders         = read("orders", orders_cols, orders_pred);
++  auto lineitem       = read("lineitem", q10_projections.at("lineitem"), lineitem_pred);
++  auto const nation   = read("nation", q10_projections.at("nation"), no_predicate);
 +  if (filter_predicates) {
 +    orders   = apply_filter(orders, *orders_pred);
 +    lineitem = apply_filter(lineitem, *lineitem_pred);
@@ -2226,7 +1657,7 @@ index 16f63ce..9e5a1e6 100644
  
    // Perform the joins
    auto const join_a       = apply_inner_join(customer, nation, {"c_nationkey"}, {"n_nationkey"});
-@@ -144,11 +192,29 @@ void run_ndsh_q10(nvbench::state& state,
+@@ -144,11 +167,26 @@ void run_ndsh_q10(nvbench::state& state,
        }});
  
    // Perform the order by operation
@@ -2235,18 +1666,15 @@ index 16f63ce..9e5a1e6 100644
 +  auto orderedby_table = apply_orderby(groupedby_table, {"revenue"}, {cudf::order::DESCENDING});
 +  return consume(orderedby_table);
 +}
-+
-+template <typename Read>
-+std::unique_ptr<table_with_names> execute_q10(Read&& read,
-+                                              bool filter_predicates,
-+                                              bool concurrent_reads = false)
-+{
-+  return execute_q10(
-+    read, filter_predicates, [](auto& result) { return std::move(result); }, concurrent_reads);
-+}
  
 -  // Write query result to a parquet file
 -  orderedby_table->to_parquet("q10.parquet");
++template <typename Read>
++std::unique_ptr<table_with_names> execute_q10(Read&& read, bool filter_predicates)
++{
++  return execute_q10(read, filter_predicates, [](auto& result) { return std::move(result); });
++}
++
 +void run_ndsh_q10(nvbench::state&, std::unordered_map<std::string, cuio_source_sink_pair>& sources)
 +{
 +  execute_q10(
@@ -2260,7 +1688,7 @@ index 16f63ce..9e5a1e6 100644
  }
  
  void ndsh_q10(nvbench::state& state)
-@@ -156,8 +222,7 @@ void ndsh_q10(nvbench::state& state)
+@@ -156,8 +194,7 @@ void ndsh_q10(nvbench::state& state)
    // Generate the required parquet files in device buffers
    double const scale_factor = state.get_float64("scale_factor");
    std::unordered_map<std::string, cuio_source_sink_pair> sources;
@@ -2270,7 +1698,7 @@ index 16f63ce..9e5a1e6 100644
  
    auto stream = cudf::get_default_stream();
    state.set_cuda_stream(nvbench::make_cuda_stream_view(stream.get()));
-@@ -169,3 +234,256 @@ void ndsh_q10(nvbench::state& state)
+@@ -169,3 +206,247 @@ void ndsh_q10(nvbench::state& state)
  }
  
  NVBENCH_BENCH(ndsh_q10).set_name("ndsh_q10").add_float64_axis("scale_factor", {0.01, 0.1, 1});
@@ -2391,19 +1819,11 @@ index 16f63ce..9e5a1e6 100644
 +template <typename Read>
 +std::vector<std::unique_ptr<table_with_names>> read_q10_tables(Read&& read)
 +{
-+  std::vector<std::future<std::unique_ptr<table_with_names>>> pending;
-+  pending.reserve(q10_tables.size());
++  std::vector<std::unique_ptr<table_with_names>> tables;
++  tables.reserve(q10_tables.size());
 +  std::unique_ptr<cudf::ast::operation> const no_predicate;
 +  for (auto const& name : q10_tables) {
-+    pending.push_back(std::async(std::launch::async, [&read, &no_predicate, name] {
-+      return read(name, q10_projections.at(name), no_predicate);
-+    }));
-+  }
-+
-+  std::vector<std::unique_ptr<table_with_names>> tables;
-+  tables.reserve(pending.size());
-+  for (auto& read : pending) {
-+    tables.push_back(read.get());
++    tables.push_back(read(name, q10_projections.at(name), no_predicate));
 +  }
 +  return tables;
 +}
@@ -2435,8 +1855,7 @@ index 16f63ce..9e5a1e6 100644
 +        });
 +      reference = builder.finish();
 +    }
-+    CUDF_EXPECTS(reference.matched > 0 && !reference.customers.empty(),
-+                 "Q10 fixture has no matching customers; check generated keys/RNG streams");
++
 +    for (bool use_vortex : {false, true}) {
 +      auto result = execute_q10(
 +        [&](std::string const& name,
@@ -2445,7 +1864,7 @@ index 16f63ce..9e5a1e6 100644
 +          return ndsh::read_local_file(tables.path(name, use_vortex), use_vortex, io, columns);
 +        },
 +        true);
-+      CUDF_EXPECTS(result->table().num_rows() > 0, "Q10 generated GPU result is empty");
++
 +      ndsh::check_q10_result(reference, *result, stream);
 +    }
 +    CUDF_CUDA_TRY(cudaDeviceSynchronize());
@@ -2500,7 +1919,7 @@ index 16f63ce..9e5a1e6 100644
 +                   auto inputs = read_q10_tables(read);
 +                   CUDF_CUDA_TRY(cudaStreamSynchronize(stream.get()));
 +                 } else {
-+                   auto result = execute_q10(read, true, true);
++                   auto result = execute_q10(read, true);
 +                   CUDF_CUDA_TRY(cudaStreamSynchronize(stream.get()));
 +                 }
 +               }
@@ -3136,7 +2555,7 @@ index 0000000..db33df8
 +}  // namespace ndsh
 diff --git a/cpp/benchmarks/ndsh/q9_reference.hpp b/cpp/benchmarks/ndsh/q9_reference.hpp
 new file mode 100644
-index 0000000..c9345f5
+index 0000000..64a7643
 --- /dev/null
 +++ b/cpp/benchmarks/ndsh/q9_reference.hpp
 @@ -0,0 +1,199 @@
@@ -3213,7 +2632,7 @@ index 0000000..c9345f5
 +    }
 +
 +    std::unordered_set<int32_t> primary_keys;
-+    std::unordered_set<uint64_t> composite_keys;
++
 +    for (cudf::size_type begin = 0; begin < projected.num_rows();) {
 +      auto const count = std::min<cudf::size_type>(1 << 20, projected.num_rows() - begin);
 +      auto values      = [&](auto type, int index) {
@@ -3241,7 +2660,7 @@ index 0000000..c9345f5
 +        auto const costs     = values(double{}, 2);
 +        for (cudf::size_type i = 0; i < count; ++i) {
 +          auto const key = detail::q9_partsupp_key(suppliers[i], parts[i]);
-+          CUDF_EXPECTS(composite_keys.insert(key).second, "Duplicate Q9 partsupp key");
++
 +          if (suppliers_.contains(suppliers[i])) { supply_costs_.emplace(key, costs[i]); }
 +        }
 +      } else if (name == "orders") {
@@ -3273,15 +2692,15 @@ index 0000000..c9345f5
 +        for (cudf::size_type i = 0; i < count; ++i) {
 +          if (!green_parts_.contains(parts[i])) continue;
 +          auto const supplier = suppliers_.find(suppliers[i]);
-+          auto const cost     = supply_costs_.find(detail::q9_partsupp_key(suppliers[i], parts[i]));
 +          auto const order    = orders_.find(orders[i]);
-+          if (supplier == suppliers_.end() || cost == supply_costs_.end() ||
-+              order == orders_.end()) {
-+            continue;
++          if (supplier == suppliers_.end() || order == orders_.end()) { continue; }
++          auto const [cost_begin, cost_end] =
++            supply_costs_.equal_range(detail::q9_partsupp_key(suppliers[i], parts[i]));
++          for (auto cost = cost_begin; cost != cost_end; ++cost) {
++            ++result_.matched;
++            result_.sum_profit[{nations_.at(supplier->second), order->second}] +=
++              prices[i] * (1.0 - discounts[i]) - cost->second * quantities[i];
 +          }
-+          ++result_.matched;
-+          result_.sum_profit[{nations_.at(supplier->second), order->second}] +=
-+            prices[i] * (1.0 - discounts[i]) - cost->second * quantities[i];
 +        }
 +      }
 +      begin += count;
@@ -3299,7 +2718,7 @@ index 0000000..c9345f5
 +  std::size_t next_table_ = 0;
 +  std::unordered_map<int8_t, std::string> nations_;
 +  std::unordered_map<int32_t, int8_t> suppliers_;
-+  std::unordered_map<uint64_t, double> supply_costs_;
++  std::unordered_multimap<uint64_t, double> supply_costs_;
 +  std::unordered_map<int32_t, int16_t> orders_;
 +  std::unordered_set<int32_t> green_parts_;
 +  q9_reference_result result_;

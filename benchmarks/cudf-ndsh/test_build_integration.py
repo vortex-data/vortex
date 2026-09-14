@@ -484,6 +484,54 @@ class BenchmarkSourceTests(unittest.TestCase):
             source, r"if \(column.type\(\).id\(\) == cudf::type_id::DICTIONARY32\) \{ throw std::runtime_error\("
         )
 
+    def test_generator_fixes_are_separate(self):
+        cmake = MODULE.parent.parent / "CMakeLists.txt"
+        for path in self.sources:
+            self.assertTrue(path.parent == MODULE.parent or path == cmake, f"Unexpected patch scope: {path}")
+        self.assertNotIn("NDSH_DATA_GENERATOR_TEST", self.source(cmake))
+        fixes = PATCH.with_name("generator-fixes.patch").read_text(encoding="utf-8")
+        generator = cmake.parent / "common/ndsh_data_generator"
+        paths = [Path(path) for path in re.findall(r"^diff --git a/\S+ b/(\S+)$", fixes, re.MULTILINE)]
+        self.assertEqual(len(paths), 7)
+        self.assertIn(generator / "ndsh_data_generator_test.cpp", paths)
+        self.assertTrue(all(path == cmake or path.parent == generator for path in paths))
+        self.assertIn("NDSH_DATA_GENERATOR_TEST", fixes)
+        self.assertNotIn("q6_reference.hpp", fixes)
+        self.assertNotIn("vortex", fixes.lower())
+
+    def test_query_execution_is_not_retuned(self):
+        for query in (1, 5, 6, 9, 10):
+            with self.subTest(query=query):
+                source = self.source(MODULE.with_name(f"q{query:02}.cpp"))
+                self.assertNotRegex(source, r"std::(?:async|future)|concurrent_reads")
+                self.assertNotRegex(source, r"aggregate_q1_sums|finalize_q1_sums")
+                if query != 9:
+                    # Write while the original inputs/intermediates are still in scope.
+                    self.assertIn("return consume(", source)
+                    self.assertIn(f'[](auto const& result) {{ result->to_parquet("q{query}.parquet"); }}', source)
+        # Native MEAN requests live in unchanged hunk gaps; do not replace or remove them.
+        q1_patch = PATCH.read_text(encoding="utf-8").split("diff --git a/cpp/benchmarks/ndsh/q01.cpp ", 1)[1]
+        q1_patch = q1_patch.split("diff --git ", 1)[0]
+        self.assertNotRegex(q1_patch, r"(?m)^[+-].*cudf::aggregation::Kind::MEAN")
+
+    def test_empty_fixtures_remain_checked_and_reported(self):
+        for query in (1, 5, 6, 9, 10):
+            with self.subTest(query=query):
+                source = self.source(MODULE.with_name(f"q{query:02}.cpp"))
+                self.assertIn(f"check_q{query}_result(", source)
+                self.assertIn("check_projection(", source)
+                self.assertIn(f'"ndsh/q{query}/matched_rows"', source)
+                self.assertNotIn("fixture has no", source)
+                self.assertNotRegex(source, r"CUDF_EXPECTS\((?:reference\.)?matched > 0")
+        q6 = self.source(MODULE.with_name("q06.cpp"))
+        self.assertIn('CUDF_EXPECTS(!value, "Q6 SUM over no matching rows must be null")', q6)
+        self.assertIn('summary.set_string("value", "NULL")', q6)
+        self.assertIn("check_q6_reference_boundaries();", q6)
+        q9_reference = self.source(MODULE.with_name("q9_reference.hpp"))
+        self.assertIn("std::unordered_multimap<uint64_t, double> supply_costs_", q9_reference)
+        self.assertIn("supply_costs_.equal_range(", q9_reference)
+        self.assertIn("duplicate_expected.matched = 7;", self.source(MODULE.with_name("q09.cpp")))
+
     def test_no_query_specific_kernels(self):
         for path, source in self.sources.items():
             if path.parent != MODULE.parent and path != MODULE.parent.parent / "CMakeLists.txt":
