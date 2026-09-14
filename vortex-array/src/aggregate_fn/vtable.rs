@@ -99,9 +99,6 @@ pub struct AggregateDTypesRef<'a> {
 /// The [`AggregateFnVTable`] trait should be implemented for a struct that holds global data across
 /// all instances of the aggregate. In almost all cases, this struct will be an empty unit
 /// struct, since most aggregates do not require any global state.
-///
-/// Execution methods take the aggregate's options and [`AggregateDTypesRef`], which must be the
-/// same ones for the whole lifetime of a partial state.
 pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
     /// Options for this aggregate function.
     type Options: 'static + Send + Sync + Clone + Debug + Display + PartialEq + Eq + Hash;
@@ -131,11 +128,6 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
     }
 
     /// Return whether this stored aggregate can satisfy `requested`.
-    ///
-    /// Satisfaction is a claim about stored state, not just result semantics: consumers read this
-    /// aggregate's persisted partial state in place of ever accumulating `requested`, so anything
-    /// other than [`AggregateFnSatisfaction::No`] requires that a partial state for `requested`
-    /// can be created from this aggregate's partial state.
     ///
     /// The default implementation only treats exactly equal aggregate functions as satisfying the
     /// request. Approximate pruning aggregates can override this to expose looser-but-sound bounds.
@@ -175,8 +167,7 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
 
     /// The partial state of a group with no accumulated values.
     ///
-    /// This is the identity of [`merge_partials`]: merging it with any partial state, on either
-    /// side, yields that state.
+    /// The identity of [`merge_partials`].
     ///
     /// [`merge_partials`]: AggregateFnVTable::merge_partials
     fn empty_partial(
@@ -188,11 +179,8 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
     /// Parse a partial scalar into the typed partial state.
     ///
     /// The scalar must have dtype `dtypes.partial_dtype`; this is the inverse of [`to_scalar`].
-    /// Implementations should only parse the scalar here; combining states belongs in
-    /// [`merge_partials`].
     ///
     /// [`to_scalar`]: AggregateFnVTable::to_scalar
-    /// [`merge_partials`]: AggregateFnVTable::merge_partials
     fn partial_from_scalar(
         &self,
         options: &Self::Options,
