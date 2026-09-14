@@ -7,6 +7,7 @@
 include_guard(GLOBAL)
 
 include("${CMAKE_CURRENT_LIST_DIR}/Cuda.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/DebugInfo.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/Helpers.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/RustToolchain.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/SystemDependencies.cmake")
@@ -184,7 +185,6 @@ function(_vortex_resolve_sanitizer
         list(APPEND _rustflags
             -A warnings
             -Cunsafe-allow-abi-mismatch=sanitizer
-            -C debuginfo=2
             -C opt-level=0
             # Use the sanitizer runtime linked by the final C++ target for both languages.
             -Zexternal-clangrt
@@ -239,8 +239,9 @@ function(_vortex_native_flags
     endif()
 
     # Native dependencies become part of the archive embedded in shared parents.
-    list(APPEND _cflags -fPIC)
-    list(APPEND _cxxflags -fPIC)
+    # Match CMake targets even when cc-rs or parent flags enable debug info.
+    list(APPEND _cflags -fPIC -g${VORTEX_DEBUG_INFO})
+    list(APPEND _cxxflags -fPIC -g${VORTEX_DEBUG_INFO})
 
     set(${cflags_output} "${_cflags}" PARENT_SCOPE)
     set(${cxxflags_output} "${_cxxflags}" PARENT_SCOPE)
@@ -282,7 +283,10 @@ block(SCOPE_FOR VARIABLES)
         _native_cxx_flags)
     # Mirror .cargo/config.toml's Unix rustflags, which CARGO_ENCODED_RUSTFLAGS overrides.
     # Keep them in sync; PIC additionally allows embedding in shared libraries.
-    set(_rustflags ${_sanitizer_rustflags} -C force-frame-pointers=yes -C relocation-model=pic)
+    set(_rustflags ${_sanitizer_rustflags}
+        -C force-frame-pointers=yes
+        -C relocation-model=pic
+        -C "debuginfo=${VORTEX_DEBUG_INFO}")
 
     # Cargo owns incremental invalidation inside this CMake-build-local cache.
     # Registering the directory as additional clean state gives the standard

@@ -45,10 +45,16 @@ options. Defaults below are for standalone builds.
 | `VORTEX_RUSTUP_TOOLCHAIN`   | Inferred | [Rust toolchain override](#toolchain-and-build-behavior).   |
 | `VORTEX_SANITIZER`          | Empty    | [Sanitizers](#sanitizers): `asan`, `lsan`, `ubsan`, `tsan`. |
 | `VORTEX_SANITIZE_RUST_STD`  | `OFF`    | Also instrument Rust's standard library.                    |
+| `VORTEX_DEBUG_INFO`         | `2`      | C/C++ and Rust debug info: `0` none, `1` limited, `2` full. |
 | `VORTEX_ENABLE_CUDA`        | `OFF`    | Linux-only [CUDA build](#cuda).                             |
 
 Embedded builds default `VORTEX_WARNINGS_AS_ERRORS` to `OFF`. Parents must call
 `enable_testing()` to register tests.
+
+`VORTEX_DEBUG_INFO` maps to `-g<level>` for C/C++ and `-C debuginfo=<level>` for Rust,
+independently of the build type or sanitizer selection. It covers CMake targets (including
+fetched dependencies), Cargo target crates and rebuilt std, and C/C++ dependencies compiled
+by `build.rs`. Rust host build tools retain their Cargo profile settings.
 
 ### Cargo profiles
 

@@ -68,6 +68,7 @@ class ConfigureTests(CMakeTest):
                     self.assertEqual(settings[:2], ["Debug", "ON"])
                     if len(settings) == 3:
                         self.assertIn("-Werror", settings[2].split(";"))
+                        self.assertIn("$<$<COMPILE_LANGUAGE:C,CXX>:-g2>", settings[2].split(";"))
 
         build = self.work / "ffi"
         self.cmake_build(build)
@@ -76,7 +77,13 @@ class ConfigureTests(CMakeTest):
         self.assertEqual(recorded["args"][recorded["args"].index("--profile") + 1], "dev")
         config = tomllib.loads((self.repo / ".cargo/config.toml").read_text())
         expected = config["target"]['cfg(target_family="unix")']["rustflags"] + ["-C", "relocation-model=pic"]
+        expected += ["-C", "debuginfo=2"]
         self.assertEqual(recorded["env"]["CARGO_ENCODED_RUSTFLAGS"].split("\x1f"), expected)
+
+        self.configure("ffi", "-DVORTEX_DEBUG_INFO=0")
+        self.cmake_build(build)
+        recorded = self.cargo_recording(build / "cargo-target")
+        self.assertEqual(recorded["env"]["CARGO_ENCODED_RUSTFLAGS"].split("\x1f"), expected[:-1] + ["debuginfo=0"])
 
     def test_embedded_root_preserves_parent_variables(self) -> None:
         source = self.write(

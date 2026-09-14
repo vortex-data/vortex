@@ -673,6 +673,7 @@ jobs:
         run: |
           cmake -S lang/cpp -B build \
             -DCMAKE_BUILD_TYPE=Debug \
+            -DVORTEX_DEBUG_INFO=0 \
             -DCMAKE_C_COMPILER=clang \
             -DCMAKE_CXX_COMPILER=clang++ \
             -DVORTEX_SANITIZER=asan \
