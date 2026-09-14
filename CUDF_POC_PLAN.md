@@ -5,40 +5,46 @@ comparing Vortex with Parquet: **≥2× for both end-to-end projected reads and 
 across Q1/Q5/Q6/Q9/Q10 at SF1/SF10, warm and cold**. The goal is **not met**;
 SF100 scaling/profiling is deferred until these matrices are stable.
 
-[Setup](benchmarks/cudf-ndsh/README.md) ·
-[Validation and profile safety](benchmarks/cudf-ndsh/VALIDATION.md) ·
-[Commit checkpoint and next steps](benchmarks/cudf-ndsh/PROGRESS.md)
+[Setup](benchmarks/cudf-ndsh/README.md) · [Validation](benchmarks/cudf-ndsh/VALIDATION.md) · [Progress](benchmarks/cudf-ndsh/PROGRESS.md)
 
-## Current state
+## Minimal scope
 
-- Default-OFF integration covers all five queries and projected reads with shared
-  full-table fixtures, projections, post-read filters, and generic cuDF operations.
-  No hand-fitted query kernels; `q1_fused` is absent. Original benchmarks stay separate.
-- Q1 uses sum/count groupby plus averages; Q5/Q9/Q10 read independent tables concurrently
-  for both formats. Vortex uses 16M-row blocks, cacheable pinned staging, 8 GiB pool
-  retention, and one final owning cuDF materialization. No event optimization is retained.
-- Renamed `_local` benchmarks expose warm/cold cache axes and include SF10 by default.
-  Cold callbacks verify zero file-page residency after sync/eviction; Vortex data uses
-  `O_DIRECT`, metadata is buffered, and Parquet keeps its native reader. Lower-level
-  storage caches are not flushed. Pinned-host staging → HtoD → decode, **not GDS**.
-- Timing includes complete read/query work, destruction, and device completion;
-  excludes fixture writing, checks, and eviction. See README for the full contract.
+- `upstream.patch` touches only `cpp/benchmarks/ndsh/` and one include hook in
+  `cpp/benchmarks/CMakeLists.txt`; no generator changes or generator-test target.
+  Default-OFF comparisons use the **original pinned cuDF generator** and identical
+  logical fixtures, scan projections, and post-read predicates across formats.
+  Original native Parquet-pushdown benchmarks remain separate.
+- Q1 uses original `SUM`/native `MEAN`/`COUNT`; Q5/Q9/Q10 table reads are sequential.
+  No hand-fitted kernels or event optimization. Vortex retains 16M-row blocks,
+  cacheable pinned staging, an 8 GiB pool, and one final owning materialization.
+- Warm/cold controls remain: cold callbacks sync/evict and verify zero resident pages;
+  Vortex data uses `O_DIRECT`, metadata is buffered, and Parquet keeps its native reader.
+  Lower-level caches are not flushed. Pinned-host staging → HtoD → decode, **not GDS**.
+- Timing includes complete reads/queries, destruction, and device completion;
+  writing/checks/eviction are untimed. No public API, GPU writer, remote I/O, or full RMM.
 
-## Validation gate and next steps
+Optional `benchmarks/cudf-ndsh/generator-fixes.patch` preserves four independent fixes
+and its own test across seven files. It applies independently to pinned cuDF; both
+application orders produce identical trees. It is separately reviewable, not bundled
+or automatic. Applying it requires regenerating both formats and labeling the dataset.
+Neither dataset establishes full TPC-H conformance.
 
-The patch is refreshed and apply-checked; generic performance is committed as `59a7ea66a`.
-Cold-cache patch/tests are committed separately as `cd3192a02`. Source/offline checks
-pass, but the 1200 s Release build timed out before cuDF benchmark/adapter relinks:
-**binaries are stale**.
-Only the Vortex Release archive completed. No fresh runtime validation or performance runs.
+Original data may yield empty/degenerate Q6/Q10 or low-SF supplier joins. Projection/value
+and CPU result checks remain, including zero matches and synthetic nonempty cases.
+Q6 checks zero-match `SUM` is NULL and reports revenue `"NULL"`, not zero; its migrated
+and expanded query tests remain in the main patch. Explicit zero match counts disclose
+queries that are **not meaningful full-query performance evidence**.
 
-1. Explicitly choose a longer bounded build window; finish relinks and validate runtime.
-   Do not retry automatically. Earlier passing tests do not establish final-source validity.
-2. Collect stable SF1/SF10 warm/cold matrices; existing timings predate the event revert
-   and are diagnostic only. Capture the still-missing full Q1 query profile with the
-   linked profiling safety guard; existing profiles contain sensitive environment metadata.
-3. Only then consider SF100 with separate Vortex/RMM memory accounting, publish Vortex
-   prerequisites, update the retained pin, and prepare the upstream POC.
+## Validation and next steps
 
-Local-file benchmark scope only; no public API, GPU writer, remote I/O, or full RMM
-integration. Regenerate fixtures after generator fixes; this is not full TPC-H conformance.
+17 offline tests, five-query clang-format, Ruff, and patch checks passed. Query compile-only
+validation passed **10/10**, Vortex ON/OFF, without warnings; the optional generator test
+also compiled (not run). The commit breakdown is recorded in the linked progress notes.
+**Binaries remain stale:** no CMake regeneration, full build, relinks, GPU, or fresh
+minimal-source runtime/memcheck/performance runs. The previous full build timed out at
+1200 s / 223 of 635 steps. No broad automatic retry; see linked validation details.
+
+Prior timings used altered generator/performance code and event suppression: **HISTORICAL,
+not minimal-patch baselines**. After bounded relinking/runtime validation, regenerate both
+formats' fixtures and collect fresh labeled SF1/SF10 warm/cold baselines and a safe Q1
+query profile. Defer SF100; publish Vortex prerequisites and update the retained pin.

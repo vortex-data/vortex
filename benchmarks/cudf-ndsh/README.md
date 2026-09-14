@@ -4,24 +4,27 @@
 
 `upstream.patch` adds default-OFF build support, `write_vortex` / `read_vortex`, and
 **Q1/Q5/Q6/Q9/Q10 plus projected read-only Parquet/Vortex comparisons** using shared
-full-table fixtures and post-read filters. Original Parquet-pushdown benchmarks remain
-separate. Generator fixes affect **all** NDS-H consumers, including Vortex OFF;
-regenerate fixtures. This is not full TPC-H conformance.
+full-table fixtures, identical scan projections, and post-read predicates. Original
+native Parquet-pushdown benchmarks remain separate. This is not full TPC-H conformance.
 
-The cumulative patch is refreshed and apply-checked. See [PROGRESS.md](PROGRESS.md)
-for the separate staging, generic-performance, and cold-cache patch/test commits. **Current binaries are stale:** the Release build timed out before relinking
-cuDF benchmarks and the adapter. There is no fresh runtime validation.
+The minimal patch touches only `cpp/benchmarks/ndsh/` plus **one include hook** in
+`cpp/benchmarks/CMakeLists.txt`; it has no generator changes or generator-test target.
+Offline and compile-only validation passed; **binaries remain stale**, with no fresh
+minimal-source runtime, memcheck, or performance runs. See [PROGRESS.md](PROGRESS.md)
+for the commit breakdown and next steps.
 
-## Current implementation and timing
+## Approved minimal scope and timing
 
-- All five queries use generic cuDF, not hand-fitted query kernels; `q1_fused` is absent.
-  Q1 uses shared sum/count groupby with averages afterward for both formats.
-  Q5/Q9/Q10 read independent tables concurrently for both formats.
+- Q1 uses original `SUM`/native `MEAN`/`COUNT`; Q5/Q9/Q10 table reads are sequential
+  in both formats. All five queries use generic cuDF, not hand-fitted query kernels;
+  no `q1_fused` path. Native Parquet benchmarks retain input/intermediate lifetimes
+  through output writing.
 - Write: 16,777,216-row cuDF chunks → host Arrow → CPU-written CUDA-flat blocks;
   explicit blocks disable byte coalescing and outer layout dictionaries.
 - Read: pooled cacheable pinned-host staging → HtoD → GPU decode → retained Arrow
-  Device views → one final owning cuDF materialization. Vortex CUDA pool retention
-  is 8 GiB. Local files, device 0, flat typed columns; **no GPUDirect Storage**.
+  Device views → one final owning cuDF materialization. These Vortex-internal
+  improvements and 8 GiB CUDA pool retention remain. Local files, device 0, flat typed
+  columns; **no GPUDirect Storage**.
 - `cache=warm/cold`: before every manual cold callback's timed portion, per-file
   `fdatasync` + `POSIX_FADV_DONTNEED` is followed by required `mincore` residency == 0.
   Cold Vortex data uses `O_DIRECT`, metadata stays buffered, and Parquet uses its
@@ -32,6 +35,31 @@ cuDF benchmarks and the adapter. There is no fresh runtime validation.
   excluded. RMM peaks exclude Vortex allocations.
 
 Default kernel-event suppression is reverted; no event optimization is retained.
+
+## Dataset and correctness
+
+Default `upstream.patch` comparisons use the **original pinned cuDF data generator**,
+with identical logical fixtures across formats. The main patch has no generator edits
+or `NDSH_DATA_GENERATOR_TEST` target. Original data can produce
+empty/degenerate Q6/Q10 and low-SF supplier joins. Exact projection/value and independent
+CPU result checks remain even for zero matches, plus synthetic nonempty tests. Explicit
+zero match counts disclose degenerate queries, which are **not meaningful full-query
+performance evidence**. Q6 checks zero-match `SUM` is NULL and reports revenue as the
+string `"NULL"`, not zero. Its CPU reference boundary/sliced/float32 test moved to
+`q06.cpp` and gained no-match/empty GPU cases; separating the generator loses no
+main-query test coverage. Q9's reference preserves duplicate `partsupp` join multiplicity,
+with handwritten matching/unmatched duplicate cases. These GPU cases have not been run
+on the minimal source.
+
+Optional `benchmarks/cudf-ndsh/generator-fixes.patch` preserves four independent fixes
+and its own regression test across seven files. It is separately reviewable and applies
+independently to pinned cuDF; both patch application orders were verified to produce
+identical trees. It is not bundled with or automatically applied by `upstream.patch`.
+Only the optional patch adds `NDSH_DATA_GENERATOR_TEST`; its changes
+affect all NDS-H consumers, including Vortex OFF. After applying it, regenerate both
+Parquet and Vortex fixtures and label the dataset as generator-fixed. Restoring the
+original generator also requires regenerating both formats; never reuse altered-data
+fixtures or historical timings as minimal-patch baselines.
 
 ## Apply and build
 
@@ -46,9 +74,11 @@ git -C build/cudf-ndsh-src apply ../../benchmarks/cudf-ndsh/upstream.patch
 
 The development checkout is already patched; never modify `/home/ubuntu/cudf`.
 Build instructions are in patched `cpp/benchmarks/ndsh/VORTEX.md`.
-The pinned Release build tree is `build/cudf-ndsh-build`. The last build timed out
-at 1200 s; do not retry automatically. See [VALIDATION.md](VALIDATION.md) for the
-command, partial-build outcome, and completed checks.
+The pinned Release build tree is `build/cudf-ndsh-build`. The previous full cuDF build
+timed out at 1200 s, reaching 223/635 steps. This checkpoint used compile-only checks,
+not CMake regeneration, a full build, relinks, or GPU runs. No broad automatic retry.
+See [VALIDATION.md](VALIDATION.md) for current checks, compile artifacts, and the
+historical build caveat.
 
 **Local Vortex sources are required:** the retained base pin
 `bffdca1109e99e6957ea2fc18f4a7809c88e0a0c` lacks the CUDA-layout edition, device decimal
@@ -86,11 +116,18 @@ ruff check benchmarks/cudf-ndsh/test_build_integration.py
 ruff format --check benchmarks/cudf-ndsh/test_build_integration.py
 ```
 
-All 14 current offline tests and refreshed-patch apply checks pass. Earlier runtime
-and memcheck results remain historical; the new Release archive alone does not validate
-the unrelinked benchmarks/adapter. Full check results are in [VALIDATION.md](VALIDATION.md).
+Completed at this checkpoint: **17 offline tests**, clang-format for all five query
+files, Ruff lint/format, main-patch forward/cached and reverse checks, and optional-patch
+forward application to pristine pinned cuDF. Both patch orders produce identical trees.
+Compile-only Q1/Q5/Q6/Q9/Q10 checks with Vortex ON/OFF passed **10/10 without warnings**;
+the separate generator regression test also compiled, without runtime execution.
+Earlier Rust pinned tests/fmt/Clippy were not rerun: no Rust changed this turn.
+[VALIDATION.md](VALIDATION.md) records artifacts and historical runtime/memcheck results;
+none establishes fresh minimal-source runtime correctness.
 
-**Latest timings are pre-event-revert diagnostics, not final committed-source
-performance evidence.** No new performance runs were made. The ≥2× end-to-end read
-**and** query goal across SF1/SF10, warm/cold, is not met. Stabilize those matrices before
-SF100; a full Q1 query profile is still pending.
+**Prior timings are HISTORICAL, not valid baselines for the minimal patch:** they used
+altered generator/performance code and event suppression. Source/data changes require
+regenerated fixtures and fresh labeled baselines. No new performance runs were made.
+The ≥2× end-to-end read **and** query goal across SF1/SF10, warm/cold, is not met;
+zero-match timings cannot establish full-query performance. Stabilize nondegenerate
+matrices before SF100; a full Q1 query profile is still pending.
