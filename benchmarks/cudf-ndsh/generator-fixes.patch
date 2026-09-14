@@ -1,0 +1,510 @@
+diff --git a/cpp/benchmarks/CMakeLists.txt b/cpp/benchmarks/CMakeLists.txt
+index 8fa9593baa6db9fd5aecf0fbe1d243a5d49d99f2..c5cafd00009fb9039de70b9598dc9bd81f7360a8 100644
+--- a/cpp/benchmarks/CMakeLists.txt
++++ b/cpp/benchmarks/CMakeLists.txt
+@@ -55,6 +55,11 @@ target_include_directories(
+          "$<BUILD_INTERFACE:${CUDF_SOURCE_DIR}/src>"
+ )
+ 
++add_executable(
++  NDSH_DATA_GENERATOR_TEST EXCLUDE_FROM_ALL common/ndsh_data_generator/ndsh_data_generator_test.cpp
++)
++target_link_libraries(NDSH_DATA_GENERATOR_TEST PRIVATE ndsh_data_generator CUDA::cudart)
++
+ # ##################################################################################################
+ # * compiler function -----------------------------------------------------------------------------
+ 
+diff --git a/cpp/benchmarks/common/ndsh_data_generator/ndsh_data_generator.cpp b/cpp/benchmarks/common/ndsh_data_generator/ndsh_data_generator.cpp
+index 540cc713068c3567f5745f643fc9ab0db1550819..6c0a37b36106dfd4c67f586c03b9cc9e4050ba33 100644
+--- a/cpp/benchmarks/common/ndsh_data_generator/ndsh_data_generator.cpp
++++ b/cpp/benchmarks/common/ndsh_data_generator/ndsh_data_generator.cpp
+@@ -29,6 +29,7 @@
+ #include <cuda/stream>
+ 
+ #include <array>
++#include <cstdint>
+ #include <string>
+ #include <vector>
+ 
+@@ -191,10 +192,21 @@ std::unique_ptr<cudf::table> generate_orders_independent(double scale_factor,
+   auto o_orderdate_ts = [&]() {
+     auto const o_orderdate_year = generate_random_string_column_from_set(
+       cudf::host_span<char const* const>(years.data(), years.size()), o_num_rows, stream, mr);
+-    auto const o_orderdate_month = generate_random_string_column_from_set(
+-      cudf::host_span<char const* const>(months.data(), months.size()), o_num_rows, stream, mr);
++    // Decouple year from month/day with the second SHA-256 IV word. Month and day deliberately
++    // share a stream so their monotonic vocabularies produce only valid calendar dates.
++    constexpr uint32_t order_month_day_seed = 0xbb67ae85u;
++    auto const o_orderdate_month            = generate_random_string_column_from_set(
++      cudf::host_span<char const* const>(months.data(), months.size()),
++      o_num_rows,
++      stream,
++      mr,
++      order_month_day_seed);
+     auto const o_orderdate_day = generate_random_string_column_from_set(
+-      cudf::host_span<char const* const>(days.data(), days.size()), o_num_rows, stream, mr);
++      cudf::host_span<char const* const>(days.data(), days.size()),
++      o_num_rows,
++      stream,
++      mr,
++      order_month_day_seed);
+     auto const o_orderdate_str = cudf::strings::concatenate(
+       cudf::table_view(
+         {o_orderdate_year->view(), o_orderdate_month->view(), o_orderdate_day->view()}),
+@@ -309,8 +321,11 @@ std::unique_ptr<cudf::table> generate_lineitem_partial(cudf::table_view const& o
+   // Generate the `l_quantity` column
+   auto l_quantity = generate_random_numeric_column<int8_t>(1, 50, l_num_rows, stream, mr);
+ 
+-  // Generate the `l_discount` column
+-  auto l_discount = generate_random_numeric_column<double>(0.00, 0.10, l_num_rows, stream, mr);
++  // Separate discount from the default-seeded draws using the first SHA-256 IV word
++  // (fractional bits of sqrt(2)), chosen independently of query predicates.
++  constexpr uint32_t l_discount_seed = 0x6a09e667u;
++  auto l_discount =
++    generate_random_numeric_column<double>(0.00, 0.10, l_num_rows, stream, mr, l_discount_seed);
+ 
+   // Generate the `l_tax` column
+   auto l_tax = generate_random_numeric_column<double>(0.00, 0.08, l_num_rows, stream, mr);
+@@ -719,17 +734,12 @@ generate_orders_lineitem_part(double scale_factor,
+   // Generate the `part` table
+   auto part = generate_part(scale_factor, stream, mr);
+ 
+-  // Join the `part` and partial `lineitem` tables, then calculate the `l_extendedprice` column
++  // Retail price depends only on part key. Compute it in lineitem order, not join output order.
+   auto l_extendedprice = [&]() {
+-    auto const left = cudf::table_view(
+-      {lineitem_partial->get_column(2).view(), lineitem_partial->get_column(5).view()});
+-    auto const right = cudf::table_view({part->get_column(0).view(), part->get_column(7).view()});
+-    auto const joined_table   = perform_left_join(left, right, {0}, {0}, stream, mr);
+-    auto joined_table_columns = joined_table->release();
+-    auto const l_quantity     = std::move(joined_table_columns[1]);
+-    auto const l_quantity_fp =
+-      cudf::cast(l_quantity->view(), cudf::data_type{cudf::type_id::FLOAT64}, stream, mr);
+-    auto const p_retailprice = std::move(joined_table_columns[3]);
++    auto const l_quantity_fp = cudf::cast(
++      lineitem_partial->get_column(5).view(), cudf::data_type{cudf::type_id::FLOAT64}, stream, mr);
++    auto const p_retailprice =
++      calculate_p_retailprice(lineitem_partial->get_column(2).view(), stream, mr);
+     return cudf::binary_operation(l_quantity_fp->view(),
+                                   p_retailprice->view(),
+                                   cudf::binary_operator::MUL,
+diff --git a/cpp/benchmarks/common/ndsh_data_generator/ndsh_data_generator_test.cpp b/cpp/benchmarks/common/ndsh_data_generator/ndsh_data_generator_test.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..94b75753faba19abc74af707cee9360529b81d1f
+--- /dev/null
++++ b/cpp/benchmarks/common/ndsh_data_generator/ndsh_data_generator_test.cpp
+@@ -0,0 +1,219 @@
++/*
++ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++#include "ndsh_data_generator.hpp"
++#include "random_column_generator.hpp"
++#include "table_helpers.hpp"
++
++#include <cudf_test/column_wrapper.hpp>
++
++#include <cudf/detail/utilities/vector_factories.hpp>
++#include <cudf/utilities/error.hpp>
++#include <cudf/wrappers/timestamps.hpp>
++
++#include <cuda_runtime_api.h>
++#include <thrust/random.h>
++
++#include <algorithm>
++#include <chrono>
++#include <cmath>
++#include <cstdint>
++#include <exception>
++#include <iomanip>
++#include <iostream>
++#include <limits>
++#include <map>
++#include <set>
++#include <type_traits>
++#include <vector>
++
++namespace {
++template <typename T>
++auto host_values(cudf::column_view column, cuda::stream_ref stream)
++{
++  CUDF_EXPECTS(column.type() == cudf::data_type{cudf::type_to_id<T>()} && !column.has_nulls(),
++               "Unexpected generated type or nulls");
++  return cudf::detail::make_host_vector(
++    cudf::device_span<T const>{column.data<T>(), static_cast<std::size_t>(column.size())}, stream);
++}
++
++template <typename T>
++void test_numeric(T lower, T upper, cuda::stream_ref stream)
++{
++  constexpr cudf::size_type rows = 257;
++  auto mr                        = cudf::get_current_device_resource_ref();
++  auto draw                      = [&](cudf::size_type count, uint32_t seed) {
++    auto column =
++      cudf::datagen::generate_random_numeric_column<T>(lower, upper, count, stream, mr, seed);
++    CUDF_EXPECTS(column->size() == count, "Generated row count changed");
++    return host_values<T>(column->view(), stream);
++  };
++  auto default_draw = [&] {
++    return host_values<T>(
++      cudf::datagen::generate_random_numeric_column<T>(lower, upper, rows, stream, mr)->view(),
++      stream);
++  };
++  auto const defaults = default_draw();
++  CUDF_EXPECTS(defaults == draw(rows, 1), "Default seed differs from explicit seed 1");
++
++  // Replay the legacy per-index engine on the CPU, without the new seed API.
++  using distribution = std::conditional_t<std::is_integral_v<T>,
++                                          thrust::uniform_int_distribution<T>,
++                                          thrust::uniform_real_distribution<T>>;
++  for (cudf::size_type i = 0; i < rows; ++i) {
++    thrust::default_random_engine engine;
++    engine.discard(i);
++    auto const expected = distribution(lower, upper)(engine);
++    if constexpr (std::is_integral_v<T>) {
++      CUDF_EXPECTS(defaults[i] == expected, "Legacy integer sequence changed");
++    } else {
++      // Allow host/device floating-point rounding differences.
++      CUDF_EXPECTS(std::abs(defaults[i] - expected) <=
++                     4 * std::numeric_limits<T>::epsilon() * std::max(T{1}, std::abs(expected)),
++                   "Legacy floating-point sequence changed");
++    }
++  }
++
++  auto const seeded    = draw(rows, 42);
++  auto const alternate = draw(rows, 43);
++  CUDF_EXPECTS(seeded != defaults && seeded != alternate, "Seed does not change output");
++  CUDF_EXPECTS(seeded == draw(rows, 42), "Seeded output depends on call order");
++  CUDF_EXPECTS(defaults == default_draw(), "Default output depends on call order");
++  auto const prefix = draw(31, 42);
++  CUDF_EXPECTS(std::equal(prefix.begin(), prefix.end(), seeded.begin()), "Seeded prefix changed");
++  for (auto const* values : {&defaults, &seeded, &alternate, &prefix}) {
++    CUDF_EXPECTS(
++      std::all_of(
++        values->begin(), values->end(), [=](T value) { return lower <= value && value <= upper; }),
++      "Generated value outside bounds");
++  }
++}
++
++void test_supplier_keys(cuda::stream_ref stream)
++{
++  bool valid = true;
++  for (double scale_factor : {0.01, 0.1, 1.0}) {
++    auto const s = static_cast<cudf::size_type>(scale_factor * 10'000);
++    std::vector<cudf::size_type> keys;
++    for (auto key : {1, s - 1, s, s + 1, 2 * s, 20 * s}) {
++      keys.insert(keys.end(), 4, key);
++    }
++    cudf::test::fixed_width_column_wrapper<cudf::size_type> partkey(keys.begin(), keys.end());
++    CUDF_CUDA_TRY(cudaDeviceSynchronize());
++    auto const rows = static_cast<cudf::size_type>(keys.size());
++    std::vector<cudf::size_type> expected(rows);
++    for (cudf::size_type row = 0; row < rows; ++row) {
++      expected[row] = (keys[row] + (row % 4) * (s / 4 + (keys[row] - 1) / s)) % s + 1;
++    }
++    for (bool partsupp : {false, true}) {
++      auto result       = partsupp
++                            ? cudf::datagen::calculate_ps_suppkey(partkey, scale_factor, rows, stream)
++                            : cudf::datagen::calculate_l_suppkey(partkey, scale_factor, rows, stream);
++      auto const actual = host_values<cudf::size_type>(result->view(), stream);
++      CUDF_EXPECTS(actual.size() == expected.size(), "Supplier key row count changed");
++      cudf::size_type mismatches = 0, out_of_range = 0;
++      for (cudf::size_type row = 0; row < rows; ++row) {
++        mismatches += actual[row] != expected[row];
++        out_of_range += actual[row] < 1 || actual[row] > s;
++      }
++      std::cout << (partsupp ? "ps_suppkey" : "l_suppkey") << " sf=" << scale_factor
++                << " suppliers=" << s << " rows=" << rows << " mismatches=" << mismatches
++                << " out_of_range=" << out_of_range << " first_actual=" << actual.front()
++                << " first_expected=" << expected.front() << " last_actual=" << actual.back()
++                << " last_expected=" << expected.back() << '\n';
++      valid = valid && mismatches == 0 && out_of_range == 0;
++    }
++  }
++  CUDF_EXPECTS(valid, "Supplier key formula/range mismatch");
++}
++
++void test_order_date_coverage(cuda::stream_ref stream)
++{
++  auto [orders, lineitem, part] = cudf::datagen::generate_orders_lineitem_part(0.01, stream);
++  auto const dates              = host_values<cudf::timestamp_D>(orders->view().column(4), stream);
++  std::map<int, std::set<unsigned>> months_by_year;
++  for (auto const value : dates) {
++    auto const date = std::chrono::sys_days{std::chrono::days{value.time_since_epoch().count()}};
++    auto const calendar = std::chrono::year_month_day{date};
++    CUDF_EXPECTS(calendar.ok(), "Invalid generated order date");
++    months_by_year[int{calendar.year()}].insert(unsigned{calendar.month()});
++  }
++  std::size_t combinations = 0;
++  for (auto const& [year, months] : months_by_year) {
++    std::cout << "order_dates year=" << year << " months=" << months.size() << '\n';
++    combinations += months.size();
++  }
++  CUDF_EXPECTS(months_by_year.size() == 7 && combinations == 7 * 12,
++               "Order year/month components share a correlated RNG stream");
++}
++
++void test_lineitem_q6(cuda::stream_ref stream)
++{
++  auto [orders, lineitem, part] = cudf::datagen::generate_orders_lineitem_part(0.01, stream);
++  CUDF_EXPECTS(lineitem->num_columns() == 16 && part->num_columns() == 9,
++               "Unexpected lineitem/part schema");
++  auto const part_keys = host_values<cudf::size_type>(part->view().column(0), stream);
++  auto const retail    = host_values<double>(part->view().column(7), stream);
++  std::map<cudf::size_type, double> retail_by_key;
++  for (cudf::size_type i = 0; i < part->num_rows(); ++i) {
++    CUDF_EXPECTS(retail_by_key.emplace(part_keys[i], retail[i]).second, "Duplicate part key");
++  }
++  auto const item_keys = host_values<cudf::size_type>(lineitem->view().column(1), stream);
++  auto const quantity  = host_values<int8_t>(lineitem->view().column(4), stream);
++  auto const price     = host_values<double>(lineitem->view().column(5), stream);
++  // Resolve by key on the CPU, independently of GPU join output order.
++  for (cudf::size_type i = 0; i < lineitem->num_rows(); ++i) {
++    auto const part_row = retail_by_key.find(item_keys[i]);
++    CUDF_EXPECTS(part_row != retail_by_key.end(), "Missing lineitem part key");
++    auto const expected = static_cast<double>(quantity[i]) * part_row->second;
++    CUDF_EXPECTS(std::abs(price[i] - expected) <= 1e-12 * std::max(1.0, std::abs(expected)),
++                 "l_extendedprice is not aligned with its lineitem row");
++  }
++  // Check generated-data selectivity without depending on the query harness or its CPU reference.
++  auto const discount     = host_values<double>(lineitem->view().column(6), stream);
++  auto const shipdate     = host_values<cudf::timestamp_D>(lineitem->view().column(10), stream);
++  cudf::size_type matched = 0;
++  double revenue          = 0;
++  for (cudf::size_type i = 0; i < lineitem->num_rows(); ++i) {
++    auto const date = shipdate[i].time_since_epoch().count();
++    auto const d    = static_cast<float>(discount[i]);
++    auto const q    = static_cast<float>(quantity[i]);
++    // Q6 uses float32 predicates and the half-open date range [1994-01-01, 1995-01-01).
++    if (8766 <= date && date < 9131 && 0.05f <= d && d <= 0.07f && q < 24.0f) {
++      ++matched;
++      revenue += price[i] * discount[i];
++    }
++  }
++  std::cout << "lineitem_q6 sf=0.01 rows=" << lineitem->num_rows() << " matched=" << matched
++            << " revenue=" << std::setprecision(17) << revenue << '\n';
++  CUDF_EXPECTS(matched > 0, "Q6 has no survivors: quantity/discount correlation regressed");
++  CUDF_EXPECTS(std::isfinite(revenue) && revenue > 0, "Q6 revenue must be positive and finite");
++}
++}  // namespace
++
++int main()
++{
++  char const* current_test = "initialization";
++  try {
++    cuda::stream_ref const stream = cudf::get_default_stream();
++    auto run                      = [&](char const* name, auto&& test) {
++      current_test = name;
++      test();
++      stream.sync();
++      std::cout << "[PASS] " << name << '\n';
++    };
++    run("int8", [&] { test_numeric<int8_t>(-10, 20, stream); });
++    run("int16", [&] { test_numeric<int16_t>(-1000, 2000, stream); });
++    run("size_type", [&] { test_numeric<cudf::size_type>(-100000, 200000, stream); });
++    run("double", [&] { test_numeric<double>(0.0, 0.1, stream); });
++    run("order_date_coverage", [&] { test_order_date_coverage(stream); });
++    run("lineitem_q6", [&] { test_lineitem_q6(stream); });
++    run("supplier_keys", [&] { test_supplier_keys(stream); });
++    return 0;
++  } catch (std::exception const& error) {
++    std::cerr << "[FAIL] " << current_test << ": " << error.what() << '\n';
++    return 1;
++  }
++}
+diff --git a/cpp/benchmarks/common/ndsh_data_generator/random_column_generator.cu b/cpp/benchmarks/common/ndsh_data_generator/random_column_generator.cu
+index afc3ded6e88af3e4208a7cd5b090b56689d140f9..87b6bdb6353b43864fcfd3ddad8815bc10a5fe3b 100644
+--- a/cpp/benchmarks/common/ndsh_data_generator/random_column_generator.cu
++++ b/cpp/benchmarks/common/ndsh_data_generator/random_column_generator.cu
+@@ -55,18 +55,22 @@ template <typename T>
+ struct random_number_generator {
+   T lower;
+   T upper;
++  uint32_t seed;
+ 
+-  CUDF_HOST_DEVICE random_number_generator(T lower, T upper) : lower(lower), upper(upper) {}
++  CUDF_HOST_DEVICE random_number_generator(T lower, T upper, uint32_t seed = 1)
++    : lower(lower), upper(upper), seed(seed)
++  {
++  }
+ 
+   __device__ T operator()(int64_t const idx) const
+   {
+     if constexpr (cudf::is_integral<T>()) {
+-      thrust::default_random_engine engine;
++      thrust::default_random_engine engine(seed);
+       thrust::uniform_int_distribution<T> dist(lower, upper);
+       engine.discard(idx);
+       return dist(engine);
+     } else {
+-      thrust::default_random_engine engine;
++      thrust::default_random_engine engine(seed);
+       thrust::uniform_real_distribution<T> dist(lower, upper);
+       engine.discard(idx);
+       return dist(engine);
+@@ -108,7 +112,8 @@ std::unique_ptr<cudf::column> generate_random_numeric_column(T lower,
+                                                              T upper,
+                                                              cudf::size_type num_rows,
+                                                              cuda::stream_ref stream,
+-                                                             rmm::device_async_resource_ref mr)
++                                                             rmm::device_async_resource_ref mr,
++                                                             uint32_t seed)
+ {
+   CUDF_BENCHMARK_RANGE();
+   auto col = cudf::make_numeric_column(
+@@ -119,7 +124,7 @@ std::unique_ptr<cudf::column> generate_random_numeric_column(T lower,
+                     cuda::counting_iterator{begin},
+                     cuda::counting_iterator{end},
+                     col->mutable_view().begin<T>(),
+-                    random_number_generator<T>(lower, upper));
++                    random_number_generator<T>(lower, upper, seed));
+   return col;
+ }
+ 
+@@ -128,28 +133,32 @@ template std::unique_ptr<cudf::column> generate_random_numeric_column<int8_t>(
+   int8_t upper,
+   cudf::size_type num_rows,
+   cuda::stream_ref stream,
+-  rmm::device_async_resource_ref mr);
++  rmm::device_async_resource_ref mr,
++  uint32_t seed);
+ 
+ template std::unique_ptr<cudf::column> generate_random_numeric_column<int16_t>(
+   int16_t lower,
+   int16_t upper,
+   cudf::size_type num_rows,
+   cuda::stream_ref stream,
+-  rmm::device_async_resource_ref mr);
++  rmm::device_async_resource_ref mr,
++  uint32_t seed);
+ 
+ template std::unique_ptr<cudf::column> generate_random_numeric_column<cudf::size_type>(
+   cudf::size_type lower,
+   cudf::size_type upper,
+   cudf::size_type num_rows,
+   cuda::stream_ref stream,
+-  rmm::device_async_resource_ref mr);
++  rmm::device_async_resource_ref mr,
++  uint32_t seed);
+ 
+ template std::unique_ptr<cudf::column> generate_random_numeric_column<double>(
+   double lower,
+   double upper,
+   cudf::size_type num_rows,
+   cuda::stream_ref stream,
+-  rmm::device_async_resource_ref mr);
++  rmm::device_async_resource_ref mr,
++  uint32_t seed);
+ 
+ std::unique_ptr<cudf::column> generate_primary_key_column(cudf::scalar const& start,
+                                                           cudf::size_type num_rows,
+@@ -174,7 +183,8 @@ std::unique_ptr<cudf::column> generate_random_string_column_from_set(
+   cudf::host_span<char const* const> set,
+   cudf::size_type num_rows,
+   cuda::stream_ref stream,
+-  rmm::device_async_resource_ref mr)
++  rmm::device_async_resource_ref mr,
++  uint32_t seed)
+ {
+   CUDF_BENCHMARK_RANGE();
+   // Build a gather map of random strings to choose from
+@@ -186,7 +196,7 @@ std::unique_ptr<cudf::column> generate_random_string_column_from_set(
+ 
+   // Build a column of random keys to gather from the set
+   auto const gather_keys =
+-    generate_random_numeric_column<int16_t>(0, set.size() - 1, num_rows, stream, mr);
++    generate_random_numeric_column<int16_t>(0, set.size() - 1, num_rows, stream, mr, seed);
+ 
+   // Perform the gather operation
+   auto const gathered_table = cudf::gather(
+diff --git a/cpp/benchmarks/common/ndsh_data_generator/random_column_generator.hpp b/cpp/benchmarks/common/ndsh_data_generator/random_column_generator.hpp
+index a98ab25dc27557b24bdf4063140edf2b228f7cba..d4048f9abd70abc4e9c7c20abe8afe6bc9aca495 100644
+--- a/cpp/benchmarks/common/ndsh_data_generator/random_column_generator.hpp
++++ b/cpp/benchmarks/common/ndsh_data_generator/random_column_generator.hpp
+@@ -9,6 +9,7 @@
+ #include <cudf/utilities/default_stream.hpp>
+ #include <cudf/utilities/memory_resource.hpp>
+ 
++#include <cstdint>
+ #include <string>
+ 
+ namespace cudf::datagen {
+@@ -45,6 +46,7 @@ std::unique_ptr<cudf::column> generate_random_string_column(
+  * @param num_rows The number of rows in the column
+  * @param stream CUDA stream used for device memory operations and kernel launches
+  * @param mr Device memory resource used to allocate the returned column's device memory
++ * @param seed Seed passed directly to Thrust's default random engine; 1 preserves legacy output
+  */
+ template <typename T>
+ std::unique_ptr<cudf::column> generate_random_numeric_column(
+@@ -52,7 +54,8 @@ std::unique_ptr<cudf::column> generate_random_numeric_column(
+   T upper,
+   cudf::size_type num_rows,
+   cuda::stream_ref stream           = cudf::get_default_stream(),
+-  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
++  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref(),
++  uint32_t seed                     = 1);
+ 
+ /**
+  * @brief Generate a primary key column
+@@ -107,12 +110,14 @@ std::unique_ptr<cudf::column> generate_repeat_string_column(
+  * @param num_rows The number of rows in the column
+  * @param stream CUDA stream used for device memory operations and kernel launches
+  * @param mr Device memory resource used to allocate the returned column's device memory
++ * @param seed Seed passed directly to Thrust's default random engine; 1 preserves legacy output
+  */
+ std::unique_ptr<cudf::column> generate_random_string_column_from_set(
+   cudf::host_span<char const* const> set,
+   cudf::size_type num_rows,
+   cuda::stream_ref stream           = cudf::get_default_stream(),
+-  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
++  rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref(),
++  uint32_t seed                     = 1);
+ 
+ /**
+  * @brief Generate a column consisting of a repeating sequence of integers
+diff --git a/cpp/benchmarks/common/ndsh_data_generator/table_helpers.cpp b/cpp/benchmarks/common/ndsh_data_generator/table_helpers.cpp
+index 0ac5dab6b2bcc9e03f2231cc1d2fada3ee540fd9..693a49a40b3d6b286b3652401b75fabdccc907dc 100644
+--- a/cpp/benchmarks/common/ndsh_data_generator/table_helpers.cpp
++++ b/cpp/benchmarks/common/ndsh_data_generator/table_helpers.cpp
+@@ -144,7 +144,7 @@ std::unique_ptr<cudf::table> perform_left_join(cudf::table_view const& left_inpu
+  * @param mr Device memory resource used to allocate the returned column's device memory
+  */
+ [[nodiscard]] std::unique_ptr<cudf::column> calculate_l_suppkey(cudf::column_view const& l_partkey,
+-                                                                cudf::size_type scale_factor,
++                                                                double scale_factor,
+                                                                 cudf::size_type num_rows,
+                                                                 cuda::stream_ref stream,
+                                                                 rmm::device_async_resource_ref mr)
+@@ -216,7 +216,7 @@ std::unique_ptr<cudf::table> perform_left_join(cudf::table_view const& left_inpu
+  */
+ [[nodiscard]] std::unique_ptr<cudf::column> calculate_ps_suppkey(
+   cudf::column_view const& ps_partkey,
+-  cudf::size_type scale_factor,
++  double scale_factor,
+   cudf::size_type num_rows,
+   cuda::stream_ref stream,
+   rmm::device_async_resource_ref mr)
+diff --git a/cpp/benchmarks/common/ndsh_data_generator/table_helpers.hpp b/cpp/benchmarks/common/ndsh_data_generator/table_helpers.hpp
+index 1f35b6af9c607e626c77525557da0a52943b1c81..bd46e4253bda8ad5080459ef56a56f38538f59ed 100644
+--- a/cpp/benchmarks/common/ndsh_data_generator/table_helpers.hpp
++++ b/cpp/benchmarks/common/ndsh_data_generator/table_helpers.hpp
+@@ -72,7 +72,7 @@ std::unique_ptr<cudf::table> perform_left_join(
+  */
+ [[nodiscard]] std::unique_ptr<cudf::column> calculate_l_suppkey(
+   cudf::column_view const& l_partkey,
+-  cudf::size_type scale_factor,
++  double scale_factor,
+   cudf::size_type num_rows,
+   cuda::stream_ref stream           = cudf::get_default_stream(),
+   rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
+@@ -88,7 +88,7 @@ std::unique_ptr<cudf::table> perform_left_join(
+  */
+ [[nodiscard]] std::unique_ptr<cudf::column> calculate_ps_suppkey(
+   cudf::column_view const& ps_partkey,
+-  cudf::size_type scale_factor,
++  double scale_factor,
+   cudf::size_type num_rows,
+   cuda::stream_ref stream           = cudf::get_default_stream(),
+   rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
