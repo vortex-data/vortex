@@ -528,10 +528,10 @@ index 1f35b6a..bd46e42 100644
    rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref());
 diff --git a/cpp/benchmarks/ndsh/VORTEX.md b/cpp/benchmarks/ndsh/VORTEX.md
 new file mode 100644
-index 0000000..92729bb
+index 0000000..748527b
 --- /dev/null
 +++ b/cpp/benchmarks/ndsh/VORTEX.md
-@@ -0,0 +1,105 @@
+@@ -0,0 +1,114 @@
 +# Experimental Vortex adapter
 +
 +`CUDF_NDSH_WITH_VORTEX=ON` adds local-file Parquet/Vortex comparisons for
@@ -577,31 +577,40 @@ index 0000000..92729bb
 +
 +```sh
 +cpp/build-vortex/benchmarks/NDSH_Q01_NVBENCH \
-+  --benchmark ndsh_q1_local_warm --axis scale_factor=0.01 \
++  --benchmark ndsh_q1_local --axis scale_factor=0.01 --axis 'cache=[warm,cold]' \
 +  --min-samples 3 --timeout 3 --json q1-sf001.json
 +cpp/build-vortex/benchmarks/NDSH_Q05_NVBENCH \
-+  --benchmark ndsh_q5_local_warm --axis scale_factor=0.01 \
++  --benchmark ndsh_q5_local --axis scale_factor=0.01 --axis 'cache=[warm,cold]' \
 +  --min-samples 3 --timeout 3 --json q5-sf001.json
 +cpp/build-vortex/benchmarks/NDSH_Q06_NVBENCH \
-+  --benchmark ndsh_q6_local_warm --axis scale_factor=0.01 \
++  --benchmark ndsh_q6_local --axis scale_factor=0.01 --axis 'cache=[warm,cold]' \
 +  --min-samples 3 --timeout 3 --json q6-sf001.json
 +cpp/build-vortex/benchmarks/NDSH_Q09_NVBENCH \
-+  --benchmark ndsh_q9_local_warm --axis scale_factor=0.01 \
++  --benchmark ndsh_q9_local --axis scale_factor=0.01 --axis 'cache=[warm,cold]' \
 +  --min-samples 3 --timeout 3 --json q9-sf001.json
 +cpp/build-vortex/benchmarks/NDSH_Q10_NVBENCH \
-+  --benchmark ndsh_q10_local_warm --axis scale_factor=0.01 \
++  --benchmark ndsh_q10_local --axis scale_factor=0.01 --axis 'cache=[warm,cold]' \
 +  --min-samples 3 --timeout 3 --json q10-sf001.json
 +```
 +
-+Each runs `format={parquet,vortex}` × `workload={read,qN}` on shared full-table
-+fixtures; Q9 additionally covers binary-op, AST, and transform amount engines. Q1/Q6
++Each runs `format={parquet,vortex}` × `workload={read,qN}` × `cache={warm,cold}` on
++shared full-table fixtures; Q9 additionally covers binary-op, AST, and transform amount
++engines. The default scale factors include SF10; select a scale explicitly. Q1/Q6
 +project lineitem, Q5/Q9 project six tables, and Q10 projects four. Both formats apply
 +query filters after reading. Exact projections and results are checked against the
 +same input and bounded-batch CPU references. Empty generated results are rejected;
 +boundary/null/empty cases are tested separately. Checks/writing are untimed;
-+warm-cache timing includes cleanup and GPU completion. Compare CPU wall time; RMM
++read/query timing includes cleanup and GPU completion. Compare CPU wall time; RMM
 +peaks exclude Vortex. Original benchmarks retain their Parquet pushdown/output paths.
 +References follow those benchmark semantics; Q9 keeps its existing unrounded `SUM(amount)`.
++Both formats use generic cuDF query operations, including shared Q1 sum/count aggregation
++and concurrent independent-table reads for Q5/Q9/Q10. No query-specific CUDA kernels.
++
++Cold mode flushes and evicts each selected-format fixture from the Linux page cache,
++then requires zero resident pages before every timed callback. Eviction is untimed.
++Vortex uses direct I/O for cold data reads; metadata stays buffered. Parquet uses its
++native reader. Lower-level storage caches are not flushed: this is OS-page-cache
++coldness, not guaranteed cold media. Warm reads use the buffered path.
 +
 +**Data changes:** separate fixed RNG streams remove discount/quantity and order
 +year/month correlations; month/day remain paired so generated dates are valid. Retail
@@ -619,10 +628,10 @@ index 0000000..92729bb
 +  runs cannot fragment the requested granularity.
 +- `read_vortex`: pooled pinned-host staging → HtoD → GPU decode → retained Arrow Device
 +  imports → one final owning cuDF copy/concatenation, using the same 16,777,216-row
-+  maximum. The adapter retains up to 2 GiB in CUDA's default memory pool between
++  maximum. The adapter retains up to 8 GiB in CUDA's default memory pool between
 +  synchronized reads. Dictionary-compressed arrays export as plain values.
 +  **No GPUDirect Storage.**
-+- Contexts are single-threaded, device 0. Caller stream/resource must outlive the
++- Contexts use device 0. Caller stream/resource must outlive the
 +  context and returned tables. Reads finish consumer work before releasing temporary
 +  inputs; release cleanup may remain queued on Vortex producer streams. Results outlive
 +  the context/file. See `vortex_io.hpp` for argument constraints.
@@ -4131,7 +4140,7 @@ index 0000000..b105d73
 +}  // namespace ndsh
 diff --git a/cpp/benchmarks/ndsh/vortex_io.hpp b/cpp/benchmarks/ndsh/vortex_io.hpp
 new file mode 100644
-index 0000000..1e02d26
+index 0000000..c834c3e
 --- /dev/null
 +++ b/cpp/benchmarks/ndsh/vortex_io.hpp
 @@ -0,0 +1,69 @@
@@ -4156,8 +4165,8 @@ index 0000000..1e02d26
 +namespace ndsh {
 +
 +/**
-+ * Single-threaded, device-0 I/O context reusing CUDA state and pinned staging.
-+ * Retains up to 2 GiB in CUDA's default memory pool between synchronized reads.
++ * Device-0 I/O context reusing CUDA state and pinned staging.
++ * Retains up to 8 GiB in CUDA's default memory pool between synchronized reads.
 + * Caller stream/resource must outlive this context and returned tables.
 + * Requires at least one flat, typed column; zero-row tables are supported.
 + */
