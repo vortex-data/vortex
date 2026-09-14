@@ -1,0 +1,149 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TTTTIIITRI
+SELECT *
+FROM
+  (SELECT i_category,
+          i_class,
+          i_brand,
+          i_product_name,
+          d_year,
+          d_qoy,
+          d_moy,
+          s_store_id,
+          sumsales,
+          rank() OVER (PARTITION BY i_category
+                       ORDER BY sumsales DESC) rk
+   FROM
+     (SELECT i_category,
+             i_class,
+             i_brand,
+             i_product_name,
+             d_year,
+             d_qoy,
+             d_moy,
+             s_store_id,
+             sum(coalesce(ss_sales_price*ss_quantity,0)) sumsales
+      FROM store_sales,
+           date_dim,
+           store,
+           item
+      WHERE ss_sold_date_sk=d_date_sk
+        AND ss_item_sk=i_item_sk
+        AND ss_store_sk = s_store_sk
+        AND d_month_seq BETWEEN 1200 AND 1200+11
+      GROUP BY rollup(i_category, i_class, i_brand, i_product_name, d_year, d_qoy, d_moy,s_store_id))dw1) dw2
+WHERE rk <= 100
+ORDER BY i_category NULLS FIRST,
+         i_class NULLS FIRST,
+         i_brand NULLS FIRST,
+         i_product_name NULLS FIRST,
+         d_year NULLS FIRST,
+         d_qoy NULLS FIRST,
+         d_moy NULLS FIRST,
+         s_store_id NULLS FIRST,
+         sumsales NULLS FIRST,
+         rk NULLS FIRST
+LIMIT 100;
+----
+NULL NULL NULL NULL NULL NULL NULL NULL 221552.22 2
+NULL NULL NULL NULL NULL NULL NULL NULL 221552.22 2
+NULL NULL NULL NULL NULL NULL NULL NULL 102550067.81 1
+NULL NULL brandmaxi #2 NULL NULL NULL NULL NULL 128802.28 4
+NULL NULL brandmaxi #2 oughteingought NULL NULL NULL NULL 128802.28 4
+NULL NULL brandmaxi #2 oughteingought 2000 NULL NULL NULL 128802.28 4
+NULL NULL brandmaxi #2 oughteingought 2000 1 NULL NULL 24355.03 15
+NULL NULL brandmaxi #2 oughteingought 2000 1 1 NULL 6940.53 50
+NULL NULL brandmaxi #2 oughteingought 2000 1 1 AAAAAAAABAAAAAAA 6940.53 50
+NULL NULL brandmaxi #2 oughteingought 2000 1 2 NULL 7035.06 48
+NULL NULL brandmaxi #2 oughteingought 2000 1 2 AAAAAAAABAAAAAAA 7035.06 48
+NULL NULL brandmaxi #2 oughteingought 2000 1 3 NULL 10379.44 30
+NULL NULL brandmaxi #2 oughteingought 2000 1 3 AAAAAAAABAAAAAAA 10379.44 30
+NULL NULL brandmaxi #2 oughteingought 2000 2 NULL NULL 14734.99 22
+NULL NULL brandmaxi #2 oughteingought 2000 2 4 NULL 2108.76 62
+NULL NULL brandmaxi #2 oughteingought 2000 2 4 AAAAAAAABAAAAAAA 2108.76 62
+NULL NULL brandmaxi #2 oughteingought 2000 2 5 NULL 5299.49 54
+NULL NULL brandmaxi #2 oughteingought 2000 2 5 AAAAAAAABAAAAAAA 5299.49 54
+NULL NULL brandmaxi #2 oughteingought 2000 2 6 NULL 7326.74 44
+NULL NULL brandmaxi #2 oughteingought 2000 2 6 AAAAAAAABAAAAAAA 7326.74 44
+NULL NULL brandmaxi #2 oughteingought 2000 3 NULL NULL 28868.56 14
+NULL NULL brandmaxi #2 oughteingought 2000 3 7 NULL 10565.05 26
+NULL NULL brandmaxi #2 oughteingought 2000 3 7 AAAAAAAABAAAAAAA 10565.05 26
+NULL NULL brandmaxi #2 oughteingought 2000 3 8 NULL 10350.85 32
+NULL NULL brandmaxi #2 oughteingought 2000 3 8 AAAAAAAABAAAAAAA 10350.85 32
+NULL NULL brandmaxi #2 oughteingought 2000 3 9 NULL 7952.66 42
+NULL NULL brandmaxi #2 oughteingought 2000 3 9 AAAAAAAABAAAAAAA 7952.66 42
+NULL NULL brandmaxi #2 oughteingought 2000 4 NULL NULL 60843.7 10
+NULL NULL brandmaxi #2 oughteingought 2000 4 10 NULL 15324.88 20
+NULL NULL brandmaxi #2 oughteingought 2000 4 10 AAAAAAAABAAAAAAA 15324.88 20
+NULL NULL brandmaxi #2 oughteingought 2000 4 11 NULL 35480.78 11
+NULL NULL brandmaxi #2 oughteingought 2000 4 11 AAAAAAAABAAAAAAA 35480.78 11
+NULL NULL brandmaxi #2 oughteingought 2000 4 12 NULL 10038.04 34
+NULL NULL brandmaxi #2 oughteingought 2000 4 12 AAAAAAAABAAAAAAA 10038.04 34
+NULL NULL exportischolar #2 NULL NULL NULL NULL NULL 92749.94 7
+NULL NULL exportischolar #2 prieingeseought NULL NULL NULL NULL 92749.94 7
+NULL NULL exportischolar #2 prieingeseought 2000 NULL NULL NULL 92749.94 7
+NULL NULL exportischolar #2 prieingeseought 2000 1 NULL NULL 24156.6 16
+NULL NULL exportischolar #2 prieingeseought 2000 1 1 NULL 10491.62 28
+NULL NULL exportischolar #2 prieingeseought 2000 1 1 AAAAAAAABAAAAAAA 10491.62 28
+NULL NULL exportischolar #2 prieingeseought 2000 1 2 NULL 3852.29 58
+NULL NULL exportischolar #2 prieingeseought 2000 1 2 AAAAAAAABAAAAAAA 3852.29 58
+NULL NULL exportischolar #2 prieingeseought 2000 1 3 NULL 9812.69 36
+NULL NULL exportischolar #2 prieingeseought 2000 1 3 AAAAAAAABAAAAAAA 9812.69 36
+NULL NULL exportischolar #2 prieingeseought 2000 2 NULL NULL 12996.74 23
+NULL NULL exportischolar #2 prieingeseought 2000 2 4 NULL 4093.23 56
+NULL NULL exportischolar #2 prieingeseought 2000 2 4 AAAAAAAABAAAAAAA 4093.23 56
+NULL NULL exportischolar #2 prieingeseought 2000 2 5 NULL 2118.51 60
+NULL NULL exportischolar #2 prieingeseought 2000 2 5 AAAAAAAABAAAAAAA 2118.51 60
+NULL NULL exportischolar #2 prieingeseought 2000 2 6 NULL 6785 52
+NULL NULL exportischolar #2 prieingeseought 2000 2 6 AAAAAAAABAAAAAAA 6785 52
+NULL NULL exportischolar #2 prieingeseought 2000 3 NULL NULL 22679.66 17
+NULL NULL exportischolar #2 prieingeseought 2000 3 7 NULL 1560.68 64
+NULL NULL exportischolar #2 prieingeseought 2000 3 7 AAAAAAAABAAAAAAA 1560.68 64
+NULL NULL exportischolar #2 prieingeseought 2000 3 8 NULL 8520.48 40
+NULL NULL exportischolar #2 prieingeseought 2000 3 8 AAAAAAAABAAAAAAA 8520.48 40
+NULL NULL exportischolar #2 prieingeseought 2000 3 9 NULL 12598.5 24
+NULL NULL exportischolar #2 prieingeseought 2000 3 9 AAAAAAAABAAAAAAA 12598.5 24
+NULL NULL exportischolar #2 prieingeseought 2000 4 NULL NULL 32916.94 13
+NULL NULL exportischolar #2 prieingeseought 2000 4 10 NULL 8794.42 38
+NULL NULL exportischolar #2 prieingeseought 2000 4 10 AAAAAAAABAAAAAAA 8794.42 38
+NULL NULL exportischolar #2 prieingeseought 2000 4 11 NULL 7104.48 46
+NULL NULL exportischolar #2 prieingeseought 2000 4 11 AAAAAAAABAAAAAAA 7104.48 46
+NULL NULL exportischolar #2 prieingeseought 2000 4 12 NULL 17018.04 18
+NULL NULL exportischolar #2 prieingeseought 2000 4 12 AAAAAAAABAAAAAAA 17018.04 18
+Books NULL NULL NULL NULL NULL NULL NULL 154336.53 50
+Books NULL NULL NULL NULL NULL NULL NULL 11241291.75 1
+Books NULL corpunivamalg #3 NULL NULL NULL NULL NULL 154336.53 50
+Books NULL corpunivamalg #3 esen stcallyought NULL NULL NULL NULL 154336.53 50
+Books NULL corpunivamalg #3 esen stcallyought 2000 NULL NULL NULL 154336.53 50
+Books arts NULL NULL NULL NULL NULL NULL 656854.9 8
+Books arts amalgmaxi #12 NULL NULL NULL NULL NULL 329816.74 25
+Books arts amalgmaxi #12 oughtpriation NULL NULL NULL NULL 139217.84 78
+Books arts amalgmaxi #12 oughtpriation 2000 NULL NULL NULL 139217.84 78
+Books arts amalgmaxi #3 NULL NULL NULL NULL NULL 140692.55 73
+Books arts amalgmaxi #3 ablecallypri NULL NULL NULL NULL 140692.55 73
+Books arts amalgmaxi #3 ablecallypri 2000 NULL NULL NULL 140692.55 73
+Books business NULL NULL NULL NULL NULL NULL 473439.3 16
+Books business importomaxi #8 NULL NULL NULL NULL NULL 152234.8 56
+Books business importomaxi #8 n stpripriought NULL NULL NULL NULL 152234.8 56
+Books business importomaxi #8 n stpripriought 2000 NULL NULL NULL 152234.8 56
+Books business importomaxi #9 NULL NULL NULL NULL NULL 230646.96 35
+Books business importomaxi #9 eseesecally NULL NULL NULL NULL 137808.86 82
+Books business importomaxi #9 eseesecally 2000 NULL NULL NULL 137808.86 82
+Books computers NULL NULL NULL NULL NULL NULL 596733.76 10
+Books computers exportimaxi #2 NULL NULL NULL NULL NULL 151801.34 59
+Books computers exportimaxi #2 prin stbarought NULL NULL NULL NULL 151801.34 59
+Books computers exportimaxi #2 prin stbarought 2000 NULL NULL NULL 151801.34 59
+Books computers exportimaxi #3 NULL NULL NULL NULL NULL 222162.64 38
+Books cooking NULL NULL NULL NULL NULL NULL 569982.86 11
+Books cooking amalgunivamalg #12 NULL NULL NULL NULL NULL 242089.84 34
+Books entertainments NULL NULL NULL NULL NULL NULL 697513.29 6
+Books entertainments edu packmaxi #12 NULL NULL NULL NULL NULL 338643.39 23
+Books entertainments edu packmaxi #3 NULL NULL NULL NULL NULL 228878.6 36
+Books fiction NULL NULL NULL NULL NULL NULL 1137699.54 3
+Books fiction scholarunivamalg #2 NULL NULL NULL NULL NULL 280625.61 27
+Books fiction scholarunivamalg #2 n stableeing NULL NULL NULL NULL 163385.42 45
+Books fiction scholarunivamalg #2 n stableeing 2000 NULL NULL NULL 163385.42 45
+Books fiction scholarunivamalg #3 NULL NULL NULL NULL NULL 173187.96 42
+Books fiction scholarunivamalg #3 callyesepriought NULL NULL NULL NULL 173187.96 42
