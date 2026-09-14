@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
-"""Offline CMake regression tests; run with python3 -B path/to/test_build_integration.py."""
+"""Offline CMake/source regression tests; run with python3 -B path/to/test_build_integration.py."""
 
+import re
 import shutil
 import subprocess
 import tempfile
@@ -383,6 +384,115 @@ class BuildIntegrationTests(unittest.TestCase):
         self.assertRegex(module, r"(?m)^\s*GIT_TAG bffdca1109e99e6957ea2fc18f4a7809c88e0a0c\s*$")
         self.assertRegex(module, r"(?m)^\s*GIT_REPOSITORY https://github.com/vortex-data/vortex\.git\s*$")
         self.assertRegex(module, r"(?m)^\s*GIT_SHALLOW FALSE\s*$")
+
+
+class BenchmarkSourceTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # Inspect post-image hunk text, not removed lines or the ignored development checkout.
+        # The local benchmark functions and adapter are added in full by the cumulative patch.
+        cls.sources = {}
+        for section in PATCH.read_text(encoding="utf-8").split("diff --git ")[1:]:
+            _, separator, post_image = section.partition("\n+++ b/")
+            if separator:
+                path, _, hunks = post_image.partition("\n")
+                cls.sources[Path(path)] = "\n".join(
+                    line[1:] for line in hunks.splitlines() if line.startswith(("+", " "))
+                )
+
+    def source(self, path):
+        self.assertIn(path, self.sources, f"Patch is missing {path}")
+        return " ".join(self.sources[path].split())
+
+    def require_match(self, source, pattern):
+        match = re.search(pattern, source)
+        self.assertIsNotNone(match, f"Missing source pattern: {pattern}")
+        return match
+
+    def test_local_benchmark_names_and_axes(self):
+        for query in (1, 5, 6, 9, 10):
+            with self.subTest(query=query):
+                source = self.source(MODULE.with_name(f"q{query:02}.cpp"))
+                name = f"ndsh_q{query}_local"
+                registration = self.require_match(source, rf"NVBENCH_BENCH\({name}\)([^;]+);").group(1)
+                self.assertIn(f'.set_name("{name}")', registration)
+                self.assertNotIn(f"{name}_warm", source)
+                scales = self.require_match(registration, r'add_float64_axis\("scale_factor", \{([^}]+)\}\)')
+                self.assertIn(10.0, [float(value) for value in scales.group(1).split(",")])
+                axes = {
+                    axis: set(re.findall(r'"([^"]+)"', values))
+                    for axis, values in re.findall(r'add_string_axis\("([^"]+)", \{([^}]+)\}\)', registration)
+                }
+                self.assertEqual(axes.get("cache"), {"warm", "cold"})
+                self.assertEqual(axes.get("format"), {"parquet", "vortex"})
+                self.assertEqual(axes.get("workload"), {"read", f"q{query}"})
+                if query == 9:
+                    # This is the existing generic cuDF transform mode, not a custom query kernel.
+                    self.assertEqual(axes.get("engine"), {"binaryop", "ast", "transform"})
+
+    def test_cache_preparation_precedes_each_manual_timer(self):
+        for query in (1, 5, 6, 9, 10):
+            with self.subTest(query=query):
+                source = self.source(MODULE.with_name(f"q{query:02}.cpp"))
+                local = self.require_match(source, rf"void ndsh_q{query}_local\([^)]*\) \{{(.*)").group(1)
+                self.require_match(local, r'cold = ndsh::use_cold_cache\(state.get_string\("cache"\)\)')
+                self.require_match(local, r"ndsh::read_local_file\([^;]+, cold\)")
+                self.require_match(local, r"if \(!cold\) \{ auto warmup =")
+                execution = self.require_match(local, r"state.exec\((.*?)timer.stop\(\);").group(1)
+                self.assertIn("nvbench::exec_tag::sync | nvbench::exec_tag::timer", execution)
+                eviction = self.require_match(
+                    execution, r"if \(cold\) \{ ndsh::evict_file_pages\((.*?)\); \} timer.start\(\);"
+                )
+                paths = "{files.path(use_vortex)}" if query in (1, 6) else "files.tables.paths(use_vortex)"
+                self.assertEqual(eviction.group(1), paths)
+                timed = execution.split("timer.start();", 1)[1]
+                self.assertNotIn("evict_file_pages", timed)
+                self.assertIn(f"execute_q{query}(", timed)
+                self.assertIn("cudaDeviceSynchronize()", timed)
+
+    def test_per_file_eviction_verifies_no_resident_pages(self):
+        source = self.source(MODULE.with_name("local_io.hpp"))
+        self.require_match(source, r'CUDF_EXPECTS\(cache == "warm" \|\| cache == "cold",')
+        self.assertIn('return cache == "cold";', source)
+        self.require_match(
+            source,
+            r"for \([^)]*: paths\) \{ kvikio::drop_file_page_cache\(path\); \} "
+            r"for \([^)]*: paths\) \{ auto const resident_pages = kvikio::get_page_cache_info\(path\).first; "
+            r"CUDF_EXPECTS\(resident_pages == 0,",
+        )
+
+    def test_direct_io_is_opt_in_for_vortex_only(self):
+        local = self.source(MODULE.with_name("local_io.hpp"))
+        self.assertIn("bool direct_io = false", self.source(IO.with_suffix(".hpp")))
+        self.assertIn("bool direct_io = false", local)
+        self.require_match(
+            local, r"if \(!use_vortex\) \{ return read_parquet\(cudf::io::source_info\{path\}, columns\); \}"
+        )
+        self.require_match(local, r"io.read_vortex\(path, [^,]+, columns, direct_io\)")
+        self.require_match(
+            self.source(IO),
+            r"options.flags = VX_CUDA_SCAN_FLAG_DECODE_DICTIONARIES "
+            r"\| \(direct_io \? VX_CUDA_SCAN_FLAG_DIRECT_IO : 0\);",
+        )
+
+    def test_plain_dictionary_decoded_import_is_preserved(self):
+        source = self.source(IO)
+        self.require_match(source, r"options.flags = VX_CUDA_SCAN_FLAG_DECODE_DICTIONARIES\b")
+        self.assertIn("vx_cuda_scan_path_arrow_device_stream_projected(", source)
+        self.assertIn("cudf::from_arrow_device(", source)
+        self.require_match(
+            source, r"if \(column.type\(\).id\(\) == cudf::type_id::DICTIONARY32\) \{ throw std::runtime_error\("
+        )
+
+    def test_no_query_specific_kernels(self):
+        for path, source in self.sources.items():
+            if path.parent != MODULE.parent and path != MODULE.parent.parent / "CMakeLists.txt":
+                continue
+            with self.subTest(path=path):
+                self.assertNotIn("q1_fused", str(path))
+                if path.suffix in (".cpp", ".hpp", ".cu", ".cuh", ".cmake", ".txt"):
+                    self.assertNotIn("q1_fused", source)
+                    self.assertNotRegex(source, r"\b__global__\b|<<<")
 
 
 if __name__ == "__main__":

@@ -639,10 +639,10 @@ index 0000000..92729bb
 +  For profiling, use `RelWithDebInfo` and optionally `NVCC_APPEND_FLAGS=-lineinfo`.
 diff --git a/cpp/benchmarks/ndsh/local_io.hpp b/cpp/benchmarks/ndsh/local_io.hpp
 new file mode 100644
-index 0000000..6a3a7da
+index 0000000..baaf7c0
 --- /dev/null
 +++ b/cpp/benchmarks/ndsh/local_io.hpp
-@@ -0,0 +1,94 @@
+@@ -0,0 +1,125 @@
 +/*
 + * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 + * SPDX-License-Identifier: Apache-2.0
@@ -657,6 +657,8 @@ index 0000000..6a3a7da
 +#include <cudf/binaryop.hpp>
 +#include <cudf/reduction.hpp>
 +#include <cudf/scalar/scalar.hpp>
++
++#include <kvikio/file_utils.hpp>
 +
 +#include <cstdint>
 +#include <filesystem>
@@ -695,6 +697,16 @@ index 0000000..6a3a7da
 +    return total;
 +  }
 +
++  std::vector<std::string> paths(bool use_vortex) const
++  {
++    std::vector<std::string> result;
++    result.reserve(files_.size());
++    for (auto const& [name, files] : files_) {
++      result.push_back(use_vortex ? files.second : files.first);
++    }
++    return result;
++  }
++
 + private:
 +  temp_directory directory_{"ndsh_local"};
 +  std::map<std::string, std::pair<std::string, std::string>> files_;
@@ -703,15 +715,34 @@ index 0000000..6a3a7da
 +inline std::unique_ptr<table_with_names> read_local_file(std::string const& path,
 +                                                         bool use_vortex,
 +                                                         vortex_io const& io,
-+                                                         std::vector<std::string> const& columns)
++                                                         std::vector<std::string> const& columns,
++                                                         bool direct_io = false)
 +{
 +  if (!use_vortex) { return read_parquet(cudf::io::source_info{path}, columns); }
-+  auto result = io.read_vortex(path, 16 << 20, columns);
++  auto result = io.read_vortex(path, 16 << 20, columns, direct_io);
 +  std::vector<std::string> names;
 +  for (auto const& field : result.metadata.schema_info) {
 +    names.push_back(field.name);
 +  }
 +  return std::make_unique<table_with_names>(std::move(result.tbl), std::move(names));
++}
++
++inline bool use_cold_cache(std::string const& cache)
++{
++  CUDF_EXPECTS(cache == "warm" || cache == "cold", "Unknown cache mode");
++  return cache == "cold";
++}
++
++inline void evict_file_pages(std::vector<std::string> const& paths)
++{
++  CUDF_EXPECTS(!paths.empty(), "Cold-cache benchmark requires at least one input file");
++  for (auto const& path : paths) {
++    kvikio::drop_file_page_cache(path);
++  }
++  for (auto const& path : paths) {
++    auto const resident_pages = kvikio::get_page_cache_info(path).first;
++    CUDF_EXPECTS(resident_pages == 0, "Input pages remain cached after eviction: " + path);
++  }
 +}
 +
 +inline void check_projection(cudf::table_view expected,
@@ -738,7 +769,7 @@ index 0000000..6a3a7da
 +}
 +}  // namespace ndsh
 diff --git a/cpp/benchmarks/ndsh/q01.cpp b/cpp/benchmarks/ndsh/q01.cpp
-index 4eec239..b01cb35 100644
+index 4eec239..97f4e3c 100644
 --- a/cpp/benchmarks/ndsh/q01.cpp
 +++ b/cpp/benchmarks/ndsh/q01.cpp
 @@ -6,16 +6,43 @@
@@ -791,7 +822,18 @@ index 4eec239..b01cb35 100644
  
 -void run_ndsh_q1(nvbench::state& state, cudf::io::source_info const& source)
 +std::unique_ptr<table_with_names> aggregate_q1_sums(std::unique_ptr<table_with_names> lineitem)
-+{
+ {
+-  // Define the column projections and filter predicate for `lineitem` table
+-  std::vector<std::string> const lineitem_cols = {"l_returnflag",
+-                                                  "l_linestatus",
+-                                                  "l_quantity",
+-                                                  "l_extendedprice",
+-                                                  "l_discount",
+-                                                  "l_shipdate",
+-                                                  "l_orderkey",
+-                                                  "l_tax"};
+-  auto const shipdate_ref                      = cudf::ast::column_reference(std::distance(
+-    lineitem_cols.begin(), std::find(lineitem_cols.begin(), lineitem_cols.end(), "l_shipdate")));
 +  auto disc_price =
 +    calculate_disc_price(lineitem->column("l_discount"), lineitem->column("l_extendedprice"));
 +  auto charge = calculate_charge(lineitem->column("l_tax"), disc_price->view());
@@ -812,18 +854,7 @@ index 4eec239..b01cb35 100644
 +
 +std::unique_ptr<table_with_names> finalize_q1_sums(
 +  std::unique_ptr<table_with_names> const& groupedby_table)
- {
--  // Define the column projections and filter predicate for `lineitem` table
--  std::vector<std::string> const lineitem_cols = {"l_returnflag",
--                                                  "l_linestatus",
--                                                  "l_quantity",
--                                                  "l_extendedprice",
--                                                  "l_discount",
--                                                  "l_shipdate",
--                                                  "l_orderkey",
--                                                  "l_tax"};
--  auto const shipdate_ref                      = cudf::ast::column_reference(std::distance(
--    lineitem_cols.begin(), std::find(lineitem_cols.begin(), lineitem_cols.end(), "l_shipdate")));
++{
 +  auto average = [&](std::string const& sum) {
 +    return cudf::binary_operation(groupedby_table->column(sum),
 +                                  groupedby_table->column("count_order"),
@@ -930,7 +961,7 @@ index 4eec239..b01cb35 100644
    state.set_cuda_stream(nvbench::make_cuda_stream_view(stream.get()));
    auto const mem_stats_logger = cudf::memory_stats_logger();
    state.exec(nvbench::exec_tag::sync, [&](nvbench::launch& launch) { run_ndsh_q1(state, source); });
-@@ -186,3 +232,151 @@ NVBENCH_BENCH(ndsh_q1)
+@@ -186,3 +232,162 @@ NVBENCH_BENCH(ndsh_q1)
    .set_name("ndsh_q1")
    .add_string_axis("filename", {""})
    .add_float64_axis("scale_factor", {0.01, 0.1, 1});
@@ -1035,6 +1066,7 @@ index 4eec239..b01cb35 100644
 +{
 +  auto const format   = state.get_string("format");
 +  auto const workload = state.get_string("workload");
++  auto const cold     = ndsh::use_cold_cache(state.get_string("cache"));
 +  CUDF_EXPECTS(format == "parquet" || format == "vortex", "Unknown Q1 format");
 +  CUDF_EXPECTS(workload == "read" || workload == "q1", "Unknown Q1 workload");
 +  auto const use_vortex         = format == "vortex";
@@ -1044,25 +1076,34 @@ index 4eec239..b01cb35 100644
 +  auto const memory = cudf::memory_stats_logger();
 +  ndsh::vortex_io io{stream.get()};
 +  auto read = [&] {
-+    return ndsh::read_local_file(files.path(use_vortex), use_vortex, io, q1_columns);
++    return ndsh::read_local_file(files.path(use_vortex), use_vortex, io, q1_columns, cold);
 +  };
-+  // Warm only the selected reader and page cache outside timed execution.
-+  {
++
++  if (!cold) {
 +    auto warmup = read();
-+  }
-+  CUDF_CUDA_TRY(cudaDeviceSynchronize());
-+  state.add_element_count(files.rows, "Rows");
-+  state.exec(nvbench::exec_tag::sync, [&](nvbench::launch&) {
-+    cudf::benchmark::scoped_range timed_range{"ndsh_q1_local_timed"};
-+    {
-+      auto result = workload == "read"
-+                      ? read()
-+                      : execute_q1([&](auto const&, auto const&) { return read(); }, true);
-+      CUDF_CUDA_TRY(cudaStreamSynchronize(stream.get()));
-+    }
-+    // Include result cleanup on independent Vortex producer streams, for both formats.
 +    CUDF_CUDA_TRY(cudaDeviceSynchronize());
-+  });
++  }
++  if (workload == "q1") {
++    auto result = execute_q1([&](auto const&, auto const&) { return read(); }, true);
++    ndsh::check_q1_result(files.reference, *result, stream);
++    CUDF_CUDA_TRY(cudaDeviceSynchronize());
++  }
++  state.add_element_count(files.rows, "Rows");
++  state.exec(
++    nvbench::exec_tag::sync | nvbench::exec_tag::timer, [&](nvbench::launch&, auto& timer) {
++      if (cold) { ndsh::evict_file_pages({files.path(use_vortex)}); }
++      timer.start();
++      {
++        cudf::benchmark::scoped_range timed_range{"ndsh_q1_local_timed"};
++        auto result = workload == "read"
++                        ? read()
++                        : execute_q1([&](auto const&, auto const&) { return read(); }, true);
++        CUDF_CUDA_TRY(cudaStreamSynchronize(stream.get()));
++      }
++      // Include result cleanup on independent Vortex producer streams, for both formats.
++      CUDF_CUDA_TRY(cudaDeviceSynchronize());
++      timer.stop();
++    });
 +  state.add_buffer_size(
 +    std::filesystem::file_size(files.path(use_vortex)), "file_size", "File size");
 +  state.add_buffer_size(memory.peak_memory_usage(), "rmm_peak", "RMM peak (excludes Vortex)");
@@ -1077,13 +1118,14 @@ index 4eec239..b01cb35 100644
 +}  // namespace
 +
 +NVBENCH_BENCH(ndsh_q1_local)
-+  .set_name("ndsh_q1_local_warm")
-+  .add_float64_axis("scale_factor", {0.01, 0.1, 1})
++  .set_name("ndsh_q1_local")
++  .add_float64_axis("scale_factor", {0.01, 0.1, 1, 10})
 +  .add_string_axis("format", {"parquet", "vortex"})
-+  .add_string_axis("workload", {"read", "q1"});
++  .add_string_axis("workload", {"read", "q1"})
++  .add_string_axis("cache", {"warm", "cold"});
 +#endif
 diff --git a/cpp/benchmarks/ndsh/q05.cpp b/cpp/benchmarks/ndsh/q05.cpp
-index 11141be..08ab236 100644
+index 11141be..b1e9686 100644
 --- a/cpp/benchmarks/ndsh/q05.cpp
 +++ b/cpp/benchmarks/ndsh/q05.cpp
 @@ -15,6 +15,21 @@
@@ -1218,7 +1260,7 @@ index 11141be..08ab236 100644
    state.set_cuda_stream(nvbench::make_cuda_stream_view(stream.get()));
    auto const mem_stats_logger = cudf::memory_stats_logger();
    state.exec(nvbench::exec_tag::sync,
-@@ -170,3 +224,222 @@ void ndsh_q5(nvbench::state& state)
+@@ -170,3 +224,228 @@ void ndsh_q5(nvbench::state& state)
  }
  
  NVBENCH_BENCH(ndsh_q5).set_name("ndsh_q5").add_float64_axis("scale_factor", {0.01, 0.1, 1});
@@ -1393,6 +1435,7 @@ index 11141be..08ab236 100644
 +{
 +  auto const format   = state.get_string("format");
 +  auto const workload = state.get_string("workload");
++  auto const cold     = ndsh::use_cold_cache(state.get_string("cache"));
 +  CUDF_EXPECTS(format == "parquet" || format == "vortex", "Unknown Q5 format");
 +  CUDF_EXPECTS(workload == "read" || workload == "q5", "Unknown Q5 workload");
 +  auto const use_vortex         = format == "vortex";
@@ -1404,25 +1447,29 @@ index 11141be..08ab236 100644
 +  auto read = [&](std::string const& name,
 +                  std::vector<std::string> const& columns,
 +                  std::unique_ptr<cudf::ast::operation> const&) {
-+    return ndsh::read_local_file(files.tables.path(name, use_vortex), use_vortex, io, columns);
++    return ndsh::read_local_file(
++      files.tables.path(name, use_vortex), use_vortex, io, columns, cold);
 +  };
-+  // Warm all six selected-format reads, retaining the same inputs as query entry.
-+  {
++  if (!cold) {
 +    auto warmup = read_q5_tables(read);
-+  }
-+  CUDF_CUDA_TRY(cudaDeviceSynchronize());
-+  state.add_element_count(files.tables.rows, "Rows");
-+  state.exec(nvbench::exec_tag::sync, [&](nvbench::launch&) {
-+    if (workload == "read") {
-+      auto inputs = read_q5_tables(read);
-+      CUDF_CUDA_TRY(cudaStreamSynchronize(stream.get()));
-+    } else {
-+      auto result = execute_q5(read, true, true);
-+      CUDF_CUDA_TRY(cudaStreamSynchronize(stream.get()));
-+    }
-+    // Include destruction on independent Vortex producer streams, for both formats.
 +    CUDF_CUDA_TRY(cudaDeviceSynchronize());
-+  });
++  }
++  state.add_element_count(files.tables.rows, "Rows");
++  state.exec(nvbench::exec_tag::sync | nvbench::exec_tag::timer,
++             [&](nvbench::launch&, auto& timer) {
++               if (cold) { ndsh::evict_file_pages(files.tables.paths(use_vortex)); }
++               timer.start();
++               if (workload == "read") {
++                 auto inputs = read_q5_tables(read);
++                 CUDF_CUDA_TRY(cudaStreamSynchronize(stream.get()));
++               } else {
++                 auto result = execute_q5(read, true, true);
++                 CUDF_CUDA_TRY(cudaStreamSynchronize(stream.get()));
++               }
++               // Include destruction on independent Vortex producer streams, for both formats.
++               CUDF_CUDA_TRY(cudaDeviceSynchronize());
++               timer.stop();
++             });
 +  state.add_buffer_size(files.tables.bytes(use_vortex), "file_size", "Total file size");
 +  state.add_buffer_size(memory.peak_memory_usage(), "rmm_peak", "RMM peak (excludes Vortex)");
 +  auto& matched = state.add_summary("ndsh/q5/matched_rows");
@@ -1436,13 +1483,14 @@ index 11141be..08ab236 100644
 +}  // namespace
 +
 +NVBENCH_BENCH(ndsh_q5_local)
-+  .set_name("ndsh_q5_local_warm")
-+  .add_float64_axis("scale_factor", {0.01, 0.1, 1})
++  .set_name("ndsh_q5_local")
++  .add_float64_axis("scale_factor", {0.01, 0.1, 1, 10})
 +  .add_string_axis("format", {"parquet", "vortex"})
-+  .add_string_axis("workload", {"read", "q5"});
++  .add_string_axis("workload", {"read", "q5"})
++  .add_string_axis("cache", {"warm", "cold"});
 +#endif
 diff --git a/cpp/benchmarks/ndsh/q06.cpp b/cpp/benchmarks/ndsh/q06.cpp
-index c152871..6422849 100644
+index c152871..1b1eaca 100644
 --- a/cpp/benchmarks/ndsh/q06.cpp
 +++ b/cpp/benchmarks/ndsh/q06.cpp
 @@ -16,6 +16,26 @@
@@ -1531,7 +1579,7 @@ index c152871..6422849 100644
    state.set_cuda_stream(nvbench::make_cuda_stream_view(stream.get()));
    auto const mem_stats_logger = cudf::memory_stats_logger();
    state.exec(nvbench::exec_tag::sync,
-@@ -138,3 +161,135 @@ void ndsh_q6(nvbench::state& state)
+@@ -138,3 +161,140 @@ void ndsh_q6(nvbench::state& state)
  }
  
  NVBENCH_BENCH(ndsh_q6).set_name("ndsh_q6").add_float64_axis("scale_factor", {0.01, 0.1, 1});
@@ -1621,6 +1669,7 @@ index c152871..6422849 100644
 +{
 +  auto const format   = state.get_string("format");
 +  auto const workload = state.get_string("workload");
++  auto const cold     = ndsh::use_cold_cache(state.get_string("cache"));
 +  CUDF_EXPECTS(format == "parquet" || format == "vortex", "Unknown Q6 format");
 +  CUDF_EXPECTS(workload == "read" || workload == "q6", "Unknown Q6 workload");
 +  auto const use_vortex         = format == "vortex";
@@ -1630,24 +1679,27 @@ index c152871..6422849 100644
 +  auto const memory = cudf::memory_stats_logger();
 +  ndsh::vortex_io io{stream.get()};
 +  auto read = [&] {
-+    return ndsh::read_local_file(files.path(use_vortex), use_vortex, io, q6_columns);
++    return ndsh::read_local_file(files.path(use_vortex), use_vortex, io, q6_columns, cold);
 +  };
-+  // Warm the selected reader and OS page cache; this is not a cold-storage benchmark.
-+  {
++  if (!cold) {
 +    auto warmup = read();
-+  }
-+  CUDF_CUDA_TRY(cudaDeviceSynchronize());
-+  state.add_element_count(files.rows, "Rows");
-+  state.exec(nvbench::exec_tag::sync, [&](nvbench::launch&) {
-+    {
-+      auto result = workload == "read"
-+                      ? read()
-+                      : execute_q6([&](auto const&, auto const&) { return read(); }, true);
-+      CUDF_CUDA_TRY(cudaStreamSynchronize(stream.get()));
-+    }
-+    // Include cleanup queued on Vortex's independent producer streams, for both formats.
 +    CUDF_CUDA_TRY(cudaDeviceSynchronize());
-+  });
++  }
++  state.add_element_count(files.rows, "Rows");
++  state.exec(
++    nvbench::exec_tag::sync | nvbench::exec_tag::timer, [&](nvbench::launch&, auto& timer) {
++      if (cold) { ndsh::evict_file_pages({files.path(use_vortex)}); }
++      timer.start();
++      {
++        auto result = workload == "read"
++                        ? read()
++                        : execute_q6([&](auto const&, auto const&) { return read(); }, true);
++        CUDF_CUDA_TRY(cudaStreamSynchronize(stream.get()));
++      }
++      // Include cleanup queued on Vortex's independent producer streams, for both formats.
++      CUDF_CUDA_TRY(cudaDeviceSynchronize());
++      timer.stop();
++    });
 +  state.add_buffer_size(
 +    std::filesystem::file_size(files.path(use_vortex)), "file_size", "File size");
 +  state.add_buffer_size(memory.peak_memory_usage(), "rmm_peak", "RMM peak (excludes Vortex)");
@@ -1662,13 +1714,14 @@ index c152871..6422849 100644
 +}  // namespace
 +
 +NVBENCH_BENCH(ndsh_q6_local)
-+  .set_name("ndsh_q6_local_warm")
-+  .add_float64_axis("scale_factor", {0.01, 0.1, 1})
++  .set_name("ndsh_q6_local")
++  .add_float64_axis("scale_factor", {0.01, 0.1, 1, 10})
 +  .add_string_axis("format", {"parquet", "vortex"})
-+  .add_string_axis("workload", {"read", "q6"});
++  .add_string_axis("workload", {"read", "q6"})
++  .add_string_axis("cache", {"warm", "cold"});
 +#endif
 diff --git a/cpp/benchmarks/ndsh/q09.cpp b/cpp/benchmarks/ndsh/q09.cpp
-index 3fd1aa6..ade3ca4 100644
+index 3fd1aa6..0526abc 100644
 --- a/cpp/benchmarks/ndsh/q09.cpp
 +++ b/cpp/benchmarks/ndsh/q09.cpp
 @@ -20,7 +20,21 @@
@@ -1855,7 +1908,7 @@ index 3fd1aa6..ade3ca4 100644
  
    q9_data const data      = load_data(sources);
    auto const joined_table = join_data(data);
-@@ -404,3 +451,185 @@ NVBENCH_BENCH(ndsh_q9_amount)
+@@ -404,3 +451,192 @@ NVBENCH_BENCH(ndsh_q9_amount)
    .set_name("ndsh_q9_amount")
    .add_float64_axis("scale_factor", {0.01, 0.1, 1})
    .add_string_axis("engine", {"binaryop", "ast", "transform"});
@@ -1994,6 +2047,7 @@ index 3fd1aa6..ade3ca4 100644
 +  auto const format   = state.get_string("format");
 +  auto const workload = state.get_string("workload");
 +  auto const engine   = engine_from_string(state.get_string("engine"));
++  auto const cold     = ndsh::use_cold_cache(state.get_string("cache"));
 +  CUDF_EXPECTS(format == "parquet" || format == "vortex", "Unknown Q9 format");
 +  CUDF_EXPECTS(workload == "read" || workload == "q9", "Unknown Q9 workload");
 +  auto const use_vortex         = format == "vortex";
@@ -2003,25 +2057,30 @@ index 3fd1aa6..ade3ca4 100644
 +  auto const memory = cudf::memory_stats_logger();
 +  ndsh::vortex_io io{stream.get()};
 +  auto read = [&](std::string const& name, std::vector<std::string> const& columns) {
-+    return ndsh::read_local_file(files.tables.path(name, use_vortex), use_vortex, io, columns);
++    return ndsh::read_local_file(
++      files.tables.path(name, use_vortex), use_vortex, io, columns, cold);
 +  };
-+  // Warm all six selected-format projected reads; query validation above also warms each engine.
-+  {
-+    auto warmup = load_data(read);
-+  }
-+  CUDF_CUDA_TRY(cudaDeviceSynchronize());
-+  state.add_element_count(files.tables.rows, "Rows");
-+  state.exec(nvbench::exec_tag::sync, [&](nvbench::launch&) {
-+    if (workload == "read") {
-+      auto inputs = load_data(read);
-+      CUDF_CUDA_TRY(cudaStreamSynchronize(stream.get()));
-+    } else {
-+      auto result = execute_q9(engine, read, stream, cudf::get_current_device_resource_ref(), true);
-+      CUDF_CUDA_TRY(cudaStreamSynchronize(stream.get()));
-+    }
-+    // Include destruction on independent Vortex producer streams, for both formats.
++  if (!cold) {
++    auto warmup = load_data(read, true);
 +    CUDF_CUDA_TRY(cudaDeviceSynchronize());
-+  });
++  }
++  state.add_element_count(files.tables.rows, "Rows");
++  state.exec(nvbench::exec_tag::sync | nvbench::exec_tag::timer,
++             [&](nvbench::launch&, auto& timer) {
++               if (cold) { ndsh::evict_file_pages(files.tables.paths(use_vortex)); }
++               timer.start();
++               if (workload == "read") {
++                 auto inputs = load_data(read, true);
++                 CUDF_CUDA_TRY(cudaStreamSynchronize(stream.get()));
++               } else {
++                 auto result =
++                   execute_q9(engine, read, stream, cudf::get_current_device_resource_ref(), true);
++                 CUDF_CUDA_TRY(cudaStreamSynchronize(stream.get()));
++               }
++               // Include destruction on independent Vortex producer streams, for both formats.
++               CUDF_CUDA_TRY(cudaDeviceSynchronize());
++               timer.stop();
++             });
 +  state.add_buffer_size(files.tables.bytes(use_vortex), "file_size", "Total file size");
 +  state.add_buffer_size(memory.peak_memory_usage(), "rmm_peak", "RMM peak (excludes Vortex)");
 +  auto& matched = state.add_summary("ndsh/q9/matched_rows");
@@ -2035,14 +2094,15 @@ index 3fd1aa6..ade3ca4 100644
 +}  // namespace
 +
 +NVBENCH_BENCH(ndsh_q9_local)
-+  .set_name("ndsh_q9_local_warm")
-+  .add_float64_axis("scale_factor", {0.01, 0.1, 1})
++  .set_name("ndsh_q9_local")
++  .add_float64_axis("scale_factor", {0.01, 0.1, 1, 10})
 +  .add_string_axis("format", {"parquet", "vortex"})
 +  .add_string_axis("workload", {"read", "q9"})
-+  .add_string_axis("engine", {"binaryop", "ast", "transform"});
++  .add_string_axis("engine", {"binaryop", "ast", "transform"})
++  .add_string_axis("cache", {"warm", "cold"});
 +#endif
 diff --git a/cpp/benchmarks/ndsh/q10.cpp b/cpp/benchmarks/ndsh/q10.cpp
-index 16f63ce..7adf7d0 100644
+index 16f63ce..9e5a1e6 100644
 --- a/cpp/benchmarks/ndsh/q10.cpp
 +++ b/cpp/benchmarks/ndsh/q10.cpp
 @@ -6,6 +6,7 @@
@@ -2201,7 +2261,7 @@ index 16f63ce..7adf7d0 100644
  
    auto stream = cudf::get_default_stream();
    state.set_cuda_stream(nvbench::make_cuda_stream_view(stream.get()));
-@@ -169,3 +234,248 @@ void ndsh_q10(nvbench::state& state)
+@@ -169,3 +234,256 @@ void ndsh_q10(nvbench::state& state)
  }
  
  NVBENCH_BENCH(ndsh_q10).set_name("ndsh_q10").add_float64_axis("scale_factor", {0.01, 0.1, 1});
@@ -2401,6 +2461,7 @@ index 16f63ce..7adf7d0 100644
 +{
 +  auto const format   = state.get_string("format");
 +  auto const workload = state.get_string("workload");
++  auto const cold     = ndsh::use_cold_cache(state.get_string("cache"));
 +  CUDF_EXPECTS(format == "parquet" || format == "vortex", "Unknown Q10 format");
 +  CUDF_EXPECTS(workload == "read" || workload == "q10", "Unknown Q10 workload");
 +  auto const use_vortex         = format == "vortex";
@@ -2412,26 +2473,32 @@ index 16f63ce..7adf7d0 100644
 +  auto read = [&](std::string const& name,
 +                  std::vector<std::string> const& columns,
 +                  std::unique_ptr<cudf::ast::operation> const&) {
-+    return ndsh::read_local_file(files.tables.path(name, use_vortex), use_vortex, io, columns);
++    return ndsh::read_local_file(
++      files.tables.path(name, use_vortex), use_vortex, io, columns, cold);
 +  };
-+  // Warm all four selected-format projected reads; fixture setup validates the query result.
-+  {
++  if (!cold) {
 +    auto warmup = read_q10_tables(read);
-+  }
-+  CUDF_CUDA_TRY(cudaDeviceSynchronize());
-+  state.add_element_count(files.tables.rows, "Rows");
-+  state.exec(nvbench::exec_tag::sync, [&](nvbench::launch&) {
-+    cudf::benchmark::scoped_range timed_range{"ndsh_q10_local_timed"};
-+    if (workload == "read") {
-+      auto inputs = read_q10_tables(read);
-+      CUDF_CUDA_TRY(cudaStreamSynchronize(stream.get()));
-+    } else {
-+      auto result = execute_q10(read, true, true);
-+      CUDF_CUDA_TRY(cudaStreamSynchronize(stream.get()));
-+    }
-+    // Include destruction on independent Vortex producer streams, for both formats.
 +    CUDF_CUDA_TRY(cudaDeviceSynchronize());
-+  });
++  }
++  state.add_element_count(files.tables.rows, "Rows");
++  state.exec(nvbench::exec_tag::sync | nvbench::exec_tag::timer,
++             [&](nvbench::launch&, auto& timer) {
++               if (cold) { ndsh::evict_file_pages(files.tables.paths(use_vortex)); }
++               timer.start();
++               {
++                 cudf::benchmark::scoped_range timed_range{"ndsh_q10_local_timed"};
++                 if (workload == "read") {
++                   auto inputs = read_q10_tables(read);
++                   CUDF_CUDA_TRY(cudaStreamSynchronize(stream.get()));
++                 } else {
++                   auto result = execute_q10(read, true, true);
++                   CUDF_CUDA_TRY(cudaStreamSynchronize(stream.get()));
++                 }
++               }
++               // Include destruction on independent Vortex producer streams, for both formats.
++               CUDF_CUDA_TRY(cudaDeviceSynchronize());
++               timer.stop();
++             });
 +  state.add_buffer_size(files.tables.bytes(use_vortex), "file_size", "Total file size");
 +  state.add_buffer_size(memory.peak_memory_usage(), "rmm_peak", "RMM peak (excludes Vortex)");
 +  auto& matched = state.add_summary("ndsh/q10/matched_rows");
@@ -2445,10 +2512,11 @@ index 16f63ce..7adf7d0 100644
 +}  // namespace
 +
 +NVBENCH_BENCH(ndsh_q10_local)
-+  .set_name("ndsh_q10_local_warm")
-+  .add_float64_axis("scale_factor", {0.01, 0.1, 1})
++  .set_name("ndsh_q10_local")
++  .add_float64_axis("scale_factor", {0.01, 0.1, 1, 10})
 +  .add_string_axis("format", {"parquet", "vortex"})
-+  .add_string_axis("workload", {"read", "q10"});
++  .add_string_axis("workload", {"read", "q10"})
++  .add_string_axis("cache", {"warm", "cold"});
 +#endif
 diff --git a/cpp/benchmarks/ndsh/q10_reference.hpp b/cpp/benchmarks/ndsh/q10_reference.hpp
 new file mode 100644
@@ -3625,10 +3693,10 @@ index 0000000..4a9eecb
 +}
 diff --git a/cpp/benchmarks/ndsh/vortex_io.cpp b/cpp/benchmarks/ndsh/vortex_io.cpp
 new file mode 100644
-index 0000000..556dd98
+index 0000000..b105d73
 --- /dev/null
 +++ b/cpp/benchmarks/ndsh/vortex_io.cpp
-@@ -0,0 +1,430 @@
+@@ -0,0 +1,432 @@
 +/*
 + * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 + * SPDX-License-Identifier: Apache-2.0
@@ -3949,7 +4017,8 @@ index 0000000..556dd98
 +
 +cudf::io::table_with_metadata vortex_io::read_vortex(std::string const& path,
 +                                                     std::size_t batch_rows,
-+                                                     std::vector<std::string> const& columns) const
++                                                     std::vector<std::string> const& columns,
++                                                     bool direct_io) const
 +{
 +  nvtx3::scoped_range read_range{"vortex.read"};
 +  check_device();
@@ -3961,7 +4030,8 @@ index 0000000..556dd98
 +  device_stream input;
 +  vx_error* error = nullptr;
 +  vx_cuda_scan_options options{};
-+  options.flags      = VX_CUDA_SCAN_FLAG_DECODE_DICTIONARIES;
++  options.flags =
++    VX_CUDA_SCAN_FLAG_DECODE_DICTIONARIES | (direct_io ? VX_CUDA_SCAN_FLAG_DIRECT_IO : 0);
 +  options.batch_rows = batch_rows;
 +  std::vector<vx_view> column_views;
 +  column_views.reserve(columns.size());
@@ -4061,10 +4131,10 @@ index 0000000..556dd98
 +}  // namespace ndsh
 diff --git a/cpp/benchmarks/ndsh/vortex_io.hpp b/cpp/benchmarks/ndsh/vortex_io.hpp
 new file mode 100644
-index 0000000..e8ea330
+index 0000000..1e02d26
 --- /dev/null
 +++ b/cpp/benchmarks/ndsh/vortex_io.hpp
-@@ -0,0 +1,67 @@
+@@ -0,0 +1,69 @@
 +/*
 + * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 + * SPDX-License-Identifier: Apache-2.0
@@ -4118,13 +4188,15 @@ index 0000000..e8ea330
 +   * final owning copy/concatenation, and consumer-stream completion before releasing
 +   * temporary inputs. Vortex release cleanup may remain queued on producer streams.
 +   * Nonzero batch_rows sets a maximum; physical layout boundaries may produce shorter
-+   * batches. Zero uses layout-derived splitting. Peak memory includes retained Vortex
-+   * batches plus the owning result.
++   * batches. Zero uses layout-derived splitting. direct_io bypasses the OS page cache for
++   * data-plane reads; metadata remains buffered. Peak memory includes retained Vortex batches
++   * plus the owning result.
 +   */
 +  [[nodiscard]] cudf::io::table_with_metadata read_vortex(
 +    std::string const& path,
 +    std::size_t batch_rows                  = 16 << 20,
-+    std::vector<std::string> const& columns = {}) const;
++    std::vector<std::string> const& columns = {},
++    bool direct_io                          = false) const;
 +
 + private:
 +  struct impl;
