@@ -10,7 +10,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     fs::create_dir_all("cinclude")?;
     fs::write(
         "cinclude/vortex.h",
-        format!("#define VORTEX_HEADER_VERSION {}\n", version.trim()),
+        format!(
+            "#define VORTEX_HEADER_VERSION {}\nint vx_fixture_value(void);\n",
+            version.trim()
+        ),
     )?;
     println!("cargo:rerun-if-changed=header-version");
     Ok(())

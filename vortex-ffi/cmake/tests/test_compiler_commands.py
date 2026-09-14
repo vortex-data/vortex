@@ -8,6 +8,7 @@ import json
 import shlex
 import shutil
 import subprocess
+import sys
 import tomllib
 import unittest
 from pathlib import Path
@@ -60,10 +61,11 @@ class CompilerCommandTests(CMakeTest):
         generator="Ninja",
         build_name=None,
         debug_info=None,
+        build_shared=False,
     ) -> None:
         self.build_dir = self.work / (build_name or f"{generator} build directory's")
         self.target_dir = self.build_dir / "ffi/cargo-target"
-        options = []
+        options = ["-DBUILD_SHARED_LIBS=ON"] if build_shared else []
         if debug_info is not None:
             options.append(f"-DVORTEX_DEBUG_INFO={debug_info}")
         include = self.source / "native-helper/include directory's"
@@ -146,6 +148,31 @@ class CompilerCommandTests(CMakeTest):
                 self.build("header_consumer")
                 self.assertEqual(self.command(consumer).stdout.strip(), "2")
                 self.assertEqual(staged.read_bytes(), source_header.read_bytes())
+
+    def test_shared_ffi_consumer(self) -> None:
+        cmake_lists = self.source / "CMakeLists.txt"
+        self.write(cmake_lists, cmake_lists.read_text().replace("Vortex::ffi_static", "Vortex::ffi_shared"))
+        self.configure(build_shared=True, build_name="shared build directory")
+        self.build("header_consumer")
+        consumer = self.build_dir / "header_consumer"
+        artifacts = self.build_dir / "ffi/vortex-artifacts"
+        library = artifacts / ("libvortex_ffi.dylib" if sys.platform == "darwin" else "libvortex_ffi.so")
+        self.assertEqual(self.command(consumer).stdout.strip(), "1")
+
+        link = self.command("ninja", "-C", self.build_dir, "-t", "commands", "header_consumer").stdout.splitlines()[-1]
+        self.assertIn(library.name, link)
+        self.assertNotIn("libvortex_ffi.a", link, "The consumer must not relink the Rust static archive")
+        nm_flags = ("-gU",) if sys.platform == "darwin" else ("-D", "--defined-only")
+        exports = self.command("nm", *nm_flags, library).stdout
+        self.assertEqual(
+            {line.split()[-1].removeprefix("_") for line in exports.splitlines() if line.strip()},
+            {"vx_fixture_value"},
+            exports,
+        )
+
+        outputs = snapshot(consumer, library, artifacts / "libvortex_ffi.a", artifacts / "include/vortex.h")
+        self.build("header_consumer")
+        self.assertEqual(snapshot(*outputs), outputs, "An unchanged shared build must remain fresh")
 
     def test_host_target_instrumentation_and_cache_boundary(self) -> None:
         log = self.work / "cache calls.jsonl"

@@ -118,7 +118,7 @@ class ConfigureTests(CMakeTest):
             add_subdirectory("{self.repo}/vortex-ffi" ffi)
             """,
         ).parent
-        self.configure("lazy", source=source)
+        self.configure("lazy", "-DBUILD_SHARED_LIBS=ON", source=source)
         build = self.work / "lazy"
         self.cmake_build(build)
         self.assertFalse(list(build.rglob("libvortex_ffi.a")))

@@ -17,19 +17,25 @@ cmake --build build/cpp --parallel
 CMake runs Cargo for you. Configuration and builds download uncached dependencies.
 
 **Native builds only:** GNU/Linux x86_64 and aarch64, plus macOS arm64 for standalone development.
-Cross-compilation, universal binaries, Windows, musl, and shared Vortex targets are unsupported.
+Cross-compilation, universal binaries, Windows, and musl are unsupported.
 
 ## Embed in a CMake project
 
 Vendor or fetch a pinned, complete checkout:
 
 ```cmake
+set(BUILD_SHARED_LIBS ON)
 add_subdirectory(path/to/vortex vortex)
-target_link_libraries(my_cpp_target PRIVATE Vortex::cpp_static)
-target_link_libraries(my_c_target PRIVATE Vortex::ffi_static)
+target_link_libraries(my_cpp_target PRIVATE Vortex::cpp_shared)
+target_link_libraries(my_c_target PRIVATE Vortex::ffi_shared)
 ```
 
 Vortex leaves parent build settings unchanged. Its archives are position-independent.
+
+`BUILD_SHARED_LIBS=ON` also selects shared Catch2 libraries when building tests.
+For static linkage, use `Vortex::ffi_static` and `Vortex::cpp_static`; these targets remain
+available in either mode. CMake supplies build-tree runtime paths; deployment requires
+configuring runtime search paths for the application and its shared libraries.
 
 ## Build options
 
@@ -38,6 +44,7 @@ options. Defaults below are for standalone builds.
 
 | Option                      | Default  | Purpose                                                     |
 | --------------------------- | -------- | ----------------------------------------------------------- |
+| `BUILD_SHARED_LIBS`         | `OFF`    | Select shared Vortex libraries and test dependencies.       |
 | `VORTEX_BUILD_TESTS`        | `OFF`    | C API and C++23 wrapper tests.                              |
 | `VORTEX_BUILD_EXAMPLES`     | `OFF`    | C/C++ examples.                                             |
 | `VORTEX_WARNINGS_AS_ERRORS` | `ON`     | Warnings as errors for Vortex targets only.                 |
@@ -172,7 +179,7 @@ This does not retarget the prebuilt nvCOMP SDK.
 
 - Kernel sources are generated in the checkout. Compiled kernels live in Cargo's build directory
   and are embedded in the archive as fat binaries.
-- CMake does not stage shared libraries. `libvortex_cub.so` must remain at its Cargo build path
+- CMake does not stage CUDA dependency libraries. `libvortex_cub.so` must remain at its Cargo build path
   or beside the executable. `libnvcomp.so` is loaded from its original Cargo build path.
 - CUDA operations require a compatible NVIDIA driver and an accessible GPU.
 

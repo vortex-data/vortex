@@ -6,4 +6,5 @@
 
 int main(void) {
     printf("%d\n", VORTEX_HEADER_VERSION);
+    return vx_fixture_value() <= 10;
 }

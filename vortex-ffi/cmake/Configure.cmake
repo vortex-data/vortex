@@ -373,9 +373,36 @@ block(SCOPE_FOR VARIABLES)
         INTERFACE_INCLUDE_DIRECTORIES "${_ffi_include_dir}")
     add_dependencies(vortex_ffi_static vortex_ffi_cargo_build)
     _vortex_attach_system_dependencies(vortex_ffi_static "${VORTEX_RUST_TARGET}")
+    set(_ffi_targets vortex_ffi_static)
+    if(BUILD_SHARED_LIBS)
+        # Link Rust once, and keep its internal symbols out of the shared C ABI.
+        add_library(vortex_ffi_shared SHARED "${CMAKE_CURRENT_LIST_DIR}/shared.c")
+        if(NOT PROJECT_IS_TOP_LEVEL)
+            set_target_properties(vortex_ffi_shared PROPERTIES EXCLUDE_FROM_ALL TRUE)
+        endif()
+        target_link_libraries(vortex_ffi_shared PRIVATE
+            "$<LINK_LIBRARY:WHOLE_ARCHIVE,vortex_ffi_static>")
+        target_include_directories(vortex_ffi_shared INTERFACE "${_ffi_include_dir}")
+        set_target_properties(vortex_ffi_shared PROPERTIES
+            OUTPUT_NAME vortex_ffi
+            LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/vortex-artifacts")
+        set_property(TARGET vortex_ffi_shared PROPERTY LIBRARY_OUTPUT_DIRECTORY_${_configuration})
+        if(APPLE)
+            target_link_options(vortex_ffi_shared PRIVATE
+                "LINKER:-exported_symbol,_vx_*" "LINKER:-dead_strip")
+        else()
+            set(_exports "${CMAKE_CURRENT_LIST_DIR}/exports.map")
+            target_link_options(vortex_ffi_shared PRIVATE
+                "LINKER:--version-script=${_exports}" "LINKER:--gc-sections")
+            set_property(TARGET vortex_ffi_shared APPEND PROPERTY LINK_DEPENDS "${_exports}")
+        endif()
+        list(APPEND _ffi_targets vortex_ffi_shared)
+    endif()
     if(_sanitizer_compile_flag)
-        target_compile_options(vortex_ffi_static INTERFACE "${_sanitizer_compile_flag}")
-        target_link_options(vortex_ffi_static INTERFACE "${_sanitizer_compile_flag}")
+        foreach(_target IN LISTS _ffi_targets)
+            target_compile_options(${_target} INTERFACE "${_sanitizer_compile_flag}")
+            target_link_options(${_target} INTERFACE "${_sanitizer_compile_flag}")
+        endforeach()
     endif()
 
     message(STATUS "Vortex Rust target: ${VORTEX_RUST_TARGET}")

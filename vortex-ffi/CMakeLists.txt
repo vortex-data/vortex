@@ -33,6 +33,7 @@ if(_vortex_top_level AND NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug)
 endif()
 
+option(BUILD_SHARED_LIBS "Build and use shared libraries" OFF)
 option(VORTEX_BUILD_TESTS "Build Vortex tests" OFF)
 option(VORTEX_BUILD_EXAMPLES "Build Vortex examples" OFF)
 option(VORTEX_ENABLE_CUDA "Build the CUDA-enabled Vortex FFI" OFF)
@@ -53,8 +54,10 @@ option(VORTEX_WARNINGS_AS_ERRORS
 # Define the Cargo build and the imported vortex_ffi_static archive.
 include(cmake/Configure.cmake)
 
-# The only supported consumer-facing name for the C API.
 add_library(Vortex::ffi_static ALIAS vortex_ffi_static)
+if(BUILD_SHARED_LIBS)
+    add_library(Vortex::ffi_shared ALIAS vortex_ffi_shared)
+endif()
 
 # Test and example dependencies are fetched at configure time and never installed.
 if(VORTEX_BUILD_TESTS OR VORTEX_BUILD_EXAMPLES)
@@ -67,7 +70,12 @@ if(VORTEX_BUILD_TESTS OR VORTEX_BUILD_EXAMPLES)
         SYSTEM
         GIT_REPOSITORY https://github.com/apache/arrow-nanoarrow
         GIT_TAG apache-arrow-nanoarrow-0.8.0)
+    FetchContent_GetProperties(Nanoarrow POPULATED _vortex_nanoarrow_populated)
     FetchContent_MakeAvailable(Nanoarrow)
+    if(NOT _vortex_nanoarrow_populated)
+        # Build only the shared variant used below, without altering a parent's dependency.
+        set_property(DIRECTORY "${nanoarrow_SOURCE_DIR}" PROPERTY EXCLUDE_FROM_ALL TRUE)
+    endif()
     # Suppress Nanoarrow warnings.
     target_compile_options(nanoarrow_static PRIVATE -w)
     target_compile_options(nanoarrow_shared PRIVATE -w)

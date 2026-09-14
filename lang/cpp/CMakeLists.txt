@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-# Entry point for the static Vortex C++ wrapper. It consumes the Rust FFI
-# archive from vortex-ffi and exports Vortex::cpp_static. It supports standalone
+# Entry point for the Vortex C++ wrapper. It consumes the Rust FFI library
+# from vortex-ffi and exports static and shared targets. It supports standalone
 # configuration and add_subdirectory() from the repository root or a parent.
 
 # CMake 3.25 is required for block() and FetchContent SYSTEM.
@@ -33,6 +33,7 @@ if(_vortex_top_level AND NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug)
 endif()
 
+option(BUILD_SHARED_LIBS "Build and use shared libraries" OFF)
 option(VORTEX_BUILD_TESTS "Build Vortex tests" OFF)
 option(VORTEX_BUILD_EXAMPLES "Build Vortex examples" OFF)
 option(VORTEX_WARNINGS_AS_ERRORS
@@ -50,27 +51,35 @@ endif()
 # The C++ wrapper over the C FFI. Public headers live under include/.
 file(GLOB _vortex_cpp_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
 
-# Consumers inherit the FFI archive, its headers, and its system libraries
-# through this target. Hidden visibility keeps wrapper symbols out of a parent
-# shared library's exports.
+# Preserve the static API and its hidden symbols for embedding in other DSOs.
 add_library(vortex_cxx STATIC ${_vortex_cpp_sources})
-set_target_properties(vortex_cxx PROPERTIES
-    POSITION_INDEPENDENT_CODE ON
-    CXX_VISIBILITY_PRESET hidden
-    VISIBILITY_INLINES_HIDDEN ON)
-target_compile_features(vortex_cxx PUBLIC cxx_std_20)
-target_include_directories(vortex_cxx PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+set_target_properties(vortex_cxx PROPERTIES CXX_VISIBILITY_PRESET hidden)
 target_link_libraries(vortex_cxx PUBLIC Vortex::ffi_static)
-
-# Warning policy is private to Vortex-owned sources so embedding this target
-# never injects warning flags into consumers.
-target_compile_options(vortex_cxx PRIVATE -Wall -Wextra -Wpedantic)
-if(VORTEX_WARNINGS_AS_ERRORS)
-    target_compile_options(vortex_cxx PRIVATE -Werror)
+add_library(Vortex::cpp_static ALIAS vortex_cxx)
+set(_vortex_cpp_targets vortex_cxx)
+if(BUILD_SHARED_LIBS)
+    set_target_properties(vortex_cxx PROPERTIES EXCLUDE_FROM_ALL TRUE)
+    add_library(vortex_cxx_shared SHARED ${_vortex_cpp_sources})
+    set_target_properties(vortex_cxx_shared PROPERTIES
+        OUTPUT_NAME vortex_cxx
+        CXX_VISIBILITY_PRESET default)
+    target_link_libraries(vortex_cxx_shared PUBLIC Vortex::ffi_shared)
+    add_library(Vortex::cpp_shared ALIAS vortex_cxx_shared)
+    list(APPEND _vortex_cpp_targets vortex_cxx_shared)
 endif()
 
-# The only supported consumer-facing name for the C++ API.
-add_library(Vortex::cpp_static ALIAS vortex_cxx)
+foreach(_target IN LISTS _vortex_cpp_targets)
+    set_target_properties(${_target} PROPERTIES
+        POSITION_INDEPENDENT_CODE ON
+        VISIBILITY_INLINES_HIDDEN ON)
+    target_compile_features(${_target} PUBLIC cxx_std_20)
+    target_include_directories(${_target} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+    # Warning policy must not propagate into consumers.
+    target_compile_options(${_target} PRIVATE -Wall -Wextra -Wpedantic)
+    if(VORTEX_WARNINGS_AS_ERRORS)
+        target_compile_options(${_target} PRIVATE -Werror)
+    endif()
+endforeach()
 
 # Test and example dependencies are fetched at configure time and never installed.
 if(VORTEX_BUILD_TESTS OR VORTEX_BUILD_EXAMPLES)
@@ -83,7 +92,12 @@ if(VORTEX_BUILD_TESTS OR VORTEX_BUILD_EXAMPLES)
         SYSTEM
         GIT_REPOSITORY https://github.com/apache/arrow-nanoarrow
         GIT_TAG apache-arrow-nanoarrow-0.8.0)
+    FetchContent_GetProperties(Nanoarrow POPULATED _vortex_nanoarrow_populated)
     FetchContent_MakeAvailable(Nanoarrow)
+    if(NOT _vortex_nanoarrow_populated)
+        # Build only the shared variant used below, without altering a parent's dependency.
+        set_property(DIRECTORY "${nanoarrow_SOURCE_DIR}" PROPERTY EXCLUDE_FROM_ALL TRUE)
+    endif()
     # Suppress Nanoarrow warnings.
     target_compile_options(nanoarrow_static PRIVATE -w)
     target_compile_options(nanoarrow_shared PRIVATE -w)
