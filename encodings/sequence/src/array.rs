@@ -425,6 +425,8 @@ impl VTable for Sequence {
 }
 
 impl OperationsVTable<Sequence> for Sequence {
+    type ProbeState = ();
+
     fn scalar_at(
         array: ArrayView<'_, Sequence>,
         index: usize,

@@ -17,7 +17,7 @@ use lance::dataset::WriteParams;
 use lance::deps::arrow_array::RecordBatch;
 use lance::deps::arrow_array::RecordBatchIterator;
 use lance::deps::arrow_schema::SchemaRef;
-use lance_encoding::version::LanceFileVersion;
+use lance_file::version::LanceFileVersion;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use tempfile::TempDir;
 use vortex_bench::Format;
@@ -148,7 +148,7 @@ impl Compressor for LanceCompressor {
             .to_str()
             .ok_or_else(|| anyhow!("Failed to convert path to str"))?;
         let reader_iter = RecordBatchIterator::new(batches.into_iter().map(Ok), Arc::clone(schema));
-        let write_params = WriteParams::with_storage_version(LanceFileVersion::V2_0);
+        let write_params = WriteParams::with_storage_version(LanceFileVersion::Stable);
         Dataset::write(reader_iter, path_str, Some(write_params)).await?;
 
         let elapsed = start.elapsed();

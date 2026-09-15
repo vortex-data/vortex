@@ -9,45 +9,31 @@
 
 use prost::Message;
 use vortex_array::ArrayRef;
-use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
-use vortex_array::arrays::Constant;
-use vortex_array::arrays::ConstantArray;
-use vortex_array::arrays::ExtensionArray;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::ScalarFn as ScalarFnArrayEncoding;
 use vortex_array::arrays::ScalarFnArray;
-use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayView;
 use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayParts;
 use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayVTable;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
 use vortex_array::dtype::proto::dtype as pb;
-use vortex_array::expr::Expression;
-use vortex_array::expr::union_child_validities;
 use vortex_array::match_each_float_ptype;
-use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::Arity;
-use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::EmptyOptions;
-use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ScalarFnId;
-use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
+use vortex_array::scalar_fn::unstable::row::InitializedElement;
+use vortex_array::scalar_fn::unstable::row::RowFn;
+use vortex_array::scalar_fn::unstable::row::RowVisitor;
+use vortex_array::scalar_fn::unstable::row::UninitElementSink;
 use vortex_array::serde::ArrayChildren;
-use vortex_buffer::Buffer;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
-use crate::matcher::AnyTensor;
 use crate::scalar_fns::arithmetic::l2_norm_row;
-use crate::utils::extract_flat_elements;
-use crate::utils::validate_tensor_float_input;
+use crate::scalar_fns::row::TensorRow;
+use crate::scalar_fns::row::tensor_element_ptype;
 
 /// L2 norm (Euclidean norm) of a tensor or vector column.
 ///
@@ -75,110 +61,41 @@ impl L2Norm {
     }
 }
 
-impl ScalarFnVTable for L2Norm {
+impl RowFn for L2Norm {
     type Options = EmptyOptions;
+
+    const ARG_NAMES: &'static [&'static str] = &["input"];
+    const INFALLIBLE: bool = true;
 
     fn id(&self) -> ScalarFnId {
         static ID: CachedId = CachedId::new("vortex.tensor.l2_norm");
         *ID
     }
 
-    fn arity(&self, _options: &Self::Options) -> Arity {
-        Arity::Exact(1)
+    fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(vec![]))
     }
 
-    fn child_name(&self, _options: &Self::Options, child_idx: usize) -> ChildName {
-        match child_idx {
-            0 => ChildName::from("input"),
-            _ => unreachable!("L2Norm must have exactly one child"),
-        }
+    fn deserialize(
+        &self,
+        _metadata: &[u8],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Options> {
+        Ok(EmptyOptions)
     }
 
-    fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
-        let input_dtype = &arg_dtypes[0];
-        let tensor_match = validate_tensor_float_input(input_dtype)?;
-        let ptype = tensor_match.element_ptype();
-
-        let nullability = Nullability::from(input_dtype.is_nullable());
-        Ok(DType::Primitive(ptype, nullability))
-    }
-
-    fn execute(
+    fn dispatch<V: RowVisitor>(
         &self,
         _options: &Self::Options,
-        args: &dyn ExecutionArgs,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        let input_ref = args.get(0)?;
-        let row_count = args.row_count();
-
-        let ext = input_ref.dtype().as_extension();
-        let tensor_match = ext
-            .metadata_opt::<AnyTensor>()
-            .vortex_expect("L2Norm::return_dtype validated the input tensor metadata");
-        let tensor_flat_size = tensor_match.list_size() as usize;
-        let element_ptype = tensor_match.element_ptype();
-
-        let norm_dtype = DType::Primitive(element_ptype, ext.nullability());
-
-        // Optimize for the constant array case.
-        if let Some(array) = input_ref.as_opt::<Constant>() {
-            let scalar = array.scalar().as_extension().to_storage_scalar();
-
-            let Some(elements) = scalar.as_list().elements() else {
-                return Ok(ConstantArray::new(Scalar::null(norm_dtype), row_count).into_array());
-            };
-
-            let norm_scalar = match_each_float_ptype!(element_ptype, |T| {
-                let values: Vec<T> = elements
-                    .iter()
-                    .map(|element| {
-                        element
-                            .as_primitive()
-                            .as_::<T>()
-                            .vortex_expect("L2Norm::return_dtype validated the float element type")
-                    })
-                    .collect();
-                let norm = l2_norm_row::<T>(&values);
-
-                Scalar::try_new(norm_dtype, Some(norm.into()))
-            })?;
-
-            let norms = ConstantArray::new(norm_scalar, row_count).into_array();
-            return Ok(norms);
-        }
-
-        let input: ExtensionArray = input_ref.execute(ctx)?;
-        let validity = input.as_ref().validity()?;
-
-        let storage = input.storage_array();
-        let flat = extract_flat_elements(storage, tensor_flat_size, ctx)?;
-
-        match_each_float_ptype!(flat.ptype(), |T| {
-            let buffer: Buffer<T> = (0..row_count)
-                .map(|row_index| l2_norm_row(flat.row::<T>(row_index)))
-                .collect();
-
-            // SAFETY: The buffer length equals `row_count`, which matches the source validity
-            // length.
-            Ok(unsafe { PrimitiveArray::new_unchecked(buffer, validity) }.into_array())
+        args: &[DType],
+        visitor: V,
+    ) -> VortexResult<V::VisitResult> {
+        match_each_float_ptype!(tensor_element_ptype(args)?, |T| {
+            visitor.visit_into::<(TensorRow<T>,), UninitElementSink<T>, _>((), |(row,), output| {
+                // SAFETY: `output` is the `UninitElementSink` row supplied for this callback.
+                unsafe { InitializedElement::write(output, l2_norm_row(row)) }
+            })
         })
-    }
-
-    fn validity(
-        &self,
-        _options: &Self::Options,
-        expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
-        union_child_validities(expression)
-    }
-
-    fn is_strict(&self, _options: &Self::Options) -> bool {
-        true
-    }
-
-    fn is_infallible(&self, _options: &Self::Options) -> bool {
-        true
     }
 }
 
@@ -186,7 +103,7 @@ impl ScalarFnVTable for L2Norm {
 /// the extension type (`FixedShapeTensor` vs `Vector`), dimension, and nullability that are not
 /// recoverable from the parent's primitive-float output.
 #[derive(Clone, prost::Message)]
-pub(super) struct L2NormMetadata {
+struct L2NormMetadata {
     #[prost(message, optional, tag = "1")]
     input_dtype: Option<pb::DType>,
 }
@@ -240,6 +157,7 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin;
     use vortex_array::dtype::DType;
+    use vortex_array::dtype::NativePType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::extension::ExtDType;
@@ -254,13 +172,29 @@ mod tests {
     use crate::utils::test_helpers::literal_vector_array;
     use crate::utils::test_helpers::tensor_array;
     use crate::utils::test_helpers::vector_array;
+    use crate::utils::test_helpers::zero_width_vector_array;
 
-    /// Evaluates L2 norm on a tensor/vector array and returns the result as `Vec<f64>`.
-    fn eval_l2_norm(input: ArrayRef) -> VortexResult<Vec<f64>> {
+    fn evaluate_l2_norm<T: NativePType>(input: ArrayRef) -> VortexResult<Vec<T>> {
         let result = L2Norm::try_new(input)?;
         let mut ctx = SESSION.create_execution_ctx();
-        let prim: PrimitiveArray = result.into_array().execute(&mut ctx)?;
-        Ok(prim.as_slice::<f64>().to_vec())
+        let output: PrimitiveArray = result.into_array().execute(&mut ctx)?;
+
+        Ok(output.as_slice::<T>().to_vec())
+    }
+
+    #[test]
+    fn test_zero_width_and_empty_inputs() -> VortexResult<()> {
+        assert_close(
+            &evaluate_l2_norm(zero_width_vector_array::<f64>(3)?)?,
+            &[0.0, 0.0, 0.0],
+        );
+        assert!(evaluate_l2_norm::<f64>(vector_array::<f64>(2, &[])?)?.is_empty());
+        assert_close(
+            &evaluate_l2_norm(Vector::constant_array::<f64>(&[], 3)?)?,
+            &[0.0, 0.0, 0.0],
+        );
+
+        Ok(())
     }
 
     #[rstest]
@@ -274,7 +208,7 @@ mod tests {
         #[case] expected: &[f64],
     ) -> VortexResult<()> {
         let arr = tensor_array(shape, elements)?;
-        assert_close(&eval_l2_norm(arr)?, expected);
+        assert_close(&evaluate_l2_norm(arr)?, expected);
         Ok(())
     }
 
@@ -288,7 +222,7 @@ mod tests {
                 1.0, 1.0, 1.0, // norm = sqrt(3)
             ],
         )?;
-        assert_close(&eval_l2_norm(arr)?, &[5.0, 0.0, 3.0_f64.sqrt()]);
+        assert_close(&evaluate_l2_norm(arr)?, &[5.0, 0.0, 3.0_f64.sqrt()]);
         Ok(())
     }
 
@@ -301,7 +235,7 @@ mod tests {
                 3.0, 4.0, 0.0, // norm = 5.0
             ],
         )?;
-        assert_close(&eval_l2_norm(arr)?, &[1.0, 5.0]);
+        assert_close(&evaluate_l2_norm(arr)?, &[1.0, 5.0]);
         Ok(())
     }
 
@@ -344,6 +278,50 @@ mod tests {
             .as_::<f64>()
             .expect("norm scalar must be a non-null primitive");
         assert_close(&[norm], &[5.0]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_extension_backed_constant_yields_constant_output() -> VortexResult<()> {
+        let input = Vector::constant_array(&[3.0f64, 4.0], 4)?;
+
+        let result = L2Norm::try_new(input)?.into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        let output = result.execute_until::<Constant>(&mut ctx)?;
+
+        let constant = output
+            .as_opt::<Constant>()
+            .expect("L2Norm over constant-backed extension storage must be constant");
+        assert_eq!(constant.len(), 4);
+        let norm = constant
+            .scalar()
+            .as_primitive()
+            .as_::<f64>()
+            .expect("norm scalar must be a non-null primitive");
+        assert_eq!(norm.to_bits(), 5.0f64.to_bits());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_encoded_constants_match_materialized_rows_bitwise() -> VortexResult<()> {
+        let row = [f32::MAX, 1.0, -1.0];
+        let materialized = vector_array(3, &[row, row, row].concat())?;
+        let storage_constant = Vector::constant_array(&row, 3)?;
+        let literal_constant = literal_vector_array(&row, 3);
+
+        let expected: Vec<_> = evaluate_l2_norm::<f32>(materialized)?
+            .into_iter()
+            .map(f32::to_bits)
+            .collect();
+        for encoded in [storage_constant, literal_constant] {
+            let actual: Vec<_> = evaluate_l2_norm::<f32>(encoded)?
+                .into_iter()
+                .map(f32::to_bits)
+                .collect();
+            assert_eq!(actual, expected);
+        }
+
         Ok(())
     }
 

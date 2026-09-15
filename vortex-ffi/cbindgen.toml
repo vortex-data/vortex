@@ -67,6 +67,12 @@ typedef struct ArrowSchema FFI_ArrowSchema;
 typedef struct ArrowArray FFI_ArrowArray;
 typedef struct ArrowArrayStream FFI_ArrowArrayStream;
 #endif
+
+// Number of uint8_t words holding view's elements
+#define vx_bool_view_words(X) (((X).elements + (X).bit_offset + 7) / 8)
+// I'th element (bit) in view, LSB-first. Already accounts for bit_offset
+#define vx_bool_view_nth(X, I) \
+    ((((X).ptr[((I) + (X).bit_offset) / 8] & (1 << (((I) + (X).bit_offset) % 8))) != 0))
 """
 
 trailer = """

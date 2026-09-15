@@ -7,6 +7,7 @@
 include_guard(GLOBAL)
 
 include("${CMAKE_CURRENT_LIST_DIR}/Cuda.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/DebugInfo.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/Helpers.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/RustToolchain.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/SystemDependencies.cmake")
@@ -184,7 +185,6 @@ function(_vortex_resolve_sanitizer
         list(APPEND _rustflags
             -A warnings
             -Cunsafe-allow-abi-mismatch=sanitizer
-            -C debuginfo=2
             -C opt-level=0
             # Use the sanitizer runtime linked by the final C++ target for both languages.
             -Zexternal-clangrt
@@ -239,8 +239,9 @@ function(_vortex_native_flags
     endif()
 
     # Native dependencies become part of the archive embedded in shared parents.
-    list(APPEND _cflags -fPIC)
-    list(APPEND _cxxflags -fPIC)
+    # Match CMake targets even when cc-rs or parent flags enable debug info.
+    list(APPEND _cflags -fPIC -g${VORTEX_DEBUG_INFO})
+    list(APPEND _cxxflags -fPIC -g${VORTEX_DEBUG_INFO})
 
     set(${cflags_output} "${_cflags}" PARENT_SCOPE)
     set(${cxxflags_output} "${_cxxflags}" PARENT_SCOPE)
@@ -282,7 +283,10 @@ block(SCOPE_FOR VARIABLES)
         _native_cxx_flags)
     # Mirror .cargo/config.toml's Unix rustflags, which CARGO_ENCODED_RUSTFLAGS overrides.
     # Keep them in sync; PIC additionally allows embedding in shared libraries.
-    set(_rustflags ${_sanitizer_rustflags} -C force-frame-pointers=yes -C relocation-model=pic)
+    set(_rustflags ${_sanitizer_rustflags}
+        -C force-frame-pointers=yes
+        -C relocation-model=pic
+        -C "debuginfo=${VORTEX_DEBUG_INFO}")
 
     # Cargo owns incremental invalidation inside this CMake-build-local cache.
     # Registering the directory as additional clean state gives the standard
@@ -369,9 +373,45 @@ block(SCOPE_FOR VARIABLES)
         INTERFACE_INCLUDE_DIRECTORIES "${_ffi_include_dir}")
     add_dependencies(vortex_ffi_static vortex_ffi_cargo_build)
     _vortex_attach_system_dependencies(vortex_ffi_static "${VORTEX_RUST_TARGET}")
+    # Link Rust once, and keep its internal symbols out of the shared C ABI.
+    add_library(vortex_ffi_shared SHARED "${CMAKE_CURRENT_LIST_DIR}/shared.c")
+    if(NOT BUILD_SHARED_LIBS OR NOT PROJECT_IS_TOP_LEVEL)
+        set_target_properties(vortex_ffi_shared PROPERTIES EXCLUDE_FROM_ALL TRUE)
+    endif()
+    target_link_libraries(vortex_ffi_shared PRIVATE
+        "$<LINK_LIBRARY:WHOLE_ARCHIVE,vortex_ffi_static>")
+    target_include_directories(vortex_ffi_shared INTERFACE "${_ffi_include_dir}")
+    set_target_properties(vortex_ffi_shared PROPERTIES OUTPUT_NAME vortex_ffi)
+    if(APPLE)
+        target_link_options(vortex_ffi_shared PRIVATE
+            # Export only the C ABI; Mach-O prefixes C symbols with an underscore.
+            "LINKER:-exported_symbol,_vx_*"
+            # Discard unreachable code and data pulled in by whole-archive linking.
+            "LINKER:-dead_strip")
+    elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        # Keep the generated linker script in the build tree.
+        set(_exports "${CMAKE_CURRENT_BINARY_DIR}/vortex-ffi-exports.map")
+        # Export vx_*; localize all other symbols. GENERATE preserves unchanged timestamps.
+        file(GENERATE OUTPUT "${_exports}" CONTENT "{ global: vx_*; local: *; };\n")
+        target_link_options(vortex_ffi_shared PRIVATE
+            # Apply the export allowlist to the Rust archive and its dependencies.
+            "LINKER:--version-script=${_exports}"
+            # Discard sections unreachable from exported symbols and other linker roots.
+            "LINKER:--gc-sections")
+        # Relink if the generated export policy changes.
+        set_property(TARGET vortex_ffi_shared APPEND PROPERTY LINK_DEPENDS "${_exports}")
+
+        # GNU ld depfiles break on spaces; CMake already tracks the archive and script.
+        # Defer disabling linker depfiles so child directories keep their settings.
+        cmake_language(DEFER CALL set CMAKE_LINK_DEPENDS_USE_LINKER FALSE)
+    else()
+        message(FATAL_ERROR "Vortex shared-library exports are not configured for ${CMAKE_SYSTEM_NAME}")
+    endif()
     if(_sanitizer_compile_flag)
-        target_compile_options(vortex_ffi_static INTERFACE "${_sanitizer_compile_flag}")
-        target_link_options(vortex_ffi_static INTERFACE "${_sanitizer_compile_flag}")
+        foreach(_target IN ITEMS vortex_ffi_static vortex_ffi_shared)
+            target_compile_options(${_target} INTERFACE "${_sanitizer_compile_flag}")
+            target_link_options(${_target} INTERFACE "${_sanitizer_compile_flag}")
+        endforeach()
     endif()
 
     message(STATUS "Vortex Rust target: ${VORTEX_RUST_TARGET}")

@@ -12,6 +12,8 @@ use crate::arrays::varbin::varbin_scalar;
 use crate::scalar::Scalar;
 
 impl OperationsVTable<VarBin> for VarBin {
+    type ProbeState = ();
+
     fn scalar_at(
         array: ArrayView<'_, VarBin>,
         index: usize,

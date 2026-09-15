@@ -52,11 +52,20 @@ class CompilerCommandTests(CMakeTest):
         self.command("cargo", "generate-lockfile", "--offline", cwd=self.source)
 
     def configure(
-        self, value=7, argument=7, policy=True, instrumentation=False, generator="Ninja", build_name=None
+        self,
+        value=7,
+        argument=7,
+        policy=True,
+        instrumentation=False,
+        generator="Ninja",
+        build_name=None,
+        debug_info=None,
     ) -> None:
         self.build_dir = self.work / (build_name or f"{generator} build directory's")
         self.target_dir = self.build_dir / "ffi/cargo-target"
         options = []
+        if debug_info is not None:
+            options.append(f"-DVORTEX_DEBUG_INFO={debug_info}")
         include = self.source / "native-helper/include directory's"
         errors = ["-Werror", "-Werror=unused-variable", "-pedantic-errors"] if policy else []
         for language, compiler in (("C", "clang"), ("CXX", "clang++")):
@@ -151,12 +160,13 @@ class CompilerCommandTests(CMakeTest):
             os.execv(sys.argv[1], sys.argv[1:])
             """,
         )
-        self.configure(instrumentation=True)
+        self.configure(instrumentation=True, debug_info=0)
         self.build()
         calls = [json.loads(line) for line in log.read_text().splitlines()]
         self.assertEqual(sorted(target for target, _ in calls), [False, False, True, True])
         for target, args in calls:
             self.assertIn(Path(args[0]).name, ("clang", "clang++"))
+            self.assertEqual([arg for arg in args if arg.startswith("-g")][-1:], ["-g0"], args)
             for flag in ("--coverage", "-fsanitize=undefined"):
                 self.assertEqual(flag in args, target, args)
         objects = sorted(self.target_dir.rglob("out/*-native.o"))

@@ -58,3 +58,7 @@ harness = false
 [[bench]]
 name = "run_end_filter"
 harness = false
+
+[[bench]]
+name = "run_end_sum"
+harness = false

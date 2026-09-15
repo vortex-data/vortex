@@ -26,10 +26,15 @@ async-fs = { workspace = true }
 bytes = { workspace = true }
 futures = { workspace = true }
 mimalloc = { workspace = true, optional = true }
+object_store = { workspace = true }
 paste = { workspace = true }
 tracing = { workspace = true, features = ["log"] }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
-vortex = { workspace = true, features = ["object_store"] }
+url = { workspace = true }
+vortex = { workspace = true, features = [
+    "object_store",
+    "object_store_registry",
+] }
 vortex-arrow = { workspace = true }
 
 [dev-dependencies]

@@ -12,6 +12,8 @@ use crate::arrays::dict::DictArraySlotsExt;
 use crate::scalar::Scalar;
 
 impl OperationsVTable<Dict> for Dict {
+    type ProbeState = ();
+
     fn scalar_at(
         array: ArrayView<'_, Dict>,
         index: usize,

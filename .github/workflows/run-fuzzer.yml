@@ -16,7 +16,7 @@ on:
         description: "Maximum fuzzing time in seconds"
         required: false
         type: number
-        default: 18000
+        default: 5400
       runner:
         description: "Runner name from .github-private runs-on.yml (e.g., arm64-fuzz, gpu)"
         required: false
@@ -37,6 +37,11 @@ on:
         required: false
         type: number
         default: 1
+      fuzzer_artifact:
+        description: "Precompiled fuzzer artifact. Builds locally when omitted."
+        required: false
+        type: string
+        default: ""
     outputs:
       crashes_found:
         description: "Whether crashes were found"
@@ -61,43 +66,47 @@ jobs:
     name: "Run ${{ inputs.fuzz_name || inputs.fuzz_target }}"
     env:
       FUZZ_NAME: ${{ inputs.fuzz_name || inputs.fuzz_target }}
-    timeout-minutes: 370  # 6 hours 10 minutes
+      FUZZ_TARGET: ${{ inputs.fuzz_target }}
+      FUZZER_ARTIFACT: ${{ inputs.fuzzer_artifact }}
+      EXTRA_FEATURES: ${{ inputs.extra_features }}
+      EXTRA_ENV: ${{ inputs.extra_env }}
+      FUZZ_JOBS: ${{ inputs.jobs }}
+      MAX_TIME: ${{ inputs.max_time }}
+    timeout-minutes: 180
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner={1}/extras=s3-cache/tag={2}-fuzz', github.run_id, inputs.runner, inputs.fuzz_name || inputs.fuzz_target)
+          && format('runs-on={0}/runner={1}/tag={2}-fuzz', github.run_id, inputs.runner, inputs.fuzz_name || inputs.fuzz_target)
           || 'ubuntu-latest' }}
     outputs:
       crashes_found: ${{ steps.check.outputs.crashes_found }}
       first_crash_name: ${{ steps.check.outputs.first_crash_name }}
       artifact_url: ${{ steps.upload_artifacts.outputs.artifact-url }}
     steps:
-      - uses: runs-on/action@v2
-        if: github.repository == 'vortex-data/vortex'
-        with:
-          sccache: s3
-
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
       - uses: ./.github/actions/setup-prebuild
         if: >-
+          inputs.fuzzer_artifact == '' &&
           github.repository == 'vortex-data/vortex' &&
           contains(fromJSON('["arm64-fuzz", "arm64-medium"]'), inputs.runner)
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
-          enable-sccache: "true"
+          enable-sccache: "false"
 
       - uses: ./.github/actions/setup-rust
         if: >-
-          github.repository != 'vortex-data/vortex' ||
-          !contains(fromJSON('["arm64-fuzz", "arm64-medium"]'), inputs.runner)
+          inputs.fuzzer_artifact == '' &&
+          (github.repository != 'vortex-data/vortex' ||
+          !contains(fromJSON('["arm64-fuzz", "arm64-medium"]'), inputs.runner))
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
-          enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
+          enable-sccache: "false"
 
       - name: Check LLVM toolchain
         id: llvm-toolchain
+        if: inputs.fuzzer_artifact == ''
         shell: bash
         run: |
           if command -v clang >/dev/null && command -v llvm-symbolizer >/dev/null; then
@@ -107,15 +116,26 @@ jobs:
           fi
 
       - name: Install llvm
-        if: steps.llvm-toolchain.outputs.installed != 'true'
+        if: inputs.fuzzer_artifact == '' && steps.llvm-toolchain.outputs.installed != 'true'
         uses: aminya/setup-cpp@v1
         with:
           compiler: llvm
 
       - name: Install cargo-fuzz
+        if: inputs.fuzzer_artifact == ''
         uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
         with:
           tool: cargo-fuzz
+
+      - name: Download precompiled fuzzer
+        if: inputs.fuzzer_artifact != ''
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8
+        with:
+          name: ${{ inputs.fuzzer_artifact }}
+
+      - name: Extract precompiled fuzzer
+        if: inputs.fuzzer_artifact != ''
+        run: tar -xf cpu-fuzzers.tar.zst
 
       - name: Restore corpus
         shell: bash
@@ -124,76 +144,28 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
           AWS_REGION: "us-east-1"
           AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
-        run: |
-          CORPUS_KEY="${FUZZ_NAME}_corpus.tar.zst"
-          CORPUS_DIR="fuzz/corpus/${FUZZ_NAME}"
-
-          # Try to download corpus
-          if python3 scripts/s3-download.py "s3://vortex-fuzz-corpus/$CORPUS_KEY" "$CORPUS_KEY"; then
-            echo "Downloaded corpus successfully"
-            tar -xf "$CORPUS_KEY"
-          else
-            echo "Creating empty corpus directory"
-            mkdir -p "$CORPUS_DIR"
-          fi
+        run: .github/scripts/restore-fuzz-corpus.sh explore
 
       - name: Run fuzzing target
         id: fuzz
-        run: |
-          CORPUS_DIR="fuzz/corpus/${FUZZ_NAME}"
-          FEATURES_FLAG=""
-          if [ -n "${{ inputs.extra_features }}" ]; then
-            FEATURES_FLAG="--features ${{ inputs.extra_features }}"
-          fi
-          FORK_FLAG=""
-          if [ "${{ inputs.jobs }}" -gt 1 ]; then
-            FORK_FLAG="-fork=${{ inputs.jobs }}"
-          fi
-          ${{ inputs.extra_env }} RUST_BACKTRACE=1 \
-            cargo +$NIGHTLY_TOOLCHAIN fuzz run --release --debug-assertions \
-            $FEATURES_FLAG \
-            ${{ inputs.fuzz_target }} "$CORPUS_DIR" -- \
-            $FORK_FLAG -max_total_time=${{ inputs.max_time }} -rss_limit_mb=0 \
-            2>&1 | tee fuzz_output.log
+        shell: bash
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+          AWS_REGION: "us-east-1"
+          AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
+        run: .github/scripts/run-fuzzer.sh
         continue-on-error: true
 
       - name: Check for crashes
         id: check
-        run: |
-          # Find actual crash files, not just the directory structure
-          FIRST_CRASH=$(find fuzz/artifacts -type f \( -name "crash-*" -o -name "leak-*" -o -name "timeout-*" -o -name "oom-*" \) 2>/dev/null | head -1 || true)
-
-          if [ -n "$FIRST_CRASH" ]; then
-            echo "crashes_found=true" >> $GITHUB_OUTPUT
-            echo "first_crash=$FIRST_CRASH" >> $GITHUB_OUTPUT
-            echo "first_crash_name=$(basename $FIRST_CRASH)" >> $GITHUB_OUTPUT
-
-            # Count all crashes for reporting
-            CRASH_COUNT=$(find fuzz/artifacts -type f \( -name "crash-*" -o -name "leak-*" -o -name "timeout-*" -o -name "oom-*" \) | wc -l)
-            echo "crash_count=$CRASH_COUNT" >> $GITHUB_OUTPUT
-            echo "Found $CRASH_COUNT crash(es), will process first: $(basename $FIRST_CRASH)"
-          else
-            echo "crashes_found=false" >> $GITHUB_OUTPUT
-            echo "crash_count=0" >> $GITHUB_OUTPUT
-            echo "No crashes found"
-          fi
+        run: .github/scripts/check-fuzz-crashes.sh
 
       - name: Reproduce crash for full output
         if: steps.check.outputs.crashes_found == 'true' && inputs.jobs > 1
-        run: |
-          # In fork mode, child output (backtrace, panic message) is not captured in
-          # fuzz_output.log. Replay the crashing input in single-process mode to get
-          # the full output for the crash reporting pipeline.
-          FEATURES_FLAG=""
-          if [ -n "${{ inputs.extra_features }}" ]; then
-            FEATURES_FLAG="--features ${{ inputs.extra_features }}"
-          fi
-          RUST_BACKTRACE=1 \
-            cargo +$NIGHTLY_TOOLCHAIN fuzz run --release --debug-assertions \
-            $FEATURES_FLAG \
-            ${{ inputs.fuzz_target }} \
-            "${{ steps.check.outputs.first_crash }}" \
-            2>&1 | tee fuzz_output.log || true
+        env:
+          FIRST_CRASH: ${{ steps.check.outputs.first_crash }}
+        run: .github/scripts/reproduce-fuzz-crash.sh
 
       - name: Archive crash artifacts
         id: upload_artifacts
@@ -219,14 +191,10 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
           AWS_REGION: "us-east-1"
           AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
-        run: |
-          CORPUS_KEY="${FUZZ_NAME}_corpus.tar.zst"
-          CORPUS_DIR="fuzz/corpus/${FUZZ_NAME}"
+        run: >-
+          .github/scripts/checkpoint-fuzz-corpus.sh
+          "fuzz/corpus/$FUZZ_NAME" "${FUZZ_NAME}_corpus.tar.zst" "$RUNNER_TEMP/${FUZZ_NAME}.etag"
 
-          tar -acf "$CORPUS_KEY" "$CORPUS_DIR"
-
-          python3 scripts/s3-upload.py --bucket vortex-fuzz-corpus --key "$CORPUS_KEY" --body "$CORPUS_KEY" --checksum-algorithm CRC32 --optimistic-lock
-
-      - name: Fail job if fuzz run found a bug
-        if: steps.check.outputs.crashes_found == 'true'
+      - name: Fail job if fuzzing failed
+        if: steps.fuzz.outcome == 'failure' || steps.check.outputs.crashes_found == 'true'
         run: exit 1

@@ -163,6 +163,7 @@ impl Validity {
     }
 
     /// Returns whether the `index` item is valid, using `ctx` to execute the validity array.
+    // Todo(joe): deprecate this
     #[inline]
     pub fn execute_is_valid(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
         Ok(match self {
@@ -177,6 +178,7 @@ impl Validity {
     }
 
     /// Returns whether the `index` item is null, using `ctx` to execute the validity array.
+    // Todo(joe): deprecate this
     #[inline]
     pub fn execute_is_null(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
         Ok(!self.execute_is_valid(index, ctx)?)

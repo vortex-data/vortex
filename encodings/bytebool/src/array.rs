@@ -312,6 +312,8 @@ impl ValidityVTable<ByteBool> for ByteBool {
 }
 
 impl OperationsVTable<ByteBool> for ByteBool {
+    type ProbeState = ();
+
     fn scalar_at(
         array: ArrayView<'_, ByteBool>,
         index: usize,

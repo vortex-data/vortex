@@ -1,0 +1,67 @@
+name: Validate Fuzz Corpora
+
+on:
+  workflow_call:
+    inputs:
+      fuzzer_artifact:
+        description: "Artifact produced by build-fuzzers.yml"
+        required: true
+        type: string
+      runner:
+        description: "Runner name from .github-private runs-on.yml"
+        required: false
+        type: string
+        default: "arm64-fuzz"
+    secrets:
+      R2_FUZZ_ACCESS_KEY_ID:
+        required: true
+      R2_FUZZ_SECRET_ACCESS_KEY:
+        required: true
+
+jobs:
+  validate:
+    name: "Validate existing fuzz seeds"
+    timeout-minutes: 120
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner={1}/disk=large/tag=fuzz-validate', github.run_id, inputs.runner)
+          || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+
+      - name: Download fuzzers
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8
+        with:
+          name: ${{ inputs.fuzzer_artifact }}
+
+      - name: Extract fuzzers
+        run: tar -xf cpu-fuzzers.tar.zst
+
+      - name: Restore corpora
+        shell: bash
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+          AWS_REGION: "us-east-1"
+          AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
+        run: .github/scripts/restore-fuzz-corpora.sh
+
+      - name: Validate corpora without mutation
+        id: validate
+        shell: bash
+        run: .github/scripts/validate-fuzz-corpora.sh
+        continue-on-error: true
+
+      - name: Upload validation failures
+        if: steps.validate.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        with:
+          name: fuzz-seed-validation-failures
+          path: |
+            fuzz/validation-artifacts
+            fuzz/validation-logs
+          retention-days: 90
+
+      - name: Fail if an existing seed failed
+        if: steps.validate.outcome == 'failure'
+        run: exit 1

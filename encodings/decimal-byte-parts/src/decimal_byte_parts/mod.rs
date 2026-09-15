@@ -289,6 +289,8 @@ fn to_canonical_decimal(
 }
 
 impl OperationsVTable<DecimalByteParts> for DecimalByteParts {
+    type ProbeState = ();
+
     fn scalar_at(
         array: ArrayView<'_, DecimalByteParts>,
         index: usize,

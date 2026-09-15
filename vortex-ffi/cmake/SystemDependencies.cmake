@@ -21,7 +21,9 @@ function(_vortex_attach_system_dependencies target rust_target)
         # The archive needs no C++ runtime, so C and C++ consumers alike only
         # need libSystem from their driver plus these extra libraries.
         find_library(_vortex_core_foundation CoreFoundation REQUIRED NO_CACHE)
-        target_link_libraries("${target}" INTERFACE iconv "${_vortex_core_foundation}")
+        find_library(_vortex_security Security REQUIRED NO_CACHE)
+        target_link_libraries("${target}" INTERFACE
+            iconv "${_vortex_core_foundation}" "${_vortex_security}")
     else()
         message(FATAL_ERROR
             "Vortex has no validated native static-link manifest for Rust target "

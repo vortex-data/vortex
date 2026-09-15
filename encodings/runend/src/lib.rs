@@ -33,6 +33,8 @@ use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
 use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
 use vortex_array::aggregate_fn::fns::min_max::MinMax;
+use vortex_array::aggregate_fn::fns::sum::Sum;
+use vortex_array::aggregate_fn::fns::sum_v2::SumV2;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
@@ -58,6 +60,13 @@ pub fn initialize(session: &VortexSession) {
         Some(IsSorted.id()),
         &compute::is_sorted::RunEndIsSortedKernel,
     );
+    for sum in [Sum.id(), SumV2.id()] {
+        session.aggregate_fns().register_aggregate_kernel(
+            RunEnd.id(),
+            Some(sum),
+            &compute::sum::RunEndSumKernel,
+        );
+    }
 }
 
 #[cfg(test)]
