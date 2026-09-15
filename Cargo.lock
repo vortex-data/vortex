@@ -10959,6 +10959,7 @@ dependencies = [
  "tracing",
  "url",
  "vortex",
+ "vortex-array",
  "vortex-arrow",
  "vortex-utils",
 ]

@@ -36,5 +36,8 @@
 mod source;
 mod table;
 
+#[cfg(test)]
+mod tests;
+
 pub use source::VortexDataSource;
 pub use table::VortexTable;
