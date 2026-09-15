@@ -19,7 +19,7 @@ cmake --build build \
 ctest --test-dir build --output-on-failure
 
 # lcov matches exclude globs against full source paths.
-geninfo build/CMakeFiles/vortex_cxx.dir/ \
+geninfo build/CMakeFiles/vortex_cxx_static.dir/ \
     build/tests/CMakeFiles/vortex_cxx_test.dir/ \
     --rc geninfo_unexecuted_blocks=1 \
     --exclude '/usr/*' --exclude '*/_deps/*' --exclude '*/tests/*' \

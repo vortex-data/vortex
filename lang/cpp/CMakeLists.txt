@@ -51,14 +51,17 @@ endif()
 # The C++ wrapper over the C FFI. Public headers live under include/.
 file(GLOB _vortex_cpp_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
 
-# Preserve the static API and its hidden symbols for embedding in other DSOs.
-add_library(vortex_cxx STATIC ${_vortex_cpp_sources})
-set_target_properties(vortex_cxx PROPERTIES
+add_library(vortex_cxx_static STATIC ${_vortex_cpp_sources})
+set_target_properties(vortex_cxx_static PROPERTIES
+    OUTPUT_NAME vortex_cxx
+    # Allow embedding the static archive in a shared library.
     POSITION_INDEPENDENT_CODE ON
+    # Keep embedded wrapper symbols out of the parent library's exports.
     CXX_VISIBILITY_PRESET hidden)
-target_link_libraries(vortex_cxx PUBLIC Vortex::ffi_static)
-add_library(Vortex::cpp_static ALIAS vortex_cxx)
+target_link_libraries(vortex_cxx_static PUBLIC Vortex::ffi_static)
+add_library(Vortex::cpp_static ALIAS vortex_cxx_static)
 
+# CMake enables PIC automatically for SHARED targets.
 add_library(vortex_cxx_shared SHARED ${_vortex_cpp_sources})
 # Override an inherited hidden preset so the shared C++ API remains exported.
 set_target_properties(vortex_cxx_shared PROPERTIES
@@ -68,14 +71,15 @@ target_link_libraries(vortex_cxx_shared PUBLIC Vortex::ffi_shared)
 add_library(Vortex::cpp_shared ALIAS vortex_cxx_shared)
 
 if(BUILD_SHARED_LIBS)
-    set_target_properties(vortex_cxx PROPERTIES EXCLUDE_FROM_ALL TRUE)
+    set_target_properties(vortex_cxx_static PROPERTIES EXCLUDE_FROM_ALL TRUE)
     set(_vortex_cpp_target Vortex::cpp_shared)
 else()
     set_target_properties(vortex_cxx_shared PROPERTIES EXCLUDE_FROM_ALL TRUE)
     set(_vortex_cpp_target Vortex::cpp_static)
 endif()
 
-foreach(_target IN ITEMS vortex_cxx vortex_cxx_shared)
+foreach(_target IN ITEMS vortex_cxx_static vortex_cxx_shared)
+    # Keep inline implementation symbols out of shared-library exports.
     set_target_properties(${_target} PROPERTIES VISIBILITY_INLINES_HIDDEN ON)
     target_compile_features(${_target} PUBLIC cxx_std_20)
     target_include_directories(${_target} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
