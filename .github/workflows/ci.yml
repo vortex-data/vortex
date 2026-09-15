@@ -785,7 +785,7 @@ jobs:
           enable-sccache: "true"
           targets: "wasm32-wasip1"
       - name: Setup Wasmer
-        uses: wasmerio/setup-wasmer@6c5d5cfde33555ebd3e0172ba547497890c4b1c0  # v3
+        uses: wasmerio/setup-wasmer@ba7631cb2d521612aa7ac5b13cb76fb77e824a1a  # v3
         with:
           version: "v7.4.0"
       - name: Verify Wasmer installation
