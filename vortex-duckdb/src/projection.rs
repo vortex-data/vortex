@@ -55,21 +55,36 @@ pub struct Projection {
     pub file_row_number_column_pos: Option<usize>,
 }
 
+#[cfg_attr(test, derive(Clone))]
+pub struct ProjectionInput<'a> {
+    /// Columns Duckdb wants us to read. These are usually columns that are
+    /// part of projection (i.e. SELECT) but also, due to a bug in
+    /// MultiFileReader, columns in WHERE which are present in LOGICAL_GET's
+    /// table_filters. MultiFileReader wants output to have all columns from
+    /// column_ids.
+    pub column_ids: &'a [u64],
+    /// Empty (then you need to use column_ids) or otherwise columns which
+    /// are part of SELECT. If projection_ids are non-empty, we avoid reading
+    /// and decoding columns which are in column_ids but not in projection_ids.
+    pub projection_ids: &'a [u64],
+    pub column_fields: &'a [DuckdbField],
+}
+
 impl Projection {
-    pub fn new(projection_ids: &[u64], column_ids: &[u64], column_fields: &[DuckdbField]) -> Self {
-        let projection_ids: HashSet<u64> = projection_ids.iter().copied().collect();
+    pub fn new(input: ProjectionInput) -> Self {
+        let projection_ids: HashSet<u64> = input.projection_ids.iter().copied().collect();
         // If projection ids are empty, use column_ids.
         // See duckdb/src/planner/operator/logical_get.cpp#L168
         let is_projected =
             |pos: usize| projection_ids.is_empty() || projection_ids.contains(&(pos as u64));
 
-        let mut exprs = Vec::with_capacity(column_ids.len() + 1);
+        let mut exprs = Vec::with_capacity(input.column_ids.len() + 1);
         let mut file_row_number_column_pos = None;
         let mut is_star = true;
         let mut real_column_count = 0;
 
         // DuckDB uses u64 as column indices but Rust uses usize
-        for (column_pos, &column_id) in column_ids.iter().enumerate() {
+        for (column_pos, &column_id) in input.column_ids.iter().enumerate() {
             if column_id == FILE_ROW_NUMBER_COLUMN_IDX {
                 is_star = false;
                 if is_projected(column_pos) {
@@ -88,7 +103,7 @@ impl Projection {
             }
 
             let field_idx: usize = column_id.as_();
-            let column_field = &column_fields[field_idx];
+            let column_field = &input.column_fields[field_idx];
             let name = column_field.name.as_str();
 
             if !is_projected(column_pos) {
@@ -118,7 +133,7 @@ impl Projection {
         }
         // Duckdb can request less columns than there are in table i.e. [0, 1] with
         // 5 columns total.
-        is_star &= real_column_count == column_fields.len() as u64;
+        is_star &= real_column_count == input.column_fields.len() as u64;
 
         if is_star {
             return Projection {
@@ -285,13 +300,19 @@ mod tests {
     #[test]
     fn test_select_star() {
         let ids = [0, 1, 2];
-        let mut fields = [field("a"), field("b"), field("c")];
+        let fields = [field("a"), field("b"), field("c")];
 
-        assert_eq!(Projection::new(&[], &ids, &fields).projection, root());
+        let mut input = ProjectionInput {
+            column_ids: &ids,
+            projection_ids: &[],
+            column_fields: &fields,
+        };
+        assert_eq!(Projection::new(input.clone()).projection, root());
 
         // file_row_number turns star into an explicit pack with row_idx first
         let ids = [FILE_ROW_NUMBER_COLUMN_IDX, 0, 1, 2];
-        let result = Projection::new(&[], &ids, &fields);
+        input.column_ids = &ids;
+        let result = Projection::new(input.clone());
         let expected = pack(
             [
                 ("file_row_number", row_idx()),
@@ -304,27 +325,36 @@ mod tests {
         assert_eq!(result.projection, expected);
         assert_eq!(result.file_row_number_column_pos, Some(0));
 
-        let ids = [0, 1];
-        assert_ne!(Projection::new(&[], &ids, &fields).projection, root());
+        input.column_ids = &[0, 1];
+        assert_ne!(Projection::new(input.clone()).projection, root());
 
-        let ids = [0, 2, 2];
-        assert_ne!(Projection::new(&[], &ids, &fields).projection, root());
+        input.column_ids = &[0, 2, 2];
+        assert_ne!(Projection::new(input.clone()).projection, root());
 
-        let ids = [2, 1, 0];
-        assert_ne!(Projection::new(&[], &ids, &fields).projection, root());
+        input.column_ids = &[2, 1, 0];
+        assert_ne!(Projection::new(input.clone()).projection, root());
 
         // If any column has a projection expression, we can't use SELECT *
+        let mut fields = [field("a"), field("b"), field("c")];
         fields[0].projection_expr = Some(lit(true));
-        let ids = [0, 1, 2];
-        assert_ne!(Projection::new(&[], &ids, &fields).projection, root());
+        let input = ProjectionInput {
+            column_ids: &[0, 1, 2],
+            projection_ids: &[],
+            column_fields: &fields,
+        };
+        assert_ne!(Projection::new(input).projection, root());
     }
 
     #[test]
     fn test_projections() {
         let fields = [field("a"), field("b"), field("c")];
 
-        let ids = [0, 1, 2];
-        let projection = Projection::new(&[0, 2], &ids, &fields).projection;
+        let input = ProjectionInput {
+            column_ids: &[0, 1, 2],
+            projection_ids: &[0, 2],
+            column_fields: &fields,
+        };
+        let projection = Projection::new(input).projection;
         let expected = pack(
             [
                 ("a", get_item("a", root())),
@@ -335,8 +365,12 @@ mod tests {
         );
         assert_eq!(projection, expected);
 
-        let ids = [FILE_ROW_NUMBER_COLUMN_IDX, 0];
-        let result = Projection::new(&[1], &ids, &fields);
+        let input = ProjectionInput {
+            column_ids: &[FILE_ROW_NUMBER_COLUMN_IDX, 0],
+            projection_ids: &[1],
+            column_fields: &fields,
+        };
+        let result = Projection::new(input);
         let frn_dtype = DType::Primitive(PType::U64, Nullability::Nullable);
         let expected = pack(
             [
@@ -348,8 +382,12 @@ mod tests {
         assert_eq!(result.projection, expected);
         assert_eq!(result.file_row_number_column_pos, None);
 
-        let ids = [0, FILE_ROW_NUMBER_COLUMN_IDX, 1];
-        let result = Projection::new(&[0, 1], &ids, &fields);
+        let input = ProjectionInput {
+            column_ids: &[0, FILE_ROW_NUMBER_COLUMN_IDX, 1],
+            projection_ids: &[0, 1],
+            column_fields: &fields,
+        };
+        let result = Projection::new(input);
         let expected = pack(
             [
                 ("file_row_number", row_idx()),
