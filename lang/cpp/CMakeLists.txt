@@ -39,6 +39,8 @@ option(VORTEX_WARNINGS_AS_ERRORS
     "Treat warnings in Vortex-owned sources as errors"
     "${_vortex_top_level}")
 
+include(../../vortex-ffi/cmake/DebugInfo.cmake)
+
 # The Rust FFI archive comes from vortex-ffi. A standalone configure of this
 # directory adds it here; the repository root or a parent may already have.
 if(NOT TARGET Vortex::ffi_static)

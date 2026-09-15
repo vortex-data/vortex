@@ -11,12 +11,14 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
+use super::DecimalToIntegerCast;
 use super::arithmetic::checked_decimal_numeric;
 use super::arithmetic::decimal_numeric_result_dtype;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::PType;
 use crate::match_each_decimal_value;
+use crate::match_each_integer_ptype;
 use crate::scalar::DecimalValue;
 use crate::scalar::NumericOperator;
 use crate::scalar::Scalar;
@@ -77,6 +79,18 @@ impl<'a> DecimalScalar<'a> {
                     Ok(Scalar::null(dtype.clone()))
                 }
             }
+            DType::Primitive(ptype, nullability) if ptype.is_int() => {
+                let Some(value) = self.decimal_value else {
+                    return Ok(Scalar::null(dtype.clone()));
+                };
+                match_each_integer_ptype!(*ptype, |T| {
+                    let cast = DecimalToIntegerCast::<T>::new(self.decimal_type.scale());
+                    let value = value.as_i256();
+                    cast.cast(value)
+                        .map(|integer| Scalar::primitive(integer, *nullability))
+                        .ok_or_else(|| cast.error(value))
+                })
+            }
             DType::Primitive(ptype, nullability) => {
                 // Cast decimal to primitive type
                 if let Some(decimal_value) = &self.decimal_value {
@@ -103,68 +117,13 @@ impl<'a> DecimalScalar<'a> {
                         reason = "truncation is intentional - range checks happen after"
                     )]
                     let primitive_scalar = match ptype {
-                        PType::U8 => {
-                            let v = actual_value as u8;
-                            if actual_value < 0.0 || actual_value > u8::MAX as f64 {
-                                vortex_bail!("Decimal value {} out of range for u8", actual_value);
-                            }
-                            Scalar::primitive(v, *nullability)
-                        }
-                        PType::U16 => {
-                            let v = actual_value as u16;
-                            if actual_value < 0.0 || actual_value > u16::MAX as f64 {
-                                vortex_bail!("Decimal value {} out of range for u16", actual_value);
-                            }
-                            Scalar::primitive(v, *nullability)
-                        }
-                        PType::U32 => {
-                            let v = actual_value as u32;
-                            if actual_value < 0.0 || actual_value > u32::MAX as f64 {
-                                vortex_bail!("Decimal value {} out of range for u32", actual_value);
-                            }
-                            Scalar::primitive(v, *nullability)
-                        }
-                        PType::U64 => {
-                            let v = actual_value as u64;
-                            if actual_value < 0.0 || actual_value > u64::MAX as f64 {
-                                vortex_bail!("Decimal value {} out of range for u64", actual_value);
-                            }
-                            Scalar::primitive(v, *nullability)
-                        }
-                        PType::I8 => {
-                            let v = actual_value as i8;
-                            if actual_value < i8::MIN as f64 || actual_value > i8::MAX as f64 {
-                                vortex_bail!("Decimal value {} out of range for i8", actual_value);
-                            }
-                            Scalar::primitive(v, *nullability)
-                        }
-                        PType::I16 => {
-                            let v = actual_value as i16;
-                            if actual_value < i16::MIN as f64 || actual_value > i16::MAX as f64 {
-                                vortex_bail!("Decimal value {} out of range for i16", actual_value);
-                            }
-                            Scalar::primitive(v, *nullability)
-                        }
-                        PType::I32 => {
-                            let v = actual_value as i32;
-                            if actual_value < i32::MIN as f64 || actual_value > i32::MAX as f64 {
-                                vortex_bail!("Decimal value {} out of range for i32", actual_value);
-                            }
-                            Scalar::primitive(v, *nullability)
-                        }
-                        PType::I64 => {
-                            let v = actual_value as i64;
-                            if actual_value < i64::MIN as f64 || actual_value > i64::MAX as f64 {
-                                vortex_bail!("Decimal value {} out of range for i64", actual_value);
-                            }
-                            Scalar::primitive(v, *nullability)
-                        }
                         PType::F16 => {
                             use crate::dtype::half::f16;
                             Scalar::primitive(f16::from_f64(actual_value), *nullability)
                         }
                         PType::F32 => Scalar::primitive(actual_value as f32, *nullability),
                         PType::F64 => Scalar::primitive(actual_value, *nullability),
+                        _ => unreachable!("integer casts are handled above"),
                     };
                     Ok(primitive_scalar)
                 } else {

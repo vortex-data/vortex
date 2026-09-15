@@ -1,8 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod grouped;
+//! SQL-style sums with explicit overflow and empty-input state.
+//!
+//! [`SumV2`] returns null when there are no valid values, while [`Sum`] returns zero. Tracking empty
+//! input separately from overflow requires a different partial representation. A separate aggregate
+//! preserves compatibility with the scalar partials stored by older Vortex files.
 
+mod grouped;
 pub(crate) use grouped::PrimitiveGroupedSumV2EncodingKernel;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -35,6 +40,7 @@ use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
+use crate::dtype::PType;
 use crate::dtype::StructFields;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
@@ -73,6 +79,41 @@ pub fn sum_v2(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> 
 /// any NaN value poisons the sum to NaN.
 #[derive(Clone, Copy, Debug)]
 pub struct SumV2;
+
+impl SumV2 {
+    /// Build an encoding kernel's partial from a widened primitive sum.
+    ///
+    /// `sum` must have dtype `u64`, `i64`, or `f64`. A null sum records overflow and overrides
+    /// `is_empty`. Set `is_empty` only when there were no valid inputs. Valid NaNs make the input
+    /// non-empty even when skipped. The returned struct and its fields are non-null.
+    pub fn partial_from_sum(sum: Scalar, is_empty: bool) -> VortexResult<Scalar> {
+        vortex_ensure!(
+            matches!(
+                sum.dtype(),
+                DType::Primitive(PType::U64 | PType::I64 | PType::F64, _)
+            ),
+            "Expected a widened primitive sum, got {}",
+            sum.dtype(),
+        );
+
+        let sum_dtype = sum.dtype().as_nonnullable();
+        let is_overflow = sum.is_null();
+        let sum = if is_overflow {
+            Scalar::zero_value(&sum_dtype)
+        } else {
+            sum.cast(&sum_dtype)?
+        };
+
+        Ok(Scalar::struct_(
+            sum_v2_partial_dtype(sum_dtype),
+            vec![
+                sum,
+                Scalar::bool(is_overflow, Nullability::NonNullable),
+                Scalar::bool(is_empty && !is_overflow, Nullability::NonNullable),
+            ],
+        ))
+    }
+}
 
 impl AggregateFnVTable for SumV2 {
     type Options = NumericalAggregateOpts;
