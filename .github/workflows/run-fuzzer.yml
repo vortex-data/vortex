@@ -66,6 +66,12 @@ jobs:
     name: "Run ${{ inputs.fuzz_name || inputs.fuzz_target }}"
     env:
       FUZZ_NAME: ${{ inputs.fuzz_name || inputs.fuzz_target }}
+      FUZZ_TARGET: ${{ inputs.fuzz_target }}
+      FUZZER_ARTIFACT: ${{ inputs.fuzzer_artifact }}
+      EXTRA_FEATURES: ${{ inputs.extra_features }}
+      EXTRA_ENV: ${{ inputs.extra_env }}
+      FUZZ_JOBS: ${{ inputs.jobs }}
+      MAX_TIME: ${{ inputs.max_time }}
     timeout-minutes: 180
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
@@ -138,22 +144,7 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
           AWS_REGION: "us-east-1"
           AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
-        run: |
-          CORPUS_KEY="${FUZZ_NAME}_corpus.tar.zst"
-          CORPUS_DIR="fuzz/corpus/${FUZZ_NAME}"
-          CORPUS_ETAG_FILE="$RUNNER_TEMP/${FUZZ_NAME}.etag"
-
-          # Try to download corpus
-          if python3 scripts/s3-download.py \
-            "s3://vortex-fuzz-corpus/$CORPUS_KEY" "$CORPUS_KEY" \
-            --etag-output "$CORPUS_ETAG_FILE"; then
-            echo "Downloaded corpus successfully"
-            tar -xf "$CORPUS_KEY"
-          else
-            echo "Corpus unavailable; creating an empty local corpus with create-only protection"
-            mkdir -p "$CORPUS_DIR"
-            printf 'CREATE_ONLY\n' > "$CORPUS_ETAG_FILE"
-          fi
+        run: .github/scripts/restore-fuzz-corpus.sh explore
 
       - name: Run fuzzing target
         id: fuzz
@@ -163,110 +154,18 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
           AWS_REGION: "us-east-1"
           AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
-        run: |
-          set -euo pipefail
-          CORPUS_DIR="fuzz/corpus/${FUZZ_NAME}"
-          CORPUS_KEY="${FUZZ_NAME}_corpus.tar.zst"
-          CORPUS_ETAG_FILE="$RUNNER_TEMP/${FUZZ_NAME}.etag"
-          mkdir -p "fuzz/artifacts/${FUZZ_NAME}"
-
-          LAST_CHECKPOINT_COUNT=$(find "$CORPUS_DIR" -type f | wc -l)
-          checkpoint_loop() {
-            local current_count
-            while sleep 900; do
-              current_count=$(find "$CORPUS_DIR" -type f | wc -l)
-              if [ "$current_count" -ne "$LAST_CHECKPOINT_COUNT" ]; then
-                echo "Checkpointing $current_count corpus entries for $FUZZ_NAME"
-                if scripts/checkpoint-fuzz-corpus.sh \
-                  "$CORPUS_DIR" "$CORPUS_KEY" "$CORPUS_ETAG_FILE"; then
-                  LAST_CHECKPOINT_COUNT=$current_count
-                else
-                  echo "::warning::Unable to checkpoint the $FUZZ_NAME corpus"
-                fi
-              fi
-            done
-          }
-          checkpoint_loop &
-          CHECKPOINT_PID=$!
-          stop_checkpoint_loop() {
-            kill "$CHECKPOINT_PID" 2>/dev/null || true
-            wait "$CHECKPOINT_PID" 2>/dev/null || true
-          }
-          trap stop_checkpoint_loop EXIT
-
-          FEATURES_FLAG=""
-          if [ -n "${{ inputs.extra_features }}" ]; then
-            FEATURES_FLAG="--features ${{ inputs.extra_features }}"
-          fi
-          FORK_FLAG=""
-          if [ "${{ inputs.jobs }}" -gt 1 ]; then
-            FORK_FLAG="-fork=${{ inputs.jobs }}"
-          fi
-
-          set +e
-          if [ -n "${{ inputs.fuzzer_artifact }}" ]; then
-            env ${{ inputs.extra_env }} RUST_BACKTRACE=1 \
-              "$GITHUB_WORKSPACE/fuzz-binaries/$FUZZ_NAME" "$CORPUS_DIR" \
-              $FORK_FLAG -max_total_time=${{ inputs.max_time }} -rss_limit_mb=0 \
-              -artifact_prefix="fuzz/artifacts/${FUZZ_NAME}/" \
-              2>&1 | tee fuzz_output.log
-          else
-            env ${{ inputs.extra_env }} RUST_BACKTRACE=1 \
-              cargo +$NIGHTLY_TOOLCHAIN fuzz run --release --debug-assertions \
-              $FEATURES_FLAG \
-              ${{ inputs.fuzz_target }} "$CORPUS_DIR" -- \
-              $FORK_FLAG -max_total_time=${{ inputs.max_time }} -rss_limit_mb=0 \
-              2>&1 | tee fuzz_output.log
-          fi
-          FUZZ_STATUS=${PIPESTATUS[0]}
-          set -e
-
-          stop_checkpoint_loop
-          trap - EXIT
-          exit "$FUZZ_STATUS"
+        run: .github/scripts/run-fuzzer.sh
         continue-on-error: true
 
       - name: Check for crashes
         id: check
-        run: |
-          # Find actual crash files, not just the directory structure
-          FIRST_CRASH=$(find fuzz/artifacts -type f \( -name "crash-*" -o -name "leak-*" -o -name "timeout-*" -o -name "oom-*" \) 2>/dev/null | head -1 || true)
-
-          if [ -n "$FIRST_CRASH" ]; then
-            echo "crashes_found=true" >> $GITHUB_OUTPUT
-            echo "first_crash=$FIRST_CRASH" >> $GITHUB_OUTPUT
-            echo "first_crash_name=$(basename $FIRST_CRASH)" >> $GITHUB_OUTPUT
-
-            # Count all crashes for reporting
-            CRASH_COUNT=$(find fuzz/artifacts -type f \( -name "crash-*" -o -name "leak-*" -o -name "timeout-*" -o -name "oom-*" \) | wc -l)
-            echo "crash_count=$CRASH_COUNT" >> $GITHUB_OUTPUT
-            echo "Found $CRASH_COUNT crash(es), will process first: $(basename $FIRST_CRASH)"
-          else
-            echo "crashes_found=false" >> $GITHUB_OUTPUT
-            echo "crash_count=0" >> $GITHUB_OUTPUT
-            echo "No crashes found"
-          fi
+        run: .github/scripts/check-fuzz-crashes.sh
 
       - name: Reproduce crash for full output
         if: steps.check.outputs.crashes_found == 'true' && inputs.jobs > 1
-        run: |
-          if [ -n "${{ inputs.fuzzer_artifact }}" ]; then
-            env ${{ inputs.extra_env }} RUST_BACKTRACE=1 \
-              "$GITHUB_WORKSPACE/fuzz-binaries/$FUZZ_NAME" \
-              "${{ steps.check.outputs.first_crash }}" \
-              2>&1 | tee fuzz_output.log || true
-          else
-            FEATURES_FLAG=""
-            if [ -n "${{ inputs.extra_features }}" ]; then
-              FEATURES_FLAG="--features ${{ inputs.extra_features }}"
-            fi
-            env ${{ inputs.extra_env }} RUST_BACKTRACE=1 \
-              cargo +$NIGHTLY_TOOLCHAIN fuzz run --release --debug-assertions \
-              $FEATURES_FLAG \
-              ${{ inputs.fuzz_target }} \
-              "${{ steps.check.outputs.first_crash }}" \
-              2>&1 | tee fuzz_output.log || true
-          fi
+        env:
+          FIRST_CRASH: ${{ steps.check.outputs.first_crash }}
+        run: .github/scripts/reproduce-fuzz-crash.sh
 
       - name: Archive crash artifacts
         id: upload_artifacts
@@ -292,12 +191,9 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
           AWS_REGION: "us-east-1"
           AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
-        run: |
-          CORPUS_KEY="${FUZZ_NAME}_corpus.tar.zst"
-          CORPUS_DIR="fuzz/corpus/${FUZZ_NAME}"
-          CORPUS_ETAG_FILE="$RUNNER_TEMP/${FUZZ_NAME}.etag"
-          scripts/checkpoint-fuzz-corpus.sh \
-            "$CORPUS_DIR" "$CORPUS_KEY" "$CORPUS_ETAG_FILE"
+        run: >-
+          .github/scripts/checkpoint-fuzz-corpus.sh
+          "fuzz/corpus/$FUZZ_NAME" "${FUZZ_NAME}_corpus.tar.zst" "$RUNNER_TEMP/${FUZZ_NAME}.etag"
 
       - name: Fail job if fuzzing failed
         if: steps.fuzz.outcome == 'failure' || steps.check.outputs.crashes_found == 'true'

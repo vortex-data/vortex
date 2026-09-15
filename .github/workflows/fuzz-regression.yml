@@ -27,6 +27,9 @@ on:
       - ".github/workflows/build-fuzzers.yml"
       - ".github/workflows/fuzz-regression.yml"
       - ".github/workflows/validate-fuzz-corpora.yml"
+      - ".github/scripts/build-fuzzers.sh"
+      - ".github/scripts/restore-fuzz-corpora.sh"
+      - ".github/scripts/validate-fuzz-corpora.sh"
       - "scripts/s3-download.py"
   workflow_dispatch: { }
 

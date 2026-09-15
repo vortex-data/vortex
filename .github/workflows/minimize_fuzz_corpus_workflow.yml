@@ -102,66 +102,16 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
           AWS_REGION: "us-east-1"
           AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
-        run: |
-          CORPUS_KEY="${FUZZ_NAME}_corpus.tar.zst"
-          CORPUS_DIR="fuzz/corpus/${FUZZ_NAME}"
-          CORPUS_ETAG_FILE="$RUNNER_TEMP/${FUZZ_NAME}.etag"
-
-          if python3 scripts/s3-download.py \
-            "s3://vortex-fuzz-corpus/$CORPUS_KEY" "$CORPUS_KEY" \
-            --etag-output "$CORPUS_ETAG_FILE"; then
-            echo "Downloaded corpus successfully"
-            tar -xf "$CORPUS_KEY"
-            echo "found=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "No existing corpus found, nothing to minimize"
-            mkdir -p "$CORPUS_DIR"
-            echo "found=false" >> "$GITHUB_OUTPUT"
-          fi
+        run: .github/scripts/restore-fuzz-corpus.sh minimize
 
       - name: Minimize corpus
         if: steps.corpus.outputs.found == 'true'
         shell: bash
-        run: |
-          set -euo pipefail
-          FEATURES_FLAG=""
-          if [ -n "${{ inputs.extra_features }}" ]; then
-            FEATURES_FLAG="--features ${{ inputs.extra_features }}"
-          fi
-          CORPUS_DIR="fuzz/corpus/${FUZZ_NAME}"
-          MINIMIZED_DIR="${CORPUS_DIR}_minimized"
-          mkdir -p "$MINIMIZED_DIR"
-          ORIGINAL_COUNT=$(find "$CORPUS_DIR" -type f | wc -l)
-
-          cargo +$NIGHTLY_TOOLCHAIN fuzz build --release --debug-assertions \
-            $FEATURES_FLAG ${{ inputs.fuzz_target }}
-          FUZZ_BINARY=$(find target -type f \
-            -path "*/release/${{ inputs.fuzz_target }}" -perm -u+x -print -quit)
-          if [ -z "$FUZZ_BINARY" ]; then
-            echo "::error::Unable to find compiled fuzzer ${{ inputs.fuzz_target }}"
-            exit 1
-          fi
-
-          set +e
-          env ${{ inputs.extra_env }} "$FUZZ_BINARY" \
-            -merge=1 "$MINIMIZED_DIR" "$CORPUS_DIR" -rss_limit_mb=0 \
-            2>&1 | tee fuzz-minimize.log
-          MERGE_STATUS=${PIPESTATUS[0]}
-          set -e
-          MINIMIZED_COUNT=$(find "$MINIMIZED_DIR" -type f | wc -l)
-
-          if [ "$MERGE_STATUS" -ne 0 ] || grep -Fq "caused a failure" fuzz-minimize.log; then
-            echo "::error::Corpus minimization encountered failing inputs"
-            exit 1
-          fi
-          if [ "$ORIGINAL_COUNT" -gt 0 ] && [ "$MINIMIZED_COUNT" -eq 0 ]; then
-            echo "::error::Refusing to replace a non-empty corpus with an empty corpus"
-            exit 1
-          fi
-
-          echo "Minimized $ORIGINAL_COUNT inputs to $MINIMIZED_COUNT"
-          rm -rf "$CORPUS_DIR"
-          mv "$MINIMIZED_DIR" "$CORPUS_DIR"
+        env:
+          FUZZ_TARGET: ${{ inputs.fuzz_target }}
+          EXTRA_FEATURES: ${{ inputs.extra_features }}
+          EXTRA_ENV: ${{ inputs.extra_env }}
+        run: .github/scripts/minimize-fuzz-corpus.sh
 
       - name: Persist corpus
         if: steps.corpus.outputs.found == 'true'
@@ -171,9 +121,6 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
           AWS_REGION: "us-east-1"
           AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
-        run: |
-          CORPUS_KEY="${FUZZ_NAME}_corpus.tar.zst"
-          CORPUS_DIR="fuzz/corpus/${FUZZ_NAME}"
-          CORPUS_ETAG_FILE="$RUNNER_TEMP/${FUZZ_NAME}.etag"
-          scripts/checkpoint-fuzz-corpus.sh \
-            "$CORPUS_DIR" "$CORPUS_KEY" "$CORPUS_ETAG_FILE"
+        run: >-
+          .github/scripts/checkpoint-fuzz-corpus.sh
+          "fuzz/corpus/$FUZZ_NAME" "${FUZZ_NAME}_corpus.tar.zst" "$RUNNER_TEMP/${FUZZ_NAME}.etag"
