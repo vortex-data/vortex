@@ -3,6 +3,8 @@
 
 mod extractor;
 mod extractors;
+#[cfg(feature = "profile-throughput")]
+pub mod profile;
 mod tree_display;
 
 use std::fmt::Display;
@@ -16,6 +18,8 @@ pub use extractors::EncodingSummaryExtractor;
 pub use extractors::MetadataExtractor;
 pub use extractors::NbytesExtractor;
 pub use extractors::StatsExtractor;
+#[cfg(feature = "profile-throughput")]
+pub use extractors::ThroughputExtractor;
 use itertools::Itertools as _;
 pub use tree_display::TreeDisplay;
 
@@ -428,6 +432,42 @@ impl ArrayRef {
     /// ```
     pub fn display_tree(&self) -> TreeDisplay {
         TreeDisplay::default_display(self.clone())
+    }
+
+    /// Display the tree of encodings annotated with measured decompression throughput.
+    ///
+    /// Every node is canonicalized in isolation `warmup + reps` times (see [`ProfileOptions`]),
+    /// so this is a profiling call rather than a formatting one. Each node reports the time to
+    /// decode its own subtree, that time's share of the whole tree, the rates it implies, and
+    /// either its self time or how much child work it fuses into itself.
+    ///
+    /// [`ProfileOptions`]: profile::ProfileOptions
+    ///
+    /// # Examples
+    /// ```
+    /// # use vortex_array::IntoArray;
+    /// # use vortex_array::array_session;
+    /// # use vortex_array::display::profile::ProfileOptions;
+    /// # use vortex_buffer::buffer;
+    /// let array = buffer![0_i16, 1, 2, 3, 4].into_array();
+    /// let tree = array
+    ///     .display_tree_throughput(&array_session(), ProfileOptions::default())?
+    ///     .to_string();
+    /// assert!(tree.starts_with("root: vortex.primitive(i16, len=5)"));
+    /// assert!(tree.contains("throughput: "));
+    /// # Ok::<(), vortex_error::VortexError>(())
+    /// ```
+    #[cfg(feature = "profile-throughput")]
+    pub fn display_tree_throughput(
+        &self,
+        session: &vortex_session::VortexSession,
+        options: profile::ProfileOptions,
+    ) -> vortex_error::VortexResult<TreeDisplay> {
+        Ok(self
+            .tree_display_builder()
+            .with(EncodingSummaryExtractor)
+            .with(NbytesExtractor)
+            .with(ThroughputExtractor::measure(self, session, options)?))
     }
 
     /// Create a tree display with all built-in extractors (nbytes, stats, metadata, buffers).

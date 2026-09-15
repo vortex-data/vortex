@@ -26,6 +26,7 @@ use vortex::array::arrays::VarBinArray;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::arrays::varbin::VarBinArraySlotsExt;
 use vortex::array::builtins::ArrayBuiltins;
+use vortex::array::display::profile::ProfileOptions;
 use vortex::dtype::DType;
 use vortex::dtype::PType;
 use vortex::encodings::alp::ALP;
@@ -54,6 +55,10 @@ static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     LazyLock::force(&SESSION);
+    if std::env::var_os("VORTEX_DECOMPRESS_PROFILE").is_some() {
+        print_decompress_profiles();
+        return;
+    }
     divan::main();
 }
 
@@ -442,9 +447,9 @@ macro_rules! setup_fn {
     };
 }
 
-/// Benchmark decompression of various encoding trees
-#[divan::bench(
-    args = [
+/// The encoding trees exercised by the `decompress` benchmark.
+static DECOMPRESS_TREES: LazyLock<[SetupFn; 7]> = LazyLock::new(|| {
+    [
         setup_fn!(setup::for_bp_u64),
         setup_fn!(setup::alp_for_bp_f64),
         setup_fn!(setup::dict_varbinview_string),
@@ -453,7 +458,28 @@ macro_rules! setup_fn {
         setup_fn!(setup::dict_fsst_varbin_bp_string),
         setup_fn!(setup::datetime_for_bp),
     ]
-)]
+});
+
+/// Print where each tree's decompression time goes, per subtree.
+///
+/// This shares its trees with the `decompress` benchmark below, so the per-node timings can be
+/// read against that benchmark's totals. Run with `VORTEX_DECOMPRESS_PROFILE=1`.
+fn print_decompress_profiles() {
+    let options = ProfileOptions {
+        warmup: 3,
+        reps: 15,
+    };
+    for setup_fn in DECOMPRESS_TREES.iter() {
+        let compressed = (setup_fn.func)();
+        let tree = compressed
+            .display_tree_throughput(&SESSION, options)
+            .unwrap();
+        println!("== {setup_fn} ==\n{tree}");
+    }
+}
+
+/// Benchmark decompression of various encoding trees
+#[divan::bench(args = DECOMPRESS_TREES.iter().copied())]
 fn decompress(bencher: Bencher, setup_fn: SetupFn) {
     let compressed = setup_fn();
     let nbytes = compressed.nbytes();
