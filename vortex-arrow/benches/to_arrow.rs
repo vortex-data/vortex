@@ -307,7 +307,11 @@ fn dictionary_codes() -> ArrayRef {
 
 fn offset(source: VarBinViewArray, ctx: &mut ExecutionCtx) -> ArrayRef {
     let source = source.into_array();
-    let mut builder = VarBinBuilder::<i32>::with_capacity(source.dtype().clone(), source.len());
+    let mut builder = VarBinBuilder::<i32>::with_capacity_in(
+        source.dtype().clone(),
+        source.len(),
+        ctx.allocator(),
+    );
     source.append_to_builder(&mut builder, ctx).unwrap();
     builder.finish_into_varbin().into_array()
 }
