@@ -163,7 +163,7 @@ impl DecimalByteParts {
     ) -> VortexResult<DecimalBytePartsArray> {
         // Building lower parts in memory is never gated — reading a file requires it. What is
         // gated is the serialized form: an array carrying lower parts serializes under the
-        // `vortex.decimal_byte_parts_v2` format ID, which only editions that contain it may write.
+        // `vortex.decimal_byte_parts.v2` format ID, which only editions that contain it may write.
         let len = msp.len();
         let dtype = DType::Decimal(decimal_dtype, msp.dtype().nullability());
         let slots = DecimalBytePartsSlots { msp, lower_parts }.into_slots();

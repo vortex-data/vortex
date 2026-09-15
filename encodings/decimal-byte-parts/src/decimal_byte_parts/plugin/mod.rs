@@ -35,7 +35,7 @@ pub fn decimal_byte_parts_v1_id() -> ArrayId {
 
 /// The current in-memory DBP identity and the serialized format for arrays with lower parts.
 pub fn decimal_byte_parts_v2_id() -> ArrayId {
-    static ID: CachedId = CachedId::new("vortex.decimal_byte_parts_v2");
+    static ID: CachedId = CachedId::new("vortex.decimal_byte_parts.v2");
     *ID
 }
 

@@ -172,9 +172,9 @@ representation gains support for wide decimals, represented by a signed most-sig
   represented that way, it emits `vortex.decimal_byte_parts` with `lower_part_count = 0`, even if
   the current in-memory array has lower-part children.
 - An array that cannot be collapsed into that old form losslessly uses the new
-  `vortex.decimal_byte_parts_v2` component, initially staged in a draft edition.
+  `vortex.decimal_byte_parts.v2` component, initially staged in a draft edition.
 - A new reader deserializes both IDs into the same in-memory representation. An older reader reports
-  `vortex.decimal_byte_parts_v2` as unknown instead of trying to decode a wire format it does not support.
+  `vortex.decimal_byte_parts.v2` as unknown instead of trying to decode a wire format it does not support.
 - When targeting an edition that permits only the old ID, serializing a value that can be collapsed succeeds; an
   irreducibly multi-part value fails because no lossless downgrade exists.
 
