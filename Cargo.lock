@@ -547,20 +547,6 @@ dependencies = [
 
 [[package]]
 name = "arrow-ipc"
-version = "56.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "31f88b0fbb33af28089ccd3e4dcd0ff09de46842168d00220b920f7231feddf5"
-dependencies = [
- "arrow-array 56.2.1",
- "arrow-buffer 56.2.1",
- "arrow-data 56.2.1",
- "arrow-schema 56.2.1",
- "arrow-select 56.2.1",
- "flatbuffers",
-]
-
-[[package]]
-name = "arrow-ipc"
 version = "58.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29a908a11fcfb3fb2f6730f4ac15e367bc644e419155e96238f68cf3adde572b"
@@ -6479,15 +6465,6 @@ dependencies = [
 
 [[package]]
 name = "lz4_flex"
-version = "0.11.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "373f5eceeeab7925e0c1098212f2fbc4d416adec9d35051a6ab251e824c1854a"
-dependencies = [
- "twox-hash",
-]
-
-[[package]]
-name = "lz4_flex"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7ef0d4ed8669f8f8826eb00dc878084aa8f253506c4fd5e8f58f5bce72ddb97e"
@@ -7435,41 +7412,6 @@ dependencies = [
  "redox_syscall",
  "smallvec",
  "windows-link",
-]
-
-[[package]]
-name = "parquet"
-version = "56.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3abbfef8a25900f4925c86e4cb881ea24672ca3c31ee4fb50a8083c4c56d313"
-dependencies = [
- "ahash",
- "arrow-array 56.2.1",
- "arrow-buffer 56.2.1",
- "arrow-cast 56.2.1",
- "arrow-data 56.2.1",
- "arrow-ipc 56.2.1",
- "arrow-schema 56.2.1",
- "arrow-select 56.2.1",
- "base64 0.22.1",
- "brotli",
- "bytes",
- "chrono",
- "flate2",
- "futures",
- "half",
- "hashbrown 0.16.1",
- "lz4_flex 0.11.6",
- "num",
- "num-bigint 0.4.8",
- "paste",
- "seq-macro",
- "simdutf8",
- "snap",
- "thrift",
- "tokio",
- "twox-hash",
- "zstd 0.13.3",
 ]
 
 [[package]]
@@ -10738,7 +10680,6 @@ dependencies = [
  "noodles-bgzf",
  "noodles-vcf",
  "parking_lot",
- "parquet 56.2.1",
  "parquet 59.3.0",
  "rand 0.10.2",
  "regex",
