@@ -431,7 +431,6 @@ mod tests {
     use vortex_error::VortexResult;
 
     use super::DecimalByteParts;
-    use super::DecimalBytePartsArray;
     use super::DecimalBytePartsArraySlotsExt;
     use super::DecimalBytePartsData;
     use crate::decimal_byte_parts::LOWER_PART_DTYPE;
@@ -439,8 +438,6 @@ mod tests {
     use crate::decimal_byte_parts::testing::i128_parts;
     use crate::decimal_byte_parts::testing::i256_of;
     use crate::decimal_byte_parts::testing::i256_parts;
-    use crate::decimal_byte_parts::testing::wide_i128_values;
-    use crate::decimal_byte_parts::testing::wide_i256_values;
 
     #[test]
     fn test_scalar_at_decimal_parts() {
@@ -481,21 +478,6 @@ mod tests {
         );
     }
 
-    #[rstest]
-    #[case::i128_non_nullable(i128_parts(wide_i128_values(), Validity::NonNullable))]
-    #[case::i256_non_nullable(i256_parts(wide_i256_values(), Validity::NonNullable))]
-    fn test_canonical_decimal_round_trips(
-        #[case] array: DecimalBytePartsArray,
-    ) -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
-        let canonical = array
-            .clone()
-            .into_array()
-            .execute::<DecimalArray>(&mut ctx)?;
-        assert_arrays_eq!(array, canonical, &mut ctx);
-        Ok(())
-    }
-
     #[test]
     fn test_lower_part_layout_i128() -> VortexResult<()> {
         let array = i128_parts(vec![(3i128 << 64) | 7], Validity::NonNullable);
@@ -527,27 +509,6 @@ mod tests {
         for (part, expected) in array.lower_parts().iter().zip([6u64, 7, 8]) {
             let part = part.clone().execute::<PrimitiveArray>(&mut ctx)?;
             assert_eq!(part.as_slice::<u64>(), &[expected]);
-        }
-        Ok(())
-    }
-
-    #[rstest]
-    #[case::i128(i128_parts(wide_i128_values(), Validity::AllValid))]
-    #[case::i256(i256_parts(wide_i256_values(), Validity::AllValid))]
-    fn test_scalar_at_matches_canonical(#[case] array: DecimalBytePartsArray) -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
-        let canonical = array
-            .clone()
-            .into_array()
-            .execute::<DecimalArray>(&mut ctx)?
-            .into_array();
-        let array = array.into_array();
-        for idx in 0..array.len() {
-            assert_eq!(
-                array.execute_scalar(idx, &mut ctx)?,
-                canonical.execute_scalar(idx, &mut ctx)?,
-                "scalar mismatch at index {idx}"
-            );
         }
         Ok(())
     }

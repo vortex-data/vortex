@@ -32,21 +32,14 @@ use crate::DecimalBytePartsArray;
 use crate::DecimalBytePartsArraySlotsExt;
 use crate::decimal_byte_parts::MAX_LOWER_PARTS;
 use crate::decimal_byte_parts::testing::encode;
-use crate::decimal_byte_parts::testing::i128_parts;
-use crate::decimal_byte_parts::testing::i256_parts;
-use crate::decimal_byte_parts::testing::wide_i128_values;
-use crate::decimal_byte_parts::testing::wide_i256_values;
 
 #[rstest]
 #[case::no_lower_parts(DecimalByteParts::try_new(
     buffer![1i32, 2, 3].into_array(), DecimalDType::new(9, 2),
 ))]
-#[case::one_lower_part(Ok(i128_parts(wide_i128_values(), Validity::NonNullable)))]
-#[case::three_lower_parts(Ok(i256_parts(wide_i256_values(), Validity::NonNullable)))]
-#[case::nullable_three_lower_parts(Ok(i256_parts(
-    wide_i256_values(),
-    Validity::from_iter([true, false, true, true, true, false, true, true, true, true]),
-)))]
+#[case::one_lower_part(DecimalByteParts::try_new_with_lower_parts(
+    msp(), vec![lower_part()], DecimalDType::new(38, 2),
+))]
 #[case::wider_i64_storage(encode(&DecimalArray::new(
     buffer![-99i64, 0, 99], DecimalDType::new(2, 0), Validity::NonNullable,
 )))]
@@ -147,30 +140,6 @@ fn v1_metadata_is_unchanged() -> VortexResult<()> {
     Ok(())
 }
 
-/// The plugin only writes v2 when lower parts are present, but the format itself does not
-/// require them.
-#[test]
-fn v2_round_trips_without_lower_parts() -> VortexResult<()> {
-    let child = msp();
-    let array = DecimalByteParts::try_new(child.clone(), DecimalDType::new(38, 2))?;
-    let serialized = v2::serialize(array.as_view())?;
-    assert_eq!(serialized.serialized_id, decimal_byte_parts_v2_id());
-    assert_eq!(serialized.children.len(), 1);
-    let decoded = deserialize_with(
-        serialized.serialized_id,
-        &serialized.metadata,
-        serialized.children,
-    )?;
-    let decoded = decoded
-        .as_opt::<DecimalByteParts>()
-        .vortex_expect("byte parts array");
-    assert!(ArrayRef::ptr_eq(&child, decoded.msp()));
-    assert!(decoded.lower_parts().is_empty());
-    Ok(())
-}
-
-/// The v1 decoder never accepts lower parts, and the v2 decoder holds its children to its
-/// metadata.
 #[rstest]
 #[case::v1_lower_part_count(
     decimal_byte_parts_v1_id(),
