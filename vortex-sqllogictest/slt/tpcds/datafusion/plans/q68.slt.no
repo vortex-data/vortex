@@ -1,0 +1,101 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT c_last_name,
+       c_first_name,
+       ca_city,
+       bought_city,
+       ss_ticket_number,
+       extended_price,
+       extended_tax,
+       list_price
+FROM
+  (SELECT ss_ticket_number,
+          ss_customer_sk,
+          ca_city bought_city,
+          sum(ss_ext_sales_price) extended_price,
+          sum(ss_ext_list_price) list_price,
+          sum(ss_ext_tax) extended_tax
+   FROM store_sales,
+        date_dim,
+        store,
+        household_demographics,
+        customer_address
+   WHERE store_sales.ss_sold_date_sk = date_dim.d_date_sk
+     AND store_sales.ss_store_sk = store.s_store_sk
+     AND store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk
+     AND store_sales.ss_addr_sk = customer_address.ca_address_sk
+     AND date_dim.d_dom BETWEEN 1 AND 2
+     AND (household_demographics.hd_dep_count = 4
+          OR household_demographics.hd_vehicle_count= 3)
+     AND date_dim.d_year IN (1999,
+                             1999+1,
+                             1999+2)
+     AND store.s_city IN ('Fairview',
+                          'Midway')
+   GROUP BY ss_ticket_number,
+            ss_customer_sk,
+            ss_addr_sk,
+            ca_city) dn,
+     customer,
+     customer_address current_addr
+WHERE ss_customer_sk = c_customer_sk
+  AND customer.c_current_addr_sk = current_addr.ca_address_sk
+  AND current_addr.ca_city <> bought_city
+ORDER BY c_last_name NULLS FIRST,
+         ss_ticket_number NULLS FIRST
+LIMIT 100;
+----
+logical_plan
+01)Sort: customer.c_last_name ASC NULLS FIRST, dn.ss_ticket_number ASC NULLS FIRST, fetch=100
+02)--Projection: customer.c_last_name, customer.c_first_name, current_addr.ca_city, dn.bought_city, dn.ss_ticket_number, dn.extended_price, dn.extended_tax, dn.list_price
+03)----Inner Join: customer.c_current_addr_sk = current_addr.ca_address_sk Filter: dn.bought_city != current_addr.ca_city
+04)------Projection: dn.ss_ticket_number, dn.bought_city, dn.extended_price, dn.list_price, dn.extended_tax, customer.c_current_addr_sk, customer.c_first_name, customer.c_last_name
+05)--------Inner Join: dn.ss_customer_sk = customer.c_customer_sk
+06)----------SubqueryAlias: dn
+07)------------Projection: store_sales.ss_ticket_number, store_sales.ss_customer_sk, customer_address.ca_city AS bought_city, sum(store_sales.ss_ext_sales_price) AS extended_price, sum(store_sales.ss_ext_list_price) AS list_price, sum(store_sales.ss_ext_tax) AS extended_tax
+08)--------------Aggregate: groupBy=[[store_sales.ss_ticket_number, store_sales.ss_customer_sk, store_sales.ss_addr_sk, customer_address.ca_city]], aggr=[[sum(store_sales.ss_ext_sales_price), sum(store_sales.ss_ext_list_price), sum(store_sales.ss_ext_tax)]]
+09)----------------Projection: store_sales.ss_customer_sk, store_sales.ss_addr_sk, store_sales.ss_ticket_number, store_sales.ss_ext_sales_price, store_sales.ss_ext_list_price, store_sales.ss_ext_tax, customer_address.ca_city
+10)------------------Inner Join: store_sales.ss_addr_sk = customer_address.ca_address_sk
+11)--------------------Projection: store_sales.ss_customer_sk, store_sales.ss_addr_sk, store_sales.ss_ticket_number, store_sales.ss_ext_sales_price, store_sales.ss_ext_list_price, store_sales.ss_ext_tax
+12)----------------------Inner Join: store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk
+13)------------------------Projection: store_sales.ss_customer_sk, store_sales.ss_hdemo_sk, store_sales.ss_addr_sk, store_sales.ss_ticket_number, store_sales.ss_ext_sales_price, store_sales.ss_ext_list_price, store_sales.ss_ext_tax
+14)--------------------------Inner Join: store_sales.ss_store_sk = store.s_store_sk
+15)----------------------------Projection: store_sales.ss_customer_sk, store_sales.ss_hdemo_sk, store_sales.ss_addr_sk, store_sales.ss_store_sk, store_sales.ss_ticket_number, store_sales.ss_ext_sales_price, store_sales.ss_ext_list_price, store_sales.ss_ext_tax
+16)------------------------------Inner Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
+17)--------------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_customer_sk, ss_hdemo_sk, ss_addr_sk, ss_store_sk, ss_ticket_number, ss_ext_sales_price, ss_ext_list_price, ss_ext_tax]
+18)--------------------------------Projection: date_dim.d_date_sk
+19)----------------------------------Filter: date_dim.d_dom >= Int64(1) AND date_dim.d_dom <= Int64(2) AND (date_dim.d_year = Int64(1999) OR date_dim.d_year = Int64(2000) OR date_dim.d_year = Int64(2001))
+20)------------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_dom], partial_filters=[date_dim.d_dom >= Int64(1), date_dim.d_dom <= Int64(2), date_dim.d_year = Int64(1999) OR date_dim.d_year = Int64(2000) OR date_dim.d_year = Int64(2001)]
+21)----------------------------Projection: store.s_store_sk
+22)------------------------------Filter: store.s_city = Utf8View("Fairview") OR store.s_city = Utf8View("Midway")
+23)--------------------------------TableScan: store projection=[s_store_sk, s_city], partial_filters=[store.s_city = Utf8View("Fairview") OR store.s_city = Utf8View("Midway")]
+24)------------------------Projection: household_demographics.hd_demo_sk
+25)--------------------------Filter: household_demographics.hd_dep_count = Int64(4) OR household_demographics.hd_vehicle_count = Int32(3)
+26)----------------------------TableScan: household_demographics projection=[hd_demo_sk, hd_dep_count, hd_vehicle_count], partial_filters=[household_demographics.hd_dep_count = Int64(4) OR household_demographics.hd_vehicle_count = Int32(3)]
+27)--------------------TableScan: customer_address projection=[ca_address_sk, ca_city]
+28)----------TableScan: customer projection=[c_customer_sk, c_current_addr_sk, c_first_name, c_last_name]
+29)------SubqueryAlias: current_addr
+30)--------TableScan: customer_address projection=[ca_address_sk, ca_city]
+physical_plan
+01)SortPreservingMergeExec: [c_last_name@0 ASC, ss_ticket_number@4 ASC], fetch=100
+02)--SortExec: TopK(fetch=100), expr=[c_last_name@0 ASC, ss_ticket_number@4 ASC], preserve_partitioning=[true]
+03)----HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(ca_address_sk@0, c_current_addr_sk@5)], filter=bought_city@0 != ca_city@1, projection=[c_last_name@9, c_first_name@8, ca_city@1, bought_city@3, ss_ticket_number@2, extended_price@4, extended_tax@6, list_price@5]
+04)------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk, ca_city], file_type=vortex
+05)------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(c_customer_sk@0, ss_customer_sk@1)], projection=[ss_ticket_number@4, bought_city@6, extended_price@7, list_price@8, extended_tax@9, c_current_addr_sk@1, c_first_name@2, c_last_name@3]
+06)--------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer.vortex]]}, projection=[c_customer_sk, c_current_addr_sk, c_first_name, c_last_name], file_type=vortex
+07)--------ProjectionExec: expr=[ss_ticket_number@0 as ss_ticket_number, ss_customer_sk@1 as ss_customer_sk, ca_city@3 as bought_city, sum(store_sales.ss_ext_sales_price)@4 as extended_price, sum(store_sales.ss_ext_list_price)@5 as list_price, sum(store_sales.ss_ext_tax)@6 as extended_tax]
+08)----------AggregateExec: mode=FinalPartitioned, gby=[ss_ticket_number@0 as ss_ticket_number, ss_customer_sk@1 as ss_customer_sk, ss_addr_sk@2 as ss_addr_sk, ca_city@3 as ca_city], aggr=[sum(store_sales.ss_ext_sales_price), sum(store_sales.ss_ext_list_price), sum(store_sales.ss_ext_tax)]
+09)------------RepartitionExec: partitioning=Hash([ss_ticket_number@0, ss_customer_sk@1, ss_addr_sk@2, ca_city@3], 4), input_partitions=4
+10)--------------AggregateExec: mode=Partial, gby=[ss_ticket_number@2 as ss_ticket_number, ss_customer_sk@0 as ss_customer_sk, ss_addr_sk@1 as ss_addr_sk, ca_city@6 as ca_city], aggr=[sum(store_sales.ss_ext_sales_price), sum(store_sales.ss_ext_list_price), sum(store_sales.ss_ext_tax)]
+11)----------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(ca_address_sk@0, ss_addr_sk@1)], projection=[ss_customer_sk@2, ss_addr_sk@3, ss_ticket_number@4, ss_ext_sales_price@5, ss_ext_list_price@6, ss_ext_tax@7, ca_city@1]
+12)------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk, ca_city], file_type=vortex
+13)------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(hd_demo_sk@0, ss_hdemo_sk@1)], projection=[ss_customer_sk@1, ss_addr_sk@3, ss_ticket_number@4, ss_ext_sales_price@5, ss_ext_list_price@6, ss_ext_tax@7]
+14)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/household_demographics.vortex]]}, projection=[hd_demo_sk], file_type=vortex, predicate: hd_dep_count@3 = 4 OR hd_vehicle_count@4 = 3
+15)--------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_store_sk@0, ss_store_sk@3)], projection=[ss_customer_sk@1, ss_hdemo_sk@2, ss_addr_sk@3, ss_ticket_number@5, ss_ext_sales_price@6, ss_ext_list_price@7, ss_ext_tax@8]
+16)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store.vortex]]}, projection=[s_store_sk], file_type=vortex, predicate: s_city@22 = Fairview OR s_city@22 = Midway
+17)----------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@0)], projection=[ss_customer_sk@2, ss_hdemo_sk@3, ss_addr_sk@4, ss_store_sk@5, ss_ticket_number@6, ss_ext_sales_price@7, ss_ext_list_price@8, ss_ext_tax@9]
+18)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_dom@9 >= 1 AND d_dom@9 <= 2 AND (d_year@6 = 1999 OR d_year@6 = 2000 OR d_year@6 = 2001)
+19)------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_customer_sk, ss_hdemo_sk, ss_addr_sk, ss_store_sk, ss_ticket_number, ss_ext_sales_price, ss_ext_list_price, ss_ext_tax], file_type=vortex

@@ -1,0 +1,131 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+WITH customer_total_return AS
+  (SELECT wr_returning_customer_sk AS ctr_customer_sk,
+          ca_state AS ctr_state,
+          sum(wr_return_amt) AS ctr_total_return
+   FROM web_returns,
+        date_dim,
+        customer_address
+   WHERE wr_returned_date_sk = d_date_sk
+     AND d_year = 2002
+     AND wr_returning_addr_sk = ca_address_sk
+   GROUP BY wr_returning_customer_sk,
+            ca_state)
+SELECT c_customer_id,
+       c_salutation,
+       c_first_name,
+       c_last_name,
+       c_preferred_cust_flag,
+       c_birth_day,
+       c_birth_month,
+       c_birth_year,
+       c_birth_country,
+       c_login,
+       c_email_address,
+       c_last_review_date_sk,
+       ctr_total_return
+FROM customer_total_return ctr1,
+     customer_address,
+     customer
+WHERE ctr1.ctr_total_return >
+    (SELECT avg(ctr_total_return)*1.2
+     FROM customer_total_return ctr2
+     WHERE ctr1.ctr_state = ctr2.ctr_state)
+  AND ca_address_sk = c_current_addr_sk
+  AND ca_state = 'GA'
+  AND ctr1.ctr_customer_sk = c_customer_sk
+ORDER BY c_customer_id NULLS FIRST,
+         c_salutation NULLS FIRST,
+         c_first_name NULLS FIRST,
+         c_last_name NULLS FIRST,
+         c_preferred_cust_flag NULLS FIRST,
+         c_birth_day NULLS FIRST,
+         c_birth_month NULLS FIRST,
+         c_birth_year NULLS FIRST,
+         c_birth_country NULLS FIRST,
+         c_login NULLS FIRST,
+         c_email_address NULLS FIRST,
+         c_last_review_date_sk NULLS FIRST,
+         ctr_total_return NULLS FIRST
+LIMIT 100;
+----
+logical_plan
+01)Sort: customer.c_customer_id ASC NULLS FIRST, customer.c_salutation ASC NULLS FIRST, customer.c_first_name ASC NULLS FIRST, customer.c_last_name ASC NULLS FIRST, customer.c_preferred_cust_flag ASC NULLS FIRST, customer.c_birth_day ASC NULLS FIRST, customer.c_birth_month ASC NULLS FIRST, customer.c_birth_year ASC NULLS FIRST, customer.c_birth_country ASC NULLS FIRST, customer.c_login ASC NULLS FIRST, customer.c_email_address ASC NULLS FIRST, customer.c_last_review_date_sk ASC NULLS FIRST, ctr1.ctr_total_return ASC NULLS FIRST, fetch=100
+02)--Projection: customer.c_customer_id, customer.c_salutation, customer.c_first_name, customer.c_last_name, customer.c_preferred_cust_flag, customer.c_birth_day, customer.c_birth_month, customer.c_birth_year, customer.c_birth_country, customer.c_login, customer.c_email_address, customer.c_last_review_date_sk, ctr1.ctr_total_return
+03)----LeftSemi Join: ctr1.ctr_state = __scalar_sq_1.ctr_state Filter: CAST(ctr1.ctr_total_return AS Decimal128(30, 15)) > __scalar_sq_1.avg(ctr2.ctr_total_return) * Float64(1.2)
+04)------Projection: ctr1.ctr_state, ctr1.ctr_total_return, customer.c_customer_id, customer.c_salutation, customer.c_first_name, customer.c_last_name, customer.c_preferred_cust_flag, customer.c_birth_day, customer.c_birth_month, customer.c_birth_year, customer.c_birth_country, customer.c_login, customer.c_email_address, customer.c_last_review_date_sk
+05)--------Inner Join: customer.c_current_addr_sk = customer_address.ca_address_sk
+06)----------Projection: ctr1.ctr_state, ctr1.ctr_total_return, customer.c_customer_id, customer.c_current_addr_sk, customer.c_salutation, customer.c_first_name, customer.c_last_name, customer.c_preferred_cust_flag, customer.c_birth_day, customer.c_birth_month, customer.c_birth_year, customer.c_birth_country, customer.c_login, customer.c_email_address, customer.c_last_review_date_sk
+07)------------Inner Join: ctr1.ctr_customer_sk = customer.c_customer_sk
+08)--------------SubqueryAlias: ctr1
+09)----------------SubqueryAlias: customer_total_return
+10)------------------Projection: web_returns.wr_returning_customer_sk AS ctr_customer_sk, customer_address.ca_state AS ctr_state, sum(web_returns.wr_return_amt) AS ctr_total_return
+11)--------------------Aggregate: groupBy=[[web_returns.wr_returning_customer_sk, customer_address.ca_state]], aggr=[[sum(web_returns.wr_return_amt)]]
+12)----------------------Projection: web_returns.wr_returning_customer_sk, web_returns.wr_return_amt, customer_address.ca_state
+13)------------------------Inner Join: web_returns.wr_returning_addr_sk = customer_address.ca_address_sk
+14)--------------------------Projection: web_returns.wr_returning_customer_sk, web_returns.wr_returning_addr_sk, web_returns.wr_return_amt
+15)----------------------------Inner Join: web_returns.wr_returned_date_sk = date_dim.d_date_sk
+16)------------------------------TableScan: web_returns projection=[wr_returned_date_sk, wr_returning_customer_sk, wr_returning_addr_sk, wr_return_amt]
+17)------------------------------Projection: date_dim.d_date_sk
+18)--------------------------------Filter: date_dim.d_year = Int64(2002)
+19)----------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int64(2002)]
+20)--------------------------TableScan: customer_address projection=[ca_address_sk, ca_state]
+21)--------------TableScan: customer projection=[c_customer_sk, c_customer_id, c_current_addr_sk, c_salutation, c_first_name, c_last_name, c_preferred_cust_flag, c_birth_day, c_birth_month, c_birth_year, c_birth_country, c_login, c_email_address, c_last_review_date_sk]
+22)----------Projection: customer_address.ca_address_sk
+23)------------Filter: customer_address.ca_state = Utf8View("GA")
+24)--------------TableScan: customer_address projection=[ca_address_sk, ca_state], partial_filters=[customer_address.ca_state = Utf8View("GA")]
+25)------SubqueryAlias: __scalar_sq_1
+26)--------Projection: CAST(CAST(avg(ctr2.ctr_total_return) AS Float64) * Float64(1.2) AS Decimal128(30, 15)), ctr2.ctr_state
+27)----------Aggregate: groupBy=[[ctr2.ctr_state]], aggr=[[avg(ctr2.ctr_total_return)]]
+28)------------SubqueryAlias: ctr2
+29)--------------SubqueryAlias: customer_total_return
+30)----------------Projection: customer_address.ca_state AS ctr_state, sum(web_returns.wr_return_amt) AS ctr_total_return
+31)------------------Aggregate: groupBy=[[web_returns.wr_returning_customer_sk, customer_address.ca_state]], aggr=[[sum(web_returns.wr_return_amt)]]
+32)--------------------Projection: web_returns.wr_returning_customer_sk, web_returns.wr_return_amt, customer_address.ca_state
+33)----------------------Inner Join: web_returns.wr_returning_addr_sk = customer_address.ca_address_sk
+34)------------------------Projection: web_returns.wr_returning_customer_sk, web_returns.wr_returning_addr_sk, web_returns.wr_return_amt
+35)--------------------------Inner Join: web_returns.wr_returned_date_sk = date_dim.d_date_sk
+36)----------------------------TableScan: web_returns projection=[wr_returned_date_sk, wr_returning_customer_sk, wr_returning_addr_sk, wr_return_amt]
+37)----------------------------Projection: date_dim.d_date_sk
+38)------------------------------Filter: date_dim.d_year = Int64(2002)
+39)--------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int64(2002)]
+40)------------------------TableScan: customer_address projection=[ca_address_sk, ca_state]
+physical_plan
+01)SortPreservingMergeExec: [c_customer_id@0 ASC, c_salutation@1 ASC, c_first_name@2 ASC, c_last_name@3 ASC, c_preferred_cust_flag@4 ASC, c_birth_day@5 ASC, c_birth_month@6 ASC, c_birth_year@7 ASC, c_birth_country@8 ASC, c_login@9 ASC, c_email_address@10 ASC, c_last_review_date_sk@11 ASC, ctr_total_return@12 ASC], fetch=100
+02)--SortExec: TopK(fetch=100), expr=[c_customer_id@0 ASC, c_salutation@1 ASC, c_first_name@2 ASC, c_last_name@3 ASC, c_preferred_cust_flag@4 ASC, c_birth_day@5 ASC, c_birth_month@6 ASC, c_birth_year@7 ASC, c_birth_country@8 ASC, c_login@9 ASC, c_email_address@10 ASC, c_last_review_date_sk@11 ASC, ctr_total_return@12 ASC], preserve_partitioning=[true]
+03)----HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(ctr_state@0, ctr_state@1)], filter=CAST(ctr_total_return@0 AS Decimal128(30, 15)) > avg(ctr2.ctr_total_return) * Float64(1.2)@1, projection=[c_customer_id@2, c_salutation@3, c_first_name@4, c_last_name@5, c_preferred_cust_flag@6, c_birth_day@7, c_birth_month@8, c_birth_year@9, c_birth_country@10, c_login@11, c_email_address@12, c_last_review_date_sk@13, ctr_total_return@1]
+04)------CoalescePartitionsExec
+05)--------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(ca_address_sk@0, c_current_addr_sk@3)], projection=[ctr_state@1, ctr_total_return@2, c_customer_id@3, c_salutation@5, c_first_name@6, c_last_name@7, c_preferred_cust_flag@8, c_birth_day@9, c_birth_month@10, c_birth_year@11, c_birth_country@12, c_login@13, c_email_address@14, c_last_review_date_sk@15]
+06)----------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk], file_type=vortex, predicate: ca_state@8 = GA
+07)----------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(ctr_customer_sk@0, c_customer_sk@0)], projection=[ctr_state@1, ctr_total_return@2, c_customer_id@4, c_current_addr_sk@5, c_salutation@6, c_first_name@7, c_last_name@8, c_preferred_cust_flag@9, c_birth_day@10, c_birth_month@11, c_birth_year@12, c_birth_country@13, c_login@14, c_email_address@15, c_last_review_date_sk@16]
+08)------------CoalescePartitionsExec
+09)--------------ProjectionExec: expr=[wr_returning_customer_sk@0 as ctr_customer_sk, ca_state@1 as ctr_state, sum(web_returns.wr_return_amt)@2 as ctr_total_return]
+10)----------------AggregateExec: mode=FinalPartitioned, gby=[wr_returning_customer_sk@0 as wr_returning_customer_sk, ca_state@1 as ca_state], aggr=[sum(web_returns.wr_return_amt)]
+11)------------------RepartitionExec: partitioning=Hash([wr_returning_customer_sk@0, ca_state@1], 4), input_partitions=4
+12)--------------------AggregateExec: mode=Partial, gby=[wr_returning_customer_sk@0 as wr_returning_customer_sk, ca_state@2 as ca_state], aggr=[sum(web_returns.wr_return_amt)]
+13)----------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+14)------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(wr_returning_addr_sk@1, ca_address_sk@0)], projection=[wr_returning_customer_sk@0, wr_return_amt@2, ca_state@4]
+15)--------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, wr_returned_date_sk@0)], projection=[wr_returning_customer_sk@2, wr_returning_addr_sk@3, wr_return_amt@4]
+16)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_year@6 = 2002
+17)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/web_returns.vortex]]}, projection=[wr_returned_date_sk, wr_returning_customer_sk, wr_returning_addr_sk, wr_return_amt], file_type=vortex
+18)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk, ca_state], file_type=vortex
+19)------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+20)--------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer.vortex]]}, projection=[c_customer_sk, c_customer_id, c_current_addr_sk, c_salutation, c_first_name, c_last_name, c_preferred_cust_flag, c_birth_day, c_birth_month, c_birth_year, c_birth_country, c_login, c_email_address, c_last_review_date_sk], file_type=vortex
+21)------ProjectionExec: expr=[CAST(CAST(avg(ctr2.ctr_total_return)@1 AS Float64) * 1.2 AS Decimal128(30, 15)) as avg(ctr2.ctr_total_return) * Float64(1.2), ctr_state@0 as ctr_state]
+22)--------AggregateExec: mode=FinalPartitioned, gby=[ctr_state@0 as ctr_state], aggr=[avg(ctr2.ctr_total_return)]
+23)----------RepartitionExec: partitioning=Hash([ctr_state@0], 4), input_partitions=4
+24)------------AggregateExec: mode=Partial, gby=[ctr_state@0 as ctr_state], aggr=[avg(ctr2.ctr_total_return)]
+25)--------------ProjectionExec: expr=[ca_state@1 as ctr_state, sum(web_returns.wr_return_amt)@2 as ctr_total_return]
+26)----------------AggregateExec: mode=FinalPartitioned, gby=[wr_returning_customer_sk@0 as wr_returning_customer_sk, ca_state@1 as ca_state], aggr=[sum(web_returns.wr_return_amt)]
+27)------------------RepartitionExec: partitioning=Hash([wr_returning_customer_sk@0, ca_state@1], 4), input_partitions=4
+28)--------------------AggregateExec: mode=Partial, gby=[wr_returning_customer_sk@0 as wr_returning_customer_sk, ca_state@2 as ca_state], aggr=[sum(web_returns.wr_return_amt)]
+29)----------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+30)------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(wr_returning_addr_sk@1, ca_address_sk@0)], projection=[wr_returning_customer_sk@0, wr_return_amt@2, ca_state@4]
+31)--------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, wr_returned_date_sk@0)], projection=[wr_returning_customer_sk@2, wr_returning_addr_sk@3, wr_return_amt@4]
+32)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_year@6 = 2002
+33)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/web_returns.vortex]]}, projection=[wr_returned_date_sk, wr_returning_customer_sk, wr_returning_addr_sk, wr_return_amt], file_type=vortex
+34)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk, ca_state], file_type=vortex

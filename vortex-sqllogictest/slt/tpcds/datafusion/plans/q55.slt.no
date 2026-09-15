@@ -1,0 +1,49 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT i_brand_id brand_id,
+       i_brand brand,
+       sum(ss_ext_sales_price) ext_price
+FROM date_dim,
+     store_sales,
+     item
+WHERE d_date_sk = ss_sold_date_sk
+  AND ss_item_sk = i_item_sk
+  AND i_manager_id=28
+  AND d_moy=11
+  AND d_year=1999
+GROUP BY i_brand,
+         i_brand_id
+ORDER BY ext_price DESC,
+         i_brand_id
+LIMIT 100 ;
+----
+logical_plan
+01)Sort: ext_price DESC NULLS FIRST, brand_id ASC NULLS LAST, fetch=100
+02)--Projection: item.i_brand_id AS brand_id, item.i_brand AS brand, sum(store_sales.ss_ext_sales_price) AS ext_price
+03)----Aggregate: groupBy=[[item.i_brand, item.i_brand_id]], aggr=[[sum(store_sales.ss_ext_sales_price)]]
+04)------Projection: store_sales.ss_ext_sales_price, item.i_brand_id, item.i_brand
+05)--------Inner Join: store_sales.ss_item_sk = item.i_item_sk
+06)----------Projection: store_sales.ss_item_sk, store_sales.ss_ext_sales_price
+07)------------Inner Join: date_dim.d_date_sk = store_sales.ss_sold_date_sk
+08)--------------Projection: date_dim.d_date_sk
+09)----------------Filter: date_dim.d_moy = Int64(11) AND date_dim.d_year = Int64(1999)
+10)------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_moy = Int64(11), date_dim.d_year = Int64(1999)]
+11)--------------TableScan: store_sales projection=[ss_sold_date_sk, ss_item_sk, ss_ext_sales_price]
+12)----------Projection: item.i_item_sk, item.i_brand_id, item.i_brand
+13)------------Filter: item.i_manager_id = Int64(28)
+14)--------------TableScan: item projection=[i_item_sk, i_brand_id, i_brand, i_manager_id], partial_filters=[item.i_manager_id = Int64(28)]
+physical_plan
+01)SortPreservingMergeExec: [ext_price@2 DESC, brand_id@0 ASC NULLS LAST], fetch=100
+02)--ProjectionExec: expr=[i_brand_id@1 as brand_id, i_brand@0 as brand, sum(store_sales.ss_ext_sales_price)@2 as ext_price]
+03)----SortExec: TopK(fetch=100), expr=[sum(store_sales.ss_ext_sales_price)@2 DESC, i_brand_id@1 ASC NULLS LAST], preserve_partitioning=[true]
+04)------AggregateExec: mode=FinalPartitioned, gby=[i_brand@0 as i_brand, i_brand_id@1 as i_brand_id], aggr=[sum(store_sales.ss_ext_sales_price)]
+05)--------RepartitionExec: partitioning=Hash([i_brand@0, i_brand_id@1], 4), input_partitions=4
+06)----------AggregateExec: mode=Partial, gby=[i_brand@2 as i_brand, i_brand_id@1 as i_brand_id], aggr=[sum(store_sales.ss_ext_sales_price)]
+07)------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, ss_item_sk@0)], projection=[ss_ext_sales_price@4, i_brand_id@1, i_brand@2]
+08)--------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_brand_id, i_brand], file_type=vortex, predicate: i_manager_id@20 = 28
+09)--------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@0)], projection=[ss_item_sk@2, ss_ext_sales_price@3]
+10)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_moy@8 = 11 AND d_year@6 = 1999
+11)----------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_item_sk, ss_ext_sales_price], file_type=vortex

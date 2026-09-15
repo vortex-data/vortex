@@ -1,0 +1,270 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+WITH all_sales AS
+  ( SELECT d_year ,
+           i_brand_id ,
+           i_class_id ,
+           i_category_id ,
+           i_manufact_id ,
+           SUM(sales_cnt) AS sales_cnt ,
+           SUM(sales_amt) AS sales_amt
+   FROM
+     (SELECT d_year ,
+             i_brand_id ,
+             i_class_id ,
+             i_category_id ,
+             i_manufact_id ,
+             cs_quantity - COALESCE(cr_return_quantity,0) AS sales_cnt ,
+             cs_ext_sales_price - COALESCE(cr_return_amount,0.0) AS sales_amt
+      FROM catalog_sales
+      JOIN item ON i_item_sk=cs_item_sk
+      JOIN date_dim ON d_date_sk=cs_sold_date_sk
+      LEFT JOIN catalog_returns ON (cs_order_number=cr_order_number
+                                    AND cs_item_sk=cr_item_sk)
+      WHERE i_category='Books'
+      UNION SELECT d_year ,
+                   i_brand_id ,
+                   i_class_id ,
+                   i_category_id ,
+                   i_manufact_id ,
+                   ss_quantity - COALESCE(sr_return_quantity,0) AS sales_cnt ,
+                   ss_ext_sales_price - COALESCE(sr_return_amt,0.0) AS sales_amt
+      FROM store_sales
+      JOIN item ON i_item_sk=ss_item_sk
+      JOIN date_dim ON d_date_sk=ss_sold_date_sk
+      LEFT JOIN store_returns ON (ss_ticket_number=sr_ticket_number
+                                  AND ss_item_sk=sr_item_sk)
+      WHERE i_category='Books'
+      UNION SELECT d_year ,
+                   i_brand_id ,
+                   i_class_id ,
+                   i_category_id ,
+                   i_manufact_id ,
+                   ws_quantity - COALESCE(wr_return_quantity,0) AS sales_cnt ,
+                   ws_ext_sales_price - COALESCE(wr_return_amt,0.0) AS sales_amt
+      FROM web_sales
+      JOIN item ON i_item_sk=ws_item_sk
+      JOIN date_dim ON d_date_sk=ws_sold_date_sk
+      LEFT JOIN web_returns ON (ws_order_number=wr_order_number
+                                AND ws_item_sk=wr_item_sk)
+      WHERE i_category='Books') sales_detail
+   GROUP BY d_year,
+            i_brand_id,
+            i_class_id,
+            i_category_id,
+            i_manufact_id)
+SELECT prev_yr.d_year AS prev_year ,
+       curr_yr.d_year AS year_ ,
+       curr_yr.i_brand_id ,
+       curr_yr.i_class_id ,
+       curr_yr.i_category_id ,
+       curr_yr.i_manufact_id ,
+       prev_yr.sales_cnt AS prev_yr_cnt ,
+       curr_yr.sales_cnt AS curr_yr_cnt ,
+       curr_yr.sales_cnt-prev_yr.sales_cnt AS sales_cnt_diff ,
+       curr_yr.sales_amt-prev_yr.sales_amt AS sales_amt_diff
+FROM all_sales curr_yr,
+     all_sales prev_yr
+WHERE curr_yr.i_brand_id=prev_yr.i_brand_id
+  AND curr_yr.i_class_id=prev_yr.i_class_id
+  AND curr_yr.i_category_id=prev_yr.i_category_id
+  AND curr_yr.i_manufact_id=prev_yr.i_manufact_id
+  AND curr_yr.d_year=2002
+  AND prev_yr.d_year=2002-1
+  AND CAST(curr_yr.sales_cnt AS DECIMAL(17,2))/CAST(prev_yr.sales_cnt AS DECIMAL(17,2))<0.9
+ORDER BY sales_cnt_diff,
+         sales_amt_diff
+LIMIT 100;
+----
+logical_plan
+01)Sort: sales_cnt_diff ASC NULLS LAST, sales_amt_diff ASC NULLS LAST, fetch=100
+02)--Projection: prev_yr.d_year AS prev_year, curr_yr.d_year AS year_, curr_yr.i_brand_id, curr_yr.i_class_id, curr_yr.i_category_id, curr_yr.i_manufact_id, prev_yr.sales_cnt AS prev_yr_cnt, curr_yr.sales_cnt AS curr_yr_cnt, curr_yr.sales_cnt - prev_yr.sales_cnt AS sales_cnt_diff, curr_yr.sales_amt - prev_yr.sales_amt AS sales_amt_diff
+03)----Inner Join: curr_yr.i_brand_id = prev_yr.i_brand_id, curr_yr.i_class_id = prev_yr.i_class_id, curr_yr.i_category_id = prev_yr.i_category_id, curr_yr.i_manufact_id = prev_yr.i_manufact_id Filter: CAST(curr_yr.sales_cnt AS Decimal128(17, 2)) / CAST(prev_yr.sales_cnt AS Decimal128(17, 2)) < Decimal128(0.900000,23,6)
+04)------SubqueryAlias: curr_yr
+05)--------SubqueryAlias: all_sales
+06)----------Projection: sales_detail.d_year, sales_detail.i_brand_id, sales_detail.i_class_id, sales_detail.i_category_id, sales_detail.i_manufact_id, sum(sales_detail.sales_cnt) AS sales_cnt, sum(sales_detail.sales_amt) AS sales_amt
+07)------------Aggregate: groupBy=[[sales_detail.d_year, sales_detail.i_brand_id, sales_detail.i_class_id, sales_detail.i_category_id, sales_detail.i_manufact_id]], aggr=[[sum(sales_detail.sales_cnt), sum(sales_detail.sales_amt)]]
+08)--------------SubqueryAlias: sales_detail
+09)----------------Aggregate: groupBy=[[d_year, i_brand_id, i_class_id, i_category_id, i_manufact_id, sales_cnt, sales_amt]], aggr=[[]]
+10)------------------Union
+11)--------------------Projection: date_dim.d_year, item.i_brand_id, item.i_class_id, item.i_category_id, item.i_manufact_id, catalog_sales.cs_quantity - CASE WHEN catalog_returns.cr_return_quantity IS NOT NULL THEN catalog_returns.cr_return_quantity ELSE Int64(0) END AS sales_cnt, catalog_sales.cs_ext_sales_price - CASE WHEN __common_expr_1 IS NOT NULL THEN __common_expr_1 ELSE Decimal128(0.000000000000000,30,15) END AS sales_amt
+12)----------------------Projection: CAST(catalog_returns.cr_return_amount AS Decimal128(30, 15)) AS __common_expr_1, catalog_sales.cs_quantity, catalog_sales.cs_ext_sales_price, item.i_brand_id, item.i_class_id, item.i_category_id, item.i_manufact_id, date_dim.d_year, catalog_returns.cr_return_quantity
+13)------------------------Left Join: catalog_sales.cs_order_number = catalog_returns.cr_order_number, catalog_sales.cs_item_sk = catalog_returns.cr_item_sk
+14)--------------------------Projection: catalog_sales.cs_item_sk, catalog_sales.cs_order_number, catalog_sales.cs_quantity, catalog_sales.cs_ext_sales_price, item.i_brand_id, item.i_class_id, item.i_category_id, item.i_manufact_id, date_dim.d_year
+15)----------------------------Inner Join: catalog_sales.cs_sold_date_sk = date_dim.d_date_sk
+16)------------------------------Projection: catalog_sales.cs_sold_date_sk, catalog_sales.cs_item_sk, catalog_sales.cs_order_number, catalog_sales.cs_quantity, catalog_sales.cs_ext_sales_price, item.i_brand_id, item.i_class_id, item.i_category_id, item.i_manufact_id
+17)--------------------------------Inner Join: catalog_sales.cs_item_sk = item.i_item_sk
+18)----------------------------------TableScan: catalog_sales projection=[cs_sold_date_sk, cs_item_sk, cs_order_number, cs_quantity, cs_ext_sales_price]
+19)----------------------------------Projection: item.i_item_sk, item.i_brand_id, item.i_class_id, item.i_category_id, item.i_manufact_id
+20)------------------------------------Filter: item.i_category = Utf8View("Books")
+21)--------------------------------------TableScan: item projection=[i_item_sk, i_brand_id, i_class_id, i_category_id, i_category, i_manufact_id], partial_filters=[item.i_category = Utf8View("Books")]
+22)------------------------------Filter: date_dim.d_year = Int64(2002)
+23)--------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int64(2002)]
+24)--------------------------TableScan: catalog_returns projection=[cr_item_sk, cr_order_number, cr_return_quantity, cr_return_amount]
+25)--------------------Projection: date_dim.d_year, item.i_brand_id, item.i_class_id, item.i_category_id, item.i_manufact_id, store_sales.ss_quantity - CASE WHEN store_returns.sr_return_quantity IS NOT NULL THEN store_returns.sr_return_quantity ELSE Int64(0) END AS sales_cnt, store_sales.ss_ext_sales_price - CASE WHEN __common_expr_2 IS NOT NULL THEN __common_expr_2 ELSE Decimal128(0.000000000000000,30,15) END AS sales_amt
+26)----------------------Projection: CAST(store_returns.sr_return_amt AS Decimal128(30, 15)) AS __common_expr_2, store_sales.ss_quantity, store_sales.ss_ext_sales_price, item.i_brand_id, item.i_class_id, item.i_category_id, item.i_manufact_id, date_dim.d_year, store_returns.sr_return_quantity
+27)------------------------Left Join: store_sales.ss_ticket_number = store_returns.sr_ticket_number, store_sales.ss_item_sk = store_returns.sr_item_sk
+28)--------------------------Projection: store_sales.ss_item_sk, store_sales.ss_ticket_number, store_sales.ss_quantity, store_sales.ss_ext_sales_price, item.i_brand_id, item.i_class_id, item.i_category_id, item.i_manufact_id, date_dim.d_year
+29)----------------------------Inner Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
+30)------------------------------Projection: store_sales.ss_sold_date_sk, store_sales.ss_item_sk, store_sales.ss_ticket_number, store_sales.ss_quantity, store_sales.ss_ext_sales_price, item.i_brand_id, item.i_class_id, item.i_category_id, item.i_manufact_id
+31)--------------------------------Inner Join: store_sales.ss_item_sk = item.i_item_sk
+32)----------------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_item_sk, ss_ticket_number, ss_quantity, ss_ext_sales_price]
+33)----------------------------------Projection: item.i_item_sk, item.i_brand_id, item.i_class_id, item.i_category_id, item.i_manufact_id
+34)------------------------------------Filter: item.i_category = Utf8View("Books")
+35)--------------------------------------TableScan: item projection=[i_item_sk, i_brand_id, i_class_id, i_category_id, i_category, i_manufact_id], partial_filters=[item.i_category = Utf8View("Books")]
+36)------------------------------Filter: date_dim.d_year = Int64(2002)
+37)--------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int64(2002)]
+38)--------------------------TableScan: store_returns projection=[sr_item_sk, sr_ticket_number, sr_return_quantity, sr_return_amt]
+39)--------------------Projection: date_dim.d_year, item.i_brand_id, item.i_class_id, item.i_category_id, item.i_manufact_id, web_sales.ws_quantity - CASE WHEN web_returns.wr_return_quantity IS NOT NULL THEN web_returns.wr_return_quantity ELSE Int64(0) END AS sales_cnt, web_sales.ws_ext_sales_price - CASE WHEN __common_expr_3 IS NOT NULL THEN __common_expr_3 ELSE Decimal128(0.000000000000000,30,15) END AS sales_amt
+40)----------------------Projection: CAST(web_returns.wr_return_amt AS Decimal128(30, 15)) AS __common_expr_3, web_sales.ws_quantity, web_sales.ws_ext_sales_price, item.i_brand_id, item.i_class_id, item.i_category_id, item.i_manufact_id, date_dim.d_year, web_returns.wr_return_quantity
+41)------------------------Left Join: web_sales.ws_order_number = web_returns.wr_order_number, web_sales.ws_item_sk = web_returns.wr_item_sk
+42)--------------------------Projection: web_sales.ws_item_sk, web_sales.ws_order_number, web_sales.ws_quantity, web_sales.ws_ext_sales_price, item.i_brand_id, item.i_class_id, item.i_category_id, item.i_manufact_id, date_dim.d_year
+43)----------------------------Inner Join: web_sales.ws_sold_date_sk = date_dim.d_date_sk
+44)------------------------------Projection: web_sales.ws_sold_date_sk, web_sales.ws_item_sk, web_sales.ws_order_number, web_sales.ws_quantity, web_sales.ws_ext_sales_price, item.i_brand_id, item.i_class_id, item.i_category_id, item.i_manufact_id
+45)--------------------------------Inner Join: web_sales.ws_item_sk = item.i_item_sk
+46)----------------------------------TableScan: web_sales projection=[ws_sold_date_sk, ws_item_sk, ws_order_number, ws_quantity, ws_ext_sales_price]
+47)----------------------------------Projection: item.i_item_sk, item.i_brand_id, item.i_class_id, item.i_category_id, item.i_manufact_id
+48)------------------------------------Filter: item.i_category = Utf8View("Books")
+49)--------------------------------------TableScan: item projection=[i_item_sk, i_brand_id, i_class_id, i_category_id, i_category, i_manufact_id], partial_filters=[item.i_category = Utf8View("Books")]
+50)------------------------------Filter: date_dim.d_year = Int64(2002)
+51)--------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int64(2002)]
+52)--------------------------TableScan: web_returns projection=[wr_item_sk, wr_order_number, wr_return_quantity, wr_return_amt]
+53)------SubqueryAlias: prev_yr
+54)--------SubqueryAlias: all_sales
+55)----------Projection: sales_detail.d_year, sales_detail.i_brand_id, sales_detail.i_class_id, sales_detail.i_category_id, sales_detail.i_manufact_id, sum(sales_detail.sales_cnt) AS sales_cnt, sum(sales_detail.sales_amt) AS sales_amt
+56)------------Aggregate: groupBy=[[sales_detail.d_year, sales_detail.i_brand_id, sales_detail.i_class_id, sales_detail.i_category_id, sales_detail.i_manufact_id]], aggr=[[sum(sales_detail.sales_cnt), sum(sales_detail.sales_amt)]]
+57)--------------SubqueryAlias: sales_detail
+58)----------------Aggregate: groupBy=[[d_year, i_brand_id, i_class_id, i_category_id, i_manufact_id, sales_cnt, sales_amt]], aggr=[[]]
+59)------------------Union
+60)--------------------Projection: date_dim.d_year, item.i_brand_id, item.i_class_id, item.i_category_id, item.i_manufact_id, catalog_sales.cs_quantity - CASE WHEN catalog_returns.cr_return_quantity IS NOT NULL THEN catalog_returns.cr_return_quantity ELSE Int64(0) END AS sales_cnt, catalog_sales.cs_ext_sales_price - CASE WHEN __common_expr_4 IS NOT NULL THEN __common_expr_4 ELSE Decimal128(0.000000000000000,30,15) END AS sales_amt
+61)----------------------Projection: CAST(catalog_returns.cr_return_amount AS Decimal128(30, 15)) AS __common_expr_4, catalog_sales.cs_quantity, catalog_sales.cs_ext_sales_price, item.i_brand_id, item.i_class_id, item.i_category_id, item.i_manufact_id, date_dim.d_year, catalog_returns.cr_return_quantity
+62)------------------------Left Join: catalog_sales.cs_order_number = catalog_returns.cr_order_number, catalog_sales.cs_item_sk = catalog_returns.cr_item_sk
+63)--------------------------Projection: catalog_sales.cs_item_sk, catalog_sales.cs_order_number, catalog_sales.cs_quantity, catalog_sales.cs_ext_sales_price, item.i_brand_id, item.i_class_id, item.i_category_id, item.i_manufact_id, date_dim.d_year
+64)----------------------------Inner Join: catalog_sales.cs_sold_date_sk = date_dim.d_date_sk
+65)------------------------------Projection: catalog_sales.cs_sold_date_sk, catalog_sales.cs_item_sk, catalog_sales.cs_order_number, catalog_sales.cs_quantity, catalog_sales.cs_ext_sales_price, item.i_brand_id, item.i_class_id, item.i_category_id, item.i_manufact_id
+66)--------------------------------Inner Join: catalog_sales.cs_item_sk = item.i_item_sk
+67)----------------------------------TableScan: catalog_sales projection=[cs_sold_date_sk, cs_item_sk, cs_order_number, cs_quantity, cs_ext_sales_price]
+68)----------------------------------Projection: item.i_item_sk, item.i_brand_id, item.i_class_id, item.i_category_id, item.i_manufact_id
+69)------------------------------------Filter: item.i_category = Utf8View("Books")
+70)--------------------------------------TableScan: item projection=[i_item_sk, i_brand_id, i_class_id, i_category_id, i_category, i_manufact_id], partial_filters=[item.i_category = Utf8View("Books")]
+71)------------------------------Filter: date_dim.d_year = Int64(2001)
+72)--------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int64(2001)]
+73)--------------------------TableScan: catalog_returns projection=[cr_item_sk, cr_order_number, cr_return_quantity, cr_return_amount]
+74)--------------------Projection: date_dim.d_year, item.i_brand_id, item.i_class_id, item.i_category_id, item.i_manufact_id, store_sales.ss_quantity - CASE WHEN store_returns.sr_return_quantity IS NOT NULL THEN store_returns.sr_return_quantity ELSE Int64(0) END AS sales_cnt, store_sales.ss_ext_sales_price - CASE WHEN __common_expr_5 IS NOT NULL THEN __common_expr_5 ELSE Decimal128(0.000000000000000,30,15) END AS sales_amt
+75)----------------------Projection: CAST(store_returns.sr_return_amt AS Decimal128(30, 15)) AS __common_expr_5, store_sales.ss_quantity, store_sales.ss_ext_sales_price, item.i_brand_id, item.i_class_id, item.i_category_id, item.i_manufact_id, date_dim.d_year, store_returns.sr_return_quantity
+76)------------------------Left Join: store_sales.ss_ticket_number = store_returns.sr_ticket_number, store_sales.ss_item_sk = store_returns.sr_item_sk
+77)--------------------------Projection: store_sales.ss_item_sk, store_sales.ss_ticket_number, store_sales.ss_quantity, store_sales.ss_ext_sales_price, item.i_brand_id, item.i_class_id, item.i_category_id, item.i_manufact_id, date_dim.d_year
+78)----------------------------Inner Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
+79)------------------------------Projection: store_sales.ss_sold_date_sk, store_sales.ss_item_sk, store_sales.ss_ticket_number, store_sales.ss_quantity, store_sales.ss_ext_sales_price, item.i_brand_id, item.i_class_id, item.i_category_id, item.i_manufact_id
+80)--------------------------------Inner Join: store_sales.ss_item_sk = item.i_item_sk
+81)----------------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_item_sk, ss_ticket_number, ss_quantity, ss_ext_sales_price]
+82)----------------------------------Projection: item.i_item_sk, item.i_brand_id, item.i_class_id, item.i_category_id, item.i_manufact_id
+83)------------------------------------Filter: item.i_category = Utf8View("Books")
+84)--------------------------------------TableScan: item projection=[i_item_sk, i_brand_id, i_class_id, i_category_id, i_category, i_manufact_id], partial_filters=[item.i_category = Utf8View("Books")]
+85)------------------------------Filter: date_dim.d_year = Int64(2001)
+86)--------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int64(2001)]
+87)--------------------------TableScan: store_returns projection=[sr_item_sk, sr_ticket_number, sr_return_quantity, sr_return_amt]
+88)--------------------Projection: date_dim.d_year, item.i_brand_id, item.i_class_id, item.i_category_id, item.i_manufact_id, web_sales.ws_quantity - CASE WHEN web_returns.wr_return_quantity IS NOT NULL THEN web_returns.wr_return_quantity ELSE Int64(0) END AS sales_cnt, web_sales.ws_ext_sales_price - CASE WHEN __common_expr_6 IS NOT NULL THEN __common_expr_6 ELSE Decimal128(0.000000000000000,30,15) END AS sales_amt
+89)----------------------Projection: CAST(web_returns.wr_return_amt AS Decimal128(30, 15)) AS __common_expr_6, web_sales.ws_quantity, web_sales.ws_ext_sales_price, item.i_brand_id, item.i_class_id, item.i_category_id, item.i_manufact_id, date_dim.d_year, web_returns.wr_return_quantity
+90)------------------------Left Join: web_sales.ws_order_number = web_returns.wr_order_number, web_sales.ws_item_sk = web_returns.wr_item_sk
+91)--------------------------Projection: web_sales.ws_item_sk, web_sales.ws_order_number, web_sales.ws_quantity, web_sales.ws_ext_sales_price, item.i_brand_id, item.i_class_id, item.i_category_id, item.i_manufact_id, date_dim.d_year
+92)----------------------------Inner Join: web_sales.ws_sold_date_sk = date_dim.d_date_sk
+93)------------------------------Projection: web_sales.ws_sold_date_sk, web_sales.ws_item_sk, web_sales.ws_order_number, web_sales.ws_quantity, web_sales.ws_ext_sales_price, item.i_brand_id, item.i_class_id, item.i_category_id, item.i_manufact_id
+94)--------------------------------Inner Join: web_sales.ws_item_sk = item.i_item_sk
+95)----------------------------------TableScan: web_sales projection=[ws_sold_date_sk, ws_item_sk, ws_order_number, ws_quantity, ws_ext_sales_price]
+96)----------------------------------Projection: item.i_item_sk, item.i_brand_id, item.i_class_id, item.i_category_id, item.i_manufact_id
+97)------------------------------------Filter: item.i_category = Utf8View("Books")
+98)--------------------------------------TableScan: item projection=[i_item_sk, i_brand_id, i_class_id, i_category_id, i_category, i_manufact_id], partial_filters=[item.i_category = Utf8View("Books")]
+99)------------------------------Filter: date_dim.d_year = Int64(2001)
+100)--------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int64(2001)]
+101)--------------------------TableScan: web_returns projection=[wr_item_sk, wr_order_number, wr_return_quantity, wr_return_amt]
+physical_plan
+01)SortPreservingMergeExec: [sales_cnt_diff@8 ASC NULLS LAST, sales_amt_diff@9 ASC NULLS LAST], fetch=100
+02)--SortExec: TopK(fetch=100), expr=[sales_cnt_diff@8 ASC NULLS LAST, sales_amt_diff@9 ASC NULLS LAST], preserve_partitioning=[true]
+03)----ProjectionExec: expr=[d_year@0 as prev_year, d_year@1 as year_, i_brand_id@2 as i_brand_id, i_class_id@3 as i_class_id, i_category_id@4 as i_category_id, i_manufact_id@5 as i_manufact_id, sales_cnt@6 as prev_yr_cnt, sales_cnt@7 as curr_yr_cnt, sales_cnt@7 - sales_cnt@6 as sales_cnt_diff, sales_amt@8 - sales_amt@9 as sales_amt_diff]
+04)------HashJoinExec: mode=Partitioned, join_type=Inner, on=[(i_brand_id@1, i_brand_id@1), (i_class_id@2, i_class_id@2), (i_category_id@3, i_category_id@3), (i_manufact_id@4, i_manufact_id@4)], filter=CAST(sales_cnt@0 AS Decimal128(17, 2)) / CAST(sales_cnt@1 AS Decimal128(17, 2)) < 0.900000, projection=[d_year@7, d_year@0, i_brand_id@1, i_class_id@2, i_category_id@3, i_manufact_id@4, sales_cnt@12, sales_cnt@5, sales_amt@6, sales_amt@13]
+05)--------RepartitionExec: partitioning=Hash([i_brand_id@1, i_class_id@2, i_category_id@3, i_manufact_id@4], 4), input_partitions=4
+06)----------ProjectionExec: expr=[d_year@0 as d_year, i_brand_id@1 as i_brand_id, i_class_id@2 as i_class_id, i_category_id@3 as i_category_id, i_manufact_id@4 as i_manufact_id, sum(sales_detail.sales_cnt)@5 as sales_cnt, sum(sales_detail.sales_amt)@6 as sales_amt]
+07)------------AggregateExec: mode=FinalPartitioned, gby=[d_year@0 as d_year, i_brand_id@1 as i_brand_id, i_class_id@2 as i_class_id, i_category_id@3 as i_category_id, i_manufact_id@4 as i_manufact_id], aggr=[sum(sales_detail.sales_cnt), sum(sales_detail.sales_amt)], ordering_mode=PartiallySorted([0])
+08)--------------RepartitionExec: partitioning=Hash([d_year@0, i_brand_id@1, i_class_id@2, i_category_id@3, i_manufact_id@4], 4), input_partitions=4
+09)----------------AggregateExec: mode=Partial, gby=[d_year@0 as d_year, i_brand_id@1 as i_brand_id, i_class_id@2 as i_class_id, i_category_id@3 as i_category_id, i_manufact_id@4 as i_manufact_id], aggr=[sum(sales_detail.sales_cnt), sum(sales_detail.sales_amt)], ordering_mode=PartiallySorted([0])
+10)------------------AggregateExec: mode=FinalPartitioned, gby=[d_year@0 as d_year, i_brand_id@1 as i_brand_id, i_class_id@2 as i_class_id, i_category_id@3 as i_category_id, i_manufact_id@4 as i_manufact_id, sales_cnt@5 as sales_cnt, sales_amt@6 as sales_amt], aggr=[], ordering_mode=PartiallySorted([0])
+11)--------------------RepartitionExec: partitioning=Hash([d_year@0, i_brand_id@1, i_class_id@2, i_category_id@3, i_manufact_id@4, sales_cnt@5, sales_amt@6], 4), input_partitions=12
+12)----------------------AggregateExec: mode=Partial, gby=[d_year@0 as d_year, i_brand_id@1 as i_brand_id, i_class_id@2 as i_class_id, i_category_id@3 as i_category_id, i_manufact_id@4 as i_manufact_id, sales_cnt@5 as sales_cnt, sales_amt@6 as sales_amt], aggr=[], ordering_mode=PartiallySorted([0])
+13)------------------------UnionExec
+14)--------------------------ProjectionExec: expr=[d_year@7 as d_year, i_brand_id@3 as i_brand_id, i_class_id@4 as i_class_id, i_category_id@5 as i_category_id, i_manufact_id@6 as i_manufact_id, cs_quantity@1 - CASE WHEN cr_return_quantity@8 IS NOT NULL THEN cr_return_quantity@8 ELSE 0 END as sales_cnt, cs_ext_sales_price@2 - CASE WHEN __common_expr_1@0 IS NOT NULL THEN __common_expr_1@0 ELSE 0.000000000000000 END as sales_amt]
+15)----------------------------ProjectionExec: expr=[CAST(cr_return_amount@0 AS Decimal128(30, 15)) as __common_expr_1, cs_quantity@1 as cs_quantity, cs_ext_sales_price@2 as cs_ext_sales_price, i_brand_id@3 as i_brand_id, i_class_id@4 as i_class_id, i_category_id@5 as i_category_id, i_manufact_id@6 as i_manufact_id, d_year@7 as d_year, cr_return_quantity@8 as cr_return_quantity]
+16)------------------------------HashJoinExec: mode=CollectLeft, join_type=Left, on=[(cs_order_number@1, cr_order_number@1), (cs_item_sk@0, cr_item_sk@0)], projection=[cr_return_amount@12, cs_quantity@2, cs_ext_sales_price@3, i_brand_id@4, i_class_id@5, i_category_id@6, i_manufact_id@7, d_year@8, cr_return_quantity@11]
+17)--------------------------------CoalescePartitionsExec
+18)----------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, cs_sold_date_sk@0)], projection=[cs_item_sk@3, cs_order_number@4, cs_quantity@5, cs_ext_sales_price@6, i_brand_id@7, i_class_id@8, i_category_id@9, i_manufact_id@10, d_year@1]
+19)------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_year], file_type=vortex, predicate: d_year@6 = 2002
+20)------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, cs_item_sk@1)], projection=[cs_sold_date_sk@5, cs_item_sk@6, cs_order_number@7, cs_quantity@8, cs_ext_sales_price@9, i_brand_id@1, i_class_id@2, i_category_id@3, i_manufact_id@4]
+21)--------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_brand_id, i_class_id, i_category_id, i_manufact_id], file_type=vortex, predicate: i_category@12 = Books
+22)--------------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>]]}, projection=[cs_sold_date_sk, cs_item_sk, cs_order_number, cs_quantity, cs_ext_sales_price], file_type=vortex
+23)--------------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+24)----------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/catalog_returns.vortex]]}, projection=[cr_item_sk, cr_order_number, cr_return_quantity, cr_return_amount], file_type=vortex
+25)--------------------------ProjectionExec: expr=[d_year@7 as d_year, i_brand_id@3 as i_brand_id, i_class_id@4 as i_class_id, i_category_id@5 as i_category_id, i_manufact_id@6 as i_manufact_id, ss_quantity@1 - CASE WHEN sr_return_quantity@8 IS NOT NULL THEN sr_return_quantity@8 ELSE 0 END as sales_cnt, ss_ext_sales_price@2 - CASE WHEN __common_expr_2@0 IS NOT NULL THEN __common_expr_2@0 ELSE 0.000000000000000 END as sales_amt]
+26)----------------------------ProjectionExec: expr=[CAST(sr_return_amt@0 AS Decimal128(30, 15)) as __common_expr_2, ss_quantity@1 as ss_quantity, ss_ext_sales_price@2 as ss_ext_sales_price, i_brand_id@3 as i_brand_id, i_class_id@4 as i_class_id, i_category_id@5 as i_category_id, i_manufact_id@6 as i_manufact_id, d_year@7 as d_year, sr_return_quantity@8 as sr_return_quantity]
+27)------------------------------HashJoinExec: mode=CollectLeft, join_type=Left, on=[(ss_ticket_number@1, sr_ticket_number@1), (ss_item_sk@0, sr_item_sk@0)], projection=[sr_return_amt@12, ss_quantity@2, ss_ext_sales_price@3, i_brand_id@4, i_class_id@5, i_category_id@6, i_manufact_id@7, d_year@8, sr_return_quantity@11]
+28)--------------------------------CoalescePartitionsExec
+29)----------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@0)], projection=[ss_item_sk@3, ss_ticket_number@4, ss_quantity@5, ss_ext_sales_price@6, i_brand_id@7, i_class_id@8, i_category_id@9, i_manufact_id@10, d_year@1]
+30)------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_year], file_type=vortex, predicate: d_year@6 = 2002
+31)------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, ss_item_sk@1)], projection=[ss_sold_date_sk@5, ss_item_sk@6, ss_ticket_number@7, ss_quantity@8, ss_ext_sales_price@9, i_brand_id@1, i_class_id@2, i_category_id@3, i_manufact_id@4]
+32)--------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_brand_id, i_class_id, i_category_id, i_manufact_id], file_type=vortex, predicate: i_category@12 = Books
+33)--------------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_item_sk, ss_ticket_number, ss_quantity, ss_ext_sales_price], file_type=vortex
+34)--------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>]]}, projection=[sr_item_sk, sr_ticket_number, sr_return_quantity, sr_return_amt], file_type=vortex
+35)--------------------------ProjectionExec: expr=[d_year@7 as d_year, i_brand_id@3 as i_brand_id, i_class_id@4 as i_class_id, i_category_id@5 as i_category_id, i_manufact_id@6 as i_manufact_id, ws_quantity@1 - CASE WHEN wr_return_quantity@8 IS NOT NULL THEN wr_return_quantity@8 ELSE 0 END as sales_cnt, ws_ext_sales_price@2 - CASE WHEN __common_expr_3@0 IS NOT NULL THEN __common_expr_3@0 ELSE 0.000000000000000 END as sales_amt]
+36)----------------------------ProjectionExec: expr=[CAST(wr_return_amt@12 AS Decimal128(30, 15)) as __common_expr_3, ws_quantity@2 as ws_quantity, ws_ext_sales_price@3 as ws_ext_sales_price, i_brand_id@4 as i_brand_id, i_class_id@5 as i_class_id, i_category_id@6 as i_category_id, i_manufact_id@7 as i_manufact_id, d_year@8 as d_year, wr_return_quantity@11 as wr_return_quantity]
+37)------------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+38)--------------------------------HashJoinExec: mode=CollectLeft, join_type=Left, on=[(ws_order_number@1, wr_order_number@1), (ws_item_sk@0, wr_item_sk@0)]
+39)----------------------------------CoalescePartitionsExec
+40)------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ws_sold_date_sk@0)], projection=[ws_item_sk@3, ws_order_number@4, ws_quantity@5, ws_ext_sales_price@6, i_brand_id@7, i_class_id@8, i_category_id@9, i_manufact_id@10, d_year@1]
+41)--------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_year], file_type=vortex, predicate: d_year@6 = 2002
+42)--------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, ws_item_sk@1)], projection=[ws_sold_date_sk@5, ws_item_sk@6, ws_order_number@7, ws_quantity@8, ws_ext_sales_price@9, i_brand_id@1, i_class_id@2, i_category_id@3, i_manufact_id@4]
+43)----------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_brand_id, i_class_id, i_category_id, i_manufact_id], file_type=vortex, predicate: i_category@12 = Books
+44)----------------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>]]}, projection=[ws_sold_date_sk, ws_item_sk, ws_order_number, ws_quantity, ws_ext_sales_price], file_type=vortex
+45)----------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/web_returns.vortex]]}, projection=[wr_item_sk, wr_order_number, wr_return_quantity, wr_return_amt], file_type=vortex
+46)--------RepartitionExec: partitioning=Hash([i_brand_id@1, i_class_id@2, i_category_id@3, i_manufact_id@4], 4), input_partitions=4
+47)----------ProjectionExec: expr=[d_year@0 as d_year, i_brand_id@1 as i_brand_id, i_class_id@2 as i_class_id, i_category_id@3 as i_category_id, i_manufact_id@4 as i_manufact_id, sum(sales_detail.sales_cnt)@5 as sales_cnt, sum(sales_detail.sales_amt)@6 as sales_amt]
+48)------------AggregateExec: mode=FinalPartitioned, gby=[d_year@0 as d_year, i_brand_id@1 as i_brand_id, i_class_id@2 as i_class_id, i_category_id@3 as i_category_id, i_manufact_id@4 as i_manufact_id], aggr=[sum(sales_detail.sales_cnt), sum(sales_detail.sales_amt)], ordering_mode=PartiallySorted([0])
+49)--------------RepartitionExec: partitioning=Hash([d_year@0, i_brand_id@1, i_class_id@2, i_category_id@3, i_manufact_id@4], 4), input_partitions=4
+50)----------------AggregateExec: mode=Partial, gby=[d_year@0 as d_year, i_brand_id@1 as i_brand_id, i_class_id@2 as i_class_id, i_category_id@3 as i_category_id, i_manufact_id@4 as i_manufact_id], aggr=[sum(sales_detail.sales_cnt), sum(sales_detail.sales_amt)], ordering_mode=PartiallySorted([0])
+51)------------------AggregateExec: mode=FinalPartitioned, gby=[d_year@0 as d_year, i_brand_id@1 as i_brand_id, i_class_id@2 as i_class_id, i_category_id@3 as i_category_id, i_manufact_id@4 as i_manufact_id, sales_cnt@5 as sales_cnt, sales_amt@6 as sales_amt], aggr=[], ordering_mode=PartiallySorted([0])
+52)--------------------RepartitionExec: partitioning=Hash([d_year@0, i_brand_id@1, i_class_id@2, i_category_id@3, i_manufact_id@4, sales_cnt@5, sales_amt@6], 4), input_partitions=12
+53)----------------------AggregateExec: mode=Partial, gby=[d_year@0 as d_year, i_brand_id@1 as i_brand_id, i_class_id@2 as i_class_id, i_category_id@3 as i_category_id, i_manufact_id@4 as i_manufact_id, sales_cnt@5 as sales_cnt, sales_amt@6 as sales_amt], aggr=[], ordering_mode=PartiallySorted([0])
+54)------------------------UnionExec
+55)--------------------------ProjectionExec: expr=[d_year@7 as d_year, i_brand_id@3 as i_brand_id, i_class_id@4 as i_class_id, i_category_id@5 as i_category_id, i_manufact_id@6 as i_manufact_id, cs_quantity@1 - CASE WHEN cr_return_quantity@8 IS NOT NULL THEN cr_return_quantity@8 ELSE 0 END as sales_cnt, cs_ext_sales_price@2 - CASE WHEN __common_expr_4@0 IS NOT NULL THEN __common_expr_4@0 ELSE 0.000000000000000 END as sales_amt]
+56)----------------------------ProjectionExec: expr=[CAST(cr_return_amount@0 AS Decimal128(30, 15)) as __common_expr_4, cs_quantity@1 as cs_quantity, cs_ext_sales_price@2 as cs_ext_sales_price, i_brand_id@3 as i_brand_id, i_class_id@4 as i_class_id, i_category_id@5 as i_category_id, i_manufact_id@6 as i_manufact_id, d_year@7 as d_year, cr_return_quantity@8 as cr_return_quantity]
+57)------------------------------HashJoinExec: mode=CollectLeft, join_type=Left, on=[(cs_order_number@1, cr_order_number@1), (cs_item_sk@0, cr_item_sk@0)], projection=[cr_return_amount@12, cs_quantity@2, cs_ext_sales_price@3, i_brand_id@4, i_class_id@5, i_category_id@6, i_manufact_id@7, d_year@8, cr_return_quantity@11]
+58)--------------------------------CoalescePartitionsExec
+59)----------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, cs_sold_date_sk@0)], projection=[cs_item_sk@3, cs_order_number@4, cs_quantity@5, cs_ext_sales_price@6, i_brand_id@7, i_class_id@8, i_category_id@9, i_manufact_id@10, d_year@1]
+60)------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_year], file_type=vortex, predicate: d_year@6 = 2001
+61)------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, cs_item_sk@1)], projection=[cs_sold_date_sk@5, cs_item_sk@6, cs_order_number@7, cs_quantity@8, cs_ext_sales_price@9, i_brand_id@1, i_class_id@2, i_category_id@3, i_manufact_id@4]
+62)--------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_brand_id, i_class_id, i_category_id, i_manufact_id], file_type=vortex, predicate: i_category@12 = Books
+63)--------------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>]]}, projection=[cs_sold_date_sk, cs_item_sk, cs_order_number, cs_quantity, cs_ext_sales_price], file_type=vortex
+64)--------------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+65)----------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/catalog_returns.vortex]]}, projection=[cr_item_sk, cr_order_number, cr_return_quantity, cr_return_amount], file_type=vortex
+66)--------------------------ProjectionExec: expr=[d_year@7 as d_year, i_brand_id@3 as i_brand_id, i_class_id@4 as i_class_id, i_category_id@5 as i_category_id, i_manufact_id@6 as i_manufact_id, ss_quantity@1 - CASE WHEN sr_return_quantity@8 IS NOT NULL THEN sr_return_quantity@8 ELSE 0 END as sales_cnt, ss_ext_sales_price@2 - CASE WHEN __common_expr_5@0 IS NOT NULL THEN __common_expr_5@0 ELSE 0.000000000000000 END as sales_amt]
+67)----------------------------ProjectionExec: expr=[CAST(sr_return_amt@0 AS Decimal128(30, 15)) as __common_expr_5, ss_quantity@1 as ss_quantity, ss_ext_sales_price@2 as ss_ext_sales_price, i_brand_id@3 as i_brand_id, i_class_id@4 as i_class_id, i_category_id@5 as i_category_id, i_manufact_id@6 as i_manufact_id, d_year@7 as d_year, sr_return_quantity@8 as sr_return_quantity]
+68)------------------------------HashJoinExec: mode=CollectLeft, join_type=Left, on=[(ss_ticket_number@1, sr_ticket_number@1), (ss_item_sk@0, sr_item_sk@0)], projection=[sr_return_amt@12, ss_quantity@2, ss_ext_sales_price@3, i_brand_id@4, i_class_id@5, i_category_id@6, i_manufact_id@7, d_year@8, sr_return_quantity@11]
+69)--------------------------------CoalescePartitionsExec
+70)----------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@0)], projection=[ss_item_sk@3, ss_ticket_number@4, ss_quantity@5, ss_ext_sales_price@6, i_brand_id@7, i_class_id@8, i_category_id@9, i_manufact_id@10, d_year@1]
+71)------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_year], file_type=vortex, predicate: d_year@6 = 2001
+72)------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, ss_item_sk@1)], projection=[ss_sold_date_sk@5, ss_item_sk@6, ss_ticket_number@7, ss_quantity@8, ss_ext_sales_price@9, i_brand_id@1, i_class_id@2, i_category_id@3, i_manufact_id@4]
+73)--------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_brand_id, i_class_id, i_category_id, i_manufact_id], file_type=vortex, predicate: i_category@12 = Books
+74)--------------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_item_sk, ss_ticket_number, ss_quantity, ss_ext_sales_price], file_type=vortex
+75)--------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>]]}, projection=[sr_item_sk, sr_ticket_number, sr_return_quantity, sr_return_amt], file_type=vortex
+76)--------------------------ProjectionExec: expr=[d_year@7 as d_year, i_brand_id@3 as i_brand_id, i_class_id@4 as i_class_id, i_category_id@5 as i_category_id, i_manufact_id@6 as i_manufact_id, ws_quantity@1 - CASE WHEN wr_return_quantity@8 IS NOT NULL THEN wr_return_quantity@8 ELSE 0 END as sales_cnt, ws_ext_sales_price@2 - CASE WHEN __common_expr_6@0 IS NOT NULL THEN __common_expr_6@0 ELSE 0.000000000000000 END as sales_amt]
+77)----------------------------ProjectionExec: expr=[CAST(wr_return_amt@12 AS Decimal128(30, 15)) as __common_expr_6, ws_quantity@2 as ws_quantity, ws_ext_sales_price@3 as ws_ext_sales_price, i_brand_id@4 as i_brand_id, i_class_id@5 as i_class_id, i_category_id@6 as i_category_id, i_manufact_id@7 as i_manufact_id, d_year@8 as d_year, wr_return_quantity@11 as wr_return_quantity]
+78)------------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+79)--------------------------------HashJoinExec: mode=CollectLeft, join_type=Left, on=[(ws_order_number@1, wr_order_number@1), (ws_item_sk@0, wr_item_sk@0)]
+80)----------------------------------CoalescePartitionsExec
+81)------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ws_sold_date_sk@0)], projection=[ws_item_sk@3, ws_order_number@4, ws_quantity@5, ws_ext_sales_price@6, i_brand_id@7, i_class_id@8, i_category_id@9, i_manufact_id@10, d_year@1]
+82)--------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_year], file_type=vortex, predicate: d_year@6 = 2001
+83)--------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, ws_item_sk@1)], projection=[ws_sold_date_sk@5, ws_item_sk@6, ws_order_number@7, ws_quantity@8, ws_ext_sales_price@9, i_brand_id@1, i_class_id@2, i_category_id@3, i_manufact_id@4]
+84)----------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_brand_id, i_class_id, i_category_id, i_manufact_id], file_type=vortex, predicate: i_category@12 = Books
+85)----------------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>]]}, projection=[ws_sold_date_sk, ws_item_sk, ws_order_number, ws_quantity, ws_ext_sales_price], file_type=vortex
+86)----------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/web_returns.vortex]]}, projection=[wr_item_sk, wr_order_number, wr_return_quantity, wr_return_amt], file_type=vortex

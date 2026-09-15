@@ -1,0 +1,1360 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN (FORMAT json)
+SELECT i_item_desc,
+       w_warehouse_name,
+       d1.d_week_seq,
+       sum(CASE
+               WHEN p_promo_sk IS NULL THEN 1
+               ELSE 0
+           END) no_promo,
+       sum(CASE
+               WHEN p_promo_sk IS NOT NULL THEN 1
+               ELSE 0
+           END) promo,
+       count(*) total_cnt
+FROM catalog_sales
+JOIN inventory ON (cs_item_sk = inv_item_sk)
+JOIN warehouse ON (w_warehouse_sk=inv_warehouse_sk)
+JOIN item ON (i_item_sk = cs_item_sk)
+JOIN customer_demographics ON (cs_bill_cdemo_sk = cd_demo_sk)
+JOIN household_demographics ON (cs_bill_hdemo_sk = hd_demo_sk)
+JOIN date_dim d1 ON (cs_sold_date_sk = d1.d_date_sk)
+JOIN date_dim d2 ON (inv_date_sk = d2.d_date_sk)
+JOIN date_dim d3 ON (cs_ship_date_sk = d3.d_date_sk)
+LEFT OUTER JOIN promotion ON (cs_promo_sk=p_promo_sk)
+LEFT OUTER JOIN catalog_returns ON (cr_item_sk = cs_item_sk
+                                    AND cr_order_number = cs_order_number)
+WHERE d1.d_week_seq = d2.d_week_seq
+  AND inv_quantity_on_hand < cs_quantity
+  AND d3.d_date > (d1.d_date + INTERVAL '5' DAY)
+  AND hd_buy_potential = '>10000'
+  AND d1.d_year = 1999
+  AND cd_marital_status = 'D'
+GROUP BY i_item_desc,
+         w_warehouse_name,
+         d1.d_week_seq
+ORDER BY total_cnt DESC NULLS FIRST,
+         i_item_desc NULLS FIRST,
+         w_warehouse_name NULLS FIRST,
+         d1.d_week_seq NULLS FIRST
+LIMIT 100;
+----
+logical_plan [
+    {
+        "name": "LIMIT",
+        "children": [
+            {
+                "name": "ORDER_BY",
+                "children": [
+                    {
+                        "name": "PROJECTION",
+                        "children": [
+                            {
+                                "name": "AGGREGATE",
+                                "children": [
+                                    {
+                                        "name": "FILTER",
+                                        "children": [
+                                            {
+                                                "name": "COMPARISON_JOIN",
+                                                "children": [
+                                                    {
+                                                        "name": "COMPARISON_JOIN",
+                                                        "children": [
+                                                            {
+                                                                "name": "COMPARISON_JOIN",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "COMPARISON_JOIN",
+                                                                        "children": [
+                                                                            {
+                                                                                "name": "COMPARISON_JOIN",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "COMPARISON_JOIN",
+                                                                                        "children": [
+                                                                                            {
+                                                                                                "name": "COMPARISON_JOIN",
+                                                                                                "children": [
+                                                                                                    {
+                                                                                                        "name": "COMPARISON_JOIN",
+                                                                                                        "children": [
+                                                                                                            {
+                                                                                                                "name": "COMPARISON_JOIN",
+                                                                                                                "children": [
+                                                                                                                    {
+                                                                                                                        "name": "COMPARISON_JOIN",
+                                                                                                                        "children": [
+                                                                                                                            {
+                                                                                                                                "name": "PROJECTION",
+                                                                                                                                "children": [
+                                                                                                                                    {
+                                                                                                                                        "name": "READ_VORTEX",
+                                                                                                                                        "children": [],
+                                                                                                                                        "extra_info": {
+                                                                                                                                            "Filters": "",
+                                                                                                                                            "Function": "Vortex Scan"
+                                                                                                                                        }
+                                                                                                                                    }
+                                                                                                                                ],
+                                                                                                                                "extra_info": {
+                                                                                                                                    "Expressions": [
+                                                                                                                                        "cs_sold_date_sk",
+                                                                                                                                        "cs_sold_time_sk",
+                                                                                                                                        "cs_ship_date_sk",
+                                                                                                                                        "cs_bill_customer_sk",
+                                                                                                                                        "cs_bill_cdemo_sk",
+                                                                                                                                        "cs_bill_hdemo_sk",
+                                                                                                                                        "cs_bill_addr_sk",
+                                                                                                                                        "cs_ship_customer_sk",
+                                                                                                                                        "cs_ship_cdemo_sk",
+                                                                                                                                        "cs_ship_hdemo_sk",
+                                                                                                                                        "cs_ship_addr_sk",
+                                                                                                                                        "cs_call_center_sk",
+                                                                                                                                        "cs_catalog_page_sk",
+                                                                                                                                        "cs_ship_mode_sk",
+                                                                                                                                        "cs_warehouse_sk",
+                                                                                                                                        "cs_item_sk",
+                                                                                                                                        "cs_promo_sk",
+                                                                                                                                        "cs_order_number",
+                                                                                                                                        "cs_quantity",
+                                                                                                                                        "cs_wholesale_cost",
+                                                                                                                                        "cs_list_price",
+                                                                                                                                        "cs_sales_price",
+                                                                                                                                        "cs_ext_discount_amt",
+                                                                                                                                        "cs_ext_sales_price",
+                                                                                                                                        "cs_ext_wholesale_cost",
+                                                                                                                                        "cs_ext_list_price",
+                                                                                                                                        "cs_ext_tax",
+                                                                                                                                        "cs_coupon_amt",
+                                                                                                                                        "cs_ext_ship_cost",
+                                                                                                                                        "cs_net_paid",
+                                                                                                                                        "cs_net_paid_inc_tax",
+                                                                                                                                        "cs_net_paid_inc_ship",
+                                                                                                                                        "cs_net_paid_inc_ship_tax",
+                                                                                                                                        "cs_net_profit"
+                                                                                                                                    ]
+                                                                                                                                }
+                                                                                                                            },
+                                                                                                                            {
+                                                                                                                                "name": "PROJECTION",
+                                                                                                                                "children": [
+                                                                                                                                    {
+                                                                                                                                        "name": "READ_VORTEX",
+                                                                                                                                        "children": [],
+                                                                                                                                        "extra_info": {
+                                                                                                                                            "Filters": "",
+                                                                                                                                            "Function": "Vortex Scan"
+                                                                                                                                        }
+                                                                                                                                    }
+                                                                                                                                ],
+                                                                                                                                "extra_info": {
+                                                                                                                                    "Expressions": [
+                                                                                                                                        "inv_date_sk",
+                                                                                                                                        "inv_item_sk",
+                                                                                                                                        "inv_warehouse_sk",
+                                                                                                                                        "inv_quantity_on_hand"
+                                                                                                                                    ]
+                                                                                                                                }
+                                                                                                                            }
+                                                                                                                        ],
+                                                                                                                        "extra_info": {
+                                                                                                                            "Join Type": "INNER",
+                                                                                                                            "Conditions": "(cs_item_sk = inv_item_sk)"
+                                                                                                                        }
+                                                                                                                    },
+                                                                                                                    {
+                                                                                                                        "name": "PROJECTION",
+                                                                                                                        "children": [
+                                                                                                                            {
+                                                                                                                                "name": "READ_VORTEX",
+                                                                                                                                "children": [],
+                                                                                                                                "extra_info": {
+                                                                                                                                    "Filters": "",
+                                                                                                                                    "Function": "Vortex Scan"
+                                                                                                                                }
+                                                                                                                            }
+                                                                                                                        ],
+                                                                                                                        "extra_info": {
+                                                                                                                            "Expressions": [
+                                                                                                                                "w_warehouse_sk",
+                                                                                                                                "w_warehouse_id",
+                                                                                                                                "w_warehouse_name",
+                                                                                                                                "w_warehouse_sq_ft",
+                                                                                                                                "w_street_number",
+                                                                                                                                "w_street_name",
+                                                                                                                                "w_street_type",
+                                                                                                                                "w_suite_number",
+                                                                                                                                "w_city",
+                                                                                                                                "w_county",
+                                                                                                                                "w_state",
+                                                                                                                                "w_zip",
+                                                                                                                                "w_country",
+                                                                                                                                "w_gmt_offset"
+                                                                                                                            ]
+                                                                                                                        }
+                                                                                                                    }
+                                                                                                                ],
+                                                                                                                "extra_info": {
+                                                                                                                    "Join Type": "INNER",
+                                                                                                                    "Conditions": "(inv_warehouse_sk = w_warehouse_sk)"
+                                                                                                                }
+                                                                                                            },
+                                                                                                            {
+                                                                                                                "name": "PROJECTION",
+                                                                                                                "children": [
+                                                                                                                    {
+                                                                                                                        "name": "READ_VORTEX",
+                                                                                                                        "children": [],
+                                                                                                                        "extra_info": {
+                                                                                                                            "Filters": "",
+                                                                                                                            "Function": "Vortex Scan"
+                                                                                                                        }
+                                                                                                                    }
+                                                                                                                ],
+                                                                                                                "extra_info": {
+                                                                                                                    "Expressions": [
+                                                                                                                        "i_item_sk",
+                                                                                                                        "i_item_id",
+                                                                                                                        "i_rec_start_date",
+                                                                                                                        "i_rec_end_date",
+                                                                                                                        "i_item_desc",
+                                                                                                                        "i_current_price",
+                                                                                                                        "i_wholesale_cost",
+                                                                                                                        "i_brand_id",
+                                                                                                                        "i_brand",
+                                                                                                                        "i_class_id",
+                                                                                                                        "i_class",
+                                                                                                                        "i_category_id",
+                                                                                                                        "i_category",
+                                                                                                                        "i_manufact_id",
+                                                                                                                        "i_manufact",
+                                                                                                                        "i_size",
+                                                                                                                        "i_formulation",
+                                                                                                                        "i_color",
+                                                                                                                        "i_units",
+                                                                                                                        "i_container",
+                                                                                                                        "i_manager_id",
+                                                                                                                        "i_product_name"
+                                                                                                                    ]
+                                                                                                                }
+                                                                                                            }
+                                                                                                        ],
+                                                                                                        "extra_info": {
+                                                                                                            "Join Type": "INNER",
+                                                                                                            "Conditions": "(cs_item_sk = i_item_sk)"
+                                                                                                        }
+                                                                                                    },
+                                                                                                    {
+                                                                                                        "name": "PROJECTION",
+                                                                                                        "children": [
+                                                                                                            {
+                                                                                                                "name": "READ_VORTEX",
+                                                                                                                "children": [],
+                                                                                                                "extra_info": {
+                                                                                                                    "Filters": "",
+                                                                                                                    "Function": "Vortex Scan"
+                                                                                                                }
+                                                                                                            }
+                                                                                                        ],
+                                                                                                        "extra_info": {
+                                                                                                            "Expressions": [
+                                                                                                                "cd_demo_sk",
+                                                                                                                "cd_gender",
+                                                                                                                "cd_marital_status",
+                                                                                                                "cd_education_status",
+                                                                                                                "cd_purchase_estimate",
+                                                                                                                "cd_credit_rating",
+                                                                                                                "cd_dep_count",
+                                                                                                                "cd_dep_employed_count",
+                                                                                                                "cd_dep_college_count"
+                                                                                                            ]
+                                                                                                        }
+                                                                                                    }
+                                                                                                ],
+                                                                                                "extra_info": {
+                                                                                                    "Join Type": "INNER",
+                                                                                                    "Conditions": "(cs_bill_cdemo_sk = cd_demo_sk)"
+                                                                                                }
+                                                                                            },
+                                                                                            {
+                                                                                                "name": "PROJECTION",
+                                                                                                "children": [
+                                                                                                    {
+                                                                                                        "name": "READ_VORTEX",
+                                                                                                        "children": [],
+                                                                                                        "extra_info": {
+                                                                                                            "Filters": "",
+                                                                                                            "Function": "Vortex Scan"
+                                                                                                        }
+                                                                                                    }
+                                                                                                ],
+                                                                                                "extra_info": {
+                                                                                                    "Expressions": [
+                                                                                                        "hd_demo_sk",
+                                                                                                        "hd_income_band_sk",
+                                                                                                        "hd_buy_potential",
+                                                                                                        "hd_dep_count",
+                                                                                                        "hd_vehicle_count"
+                                                                                                    ]
+                                                                                                }
+                                                                                            }
+                                                                                        ],
+                                                                                        "extra_info": {
+                                                                                            "Join Type": "INNER",
+                                                                                            "Conditions": "(cs_bill_hdemo_sk = hd_demo_sk)"
+                                                                                        }
+                                                                                    },
+                                                                                    {
+                                                                                        "name": "PROJECTION",
+                                                                                        "children": [
+                                                                                            {
+                                                                                                "name": "READ_VORTEX",
+                                                                                                "children": [],
+                                                                                                "extra_info": {
+                                                                                                    "Filters": "",
+                                                                                                    "Function": "Vortex Scan"
+                                                                                                }
+                                                                                            }
+                                                                                        ],
+                                                                                        "extra_info": {
+                                                                                            "Expressions": [
+                                                                                                "d_date_sk",
+                                                                                                "d_date_id",
+                                                                                                "d_date",
+                                                                                                "d_month_seq",
+                                                                                                "d_week_seq",
+                                                                                                "d_quarter_seq",
+                                                                                                "d_year",
+                                                                                                "d_dow",
+                                                                                                "d_moy",
+                                                                                                "d_dom",
+                                                                                                "d_qoy",
+                                                                                                "d_fy_year",
+                                                                                                "d_fy_quarter_seq",
+                                                                                                "d_fy_week_seq",
+                                                                                                "d_day_name",
+                                                                                                "d_quarter_name",
+                                                                                                "d_holiday",
+                                                                                                "d_weekend",
+                                                                                                "d_following_holiday",
+                                                                                                "d_first_dom",
+                                                                                                "d_last_dom",
+                                                                                                "d_same_day_ly",
+                                                                                                "d_same_day_lq",
+                                                                                                "d_current_day",
+                                                                                                "d_current_week",
+                                                                                                "d_current_month",
+                                                                                                "d_current_quarter",
+                                                                                                "d_current_year"
+                                                                                            ]
+                                                                                        }
+                                                                                    }
+                                                                                ],
+                                                                                "extra_info": {
+                                                                                    "Join Type": "INNER",
+                                                                                    "Conditions": "(cs_sold_date_sk = d_date_sk)"
+                                                                                }
+                                                                            },
+                                                                            {
+                                                                                "name": "PROJECTION",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "READ_VORTEX",
+                                                                                        "children": [],
+                                                                                        "extra_info": {
+                                                                                            "Filters": "",
+                                                                                            "Function": "Vortex Scan"
+                                                                                        }
+                                                                                    }
+                                                                                ],
+                                                                                "extra_info": {
+                                                                                    "Expressions": [
+                                                                                        "d_date_sk",
+                                                                                        "d_date_id",
+                                                                                        "d_date",
+                                                                                        "d_month_seq",
+                                                                                        "d_week_seq",
+                                                                                        "d_quarter_seq",
+                                                                                        "d_year",
+                                                                                        "d_dow",
+                                                                                        "d_moy",
+                                                                                        "d_dom",
+                                                                                        "d_qoy",
+                                                                                        "d_fy_year",
+                                                                                        "d_fy_quarter_seq",
+                                                                                        "d_fy_week_seq",
+                                                                                        "d_day_name",
+                                                                                        "d_quarter_name",
+                                                                                        "d_holiday",
+                                                                                        "d_weekend",
+                                                                                        "d_following_holiday",
+                                                                                        "d_first_dom",
+                                                                                        "d_last_dom",
+                                                                                        "d_same_day_ly",
+                                                                                        "d_same_day_lq",
+                                                                                        "d_current_day",
+                                                                                        "d_current_week",
+                                                                                        "d_current_month",
+                                                                                        "d_current_quarter",
+                                                                                        "d_current_year"
+                                                                                    ]
+                                                                                }
+                                                                            }
+                                                                        ],
+                                                                        "extra_info": {
+                                                                            "Join Type": "INNER",
+                                                                            "Conditions": "(inv_date_sk = d_date_sk)"
+                                                                        }
+                                                                    },
+                                                                    {
+                                                                        "name": "PROJECTION",
+                                                                        "children": [
+                                                                            {
+                                                                                "name": "READ_VORTEX",
+                                                                                "children": [],
+                                                                                "extra_info": {
+                                                                                    "Filters": "",
+                                                                                    "Function": "Vortex Scan"
+                                                                                }
+                                                                            }
+                                                                        ],
+                                                                        "extra_info": {
+                                                                            "Expressions": [
+                                                                                "d_date_sk",
+                                                                                "d_date_id",
+                                                                                "d_date",
+                                                                                "d_month_seq",
+                                                                                "d_week_seq",
+                                                                                "d_quarter_seq",
+                                                                                "d_year",
+                                                                                "d_dow",
+                                                                                "d_moy",
+                                                                                "d_dom",
+                                                                                "d_qoy",
+                                                                                "d_fy_year",
+                                                                                "d_fy_quarter_seq",
+                                                                                "d_fy_week_seq",
+                                                                                "d_day_name",
+                                                                                "d_quarter_name",
+                                                                                "d_holiday",
+                                                                                "d_weekend",
+                                                                                "d_following_holiday",
+                                                                                "d_first_dom",
+                                                                                "d_last_dom",
+                                                                                "d_same_day_ly",
+                                                                                "d_same_day_lq",
+                                                                                "d_current_day",
+                                                                                "d_current_week",
+                                                                                "d_current_month",
+                                                                                "d_current_quarter",
+                                                                                "d_current_year"
+                                                                            ]
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Join Type": "INNER",
+                                                                    "Conditions": "(cs_ship_date_sk = d_date_sk)"
+                                                                }
+                                                            },
+                                                            {
+                                                                "name": "PROJECTION",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "READ_VORTEX",
+                                                                        "children": [],
+                                                                        "extra_info": {
+                                                                            "Filters": "",
+                                                                            "Function": "Vortex Scan"
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Expressions": [
+                                                                        "p_promo_sk",
+                                                                        "p_promo_id",
+                                                                        "p_start_date_sk",
+                                                                        "p_end_date_sk",
+                                                                        "p_item_sk",
+                                                                        "p_cost",
+                                                                        "p_response_target",
+                                                                        "p_promo_name",
+                                                                        "p_channel_dmail",
+                                                                        "p_channel_email",
+                                                                        "p_channel_catalog",
+                                                                        "p_channel_tv",
+                                                                        "p_channel_radio",
+                                                                        "p_channel_press",
+                                                                        "p_channel_event",
+                                                                        "p_channel_demo",
+                                                                        "p_channel_details",
+                                                                        "p_purpose",
+                                                                        "p_discount_active"
+                                                                    ]
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Join Type": "LEFT",
+                                                            "Conditions": "(cs_promo_sk = p_promo_sk)"
+                                                        }
+                                                    },
+                                                    {
+                                                        "name": "PROJECTION",
+                                                        "children": [
+                                                            {
+                                                                "name": "READ_VORTEX",
+                                                                "children": [],
+                                                                "extra_info": {
+                                                                    "Filters": "",
+                                                                    "Function": "Vortex Scan"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Expressions": [
+                                                                "cr_returned_date_sk",
+                                                                "cr_returned_time_sk",
+                                                                "cr_item_sk",
+                                                                "cr_refunded_customer_sk",
+                                                                "cr_refunded_cdemo_sk",
+                                                                "cr_refunded_hdemo_sk",
+                                                                "cr_refunded_addr_sk",
+                                                                "cr_returning_customer_sk",
+                                                                "cr_returning_cdemo_sk",
+                                                                "cr_returning_hdemo_sk",
+                                                                "cr_returning_addr_sk",
+                                                                "cr_call_center_sk",
+                                                                "cr_catalog_page_sk",
+                                                                "cr_ship_mode_sk",
+                                                                "cr_warehouse_sk",
+                                                                "cr_reason_sk",
+                                                                "cr_order_number",
+                                                                "cr_return_quantity",
+                                                                "cr_return_amount",
+                                                                "cr_return_tax",
+                                                                "cr_return_amt_inc_tax",
+                                                                "cr_fee",
+                                                                "cr_return_ship_cost",
+                                                                "cr_refunded_cash",
+                                                                "cr_reversed_charge",
+                                                                "cr_store_credit",
+                                                                "cr_net_loss"
+                                                            ]
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Join Type": "LEFT",
+                                                    "Conditions": [
+                                                        "(cs_item_sk = cr_item_sk)",
+                                                        "(cs_order_number = cr_order_number)"
+                                                    ]
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Expressions": [
+                                                "(d_week_seq = d_week_seq)",
+                                                "(CAST(inv_quantity_on_hand AS BIGINT) < cs_quantity)",
+                                                "(CAST(d_date AS TIMESTAMP) > (d_date + to_days(CAST(trunc(CAST('5' AS DOUBLE)) AS INTEGER))))",
+                                                "(hd_buy_potential = CAST('>10000' AS VARCHAR))",
+                                                "(d_year = CAST(1999 AS BIGINT))",
+                                                "(cd_marital_status = CAST('D' AS VARCHAR))"
+                                            ]
+                                        }
+                                    }
+                                ],
+                                "extra_info": {
+                                    "Groups": [
+                                        "i_item_desc",
+                                        "w_warehouse_name",
+                                        "d_week_seq"
+                                    ],
+                                    "Expressions": [
+                                        "sum(CASE  WHEN ((p_promo_sk IS NULL)) THEN (CAST(1 AS INTEGER)) ELSE CAST(0 AS INTEGER) END)",
+                                        "sum(CASE  WHEN ((p_promo_sk IS NOT NULL)) THEN (CAST(1 AS INTEGER)) ELSE CAST(0 AS INTEGER) END)",
+                                        "count_star()"
+                                    ]
+                                }
+                            }
+                        ],
+                        "extra_info": {
+                            "Expressions": [
+                                "i_item_desc",
+                                "w_warehouse_name",
+                                "d_week_seq",
+                                "no_promo",
+                                "promo",
+                                "total_cnt"
+                            ]
+                        }
+                    }
+                ],
+                "extra_info": {
+                    "Order By": [
+                        "count_star()",
+                        "memory.main.item.i_item_desc",
+                        "memory.main.warehouse.w_warehouse_name",
+                        "d1.d_week_seq"
+                    ]
+                }
+            }
+        ],
+        "extra_info": {
+            "Expressions": ""
+        }
+    }
+]
+logical_opt [
+    {
+        "name": "TOP_N",
+        "children": [
+            {
+                "name": "PROJECTION",
+                "children": [
+                    {
+                        "name": "PROJECTION",
+                        "children": [
+                            {
+                                "name": "AGGREGATE",
+                                "children": [
+                                    {
+                                        "name": "PROJECTION",
+                                        "children": [
+                                            {
+                                                "name": "COMPARISON_JOIN",
+                                                "children": [
+                                                    {
+                                                        "name": "COMPARISON_JOIN",
+                                                        "children": [
+                                                            {
+                                                                "name": "COMPARISON_JOIN",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "COMPARISON_JOIN",
+                                                                        "children": [
+                                                                            {
+                                                                                "name": "COMPARISON_JOIN",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "PROJECTION",
+                                                                                        "children": [
+                                                                                            {
+                                                                                                "name": "READ_VORTEX",
+                                                                                                "children": [],
+                                                                                                "extra_info": {
+                                                                                                    "Filters": "",
+                                                                                                    "Function": "Vortex Scan",
+                                                                                                    "Estimated Cardinality": "234900"
+                                                                                                }
+                                                                                            }
+                                                                                        ],
+                                                                                        "extra_info": {
+                                                                                            "Expressions": [
+                                                                                                "inv_date_sk",
+                                                                                                "inv_item_sk",
+                                                                                                "inv_warehouse_sk",
+                                                                                                "inv_quantity_on_hand"
+                                                                                            ],
+                                                                                            "Estimated Cardinality": "234900"
+                                                                                        }
+                                                                                    },
+                                                                                    {
+                                                                                        "name": "COMPARISON_JOIN",
+                                                                                        "children": [
+                                                                                            {
+                                                                                                "name": "PROJECTION",
+                                                                                                "children": [
+                                                                                                    {
+                                                                                                        "name": "READ_VORTEX",
+                                                                                                        "children": [],
+                                                                                                        "extra_info": {
+                                                                                                            "Filters": "(2450815i64 <= $.d_date_sk <= 2452635i64)",
+                                                                                                            "Function": "Vortex Scan",
+                                                                                                            "Estimated Cardinality": "73049"
+                                                                                                        }
+                                                                                                    }
+                                                                                                ],
+                                                                                                "extra_info": {
+                                                                                                    "Expressions": [
+                                                                                                        "d_date_sk",
+                                                                                                        "d_week_seq"
+                                                                                                    ],
+                                                                                                    "Estimated Cardinality": "73049"
+                                                                                                }
+                                                                                            },
+                                                                                            {
+                                                                                                "name": "PROJECTION",
+                                                                                                "children": [
+                                                                                                    {
+                                                                                                        "name": "READ_VORTEX",
+                                                                                                        "children": [],
+                                                                                                        "extra_info": {
+                                                                                                            "Filters": [
+                                                                                                                "($.d_year = 1999i64)",
+                                                                                                                "(2450815i64 <= $.d_date_sk <= 2452652i64)"
+                                                                                                            ],
+                                                                                                            "Function": "Vortex Scan",
+                                                                                                            "Estimated Cardinality": "2921"
+                                                                                                        }
+                                                                                                    }
+                                                                                                ],
+                                                                                                "extra_info": {
+                                                                                                    "Expressions": [
+                                                                                                        "d_date_sk",
+                                                                                                        "d_date",
+                                                                                                        "d_week_seq"
+                                                                                                    ],
+                                                                                                    "Estimated Cardinality": "2921"
+                                                                                                }
+                                                                                            }
+                                                                                        ],
+                                                                                        "extra_info": {
+                                                                                            "Join Type": "INNER",
+                                                                                            "Conditions": "(d_week_seq = d_week_seq)",
+                                                                                            "Estimated Cardinality": "14605"
+                                                                                        }
+                                                                                    }
+                                                                                ],
+                                                                                "extra_info": {
+                                                                                    "Join Type": "INNER",
+                                                                                    "Conditions": "(inv_date_sk = d_date_sk)",
+                                                                                    "Estimated Cardinality": "46967"
+                                                                                }
+                                                                            },
+                                                                            {
+                                                                                "name": "PROJECTION",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "READ_VORTEX",
+                                                                                        "children": [],
+                                                                                        "extra_info": {
+                                                                                            "Filters": "",
+                                                                                            "Function": "Vortex Scan",
+                                                                                            "Estimated Cardinality": "1"
+                                                                                        }
+                                                                                    }
+                                                                                ],
+                                                                                "extra_info": {
+                                                                                    "Expressions": [
+                                                                                        "w_warehouse_sk",
+                                                                                        "w_warehouse_name"
+                                                                                    ],
+                                                                                    "Estimated Cardinality": "1"
+                                                                                }
+                                                                            }
+                                                                        ],
+                                                                        "extra_info": {
+                                                                            "Join Type": "INNER",
+                                                                            "Conditions": "(inv_warehouse_sk = w_warehouse_sk)",
+                                                                            "Estimated Cardinality": "46967"
+                                                                        }
+                                                                    },
+                                                                    {
+                                                                        "name": "COMPARISON_JOIN",
+                                                                        "children": [
+                                                                            {
+                                                                                "name": "PROJECTION",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "READ_VORTEX",
+                                                                                        "children": [],
+                                                                                        "extra_info": {
+                                                                                            "Filters": "(2450817i64 <= $.d_date_sk <= 2452740i64)",
+                                                                                            "Function": "Vortex Scan",
+                                                                                            "Estimated Cardinality": "73049"
+                                                                                        }
+                                                                                    }
+                                                                                ],
+                                                                                "extra_info": {
+                                                                                    "Expressions": [
+                                                                                        "d_date_sk",
+                                                                                        "d_date"
+                                                                                    ],
+                                                                                    "Estimated Cardinality": "73049"
+                                                                                }
+                                                                            },
+                                                                            {
+                                                                                "name": "COMPARISON_JOIN",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "COMPARISON_JOIN",
+                                                                                        "children": [
+                                                                                            {
+                                                                                                "name": "COMPARISON_JOIN",
+                                                                                                "children": [
+                                                                                                    {
+                                                                                                        "name": "PROJECTION",
+                                                                                                        "children": [
+                                                                                                            {
+                                                                                                                "name": "READ_VORTEX",
+                                                                                                                "children": [],
+                                                                                                                "extra_info": {
+                                                                                                                    "Filters": "",
+                                                                                                                    "Function": "Vortex Scan",
+                                                                                                                    "Estimated Cardinality": "143657"
+                                                                                                                }
+                                                                                                            }
+                                                                                                        ],
+                                                                                                        "extra_info": {
+                                                                                                            "Expressions": [
+                                                                                                                "cs_sold_date_sk",
+                                                                                                                "cs_ship_date_sk",
+                                                                                                                "cs_bill_cdemo_sk",
+                                                                                                                "cs_bill_hdemo_sk",
+                                                                                                                "cs_item_sk",
+                                                                                                                "cs_promo_sk",
+                                                                                                                "cs_order_number",
+                                                                                                                "cs_quantity"
+                                                                                                            ],
+                                                                                                            "Estimated Cardinality": "143657"
+                                                                                                        }
+                                                                                                    },
+                                                                                                    {
+                                                                                                        "name": "PROJECTION",
+                                                                                                        "children": [
+                                                                                                            {
+                                                                                                                "name": "READ_VORTEX",
+                                                                                                                "children": [],
+                                                                                                                "extra_info": {
+                                                                                                                    "Filters": [
+                                                                                                                        "($.cd_marital_status = \"D\")",
+                                                                                                                        "($.cd_demo_sk >= 16i64)"
+                                                                                                                    ],
+                                                                                                                    "Function": "Vortex Scan",
+                                                                                                                    "Estimated Cardinality": "7683"
+                                                                                                                }
+                                                                                                            }
+                                                                                                        ],
+                                                                                                        "extra_info": {
+                                                                                                            "Expressions": "cd_demo_sk",
+                                                                                                            "Estimated Cardinality": "7683"
+                                                                                                        }
+                                                                                                    }
+                                                                                                ],
+                                                                                                "extra_info": {
+                                                                                                    "Join Type": "INNER",
+                                                                                                    "Conditions": "(cs_bill_cdemo_sk = cd_demo_sk)",
+                                                                                                    "Estimated Cardinality": "28730"
+                                                                                                }
+                                                                                            },
+                                                                                            {
+                                                                                                "name": "PROJECTION",
+                                                                                                "children": [
+                                                                                                    {
+                                                                                                        "name": "READ_VORTEX",
+                                                                                                        "children": [],
+                                                                                                        "extra_info": {
+                                                                                                            "Filters": "($.hd_buy_potential = \">10000\")",
+                                                                                                            "Function": "Vortex Scan",
+                                                                                                            "Estimated Cardinality": "288"
+                                                                                                        }
+                                                                                                    }
+                                                                                                ],
+                                                                                                "extra_info": {
+                                                                                                    "Expressions": "hd_demo_sk",
+                                                                                                    "Estimated Cardinality": "288"
+                                                                                                }
+                                                                                            }
+                                                                                        ],
+                                                                                        "extra_info": {
+                                                                                            "Join Type": "INNER",
+                                                                                            "Conditions": "(cs_bill_hdemo_sk = hd_demo_sk)",
+                                                                                            "Estimated Cardinality": "5746"
+                                                                                        }
+                                                                                    },
+                                                                                    {
+                                                                                        "name": "PROJECTION",
+                                                                                        "children": [
+                                                                                            {
+                                                                                                "name": "READ_VORTEX",
+                                                                                                "children": [],
+                                                                                                "extra_info": {
+                                                                                                    "Filters": "",
+                                                                                                    "Function": "Vortex Scan",
+                                                                                                    "Estimated Cardinality": "1800"
+                                                                                                }
+                                                                                            }
+                                                                                        ],
+                                                                                        "extra_info": {
+                                                                                            "Expressions": [
+                                                                                                "i_item_sk",
+                                                                                                "i_item_desc"
+                                                                                            ],
+                                                                                            "Estimated Cardinality": "1800"
+                                                                                        }
+                                                                                    }
+                                                                                ],
+                                                                                "extra_info": {
+                                                                                    "Join Type": "INNER",
+                                                                                    "Conditions": "(cs_item_sk = i_item_sk)",
+                                                                                    "Estimated Cardinality": "5746"
+                                                                                }
+                                                                            }
+                                                                        ],
+                                                                        "extra_info": {
+                                                                            "Join Type": "INNER",
+                                                                            "Conditions": "(d_date_sk = cs_ship_date_sk)",
+                                                                            "Estimated Cardinality": "5746"
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Join Type": "INNER",
+                                                                    "Conditions": [
+                                                                        "(d_date_sk = cs_sold_date_sk)",
+                                                                        "(inv_item_sk = i_item_sk)",
+                                                                        "((d_date + '5 days'::INTERVAL) < CAST(d_date AS TIMESTAMP))",
+                                                                        "(CAST(inv_quantity_on_hand AS BIGINT) < cs_quantity)"
+                                                                    ],
+                                                                    "Estimated Cardinality": "2405240"
+                                                                }
+                                                            },
+                                                            {
+                                                                "name": "PROJECTION",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "READ_VORTEX",
+                                                                        "children": [],
+                                                                        "extra_info": {
+                                                                            "Filters": "",
+                                                                            "Function": "Vortex Scan",
+                                                                            "Estimated Cardinality": "30"
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Expressions": "p_promo_sk",
+                                                                    "Estimated Cardinality": "30"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Join Type": "LEFT",
+                                                            "Conditions": "(cs_promo_sk = p_promo_sk)",
+                                                            "Estimated Cardinality": "2405240"
+                                                        }
+                                                    },
+                                                    {
+                                                        "name": "PROJECTION",
+                                                        "children": [
+                                                            {
+                                                                "name": "READ_VORTEX",
+                                                                "children": [],
+                                                                "extra_info": {
+                                                                    "Filters": "",
+                                                                    "Function": "Vortex Scan",
+                                                                    "Estimated Cardinality": "14275"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Expressions": [
+                                                                "cr_item_sk",
+                                                                "cr_order_number"
+                                                            ],
+                                                            "Estimated Cardinality": "14275"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Join Type": "LEFT",
+                                                    "Conditions": [
+                                                        "(cs_item_sk = cr_item_sk)",
+                                                        "(cs_order_number = cr_order_number)"
+                                                    ],
+                                                    "Estimated Cardinality": "2405240"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Expressions": [
+                                                "#2",
+                                                "__internal_compress_integral_usmallint(#0, 1)",
+                                                "#1",
+                                                "#3",
+                                                "__internal_compress_integral_usmallint(#4, 1)",
+                                                "__internal_compress_integral_usmallint(#5, 2)"
+                                            ],
+                                            "Estimated Cardinality": "2405240"
+                                        }
+                                    }
+                                ],
+                                "extra_info": {
+                                    "Groups": [
+                                        "i_item_desc",
+                                        "w_warehouse_name",
+                                        "d_week_seq"
+                                    ],
+                                    "Expressions": [
+                                        "sum(CASE  WHEN ((p_promo_sk IS NULL)) THEN (1) ELSE 0 END)",
+                                        "sum(CASE  WHEN ((p_promo_sk IS NOT NULL)) THEN (1) ELSE 0 END)",
+                                        "count_star()"
+                                    ],
+                                    "Estimated Cardinality": "2405240"
+                                }
+                            }
+                        ],
+                        "extra_info": {
+                            "Expressions": [
+                                "#0",
+                                "#1",
+                                "__internal_decompress_integral_bigint(#2, 1)",
+                                "#3",
+                                "#4",
+                                "#5"
+                            ],
+                            "Estimated Cardinality": "2405240"
+                        }
+                    }
+                ],
+                "extra_info": {
+                    "Expressions": [
+                        "i_item_desc",
+                        "w_warehouse_name",
+                        "d_week_seq",
+                        "no_promo",
+                        "promo",
+                        "total_cnt"
+                    ],
+                    "Estimated Cardinality": "2405240"
+                }
+            }
+        ],
+        "extra_info": {
+            "Expressions": "",
+            "Estimated Cardinality": "100"
+        }
+    }
+]
+physical_plan [
+    {
+        "name": "TOP_N",
+        "children": [
+            {
+                "name": "PROJECTION",
+                "children": [
+                    {
+                        "name": "HASH_GROUP_BY",
+                        "children": [
+                            {
+                                "name": "PROJECTION",
+                                "children": [
+                                    {
+                                        "name": "PROJECTION",
+                                        "children": [
+                                            {
+                                                "name": "HASH_JOIN",
+                                                "children": [
+                                                    {
+                                                        "name": "HASH_JOIN",
+                                                        "children": [
+                                                            {
+                                                                "name": "HASH_JOIN",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "HASH_JOIN",
+                                                                        "children": [
+                                                                            {
+                                                                                "name": "HASH_JOIN",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "READ_VORTEX",
+                                                                                        "children": [],
+                                                                                        "extra_info": {
+                                                                                            "Function": "Vortex Scan",
+                                                                                            "Projections": [
+                                                                                                "inv_date_sk",
+                                                                                                "inv_item_sk",
+                                                                                                "inv_warehouse_sk",
+                                                                                                "inv_quantity_on_hand"
+                                                                                            ],
+                                                                                            "Estimated Cardinality": "234900"
+                                                                                        }
+                                                                                    },
+                                                                                    {
+                                                                                        "name": "HASH_JOIN",
+                                                                                        "children": [
+                                                                                            {
+                                                                                                "name": "READ_VORTEX",
+                                                                                                "children": [],
+                                                                                                "extra_info": {
+                                                                                                    "Function": "Vortex Scan",
+                                                                                                    "Filters": "(2450815i64 <= $.d_date_sk <= 2452635i64)",
+                                                                                                    "Projections": [
+                                                                                                        "d_date_sk",
+                                                                                                        "d_week_seq"
+                                                                                                    ],
+                                                                                                    "Estimated Cardinality": "73049"
+                                                                                                }
+                                                                                            },
+                                                                                            {
+                                                                                                "name": "READ_VORTEX",
+                                                                                                "children": [],
+                                                                                                "extra_info": {
+                                                                                                    "Function": "Vortex Scan",
+                                                                                                    "Filters": "d_year=1999",
+                                                                                                    "Projections": [
+                                                                                                        "d_date_sk",
+                                                                                                        "d_date",
+                                                                                                        "d_week_seq"
+                                                                                                    ],
+                                                                                                    "Estimated Cardinality": "2921"
+                                                                                                }
+                                                                                            }
+                                                                                        ],
+                                                                                        "extra_info": {
+                                                                                            "Join Type": "INNER",
+                                                                                            "Conditions": "d_week_seq = d_week_seq",
+                                                                                            "Estimated Cardinality": "14605"
+                                                                                        }
+                                                                                    }
+                                                                                ],
+                                                                                "extra_info": {
+                                                                                    "Join Type": "INNER",
+                                                                                    "Conditions": "inv_date_sk = d_date_sk",
+                                                                                    "Estimated Cardinality": "46967"
+                                                                                }
+                                                                            },
+                                                                            {
+                                                                                "name": "READ_VORTEX",
+                                                                                "children": [],
+                                                                                "extra_info": {
+                                                                                    "Function": "Vortex Scan",
+                                                                                    "Projections": [
+                                                                                        "w_warehouse_sk",
+                                                                                        "w_warehouse_name"
+                                                                                    ],
+                                                                                    "Estimated Cardinality": "1"
+                                                                                }
+                                                                            }
+                                                                        ],
+                                                                        "extra_info": {
+                                                                            "Join Type": "INNER",
+                                                                            "Conditions": "inv_warehouse_sk = w_warehouse_sk",
+                                                                            "Estimated Cardinality": "46967"
+                                                                        }
+                                                                    },
+                                                                    {
+                                                                        "name": "HASH_JOIN",
+                                                                        "children": [
+                                                                            {
+                                                                                "name": "READ_VORTEX",
+                                                                                "children": [],
+                                                                                "extra_info": {
+                                                                                    "Function": "Vortex Scan",
+                                                                                    "Filters": "(2450817i64 <= $.d_date_sk <= 2452740i64)",
+                                                                                    "Projections": [
+                                                                                        "d_date_sk",
+                                                                                        "d_date"
+                                                                                    ],
+                                                                                    "Estimated Cardinality": "73049"
+                                                                                }
+                                                                            },
+                                                                            {
+                                                                                "name": "HASH_JOIN",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "HASH_JOIN",
+                                                                                        "children": [
+                                                                                            {
+                                                                                                "name": "HASH_JOIN",
+                                                                                                "children": [
+                                                                                                    {
+                                                                                                        "name": "READ_VORTEX",
+                                                                                                        "children": [],
+                                                                                                        "extra_info": {
+                                                                                                            "Function": "Vortex Scan",
+                                                                                                            "Projections": [
+                                                                                                                "cs_sold_date_sk",
+                                                                                                                "cs_ship_date_sk",
+                                                                                                                "cs_bill_cdemo_sk",
+                                                                                                                "cs_bill_hdemo_sk",
+                                                                                                                "cs_item_sk",
+                                                                                                                "cs_promo_sk",
+                                                                                                                "cs_order_number",
+                                                                                                                "cs_quantity"
+                                                                                                            ],
+                                                                                                            "Estimated Cardinality": "143657"
+                                                                                                        }
+                                                                                                    },
+                                                                                                    {
+                                                                                                        "name": "READ_VORTEX",
+                                                                                                        "children": [],
+                                                                                                        "extra_info": {
+                                                                                                            "Function": "Vortex Scan",
+                                                                                                            "Filters": "cd_marital_status='D'",
+                                                                                                            "Projections": "cd_demo_sk",
+                                                                                                            "Estimated Cardinality": "7683"
+                                                                                                        }
+                                                                                                    }
+                                                                                                ],
+                                                                                                "extra_info": {
+                                                                                                    "Join Type": "INNER",
+                                                                                                    "Conditions": "cs_bill_cdemo_sk = cd_demo_sk",
+                                                                                                    "Estimated Cardinality": "28730"
+                                                                                                }
+                                                                                            },
+                                                                                            {
+                                                                                                "name": "READ_VORTEX",
+                                                                                                "children": [],
+                                                                                                "extra_info": {
+                                                                                                    "Function": "Vortex Scan",
+                                                                                                    "Filters": "hd_buy_potential='>10000'",
+                                                                                                    "Projections": "hd_demo_sk",
+                                                                                                    "Estimated Cardinality": "288"
+                                                                                                }
+                                                                                            }
+                                                                                        ],
+                                                                                        "extra_info": {
+                                                                                            "Join Type": "INNER",
+                                                                                            "Conditions": "cs_bill_hdemo_sk = hd_demo_sk",
+                                                                                            "Estimated Cardinality": "5746"
+                                                                                        }
+                                                                                    },
+                                                                                    {
+                                                                                        "name": "READ_VORTEX",
+                                                                                        "children": [],
+                                                                                        "extra_info": {
+                                                                                            "Function": "Vortex Scan",
+                                                                                            "Projections": [
+                                                                                                "i_item_sk",
+                                                                                                "i_item_desc"
+                                                                                            ],
+                                                                                            "Estimated Cardinality": "1800"
+                                                                                        }
+                                                                                    }
+                                                                                ],
+                                                                                "extra_info": {
+                                                                                    "Join Type": "INNER",
+                                                                                    "Conditions": "cs_item_sk = i_item_sk",
+                                                                                    "Estimated Cardinality": "5746"
+                                                                                }
+                                                                            }
+                                                                        ],
+                                                                        "extra_info": {
+                                                                            "Join Type": "INNER",
+                                                                            "Conditions": "d_date_sk = cs_ship_date_sk",
+                                                                            "Estimated Cardinality": "5746"
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Join Type": "INNER",
+                                                                    "Conditions": [
+                                                                        "d_date_sk = cs_sold_date_sk",
+                                                                        "inv_item_sk = i_item_sk",
+                                                                        "(d_date + '5 days'::INTERVAL) < CAST(d_date AS TIMESTAMP)",
+                                                                        "CAST(inv_quantity_on_hand AS BIGINT) < cs_quantity"
+                                                                    ],
+                                                                    "Estimated Cardinality": "2405240"
+                                                                }
+                                                            },
+                                                            {
+                                                                "name": "READ_VORTEX",
+                                                                "children": [],
+                                                                "extra_info": {
+                                                                    "Function": "Vortex Scan",
+                                                                    "Projections": "p_promo_sk",
+                                                                    "Estimated Cardinality": "30"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Join Type": "LEFT",
+                                                            "Conditions": "cs_promo_sk = p_promo_sk",
+                                                            "Estimated Cardinality": "2405240"
+                                                        }
+                                                    },
+                                                    {
+                                                        "name": "READ_VORTEX",
+                                                        "children": [],
+                                                        "extra_info": {
+                                                            "Function": "Vortex Scan",
+                                                            "Projections": [
+                                                                "cr_item_sk",
+                                                                "cr_order_number"
+                                                            ],
+                                                            "Estimated Cardinality": "14275"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Join Type": "LEFT",
+                                                    "Conditions": [
+                                                        "cs_item_sk = cr_item_sk",
+                                                        "cs_order_number = cr_order_number"
+                                                    ],
+                                                    "Estimated Cardinality": "2405240"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Projections": [
+                                                "#2",
+                                                "__internal_compress_integral_usmallint(#0, 1)",
+                                                "#1",
+                                                "#3",
+                                                "__internal_compress_integral_usmallint(#4, 1)",
+                                                "__internal_compress_integral_usmallint(#5, 2)"
+                                            ],
+                                            "Estimated Cardinality": "2405240"
+                                        }
+                                    }
+                                ],
+                                "extra_info": {
+                                    "Projections": [
+                                        "i_item_desc",
+                                        "w_warehouse_name",
+                                        "d_week_seq",
+                                        "CASE  WHEN ((p_promo_sk IS NULL)) THEN (1) ELSE 0 END",
+                                        "CASE  WHEN ((p_promo_sk IS NOT NULL)) THEN (1) ELSE 0 END"
+                                    ],
+                                    "Estimated Cardinality": "2405240"
+                                }
+                            }
+                        ],
+                        "extra_info": {
+                            "Groups": [
+                                "#0",
+                                "#1",
+                                "#2"
+                            ],
+                            "Aggregates": [
+                                "sum(#3)",
+                                "sum(#4)",
+                                "count_star()"
+                            ],
+                            "Estimated Cardinality": "2405240"
+                        }
+                    }
+                ],
+                "extra_info": {
+                    "Projections": [
+                        "#0",
+                        "#1",
+                        "__internal_decompress_integral_bigint(#2, 1)",
+                        "#3",
+                        "#4",
+                        "#5"
+                    ],
+                    "Estimated Cardinality": "2405240"
+                }
+            }
+        ],
+        "extra_info": {
+            "Top": "100",
+            "Order By": [
+                "count_star() DESC",
+                "memory.main.item.i_item_desc ASC",
+                "memory.main.warehouse.w_warehouse_name ASC",
+                "d1.d_week_seq ASC"
+            ]
+        }
+    }
+]

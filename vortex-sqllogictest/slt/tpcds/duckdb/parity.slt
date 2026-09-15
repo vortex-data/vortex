@@ -1,0 +1,536 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# Checks that every Vortex table produced by generate_data.sh holds exactly the
+# same rows as the Parquet table it was converted from. generate_data.sh runs
+# this file right after the conversion, and it also runs as part of the suite.
+
+include ../../setup.slt.no
+
+# call_center
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/tpcds/data/call_center.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/tpcds/data/call_center.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/tpcds/data/call_center.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/tpcds/data/call_center.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/tpcds/data/call_center.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/tpcds/data/call_center.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/tpcds/data/call_center.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/tpcds/data/call_center.parquet'));
+----
+0
+
+# catalog_page
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/tpcds/data/catalog_page.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/tpcds/data/catalog_page.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/tpcds/data/catalog_page.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/tpcds/data/catalog_page.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/tpcds/data/catalog_page.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/tpcds/data/catalog_page.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/tpcds/data/catalog_page.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/tpcds/data/catalog_page.parquet'));
+----
+0
+
+# catalog_returns
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/tpcds/data/catalog_returns.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/tpcds/data/catalog_returns.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/tpcds/data/catalog_returns.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/tpcds/data/catalog_returns.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/tpcds/data/catalog_returns.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/tpcds/data/catalog_returns.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/tpcds/data/catalog_returns.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/tpcds/data/catalog_returns.parquet'));
+----
+0
+
+# catalog_sales
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/tpcds/data/catalog_sales.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/tpcds/data/catalog_sales.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/tpcds/data/catalog_sales.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/tpcds/data/catalog_sales.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/tpcds/data/catalog_sales.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/tpcds/data/catalog_sales.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/tpcds/data/catalog_sales.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/tpcds/data/catalog_sales.parquet'));
+----
+0
+
+# customer
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/tpcds/data/customer.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/tpcds/data/customer.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/tpcds/data/customer.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/tpcds/data/customer.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/tpcds/data/customer.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/tpcds/data/customer.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/tpcds/data/customer.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/tpcds/data/customer.parquet'));
+----
+0
+
+# customer_address
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/tpcds/data/customer_address.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/tpcds/data/customer_address.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/tpcds/data/customer_address.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/tpcds/data/customer_address.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/tpcds/data/customer_address.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/tpcds/data/customer_address.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/tpcds/data/customer_address.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/tpcds/data/customer_address.parquet'));
+----
+0
+
+# customer_demographics
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/tpcds/data/customer_demographics.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/tpcds/data/customer_demographics.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/tpcds/data/customer_demographics.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/tpcds/data/customer_demographics.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/tpcds/data/customer_demographics.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/tpcds/data/customer_demographics.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/tpcds/data/customer_demographics.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/tpcds/data/customer_demographics.parquet'));
+----
+0
+
+# date_dim
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/tpcds/data/date_dim.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/tpcds/data/date_dim.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/tpcds/data/date_dim.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/tpcds/data/date_dim.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/tpcds/data/date_dim.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/tpcds/data/date_dim.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/tpcds/data/date_dim.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/tpcds/data/date_dim.parquet'));
+----
+0
+
+# household_demographics
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/tpcds/data/household_demographics.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/tpcds/data/household_demographics.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/tpcds/data/household_demographics.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/tpcds/data/household_demographics.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/tpcds/data/household_demographics.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/tpcds/data/household_demographics.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/tpcds/data/household_demographics.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/tpcds/data/household_demographics.parquet'));
+----
+0
+
+# income_band
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/tpcds/data/income_band.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/tpcds/data/income_band.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/tpcds/data/income_band.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/tpcds/data/income_band.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/tpcds/data/income_band.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/tpcds/data/income_band.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/tpcds/data/income_band.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/tpcds/data/income_band.parquet'));
+----
+0
+
+# inventory
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/tpcds/data/inventory.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/tpcds/data/inventory.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/tpcds/data/inventory.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/tpcds/data/inventory.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/tpcds/data/inventory.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/tpcds/data/inventory.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/tpcds/data/inventory.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/tpcds/data/inventory.parquet'));
+----
+0
+
+# item
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/tpcds/data/item.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/tpcds/data/item.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/tpcds/data/item.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/tpcds/data/item.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/tpcds/data/item.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/tpcds/data/item.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/tpcds/data/item.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/tpcds/data/item.parquet'));
+----
+0
+
+# promotion
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/tpcds/data/promotion.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/tpcds/data/promotion.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/tpcds/data/promotion.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/tpcds/data/promotion.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/tpcds/data/promotion.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/tpcds/data/promotion.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/tpcds/data/promotion.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/tpcds/data/promotion.parquet'));
+----
+0
+
+# reason
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/tpcds/data/reason.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/tpcds/data/reason.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/tpcds/data/reason.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/tpcds/data/reason.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/tpcds/data/reason.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/tpcds/data/reason.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/tpcds/data/reason.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/tpcds/data/reason.parquet'));
+----
+0
+
+# ship_mode
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/tpcds/data/ship_mode.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/tpcds/data/ship_mode.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/tpcds/data/ship_mode.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/tpcds/data/ship_mode.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/tpcds/data/ship_mode.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/tpcds/data/ship_mode.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/tpcds/data/ship_mode.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/tpcds/data/ship_mode.parquet'));
+----
+0
+
+# store
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/tpcds/data/store.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/tpcds/data/store.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/tpcds/data/store.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/tpcds/data/store.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/tpcds/data/store.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/tpcds/data/store.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/tpcds/data/store.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/tpcds/data/store.parquet'));
+----
+0
+
+# store_returns
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/tpcds/data/store_returns.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/tpcds/data/store_returns.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/tpcds/data/store_returns.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/tpcds/data/store_returns.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/tpcds/data/store_returns.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/tpcds/data/store_returns.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/tpcds/data/store_returns.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/tpcds/data/store_returns.parquet'));
+----
+0
+
+# store_sales
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/tpcds/data/store_sales.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/tpcds/data/store_sales.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/tpcds/data/store_sales.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/tpcds/data/store_sales.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/tpcds/data/store_sales.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/tpcds/data/store_sales.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/tpcds/data/store_sales.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/tpcds/data/store_sales.parquet'));
+----
+0
+
+# time_dim
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/tpcds/data/time_dim.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/tpcds/data/time_dim.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/tpcds/data/time_dim.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/tpcds/data/time_dim.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/tpcds/data/time_dim.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/tpcds/data/time_dim.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/tpcds/data/time_dim.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/tpcds/data/time_dim.parquet'));
+----
+0
+
+# warehouse
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/tpcds/data/warehouse.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/tpcds/data/warehouse.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/tpcds/data/warehouse.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/tpcds/data/warehouse.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/tpcds/data/warehouse.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/tpcds/data/warehouse.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/tpcds/data/warehouse.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/tpcds/data/warehouse.parquet'));
+----
+0
+
+# web_page
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/tpcds/data/web_page.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/tpcds/data/web_page.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/tpcds/data/web_page.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/tpcds/data/web_page.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/tpcds/data/web_page.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/tpcds/data/web_page.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/tpcds/data/web_page.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/tpcds/data/web_page.parquet'));
+----
+0
+
+# web_returns
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/tpcds/data/web_returns.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/tpcds/data/web_returns.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/tpcds/data/web_returns.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/tpcds/data/web_returns.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/tpcds/data/web_returns.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/tpcds/data/web_returns.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/tpcds/data/web_returns.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/tpcds/data/web_returns.parquet'));
+----
+0
+
+# web_sales
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/tpcds/data/web_sales.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/tpcds/data/web_sales.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/tpcds/data/web_sales.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/tpcds/data/web_sales.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/tpcds/data/web_sales.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/tpcds/data/web_sales.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/tpcds/data/web_sales.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/tpcds/data/web_sales.parquet'));
+----
+0
+
+# web_site
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/tpcds/data/web_site.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/tpcds/data/web_site.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/tpcds/data/web_site.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/tpcds/data/web_site.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/tpcds/data/web_site.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/tpcds/data/web_site.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/tpcds/data/web_site.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/tpcds/data/web_site.parquet'));
+----
+0

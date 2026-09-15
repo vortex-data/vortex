@@ -1,0 +1,94 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT *
+FROM
+  (SELECT i_manager_id,
+          sum(ss_sales_price) sum_sales,
+          avg(sum(ss_sales_price)) OVER (PARTITION BY i_manager_id) avg_monthly_sales
+   FROM item,
+        store_sales,
+        date_dim,
+        store
+   WHERE ss_item_sk = i_item_sk
+     AND ss_sold_date_sk = d_date_sk
+     AND ss_store_sk = s_store_sk
+     AND d_month_seq IN (1200,
+                         1200+1,
+                         1200+2,
+                         1200+3,
+                         1200+4,
+                         1200+5,
+                         1200+6,
+                         1200+7,
+                         1200+8,
+                         1200+9,
+                         1200+10,
+                         1200+11)
+     AND ((i_category IN ('Books',
+                          'Children',
+                          'Electronics')
+           AND i_class IN ('personal',
+                           'portable',
+                           'reference',
+                           'self-help')
+           AND i_brand IN ('scholaramalgamalg #14',
+                           'scholaramalgamalg #7',
+                           'exportiunivamalg #9',
+                           'scholaramalgamalg #9')) or(i_category IN ('Women','Music','Men')
+                                                       AND i_class IN ('accessories','classical','fragrances','pants')
+                                                       AND i_brand IN ('amalgimporto #1','edu packscholar #1','exportiimporto #1', 'importoamalg #1')))
+   GROUP BY i_manager_id,
+            d_moy) tmp1
+WHERE CASE
+          WHEN avg_monthly_sales > 0 THEN ABS (sum_sales - avg_monthly_sales) / avg_monthly_sales
+          ELSE NULL
+      END > 0.1
+ORDER BY i_manager_id,
+         avg_monthly_sales,
+         sum_sales
+LIMIT 100;
+----
+logical_plan
+01)Sort: tmp1.i_manager_id ASC NULLS LAST, tmp1.avg_monthly_sales ASC NULLS LAST, tmp1.sum_sales ASC NULLS LAST, fetch=100
+02)--SubqueryAlias: tmp1
+03)----Projection: item.i_manager_id, sum(store_sales.ss_sales_price) AS sum_sales, avg(sum(store_sales.ss_sales_price)) PARTITION BY [item.i_manager_id] ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING AS avg_monthly_sales
+04)------Filter: CASE WHEN avg(sum(store_sales.ss_sales_price)) PARTITION BY [item.i_manager_id] ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING > Decimal128(0.000000,21,6) THEN abs(sum(store_sales.ss_sales_price) - avg(sum(store_sales.ss_sales_price)) PARTITION BY [item.i_manager_id] ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) / avg(sum(store_sales.ss_sales_price)) PARTITION BY [item.i_manager_id] ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING ELSE Decimal128(NULL,32,10) END > Decimal128(0.1000000000,32,10)
+05)--------WindowAggr: windowExpr=[[avg(sum(store_sales.ss_sales_price)) PARTITION BY [item.i_manager_id] ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING]]
+06)----------Projection: item.i_manager_id, sum(store_sales.ss_sales_price)
+07)------------Aggregate: groupBy=[[item.i_manager_id, date_dim.d_moy]], aggr=[[sum(store_sales.ss_sales_price)]]
+08)--------------Projection: item.i_manager_id, store_sales.ss_sales_price, date_dim.d_moy
+09)----------------Inner Join: store_sales.ss_store_sk = store.s_store_sk
+10)------------------Projection: item.i_manager_id, store_sales.ss_store_sk, store_sales.ss_sales_price, date_dim.d_moy
+11)--------------------Inner Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
+12)----------------------Projection: item.i_manager_id, store_sales.ss_sold_date_sk, store_sales.ss_store_sk, store_sales.ss_sales_price
+13)------------------------Inner Join: item.i_item_sk = store_sales.ss_item_sk
+14)--------------------------Projection: item.i_item_sk, item.i_manager_id
+15)----------------------------Filter: (item.i_category = Utf8View("Books") OR item.i_category = Utf8View("Children") OR item.i_category = Utf8View("Electronics")) AND item.i_class IN ([Utf8View("personal"), Utf8View("portable"), Utf8View("reference"), Utf8View("self-help")]) AND item.i_brand IN ([Utf8View("scholaramalgamalg #14"), Utf8View("scholaramalgamalg #7"), Utf8View("exportiunivamalg #9"), Utf8View("scholaramalgamalg #9")]) OR (item.i_category = Utf8View("Women") OR item.i_category = Utf8View("Music") OR item.i_category = Utf8View("Men")) AND item.i_class IN ([Utf8View("accessories"), Utf8View("classical"), Utf8View("fragrances"), Utf8View("pants")]) AND item.i_brand IN ([Utf8View("amalgimporto #1"), Utf8View("edu packscholar #1"), Utf8View("exportiimporto #1"), Utf8View("importoamalg #1")])
+16)------------------------------TableScan: item projection=[i_item_sk, i_brand, i_class, i_category, i_manager_id], partial_filters=[(item.i_category = Utf8View("Books") OR item.i_category = Utf8View("Children") OR item.i_category = Utf8View("Electronics")) AND item.i_class IN ([Utf8View("personal"), Utf8View("portable"), Utf8View("reference"), Utf8View("self-help")]) AND item.i_brand IN ([Utf8View("scholaramalgamalg #14"), Utf8View("scholaramalgamalg #7"), Utf8View("exportiunivamalg #9"), Utf8View("scholaramalgamalg #9")]) OR (item.i_category = Utf8View("Women") OR item.i_category = Utf8View("Music") OR item.i_category = Utf8View("Men")) AND item.i_class IN ([Utf8View("accessories"), Utf8View("classical"), Utf8View("fragrances"), Utf8View("pants")]) AND item.i_brand IN ([Utf8View("amalgimporto #1"), Utf8View("edu packscholar #1"), Utf8View("exportiimporto #1"), Utf8View("importoamalg #1")])]
+17)--------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_item_sk, ss_store_sk, ss_sales_price]
+18)----------------------Projection: date_dim.d_date_sk, date_dim.d_moy
+19)------------------------Filter: date_dim.d_month_seq IN ([Int64(1200), Int64(1201), Int64(1202), Int64(1203), Int64(1204), Int64(1205), Int64(1206), Int64(1207), Int64(1208), Int64(1209), Int64(1210), Int64(1211)])
+20)--------------------------TableScan: date_dim projection=[d_date_sk, d_month_seq, d_moy], partial_filters=[date_dim.d_month_seq IN ([Int64(1200), Int64(1201), Int64(1202), Int64(1203), Int64(1204), Int64(1205), Int64(1206), Int64(1207), Int64(1208), Int64(1209), Int64(1210), Int64(1211)])]
+21)------------------TableScan: store projection=[s_store_sk]
+physical_plan
+01)SortPreservingMergeExec: [i_manager_id@0 ASC NULLS LAST, avg_monthly_sales@2 ASC NULLS LAST, sum_sales@1 ASC NULLS LAST], fetch=100
+02)--ProjectionExec: expr=[i_manager_id@0 as i_manager_id, sum(store_sales.ss_sales_price)@1 as sum_sales, avg(sum(store_sales.ss_sales_price)) PARTITION BY [item.i_manager_id] ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING@2 as avg_monthly_sales]
+03)----SortExec: TopK(fetch=100), expr=[i_manager_id@0 ASC NULLS LAST, avg(sum(store_sales.ss_sales_price)) PARTITION BY [item.i_manager_id] ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING@2 ASC NULLS LAST, sum(store_sales.ss_sales_price)@1 ASC NULLS LAST], preserve_partitioning=[true], sort_prefix=[i_manager_id@0 ASC NULLS LAST, avg(sum(store_sales.ss_sales_price)) PARTITION BY [item.i_manager_id] ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING@2 ASC NULLS LAST]
+04)------FilterExec: CASE WHEN avg(sum(store_sales.ss_sales_price)) PARTITION BY [item.i_manager_id] ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING@2 > 0.000000 THEN abs(sum(store_sales.ss_sales_price)@1 - avg(sum(store_sales.ss_sales_price)) PARTITION BY [item.i_manager_id] ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING@2) / avg(sum(store_sales.ss_sales_price)) PARTITION BY [item.i_manager_id] ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING@2 END > 0.1000000000
+05)--------WindowAggExec: wdw=[avg(sum(store_sales.ss_sales_price)) PARTITION BY [item.i_manager_id] ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING: Ok(Field { name: "avg(sum(store_sales.ss_sales_price)) PARTITION BY [item.i_manager_id] ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING", data_type: Decimal128(21, 6), nullable: true }), frame: WindowFrame { units: Rows, start_bound: Preceding(UInt64(NULL)), end_bound: Following(UInt64(NULL)), is_causal: false }]
+06)----------SortExec: expr=[i_manager_id@0 ASC NULLS LAST], preserve_partitioning=[true]
+07)------------RepartitionExec: partitioning=Hash([i_manager_id@0], 4), input_partitions=4
+08)--------------ProjectionExec: expr=[i_manager_id@0 as i_manager_id, sum(store_sales.ss_sales_price)@2 as sum(store_sales.ss_sales_price)]
+09)----------------AggregateExec: mode=FinalPartitioned, gby=[i_manager_id@0 as i_manager_id, d_moy@1 as d_moy], aggr=[sum(store_sales.ss_sales_price)]
+10)------------------RepartitionExec: partitioning=Hash([i_manager_id@0, d_moy@1], 4), input_partitions=4
+11)--------------------AggregateExec: mode=Partial, gby=[i_manager_id@0 as i_manager_id, d_moy@2 as d_moy], aggr=[sum(store_sales.ss_sales_price)]
+12)----------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_store_sk@0, ss_store_sk@1)], projection=[i_manager_id@1, ss_sales_price@3, d_moy@4]
+13)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store.vortex]]}, projection=[s_store_sk], file_type=vortex
+14)------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@1)], projection=[i_manager_id@2, ss_store_sk@4, ss_sales_price@5, d_moy@1]
+15)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_moy], file_type=vortex, predicate: d_month_seq@3 IN (SET) ([1200, 1201, 1202, 1203, 1204, 1205, 1206, 1207, 1208, 1209, 1210, 1211])
+16)--------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, ss_item_sk@1)], projection=[i_manager_id@1, ss_sold_date_sk@2, ss_store_sk@4, ss_sales_price@5]
+17)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_manager_id], file_type=vortex, predicate: (i_category@12 = Books OR i_category@12 = Children OR i_category@12 = Electronics) AND i_class@10 IN (SET) ([personal, portable, reference, self-help]) AND i_brand@8 IN (SET) ([scholaramalgamalg #14, scholaramalgamalg #7, exportiunivamalg #9, scholaramalgamalg #9]) OR (i_category@12 = Women OR i_category@12 = Music OR i_category@12 = Men) AND i_class@10 IN (SET) ([accessories, classical, fragrances, pants]) AND i_brand@8 IN (SET) ([amalgimporto #1, edu packscholar #1, exportiimporto #1, importoamalg #1])
+18)----------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_item_sk, ss_store_sk, ss_sales_price], file_type=vortex

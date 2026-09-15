@@ -188,6 +188,11 @@ duckdb_state register_table_function(DatabaseInstance &db, LogicalType parameter
 
     fn.filter_pushdown = true;
     fn.filter_prune = true;
+    // Pushed-down filters, projections and aggregates live in the FFI bind data, which has no
+    // serializer. DuckDB's common-subplan optimizer keys scans on their serialized form, so
+    // without this two scans of the same file with different pushed-down filters look identical
+    // and are merged into one shared CTE, returning the wrong rows for one of them.
+    fn.verify_serialization = false;
 
     fn.pushdown_expression = [](auto &, const auto &, Expression &expression) {
         return duckdb_table_function_pushdown_expression(reinterpret_cast<duckdb_vx_expr>(&expression));

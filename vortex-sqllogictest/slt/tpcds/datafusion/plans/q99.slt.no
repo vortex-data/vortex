@@ -1,0 +1,88 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT w_substr ,
+       sm_type ,
+       LOWER(cc_name) cc_name_lower ,
+       sum(CASE
+               WHEN (cs_ship_date_sk - cs_sold_date_sk <= 30) THEN 1
+               ELSE 0
+           END) AS "30 days",
+       sum(CASE
+               WHEN (cs_ship_date_sk - cs_sold_date_sk > 30)
+                    AND (cs_ship_date_sk - cs_sold_date_sk <= 60) THEN 1
+               ELSE 0
+           END) AS "31-60 days",
+       sum(CASE
+               WHEN (cs_ship_date_sk - cs_sold_date_sk > 60)
+                    AND (cs_ship_date_sk - cs_sold_date_sk <= 90) THEN 1
+               ELSE 0
+           END) AS "61-90 days",
+       sum(CASE
+               WHEN (cs_ship_date_sk - cs_sold_date_sk > 90)
+                    AND (cs_ship_date_sk - cs_sold_date_sk <= 120) THEN 1
+               ELSE 0
+           END) AS "91-120 days",
+       sum(CASE
+               WHEN (cs_ship_date_sk - cs_sold_date_sk > 120) THEN 1
+               ELSE 0
+           END) AS ">120 days"
+FROM catalog_sales ,
+  (SELECT SUBSTRING(w_warehouse_name,1,20) w_substr, *
+   FROM warehouse) AS sq1 ,
+     ship_mode ,
+     call_center ,
+     date_dim
+WHERE d_month_seq BETWEEN 1200 AND 1200 + 11
+  AND cs_ship_date_sk = d_date_sk
+  AND cs_warehouse_sk = w_warehouse_sk
+  AND cs_ship_mode_sk = sm_ship_mode_sk
+  AND cs_call_center_sk = cc_call_center_sk
+GROUP BY w_substr ,
+         sm_type ,
+         cc_name
+ORDER BY w_substr  NULLS FIRST,
+         sm_type  NULLS FIRST,
+        cc_name_lower NULLS FIRST
+LIMIT 100;
+----
+logical_plan
+01)Sort: sq1.w_substr ASC NULLS FIRST, ship_mode.sm_type ASC NULLS FIRST, cc_name_lower ASC NULLS FIRST, fetch=100
+02)--Projection: sq1.w_substr, ship_mode.sm_type, lower(call_center.cc_name) AS cc_name_lower, sum(CASE WHEN catalog_sales.cs_ship_date_sk - catalog_sales.cs_sold_date_sk <= Int64(30) THEN Int64(1) ELSE Int64(0) END) AS 30 days, sum(CASE WHEN catalog_sales.cs_ship_date_sk - catalog_sales.cs_sold_date_sk > Int64(30) AND catalog_sales.cs_ship_date_sk - catalog_sales.cs_sold_date_sk <= Int64(60) THEN Int64(1) ELSE Int64(0) END) AS 31-60 days, sum(CASE WHEN catalog_sales.cs_ship_date_sk - catalog_sales.cs_sold_date_sk > Int64(60) AND catalog_sales.cs_ship_date_sk - catalog_sales.cs_sold_date_sk <= Int64(90) THEN Int64(1) ELSE Int64(0) END) AS 61-90 days, sum(CASE WHEN catalog_sales.cs_ship_date_sk - catalog_sales.cs_sold_date_sk > Int64(90) AND catalog_sales.cs_ship_date_sk - catalog_sales.cs_sold_date_sk <= Int64(120) THEN Int64(1) ELSE Int64(0) END) AS 91-120 days, sum(CASE WHEN catalog_sales.cs_ship_date_sk - catalog_sales.cs_sold_date_sk > Int64(120) THEN Int64(1) ELSE Int64(0) END) AS >120 days
+03)----Aggregate: groupBy=[[sq1.w_substr, ship_mode.sm_type, call_center.cc_name]], aggr=[[sum(CASE WHEN __common_expr_1 AS catalog_sales.cs_ship_date_sk - catalog_sales.cs_sold_date_sk <= Int64(30) THEN Int64(1) ELSE Int64(0) END), sum(CASE WHEN __common_expr_1 AS catalog_sales.cs_ship_date_sk - catalog_sales.cs_sold_date_sk > Int64(30) AND __common_expr_1 AS catalog_sales.cs_ship_date_sk - catalog_sales.cs_sold_date_sk <= Int64(60) THEN Int64(1) ELSE Int64(0) END), sum(CASE WHEN __common_expr_1 AS catalog_sales.cs_ship_date_sk - catalog_sales.cs_sold_date_sk > Int64(60) AND __common_expr_1 AS catalog_sales.cs_ship_date_sk - catalog_sales.cs_sold_date_sk <= Int64(90) THEN Int64(1) ELSE Int64(0) END), sum(CASE WHEN __common_expr_1 AS catalog_sales.cs_ship_date_sk - catalog_sales.cs_sold_date_sk > Int64(90) AND __common_expr_1 AS catalog_sales.cs_ship_date_sk - catalog_sales.cs_sold_date_sk <= Int64(120) THEN Int64(1) ELSE Int64(0) END), sum(CASE WHEN __common_expr_1 AS catalog_sales.cs_ship_date_sk - catalog_sales.cs_sold_date_sk > Int64(120) THEN Int64(1) ELSE Int64(0) END)]]
+04)------Projection: catalog_sales.cs_ship_date_sk - catalog_sales.cs_sold_date_sk AS __common_expr_1, sq1.w_substr, ship_mode.sm_type, call_center.cc_name
+05)--------Inner Join: catalog_sales.cs_ship_date_sk = date_dim.d_date_sk
+06)----------Projection: catalog_sales.cs_sold_date_sk, catalog_sales.cs_ship_date_sk, sq1.w_substr, ship_mode.sm_type, call_center.cc_name
+07)------------Inner Join: catalog_sales.cs_call_center_sk = call_center.cc_call_center_sk
+08)--------------Projection: catalog_sales.cs_sold_date_sk, catalog_sales.cs_ship_date_sk, catalog_sales.cs_call_center_sk, sq1.w_substr, ship_mode.sm_type
+09)----------------Inner Join: catalog_sales.cs_ship_mode_sk = ship_mode.sm_ship_mode_sk
+10)------------------Projection: catalog_sales.cs_sold_date_sk, catalog_sales.cs_ship_date_sk, catalog_sales.cs_call_center_sk, catalog_sales.cs_ship_mode_sk, sq1.w_substr
+11)--------------------Inner Join: catalog_sales.cs_warehouse_sk = sq1.w_warehouse_sk
+12)----------------------TableScan: catalog_sales projection=[cs_sold_date_sk, cs_ship_date_sk, cs_call_center_sk, cs_ship_mode_sk, cs_warehouse_sk]
+13)----------------------SubqueryAlias: sq1
+14)------------------------Projection: substr(warehouse.w_warehouse_name, Int64(1), Int64(20)) AS w_substr, warehouse.w_warehouse_sk
+15)--------------------------TableScan: warehouse projection=[w_warehouse_sk, w_warehouse_name]
+16)------------------TableScan: ship_mode projection=[sm_ship_mode_sk, sm_type]
+17)--------------TableScan: call_center projection=[cc_call_center_sk, cc_name]
+18)----------Projection: date_dim.d_date_sk
+19)------------Filter: date_dim.d_month_seq >= Int64(1200) AND date_dim.d_month_seq <= Int64(1211)
+20)--------------TableScan: date_dim projection=[d_date_sk, d_month_seq], partial_filters=[date_dim.d_month_seq >= Int64(1200), date_dim.d_month_seq <= Int64(1211)]
+physical_plan
+01)SortPreservingMergeExec: [w_substr@0 ASC, sm_type@1 ASC, cc_name_lower@2 ASC], fetch=100
+02)--SortExec: TopK(fetch=100), expr=[w_substr@0 ASC, sm_type@1 ASC, cc_name_lower@2 ASC], preserve_partitioning=[true]
+03)----ProjectionExec: expr=[w_substr@0 as w_substr, sm_type@1 as sm_type, lower(cc_name@2) as cc_name_lower, sum(CASE WHEN catalog_sales.cs_ship_date_sk - catalog_sales.cs_sold_date_sk <= Int64(30) THEN Int64(1) ELSE Int64(0) END)@3 as 30 days, sum(CASE WHEN catalog_sales.cs_ship_date_sk - catalog_sales.cs_sold_date_sk > Int64(30) AND catalog_sales.cs_ship_date_sk - catalog_sales.cs_sold_date_sk <= Int64(60) THEN Int64(1) ELSE Int64(0) END)@4 as 31-60 days, sum(CASE WHEN catalog_sales.cs_ship_date_sk - catalog_sales.cs_sold_date_sk > Int64(60) AND catalog_sales.cs_ship_date_sk - catalog_sales.cs_sold_date_sk <= Int64(90) THEN Int64(1) ELSE Int64(0) END)@5 as 61-90 days, sum(CASE WHEN catalog_sales.cs_ship_date_sk - catalog_sales.cs_sold_date_sk > Int64(90) AND catalog_sales.cs_ship_date_sk - catalog_sales.cs_sold_date_sk <= Int64(120) THEN Int64(1) ELSE Int64(0) END)@6 as 91-120 days, sum(CASE WHEN catalog_sales.cs_ship_date_sk - catalog_sales.cs_sold_date_sk > Int64(120) THEN Int64(1) ELSE Int64(0) END)@7 as >120 days]
+04)------AggregateExec: mode=FinalPartitioned, gby=[w_substr@0 as w_substr, sm_type@1 as sm_type, cc_name@2 as cc_name], aggr=[sum(CASE WHEN catalog_sales.cs_ship_date_sk - catalog_sales.cs_sold_date_sk <= Int64(30) THEN Int64(1) ELSE Int64(0) END), sum(CASE WHEN catalog_sales.cs_ship_date_sk - catalog_sales.cs_sold_date_sk > Int64(30) AND catalog_sales.cs_ship_date_sk - catalog_sales.cs_sold_date_sk <= Int64(60) THEN Int64(1) ELSE Int64(0) END), sum(CASE WHEN catalog_sales.cs_ship_date_sk - catalog_sales.cs_sold_date_sk > Int64(60) AND catalog_sales.cs_ship_date_sk - catalog_sales.cs_sold_date_sk <= Int64(90) THEN Int64(1) ELSE Int64(0) END), sum(CASE WHEN catalog_sales.cs_ship_date_sk - catalog_sales.cs_sold_date_sk > Int64(90) AND catalog_sales.cs_ship_date_sk - catalog_sales.cs_sold_date_sk <= Int64(120) THEN Int64(1) ELSE Int64(0) END), sum(CASE WHEN catalog_sales.cs_ship_date_sk - catalog_sales.cs_sold_date_sk > Int64(120) THEN Int64(1) ELSE Int64(0) END)]
+05)--------RepartitionExec: partitioning=Hash([w_substr@0, sm_type@1, cc_name@2], 4), input_partitions=4
+06)----------AggregateExec: mode=Partial, gby=[w_substr@1 as w_substr, sm_type@2 as sm_type, cc_name@3 as cc_name], aggr=[sum(CASE WHEN catalog_sales.cs_ship_date_sk - catalog_sales.cs_sold_date_sk <= Int64(30) THEN Int64(1) ELSE Int64(0) END), sum(CASE WHEN catalog_sales.cs_ship_date_sk - catalog_sales.cs_sold_date_sk > Int64(30) AND catalog_sales.cs_ship_date_sk - catalog_sales.cs_sold_date_sk <= Int64(60) THEN Int64(1) ELSE Int64(0) END), sum(CASE WHEN catalog_sales.cs_ship_date_sk - catalog_sales.cs_sold_date_sk > Int64(60) AND catalog_sales.cs_ship_date_sk - catalog_sales.cs_sold_date_sk <= Int64(90) THEN Int64(1) ELSE Int64(0) END), sum(CASE WHEN catalog_sales.cs_ship_date_sk - catalog_sales.cs_sold_date_sk > Int64(90) AND catalog_sales.cs_ship_date_sk - catalog_sales.cs_sold_date_sk <= Int64(120) THEN Int64(1) ELSE Int64(0) END), sum(CASE WHEN catalog_sales.cs_ship_date_sk - catalog_sales.cs_sold_date_sk > Int64(120) THEN Int64(1) ELSE Int64(0) END)]
+07)------------ProjectionExec: expr=[cs_ship_date_sk@0 - cs_sold_date_sk@1 as __common_expr_1, w_substr@2 as w_substr, sm_type@3 as sm_type, cc_name@4 as cc_name]
+08)--------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, cs_ship_date_sk@1)], projection=[cs_ship_date_sk@2, cs_sold_date_sk@1, w_substr@3, sm_type@4, cc_name@5]
+09)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_month_seq@3 >= 1200 AND d_month_seq@3 <= 1211
+10)----------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(cc_call_center_sk@0, cs_call_center_sk@2)], projection=[cs_sold_date_sk@2, cs_ship_date_sk@3, w_substr@5, sm_type@6, cc_name@1]
+11)------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/call_center.vortex]]}, projection=[cc_call_center_sk, cc_name], file_type=vortex
+12)------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(sm_ship_mode_sk@0, cs_ship_mode_sk@3)], projection=[cs_sold_date_sk@2, cs_ship_date_sk@3, cs_call_center_sk@4, w_substr@6, sm_type@1]
+13)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/ship_mode.vortex]]}, projection=[sm_ship_mode_sk, sm_type], file_type=vortex
+14)--------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(w_warehouse_sk@1, cs_warehouse_sk@4)], projection=[cs_sold_date_sk@2, cs_ship_date_sk@3, cs_call_center_sk@4, cs_ship_mode_sk@5, w_substr@0]
+15)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/warehouse.vortex]]}, projection=[substr(w_warehouse_name@2, 1, 20) as w_substr, w_warehouse_sk], file_type=vortex
+16)----------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>]]}, projection=[cs_sold_date_sk, cs_ship_date_sk, cs_call_center_sk, cs_ship_mode_sk, cs_warehouse_sk], file_type=vortex

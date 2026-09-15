@@ -1,0 +1,74 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+statement ok
+CREATE VIEW call_center AS SELECT * FROM read_${FILE_FORMAT}('slt/tpcds/data/call_center.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW catalog_page AS SELECT * FROM read_${FILE_FORMAT}('slt/tpcds/data/catalog_page.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW catalog_returns AS SELECT * FROM read_${FILE_FORMAT}('slt/tpcds/data/catalog_returns.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW catalog_sales AS SELECT * FROM read_${FILE_FORMAT}('slt/tpcds/data/catalog_sales.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW customer AS SELECT * FROM read_${FILE_FORMAT}('slt/tpcds/data/customer.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW customer_address AS SELECT * FROM read_${FILE_FORMAT}('slt/tpcds/data/customer_address.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW customer_demographics AS SELECT * FROM read_${FILE_FORMAT}('slt/tpcds/data/customer_demographics.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW date_dim AS SELECT * FROM read_${FILE_FORMAT}('slt/tpcds/data/date_dim.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW household_demographics AS SELECT * FROM read_${FILE_FORMAT}('slt/tpcds/data/household_demographics.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW income_band AS SELECT * FROM read_${FILE_FORMAT}('slt/tpcds/data/income_band.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW inventory AS SELECT * FROM read_${FILE_FORMAT}('slt/tpcds/data/inventory.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW item AS SELECT * FROM read_${FILE_FORMAT}('slt/tpcds/data/item.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW promotion AS SELECT * FROM read_${FILE_FORMAT}('slt/tpcds/data/promotion.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW reason AS SELECT * FROM read_${FILE_FORMAT}('slt/tpcds/data/reason.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW ship_mode AS SELECT * FROM read_${FILE_FORMAT}('slt/tpcds/data/ship_mode.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW store AS SELECT * FROM read_${FILE_FORMAT}('slt/tpcds/data/store.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW store_returns AS SELECT * FROM read_${FILE_FORMAT}('slt/tpcds/data/store_returns.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW store_sales AS SELECT * FROM read_${FILE_FORMAT}('slt/tpcds/data/store_sales.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW time_dim AS SELECT * FROM read_${FILE_FORMAT}('slt/tpcds/data/time_dim.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW warehouse AS SELECT * FROM read_${FILE_FORMAT}('slt/tpcds/data/warehouse.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW web_page AS SELECT * FROM read_${FILE_FORMAT}('slt/tpcds/data/web_page.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW web_returns AS SELECT * FROM read_${FILE_FORMAT}('slt/tpcds/data/web_returns.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW web_sales AS SELECT * FROM read_${FILE_FORMAT}('slt/tpcds/data/web_sales.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW web_site AS SELECT * FROM read_${FILE_FORMAT}('slt/tpcds/data/web_site.${FILE_FORMAT}');

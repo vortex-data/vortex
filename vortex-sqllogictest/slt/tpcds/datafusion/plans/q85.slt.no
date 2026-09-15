@@ -1,0 +1,121 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT SUBSTRING(r_reason_desc,1,20) ,
+       avg(ws_quantity) avg1,
+       avg(wr_refunded_cash) avg2,
+       avg(wr_fee)
+FROM web_sales,
+     web_returns,
+     web_page,
+     customer_demographics cd1,
+     customer_demographics cd2,
+     customer_address,
+     date_dim,
+     reason
+WHERE ws_web_page_sk = wp_web_page_sk
+  AND ws_item_sk = wr_item_sk
+  AND ws_order_number = wr_order_number
+  AND ws_sold_date_sk = d_date_sk
+  AND d_year = 2000
+  AND cd1.cd_demo_sk = wr_refunded_cdemo_sk
+  AND cd2.cd_demo_sk = wr_returning_cdemo_sk
+  AND ca_address_sk = wr_refunded_addr_sk
+  AND r_reason_sk = wr_reason_sk
+  AND ( ( cd1.cd_marital_status = 'M'
+         AND cd1.cd_marital_status = cd2.cd_marital_status
+         AND cd1.cd_education_status = 'Advanced Degree'
+         AND cd1.cd_education_status = cd2.cd_education_status
+         AND ws_sales_price BETWEEN 100.00 AND 150.00 )
+       OR ( cd1.cd_marital_status = 'S'
+           AND cd1.cd_marital_status = cd2.cd_marital_status
+           AND cd1.cd_education_status = 'College'
+           AND cd1.cd_education_status = cd2.cd_education_status
+           AND ws_sales_price BETWEEN 50.00 AND 100.00 )
+       OR ( cd1.cd_marital_status = 'W'
+           AND cd1.cd_marital_status = cd2.cd_marital_status
+           AND cd1.cd_education_status = '2 yr Degree'
+           AND cd1.cd_education_status = cd2.cd_education_status
+           AND ws_sales_price BETWEEN 150.00 AND 200.00 ) )
+  AND ( ( ca_country = 'United States'
+         AND ca_state IN ('IN',
+                          'OH',
+                          'NJ')
+         AND ws_net_profit BETWEEN 100 AND 200)
+       OR ( ca_country = 'United States'
+           AND ca_state IN ('WI',
+                            'CT',
+                            'KY')
+           AND ws_net_profit BETWEEN 150 AND 300)
+       OR ( ca_country = 'United States'
+           AND ca_state IN ('LA',
+                            'IA',
+                            'AR')
+           AND ws_net_profit BETWEEN 50 AND 250) )
+GROUP BY r_reason_desc
+ORDER BY SUBSTRING(r_reason_desc,1,20) ,
+         avg(ws_quantity) ,
+         avg(wr_refunded_cash) ,
+         avg(wr_fee)
+LIMIT 100;
+----
+logical_plan
+01)Sort: substr(reason.r_reason_desc,Int64(1),Int64(20)) ASC NULLS LAST, avg1 ASC NULLS LAST, avg2 ASC NULLS LAST, avg(web_returns.wr_fee) ASC NULLS LAST, fetch=100
+02)--Projection: substr(reason.r_reason_desc, Int64(1), Int64(20)), avg(web_sales.ws_quantity) AS avg1, avg(web_returns.wr_refunded_cash) AS avg2, avg(web_returns.wr_fee)
+03)----Aggregate: groupBy=[[reason.r_reason_desc]], aggr=[[avg(CAST(web_sales.ws_quantity AS Float64)), avg(web_returns.wr_refunded_cash), avg(web_returns.wr_fee)]]
+04)------Projection: web_sales.ws_quantity, web_returns.wr_fee, web_returns.wr_refunded_cash, reason.r_reason_desc
+05)--------Inner Join: web_returns.wr_reason_sk = reason.r_reason_sk
+06)----------Projection: web_sales.ws_quantity, web_returns.wr_reason_sk, web_returns.wr_fee, web_returns.wr_refunded_cash
+07)------------Inner Join: web_sales.ws_sold_date_sk = date_dim.d_date_sk
+08)--------------Projection: web_sales.ws_sold_date_sk, web_sales.ws_quantity, web_returns.wr_reason_sk, web_returns.wr_fee, web_returns.wr_refunded_cash
+09)----------------Inner Join: web_returns.wr_refunded_addr_sk = customer_address.ca_address_sk Filter: (customer_address.ca_state = Utf8View("IN") OR customer_address.ca_state = Utf8View("OH") OR customer_address.ca_state = Utf8View("NJ")) AND web_sales.ws_net_profit >= Decimal128(100.00,7,2) AND web_sales.ws_net_profit <= Decimal128(200.00,7,2) OR (customer_address.ca_state = Utf8View("WI") OR customer_address.ca_state = Utf8View("CT") OR customer_address.ca_state = Utf8View("KY")) AND web_sales.ws_net_profit >= Decimal128(150.00,7,2) AND web_sales.ws_net_profit <= Decimal128(300.00,7,2) OR (customer_address.ca_state = Utf8View("LA") OR customer_address.ca_state = Utf8View("IA") OR customer_address.ca_state = Utf8View("AR")) AND web_sales.ws_net_profit >= Decimal128(50.00,7,2) AND web_sales.ws_net_profit <= Decimal128(250.00,7,2)
+10)------------------Projection: web_sales.ws_sold_date_sk, web_sales.ws_quantity, web_sales.ws_net_profit, web_returns.wr_refunded_addr_sk, web_returns.wr_reason_sk, web_returns.wr_fee, web_returns.wr_refunded_cash
+11)--------------------Inner Join: web_returns.wr_returning_cdemo_sk = cd2.cd_demo_sk, cd1.cd_marital_status = cd2.cd_marital_status, cd1.cd_education_status = cd2.cd_education_status
+12)----------------------Projection: web_sales.ws_sold_date_sk, web_sales.ws_quantity, web_sales.ws_net_profit, web_returns.wr_refunded_addr_sk, web_returns.wr_returning_cdemo_sk, web_returns.wr_reason_sk, web_returns.wr_fee, web_returns.wr_refunded_cash, cd1.cd_marital_status, cd1.cd_education_status
+13)------------------------Inner Join: web_returns.wr_refunded_cdemo_sk = cd1.cd_demo_sk Filter: cd1.cd_marital_status = Utf8View("M") AND cd1.cd_education_status = Utf8View("Advanced Degree") AND web_sales.ws_sales_price >= Decimal128(100.00,7,2) AND web_sales.ws_sales_price <= Decimal128(150.00,7,2) OR cd1.cd_marital_status = Utf8View("S") AND cd1.cd_education_status = Utf8View("College") AND web_sales.ws_sales_price >= Decimal128(50.00,7,2) AND web_sales.ws_sales_price <= Decimal128(100.00,7,2) OR cd1.cd_marital_status = Utf8View("W") AND cd1.cd_education_status = Utf8View("2 yr Degree") AND web_sales.ws_sales_price >= Decimal128(150.00,7,2) AND web_sales.ws_sales_price <= Decimal128(200.00,7,2)
+14)--------------------------Projection: web_sales.ws_sold_date_sk, web_sales.ws_quantity, web_sales.ws_sales_price, web_sales.ws_net_profit, web_returns.wr_refunded_cdemo_sk, web_returns.wr_refunded_addr_sk, web_returns.wr_returning_cdemo_sk, web_returns.wr_reason_sk, web_returns.wr_fee, web_returns.wr_refunded_cash
+15)----------------------------Inner Join: web_sales.ws_web_page_sk = web_page.wp_web_page_sk
+16)------------------------------Projection: web_sales.ws_sold_date_sk, web_sales.ws_web_page_sk, web_sales.ws_quantity, web_sales.ws_sales_price, web_sales.ws_net_profit, web_returns.wr_refunded_cdemo_sk, web_returns.wr_refunded_addr_sk, web_returns.wr_returning_cdemo_sk, web_returns.wr_reason_sk, web_returns.wr_fee, web_returns.wr_refunded_cash
+17)--------------------------------Inner Join: web_sales.ws_item_sk = web_returns.wr_item_sk, web_sales.ws_order_number = web_returns.wr_order_number
+18)----------------------------------Filter: (web_sales.ws_net_profit >= Decimal128(100.00,7,2) AND web_sales.ws_net_profit <= Decimal128(200.00,7,2) OR web_sales.ws_net_profit >= Decimal128(150.00,7,2) AND web_sales.ws_net_profit <= Decimal128(300.00,7,2) OR web_sales.ws_net_profit >= Decimal128(50.00,7,2) AND web_sales.ws_net_profit <= Decimal128(250.00,7,2)) AND (web_sales.ws_sales_price >= Decimal128(100.00,7,2) AND web_sales.ws_sales_price <= Decimal128(150.00,7,2) OR web_sales.ws_sales_price >= Decimal128(50.00,7,2) AND web_sales.ws_sales_price <= Decimal128(100.00,7,2) OR web_sales.ws_sales_price >= Decimal128(150.00,7,2) AND web_sales.ws_sales_price <= Decimal128(200.00,7,2))
+19)------------------------------------TableScan: web_sales projection=[ws_sold_date_sk, ws_item_sk, ws_web_page_sk, ws_order_number, ws_quantity, ws_sales_price, ws_net_profit], partial_filters=[web_sales.ws_net_profit >= Decimal128(100.00,7,2) AND web_sales.ws_net_profit <= Decimal128(200.00,7,2) OR web_sales.ws_net_profit >= Decimal128(150.00,7,2) AND web_sales.ws_net_profit <= Decimal128(300.00,7,2) OR web_sales.ws_net_profit >= Decimal128(50.00,7,2) AND web_sales.ws_net_profit <= Decimal128(250.00,7,2), web_sales.ws_sales_price >= Decimal128(100.00,7,2) AND web_sales.ws_sales_price <= Decimal128(150.00,7,2) OR web_sales.ws_sales_price >= Decimal128(50.00,7,2) AND web_sales.ws_sales_price <= Decimal128(100.00,7,2) OR web_sales.ws_sales_price >= Decimal128(150.00,7,2) AND web_sales.ws_sales_price <= Decimal128(200.00,7,2)]
+20)----------------------------------TableScan: web_returns projection=[wr_item_sk, wr_refunded_cdemo_sk, wr_refunded_addr_sk, wr_returning_cdemo_sk, wr_reason_sk, wr_order_number, wr_fee, wr_refunded_cash]
+21)------------------------------TableScan: web_page projection=[wp_web_page_sk]
+22)--------------------------SubqueryAlias: cd1
+23)----------------------------Filter: customer_demographics.cd_marital_status = Utf8View("M") AND customer_demographics.cd_education_status = Utf8View("Advanced Degree") OR customer_demographics.cd_marital_status = Utf8View("S") AND customer_demographics.cd_education_status = Utf8View("College") OR customer_demographics.cd_marital_status = Utf8View("W") AND customer_demographics.cd_education_status = Utf8View("2 yr Degree")
+24)------------------------------TableScan: customer_demographics projection=[cd_demo_sk, cd_marital_status, cd_education_status], partial_filters=[customer_demographics.cd_marital_status = Utf8View("M") AND customer_demographics.cd_education_status = Utf8View("Advanced Degree") OR customer_demographics.cd_marital_status = Utf8View("S") AND customer_demographics.cd_education_status = Utf8View("College") OR customer_demographics.cd_marital_status = Utf8View("W") AND customer_demographics.cd_education_status = Utf8View("2 yr Degree")]
+25)----------------------SubqueryAlias: cd2
+26)------------------------TableScan: customer_demographics projection=[cd_demo_sk, cd_marital_status, cd_education_status]
+27)------------------Projection: customer_address.ca_address_sk, customer_address.ca_state
+28)--------------------Filter: customer_address.ca_country = Utf8View("United States") AND customer_address.ca_state IN ([Utf8View("IN"), Utf8View("OH"), Utf8View("NJ"), Utf8View("WI"), Utf8View("CT"), Utf8View("KY"), Utf8View("LA"), Utf8View("IA"), Utf8View("AR")]) AND (customer_address.ca_state = Utf8View("IN") OR customer_address.ca_state = Utf8View("OH") OR customer_address.ca_state = Utf8View("NJ") OR customer_address.ca_state = Utf8View("WI") OR customer_address.ca_state = Utf8View("CT") OR customer_address.ca_state = Utf8View("KY") OR customer_address.ca_state = Utf8View("LA") OR customer_address.ca_state = Utf8View("IA") OR customer_address.ca_state = Utf8View("AR"))
+29)----------------------TableScan: customer_address projection=[ca_address_sk, ca_state, ca_country], partial_filters=[customer_address.ca_country = Utf8View("United States"), customer_address.ca_state IN ([Utf8View("IN"), Utf8View("OH"), Utf8View("NJ"), Utf8View("WI"), Utf8View("CT"), Utf8View("KY"), Utf8View("LA"), Utf8View("IA"), Utf8View("AR")]), customer_address.ca_state = Utf8View("IN") OR customer_address.ca_state = Utf8View("OH") OR customer_address.ca_state = Utf8View("NJ") OR customer_address.ca_state = Utf8View("WI") OR customer_address.ca_state = Utf8View("CT") OR customer_address.ca_state = Utf8View("KY") OR customer_address.ca_state = Utf8View("LA") OR customer_address.ca_state = Utf8View("IA") OR customer_address.ca_state = Utf8View("AR")]
+30)--------------Projection: date_dim.d_date_sk
+31)----------------Filter: date_dim.d_year = Int64(2000)
+32)------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int64(2000)]
+33)----------TableScan: reason projection=[r_reason_sk, r_reason_desc]
+physical_plan
+01)SortPreservingMergeExec: [substr(reason.r_reason_desc,Int64(1),Int64(20))@0 ASC NULLS LAST, avg1@1 ASC NULLS LAST, avg2@2 ASC NULLS LAST, avg(web_returns.wr_fee)@3 ASC NULLS LAST], fetch=100
+02)--SortExec: TopK(fetch=100), expr=[substr(reason.r_reason_desc,Int64(1),Int64(20))@0 ASC NULLS LAST, avg1@1 ASC NULLS LAST, avg2@2 ASC NULLS LAST, avg(web_returns.wr_fee)@3 ASC NULLS LAST], preserve_partitioning=[true]
+03)----ProjectionExec: expr=[substr(r_reason_desc@0, 1, 20) as substr(reason.r_reason_desc,Int64(1),Int64(20)), avg(web_sales.ws_quantity)@1 as avg1, avg(web_returns.wr_refunded_cash)@2 as avg2, avg(web_returns.wr_fee)@3 as avg(web_returns.wr_fee)]
+04)------AggregateExec: mode=FinalPartitioned, gby=[r_reason_desc@0 as r_reason_desc], aggr=[avg(web_sales.ws_quantity), avg(web_returns.wr_refunded_cash), avg(web_returns.wr_fee)]
+05)--------RepartitionExec: partitioning=Hash([r_reason_desc@0], 4), input_partitions=4
+06)----------AggregateExec: mode=Partial, gby=[r_reason_desc@3 as r_reason_desc], aggr=[avg(web_sales.ws_quantity), avg(web_returns.wr_refunded_cash), avg(web_returns.wr_fee)]
+07)------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(r_reason_sk@0, wr_reason_sk@1)], projection=[ws_quantity@2, wr_fee@4, wr_refunded_cash@5, r_reason_desc@1]
+08)--------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/reason.vortex]]}, projection=[r_reason_sk, r_reason_desc], file_type=vortex
+09)--------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ws_sold_date_sk@0)], projection=[ws_quantity@2, wr_reason_sk@3, wr_fee@4, wr_refunded_cash@5]
+10)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_year@6 = 2000
+11)----------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(ca_address_sk@0, wr_refunded_addr_sk@3)], filter=(ca_state@1 = IN OR ca_state@1 = OH OR ca_state@1 = NJ) AND ws_net_profit@0 >= 100.00 AND ws_net_profit@0 <= 200.00 OR (ca_state@1 = WI OR ca_state@1 = CT OR ca_state@1 = KY) AND ws_net_profit@0 >= 150.00 AND ws_net_profit@0 <= 300.00 OR (ca_state@1 = LA OR ca_state@1 = IA OR ca_state@1 = AR) AND ws_net_profit@0 >= 50.00 AND ws_net_profit@0 <= 250.00, projection=[ws_sold_date_sk@2, ws_quantity@3, wr_reason_sk@6, wr_fee@7, wr_refunded_cash@8]
+12)------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk, ca_state], file_type=vortex, predicate: ca_country@10 = United States AND ca_state@8 IN (SET) ([IN, OH, NJ, WI, CT, KY, LA, IA, AR]) AND (ca_state@8 = IN OR ca_state@8 = OH OR ca_state@8 = NJ OR ca_state@8 = WI OR ca_state@8 = CT OR ca_state@8 = KY OR ca_state@8 = LA OR ca_state@8 = IA OR ca_state@8 = AR)
+13)------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(wr_returning_cdemo_sk@4, cd_demo_sk@0), (cd_marital_status@8, cd_marital_status@1), (cd_education_status@9, cd_education_status@2)], projection=[ws_sold_date_sk@0, ws_quantity@1, ws_net_profit@2, wr_refunded_addr_sk@3, wr_reason_sk@5, wr_fee@6, wr_refunded_cash@7]
+14)--------------------CoalescePartitionsExec
+15)----------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(cd_demo_sk@0, wr_refunded_cdemo_sk@4)], filter=cd_marital_status@1 = M AND cd_education_status@2 = Advanced Degree AND ws_sales_price@0 >= 100.00 AND ws_sales_price@0 <= 150.00 OR cd_marital_status@1 = S AND cd_education_status@2 = College AND ws_sales_price@0 >= 50.00 AND ws_sales_price@0 <= 100.00 OR cd_marital_status@1 = W AND cd_education_status@2 = 2 yr Degree AND ws_sales_price@0 >= 150.00 AND ws_sales_price@0 <= 200.00, projection=[ws_sold_date_sk@3, ws_quantity@4, ws_net_profit@6, wr_refunded_addr_sk@8, wr_returning_cdemo_sk@9, wr_reason_sk@10, wr_fee@11, wr_refunded_cash@12, cd_marital_status@1, cd_education_status@2]
+16)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_demographics.vortex]]}, projection=[cd_demo_sk, cd_marital_status, cd_education_status], file_type=vortex, predicate: cd_marital_status@2 = M AND cd_education_status@3 = Advanced Degree OR cd_marital_status@2 = S AND cd_education_status@3 = College OR cd_marital_status@2 = W AND cd_education_status@3 = 2 yr Degree
+17)------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(wp_web_page_sk@0, ws_web_page_sk@1)], projection=[ws_sold_date_sk@1, ws_quantity@3, ws_sales_price@4, ws_net_profit@5, wr_refunded_cdemo_sk@6, wr_refunded_addr_sk@7, wr_returning_cdemo_sk@8, wr_reason_sk@9, wr_fee@10, wr_refunded_cash@11]
+18)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/web_page.vortex]]}, projection=[wp_web_page_sk], file_type=vortex
+19)--------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(wr_item_sk@0, ws_item_sk@1), (wr_order_number@5, ws_order_number@3)], projection=[ws_sold_date_sk@8, ws_web_page_sk@10, ws_quantity@12, ws_sales_price@13, ws_net_profit@14, wr_refunded_cdemo_sk@1, wr_refunded_addr_sk@2, wr_returning_cdemo_sk@3, wr_reason_sk@4, wr_fee@6, wr_refunded_cash@7]
+20)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/web_returns.vortex]]}, projection=[wr_item_sk, wr_refunded_cdemo_sk, wr_refunded_addr_sk, wr_returning_cdemo_sk, wr_reason_sk, wr_order_number, wr_fee, wr_refunded_cash], file_type=vortex
+21)----------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>]]}, projection=[ws_sold_date_sk, ws_item_sk, ws_web_page_sk, ws_order_number, ws_quantity, ws_sales_price, ws_net_profit], file_type=vortex, predicate: (ws_net_profit@33 >= 100.00 AND ws_net_profit@33 <= 200.00 OR ws_net_profit@33 >= 150.00 AND ws_net_profit@33 <= 300.00 OR ws_net_profit@33 >= 50.00 AND ws_net_profit@33 <= 250.00) AND (ws_sales_price@21 >= 100.00 AND ws_sales_price@21 <= 150.00 OR ws_sales_price@21 >= 50.00 AND ws_sales_price@21 <= 100.00 OR ws_sales_price@21 >= 150.00 AND ws_sales_price@21 <= 200.00)
+22)--------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+23)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_demographics.vortex]]}, projection=[cd_demo_sk, cd_marital_status, cd_education_status], file_type=vortex

@@ -1,0 +1,68 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT sum(cs_ext_discount_amt) AS "excess discount amount"
+FROM catalog_sales ,
+     item ,
+     date_dim
+WHERE i_manufact_id = 977
+  AND i_item_sk = cs_item_sk
+  AND d_date BETWEEN '2000-01-27' AND cast('2000-04-26' AS date)
+  AND d_date_sk = cs_sold_date_sk
+  AND cs_ext_discount_amt >
+    ( SELECT 1.3 * avg(cs_ext_discount_amt)
+     FROM catalog_sales ,
+          date_dim
+     WHERE cs_item_sk = i_item_sk
+       AND d_date BETWEEN '2000-01-27' AND cast('2000-04-26' AS date)
+       AND d_date_sk = cs_sold_date_sk )
+LIMIT 100;
+----
+logical_plan
+01)Projection: sum(catalog_sales.cs_ext_discount_amt) AS excess discount amount
+02)--Limit: skip=0, fetch=100
+03)----Aggregate: groupBy=[[]], aggr=[[sum(catalog_sales.cs_ext_discount_amt)]]
+04)------Projection: catalog_sales.cs_ext_discount_amt
+05)--------LeftSemi Join: item.i_item_sk = __scalar_sq_1.cs_item_sk Filter: CAST(catalog_sales.cs_ext_discount_amt AS Decimal128(30, 15)) > __scalar_sq_1.Float64(1.3) * avg(catalog_sales.cs_ext_discount_amt)
+06)----------Projection: catalog_sales.cs_ext_discount_amt, item.i_item_sk
+07)------------Inner Join: catalog_sales.cs_sold_date_sk = date_dim.d_date_sk
+08)--------------Projection: catalog_sales.cs_sold_date_sk, catalog_sales.cs_ext_discount_amt, item.i_item_sk
+09)----------------Inner Join: catalog_sales.cs_item_sk = item.i_item_sk
+10)------------------TableScan: catalog_sales projection=[cs_sold_date_sk, cs_item_sk, cs_ext_discount_amt]
+11)------------------Projection: item.i_item_sk
+12)--------------------Filter: item.i_manufact_id = Int64(977)
+13)----------------------TableScan: item projection=[i_item_sk, i_manufact_id], partial_filters=[item.i_manufact_id = Int64(977)]
+14)--------------Projection: date_dim.d_date_sk
+15)----------------Filter: date_dim.d_date >= Date32("2000-01-27") AND date_dim.d_date <= Date32("2000-04-26")
+16)------------------TableScan: date_dim projection=[d_date_sk, d_date], partial_filters=[date_dim.d_date >= Date32("2000-01-27"), date_dim.d_date <= Date32("2000-04-26")]
+17)----------SubqueryAlias: __scalar_sq_1
+18)------------Projection: CAST(Float64(1.3) * CAST(avg(catalog_sales.cs_ext_discount_amt) AS Float64) AS Decimal128(30, 15)), catalog_sales.cs_item_sk
+19)--------------Aggregate: groupBy=[[catalog_sales.cs_item_sk]], aggr=[[avg(catalog_sales.cs_ext_discount_amt)]]
+20)----------------Projection: catalog_sales.cs_item_sk, catalog_sales.cs_ext_discount_amt
+21)------------------Inner Join: catalog_sales.cs_sold_date_sk = date_dim.d_date_sk
+22)--------------------TableScan: catalog_sales projection=[cs_sold_date_sk, cs_item_sk, cs_ext_discount_amt]
+23)--------------------Projection: date_dim.d_date_sk
+24)----------------------Filter: date_dim.d_date >= Date32("2000-01-27") AND date_dim.d_date <= Date32("2000-04-26")
+25)------------------------TableScan: date_dim projection=[d_date_sk, d_date], partial_filters=[date_dim.d_date >= Date32("2000-01-27"), date_dim.d_date <= Date32("2000-04-26")]
+physical_plan
+01)ProjectionExec: expr=[sum(catalog_sales.cs_ext_discount_amt)@0 as excess discount amount]
+02)--GlobalLimitExec: skip=0, fetch=100
+03)----AggregateExec: mode=Final, gby=[], aggr=[sum(catalog_sales.cs_ext_discount_amt)]
+04)------CoalescePartitionsExec
+05)--------AggregateExec: mode=Partial, gby=[], aggr=[sum(catalog_sales.cs_ext_discount_amt)]
+06)----------HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(i_item_sk@1, cs_item_sk@1)], filter=CAST(cs_ext_discount_amt@0 AS Decimal128(30, 15)) > Float64(1.3) * avg(catalog_sales.cs_ext_discount_amt)@1, projection=[cs_ext_discount_amt@0]
+07)------------CoalescePartitionsExec
+08)--------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, cs_sold_date_sk@0)], projection=[cs_ext_discount_amt@2, i_item_sk@3]
+09)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_date@2 >= 2000-01-27 AND d_date@2 <= 2000-04-26
+10)----------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, cs_item_sk@1)], projection=[cs_sold_date_sk@1, cs_ext_discount_amt@3, i_item_sk@0]
+11)------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk], file_type=vortex, predicate: i_manufact_id@13 = 977
+12)------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>]]}, projection=[cs_sold_date_sk, cs_item_sk, cs_ext_discount_amt], file_type=vortex
+13)------------ProjectionExec: expr=[CAST(1.3 * CAST(avg(catalog_sales.cs_ext_discount_amt)@1 AS Float64) AS Decimal128(30, 15)) as Float64(1.3) * avg(catalog_sales.cs_ext_discount_amt), cs_item_sk@0 as cs_item_sk]
+14)--------------AggregateExec: mode=FinalPartitioned, gby=[cs_item_sk@0 as cs_item_sk], aggr=[avg(catalog_sales.cs_ext_discount_amt)]
+15)----------------RepartitionExec: partitioning=Hash([cs_item_sk@0], 4), input_partitions=4
+16)------------------AggregateExec: mode=Partial, gby=[cs_item_sk@0 as cs_item_sk], aggr=[avg(catalog_sales.cs_ext_discount_amt)]
+17)--------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, cs_sold_date_sk@0)], projection=[cs_item_sk@2, cs_ext_discount_amt@3]
+18)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_date@2 >= 2000-01-27 AND d_date@2 <= 2000-04-26
+19)----------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>]]}, projection=[cs_sold_date_sk, cs_item_sk, cs_ext_discount_amt], file_type=vortex
