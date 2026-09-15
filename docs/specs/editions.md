@@ -93,14 +93,15 @@ For experimental or custom components that do not belong to an edition, the Rust
 session is eligible for compression and serialization, while layouts, extension dtypes, and aggregate functions are
 unrestricted. It does not register missing readers, so files written this way have no edition compatibility guarantee.
 
-Compression and edition compatibility are separate. Compressors produce current in-memory arrays and do not select a
-wire ID. The writer maps each allowed serialized ID to its current in-memory encoding and restricts the default
-BtrBlocks compressor to schemes producing those encodings. Custom compressors remain unrestricted, with serialization
-providing the final compatibility boundary when edition enforcement is enabled. At that boundary, the array plugin
-produces an ID, metadata, buffers, and children. The serialization context interns the returned ID and fails the write
-if the selected editions do not permit it. A serializer may emit a historical ID when the value satisfies that ID's
-frozen contract, but it does not inspect the edition allowlist. Without disabling edition enforcement, a custom layout
-or compressor therefore cannot bypass the final wire-ID check.
+Compressors produce current in-memory arrays. The writer maps each allowed serialized ID to its current in-memory
+encoding and restricts the default BtrBlocks compressor to schemes producing those encodings. When several wire
+versions share an in-memory encoding, the compressor also needs the permitted serialized IDs to choose its compression
+mode, as described in [Compression with replacement encodings](#compression-with-replacement-encodings).
+
+The serializer emits the oldest wire representation that can express the resulting array without recompression. It
+does not inspect the edition allowlist. The serialization context validates the returned ID and fails the write if
+the selected editions do not permit it. Custom compressors remain independently configured; they cannot bypass this
+final compatibility check.
 
 ## How editions change
 
@@ -152,10 +153,11 @@ may choose a different but already-valid encoding of the same contract, and a re
 form into a newer in-memory structure. Neither action expands what the wire ID means.
 
 A new wire ID does not normally require a second in-memory array. The current plugin registers every historical ID,
-serializes the current value under the oldest allowed lossless one, and deserializes all of them into the current type.
-The old ID remains registered forever. If the compressor and serializer cannot preserve one common in-memory
-representation and losslessly downgrade it, the change instead needs a new in-memory array, compressor, and
-deserializer.
+serializes the current array under the oldest lossless representation that does not require recompression, and
+deserializes all of them into the current type. The old ID remains registered forever. A common in-memory type may
+contain both old-compatible and new-only forms; not every instance has to downgrade to the old wire format. A separate
+in-memory array is needed when the representations cannot usefully share an implementation, rather than merely because
+some instances require a newer wire ID.
 
 Name successive incompatible revisions by appending a version to the same base name: `vortex.foo`, `vortex.foo_v2`,
 `vortex.foo_v3`. Do not give successor versions descriptive names. A linear naming scheme keeps the component's
@@ -195,6 +197,148 @@ sent an 8-bit Pco payload under the familiar ID. Adding 8-bit support keeps one 
 If writing an older edition must succeed for every input, its compression policy must choose an in-memory encoding
 whose serializer has a permitted lossless form. It must not disguise the newer Pco form with the old ID.
 
+### Compression with replacement encodings
+
+Edition membership is additive; the set of compression candidates does not have to be. Keeping v1 readable and
+writable does not require evaluating a v1 scheme alongside its complete replacement. For a shared in-memory array,
+keep one logical compression scheme with version-dependent modes. Choose the newest enabled mode before estimating or
+compressing, and evaluate only that mode. When only v1 is enabled, use the v1 mode. When both are enabled, use v2.
+
+This does not require a one-to-one correspondence between schemes and in-memory arrays. Several algorithms may
+produce the same array, and one scheme may produce several encodings. The rule avoids duplicate candidates whose only
+distinction is the version of a replacement. If a replacement needs a separate in-memory array and scheme, infer the
+preferred supported candidate from the enabled editions before sampling. Retain both as competing candidates only
+when they have useful, distinct compression tradeoffs; accepting the same inputs alone does not prove one dominates.
+
+The writer resolves enabled editions into a snapshot of permitted serialized IDs. Compression mode selection is
+inferred from that snapshot; there is no separate compression version setting or restriction. To require v1 output,
+select editions whose combined component set includes v1 and excludes v2. Selecting an edition that enables both
+selects the v2 compression mode, although its output may still serialize as v1. An empty set permits no output.
+
+The compressor needs those resolved capabilities, but no edition names or chronology. Scheme filtering by in-memory
+encoding alone loses the distinction between v1 and v2. The selected mode must govern estimates, sample compression,
+full compression, and cascaded children consistently. If neither version is available, skip the scheme. Registration
+of a historical deserializer alone does not establish that the compressor can still write that version.
+
+Compression and serialization make different decisions:
+
+- **Compression chooses the newest enabled mode.** This controls physical decisions such as global versus per-chunk
+  widths. Keep the old mode for as long as targeting editions that permit only v1 requires it. Editions that enable
+  v2 select the newer mode automatically.
+- **Serialization emits v1 whenever possible.** It examines the resulting array and uses the oldest lossless wire
+  form that preserves the compression decisions already made. A structural conversion may rewrite metadata or
+  children, but decoding and recompressing the payload belongs in the compressor.
+
+Serialization downgrade alone is sufficient when the difference is a wire representation change with such a
+structural conversion. When the version changes how values are compressed, the compressor must choose the compatible
+mode first. Always compressing with v2 and then repacking into v1 duplicates work and ranks schemes using a size that
+may differ from what will be written. In particular, "v1 is possible" does not mean that any logically equivalent
+v1 array could be constructed by running compression again.
+
+#### Working example: bitpacking v1 and v2
+
+[PR #9750](https://github.com/vortex-data/vortex/pull/9750) gives one `BitPacked` in-memory array both global and
+per-chunk widths. Its plugin writes `fastlanes.bitpacked` when widths are uniform and `fastlanes.bitpacked_v2` when
+they differ. [PR #9754](https://github.com/vortex-data/vortex/pull/9754) adds the compression policy: one
+`BitPackingScheme` uses per-chunk widths when v2 is permitted, otherwise one global width. These PRs illustrate the
+design; their APIs and v2 implementation are not yet present on this branch.
+
+Consider two 1024-value chunks requiring 1 and 7 bits per value, with no patches or nulls. A global width of 7 uses
+1792 packed bytes; widths of 1 and 7 use 1024 packed bytes, plus the width-table child and its serialization overhead.
+Changing the second representation to a global width requires repacking the first chunk. Merely changing its ID or
+discarding its width table would produce an invalid v1 payload.
+
+| Edition permissions | Required widths | Mode evaluated | Resulting widths | Serialized ID |
+|---------------------|-----------------|----------------|------------------|---------------|
+| v1                  | `[1, 7]`        | global         | `[7, 7]`         | v1            |
+| v1 and v2           | `[1, 7]`        | per-chunk      | `[1, 7]`         | v2            |
+| v1 and v2           | `[3, 3]`        | per-chunk      | `[3, 3]`         | v1            |
+
+The last row still runs the newer compressor mode. It emits v1 because the result happens to satisfy v1's contract.
+There is no v1-versus-v2 compression contest and no need to attach the chosen mode to the in-memory array. Likewise,
+reading v1 into the current type preserves uniform widths, so it can serialize as v1 again. A transformation that
+introduces differing widths changes that outcome: writing it to a v1-only target requires explicit recompression or
+fails the final serialization check.
+
+The following self-contained Rust example exercises that policy and serializer dispatch. It models width selection
+for two chunks and the wire width metadata; it omits payload packing, patches, and child compression, which the linked
+PRs implement. Run it with `rustdoc --test --edition=2024 docs/specs/editions.md`.
+
+```rust
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Version {
+    V1,
+    V2,
+}
+
+use Version::{V1, V2};
+
+fn select_mode(enabled: &[Version]) -> Result<Version, &'static str> {
+    [V2, V1]
+        .into_iter()
+        .find(|version| enabled.contains(version))
+        .ok_or("no permitted bitpacking mode")
+}
+
+struct BitPacked {
+    widths: [u8; 2],
+}
+
+fn compress(required: [u8; 2], mode: Version, calls: &mut [usize; 2]) -> BitPacked {
+    let widths = match mode {
+        V1 => {
+            calls[0] += 1;
+            [required[0].max(required[1]); 2]
+        }
+        V2 => {
+            calls[1] += 1;
+            required
+        }
+    };
+    BitPacked { widths }
+}
+
+fn serialize(array: &BitPacked) -> (Version, Vec<u8>) {
+    let [first, second] = array.widths;
+    if first == second {
+        (V1, vec![first])
+    } else {
+        (V2, vec![first, second])
+    }
+}
+
+fn main() -> Result<(), &'static str> {
+    let cases: &[(&[Version], [u8; 2], Version, Version)] = &[
+        (&[V1], [1, 7], V1, V1),
+        (&[V1, V2], [1, 7], V2, V2),
+        (&[V1, V2], [3, 3], V2, V1),
+        (&[V2, V1], [1, 7], V2, V2),
+    ];
+    for &(enabled, required, expected_mode, expected_id) in cases {
+        let mode = select_mode(enabled)?;
+        assert_eq!(mode, expected_mode);
+        let mut calls = [0, 0];
+        let array = compress(required, mode, &mut calls);
+        assert_eq!(calls, if mode == V1 { [1, 0] } else { [0, 1] });
+        let (id, metadata) = serialize(&array);
+        assert_eq!(id, expected_id);
+        assert!(enabled.contains(&id));
+        let decoded_widths = match id {
+            V1 => [metadata[0]; 2],
+            V2 => [metadata[0], metadata[1]],
+        };
+        assert_eq!(decoded_widths, array.widths);
+    }
+    assert!(select_mode(&[]).is_err());
+    Ok(())
+}
+```
+
+The required integration checks are that editions permitting only v1 produce writes that round-trip under the v1 ID,
+differing widths use v2 when enabled, uniform output still uses v1, and sampling and full compression infer the same
+mode from the enabled editions. Each case must verify the actual wire ID as well as logical array equality; the
+in-memory encoding ID is shared by both forms.
+
 ### Reading: deserialize into the current representation
 
 Every component in a frozen edition remains readable. Its deserializer may convert old data directly into the current
@@ -220,9 +364,10 @@ returns the appropriate lossless variant. It may change metadata, buffers, and c
 in-memory array. Returning `None` means the array cannot be serialized. The serialization context then interns the
 returned ID, failing the write if that ID is not permitted by the selected editions.
 
-This selection happens recursively after compression. Compressor output therefore remains an in-memory concern: a
-compressor does not label its array with an edition or choose a wire version. Layouts, extension dtypes, and aggregates
-perform their analogous compatibility checks at their own serialization boundaries.
+This selection happens recursively after compression. The compressor uses permitted capabilities to choose how it
+builds the array, but does not label the result with an edition or force a wire ID. The serializer may emit an older
+ID when that resulting representation fits its contract. Layouts, extension dtypes, and aggregates perform their
+analogous compatibility checks at their own serialization boundaries.
 
 ### What this means for each kind
 
