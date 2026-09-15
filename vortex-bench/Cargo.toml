@@ -17,6 +17,10 @@ version = { workspace = true }
 name = "data-gen"
 test = false
 
+[[bin]]
+name = "direct-io"
+test = false
+
 [lints]
 workspace = true
 
