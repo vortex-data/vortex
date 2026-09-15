@@ -38,7 +38,7 @@ use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::aggregate_fn::Accumulator;
-use crate::aggregate_fn::AggregateDTypesRef;
+use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
@@ -134,16 +134,14 @@ impl AggregateFnVTable for UncompressedSizeInBytes {
 
     fn empty_partial(
         &self,
-        _options: &Self::Options,
-        _dtypes: AggregateDTypesRef<'_>,
+        _args: AggregateArgs<'_, Self::Options>,
     ) -> VortexResult<Self::Partial> {
         Ok(0)
     }
 
     fn partial_from_scalar(
         &self,
-        _options: &Self::Options,
-        _dtypes: AggregateDTypesRef<'_>,
+        _args: AggregateArgs<'_, Self::Options>,
         scalar: Scalar,
     ) -> VortexResult<Self::Partial> {
         Ok(scalar
@@ -154,8 +152,7 @@ impl AggregateFnVTable for UncompressedSizeInBytes {
 
     fn merge_partials(
         &self,
-        _options: &Self::Options,
-        _dtypes: AggregateDTypesRef<'_>,
+        _args: AggregateArgs<'_, Self::Options>,
         first: Self::Partial,
         second: Self::Partial,
     ) -> VortexResult<Self::Partial> {
@@ -166,8 +163,7 @@ impl AggregateFnVTable for UncompressedSizeInBytes {
 
     fn to_scalar(
         &self,
-        _options: &Self::Options,
-        _dtypes: AggregateDTypesRef<'_>,
+        _args: AggregateArgs<'_, Self::Options>,
         partial: &Self::Partial,
     ) -> VortexResult<Scalar> {
         Ok(Scalar::primitive(*partial, NonNullable))
@@ -176,8 +172,7 @@ impl AggregateFnVTable for UncompressedSizeInBytes {
     #[inline]
     fn is_saturated(
         &self,
-        _options: &Self::Options,
-        _dtypes: AggregateDTypesRef<'_>,
+        _args: AggregateArgs<'_, Self::Options>,
         _partial: &Self::Partial,
     ) -> bool {
         false
@@ -185,8 +180,7 @@ impl AggregateFnVTable for UncompressedSizeInBytes {
 
     fn accumulate(
         &self,
-        _options: &Self::Options,
-        _dtypes: AggregateDTypesRef<'_>,
+        _args: AggregateArgs<'_, Self::Options>,
         partial: &mut Self::Partial,
         batch: &Columnar,
         ctx: &mut ExecutionCtx,
@@ -205,8 +199,7 @@ impl AggregateFnVTable for UncompressedSizeInBytes {
 
     fn finalize(
         &self,
-        _options: &Self::Options,
-        _dtypes: AggregateDTypesRef<'_>,
+        _args: AggregateArgs<'_, Self::Options>,
         partials: ArrayRef,
     ) -> VortexResult<ArrayRef> {
         Ok(partials)
@@ -214,11 +207,10 @@ impl AggregateFnVTable for UncompressedSizeInBytes {
 
     fn finalize_scalar(
         &self,
-        options: &Self::Options,
-        dtypes: AggregateDTypesRef<'_>,
+        args: AggregateArgs<'_, Self::Options>,
         partial: &Self::Partial,
     ) -> VortexResult<Scalar> {
-        self.to_scalar(options, dtypes, partial)
+        self.to_scalar(args, partial)
     }
 }
 
@@ -721,9 +713,9 @@ mod tests {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let dtypes = AggregateDTypes::try_new(&UncompressedSizeInBytes, &EmptyOptions, dtype)?;
 
-        let state = UncompressedSizeInBytes.merge_partials(&EmptyOptions, dtypes.borrow(), 5, 3)?;
+        let state = UncompressedSizeInBytes.merge_partials(dtypes.args(&EmptyOptions), 5, 3)?;
 
-        let result = UncompressedSizeInBytes.to_scalar(&EmptyOptions, dtypes.borrow(), &state)?;
+        let result = UncompressedSizeInBytes.to_scalar(dtypes.args(&EmptyOptions), &state)?;
         assert_eq!(result.as_primitive().typed_value::<u64>(), Some(8));
         Ok(())
     }

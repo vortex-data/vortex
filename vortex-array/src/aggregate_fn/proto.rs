@@ -68,7 +68,7 @@ mod tests {
     use crate::ArrayRef;
     use crate::Columnar;
     use crate::ExecutionCtx;
-    use crate::aggregate_fn::AggregateDTypesRef;
+    use crate::aggregate_fn::AggregateArgs;
     use crate::aggregate_fn::AggregateFnId;
     use crate::aggregate_fn::AggregateFnRef;
     use crate::aggregate_fn::AggregateFnVTable;
@@ -117,16 +117,14 @@ mod tests {
 
         fn empty_partial(
             &self,
-            _options: &Self::Options,
-            _dtypes: AggregateDTypesRef<'_>,
+            _args: AggregateArgs<'_, Self::Options>,
         ) -> VortexResult<Self::Partial> {
             Ok(())
         }
 
         fn partial_from_scalar(
             &self,
-            _options: &Self::Options,
-            _dtypes: AggregateDTypesRef<'_>,
+            _args: AggregateArgs<'_, Self::Options>,
             _scalar: Scalar,
         ) -> VortexResult<Self::Partial> {
             Ok(())
@@ -134,8 +132,7 @@ mod tests {
 
         fn merge_partials(
             &self,
-            _options: &Self::Options,
-            _dtypes: AggregateDTypesRef<'_>,
+            _args: AggregateArgs<'_, Self::Options>,
             _first: Self::Partial,
             _second: Self::Partial,
         ) -> VortexResult<Self::Partial> {
@@ -144,8 +141,7 @@ mod tests {
 
         fn to_scalar(
             &self,
-            _options: &Self::Options,
-            _dtypes: AggregateDTypesRef<'_>,
+            _args: AggregateArgs<'_, Self::Options>,
             _partial: &Self::Partial,
         ) -> VortexResult<Scalar> {
             vortex_panic!("TestAgg is for serde tests only");
@@ -153,8 +149,7 @@ mod tests {
 
         fn is_saturated(
             &self,
-            _options: &Self::Options,
-            _dtypes: AggregateDTypesRef<'_>,
+            _args: AggregateArgs<'_, Self::Options>,
             _partial: &Self::Partial,
         ) -> bool {
             true
@@ -162,8 +157,7 @@ mod tests {
 
         fn accumulate(
             &self,
-            _options: &Self::Options,
-            _dtypes: AggregateDTypesRef<'_>,
+            _args: AggregateArgs<'_, Self::Options>,
             _state: &mut Self::Partial,
             _batch: &Columnar,
             _ctx: &mut ExecutionCtx,
@@ -173,8 +167,7 @@ mod tests {
 
         fn finalize(
             &self,
-            _options: &Self::Options,
-            _dtypes: AggregateDTypesRef<'_>,
+            _args: AggregateArgs<'_, Self::Options>,
             partials: ArrayRef,
         ) -> VortexResult<ArrayRef> {
             Ok(partials)
@@ -182,8 +175,7 @@ mod tests {
 
         fn finalize_scalar(
             &self,
-            _options: &Self::Options,
-            _dtypes: AggregateDTypesRef<'_>,
+            _args: AggregateArgs<'_, Self::Options>,
             _partial: &Self::Partial,
         ) -> VortexResult<Scalar> {
             vortex_panic!("TestAgg is for serde tests only");

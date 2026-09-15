@@ -10,7 +10,7 @@ use vortex_session::registry::CachedId;
 use crate::ArrayRef;
 use crate::Columnar;
 use crate::ExecutionCtx;
-use crate::aggregate_fn::AggregateDTypesRef;
+use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::NumericalAggregateOpts;
@@ -54,16 +54,14 @@ impl AggregateFnVTable for Count {
 
     fn empty_partial(
         &self,
-        _options: &Self::Options,
-        _dtypes: AggregateDTypesRef<'_>,
+        _args: AggregateArgs<'_, Self::Options>,
     ) -> VortexResult<Self::Partial> {
         Ok(0)
     }
 
     fn partial_from_scalar(
         &self,
-        _options: &Self::Options,
-        _dtypes: AggregateDTypesRef<'_>,
+        _args: AggregateArgs<'_, Self::Options>,
         scalar: Scalar,
     ) -> VortexResult<Self::Partial> {
         Ok(scalar
@@ -74,8 +72,7 @@ impl AggregateFnVTable for Count {
 
     fn merge_partials(
         &self,
-        _options: &Self::Options,
-        _dtypes: AggregateDTypesRef<'_>,
+        _args: AggregateArgs<'_, Self::Options>,
         first: Self::Partial,
         second: Self::Partial,
     ) -> VortexResult<Self::Partial> {
@@ -84,8 +81,7 @@ impl AggregateFnVTable for Count {
 
     fn to_scalar(
         &self,
-        _options: &Self::Options,
-        _dtypes: AggregateDTypesRef<'_>,
+        _args: AggregateArgs<'_, Self::Options>,
         partial: &Self::Partial,
     ) -> VortexResult<Scalar> {
         Ok(Scalar::primitive(*partial, Nullability::NonNullable))
@@ -94,8 +90,7 @@ impl AggregateFnVTable for Count {
     #[inline]
     fn is_saturated(
         &self,
-        _options: &Self::Options,
-        _dtypes: AggregateDTypesRef<'_>,
+        _args: AggregateArgs<'_, Self::Options>,
         _partial: &Self::Partial,
     ) -> bool {
         false
@@ -103,15 +98,14 @@ impl AggregateFnVTable for Count {
 
     fn try_accumulate(
         &self,
-        options: &Self::Options,
-        dtypes: AggregateDTypesRef<'_>,
+        args: AggregateArgs<'_, Self::Options>,
         state: &mut Self::Partial,
         batch: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<bool> {
         let mut count = batch.valid_count(ctx)? as u64;
         // NaN values are excluded from the count of a float input when they are skipped.
-        if options.skip_nans && dtypes.dtype.is_float() {
+        if args.options.skip_nans && args.dtype.is_float() {
             // `nan_count` shortcircuits on an exact `Stat::NaNCount` before scanning the batch.
             count = count.saturating_sub(nan_count(batch, ctx)? as u64);
         }
@@ -121,8 +115,7 @@ impl AggregateFnVTable for Count {
 
     fn accumulate(
         &self,
-        _options: &Self::Options,
-        _dtypes: AggregateDTypesRef<'_>,
+        _args: AggregateArgs<'_, Self::Options>,
         _partial: &mut Self::Partial,
         _batch: &Columnar,
         _ctx: &mut ExecutionCtx,
@@ -132,8 +125,7 @@ impl AggregateFnVTable for Count {
 
     fn finalize(
         &self,
-        _options: &Self::Options,
-        _dtypes: AggregateDTypesRef<'_>,
+        _args: AggregateArgs<'_, Self::Options>,
         partials: ArrayRef,
     ) -> VortexResult<ArrayRef> {
         Ok(partials)
@@ -141,11 +133,10 @@ impl AggregateFnVTable for Count {
 
     fn finalize_scalar(
         &self,
-        options: &Self::Options,
-        dtypes: AggregateDTypesRef<'_>,
+        args: AggregateArgs<'_, Self::Options>,
         partial: &Self::Partial,
     ) -> VortexResult<Scalar> {
-        self.to_scalar(options, dtypes, partial)
+        self.to_scalar(args, partial)
     }
 }
 
@@ -275,9 +266,9 @@ mod tests {
         let options = NumericalAggregateOpts::default();
         let dtypes = AggregateDTypes::try_new(&Count, &options, dtype)?;
 
-        let state = Count.merge_partials(&options, dtypes.borrow(), 5, 3)?;
+        let state = Count.merge_partials(dtypes.args(&options), 5, 3)?;
 
-        let result = Count.to_scalar(&options, dtypes.borrow(), &state)?;
+        let result = Count.to_scalar(dtypes.args(&options), &state)?;
         assert_eq!(result.as_primitive().typed_value::<u64>(), Some(8));
         Ok(())
     }

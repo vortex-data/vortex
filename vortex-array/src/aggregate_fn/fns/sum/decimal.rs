@@ -378,9 +378,9 @@ mod tests {
         let near_limit = partial_with_decimal(DecimalValue::from(99_999_999_999_990i64));
         // Add a small value that keeps us just under 10^14.
         let small = partial_with_decimal(DecimalValue::from(9i64));
-        let state = Sum.merge_partials(&options, dtypes.borrow(), near_limit, small)?;
+        let state = Sum.merge_partials(dtypes.args(&options), near_limit, small)?;
 
-        let result = Sum.to_scalar(&options, dtypes.borrow(), &state)?;
+        let result = Sum.to_scalar(dtypes.args(&options), &state)?;
         assert!(!result.is_null());
         assert_eq!(
             result.as_decimal().decimal_value(),
@@ -403,9 +403,9 @@ mod tests {
         let near_limit = partial_with_decimal(DecimalValue::from(99_999_999_999_999i64));
         // Push the sum to exactly 10^14, exceeding precision 14.
         let one_more = partial_with_decimal(DecimalValue::from(1i64));
-        let state = Sum.merge_partials(&options, dtypes.borrow(), near_limit, one_more)?;
+        let state = Sum.merge_partials(dtypes.args(&options), near_limit, one_more)?;
 
-        let result = Sum.to_scalar(&options, dtypes.borrow(), &state)?;
+        let result = Sum.to_scalar(dtypes.args(&options), &state)?;
         assert!(result.is_null());
         assert_eq!(
             result.dtype(),
@@ -423,9 +423,9 @@ mod tests {
 
         let near_limit = partial_with_decimal(DecimalValue::from(-99_999_999_999_999i64));
         let one_more = partial_with_decimal(DecimalValue::from(-1i64));
-        let state = Sum.merge_partials(&options, dtypes.borrow(), near_limit, one_more)?;
+        let state = Sum.merge_partials(dtypes.args(&options), near_limit, one_more)?;
 
-        let result = Sum.to_scalar(&options, dtypes.borrow(), &state)?;
+        let result = Sum.to_scalar(dtypes.args(&options), &state)?;
         assert!(result.is_null());
         Ok(())
     }
@@ -456,9 +456,9 @@ mod tests {
         // Drive accumulate through the vtable directly.
         let columnar = crate::Columnar::Canonical(crate::Canonical::Decimal(decimal));
         let mut ctx = array_session().create_execution_ctx();
-        Sum.accumulate(&options, dtypes.borrow(), &mut state, &columnar, &mut ctx)?;
+        Sum.accumulate(dtypes.args(&options), &mut state, &columnar, &mut ctx)?;
 
-        let result = Sum.to_scalar(&options, dtypes.borrow(), &state)?;
+        let result = Sum.to_scalar(dtypes.args(&options), &state)?;
         assert!(result.is_null());
         Ok(())
     }
