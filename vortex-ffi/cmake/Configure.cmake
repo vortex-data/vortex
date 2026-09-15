@@ -400,6 +400,10 @@ block(SCOPE_FOR VARIABLES)
             "LINKER:--gc-sections")
         # Relink if the generated export policy changes.
         set_property(TARGET vortex_ffi_shared APPEND PROPERTY LINK_DEPENDS "${_exports}")
+
+        # GNU ld depfiles break on spaces; CMake already tracks the archive and script.
+        # Defer disabling linker depfiles so child directories keep their settings.
+        cmake_language(DEFER CALL set CMAKE_LINK_DEPENDS_USE_LINKER FALSE)
     else()
         message(FATAL_ERROR "Vortex shared-library exports are not configured for ${CMAKE_SYSTEM_NAME}")
     endif()
