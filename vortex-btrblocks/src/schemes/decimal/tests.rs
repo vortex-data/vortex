@@ -231,19 +231,21 @@ fn test_narrow_precision_with_wide_null_slot(
 }
 
 #[rstest]
-#[case::neither(vec![], false)]
-#[case::v1(vec![DecimalByteParts.id()], true)]
-#[case::v2_without_v1(vec![decimal_byte_parts_v2_id()], false)]
-#[case::both(vec![DecimalByteParts.id(), decimal_byte_parts_v2_id()], true)]
+#[case::neither(vec![], None)]
+#[case::v1(vec![DecimalByteParts.id()], Some(DecimalScheme.id()))]
+#[case::v2_without_v1(vec![decimal_byte_parts_v2_id()], None)]
+#[case::both(vec![DecimalByteParts.id(), decimal_byte_parts_v2_id()], Some(DecimalSchemeV2.id()))]
 fn test_decimal_scheme_requires_every_possible_wire_id(
     #[case] allowed: Vec<ArrayId>,
-    #[case] enabled: bool,
+    #[case] selected: Option<SchemeId>,
 ) {
     let compressor = BtrBlocksCompressorBuilder::default()
         .allow_serialized_ids(&allowed.into_iter().collect())
         .build();
-    assert_eq!(compressor.has_scheme(DecimalScheme.id()), enabled);
-    assert_eq!(compressor.has_scheme(DecimalSchemeV2.id()), enabled);
+    for scheme in [DecimalScheme.id(), DecimalSchemeV2.id()] {
+        assert_eq!(compressor.has_scheme_family(scheme), selected.is_some());
+        assert_eq!(compressor.has_scheme(scheme), selected == Some(scheme));
+    }
 }
 
 #[rstest]
@@ -253,8 +255,8 @@ fn test_excluding_either_decimal_version_removes_the_chain(#[case] excluded: Sch
     let compressor = BtrBlocksCompressorBuilder::default()
         .exclude_schemes([excluded])
         .build();
-    assert!(!compressor.has_scheme(DecimalScheme.id()));
-    assert!(!compressor.has_scheme(DecimalSchemeV2.id()));
+    assert!(!compressor.has_scheme_family(DecimalScheme.id()));
+    assert!(!compressor.has_scheme_family(DecimalSchemeV2.id()));
 }
 
 #[test]
