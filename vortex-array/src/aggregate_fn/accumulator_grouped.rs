@@ -265,7 +265,7 @@ impl<V: AggregateFnVTable> DynGroupedAccumulator for GroupedAccumulator<V> {
         let states = self.flush()?;
         let results = self
             .vtable
-            .finalize(&self.options, self.dtypes.borrow(), states)?;
+            .finalize(self.dtypes.args(&self.options), states)?;
 
         vortex_ensure!(
             results.dtype() == &self.dtypes.return_dtype,

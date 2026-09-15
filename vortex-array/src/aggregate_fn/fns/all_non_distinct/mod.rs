@@ -38,7 +38,7 @@ use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::aggregate_fn::Accumulator;
-use crate::aggregate_fn::AggregateDTypesRef;
+use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
@@ -150,8 +150,7 @@ impl AggregateFnVTable for AllNonDistinct {
 
     fn empty_partial(
         &self,
-        _options: &Self::Options,
-        _dtypes: AggregateDTypesRef<'_>,
+        _args: AggregateArgs<'_, Self::Options>,
     ) -> VortexResult<Self::Partial> {
         Ok(AllNonDistinctPartial {
             all_non_distinct: true,
@@ -160,8 +159,7 @@ impl AggregateFnVTable for AllNonDistinct {
 
     fn partial_from_scalar(
         &self,
-        _options: &Self::Options,
-        _dtypes: AggregateDTypesRef<'_>,
+        _args: AggregateArgs<'_, Self::Options>,
         scalar: Scalar,
     ) -> VortexResult<Self::Partial> {
         Ok(AllNonDistinctPartial {
@@ -171,8 +169,7 @@ impl AggregateFnVTable for AllNonDistinct {
 
     fn merge_partials(
         &self,
-        _options: &Self::Options,
-        _dtypes: AggregateDTypesRef<'_>,
+        _args: AggregateArgs<'_, Self::Options>,
         first: Self::Partial,
         second: Self::Partial,
     ) -> VortexResult<Self::Partial> {
@@ -183,8 +180,7 @@ impl AggregateFnVTable for AllNonDistinct {
 
     fn to_scalar(
         &self,
-        _options: &Self::Options,
-        _dtypes: AggregateDTypesRef<'_>,
+        _args: AggregateArgs<'_, Self::Options>,
         partial: &Self::Partial,
     ) -> VortexResult<Scalar> {
         Ok(Scalar::bool(
@@ -196,8 +192,7 @@ impl AggregateFnVTable for AllNonDistinct {
     #[inline]
     fn is_saturated(
         &self,
-        _options: &Self::Options,
-        _dtypes: AggregateDTypesRef<'_>,
+        _args: AggregateArgs<'_, Self::Options>,
         partial: &Self::Partial,
     ) -> bool {
         !partial.all_non_distinct
@@ -205,8 +200,7 @@ impl AggregateFnVTable for AllNonDistinct {
 
     fn accumulate(
         &self,
-        _options: &Self::Options,
-        _dtypes: AggregateDTypesRef<'_>,
+        _args: AggregateArgs<'_, Self::Options>,
         partial: &mut Self::Partial,
         batch: &Columnar,
         ctx: &mut ExecutionCtx,
@@ -258,8 +252,7 @@ impl AggregateFnVTable for AllNonDistinct {
 
     fn finalize(
         &self,
-        _options: &Self::Options,
-        _dtypes: AggregateDTypesRef<'_>,
+        _args: AggregateArgs<'_, Self::Options>,
         _partials: ArrayRef,
     ) -> VortexResult<ArrayRef> {
         vortex_bail!("AllNonDistinct does not support array finalization");
@@ -267,8 +260,7 @@ impl AggregateFnVTable for AllNonDistinct {
 
     fn finalize_scalar(
         &self,
-        _options: &Self::Options,
-        _dtypes: AggregateDTypesRef<'_>,
+        _args: AggregateArgs<'_, Self::Options>,
         partial: &Self::Partial,
     ) -> VortexResult<Scalar> {
         Ok(Scalar::bool(

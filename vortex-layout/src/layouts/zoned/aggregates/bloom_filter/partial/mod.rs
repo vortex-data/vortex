@@ -104,7 +104,7 @@ impl TryFrom<u32> for HashFn {
 /// )
 /// .expect("valid input dtype");
 /// let mut zone = filter
-///     .empty_partial(&options, dtypes.borrow())
+///     .empty_partial(dtypes.args(&options))
 ///     .expect("valid partial");
 ///
 /// zone.insert(b"Denmark");

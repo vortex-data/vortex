@@ -292,11 +292,11 @@ fn merge_from_overflow_is_absorbing() -> VortexResult<()> {
 
     // The overflow flag survives the scalar round trip.
     let dtypes = AggregateDTypes::try_new(&SumV2, &options, dtype)?;
-    let propagated = SumV2.partial_from_scalar(&options, dtypes.borrow(), overflow_partial)?;
-    assert!(SumV2.is_saturated(&options, dtypes.borrow(), &propagated));
+    let propagated = SumV2.partial_from_scalar(dtypes.args(&options), overflow_partial)?;
+    assert!(SumV2.is_saturated(dtypes.args(&options), &propagated));
     assert!(
         SumV2
-            .finalize_scalar(&options, dtypes.borrow(), &propagated)?
+            .finalize_scalar(dtypes.args(&options), &propagated)?
             .is_null()
     );
     Ok(())
@@ -381,7 +381,7 @@ fn finalize_struct_applies_partial_and_struct_validity(
     let options = NumericalAggregateOpts::default();
     let dtypes =
         AggregateDTypes::try_new(&SumV2, &options, DType::Primitive(PType::I64, Nullable))?;
-    let result = SumV2.finalize(&options, dtypes.borrow(), partials)?;
+    let result = SumV2.finalize(dtypes.args(&options), partials)?;
     let expected = PrimitiveArray::from_option_iter(expected).into_array();
     assert_arrays_eq!(
         &result,

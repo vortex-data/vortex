@@ -57,8 +57,7 @@ impl<V: AggregateFnVTable> Accumulator<V> {
 
     /// The state of a group with no accumulated values.
     pub(crate) fn empty_partial(&self) -> VortexResult<V::Partial> {
-        self.vtable
-            .empty_partial(&self.options, self.dtypes.borrow())
+        self.vtable.empty_partial(self.dtypes.args(&self.options))
     }
 
     fn ensure_partial(&mut self) -> VortexResult<()> {
@@ -74,7 +73,7 @@ impl<V: AggregateFnVTable> Accumulator<V> {
             None => other,
             Some(current) => {
                 self.vtable
-                    .merge_partials(&self.options, self.dtypes.borrow(), current, other)?
+                    .merge_partials(self.dtypes.args(&self.options), current, other)?
             }
         });
         Ok(())
@@ -83,7 +82,7 @@ impl<V: AggregateFnVTable> Accumulator<V> {
     fn fold_partial_scalar(&mut self, scalar: Scalar) -> VortexResult<()> {
         let other = self
             .vtable
-            .partial_from_scalar(&self.options, self.dtypes.borrow(), scalar)?;
+            .partial_from_scalar(self.dtypes.args(&self.options), scalar)?;
         self.fold_partial(other)
     }
 }
@@ -208,7 +207,7 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
         let partial = self.partial.as_mut().vortex_expect("partial materialized");
         if self
             .vtable
-            .try_accumulate(&self.options, self.dtypes.borrow(), partial, batch, ctx)?
+            .try_accumulate(self.dtypes.args(&self.options), partial, batch, ctx)?
         {
             return Ok(());
         }
@@ -248,7 +247,7 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
         self.ensure_partial()?;
         let partial = self.partial.as_mut().vortex_expect("partial materialized");
         self.vtable
-            .accumulate(&self.options, self.dtypes.borrow(), partial, &columnar, ctx)
+            .accumulate(self.dtypes.args(&self.options), partial, &columnar, ctx)
     }
 
     fn merge_from(&mut self, other: &mut dyn DynAccumulator) -> VortexResult<()> {
@@ -287,7 +286,7 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
     fn is_saturated(&self) -> bool {
         self.partial.as_ref().is_some_and(|partial| {
             self.vtable
-                .is_saturated(&self.options, self.dtypes.borrow(), partial)
+                .is_saturated(self.dtypes.args(&self.options), partial)
         })
     }
 
@@ -296,20 +295,18 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
     }
 
     fn partial_scalar(&self) -> VortexResult<Scalar> {
-        let dtypes = self.dtypes.borrow();
+        let args = self.dtypes.args(&self.options);
         let partial = match &self.partial {
-            Some(partial) => self.vtable.to_scalar(&self.options, dtypes, partial)?,
-            None => self
-                .vtable
-                .to_scalar(&self.options, dtypes, &self.empty_partial()?)?,
+            Some(partial) => self.vtable.to_scalar(args, partial)?,
+            None => self.vtable.to_scalar(args, &self.empty_partial()?)?,
         };
 
         #[cfg(debug_assertions)]
         {
             vortex_ensure!(
-                partial.dtype() == dtypes.partial_dtype,
+                partial.dtype() == args.partial_dtype,
                 "Aggregate returned incorrect DType on partial_scalar: expected {}, got {}",
-                dtypes.partial_dtype,
+                args.partial_dtype,
                 partial.dtype(),
             );
         }
@@ -318,20 +315,16 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
     }
 
     fn final_scalar(&self) -> VortexResult<Scalar> {
-        let dtypes = self.dtypes.borrow();
+        let args = self.dtypes.args(&self.options);
         let result = match &self.partial {
-            Some(partial) => self
-                .vtable
-                .finalize_scalar(&self.options, dtypes, partial)?,
-            None => self
-                .vtable
-                .finalize_scalar(&self.options, dtypes, &self.empty_partial()?)?,
+            Some(partial) => self.vtable.finalize_scalar(args, partial)?,
+            None => self.vtable.finalize_scalar(args, &self.empty_partial()?)?,
         };
 
         vortex_ensure!(
-            result.dtype() == dtypes.return_dtype,
+            result.dtype() == args.return_dtype,
             "Aggregate returned incorrect DType on final_scalar: expected {}, got {}",
-            dtypes.return_dtype,
+            args.return_dtype,
             result.dtype(),
         );
 
