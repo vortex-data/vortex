@@ -26,7 +26,11 @@ vortex-mask = { workspace = true }
 vortex-session = { workspace = true }
 
 [dev-dependencies]
+divan = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-arrow = { workspace = true }
 
+[[bench]]
+name = "scalar"
+harness = false
