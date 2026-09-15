@@ -9,11 +9,15 @@
 set -eu
 cd "$(dirname "$0")"
 
+coverage_key='$<TARGET_PROPERTY:BINARY_DIR>/$<TARGET_PROPERTY:NAME>'
+coverage_launcher="cmake;-E;env;SCCACHE_C_CUSTOM_CACHE_BUSTER=${SCCACHE_C_CUSTOM_CACHE_BUSTER:-}:$coverage_key"
+coverage_launcher="$coverage_launcher${CMAKE_CXX_COMPILER_LAUNCHER:+;$CMAKE_CXX_COMPILER_LAUNCHER}"
+
 cmake -S . -B build \
     -DBUILD_SHARED_LIBS=ON \
     -DVORTEX_BUILD_TESTS=ON \
     -DCMAKE_CXX_FLAGS=--coverage \
-    -DCMAKE_CXX_COMPILER_LAUNCHER=  # Disable caching: reused GCC objects can write .gcda files to an old target directory.
+    -DCMAKE_CXX_COMPILER_LAUNCHER="$coverage_launcher"  # Keep .gcda paths correct by separating sccache entries per target.
 
 # getconf works on Linux and macOS; nproc is not installed on stock macOS.
 cmake --build build \
