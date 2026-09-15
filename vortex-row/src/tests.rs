@@ -656,6 +656,29 @@ fn variable_list_prefix_order_precedes_following_column() -> VortexResult<()> {
 }
 
 #[test]
+fn variable_list_null_element_prefix_precedes_following_column() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    // The child null sentinel and ascending list terminator are both zero. The element marker
+    // must still make [null] sort before [null, 1] without observing the following column.
+    let lists = ListViewArray::new(
+        PrimitiveArray::from_option_iter([None, Some(1i32)]).into_array(),
+        buffer![0u32, 0].into_array(),
+        buffer![1u32, 2].into_array(),
+        Validity::NonNullable,
+    )
+    .into_array();
+    let suffix = PrimitiveArray::from_iter([i64::MAX, i64::MIN]).into_array();
+    let rows = collect_row_bytes(&convert_columns(
+        &[lists, suffix],
+        &[RowSortField::ascending(), RowSortField::ascending()],
+        &mut ctx,
+    )?);
+
+    assert!(rows[0] < rows[1]);
+    Ok(())
+}
+
+#[test]
 fn map_sort_order() -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
     let map_dtype = MapDType::try_new(

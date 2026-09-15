@@ -6,7 +6,6 @@
 use std::sync::Arc;
 
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
@@ -31,6 +30,7 @@ use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 
 use crate::codec;
+use crate::codec::PreparedField;
 use crate::codec::RowWidth;
 use crate::options::RowEncodingOptions;
 use crate::options::deserialize_row_encoding_options;
@@ -57,15 +57,14 @@ pub(crate) enum ColKind {
 /// Result of the size pass: enough information for both [`RowSize::execute`] and the
 /// downstream [`RowEncode`](super::encode::RowEncode) pipeline.
 ///
-/// `columns` holds the canonicalized form of each input so the encode pass can write bytes
-/// without re-decoding — a single canonicalization per column is shared between size and
-/// encode.
+/// `columns` holds canonicalized inputs plus any nested list preparation retained for the
+/// encode pass.
 pub(crate) struct SizePassResult {
     pub fixed_per_row: u32,
     pub var_lengths: Option<Vec<u32>>,
     pub col_kinds: Vec<ColKind>,
     pub first_varlen_idx: Option<usize>,
-    pub columns: Vec<Canonical>,
+    pub columns: Vec<PreparedField>,
 }
 
 /// Walk N input columns once, classifying each as fixed-width or variable-length and
@@ -96,7 +95,7 @@ pub(crate) fn compute_sizes(
     }
     let nrows = args.row_count();
 
-    let mut columns: Vec<Canonical> = Vec::with_capacity(n_inputs);
+    let mut columns: Vec<PreparedField> = Vec::with_capacity(n_inputs);
     let mut col_kinds: Vec<ColKind> = Vec::with_capacity(n_inputs);
     let mut fixed_per_row: u32 = 0;
     let mut var_lengths: Option<Vec<u32>> = None;
@@ -115,7 +114,7 @@ pub(crate) fn compute_sizes(
         }
         let width = codec::row_width_for_dtype(col.dtype())?;
         // Canonicalize once and reuse for both sizing (variable columns) and encoding.
-        let canonical = col.execute::<Canonical>(ctx)?;
+        let canonical = col.execute::<vortex_array::Canonical>(ctx)?;
         match width {
             RowWidth::Fixed(w) => {
                 col_kinds.push(ColKind::Fixed {
@@ -126,19 +125,19 @@ pub(crate) fn compute_sizes(
                     || vortex_error::vortex_err!("per-row fixed width overflows u32 at column {i}");
                 fixed_per_row = fixed_per_row.checked_add(w).ok_or_else(overflow)?;
                 running_fixed_prefix = running_fixed_prefix.checked_add(w).ok_or_else(overflow)?;
+                columns.push(PreparedField::Canonical(canonical));
             }
             RowWidth::Variable => {
                 if first_varlen_idx.is_none() {
                     first_varlen_idx = Some(i);
                 }
                 let v = var_lengths.get_or_insert_with(|| vec![0u32; nrows]);
-                codec::field_size(&canonical, options.fields[i], v, ctx)?;
+                columns.push(codec::prepare_field(canonical, options.fields[i], v, ctx)?);
                 col_kinds.push(ColKind::Variable {
                     fixed_prefix: running_fixed_prefix,
                 });
             }
         }
-        columns.push(canonical);
     }
 
     Ok(SizePassResult {
