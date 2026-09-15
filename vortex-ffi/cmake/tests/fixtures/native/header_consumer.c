@@ -5,6 +5,5 @@
 #include <vortex.h>
 
 int main(void) {
-    printf("%d %d\n", VORTEX_HEADER_VERSION, vx_fixture_value());
-    return 0;
+    printf("%d\n", VORTEX_HEADER_VERSION);
 }

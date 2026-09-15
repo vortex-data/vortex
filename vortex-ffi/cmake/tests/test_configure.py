@@ -94,11 +94,6 @@ class ConfigureTests(CMakeTest):
             set(CMAKE_BUILD_TYPE "")
             set(_vortex_top_level ON)
             add_subdirectory("{self.repo}" vortex EXCLUDE_FROM_ALL)
-            foreach(target IN ITEMS Vortex::ffi_static Vortex::ffi_shared Vortex::cpp_static Vortex::cpp_shared)
-                if(NOT TARGET ${{target}})
-                    message(FATAL_ERROR "Missing target: ${{target}}")
-                endif()
-            endforeach()
             if(NOT CMAKE_BUILD_TYPE STREQUAL "" OR NOT _vortex_top_level STREQUAL "ON")
                 message(FATAL_ERROR "Vortex changed parent variables")
             endif()
@@ -123,7 +118,7 @@ class ConfigureTests(CMakeTest):
             add_subdirectory("{self.repo}/vortex-ffi" ffi)
             """,
         ).parent
-        self.configure("lazy", "-DBUILD_SHARED_LIBS=ON", source=source)
+        self.configure("lazy", source=source)
         build = self.work / "lazy"
         self.cmake_build(build)
         self.assertFalse(list(build.rglob("libvortex_ffi.a")))

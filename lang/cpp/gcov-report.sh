@@ -9,9 +9,7 @@
 set -eu
 cd "$(dirname "$0")"
 
-# Cached GCC objects retain their original .gcda paths when target names change.
-# CMAKE_CXX_COMPILER_LAUNCHER= clears the inherited launcher during configuration;
-# -DCMAKE_CXX_COMPILER_LAUNCHER= also clears its value in CMakeCache.txt.
+# Clear environment and cached launchers: cached GCC objects embed stale .gcda paths.
 CMAKE_CXX_COMPILER_LAUNCHER= cmake -S . -B build \
     -DBUILD_SHARED_LIBS=ON \
     -DVORTEX_BUILD_TESTS=ON \

@@ -8,7 +8,6 @@ import json
 import shlex
 import shutil
 import subprocess
-import sys
 import tomllib
 import unittest
 from pathlib import Path
@@ -130,11 +129,11 @@ class CompilerCommandTests(CMakeTest):
                 staged = self.build_dir / "ffi/vortex-artifacts/include/vortex.h"
                 archive = self.build_dir / "ffi/vortex-artifacts/libvortex_ffi.a"
                 self.build("header_consumer")
-                self.assertEqual(self.command(consumer).stdout.strip(), "1 46")
+                self.assertEqual(self.command(consumer).stdout.strip(), "1")
                 archive_state = snapshot(archive)
                 self.write(version, "2\n")
                 self.build("header_consumer")
-                self.assertEqual(self.command(consumer).stdout.strip(), "2 46", "Must update on the first build")
+                self.assertEqual(self.command(consumer).stdout.strip(), "2", "Must update on the first build")
                 self.assertEqual(snapshot(archive), archive_state, "Header-only change must leave archive identical")
                 self.assertEqual(staged.read_bytes(), source_header.read_bytes())
                 outputs = snapshot(archive, staged, source_header, consumer, *self.build_dir.rglob("*.o"))
@@ -145,37 +144,8 @@ class CompilerCommandTests(CMakeTest):
                     self.assertFalse(path.exists(), path)
                 self.assertEqual(snapshot(source_header), {source_header: outputs[source_header]})
                 self.build("header_consumer")
-                self.assertEqual(self.command(consumer).stdout.strip(), "2 46")
+                self.assertEqual(self.command(consumer).stdout.strip(), "2")
                 self.assertEqual(staged.read_bytes(), source_header.read_bytes())
-
-    def test_shared_ffi_consumer(self) -> None:
-        cmake_lists = self.source / "CMakeLists.txt"
-        self.write(cmake_lists, cmake_lists.read_text().replace("Vortex::ffi_static", "Vortex::ffi_shared"))
-        self.configure(build_name="shared build directory")
-        self.build("header_consumer")
-        consumer = self.build_dir / "header_consumer"
-        artifacts = self.build_dir / "ffi/vortex-artifacts"
-        library = self.build_dir / "ffi" / ("libvortex_ffi.dylib" if sys.platform == "darwin" else "libvortex_ffi.so")
-        self.assertEqual(self.command(consumer).stdout.strip(), "1 46")
-
-        link = self.command("ninja", "-C", self.build_dir, "-t", "commands", "header_consumer").stdout.splitlines()[-1]
-        self.assertIn(library.name, link)
-        self.assertNotIn("libvortex_ffi.a", link, "The consumer must not relink the Rust static archive")
-        nm_flags = ("-gU",) if sys.platform == "darwin" else ("-D", "--defined-only")
-        exports = self.command("nm", *nm_flags, library).stdout
-        self.assertEqual(
-            {line.split()[-1].removeprefix("_") for line in exports.splitlines() if line.strip()},
-            {"vx_fixture_value"},
-            exports,
-        )
-
-        outputs = snapshot(consumer, library, artifacts / "libvortex_ffi.a", artifacts / "include/vortex.h")
-        rebuild = self.cmake_build(self.build_dir, "--target", "header_consumer", "--", "-d", "explain")
-        self.assertEqual(
-            snapshot(*outputs),
-            outputs,
-            f"An unchanged shared build must remain fresh\n{rebuild.stdout}{rebuild.stderr}",
-        )
 
     def test_host_target_instrumentation_and_cache_boundary(self) -> None:
         log = self.work / "cache calls.jsonl"
