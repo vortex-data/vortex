@@ -32,6 +32,7 @@ mod testing;
 
 pub use array::*;
 pub use plugin::DecimalBytePartsPlugin;
+pub use plugin::DecimalBytesPartsMetadata;
 pub use plugin::decimal_byte_parts_v2_id;
 pub use split::DecimalParts;
 pub use split::dbp_encode;

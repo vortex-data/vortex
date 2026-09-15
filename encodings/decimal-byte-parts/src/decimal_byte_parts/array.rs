@@ -7,14 +7,12 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hasher;
 
-use prost::Message as _;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
-use vortex_array::ArraySlots;
 use vortex_array::ArrayView;
 use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
@@ -24,7 +22,6 @@ use vortex_array::array_slots;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
-use vortex_array::dtype::PType;
 use vortex_array::scalar::DecimalValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
@@ -37,12 +34,10 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
-use super::LOWER_PART_DTYPE;
 use super::MAX_LOWER_PARTS;
 use super::assemble::assemble_decimal;
 use super::assemble::assemble_wide_decimal_value;
@@ -50,78 +45,6 @@ use super::rules::PARENT_RULES;
 
 /// A [`DecimalByteParts`]-encoded Vortex array.
 pub type DecimalBytePartsArray = Array<DecimalByteParts>;
-
-#[derive(Clone, prost::Message)]
-pub struct DecimalBytesPartsMetadata {
-    #[prost(enumeration = "PType", tag = "1")]
-    pub(super) zeroth_child_ptype: i32,
-    #[prost(uint32, tag = "2")]
-    pub(super) lower_part_count: u32,
-}
-
-impl DecimalBytesPartsMetadata {
-    pub(super) fn from_array(array: ArrayView<'_, DecimalByteParts>) -> VortexResult<Self> {
-        Ok(Self {
-            zeroth_child_ptype: PType::try_from(array.msp().dtype())? as i32,
-            lower_part_count: u32::try_from(array.lower_parts().len())
-                .map_err(|_| vortex_err!("lower part count exceeds u32"))?,
-        })
-    }
-
-    pub(super) fn into_array_parts(
-        self,
-        dtype: &DType,
-        len: usize,
-        children: &dyn ArrayChildren,
-    ) -> VortexResult<ArrayParts<DecimalByteParts>> {
-        vortex_ensure!(
-            dtype.as_decimal_opt().is_some(),
-            "decoding decimal but given non decimal dtype {dtype}"
-        );
-
-        let encoded_dtype = DType::Primitive(self.zeroth_child_ptype(), dtype.nullability());
-
-        let lower_part_count = self.lower_part_count()?;
-        vortex_ensure!(
-            children.len() == DecimalBytePartsSlots::FIXED_COUNT + lower_part_count,
-            "expected {} children, got {}",
-            DecimalBytePartsSlots::FIXED_COUNT + lower_part_count,
-            children.len()
-        );
-
-        let msp = children.get(DecimalBytePartsSlots::MSP, &encoded_dtype, len)?;
-
-        let mut slots = ArraySlots::with_capacity(children.len());
-        slots.push(Some(msp));
-        for idx in 0..lower_part_count {
-            slots.push(Some(children.get(
-                DecimalBytePartsSlots::LOWER_PARTS_OFFSET + idx,
-                &LOWER_PART_DTYPE,
-                len,
-            )?));
-        }
-
-        Ok(
-            ArrayParts::new(DecimalByteParts, dtype.clone(), len, DecimalBytePartsData)
-                .with_slots(slots),
-        )
-    }
-
-    /// The number of lower parts encoded in this array.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the count exceeds [`MAX_LOWER_PARTS`].
-    pub(super) fn lower_part_count(&self) -> VortexResult<usize> {
-        let count = usize::try_from(self.lower_part_count)
-            .map_err(|_| vortex_err!("lower part count {} out of range", self.lower_part_count))?;
-        vortex_ensure!(
-            count <= MAX_LOWER_PARTS,
-            "at most {MAX_LOWER_PARTS} lower parts are supported, got {count}"
-        );
-        Ok(count)
-    }
-}
 
 /// This array encodes decimals by splitting them between 1-4 columns of primitive typed children.
 ///
@@ -201,6 +124,11 @@ impl DecimalBytePartsData {
     }
 }
 
+/// The in-memory decimal byte-parts encoding.
+///
+/// Register [`super::DecimalBytePartsPlugin`] or call [`crate::initialize`] to read and write
+/// either serialized format. Registering this VTable directly, or calling its serde methods,
+/// returns an error when serializing or deserializing, including for the frozen v1 format.
 #[derive(Clone, Debug)]
 pub struct DecimalByteParts;
 
@@ -334,33 +262,22 @@ impl VTable for DecimalByteParts {
     }
 
     fn serialize(
-        array: ArrayView<'_, Self>,
+        _array: ArrayView<'_, Self>,
         _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
-        vortex_ensure!(
-            array.lower_parts().is_empty(),
-            "serializing DecimalByteParts with lower parts requires DecimalBytePartsPlugin"
-        );
-        Ok(Some(
-            DecimalBytesPartsMetadata::from_array(array)?.encode_to_vec(),
-        ))
+        vortex_bail!("DecimalByteParts serialization requires DecimalBytePartsPlugin")
     }
 
     fn deserialize(
         &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _metadata: &[u8],
         _buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
+        _children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
-        let metadata = DecimalBytesPartsMetadata::decode(metadata)?;
-        vortex_ensure!(
-            metadata.lower_part_count()? == 0,
-            "vortex.decimal_byte_parts must not carry lower parts"
-        );
-        metadata.into_array_parts(dtype, len, children)
+        vortex_bail!("DecimalByteParts deserialization requires DecimalBytePartsPlugin")
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
