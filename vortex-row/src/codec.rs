@@ -29,6 +29,9 @@ use vortex_array::ExecutionCtx;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::FixedSizeListArray;
+use vortex_array::arrays::ListView;
+use vortex_array::arrays::ListViewArray;
+use vortex_array::arrays::MapArray;
 use vortex_array::arrays::NullArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
@@ -37,12 +40,16 @@ use vortex_array::arrays::decimal::DecimalArrayExt;
 use vortex_array::arrays::decimal::converted_buffer;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
+use vortex_array::arrays::listview::ListViewArraySlotsExt;
+use vortex_array::arrays::map::MapArraySlotsExt;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::DecimalType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::half::f16;
+use vortex_array::dtype::i256;
+use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_native_ptype;
 use vortex_array::validity::Validity;
 use vortex_error::VortexExpect;
@@ -64,6 +71,13 @@ const VARLEN_BLOCK_TOTAL_U32: u32 = 33;
 pub(crate) const VARLEN_NULL_SIZE: u32 = 1;
 /// Size in bytes of an encoded empty varlen value (just the sentinel byte).
 pub(crate) const VARLEN_EMPTY_SIZE: u32 = 1;
+
+/// Prefix before each byte of a recursively encoded variable-list element.
+const LIST_BYTE_ESCAPE: u8 = 0x01;
+/// List terminator for ascending fields; sorts before another escaped element byte.
+const LIST_END_ASCENDING: u8 = 0x00;
+/// List terminator for descending fields; sorts after another escaped element byte.
+const LIST_END_DESCENDING: u8 = 0x02;
 
 /// Returns the size in bytes of the encoded form of a non-empty variable-length value.
 ///
@@ -147,7 +161,9 @@ fn varlen_non_empty_sentinel(field: RowSortField) -> u8 {
 /// nested struct/FSL when used as a variable-width child) it is the fixed-width null sentinel.
 fn child_canonical_null_byte(child_dtype: &DType, field: RowSortField) -> u8 {
     match child_dtype {
-        DType::Utf8(_) | DType::Binary(_) => varlen_null_sentinel(field),
+        DType::Utf8(_) | DType::Binary(_) | DType::List(..) | DType::Map(..) => {
+            varlen_null_sentinel(field)
+        }
         _ => field.null_sentinel(),
     }
 }
@@ -187,14 +203,15 @@ pub(crate) fn row_width_for_dtype(dtype: &DType) -> VortexResult<RowWidth> {
         )))),
         DType::Decimal(dt, _) => {
             let vt = decimal_key_type(dt);
-            if matches!(vt, DecimalType::I256) {
-                vortex_bail!("row encoding for Decimal256 is not yet implemented");
-            }
             Ok(RowWidth::Fixed(encoded_size_for_fixed(byte_width_u32(
                 vt.byte_width(),
             ))))
         }
         DType::Utf8(_) | DType::Binary(_) => Ok(RowWidth::Variable),
+        DType::List(elem, _) => {
+            row_width_for_dtype(elem)?;
+            Ok(RowWidth::Variable)
+        }
         DType::FixedSizeList(elem, n, _) => match row_width_for_dtype(elem)? {
             // FSL is fixed iff its element type is fixed. Add a sentinel byte for the FSL
             // itself, then `n` copies of the element width.
@@ -224,10 +241,9 @@ pub(crate) fn row_width_for_dtype(dtype: &DType) -> VortexResult<RowWidth> {
             }
             Ok(RowWidth::Fixed(total))
         }
-        DType::List(..) | DType::Map(..) => {
-            vortex_bail!(
-                "row encoding does not support variable-size List or Map arrays (no well-defined ordering)"
-            )
+        DType::Map(map_dtype, _) => {
+            row_width_for_dtype(&map_dtype.entries_dtype())?;
+            Ok(RowWidth::Variable)
         }
         DType::Variant(_) => {
             vortex_bail!("row encoding does not support Variant arrays (no well-defined ordering)")
@@ -259,10 +275,8 @@ pub(crate) fn field_size(
         Canonical::VarBinView(arr) => add_size_varbinview(arr, sizes, ctx)?,
         Canonical::Struct(arr) => add_size_struct(arr, field, sizes, ctx)?,
         Canonical::FixedSizeList(arr) => add_size_fsl(arr, field, sizes, ctx)?,
-        Canonical::List(_) => vortex_bail!(
-            "row encoding does not support canonical List arrays: {:?}",
-            canonical.dtype()
-        ),
+        Canonical::List(arr) => add_size_list(arr, field, sizes, ctx)?,
+        Canonical::Map(arr) => add_size_map(arr, field, sizes, ctx)?,
         Canonical::Variant(_) => {
             vortex_bail!("row encoding does not support Variant arrays (no well-defined ordering)")
         }
@@ -351,10 +365,8 @@ pub(crate) fn field_encode(
         Canonical::VarBinView(arr) => encode_varbinview(arr, field, offsets, cursors, out, ctx)?,
         Canonical::Struct(arr) => encode_struct(arr, field, offsets, cursors, out, ctx)?,
         Canonical::FixedSizeList(arr) => encode_fsl(arr, field, offsets, cursors, out, ctx)?,
-        Canonical::List(_) => vortex_bail!(
-            "row encoding does not support canonical List arrays: {:?}",
-            canonical.dtype()
-        ),
+        Canonical::List(arr) => encode_list(arr, field, offsets, cursors, out, ctx)?,
+        Canonical::Map(arr) => encode_map(arr, field, offsets, cursors, out, ctx)?,
         Canonical::Variant(_) => {
             vortex_bail!("row encoding does not support Variant arrays (no well-defined ordering)")
         }
@@ -390,6 +402,82 @@ fn add_size_primitive(arr: &PrimitiveArray, sizes: &mut [u32]) {
 fn add_size_decimal(arr: &DecimalArray, sizes: &mut [u32]) {
     let width = byte_width_u32(decimal_key_type(&arr.decimal_dtype()).byte_width());
     add_size_const(sizes, encoded_size_for_fixed(width));
+}
+
+fn list_ranges(arr: &ListViewArray, ctx: &mut ExecutionCtx) -> VortexResult<Vec<(usize, usize)>> {
+    use num_traits::ToPrimitive;
+
+    let offsets = arr.offsets().clone().execute::<PrimitiveArray>(ctx)?;
+    let sizes = arr.sizes().clone().execute::<PrimitiveArray>(ctx)?;
+    let offsets = match_each_integer_ptype!(offsets.ptype(), |O| {
+        offsets
+            .as_slice::<O>()
+            .iter()
+            .map(|value| {
+                value
+                    .to_usize()
+                    .vortex_expect("validated list offset must fit usize")
+            })
+            .collect::<Vec<_>>()
+    });
+    let sizes = match_each_integer_ptype!(sizes.ptype(), |S| {
+        sizes
+            .as_slice::<S>()
+            .iter()
+            .map(|value| {
+                value
+                    .to_usize()
+                    .vortex_expect("validated list size must fit usize")
+            })
+            .collect::<Vec<_>>()
+    });
+    Ok(offsets.into_iter().zip(sizes).collect())
+}
+
+fn add_size_list(
+    arr: &ListViewArray,
+    field: RowSortField,
+    sizes: &mut [u32],
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    debug_assert_eq!(arr.len(), sizes.len());
+    let mask = arr.as_ref().validity()?.execute_mask(arr.len(), ctx)?;
+    let ranges = list_ranges(arr, ctx)?;
+    let elements = arr.elements().clone().execute::<Canonical>(ctx)?;
+    let mut element_sizes = vec![0u32; elements.len()];
+    field_size(&elements, field, &mut element_sizes, ctx)?;
+
+    for (i, (offset, len)) in ranges.into_iter().enumerate() {
+        let contribution = if !mask.value(i) || len == 0 {
+            1
+        } else {
+            let body = element_sizes[offset..offset + len]
+                .iter()
+                .try_fold(0u32, |sum, &size| sum.checked_add(size))
+                .ok_or_else(|| vortex_error::vortex_err!("list element sizes overflow u32"))?;
+            body.checked_mul(2)
+                .and_then(|size| size.checked_add(2))
+                .ok_or_else(|| vortex_error::vortex_err!("list row size overflows u32"))?
+        };
+        sizes[i] = sizes[i]
+            .checked_add(contribution)
+            .ok_or_else(|| vortex_error::vortex_err!("per-row size overflow"))?;
+    }
+    Ok(())
+}
+
+fn add_size_map(
+    arr: &MapArray,
+    field: RowSortField,
+    sizes: &mut [u32],
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    add_size_list(
+        &arr.entries().as_::<ListView>().into_owned(),
+        field,
+        sizes,
+        ctx,
+    )
 }
 
 /// The decimal type every chunk of a decimal column encodes its keys at.
@@ -663,9 +751,102 @@ fn encode_decimal(
             encode_decimal_typed::<i128>(arr, &mask, field, row_offsets, col_offset, out)
         }
         DecimalType::I256 => {
-            vortex_bail!("row encoding for Decimal256 is not yet implemented")
+            encode_decimal_typed::<i256>(arr, &mask, field, row_offsets, col_offset, out)
         }
     }
+}
+
+fn encode_list(
+    arr: &ListViewArray,
+    field: RowSortField,
+    row_offsets: &[u32],
+    col_offset: &mut [u32],
+    out: &mut [u8],
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    let mask = arr.as_ref().validity()?.execute_mask(arr.len(), ctx)?;
+    let ranges = list_ranges(arr, ctx)?;
+    let elements = arr.elements().clone().execute::<Canonical>(ctx)?;
+    let mut element_sizes = vec![0u32; elements.len()];
+    field_size(&elements, field, &mut element_sizes, ctx)?;
+
+    let mut element_offsets = Vec::with_capacity(elements.len());
+    let mut total = 0u32;
+    for &size in &element_sizes {
+        element_offsets.push(total);
+        total = total
+            .checked_add(size)
+            .ok_or_else(|| vortex_error::vortex_err!("list element bytes overflow u32"))?;
+    }
+    let mut scratch = vec![0u8; total as usize];
+    let mut element_cursors = vec![0u32; elements.len()];
+    field_encode(
+        &elements,
+        field,
+        &element_offsets,
+        &mut element_cursors,
+        &mut scratch,
+        ctx,
+    )?;
+
+    let null = varlen_null_sentinel(field);
+    let empty = varlen_empty_sentinel(field);
+    let non_empty = varlen_non_empty_sentinel(field);
+    let end = if field.descending {
+        LIST_END_DESCENDING
+    } else {
+        LIST_END_ASCENDING
+    };
+    for (i, (offset, len)) in ranges.into_iter().enumerate() {
+        let start = (row_offsets[i] + col_offset[i]) as usize;
+        if !mask.value(i) {
+            out[start] = null;
+            col_offset[i] += 1;
+            continue;
+        }
+        if len == 0 {
+            out[start] = empty;
+            col_offset[i] += 1;
+            continue;
+        }
+
+        out[start] = non_empty;
+        let mut dst = start + 1;
+        for element_index in offset..offset + len {
+            let src = element_offsets[element_index] as usize;
+            let size = element_sizes[element_index] as usize;
+            for &byte in &scratch[src..src + size] {
+                out[dst] = LIST_BYTE_ESCAPE;
+                out[dst + 1] = byte;
+                dst += 2;
+            }
+        }
+        out[dst] = end;
+        let written =
+            u32::try_from(dst + 1 - start).vortex_expect("validated list row size must fit u32");
+        col_offset[i] = col_offset[i]
+            .checked_add(written)
+            .vortex_expect("list row offset overflow");
+    }
+    Ok(())
+}
+
+fn encode_map(
+    arr: &MapArray,
+    field: RowSortField,
+    row_offsets: &[u32],
+    col_offset: &mut [u32],
+    out: &mut [u8],
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    encode_list(
+        &arr.entries().as_::<ListView>().into_owned(),
+        field,
+        row_offsets,
+        col_offset,
+        out,
+        ctx,
+    )
 }
 
 fn encode_decimal_typed<T>(
@@ -1220,6 +1401,7 @@ impl_row_encode_signed!(i16);
 impl_row_encode_signed!(i32);
 impl_row_encode_signed!(i64);
 impl_row_encode_signed!(i128);
+impl_row_encode_signed!(i256);
 
 impl RowEncode for f32 {
     fn encode_to(self, out: &mut [u8], descending: bool) {

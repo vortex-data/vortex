@@ -284,12 +284,14 @@ width is the smallest decimal value type for the decimal precision:
 | `5..=9` | `i32` |
 | `10..=18` | `i64` |
 | `19..=38` | `i128` |
+| `39..=76` | `i256` |
 
 The storage integer is encoded with the signed integer encoding described above. Decimal
 columns have one precision and scale, so ordering the scaled integer storage values matches
 ordering the decimal values in that column.
 
-`Decimal256` is not supported by row encoding.
+The signed integer transform is identical at every width, including the 32-byte `i256`
+representation used by Decimal256.
 
 ## UTF-8 and Binary
 
@@ -395,6 +397,29 @@ For a null fixed-size list, the body is canonicalized:
 
 A fixed-size list has fixed row width only when its element type has fixed row width.
 
+## Variable-Size List
+
+A variable-size list is ordered lexicographically by its elements. Null and empty lists use
+the variable-width sentinels. A non-empty list is encoded as:
+
+```text
+varlen_non_empty_sentinel || escaped_elements || list_terminator
+```
+
+Each byte of each recursively encoded element is escaped as `0x01 || byte`. The terminator is
+`0x00` for ascending fields and `0x02` for descending fields. This makes a shorter list that
+is an element-wise prefix sort before the longer list in ascending order and after it in
+descending order, without allowing a following column to affect that comparison.
+
+Element encodings use the same `RowSortField` as the list. Consequently, nested null placement
+remains independent of sort direction, consistent with structs and fixed-size lists.
+
+## Map
+
+A map is encoded as its ordered list of non-null `{key, value}` entry structs. Entry order is
+significant regardless of the dtype's `keys_sorted` producer assertion. Map comparison is
+therefore lexicographic first by entry, then by key and value within each entry.
+
 ## Nested Values
 
 Nested structs and fixed-size lists apply the same rules recursively. Each nullable parent
@@ -407,17 +432,16 @@ The current row encoder rejects types for which it does not define byte-sort sem
 
 | Type | Reason |
 | --- | --- |
-| Variable-size `List` | No row encoding order is defined. |
 | `Variant` | No row encoding order is defined. |
-| `Union` | No row encoding order is defined. |
-| `Extension` | No row encoding order is defined. |
-| `Decimal256` | Encoding is not implemented. |
+| `Union` | Values with different active variants have no defined order. |
+| `Extension` | The extension API does not declare whether logical ordering matches storage ordering. |
 
 The absence of these encodings is intentional. Adding one requires defining both the logical
 ordering and the exact byte representation that preserves that ordering.
 
-Temporal extensions could be added later by normalizing them to storage arrays at the
-row-encoder boundary, once the supported temporal ordering contract is made explicit.
+Extensions can be added once the extension API exposes an explicit contract declaring that
+logical ordering is identical to storage ordering. The row encoder must not infer that contract
+from the storage dtype alone.
 
 ## Size and Output Layout
 

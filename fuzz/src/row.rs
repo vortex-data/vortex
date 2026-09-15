@@ -28,12 +28,13 @@ use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 use vortex_array::arrays::listview::ListViewArrayExt;
+use vortex_array::arrays::map::MapArraySlotsExt;
 use vortex_array::arrays::struct_::StructArrayExt;
-use vortex_array::dtype::BigCast;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::DecimalType;
 use vortex_array::dtype::PType;
+use vortex_array::dtype::ToI256;
 use vortex_array::dtype::half::f16;
+use vortex_array::dtype::i256;
 use vortex_array::match_each_decimal_value_type;
 use vortex_array::match_each_integer_ptype;
 use vortex_error::VortexExpect;
@@ -201,12 +202,10 @@ fn dtype_row_encodable(dtype: &DType) -> bool {
         DType::Null | DType::Bool(_) | DType::Primitive(..) | DType::Utf8(_) | DType::Binary(_) => {
             true
         }
-        DType::Decimal(dt, _) => !matches!(
-            DecimalType::smallest_decimal_value_type(dt),
-            DecimalType::I256
-        ),
+        DType::Decimal(..) => true,
         DType::Struct(fields, _) => fields.fields().all(|f| dtype_row_encodable(&f)),
-        DType::FixedSizeList(elem, ..) => dtype_row_encodable(elem),
+        DType::List(elem, _) | DType::FixedSizeList(elem, ..) => dtype_row_encodable(elem),
+        DType::Map(map_dtype, _) => dtype_row_encodable(&map_dtype.entries_dtype()),
         _ => false,
     }
 }
@@ -230,8 +229,8 @@ fn collect_row_bytes(array: &ListViewArray, ctx: &mut ExecutionCtx) -> Vec<Vec<u
 enum RowKey {
     Null,
     Bool(bool),
-    /// Every integer ptype and decimal unscaled value (Decimal256 is unsupported upstream).
-    Int(i128),
+    /// Every integer ptype and decimal unscaled value.
+    Int(i256),
     /// IEEE-754 total-order bit key (sign-flipped bits), matching the encoded byte order.
     Float(u64),
     Bytes(Vec<u8>),
@@ -350,7 +349,12 @@ fn row_keys(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Vec<RowKey
                 _ => match_each_integer_ptype!(a.ptype(), |P| {
                     a.as_slice::<P>()
                         .iter()
-                        .map(|v| RowKey::Int((*v).into()))
+                        .map(|v| {
+                            RowKey::Int(
+                                v.to_i256()
+                                    .vortex_expect("integer ptype must convert to i256"),
+                            )
+                        })
                         .collect::<Vec<_>>()
                 }),
             };
@@ -363,9 +367,11 @@ fn row_keys(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Vec<RowKey
                 Ok((0..len)
                     .map(|i| {
                         if mask.value(i) {
-                            RowKey::Int(<i128 as BigCast>::from(buf[i]).vortex_expect(
-                                "valid decimal values fit i128 (Decimal256 dtypes are filtered)",
-                            ))
+                            RowKey::Int(
+                                buf[i]
+                                    .to_i256()
+                                    .vortex_expect("decimal value must convert to i256"),
+                            )
                         } else {
                             RowKey::Null
                         }
@@ -403,6 +409,19 @@ fn row_keys(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Vec<RowKey
                 .collect();
             with_mask(keys, &a.into_array(), ctx)
         }
+        Canonical::List(a) => {
+            let mask = a.as_ref().validity()?.execute_mask(len, ctx)?;
+            let mut keys = Vec::with_capacity(len);
+            for i in 0..len {
+                if mask.value(i) {
+                    keys.push(RowKey::Composite(row_keys(&a.list_elements_at(i)?, ctx)?));
+                } else {
+                    keys.push(RowKey::Null);
+                }
+            }
+            Ok(keys)
+        }
+        Canonical::Map(a) => row_keys(a.entries(), ctx),
         c => unreachable!(
             "unsupported dtypes are rejected before oracle construction: {:?}",
             c.dtype()
