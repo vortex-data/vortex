@@ -12,6 +12,7 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::FixedSizeList;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListView;
@@ -32,7 +33,6 @@ use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::arrays::varbinview::build_views::BinaryView;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
-use vortex_array::builders::DecimalBuilder;
 use vortex_array::builders::FixedSizeListBuilder;
 use vortex_array::builders::ListViewBuilder;
 use vortex_array::builders::VarBinBuilder;
@@ -785,22 +785,23 @@ fn execute_sparse_decimal<D: NativeDecimalType>(
     len: usize,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let mut builder =
-        DecimalBuilder::with_capacity_in::<D>(len, decimal_dtype, nullability, ctx.allocator());
-    match fill_value.decimal_value() {
-        Some(fill_value) => {
-            let fill_value = fill_value
-                .cast::<D>()
-                .vortex_expect("unexpected value type");
-            for _ in 0..len {
-                builder.append_value(fill_value)
-            }
-        }
-        None => {
-            builder.append_nulls(len);
-        }
-    }
-    let filled_array = builder.finish_into_decimal();
+    // Fill the buffer in one go rather than a value at a time, as the other fills do.
+    let (values, validity) = match fill_value.decimal_value() {
+        Some(fill_value) => (
+            Buffer::full(
+                fill_value
+                    .cast::<D>()
+                    .vortex_expect("unexpected value type"),
+                len,
+            ),
+            Validity::from(nullability),
+        ),
+        None => (Buffer::<D>::zeroed(len), Validity::AllInvalid),
+    };
+
+    // SAFETY: the buffer holds `len` values of the dtype's value type, and the validity carries no
+    // length of its own.
+    let filled_array = unsafe { DecimalArray::new_unchecked(values, decimal_dtype, validity) };
     Ok(filled_array.patch(patches, ctx)?.into_array())
 }
 

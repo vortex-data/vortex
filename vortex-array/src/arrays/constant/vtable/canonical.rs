@@ -215,9 +215,6 @@ pub(crate) fn constant_canonicalize(
 }
 
 /// Builds the canonical view array for a constant string or binary run.
-///
-/// The value is stored once: inlined into the repeated view when it is short enough, and otherwise
-/// adopted as the array's single data buffer, so nothing is copied however long the run.
 fn constant_canonical_byte_view(
     scalar_bytes: Option<ByteBuffer>,
     dtype: &DType,
@@ -240,9 +237,8 @@ fn constant_canonical_byte_view(
         Some(scalar_bytes) => {
             // Create a view to hold the scalar bytes.
             let view = BinaryView::make_view(scalar_bytes.as_slice(), 0, 0);
-            // A value short enough to inline lives entirely in its view; only a longer one needs
-            // its bytes as a data buffer, and then the scalar's own buffer is adopted rather than
-            // copied.
+            // A value short enough to inline lives entirely in its view, so only a longer one
+            // needs a data buffer. Adopt the scalar's own rather than copying it.
             let mut buffers = Vec::new();
             if scalar_bytes.len() > BinaryView::MAX_INLINED_SIZE {
                 buffers.push(scalar_bytes);
@@ -308,8 +304,7 @@ fn constant_canonical_list_array(
         Validity::NonNullable
     };
 
-    // Every row has the same offset and size, so the narrowest width that can describe the list is
-    // enough - and is what a consumer that decodes them pays for.
+    // Every row has the same offset and size, so use the narrowest width that fits the list.
     let (offsets, sizes) = match_smallest_list_offset_type!(list.len(), |O| {
         let size = O::try_from(list.len()).vortex_expect("list length fits the chosen offset type");
         (
@@ -328,11 +323,6 @@ fn constant_canonical_list_array(
 }
 
 /// Creates a [`FixedSizeListArray`] whose every row holds the same list.
-///
-/// A fixed-size list holds its elements back to back, so a run of `len` identical rows is the
-/// list's elements tiled `len` times - there is no layout that lets the rows share one range of
-/// elements the way a list view's can. Building that tiling still costs nothing per row: see
-/// [`tile_fixed_size_list_elements`].
 fn constant_canonical_fixed_size_list_array(
     values: Option<Vec<Scalar>>,
     element_dtype: &DType,
@@ -344,8 +334,7 @@ fn constant_canonical_fixed_size_list_array(
     let elements_len = list_size as usize * len;
 
     let (elements, validity) = match values {
-        // A null list has no elements of its own, only the placeholders the layout requires. They
-        // are all the element dtype's default value, so one constant array covers the whole run.
+        // A null list's elements are all placeholders, so one constant array covers the run.
         None => (
             ConstantArray::new(Scalar::default_value(element_dtype), elements_len).into_array(),
             Validity::AllInvalid,
@@ -356,16 +345,16 @@ fn constant_canonical_fixed_size_list_array(
         ),
     };
 
-    // SAFETY: `elements` holds exactly `list_size * len` values, and the validity is one of
-    // `AllInvalid`, `AllValid` or `NonNullable`, none of which carry a length of their own.
+    // SAFETY: `elements` holds exactly `list_size * len` values, and the validity carries no
+    // length of its own.
     unsafe { FixedSizeListArray::new_unchecked(elements, list_size, validity, len) }
 }
 
 /// Tiles one row's `values` across a run of `len` rows, storing them once.
 ///
-/// Elements that are all the same scalar stay a [`ConstantArray`], so the whole run's elements are
-/// a single array however long it is. Otherwise the row materializes once and the run becomes
-/// `len` chunks pointing at that one copy, rather than `len` copies of it.
+/// A fixed-size list holds its elements back to back, so the rows cannot share one range the way a
+/// list view's can. Uniform elements stay a [`ConstantArray`] covering the whole run; otherwise the
+/// row materializes once and the run chunks that single copy.
 fn tile_fixed_size_list_elements(
     values: &[Scalar],
     element_dtype: &DType,
@@ -373,7 +362,7 @@ fn tile_fixed_size_list_elements(
     elements_len: usize,
     allocator: &BufferAllocatorRef,
 ) -> ArrayRef {
-    // An empty run, or a degenerate `list_size == 0`, has no elements to tile at all.
+    // An empty run, or a degenerate `list_size == 0`.
     if elements_len == 0 {
         return Canonical::empty(element_dtype).into_array();
     }
@@ -947,8 +936,7 @@ mod tests {
         }
     }
 
-    /// A constant fixed-size list whose elements are all the same scalar stores those elements as
-    /// one constant array, so the run costs nothing per row.
+    /// Uniform elements should stay one constant array, not materialize per row.
     #[test]
     fn test_canonicalize_fixed_size_list_uniform_elements_stay_constant() {
         let mut ctx = SESSION.create_execution_ctx();
@@ -978,8 +966,7 @@ mod tests {
         }
     }
 
-    /// A constant fixed-size list whose elements differ materializes one copy of the row and tiles
-    /// it, so the run holds a chunk per row rather than a copy of the elements per row.
+    /// Mixed elements should materialize once, with every row chunking that one copy.
     #[test]
     fn test_canonicalize_fixed_size_list_tiles_one_copy_of_mixed_elements() {
         let mut ctx = SESSION.create_execution_ctx();
@@ -1013,8 +1000,7 @@ mod tests {
         }
     }
 
-    /// A value short enough to inline lives in its view; only a longer one costs a data buffer,
-    /// and then the scalar's own bytes are adopted rather than copied.
+    /// Only a value too long to inline should cost a data buffer.
     #[rstest]
     #[case::inlined("exactly12chr", 0)]
     #[case::referenced("thirteen chrs", 1)]
