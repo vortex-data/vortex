@@ -5,14 +5,14 @@
 Add a complete Vortex checkout. CMake builds the Rust archive for you:
 
 ```cmake
-set(BUILD_SHARED_LIBS ON)
 add_subdirectory(path/to/vortex vortex)
 target_link_libraries(my_target PRIVATE Vortex::ffi_shared)
 ```
 
 The target supplies the library and headers. For static linkage, use `Vortex::ffi_static`.
-You can also add `vortex-ffi` directly. See the [CMake build guide](../lang/cpp/README.md)
-for requirements, options, and deployment limits.
+Both targets are available regardless of `BUILD_SHARED_LIBS`. You can also add `vortex-ffi`
+directly. See the [CMake build guide](../lang/cpp/README.md) for requirements, options, and
+deployment limits.
 
 ### Examples and tests
 

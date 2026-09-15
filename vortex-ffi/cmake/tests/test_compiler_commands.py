@@ -130,11 +130,11 @@ class CompilerCommandTests(CMakeTest):
                 staged = self.build_dir / "ffi/vortex-artifacts/include/vortex.h"
                 archive = self.build_dir / "ffi/vortex-artifacts/libvortex_ffi.a"
                 self.build("header_consumer")
-                self.assertEqual(self.command(consumer).stdout.strip(), "1")
+                self.assertEqual(self.command(consumer).stdout.strip(), "1 46")
                 archive_state = snapshot(archive)
                 self.write(version, "2\n")
                 self.build("header_consumer")
-                self.assertEqual(self.command(consumer).stdout.strip(), "2", "Must update on the first build")
+                self.assertEqual(self.command(consumer).stdout.strip(), "2 46", "Must update on the first build")
                 self.assertEqual(snapshot(archive), archive_state, "Header-only change must leave archive identical")
                 self.assertEqual(staged.read_bytes(), source_header.read_bytes())
                 outputs = snapshot(archive, staged, source_header, consumer, *self.build_dir.rglob("*.o"))
@@ -145,21 +145,18 @@ class CompilerCommandTests(CMakeTest):
                     self.assertFalse(path.exists(), path)
                 self.assertEqual(snapshot(source_header), {source_header: outputs[source_header]})
                 self.build("header_consumer")
-                self.assertEqual(self.command(consumer).stdout.strip(), "2")
+                self.assertEqual(self.command(consumer).stdout.strip(), "2 46")
                 self.assertEqual(staged.read_bytes(), source_header.read_bytes())
 
     def test_shared_ffi_consumer(self) -> None:
         cmake_lists = self.source / "CMakeLists.txt"
-        self.write(
-            cmake_lists,
-            "set(BUILD_SHARED_LIBS ON)\n" + cmake_lists.read_text().replace("Vortex::ffi_static", "Vortex::ffi_shared"),
-        )
+        self.write(cmake_lists, cmake_lists.read_text().replace("Vortex::ffi_static", "Vortex::ffi_shared"))
         self.configure(build_name="shared build directory")
         self.build("header_consumer")
         consumer = self.build_dir / "header_consumer"
         artifacts = self.build_dir / "ffi/vortex-artifacts"
-        library = artifacts / ("libvortex_ffi.dylib" if sys.platform == "darwin" else "libvortex_ffi.so")
-        self.command(consumer)
+        library = self.build_dir / "ffi" / ("libvortex_ffi.dylib" if sys.platform == "darwin" else "libvortex_ffi.so")
+        self.assertEqual(self.command(consumer).stdout.strip(), "1 46")
 
         link = self.command("ninja", "-C", self.build_dir, "-t", "commands", "header_consumer").stdout.splitlines()[-1]
         self.assertIn(library.name, link)

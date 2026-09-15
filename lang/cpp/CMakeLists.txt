@@ -33,7 +33,7 @@ if(_vortex_top_level AND NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug)
 endif()
 
-option(BUILD_SHARED_LIBS "Build and use shared libraries" OFF)
+option(BUILD_SHARED_LIBS "Use shared libraries for Vortex builds, tests, and examples" OFF)
 option(VORTEX_BUILD_TESTS "Build Vortex tests" OFF)
 option(VORTEX_BUILD_EXAMPLES "Build Vortex examples" OFF)
 option(VORTEX_WARNINGS_AS_ERRORS
@@ -53,27 +53,30 @@ file(GLOB _vortex_cpp_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src
 
 # Preserve the static API and its hidden symbols for embedding in other DSOs.
 add_library(vortex_cxx STATIC ${_vortex_cpp_sources})
-set_target_properties(vortex_cxx PROPERTIES CXX_VISIBILITY_PRESET hidden)
+set_target_properties(vortex_cxx PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+    CXX_VISIBILITY_PRESET hidden)
 target_link_libraries(vortex_cxx PUBLIC Vortex::ffi_static)
 add_library(Vortex::cpp_static ALIAS vortex_cxx)
-set(_vortex_cpp_target Vortex::cpp_static)
-set(_vortex_cpp_targets vortex_cxx)
+
+add_library(vortex_cxx_shared SHARED ${_vortex_cpp_sources})
+# Override an inherited hidden preset so the shared C++ API remains exported.
+set_target_properties(vortex_cxx_shared PROPERTIES
+    OUTPUT_NAME vortex_cxx
+    CXX_VISIBILITY_PRESET default)
+target_link_libraries(vortex_cxx_shared PUBLIC Vortex::ffi_shared)
+add_library(Vortex::cpp_shared ALIAS vortex_cxx_shared)
+
 if(BUILD_SHARED_LIBS)
     set_target_properties(vortex_cxx PROPERTIES EXCLUDE_FROM_ALL TRUE)
-    add_library(vortex_cxx_shared SHARED ${_vortex_cpp_sources})
-    set_target_properties(vortex_cxx_shared PROPERTIES
-        OUTPUT_NAME vortex_cxx
-        CXX_VISIBILITY_PRESET default)
-    target_link_libraries(vortex_cxx_shared PUBLIC Vortex::ffi_shared)
-    add_library(Vortex::cpp_shared ALIAS vortex_cxx_shared)
     set(_vortex_cpp_target Vortex::cpp_shared)
-    list(APPEND _vortex_cpp_targets vortex_cxx_shared)
+else()
+    set_target_properties(vortex_cxx_shared PROPERTIES EXCLUDE_FROM_ALL TRUE)
+    set(_vortex_cpp_target Vortex::cpp_static)
 endif()
 
-foreach(_target IN LISTS _vortex_cpp_targets)
-    set_target_properties(${_target} PROPERTIES
-        POSITION_INDEPENDENT_CODE ON
-        VISIBILITY_INLINES_HIDDEN ON)
+foreach(_target IN ITEMS vortex_cxx vortex_cxx_shared)
+    set_target_properties(${_target} PROPERTIES VISIBILITY_INLINES_HIDDEN ON)
     target_compile_features(${_target} PUBLIC cxx_std_20)
     target_include_directories(${_target} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
     # Warning policy must not propagate into consumers.

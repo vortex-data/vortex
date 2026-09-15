@@ -674,7 +674,6 @@ jobs:
           cmake -S lang/cpp -B build \
             -DCMAKE_BUILD_TYPE=Debug \
             -DBUILD_SHARED_LIBS=ON \
-            -DVORTEX_DEBUG_INFO=2 \
             -DCMAKE_C_COMPILER=clang \
             -DCMAKE_CXX_COMPILER=clang++ \
             -DVORTEX_SANITIZER=asan \
