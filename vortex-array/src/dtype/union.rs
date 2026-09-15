@@ -266,6 +266,13 @@ impl UnionVariants {
     ) -> VortexResult<Self> {
         Self::validate_shape(&names, dtypes.len(), &type_ids)?;
 
+        // Decode up front for the same reason as `StructFields::try_from_fields`.
+        for (name, dtype) in names.iter().zip_eq(dtypes.iter()) {
+            dtype
+                .value()
+                .map_err(|e| e.with_context(format!("invalid dtype for union variant {name}")))?;
+        }
+
         Ok(Self(Arc::new(UnionVariantsInner::from_fields(
             names,
             dtypes.into(),
