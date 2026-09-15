@@ -21,6 +21,7 @@ use super::DecimalBytePartsArraySlotsExt;
 
 #[cfg(test)]
 mod tests;
+
 mod v1;
 mod v2;
 

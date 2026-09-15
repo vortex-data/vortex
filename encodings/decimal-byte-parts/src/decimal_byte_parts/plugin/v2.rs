@@ -3,7 +3,6 @@
 
 //! Serde for DBP values with unsigned lower parts.
 
-use num_traits::AsPrimitive;
 use prost::Message as _;
 use vortex_array::Array;
 use vortex_array::ArrayDeserialization;
@@ -74,37 +73,37 @@ pub(super) fn deserialize(parts: ArrayDeserialization<'_>) -> VortexResult<Decim
         "expected a decimal dtype"
     );
 
-    let n_lower_parts: usize = metadata.lower_part_count.as_();
-
+    let lower_part_count = usize::try_from(metadata.lower_part_count).map_err(|_| {
+        vortex_err!(
+            "lower part count {} out of range",
+            metadata.lower_part_count
+        )
+    })?;
     vortex_ensure!(
-        n_lower_parts <= MAX_LOWER_PARTS,
-        "expected at most {MAX_LOWER_PARTS} lower parts"
+        (1..=MAX_LOWER_PARTS).contains(&lower_part_count),
+        "v2 must carry between 1 and {MAX_LOWER_PARTS} lower parts, got {lower_part_count}"
     );
-
-    let n_lower_part_ptypes = metadata.lower_part_ptypes.len();
     vortex_ensure!(
-        n_lower_part_ptypes == n_lower_parts,
-        "got {n_lower_part_ptypes} lower part ptypes but {n_lower_parts} lower parts"
+        metadata.lower_part_ptypes.len() == lower_part_count,
+        "expected {lower_part_count} lower-part dtypes, got {}",
+        metadata.lower_part_ptypes.len()
     );
-
-    let n_children = parts.children.len();
-    let n_children_expected = 1 + n_lower_parts;
     vortex_ensure!(
-        n_children == n_children_expected,
-        "expected {n_children_expected} children, got {n_children}"
+        parts.children.len() == 1 + lower_part_count,
+        "expected {} children, got {}",
+        1 + lower_part_count,
+        parts.children.len()
     );
 
     let msp_ptype = PType::try_from(metadata.zeroth_child_ptype)?;
     vortex_ensure!(
         msp_ptype.is_signed_int(),
-        "MSP must have a signed integer ptype"
+        "MSP must have a signed integer dtype, got {msp_ptype}"
     );
-
     let msp_dtype = DType::Primitive(msp_ptype, parts.dtype.nullability());
 
     let mut slots = ArraySlots::with_capacity(parts.children.len());
     slots.push(Some(parts.children.get(0, &msp_dtype, parts.len)?));
-
     for (idx, raw_ptype) in metadata.lower_part_ptypes.into_iter().enumerate() {
         let ptype = PType::try_from(raw_ptype)
             .map_err(|_| vortex_err!("invalid PType {raw_ptype} for lower part {idx}"))?;
