@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 
 use crate::ExecutionCtx;
 use crate::array::ArrayView;
@@ -26,7 +27,11 @@ impl OperationsVTable<Struct> for Struct {
         let mut field_values = Vec::with_capacity(nfields);
         for field in 0..nfields {
             let slot = StructSlots::FIELDS_OFFSET + field;
-            field_values.push(state.child_scalar(slot, index, ctx)?.into_value());
+            let value = state
+                .slot(slot)?
+                .ok_or_else(|| vortex_err!("Struct field slot {slot} is absent"))?
+                .execute_scalar(index, ctx)?;
+            field_values.push(value.into_value());
         }
         // SAFETY: The vtable guarantees index is in-bounds and non-null before this is called.
         // Each field read returns a value with the field's own dtype.

@@ -35,7 +35,6 @@ use crate::array::ArrayInner;
 use crate::array::ArraySlots;
 use crate::array::DynArrayData;
 use crate::array::probe::ArrayProbe;
-use crate::array::probe::Probe;
 use crate::array::probe::RepeatedArrayProbe;
 use crate::arrays::Constant;
 use crate::arrays::DictArray;
@@ -279,6 +278,7 @@ impl ArrayRef {
     ///
     /// A one-off read; the same as `self.probe().execute_scalar(index, ctx)`.
     // TODO(joe): deprecate this in favour of `probe()`.
+    #[inline]
     pub fn execute_scalar(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
         self.probe().execute_scalar(index, ctx)
     }
@@ -287,7 +287,7 @@ impl ArrayRef {
     /// many reads of the same array use [`Self::repeated_probe`].
     ///
     /// ```
-    /// use vortex_array::{IntoArray, Probe, VortexSessionExecute};
+    /// use vortex_array::{IntoArray, VortexSessionExecute};
     /// use vortex_array::arrays::PrimitiveArray;
     ///
     /// let array = PrimitiveArray::from_iter([10i32, 20, 30]).into_array();
@@ -297,14 +297,14 @@ impl ArrayRef {
     /// ```
     #[inline]
     pub fn probe(&self) -> ArrayProbe<'_> {
-        ArrayProbe::new(self)
+        ArrayProbe::Once(self)
     }
 
     /// A row accessor that owns a handle to this array and keeps encoding state, its validity
     /// probe and child probes between reads.
     ///
     /// ```
-    /// use vortex_array::{IntoArray, Probe, VortexSessionExecute};
+    /// use vortex_array::{IntoArray, VortexSessionExecute};
     /// use vortex_array::arrays::PrimitiveArray;
     ///
     /// let array = PrimitiveArray::from_iter([10i32, 20, 30]).into_array();
@@ -322,12 +322,14 @@ impl ArrayRef {
     ///
     /// A one-off read; the same as `self.probe().execute_is_valid(index, ctx)`.
     // TODO(joe): deprecate this in favour of `probe/repeated_probe()`.
+    #[inline]
     pub fn is_valid(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
         self.probe().execute_is_valid(index, ctx)
     }
 
     /// Returns whether the item at `index` is invalid.
     // TODO(joe): deprecate this.
+    #[inline]
     pub fn is_invalid(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
         Ok(!self.is_valid(index, ctx)?)
     }

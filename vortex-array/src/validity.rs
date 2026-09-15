@@ -24,8 +24,6 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::ProbeValidity;
-use crate::RepeatedArrayProbe;
 use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
 use crate::arrays::ChunkedArray;
@@ -161,19 +159,6 @@ impl Validity {
         match nullability {
             Nullability::NonNullable => self,
             Nullability::Nullable => self.into_nullable(),
-        }
-    }
-
-    /// Create a retained accessor for repeated lookups.
-    ///
-    /// Mirrors [`ArrayRef::repeated_probe`]. Uniform validity retains nothing; array-backed
-    /// validity keeps a probe over the underlying boolean array. For a single lookup use
-    /// [`Self::execute_is_valid`].
-    pub fn probe(self) -> ProbeValidity {
-        match self {
-            Self::NonNullable | Self::AllValid => ProbeValidity::Constant(true),
-            Self::AllInvalid => ProbeValidity::Constant(false),
-            Self::Array(array) => ProbeValidity::Array(RepeatedArrayProbe::new(array)),
         }
     }
 

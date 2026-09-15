@@ -234,12 +234,12 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar>;
 
-    /// Read a non-null scalar at `index`, keeping preparation in `storage` for later reads.
+    /// Read a non-null scalar at `index`, keeping preparation in `state` for later reads.
     fn probe_scalar_retained(
         &self,
         this: &ArrayRef,
         index: usize,
-        storage: &mut ProbeStorage,
+        state: &mut Option<Box<dyn Any>>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar>;
 }
@@ -522,12 +522,12 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
         &self,
         this: &ArrayRef,
         index: usize,
-        storage: &mut ProbeStorage,
+        state: &mut Option<Box<dyn Any>>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         // SAFETY: this adapter belongs to the ArrayData<V> stored in `this`.
         let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        let mut state = ProbeState::repeated(view, storage.get_or_init()?);
+        let mut state = ProbeState::repeated(view, repeated_state(state)?);
         <V::OperationsVTable as OperationsVTable<V>>::probe_scalar(&mut state, index, ctx)
     }
 }

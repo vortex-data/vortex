@@ -30,9 +30,8 @@ pub trait OperationsVTable<V: VTable> {
     /// Bounds and validity have been checked; the row is non-null. `state` carries the typed
     /// view of the array and, for a read through a
     /// [`RepeatedArrayProbe`](crate::RepeatedArrayProbe), the state that probe keeps. Read
-    /// children through [`ProbeState::child_scalar`], or hold a child probe from
-    /// [`ProbeState::slot`]; both follow the read's policy without the encoding having to know
-    /// it. Take encoding state from [`ProbeState::retained`]. The scalar must retain the source's
+    /// children through [`ProbeState::slot`], which follows the read's policy without the
+    /// encoding having to know it. Take encoding state from [`ProbeState::retained`]. The scalar must retain the source's
     /// logical dtype, including nullability.
     ///
     /// The default preserves the existing scalar path without adding caching.
