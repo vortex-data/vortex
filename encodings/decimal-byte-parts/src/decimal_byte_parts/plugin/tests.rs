@@ -30,8 +30,8 @@ use vortex_session::registry::ReadContext;
 use super::*;
 use crate::DecimalBytePartsArray;
 use crate::DecimalBytePartsArraySlotsExt;
+use crate::dbp_encode;
 use crate::decimal_byte_parts::MAX_LOWER_PARTS;
-use crate::decimal_byte_parts::testing::encode;
 
 #[rstest]
 #[case::no_lower_parts(DecimalByteParts::try_new(
@@ -40,16 +40,21 @@ use crate::decimal_byte_parts::testing::encode;
 #[case::one_lower_part(DecimalByteParts::try_new_with_lower_parts(
     msp(), vec![lower_part()], DecimalDType::new(38, 2),
 ))]
-#[case::wider_i64_storage(encode(&DecimalArray::new(
-    buffer![-99i64, 0, 99], DecimalDType::new(2, 0), Validity::NonNullable,
-)))]
-#[case::wider_i128_storage(encode(&DecimalArray::new(
-    buffer![-99i128, 0, 99], DecimalDType::new(2, 0), Validity::NonNullable,
-)))]
-#[case::wider_i256_storage(encode(&DecimalArray::new(
-    buffer![i256::from_i128(-99), i256::ZERO, i256::from_i128(99)],
-    DecimalDType::new(2, 0), Validity::NonNullable,
-)))]
+#[case::wider_i64_storage(dbp_encode(
+    &DecimalArray::new(buffer![-99i64, 0, 99], DecimalDType::new(2, 0), Validity::NonNullable),
+    &mut array_session().create_execution_ctx(),
+))]
+#[case::wider_i128_storage(dbp_encode(
+    &DecimalArray::new(buffer![-99i128, 0, 99], DecimalDType::new(2, 0), Validity::NonNullable),
+    &mut array_session().create_execution_ctx(),
+))]
+#[case::wider_i256_storage(dbp_encode(
+    &DecimalArray::new(
+        buffer![i256::from_i128(-99), i256::ZERO, i256::from_i128(99)],
+        DecimalDType::new(2, 0), Validity::NonNullable,
+    ),
+    &mut array_session().create_execution_ctx(),
+))]
 #[case::redundant_lower_parts(DecimalByteParts::try_new_with_lower_parts(
     buffer![0i64; 3].into_array(),
     vec![buffer![0u64; 3].into_array(), buffer![0u64; 3].into_array(), lower_part()],
