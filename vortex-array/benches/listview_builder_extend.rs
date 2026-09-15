@@ -71,7 +71,6 @@ fn extend_from_array_zctl(bencher: Bencher, (num_lists, list_size): (usize, usiz
         let mut builder = ListViewBuilder::<u64, u64>::with_capacity_in(
             Arc::new(DType::Primitive(I32, NonNullable)),
             NonNullable,
-            num_lists * list_size,
             num_lists,
             ctx.allocator(),
         );
@@ -95,7 +94,6 @@ fn extend_from_array_non_zctl_overlapping(
         let mut builder = ListViewBuilder::<u64, u64>::with_capacity_in(
             Arc::new(DType::Primitive(I32, NonNullable)),
             Nullable,
-            num_lists * list_size,
             num_lists,
             ctx.allocator(),
         );

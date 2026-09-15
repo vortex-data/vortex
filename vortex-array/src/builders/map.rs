@@ -75,7 +75,6 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> MapBuilder<O, S> {
         let entries_builder = ListViewBuilder::with_capacity_in(
             Arc::new(map_dtype.entries_dtype()),
             nullability,
-            capacity.saturating_mul(2),
             capacity,
             allocator,
         );
@@ -112,10 +111,14 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> MapBuilder<O, S> {
 
     /// Finishes the builder directly into a [`MapArray`].
     pub fn finish_into_map(&mut self) -> MapArray {
-        MapArray::new(
-            self.map_dtype.clone(),
-            self.entries_builder.finish_into_listview(),
-        )
+        // SAFETY: the entries builder was constructed from `map_dtype.entries_dtype()` with the
+        // map's nullability, so its lists hold exactly that entry struct.
+        unsafe {
+            MapArray::new_unchecked(
+                self.map_dtype.clone(),
+                self.entries_builder.finish_into_listview(),
+            )
+        }
     }
 
     /// Appends the values of a [`Map`]-encoded `array` to this builder.

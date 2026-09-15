@@ -95,17 +95,12 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
         Self::with_capacity_in(
             element_dtype,
             nullability,
-            // We arbitrarily choose 2 times the number of list scalars for the capacity of the
-            // elements builder since we cannot know this ahead of time.
-            DEFAULT_BUILDER_CAPACITY * 2,
             DEFAULT_BUILDER_CAPACITY,
             allocator,
         )
     }
 
-    /// Create a new [`ListViewArray`] builder with a with the given `capacity`, as well as an
-    /// initial capacity for the `elements` builder (since we cannot know that ahead of time solely
-    /// based on the outer array `capacity`).
+    /// Create a new [`ListViewArray`] builder with the given `capacity`.
     ///
     /// # Panics
     ///
@@ -114,19 +109,18 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
     pub fn with_capacity(
         element_dtype: Arc<DType>,
         nullability: Nullability,
-        elements_capacity: usize,
+        _elements_capacity: usize,
         capacity: usize,
     ) -> Self {
         Self::with_capacity_in(
             element_dtype,
             nullability,
-            elements_capacity,
             capacity,
             BufferAllocatorRef::static_ref(),
         )
     }
 
-    /// Creates a list-view builder with the given capacities using `allocator`.
+    /// Creates a list-view builder with the given capacity using `allocator`.
     ///
     /// # Panics
     ///
@@ -134,12 +128,10 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
     pub fn with_capacity_in(
         element_dtype: Arc<DType>,
         nullability: Nullability,
-        elements_capacity: usize,
         capacity: usize,
         allocator: &BufferAllocatorRef,
     ) -> Self {
-        let elements_builder =
-            ChildBuilder::with_capacity(&element_dtype, elements_capacity, allocator);
+        let elements_builder = ChildBuilder::with_capacity(&element_dtype, 2 * capacity, allocator);
 
         let offsets_builder =
             PrimitiveBuilder::<O>::with_capacity_in(Nullability::NonNullable, capacity, allocator);
@@ -700,7 +692,6 @@ mod tests {
             Arc::new(I32.into()),
             NonNullable,
             0,
-            0,
             BufferAllocatorRef::static_ref(),
         );
 
@@ -715,7 +706,6 @@ mod tests {
         let mut builder = ListViewBuilder::<u32, u32>::with_capacity_in(
             Arc::clone(&dtype),
             Nullable,
-            0,
             0,
             BufferAllocatorRef::static_ref(),
         );
@@ -786,7 +776,6 @@ mod tests {
             Arc::clone(&dtype),
             NonNullable,
             0,
-            0,
             BufferAllocatorRef::static_ref(),
         );
 
@@ -835,7 +824,6 @@ mod tests {
             Arc::clone(&dtype2),
             NonNullable,
             0,
-            0,
             BufferAllocatorRef::static_ref(),
         );
 
@@ -867,7 +855,6 @@ mod tests {
         let mut builder = ListViewBuilder::<u32, u32>::with_capacity_in(
             Arc::clone(&dtype),
             Nullable,
-            0,
             0,
             BufferAllocatorRef::static_ref(),
         );
@@ -933,7 +920,6 @@ mod tests {
         let mut builder = ListViewBuilder::<u32, u32>::with_capacity_in(
             Arc::clone(&dtype),
             Nullable,
-            0,
             0,
             BufferAllocatorRef::static_ref(),
         );
@@ -1016,7 +1002,6 @@ mod tests {
             Arc::clone(&dtype),
             Nullable,
             0,
-            0,
             BufferAllocatorRef::static_ref(),
         );
         builder.append_list_array(source.as_view(), &mut ctx)?;
@@ -1054,7 +1039,6 @@ mod tests {
             element_dtype,
             NonNullable,
             0,
-            0,
             BufferAllocatorRef::static_ref(),
         );
         constant.append_to_builder(&mut builder, &mut ctx)?;
@@ -1091,7 +1075,6 @@ mod tests {
         let mut builder = ListViewBuilder::<u32, u32>::with_capacity_in(
             Arc::clone(&dtype),
             NonNullable,
-            0,
             0,
             BufferAllocatorRef::static_ref(),
         );
@@ -1142,7 +1125,6 @@ mod tests {
             Arc::clone(&dtype),
             Nullable,
             0,
-            0,
             BufferAllocatorRef::static_ref(),
         );
         builder
@@ -1182,7 +1164,6 @@ mod tests {
             Arc::clone(&dtype),
             NonNullable,
             0,
-            0,
             BufferAllocatorRef::static_ref(),
         );
 
@@ -1208,7 +1189,6 @@ mod tests {
         let mut builder = ListViewBuilder::<u32, u32>::with_capacity_in(
             Arc::clone(&dtype),
             NonNullable,
-            20,
             10,
             BufferAllocatorRef::static_ref(),
         );
@@ -1270,7 +1250,6 @@ mod tests {
         let mut builder = ListViewBuilder::<u32, u32>::with_capacity_in(
             dtype,
             NonNullable,
-            20,
             10,
             BufferAllocatorRef::static_ref(),
         );
