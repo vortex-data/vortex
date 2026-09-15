@@ -109,7 +109,7 @@ jobs:
         with:
           sync: false
       - name: Install nextest
-        uses: taiki-e/install-action@d438492cf8a250514fa2d34b30bc3c0dc37c65ff  # v2
+        uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375  # v2
         with:
           tool: nextest
       - name: Rust Tests
