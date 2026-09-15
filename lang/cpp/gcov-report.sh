@@ -9,12 +9,11 @@
 set -eu
 cd "$(dirname "$0")"
 
-# Clear environment and cached launchers: cached GCC objects embed stale .gcda paths.
-CMAKE_CXX_COMPILER_LAUNCHER= cmake -S . -B build \
+cmake -S . -B build \
     -DBUILD_SHARED_LIBS=ON \
     -DVORTEX_BUILD_TESTS=ON \
     -DCMAKE_CXX_FLAGS=--coverage \
-    -DCMAKE_CXX_COMPILER_LAUNCHER=
+    -DCMAKE_CXX_COMPILER_LAUNCHER=  # Disable caching: reused GCC objects can write .gcda files to an old target directory.
 
 # getconf works on Linux and macOS; nproc is not installed on stock macOS.
 cmake --build build \
