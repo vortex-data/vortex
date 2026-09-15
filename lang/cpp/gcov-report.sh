@@ -10,8 +10,10 @@ set -eu
 cd "$(dirname "$0")"
 
 # Cached GCC objects retain their original .gcda paths when target names change.
-# Clear both inherited and cached launchers so coverage stays in this build tree.
+# CMAKE_CXX_COMPILER_LAUNCHER= clears the inherited launcher during configuration;
+# -DCMAKE_CXX_COMPILER_LAUNCHER= also clears its value in CMakeCache.txt.
 CMAKE_CXX_COMPILER_LAUNCHER= cmake -S . -B build \
+    -DBUILD_SHARED_LIBS=ON \
     -DVORTEX_BUILD_TESTS=ON \
     -DCMAKE_CXX_FLAGS=--coverage \
     -DCMAKE_CXX_COMPILER_LAUNCHER=
@@ -22,7 +24,7 @@ cmake --build build \
 ctest --test-dir build --output-on-failure
 
 # lcov matches exclude globs against full source paths.
-geninfo build/CMakeFiles/vortex_cxx_static.dir/ \
+geninfo build/CMakeFiles/vortex_cxx_shared.dir/ \
     build/tests/CMakeFiles/vortex_cxx_test.dir/ \
     --rc geninfo_unexecuted_blocks=1 \
     --exclude '/usr/*' --exclude '*/_deps/*' --exclude '*/tests/*' \

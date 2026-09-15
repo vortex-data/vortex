@@ -26,8 +26,14 @@ class CoverageTests(CMakeTest):
             # SPDX-FileCopyrightText: Copyright the Vortex contributors
             cmake_minimum_required(VERSION 3.25)
             project(CoverageFixture LANGUAGES CXX)
+            option(BUILD_SHARED_LIBS "Build shared libraries" OFF)
             option(VORTEX_BUILD_TESTS "Build tests" OFF)
-            add_library(vortex_cxx_static STATIC src/value.cpp)
+            if(BUILD_SHARED_LIBS)
+                set(coverage_target vortex_cxx_shared)
+            else()
+                set(coverage_target vortex_cxx_static)
+            endif()
+            add_library(${coverage_target} src/value.cpp)
             if(VORTEX_BUILD_TESTS)
                 enable_testing()
                 add_subdirectory(tests)
@@ -48,7 +54,7 @@ class CoverageTests(CMakeTest):
             # SPDX-License-Identifier: Apache-2.0
             # SPDX-FileCopyrightText: Copyright the Vortex contributors
             add_executable(vortex_cxx_test main.cpp)
-            target_link_libraries(vortex_cxx_test PRIVATE vortex_cxx_static)
+            target_link_libraries(vortex_cxx_test PRIVATE ${coverage_target})
             add_test(NAME coverage COMMAND vortex_cxx_test)
             """,
         )
@@ -82,7 +88,7 @@ class CoverageTests(CMakeTest):
         self.command("sh", self.source / "gcov-report.sh")
         args = json.loads((self.source / "geninfo-args.json").read_text())
         directories = [
-            Path("build/CMakeFiles/vortex_cxx_static.dir"),
+            Path("build/CMakeFiles/vortex_cxx_shared.dir"),
             Path("build/tests/CMakeFiles/vortex_cxx_test.dir"),
         ]
         self.assertEqual([Path(arg) for arg in args[:2]], directories)
