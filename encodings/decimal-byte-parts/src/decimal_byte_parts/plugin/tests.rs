@@ -93,6 +93,26 @@ fn v1_serializer_rejects_lower_parts(
 }
 
 #[test]
+fn v2_round_trips_without_lower_parts() -> VortexResult<()> {
+    let child = msp();
+    let array = DecimalByteParts::try_new(child.clone(), DecimalDType::new(19, 2))?;
+    let serialized = v2::serialize(array.as_view())?;
+    assert_eq!(serialized.serialized_id, decimal_byte_parts_v2_id());
+    assert_eq!(serialized.children.len(), 1);
+    let decoded = v2::deserialize(ArrayDeserialization::new(
+        serialized.serialized_id,
+        array.dtype(),
+        array.len(),
+        &serialized.metadata,
+        &[],
+        &serialized.children,
+    ))?;
+    assert!(ArrayRef::ptr_eq(&child, decoded.msp()));
+    assert!(decoded.lower_parts().is_empty());
+    Ok(())
+}
+
+#[test]
 fn v1_metadata_is_unchanged() -> VortexResult<()> {
     let session = session();
     let array = DecimalByteParts::try_new(msp(), DecimalDType::new(19, 2))?.into_array();
@@ -232,8 +252,8 @@ fn serde_round_trip(#[case] array: VortexResult<DecimalBytePartsArray>) -> Vorte
     Ok(())
 }
 
-/// Each serialized ID keeps its own contract: the v1 ID never carries lower parts, and the v2
-/// ID is never written without them.
+/// The v1 decoder never accepts lower parts. The v2 decoder accepts any count the array allows,
+/// including none, even though the plugin only writes v2 when lower parts are present.
 #[rstest]
 #[case::v1_without_lower_parts(decimal_byte_parts_v1_id(), v1_metadata(0), vec![msp()], true)]
 #[case::v1_with_lower_parts(
@@ -248,7 +268,7 @@ fn serde_round_trip(#[case] array: VortexResult<DecimalBytePartsArray>) -> Vorte
     vec![msp(), lower_part()],
     true
 )]
-#[case::v2_without_lower_parts(decimal_byte_parts_v2_id(), v2_metadata(vec![]), vec![msp()], false)]
+#[case::v2_without_lower_parts(decimal_byte_parts_v2_id(), v2_metadata(vec![]), vec![msp()], true)]
 fn plugin_holds_each_id_to_its_contract(
     #[case] serialized_id: ArrayId,
     #[case] metadata: Vec<u8>,
@@ -277,7 +297,6 @@ fn deserialize_rejects_child_count_mismatch(
 }
 
 #[rstest]
-#[case::none(vec![], "lower parts, got 0")]
 #[case::too_many(vec![PType::U64 as i32; MAX_LOWER_PARTS + 1], "lower parts, got 4")]
 #[case::signed_type(vec![PType::I64 as i32], "unsigned integer dtype")]
 #[case::float_type(vec![PType::F64 as i32], "unsigned integer dtype")]

@@ -24,14 +24,13 @@ use crate::DecimalBytePartsArraySlotsExt;
 use crate::DecimalBytePartsData;
 use crate::decimal_byte_parts::MAX_LOWER_PARTS;
 
-/// Metadata for decimal byte parts with per-child storage types.
+/// Metadata for decimal byte parts with lower parts.
 #[derive(Clone, prost::Message)]
 pub struct DecimalBytePartsV2Metadata {
-    /// Signed storage type of the most significant part.
+    /// Ptype of the most significant part.
     #[prost(enumeration = "PType", tag = "1")]
     pub(super) msp_ptype: i32,
-    /// Unsigned storage types of the lower parts, most significant first. Their number is the
-    /// lower part count.
+    /// Ptypes of the lower parts, ordered most significant first.
     #[prost(enumeration = "PType", repeated, tag = "2")]
     pub(super) lower_part_ptypes: Vec<i32>,
 }
@@ -40,7 +39,7 @@ pub(super) fn serialize(
     array: ArrayView<'_, DecimalByteParts>,
 ) -> VortexResult<ArraySerialization> {
     let lower_parts = array.lower_parts();
-    vortex_ensure!(!lower_parts.is_empty(), "v2 requires lower parts");
+
     let metadata = DecimalBytePartsV2Metadata {
         msp_ptype: PType::try_from(array.msp().dtype())? as i32,
         lower_part_ptypes: lower_parts
@@ -73,8 +72,8 @@ pub(super) fn deserialize(parts: ArrayDeserialization<'_>) -> VortexResult<Decim
 
     let lower_part_count = metadata.lower_part_ptypes.len();
     vortex_ensure!(
-        (1..=MAX_LOWER_PARTS).contains(&lower_part_count),
-        "v2 must carry between 1 and {MAX_LOWER_PARTS} lower parts, got {lower_part_count}"
+        lower_part_count <= MAX_LOWER_PARTS,
+        "v2 carries at most {MAX_LOWER_PARTS} lower parts, got {lower_part_count}"
     );
     vortex_ensure!(
         parts.children.len() == 1 + lower_part_count,

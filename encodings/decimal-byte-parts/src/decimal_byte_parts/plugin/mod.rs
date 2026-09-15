@@ -41,9 +41,10 @@ pub fn decimal_byte_parts_v2_id() -> ArrayId {
 
 /// Serde for the current DBP array using the frozen v1 and v2 wire formats.
 ///
-/// Each version owns its metadata schema and serde functions. Arrays without lower parts use
-/// v1; arrays with lower parts use v2. Both serializers borrow the current array, and both
-/// decoders construct a current [`DecimalByteParts`] array directly.
+/// Each version owns its metadata schema and serde functions. The plugin writes v1 whenever an
+/// array has no lower parts, so such arrays stay readable by older readers, and v2 otherwise.
+/// The v2 format itself accepts any lower part count up to the maximum. Both serializers borrow
+/// the current array, and both decoders construct a current [`DecimalByteParts`] array directly.
 ///
 /// Register this plugin, or call [`crate::initialize`], to enable both formats. Direct registration
 /// of [`DecimalByteParts`] does not support serde.
