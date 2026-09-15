@@ -59,7 +59,7 @@ impl CascadingCompressor {
 
         let canonical = array.clone().execute::<CanonicalValidity>(exec_ctx)?.0;
         let compact = canonical.compact(exec_ctx)?;
-        let compressed = self.compress_canonical(compact, CompressorContext::new(), exec_ctx)?;
+        let compressed = self.compress_canonical(compact, self.root_context(), exec_ctx)?;
 
         trace::record_compress_outcome(&span, before_nbytes, compressed.nbytes());
 
@@ -93,7 +93,7 @@ impl CascadingCompressor {
 
         let child_ctx = parent_ctx
             .clone()
-            .descend_with_scheme(parent_id, child_index);
+            .descend_with_scheme(self.resolve_scheme_id(parent_id), child_index);
         self.compress_canonical(compact, child_ctx, exec_ctx)
     }
 

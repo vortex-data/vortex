@@ -1729,6 +1729,41 @@ async fn test_encoding_registered_after_write_options() -> VortexResult<()> {
     Ok(())
 }
 
+#[rstest]
+#[case::sparse(PrimitiveArray::from_iter(
+    (0..4096i32).map(|i| if i % 100 == 0 { i + 1 } else { 0 }),
+).into_array())]
+#[case::fsst(VarBinViewArray::from_iter(
+    (0..4096).map(|i| Some(format!("this_is_a_common_prefix_with_some_variation_{i}_and_a_common_suffix_pattern"))),
+    DType::Utf8(Nullability::NonNullable),
+).into_array())]
+#[tokio::test]
+async fn test_writer_excludes_schemes_with_unavailable_outputs(
+    #[case] array: ArrayRef,
+) -> VortexResult<()> {
+    let session = array_session()
+        .with::<EditionSession>()
+        .with::<LayoutSession>()
+        .with::<RuntimeSession>();
+    // Permit Constant and VarBin, but not the subsequently registered Sparse and FSST.
+    crate::enable_all_registered_array_encodings(&session);
+    crate::register_default_encodings(&session);
+    let mut buf = ByteBufferMut::empty();
+    session
+        .write_options()
+        .write(&mut buf, array.clone().to_array_stream())
+        .await?;
+    let read = session
+        .open_options()
+        .open_buffer(buf)?
+        .scan()?
+        .into_array_stream()?
+        .read_all()
+        .await?;
+    assert_arrays_eq!(read, array, &mut session.create_execution_ctx());
+    Ok(())
+}
+
 #[tokio::test]
 async fn test_writer_empty_chunks() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();

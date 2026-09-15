@@ -152,10 +152,9 @@ impl CascadingCompressor {
         // The root entry is always first in the history (if present). Check if the root has
         // excluded us.
         if let Some((_, child_idx)) = iter.next_if(|&(sid, _)| sid == ROOT_SCHEME_ID)
-            && self
-                .root_exclusions
-                .iter()
-                .any(|rule| rule.excluded == id && rule.children.contains(child_idx))
+            && self.root_exclusions.iter().any(|rule| {
+                self.resolve_scheme_id(rule.excluded) == id && rule.children.contains(child_idx)
+            })
         {
             return true;
         }
@@ -163,10 +162,9 @@ impl CascadingCompressor {
         // Push rules: Check if any of our ancestors have excluded us.
         for (ancestor_id, child_idx) in iter {
             if let Some(ancestor) = self.schemes.iter().find(|s| s.id() == ancestor_id)
-                && ancestor
-                    .descendant_exclusions()
-                    .iter()
-                    .any(|rule| rule.excluded == id && rule.children.contains(child_idx))
+                && ancestor.descendant_exclusions().iter().any(|rule| {
+                    self.resolve_scheme_id(rule.excluded) == id && rule.children.contains(child_idx)
+                })
             {
                 return true;
             }
@@ -174,10 +172,9 @@ impl CascadingCompressor {
 
         // Pull rules: Check if we have excluded ourselves because of our ancestors.
         for rule in candidate.ancestor_exclusions() {
-            if history
-                .iter()
-                .any(|(sid, cidx)| *sid == rule.ancestor && rule.children.contains(*cidx))
-            {
+            if history.iter().any(|(sid, cidx)| {
+                *sid == self.resolve_scheme_id(rule.ancestor) && rule.children.contains(*cidx)
+            }) {
                 return true;
             }
         }

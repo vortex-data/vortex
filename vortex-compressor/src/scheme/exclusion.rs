@@ -34,7 +34,8 @@ impl ChildSelection {
 /// `ZigZag` excludes `Dict` from all its children.
 #[derive(Debug, Clone, Copy)]
 pub struct DescendantExclusion {
-    /// The scheme to exclude from descendants.
+    /// The scheme to exclude from descendants. Any version in its registered predecessor chain
+    /// refers to the selected version.
     pub excluded: SchemeId,
     /// Which children of the declaring scheme this rule applies to.
     pub children: ChildSelection,
@@ -47,7 +48,8 @@ pub struct DescendantExclusion {
 /// `Sequence` excludes itself when `IntDict` is an ancestor on its codes child.
 #[derive(Debug, Clone, Copy)]
 pub struct AncestorExclusion {
-    /// The ancestor scheme that makes the declaring scheme ineligible.
+    /// The ancestor scheme that makes the declaring scheme ineligible. Any version in its
+    /// registered predecessor chain refers to the selected version.
     pub ancestor: SchemeId,
     /// Which children of the ancestor this rule applies to.
     pub children: ChildSelection,

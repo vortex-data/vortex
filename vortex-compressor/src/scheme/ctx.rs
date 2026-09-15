@@ -41,7 +41,7 @@ pub struct CompressorContext {
 }
 
 impl CompressorContext {
-    /// Creates a new `CompressorContext`.
+    /// Creates a new root `CompressorContext`.
     ///
     /// This should **only** be created by the compressor.
     pub(crate) fn new() -> Self {

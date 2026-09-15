@@ -18,7 +18,7 @@ use crate::schemes::integer;
 use crate::schemes::string;
 use crate::schemes::temporal;
 
-/// All available compression schemes.
+/// The newest versions of all available compression schemes.
 ///
 /// This list is order-sensitive: the builder preserves this order when constructing
 /// the final scheme list, so that tie-breaking is deterministic.
@@ -91,12 +91,14 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
 #[derive(Debug, Clone)]
 pub struct BtrBlocksCompressorBuilder {
     schemes: Vec<&'static dyn Scheme>,
+    allowed_serialized_ids: Option<HashSet<ArrayId>>,
 }
 
 impl Default for BtrBlocksCompressorBuilder {
     fn default() -> Self {
         Self {
             schemes: ALL_SCHEMES.to_vec(),
+            allowed_serialized_ids: None,
         }
     }
 }
@@ -108,13 +110,14 @@ impl BtrBlocksCompressorBuilder {
     pub fn empty() -> Self {
         Self {
             schemes: Vec::new(),
+            allowed_serialized_ids: None,
         }
     }
 
     /// Adds an external compression scheme not in [`ALL_SCHEMES`].
     ///
     /// This allows encoding crates outside of `vortex-btrblocks` to register their own schemes
-    /// with the compressor.
+    /// with the compressor. Register only the newest version of a scheme.
     ///
     /// # Panics
     ///
@@ -198,122 +201,61 @@ impl BtrBlocksCompressorBuilder {
     }
 
     /// Removes the specified compression schemes by their [`SchemeId`].
+    ///
+    /// An ID anywhere in a registered predecessor chain removes the entire chain.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a traversed predecessor chain contains a cycle.
     pub fn exclude_schemes(mut self, ids: impl IntoIterator<Item = SchemeId>) -> Self {
         let ids: HashSet<_> = ids.into_iter().collect();
-        self.schemes.retain(|s| !ids.contains(&s.id()));
+        self.schemes.retain(|scheme| {
+            let mut seen = HashSet::new();
+            let mut candidate = Some(*scheme);
+            while let Some(version) = candidate {
+                assert!(
+                    seen.insert(version.id()),
+                    "cycle in scheme predecessor chain"
+                );
+                if ids.contains(&version.id()) {
+                    return false;
+                }
+                candidate = version.predecessor();
+            }
+            true
+        });
         self
     }
 
-    /// Retains only schemes whose produced encodings all belong to `allowed`.
+    /// Restricts compression to the serialized IDs in `allowed`, intersecting with any earlier
+    /// call.
     ///
-    /// The file writer uses this to restrict compression to the encodings of its configured
-    /// editions.
-    pub fn retain_allowed_encodings(mut self, allowed: &HashSet<ArrayId>) -> Self {
-        self.schemes
-            .retain(|s| s.produced_encodings().iter().all(|id| allowed.contains(id)));
+    /// At build time, each scheme is replaced by the newest version in its predecessor chain
+    /// whose [`produced_encodings`](Scheme::produced_encodings) are all permitted.
+    /// Schemes with no eligible version are removed. This also applies to schemes added after
+    /// this call. The file writer passes the serialized IDs its enabled editions permit.
+    pub fn allow_serialized_ids(mut self, allowed: &HashSet<ArrayId>) -> Self {
+        let allowed: HashSet<ArrayId> = match self.allowed_serialized_ids.take() {
+            Some(existing) => existing.intersection(allowed).copied().collect(),
+            None => allowed.clone(),
+        };
+        self.allowed_serialized_ids = Some(allowed);
         self
     }
 
     /// Builds the configured [`BtrBlocksCompressor`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if predecessor chains contain a cycle or share a scheme ID.
     pub fn build(self) -> BtrBlocksCompressor {
-        BtrBlocksCompressor(CascadingCompressor::new(self.schemes))
+        let compressor = CascadingCompressor::new(self.schemes);
+        BtrBlocksCompressor(match self.allowed_serialized_ids {
+            Some(allowed) => compressor.with_allowed_serialized_ids(allowed),
+            None => compressor,
+        })
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use vortex_array::VTable;
-    use vortex_fastlanes::FoR;
-
-    use super::*;
-
-    #[test]
-    fn empty_starts_with_no_schemes() {
-        let builder = BtrBlocksCompressorBuilder::empty();
-        assert!(builder.schemes.is_empty());
-    }
-
-    #[test]
-    fn default_includes_all_schemes() {
-        let builder = BtrBlocksCompressorBuilder::default();
-        assert_eq!(builder.schemes.len(), ALL_SCHEMES.len());
-    }
-
-    #[test]
-    fn retain_allowed_encodings_filters_schemes() {
-        let allowed: HashSet<ArrayId> = [FoR.id()].into_iter().collect();
-        let builder = BtrBlocksCompressorBuilder::default().retain_allowed_encodings(&allowed);
-        assert_eq!(builder.schemes.len(), 1);
-        assert_eq!(builder.schemes[0].id(), integer::FoRScheme.id());
-
-        let none = BtrBlocksCompressorBuilder::default().retain_allowed_encodings(&HashSet::new());
-        assert!(none.schemes.is_empty());
-    }
-
-    #[test]
-    fn retaining_all_declared_outputs_keeps_every_scheme() {
-        let allowed: HashSet<ArrayId> = ALL_SCHEMES
-            .iter()
-            .flat_map(|scheme| scheme.produced_encodings())
-            .collect();
-        let builder = BtrBlocksCompressorBuilder::default().retain_allowed_encodings(&allowed);
-        assert_eq!(builder.schemes.len(), ALL_SCHEMES.len());
-    }
-
-    #[test]
-    fn cuda_compatible_excludes_alprd() {
-        let builder = BtrBlocksCompressorBuilder::default().only_cuda_compatible();
-        assert!(
-            !builder
-                .schemes
-                .iter()
-                .any(|s| s.id() == float::ALPRDScheme.id())
-        );
-    }
-
-    /// `vortex.sparse` has no CUDA decode kernel, so no sparse scheme may survive this preset.
-    #[test]
-    fn cuda_compatible_excludes_every_sparse_scheme() {
-        let builder = BtrBlocksCompressorBuilder::default().only_cuda_compatible();
-        for excluded in [
-            integer::SparseScheme.id(),
-            float::NullDominatedSparseScheme.id(),
-            string::NullDominatedSparseScheme.id(),
-        ] {
-            assert!(
-                !builder.schemes.iter().any(|s| s.id() == excluded),
-                "{excluded} should be excluded"
-            );
-        }
-    }
-
-    #[test]
-    fn cuda_compatible_uses_fsst_for_strings() {
-        let builder = BtrBlocksCompressorBuilder::default().only_cuda_compatible();
-        assert!(
-            builder
-                .schemes
-                .iter()
-                .any(|scheme| scheme.id() == string::FSSTScheme.id())
-        );
-        #[cfg(feature = "zstd")]
-        assert!(
-            !builder
-                .schemes
-                .iter()
-                .any(|scheme| scheme.id() == string::ZstdScheme.id())
-        );
-    }
-
-    #[test]
-    #[cfg(feature = "pco")]
-    fn cuda_compatible_excludes_pco() {
-        let builder = BtrBlocksCompressorBuilder::default()
-            .with_new_scheme(&integer::PcoScheme)
-            .with_new_scheme(&float::PcoScheme)
-            .only_cuda_compatible();
-        for scheme in [integer::PcoScheme.id(), float::PcoScheme.id()] {
-            assert!(!builder.schemes.iter().any(|s| s.id() == scheme));
-        }
-    }
-}
+mod tests;
