@@ -231,13 +231,11 @@ pub fn scalar_from_df(value: &ScalarValue, session: &VortexSession) -> Scalar {
             .as_ref()
             .map(|s| Scalar::from(s.as_str()))
             .unwrap_or_else(|| Scalar::null(DType::Utf8(Nullability::Nullable))),
-        ScalarValue::Binary(b)
-        | ScalarValue::BinaryView(b)
-        | ScalarValue::LargeBinary(b)
-        | ScalarValue::FixedSizeBinary(_, b) => b
+        ScalarValue::Binary(b) | ScalarValue::BinaryView(b) | ScalarValue::LargeBinary(b) => b
             .as_ref()
             .map(|b| Scalar::binary(ByteBuffer::from(b.clone()), Nullability::Nullable))
             .unwrap_or_else(|| Scalar::null(DType::Binary(Nullability::Nullable))),
+        ScalarValue::FixedSizeBinary(width, b) => fixed_size_binary_from_df(*width, b.as_deref()),
         ScalarValue::Date32(v)
         | ScalarValue::Time32Second(v)
         | ScalarValue::Time32Millisecond(v) => {
@@ -316,6 +314,44 @@ pub fn scalar_from_df(value: &ScalarValue, session: &VortexSession) -> Scalar {
         ScalarValue::Struct(array) => struct_from_df(array, session),
         _ => unimplemented!("Can't convert {value:?} value to a Vortex scalar"),
     }
+}
+
+/// Converts a DataFusion `ScalarValue::FixedSizeBinary` to a Vortex fixed-size list of `u8`.
+///
+/// This is the storage dtype every fixed-width Arrow binary maps to on the Vortex side — notably
+/// the one [`Uuid`](vortex::extension::uuid::Uuid) wraps, whose Arrow form is
+/// `FixedSizeBinary(16)`. Converting to [`DType::Binary`] instead, as the variable-width variants
+/// do, leaves a literal that no comparison against such a column can type-check against.
+///
+/// The element dtype is non-nullable `u8` because that is what the UUID extension requires of its
+/// storage, and [`DType`] equality compares list element dtypes down to their nullability.
+fn fixed_size_binary_from_df(width: i32, bytes: Option<&[u8]>) -> Scalar {
+    let element = DType::Primitive(PType::U8, Nullability::NonNullable);
+    let size =
+        u32::try_from(width).vortex_expect("Arrow FixedSizeBinary width must be non-negative");
+
+    let Some(bytes) = bytes else {
+        return Scalar::null(DType::FixedSizeList(
+            Arc::new(element),
+            size,
+            Nullability::Nullable,
+        ));
+    };
+
+    // `Scalar::fixed_size_list` takes the list size from the children it is handed, so a value
+    // disagreeing with its declared width would build a differently typed scalar rather than fail.
+    if bytes.len() != size as usize {
+        vortex_panic!("FixedSizeBinary({size}) scalar holds {} bytes", bytes.len());
+    }
+
+    Scalar::fixed_size_list(
+        element,
+        bytes
+            .iter()
+            .map(|&byte| Scalar::primitive(byte, Nullability::NonNullable))
+            .collect(),
+        Nullability::Nullable,
+    )
 }
 
 /// Converts a Vortex struct scalar to a DataFusion `ScalarValue::Struct`.
@@ -786,7 +822,6 @@ mod tests {
     #[case::binary(ScalarValue::Binary(Some(vec![1u8, 2, 3, 4, 5])))]
     #[case::binary_view(ScalarValue::BinaryView(Some(vec![1u8, 2, 3, 4, 5])))]
     #[case::large_binary(ScalarValue::LargeBinary(Some(vec![1u8, 2, 3, 4, 5])))]
-    #[case::fixed_size_binary(ScalarValue::FixedSizeBinary(5, Some(vec![1u8, 2, 3, 4, 5])))]
     fn test_binary_variants(#[case] variant: ScalarValue) {
         let result = from_df(&variant);
         let result_bytes: Vec<u8> = result
@@ -797,6 +832,65 @@ mod tests {
             .into_bytes()
             .into();
         assert_eq!(result_bytes, vec![1u8, 2, 3, 4, 5]);
+    }
+
+    /// A fixed-width Arrow binary converts to the fixed-size list of `u8` that is its Vortex
+    /// storage dtype, not to the variable-width `Binary` its siblings use.
+    #[test]
+    fn fixed_size_binary_converts_to_fixed_size_list() {
+        let scalar = from_df(&ScalarValue::FixedSizeBinary(
+            5,
+            Some(vec![1u8, 2, 3, 4, 5]),
+        ));
+
+        assert_eq!(
+            scalar.dtype(),
+            &DType::FixedSizeList(
+                Arc::new(DType::Primitive(PType::U8, Nullability::NonNullable)),
+                5,
+                Nullability::Nullable,
+            )
+        );
+    }
+
+    #[test]
+    fn fixed_size_binary_null_keeps_its_width() {
+        let scalar = from_df(&ScalarValue::FixedSizeBinary(16, None));
+
+        assert!(scalar.is_null());
+        assert_eq!(
+            scalar.dtype(),
+            &DType::FixedSizeList(
+                Arc::new(DType::Primitive(PType::U8, Nullability::NonNullable)),
+                16,
+                Nullability::Nullable,
+            )
+        );
+    }
+
+    /// The whole point of the conversion: a `FixedSizeBinary(16)` literal must compare against a
+    /// UUID-typed column, whose storage dtype is exactly this fixed-size list.
+    #[test]
+    fn fixed_size_binary_matches_uuid_storage_dtype() -> VortexResult<()> {
+        use arrow_schema::DataType;
+        use arrow_schema::extension::Uuid as ArrowUuid;
+
+        let mut field = Field::new("id", DataType::FixedSizeBinary(16), true);
+        field.try_with_extension_type(ArrowUuid)?;
+        let column_dtype = VortexSession::default().arrow().from_arrow_field(&field)?;
+
+        let literal = from_df(&ScalarValue::FixedSizeBinary(16, Some(vec![0u8; 16])));
+
+        let storage = column_dtype
+            .as_extension_opt()
+            .vortex_expect("a Uuid extension dtype")
+            .storage_dtype();
+        assert!(
+            storage.eq_ignore_nullability(literal.dtype()),
+            "literal dtype {} does not match UUID storage dtype {storage}",
+            literal.dtype()
+        );
+        Ok(())
     }
 
     /// A DataFusion struct whose child field carries Arrow extension metadata: the struct dtype
