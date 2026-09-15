@@ -51,9 +51,9 @@ use crate::duckdb::TableFilterSetRef;
 use crate::duckdb::TableInitInput;
 use crate::duckdb::Value;
 use crate::exporter::ArrayExporter;
-use crate::projection::DuckdbField;
 use crate::projection::Filter;
 use crate::projection::Projection;
+use crate::projection::{DuckdbField, ProjectionInput};
 
 // Duckdb has two state machines for an extension. The outer one is the table
 // function state machine which calls the file reader state machine.
@@ -256,7 +256,12 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
         projection,
         file_row_number_column_pos,
     } = if bind_data.aggregates.is_empty() {
-        Projection::new(projection_ids, column_ids, &bind_data.columns)
+        let input = ProjectionInput {
+            column_ids,
+            projection_ids,
+            column_fields: &bind_data.columns,
+        };
+        Projection::new(input)
     } else {
         Projection::new_aggregate(&bind_data.aggregates, &bind_data.columns)
     };
