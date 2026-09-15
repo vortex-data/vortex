@@ -5,6 +5,7 @@ mod between;
 mod cast;
 mod fill_null;
 mod fixed_width;
+mod list_contains;
 mod mask;
 pub(crate) mod rules;
 mod slice;

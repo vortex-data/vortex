@@ -8,6 +8,8 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::list_contains::ListContainsElementReduce;
+use vortex_array::scalar_fn::fns::list_contains::ListContainsOptions;
+use vortex_array::scalar_fn::fns::list_contains::ListContainsSet;
 use vortex_error::VortexResult;
 
 use crate::array::Sequence;
@@ -18,22 +20,25 @@ impl ListContainsElementReduce for Sequence {
     fn list_contains(
         list: &ArrayRef,
         element: ArrayView<'_, Self>,
+        options: &ListContainsOptions,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Some(list_scalar) = list.as_constant() else {
+        // A haystack the set cannot describe -- not a constant, null, or empty -- goes to the
+        // generic implementation, which resolves it without intersecting anything.
+        let Some(set) = ListContainsSet::try_new(list, element.dtype(), options) else {
             return Ok(None);
         };
 
-        // A null list scalar has no elements to intersect with. Nothing checks this before the
-        // reduce rule runs, so fall back to the generic kernel, which resolves a null haystack to
-        // all-null rather than panicking here.
-        let Some(list_elements) = list_scalar.as_list().elements() else {
+        // The intersection search treats a null element as matching nothing, which under SQL null
+        // semantics is only half the answer: there a non-match is unknown, which the search cannot
+        // express.
+        if set.non_match_is_unknown() {
             return Ok(None);
-        };
+        }
 
-        let nullability = list.dtype().nullability() | element.dtype().nullability();
+        let nullability = set.nullability();
 
         let mut set_indices: Vec<usize> = Vec::new();
-        for intercept in list_elements.iter() {
+        for intercept in set.elements().iter() {
             let Some(intercept) = intercept.as_primitive().pvalue() else {
                 continue;
             };
@@ -144,8 +149,8 @@ mod tests {
     #[test]
     fn test_list_contains_null_element_semantics() {
         // The sequence kernel skips a null element, which is right by default. Under SQL null
-        // semantics a non-match must be null instead, so the adaptor has to hand the constant
-        // list with a null in it to the generic path.
+        // semantics a non-match must be null instead, so a constant list holding a null goes to
+        // the generic path instead.
         let element = DType::Primitive(I32, Nullability::Nullable);
         let set = Scalar::list(
             Arc::new(element.clone()),

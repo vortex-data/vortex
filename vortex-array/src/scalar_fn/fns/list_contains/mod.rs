@@ -7,9 +7,7 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::ops::BitOr;
 
-use arrow_buffer::bit_iterator::BitIndexIterator;
 pub use kernel::*;
-use num_traits::Zero;
 use prost::Message;
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect;
@@ -18,31 +16,20 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
-use vortex_utils::aliases::hash_set::HashSet;
 use vortex_utils::iter::ReduceBalancedIterExt;
 
+use crate::AnyCanonical;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
-use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
+use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
-use crate::arrays::PrimitiveArray;
 use crate::arrays::ScalarFnArray;
-use crate::arrays::VarBinViewArray;
-use crate::arrays::bool::BoolArrayExt;
-use crate::arrays::listview::ListViewArraySlotsExt;
-use crate::arrays::primitive::PrimitiveArrayExt;
-use crate::arrays::varbinview::BinaryView;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
-use crate::dtype::IntegerPType;
-use crate::dtype::NativePType;
 use crate::dtype::Nullability;
-use crate::match_each_integer_ptype;
-use crate::match_each_native_ptype;
-use crate::match_each_unsigned_integer_ptype;
 use crate::proto::expr as pb;
 use crate::scalar::ListScalar;
 use crate::scalar::Scalar;
@@ -53,9 +40,7 @@ use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::binary::Binary;
-use crate::scalar_fn::fns::binary::collect_bits;
 use crate::scalar_fn::fns::operators::Operator;
-use crate::validity::Validity;
 
 #[derive(Clone)]
 pub struct ListContains;
@@ -79,6 +64,20 @@ impl Display for ListContainsOptions {
             write!(f, "sql_null_semantics")?;
         }
         Ok(())
+    }
+}
+
+impl ListContainsOptions {
+    /// The nullability of a `list_contains` result: a null list or a null needle always yields
+    /// null, and under [`sql_null_semantics`](Self::sql_null_semantics) so can a null element.
+    pub fn result_nullability(&self, list_dtype: &DType, needle_dtype: &DType) -> Nullability {
+        let mut nullability = list_dtype.nullability().bitor(needle_dtype.nullability());
+        if self.sql_null_semantics
+            && let Some(element_dtype) = list_dtype.as_any_size_list_element_opt()
+        {
+            nullability |= element_dtype.nullability();
+        }
+        nullability
     }
 }
 
@@ -156,19 +155,16 @@ impl ScalarFnVTable for ListContains {
         let list_dtype = &arg_dtypes[0];
         let needle_dtype = &arg_dtypes[1];
 
-        let DType::List(element_dtype, _) = list_dtype else {
+        if !matches!(list_dtype, DType::List(..)) {
             vortex_bail!(
                 "First argument to ListContains must be a List, got {:?}",
                 list_dtype
             );
-        };
+        }
 
-        Ok(DType::Bool(result_nullability(
-            list_dtype,
-            element_dtype,
-            needle_dtype,
-            options,
-        )))
+        Ok(DType::Bool(
+            options.result_nullability(list_dtype, needle_dtype),
+        ))
     }
 
     fn execute(
@@ -200,38 +196,18 @@ impl ScalarFnVTable for ListContains {
     }
 }
 
-/// The result nullability: a null list or null needle always yields null, and under SQL null
-/// semantics so can a null element.
-fn result_nullability(
-    list_dtype: &DType,
-    element_dtype: &DType,
-    needle_dtype: &DType,
-    options: &ListContainsOptions,
-) -> Nullability {
-    let mut nullability = list_dtype.nullability().bitor(needle_dtype.nullability());
-    if options.sql_null_semantics {
-        nullability |= element_dtype.nullability();
-    }
-    nullability
-}
-
-/// Whether `elements`, under `options`, turn a non-matching needle into `null`.
-fn non_match_is_unknown(elements: &[Scalar], options: &ListContainsOptions) -> bool {
-    options.sql_null_semantics && elements.iter().any(Scalar::is_null)
-}
-
 fn compute_contains_scalar(
     list: &Scalar,
     needle: &Scalar,
     options: &ListContainsOptions,
 ) -> VortexResult<Scalar> {
-    let DType::List(element_dtype, _) = list.dtype() else {
+    if !matches!(list.dtype(), DType::List(..)) {
         vortex_bail!(
             "First argument to ListContains must be a List, got {}",
             list.dtype()
         );
-    };
-    let nullability = result_nullability(list.dtype(), element_dtype, needle.dtype(), options);
+    }
+    let nullability = options.result_nullability(list.dtype(), needle.dtype());
 
     // Handle null list or null needle
     if list.is_null() || needle.is_null() {
@@ -244,7 +220,7 @@ fn compute_contains_scalar(
         .ok_or_else(|| vortex_err!("Expected non-null list"))?;
 
     let contains = elements.iter().any(|elem| elem == needle);
-    if !contains && non_match_is_unknown(&elements, options) {
+    if !contains && options.sql_null_semantics && elements.iter().any(Scalar::is_null) {
         return Ok(Scalar::null(DType::Bool(nullability)));
     }
     Ok(Scalar::bool(contains, nullability))
@@ -275,24 +251,46 @@ fn compute_list_contains(
         .into_array());
     }
 
-    let nullability = result_nullability(array.dtype(), elem_dtype, value.dtype(), options);
-
-    if let Some(value_scalar) = value.as_constant() {
-        list_contains_scalar(array, &value_scalar, nullability, options, ctx)
-    } else if let Some(list_scalar) = array.as_constant() {
-        constant_list_scalar_contains(&list_scalar.as_list(), value, nullability, options, ctx)
-    } else {
-        todo!("unsupported list contains with list and element as arrays")
+    if value.as_constant().is_some() {
+        // A constant needle is answered by the list encoding's [`ListContainsListKernel`].
+        // Reaching here means no encoding claimed the expression, so execute the list into the
+        // canonical list encoding and run its kernel.
+        let list = array.clone().execute::<ListViewArray>(ctx)?;
+        return ListView::list_contains(list.as_view(), value, options, ctx)?.ok_or_else(|| {
+            vortex_err!(
+                "No list contains kernel for a constant needle of {}",
+                value.dtype()
+            )
+        });
     }
+
+    if let Some(list_scalar) = array.as_constant() {
+        // A constant list is probed by the needle encoding's [`ListContainsElementKernel`]. An
+        // encoded needle gets one pass into canonical form so that the kernels of the canonical
+        // encodings apply; the fold below serves whatever encoding has no kernel.
+        if !value.is_canonical() {
+            let value = value.clone().execute_until::<AnyCanonical>(ctx)?;
+            return Ok(ListContains::try_new_opts(array.clone(), value, *options)?.into_array());
+        }
+        let nullability = options.result_nullability(array.dtype(), value.dtype());
+        return constant_list_scalar_contains(
+            &list_scalar.as_list(),
+            value,
+            nullability,
+            options,
+            ctx,
+        );
+    }
+
+    todo!("unsupported list contains with list and element as arrays")
 }
 
 /// There is a constant list scalar (haystack) being compared to an array of needles: the `IN`
 /// shape, `list_contains(lit([...]), column)`.
 ///
-/// Primitive and string needles take a single pass over the column against a set built once from
-/// the list; everything else falls back to one equality comparison per element, OR-ed together.
-/// A null element is dropped from the set — it never equals anything — and, under SQL null
-/// semantics, makes every non-matching row `null` instead of `false`.
+/// This is the fallback for a needle encoding with no [`ListContainsElementKernel`]: one equality
+/// comparison per element, OR-ed together. A null element is dropped — it never equals anything —
+/// and, under SQL null semantics, makes every non-matching row `null` instead of `false`.
 fn constant_list_scalar_contains(
     list_scalar: &ListScalar,
     values: &ArrayRef,
@@ -303,21 +301,10 @@ fn constant_list_scalar_contains(
     let elements = list_scalar.elements().vortex_expect("non null");
 
     let len = values.len();
-    let false_scalar = Scalar::bool(false, nullability);
     if elements.is_empty() {
-        return Ok(ConstantArray::new(false_scalar, len).into_array());
+        return Ok(ConstantArray::new(Scalar::bool(false, nullability), len).into_array());
     }
-    let unknown = non_match_is_unknown(&elements, options);
-
-    match values.dtype() {
-        DType::Primitive(..) => {
-            return primitive_set_contains(&elements, values, nullability, unknown, ctx);
-        }
-        DType::Utf8(_) | DType::Binary(_) => {
-            return bytes_set_contains(&elements, values, nullability, unknown, ctx);
-        }
-        _ => {}
-    }
+    let unknown = options.sql_null_semantics && elements.iter().any(Scalar::is_null);
 
     // One equality per element, folded with Kleene OR. A null needle compares null to every
     // element and so stays null. A null element compares null to every needle: under SQL null
@@ -341,324 +328,12 @@ fn constant_list_scalar_contains(
     match result {
         Some(result) => Ok(result),
         // Every element was null and dropped: nothing matches, but a null needle is still null.
-        None => set_result(
+        None => Ok(BoolArray::new(
             BitBuffer::full_in(false, len, ctx.allocator().clone()),
-            values.validity()?,
-            nullability,
-            false,
-        ),
-    }
-}
-
-/// Combine a needle's validity with the membership bits: when a non-match is unknown, only the
-/// rows that matched stay valid.
-fn set_result(
-    bits: BitBuffer,
-    needle_validity: Validity,
-    nullability: Nullability,
-    unknown: bool,
-) -> VortexResult<ArrayRef> {
-    let validity = if unknown {
-        needle_validity.and(Validity::from(bits.clone()))?
-    } else {
-        needle_validity
-    };
-    Ok(BoolArray::new(bits, validity.union_nullability(nullability)).into_array())
-}
-
-/// Single-pass membership of primitive needles in a constant set.
-///
-/// The set is sorted with the total order and probed by binary search, so a float needle is a
-/// member exactly when the compare kernel would call it equal to an element: `total_compare` is
-/// `Equal` precisely when the bit patterns match, distinguishing `-0.0` from `0.0` and one NaN
-/// payload from another, as `is_eq` does.
-fn primitive_set_contains(
-    elements: &[Scalar],
-    values: &ArrayRef,
-    nullability: Nullability,
-    unknown: bool,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    let primitive = values.clone().execute::<PrimitiveArray>(ctx)?;
-    let bits = match_each_native_ptype!(primitive.ptype(), |T| {
-        let set = sorted_set::<T>(elements);
-        collect_bits(
-            primitive.as_slice::<T>(),
-            |value| {
-                set.binary_search_by(|element| element.total_compare(value))
-                    .is_ok()
-            },
-            ctx.allocator(),
+            values.validity()?.union_nullability(nullability),
         )
-    });
-    set_result(bits, primitive.validity()?, nullability, unknown)
-}
-
-/// The non-null elements as a sorted, de-duplicated `Vec<T>` for binary search.
-fn sorted_set<T: NativePType>(elements: &[Scalar]) -> Vec<T> {
-    let mut set: Vec<T> = elements
-        .iter()
-        .filter_map(|element| element.as_primitive().typed_value::<T>())
-        .collect();
-    set.sort_unstable_by(|a, b| a.total_compare(*b));
-    set.dedup_by(|a, b| a.is_eq(*b));
-    set
-}
-
-/// Single-pass membership of UTF-8 or binary needles in a constant set, hashed by bytes.
-fn bytes_set_contains(
-    elements: &[Scalar],
-    values: &ArrayRef,
-    nullability: Nullability,
-    unknown: bool,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    let set: HashSet<Vec<u8>> = elements
-        .iter()
-        .filter_map(|element| match element.dtype() {
-            DType::Utf8(_) => element
-                .as_utf8()
-                .value()
-                .map(|s| s.as_str().as_bytes().to_vec()),
-            _ => element.as_binary().value().map(|b| b.to_vec()),
-        })
-        .collect();
-
-    let array = values.clone().execute::<VarBinViewArray>(ctx)?;
-    let buffers: Vec<&[u8]> = (0..array.data_buffers().len())
-        .map(|idx| array.buffer(idx).as_slice())
-        .collect();
-    let bits = collect_bits(
-        array.views(),
-        |view: BinaryView| {
-            let bytes: &[u8] = if view.is_inlined() {
-                view.as_inlined().value()
-            } else {
-                let reference = view.as_view();
-                &buffers[reference.buffer_index as usize][reference.as_range()]
-            };
-            set.contains(bytes)
-        },
-        ctx.allocator(),
-    );
-    set_result(bits, array.validity()?, nullability, unknown)
-}
-
-/// Returns a [`BoolArray`] where each bit represents if a list contains the scalar.
-fn list_contains_scalar(
-    array: &ArrayRef,
-    value: &Scalar,
-    nullability: Nullability,
-    options: &ListContainsOptions,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    // If the list array is constant, we perform a single comparison.
-    if array.len() > 1 && array.is::<Constant>() {
-        let contains = list_contains_scalar(&array.slice(0..1)?, value, nullability, options, ctx)?;
-        return Ok(ConstantArray::new(contains.execute_scalar(0, ctx)?, array.len()).into_array());
+        .into_array()),
     }
-
-    let list_array = array.clone().execute::<ListViewArray>(ctx)?;
-
-    let elems = list_array.elements();
-    if elems.is_empty() {
-        // Must return false when a list is empty (but valid), or null when the list itself is null.
-        return list_false_or_null(&list_array, nullability, ctx);
-    }
-
-    let rhs = ConstantArray::new(value.clone(), elems.len());
-    let matching_elements =
-        Binary::try_new(elems.clone(), rhs.clone().into_array(), Operator::Eq)?.into_array();
-
-    // TODO(ngates): we should execute this into a Columnar and check for constant.
-    let matches = matching_elements.execute::<BoolArray>(ctx)?;
-
-    // Under SQL null semantics a list holding a null element answers `null` for a needle that
-    // matches none of its other elements. The needle is non-null here, so a null comparison is a
-    // null element; fold "any match" and "any null" per list and keep only the decided rows.
-    if options.sql_null_semantics {
-        let valid = matches.validity()?.execute_mask(matches.len(), ctx)?;
-        if !valid.all_true() {
-            let valid = valid.to_bit_buffer();
-            let any_true = fold_lists(
-                BoolArray::new(&matches.to_bit_buffer() & &valid, Validity::NonNullable),
-                &list_array,
-                ctx,
-            )?;
-            let any_null = fold_lists(
-                BoolArray::new(!valid, Validity::NonNullable),
-                &list_array,
-                ctx,
-            )?;
-            let decided = &any_true | &!any_null;
-            let validity = list_array
-                .validity()?
-                .and(Validity::from(decided))?
-                .union_nullability(nullability);
-            return Ok(BoolArray::new(any_true, validity).into_array());
-        }
-    }
-
-    // Fast path: no elements match.
-    if let Some(pred) = matches.as_constant() {
-        return match pred.as_bool().value() {
-            // All comparisons are invalid (result in `null`), and search is not null because
-            // we already checked for null above.
-            None => {
-                assert!(
-                    !rhs.scalar().is_null(),
-                    "Search value must not be null here"
-                );
-                // False, unless the list itself is null in which case we return null.
-                list_false_or_null(&list_array, nullability, ctx)
-            }
-            // No elements match, and all comparisons are valid (result in `false`).
-            Some(false) => {
-                // False, but match the nullability to the input list array.
-                Ok(
-                    ConstantArray::new(Scalar::bool(false, nullability), list_array.len())
-                        .into_array(),
-                )
-            }
-            // All elements match, and all comparisons are valid (result in `true`).
-            Some(true) => {
-                // True, unless the list itself is empty or NULL.
-                list_is_not_empty(&list_array, nullability, ctx)
-            }
-        };
-    }
-
-    let list_matches = fold_lists(matches, &list_array, ctx)?;
-
-    Ok(BoolArray::new(
-        list_matches,
-        list_array.validity()?.union_nullability(nullability),
-    )
-    .into_array())
-}
-
-/// For each list, whether any set bit of `matches` falls in the list's element range.
-fn fold_lists(
-    matches: BoolArray,
-    list_array: &ListViewArray,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<BitBuffer> {
-    // Get the offsets and sizes as primitive arrays. They are non-negative, so reinterpret to
-    // unsigned and dispatch over the 4 unsigned widths each (4x4 instead of 8x8).
-    let offsets = list_array
-        .offsets()
-        .clone()
-        .execute::<PrimitiveArray>(ctx)?;
-    let offsets = offsets.reinterpret_cast(offsets.ptype().to_unsigned());
-    let sizes = list_array.sizes().clone().execute::<PrimitiveArray>(ctx)?;
-    let sizes = sizes.reinterpret_cast(sizes.ptype().to_unsigned());
-
-    Ok(match_each_unsigned_integer_ptype!(offsets.ptype(), |O| {
-        match_each_unsigned_integer_ptype!(sizes.ptype(), |S| {
-            process_matches::<O, S>(matches, list_array.len(), offsets, sizes, ctx)
-        })
-    }))
-}
-
-/// Returns a [`BitBuffer`] where each bit represents if a list contains the scalar, derived from a
-/// [`BoolArray`] of matches on the child elements array.
-fn process_matches<O, S>(
-    matches: BoolArray,
-    list_array_len: usize,
-    offsets: PrimitiveArray,
-    sizes: PrimitiveArray,
-    ctx: &mut ExecutionCtx,
-) -> BitBuffer
-where
-    O: IntegerPType,
-    S: IntegerPType,
-{
-    let offsets_slice = offsets.as_slice::<O>();
-    let sizes_slice = sizes.as_slice::<S>();
-    let bits = matches.bit_buffer_view();
-
-    BitBuffer::collect_bool_in(
-        list_array_len,
-        |i| {
-            let offset = offsets_slice[i].as_();
-            let size = sizes_slice[i].as_();
-
-            // BitIndexIterator yields indices of true bits only. If `.next()` returns
-            // `Some(_)`, at least one element in this list's range matches.
-            let mut set_bits = BitIndexIterator::new(bits.inner(), offset, size);
-            set_bits.next().is_some()
-        },
-        ctx.allocator().clone(),
-    )
-}
-
-/// Returns a `Bool` array with `false` for lists that are valid,
-/// or `NULL` if the list itself is null.
-fn list_false_or_null(
-    list_array: &ListViewArray,
-    nullability: Nullability,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    match list_array.validity()? {
-        Validity::NonNullable => {
-            // All false.
-            Ok(ConstantArray::new(Scalar::bool(false, nullability), list_array.len()).into_array())
-        }
-        Validity::AllValid => {
-            // All false, but nullable.
-            Ok(
-                ConstantArray::new(Scalar::bool(false, Nullability::Nullable), list_array.len())
-                    .into_array(),
-            )
-        }
-        Validity::AllInvalid => {
-            // All nulls, must be nullable result.
-            Ok(ConstantArray::new(
-                Scalar::null(DType::Bool(Nullability::Nullable)),
-                list_array.len(),
-            )
-            .into_array())
-        }
-        Validity::Array(validity_array) => {
-            // Create a new bool array with false, and the provided nulls
-            let buffer = BitBuffer::new_unset_in(list_array.len(), ctx.allocator().clone());
-            Ok(BoolArray::new(buffer, Validity::Array(validity_array)).into_array())
-        }
-    }
-}
-
-/// Returns a `Bool` array with `true` for lists which are NOT empty, or `false` if they are empty,
-/// or `NULL` if the list itself is null.
-fn list_is_not_empty(
-    list_array: &ListViewArray,
-    nullability: Nullability,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    // Short-circuit for all invalid.
-    if list_array.validity()?.definitely_all_null() {
-        return Ok(ConstantArray::new(
-            Scalar::null(DType::Bool(Nullability::Nullable)),
-            list_array.len(),
-        )
-        .into_array());
-    }
-
-    let sizes = list_array.sizes().clone().execute::<PrimitiveArray>(ctx)?;
-    let buffer = match_each_integer_ptype!(sizes.ptype(), |S| {
-        let sizes = sizes.as_slice::<S>();
-        BitBuffer::collect_bool_in(
-            sizes.len(),
-            |idx| sizes[idx] != S::zero(),
-            ctx.allocator().clone(),
-        )
-    });
-
-    // Copy over the validity mask from the input.
-    Ok(BoolArray::new(
-        buffer,
-        list_array.validity()?.union_nullability(nullability),
-    )
-    .into_array())
 }
 
 #[cfg(test)]
@@ -678,7 +353,12 @@ mod tests {
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::array_session;
+    use crate::arrays::BoolArray;
+    use crate::arrays::ConstantArray;
+    use crate::arrays::DictArray;
     use crate::arrays::ListArray;
+    use crate::arrays::ListViewArray;
+    use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
     use crate::assert_arrays_eq;
@@ -701,12 +381,8 @@ mod tests {
     use crate::expr::root;
     use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
-    use crate::scalar_fn::fns::list_contains::BoolArray;
-    use crate::scalar_fn::fns::list_contains::ConstantArray;
     use crate::scalar_fn::fns::list_contains::ListContains;
     use crate::scalar_fn::fns::list_contains::ListContainsOptions;
-    use crate::scalar_fn::fns::list_contains::ListViewArray;
-    use crate::scalar_fn::fns::list_contains::PrimitiveArray;
     use crate::stats::StatsSession;
     use crate::stats::stat as stat_expr;
     use crate::validity::Validity;
@@ -1350,6 +1026,37 @@ mod tests {
         assert_result(
             needles.apply(&in_list(root(), lit(set_with_null))),
             [Some(true), None, None, None, None],
+        )
+    }
+
+    #[test]
+    fn constant_set_probes_an_encoded_needle() -> VortexResult<()> {
+        // A dict-encoded needle has no kernel of its own, so it is executed into its canonical
+        // encoding for the primitive kernel to probe the set, rather than folding one comparison
+        // per element.
+        let needles = DictArray::try_new(
+            PrimitiveArray::from_iter([0u32, 1, 2, 1]).into_array(),
+            PrimitiveArray::from_option_iter([Some(1), Some(2), None]).into_array(),
+        )?
+        .into_array();
+        let set = i32_set(vec![Some(2), Some(4)]);
+        assert_result(
+            needles.apply(&list_contains(lit(set), root())),
+            [Some(false), Some(true), None, Some(true)],
+        )
+    }
+
+    #[test]
+    fn constant_set_of_strings_probes_an_encoded_needle() -> VortexResult<()> {
+        let needles = VarBinArray::from_iter(
+            [Some("a"), Some("b"), None],
+            DType::Utf8(Nullability::Nullable),
+        )
+        .into_array();
+        let set = utf8_set(vec![Some("a"), Some("c")]);
+        assert_result(
+            needles.apply(&list_contains(lit(set), root())),
+            [Some(true), Some(false), None],
         )
     }
 
