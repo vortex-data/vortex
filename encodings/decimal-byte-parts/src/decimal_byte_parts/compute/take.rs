@@ -45,7 +45,6 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::DecimalByteParts;
-    use crate::dbp_encode;
 
     /// Taking pushes down into the parts during optimization, with no execution context in
     /// play: `ArrayRef::take` wraps the array in a `Dict` and optimizes, and the reduce rule
@@ -61,7 +60,7 @@ mod tests {
             Validity::NonNullable,
         );
         let indices = buffer![0u64, 2].into_array();
-        let taken = dbp_encode(&decimal, &mut session.create_execution_ctx())?
+        let taken = DecimalByteParts::encode(&decimal, &mut session.create_execution_ctx())?
             .into_array()
             .take(indices)?;
 
@@ -98,7 +97,9 @@ mod tests {
             .take(indices.clone())?
             .execute::<DecimalArray>(&mut ctx)?;
 
-        let taken = dbp_encode(&decimal, &mut ctx)?.into_array().take(indices)?;
+        let taken = DecimalByteParts::encode(&decimal, &mut ctx)?
+            .into_array()
+            .take(indices)?;
         let actual = taken.execute::<DecimalArray>(&mut ctx)?;
 
         assert_arrays_eq!(expected, actual, &mut ctx);

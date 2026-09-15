@@ -12,12 +12,12 @@ use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 
+use super::DecimalByteParts;
 use super::DecimalBytePartsArray;
-use super::dbp_encode;
 
 /// An `i128`-backed decimal array, encoded as byte parts with one lower part.
 pub(crate) fn i128_parts(values: Vec<i128>, validity: Validity) -> DecimalBytePartsArray {
-    dbp_encode(
+    DecimalByteParts::encode(
         &DecimalArray::new(Buffer::from(values), DecimalDType::new(38, 2), validity),
         &mut array_session().create_execution_ctx(),
     )
@@ -26,7 +26,7 @@ pub(crate) fn i128_parts(values: Vec<i128>, validity: Validity) -> DecimalBytePa
 
 /// An `i256`-backed decimal array, encoded as byte parts with three lower parts.
 pub(crate) fn i256_parts(values: Vec<i256>, validity: Validity) -> DecimalBytePartsArray {
-    dbp_encode(
+    DecimalByteParts::encode(
         &DecimalArray::new(Buffer::from(values), DecimalDType::new(76, 2), validity),
         &mut array_session().create_execution_ctx(),
     )
