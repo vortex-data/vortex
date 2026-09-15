@@ -48,9 +48,11 @@ pub(super) fn serialize(
             .collect::<VortexResult<_>>()?,
     }
     .encode_to_vec();
+
     let mut children = Vec::with_capacity(1 + lower_parts.len());
     children.push(array.msp().clone());
     children.extend(lower_parts.iter().cloned());
+
     Ok(ArraySerialization::new(
         decimal_byte_parts_v2_id(),
         metadata,
@@ -60,10 +62,6 @@ pub(super) fn serialize(
 }
 
 pub(super) fn deserialize(parts: ArrayDeserialization<'_>) -> VortexResult<DecimalBytePartsArray> {
-    vortex_ensure!(
-        parts.serialized_id == decimal_byte_parts_v2_id(),
-        "expected the v2 format"
-    );
     let metadata = DecimalBytePartsV2Metadata::decode(parts.metadata)?;
     vortex_ensure!(
         parts.dtype.as_decimal_opt().is_some(),
