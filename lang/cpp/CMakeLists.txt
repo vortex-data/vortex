@@ -79,7 +79,7 @@ else()
 endif()
 
 foreach(_target IN ITEMS vortex_cxx_static vortex_cxx_shared)
-    # Keep inline implementation symbols out of shared-library exports.
+    # Hide inline symbols in the shared library and when embedding the static archive.
     set_target_properties(${_target} PROPERTIES VISIBILITY_INLINES_HIDDEN ON)
     target_compile_features(${_target} PUBLIC cxx_std_20)
     target_include_directories(${_target} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
