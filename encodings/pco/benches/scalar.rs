@@ -68,7 +68,11 @@ fn scalar_access(bencher: Bencher, (count, nullable, scattered): (usize, bool, b
         .with_inputs(|| (SESSION.create_execution_ctx(), Vec::with_capacity(count)))
         .bench_refs(|(ctx, scalars)| {
             for &index in &indices {
-                scalars.push(array.execute_scalar(index, ctx).vortex_expect("scalar access"));
+                scalars.push(
+                    array
+                        .execute_scalar(index, ctx)
+                        .vortex_expect("scalar access"),
+                );
             }
         });
 }
