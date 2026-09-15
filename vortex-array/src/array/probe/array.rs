@@ -140,7 +140,7 @@ pub type EncodingProbeState<V> =
 /// Everything an encoding's `probe_scalar` runs with: the typed view of the array being read
 /// and, for a repeated read, a borrow of the state its [`RepeatedArrayProbe`] keeps.
 ///
-/// Passed to [`OperationsVTable::probe_scalar`](crate::vtable::OperationsVTable::probe_scalar).
+/// Passed to [`OperationsVTable::probe_scalar`].
 /// A one-off read gets [`ProbeState::once`], which holds only the view. A repeated read borrows
 /// the encoding's own state and the lazily created child probes. Neither owns anything, so
 /// building one per read is free.
