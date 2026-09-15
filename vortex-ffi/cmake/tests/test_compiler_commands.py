@@ -170,8 +170,10 @@ class CompilerCommandTests(CMakeTest):
         )
 
         outputs = snapshot(consumer, library, artifacts / "libvortex_ffi.a", artifacts / "include/vortex.h")
-        self.build("header_consumer")
-        self.assertEqual(snapshot(*outputs), outputs, "An unchanged shared build must remain fresh")
+        rebuild = self.cmake_build(self.build_dir, "--target", "header_consumer", "--", "-d", "explain")
+        self.assertEqual(
+            snapshot(*outputs), outputs, f"An unchanged shared build must remain fresh\n{rebuild.stdout}{rebuild.stderr}"
+        )
 
     def test_host_target_instrumentation_and_cache_boundary(self) -> None:
         log = self.work / "cache calls.jsonl"

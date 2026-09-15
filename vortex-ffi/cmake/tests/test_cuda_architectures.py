@@ -72,7 +72,7 @@ class CudaArchitectureTests(CMakeTest):
             "source/CMakeLists.txt",
             f"""\
             cmake_minimum_required(VERSION 3.25)
-            project(CudaArchitectureFixture LANGUAGES NONE)
+            project(CudaArchitectureFixture LANGUAGES C)
             set(CMAKE_SYSTEM_NAME Linux)
             set(APPLE FALSE)
             set(CMAKE_BUILD_TYPE Debug)

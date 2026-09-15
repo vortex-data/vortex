@@ -31,10 +31,7 @@ target_link_libraries(my_c_target PRIVATE Vortex::ffi_shared)
 
 Vortex leaves parent build settings unchanged. Its archives are position-independent.
 
-For static linkage, use `Vortex::ffi_static` and `Vortex::cpp_static`. Both flavours are always
-available; `BUILD_SHARED_LIBS` selects the default build and linkage for Vortex's tests and
-examples. CMake supplies build-tree runtime paths; deployment requires configuring runtime
-search paths for the application and its shared libraries.
+For static linkage, use `Vortex::ffi_static` and `Vortex::cpp_static`.
 
 ## Build options
 
