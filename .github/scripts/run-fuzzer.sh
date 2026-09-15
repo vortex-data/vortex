@@ -42,7 +42,8 @@ if [ -n "$EXTRA_FEATURES" ]; then
 fi
 FORK_FLAG=()
 if [ "$FUZZ_JOBS" -gt 1 ]; then
-  FORK_FLAG=("-fork=$FUZZ_JOBS")
+  # Skip fork mode's initial full-corpus merge before starting workers.
+  FORK_FLAG=("-fork=$FUZZ_JOBS" "-keep_seed=1")
 fi
 
 set +e
