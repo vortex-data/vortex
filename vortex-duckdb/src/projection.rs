@@ -4,6 +4,8 @@ use std::ops::Range;
 
 use num_traits::AsPrimitive as _;
 use vortex::dtype::DType;
+use vortex::dtype::Nullability;
+use vortex::dtype::PType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
@@ -12,11 +14,12 @@ use vortex::expr::Expression;
 use vortex::expr::and_collect;
 use vortex::expr::col;
 use vortex::expr::get_item;
-use vortex::expr::merge;
+use vortex::expr::lit;
 use vortex::expr::pack;
 use vortex::expr::root;
 use vortex::expr::select;
 use vortex::layout::layouts::row_idx::row_idx;
+use vortex::scalar::Scalar;
 use vortex::scan::selection::Selection;
 use vortex_utils::aliases::hash_set::HashSet;
 
@@ -47,22 +50,52 @@ pub struct DuckdbField {
     pub projection_expr: Option<Expression>,
 }
 
-pub struct Projection(pub Expression);
+pub struct Projection {
+    pub projection: Expression,
+    pub file_row_number_column_pos: Option<usize>,
+}
 
 impl Projection {
-    pub fn new(column_ids: &[u64], column_fields: &[DuckdbField]) -> Self {
-        let mut has_file_row_number = false;
+    pub fn new(projection_ids: &[u64], column_ids: &[u64], column_fields: &[DuckdbField]) -> Self {
+        let projection_ids: HashSet<u64> = projection_ids.iter().copied().collect();
+        // If projection ids are empty, use column_ids.
+        // See duckdb/src/planner/operator/logical_get.cpp#L168
+        let is_projected =
+            |pos: usize| projection_ids.is_empty() || projection_ids.contains(&(pos as u64));
+
+        let mut exprs = Vec::with_capacity(column_ids.len() + 1);
+        let mut file_row_number_column_pos = None;
         let mut is_star = true;
         let mut real_column_count = 0;
-        let mut projected_col_count = 0;
 
         // DuckDB uses u64 as column indices but Rust uses usize
-        for &column_id in column_ids {
+        for (column_pos, &column_id) in column_ids.iter().enumerate() {
             if column_id == FILE_ROW_NUMBER_COLUMN_IDX {
-                has_file_row_number = true;
+                is_star = false;
+                if is_projected(column_pos) {
+                    file_row_number_column_pos = Some(exprs.len());
+                } else {
+                    // filter-only column needs to be emitted only for output
+                    // vector position match, it will never be read
+                    let dtype = DType::Primitive(PType::U64, Nullability::Nullable);
+                    exprs.push(("file_row_number", lit(Scalar::null(dtype))));
+                }
                 continue;
             }
+
             if is_virtual_column(column_id) {
+                continue;
+            }
+
+            let field_idx: usize = column_id.as_();
+            let column_field = &column_fields[field_idx];
+            let name = column_field.name.as_str();
+
+            if !is_projected(column_pos) {
+                is_star = false;
+                // filter-only column needs to be emitted only for output
+                // vector position match, it will never be read
+                exprs.push((name, lit(Scalar::null(column_field.dtype.as_nullable()))));
                 continue;
             }
 
@@ -73,11 +106,14 @@ impl Projection {
 
             // Example: if we SELECT len(str), we can't use root() as we try to
             // pushdown scalar functions.
-            let column_id: usize = column_id.as_();
-            let is_projected_col = column_fields[column_id].projection_expr.is_some();
-            projected_col_count += is_projected_col as usize;
-            is_star &= !is_projected_col;
-
+            let expr = match &column_field.projection_expr {
+                None => get_item(name, root()),
+                Some(func) => {
+                    is_star = false;
+                    func.clone()
+                }
+            };
+            exprs.push((name, expr));
             real_column_count += 1;
         }
         // Duckdb can request less columns than there are in table i.e. [0, 1] with
@@ -85,66 +121,19 @@ impl Projection {
         is_star &= real_column_count == column_fields.len() as u64;
 
         if is_star {
-            let projection = if has_file_row_number {
-                // row_idx will be moved to correct position in scan(), prepend here
-                let row_idx_struct = pack([("file_row_number", row_idx())], false.into());
-                merge([row_idx_struct, root()])
-            } else {
-                root()
+            return Projection {
+                projection: root(),
+                file_row_number_column_pos: None,
             };
-            return Projection(projection);
         }
-
-        let has_columns_with_expr = projected_col_count > 0;
-        let (mut all_exprs, mut named_fields) = if has_columns_with_expr {
-            let all = Vec::with_capacity(column_ids.len() + has_file_row_number as usize);
-            let named = Vec::new();
-            (all, named)
-        } else {
-            let all = Vec::new();
-            let named = Vec::with_capacity(column_ids.len());
-            (all, named)
-        };
-
-        if has_file_row_number && has_columns_with_expr {
+        if file_row_number_column_pos.is_some() {
             // row_idx will be moved to correct position in scan(), prepend here
-            all_exprs.push(("file_row_number", row_idx()));
+            exprs.insert(0, ("file_row_number", row_idx()));
         }
-
-        for &column_id in column_ids {
-            if is_virtual_column(column_id) {
-                continue;
-            }
-            let column_id: usize = column_id.as_();
-            let name = column_fields[column_id].name.as_str();
-            if !has_columns_with_expr {
-                named_fields.push(name);
-                continue;
-            }
-
-            let column_field = &column_fields[column_id];
-            let expr = match &column_field.projection_expr {
-                None => get_item(name, root()),
-                Some(func) => func.clone(),
-            };
-            all_exprs.push((name, expr));
+        Self {
+            projection: pack(exprs, false.into()),
+            file_row_number_column_pos,
         }
-
-        let projection = if has_columns_with_expr {
-            // If has_file_row_number is true, we have already inserted
-            // file_row_number column to all_exprs (see line 141)
-            pack(all_exprs, false.into())
-        } else if has_file_row_number {
-            let select = select(named_fields, root());
-            // Here we need to prepend file_row_number column manually.
-            // row_idx will be moved to correct position in scan()
-            let row_idx_struct = pack([("file_row_number", row_idx())], false.into());
-            merge([row_idx_struct, select])
-        } else {
-            select(named_fields, root())
-        };
-
-        Self(projection)
     }
 
     // Create a projection for aggregate scan
@@ -176,7 +165,10 @@ impl Projection {
             let names = exprs.into_iter().map(|(name, _)| name).collect::<Vec<_>>();
             select(names, root())
         };
-        Projection(projection)
+        Projection {
+            projection,
+            file_row_number_column_pos: None,
+        }
     }
 }
 
@@ -275,59 +267,99 @@ pub fn extract_schema_from_dtype(dtype: &DType) -> VortexResult<Vec<DuckdbField>
 mod tests {
     use vortex::dtype::DType;
     use vortex::expr::lit;
-    use vortex::expr::merge;
     use vortex::expr::pack;
     use vortex::expr::root;
     use vortex::layout::layouts::row_idx::row_idx;
 
     use super::*;
 
+    fn field(name: &str) -> DuckdbField {
+        DuckdbField {
+            name: name.to_owned(),
+            logical_type: LogicalType::null(),
+            dtype: DType::Null,
+            projection_expr: None,
+        }
+    }
+
     #[test]
     fn test_select_star() {
         let ids = [0, 1, 2];
-        let mut fields = [
-            DuckdbField {
-                name: "".to_owned(),
-                logical_type: LogicalType::null(),
-                dtype: DType::Null,
-                projection_expr: None,
-            },
-            DuckdbField {
-                name: "".to_owned(),
-                logical_type: LogicalType::null(),
-                dtype: DType::Null,
-                projection_expr: None,
-            },
-            DuckdbField {
-                name: "".to_owned(),
-                logical_type: LogicalType::null(),
-                dtype: DType::Null,
-                projection_expr: None,
-            },
-        ];
+        let mut fields = [field("a"), field("b"), field("c")];
 
-        assert_eq!(Projection::new(&ids, &fields).0, root());
+        assert_eq!(Projection::new(&[], &ids, &fields).projection, root());
 
+        // file_row_number turns star into an explicit pack with row_idx first
         let ids = [FILE_ROW_NUMBER_COLUMN_IDX, 0, 1, 2];
-        let exprs = Projection::new(&ids, &fields);
-        let row_idx_struct = pack([("file_row_number", row_idx())], false.into());
-        let root_with_virtual_cols = merge([row_idx_struct, root()]);
-
-        assert_eq!(exprs.0, root_with_virtual_cols);
+        let result = Projection::new(&[], &ids, &fields);
+        let expected = pack(
+            [
+                ("file_row_number", row_idx()),
+                ("a", get_item("a", root())),
+                ("b", get_item("b", root())),
+                ("c", get_item("c", root())),
+            ],
+            false.into(),
+        );
+        assert_eq!(result.projection, expected);
+        assert_eq!(result.file_row_number_column_pos, Some(0));
 
         let ids = [0, 1];
-        assert_ne!(Projection::new(&ids, &fields).0, root());
+        assert_ne!(Projection::new(&[], &ids, &fields).projection, root());
 
         let ids = [0, 2, 2];
-        assert_ne!(Projection::new(&ids, &fields).0, root());
+        assert_ne!(Projection::new(&[], &ids, &fields).projection, root());
 
         let ids = [2, 1, 0];
-        assert_ne!(Projection::new(&ids, &fields).0, root());
+        assert_ne!(Projection::new(&[], &ids, &fields).projection, root());
 
         // If any column has a projection expression, we can't use SELECT *
         fields[0].projection_expr = Some(lit(true));
         let ids = [0, 1, 2];
-        assert_ne!(Projection::new(&ids, &fields).0, root());
+        assert_ne!(Projection::new(&[], &ids, &fields).projection, root());
+    }
+
+    #[test]
+    fn test_projections() {
+        let fields = [field("a"), field("b"), field("c")];
+
+        let ids = [0, 1, 2];
+        let projection = Projection::new(&[0, 2], &ids, &fields).projection;
+        let expected = pack(
+            [
+                ("a", get_item("a", root())),
+                ("b", lit(Scalar::null(DType::Null))),
+                ("c", get_item("c", root())),
+            ],
+            false.into(),
+        );
+        assert_eq!(projection, expected);
+
+        let ids = [FILE_ROW_NUMBER_COLUMN_IDX, 0];
+        let result = Projection::new(&[1], &ids, &fields);
+        let frn_dtype = DType::Primitive(PType::U64, Nullability::Nullable);
+        let expected = pack(
+            [
+                ("file_row_number", lit(Scalar::null(frn_dtype))),
+                ("a", get_item("a", root())),
+            ],
+            false.into(),
+        );
+        assert_eq!(result.projection, expected);
+        assert_eq!(result.file_row_number_column_pos, None);
+
+        let ids = [0, FILE_ROW_NUMBER_COLUMN_IDX, 1];
+        let result = Projection::new(&[0, 1], &ids, &fields);
+        let expected = pack(
+            [
+                ("file_row_number", row_idx()),
+                ("a", get_item("a", root())),
+                ("b", lit(Scalar::null(DType::Null))),
+            ],
+            false.into(),
+        );
+        assert_eq!(result.projection, expected);
+        assert_eq!(result.file_row_number_column_pos, Some(1));
     }
 
     #[test]

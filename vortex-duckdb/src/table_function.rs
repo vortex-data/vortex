@@ -52,10 +52,8 @@ use crate::duckdb::TableInitInput;
 use crate::duckdb::Value;
 use crate::exporter::ArrayExporter;
 use crate::projection::DuckdbField;
-use crate::projection::FILE_ROW_NUMBER_COLUMN_IDX;
 use crate::projection::Filter;
 use crate::projection::Projection;
-use crate::projection::is_virtual_column;
 
 // Duckdb has two state machines for an extension. The outer one is the table
 // function state machine which calls the file reader state machine.
@@ -251,20 +249,14 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
         .iter()
         .any(|a| matches!(a, ColumnAggregate::CountStar));
 
-    let mut file_row_number_column_pos = None;
     let column_ids = init_input.column_ids();
-    let mut pos = 0;
-    for id in column_ids {
-        if *id == FILE_ROW_NUMBER_COLUMN_IDX {
-            file_row_number_column_pos = Some(pos);
-            pos += 1;
-        } else if !is_virtual_column(*id) {
-            pos += 1;
-        }
-    }
+    let projection_ids = init_input.projection_ids();
 
-    let Projection(projection) = if bind_data.aggregates.is_empty() {
-        Projection::new(column_ids, &bind_data.columns)
+    let Projection {
+        projection,
+        file_row_number_column_pos,
+    } = if bind_data.aggregates.is_empty() {
+        Projection::new(projection_ids, column_ids, &bind_data.columns)
     } else {
         Projection::new_aggregate(&bind_data.aggregates, &bind_data.columns)
     };
