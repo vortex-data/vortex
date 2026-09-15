@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Select a DBP wire format and dispatch to its serde implementation.
+//! ArrayPlugin implementation for DBP that handles different wire formats.
 
 use vortex_array::ArrayDeserialization;
 use vortex_array::ArrayId;
@@ -27,24 +27,23 @@ mod v2;
 
 pub use v2::DecimalBytePartsV2Metadata;
 
-/// The frozen single-child decimal byte-parts format ID.
+/// The frozen single-child DBP serialized ID.
 pub fn decimal_byte_parts_v1_id() -> ArrayId {
     static ID: CachedId = CachedId::new("vortex.decimal_byte_parts");
     *ID
 }
 
-/// The current in-memory DBP identity and the serialized format for arrays with lower parts.
+/// The current in-memory DBP ID and serialized ID for arrays with lower parts.
 pub fn decimal_byte_parts_v2_id() -> ArrayId {
     static ID: CachedId = CachedId::new("vortex.decimal_byte_parts.v2");
     *ID
 }
 
-/// Serde for the current DBP array using the frozen v1 and v2 wire formats.
+/// Serde for the [`DecimalByteParts`] array using the frozen v1 and v2 wire formats.
 ///
 /// Each version owns its metadata schema and serde functions. The plugin writes v1 whenever an
 /// array has no lower parts, so such arrays stay readable by older readers, and v2 otherwise.
-/// The v2 format itself accepts any lower part count up to the maximum. Both serializers borrow
-/// the current array, and both decoders construct a current [`DecimalByteParts`] array directly.
+/// The v2 format itself accepts any lower part count up to the maximum.
 ///
 /// Register this plugin, or call [`crate::initialize`], to enable both formats. Direct registration
 /// of [`DecimalByteParts`] does not support serde.

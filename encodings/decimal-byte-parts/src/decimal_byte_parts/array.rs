@@ -124,11 +124,6 @@ impl DecimalBytePartsData {
     }
 }
 
-/// The current in-memory decimal byte-parts encoding, identified as v2.
-///
-/// Register [`super::DecimalBytePartsPlugin`] or call [`crate::initialize`] to read and write
-/// either serialized format. Registering this VTable directly, or calling its serde methods,
-/// returns an error when serializing or deserializing, including for the frozen v1 format.
 #[derive(Clone, Debug)]
 pub struct DecimalByteParts;
 
@@ -150,7 +145,7 @@ impl DecimalByteParts {
     ///
     /// Lower parts are ordered most significant first and must each be a non-nullable unsigned integer
     /// array of the same length as the MSP. See [`super::split_decimal`] for producing them from a
-    /// canonical decimal array.
+    /// decimal array.
     ///
     /// # Errors
     ///
@@ -161,9 +156,6 @@ impl DecimalByteParts {
         lower_parts: Vec<ArrayRef>,
         decimal_dtype: DecimalDType,
     ) -> VortexResult<DecimalBytePartsArray> {
-        // Building lower parts in memory is never gated — reading a file requires it. What is
-        // gated is the serialized form: an array carrying lower parts serializes under the
-        // `vortex.decimal_byte_parts.v2` format ID, which only editions that contain it may write.
         let len = msp.len();
         let dtype = DType::Decimal(decimal_dtype, msp.dtype().nullability());
         let slots = DecimalBytePartsSlots { msp, lower_parts }.into_slots();
