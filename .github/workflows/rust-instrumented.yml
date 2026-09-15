@@ -262,6 +262,7 @@ jobs:
         run: |
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=Debug \
+            -DBUILD_SHARED_LIBS=ON \
             -DCMAKE_C_COMPILER=clang \
             -DCMAKE_CXX_COMPILER=clang++ \
             -DVORTEX_SANITIZER=${{ matrix.sanitizer }} \
