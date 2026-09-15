@@ -10,7 +10,7 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 
-const SIZES: &[usize] = &[0, 64, 256, 1024, 16_384, 65_536];
+const SIZES: &[usize] = &[64, 256, 1024, 16_384, 65_536];
 
 fn main() {
     divan::main();
