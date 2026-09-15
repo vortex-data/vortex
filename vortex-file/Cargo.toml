@@ -63,6 +63,7 @@ vortex-zstd = { workspace = true, optional = true }
 [dev-dependencies]
 allocator-api2 = { workspace = true }
 divan = { workspace = true }
+rand = { workspace = true }
 rstest = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 vortex-array = { workspace = true, features = ["_test-harness"] }

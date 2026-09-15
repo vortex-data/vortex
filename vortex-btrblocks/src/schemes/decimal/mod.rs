@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Decimal compression scheme using byte-part decomposition.
+//! Versioned decimal compression schemes using byte-part decomposition.
 
+mod v2;
+pub use v2::DecimalSchemeV2;
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
@@ -27,7 +29,10 @@ use crate::SchemeExt;
 /// Compression scheme for decimal arrays via byte-part decomposition.
 ///
 /// Narrows the decimal to the smallest integer type, compresses the underlying primitive, and wraps
-/// the result in a `DecimalBytePartsArray`.
+/// the result in a `DecimalBytePartsArray` under the frozen single-part wire format. Values that
+/// remain wider than 64 bits are left canonical.
+///
+/// This is the compatibility predecessor of [`DecimalSchemeV2`].
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct DecimalScheme;
 
@@ -66,8 +71,6 @@ impl Scheme for DecimalScheme {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        // TODO(joe): add support splitting i128/256 buffers into chunks of primitive values
-        // for compression. 2 for i128 and 4 for i256.
         let decimal = data.array().clone().execute::<DecimalArray>(exec_ctx)?;
         let decimal = narrowed_decimal(decimal);
         let validity = decimal.validity()?;
@@ -85,3 +88,6 @@ impl Scheme for DecimalScheme {
         DecimalByteParts::try_new(compressed, decimal.decimal_dtype()).map(|d| d.into_array())
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -11,6 +11,9 @@ use flatbuffers::FlatBufferBuilder;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::pin_mut;
+use rand::RngExt;
+use rand::SeedableRng as _;
+use rand::rngs::StdRng;
 use rstest::rstest;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
@@ -38,6 +41,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::PType::I32;
 use vortex_array::dtype::StructFields;
+use vortex_array::dtype::i256;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::Expression;
 use vortex_array::expr::and;
@@ -72,9 +76,16 @@ use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
+use vortex_decimal_byte_parts::DecimalByteParts;
+use vortex_decimal_byte_parts::DecimalBytePartsArraySlotsExt;
+use vortex_decimal_byte_parts::split_decimal;
+use vortex_edition::EDITION_DECLARATIONS;
 use vortex_edition::EditionSession;
+use vortex_edition::EditionSessionExt;
+use vortex_edition::declarations::core::CORE_2026_08_3;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_flatbuffers::footer as fb;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::DynLayout;
@@ -249,6 +260,73 @@ async fn test_round_trip_many_types() {
     let read = ChunkedArray::try_new(chunks, dtype).unwrap();
 
     assert_eq!(read.len(), 3);
+}
+
+/// End-to-end check that decimals wider than 64 bits survive a write/read round trip.
+///
+/// The test session permits both byte-parts wire formats, so wide values can be split and compressed.
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_wide_decimal_round_trips_through_a_file() -> VortexResult<()> {
+    const N: usize = 16_384;
+
+    /// Deterministic 24-bit noise, so the low bits of each value are neither constant nor a
+    /// sequence.
+    fn noise(seed: u64) -> impl Iterator<Item = i128> {
+        let mut rng = StdRng::seed_from_u64(seed);
+        iter::repeat_with(move || i128::from(rng.random::<u32>() >> 8))
+    }
+
+    // Values that need more than 64 bits, so `i128` storage cannot be narrowed away.
+    let decimal_38 = DecimalArray::new(
+        noise(7)
+            .take(N)
+            .map(|delta| 10i128.pow(25) + delta)
+            .collect::<Buffer<i128>>(),
+        DecimalDType::new(38, 2),
+        Validity::NonNullable,
+    )
+    .into_array();
+
+    // Values that need more than 128 bits, so `i256` storage cannot be narrowed away.
+    let base = i256::from_i128(10).wrapping_pow(40);
+    let decimal_76 = DecimalArray::new(
+        noise(11)
+            .take(N)
+            .map(|delta| base + i256::from_i128(delta))
+            .collect::<Buffer<i256>>(),
+        DecimalDType::new(76, 4),
+        Validity::from_iter((0..N).map(|i| i % 9 != 0)),
+    )
+    .into_array();
+
+    let st = StructArray::from_fields(&[
+        ("decimal_38", decimal_38),
+        ("decimal_76_nullable", decimal_76),
+    ])?
+    .into_array();
+    let dtype = st.dtype().clone();
+
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .write(&mut buf, st.clone().to_array_stream())
+        .await?;
+
+    let chunks: Vec<_> = SESSION
+        .open_options()
+        .open_buffer(buf)?
+        .scan()?
+        .into_array_stream()?
+        .try_collect()
+        .await?;
+    let read = ChunkedArray::try_new(chunks, dtype)?.into_array();
+
+    let mut ctx = SESSION.create_execution_ctx();
+    assert_eq!(read.len(), N);
+    assert_arrays_eq!(st, read, &mut ctx);
+
+    Ok(())
 }
 
 #[tokio::test]
@@ -2873,5 +2951,83 @@ async fn repro_8166_binary_gt_all_ff_max() -> VortexResult<()> {
         .execute::<StructArray>(&mut ctx)?;
 
     assert_eq!(result.len(), 1);
+    Ok(())
+}
+
+/// The default writer selects the wide or single-part scheme from the enabled editions,
+/// including when its input already carries lower parts.
+#[rstest]
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_default_writer_selects_decimal_scheme_version(
+    #[values(false, true)] v2_enabled: bool,
+) -> VortexResult<()> {
+    let session = array_session()
+        .with::<LayoutSession>()
+        .with::<RuntimeSession>();
+    crate::register_default_encodings(&session);
+    if v2_enabled {
+        crate::enable_all_registered_array_encodings(&session);
+    } else {
+        for declaration in EDITION_DECLARATIONS {
+            session
+                .register_edition(declaration)
+                .map_err(|error| vortex_err!("{error}"))?;
+        }
+        session
+            .enable_edition(CORE_2026_08_3)
+            .map_err(|error| vortex_err!("{error}"))?;
+    }
+
+    let decimal = DecimalArray::new(
+        (0..64i128)
+            .map(|i| (1i128 << 70) + i)
+            .collect::<Buffer<i128>>(),
+        DecimalDType::new(38, 2),
+        Validity::NonNullable,
+    );
+
+    // Building the encoded array is allowed; only getting it into a file is restricted.
+    let parts = split_decimal(&decimal, &mut session.create_execution_ctx())?;
+    assert_eq!(parts.lower_parts.len(), 1, "expected a wide split");
+    let encoded = DecimalByteParts::try_new_with_lower_parts(
+        parts.msp,
+        parts.lower_parts,
+        decimal.decimal_dtype(),
+    )?
+    .into_array();
+
+    let st = StructArray::from_fields(&[("wide", encoded)])?.into_array();
+    let mut buf = ByteBufferMut::empty();
+    session
+        .write_options()
+        .write(&mut buf, st.clone().to_array_stream())
+        .await?;
+
+    let chunks: Vec<_> = session
+        .open_options()
+        .open_buffer(buf)?
+        .scan()?
+        .into_array_stream()?
+        .try_collect()
+        .await?;
+
+    let lower_part_counts: Vec<usize> = chunks
+        .iter()
+        .flat_map(|chunk| chunk.depth_first_traversal())
+        .filter_map(|node| {
+            node.as_opt::<DecimalByteParts>()
+                .map(|array| array.lower_parts().len())
+        })
+        .collect();
+    assert_eq!(lower_part_counts.is_empty(), !v2_enabled);
+    assert!(
+        lower_part_counts.iter().all(|count| *count == 1),
+        "expected one lower part per array, got {lower_part_counts:?}"
+    );
+
+    let mut ctx = session.create_execution_ctx();
+    let read = ChunkedArray::try_new(chunks, st.dtype().clone())?.into_array();
+    assert_arrays_eq!(st, read, &mut ctx);
     Ok(())
 }
