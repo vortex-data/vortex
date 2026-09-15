@@ -21,7 +21,6 @@ use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::TypedArrayRef;
 use vortex_array::array_slots;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
@@ -129,7 +128,8 @@ impl DecimalBytesPartsMetadata {
 /// The most significant part (MSP) stores the most significant decimal bits. It is signed and is
 /// nullable iff the decimal is nullable.
 ///
-/// Every lower part is a non-nullable `u64` holding a raw 64-bit window of the value.
+/// Every lower part is a non-nullable unsigned integer holding a 64-bit window of the value.
+/// Parts may have narrower integer dtypes when their values fit; their positions stay 64 bits apart.
 ///
 /// e.g. for a decimal i128 \[ 127..64 | 63..0 \] msp = 127..64 and lower_part\[0\] = 63..0
 ///
@@ -160,7 +160,7 @@ impl DecimalBytePartsData {
     ///
     /// Returns an error if the MSP is not a signed integer array of length `len`, if `dtype`
     /// does not match the MSP's nullability, if there are more than [`MAX_LOWER_PARTS`]
-    /// lower parts, or if any lower part is not a non-nullable `u64` array of length `len`.
+    /// lower parts, or if any lower part is not a non-nullable unsigned integer array of length `len`.
     pub fn validate<'a>(
         msp: &ArrayRef,
         lower_parts: impl ExactSizeIterator<Item = &'a ArrayRef>,
@@ -187,8 +187,8 @@ impl DecimalBytePartsData {
         );
         for (idx, part) in lower_parts.enumerate() {
             vortex_ensure!(
-                part.dtype() == &LOWER_PART_DTYPE,
-                "lower part {idx} must have dtype {LOWER_PART_DTYPE}, got {}",
+                part.dtype().is_unsigned_int() && !part.dtype().is_nullable(),
+                "lower part {idx} must have a non-nullable unsigned integer dtype, got {}",
                 part.dtype()
             );
             vortex_ensure!(
@@ -220,7 +220,7 @@ impl DecimalByteParts {
     /// Construct a new [`DecimalBytePartsArray`] from an MSP array, its lower parts, and a
     /// decimal dtype.
     ///
-    /// Lower parts are ordered most significant first and must each be a non-nullable `u64`
+    /// Lower parts are ordered most significant first and must each be a non-nullable unsigned integer
     /// array of the same length as the MSP. See [`super::split_decimal`] for producing them from a
     /// canonical decimal array.
     ///
@@ -246,7 +246,7 @@ impl DecimalByteParts {
     /// # Safety
     ///
     /// The MSP must have a signed integer dtype (`i8`, `i16`, `i32`, or `i64`). There must be
-    /// at most [`MAX_LOWER_PARTS`] lower parts, each a non-nullable `u64` array with the same
+    /// at most [`MAX_LOWER_PARTS`] lower parts, each a non-nullable unsigned integer array with the same
     /// length as the MSP. Lower parts are ordered most significant first.
     pub(super) unsafe fn new_unchecked(
         msp: ArrayRef,
@@ -373,16 +373,8 @@ impl VTable for DecimalByteParts {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        // Reassemble DecimalArray from split parts
-        // TODO(mk): handle constant array parts directly instead canonicalizing.
-        let msp = array.msp().clone().execute::<PrimitiveArray>(ctx)?;
-        let lower_parts = array
-            .lower_parts()
-            .iter()
-            .map(|part| part.clone().execute::<PrimitiveArray>(ctx))
-            .collect::<VortexResult<Vec<_>>>()?;
-
-        let assembled = assemble_decimal(&msp, &lower_parts, array.decimal_dtype())?;
+        let lower_parts = array.lower_parts().to_vec();
+        let assembled = assemble_decimal(array.msp(), &lower_parts, array.decimal_dtype(), ctx)?;
 
         Ok(ExecutionResult::done(assembled))
     }
@@ -453,6 +445,7 @@ impl OperationsVTable<DecimalByteParts> for DecimalByteParts {
         let primitive_scalar = scalar.as_primitive();
         let msp = primitive_scalar.as_::<i64>().vortex_expect("non-null");
 
+        // Zero-extend each narrowed lower value to its 64-bit window.
         let lower_parts = array
             .lower_parts()
             .iter()
@@ -504,6 +497,7 @@ mod tests {
     use vortex_array::arrays::DecimalArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::DecimalDType;
     use vortex_array::dtype::DecimalType;
@@ -731,6 +725,84 @@ mod tests {
                 Nullability::Nullable
             )
         );
+        Ok(())
+    }
+
+    #[rstest]
+    #[case([PType::U8, PType::U16, PType::U32])]
+    #[case([PType::U16, PType::U32, PType::U64])]
+    #[case([PType::U32, PType::U64, PType::U8])]
+    #[case([PType::U64, PType::U8, PType::U16])]
+    fn test_independently_narrowed_parts(
+        #[case] lower_ptypes: [PType; 3],
+        #[values(PType::I8, PType::I16, PType::I32, PType::I64)] msp_ptype: PType,
+        #[values(1, 2, 3)] lower_count: usize,
+    ) -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let validity = Validity::from_iter([false, true, true]);
+        let msp = PrimitiveArray::new(buffer![0i64, 1, -1], validity.clone())
+            .into_array()
+            .cast(DType::Primitive(msp_ptype, Nullability::Nullable))?;
+        // Set the unsigned type's highest bit to catch accidental sign extension.
+        let words = lower_ptypes.map(|ptype| 1u64 << (ptype.byte_width() * 8 - 1));
+        let lower = lower_ptypes
+            .into_iter()
+            .zip(words)
+            .take(lower_count)
+            .map(|(ptype, word)| {
+                buffer![0u64, word, word]
+                    .into_array()
+                    .cast(DType::Primitive(ptype, Nullability::NonNullable))
+            })
+            .collect::<VortexResult<Vec<_>>>()?;
+        let dtype = DecimalDType::new(if lower_count == 1 { 38 } else { 76 }, 0);
+        let encoded = DecimalByteParts::try_new_with_lower_parts(msp, lower, dtype)?;
+        let expected = match lower_count {
+            1 => DecimalArray::new(
+                buffer![
+                    0i128,
+                    (1i128 << 64) | i128::from(words[0]),
+                    (-1i128 << 64) | i128::from(words[0])
+                ],
+                dtype,
+                validity,
+            ),
+            2 => {
+                let low = (u128::from(words[0]) << 64) | u128::from(words[1]);
+                DecimalArray::new(
+                    buffer![
+                        i256::ZERO,
+                        i256::from_parts(low, 1),
+                        i256::from_parts(low, -1)
+                    ],
+                    dtype,
+                    validity,
+                )
+            }
+            _ => {
+                let low = (u128::from(words[1]) << 64) | u128::from(words[2]);
+                DecimalArray::new(
+                    buffer![
+                        i256::ZERO,
+                        i256::from_parts(low, (1i128 << 64) | i128::from(words[0])),
+                        i256::from_parts(low, (-1i128 << 64) | i128::from(words[0])),
+                    ],
+                    dtype,
+                    validity,
+                )
+            }
+        };
+        let actual = encoded
+            .clone()
+            .into_array()
+            .execute::<DecimalArray>(&mut ctx)?;
+        assert_arrays_eq!(expected.clone(), actual, &mut ctx);
+        for row in 0..expected.len() {
+            assert_eq!(
+                encoded.execute_scalar(row, &mut ctx)?,
+                expected.execute_scalar(row, &mut ctx)?
+            );
+        }
         Ok(())
     }
 

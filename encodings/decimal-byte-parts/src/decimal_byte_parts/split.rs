@@ -146,8 +146,8 @@ fn split_no_valid_row(decimal: &DecimalArray, validity: &Validity) -> DecimalPar
 /// It is specialized for each input type: `i128` has one lower word and `i256`
 /// has three. Null rows get zeros in every output buffer. The caller handles empty
 /// and all-null arrays before calling this function.
-fn split_wide<T: Copy, const N: usize>(
-    values: &Buffer<T>,
+pub fn split_wide<T: Copy, const N: usize>(
+    values: &[T],
     validity: &Mask,
     to_parts: impl Fn(T) -> (i64, [u64; N]),
 ) -> (Buffer<i64>, [Buffer<u64>; N]) {
@@ -211,7 +211,7 @@ fn split_wide<T: Copy, const N: usize>(
 
 /// Extract the high signed word and low unsigned word of an `i128`.
 #[inline]
-const fn i128_to_parts(value: i128) -> (i64, [u64; MAX_I128_LOWER_PARTS]) {
+pub const fn i128_to_parts(value: i128) -> (i64, [u64; MAX_I128_LOWER_PARTS]) {
     #[expect(
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss,
@@ -222,7 +222,7 @@ const fn i128_to_parts(value: i128) -> (i64, [u64; MAX_I128_LOWER_PARTS]) {
 
 /// Extract the signed MSP and three unsigned lower words of an `i256`.
 #[inline]
-const fn i256_to_parts(value: i256) -> (i64, [u64; MAX_I256_LOWER_PARTS]) {
+pub const fn i256_to_parts(value: i256) -> (i64, [u64; MAX_I256_LOWER_PARTS]) {
     let (low, high) = value.to_parts();
     #[expect(
         clippy::cast_possible_truncation,

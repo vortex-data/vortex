@@ -14,7 +14,7 @@ use crate::decimal_byte_parts::DecimalBytePartsArraySlotsExt;
 impl TakeReduce for DecimalByteParts {
     fn take(array: ArrayView<'_, Self>, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         // Taking with nullable indices makes every taken part nullable, but lower parts must
-        // stay non-nullable `u64` — validity belongs to the MSP alone. Fall back to the
+        // stay non-nullable — validity belongs to the MSP alone. Fall back to the
         // canonical path rather than rebuilding parts we would have to strip nullability from.
         //
         // TODO(mk): Support lower parts using fill_null for nullable indices.

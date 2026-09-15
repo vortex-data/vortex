@@ -13,6 +13,7 @@
 //!
 //! This is exactly the two's complement bit pattern of the decimal value cut on 64-bit
 //! boundaries.
+//! Each part may use a narrower integer dtype when its values fit; the word boundaries stay fixed.
 
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -36,6 +37,10 @@ pub use split::split_decimal;
 #[doc(hidden)]
 pub mod _benchmarking {
     pub use super::assemble::assemble_decimal;
+    pub use super::assemble::assemble_wide_decimal;
+    pub use super::split::i128_to_parts;
+    pub use super::split::i256_to_parts;
+    pub use super::split::split_wide;
 }
 
 /// The maximum number of 64-bit lower parts an encoded `i128` decimal can carry.
@@ -50,6 +55,5 @@ const MAX_LOWER_PARTS: usize = MAX_I256_LOWER_PARTS;
 /// Number of bits stored in each lower part.
 const LOWER_PART_BITS: usize = 64;
 
-/// Every lower part is a non-nullable `u64` primitive, since the MSP carries the sign
-/// and validity.
+/// Dtype of the lower parts produced by splitting, before any narrowing.
 const LOWER_PART_DTYPE: DType = DType::Primitive(PType::U64, Nullability::NonNullable);
