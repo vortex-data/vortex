@@ -11411,8 +11411,10 @@ dependencies = [
 name = "vortex-pco"
 version = "0.1.0"
 dependencies = [
+ "codspeed-divan-compat",
  "pco",
  "prost 0.14.4",
+ "rand 0.10.2",
  "rstest",
  "vortex-array",
  "vortex-arrow",
