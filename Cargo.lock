@@ -5649,14 +5649,14 @@ name = "lance-bench"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "arrow-cast 59.3.0",
+ "arrow-cast 58.4.0",
  "async-trait",
  "clap",
  "futures",
  "glob",
  "lance",
- "lance-encoding",
- "parquet 59.3.0",
+ "lance-file",
+ "parquet 58.4.0",
  "tempfile",
  "tokio",
  "tracing",
@@ -7443,6 +7443,39 @@ dependencies = [
  "snap",
  "thrift",
  "tokio",
+ "twox-hash",
+ "zstd 0.13.3",
+]
+
+[[package]]
+name = "parquet"
+version = "58.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d298093b2dec60289dce0684c986d0f7679e9dd15771c2c65406e1aaf604a704"
+dependencies = [
+ "ahash",
+ "arrow-array 58.4.0",
+ "arrow-buffer 58.4.0",
+ "arrow-data 58.4.0",
+ "arrow-ipc 58.4.0",
+ "arrow-schema 58.4.0",
+ "arrow-select 58.4.0",
+ "base64 0.22.1",
+ "brotli",
+ "bytes",
+ "chrono",
+ "flate2",
+ "half",
+ "hashbrown 0.17.1",
+ "lz4_flex 0.13.1",
+ "num-bigint 0.4.8",
+ "num-integer",
+ "num-traits",
+ "paste",
+ "seq-macro",
+ "simdutf8",
+ "snap",
+ "thrift",
  "twox-hash",
  "zstd 0.13.3",
 ]
