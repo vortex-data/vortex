@@ -23,6 +23,20 @@ See [`src/main.rs`](./src/main.rs) for the dataset list and CLI flags (`--format
 cargo run -p compress-bench --profile release_debug
 ```
 
+Lance is behind the `lance` feature, and `--formats` accepts it only in a binary built with
+it. Only the post-merge `develop` benchmark covers Lance; the pull-request `Compression`
+comment does not, to keep the PR matrix cheap:
+
+```bash
+cargo run -p compress-bench --profile release_debug --features lance \
+  -- --formats arrow-ipc,parquet,lance,vortex
+```
+
+Lance files are written at storage version 2.2, the newest stable version. Storage versions at or
+above 2.1 use structural encoding, which is what applies Lance's compressive encodings — bitpacking,
+FSST, general compression. Note that `LanceFileVersion::Stable` resolves to 2.1, the default for new
+datasets, rather than to the newest stable version, so 2.2 has to be named explicitly.
+
 ## GPU decompression
 
 `--gpu-decompress` is opt-in, requires the `cuda` feature, and restricts the suite to the
