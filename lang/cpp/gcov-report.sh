@@ -9,9 +9,12 @@
 set -eu
 cd "$(dirname "$0")"
 
-cmake -S . -B build \
+# Cached GCC objects retain their original .gcda paths when target names change.
+# Clear both inherited and cached launchers so coverage stays in this build tree.
+CMAKE_CXX_COMPILER_LAUNCHER= cmake -S . -B build \
     -DVORTEX_BUILD_TESTS=ON \
-    -DCMAKE_CXX_FLAGS=--coverage
+    -DCMAKE_CXX_FLAGS=--coverage \
+    -DCMAKE_CXX_COMPILER_LAUNCHER=
 
 # getconf works on Linux and macOS; nproc is not installed on stock macOS.
 cmake --build build \
