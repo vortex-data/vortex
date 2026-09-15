@@ -4,7 +4,6 @@
 //! Scalar reads out of a PCO array. Cases are `(access_count, nullable, scattered)`; clustered
 //! indices stay inside one page so a retained decode can be reused, scattered ones cross pages.
 
-use std::hint::black_box;
 use std::sync::LazyLock;
 
 use divan::Bencher;
@@ -66,14 +65,10 @@ fn scalar_access(bencher: Bencher, (count, nullable, scattered): (usize, bool, b
     let array = pco(nullable);
     let indices = indices(count, scattered);
     bencher
-        .with_inputs(|| SESSION.create_execution_ctx())
-        .bench_refs(|ctx| {
+        .with_inputs(|| (SESSION.create_execution_ctx(), Vec::with_capacity(count)))
+        .bench_refs(|(ctx, scalars)| {
             for &index in &indices {
-                black_box(
-                    array
-                        .execute_scalar(black_box(index), ctx)
-                        .vortex_expect("scalar access"),
-                );
+                scalars.push(array.execute_scalar(index, ctx).vortex_expect("scalar access"));
             }
         });
 }
