@@ -404,10 +404,7 @@ impl<T> Buffer<T> {
         self.alignment
     }
 
-    /// Returns the allocator to use for derived buffers.
-    ///
-    /// External buffers use the static allocator.
-    pub fn allocator(&self) -> &BufferAllocatorRef {
+    pub(crate) fn allocator(&self) -> &BufferAllocatorRef {
         match self.backing.as_deref() {
             Some(backing) => backing.allocator(),
             None => BufferAllocatorRef::static_ref(),

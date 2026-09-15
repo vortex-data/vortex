@@ -4,9 +4,14 @@
 use std::ffi::c_void;
 use std::ptr;
 use std::slice;
+use std::sync::Arc;
+use std::sync::LazyLock;
 
 use bytes::Bytes;
+use object_store::registry::ObjectStoreRegistry;
+use url::Url;
 use vortex::buffer::ByteBuffer;
+use vortex::cloud::Registry;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 use vortex::expr::stats::Precision::Absent;
@@ -14,9 +19,14 @@ use vortex::expr::stats::Precision::Exact;
 use vortex::expr::stats::Precision::Inexact;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::multi::MultiFileDataSource;
+use vortex::io::compat::Compat;
+use vortex::io::filesystem::FileSystemRef;
+use vortex::io::object_store::ObjectStoreFileSystem;
 use vortex::io::runtime::BlockingRuntime;
+use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::scan::multi::MultiLayoutDataSource;
 use vortex::scan::DataSource;
+use vortex::session::VortexSession;
 
 use crate::RUNTIME;
 use crate::box_wrapper;
@@ -68,6 +78,27 @@ unsafe extern "C" {
     pub fn __lsan_enable();
 }
 
+/// Parse `glob` as an object-store URL. A parse failure, a `file` scheme, or a
+/// single-character scheme (a Windows drive path) is a local path.
+fn object_store_url(glob: &str) -> Option<Url> {
+    let url = Url::parse(glob).ok()?;
+    (url.scheme().len() > 1 && url.scheme() != "file").then_some(url)
+}
+
+/// Resolve `url` through the shared [`vortex::cloud::Registry`] into the
+/// store-relative path and a filesystem over the store.
+fn registry_filesystem(
+    url: &Url,
+    session: &VortexSession,
+) -> VortexResult<(String, FileSystemRef)> {
+    static REGISTRY: LazyLock<Registry> = LazyLock::new(Registry::default);
+
+    let (store, path) = REGISTRY.resolve(url)?;
+    let store = Arc::new(Compat::new(store));
+    let fs: FileSystemRef = Arc::new(ObjectStoreFileSystem::new(store, session.handle()));
+    Ok((path.to_string(), fs))
+}
+
 unsafe fn data_source_new(
     session: *const vx_session,
     opts: *const vx_data_source_options,
@@ -84,7 +115,15 @@ unsafe fn data_source_new(
     let paths = unsafe { slice::from_raw_parts(opts.paths, opts.paths_len) };
     let mut data_source = MultiFileDataSource::new(session.clone());
     for path in paths {
-        data_source = data_source.with_glob(unsafe { path.as_str() }?, None);
+        let glob = unsafe { path.as_str() }?;
+        // Object-store URLs get an explicit filesystem; anything else is a local glob.
+        data_source = match object_store_url(glob) {
+            Some(url) => {
+                let (store_path, fs) = registry_filesystem(&url, session)?;
+                data_source.with_glob(store_path, Some(fs))
+            }
+            None => data_source.with_glob(glob, None),
+        };
     }
 
     let data_source = RUNTIME.block_on(async {
@@ -249,6 +288,38 @@ mod tests {
             let ds = vx_data_source_new(session, &raw const opts, &raw mut error);
             assert_error(error);
             assert!(ds.is_null());
+
+            vx_session_free(session);
+        }
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_object_store_url_routing() {
+        unsafe {
+            let session = vx_session_new();
+            let mut error = ptr::null_mut();
+
+            // A URL scheme must route through the object-store registry, not
+            // the local filesystem. The Azure builder deterministically
+            // fails without configuration, and that failure can only arise
+            // on the registry path.
+            let url = vx_view::from_str("az://account/container/missing.vortex");
+            let opts = vx_data_source_options {
+                paths: &raw const url,
+                paths_len: 1,
+            };
+            let ds = vx_data_source_new(session, &raw const opts, &raw mut error);
+            assert!(ds.is_null());
+            assert!(!error.is_null());
+            let message = crate::error::vx_error_message(error).as_str().unwrap();
+            // Local-path handling would report an unmatched glob pattern;
+            // the registry path fails earlier, in the store builder.
+            assert!(
+                !message.contains("glob"),
+                "URL was resolved as a local path: {message}"
+            );
+            assert_error(error);
 
             vx_session_free(session);
         }

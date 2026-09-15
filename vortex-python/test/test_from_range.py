@@ -49,3 +49,13 @@ def test_from_range_invalid() -> None:
 
     arr = vx.array(range(0, 10, -1))
     assert values(arr) == []
+
+
+def test_from_range_3_3():
+    arr = vx.array(range(3, 3))
+    assert values(arr) == []
+
+
+def test_from_range_5_1_minus_1():
+    arr = vx.array(range(5, 1, -1))
+    assert values(arr) == list(range(5, 1, -1))

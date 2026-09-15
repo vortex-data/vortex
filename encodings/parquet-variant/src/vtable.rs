@@ -15,6 +15,7 @@ use vortex_array::arrays::VariantArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::proto::dtype as pb;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
@@ -25,7 +26,6 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_proto::dtype as pb;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 

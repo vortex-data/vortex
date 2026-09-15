@@ -78,7 +78,8 @@ fn take_impl(
                 return array.child().filter(mask)?.cast(result_dtype);
             }
 
-            let translated = translate_indices(array.filter_mask(), indices, None)?;
+            let translated =
+                translate_indices(array.filter_mask(), indices, None, ctx.allocator())?;
             let translated_indices =
                 PrimitiveArray::new(translated, indices.validity()?).into_array();
 
@@ -90,7 +91,8 @@ fn take_impl(
         )
         .into_array()),
         AllOr::Some(buf) => {
-            let translated = translate_indices(array.filter_mask(), indices, Some(buf))?;
+            let translated =
+                translate_indices(array.filter_mask(), indices, Some(buf), ctx.allocator())?;
             let translated_indices =
                 PrimitiveArray::new(translated, indices.validity()?).into_array();
 

@@ -10,6 +10,9 @@ cmake_minimum_required(VERSION 3.25)
 
 project(VortexCXX DESCRIPTION "Vortex C++ wrapper" LANGUAGES C CXX)
 
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 # Standalone entry points own their defaults; otherwise inherit Vortex's marker.
 if(PROJECT_IS_TOP_LEVEL)
     set(_vortex_top_level ON)
@@ -35,6 +38,8 @@ option(VORTEX_BUILD_EXAMPLES "Build Vortex examples" OFF)
 option(VORTEX_WARNINGS_AS_ERRORS
     "Treat warnings in Vortex-owned sources as errors"
     "${_vortex_top_level}")
+
+include(../../vortex-ffi/cmake/DebugInfo.cmake)
 
 # The Rust FFI archive comes from vortex-ffi. A standalone configure of this
 # directory adds it here; the repository root or a parent may already have.

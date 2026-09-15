@@ -259,10 +259,7 @@ impl ArrayBuilder for DecimalBuilder {
 
 impl DecimalBuffer {
     fn take(&mut self) -> Self {
-        delegate_fn!(self, |T, buffer| {
-            let allocator = buffer.allocator();
-            DecimalBuffer::from(std::mem::replace(buffer, allocator.with_capacity(0)))
-        })
+        delegate_fn!(self, |T, buffer| { DecimalBuffer::from(buffer.take()) })
     }
 
     fn push<V: NativeDecimalType>(&mut self, value: V) {

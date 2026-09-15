@@ -138,8 +138,7 @@ impl<T: NativePType> PrimitiveBuilder<T> {
             .nulls
             .finish_with_nullability(self.dtype().nullability());
 
-        let allocator = self.values.allocator().clone();
-        let values = std::mem::replace(&mut self.values, allocator.with_capacity(0)).freeze();
+        let values = self.values.take().freeze();
         PrimitiveArray::new(values, validity)
     }
 

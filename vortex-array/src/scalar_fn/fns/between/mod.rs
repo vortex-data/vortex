@@ -10,7 +10,6 @@ pub use kernel::*;
 use prost::Message;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
@@ -27,6 +26,7 @@ use crate::dtype::DType;
 use crate::dtype::DType::Bool;
 use crate::expr::display::ExprDisplay;
 use crate::expr::expression::Expression;
+use crate::proto::expr as pb;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;

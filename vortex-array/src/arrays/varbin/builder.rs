@@ -413,19 +413,11 @@ impl<O: OffsetBuilderPType> VarBinBuilder<O> {
             "The offset count must be one more than the validity length"
         );
 
-        let allocator = self.offsets.allocator().clone();
-        let mut fresh_offsets = BufferMut::with_capacity_in(1, allocator.clone());
-        fresh_offsets.push(O::zero());
-        let offsets = PrimitiveArray::new(
-            std::mem::replace(&mut self.offsets, fresh_offsets).freeze(),
-            Validity::NonNullable,
-        );
-        let data = std::mem::replace(
-            &mut self.data,
-            BufferMut::empty_aligned_in(Alignment::of::<u8>(), allocator.clone()),
-        );
-        let nulls =
-            std::mem::replace(&mut self.validity, BitBufferMut::empty_in(allocator)).freeze();
+        let offsets = self.offsets.take();
+        self.offsets.push(O::zero());
+        let offsets = PrimitiveArray::new(offsets.freeze(), Validity::NonNullable);
+        let data = self.data.take();
+        let nulls = self.validity.take().freeze();
 
         let validity = Validity::from_bit_buffer(nulls, self.dtype.nullability());
 

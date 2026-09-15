@@ -3,6 +3,7 @@
 
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
+use vortex_buffer::BufferMut;
 use vortex_buffer::CpuKernel;
 use vortex_buffer::get_bit;
 use vortex_error::VortexExpect;
@@ -144,7 +145,7 @@ fn filter_inner(
     let mask_chunks = mask_buf.chunks();
 
     let out_u64s = true_count.div_ceil(64);
-    let mut output: Vec<u64> = Vec::with_capacity(out_u64s + 1);
+    let mut output: BufferMut<u64> = BufferMut::with_capacity(out_u64s + 1);
     let out_ptr = output.as_mut_ptr();
     let mut out_idx: usize = 0;
 
@@ -211,15 +212,10 @@ fn filter_inner(
     // SAFETY: we wrote exactly out_idx words, which is <= out_u64s + 1 = capacity.
     unsafe { output.set_len(out_idx) };
 
+    let mut bytes = output.into_byte_buffer();
     let byte_len = true_count.div_ceil(8);
-    let bytes: Vec<u8> = unsafe {
-        let mut v = std::mem::ManuallyDrop::new(output);
-        let ptr = v.as_mut_ptr() as *mut u8;
-        let cap = v.capacity() * 8;
-        Vec::from_raw_parts(ptr, byte_len, cap)
-    };
-
-    BitBuffer::new(bytes.into(), true_count)
+    bytes.truncate(byte_len); // removes up to 7 extra bytes
+    BitBuffer::new(bytes.freeze(), true_count)
 }
 
 /// Byte-level LUT PEXT fallback.

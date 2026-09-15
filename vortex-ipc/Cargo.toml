@@ -22,8 +22,10 @@ pin-project-lite = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
-vortex-flatbuffers = { workspace = true, features = ["ipc"] }
 vortex-session = { workspace = true }
+
+[build-dependencies]
+vortex-build = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full"] }

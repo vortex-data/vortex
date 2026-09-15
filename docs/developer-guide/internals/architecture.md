@@ -33,13 +33,13 @@ format, and I/O.
 | `vortex-mask`             | Bitmask operations for validity and selection                                 |
 | `vortex-session`          | Session object holding registries for encodings, layouts, and extension types |
 | `vortex-array`            | `Array` trait, canonical encodings, vtable system, statistics                 |
+| `vortex-build`            | Build script helpers that generate FlatBuffer and Protobuf bindings          |
 | `vortex-io`               | Async I/O abstraction (local filesystem, object store, HTTP)                  |
 | `vortex-layout`           | Layout traits and built-in layouts (Flat, Struct, Chunked)                    |
 | `vortex-ipc`              | IPC format for inter-process communication                                    |
 | `vortex-file`             | `.vortex` file reading and writing                                            |
 | `vortex-scan`             | Table scan with filter and projection pushdown                                |
 | `vortex-expr`             | Expression representation and optimization                                    |
-| `vortex-flatbuffers`      | FlatBuffer schema definitions                                                 |
 
 ## Encodings
 

@@ -28,13 +28,13 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Rust Dependency Cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2
         with:
           save-if: ${{ github.ref_name == 'develop' }}
-      - uses: ./.github/actions/setup-rust
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29  # v2.2.1
       - name: Install uv
         uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
@@ -44,21 +44,23 @@ jobs:
       - name: Ensure wheel and sdist can be built on Linux - PyVortex
         shell: bash
         run: |
-          echo "Clearing wheel target directory"
-          rm -rf ../target/wheels/
+          dist_dir=$(mktemp -d "${RUNNER_TEMP}/python-dist.XXXXXX")
 
           uv venv
-          uv tool run maturin@1.15.0 build --interpreter python3.11 --zig
-          uv tool run maturin@1.15.0 build --interpreter python3.11 --zig --sdist
+          # Build the wheel from the sdist, reusing cached dependencies outside its temporary source tree.
+          uv tool run maturin@1.15.0 build --interpreter python3.11 --zig --sdist \
+            --target-dir "${GITHUB_WORKSPACE}/target" --out "$dist_dir"
 
-          file_count=$(ls -1 ../target/wheels/ | wc -l)
+          shopt -s nullglob
+          wheels=("$dist_dir"/*.whl)
+          sdists=("$dist_dir"/*.tar.gz)
 
-          if [[ $file_count -ne 2 ]]; then
-            echo "Unexpected number of files detected ${file_count}:"
-            ls ../target/wheels/
+          if [[ ${#wheels[@]} -ne 1 || ${#sdists[@]} -ne 1 ]]; then
+            echo "Expected one wheel and one sdist:"
+            ls "$dist_dir"
             exit 1
           else
-            echo "Generated two files"
+            echo "Generated one wheel and one sdist"
           fi
         working-directory: vortex-python/
 

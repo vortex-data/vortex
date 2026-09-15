@@ -11,12 +11,12 @@ use std::sync::Arc;
 
 use flatbuffers::FlatBufferBuilder;
 use flatbuffers::WIPOffset;
+use vortex_array::flatbuffers::FlatBufferRoot;
+use vortex_array::flatbuffers::WriteFlatBuffer;
 use vortex_error::VortexResult;
-use vortex_flatbuffers::FlatBufferRoot;
-use vortex_flatbuffers::WriteFlatBuffer;
-use vortex_flatbuffers::footer as fb;
 use vortex_session::registry::ReadContext;
 
+use crate::flatbuffers::footer as fb;
 use crate::footer::segment::SegmentSpec;
 
 /// A writer for serializing a file layout to a FlatBuffer.

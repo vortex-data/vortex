@@ -12,10 +12,6 @@ use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_flatbuffers::FlatBuffer;
-use vortex_flatbuffers::FlatBufferRoot;
-use vortex_flatbuffers::WriteFlatBuffer;
-use vortex_flatbuffers::dtype as fbd;
 use vortex_session::VortexSession;
 
 use crate::dtype::DType;
@@ -30,6 +26,10 @@ use crate::dtype::extension::ExtId;
 use crate::dtype::extension::ForeignExtDType;
 use crate::dtype::flatbuffers as fb;
 use crate::dtype::session::DTypeSessionExt;
+use crate::flatbuffers::FlatBuffer;
+use crate::flatbuffers::FlatBufferRoot;
+use crate::flatbuffers::WriteFlatBuffer;
+use crate::flatbuffers::dtype as fbd;
 
 /// A lazily evaluated DType, parsed on access from an underlying flatbuffer.
 #[derive(Debug, Clone)]
@@ -568,9 +568,6 @@ mod test {
     use flatbuffers::FlatBufferBuilder;
     use flatbuffers::root;
     use vortex_buffer::ByteBuffer;
-    use vortex_flatbuffers::FlatBuffer;
-    use vortex_flatbuffers::WriteFlatBuffer;
-    use vortex_flatbuffers::WriteFlatBufferExt;
 
     use crate::dtype::DType;
     use crate::dtype::PType;
@@ -580,6 +577,9 @@ mod test {
     use crate::dtype::nullability::Nullability;
     use crate::dtype::serde::flatbuffers::ViewedDType;
     use crate::dtype::test::SESSION;
+    use crate::flatbuffers::FlatBuffer;
+    use crate::flatbuffers::WriteFlatBuffer;
+    use crate::flatbuffers::WriteFlatBufferExt;
 
     fn roundtrip_dtype(dtype: DType) {
         let bytes = dtype.write_flatbuffer_bytes().unwrap();
@@ -802,7 +802,8 @@ mod test {
     fn test_union_malformed_flatbuffer_errors() {
         use flatbuffers::FlatBufferBuilder;
         use vortex_buffer::ByteBuffer;
-        use vortex_flatbuffers::WriteFlatBuffer;
+
+        use crate::flatbuffers::WriteFlatBuffer;
 
         let mut fbb = FlatBufferBuilder::new();
 
