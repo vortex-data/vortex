@@ -1,0 +1,151 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TTTTIRR
+SELECT c_last_name,
+       c_first_name,
+       ca_city,
+       bought_city,
+       ss_ticket_number,
+       amt,
+       profit
+FROM
+  (SELECT ss_ticket_number,
+          ss_customer_sk,
+          ca_city bought_city,
+          sum(ss_coupon_amt) amt,
+          sum(ss_net_profit) profit
+   FROM store_sales,
+        date_dim,
+        store,
+        household_demographics,
+        customer_address
+   WHERE store_sales.ss_sold_date_sk = date_dim.d_date_sk
+     AND store_sales.ss_store_sk = store.s_store_sk
+     AND store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk
+     AND store_sales.ss_addr_sk = customer_address.ca_address_sk
+     AND (household_demographics.hd_dep_count = 4
+          OR household_demographics.hd_vehicle_count= 3)
+     AND date_dim.d_dow IN (6,
+                            0)
+     AND date_dim.d_year IN (1999,
+                             1999+1,
+                             1999+2)
+     AND store.s_city IN ('Fairview',
+                          'Midway')
+   GROUP BY ss_ticket_number,
+            ss_customer_sk,
+            ss_addr_sk,
+            ca_city) dn,
+     customer,
+     customer_address current_addr
+WHERE ss_customer_sk = c_customer_sk
+  AND customer.c_current_addr_sk = current_addr.ca_address_sk
+  AND current_addr.ca_city <> bought_city
+ORDER BY c_last_name NULLS FIRST,
+         c_first_name NULLS FIRST,
+         ca_city NULLS FIRST,
+         bought_city NULLS FIRST,
+         ss_ticket_number NULLS FIRST
+LIMIT 100;
+----
+NULL NULL Buena Vista Glenwood 12284 2163.44 -3739.04
+NULL NULL Centerville Forest Hills 3520 0 -1631.59
+NULL NULL Crossroads Farmington 18934 0 -6281.06
+NULL NULL Five Forks Pleasant Valley 23455 6847.18 -1936.07
+NULL NULL Forest Hills Calhoun 22575 629.49 -1503.21
+NULL NULL Green Acres Newport 18435 0 -1666.8
+NULL NULL Hillcrest Mount Zion 7114 910.74 -9461.37
+NULL NULL La Grange Spring Hill 11043 930.4 -10220.99
+NULL NULL Lincoln Highland 634 2760.16 -16172.15
+NULL NULL New Hope Centerville 18350 1744.71 -435.66
+NULL NULL Newtown Fairfield 1911 607.52 -8326.91
+NULL NULL Red Hill Church Hill 8226 3762.91 -15562.55
+NULL NULL Red Hill Pine Grove 3820 570.14 -17150.79
+NULL NULL Richville Spring Hill 21507 490.1 -17662.54
+NULL NULL Riverview Glenwood 22782 14674.06 -9106.01
+NULL NULL Roy Oak Ridge 5622 2451.45 -4929.45
+NULL NULL Springdale Harmony 8257 3136.43 -10364.95
+NULL NULL Summerfield Glendale 16640 4954.16 -754.09
+NULL NULL Valley View Ashland 5867 68.91 -3174.13
+NULL Ada Pine Grove Omega 20115 1910.76 -7899.03
+NULL Amber Ellisville Mount Pleasant 13631 11191.03 -6131.58
+NULL Brenda Wildwood Lakewood 1459 2905.56 -610.21
+NULL Debbie Red Hill Franklin 214 1950.49 -9630.83
+NULL Fernando Union Hill Salem 14552 9876.31 -15483.65
+NULL James Georgetown Marion 23389 5862.88 -16131.8
+NULL Janet Springfield Brownsville 6476 201.12 425.51
+NULL Julia Wilson Oakland 6149 3014.08 -11906.59
+NULL Omar Forest Hills Springdale 8907 3059.08 -14898.65
+NULL Steven Millwood Jamestown 7076 0 -5335.22
+NULL Susanne Marion Jones 6196 1240.86 -20625.41
+NULL Timothy Five Points Cedar Grove 10707 1724.86 -6095.1
+NULL Timothy Woodland Mountain View 10813 1500.3 -5139.84
+NULL William Summit New Hope 14928 0 -18318.3
+Abbott Frederick Highland Enterprise 7247 7023.24 -10956.48
+Ackerman Ruth Brownsville Unionville 21518 4231.54 -10848.22
+Acosta Albert Kingston Bunker Hill 10218 1306.1 -8877.65
+Adair Kimberly Ferguson Newtown 6887 6230.72 -3373.41
+Adair Martin Highland Pine Grove 11922 2192.73 -7876.17
+Adams Bryan Waterloo Newtown 20839 12675 -18599.52
+Adkins Christopher Maple Grove Marion 23357 66.01 147.71
+Agee Susanne Roxbury Springfield 16207 566.53 -13045.38
+Aguilar Lorena Warwick Oak Grove 17579 0 -11029.4
+Ahmed David Sunnyside Shiloh 13064 413.19 -8728.65
+Akers James Lakeside Pleasant Hill 6418 0 -8187.62
+Albright Susan Lone Pine Jamestown 6815 508.72 -13905.25
+Albright Vincent Wright Newport 7278 1318.49 -3740.79
+Alexander Harry Liberty Bethel 491 831.42 6462.24
+Allen Mark Jamestown Crossroads 2988 3977.68 -11662.4
+Allred Jacob Springfield Pleasant Grove 19937 1719.34 -17046.91
+Alvarado Richard Lincoln Wilson 13536 1841.63 -5299
+Alvarez William Oakwood Union Hill 14638 499.81 -357.03
+Andrews Betty Oakwood Clifton 2955 172.17 -8043.76
+Andrews Jason New Hope Pleasant Grove 11684 1057.37 -7631.03
+Andrews Judith Mount Zion Springdale 7769 224.45 -8810.09
+Angel Flora Newport Oakland 22029 192.51 -4401.51
+Armstrong Kraig Pleasant Hill Newport 18363 188.32 -6656.84
+Arnold Xiomara Lakeview Enterprise 22713 3371.3 -18443.42
+Arthur Nancy Spring Valley Pleasant Valley 1023 2010.2 -9959.13
+Bailey Margie Lakeside Fox 8684 114.97 -17117.78
+Bailey Monica Jackson Pleasant Grove 17159 2721.44 -4088.51
+Baird Maryellen Highland Park Forest Hills 10556 3456.31 -20467.73
+Baker Micheal Springdale Midway 6000 2042.61 -3990.39
+Baldwin Laura Red Hill Arlington 18402 2022 -13553.2
+Banks Raul Lakeview Hamilton 16201 232.65 -3575.46
+Banks Sean Maple Grove Brookwood 13592 5045.77 -6741.75
+Barba William Providence Valley View 113 851.2 -10378.29
+Barnes Janie Fairfield Sulphur Springs 2717 673.94 -9185.13
+Barnes Joseph Crossroads Newtown 1346 0 -274.31
+Barnes June Sulphur Springs Bunker Hill 14593 3248.21 -5962.1
+Barrett Amy Lakeview Pleasant Hill 142 1055.09 -16700.22
+Barrett Bree Brownsville Fairview 23279 0 -9152.08
+Barrett Bree Brownsville White Oak 20932 528.31 -14848.87
+Barrett Manuel Walnut Grove Oak Grove 820 570.84 -11833.63
+Barton Sharon Oak Ridge Greenwood 12022 909.08 -14795.03
+Bassett Rhonda Oakwood Greenwood 10931 1797.99 -24692.83
+Battles Leon Midway Woodlawn 6589 1200.28 -6963.48
+Beatty Margie Five Forks Mount Vernon 13799 367.9 -8157.69
+Beatty Michael Green Acres Mount Vernon 3941 1916.94 -9487.78
+Beaulieu Randy Bridgeport Jamestown 20245 2618.65 -10946.51
+Beck Charles Oakdale Fairfield 3561 445.34 -22623.89
+Becker Freda Brownsville Kingston 12264 4369.86 -6501.12
+Bell Lorrie Union Stringtown 1399 733.85 -10333.35
+Bell Walter Langdon Liberty 16574 3553.28 -8663.36
+Belt NULL Unionville Pleasant Hill 12303 0 -5524
+Bennett Grant Newport Ellsworth 20005 5586.25 -9452.98
+Bennett Zack Wilson Liberty 16030 99.46 -2187.16
+Berg William Pleasant Hill Harmony 3728 3725.08 -9496.92
+Bernhardt Sanford Green Acres Fairfield 21871 974.9 -8991.77
+Berry Gary Jackson Cedar Grove 20851 2698.25 -16539.56
+Bess Leah Maple Grove Arlington 21092 1309.71 -9879
+Betz Adriene Union Welcome 8185 328.05 -9963.52
+Billings Dorothy Brownsville Green Acres 6074 551.62 -10045.52
+Billings Dorothy Brownsville Wilson 9167 1987.15 -3076.21
+Billingsley Robert Belmont Arlington 23527 1487.14 -3309.37
+Bills Robert Bethel Jamestown 15677 0 3983.27
+Bishop NULL New Hope Lakeview 11334 980.68 -9870.02
+Black Annmarie Allentown Pine Grove 11633 154.78 -5899.95
+Blackburn Mildred Sulphur Springs Marion 21601 612.14 -22218.57
+Blanchard Phillip Pine Grove Centerville 3681 5001.25 -9739.55
+Blankenship George Hillcrest Mount Vernon 9480 4370.75 -129.34

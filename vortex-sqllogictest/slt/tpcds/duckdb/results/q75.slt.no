@@ -1,0 +1,105 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query IIIIIIIIIR
+WITH all_sales AS
+  ( SELECT d_year ,
+           i_brand_id ,
+           i_class_id ,
+           i_category_id ,
+           i_manufact_id ,
+           SUM(sales_cnt) AS sales_cnt ,
+           SUM(sales_amt) AS sales_amt
+   FROM
+     (SELECT d_year ,
+             i_brand_id ,
+             i_class_id ,
+             i_category_id ,
+             i_manufact_id ,
+             cs_quantity - COALESCE(cr_return_quantity,0) AS sales_cnt ,
+             cs_ext_sales_price - COALESCE(cr_return_amount,0.0) AS sales_amt
+      FROM catalog_sales
+      JOIN item ON i_item_sk=cs_item_sk
+      JOIN date_dim ON d_date_sk=cs_sold_date_sk
+      LEFT JOIN catalog_returns ON (cs_order_number=cr_order_number
+                                    AND cs_item_sk=cr_item_sk)
+      WHERE i_category='Books'
+      UNION SELECT d_year ,
+                   i_brand_id ,
+                   i_class_id ,
+                   i_category_id ,
+                   i_manufact_id ,
+                   ss_quantity - COALESCE(sr_return_quantity,0) AS sales_cnt ,
+                   ss_ext_sales_price - COALESCE(sr_return_amt,0.0) AS sales_amt
+      FROM store_sales
+      JOIN item ON i_item_sk=ss_item_sk
+      JOIN date_dim ON d_date_sk=ss_sold_date_sk
+      LEFT JOIN store_returns ON (ss_ticket_number=sr_ticket_number
+                                  AND ss_item_sk=sr_item_sk)
+      WHERE i_category='Books'
+      UNION SELECT d_year ,
+                   i_brand_id ,
+                   i_class_id ,
+                   i_category_id ,
+                   i_manufact_id ,
+                   ws_quantity - COALESCE(wr_return_quantity,0) AS sales_cnt ,
+                   ws_ext_sales_price - COALESCE(wr_return_amt,0.0) AS sales_amt
+      FROM web_sales
+      JOIN item ON i_item_sk=ws_item_sk
+      JOIN date_dim ON d_date_sk=ws_sold_date_sk
+      LEFT JOIN web_returns ON (ws_order_number=wr_order_number
+                                AND ws_item_sk=wr_item_sk)
+      WHERE i_category='Books') sales_detail
+   GROUP BY d_year,
+            i_brand_id,
+            i_class_id,
+            i_category_id,
+            i_manufact_id)
+SELECT prev_yr.d_year AS prev_year ,
+       curr_yr.d_year AS year_ ,
+       curr_yr.i_brand_id ,
+       curr_yr.i_class_id ,
+       curr_yr.i_category_id ,
+       curr_yr.i_manufact_id ,
+       prev_yr.sales_cnt AS prev_yr_cnt ,
+       curr_yr.sales_cnt AS curr_yr_cnt ,
+       curr_yr.sales_cnt-prev_yr.sales_cnt AS sales_cnt_diff ,
+       curr_yr.sales_amt-prev_yr.sales_amt AS sales_amt_diff
+FROM all_sales curr_yr,
+     all_sales prev_yr
+WHERE curr_yr.i_brand_id=prev_yr.i_brand_id
+  AND curr_yr.i_class_id=prev_yr.i_class_id
+  AND curr_yr.i_category_id=prev_yr.i_category_id
+  AND curr_yr.i_manufact_id=prev_yr.i_manufact_id
+  AND curr_yr.d_year=2002
+  AND prev_yr.d_year=2002-1
+  AND CAST(curr_yr.sales_cnt AS DECIMAL(17,2))/CAST(prev_yr.sales_cnt AS DECIMAL(17,2))<0.9
+ORDER BY sales_cnt_diff,
+         sales_amt_diff
+LIMIT 100;
+----
+2001 2002 7014009 1 9 270 6406 4902 -1504 -96433.09
+2001 2002 1003001 11 9 42 6494 5035 -1459 -114481.62
+2001 2002 9010004 10 9 545 5880 4551 -1329 -37133.98
+2001 2002 9001002 1 9 571 5718 4459 -1259 -84458.37
+2001 2002 9004010 4 9 10 5731 4515 -1216 -40636.79
+2001 2002 9006010 6 9 100 5781 4720 -1061 -54852.46
+2001 2002 9008010 2 9 954 6018 4961 -1057 11852.78
+2001 2002 9011002 11 9 390 5826 4800 -1026 -49995.57
+2001 2002 9015008 15 9 285 5674 4668 -1006 -19662.6
+2001 2002 10003008 8 9 175 5286 4288 -998 -48826.96
+2001 2002 9003008 3 9 375 5658 4673 -985 -93779.45
+2001 2002 9008004 8 9 220 5720 4768 -952 -47017.66
+2001 2002 9008008 8 9 194 5778 4862 -916 -79951.52
+2001 2002 9006010 3 9 99 4971 4091 -880 -71635.44
+2001 2002 9001010 4 9 268 5125 4314 -811 -43611.3
+2001 2002 9001009 1 9 117 4657 3855 -802 -22681.71
+2001 2002 9015010 2 9 286 5467 4745 -722 -32261.81
+2001 2002 7004007 2 9 248 5696 4990 -706 -4431.85
+2001 2002 1002001 4 9 546 5873 5222 -651 -35266.76
+2001 2002 10009005 9 9 149 6025 5376 -649 -11139.67
+2001 2002 9002008 2 9 256 4778 4153 -625 -55830.85
+2001 2002 2001001 1 9 2 5512 4888 -624 -27199.28
+2001 2002 1004001 4 9 286 5437 4848 -589 43130.5
+2001 2002 9010008 10 9 66 5362 4814 -548 -44680.67
+2001 2002 7004005 4 9 156 4942 4447 -495 -34471.55

@@ -1,0 +1,67 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TTII
+SELECT *
+FROM
+  (SELECT w_warehouse_name,
+          i_item_id,
+          sum(CASE
+                  WHEN (cast(d_date AS date) < CAST ('2000-03-11' AS date)) THEN inv_quantity_on_hand
+                  ELSE 0
+              END) AS inv_before,
+          sum(CASE
+                  WHEN (cast(d_date AS date) >= CAST ('2000-03-11' AS date)) THEN inv_quantity_on_hand
+                  ELSE 0
+              END) AS inv_after
+   FROM inventory,
+        warehouse,
+        item,
+        date_dim
+   WHERE i_current_price BETWEEN 0.99 AND 1.49
+     AND i_item_sk = inv_item_sk
+     AND inv_warehouse_sk = w_warehouse_sk
+     AND inv_date_sk = d_date_sk
+     AND d_date BETWEEN CAST ('2000-02-10' AS date) AND CAST ('2000-04-10' AS date)
+   GROUP BY w_warehouse_name,
+            i_item_id) x
+WHERE (CASE
+           WHEN inv_before > 0 THEN (inv_after*1.000) / inv_before
+           ELSE NULL
+       END) BETWEEN 2.000/3.000 AND 3.000/2.000
+ORDER BY w_warehouse_name NULLS FIRST,
+         i_item_id NULLS FIRST
+LIMIT 100;
+----
+Conventional childr AAAAAAAAABDAAAAA 1660 1398
+Conventional childr AAAAAAAABKFAAAAA 1524 2237
+Conventional childr AAAAAAAACAAAAAAA 2135 2684
+Conventional childr AAAAAAAACBFAAAAA 2850 2630
+Conventional childr AAAAAAAACFEAAAAA 2423 2185
+Conventional childr AAAAAAAACLGAAAAA 2671 2070
+Conventional childr AAAAAAAADEAAAAAA 3180 2181
+Conventional childr AAAAAAAAEFFAAAAA 2078 2093
+Conventional childr AAAAAAAAEKCAAAAA 3299 2487
+Conventional childr AAAAAAAAEMEAAAAA 2670 2548
+Conventional childr AAAAAAAAENDAAAAA 2068 1872
+Conventional childr AAAAAAAAFCGAAAAA 3133 2172
+Conventional childr AAAAAAAAFJFAAAAA 2601 1835
+Conventional childr AAAAAAAAGIGAAAAA 1258 1400
+Conventional childr AAAAAAAAGMBAAAAA 2761 2460
+Conventional childr AAAAAAAAGNBAAAAA 3025 2683
+Conventional childr AAAAAAAAHDAAAAAA 1441 1728
+Conventional childr AAAAAAAAHGDAAAAA 2187 2314
+Conventional childr AAAAAAAAKJAAAAAA 1358 1516
+Conventional childr AAAAAAAAMBAAAAAA 3883 2616
+Conventional childr AAAAAAAAMJCAAAAA 2269 1700
+Conventional childr AAAAAAAAMJEAAAAA 2140 1813
+Conventional childr AAAAAAAANEFAAAAA 2230 2362
+Conventional childr AAAAAAAANGDAAAAA 1629 1614
+Conventional childr AAAAAAAANNCAAAAA 2314 1730
+Conventional childr AAAAAAAAOEBAAAAA 2037 2167
+Conventional childr AAAAAAAAOFDAAAAA 2563 2055
+Conventional childr AAAAAAAAOGAAAAAA 2453 2121
+Conventional childr AAAAAAAAOOEAAAAA 2786 1880
+Conventional childr AAAAAAAAPAEAAAAA 2111 1555
+Conventional childr AAAAAAAAPHDAAAAA 2899 3268
+Conventional childr AAAAAAAAPKAAAAAA 2900 2530

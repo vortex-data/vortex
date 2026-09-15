@@ -1,0 +1,123 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TTTTR
+SELECT i_product_name ,
+       i_brand ,
+       i_class ,
+       i_category ,
+       avg(inv_quantity_on_hand) qoh
+FROM inventory ,
+     date_dim ,
+     item
+WHERE inv_date_sk=d_date_sk
+  AND inv_item_sk=i_item_sk
+  AND d_month_seq BETWEEN 1200 AND 1200 + 11
+GROUP BY rollup(i_product_name ,i_brand ,i_class ,i_category)
+ORDER BY qoh NULLS FIRST,
+         i_product_name NULLS FIRST,
+         i_brand NULLS FIRST,
+         i_class NULLS FIRST,
+         i_category NULLS FIRST
+LIMIT 100;
+----
+oughtableought NULL NULL NULL 387.102040816326
+oughtableought exportiunivamalg #2 NULL NULL 387.102040816326
+oughtableought exportiunivamalg #2 self-help NULL 387.102040816326
+oughtableought exportiunivamalg #2 self-help Books 387.102040816326
+anticallyantiought NULL NULL NULL 387.2
+anticallyantiought exportimaxi #6 NULL NULL 387.2
+anticallyantiought exportimaxi #6 sailing NULL 387.2
+anticallyantiought exportimaxi #6 sailing Sports 387.2
+oughteingeing NULL NULL NULL 387.576923076923
+oughteingeing univunivamalg #6 NULL NULL 387.576923076923
+oughteingeing univunivamalg #6 travel NULL 387.576923076923
+oughteingeing univunivamalg #6 travel Books 387.576923076923
+callyeingantiought NULL NULL NULL 392.551020408163
+callyeingantiought importoscholar #1 NULL NULL 392.551020408163
+callyeingantiought importoscholar #1 country NULL 392.551020408163
+callyeingantiought importoscholar #1 country Music 392.551020408163
+antieingcallyought NULL NULL NULL 393.468085106383
+antieingcallyought importonameless #6 NULL NULL 393.468085106383
+antieingcallyought importonameless #6 paint NULL 393.468085106383
+antieingcallyought importonameless #6 paint Home 393.468085106383
+ationantiese NULL NULL NULL 402.884615384615
+ationantiese scholaramalgamalg #16 NULL NULL 402.884615384615
+ationantiese scholaramalgamalg #16 portable NULL 402.884615384615
+ationantiese scholaramalgamalg #16 portable Electronics 402.884615384615
+eseableeing NULL NULL NULL 407.040816326531
+eseableeing importoamalg #1 NULL NULL 407.040816326531
+eseableeing importoamalg #1 fragrances NULL 407.040816326531
+eseableeing importoamalg #1 fragrances Women 407.040816326531
+ablen stn st NULL NULL NULL 407.607843137255
+ablen stn st brandmaxi #9 NULL NULL 407.607843137255
+ablen stn st brandmaxi #9 reference NULL 407.607843137255
+ablen stn st brandmaxi #9 reference Books 407.607843137255
+eseeseableought NULL NULL NULL 411.30612244898
+eseeseableought amalgexporti #1 NULL NULL 411.30612244898
+eseeseableought amalgexporti #1 newborn NULL 411.30612244898
+eseeseableought amalgexporti #1 newborn Children 411.30612244898
+priationought NULL NULL NULL 411.78
+priationought amalgimporto #2 NULL NULL 411.78
+priationought amalgimporto #2 accessories NULL 411.78
+priationought amalgimporto #2 accessories Men 411.78
+eseantioughtought NULL NULL NULL 412.16
+eseantioughtought exportiamalgamalg #16 NULL NULL 412.16
+eseantioughtought exportiamalgamalg #16 stereo NULL 412.16
+eseantioughtought exportiamalgamalg #16 stereo Electronics 412.16
+ationn station NULL NULL NULL 413.382978723404
+ationn station importoamalg #2 NULL NULL 413.382978723404
+ationn station importoamalg #2 fragrances NULL 413.382978723404
+ationn station importoamalg #2 fragrances Women 413.382978723404
+callycallyoughtought NULL NULL NULL 413.387755102041
+callycallyoughtought importoimporto #1 NULL NULL 413.387755102041
+callycallyoughtought importoimporto #1 shirts NULL 413.387755102041
+callycallyoughtought importoimporto #1 shirts Men 413.387755102041
+prieingcally NULL NULL NULL 415.159090909091
+prieingcally namelessbrand #4 NULL NULL 415.159090909091
+prieingcally namelessbrand #4 lighting NULL 415.159090909091
+prieingcally namelessbrand #4 lighting Home 415.159090909091
+priationcally NULL NULL NULL 416.38
+priationcally maxinameless #4 NULL NULL 416.38
+priationcally maxinameless #4 optics NULL 416.38
+priationcally maxinameless #4 optics Sports 416.38
+oughtationpri NULL NULL NULL 417.020833333333
+oughtationpri univnameless #2 NULL NULL 417.020833333333
+oughtationpri univnameless #2 flatware NULL 417.020833333333
+oughtationpri univnameless #2 flatware Home 417.020833333333
+ableationable NULL NULL NULL 417.634615384615
+ableationable corpnameless #3 NULL NULL 417.634615384615
+ableationable corpnameless #3 furniture NULL 417.634615384615
+ableationable corpnameless #3 furniture Home 417.634615384615
+callyn stationought NULL NULL NULL 417.918367346939
+callyn stationought importoscholar #1 NULL NULL 417.918367346939
+callyn stationought importoscholar #1 country NULL 417.918367346939
+callyn stationought importoscholar #1 country Music 417.918367346939
+n steingeing NULL NULL NULL 417.960784313725
+n steingeing exportischolar #2 NULL NULL 417.960784313725
+n steingeing exportischolar #2 pop NULL 417.960784313725
+n steingeing exportischolar #2 pop Music 417.960784313725
+ationn stn st NULL NULL NULL 421.085106382979
+ationn stn st exportiimporto #2 NULL NULL 421.085106382979
+ationn stn st exportiimporto #2 pants NULL 421.085106382979
+ationn stn st exportiimporto #2 pants Men 421.085106382979
+n stpricallyought NULL NULL NULL 421.367346938776
+n stpricallyought scholarcorp #8 NULL NULL 421.367346938776
+n stpricallyought scholarcorp #8 earings NULL 421.367346938776
+n stpricallyought scholarcorp #8 earings Jewelry 421.367346938776
+baresepriought NULL NULL NULL 422.875
+baresepriought importobrand #1 NULL NULL 422.875
+baresepriought importobrand #1 bedding NULL 422.875
+baresepriought importobrand #1 bedding Home 422.875
+ationcallypriought NULL NULL NULL 422.877551020408
+ationcallypriought edu packunivamalg #12 NULL NULL 422.877551020408
+ationcallypriought edu packunivamalg #12 sports NULL 422.877551020408
+ationcallypriought edu packunivamalg #12 sports Books 422.877551020408
+eingeingpriought NULL NULL NULL 422.957446808511
+eingeingpriought importonameless #9 NULL NULL 422.957446808511
+eingeingpriought importonameless #9 paint NULL 422.957446808511
+eingeingpriought importonameless #9 paint Home 422.957446808511
+esepricallyought NULL NULL NULL 423.1
+esepricallyought scholarunivamalg #3 NULL NULL 423.1
+esepricallyought scholarunivamalg #3 karoke NULL 423.1
+esepricallyought scholarunivamalg #3 karoke Electronics 423.1

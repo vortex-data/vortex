@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query ITR
+SELECT i_brand_id brand_id,
+       i_brand brand,
+       sum(ss_ext_sales_price) ext_price
+FROM date_dim,
+     store_sales,
+     item
+WHERE d_date_sk = ss_sold_date_sk
+  AND ss_item_sk = i_item_sk
+  AND i_manager_id=28
+  AND d_moy=11
+  AND d_year=1999
+GROUP BY i_brand,
+         i_brand_id
+ORDER BY ext_price DESC,
+         i_brand_id
+LIMIT 100 ;
+----
+9016003 corpunivamalg #3 46123.99
+2001001 amalgimporto #1 40059.8
+6015001 scholarbrand #1 32295.1
+1001001 amalgamalg #1 31858.13
+3003001 exportiexporti #1 30335.32
+5001001 amalgscholar #1 28664.2
+3004001 edu packexporti #1 24372.56
+1002001 importoamalg #1 22671.78
+1001002 amalgamalg #2 22143.98
+8006005 corpnameless #5 21510.96
+3002001 importoexporti #1 20523.44
+4001001 amalgedu pack #1 20354.12
+10014016 edu packamalgamalg #16 19367.66
+5002001 importoscholar #1 18155.88
+4003001 exportiedu pack #1 17913.61
+2001002 amalgimporto #2 14692.65
+5004001 edu packscholar #1 13321.56
+10015011 scholaramalgamalg #11 10205.76
+6005003 scholarcorp #3 9854.43
+4002001 importoedu pack #1 8779.05

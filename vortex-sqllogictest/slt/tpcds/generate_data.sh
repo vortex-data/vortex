@@ -37,16 +37,16 @@ PY
 # EXPORT DATABASE also writes load/schema scripts that the tests do not use.
 rm -f "${DATA_DIR}"/load.sql "${DATA_DIR}"/schema.sql
 
-# The Parquet files are kept so the parity test can read them, and because the
-# suite only runs when both formats are present.
+# The Parquet files are kept so the `parquet.slt` suites and the parity test
+# can read them.
 for f in "${DATA_DIR}"/*.parquet; do
   echo "Converting $(basename "$f") to Vortex..."
   (cd "${CRATE_DIR}" && cargo run --release --package vortex-tui --bin vx -- convert "$f")
 done
 
 # The parity test reads every table in both formats through DuckDB and fails if
-# any row differs, so a bad conversion is caught before the recorded plans are
-# trusted.
+# any row differs, so a bad conversion is caught before the query result files
+# are trusted.
 echo "Checking that the TPC-DS Parquet and Vortex tables match..."
 (
   cd "${CRATE_DIR}"

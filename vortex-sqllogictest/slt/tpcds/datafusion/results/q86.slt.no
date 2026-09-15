@@ -1,0 +1,127 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query RTTII
+SELECT sum(ws_net_paid) AS total_sum ,
+       i_category ,
+       i_class ,
+       grouping(i_category)+grouping(i_class) AS lochierarchy ,
+       rank() OVER ( PARTITION BY grouping(i_category)+grouping(i_class),
+                                  CASE
+                                      WHEN grouping(i_class) = 0 THEN i_category
+                                  END
+                    ORDER BY sum(ws_net_paid) DESC) AS rank_within_parent
+FROM web_sales ,
+     date_dim d1 ,
+     item
+WHERE d1.d_month_seq BETWEEN 1200 AND 1200+11
+  AND d1.d_date_sk = ws_sold_date_sk
+  AND i_item_sk = ws_item_sk
+GROUP BY rollup(i_category,i_class)
+ORDER BY lochierarchy DESC NULLS FIRST,
+         CASE
+             WHEN grouping(i_category)+grouping(i_class) = 0 THEN i_category
+         END NULLS FIRST,
+         rank_within_parent NULLS FIRST
+LIMIT 100;
+----
+33524177.4 NULL NULL 2 1
+3914061.57 Women NULL 1 1
+3723292.19 Electronics NULL 1 2
+3562592.04 Jewelry NULL 1 3
+3537855.19 Books NULL 1 4
+3464787.84 Men NULL 1 5
+3402491.77 Music NULL 1 6
+3122925.57 Shoes NULL 1 7
+3021726.62 Home NULL 1 8
+2872728.67 Sports NULL 1 9
+2809935.79 Children NULL 1 10
+91780.15 NULL NULL 1 11
+91780.15 NULL NULL 0 1
+408043.38 Books romance 0 1
+380601.08 Books reference 0 2
+313980.74 Books travel 0 3
+258279.16 Books arts 0 4
+238672.7 Books computers 0 5
+226340.44 Books self-help 0 6
+221596.6 Books mystery 0 7
+207320.35 Books fiction 0 8
+198144.84 Books entertainments 0 9
+187238.69 Books home repair 0 10
+179185.2 Books cooking 0 11
+179068.37 Books history 0 12
+145685.77 Books business 0 13
+130183.52 Books parenting 0 14
+119539.3 Books science 0 15
+115536.29 Books sports 0 16
+28438.76 Books NULL 0 17
+821633.3 Children school-uniforms 0 1
+704372.82 Children infants 0 2
+694988.41 Children toddlers 0 3
+588941.26 Children newborn 0 4
+501039.23 Electronics dvd/vcr players 0 1
+388380.33 Electronics televisions 0 2
+298812.54 Electronics stereo 0 3
+280245.34 Electronics karoke 0 4
+250154.17 Electronics cameras 0 5
+248384.32 Electronics musical 0 6
+240773.08 Electronics monitors 0 7
+222135.85 Electronics automotive 0 8
+198211.95 Electronics disk drives 0 9
+197554.69 Electronics memory 0 10
+196394.91 Electronics personal 0 11
+175646.11 Electronics camcorders 0 12
+171833.15 Electronics wireless 0 13
+164666.4 Electronics portable 0 14
+100308.3 Electronics scanners 0 15
+88751.82 Electronics audio 0 16
+401607.02 Home lighting 0 1
+347159.96 Home paint 0 2
+273846.35 Home decor 0 3
+273266.19 Home furniture 0 4
+267976.53 Home bedding 0 5
+266486.32 Home rugs 0 6
+208539.6 Home blinds/shades 0 7
+206655.62 Home flatware 0 8
+162311.64 Home curtains/drapes 0 9
+137826.91 Home wallpaper 0 10
+129423.21 Home glassware 0 11
+92300.94 Home bathroom 0 12
+76026.15 Home mattresses 0 13
+71838.96 Home accent 0 14
+63474.37 Home kids 0 15
+42986.85 Home tables 0 16
+394550.33 Jewelry pendants 0 1
+358709.25 Jewelry costume 0 2
+338028.13 Jewelry gold 0 3
+320709.39 Jewelry diamonds 0 4
+283641.53 Jewelry jewelry boxes 0 5
+236690.69 Jewelry bracelets 0 6
+235719.63 Jewelry womens watch 0 7
+216968.36 Jewelry mens watch 0 8
+211846.22 Jewelry earings 0 9
+197845.79 Jewelry loose stones 0 10
+195560.8 Jewelry estate 0 11
+173185.15 Jewelry birdal 0 12
+151245.69 Jewelry semi-precious 0 13
+104491.58 Jewelry consignment 0 14
+82889.09 Jewelry custom 0 15
+60510.41 Jewelry rings 0 16
+1010416.64 Men sports-apparel 0 1
+1003263.51 Men accessories 0 2
+781211.01 Men shirts 0 3
+669896.68 Men pants 0 4
+1038698.68 Music rock 0 1
+925564.57 Music pop 0 2
+725558.58 Music country 0 3
+712669.94 Music classical 0 4
+868660.92 Shoes athletic 0 1
+783356.28 Shoes womens 0 2
+778920.84 Shoes mens 0 3
+690225.27 Shoes kids 0 4
+1762.26 Shoes NULL 0 5
+274798.71 Sports archery 0 1
+274386.55 Sports outdoor 0 2
+260445.72 Sports camping 0 3
+257138.96 Sports fishing 0 4
+256330.09 Sports hockey 0 5
