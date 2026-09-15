@@ -39,6 +39,13 @@ impl CudaExecute for DecimalBytePartsExecutor {
             .dtype()
             .as_decimal_opt()
             .vortex_expect("DecimalBytePartsArray dtype must be decimal");
+
+        // Reassembling lower parts into wide decimals is not implemented on the GPU; the MSP
+        // alone is not the value.
+        if !array.lower_parts().is_empty() {
+            vortex_bail!("DecimalBytePartsArray with lower parts is not supported on GPU")
+        }
+
         let msp = array.msp().clone();
         let PrimitiveDataParts {
             buffer,

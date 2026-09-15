@@ -130,6 +130,20 @@ impl From<arrow_buffer::i256> for i256 {
     }
 }
 
+impl From<i64> for i256 {
+    #[inline]
+    fn from(value: i64) -> Self {
+        Self::from_i128(value.into())
+    }
+}
+
+impl From<u64> for i256 {
+    #[inline]
+    fn from(value: u64) -> Self {
+        Self::from_i128(value.into())
+    }
+}
+
 impl Display for i256 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
