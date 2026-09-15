@@ -36,11 +36,11 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
-use vortex_session::registry::CachedId;
 
 use super::MAX_LOWER_PARTS;
 use super::assemble::assemble_decimal;
 use super::assemble::assemble_wide_decimal_value;
+use super::decimal_byte_parts_v2_id;
 use super::rules::PARENT_RULES;
 
 /// A [`DecimalByteParts`]-encoded Vortex array.
@@ -124,7 +124,7 @@ impl DecimalBytePartsData {
     }
 }
 
-/// The in-memory decimal byte-parts encoding.
+/// The current in-memory decimal byte-parts encoding, identified as v2.
 ///
 /// Register [`super::DecimalBytePartsPlugin`] or call [`crate::initialize`] to read and write
 /// either serialized format. Registering this VTable directly, or calling its serde methods,
@@ -205,8 +205,7 @@ impl VTable for DecimalByteParts {
     type ValidityVTable = ValidityVTableFromChild;
 
     fn id(&self) -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.decimal_byte_parts");
-        *ID
+        decimal_byte_parts_v2_id()
     }
 
     fn validate(
