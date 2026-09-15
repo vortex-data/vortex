@@ -27,12 +27,12 @@ use crate::decimal_byte_parts::MAX_LOWER_PARTS;
 /// Metadata for decimal byte parts with per-child storage types.
 #[derive(Clone, prost::Message)]
 pub struct DecimalBytePartsV2Metadata {
+    /// Signed storage type of the most significant part.
     #[prost(enumeration = "PType", tag = "1")]
-    pub(super) zeroth_child_ptype: i32,
-    #[prost(uint32, tag = "2")]
-    pub(super) lower_part_count: u32,
-    /// Unsigned storage types of the lower parts, most significant first.
-    #[prost(enumeration = "PType", repeated, tag = "3")]
+    pub(super) msp_ptype: i32,
+    /// Unsigned storage types of the lower parts, most significant first. Their number is the
+    /// lower part count.
+    #[prost(enumeration = "PType", repeated, tag = "2")]
     pub(super) lower_part_ptypes: Vec<i32>,
 }
 
@@ -42,9 +42,7 @@ pub(super) fn serialize(
     let lower_parts = array.lower_parts();
     vortex_ensure!(!lower_parts.is_empty(), "v2 requires lower parts");
     let metadata = DecimalBytePartsV2Metadata {
-        zeroth_child_ptype: PType::try_from(array.msp().dtype())? as i32,
-        lower_part_count: u32::try_from(lower_parts.len())
-            .map_err(|_| vortex_err!("lower part count exceeds u32"))?,
+        msp_ptype: PType::try_from(array.msp().dtype())? as i32,
         lower_part_ptypes: lower_parts
             .iter()
             .map(|part| PType::try_from(part.dtype()).map(|ptype| ptype as i32))
@@ -73,20 +71,10 @@ pub(super) fn deserialize(parts: ArrayDeserialization<'_>) -> VortexResult<Decim
         "expected a decimal dtype"
     );
 
-    let lower_part_count = usize::try_from(metadata.lower_part_count).map_err(|_| {
-        vortex_err!(
-            "lower part count {} out of range",
-            metadata.lower_part_count
-        )
-    })?;
+    let lower_part_count = metadata.lower_part_ptypes.len();
     vortex_ensure!(
         (1..=MAX_LOWER_PARTS).contains(&lower_part_count),
         "v2 must carry between 1 and {MAX_LOWER_PARTS} lower parts, got {lower_part_count}"
-    );
-    vortex_ensure!(
-        metadata.lower_part_ptypes.len() == lower_part_count,
-        "expected {lower_part_count} lower-part dtypes, got {}",
-        metadata.lower_part_ptypes.len()
     );
     vortex_ensure!(
         parts.children.len() == 1 + lower_part_count,
@@ -95,7 +83,7 @@ pub(super) fn deserialize(parts: ArrayDeserialization<'_>) -> VortexResult<Decim
         parts.children.len()
     );
 
-    let msp_ptype = PType::try_from(metadata.zeroth_child_ptype)?;
+    let msp_ptype = PType::try_from(metadata.msp_ptype)?;
     vortex_ensure!(
         msp_ptype.is_signed_int(),
         "MSP must have a signed integer dtype, got {msp_ptype}"

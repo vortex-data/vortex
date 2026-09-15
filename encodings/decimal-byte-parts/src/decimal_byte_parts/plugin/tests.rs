@@ -30,6 +30,7 @@ use vortex_session::registry::ReadContext;
 use super::*;
 use crate::DecimalBytePartsArray;
 use crate::DecimalBytePartsArraySlotsExt;
+use crate::decimal_byte_parts::MAX_LOWER_PARTS;
 use crate::decimal_byte_parts::testing::encode;
 use crate::decimal_byte_parts::testing::i128_parts;
 use crate::decimal_byte_parts::testing::i256_parts;
@@ -109,8 +110,8 @@ fn v1_decoder_ignores_unknown_metadata_fields() -> VortexResult<()> {
     let child = msp();
     let children = vec![child.clone()];
     let dtype = DType::Decimal(DecimalDType::new(19, 2), Nullability::NonNullable);
-    // Field 3 belongs to v2. The v1 protobuf schema ignores it, as the old decoder did;
-    // the recognized lower-part count is still zero and there is still exactly one child.
+    // An unknown trailing field. The v1 protobuf schema ignores it, as the original decoder
+    // did; the recognized lower-part count is still zero and there is still exactly one child.
     let metadata = [8, 7, 26, 1, 0];
     let current = v1::deserialize(ArrayDeserialization::new(
         decimal_byte_parts_v1_id(),
@@ -234,55 +235,50 @@ fn serde_round_trip(#[case] array: VortexResult<DecimalBytePartsArray>) -> Vorte
 /// Each serialized ID keeps its own contract: the v1 ID never carries lower parts, and the v2
 /// ID is never written without them.
 #[rstest]
-#[case::v1_without_lower_parts(decimal_byte_parts_v1_id(), 0, vec![msp()], true)]
-#[case::v1_with_lower_parts(decimal_byte_parts_v1_id(), 1, vec![msp(), lower_part()], false)]
-#[case::v2_with_lower_parts(decimal_byte_parts_v2_id(), 1, vec![msp(), lower_part()], true)]
-#[case::v2_without_lower_parts(decimal_byte_parts_v2_id(), 0, vec![msp()], false)]
+#[case::v1_without_lower_parts(decimal_byte_parts_v1_id(), v1_metadata(0), vec![msp()], true)]
+#[case::v1_with_lower_parts(
+    decimal_byte_parts_v1_id(),
+    v1_metadata(1),
+    vec![msp(), lower_part()],
+    false
+)]
+#[case::v2_with_lower_parts(
+    decimal_byte_parts_v2_id(),
+    v2_metadata(vec![PType::U64 as i32]),
+    vec![msp(), lower_part()],
+    true
+)]
+#[case::v2_without_lower_parts(decimal_byte_parts_v2_id(), v2_metadata(vec![]), vec![msp()], false)]
 fn plugin_holds_each_id_to_its_contract(
     #[case] serialized_id: ArrayId,
-    #[case] lower_part_count: u32,
+    #[case] metadata: Vec<u8>,
     #[case] children: Vec<ArrayRef>,
     #[case] accepted: bool,
 ) {
-    let result = deserialize_with(
-        serialized_id,
-        lower_part_count,
-        u64_ptypes(lower_part_count),
-        children,
-    );
+    let result = deserialize_with(serialized_id, &metadata, children);
     assert_eq!(result.is_ok(), accepted, "{serialized_id}: {result:?}");
 }
 
 #[rstest]
-#[case::missing_lower_part(1, vec![msp()])]
-#[case::extra_lower_part(0, vec![msp(), lower_part()])]
-#[case::too_many_lower_parts(
-    4, vec![msp(), lower_part(), lower_part(), lower_part(), lower_part()],
+#[case::v1_extra_child(decimal_byte_parts_v1_id(), v1_metadata(0), vec![msp(), lower_part()])]
+#[case::v2_missing_child(decimal_byte_parts_v2_id(), v2_metadata(vec![PType::U64 as i32]), vec![msp()])]
+#[case::v2_extra_child(
+    decimal_byte_parts_v2_id(),
+    v2_metadata(vec![PType::U64 as i32]),
+    vec![msp(), lower_part(), lower_part()]
 )]
 fn deserialize_rejects_child_count_mismatch(
-    #[case] lower_part_count: u32,
+    #[case] serialized_id: ArrayId,
+    #[case] metadata: Vec<u8>,
     #[case] children: Vec<ArrayRef>,
 ) {
-    let serialized_id = if lower_part_count == 0 {
-        decimal_byte_parts_v1_id()
-    } else {
-        decimal_byte_parts_v2_id()
-    };
-    let result = deserialize_with(
-        serialized_id,
-        lower_part_count,
-        u64_ptypes(lower_part_count),
-        children,
-    );
+    let result = deserialize_with(serialized_id, &metadata, children);
     assert!(result.is_err(), "{serialized_id}: {result:?}");
 }
 
 #[rstest]
-#[case::missing_type(vec![], "expected 1 lower-part dtypes, got 0")]
-#[case::extra_type(
-    vec![PType::U64 as i32, PType::U8 as i32],
-    "expected 1 lower-part dtypes, got 2",
-)]
+#[case::none(vec![], "lower parts, got 0")]
+#[case::too_many(vec![PType::U64 as i32; MAX_LOWER_PARTS + 1], "lower parts, got 4")]
 #[case::signed_type(vec![PType::I64 as i32], "unsigned integer dtype")]
 #[case::float_type(vec![PType::F64 as i32], "unsigned integer dtype")]
 #[case::unknown_type(vec![i32::MAX], "invalid PType")]
@@ -290,11 +286,12 @@ fn v2_decoder_rejects_invalid_lower_part_ptypes(
     #[case] lower_part_ptypes: Vec<i32>,
     #[case] expected_error: &str,
 ) {
+    let mut children = vec![msp()];
+    children.extend((0..lower_part_ptypes.len()).map(|_| lower_part()));
     let result = deserialize_with(
         decimal_byte_parts_v2_id(),
-        1,
-        lower_part_ptypes,
-        vec![msp(), lower_part()],
+        &v2_metadata(lower_part_ptypes),
+        children,
     );
     assert!(
         result
@@ -388,8 +385,22 @@ fn lower_part() -> ArrayRef {
     buffer![1u64, 2, 3].into_array()
 }
 
-fn u64_ptypes(count: u32) -> Vec<i32> {
-    (0..count).map(|_| PType::U64 as i32).collect()
+/// v1 metadata for an i64 MSP: field 1 = 7, then field 2 only when the count is non-zero, as
+/// proto3 omits default values.
+fn v1_metadata(lower_part_count: u8) -> Vec<u8> {
+    let mut metadata = vec![8, 7];
+    if lower_part_count > 0 {
+        metadata.extend([16, lower_part_count]);
+    }
+    metadata
+}
+
+fn v2_metadata(lower_part_ptypes: Vec<i32>) -> Vec<u8> {
+    DecimalBytePartsV2Metadata {
+        msp_ptype: PType::I64 as i32,
+        lower_part_ptypes,
+    }
+    .encode_to_vec()
 }
 
 fn session() -> VortexSession {
@@ -398,23 +409,14 @@ fn session() -> VortexSession {
     session
 }
 
-/// Run the plugin decoder over hand-built metadata. The v2 struct encodes the same bytes as v1
-/// when it carries no lower parts, so it serves both IDs.
 fn deserialize_with(
     serialized_id: ArrayId,
-    lower_part_count: u32,
-    lower_part_ptypes: Vec<i32>,
+    metadata: &[u8],
     children: Vec<ArrayRef>,
 ) -> VortexResult<ArrayRef> {
-    let metadata = DecimalBytePartsV2Metadata {
-        zeroth_child_ptype: PType::I64 as i32,
-        lower_part_count,
-        lower_part_ptypes,
-    }
-    .encode_to_vec();
     let dtype = DType::Decimal(DecimalDType::new(38, 2), Nullability::NonNullable);
     DecimalBytePartsPlugin.deserialize(
-        ArrayDeserialization::new(serialized_id, &dtype, 3, &metadata, &[], &children),
+        ArrayDeserialization::new(serialized_id, &dtype, 3, metadata, &[], &children),
         &array_session(),
     )
 }
