@@ -27,7 +27,6 @@ mod tests {
     use crate::DecimalByteParts;
     use crate::DecimalBytePartsArray;
     use crate::decimal_byte_parts::testing::i128_parts;
-    use crate::decimal_byte_parts::testing::i256_of;
     use crate::decimal_byte_parts::testing::i256_parts;
 
     /// Values needing more than 64 bits, so the encoding carries lower parts.
@@ -43,11 +42,11 @@ mod tests {
 
     fn wide_i256() -> Vec<i256> {
         vec![
-            i256_of(1, 0),
-            i256_of(-1, 0),
-            i256_of(0, u128::MAX),
-            i256_of(1 << 64, 7),
-            i256_of(0, 0),
+            i256::from_parts(0, 1),
+            i256::from_parts(0, -1),
+            i256::from_parts(u128::MAX, 0),
+            i256::from_parts(7, 1 << 64),
+            i256::from_parts(0, 0),
         ]
     }
 
