@@ -40,8 +40,3 @@ pub(crate) fn i256_parts(values: Vec<i256>, validity: Validity) -> DecimalBytePa
     ))
     .vortex_expect("valid decimal byte parts")
 }
-
-/// Build an `i256` from a signed high `i128` and unsigned low `u128`.
-pub(super) fn i256_of(high: i128, low: u128) -> i256 {
-    i256::from_parts(low, high)
-}

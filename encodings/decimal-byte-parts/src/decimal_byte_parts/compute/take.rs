@@ -38,6 +38,7 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DecimalDType;
+    use vortex_array::dtype::i256;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
@@ -45,7 +46,6 @@ mod tests {
 
     use crate::DecimalByteParts;
     use crate::decimal_byte_parts::testing::encode;
-    use crate::decimal_byte_parts::testing::i256_of;
 
     /// Taking pushes down into the parts during optimization, with no execution context in
     /// play: `ArrayRef::take` wraps the array in a `Dict` and optimizes, and the reduce rule
@@ -80,7 +80,7 @@ mod tests {
         Validity::NonNullable,
     ))]
     #[case::three_lower_parts(DecimalArray::new(
-        Buffer::from(vec![i256_of(1, 1 << 70), i256_of(0, 2), i256_of(0, 3)]),
+        Buffer::from(vec![i256::from_parts(1 << 70, 1), i256::from_parts(2, 0), i256::from_parts(3, 0)]),
         DecimalDType::new(76, 2),
         Validity::NonNullable,
     ))]

@@ -436,7 +436,6 @@ mod tests {
     use crate::decimal_byte_parts::LOWER_PART_DTYPE;
     use crate::decimal_byte_parts::MAX_LOWER_PARTS;
     use crate::decimal_byte_parts::testing::i128_parts;
-    use crate::decimal_byte_parts::testing::i256_of;
     use crate::decimal_byte_parts::testing::i256_parts;
 
     #[test]
@@ -498,7 +497,7 @@ mod tests {
     #[test]
     fn test_lower_part_layout_i256() -> VortexResult<()> {
         let array = i256_parts(
-            vec![i256_of((5i128 << 64) | 6, (7u128 << 64) | 8)],
+            vec![i256::from_parts((7u128 << 64) | 8, (5i128 << 64) | 6)],
             Validity::NonNullable,
         );
         assert_eq!(array.lower_parts().len(), MAX_LOWER_PARTS);
@@ -698,7 +697,7 @@ mod tests {
         let canonical = i128_array.into_array().execute::<DecimalArray>(&mut ctx)?;
         assert_eq!(canonical.values_type(), DecimalType::I128);
 
-        let i256_array = i256_parts(vec![i256_of(1 << 100, 0)], Validity::NonNullable);
+        let i256_array = i256_parts(vec![i256::from_parts(0, 1 << 100)], Validity::NonNullable);
         let canonical = i256_array.into_array().execute::<DecimalArray>(&mut ctx)?;
         assert_eq!(canonical.values_type(), DecimalType::I256);
 
@@ -723,7 +722,10 @@ mod tests {
         )?;
         let canonical = array.into_array().execute::<DecimalArray>(&mut ctx)?;
         assert_eq!(canonical.values_type(), DecimalType::I256);
-        assert_eq!(canonical.buffer::<i256>().as_slice(), &[i256_of(1, 9)]);
+        assert_eq!(
+            canonical.buffer::<i256>().as_slice(),
+            &[i256::from_parts(9, 1)]
+        );
         Ok(())
     }
 
