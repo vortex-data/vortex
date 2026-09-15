@@ -279,6 +279,8 @@ jobs:
   rust-docs:
     name: "Rust (docs)"
     needs: duckdb-ready
+    # The PR-only mirror is a skipped ancestor on develop; override implicit success().
+    if: ${{ !cancelled() && needs.duckdb-ready.result == 'success' }}
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
@@ -398,6 +400,7 @@ jobs:
   rust-lint:
     name: "Rust (lint)"
     needs: duckdb-ready
+    if: ${{ !cancelled() && needs.duckdb-ready.result == 'success' }}
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
@@ -503,6 +506,7 @@ jobs:
   rust-test-windows:
     name: "Rust tests (windows-x64)"
     needs: duckdb-ready
+    if: ${{ !cancelled() && needs.duckdb-ready.result == 'success' }}
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
@@ -548,7 +552,9 @@ jobs:
   rust-test-linux-arm64:
     name: "Rust tests (linux-arm64)"
     needs: duckdb-ready
-    if: github.repository == 'vortex-data/vortex'
+    if: >-
+      !cancelled() && needs.duckdb-ready.result == 'success' &&
+      github.repository == 'vortex-data/vortex'
     timeout-minutes: 30
     runs-on: runs-on=${{ github.run_id }}/runner=arm64-medium/image=ubuntu24-full-arm64-pre-v2/extras=s3-cache/tag=rust-test-linux-arm64
     steps:
@@ -715,6 +721,7 @@ jobs:
   sqllogic-test:
     name: "SQL logic tests"
     needs: duckdb-ready
+    if: ${{ !cancelled() && needs.duckdb-ready.result == 'success' }}
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=sql-logic-test', github.run_id)
@@ -742,6 +749,7 @@ jobs:
   duckdb-s3-test:
     name: "DuckDB S3 tests"
     needs: duckdb-ready
+    if: ${{ !cancelled() && needs.duckdb-ready.result == 'success' }}
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=duckdb-s3-test', github.run_id)
