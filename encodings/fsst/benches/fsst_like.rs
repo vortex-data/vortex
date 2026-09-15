@@ -100,6 +100,21 @@ impl Dataset {
         }
     }
 
+    /// Suffixes that actually occur in each generator, so the arm exercises both the
+    /// reject and the accept path. Match rates: rare 0%, email 9.1%, urls 9.5%,
+    /// cb 10.3%, path 10.6%, log 16.8%, json 100%.
+    fn suffix_pattern(&self) -> &'static str {
+        match self {
+            Self::Urls => "%index.html",
+            Self::Cb => "%reviews",
+            Self::Log => "%bot.html)\"",
+            Self::Json => "%}",
+            Self::Path => "%main.rs",
+            Self::Email => "%gmail.com",
+            Self::Rare => "%xyzzy",
+        }
+    }
+
     fn contains_pattern(&self) -> &'static str {
         match self {
             Self::Urls => "%google%",
@@ -128,6 +143,29 @@ fn bench_like(bencher: Bencher, fsst: &FSSTArray, pattern: &str) {
         });
 }
 
+/// The decompress-then-compare path the kernel falls back to when a pattern cannot be
+/// pushed down, for comparison against the arms above.
+///
+/// Canonicalizing first is what the fallback does: for a constant pattern the scalar fn
+/// runs `execute::<VarBinViewArray>` on the haystack and then evaluates over the views.
+/// Doing it here keeps both legs in one bench binary, so the comparison needs no source
+/// edit to reproduce.
+fn bench_like_canonicalize(bencher: Bencher, fsst: &FSSTArray, pattern: &str) {
+    let len = fsst.len();
+    let arr = fsst.clone().into_array();
+    let pattern = ConstantArray::new(pattern, len).into_array();
+    bencher
+        .with_inputs(|| SESSION.create_execution_ctx())
+        .bench_refs(|ctx| {
+            let canonical = arr.clone().execute::<Canonical>(ctx).unwrap().into_array();
+            Like::try_new(canonical, pattern.clone(), LikeOptions::default())
+                .unwrap()
+                .into_array()
+                .execute::<Canonical>(ctx)
+                .unwrap()
+        });
+}
+
 #[divan::bench(args = [
     Dataset::Urls, Dataset::Cb, Dataset::Log, Dataset::Json,
     Dataset::Path, Dataset::Email, Dataset::Rare,
@@ -142,4 +180,20 @@ fn fsst_prefix(bencher: Bencher, dataset: &Dataset) {
 ])]
 fn fsst_contains(bencher: Bencher, dataset: &Dataset) {
     bench_like(bencher, dataset.fsst_array(), dataset.contains_pattern());
+}
+
+#[divan::bench(args = [
+    Dataset::Urls, Dataset::Cb, Dataset::Log, Dataset::Json,
+    Dataset::Path, Dataset::Email, Dataset::Rare,
+])]
+fn fsst_suffix(bencher: Bencher, dataset: &Dataset) {
+    bench_like(bencher, dataset.fsst_array(), dataset.suffix_pattern());
+}
+
+#[divan::bench(args = [
+    Dataset::Urls, Dataset::Cb, Dataset::Log, Dataset::Json,
+    Dataset::Path, Dataset::Email, Dataset::Rare,
+])]
+fn fsst_suffix_canonicalize(bencher: Bencher, dataset: &Dataset) {
+    bench_like_canonicalize(bencher, dataset.fsst_array(), dataset.suffix_pattern());
 }
