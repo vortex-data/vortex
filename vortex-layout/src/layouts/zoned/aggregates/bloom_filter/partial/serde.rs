@@ -14,7 +14,6 @@ use vortex_error::vortex_ensure;
 use super::BLOCK_SIZE;
 use super::BYTES_PER_SPLIT;
 use super::BloomPartial;
-use crate::layouts::zoned::aggregates::bloom_filter::HashFn;
 
 impl BloomPartial {
     /// Deserialize a partial from its byte representation.
@@ -50,10 +49,7 @@ impl BloomPartial {
             "bloom blocks length must be non-zero and lower than u32::MAX",
         );
 
-        Ok(BloomPartial {
-            blocks,
-            hash_fn: HashFn::XxHash3_64, // Default option
-        })
+        Ok(BloomPartial { blocks })
     }
 
     /// Serialize partial filter into its bytes format (little endian)

@@ -209,7 +209,7 @@ pub fn finalize_scan(global: &GlobalState, chunk: &mut DataChunkRef) -> VortexRe
         .vortex_expect("no local state");
     for other in rest.iter_mut() {
         for ((_, acc), (_, part)) in base.iter_mut().zip(other.iter_mut()) {
-            acc.combine_partials(part.flush()?)?;
+            acc.merge_from(part.as_mut())?;
         }
     }
 
