@@ -126,6 +126,7 @@ fn lower_dict(layout: &DictLayout) -> VortexResult<TakePlan> {
         TakePlan::from_children_unchecked(
             layout.dtype().clone(),
             layout.row_count(),
+            layout.has_all_values_referenced(),
             lazy_children(layout.to_layout(), vec![1, 0]),
         )
     })

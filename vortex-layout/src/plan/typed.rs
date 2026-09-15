@@ -9,15 +9,19 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::marker::PhantomData;
 use std::ops::Deref;
+use std::ops::Range;
 use std::sync::Arc;
 
+use vortex_array::MaskFuture;
 use vortex_array::SerializeMetadata;
 use vortex_array::dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
+use crate::plan::PlanArrayFuture;
 use crate::plan::PlanChildren;
+use crate::plan::PlanExecutionContext;
 use crate::plan::PlanId;
 use crate::plan::PlanVTable;
 use crate::plan::display::PlanTreeDisplay;
@@ -103,6 +107,16 @@ impl PlanRef {
     /// Serializes operator-specific metadata, or `None` when the operator is not serializable.
     pub fn metadata(&self) -> Option<Vec<u8>> {
         self.dyn_plan().dyn_metadata(self)
+    }
+
+    /// Executes this plan over `row_range`, returning the values selected by `mask`.
+    pub fn execute(
+        &self,
+        ctx: &PlanExecutionContext,
+        row_range: &Range<u64>,
+        mask: MaskFuture,
+    ) -> VortexResult<PlanArrayFuture> {
+        self.dyn_plan().dyn_execute(self, ctx, row_range, mask)
     }
 
     /// Returns whether this plan uses vtable `V`.
@@ -337,6 +351,15 @@ pub trait DynPlan: 'static + Send + Sync + Debug {
 
     /// Serializes operator-specific metadata, or `None` when the operator is not serializable.
     fn dyn_metadata(&self, plan: &PlanRef) -> Option<Vec<u8>>;
+
+    /// Executes this plan over `row_range`, returning the values selected by `mask`.
+    fn dyn_execute(
+        &self,
+        plan: &PlanRef,
+        ctx: &PlanExecutionContext,
+        row_range: &Range<u64>,
+        mask: MaskFuture,
+    ) -> VortexResult<PlanArrayFuture>;
 }
 
 impl<V: PlanVTable> DynPlan for PlanData<V> {
@@ -367,5 +390,15 @@ impl<V: PlanVTable> DynPlan for PlanData<V> {
 
     fn dyn_metadata(&self, plan: &PlanRef) -> Option<Vec<u8>> {
         V::metadata(plan.as_::<V>()).map(SerializeMetadata::serialize)
+    }
+
+    fn dyn_execute(
+        &self,
+        plan: &PlanRef,
+        ctx: &PlanExecutionContext,
+        row_range: &Range<u64>,
+        mask: MaskFuture,
+    ) -> VortexResult<PlanArrayFuture> {
+        V::execute(plan.as_::<V>(), ctx, row_range, mask)
     }
 }

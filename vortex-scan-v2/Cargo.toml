@@ -1,0 +1,38 @@
+[package]
+name = "vortex-scan-v2"
+authors.workspace = true
+description = "Plan-native scanning for Vortex layouts"
+edition = { workspace = true }
+homepage = { workspace = true }
+categories = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[dependencies]
+futures = { workspace = true, features = ["alloc", "async-await"] }
+itertools = { workspace = true }
+tracing = { workspace = true }
+vortex-array = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-error = { workspace = true }
+vortex-io = { workspace = true }
+vortex-layout = { workspace = true }
+vortex-mask = { workspace = true }
+vortex-scan = { workspace = true }
+vortex-session = { workspace = true }
+vortex-utils = { workspace = true }
+
+[dev-dependencies]
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-file = { workspace = true, features = ["tokio"] }
+vortex-io = { workspace = true, features = ["tokio"] }
+vortex-layout = { workspace = true, features = ["_test-harness"] }
+
+[lints]
+workspace = true
