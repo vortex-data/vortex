@@ -259,7 +259,7 @@ fn test_zstd_append_to_offset_builder(
     let mut builder = VarBinBuilder::<i32>::with_capacity_in(
         compressed.dtype().clone(),
         compressed.len(),
-        vortex_buffer::BufferAllocatorRef::static_ref(),
+        BufferAllocatorRef::static_ref(),
     );
     compressed
         .append_to_builder(&mut builder, &mut ctx)
@@ -290,7 +290,7 @@ fn test_zstd_append_to_view_builder_keeps_only_the_sliced_bytes() -> VortexResul
     let mut builder = VarBinViewBuilder::with_capacity_in(
         compressed.dtype().clone(),
         9,
-        vortex_buffer::BufferAllocatorRef::statically_allocated(),
+        BufferAllocatorRef::statically_allocated(),
     );
     builder.append_value(&values[0]);
     compressed.append_to_builder(&mut builder, &mut ctx)?;
@@ -406,7 +406,7 @@ fn test_zstd_rejects_corrupt_frame_metadata(
     let mut builder = VarBinBuilder::<i32>::with_capacity_in(
         compressed.dtype().clone(),
         compressed.len(),
-        vortex_buffer::BufferAllocatorRef::static_ref(),
+        BufferAllocatorRef::static_ref(),
     );
     assert!(
         compressed
@@ -447,17 +447,11 @@ fn test_zstd_rejects_a_frame_ending_in_a_dangling_length_prefix() -> VortexResul
     )?;
 
     assert!(Zstd::decompress(&compressed, &mut ctx).is_err());
-    let mut varbin = VarBinBuilder::<i32>::with_capacity_in(
-        dtype.clone(),
-        2,
-        vortex_buffer::BufferAllocatorRef::static_ref(),
-    );
+    let mut varbin =
+        VarBinBuilder::<i32>::with_capacity_in(dtype.clone(), 2, BufferAllocatorRef::static_ref());
     assert!(compressed.append_to_builder(&mut varbin, &mut ctx).is_err());
-    let mut views = VarBinViewBuilder::with_capacity_in(
-        dtype,
-        2,
-        vortex_buffer::BufferAllocatorRef::statically_allocated(),
-    );
+    let mut views =
+        VarBinViewBuilder::with_capacity_in(dtype, 2, BufferAllocatorRef::statically_allocated());
     assert!(compressed.append_to_builder(&mut views, &mut ctx).is_err());
     Ok(())
 }
