@@ -347,7 +347,7 @@ class VortexFile:
         import polars as pl
         from polars.io.plugins import register_io_source
 
-        from vortex.polars_ import polars_to_vortex
+        from vortex.polars_ import decompose_predicate
 
         schema = self.dtype.to_arrow_schema()
 
@@ -357,14 +357,32 @@ class VortexFile:
             n_rows: int | None,
             _batch_size: int | None,
         ) -> Iterator[pl.DataFrame]:
-            vx_predicate: Expr | None = None if predicate is None else polars_to_vortex(predicate)
+            # Push the convertible AND-conjuncts of the predicate into the Vortex scan and
+            # evaluate the residual conjuncts with Polars per batch. Polars will not
+            # re-apply a predicate it handed to the source, so both parts must be applied.
+            vx_predicate: Expr | None = None
+            pl_predicate: pl.Expr | None = None
+            if predicate is not None:
+                vx_predicate, pl_predicate = decompose_predicate(predicate)
 
-            reader = self.to_arrow(projection=with_columns, expr=vx_predicate, limit=n_rows)
+            # A row limit only commutes with the residual filter if there is none.
+            limit = n_rows if pl_predicate is None else None
 
+            reader = self.to_arrow(projection=with_columns, expr=vx_predicate, limit=limit)
+
+            remaining = n_rows
             try:
                 for batch in reader:
+                    df = pl.DataFrame(batch)
+                    if pl_predicate is not None:
+                        df = df.filter(pl_predicate)
+                        if remaining is not None:
+                            df = df.head(remaining)
+                            remaining -= df.height
                     # TODO(ngates): set sortedness on DataFrame based on stats?
-                    yield pl.DataFrame(batch)
+                    yield df
+                    if remaining == 0:
+                        break
             except pa.ArrowException as e:
                 # Polars 1 wraps exceptions raised by an IO source in a ComputeError, but Polars 2
                 # re-raises them unchanged. Raise a ComputeError on both.
