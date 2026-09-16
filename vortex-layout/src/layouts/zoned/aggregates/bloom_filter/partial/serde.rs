@@ -14,6 +14,7 @@ use vortex_error::vortex_ensure;
 use super::BLOCK_SIZE;
 use super::BYTES_PER_SPLIT;
 use super::BloomPartial;
+use super::SPLITS_PER_BLOCK;
 
 impl BloomPartial {
     /// Deserialize a partial from its byte representation.
@@ -24,25 +25,25 @@ impl BloomPartial {
             bytes.len()
         );
 
-        let blocks = bytes
+        // A block is `SPLITS_PER_BLOCK` splits wide by construction, so splitting one leaves no
+        // remainder and the decode cannot fail. That matters beyond the dead check it replaces:
+        // a fallible collect reserves nothing up front and grows the vector as it goes, while an
+        // infallible one takes the exact block count from the iterator and allocates once.
+        let blocks: Vec<[u32; SPLITS_PER_BLOCK]> = bytes
             .as_chunks::<BLOCK_SIZE>()
             .0
             .iter()
             .map(|chunk| {
-                let (split_bytes, remainder) = chunk.as_chunks::<BYTES_PER_SPLIT>();
-                let mut block = [0u32; 8];
-                vortex_ensure!(
-                    remainder.is_empty(),
-                    "invalid bloom filter, unexpected remainder bytes"
-                );
-
-                for (split, split_bytes) in block.iter_mut().zip(split_bytes) {
+                let mut block = [0u32; SPLITS_PER_BLOCK];
+                for (split, split_bytes) in
+                    block.iter_mut().zip(chunk.as_chunks::<BYTES_PER_SPLIT>().0)
+                {
                     *split = u32::from_le_bytes(*split_bytes);
                 }
 
-                Ok(block)
+                block
             })
-            .collect::<VortexResult<Vec<_>>>()?;
+            .collect();
 
         vortex_ensure!(
             !blocks.is_empty() && u32::try_from(blocks.len()).is_ok(),
