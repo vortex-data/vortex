@@ -122,6 +122,9 @@ jobs:
   cxx-coverage:
     name: "C++ API (coverage)"
     timeout-minutes: 15
+    env:
+      # Symbolizing error backtrace in debug .so is slow
+      RUST_LIB_BACKTRACE: 0
     permissions:
       id-token: write
     runs-on: >-
@@ -245,6 +248,8 @@ jobs:
       TSAN_OPTIONS: "symbolize=1:suppressions=${{ github.workspace }}/vortex-ffi/tsan_suppressions.txt"
       TSAN_SYMBOLIZER_PATH: "/usr/bin/llvm-symbolizer"
       VORTEX_SKIP_SLOW_TESTS: "1"
+      # Symbolizing error backtrace in debug .so is slow
+      RUST_LIB_BACKTRACE: 0
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/tag=rust-ffi-test-sanitizer', github.run_id)
@@ -268,6 +273,7 @@ jobs:
         run: |
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_LINKER_TYPE=MOLD \
             -DBUILD_SHARED_LIBS=ON \
             -DCMAKE_C_COMPILER=clang \
             -DCMAKE_CXX_COMPILER=clang++ \

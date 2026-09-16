@@ -674,6 +674,9 @@ jobs:
     name: "C++ API"
     # Leave room for cold, per-build-tree Cargo artifacts, including sanitized std.
     timeout-minutes: 15
+    env:
+      # symbolizing error backtrace on debug .so is slow
+      RUST_LIB_BACKTRACE: 0
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=cxx-build', github.run_id)
@@ -696,6 +699,7 @@ jobs:
         run: |
           cmake -S lang/cpp -B build \
             -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_LINKER_TYPE=MOLD \
             -DBUILD_SHARED_LIBS=ON \
             -DCMAKE_C_COMPILER=clang \
             -DCMAKE_CXX_COMPILER=clang++ \
@@ -864,6 +868,7 @@ jobs:
           RUSTUP_TOOLCHAIN: ${{ env.NIGHTLY_TOOLCHAIN }}
         run: |
           cmake -S vortex-ffi -B "${RUNNER_TEMP}/ffi-c-build" \
+            -DCMAKE_LINKER_TYPE=MOLD \
             -DBUILD_SHARED_LIBS=ON \
             -DVORTEX_CARGO_PROFILE=ci \
             -DVORTEX_BUILD_TESTS=ON
