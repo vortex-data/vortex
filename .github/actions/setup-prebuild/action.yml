@@ -36,6 +36,7 @@ runs:
         DEFAULT_VERSION=$(grep channel rust-toolchain.toml | awk -F'"' '{print $2}')
         TOOLCHAIN="${TOOLCHAIN_OVERRIDE:-$DEFAULT_VERSION}"
         echo "toolchain=$TOOLCHAIN" >> "$GITHUB_OUTPUT"
+        echo "RUSTUP_TOOLCHAIN=$DEFAULT_VERSION" >> "$GITHUB_ENV"
       env:
         TOOLCHAIN_OVERRIDE: ${{ inputs.toolchain }}
 
