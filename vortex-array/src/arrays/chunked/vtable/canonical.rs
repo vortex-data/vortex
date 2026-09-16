@@ -116,6 +116,7 @@ mod tests {
     use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::ListArray;
@@ -139,7 +140,7 @@ mod tests {
         Scalar::variant(Scalar::primitive(value, NonNullable))
     }
 
-    fn variant_core(values: impl IntoIterator<Item=i32>) -> VortexResult<ArrayRef> {
+    fn variant_core(values: impl IntoIterator<Item = i32>) -> VortexResult<ArrayRef> {
         Ok(ChunkedArray::try_new(
             values
                 .into_iter()
