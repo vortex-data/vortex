@@ -14,7 +14,7 @@ use sysinfo::System;
 pub struct MemoryStats {
     /// Physical memory usage in bytes
     pub physical_memory: u64,
-    /// Virtual memory usage in bytes  
+    /// Virtual memory usage in bytes
     pub virtual_memory: u64,
 }
 
@@ -178,16 +178,19 @@ impl BenchmarkMemoryTracker {
     pub fn end_query(&self) -> Option<MemoryMeasurementResult> {
         let baseline = self.baseline_memory?;
         let after_memory = self.global_tracker.current_memory()?;
-        let usage_diff = baseline.diff(&after_memory);
+        let usage_diff = after_memory.diff(&baseline);
 
-        // Get peak memory from global tracker
-        let peak_memory = self.global_tracker.peak_memory();
+        let (peak_physical_memory, peak_virtual_memory) =
+            process_peak_memory().unwrap_or_else(|| {
+                let peak = self.global_tracker.peak_memory();
+                (peak.physical_memory, peak.virtual_memory)
+            });
 
         Some(MemoryMeasurementResult {
             physical_memory_delta: usage_diff.physical_memory_delta,
             virtual_memory_delta: usage_diff.virtual_memory_delta,
-            peak_physical_memory: peak_memory.physical_memory,
-            peak_virtual_memory: peak_memory.virtual_memory,
+            peak_physical_memory,
+            peak_virtual_memory,
         })
     }
 
@@ -215,6 +218,37 @@ impl MemoryMeasurement {
     }
 }
 
+/// RSS,VSZ peak memory
+#[cfg(target_os = "linux")]
+fn process_peak_memory() -> Option<(u64, u64)> {
+    let status = std::fs::read_to_string("/proc/self/status").ok()?;
+    let mut peak_rss = None;
+    let mut peak_vsz = None;
+    for line in status.lines() {
+        if let Some(rest) = line.strip_prefix("VmHWM:") {
+            peak_rss = parse_status_kib(rest);
+        } else if let Some(rest) = line.strip_prefix("VmPeak:") {
+            peak_vsz = parse_status_kib(rest);
+        }
+    }
+    Some((peak_rss?, peak_vsz?))
+}
+
+#[cfg(target_os = "linux")]
+fn parse_status_kib(field: &str) -> Option<u64> {
+    field
+        .split_whitespace()
+        .next()?
+        .parse::<u64>()
+        .ok()
+        .map(|kib| kib * 1024)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn process_peak_memory() -> Option<(u64, u64)> {
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -240,5 +274,25 @@ mod tests {
 
         let diff = measurement.end();
         assert!(diff.is_some());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn peak_memory() {
+        let (rss, vsz) = process_peak_memory().unwrap();
+        assert!(rss > 0);
+        assert!(vsz >= rss);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn query_end_peak() {
+        let mut tracker = BenchmarkMemoryTracker::new();
+        tracker.start_query();
+        let _data: Vec<u8> = vec![7u8; 8 * 1024 * 1024];
+        let result = tracker.end_query().unwrap();
+        let (rss, _) = process_peak_memory().unwrap();
+        assert!(result.peak_physical_memory > 0);
+        assert!(result.peak_physical_memory <= rss);
     }
 }
