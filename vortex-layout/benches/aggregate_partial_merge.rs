@@ -46,10 +46,10 @@ fn main() {
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
-/// Zones merged per iteration.
-const ZONE_COUNT: usize = 16;
+/// Zones merged per iteration. Kept small so the slowest case stays well under a millisecond.
+const ZONE_COUNT: usize = 8;
 /// Rows per zone. Accumulation is setup, not part of what is timed here.
-const ZONE_LEN: usize = 4096;
+const ZONE_LEN: usize = 1024;
 /// [Default, cache-unfriendly] block counts, i.e. 8KiB and 256KiB of bloom partial per zone.
 const BLOCK_COUNTS: &[u32] = &[256, 8192];
 
