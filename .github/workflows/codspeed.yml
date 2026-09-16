@@ -226,7 +226,7 @@ jobs:
   bench-codspeed-cuda-build:
     needs: [changes]
     if: >-
-      always() && github.repository == 'vortex-data/vortex' &&
+      !cancelled() && github.repository == 'vortex-data/vortex' &&
       needs.changes.outputs.run-cuda-benchmarks == 'true'
     name: "Build Codspeed CUDA benchmarks"
     timeout-minutes: 30
