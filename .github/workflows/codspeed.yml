@@ -257,6 +257,8 @@ jobs:
             --bench fsst_cuda \
             --bench runend_cuda \
             --profile bench
+      - name: Compress debug sections
+        run: find target/codspeed -type f -exec objcopy --compress-debug-sections {} \;
       - name: Package CUB shared library
         run: |
           find target/release/build -path '*/out/libvortex_cub.so' \
