@@ -710,6 +710,9 @@ jobs:
             -DVORTEX_BUILD_TESTS=ON \
             -DVORTEX_BUILD_EXAMPLES=ON
           cmake --build build --parallel "$(nproc)"
+      - name: Show C++ API compiler cache statistics
+        if: always() && github.repository == 'vortex-data/vortex'
+        run: sccache --show-stats
       - name: Run C++ tests
         run: ctest --test-dir build --output-on-failure
       - name: Run C++ examples
