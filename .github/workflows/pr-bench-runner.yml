@@ -73,6 +73,11 @@ jobs:
     needs: build
     if: ${{ !cancelled() && needs.build.result == 'success' }}
     timeout-minutes: 120
+    env:
+      # BENCHMARK EXPERIMENT -- revert before merging.
+      # Each benchmark writes its own Vortex files and reads them back in this job.
+      VORTEX_DIRECT_IO: "1"
+      VORTEX_SEGMENT_PADDING: "always"
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/runner=bench-dedicated/family=c8gd.metal-24xl/image=ubuntu24-full-arm64-pre-v2/tag={1}{2}', github.run_id, inputs.benchmark_id, github.event.pull_request.head.repo.fork == false && '/extras=s3-cache' || '')

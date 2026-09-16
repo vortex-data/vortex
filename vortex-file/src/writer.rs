@@ -66,6 +66,7 @@ use crate::counting::CountingVortexWrite;
 use crate::footer::FileStatistics;
 use crate::footer::MAX_METADATA_KEY_BYTES;
 use crate::footer::MAX_METADATA_SEGMENTS;
+use crate::segments::SegmentPadding;
 use crate::segments::writer::BufferedSegmentSink;
 
 /// Configure a new writer, which can eventually be used to write an [`ArrayStream`] into a sink
@@ -86,6 +87,7 @@ pub struct VortexWriteOptions {
     max_variable_length_statistics_size: usize,
     file_statistics: Vec<Stat>,
     metadata: HashMap<String, ByteBuffer>,
+    segment_padding: SegmentPadding,
 }
 
 /// Extension trait for constructing [`VortexWriteOptions`] from a session.
@@ -109,7 +111,19 @@ impl VortexWriteOptions {
             file_statistics: PRUNING_STATS.to_vec(),
             max_variable_length_statistics_size: 64,
             metadata: HashMap::default(),
+            segment_padding: SegmentPadding::from_env(),
         }
+    }
+
+    /// Control how segments are positioned relative to storage block boundaries.
+    ///
+    /// By default segments are packed contiguously, padded only as far as their own memory
+    /// alignment requires, unless `VORTEX_SEGMENT_PADDING` names another policy. Block-aligning
+    /// them lets a direct-I/O reader issue each read without widening it to the enclosing blocks,
+    /// at the cost of the padding bytes. See [`SegmentPadding`] for the trade-off.
+    pub fn with_segment_padding(mut self, segment_padding: SegmentPadding) -> Self {
+        self.segment_padding = segment_padding;
+        self
     }
 
     /// Replace the default layout strategy with the provided one.
@@ -285,7 +299,11 @@ impl VortexWriteOptions {
         // Create a channel to send buffers from the segment sink to the output stream.
         let (send, recv) = kanal::bounded_async(1);
 
-        let segments = Arc::new(BufferedSegmentSink::new(send, position));
+        let segments = Arc::new(BufferedSegmentSink::new(
+            send,
+            position,
+            self.segment_padding,
+        ));
 
         // We spawn the layout future so it is driven in the background while we write the
         // buffer stream, so we don't need to poll it until all buffers have been drained.
