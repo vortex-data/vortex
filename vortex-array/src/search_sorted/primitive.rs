@@ -10,6 +10,8 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::RepeatedArrayProbe;
+use crate::arrays::Primitive;
+use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::dtype::NativePType;
 use crate::search_sorted::IndexOrd;
 
@@ -23,35 +25,62 @@ use crate::search_sorted::IndexOrd;
 /// null elements as `T::zero()`; use `Option<T>` when the array may contain nulls, in which case
 /// nulls sort before all non-null values.
 pub struct SearchSortedPrimitiveArray<'a, T> {
-    probe: RefCell<RepeatedArrayProbe>,
+    reader: Reader<'a, T>,
     len: usize,
     ctx: RefCell<&'a mut ExecutionCtx>,
     _ptype: PhantomData<T>,
 }
 
+/// Where a comparison reads its element from.
+enum Reader<'a, T> {
+    /// The array's own buffer. Only for a canonical, non-nullable, host-backed array, where
+    /// every element is a `T` at a known offset and none of them is null.
+    Values(&'a [T]),
+    /// Anything else, through one probe reused by the whole search.
+    Probe(RefCell<RepeatedArrayProbe>),
+}
+
 impl<'a, T: NativePType> SearchSortedPrimitiveArray<'a, T> {
     /// Wraps `array` for searching, panicking if the array's [`PType`](crate::dtype::PType) is
     /// not `T::PTYPE`.
-    pub fn new(array: &ArrayRef, ctx: &'a mut ExecutionCtx) -> Self {
+    pub fn new(array: &'a ArrayRef, ctx: &'a mut ExecutionCtx) -> Self {
         assert_eq!(
             array.dtype().as_ptype(),
             T::PTYPE,
             "Array PType must match primitive type"
         );
         Self {
-            probe: RefCell::new(array.repeated_probe()),
+            reader: Self::reader(array),
             len: array.len(),
             ctx: RefCell::new(ctx),
             _ptype: PhantomData,
         }
     }
 
+    /// Reads the buffer directly when the array can offer one, and probes otherwise.
+    ///
+    /// A nullable array is excluded because the buffer holds an arbitrary value where an element
+    /// is null, and a device-backed array because its buffer is not addressable here.
+    fn reader(array: &'a ArrayRef) -> Reader<'a, T> {
+        if !array.dtype().is_nullable()
+            && let Some(primitive) = array.as_opt::<Primitive>()
+            && primitive.buffer_handle().as_host_opt().is_some()
+            && let Some(values) = primitive.data().as_slice::<T>().get(..array.len())
+        {
+            return Reader::Values(values);
+        }
+        Reader::Probe(RefCell::new(array.repeated_probe()))
+    }
+
     /// Returns the value at `idx`, or `None` if the element is null.
     ///
     /// The probe and the context are separate cells, so the two borrows never overlap.
     fn typed_value(&self, idx: usize) -> VortexResult<Option<T>> {
-        Ok(self
-            .probe
+        let probe = match &self.reader {
+            Reader::Values(values) => return Ok(Some(values[idx])),
+            Reader::Probe(probe) => probe,
+        };
+        Ok(probe
             .borrow_mut()
             .execute_scalar(idx, &mut self.ctx.borrow_mut())?
             .as_primitive()
@@ -115,6 +144,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
 
+    use super::Reader;
     use crate::IntoArray;
     use crate::array_session;
     use crate::arrays::PrimitiveArray;
@@ -124,6 +154,34 @@ mod tests {
     use crate::search_sorted::SearchSortedPrimitiveArray;
     use crate::search_sorted::SearchSortedSide;
     use crate::validity::Validity;
+
+    #[test]
+    fn search_sorted_reads_canonical_values_directly() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let array = PrimitiveArray::new(buffer![1i32, 2, 3, 4], Validity::NonNullable).into_array();
+        let searcher = SearchSortedPrimitiveArray::<i32>::new(&array, &mut ctx);
+        assert!(matches!(searcher.reader, Reader::Values(_)));
+        assert_eq!(
+            searcher.search_sorted(&3i32, SearchSortedSide::Left)?,
+            SearchResult::Found(2)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn search_sorted_probes_when_values_are_not_addressable() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        // Nullable: the buffer holds an arbitrary value wherever an element is null, so the
+        // search has to consult validity through the probe.
+        let array = PrimitiveArray::new(buffer![1i32, 2, 3, 4], Validity::AllValid).into_array();
+        let searcher = SearchSortedPrimitiveArray::<i32>::new(&array, &mut ctx);
+        assert!(matches!(searcher.reader, Reader::Probe(_)));
+        assert_eq!(
+            searcher.search_sorted(&3i32, SearchSortedSide::Left)?,
+            SearchResult::Found(2)
+        );
+        Ok(())
+    }
 
     #[test]
     fn search_sorted_optional_value() -> VortexResult<()> {
