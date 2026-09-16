@@ -40,7 +40,7 @@ impl Scheme for DecimalScheme {
         matches!(canonical, Canonical::Decimal(_))
     }
 
-    fn produced_serialized_ids(&self) -> Vec<ArrayId> {
+    fn produced_encodings(&self) -> Vec<ArrayId> {
         vec![DecimalByteParts.id()]
     }
 

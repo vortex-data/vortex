@@ -42,7 +42,7 @@ impl Scheme for NullDominatedSparseScheme {
         canonical.dtype().is_utf8()
     }
 
-    fn produced_serialized_ids(&self) -> Vec<ArrayId> {
+    fn produced_encodings(&self) -> Vec<ArrayId> {
         vec![Sparse.id()]
     }
 

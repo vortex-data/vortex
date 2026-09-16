@@ -239,7 +239,7 @@ impl VortexWriteOptions {
         let enforce_editions = !self.disable_editions;
         // The array context is built here, rather than when the options were constructed, so that
         // encodings registered on the session in between are still eligible for the file.
-        let (array_ctx, permitted_ids) = new_array_context(&self.session, enforce_editions);
+        let array_ctx = new_array_context(&self.session, enforce_editions);
         let ctx = LayoutWriterContext::new(array_ctx)
             .with_buffered_bytes_tracker(self.buffered_bytes.clone());
         let ctx = if enforce_editions {
@@ -247,11 +247,14 @@ impl VortexWriteOptions {
         } else {
             ctx
         };
+        let allowed_serialized_ids: HashSet<ArrayId> =
+            ctx.array_ctx().to_ids().into_iter().collect();
         let strategy = match self.strategy {
             Some(strategy) => strategy,
             None => WriteStrategyBuilder::default()
                 .with_btrblocks_builder(
-                    BtrBlocksCompressorBuilder::default().retain_allowed_encodings(&permitted_ids),
+                    BtrBlocksCompressorBuilder::default()
+                        .retain_allowed_encodings(&allowed_serialized_ids),
                 )
                 .build(),
         };
@@ -382,33 +385,30 @@ impl VortexWriteOptions {
     }
 }
 
-fn new_array_context(
-    session: &VortexSession,
-    enforce_editions: bool,
-) -> (ArrayContext, HashSet<ArrayId>) {
+fn new_array_context(session: &VortexSession, enforce_editions: bool) -> ArrayContext {
     // NOTE(os): Set up an array context with all eligible serialized IDs pre-populated.
     // This is preferred for now over having an empty context here, because only the
     // serialised array order is deterministic. The serialisation of arrays are done
     // parallel and with an empty context they can register their encodings to the context
     // in different order, changing the written bytes from run to run.
-    let arrays = session.arrays();
-    let serialized_ids = if enforce_editions {
+    //
+    // The seeded IDs are also what the writer may emit: callers read them back with
+    // `ArrayContext::to_ids` to restrict compression to the same set.
+    let serialized_ids: Vec<ArrayId> = if enforce_editions {
         session.enabled_component_ids(ComponentKind::Array)
     } else {
-        arrays
+        session
+            .arrays()
             .registry()
             .read(|registry| registry.keys().copied().collect())
     };
-    // Compression schemes declare the serialized IDs they write, so the same set restricts them.
-    let permitted_ids = serialized_ids.iter().copied().collect();
     let array_ctx = ArrayContext::new(serialized_ids.iter().copied().sorted().collect());
-    let array_ctx = if enforce_editions {
+    if enforce_editions {
         // Only permit serialized IDs in the enabled editions.
         array_ctx.with_allowed_ids(serialized_ids.into_iter().collect())
     } else {
         array_ctx
-    };
-    (array_ctx, permitted_ids)
+    }
 }
 
 /// The ids of `kind` the enabled editions permit.
@@ -782,10 +782,9 @@ mod tests {
         session.register_edition(&DECLARATION)?;
         session.enable_edition(EDITION)?;
 
-        let (ctx, permitted_ids) = new_array_context(&session, true);
+        let ctx = new_array_context(&session, true);
         assert_eq!(ctx.to_ids(), [Primitive.id()]);
         assert!(ctx.intern(&Bool.id()).is_none());
-        assert_eq!(permitted_ids, HashSet::from([Primitive.id()]));
         Ok(())
     }
 
@@ -797,12 +796,8 @@ mod tests {
             .registry()
             .read(|registry| registry.keys().copied().sorted().collect::<Vec<_>>());
 
-        let (ctx, permitted_ids) = new_array_context(&session, false);
+        let ctx = new_array_context(&session, false);
         assert_eq!(ctx.to_ids(), registered_ids);
-        assert_eq!(
-            permitted_ids,
-            registered_ids.iter().copied().collect::<HashSet<_>>()
-        );
         assert!(ctx.intern(&Bool.id()).is_some());
     }
 

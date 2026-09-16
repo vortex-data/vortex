@@ -72,7 +72,7 @@ impl Scheme for DirectRatioScheme {
         matches_integer_primitive(canonical)
     }
 
-    fn produced_serialized_ids(&self) -> Vec<ArrayId> {
+    fn produced_encodings(&self) -> Vec<ArrayId> {
         Vec::new()
     }
 
@@ -108,7 +108,7 @@ impl Scheme for ImmediateAlwaysUseScheme {
         matches_integer_primitive(canonical)
     }
 
-    fn produced_serialized_ids(&self) -> Vec<ArrayId> {
+    fn produced_encodings(&self) -> Vec<ArrayId> {
         Vec::new()
     }
 
@@ -144,7 +144,7 @@ impl Scheme for CallbackAlwaysUseScheme {
         matches_integer_primitive(canonical)
     }
 
-    fn produced_serialized_ids(&self) -> Vec<ArrayId> {
+    fn produced_encodings(&self) -> Vec<ArrayId> {
         Vec::new()
     }
 
@@ -182,7 +182,7 @@ impl Scheme for CallbackSkipScheme {
         matches_integer_primitive(canonical)
     }
 
-    fn produced_serialized_ids(&self) -> Vec<ArrayId> {
+    fn produced_encodings(&self) -> Vec<ArrayId> {
         Vec::new()
     }
 
@@ -220,7 +220,7 @@ impl Scheme for CallbackRatioScheme {
         matches_integer_primitive(canonical)
     }
 
-    fn produced_serialized_ids(&self) -> Vec<ArrayId> {
+    fn produced_encodings(&self) -> Vec<ArrayId> {
         Vec::new()
     }
 
@@ -258,7 +258,7 @@ impl Scheme for HugeRatioScheme {
         matches_integer_primitive(canonical)
     }
 
-    fn produced_serialized_ids(&self) -> Vec<ArrayId> {
+    fn produced_encodings(&self) -> Vec<ArrayId> {
         Vec::new()
     }
 
@@ -294,7 +294,7 @@ impl Scheme for ZeroBytesSamplingScheme {
         matches_integer_primitive(canonical)
     }
 
-    fn produced_serialized_ids(&self) -> Vec<ArrayId> {
+    fn produced_encodings(&self) -> Vec<ArrayId> {
         Vec::new()
     }
 
@@ -507,7 +507,7 @@ impl Scheme for ThresholdObservingScheme {
         matches_integer_primitive(canonical)
     }
 
-    fn produced_serialized_ids(&self) -> Vec<ArrayId> {
+    fn produced_encodings(&self) -> Vec<ArrayId> {
         Vec::new()
     }
 
@@ -548,7 +548,7 @@ impl Scheme for CallbackMatchingRatioScheme {
         matches_integer_primitive(canonical)
     }
 
-    fn produced_serialized_ids(&self) -> Vec<ArrayId> {
+    fn produced_encodings(&self) -> Vec<ArrayId> {
         Vec::new()
     }
 

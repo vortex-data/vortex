@@ -31,7 +31,7 @@ impl Scheme for PcoScheme {
         canonical.dtype().is_float()
     }
 
-    fn produced_serialized_ids(&self) -> Vec<ArrayId> {
+    fn produced_encodings(&self) -> Vec<ArrayId> {
         vec![vortex_pco::Pco.id()]
     }
 

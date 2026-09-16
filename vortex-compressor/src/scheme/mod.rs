@@ -133,7 +133,7 @@ pub trait Scheme: Debug + Send + Sync {
     ///
     /// For most encodings this is the in-memory encoding ID. An encoding with several wire
     /// formats declares the wire IDs the scheme writes, which may differ from its in-memory ID.
-    fn produced_serialized_ids(&self) -> Vec<ArrayId>;
+    fn produced_encodings(&self) -> Vec<ArrayId>;
 
     /// Returns the stats generation options this scheme requires. The compressor merges all
     /// eligible schemes' options before generating stats so that a single stats pass satisfies

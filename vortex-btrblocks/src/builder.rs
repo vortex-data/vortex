@@ -205,11 +205,8 @@ impl BtrBlocksCompressorBuilder {
     /// `allowed` holds serialized IDs. The file writer passes the array IDs its enabled editions
     /// permit.
     pub fn retain_allowed_encodings(mut self, allowed: &HashSet<ArrayId>) -> Self {
-        self.schemes.retain(|s| {
-            s.produced_serialized_ids()
-                .iter()
-                .all(|id| allowed.contains(id))
-        });
+        self.schemes
+            .retain(|s| s.produced_encodings().iter().all(|id| allowed.contains(id)));
         self
     }
 
@@ -253,7 +250,7 @@ mod tests {
     fn retaining_all_declared_outputs_keeps_every_scheme() {
         let allowed: HashSet<ArrayId> = ALL_SCHEMES
             .iter()
-            .flat_map(|scheme| scheme.produced_serialized_ids())
+            .flat_map(|scheme| scheme.produced_encodings())
             .collect();
         let builder = BtrBlocksCompressorBuilder::default().retain_allowed_encodings(&allowed);
         assert_eq!(builder.schemes.len(), ALL_SCHEMES.len());
