@@ -366,10 +366,10 @@ impl<T> VortexExpect for Option<T> {
 #[macro_export]
 macro_rules! vortex_err {
     (Other: $($tts:tt)*) => {
-        $crate::__private::fmt_err($crate::VortexError::Other, format_args!($($tts)*))
+        $crate::__private::fmt_err($crate::VortexError::Other, &format_args!($($tts)*))
     };
     (AssertionFailed: $($tts:tt)*) => {
-        $crate::__private::fmt_err($crate::VortexError::AssertionFailed, format_args!($($tts)*))
+        $crate::__private::fmt_err($crate::VortexError::AssertionFailed, &format_args!($($tts)*))
     };
     (IOError: $($tts:tt)*) => {{
         use std::backtrace::Backtrace;
@@ -381,7 +381,7 @@ macro_rules! vortex_err {
         $crate::__private::out_of_bounds($idx, $start, $stop)
     };
     (NotImplemented: $func:expr, $by_whom:expr) => {
-        $crate::__private::not_implemented($func, format_args!("{}", $by_whom))
+        $crate::__private::not_implemented($func, &format_args!("{}", $by_whom))
     };
     (MismatchedTypes: $expected:expr, $actual:expr) => {
         $crate::__private::mismatched_types(&$expected, &$actual)
@@ -393,7 +393,7 @@ macro_rules! vortex_err {
         $crate::__private::external($err)
     };
     ($variant:ident: $fmt:literal $(, $arg:expr)* $(,)?) => {
-        $crate::__private::fmt_err($crate::VortexError::$variant, format_args!($fmt $(, $arg)*))
+        $crate::__private::fmt_err($crate::VortexError::$variant, &format_args!($fmt $(, $arg)*))
     };
     ($variant:ident: $err:expr $(,)?) => {
         $crate::__private::must_use(
@@ -464,10 +464,10 @@ macro_rules! vortex_panic {
         $crate::vortex_panic!($crate::vortex_err!($variant: $fmt, $($arg),*))
     };
     ($err:expr, $fmt:literal $(, $arg:expr)* $(,)?) => {
-        $crate::__private::panic_err_ctx($err, format_args!($fmt $(, $arg)*))
+        $crate::__private::panic_err_ctx($err, &format_args!($fmt $(, $arg)*))
     };
     ($fmt:literal $(, $arg:expr)* $(,)?) => {
-        $crate::vortex_panic!($crate::vortex_err!($fmt, $($arg),*))
+        $crate::__private::panic_fmt(&format_args!($fmt $(, $arg)*))
     };
     ($err:expr) => {
         $crate::__private::panic_err($err)
@@ -541,7 +541,12 @@ impl From<prost::UnknownEnumValue> for VortexError {
     }
 }
 
-// Not public, referenced by macros only.
+/// We want our error handlers to be fast in the happy path, so we inline them.
+/// However, if we inline them as is, the call site gets the cold branch with
+/// panic! macros which gets expanded into backtrace collection and throwing.
+/// LLVM inliner/vectoriser in turn doesn't vectorize some code.
+/// So we inline only the happy path, the error path gets to a cold handler which
+/// is never inlined and thus doesn't prevent vectorization.
 #[doc(hidden)]
 #[expect(
     clippy::panic,
@@ -570,9 +575,9 @@ pub mod __private {
     #[must_use]
     pub fn fmt_err(
         variant: fn(ErrString, Box<Backtrace>) -> VortexError,
-        args: Arguments<'_>,
+        args: &Arguments<'_>,
     ) -> VortexError {
-        variant(fmt::format(args).into(), Box::new(Backtrace::capture()))
+        variant(args.to_string().into(), Box::new(Backtrace::capture()))
     }
 
     #[doc(hidden)]
@@ -587,10 +592,10 @@ pub mod __private {
     #[cold]
     #[inline(never)]
     #[must_use]
-    pub fn not_implemented(func: impl Into<ErrString>, by_whom: Arguments<'_>) -> VortexError {
+    pub fn not_implemented(func: impl Into<ErrString>, by_whom: &Arguments<'_>) -> VortexError {
         VortexError::NotImplemented(
             func.into(),
-            fmt::format(by_whom).into(),
+            by_whom.to_string().into(),
             Box::new(Backtrace::capture()),
         )
     }
@@ -633,8 +638,18 @@ pub mod __private {
     #[doc(hidden)]
     #[cold]
     #[inline(never)]
-    pub fn panic_err_ctx(err: VortexError, args: Arguments<'_>) -> ! {
-        panic!("{}", err.with_context(fmt::format(args)))
+    pub fn panic_fmt(args: &Arguments<'_>) -> ! {
+        panic!(
+            "{}",
+            VortexError::Other(args.to_string().into(), Box::new(Backtrace::capture()))
+        )
+    }
+
+    #[doc(hidden)]
+    #[cold]
+    #[inline(never)]
+    pub fn panic_err_ctx(err: VortexError, args: &Arguments<'_>) -> ! {
+        panic!("{}", err.with_context(args.to_string()))
     }
 
     #[doc(hidden)]
