@@ -366,23 +366,21 @@ impl<O: OffsetBuilderPType> ArrayBuilder for ListBuilder<O> {
 
     fn append_zeros(&mut self, n: usize) {
         let curr_len = self.elements_builder.len();
-        for _ in 0..n {
-            self.offsets_builder.append_value(
-                O::from_usize(curr_len).vortex_expect("Failed to convert from usize to <O>"),
-            )
-        }
+        self.offsets_builder.append_n_values(
+            O::from_usize(curr_len).vortex_expect("Failed to convert from usize to <O>"),
+            n,
+        );
         self.nulls.append_n_non_nulls(n);
     }
 
     unsafe fn append_nulls_unchecked(&mut self, n: usize) {
         let curr_len = self.elements_builder.len();
-        for _ in 0..n {
-            // A list with a null element is can be a list with a zero-span offset and a validity
-            // bit set
-            self.offsets_builder.append_value(
-                O::from_usize(curr_len).vortex_expect("Failed to convert from usize to <O>"),
-            )
-        }
+        // A list with a null element can be a list with a zero-span offset and a cleared validity
+        // bit.
+        self.offsets_builder.append_n_values(
+            O::from_usize(curr_len).vortex_expect("Failed to convert from usize to <O>"),
+            n,
+        );
         self.nulls.append_n_nulls(n);
     }
 
@@ -394,6 +392,11 @@ impl<O: OffsetBuilderPType> ArrayBuilder for ListBuilder<O> {
         );
 
         self.append_value(scalar.as_list())
+    }
+
+    fn reserve_chunks(&mut self, additional: usize) {
+        self.elements_builder.reserve_chunks(additional);
+        self.nulls.reserve_runs(additional);
     }
 
     fn reserve_exact(&mut self, additional: usize) {
@@ -422,6 +425,7 @@ mod tests {
 
     use Nullability::NonNullable;
     use Nullability::Nullable;
+    use rstest::rstest;
     use vortex_buffer::BufferAllocatorRef;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
@@ -450,6 +454,41 @@ mod tests {
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    /// The `ListBuilder` twin of the `ListViewBuilder` bulk empty-list case: `n` empty lists must
+    /// all land at the current end of `elements`, with validity from the method that was called.
+    #[rstest]
+    #[case::zeros(false)]
+    #[case::nulls(true)]
+    fn test_bulk_empty_lists(#[case] null: bool) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let dtype: Arc<DType> = Arc::new(I32.into());
+        let mut builder = ListBuilder::<u64>::with_capacity_in(
+            Arc::clone(&dtype),
+            Nullable,
+            0,
+            BufferAllocatorRef::static_ref(),
+        );
+
+        builder.append_array_as_list(&buffer![1i32, 2].into_array(), &mut ctx)?;
+
+        const N: usize = 5;
+        if null {
+            builder.append_nulls(N);
+        } else {
+            builder.append_zeros(N);
+        }
+
+        let list = builder.finish_into_list();
+        assert_eq!(list.len(), N + 1);
+        let listview = list.into_array().execute::<ListViewArray>(&mut ctx)?;
+        for i in 1..=N {
+            assert_eq!(listview.size_at(i), 0);
+            assert_eq!(listview.validity()?.execute_is_valid(i, &mut ctx)?, !null,);
+        }
+
+        Ok(())
+    }
 
     #[test]
     fn test_empty() {

@@ -80,6 +80,14 @@ impl ValidityBuilder {
         self.runs.push((validity, len));
     }
 
+    /// Reserves room for `additional` more runs.
+    ///
+    /// See [`ArrayBuilder::reserve_chunks`](crate::builders::ArrayBuilder::reserve_chunks); a
+    /// nested builder records one run per appended array.
+    pub fn reserve_runs(&mut self, additional: usize) {
+        self.runs.reserve(additional);
+    }
+
     /// Allocates space for `additional` more bits in the null buffer.
     pub fn reserve_exact(&mut self, additional: usize) {
         self.pending.reserve_exact(additional)
