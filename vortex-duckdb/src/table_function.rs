@@ -51,9 +51,10 @@ use crate::duckdb::TableFilterSetRef;
 use crate::duckdb::TableInitInput;
 use crate::duckdb::Value;
 use crate::exporter::ArrayExporter;
+use crate::projection::DuckdbField;
 use crate::projection::Filter;
 use crate::projection::Projection;
-use crate::projection::{DuckdbField, ProjectionInput};
+use crate::projection::ProjectionInput;
 
 // Duckdb has two state machines for an extension. The outer one is the table
 // function state machine which calls the file reader state machine.
