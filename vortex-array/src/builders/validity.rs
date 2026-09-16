@@ -77,6 +77,19 @@ impl ValidityBuilder {
 
         self.flush_pending();
         self.runs_len += len;
+
+        // Two adjacent runs that are uniform and agree describe one longer run. Extending beats
+        // pushing: a chunked array of non-nullable chunks would otherwise record a run per chunk
+        // for a validity that `Validity::concat` collapses at the end anyway, and every run is
+        // walked again by `finish_with_nullability`.
+        if let Some((last, last_len)) = self.runs.last_mut()
+            && Self::is_uniform(last)
+            && std::mem::discriminant(last) == std::mem::discriminant(&validity)
+        {
+            *last_len += len;
+            return;
+        }
+
         self.runs.push((validity, len));
     }
 
@@ -123,6 +136,15 @@ impl ValidityBuilder {
             vortex_panic!("cannot finish a non-nullable builder holding {validity:?} validity");
         }
         validity
+    }
+
+    /// Whether a validity describes every value it covers the same way, so that two adjacent runs
+    /// of it can be recorded as one.
+    fn is_uniform(validity: &Validity) -> bool {
+        matches!(
+            validity,
+            Validity::NonNullable | Validity::AllValid | Validity::AllInvalid
+        )
     }
 
     /// Moves whatever the null buffer holds into `runs`, keeping the runs in logical order.
