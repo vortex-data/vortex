@@ -23,12 +23,16 @@ use vortex_layout::layouts::list::writer::ListLayoutStrategy;
 use vortex_layout::layouts::repartition::RepartitionStrategy;
 use vortex_layout::layouts::repartition::RepartitionWriterOptions;
 use vortex_layout::layouts::table::TableStrategy;
-use vortex_layout::layouts::table::use_experimental_list_layout;
 use vortex_layout::layouts::zoned::writer::ZonedLayoutOptions;
 use vortex_layout::layouts::zoned::writer::ZonedStrategy;
 use vortex_utils::aliases::hash_map::HashMap;
 
 const ONE_MEG: u64 = 1 << 20;
+
+#[cfg(feature = "unstable_encodings")]
+const USE_LIST_LAYOUT_BY_DEFAULT: bool = true;
+#[cfg(not(feature = "unstable_encodings"))]
+const USE_LIST_LAYOUT_BY_DEFAULT: bool = false;
 
 /// How the compressor was configured on [`WriteStrategyBuilder`].
 enum CompressorConfig {
@@ -59,6 +63,7 @@ pub struct WriteStrategyBuilder {
     flat_strategy: Option<Arc<dyn LayoutStrategy>>,
     probe_compressor: Option<Arc<dyn CompressorPlugin>>,
     /// Whether to write list fields using [`ListLayoutStrategy`].
+    /// Enabled by default with the `unstable_encodings` feature.
     ///
     /// [`ListLayoutStrategy`]: vortex_layout::layouts::list::writer::ListLayoutStrategy
     use_list_layout: bool,
@@ -75,7 +80,7 @@ impl Default for WriteStrategyBuilder {
             field_writers: HashMap::new(),
             flat_strategy: None,
             probe_compressor: None,
-            use_list_layout: use_experimental_list_layout(),
+            use_list_layout: USE_LIST_LAYOUT_BY_DEFAULT,
         }
     }
 }
@@ -100,6 +105,8 @@ impl WriteStrategyBuilder {
     }
 
     /// Enable writing list fields with [`ListLayoutStrategy`].
+    ///
+    /// This is already enabled by default when the `unstable_encodings` feature is active.
     ///
     /// **Note**: this is an unstable and experimental layout that is expected to change.
     /// Using it may lead to unreadable files in the future.
@@ -167,8 +174,19 @@ impl WriteStrategyBuilder {
 
         let compressor = self.compressor;
 
-        // 7. for each chunk create a flat layout
-        let chunked = ChunkedLayoutStrategy::new(Arc::clone(&flat));
+        // 7. write each compressed chunk as either a shallow list layout or a flat layout.
+        // Chunking stays outside ListLayoutStrategy so every list layout receives exactly one
+        // complete page and its elements, offsets, and validity are direct flat leaves.
+        let terminal: Arc<dyn LayoutStrategy> = if self.use_list_layout {
+            Arc::new(
+                ListLayoutStrategy::default()
+                    .with_children_strategy(Arc::clone(&flat))
+                    .with_fallback(Arc::clone(&flat)),
+            )
+        } else {
+            Arc::clone(&flat)
+        };
+        let chunked = ChunkedLayoutStrategy::new(terminal);
         // 6. buffer chunks so they end up with closer segment ids physically
         let buffered = BufferedStrategy::new(chunked, 2 * ONE_MEG); // 2MB
 
@@ -209,7 +227,8 @@ impl WriteStrategyBuilder {
             CompressorConfig::BtrBlocks(builder) => Arc::new(builder.build()),
             CompressorConfig::Opaque(compressor) => compressor,
         };
-        let compress_then_flat = CompressingStrategy::new(flat, Arc::clone(&stats_compressor));
+        let compress_then_flat =
+            CompressingStrategy::new(Arc::clone(&flat), Arc::clone(&stats_compressor));
 
         // 3. apply dict encoding or fallback
         let probe_compressor = if let Some(probe_compressor) = self.probe_compressor {
@@ -251,37 +270,11 @@ impl WriteStrategyBuilder {
         );
 
         // 0. start with splitting columns
-        let validity_strategy = CollectStrategy::new(compress_then_flat.clone());
+        let validity_strategy = CollectStrategy::new(compress_then_flat);
 
         // Take any field overrides from the builder and apply them to the final strategy.
-        let mut table_strategy =
-            TableStrategy::new(Arc::new(validity_strategy), Arc::new(repartition))
-                .with_field_writers(self.field_writers);
-
-        if self.use_list_layout {
-            // We need a closure here to enable recursive application of list layout.
-            table_strategy = table_strategy.with_list_layout_factory(
-                move |list_layout: ListLayoutStrategy| -> Arc<dyn LayoutStrategy> {
-                    let zoned = ZonedStrategy::new(
-                        list_layout,
-                        compress_then_flat.clone(),
-                        ZonedLayoutOptions {
-                            block_size: row_block_size,
-                            ..Default::default()
-                        },
-                    );
-                    Arc::new(RepartitionStrategy::new(
-                        zoned,
-                        RepartitionWriterOptions {
-                            block_size_minimum: 0,
-                            block_len_multiple: row_block_size.get(),
-                            block_size_target: None,
-                            canonicalize: false,
-                        },
-                    ))
-                },
-            );
-        }
+        let table_strategy = TableStrategy::new(Arc::new(validity_strategy), Arc::new(repartition))
+            .with_field_writers(self.field_writers);
 
         Arc::new(table_strategy)
     }

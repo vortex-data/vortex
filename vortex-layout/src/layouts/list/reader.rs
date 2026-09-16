@@ -12,7 +12,6 @@ use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
-use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
@@ -23,7 +22,6 @@ use vortex_array::expr::BoundExpression;
 use vortex_array::expr::root;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::validity::Validity;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -47,9 +45,6 @@ type OptionalArrayFuture = BoxFuture<'static, VortexResult<Option<ArrayRef>>>;
 /// and above which we evaluate the expression over all rows and intersect afterward.
 const EXPR_EVAL_THRESHOLD: f64 = 0.2;
 
-/// Maximum number of outer-row scan ranges contributed by one list layout.
-const MAX_LIST_SPLIT_COUNT: u64 = 64;
-
 /// Reader for [`ListLayout`].
 #[derive(Clone)]
 pub struct ListReader {
@@ -69,20 +64,22 @@ impl ListReader {
         session: VortexSession,
         ctx: &LayoutReaderContext,
     ) -> VortexResult<Self> {
-        let elements = layout.elements()?.new_reader(
+        let elements_layout = layout.elements()?;
+        let offsets_layout = layout.offsets()?;
+        let validity_layout = layout.validity()?;
+        let elements = elements_layout.new_reader(
             format!("{name}.elements").into(),
             Arc::clone(&segment_source),
             &session,
             ctx,
         )?;
-        let offsets = layout.offsets()?.new_reader(
+        let offsets = offsets_layout.new_reader(
             format!("{name}.offsets").into(),
             Arc::clone(&segment_source),
             &session,
             ctx,
         )?;
-        let validity = layout
-            .validity()?
+        let validity = validity_layout
             .map(|v| {
                 v.new_reader(
                     format!("{name}.validity").into(),
@@ -144,36 +141,18 @@ impl ListReader {
         .boxed())
     }
 
-    /// Projection for [`ListChildrenNeeded::All`] expressions.
-    ///
-    /// An all-true mask over the full local range reads every child concurrently. Otherwise, the
-    /// read is bounded to the first and last selected list.
+    /// Projection for [`ListChildrenNeeded::All`] expressions. Registers complete child reads
+    /// eagerly and reconstructs the list page before applying the outer-row mask.
     fn project_all(
         &self,
         row_range: &Range<u64>,
         expr: &BoundExpression,
         mask: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
-        let is_full_range = row_range.start == 0 && row_range.end == self.layout.row_count();
-        let reader = self.clone();
-        let row_range = row_range.clone();
-        let expr = expr.clone();
-        Ok(async move {
-            let mask = mask.await?;
-            if is_full_range && mask.all_true() {
-                reader.project_all_full(&expr)?.await
-            } else {
-                reader.project_all_bounded(&row_range, &expr, mask)?.await
-            }
-        }
-        .boxed())
-    }
-
-    /// Fetch the complete `elements`, `offsets`, and `validity` children concurrently.
-    fn project_all_full(&self, expr: &BoundExpression) -> VortexResult<ArrayFuture> {
         let row_count = self.layout.row_count();
         let elements_row_count = self.elements.row_count();
         let nullability = self.layout.dtype().nullability();
+        let row_range = row_range.clone();
         let expr = expr.clone();
 
         let offsets_fut = self.fetch_raw_offsets(&(0..row_count))?;
@@ -185,68 +164,26 @@ impl ListReader {
         )?;
 
         Ok(async move {
+            let mask = mask.await?;
+            if mask.all_false() {
+                return Ok(Canonical::empty(expr.dtype()).into_array());
+            }
+
             let (offsets, elements, validity) = try_join!(offsets_fut, elements_fut, validity_fut)?;
             // SAFETY: ListLayout is constructed from a valid ListArray and reading its children
             // without transformation preserves the list invariants.
-            let list = unsafe {
+            let mut list = unsafe {
                 ListArray::new_unchecked(elements, offsets, create_validity(validity, nullability))
             }
             .into_array();
-            list.apply_bound(&expr)
-        }
-        .boxed())
-    }
-
-    /// Bounded read for a sub-range or selective mask.
-    ///
-    /// Crops leading and trailing unselected lists, reads their offsets, and translates the first
-    /// and last offset into the element-row range to fetch. Any holes in the selection are filtered
-    /// after reconstructing the list array.
-    fn project_all_bounded(
-        &self,
-        row_range: &Range<u64>,
-        expr: &BoundExpression,
-        mask: Mask,
-    ) -> VortexResult<ArrayFuture> {
-        // Crop to the smallest contiguous row range containing every selected list.
-        let Some(selected_rows) = selected_row_range(&mask) else {
-            let empty = Canonical::empty(expr.dtype()).into_array();
-            return Ok(async move { Ok(empty) }.boxed());
-        };
-
-        let selected_mask = mask.slice(selected_rows.clone());
-        let selected_row_range = (row_range.start + u64::try_from(selected_rows.start)?)
-            ..(row_range.start + u64::try_from(selected_rows.end)?);
-
-        let nullability = self.layout.dtype().nullability();
-        let expr = expr.clone();
-        let reader = self.clone();
-        let offsets_fut = self.fetch_raw_offsets(&selected_row_range)?;
-
-        Ok(async move {
-            let offsets = offsets_fut.await?;
-
-            let elements_range = elements_range_from_offsets(&offsets, &reader.session)?;
-            let elements_fut = reader.fetch_raw_elements(&elements_range)?;
-            let validity_fut = fetch_validity(
-                reader.validity.as_ref(),
-                &selected_row_range,
-                MaskFuture::new_true(selected_mask.len()),
-            )?;
-            let (elements, validity) = try_join!(elements_fut, validity_fut)?;
-
-            let offsets = rebase_offsets(offsets, elements_range.start)?;
-            // SAFETY: the selected offsets remain monotonically increasing, rebasing them against
-            // the selected element range preserves their lengths, and validity covers the same
-            // cropped list rows.
-            let list = unsafe {
-                ListArray::new_unchecked(elements, offsets, create_validity(validity, nullability))
+            if row_range.start != 0 || row_range.end != row_count {
+                list =
+                    list.slice(usize::try_from(row_range.start)?..usize::try_from(row_range.end)?)?;
             }
-            .into_array();
-            let list = if selected_mask.all_true() {
+            let list = if mask.all_true() {
                 list
             } else {
-                list.filter(selected_mask)?
+                list.filter(mask)?
             };
             list.apply_bound(&expr)
         }
@@ -319,10 +256,6 @@ impl ListReader {
     }
 }
 
-fn selected_row_range(mask: &Mask) -> Option<Range<usize>> {
-    Some(mask.first()?..mask.last()? + 1)
-}
-
 fn create_validity(validity_array: Option<ArrayRef>, nullability: Nullability) -> Validity {
     match validity_array {
         Some(arr) => Validity::Array(arr),
@@ -357,53 +290,6 @@ impl LayoutReader for ListReader {
         splits: &mut RowSplits,
     ) -> VortexResult<()> {
         split_range.check_bounds(self.layout.row_count())?;
-
-        // Splits are difficult to calculate because all children live in different row coordinate spaces.
-        // List elements typically comprise the majority of the data in a list, and validity/offsets can be treated
-        // as metadata. We therefore want to parallelize the scan based on element work.
-        //
-        // Scan splits must be expressed in the list layout's outer-row space, but the elements child
-        // reports its natural boundaries in element-row space. So we translate the element splits using a
-        // heuristic to outer-row space.
-
-        let element_row_count = self.elements.row_count();
-        if element_row_count != 0 {
-            let mut element_splits = RowSplits::new_capacity(128);
-            self.elements.register_splits(
-                &[FieldMask::All],
-                &SplitRange::root(0..element_row_count)?,
-                &mut element_splits,
-            )?;
-
-            let row_range = split_range.row_range();
-            let mut last_split = None;
-            for element_split in element_splits.into_sorted_deduped() {
-                let Some(split) = map_element_split_to_outer_grid(
-                    element_split,
-                    element_row_count,
-                    self.layout.row_count(),
-                    MAX_LIST_SPLIT_COUNT,
-                ) else {
-                    continue;
-                };
-                if split <= row_range.start {
-                    continue;
-                }
-                if split >= row_range.end {
-                    break;
-                }
-                if last_split == Some(split) {
-                    continue;
-                }
-                splits.push(
-                    split_range
-                        .row_offset()
-                        .checked_add(split)
-                        .vortex_expect("List layout split offset overflow"),
-                );
-                last_split = Some(split);
-            }
-        }
         splits.push(split_range.root_row_range().end);
         Ok(())
     }
@@ -474,52 +360,6 @@ impl LayoutReader for ListReader {
     }
 }
 
-/// Converts a natural boundary from element-row space into an approximate outer-row scan split.
-///
-/// Scan splits must be expressed in the list layout's outer-row space, but the elements child
-/// reports its natural boundaries in element-row space. Translating a boundary exactly would
-/// require consulting the list offsets, so this function instead preserves its relative position:
-///
-/// ```text
-/// element_split / element_row_count ≈ outer_split / outer_row_count
-/// ```
-///
-/// The relative position is first rounded onto a grid containing at most `max_split_count` scan
-/// ranges, then mapped into outer-row space. Multiple element boundaries may therefore map to the
-/// same outer split and are deduplicated by the caller. With a grid size of 64, at most 63 interior
-/// splits—and therefore 64 scan ranges—can be produced.
-///
-/// The result is only a task-sizing hint. It is always between outer rows, but it is not guaranteed
-/// to correspond exactly to the original physical element boundary. Endpoint boundaries are
-/// omitted because they do not subdivide the scan
-fn map_element_split_to_outer_grid(
-    element_split: u64,
-    element_row_count: u64,
-    outer_row_count: u64,
-    max_split_count: u64,
-) -> Option<u64> {
-    if element_split == 0
-        || element_split >= element_row_count
-        || outer_row_count == 0
-        || max_split_count < 2
-    {
-        return None;
-    }
-    debug_assert!(max_split_count.is_power_of_two());
-
-    let grid_index = (u128::from(element_split) * u128::from(max_split_count)
-        + u128::from(element_row_count / 2))
-        / u128::from(element_row_count);
-    if grid_index == 0 || grid_index >= u128::from(max_split_count) {
-        return None;
-    }
-
-    let outer_split = grid_index * u128::from(outer_row_count) / u128::from(max_split_count);
-    let outer_split = u64::try_from(outer_split)
-        .vortex_expect("Outer split is bounded by the list layout row count");
-    (outer_split != 0 && outer_split < outer_row_count).then_some(outer_split)
-}
-
 /// Fetch the validity child for `row_range` under `mask`, yielding `None` for a non-nullable list
 /// (which has no validity child).
 fn fetch_validity(
@@ -540,40 +380,6 @@ fn fetch_validity(
         }
     }
     .boxed())
-}
-
-/// Read `offsets[0]` and `offsets[-1]` and return the elements range they bound.
-fn elements_range_from_offsets(
-    offsets: &ArrayRef,
-    session: &VortexSession,
-) -> VortexResult<Range<u64>> {
-    if offsets.is_empty() {
-        return Ok(0..0);
-    }
-    let mut exec_ctx = session.create_execution_ctx();
-    let start = offsets
-        .execute_scalar(0, &mut exec_ctx)?
-        .as_primitive()
-        .as_::<u64>()
-        .vortex_expect("offset value fits in u64");
-    let end = offsets
-        .execute_scalar(offsets.len() - 1, &mut exec_ctx)?
-        .as_primitive()
-        .as_::<u64>()
-        .vortex_expect("offset value fits in u64");
-    Ok(start..end)
-}
-
-/// Subtract `first` from every offset so they index into a sliced `elements[first..]` buffer that
-/// starts at zero.
-fn rebase_offsets(offsets: ArrayRef, first: u64) -> VortexResult<ArrayRef> {
-    if first == 0 {
-        return Ok(offsets);
-    }
-    let constant = ConstantArray::new(first, offsets.len())
-        .into_array()
-        .cast(offsets.dtype().clone())?;
-    offsets.binary(constant, Operator::Sub)
 }
 
 /// Compute `offsets[i + 1] - offsets[i]` as the unmasked list length values.
@@ -607,14 +413,17 @@ fn predicate_array_to_mask(array: ArrayRef, session: &VortexSession) -> VortexRe
 #[cfg(test)]
 mod tests {
     use std::ops::Range;
-    use std::sync::atomic::AtomicUsize;
-    use std::sync::atomic::Ordering;
 
     use rstest::rstest;
     use vortex_array::ArrayContext;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::Dict;
+    use vortex_array::arrays::DictArray;
     use vortex_array::arrays::ListArray;
+    use vortex_array::arrays::ListViewArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::VarBinArray;
+    use vortex_array::arrays::listview::ListViewArraySlotsExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::expr::Expression;
     use vortex_array::expr::cast;
@@ -630,13 +439,8 @@ mod tests {
     use super::*;
     use crate::LayoutRef;
     use crate::LayoutStrategy;
-    use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
-    use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::list::writer::ListLayoutStrategy;
-    use crate::layouts::repartition::RepartitionStrategy;
-    use crate::layouts::repartition::RepartitionWriterOptions;
     use crate::scan::split_by::SplitBy;
-    use crate::segments::SegmentFuture;
     use crate::segments::SegmentSource;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
@@ -867,12 +671,12 @@ mod tests {
         Ok((segments_ref, layout, session))
     }
 
-    fn materialize_u64_array(array: ArrayRef) -> Vec<u64> {
+    fn materialize_u32_array(array: ArrayRef) -> Vec<u32> {
         let mut ctx = SESSION.create_execution_ctx();
         array
             .execute::<PrimitiveArray>(&mut ctx)
             .unwrap()
-            .as_slice::<u64>()
+            .as_slice::<u32>()
             .to_vec()
     }
 
@@ -919,7 +723,7 @@ mod tests {
             .expect("ListReader");
 
         let offsets = reader.fetch_raw_offsets(&(1..3))?.await?;
-        assert_eq!(materialize_u64_array(offsets), vec![2u64, 4, 5]);
+        assert_eq!(materialize_u32_array(offsets), vec![2u32, 4, 5]);
 
         Ok(())
     }
@@ -1020,11 +824,10 @@ mod tests {
         Ok(())
     }
 
-    /// A partial range against a single flat elements segment takes the bounded path. The flat
-    /// reader may still fetch its whole segment, but the list reader reconstructs only the requested
-    /// element range.
+    /// A partial range against flat children is reconstructed from the complete encoded page and
+    /// then sliced in outer-row space.
     #[tokio::test]
-    async fn projection_evaluation_partial_range_bounded() -> VortexResult<()> {
+    async fn projection_evaluation_partial_range_flat_children() -> VortexResult<()> {
         let list = create_wider_list_array(false);
         let ctx = LayoutReaderContext::new();
         let (segments, layout, session) = write_layout(&flat_list_strategy(), list.clone()).await?;
@@ -1041,167 +844,46 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn maps_element_splits_to_outer_grid() {
-        assert_eq!(map_element_split_to_outer_grid(0, 100, 100, 8), None);
-        assert_eq!(map_element_split_to_outer_grid(20, 100, 100, 8), Some(25));
-        assert_eq!(map_element_split_to_outer_grid(25, 100, 100, 8), Some(25));
-        assert_eq!(map_element_split_to_outer_grid(50, 100, 100, 8), Some(50));
-        assert_eq!(map_element_split_to_outer_grid(75, 100, 100, 8), Some(75));
-        assert_eq!(map_element_split_to_outer_grid(100, 100, 100, 8), None);
-
-        let mut splits = (1..1_000)
-            .filter_map(|split| {
-                map_element_split_to_outer_grid(split, 1_000, 100_000, MAX_LIST_SPLIT_COUNT)
-            })
-            .collect::<Vec<_>>();
-        splits.dedup();
-
-        let expected = (1..MAX_LIST_SPLIT_COUNT)
-            .map(|grid_index| grid_index * 100_000 / MAX_LIST_SPLIT_COUNT)
-            .collect::<Vec<_>>();
-        assert_eq!(splits, expected);
-    }
-
     #[tokio::test]
-    async fn nested_list_propagates_element_splits() -> VortexResult<()> {
-        let inner = ListArray::try_new(
-            PrimitiveArray::from_iter(0..128_i32).into_array(),
-            PrimitiveArray::from_iter((0..=8_u32).map(|idx| idx * 16)).into_array(),
-            Validity::NonNullable,
+    async fn projection_preserves_dictionary_encoded_elements() -> VortexResult<()> {
+        let elements = DictArray::try_new(
+            buffer![0u8, 1, 0, 2, 1, 2, 0, 1].into_array(),
+            VarBinArray::from(vec!["alpha", "beta", "gamma"]).into_array(),
         )?
         .into_array();
-        let outer = ListArray::try_new(
-            inner,
+        let list = ListArray::try_new(
+            elements,
             buffer![0u32, 2, 4, 6, 8].into_array(),
             Validity::NonNullable,
         )?
         .into_array();
+        let ctx = LayoutReaderContext::new();
+        let (segments, layout, session) = write_layout(&flat_list_strategy(), list.clone()).await?;
+        let reader = layout.new_reader("".into(), segments, &session, &ctx)?;
 
-        let inner_strategy =
-            ListLayoutStrategy::default().with_elements(chunked_elements_strategy());
-        let strategy = ListLayoutStrategy::default().with_elements(Arc::new(inner_strategy));
-        let (segments, layout, session) = write_layout(&strategy, outer).await?;
+        let mask = Mask::from_iter([true, false, true]);
+        let expr = root().bind(reader.dtype())?;
+        let result = reader
+            .projection_evaluation(&(1..4), &expr, MaskFuture::ready(mask.clone()))?
+            .await?;
+
+        let expected = list.slice(1..4)?.filter(mask)?;
+        let mut exec_ctx = session.create_execution_ctx();
+        assert_arrays_eq!(result, expected, &mut exec_ctx);
+        let result_view = result.execute::<ListViewArray>(&mut exec_ctx)?;
+        assert!(result_view.elements().is::<Dict>());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn list_does_not_propagate_element_splits() -> VortexResult<()> {
+        let list = create_wider_list_array(false);
+        let (segments, layout, session) = write_layout(&flat_list_strategy(), list).await?;
         let reader =
             layout.new_reader("".into(), segments, &session, &LayoutReaderContext::new())?;
 
-        let splits = SplitBy::Layout.splits(reader.as_ref(), &(0..4), &[FieldMask::All])?;
-        assert_eq!(splits, vec![0, 1, 2, 3, 4]);
-        Ok(())
-    }
-
-    /// A list strategy whose `elements` child is repartitioned into two-element chunks, so the
-    /// reader takes the bounded (chunk-skipping) path for strict sub-ranges. Offsets stay flat.
-    fn chunked_elements_list_strategy() -> ListLayoutStrategy {
-        ListLayoutStrategy::default().with_elements(chunked_elements_strategy())
-    }
-
-    fn chunked_elements_strategy() -> Arc<dyn LayoutStrategy> {
-        Arc::new(RepartitionStrategy::new(
-            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
-            RepartitionWriterOptions {
-                block_size_minimum: 0,
-                block_len_multiple: 2,
-                block_size_target: None,
-                canonicalize: true,
-            },
-        ))
-    }
-
-    struct CountingSegmentSource {
-        inner: Arc<dyn SegmentSource>,
-        request_count: Arc<AtomicUsize>,
-    }
-
-    impl SegmentSource for CountingSegmentSource {
-        fn request(&self, id: crate::segments::SegmentId) -> SegmentFuture {
-            self.request_count.fetch_add(1, Ordering::Relaxed);
-            self.inner.request(id)
-        }
-    }
-
-    /// The chunked-elements strategy must actually produce a chunked `elements` layout, otherwise
-    /// the reader would silently take the whole-chunk path and the bounded read would be untested.
-    #[tokio::test]
-    async fn chunked_elements_produces_chunked_layout() -> VortexResult<()> {
-        let list = create_wider_list_array(false);
-        let (_segments, layout, _session) =
-            write_layout(&chunked_elements_list_strategy(), list).await?;
-        let tree = layout.display_tree().to_string();
-        assert!(
-            tree.contains("elements: vortex.chunked"),
-            "elements should be chunked:\n{tree}"
-        );
-        Ok(())
-    }
-
-    /// A sparse mask must remain selective even when the requested row range covers the complete
-    /// local list layout. The selected first list touches one element chunk plus the offsets
-    /// segment; reading all five element chunks would make the count six.
-    #[tokio::test]
-    async fn full_range_sparse_mask_crops_element_read() -> VortexResult<()> {
-        let list = create_wider_list_array(false);
-        let ctx = LayoutReaderContext::new();
-        let (segments, layout, session) =
-            write_layout(&chunked_elements_list_strategy(), list.clone()).await?;
-        let request_count = Arc::new(AtomicUsize::new(0));
-        let source = Arc::new(CountingSegmentSource {
-            inner: segments,
-            request_count: Arc::clone(&request_count),
-        });
-        let reader = layout.new_reader("".into(), source, &session, &ctx)?;
-
-        let mask = Mask::from_iter([true, false, false, false, false]);
-        let expr = root().bind(reader.dtype())?;
-        let result = reader
-            .projection_evaluation(&(0..5), &expr, MaskFuture::ready(mask.clone()))?
-            .await?;
-
-        let expected = list.filter(mask)?;
-        let mut exec_ctx = session.create_execution_ctx();
-        assert_arrays_eq!(result, expected, &mut exec_ctx);
-        assert_eq!(request_count.load(Ordering::Relaxed), 2);
-        Ok(())
-    }
-
-    /// With chunked elements, sub-range projections take the bounded read path. Every
-    /// range/mask/nullability combination must match the same projection over the ground-truth
-    /// array (`list.slice(range).filter(mask)`).
-    #[rstest]
-    #[case::full_all_true(0..5, Mask::new_true(5), false)]
-    #[case::subrange_all_true(1..4, Mask::new_true(3), false)]
-    #[case::subrange_sparse(1..4, Mask::from_iter([true, false, true]), false)]
-    #[case::partial_start(0..2, Mask::new_true(2), false)]
-    #[case::partial_end(2..5, Mask::new_true(3), false)]
-    #[case::single_non_empty(0..1, Mask::new_true(1), false)]
-    #[case::single_empty_row(2..3, Mask::from_iter([true]), false)]
-    #[case::empty_range(2..2, Mask::new_true(0), false)]
-    #[case::subrange_all_false(1..4, Mask::new_false(3), false)]
-    #[case::subrange_single_interior(0..4, Mask::from_iter([false, true, false, false]), false)]
-    #[case::subrange_sparse_nullable(1..4, Mask::from_iter([true, false, true]), true)]
-    #[case::partial_end_nullable(2..5, Mask::new_true(3), true)]
-    #[tokio::test]
-    async fn chunked_elements_round_trips(
-        #[case] row_range: Range<u64>,
-        #[case] mask: Mask,
-        #[case] nullable: bool,
-    ) -> VortexResult<()> {
-        let list = create_wider_list_array(nullable);
-        let ctx = LayoutReaderContext::new();
-        let (segments, layout, session) =
-            write_layout(&chunked_elements_list_strategy(), list.clone()).await?;
-        let reader = layout.new_reader("".into(), segments, &session, &ctx)?;
-
-        let expr = root().bind(reader.dtype())?;
-        let result = reader
-            .projection_evaluation(&row_range, &expr, MaskFuture::ready(mask.clone()))?
-            .await?;
-
-        let sliced =
-            list.slice(usize::try_from(row_range.start)?..usize::try_from(row_range.end)?)?;
-        let expected = sliced.filter(mask)?;
-        let mut exec_ctx = session.create_execution_ctx();
-        assert_arrays_eq!(result, expected, &mut exec_ctx);
+        let splits = SplitBy::Layout.splits(reader.as_ref(), &(0..5), &[FieldMask::All])?;
+        assert_eq!(splits, vec![0, 5]);
         Ok(())
     }
 }
