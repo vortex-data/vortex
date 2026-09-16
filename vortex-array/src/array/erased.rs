@@ -398,6 +398,27 @@ impl ArrayRef {
         self.0.data.append_to_builder(self, builder, ctx)
     }
 
+    /// [`append_to_builder`](Self::append_to_builder) for a caller that is itself inside an
+    /// [`append_to_builder`](Self::append_to_builder), and so is already covered by its dtype check
+    /// and its length post-condition.
+    ///
+    /// Appending the chunks of a [`ChunkedArray`](crate::arrays::ChunkedArray) is the case this
+    /// exists for. The chunked array's own dtype was checked on the way in and every chunk shares
+    /// it, and if the chunks together grow the builder by the wrong number of values, the enclosing
+    /// check on the chunked array says so — both are worth paying once rather than once per chunk.
+    pub(crate) fn append_to_builder_unchecked(
+        &self,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        debug_assert_eq!(
+            builder.dtype(),
+            self.dtype(),
+            "append_to_builder_unchecked called with a mismatched builder",
+        );
+        self.0.data.append_to_builder_unchecked(self, builder, ctx)
+    }
+
     /// Returns the statistics of the array.
     pub fn statistics(&self) -> StatsSetRef<'_> {
         self.0.stats.to_ref(self)

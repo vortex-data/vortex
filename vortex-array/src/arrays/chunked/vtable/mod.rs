@@ -236,8 +236,11 @@ impl VTable for Chunked {
         // The builder is about to receive one array per chunk, so let any chunk lists it keeps
         // grow once rather than on the way through.
         builder.reserve_chunks(array.nchunks());
+        // The dtype check and the length post-condition around this call already cover the chunks:
+        // every chunk shares this array's dtype, and their lengths sum to its own. Paying for both
+        // once beats paying per chunk.
         for chunk in array.iter_chunks() {
-            chunk.append_to_builder(builder, ctx)?;
+            chunk.append_to_builder_unchecked(builder, ctx)?;
         }
         Ok(())
     }
