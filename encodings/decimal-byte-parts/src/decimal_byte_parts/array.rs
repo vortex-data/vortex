@@ -82,7 +82,7 @@ impl DecimalBytePartsData {
     /// # Errors
     ///
     /// Returns an error if the MSP is not a signed integer array of length `len`, if `dtype`
-    /// does not match the MSP's nullability, if there are more than [`MAX_LOWER_PARTS`]
+    /// does not match the MSP's nullability, if there are more than `MAX_LOWER_PARTS`
     /// lower parts, or if any lower part is not a non-nullable unsigned integer array of length `len`.
     pub fn validate<'a>(
         msp: &ArrayRef,
@@ -169,7 +169,7 @@ impl DecimalByteParts {
     /// # Safety
     ///
     /// The MSP must have a signed integer dtype (`i8`, `i16`, `i32`, or `i64`). There must be
-    /// at most [`MAX_LOWER_PARTS`] lower parts, each a non-nullable unsigned integer array with the same
+    /// at most `MAX_LOWER_PARTS` lower parts, each a non-nullable unsigned integer array with the same
     /// length as the MSP. Lower parts are ordered most significant first.
     pub(super) unsafe fn new_unchecked(
         msp: ArrayRef,

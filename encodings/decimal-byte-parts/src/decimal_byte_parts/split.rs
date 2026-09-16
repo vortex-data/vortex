@@ -65,7 +65,7 @@ impl DecimalParts {
     }
 
     /// Construct decimal parts arrays from the buffers constituting a wide decimal (`i128` or `i256`).
-    /// Wide decimals have an `i64` MSP and up to [`super::MAX_LOWER_PARTS`] `u64` lower parts.
+    /// Wide decimals have an `i64` MSP and up to `MAX_LOWER_PARTS` `u64` lower parts.
     fn from_wide(
         msp: Buffer<i64>,
         lower_parts: impl IntoIterator<Item = Buffer<u64>>,
