@@ -246,6 +246,12 @@ jobs:
         with:
           tool: cargo-codspeed
       - name: Build benchmarks
+        # cargo-codspeed forces -Cdebuginfo=2 -Cstrip=none
+        # https://github.com/CodSpeedHQ/codspeed-rust/issues/190
+        # CARGO_ENCODED_RUSTFLAGS allows us to override it since we need
+        # only debug = limited
+        env:
+          CARGO_ENCODED_RUSTFLAGS: "-Cforce-frame-pointers=yes"
         run: |
           cargo codspeed build --locked \
             -m walltime \
