@@ -15,6 +15,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
 use super::BLOCK_SIZE;
+use super::Block;
 use super::Blocks;
 use super::BloomPartial;
 
@@ -23,7 +24,9 @@ impl BloomPartial {
     ///
     /// The bytes are the filter's splits as little-endian `u32`s, which is also how Vortex lays
     /// out every primitive buffer, so nothing is decoded: the partial shares `bytes` when they are
-    /// aligned for `u32` and copies them once otherwise.
+    /// aligned for `u32` and copies them once otherwise. Both `partial_from_scalar` and
+    /// `BloomContains` parse stored filters through here.
+    #[inline]
     pub(in crate::layouts::zoned) fn deserialize(bytes: ByteBuffer) -> VortexResult<Self> {
         vortex_ensure!(
             !bytes.is_empty() && bytes.len().is_multiple_of(BLOCK_SIZE),
@@ -35,9 +38,9 @@ impl BloomPartial {
             "bloom blocks length must be non-zero and lower than u32::MAX",
         );
 
-        let splits = Buffer::<u32>::from_byte_buffer(bytes.aligned(Alignment::of::<u32>()));
+        let blocks = Buffer::<Block>::from_byte_buffer(bytes.aligned(Alignment::of::<Block>()));
         Ok(BloomPartial {
-            blocks: Blocks::Frozen(splits),
+            blocks: Blocks::Frozen(blocks),
         })
     }
 
@@ -47,8 +50,8 @@ impl BloomPartial {
     /// A frozen partial hands back the buffer it was parsed from; a thawed one is copied.
     pub(in crate::layouts::zoned) fn serialize(&self) -> ByteBuffer {
         match &self.blocks {
-            Blocks::Frozen(splits) => splits.clone().into_byte_buffer(),
-            Blocks::Thawed(splits) => Buffer::copy_from(splits.as_slice()).into_byte_buffer(),
+            Blocks::Frozen(blocks) => blocks.clone().into_byte_buffer(),
+            Blocks::Thawed(blocks) => Buffer::copy_from(blocks.as_slice()).into_byte_buffer(),
         }
     }
 }

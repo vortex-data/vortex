@@ -17,7 +17,10 @@ impl BloomPartial {
     /// all bits are `1`.
     #[inline]
     pub(in crate::layouts::zoned) fn is_saturated(&self) -> bool {
-        self.blocks().iter().all(|split| *split == u32::MAX)
+        self.blocks()
+            .as_flattened()
+            .iter()
+            .all(|split| *split == u32::MAX)
     }
 
     /// Merges a compatible partial into this one.
@@ -37,7 +40,12 @@ impl BloomPartial {
             "bloom partial block count mismatch"
         );
 
-        for (dst_split, src_split) in self.blocks_mut().iter_mut().zip(other.blocks()) {
+        // One flat `u32` slice each: the compiler turns the flat OR into wide loads and stores,
+        // where a loop per block spends about as many instructions on the block loop as on the
+        // OR itself.
+        let dst = self.blocks_mut().as_flattened_mut();
+        let src = other.blocks().as_flattened();
+        for (dst_split, src_split) in dst.iter_mut().zip(src) {
             *dst_split |= *src_split;
         }
 

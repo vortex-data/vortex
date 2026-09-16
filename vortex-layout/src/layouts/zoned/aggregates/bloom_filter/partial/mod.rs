@@ -34,6 +34,9 @@ pub(super) const BYTES_PER_SPLIT: usize = size_of::<u32>(); // 4 bytes
 /// Block size (32 bytes [256 bits])
 pub(super) const BLOCK_SIZE: usize = SPLITS_PER_BLOCK * BYTES_PER_SPLIT;
 
+/// One block: the eight splits a hash selects together and a mask is applied to.
+pub(super) type Block = [u32; SPLITS_PER_BLOCK];
+
 /// Eight odd constants for multiply-shift hashing.
 ///
 /// They fit in one 256-bit SIMD vector, and the order matches the one
@@ -119,15 +122,15 @@ pub struct BloomPartial {
     blocks: Blocks,
 }
 
-/// The filter's splits, `SPLITS_PER_BLOCK` per block.
+/// The filter's blocks.
 ///
 /// A partial parsed from a stored filter is only ever read, as the second operand of a merge or
 /// by a membership query, so it keeps the scalar's own buffer and stays `Frozen`. The partial an
-/// accumulator writes into thaws on its first write and then stays `Thawed`, so an insert costs a
-/// slice write and nothing more.
+/// accumulator writes into thaws on its first write and then stays `Thawed`, so an insert checks
+/// which it is once and then writes one block.
 enum Blocks {
-    Frozen(Buffer<u32>),
-    Thawed(BufferMut<u32>),
+    Frozen(Buffer<Block>),
+    Thawed(BufferMut<Block>),
 }
 
 impl PartialEq for BloomPartial {
@@ -144,29 +147,29 @@ impl BloomPartial {
     /// Matches [BloomOptions::blocks_count]
     #[inline]
     pub(super) fn len(&self) -> usize {
-        self.blocks().len() / SPLITS_PER_BLOCK
+        self.blocks().len()
     }
 
-    /// Every split of the filter, `SPLITS_PER_BLOCK` per block.
+    /// Every block of the filter.
     #[inline]
-    fn blocks(&self) -> &[u32] {
+    fn blocks(&self) -> &[Block] {
         match &self.blocks {
-            Blocks::Frozen(splits) => splits.as_slice(),
-            Blocks::Thawed(splits) => splits.as_slice(),
+            Blocks::Frozen(blocks) => blocks.as_slice(),
+            Blocks::Thawed(blocks) => blocks.as_slice(),
         }
     }
 
-    /// The splits for writing, thawing a frozen partial first.
+    /// The blocks for writing, thawing a frozen partial first.
     ///
     /// Thawing is free when nothing else holds the buffer; a partial still sharing the scalar it
     /// was parsed from copies once and never again.
     #[inline]
-    fn blocks_mut(&mut self) -> &mut [u32] {
-        if let Blocks::Frozen(splits) = &mut self.blocks {
-            self.blocks = Blocks::Thawed(std::mem::take(splits).into_mut());
+    fn blocks_mut(&mut self) -> &mut [Block] {
+        if let Blocks::Frozen(blocks) = &mut self.blocks {
+            self.blocks = Blocks::Thawed(std::mem::take(blocks).into_mut());
         }
         match &mut self.blocks {
-            Blocks::Thawed(splits) => splits.as_mut_slice(),
+            Blocks::Thawed(blocks) => blocks.as_mut_slice(),
             // Thawed just above; an empty slice keeps this total without a panic path.
             Blocks::Frozen(_) => &mut [],
         }
@@ -217,32 +220,38 @@ impl BloomPartial {
         clippy::cast_possible_truncation,
         reason = "the mask uses the low 32 bits of the 64-bit hash"
     )]
-    fn lower_hash_bits(&self, hash: u64) -> u32 {
+    fn lower_hash_bits(hash: u64) -> u32 {
         hash as u32
     }
 
     /// Adds a hash into a single block of the bloom filter.
+    ///
+    /// Inlined so the insert loops here and in other crates see straight through to the block
+    /// write; a call into this method costs more instructions than the write itself.
+    #[inline]
     fn add_hash(&mut self, hash: u64) {
-        // 1. Use the upper 32 bits from the hash value to select a block.
-        let block_idx = self.block_index(hash, self.len());
+        // 1. Use the lower 32 bits to construct a mask.
+        let mask = Self::make_mask(Self::lower_hash_bits(hash));
 
-        // 2. Use the lower 32 bits to construct a mask.
-        let mask = self.make_mask(self.lower_hash_bits(hash));
+        // 2. Use the upper 32 bits from the hash value to select a block. The blocks are fetched
+        //    once, so an insert checks whether the partial is thawed exactly once.
+        let blocks = self.blocks_mut();
+        let block = &mut blocks[Self::block_index(hash, blocks.len())];
 
-        // 3. Apply the mask to the block selected in step 1.
-        let block = &mut self.blocks_mut().as_chunks_mut::<SPLITS_PER_BLOCK>().0[block_idx];
+        // 3. Apply the mask to the block selected in step 2.
         for i in 0..8 {
             block[i] |= mask[i];
         }
     }
 
     /// Checks whether a hash is (probably) present in the filter.
+    #[inline]
     fn find_hash(&self, hash: u64) -> bool {
-        let idx = self.block_index(hash, self.len());
-        let mask = self.make_mask(self.lower_hash_bits(hash));
+        let mask = Self::make_mask(Self::lower_hash_bits(hash));
+        let blocks = self.blocks();
+        let block = &blocks[Self::block_index(hash, blocks.len())];
 
         let mut missing = 0u32;
-        let block = &self.blocks().as_chunks::<SPLITS_PER_BLOCK>().0[idx];
 
         // The original solution uses _mm256_testc_si256
         // checks if all the bits in mask are also set in *block. Scalar
@@ -256,7 +265,8 @@ impl BloomPartial {
 
     /// Takes a hash value and creates a mask with one bit set in each 32-bit lane.
     /// These are the bits to set or check when accessing the block.
-    fn make_mask(&self, hash: u32) -> [u32; 8] {
+    #[inline]
+    fn make_mask(hash: u32) -> Block {
         let mut out = [0u32; 8];
 
         for i in 0..8 {
@@ -279,7 +289,7 @@ impl BloomPartial {
     /// Although `blocks_count` is a `usize`, its value is limited to `u32::MAX`
     /// by [`BloomOptions`] and the serialization format.
     #[inline]
-    fn block_index(&self, hash: u64, blocks_count: usize) -> usize {
+    fn block_index(hash: u64, blocks_count: usize) -> usize {
         (((hash >> 32) * blocks_count as u64) >> 32) as usize
     }
 }
@@ -291,9 +301,7 @@ impl From<&BloomOptions> for BloomPartial {
         // Matched exhaustively: a new hash function must revisit how partials are hashed.
         match options.hash_fn {
             HashFn::XxHash3_64 => Self {
-                blocks: Blocks::Thawed(BufferMut::zeroed(
-                    options.blocks_count.get() as usize * SPLITS_PER_BLOCK,
-                )),
+                blocks: Blocks::Thawed(BufferMut::zeroed(options.blocks_count.get() as usize)),
             },
         }
     }
