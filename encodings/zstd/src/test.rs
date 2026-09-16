@@ -14,13 +14,14 @@ use vortex_array::assert_arrays_eq;
 use vortex_array::assert_nth_scalar;
 use vortex_array::builders::VarBinBuilder;
 use vortex_array::builders::VarBinViewBuilder;
-use vortex_array::builders::builder_with_capacity;
+use vortex_array::builders::builder_with_capacity_in;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::validity::Validity;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -222,7 +223,11 @@ fn test_zstd_append_to_primitive_builder() -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
     let array = PrimitiveArray::from_option_iter([Some(1_i32), None, Some(3), Some(4), Some(5)]);
     let compressed = Zstd::from_primitive(&array, 0, 3, &mut ctx)?.slice(1..4)?;
-    let mut builder = builder_with_capacity(compressed.dtype(), compressed.len());
+    let mut builder = builder_with_capacity_in(
+        compressed.dtype(),
+        compressed.len(),
+        BufferAllocatorRef::static_ref(),
+    );
     compressed.append_to_builder(builder.as_mut(), &mut ctx)?;
     assert_arrays_eq!(builder.finish(), array.into_array().slice(1..4)?, &mut ctx);
     Ok(())
@@ -230,7 +235,10 @@ fn test_zstd_append_to_primitive_builder() -> VortexResult<()> {
 
 #[rstest]
 fn test_zstd_append_to_offset_builder(
-    #[values(DType::Utf8(Nullability::Nullable), DType::Binary(Nullability::Nullable))]
+    #[values(
+        DType::Utf8(Nullability::Nullable),
+        DType::Binary(Nullability::Nullable)
+    )]
     dtype: DType,
 ) {
     let mut ctx = array_session().create_execution_ctx();
