@@ -42,8 +42,11 @@ use vortex::expr::lit;
 use vortex::expr::not;
 use vortex::expr::or_collect;
 use vortex::expr::root;
+use vortex::extension::datetime::Date;
+use vortex::extension::datetime::TimeUnit;
 use vortex::layout::layouts::row_idx::row_idx;
 use vortex::scalar::Scalar;
+use vortex::scalar::ScalarValue;
 use vortex::scalar_fn::EmptyOptions as ScalarEmptyOptions;
 use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::between::Between;
@@ -81,6 +84,7 @@ use crate::duckdb::ExpressionClass::BoundComparison;
 use crate::duckdb::ExpressionClass::BoundConjunction;
 use crate::duckdb::ExpressionClass::BoundConstant;
 use crate::duckdb::ExpressionClass::BoundRef;
+use crate::duckdb::ExtractedValue;
 use crate::projection::DuckdbField;
 
 fn from_bound_str(value: &duckdb::ExpressionRef) -> VortexResult<String> {
@@ -373,6 +377,133 @@ fn is_supported_length_alias(func: &BoundFunction) -> bool {
     children.len() == 1 && returns_a_list(children[0])
 }
 
+/// The `DATE` operand of a `CAST(<date> AS TIMESTAMP)`, or `None` for anything else.
+///
+/// `TIMESTAMP WITH TIME ZONE` is excluded on purpose: that cast depends on the session
+/// timezone, so it has no fixed `DATE` equivalent.
+fn date_to_timestamp_cast_child(expr: &duckdb::ExpressionRef) -> Option<&duckdb::ExpressionRef> {
+    let BoundCast(cast) = expr.as_class()? else {
+        return None;
+    };
+    // TRY_CAST yields NULL where CAST errors, which the fold below would not reproduce.
+    if cast.is_try || cast.child.return_type().as_type_id() != DUCKDB_TYPE::DUCKDB_TYPE_DATE {
+        return None;
+    }
+    matches!(
+        expr.return_type().as_type_id(),
+        DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP
+            | DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S
+            | DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_MS
+            | DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_NS
+    )
+    .then_some(cast.child)
+}
+
+/// A timezone-naive timestamp constant, as `(ticks since epoch, ticks per day)`.
+fn timestamp_constant(expr: &duckdb::ExpressionRef) -> Option<(i64, i64)> {
+    let BoundConstant(constant) = expr.as_class()? else {
+        return None;
+    };
+    Some(match constant.value.extract() {
+        ExtractedValue::TimestampS(ticks) => (ticks, 86_400),
+        ExtractedValue::TimestampMs(ticks) => (ticks, 86_400_000),
+        ExtractedValue::Timestamp(ticks) => (ticks, 86_400_000_000),
+        ExtractedValue::TimestampNs(ticks) => (ticks, 86_400_000_000_000),
+        _ => return None,
+    })
+}
+
+/// The operator that holds once the operands are exchanged: `a < b` becomes `b > a`.
+fn reverse_operator(op: Operator) -> Option<Operator> {
+    Some(match op {
+        Operator::Eq => Operator::Eq,
+        Operator::NotEq => Operator::NotEq,
+        Operator::Lt => Operator::Gt,
+        Operator::Lte => Operator::Gte,
+        Operator::Gt => Operator::Lt,
+        Operator::Gte => Operator::Lte,
+        _ => return None,
+    })
+}
+
+/// Rewrites `<date> op <timestamp>` into an equivalent `<date> op' <day>`.
+///
+/// The cast from `DATE` to `TIMESTAMP` is strictly increasing, so a timestamp bound always has
+/// an exact bound on whole days. When the timestamp lands exactly on midnight the operator is
+/// unchanged; otherwise it falls strictly inside `days`, which every date compares against the
+/// same way it compares against the end of that day.
+fn fold_timestamp_bound(op: Operator, ticks: i64, ticks_per_day: i64) -> Option<(Operator, i32)> {
+    // Euclidean division so that pre-epoch timestamps still floor towards the earlier day.
+    let days = i32::try_from(ticks.div_euclid(ticks_per_day)).ok()?;
+    let time_of_day = ticks.rem_euclid(ticks_per_day);
+
+    if time_of_day == 0 {
+        return Some((op, days));
+    }
+    Some(match op {
+        Operator::Lt | Operator::Lte => (Operator::Lte, days),
+        Operator::Gt | Operator::Gte => (Operator::Gt, days),
+        // `= t` is unsatisfiable and `!= t` a tautology, but only for non-null rows. Leave
+        // both to DuckDB rather than folding away the null cases.
+        _ => return None,
+    })
+}
+
+/// Recognizes a comparison that DuckDB widened to `TIMESTAMP` only to line a `DATE` column up
+/// with a timestamp literal, and rewrites it back to a `DATE` comparison.
+///
+/// `o_orderdate < date '1993-07-01' + interval '3' month` binds as
+/// `CAST(o_orderdate AS TIMESTAMP) < TIMESTAMP '1993-10-01 00:00:00'`, because `date + interval`
+/// returns a `TIMESTAMP`. The cast hides the column, so the bound cannot become a table filter
+/// and stays in a DuckDB `FILTER` above the scan (TPC-H q4, q15 and q20 all lose their upper
+/// date bound this way, while the matching lower bound pushes normally).
+///
+/// Folding the cast into the literal rather than evaluating it keeps the predicate in
+/// `column <op> literal` form, which is what lets it prune with statistics and fuse into a
+/// range filter. Evaluating the cast per batch would recover the rows but neither of those.
+///
+/// Returns the `DATE` operand together with the rewritten operator and literal.
+fn date_timestamp_comparison<'a>(
+    compare: &duckdb::BoundComparison<'a>,
+) -> Option<(&'a duckdb::ExpressionRef, Operator, Scalar)> {
+    let op: Operator = compare.op.try_into().ok()?;
+
+    let (date, op, (ticks, ticks_per_day)) =
+        if let Some(date) = date_to_timestamp_cast_child(compare.left) {
+            (date, op, timestamp_constant(compare.right)?)
+        } else {
+            let date = date_to_timestamp_cast_child(compare.right)?;
+            (
+                date,
+                reverse_operator(op)?,
+                timestamp_constant(compare.left)?,
+            )
+        };
+
+    let (op, days) = fold_timestamp_bound(op, ticks, ticks_per_day)?;
+    let literal = Scalar::extension::<Date>(
+        TimeUnit::Days,
+        Scalar::try_new(
+            DType::Primitive(PType::I32, Nullability::Nullable),
+            Some(ScalarValue::from(days)),
+        )
+        .ok()?,
+    );
+    Some((date, op, literal))
+}
+
+/// Whether `value` is a comparison that [`date_timestamp_comparison`] rewrites into a `DATE`
+/// bound.
+///
+/// `pushdown_complex_filter` needs this to decide what to report back to DuckDB; see the
+/// Deliminator note there.
+pub fn is_folded_date_comparison(value: &duckdb::ExpressionRef) -> bool {
+    matches!(
+        value.as_class(),
+        Some(BoundComparison(compare)) if date_timestamp_comparison(&compare).is_some()
+    )
+}
+
 // We limit casting to Primitive types, because some conversions yield an error
 // like vortex.date[days](i32) -> vortex.timestamp[µs](i64?). However, when we
 // push down the cast, we don't have access to column's dtype, so we need to
@@ -410,7 +541,14 @@ pub fn can_push_expression(value: &duckdb::ExpressionRef) -> bool {
             can_push_cast(&cast, value.return_type()) && can_push_expression(cast.child)
         }
         BoundRef => true,
-        BoundComparison(comp) => can_push_expression(comp.left) && can_push_expression(comp.right),
+        BoundComparison(comp) => {
+            // Handled by `date_timestamp_comparison`, which pushes this shape by rewriting it
+            // rather than by pushing the cast itself.
+            if let Some((date, ..)) = date_timestamp_comparison(&comp) {
+                return can_push_expression(date);
+            }
+            can_push_expression(comp.left) && can_push_expression(comp.right)
+        }
         BoundBetween(between) => {
             can_push_expression(between.input)
                 && can_push_expression(between.lower)
@@ -571,6 +709,29 @@ pub fn try_from_projection_aggregate(
 
 // If you want to add support for other expressions, also change
 // can_push_expression
+/// Converts a comparison, first trying the `DATE`/`TIMESTAMP` rewrite that
+/// [`date_timestamp_comparison`] recognizes.
+fn try_from_comparison(
+    compare: &duckdb::BoundComparison<'_>,
+    ctx: ConvertCtx<'_>,
+) -> VortexResult<Option<Expression>> {
+    if let Some((date, operator, literal)) = date_timestamp_comparison(compare) {
+        let Some(date) = try_from_expression_inner(date, ctx)? else {
+            return Ok(None);
+        };
+        return Ok(Some(Binary.new_expr(operator, [date, lit(literal)])));
+    }
+
+    let operator: Operator = compare.op.try_into()?;
+    let Some(left) = try_from_expression_inner(compare.left, ctx)? else {
+        return Ok(None);
+    };
+    let Some(right) = try_from_expression_inner(compare.right, ctx)? else {
+        return Ok(None);
+    };
+    Ok(Some(Binary.new_expr(operator, [left, right])))
+}
+
 fn try_from_expression_inner(
     value: &duckdb::ExpressionRef,
     ctx: ConvertCtx<'_>,
@@ -606,18 +767,7 @@ fn try_from_expression_inner(
             col(name)
         }
         BoundConstant(const_) => lit(Scalar::try_from(const_.value)?),
-        BoundComparison(compare) => {
-            let operator: Operator = compare.op.try_into()?;
-
-            let Some(left) = try_from_expression_inner(compare.left, ctx)? else {
-                return Ok(None);
-            };
-            let Some(right) = try_from_expression_inner(compare.right, ctx)? else {
-                return Ok(None);
-            };
-
-            Binary.new_expr(operator, [left, right])
-        }
+        BoundComparison(compare) => return try_from_comparison(&compare, ctx),
         BoundBetween(between) => {
             let Some(array) = try_from_expression_inner(between.input, ctx)? else {
                 return Ok(None);
@@ -764,5 +914,72 @@ impl TryFrom<DUCKDB_VX_EXPR_TYPE> for Operator {
             DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_GREATERTHANOREQUALTO => Operator::Gte,
             _ => vortex_bail!("cannot convert {:?}", value),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    const US_PER_DAY: i64 = 86_400_000_000;
+    /// An arbitrary day well inside the range both `DATE` and `TIMESTAMP` can hold.
+    const DAY: i32 = 8674;
+
+    /// A timestamp exactly at midnight names a whole day, so the operator carries over as-is.
+    #[rstest]
+    #[case(Operator::Lt)]
+    #[case(Operator::Lte)]
+    #[case(Operator::Gt)]
+    #[case(Operator::Gte)]
+    #[case(Operator::Eq)]
+    #[case(Operator::NotEq)]
+    fn fold_at_midnight_keeps_the_operator(#[case] op: Operator) {
+        assert_eq!(
+            fold_timestamp_bound(op, i64::from(DAY) * US_PER_DAY, US_PER_DAY),
+            Some((op, DAY))
+        );
+    }
+
+    /// A timestamp strictly inside a day sits between that date and the next, so both `<` and
+    /// `<=` admit the day itself and both `>` and `>=` exclude it.
+    #[rstest]
+    #[case(Operator::Lt, Some(Operator::Lte))]
+    #[case(Operator::Lte, Some(Operator::Lte))]
+    #[case(Operator::Gt, Some(Operator::Gt))]
+    #[case(Operator::Gte, Some(Operator::Gt))]
+    #[case(Operator::Eq, None)]
+    #[case(Operator::NotEq, None)]
+    fn fold_inside_a_day_rounds_to_the_day(
+        #[case] op: Operator,
+        #[case] expected: Option<Operator>,
+    ) {
+        let noon = i64::from(DAY) * US_PER_DAY + US_PER_DAY / 2;
+        assert_eq!(
+            fold_timestamp_bound(op, noon, US_PER_DAY),
+            expected.map(|op| (op, DAY))
+        );
+    }
+
+    /// Pre-epoch timestamps floor towards the earlier day, not towards zero.
+    #[rstest]
+    #[case(-US_PER_DAY, Operator::Lt, -1)]
+    #[case(-1, Operator::Lte, -1)]
+    fn fold_before_the_epoch(
+        #[case] ticks: i64,
+        #[case] expected_op: Operator,
+        #[case] expected_day: i32,
+    ) {
+        assert_eq!(
+            fold_timestamp_bound(Operator::Lt, ticks, US_PER_DAY),
+            Some((expected_op, expected_day))
+        );
+    }
+
+    /// A day count past `DATE`'s storage has no equivalent literal, so the fold declines.
+    #[test]
+    fn fold_rejects_days_beyond_i32() {
+        assert_eq!(fold_timestamp_bound(Operator::Lt, i64::MAX, 1), None);
     }
 }

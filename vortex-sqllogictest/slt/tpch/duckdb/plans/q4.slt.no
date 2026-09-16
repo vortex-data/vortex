@@ -233,20 +233,14 @@ logical_opt [
                                         "name": "PROJECTION",
                                         "children": [
                                             {
-                                                "name": "FILTER",
-                                                "children": [
-                                                    {
-                                                        "name": "READ_VORTEX",
-                                                        "children": [],
-                                                        "extra_info": {
-                                                            "Filters": "($.o_orderdate >= 1993-07-01)",
-                                                            "Function": "Vortex Scan",
-                                                            "Estimated Cardinality": "30000"
-                                                        }
-                                                    }
-                                                ],
+                                                "name": "READ_VORTEX",
+                                                "children": [],
                                                 "extra_info": {
-                                                    "Expressions": "(CAST(o_orderdate AS TIMESTAMP) < '1993-10-01 00:00:00'::TIMESTAMP)",
+                                                    "Filters": [
+                                                        "($.o_orderdate >= 1993-07-01)",
+                                                        "($.o_orderdate < 1993-10-01)"
+                                                    ],
+                                                    "Function": "Vortex Scan",
                                                     "Estimated Cardinality": "6000"
                                                 }
                                             }
@@ -302,36 +296,14 @@ physical_plan [
                                 "name": "RIGHT_DELIM_JOIN",
                                 "children": [
                                     {
-                                        "name": "PROJECTION",
-                                        "children": [
-                                            {
-                                                "name": "FILTER",
-                                                "children": [
-                                                    {
-                                                        "name": "READ_VORTEX",
-                                                        "children": [],
-                                                        "extra_info": {
-                                                            "Function": "Vortex Scan",
-                                                            "Filters": "($.o_orderdate >= 1993-07-01)",
-                                                            "Projections": [
-                                                                "o_orderkey",
-                                                                "o_orderdate",
-                                                                "o_orderpriority"
-                                                            ],
-                                                            "Estimated Cardinality": "30000"
-                                                        }
-                                                    }
-                                                ],
-                                                "extra_info": {
-                                                    "Expression": "(CAST(o_orderdate AS TIMESTAMP) < '1993-10-01 00:00:00'::TIMESTAMP)",
-                                                    "Estimated Cardinality": "6000"
-                                                }
-                                            }
-                                        ],
+                                        "name": "READ_VORTEX",
+                                        "children": [],
                                         "extra_info": {
+                                            "Function": "Vortex Scan",
+                                            "Filters": "(CAST(o_orderdate AS TIMESTAMP) < '1993-10-01 00:00:00'::TIMESTAMP)",
                                             "Projections": [
-                                                "#0",
-                                                "#2"
+                                                "o_orderkey",
+                                                "o_orderpriority"
                                             ],
                                             "Estimated Cardinality": "6000"
                                         }

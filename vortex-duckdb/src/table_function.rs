@@ -36,6 +36,7 @@ use vortex::scalar_fn::fns::operators::Operator;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::convert::PushedAggregate;
+use crate::convert::is_folded_date_comparison;
 use crate::convert::try_from_bound_expression;
 use crate::convert::try_from_projection_aggregate;
 use crate::convert::try_from_projection_expression;
@@ -413,6 +414,8 @@ pub fn pushdown_complex_filter(
 ) -> VortexResult<bool> {
     debug!(%expr, "pushing down expression");
 
+    let folded_date_bound = is_folded_date_comparison(expr);
+
     let Some(expr) = try_from_bound_expression(expr, &bind_data.columns)? else {
         debug!(%expr, "failed to push down expression");
         return Ok(false);
@@ -433,10 +436,17 @@ pub fn pushdown_complex_filter(
     // As a hack, report equality filters as not pushed.
     // We can also report only the first filter as not pushed, but this
     // has a negative performance impact.
-    let report_pushed = !expr
-        .as_opt::<Binary>()
-        .map(|op| *op == Operator::Eq)
-        .unwrap_or(false);
+    //
+    // A folded date bound (`convert::is_folded_date_comparison`) is reported the same way, and
+    // for the same reason: it is the last filter left above `orders` in q4 and `lineitem` in
+    // q20, so reporting it pushed is what lets the Deliminator fire. Measured at sf=1, q4 goes
+    // from 1.46x slower to 0.91x when it is withheld. The bound still runs inside the scan
+    // either way -- only DuckDB's plan shape changes.
+    let report_pushed = !folded_date_bound
+        && !expr
+            .as_opt::<Binary>()
+            .map(|op| *op == Operator::Eq)
+            .unwrap_or(false);
 
     // Only table filters may be optional, any complex filter is
     // non-optional by definition.
