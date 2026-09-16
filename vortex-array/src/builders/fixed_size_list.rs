@@ -318,6 +318,11 @@ impl ArrayBuilder for FixedSizeListBuilder {
 
     /// This will increase the capacity if extending with this `array` would go past the original
     /// capacity.
+    fn reserve_chunks(&mut self, additional: usize) {
+        self.elements_builder.reserve_chunks(additional);
+        self.nulls.reserve_runs(additional);
+    }
+
     fn reserve_exact(&mut self, additional: usize) {
         self.elements_builder
             .reserve_exact(additional * self.list_size() as usize);

@@ -142,6 +142,13 @@ impl ChildBuilder {
         }
     }
 
+    /// Reserves room for `additional` more chunks.
+    ///
+    /// See [`ArrayBuilder::reserve_chunks`].
+    pub fn reserve_chunks(&mut self, additional: usize) {
+        self.chunks.reserve(additional);
+    }
+
     /// Finishes the child, combining the accumulated chunks into a [`ChunkedArray`] when there is
     /// more than one of them.
     pub fn finish(&mut self) -> ArrayRef {
@@ -424,7 +431,7 @@ mod tests {
     /// exists; either way the scalars appended after it are the ones that come back.
     #[test]
     fn test_reserving_before_and_after_the_first_scalar() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut builder =
             ChildBuilder::with_capacity(&DType::from(I32), 0, BufferAllocatorRef::static_ref());
 

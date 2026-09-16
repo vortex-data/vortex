@@ -170,6 +170,10 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ArrayBuilder for MapBuilder<O
         self.append_value(scalar.as_map())
     }
 
+    fn reserve_chunks(&mut self, additional: usize) {
+        self.entries_builder.reserve_chunks(additional);
+    }
+
     fn reserve_exact(&mut self, additional: usize) {
         self.entries_builder.reserve_exact(additional);
     }

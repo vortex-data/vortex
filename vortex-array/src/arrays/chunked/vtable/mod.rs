@@ -233,6 +233,9 @@ impl VTable for Chunked {
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
+        // The builder is about to receive one array per chunk, so let any chunk lists it keeps
+        // grow once rather than on the way through.
+        builder.reserve_chunks(array.nchunks());
         for chunk in array.iter_chunks() {
             chunk.append_to_builder(builder, ctx)?;
         }
