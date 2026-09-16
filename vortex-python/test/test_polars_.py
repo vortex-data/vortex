@@ -14,7 +14,7 @@ from polars.testing import assert_frame_equal
 
 import vortex as vx
 import vortex.expr as ve
-from vortex.polars_ import polars_to_vortex
+from vortex.polars_ import decompose_predicate, polars_to_vortex
 
 
 @pytest.mark.parametrize(
@@ -369,3 +369,48 @@ def _time_zone_scan(tmp_path, values, policy=None) -> tuple[pl.LazyFrame, pl.Laz
     table = pa.table(columns)
     vx.io.write(vx.array(table), str(path))
     return pl.DataFrame(table).lazy(), vx.open(str(path)).to_polars()
+
+
+def test_decompose_predicate_mixed() -> None:
+    predicate = (pl.col("a") > 1) & pl.col("b").is_in([1, 2]) & (pl.col("c") == "x")
+    pushed, residual = decompose_predicate(predicate)
+    assert pushed is not None
+    assert pushed.serialize() == ((ve.column("a") > 1) & (ve.column("c") == "x")).serialize()
+    assert residual is not None
+    assert residual.meta.eq(pl.col("b").is_in([1, 2]))
+
+
+def test_decompose_predicate_all_pushed() -> None:
+    pushed, residual = decompose_predicate((pl.col("a") > 1) & (pl.col("b") == 2))
+    assert pushed is not None
+    assert pushed.serialize() == ((ve.column("a") > 1) & (ve.column("b") == 2)).serialize()
+    assert residual is None
+
+
+def test_decompose_predicate_none_pushed() -> None:
+    predicate = pl.col("a").is_in([1, 2])
+    pushed, residual = decompose_predicate(predicate)
+    assert pushed is None
+    assert residual is not None
+    assert residual.meta.eq(predicate)
+
+
+def test_to_polars_with_unsupported_filter(vxf: vx.VortexFile) -> None:
+    df = vxf.to_polars().filter(pl.col("index").is_in([3, 7, 2_000_000])).collect()
+    assert sorted(df["index"].to_list()) == [3, 7]
+
+
+def test_to_polars_with_partially_supported_filter(vxf: vx.VortexFile) -> None:
+    df = vxf.to_polars().filter((pl.col("index") < 10) & pl.col("index").is_in([5, 7, 100])).collect()
+    assert sorted(df["index"].to_list()) == [5, 7]
+
+
+def test_to_polars_with_projection_and_unsupported_filter(vxf: vx.VortexFile) -> None:
+    df = vxf.to_polars().filter(pl.col("value").is_in([2.0, 3.0])).select("index").collect()
+    assert df.columns == ["index"]
+    assert sorted(df["index"].to_list()) == [4, 9]
+
+
+def test_to_polars_with_unsupported_filter_and_limit(vxf: vx.VortexFile) -> None:
+    df = vxf.to_polars().filter(pl.col("index").is_in(list(range(0, 1000, 2)))).limit(10).collect()
+    assert df["index"].to_list() == list(range(0, 20, 2))
