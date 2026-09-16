@@ -487,6 +487,7 @@ impl Patches {
     /// or the insertion point if not found.
     ///
     /// Returns an error if `chunk_offsets` or `offset_within_chunk` are not set.
+    #[allow(clippy::disallowed_methods)]
     fn search_index_chunked(&self, index: usize) -> VortexResult<SearchResult> {
         let Some(chunk_offsets) = &self.chunk_offsets else {
             vortex_bail!("chunk_offsets is required to be set")
@@ -502,10 +503,22 @@ impl Patches {
 
         let chunk_idx = (index + self.offset % PATCH_CHUNK_SIZE) / PATCH_CHUNK_SIZE;
 
-        // Patch index offsets are absolute and need to be offset by the first chunk of the current slice.
-        let base_offset = self.chunk_offset_at(0)?;
+        // The three reads below are of the same array, so they share one probe and one context
+        // rather than building a pair per read as `Self::chunk_offset_at` does.
+        let mut probe = chunk_offsets.repeated_probe();
+        let mut ctx = legacy_session().create_execution_ctx();
+        let mut chunk_offset_at = |idx: usize| -> VortexResult<usize> {
+            probe
+                .execute_scalar(idx, &mut ctx)?
+                .as_primitive()
+                .as_::<usize>()
+                .ok_or_else(|| vortex_err!("chunk offset does not fit in usize"))
+        };
 
-        let patches_start_idx = (self.chunk_offset_at(chunk_idx)? - base_offset)
+        // Patch index offsets are absolute and need to be offset by the first chunk of the current slice.
+        let base_offset = chunk_offset_at(0)?;
+
+        let patches_start_idx = (chunk_offset_at(chunk_idx)? - base_offset)
             // Chunk offsets are only sliced off in case the slice is fully
             // outside of the chunk range.
             //
@@ -515,7 +528,7 @@ impl Patches {
             .saturating_sub(offset_within_chunk);
 
         let patches_end_idx = if chunk_idx < chunk_offsets.len() - 1 {
-            (self.chunk_offset_at(chunk_idx + 1)? - base_offset)
+            (chunk_offset_at(chunk_idx + 1)? - base_offset)
                 .saturating_sub(offset_within_chunk)
                 .min(self.indices.len())
         } else {
