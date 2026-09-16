@@ -4,7 +4,6 @@
 use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure_eq;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -86,8 +85,14 @@ impl ChildBuilder {
     /// appended array.
     ///
     /// Nothing is decoded here.
+    ///
+    /// `array` must have the child's dtype. This is a crate-internal invariant, checked under
+    /// `debug_assertions` only: every caller is a nested builder handing over a child of an array
+    /// whose own dtype was checked against that builder on the way in, so the child's dtype follows
+    /// from the parent's and re-deriving it per appended array would cost a dtype comparison per
+    /// chunk on the hot path.
     pub fn append_array(&mut self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
-        vortex_ensure_eq!(
+        debug_assert_eq!(
             array.dtype(),
             &self.dtype,
             "Cannot append an array to a child builder of a different dtype",
@@ -366,18 +371,20 @@ mod tests {
         Ok(())
     }
 
-    /// The dtype check has to run before the empty check, so that a mismatched array is rejected
+    /// The debug assertion has to run before the empty check, so that a mismatched array is caught
     /// whether or not it would have become a chunk.
+    #[cfg(debug_assertions)]
     #[rstest]
     #[case::empty(0)]
     #[case::non_empty(CHUNK_LEN)]
-    fn test_appending_a_mismatched_dtype_is_rejected(#[case] len: usize) {
+    #[should_panic(expected = "Cannot append an array to a child builder of a different dtype")]
+    fn test_appending_a_mismatched_dtype_is_caught(#[case] len: usize) {
         let mut ctx = SESSION.create_execution_ctx();
         let mut builder =
             ChildBuilder::with_capacity(&DType::from(I32), 0, BufferAllocatorRef::static_ref());
 
         let wrong_dtype = ConstantArray::new(1i64, len).into_array();
-        assert!(builder.append_array(&wrong_dtype, &mut ctx).is_err());
+        drop(builder.append_array(&wrong_dtype, &mut ctx));
     }
 
     /// Everything the scalar builder can produce has to be flushed ahead of the next chunk.
