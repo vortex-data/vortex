@@ -394,6 +394,9 @@ fn can_push_cast(cast: &duckdb::BoundCast<'_>, target: &duckdb::LogicalTypeRef) 
 // If we return true here, and expression is in the list for
 // pushdown_complex_filter, we must handle it, or query engine will break.
 //
+// We also don't have access to scan schema at this point, so we're overly
+// restrictive.
+//
 // Example: we don't support substr() expression so we tell Duckdb we can't
 // push it.
 // Example: we support CAST but not TRY_CAST.

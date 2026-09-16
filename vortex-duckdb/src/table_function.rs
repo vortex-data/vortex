@@ -28,14 +28,14 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::expr::BoundExpression;
 use vortex::expr::Expression;
+use vortex::expr::VortexExprExt;
 use vortex::extension::uuid::Uuid;
 use vortex::metrics::tracing::get_global_labels;
 use vortex::scalar::Scalar;
-use vortex::scalar_fn::fns::binary::Binary;
-use vortex::scalar_fn::fns::operators::Operator;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::convert::PushedAggregate;
+use crate::convert::can_push_expression;
 use crate::convert::try_from_bound_expression;
 use crate::convert::try_from_projection_aggregate;
 use crate::convert::try_from_projection_expression;
@@ -52,10 +52,8 @@ use crate::duckdb::TableInitInput;
 use crate::duckdb::Value;
 use crate::exporter::ArrayExporter;
 use crate::projection::DuckdbField;
-use crate::projection::FILE_ROW_NUMBER_COLUMN_IDX;
 use crate::projection::Filter;
 use crate::projection::Projection;
-use crate::projection::is_virtual_column;
 
 // Duckdb has two state machines for an extension. The outer one is the table
 // function state machine which calls the file reader state machine.
@@ -251,20 +249,14 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
         .iter()
         .any(|a| matches!(a, ColumnAggregate::CountStar));
 
-    let mut file_row_number_column_pos = None;
     let column_ids = init_input.column_ids();
-    let mut pos = 0;
-    for id in column_ids {
-        if *id == FILE_ROW_NUMBER_COLUMN_IDX {
-            file_row_number_column_pos = Some(pos);
-            pos += 1;
-        } else if !is_virtual_column(*id) {
-            pos += 1;
-        }
-    }
+    let projection_ids = init_input.projection_ids();
 
-    let Projection(projection) = if bind_data.aggregates.is_empty() {
-        Projection::new(column_ids, &bind_data.columns)
+    let Projection {
+        projection,
+        file_row_number_column_pos,
+    } = if bind_data.aggregates.is_empty() {
+        Projection::new(projection_ids, column_ids, &bind_data.columns)
     } else {
         Projection::new_aggregate(&bind_data.aggregates, &bind_data.columns)
     };
@@ -407,36 +399,38 @@ fn aggregate_output_value(scalar: Scalar, expected: &LogicalTypeRef) -> VortexRe
     }
 }
 
+/// This answers "true" if, given a duckdb table filter and table schema,
+/// we can push the filter down to Vortex.
 pub fn pushdown_complex_filter(
     bind_data: &mut BindState,
     expr: &ExpressionRef,
 ) -> VortexResult<bool> {
     debug!(%expr, "pushing down expression");
 
-    let Some(expr) = try_from_bound_expression(expr, &bind_data.columns)? else {
+    let Some(vx_expr) = try_from_bound_expression(expr, &bind_data.columns)? else {
         debug!(%expr, "failed to push down expression");
         return Ok(false);
     };
 
-    // Duckdb calls pushdown_complex_filter during planning phase.
-    // If all filters are pushed down, duckdb enables a LEFT_DELIM_JOIN ->
-    // COMPARISON_JOIN (HASH_JOIN) optimization:
-    // duckdb/src/optimizer/deliminator.cpp: Deliminator::HasSelection,
-    // Deliminator::Optimize.
+    // If we report filter as pushed, it disappears from duckdb's plan, so
+    // Deliminator::HasSelection doesn't see it and rewrites delim joins into
+    // ordinary joins. This is a bug reported to duckdb:
+    // https://github.com/duckdb/duckdb/issues/22669.
     //
-    // This leads to a massive regression on tpch sf=10 q17 and other
-    // benchmarks.
+    // TODO(myrrc): in duckdb 2.0 Deliminator and others see filters which
+    // have been pushed even if extension claims to process them fully, so this
+    // is a temporary fix.
     //
-    // This bug is reported to Duckdb
-    // https://github.com/duckdb/duckdb/issues/22669
+    // Therefore we report single-column expressions as not pushed.
+    // FilterCombiner inserts them into get.table_filters and we
+    // get it back in init_input.filters().
     //
-    // As a hack, report equality filters as not pushed.
-    // We can also report only the first filter as not pushed, but this
-    // has a negative performance impact.
-    let report_pushed = !expr
-        .as_opt::<Binary>()
-        .map(|op| *op == Operator::Eq)
-        .unwrap_or(false);
+    // We need can_push_expression for spatial predicates. Duckdb can't insert
+    // them into get.table_filters so if we reject it here they become a FILTER
+    // over a Vortex scan.
+    if can_push_expression(expr) && vx_expr.field_references().len() <= 1 {
+        return Ok(false);
+    }
 
     // Only table filters may be optional, any complex filter is
     // non-optional by definition.
@@ -444,9 +438,9 @@ pub fn pushdown_complex_filter(
         .has_non_optional_filter
         .store(true, Ordering::Relaxed);
 
-    debug!(%expr, report_pushed, "pushed down expression");
-    bind_data.filters.push(expr);
-    Ok(report_pushed)
+    debug!(%vx_expr, "pushed down expression");
+    bind_data.filters.push(vx_expr);
+    Ok(true)
 }
 
 pub fn pushdown_projection_expression(
