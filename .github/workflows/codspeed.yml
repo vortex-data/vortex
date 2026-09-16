@@ -50,14 +50,15 @@ jobs:
       matrix:
         include:
           - { shard: 1, name: "Core foundation", packages: "vortex-buffer vortex-error vortex-mask vortex-compute vortex-file" }
-          - { shard: 2, name: "Arrays", packages: "vortex-array", features: "--features _test-harness" }
-          - { shard: 3, name: "Main library", packages: "vortex" }
-          - { shard: 4, name: "Encodings 1", packages: "vortex-alp vortex-bytebool vortex-datetime-parts" }
-          - { shard: 5, name: "Encodings 2", packages: "vortex-decimal-byte-parts vortex-fastlanes vortex-fsst", features: "--features _test-harness" }
-          - { shard: 6, name: "Encodings 3", packages: "vortex-pco vortex-runend vortex-sequence" }
-          - { shard: 7, name: "Encodings 4 & layout", packages: "vortex-sparse vortex-zigzag vortex-zstd vortex-layout" }
-          - { shard: 8, name: "Storage formats & row encoding", packages: "vortex-btrblocks vortex-row" }
-          - { shard: 9, name: "Tensor & spatial", packages: "vortex-tensor vortex-spatial" }
+          - { shard: 2, name: "Arrays 1/3", packages: "vortex-array", features: "--features _test-harness", split: "1/3" }
+          - { shard: 3, name: "Arrays 2/3", packages: "vortex-array", features: "--features _test-harness", split: "2/3" }
+          - { shard: 4, name: "Arrays 3/3", packages: "vortex-array", features: "--features _test-harness", split: "3/3" }
+          - { shard: 5, name: "Main library", packages: "vortex" }
+          - { shard: 6, name: "Encodings 1 & storage formats", packages: "vortex-alp vortex-bytebool vortex-datetime-parts vortex-btrblocks vortex-row" }
+          - { shard: 7, name: "Encodings 2", packages: "vortex-decimal-byte-parts vortex-fastlanes", features: "--features _test-harness" }
+          - { shard: 8, name: "Encodings 3", packages: "vortex-pco vortex-runend vortex-sequence vortex-fsst", features: "--features vortex-fsst/_test-harness" }
+          - { shard: 9, name: "Encodings 4 & layout", packages: "vortex-sparse vortex-zigzag vortex-zstd vortex-layout" }
+          - { shard: 10, name: "Tensor & spatial", packages: "vortex-tensor vortex-spatial" }
     name: "Benchmark with Codspeed (Shard #${{ matrix.shard }})"
     timeout-minutes: 30
     runs-on: >-
@@ -78,6 +79,26 @@ jobs:
         uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
         with:
           tool: cargo-codspeed
+      - name: Select bench shard
+        id: split
+        if: matrix.split
+        run: |
+          python3 - <<'EOF' >> "$GITHUB_OUTPUT"
+          import json, subprocess
+
+          index, count = map(int, "${{ matrix.split }}".split("/"))
+          meta = json.loads(subprocess.check_output(
+              ["cargo", "metadata", "--no-deps", "--format-version", "1"]))
+          packages = set("${{ matrix.packages }}".split())
+          benches = sorted(
+              target["name"]
+              for package in meta["packages"]
+              if package["name"] in packages
+              for target in package["targets"]
+              if "bench" in target["kind"]
+          )
+          print("benches=" + " ".join(f"--bench {name}" for name in benches[index - 1::count]))
+          EOF
       - name: Build benchmarks
         env:
           RUSTFLAGS: "-C target-feature=+avx2"
@@ -85,7 +106,7 @@ jobs:
           # skipped here. Untagged ones run as they always have, under bare names, so this
           # job's CodSpeed history is unaffected.
           VORTEX_BENCH_VARIANT: simulation
-        run: cargo codspeed build --locked ${{ matrix.features }} $(printf -- '-p %s ' ${{ matrix.packages }}) --profile bench
+        run: cargo codspeed build --locked ${{ matrix.features }} $(printf -- '-p %s ' ${{ matrix.packages }}) ${{ steps.split.outputs.benches }} --profile bench
       - name: Run benchmarks
         uses: CodSpeedHQ/action@4296e51e7041e24dadb86d1d6e8b9320d223dbe8  # v5
         with:
