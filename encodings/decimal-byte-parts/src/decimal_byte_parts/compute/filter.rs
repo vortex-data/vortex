@@ -27,12 +27,12 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::dtype::DecimalDType;
+    use vortex_array::dtype::i256;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
 
     use crate::DecimalByteParts;
     use crate::decimal_byte_parts::testing::i128_parts;
-    use crate::decimal_byte_parts::testing::i256_of;
     use crate::decimal_byte_parts::testing::i256_parts;
 
     #[test]
@@ -72,11 +72,11 @@ mod test {
 
         let array = i256_parts(
             vec![
-                i256_of(1, 0),
-                i256_of(-1, 5),
-                i256_of(0, u128::MAX),
-                i256_of(1 << 64, 7),
-                i256_of(0, 0),
+                i256::from_parts(0, 1),
+                i256::from_parts(5, -1),
+                i256::from_parts(u128::MAX, 0),
+                i256::from_parts(7, 1 << 64),
+                i256::from_parts(0, 0),
             ],
             Validity::from_iter([true, false, true, true, false]),
         );

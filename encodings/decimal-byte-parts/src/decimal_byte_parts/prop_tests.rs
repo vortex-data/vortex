@@ -21,7 +21,6 @@ use vortex_error::VortexExpect;
 
 use super::DecimalByteParts;
 use super::DecimalBytePartsArray;
-use super::testing::encode;
 
 /// Largest magnitude a `Decimal(38, _)` can hold: 38 nines.
 const MAX_I128: i128 = 10i128.pow(38) - 1;
@@ -139,10 +138,8 @@ fn decoded_survives_encode_then_decode(tc: TestCase) {
     let decimal = draw_decimal(&tc);
     let mut ctx = ctx();
 
-    let round_tripped = canonicalize(
-        encode(&decimal).vortex_expect("encode").into_array(),
-        &mut ctx,
-    );
+    let encoded = DecimalByteParts::encode(&decimal, &mut ctx).vortex_expect("encode");
+    let round_tripped = canonicalize(encoded.into_array(), &mut ctx);
 
     assert_eq!(round_tripped.values_type(), decimal.values_type());
     assert_arrays_eq!(decimal, round_tripped, &mut ctx);
@@ -160,10 +157,8 @@ fn encoded_survives_decode_then_encode(tc: TestCase) {
     let mut ctx = ctx();
 
     let decoded = canonicalize(array.into_array(), &mut ctx);
-    let re_decoded = canonicalize(
-        encode(&decoded).vortex_expect("encode").into_array(),
-        &mut ctx,
-    );
+    let re_encoded = DecimalByteParts::encode(&decoded, &mut ctx).vortex_expect("encode");
+    let re_decoded = canonicalize(re_encoded.into_array(), &mut ctx);
 
     assert_arrays_eq!(decoded, re_decoded, &mut ctx);
 }

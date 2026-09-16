@@ -27,22 +27,23 @@ use super::LOWER_PART_BITS;
 use super::MAX_I128_LOWER_PARTS;
 use super::MAX_I256_LOWER_PARTS;
 
-/// Create a [`DecimalBytePartsArray`] from a [`DecimalArray`] by splitting it into parts.
-///
-/// # Errors
-///
-/// Returns an error if the decimal cannot be split.
-pub fn dbp_encode(
-    decimal: &DecimalArray,
-    exec_ctx: &mut ExecutionCtx,
-) -> VortexResult<DecimalBytePartsArray> {
-    let parts = split_decimal(decimal, exec_ctx)?;
-    // SAFETY: splitting produces a signed MSP and zero, one, or three non-nullable u64 lower
-    // parts, all with the decimal's length and in most-significant-first order. This also holds
-    // for the constant parts used for empty and all-null inputs. The decimal dtype is preserved.
-    Ok(unsafe {
-        DecimalByteParts::new_unchecked(parts.msp, parts.lower_parts, decimal.decimal_dtype())
-    })
+impl DecimalByteParts {
+    /// Encode a [`DecimalArray`] as byte parts, splitting wide values into lower parts.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the decimal cannot be split.
+    pub fn encode(
+        decimal: &DecimalArray,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<DecimalBytePartsArray> {
+        let parts = split_decimal(decimal, exec_ctx)?;
+        // SAFETY: splitting produces a signed MSP and zero, one, or three non-nullable u64 lower
+        // parts, all with the decimal's length and in most-significant-first order. This also
+        // holds for the constant parts used for empty and all-null inputs. The decimal dtype is
+        // preserved.
+        Ok(unsafe { Self::new_unchecked(parts.msp, parts.lower_parts, decimal.decimal_dtype()) })
+    }
 }
 
 /// A decimal array decomposed into byte parts.

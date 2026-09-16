@@ -7,14 +7,12 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hasher;
 
-use prost::Message as _;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
-use vortex_array::ArraySlots;
 use vortex_array::ArrayView;
 use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
@@ -24,7 +22,6 @@ use vortex_array::array_slots;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
-use vortex_array::dtype::PType;
 use vortex_array::scalar::DecimalValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
@@ -37,91 +34,17 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
-use vortex_session::registry::CachedId;
 
-use super::LOWER_PART_DTYPE;
 use super::MAX_LOWER_PARTS;
 use super::assemble::assemble_decimal;
 use super::assemble::assemble_wide_decimal_value;
+use super::decimal_byte_parts_v2_id;
 use super::rules::PARENT_RULES;
 
 /// A [`DecimalByteParts`]-encoded Vortex array.
 pub type DecimalBytePartsArray = Array<DecimalByteParts>;
-
-#[derive(Clone, prost::Message)]
-pub struct DecimalBytesPartsMetadata {
-    #[prost(enumeration = "PType", tag = "1")]
-    zeroth_child_ptype: i32,
-    #[prost(uint32, tag = "2")]
-    lower_part_count: u32,
-}
-
-impl DecimalBytesPartsMetadata {
-    fn from_array(array: ArrayView<'_, DecimalByteParts>) -> VortexResult<Self> {
-        Ok(Self {
-            zeroth_child_ptype: PType::try_from(array.msp().dtype())? as i32,
-            lower_part_count: u32::try_from(array.lower_parts().len())
-                .map_err(|_| vortex_err!("lower part count exceeds u32"))?,
-        })
-    }
-
-    fn into_array_parts(
-        self,
-        dtype: &DType,
-        len: usize,
-        children: &dyn ArrayChildren,
-    ) -> VortexResult<ArrayParts<DecimalByteParts>> {
-        vortex_ensure!(
-            dtype.as_decimal_opt().is_some(),
-            "decoding decimal but given non decimal dtype {dtype}"
-        );
-
-        let encoded_dtype = DType::Primitive(self.zeroth_child_ptype(), dtype.nullability());
-
-        let lower_part_count = self.lower_part_count()?;
-        vortex_ensure!(
-            children.len() == DecimalBytePartsSlots::FIXED_COUNT + lower_part_count,
-            "expected {} children, got {}",
-            DecimalBytePartsSlots::FIXED_COUNT + lower_part_count,
-            children.len()
-        );
-
-        let msp = children.get(DecimalBytePartsSlots::MSP, &encoded_dtype, len)?;
-
-        let mut slots = ArraySlots::with_capacity(children.len());
-        slots.push(Some(msp));
-        for idx in 0..lower_part_count {
-            slots.push(Some(children.get(
-                DecimalBytePartsSlots::LOWER_PARTS_OFFSET + idx,
-                &LOWER_PART_DTYPE,
-                len,
-            )?));
-        }
-
-        Ok(
-            ArrayParts::new(DecimalByteParts, dtype.clone(), len, DecimalBytePartsData)
-                .with_slots(slots),
-        )
-    }
-
-    /// The number of lower parts encoded in this array.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the count exceeds [`MAX_LOWER_PARTS`].
-    fn lower_part_count(&self) -> VortexResult<usize> {
-        let count = usize::try_from(self.lower_part_count)
-            .map_err(|_| vortex_err!("lower part count {} out of range", self.lower_part_count))?;
-        vortex_ensure!(
-            count <= MAX_LOWER_PARTS,
-            "at most {MAX_LOWER_PARTS} lower parts are supported, got {count}"
-        );
-        Ok(count)
-    }
-}
 
 /// This array encodes decimals by splitting them between 1-4 columns of primitive typed children.
 ///
@@ -222,7 +145,7 @@ impl DecimalByteParts {
     ///
     /// Lower parts are ordered most significant first and must each be a non-nullable unsigned integer
     /// array of the same length as the MSP. See [`super::split_decimal`] for producing them from a
-    /// canonical decimal array.
+    /// decimal array.
     ///
     /// # Errors
     ///
@@ -274,8 +197,7 @@ impl VTable for DecimalByteParts {
     type ValidityVTable = ValidityVTableFromChild;
 
     fn id(&self) -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.decimal_byte_parts");
-        *ID
+        decimal_byte_parts_v2_id()
     }
 
     fn validate(
@@ -331,33 +253,22 @@ impl VTable for DecimalByteParts {
     }
 
     fn serialize(
-        array: ArrayView<'_, Self>,
+        _array: ArrayView<'_, Self>,
         _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
-        vortex_ensure!(
-            array.lower_parts().is_empty(),
-            "serializing DecimalByteParts with lower parts is not supported"
-        );
-        Ok(Some(
-            DecimalBytesPartsMetadata::from_array(array)?.encode_to_vec(),
-        ))
+        vortex_bail!("DecimalByteParts serialization requires DecimalBytePartsPlugin")
     }
 
     fn deserialize(
         &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _metadata: &[u8],
         _buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
+        _children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
-        let metadata = DecimalBytesPartsMetadata::decode(metadata)?;
-        vortex_ensure!(
-            metadata.lower_part_count()? == 0,
-            "vortex.decimal_byte_parts must not carry lower parts"
-        );
-        metadata.into_array_parts(dtype, len, children)
+        vortex_bail!("DecimalByteParts deserialization requires DecimalBytePartsPlugin")
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -510,18 +421,15 @@ mod tests {
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar::ScalarValue;
     use vortex_array::validity::Validity;
-    use vortex_array::vtable::VTable;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
 
     use super::DecimalByteParts;
-    use super::DecimalBytePartsArray;
     use super::DecimalBytePartsArraySlotsExt;
     use super::DecimalBytePartsData;
     use crate::decimal_byte_parts::LOWER_PART_DTYPE;
     use crate::decimal_byte_parts::MAX_LOWER_PARTS;
     use crate::decimal_byte_parts::testing::i128_parts;
-    use crate::decimal_byte_parts::testing::i256_of;
     use crate::decimal_byte_parts::testing::i256_parts;
 
     #[test]
@@ -563,62 +471,6 @@ mod tests {
         );
     }
 
-    /// The largest unscaled value a `Decimal(38, _)` can hold: `10^38 - 1`.
-    const MAX_PRECISION_38: i128 = 99_999_999_999_999_999_999_999_999_999_999_999_999;
-
-    /// The largest unscaled value a `Decimal(76, _)` can hold: `10^76 - 1`.
-    fn max_precision_76() -> i256 {
-        i256::from_i128(10).wrapping_pow(76) - i256::ONE
-    }
-
-    /// Values that exercise every 64-bit window of an `i128`, both signs, and the boundaries
-    /// where a lower part carries into the MSP.
-    fn wide_i128_values() -> Vec<i128> {
-        vec![
-            0,
-            1,
-            -1,
-            (1 << 64) - 1,
-            1 << 64,
-            -(1 << 64),
-            -((1 << 64) + 1),
-            MAX_PRECISION_38,
-            -MAX_PRECISION_38,
-            1 << 100,
-        ]
-    }
-
-    /// Values that exercise every 64-bit window of an `i256`.
-    fn wide_i256_values() -> Vec<i256> {
-        vec![
-            i256::ZERO,
-            i256::ONE,
-            i256::ZERO - i256::ONE,
-            i256_of(0, u128::MAX),
-            i256_of(1, 0),
-            i256_of(-1, 0),
-            i256_of(-1, u128::MAX - 1),
-            i256_of(1 << 64, 12345),
-            max_precision_76(),
-            i256::ZERO - max_precision_76(),
-        ]
-    }
-
-    #[rstest]
-    #[case::i128_non_nullable(i128_parts(wide_i128_values(), Validity::NonNullable))]
-    #[case::i256_non_nullable(i256_parts(wide_i256_values(), Validity::NonNullable))]
-    fn test_canonical_decimal_round_trips(
-        #[case] array: DecimalBytePartsArray,
-    ) -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
-        let canonical = array
-            .clone()
-            .into_array()
-            .execute::<DecimalArray>(&mut ctx)?;
-        assert_arrays_eq!(array, canonical, &mut ctx);
-        Ok(())
-    }
-
     #[test]
     fn test_lower_part_layout_i128() -> VortexResult<()> {
         let array = i128_parts(vec![(3i128 << 64) | 7], Validity::NonNullable);
@@ -639,7 +491,7 @@ mod tests {
     #[test]
     fn test_lower_part_layout_i256() -> VortexResult<()> {
         let array = i256_parts(
-            vec![i256_of((5i128 << 64) | 6, (7u128 << 64) | 8)],
+            vec![i256::from_parts((7u128 << 64) | 8, (5i128 << 64) | 6)],
             Validity::NonNullable,
         );
         assert_eq!(array.lower_parts().len(), MAX_LOWER_PARTS);
@@ -650,27 +502,6 @@ mod tests {
         for (part, expected) in array.lower_parts().iter().zip([6u64, 7, 8]) {
             let part = part.clone().execute::<PrimitiveArray>(&mut ctx)?;
             assert_eq!(part.as_slice::<u64>(), &[expected]);
-        }
-        Ok(())
-    }
-
-    #[rstest]
-    #[case::i128(i128_parts(wide_i128_values(), Validity::AllValid))]
-    #[case::i256(i256_parts(wide_i256_values(), Validity::AllValid))]
-    fn test_scalar_at_matches_canonical(#[case] array: DecimalBytePartsArray) -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
-        let canonical = array
-            .clone()
-            .into_array()
-            .execute::<DecimalArray>(&mut ctx)?
-            .into_array();
-        let array = array.into_array();
-        for idx in 0..array.len() {
-            assert_eq!(
-                array.execute_scalar(idx, &mut ctx)?,
-                canonical.execute_scalar(idx, &mut ctx)?,
-                "scalar mismatch at index {idx}"
-            );
         }
         Ok(())
     }
@@ -860,7 +691,7 @@ mod tests {
         let canonical = i128_array.into_array().execute::<DecimalArray>(&mut ctx)?;
         assert_eq!(canonical.values_type(), DecimalType::I128);
 
-        let i256_array = i256_parts(vec![i256_of(1 << 100, 0)], Validity::NonNullable);
+        let i256_array = i256_parts(vec![i256::from_parts(0, 1 << 100)], Validity::NonNullable);
         let canonical = i256_array.into_array().execute::<DecimalArray>(&mut ctx)?;
         assert_eq!(canonical.values_type(), DecimalType::I256);
 
@@ -885,7 +716,10 @@ mod tests {
         )?;
         let canonical = array.into_array().execute::<DecimalArray>(&mut ctx)?;
         assert_eq!(canonical.values_type(), DecimalType::I256);
-        assert_eq!(canonical.buffer::<i256>().as_slice(), &[i256_of(1, 9)]);
+        assert_eq!(
+            canonical.buffer::<i256>().as_slice(),
+            &[i256::from_parts(9, 1)]
+        );
         Ok(())
     }
 
@@ -910,13 +744,6 @@ mod tests {
         );
         let canonical = array.clone().execute::<DecimalArray>(&mut ctx)?;
         assert_arrays_eq!(array, canonical.into_array(), &mut ctx);
-        Ok(())
-    }
-    #[test]
-    fn test_frozen_serializer_rejects_lower_parts() -> VortexResult<()> {
-        let session = array_session();
-        let array = i128_parts(vec![1i128 << 70], Validity::NonNullable);
-        assert!(VTable::serialize(array.as_view(), &session).is_err());
         Ok(())
     }
 }

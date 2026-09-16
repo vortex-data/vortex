@@ -12,6 +12,7 @@ mod bytebool;
 mod constant;
 mod datetimeparts;
 mod decimal_byte_parts;
+mod decimal_byte_parts_v2;
 mod delta;
 mod dict;
 mod for_;
@@ -38,6 +39,7 @@ pub fn fixtures() -> Vec<Box<dyn FlatLayoutFixture>> {
         Box::new(bytebool::ByteBoolFixture),
         Box::new(datetimeparts::DateTimePartsFixture),
         Box::new(decimal_byte_parts::DecimalBytePartsFixture),
+        Box::new(decimal_byte_parts_v2::DecimalBytePartsV2Fixture),
         // Re-enable this once delta is stable
         // Box::new(delta::DeltaFixture),
         Box::new(dict::DictFixture),
