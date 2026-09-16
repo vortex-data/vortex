@@ -391,16 +391,18 @@ fn new_array_context(session: &VortexSession, enforce_editions: bool) -> ArrayCo
     // serialised array order is deterministic. The serialisation of arrays are done
     // parallel and with an empty context they can register their encodings to the context
     // in different order, changing the written bytes from run to run.
-    //
-    // The seeded IDs are also what the writer may emit: callers read them back with
-    // `ArrayContext::to_ids` to restrict compression to the same set.
+
+    // The registry keys are exactly the serialized IDs that can be produced by the plugins
+    // registered in the session. Intersected with the serialized IDs the enabled editions permit,
+    // this is the set of IDs that can be written. Only seed the array context with these IDs, and
+    // only allow compressor schemes that produce arrays with serialized IDs within this set.
     let registered: HashSet<ArrayId> = session
         .arrays()
         .registry()
         .read(|registry| registry.keys().copied().collect());
     let serialized_ids: Vec<ArrayId> = if enforce_editions {
-        // An edition may enable an encoding whose plugin is not registered on this session.
-        // Nothing could serialize it, so it is neither seeded nor offered to the compressor.
+        // Must filter by the set of serialized IDs supported by registered plugins. Otherwise,
+        // we could enable an ID that will never be written.
         session
             .enabled_component_ids(ComponentKind::Array)
             .into_iter()
