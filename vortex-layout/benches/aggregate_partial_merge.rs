@@ -50,8 +50,10 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_sess
 const ZONE_COUNT: usize = 8;
 /// Rows per zone. Accumulation is setup, not part of what is timed here.
 const ZONE_LEN: usize = 1024;
-/// [Default, cache-unfriendly] block counts, i.e. 8KiB and 256KiB of bloom partial per zone.
-const BLOCK_COUNTS: &[u32] = &[256, 8192];
+/// [Default, cache-unfriendly] block counts, i.e. 8KiB and 64KiB of bloom partial per zone.
+/// The large case is sized to stay under a millisecond once CodSpeed's instrumentation
+/// overhead is applied, while still pushing the merge's working set out of L1.
+const BLOCK_COUNTS: &[u32] = &[256, 2048];
 
 fn input_dtype() -> DType {
     DType::Primitive(PType::I64, Nullability::NonNullable)
