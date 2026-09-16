@@ -700,6 +700,7 @@ jobs:
           cmake -S lang/cpp -B build \
             -DCMAKE_BUILD_TYPE=Debug \
             -DCMAKE_LINKER_TYPE=MOLD \
+            -DVORTEX_CARGO_PROFILE=ci \
             -DBUILD_SHARED_LIBS=ON \
             -DCMAKE_C_COMPILER=clang \
             -DCMAKE_CXX_COMPILER=clang++ \
