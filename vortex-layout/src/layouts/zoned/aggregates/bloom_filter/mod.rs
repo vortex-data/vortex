@@ -312,16 +312,24 @@ impl AggregateFnVTable for BloomFilter {
         args: AggregateArgs<'_, Self::Options>,
         scalar: Scalar,
     ) -> VortexResult<Self::Partial> {
-        let mut partial = BloomPartial::from(args.options);
         if scalar.is_null() {
-            return Ok(partial);
+            return Ok(BloomPartial::from(args.options));
         }
 
         let bytes = scalar
             .as_binary()
             .value()
             .ok_or_else(|| vortex_err!("non-null bloom partial has no bytes"))?;
-        partial.merge(bytes)?;
+        let partial = BloomPartial::deserialize(bytes)?;
+
+        // `deserialize` validates the byte length, but it cannot know the options the filter was
+        // built with, so compare the block count here.
+        vortex_ensure_eq!(
+            partial.len(),
+            args.options.blocks_count().get() as usize,
+            "expected equal blocks count"
+        );
+
         Ok(partial)
     }
 
