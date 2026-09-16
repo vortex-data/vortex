@@ -46,14 +46,16 @@ fn main() {
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
-/// Zones merged per iteration. Kept small so the slowest case stays well under a millisecond.
-const ZONE_COUNT: usize = 8;
-/// Rows per zone. Accumulation is setup, not part of what is timed here.
-const ZONE_LEN: usize = 1024;
-/// [Default, cache-unfriendly] block counts, i.e. 8KiB and 64KiB of bloom partial per zone.
-/// The large case is sized to stay under a millisecond once CodSpeed's instrumentation
-/// overhead is applied, while still pushing the merge's working set out of L1.
-const BLOCK_COUNTS: &[u32] = &[256, 2048];
+/// Zones merged per iteration.
+const ZONE_COUNT: usize = 16;
+/// Rows per zone. Only affects how densely the filters are populated: merging is a bitwise OR
+/// over the whole partial, so its cost does not depend on the values, and accumulating them is
+/// setup rather than part of the measurement.
+const ZONE_LEN: usize = 4096;
+/// [Default, larger] block counts, i.e. 8KiB and 32KiB of bloom partial per zone.
+/// Merge cost scales with `ZONE_COUNT * blocks`, and the product is what has to stay under a
+/// millisecond once CodSpeed's instrumentation overhead is applied.
+const BLOCK_COUNTS: &[u32] = &[256, 1024];
 
 fn input_dtype() -> DType {
     DType::Primitive(PType::I64, Nullability::NonNullable)
