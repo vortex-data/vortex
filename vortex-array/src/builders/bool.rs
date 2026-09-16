@@ -11,6 +11,8 @@ use vortex_error::vortex_ensure_eq;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
+use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::arrays::bool::BoolArrayExt;
 use crate::builders::ArrayBuilder;
@@ -91,12 +93,12 @@ impl BoolBuilder {
 
     pub(crate) fn append_bool_array(
         &mut self,
-        array: &BoolArray,
+        array: ArrayView<'_, Bool>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         self.inner.append_buffer(&array.to_bit_buffer());
         self.nulls
-            .append_validity_mask(&BoolArrayExt::validity(array).execute_mask(array.len(), ctx)?);
+            .append_validity_mask(&BoolArrayExt::validity(&array).execute_mask(array.len(), ctx)?);
         Ok(())
     }
 }

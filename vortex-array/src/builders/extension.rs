@@ -10,6 +10,8 @@ use vortex_error::vortex_ensure_eq;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
+use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::builders::ArrayBuilder;
@@ -66,7 +68,7 @@ impl ExtensionBuilder {
     /// storage array to the underlying storage builder.
     pub(crate) fn append_extension_array(
         &mut self,
-        array: &ExtensionArray,
+        array: ArrayView<'_, Extension>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         self.storage.append_array(array.storage_array(), ctx)

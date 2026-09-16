@@ -14,6 +14,8 @@ use vortex_error::vortex_panic;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
+use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
 use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
@@ -159,7 +161,7 @@ impl DecimalBuilder {
     /// storage type to the builder's type as needed.
     pub(crate) fn append_decimal_array(
         &mut self,
-        array: &DecimalArray,
+        array: ArrayView<'_, Decimal>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         match_each_decimal_value_type!(array.values_type(), |D| {

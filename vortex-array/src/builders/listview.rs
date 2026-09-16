@@ -885,8 +885,8 @@ mod tests {
         let listview = builder.finish_into_listview();
         assert_eq!(listview.len(), N + 1);
         for i in 1..=N {
-            assert_eq!(listview.size_at(i), 0);
-            assert_eq!(listview.offset_at(i), 2);
+            assert_eq!(listview.size_at(i, &mut ctx), 0);
+            assert_eq!(listview.offset_at(i, &mut ctx), 2);
             assert_eq!(listview.validity()?.execute_is_valid(i, &mut ctx)?, !null);
         }
 
