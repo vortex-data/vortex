@@ -259,8 +259,9 @@ pub(crate) fn constant_uncompressed_size_in_bytes(
 
 fn constant_varbinview_value_size(len: usize, scalar_len: Option<usize>) -> VortexResult<u64> {
     let views_size = checked_len_mul(len, size_of::<BinaryView>(), "binary view")?;
+    // Only a value too long to inline adds a data buffer, matching `constant_canonicalize`.
     let data_size = match scalar_len {
-        Some(scalar_len) if scalar_len >= BinaryView::MAX_INLINED_SIZE => u64::try_from(scalar_len)
+        Some(scalar_len) if scalar_len > BinaryView::MAX_INLINED_SIZE => u64::try_from(scalar_len)
             .map_err(|e| vortex_err!("Failed to convert data buffer length to u64: {e}"))?,
         _ => 0,
     };
