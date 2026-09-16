@@ -49,17 +49,18 @@ jobs:
     strategy:
       matrix:
         include:
-          - { shard: 1, name: "Core foundation", packages: "vortex-buffer vortex-error vortex-mask vortex-compute vortex-file" }
-          - { shard: 2, name: "Arrays 1/3", packages: "vortex-array", features: "--features _test-harness", split: "1/3" }
-          - { shard: 3, name: "Arrays 2/3", packages: "vortex-array", features: "--features _test-harness", split: "2/3" }
-          - { shard: 4, name: "Arrays 3/3", packages: "vortex-array", features: "--features _test-harness", split: "3/3" }
-          - { shard: 5, name: "Main library", packages: "vortex" }
-          - { shard: 6, name: "Encodings 1 & storage formats", packages: "vortex-alp vortex-bytebool vortex-datetime-parts vortex-btrblocks vortex-row" }
-          - { shard: 7, name: "Encodings 2", packages: "vortex-decimal-byte-parts vortex-fastlanes", features: "--features _test-harness" }
-          - { shard: 8, name: "Encodings 3", packages: "vortex-pco vortex-runend vortex-sequence vortex-fsst", features: "--features vortex-fsst/_test-harness" }
-          - { shard: 9, name: "Encodings 4 & layout", packages: "vortex-sparse vortex-zigzag vortex-zstd vortex-layout" }
-          - { shard: 10, name: "Tensor & spatial", packages: "vortex-tensor vortex-spatial" }
-    name: "Benchmark with Codspeed (Shard #${{ matrix.shard }})"
+          # Distribute both compilation and simulation work across shards. Rebalance
+          # these groups as new benchmarks are added, using CI build and run durations.
+          - { shard: 1, name: "Array compute", packages: "vortex-array", array-group: "compute", features: "--features _test-harness" }
+          - { shard: 2, name: "Array selection", packages: "vortex-array", array-group: "selection", features: "--features _test-harness" }
+          - { shard: 3, name: "Array dictionaries", packages: "vortex-array", array-group: "dictionary", features: "--features _test-harness" }
+          - { shard: 4, name: "Array builders & views", packages: "vortex-array", array-group: "builders", features: "--features _test-harness" }
+          - { shard: 5, name: "Core & encodings", packages: "vortex-buffer vortex-error vortex-mask vortex-compute vortex-file vortex-alp vortex-bytebool vortex-datetime-parts" }
+          - { shard: 6, name: "Main library & storage", packages: "vortex vortex-btrblocks vortex-row" }
+          - { shard: 7, name: "FastLanes & decimals", packages: "vortex-decimal-byte-parts vortex-fastlanes", features: "--features _test-harness" }
+          - { shard: 8, name: "Encodings & layout", packages: "vortex-pco vortex-runend vortex-sequence vortex-sparse vortex-zigzag vortex-zstd vortex-layout" }
+          - { shard: 9, name: "Strings, tensor & spatial", packages: "vortex-fsst vortex-tensor vortex-spatial", features: "--features _test-harness" }
+    name: "Benchmark with Codspeed (Shard #${{ matrix.shard }} - ${{ matrix.name }})"
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
@@ -79,25 +80,31 @@ jobs:
         uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
         with:
           tool: cargo-codspeed
-      - name: Select bench shard
-        id: split
-        if: matrix.split
+      - name: Select array benchmarks
+        if: matrix.array-group
+        id: select
+        env:
+          ARRAY_GROUP: ${{ matrix.array-group }}
         run: |
           python3 - <<'EOF' >> "$GITHUB_OUTPUT"
-          import json, subprocess
+          import os, pathlib, tomllib
 
-          index, count = map(int, "${{ matrix.split }}".split("/"))
-          meta = json.loads(subprocess.check_output(
-              ["cargo", "metadata", "--no-deps", "--format-version", "1"]))
-          packages = set("${{ matrix.packages }}".split())
-          benches = sorted(
-              target["name"]
-              for package in meta["packages"]
-              if package["name"] in packages
-              for target in package["targets"]
-              if "bench" in target["kind"]
-          )
-          print("benches=" + " ".join(f"--bench {name}" for name in benches[index - 1::count]))
+          groups = {
+              "dictionary": ("dict_", "chunked_dict_", "patches_"),
+              "selection": ("take_", "filter_", "piecewise_sequence_"),
+              "compute": ("aggregate_", "cast_", "expr_", "binary_ops", "compare", "kleene_bool", "like", "list_sum"),
+          }
+          manifest = tomllib.loads(pathlib.Path("vortex-array/Cargo.toml").read_text())
+          benches = []
+          for bench in manifest["bench"]:
+              name = bench["name"]
+              # Unclassified and newly added targets stay covered by the builders shard.
+              group = next((group for group, prefixes in groups.items() if name.startswith(prefixes)), "builders")
+              if group == os.environ["ARRAY_GROUP"]:
+                  benches.append(name)
+          if not benches:
+              raise SystemExit("array shard has no benchmark targets")
+          print("benches=" + " ".join(f"--bench {name}" for name in benches))
           EOF
       - name: Build benchmarks
         env:
@@ -106,7 +113,7 @@ jobs:
           # skipped here. Untagged ones run as they always have, under bare names, so this
           # job's CodSpeed history is unaffected.
           VORTEX_BENCH_VARIANT: simulation
-        run: cargo codspeed build --locked ${{ matrix.features }} $(printf -- '-p %s ' ${{ matrix.packages }}) ${{ steps.split.outputs.benches }} --profile bench
+        run: cargo codspeed build --locked ${{ matrix.features }} $(printf -- '-p %s ' ${{ matrix.packages }}) ${{ steps.select.outputs.benches }} --profile bench
       - name: Run benchmarks
         uses: CodSpeedHQ/action@4296e51e7041e24dadb86d1d6e8b9320d223dbe8  # v5
         with:
@@ -114,18 +121,20 @@ jobs:
           token: ${{ secrets.CODSPEED_TOKEN }}
           mode: "simulation"
 
-  # Walltime on metal for benchmarks marked `#[cpu_features]`, one leg per feature set. A leg's `family` must implement the features it enables, which are enabled globally.
-  bench-codspeed-cpu-features:
+  # Compile on smaller VMs from the same CPU family as the measurement hosts. Globally
+  # enabled features also affect build scripts, so the build host must support them.
+  bench-codspeed-cpu-features-build:
     if: github.repository == 'vortex-data/vortex'
     strategy:
       fail-fast: false
-      matrix:
+      matrix: &cpu-feature-matrix
         include:
           # avx2 and avx512 share a family so the only difference between the two series is
           # the build flags, not the silicon. c7i.metal-24xl is the smaller of the two c7i
-          # metal sizes: current-generation Sapphire Rapids, and AVX-512 capable.
+          # metal sizes: Sapphire Rapids, and AVX-512 capable.
           - features: avx2
             family: c7i.metal-24xl
+            build-family: c7i.4xlarge
             image: ubuntu24-full-x64-pre-v2
             rustflags: "-C target-feature=+avx2 -C force-frame-pointers=yes"
           # Every AVX-512 extension Sapphire Rapids implements, not just the two the current
@@ -135,20 +144,21 @@ jobs:
           # a two-feature build is not what anything ships on.
           - features: avx512
             family: c7i.metal-24xl
+            build-family: c7i.4xlarge
             image: ubuntu24-full-x64-pre-v2
             rustflags: >-
               -C target-feature=+avx512f,+avx512bw,+avx512cd,+avx512dq,+avx512vl,+avx512ifma,+avx512vbmi,+avx512vbmi2,+avx512vnni,+avx512bitalg,+avx512vpopcntdq,+avx512bf16,+avx512fp16
               -C force-frame-pointers=yes
-          # Graviton3, the cheapest current-generation Arm metal. Graviton2 (c6g.metal) is
-          # cheaper still but predates SVE, so it cannot host a future SVE leg.
+          # Graviton3 supports SVE, so this family can also host a future SVE leg.
           - features: neon
             family: c7g.metal
+            build-family: c7g.4xlarge
             image: ubuntu24-full-arm64-pre-v2
             rustflags: "-C target-feature=+neon -C force-frame-pointers=yes"
-    name: "Benchmark with Codspeed (${{ matrix.features }})"
-    timeout-minutes: 60
+    name: "Build Codspeed CPU benchmarks (${{ matrix.features }})"
+    timeout-minutes: 30
     runs-on: >-
-      runs-on=${{ github.run_id }}/runner=bench-dedicated/family=${{ matrix.family }}/image=${{ matrix.image }}/extras=s3-cache/tag=bench-codspeed-cpu-features-${{ matrix.features }}
+      runs-on=${{ github.run_id }}/runner=bench-dedicated/family=${{ matrix.build-family }}/image=${{ matrix.image }}/extras=s3-cache/tag=bench-codspeed-cpu-features-build-${{ matrix.features }}
     steps:
       - uses: runs-on/action@v2
         with:
@@ -162,20 +172,18 @@ jobs:
         uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
         with:
           tool: cargo-codspeed
-      # Which packages to build is derived from the source rather than listed here, so a
-      # crate that adds an `#[cpu_features]` benchmark is picked up without editing this workflow.
-      # Building the whole workspace would do the same, but links every bench binary in it
-      # — with debuginfo, from the bench profile — to measure only the tagged ones.
-      - name: Select packages with tagged benchmarks
+      # Select individual targets: selecting packages also links their untagged binaries,
+      # including nearly all of vortex-array, even though this job never measures them.
+      - name: Select tagged benchmark targets
         id: select
         run: |
           python3 - <<'EOF' >> "$GITHUB_OUTPUT"
           import json, pathlib, subprocess
 
           meta = json.loads(subprocess.check_output(
-              ["cargo", "metadata", "--no-deps", "--format-version", "1"]))
+              ["cargo", "metadata", "--locked", "--no-deps", "--format-version", "1"]))
           tagged = sorted(
-              package["name"]
+              (package["name"], target["name"])
               for package in meta["packages"]
               for target in package["targets"]
               if "bench" in target["kind"]
@@ -183,7 +191,8 @@ jobs:
           )
           if not tagged:
               raise SystemExit("no benchmark carries `#[cpu_features]`; this job has nothing to measure")
-          print("packages=" + " ".join(f"-p {name}" for name in dict.fromkeys(tagged)))
+          print("packages=" + " ".join(f"-p {name}" for name in sorted({package for package, _ in tagged})))
+          print("benches=" + " ".join(f"--bench {name}" for name in sorted({bench for _, bench in tagged})))
           EOF
       - name: Build benchmarks
         env:
@@ -193,7 +202,48 @@ jobs:
           VORTEX_BENCH_SUFFIX: "_${{ matrix.features }}"
         run: |
           cargo codspeed build --locked -m walltime --profile bench \
-            ${{ steps.select.outputs.packages }}
+            ${{ steps.select.outputs.packages }} ${{ steps.select.outputs.benches }}
+      - name: Package benchmark executables
+        run: tar -C target -cf codspeed-cpu-benchmarks.tar codspeed
+      - name: Upload benchmark executables
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        with:
+          name: codspeed-cpu-benchmarks-${{ matrix.features }}
+          path: codspeed-cpu-benchmarks.tar
+          retention-days: 1
+          if-no-files-found: error
+
+  # Only measurements need metal. Reuse the build matrix to keep each artifact paired
+  # with the matching CPU family, image, and benchmark-name filter.
+  bench-codspeed-cpu-features:
+    if: github.repository == 'vortex-data/vortex'
+    needs: [bench-codspeed-cpu-features-build]
+    strategy:
+      fail-fast: false
+      matrix: *cpu-feature-matrix
+    name: "Benchmark with Codspeed (${{ matrix.features }})"
+    timeout-minutes: 30
+    runs-on: >-
+      runs-on=${{ github.run_id }}/runner=bench-dedicated/family=${{ matrix.family }}/image=${{ matrix.image }}/extras=s3-cache/tag=bench-codspeed-cpu-features-${{ matrix.features }}
+    steps:
+      # Initialise the RunsOn artifact proxy used by download-artifact.
+      - uses: runs-on/action@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: ./.github/actions/setup-prebuild
+      - uses: ./.github/actions/system-info
+      - name: Install Codspeed
+        uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
+        with:
+          tool: cargo-codspeed
+      - name: Download benchmark executables
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8
+        with:
+          name: codspeed-cpu-benchmarks-${{ matrix.features }}
+      # The tar archive preserves executable permissions lost by upload-artifact.
+      - name: Unpack benchmark executables
+        run: |
+          mkdir -p target
+          tar -C target -xf codspeed-cpu-benchmarks.tar
       # Pinning clocks and reserving CPUs only pays off for walltime measurements, so this
       # runs here but not in the simulation job. It must come after setup, which itself
       # spawns processes that would otherwise be pinned to the housekeeping CPUs.
@@ -210,11 +260,7 @@ jobs:
       - name: Run benchmarks
         uses: CodSpeedHQ/action@4296e51e7041e24dadb86d1d6e8b9320d223dbe8  # v5
         env:
-          # divan's default of 100 samples leaves these benchmarks too noisy to compare
-          # across runs: the same commit measured twice varied by up to 2.2x on the 1,024
-          # element cases and ~50-70% on the 65,536 element ones. At 1,000 samples the same
-          # experiment stays within ~6-10%, and the suite still runs in seconds, so the extra
-          # sampling is close to free next to the minute-plus spent building it.
+          # Use more samples to reduce noise between walltime runs.
           DIVAN_SAMPLE_COUNT: "1000"
         with:
           run: bash scripts/bench-taskset.sh cargo codspeed run -- '.*::${{ matrix.features }}::'
