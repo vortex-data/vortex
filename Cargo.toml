@@ -423,8 +423,14 @@ opt-level = "z"
 
 [profile.bench]
 codegen-units = 16
-debug = "full"
+# debug = full emits .debug_loc which Codspeed doesn't use.
+# debug = line-tables-only doesn't emit DW_TAG_inlined_subroutine which Codspeed uses.
+debug = "limited"
 lto = false
+
+# This rule only applies to dependencies that are not members of the workspace.
+[profile.bench.package."*"]
+debug = false
 
 [profile.samply]
 inherits = "release"

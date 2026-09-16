@@ -6,6 +6,11 @@ set -euo pipefail
 
 mkdir -p fuzz-binaries
 
+if [[ "$(uname -s)" == Linux ]]; then
+  # Use mold to handle long-range calls in the instrumented ARM64 binaries.
+  export RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=-fuse-ld=mold"
+fi
+
 cargo "+$NIGHTLY_TOOLCHAIN" fuzz build --release --debug-assertions
 
 copy_fuzzer() {
