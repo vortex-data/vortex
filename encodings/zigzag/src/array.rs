@@ -16,6 +16,7 @@ use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
+use vortex_array::ProbeState;
 use vortex_array::TypedArrayRef;
 use vortex_array::array_slots;
 use vortex_array::buffer::BufferHandle;
@@ -33,6 +34,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -233,12 +235,16 @@ impl Default for ZigZagData {
 impl OperationsVTable<ZigZag> for ZigZag {
     type ProbeState = ();
 
-    fn scalar_at(
-        array: ArrayView<'_, ZigZag>,
+    fn probe_scalar(
+        state: &mut ProbeState<'_, ZigZag>,
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let scalar = array.encoded().execute_scalar(index, ctx)?;
+        let array = state.array();
+        let scalar = state
+            .slot(ZigZagSlots::ENCODED)?
+            .ok_or_else(|| vortex_err!("ZigZag encoded slot is missing"))?
+            .execute_scalar(index, ctx)?;
         if scalar.is_null() {
             return scalar.primitive_reinterpret_cast(ZigZagArrayExt::ptype(&array));
         }
@@ -254,6 +260,14 @@ impl OperationsVTable<ZigZag> for ZigZag {
                 array.dtype().nullability(),
             )
         }))
+    }
+
+    fn scalar_at(
+        array: ArrayView<'_, ZigZag>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        Self::probe_scalar(&mut ProbeState::once(array), index, ctx)
     }
 }
 
