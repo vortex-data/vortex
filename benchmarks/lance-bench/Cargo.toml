@@ -4,7 +4,6 @@ description = "Lance benchmark tool"
 authors.workspace = true
 categories.workspace = true
 edition.workspace = true
-homepage.workspace = true
 include.workspace = true
 keywords.workspace = true
 license.workspace = true

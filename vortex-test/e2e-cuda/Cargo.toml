@@ -3,7 +3,6 @@ name = "vortex-test-e2e-cuda"
 authors = { workspace = true }
 description = "End-to-end CUDA tests for Vortex"
 edition = { workspace = true }
-homepage = { workspace = true }
 include = { workspace = true }
 keywords = { workspace = true }
 license = { workspace = true }

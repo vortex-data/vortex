@@ -1,10 +1,8 @@
 [package]
 name = "vortex-cuda-ffi"
 description = "Native C FFI bindings for Vortex CUDA interop"
-readme = "README.md"
 publish = false
 version = { workspace = true }
-homepage = { workspace = true }
 repository = { workspace = true }
 authors = { workspace = true }
 license = { workspace = true }

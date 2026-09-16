@@ -78,7 +78,6 @@ resolver = "3"
 authors = ["Vortex Authors <hello@vortex.dev>"]
 categories = ["database-implementations", "data-structures", "compression"]
 edition = "2024"
-homepage = "https://github.com/spiraldb/vortex"
 include = [
 
     "build.rs",
@@ -111,7 +110,6 @@ arrow-ipc = "59.2"
 arrow-row = "59.2"
 arrow-schema = "59.2"
 arrow-select = "59.2"
-arrow-string = "59.2"
 async-executor = "1.14.0"
 async-fs = "2.2.0"
 async-lock = "3.4"
@@ -231,7 +229,6 @@ rand = "0.10.1"
 rand_distr = "0.6"
 ratatui = { version = "0.30", default-features = false }
 regex = "1.12"
-regex-automata = "0.4"
 regex-syntax = "0.8.9"
 reqwest = { version = "0.13.0", features = [
     "blocking",
@@ -268,7 +265,6 @@ syn = { version = "3.0.2", features = ["full"] }
 sysinfo = "0.38.0"
 tabled = { version = "0.21.0", default-features = false }
 taffy = "0.12"
-take_mut = "0.2.2"
 tar = "0.4"
 target-lexicon = "0.13"
 temp-env = "0.3"

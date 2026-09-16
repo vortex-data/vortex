@@ -25,7 +25,7 @@ impl Gauge {
         loop {
             if self
                 .0
-                .fetch_update(Ordering::AcqRel, Ordering::Relaxed, |current| {
+                .try_update(Ordering::AcqRel, Ordering::Relaxed, |current| {
                     let input = f64::from_bits(current);
                     Some((input + value).to_bits())
                 })
@@ -41,7 +41,7 @@ impl Gauge {
         loop {
             if self
                 .0
-                .fetch_update(Ordering::AcqRel, Ordering::Relaxed, |current| {
+                .try_update(Ordering::AcqRel, Ordering::Relaxed, |current| {
                     let input = f64::from_bits(current);
                     Some((input - value).to_bits())
                 })

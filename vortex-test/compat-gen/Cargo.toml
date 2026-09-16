@@ -3,7 +3,6 @@ name = "vortex-compat"
 authors = { workspace = true }
 description = "Backward-compatibility fixture generation and checking for Vortex"
 edition = { workspace = true }
-homepage = { workspace = true }
 include = { workspace = true }
 keywords = { workspace = true }
 license = { workspace = true }
