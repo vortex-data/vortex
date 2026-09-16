@@ -98,7 +98,7 @@ impl VarBinViewArray {
 /// Read-only compaction statistics over a `VarBinView` array.
 ///
 /// These live on a trait rather than on [`VarBinViewArray`] so that a borrowed
-/// [`ArrayView`] can ask for them without cloning the array behind it.
+/// [`ArrayView`](crate::array::ArrayView) can ask for them without cloning the array behind it.
 pub(crate) trait VarBinViewCompactExt: TypedArrayRef<VarBinView> {
     /// Iterates over all valid, non-inlined views, calling the provided
     /// closure for each one.
