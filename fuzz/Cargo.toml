@@ -28,6 +28,7 @@ cuda = ["vortex-cuda", "tokio"]
 # Always needed - arbitrary is used for input generation
 arbitrary = { workspace = true }
 itertools = { workspace = true }
+num-traits = { workspace = true }
 strum = { workspace = true, features = ["derive"] }
 
 # Vortex core - no default features for WASM compatibility (files feature pulls in tokio)
@@ -54,6 +55,9 @@ vortex-cuda = { workspace = true, optional = true }
 
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
 
 [lints]
 workspace = true
