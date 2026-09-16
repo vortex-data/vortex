@@ -17,13 +17,14 @@ impl BloomPartial {
     /// all bits are `1`.
     #[inline]
     pub(in crate::layouts::zoned) fn is_saturated(&self) -> bool {
-        self.blocks.iter().all(|byte| *byte == [u32::MAX; 8])
+        self.blocks().iter().all(|split| *split == u32::MAX)
     }
 
     /// Merges a compatible partial into this one.
     ///
     /// The merge is a bitwise OR, which represents the union of two split-block
-    /// Bloom filters when they use the same block count.
+    /// Bloom filters when they use the same block count. `other` is only read, so a partial
+    /// parsed from a stored filter merges straight out of the scalar's bytes.
     ///
     /// _Notice_ This method only validates the block count.
     /// Merging a filter created with a different hash function
@@ -36,10 +37,8 @@ impl BloomPartial {
             "bloom partial block count mismatch"
         );
 
-        for (dst_block, src_block) in self.blocks.iter_mut().zip(&other.blocks) {
-            for (dst_split, src_split) in dst_block.iter_mut().zip(src_block) {
-                *dst_split |= *src_split;
-            }
+        for (dst_split, src_split) in self.blocks_mut().iter_mut().zip(other.blocks()) {
+            *dst_split |= *src_split;
         }
 
         Ok(())

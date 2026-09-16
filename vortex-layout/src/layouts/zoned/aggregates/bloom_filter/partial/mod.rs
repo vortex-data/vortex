@@ -17,6 +17,8 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 use twox_hash::XxHash3_64;
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexError;
 use vortex_error::vortex_err;
 
@@ -113,10 +115,28 @@ impl TryFrom<u32> for HashFn {
 /// assert_eq!(zone.contains(b"Japan"), false);
 /// assert_eq!(zone.contains(b"Brazil"), false);
 /// ```
-#[derive(PartialEq, Eq)]
 pub struct BloomPartial {
-    blocks: Vec<[u32; 8]>,
+    blocks: Blocks,
 }
+
+/// The filter's splits, `SPLITS_PER_BLOCK` per block.
+///
+/// A partial parsed from a stored filter is only ever read, as the second operand of a merge or
+/// by a membership query, so it keeps the scalar's own buffer and stays `Frozen`. The partial an
+/// accumulator writes into thaws on its first write and then stays `Thawed`, so an insert costs a
+/// slice write and nothing more.
+enum Blocks {
+    Frozen(Buffer<u32>),
+    Thawed(BufferMut<u32>),
+}
+
+impl PartialEq for BloomPartial {
+    fn eq(&self, other: &Self) -> bool {
+        self.blocks() == other.blocks()
+    }
+}
+
+impl Eq for BloomPartial {}
 
 impl BloomPartial {
     /// Returns the blocks len.
@@ -124,7 +144,32 @@ impl BloomPartial {
     /// Matches [BloomOptions::blocks_count]
     #[inline]
     pub(super) fn len(&self) -> usize {
-        self.blocks.len()
+        self.blocks().len() / SPLITS_PER_BLOCK
+    }
+
+    /// Every split of the filter, `SPLITS_PER_BLOCK` per block.
+    #[inline]
+    fn blocks(&self) -> &[u32] {
+        match &self.blocks {
+            Blocks::Frozen(splits) => splits.as_slice(),
+            Blocks::Thawed(splits) => splits.as_slice(),
+        }
+    }
+
+    /// The splits for writing, thawing a frozen partial first.
+    ///
+    /// Thawing is free when nothing else holds the buffer; a partial still sharing the scalar it
+    /// was parsed from copies once and never again.
+    #[inline]
+    fn blocks_mut(&mut self) -> &mut [u32] {
+        if let Blocks::Frozen(splits) = &mut self.blocks {
+            self.blocks = Blocks::Thawed(std::mem::take(splits).into_mut());
+        }
+        match &mut self.blocks {
+            Blocks::Thawed(splits) => splits.as_mut_slice(),
+            // Thawed just above; an empty slice keeps this total without a panic path.
+            Blocks::Frozen(_) => &mut [],
+        }
     }
 
     /// Inserts a value expressed in bytes into
@@ -179,24 +224,25 @@ impl BloomPartial {
     /// Adds a hash into a single block of the bloom filter.
     fn add_hash(&mut self, hash: u64) {
         // 1. Use the upper 32 bits from the hash value to select a block.
-        let block_idx = self.block_index(hash, self.blocks.len());
+        let block_idx = self.block_index(hash, self.len());
 
         // 2. Use the lower 32 bits to construct a mask.
         let mask = self.make_mask(self.lower_hash_bits(hash));
 
         // 3. Apply the mask to the block selected in step 1.
+        let block = &mut self.blocks_mut().as_chunks_mut::<SPLITS_PER_BLOCK>().0[block_idx];
         for i in 0..8 {
-            self.blocks[block_idx][i] |= mask[i];
+            block[i] |= mask[i];
         }
     }
 
     /// Checks whether a hash is (probably) present in the filter.
     fn find_hash(&self, hash: u64) -> bool {
-        let idx = self.block_index(hash, self.blocks.len());
+        let idx = self.block_index(hash, self.len());
         let mask = self.make_mask(self.lower_hash_bits(hash));
 
         let mut missing = 0u32;
-        let block = &self.blocks[idx];
+        let block = &self.blocks().as_chunks::<SPLITS_PER_BLOCK>().0[idx];
 
         // The original solution uses _mm256_testc_si256
         // checks if all the bits in mask are also set in *block. Scalar
@@ -245,7 +291,9 @@ impl From<&BloomOptions> for BloomPartial {
         // Matched exhaustively: a new hash function must revisit how partials are hashed.
         match options.hash_fn {
             HashFn::XxHash3_64 => Self {
-                blocks: vec![[0u32; 8]; options.blocks_count.get() as usize],
+                blocks: Blocks::Thawed(BufferMut::zeroed(
+                    options.blocks_count.get() as usize * SPLITS_PER_BLOCK,
+                )),
             },
         }
     }
@@ -314,8 +362,10 @@ mod tests {
             .flat_map(u32::to_le_bytes)
             .collect();
 
-        let bytes: Vec<u8> = bloom_filter.serialize();
-        assert_eq!(bytes, expected_bytes);
+        assert_eq!(
+            bloom_filter.serialize().as_slice(),
+            expected_bytes.as_slice()
+        );
     }
 
     // Similar to the goldenfile tests, but for hash functions.

@@ -165,8 +165,9 @@ impl Display for BloomOptions {
 ///
 /// ### Representation
 ///
-/// The internal state is represented as `blocks: Vec<[u32; 8]>`, with each block
-/// containing its eight splits/sections.
+/// The internal state is one buffer of `u32` splits, eight per block, so each block is a
+/// `[u32; 8]` holding its eight splits/sections. A filter parsed from a zone shares the zone's
+/// bytes rather than decoding them.
 ///
 /// An empty filter looks as follows:
 ///
@@ -303,7 +304,7 @@ impl AggregateFnVTable for BloomFilter {
         Ok(BloomPartial::from(args.options))
     }
 
-    /// Parses a serialized filter into a partial with the configured block count.
+    /// Wraps a stored filter as a partial with the configured block count, without a copy.
     ///
     /// A null scalar is an empty filter. `scalar` is assumed to have been created with the same
     /// hash function as `options`; nothing here checks that.
@@ -320,7 +321,7 @@ impl AggregateFnVTable for BloomFilter {
             .as_binary()
             .value()
             .ok_or_else(|| vortex_err!("non-null bloom partial has no bytes"))?;
-        let partial = BloomPartial::deserialize(bytes)?;
+        let partial = BloomPartial::deserialize(bytes.clone())?;
 
         // `deserialize` validates the byte length, but it cannot know the options the filter was
         // built with, so compare the block count here.
@@ -352,8 +353,10 @@ impl AggregateFnVTable for BloomFilter {
         _args: AggregateArgs<'_, Self::Options>,
         partial: &Self::Partial,
     ) -> VortexResult<Scalar> {
-        let bytes: Vec<u8> = partial.serialize();
-        Ok(Scalar::binary(bytes, Nullability::NonNullable))
+        Ok(Scalar::binary(
+            partial.serialize(),
+            Nullability::NonNullable,
+        ))
     }
 
     /// Returns true if all the blocks are full.
@@ -452,7 +455,7 @@ pub(in crate::layouts::zoned::aggregates::bloom_filter) mod test_utils {
             .value()
             .ok_or_else(|| vortex_err!("bloom state must be non-null"))?;
 
-        let bloom_filter = BloomPartial::deserialize(bytes.as_slice())?;
+        let bloom_filter = BloomPartial::deserialize(bytes.clone())?;
 
         Ok(bloom_filter)
     }

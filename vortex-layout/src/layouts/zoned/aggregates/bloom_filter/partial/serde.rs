@@ -8,70 +8,56 @@
 //! This is preferred over traits like `TryFrom<&[u8]>` on purpose,
 //! to avoid footguns.
 
+use vortex_buffer::Alignment;
+use vortex_buffer::Buffer;
+use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
 use super::BLOCK_SIZE;
-use super::BYTES_PER_SPLIT;
+use super::Blocks;
 use super::BloomPartial;
-use super::SPLITS_PER_BLOCK;
 
 impl BloomPartial {
     /// Deserialize a partial from its byte representation.
-    pub(in crate::layouts::zoned) fn deserialize(bytes: &[u8]) -> VortexResult<Self> {
+    ///
+    /// The bytes are the filter's splits as little-endian `u32`s, which is also how Vortex lays
+    /// out every primitive buffer, so nothing is decoded: the partial shares `bytes` when they are
+    /// aligned for `u32` and copies them once otherwise.
+    pub(in crate::layouts::zoned) fn deserialize(bytes: ByteBuffer) -> VortexResult<Self> {
         vortex_ensure!(
             !bytes.is_empty() && bytes.len().is_multiple_of(BLOCK_SIZE),
             "invalid bloom filter byte length: {}",
             bytes.len()
         );
-
-        // A block is `SPLITS_PER_BLOCK` splits wide by construction, so splitting one leaves no
-        // remainder and the decode cannot fail. That matters beyond the dead check it replaces:
-        // a fallible collect reserves nothing up front and grows the vector as it goes, while an
-        // infallible one takes the exact block count from the iterator and allocates once.
-        let blocks: Vec<[u32; SPLITS_PER_BLOCK]> = bytes
-            .as_chunks::<BLOCK_SIZE>()
-            .0
-            .iter()
-            .map(|chunk| {
-                let mut block = [0u32; SPLITS_PER_BLOCK];
-                for (split, split_bytes) in
-                    block.iter_mut().zip(chunk.as_chunks::<BYTES_PER_SPLIT>().0)
-                {
-                    *split = u32::from_le_bytes(*split_bytes);
-                }
-
-                block
-            })
-            .collect();
-
         vortex_ensure!(
-            !blocks.is_empty() && u32::try_from(blocks.len()).is_ok(),
+            u32::try_from(bytes.len() / BLOCK_SIZE).is_ok(),
             "bloom blocks length must be non-zero and lower than u32::MAX",
         );
 
-        Ok(BloomPartial { blocks })
+        let splits = Buffer::<u32>::from_byte_buffer(bytes.aligned(Alignment::of::<u32>()));
+        Ok(BloomPartial {
+            blocks: Blocks::Frozen(splits),
+        })
     }
 
-    /// Serialize partial filter into its bytes format (little endian)
-    /// to store into a layout zone. Basically it flattens out the blocks
-    /// structure from `Vec<[u32; 8]> -> Vec<[u8]>`
-    pub(in crate::layouts::zoned) fn serialize(&self) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(self.len() * BLOCK_SIZE);
-        bytes.extend(
-            self.blocks
-                .iter()
-                .flatten()
-                .flat_map(|block| block.to_le_bytes()),
-        );
-
-        bytes
+    /// Serialize the filter into the bytes a layout zone stores: its splits as little-endian
+    /// `u32`s.
+    ///
+    /// A frozen partial hands back the buffer it was parsed from; a thawed one is copied.
+    pub(in crate::layouts::zoned) fn serialize(&self) -> ByteBuffer {
+        match &self.blocks {
+            Blocks::Frozen(splits) => splits.clone().into_byte_buffer(),
+            Blocks::Thawed(splits) => Buffer::copy_from(splits.as_slice()).into_byte_buffer(),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use vortex_array::dtype::ToBytes;
+    use vortex_buffer::Alignment;
+    use vortex_buffer::ByteBuffer;
 
     use crate::layouts::zoned::aggregates::bloom_filter::BloomOptions;
     use crate::layouts::zoned::aggregates::bloom_filter::BloomPartial;
@@ -82,7 +68,7 @@ mod tests {
         bloom_filter.insert(32.to_le_bytes());
 
         let bytes = bloom_filter.serialize();
-        let valid_filter = BloomPartial::deserialize(bytes.as_slice()).unwrap();
+        let valid_filter = BloomPartial::deserialize(bytes).unwrap();
 
         assert!(
             valid_filter.contains(32.to_le_bytes()),
@@ -100,16 +86,47 @@ mod tests {
         let mut bloom_filter = BloomPartial::from(&BloomOptions::default());
         bloom_filter.insert(32.to_le_bytes());
 
-        let mut bytes: Vec<u8> = bloom_filter.serialize();
+        let mut bytes = bloom_filter.serialize().as_slice().to_vec();
         bytes.pop();
-        let invalid_filter = BloomPartial::deserialize(bytes.as_slice());
+        let invalid_filter = BloomPartial::deserialize(ByteBuffer::from(bytes));
 
         assert!(invalid_filter.is_err(), "expect filter to be invalid");
 
-        let mut bytes: Vec<u8> = bloom_filter.serialize();
+        let mut bytes = bloom_filter.serialize().as_slice().to_vec();
         bytes.push(0u8);
-        let invalid_filter = BloomPartial::deserialize(bytes.as_slice());
+        let invalid_filter = BloomPartial::deserialize(ByteBuffer::from(bytes));
 
         assert!(invalid_filter.is_err(), "expect filter to be invalid");
+    }
+
+    /// Merging a stored filter must not decode it: the partial reads the zone's own bytes.
+    #[test]
+    fn deserialize_shares_aligned_bytes() {
+        let mut bloom_filter = BloomPartial::from(&BloomOptions::default());
+        bloom_filter.insert(32.to_le_bytes());
+
+        let bytes = bloom_filter.serialize().aligned(Alignment::of::<u32>());
+        let parsed = BloomPartial::deserialize(bytes.clone()).unwrap();
+
+        assert_eq!(parsed.blocks().as_ptr().cast::<u8>(), bytes.as_ptr());
+        assert!(parsed.contains(32.to_le_bytes()));
+    }
+
+    /// Bytes that are not aligned for `u32` are copied into alignment rather than rejected.
+    #[test]
+    fn deserialize_copies_unaligned_bytes() {
+        let mut bloom_filter = BloomPartial::from(&BloomOptions::default());
+        bloom_filter.insert(32.to_le_bytes());
+
+        let mut padded = vec![0u8];
+        padded.extend_from_slice(bloom_filter.serialize().as_slice());
+        let unaligned = ByteBuffer::from(padded).slice(1..);
+        let parsed = BloomPartial::deserialize(unaligned).unwrap();
+
+        assert!(
+            parsed == bloom_filter,
+            "a copied filter must equal its source"
+        );
+        assert!(parsed.contains(32.to_le_bytes()));
     }
 }
