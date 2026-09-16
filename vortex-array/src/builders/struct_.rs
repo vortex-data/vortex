@@ -13,6 +13,8 @@ use vortex_error::vortex_panic;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
+use crate::arrays::Struct;
 use crate::arrays::StructArray;
 use crate::arrays::struct_::StructArrayExt;
 use crate::builders::ArrayBuilder;
@@ -153,7 +155,7 @@ impl StructBuilder {
     /// field's builder.
     pub(crate) fn append_struct_array(
         &mut self,
-        array: &StructArray,
+        array: ArrayView<'_, Struct>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         for (field, builder) in array

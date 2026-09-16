@@ -483,7 +483,7 @@ mod tests {
         assert_eq!(list.len(), N + 1);
         let listview = list.into_array().execute::<ListViewArray>(&mut ctx)?;
         for i in 1..=N {
-            assert_eq!(listview.size_at(i), 0);
+            assert_eq!(listview.size_at(i, &mut ctx), 0);
             assert_eq!(listview.validity()?.execute_is_valid(i, &mut ctx)?, !null,);
         }
 

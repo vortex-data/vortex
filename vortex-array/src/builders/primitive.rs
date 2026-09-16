@@ -14,6 +14,8 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
@@ -159,7 +161,7 @@ impl<T: NativePType> PrimitiveBuilder<T> {
 
     pub(crate) fn append_primitive_array(
         &mut self,
-        array: &PrimitiveArray,
+        array: ArrayView<'_, Primitive>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         debug_assert_eq!(
