@@ -92,7 +92,7 @@ name = "bloom_filter"
 harness = false
 
 [[bench]]
-name = "aggregate_partial_roundtrip"
+name = "aggregate_partial_merge"
 harness = false
 
 [lints]

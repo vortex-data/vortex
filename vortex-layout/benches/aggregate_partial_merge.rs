@@ -1,14 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Microbenchmarks for round-tripping aggregate partials, the way a zoned writer does.
+//! Microbenchmarks for reading stored aggregate partials back and merging them.
 //!
-//! The writer accumulates one partial per zone and converts each to a scalar
-//! (`partial_scalar`), and those scalars are later folded back into a single accumulator
-//! (`combine_partials`). Both halves are timed separately, plus the whole round-trip, over
-//! two partial shapes: a bloom filter, whose partial is a byte blob that grows with the
-//! filter size, and `SumV2`, whose partial is a small `{sum, is_overflow, is_empty}` struct
-//! so the cost is dispatch and `Scalar` handling.
+//! A zoned layout stores one partial scalar per zone. Folding those back into a single
+//! accumulator is `combine_partials`, which both reads the partial out of its scalar
+//! representation and merges it into the accumulator's state. That is what is timed here,
+//! over two partial shapes: a bloom filter, whose partial is a byte blob that grows with
+//! the filter size, and `SumV2`, whose partial is a small
+//! `{sum, is_overflow, is_empty}` struct.
+//!
+//! Building the partials and converting them to scalars is setup, not part of the
+//! measurement.
 
 #![expect(clippy::expect_used)]
 
@@ -43,9 +46,9 @@ fn main() {
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
-/// Zones merged per round-trip.
+/// Zones merged per iteration.
 const ZONE_COUNT: usize = 16;
-/// Rows per zone. Accumulation itself is setup, not part of what is timed here.
+/// Rows per zone. Accumulation is setup, not part of what is timed here.
 const ZONE_LEN: usize = 4096;
 /// [Default, cache-unfriendly] block counts, i.e. 8KiB and 256KiB of bloom partial per zone.
 const BLOCK_COUNTS: &[u32] = &[256, 8192];
@@ -80,8 +83,8 @@ fn sum_v2_accumulator() -> AccumulatorRef {
     )
 }
 
-/// One accumulator per zone, each holding that zone's partial, as the writer leaves them.
-fn zone_partials(new_accumulator: impl Fn() -> AccumulatorRef) -> Vec<AccumulatorRef> {
+/// The stored partial scalar for each zone, as a zoned layout holds them.
+fn zone_partial_scalars(new_accumulator: impl Fn() -> AccumulatorRef) -> Vec<Scalar> {
     let mut ctx = SESSION.create_execution_ctx();
     (0..ZONE_COUNT)
         .map(|zone| {
@@ -89,15 +92,8 @@ fn zone_partials(new_accumulator: impl Fn() -> AccumulatorRef) -> Vec<Accumulato
             accumulator
                 .accumulate(&zone_array(zone), &mut ctx)
                 .expect("accumulate zone");
-            accumulator
+            accumulator.partial_scalar().expect("partial scalar")
         })
-        .collect()
-}
-
-fn to_scalars(partials: &[AccumulatorRef]) -> Vec<Scalar> {
-    partials
-        .iter()
-        .map(|partial| partial.partial_scalar().expect("partial scalar"))
         .collect()
 }
 
@@ -110,17 +106,8 @@ fn merge_all(merged: &mut AccumulatorRef, scalars: &[Scalar]) {
 }
 
 #[divan::bench(args = BLOCK_COUNTS)]
-fn bloom_to_scalar(bencher: Bencher, block_count: u32) {
-    let partials = zone_partials(|| bloom_accumulator(block_count));
-
-    bencher
-        .counter(ItemsCount::new(ZONE_COUNT))
-        .bench_local(|| to_scalars(&partials));
-}
-
-#[divan::bench(args = BLOCK_COUNTS)]
-fn bloom_merge_partials(bencher: Bencher, block_count: u32) {
-    let scalars = to_scalars(&zone_partials(|| bloom_accumulator(block_count)));
+fn bloom(bencher: Bencher, block_count: u32) {
+    let scalars = zone_partial_scalars(|| bloom_accumulator(block_count));
 
     bencher
         .counter(ItemsCount::new(ZONE_COUNT))
@@ -128,41 +115,12 @@ fn bloom_merge_partials(bencher: Bencher, block_count: u32) {
         .bench_local_refs(|merged| merge_all(merged, &scalars));
 }
 
-#[divan::bench(args = BLOCK_COUNTS)]
-fn bloom_roundtrip(bencher: Bencher, block_count: u32) {
-    let partials = zone_partials(|| bloom_accumulator(block_count));
-
-    bencher
-        .counter(ItemsCount::new(ZONE_COUNT))
-        .with_inputs(|| bloom_accumulator(block_count))
-        .bench_local_refs(|merged| merge_all(merged, &to_scalars(&partials)));
-}
-
 #[divan::bench]
-fn sum_v2_to_scalar(bencher: Bencher) {
-    let partials = zone_partials(sum_v2_accumulator);
-
-    bencher
-        .counter(ItemsCount::new(ZONE_COUNT))
-        .bench_local(|| to_scalars(&partials));
-}
-
-#[divan::bench]
-fn sum_v2_merge_partials(bencher: Bencher) {
-    let scalars = to_scalars(&zone_partials(sum_v2_accumulator));
+fn sum_v2(bencher: Bencher) {
+    let scalars = zone_partial_scalars(sum_v2_accumulator);
 
     bencher
         .counter(ItemsCount::new(ZONE_COUNT))
         .with_inputs(sum_v2_accumulator)
         .bench_local_refs(|merged| merge_all(merged, &scalars));
-}
-
-#[divan::bench]
-fn sum_v2_roundtrip(bencher: Bencher) {
-    let partials = zone_partials(sum_v2_accumulator);
-
-    bencher
-        .counter(ItemsCount::new(ZONE_COUNT))
-        .with_inputs(sum_v2_accumulator)
-        .bench_local_refs(|merged| merge_all(merged, &to_scalars(&partials)));
 }
