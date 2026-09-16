@@ -101,7 +101,7 @@ jobs:
           EOF
       - name: Build benchmarks
         env:
-          RUSTFLAGS: "-C target-feature=+avx2"
+          RUSTFLAGS: "-C target-feature=+avx2 -C force-frame-pointers=yes -C link-arg=-fuse-ld=mold"
           # Benchmarks carrying `#[cpu_features]` belong to a walltime leg below and are
           # skipped here. Untagged ones run as they always have, under bare names, so this
           # job's CodSpeed history is unaffected.
@@ -127,7 +127,7 @@ jobs:
           - features: avx2
             family: c7i.metal-24xl
             image: ubuntu24-full-x64-pre-v2
-            rustflags: "-C target-feature=+avx2"
+            rustflags: "-C target-feature=+avx2 -C force-frame-pointers=yes"
           # Every AVX-512 extension Sapphire Rapids implements, not just the two the current
           # `cfg(target_feature)` gates test for. Those gates decide which kernel the code
           # under test selects, but the rest of the build — anything the compiler
@@ -138,12 +138,13 @@ jobs:
             image: ubuntu24-full-x64-pre-v2
             rustflags: >-
               -C target-feature=+avx512f,+avx512bw,+avx512cd,+avx512dq,+avx512vl,+avx512ifma,+avx512vbmi,+avx512vbmi2,+avx512vnni,+avx512bitalg,+avx512vpopcntdq,+avx512bf16,+avx512fp16
+              -C force-frame-pointers=yes
           # Graviton3, the cheapest current-generation Arm metal. Graviton2 (c6g.metal) is
           # cheaper still but predates SVE, so it cannot host a future SVE leg.
           - features: neon
             family: c7g.metal
             image: ubuntu24-full-arm64-pre-v2
-            rustflags: "-C target-feature=+neon"
+            rustflags: "-C target-feature=+neon -C force-frame-pointers=yes"
     name: "Benchmark with Codspeed (${{ matrix.features }})"
     timeout-minutes: 60
     runs-on: >-
