@@ -394,19 +394,20 @@ fn new_array_context(session: &VortexSession, enforce_editions: bool) -> ArrayCo
     //
     // The seeded IDs are also what the writer may emit: callers read them back with
     // `ArrayContext::to_ids` to restrict compression to the same set.
-    let arrays = session.arrays();
+    let registered: HashSet<ArrayId> = session
+        .arrays()
+        .registry()
+        .read(|registry| registry.keys().copied().collect());
     let serialized_ids: Vec<ArrayId> = if enforce_editions {
         // An edition may enable an encoding whose plugin is not registered on this session.
         // Nothing could serialize it, so it is neither seeded nor offered to the compressor.
         session
             .enabled_component_ids(ComponentKind::Array)
             .into_iter()
-            .filter(|id| arrays.registry().get(id).is_some())
+            .filter(|id| registered.contains(id))
             .collect()
     } else {
-        arrays
-            .registry()
-            .read(|registry| registry.keys().copied().collect())
+        registered.into_iter().collect()
     };
     let array_ctx = ArrayContext::new(serialized_ids.iter().copied().sorted().collect());
     if enforce_editions {
