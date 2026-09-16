@@ -470,12 +470,11 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ArrayBuilder for ListViewBuil
 
         // Since we consider the "zero" element of a list an empty list, we simply update the
         // `offsets` and `sizes` metadata to add an empty list.
-        for _ in 0..n {
-            self.offsets_builder.append_value(
-                O::from_usize(curr_offset).vortex_expect("Failed to convert from usize to `O`"),
-            );
-            self.sizes_builder.append_value(S::zero());
-        }
+        self.offsets_builder.append_n_values(
+            O::from_usize(curr_offset).vortex_expect("Failed to convert from usize to `O`"),
+            n,
+        );
+        self.sizes_builder.append_n_values(S::zero(), n);
 
         self.nulls.append_n_non_nulls(n);
     }
@@ -488,12 +487,11 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ArrayBuilder for ListViewBuil
         let curr_offset = self.elements_builder.len();
 
         // A null list can have any representation, but we choose to use the zero representation.
-        for _ in 0..n {
-            self.offsets_builder.append_value(
-                O::from_usize(curr_offset).vortex_expect("Failed to convert from usize to `O`"),
-            );
-            self.sizes_builder.append_value(S::zero());
-        }
+        self.offsets_builder.append_n_values(
+            O::from_usize(curr_offset).vortex_expect("Failed to convert from usize to `O`"),
+            n,
+        );
+        self.sizes_builder.append_n_values(S::zero(), n);
 
         // This is the only difference from `append_zeros`.
         self.nulls.append_n_nulls(n);
@@ -508,6 +506,11 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ArrayBuilder for ListViewBuil
 
         let list_scalar = scalar.as_list();
         self.append_value(list_scalar)
+    }
+
+    fn reserve_chunks(&mut self, additional: usize) {
+        self.elements_builder.reserve_chunks(additional);
+        self.nulls.reserve_runs(additional);
     }
 
     fn reserve_exact(&mut self, capacity: usize) {
@@ -653,6 +656,7 @@ mod tests {
     use std::sync::Arc;
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex_buffer::BufferAllocatorRef;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
@@ -850,6 +854,43 @@ mod tests {
                 &mut ctx
             );
         }
+    }
+
+    /// Empty lists are appended in bulk rather than one offset/size pair at a time, so a large
+    /// `n` has to land exactly as a per-row loop would: `n` empty lists, all sharing the current
+    /// end of `elements`, with validity taken from which method was called.
+    #[rstest]
+    #[case::zeros(false)]
+    #[case::nulls(true)]
+    fn test_bulk_empty_lists(#[case] null: bool) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let dtype: Arc<DType> = Arc::new(I32.into());
+        let mut builder = ListViewBuilder::<u32, u32>::with_capacity_in(
+            Arc::clone(&dtype),
+            Nullable,
+            0,
+            BufferAllocatorRef::static_ref(),
+        );
+
+        // Put something in `elements` first, so the empty lists have a non-zero offset to share.
+        builder.append_array_as_list(&buffer![1i32, 2].into_array(), &mut ctx)?;
+
+        const N: usize = 5;
+        if null {
+            builder.append_nulls(N);
+        } else {
+            builder.append_zeros(N);
+        }
+
+        let listview = builder.finish_into_listview();
+        assert_eq!(listview.len(), N + 1);
+        for i in 1..=N {
+            assert_eq!(listview.size_at(i), 0);
+            assert_eq!(listview.offset_at(i), 2);
+            assert_eq!(listview.validity()?.execute_is_valid(i, &mut ctx)?, !null);
+        }
+
+        Ok(())
     }
 
     #[test]

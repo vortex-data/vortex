@@ -172,6 +172,17 @@ pub trait ArrayBuilder: Send {
     /// Allocate space for extra `additional` items
     fn reserve_exact(&mut self, additional: usize);
 
+    /// Reserves room for `additional` more appended arrays.
+    ///
+    /// A nested builder keeps an appended array as a chunk of its child rather than copying its
+    /// values, so a caller that is about to append many arrays in a row - canonicalizing a
+    /// [`ChunkedArray`](crate::arrays::ChunkedArray), say - can say how many are coming and spare
+    /// the chunk lists their incremental growth. Builders without children have no chunk list and
+    /// ignore this.
+    fn reserve_chunks(&mut self, additional: usize) {
+        let _ = additional;
+    }
+
     /// Constructs an Array from the builder components.
     ///
     /// The returned array is canonical at the top level only; its children keep whatever encoding

@@ -211,6 +211,13 @@ impl ArrayBuilder for StructBuilder {
         self.append_value(scalar.as_struct())
     }
 
+    fn reserve_chunks(&mut self, additional: usize) {
+        self.builders.iter_mut().for_each(|builder| {
+            builder.reserve_chunks(additional);
+        });
+        self.nulls.reserve_runs(additional);
+    }
+
     fn reserve_exact(&mut self, capacity: usize) {
         self.builders.iter_mut().for_each(|builder| {
             builder.reserve_exact(capacity);

@@ -127,6 +127,10 @@ impl ArrayBuilder for ExtensionBuilder {
         self.append_value(scalar.as_extension())
     }
 
+    fn reserve_chunks(&mut self, additional: usize) {
+        self.storage.reserve_chunks(additional)
+    }
+
     fn reserve_exact(&mut self, capacity: usize) {
         self.storage.reserve_exact(capacity)
     }
