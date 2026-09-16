@@ -394,11 +394,17 @@ fn new_array_context(session: &VortexSession, enforce_editions: bool) -> ArrayCo
     //
     // The seeded IDs are also what the writer may emit: callers read them back with
     // `ArrayContext::to_ids` to restrict compression to the same set.
+    let arrays = session.arrays();
     let serialized_ids: Vec<ArrayId> = if enforce_editions {
-        session.enabled_component_ids(ComponentKind::Array)
-    } else {
+        // An edition may enable an encoding whose plugin is not registered on this session.
+        // Nothing could serialize it, so it is neither seeded nor offered to the compressor.
         session
-            .arrays()
+            .enabled_component_ids(ComponentKind::Array)
+            .into_iter()
+            .filter(|id| arrays.registry().get(id).is_some())
+            .collect()
+    } else {
+        arrays
             .registry()
             .read(|registry| registry.keys().copied().collect())
     };
@@ -764,6 +770,7 @@ mod tests {
     use vortex_edition::EditionMember;
     use vortex_edition::EditionSession;
     use vortex_edition::EditionSessionExt;
+    use vortex_session::registry::CachedId;
 
     use super::*;
 
@@ -785,6 +792,33 @@ mod tests {
         let ctx = new_array_context(&session, true);
         assert_eq!(ctx.to_ids(), [Primitive.id()]);
         assert!(ctx.intern(&Bool.id()).is_none());
+        Ok(())
+    }
+
+    /// An edition may enable an encoding whose plugin is not registered on the session. Nothing
+    /// could serialize it, so it is neither seeded into the table nor offered to the compressor.
+    #[test]
+    fn array_context_skips_enabled_but_unregistered_encodings() -> VortexResult<()> {
+        const EDITION: EditionId = EditionId::new("test", 2026, 9, 0);
+        static DECLARATION: EditionDeclaration = EditionDeclaration {
+            edition: Edition {
+                id: EDITION,
+                min_library_version: None,
+            },
+            added: &[
+                EditionMember::array(&"vortex.primitive"),
+                EditionMember::array(&"vortex.alp"),
+            ],
+        };
+
+        let session = array_session().with::<EditionSession>();
+        session.register_edition(&DECLARATION)?;
+        session.enable_edition(EDITION)?;
+
+        let ctx = new_array_context(&session, true);
+        assert_eq!(ctx.to_ids(), [Primitive.id()]);
+        static ALP: CachedId = CachedId::new("vortex.alp");
+        assert!(ctx.intern(&ALP).is_none());
         Ok(())
     }
 
