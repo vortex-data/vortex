@@ -4,11 +4,9 @@ authors = { workspace = true }
 categories = { workspace = true }
 description = "Vortex file readers and writers"
 edition = { workspace = true }
-homepage = { workspace = true }
 include = { workspace = true }
 keywords = { workspace = true }
 license = { workspace = true }
-readme = "README.md"
 repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
