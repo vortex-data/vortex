@@ -7,8 +7,8 @@
 //! (`partial_scalar`), and those scalars are later folded back into a single accumulator
 //! (`combine_partials`). Both halves are timed separately, plus the whole round-trip, over
 //! two partial shapes: a bloom filter, whose partial is a byte blob that grows with the
-//! filter size, and `Sum`, whose partial is a single value so the cost is dispatch and
-//! `Scalar` handling.
+//! filter size, and `SumV2`, whose partial is a small `{sum, is_overflow, is_empty}` struct
+//! so the cost is dispatch and `Scalar` handling.
 
 #![expect(clippy::expect_used)]
 
@@ -23,7 +23,7 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::Accumulator;
 use vortex_array::aggregate_fn::AccumulatorRef;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
-use vortex_array::aggregate_fn::fns::sum::Sum;
+use vortex_array::aggregate_fn::fns::sum_v2::SumV2;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -73,10 +73,10 @@ fn bloom_accumulator(block_count: u32) -> AccumulatorRef {
     )
 }
 
-fn sum_accumulator() -> AccumulatorRef {
+fn sum_v2_accumulator() -> AccumulatorRef {
     Box::new(
-        Accumulator::try_new(Sum, NumericalAggregateOpts::default(), input_dtype())
-            .expect("sum accepts i64 input"),
+        Accumulator::try_new(SumV2, NumericalAggregateOpts::default(), input_dtype())
+            .expect("sum_v2 accepts i64 input"),
     )
 }
 
@@ -139,8 +139,8 @@ fn bloom_roundtrip(bencher: Bencher, block_count: u32) {
 }
 
 #[divan::bench]
-fn sum_to_scalar(bencher: Bencher) {
-    let partials = zone_partials(sum_accumulator);
+fn sum_v2_to_scalar(bencher: Bencher) {
+    let partials = zone_partials(sum_v2_accumulator);
 
     bencher
         .counter(ItemsCount::new(ZONE_COUNT))
@@ -148,21 +148,21 @@ fn sum_to_scalar(bencher: Bencher) {
 }
 
 #[divan::bench]
-fn sum_merge_partials(bencher: Bencher) {
-    let scalars = to_scalars(&zone_partials(sum_accumulator));
+fn sum_v2_merge_partials(bencher: Bencher) {
+    let scalars = to_scalars(&zone_partials(sum_v2_accumulator));
 
     bencher
         .counter(ItemsCount::new(ZONE_COUNT))
-        .with_inputs(sum_accumulator)
+        .with_inputs(sum_v2_accumulator)
         .bench_local_refs(|merged| merge_all(merged, &scalars));
 }
 
 #[divan::bench]
-fn sum_roundtrip(bencher: Bencher) {
-    let partials = zone_partials(sum_accumulator);
+fn sum_v2_roundtrip(bencher: Bencher) {
+    let partials = zone_partials(sum_v2_accumulator);
 
     bencher
         .counter(ItemsCount::new(ZONE_COUNT))
-        .with_inputs(sum_accumulator)
+        .with_inputs(sum_v2_accumulator)
         .bench_local_refs(|merged| merge_all(merged, &to_scalars(&partials)));
 }
