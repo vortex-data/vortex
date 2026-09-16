@@ -371,7 +371,6 @@ mod tests {
 
     /// The debug assertion has to run before the empty check, so that a mismatched array is caught
     /// whether or not it would have become a chunk.
-    #[cfg(debug_assertions)]
     #[rstest]
     #[case::empty(0)]
     #[case::non_empty(CHUNK_LEN)]
