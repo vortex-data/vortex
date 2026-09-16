@@ -31,7 +31,7 @@ impl Scheme for ZstdScheme {
         canonical.dtype().is_utf8()
     }
 
-    fn produced_encodings(&self) -> Vec<ArrayId> {
+    fn produced_serialized_ids(&self) -> Vec<ArrayId> {
         vec![vortex_zstd::Zstd.id()]
     }
 

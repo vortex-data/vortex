@@ -49,7 +49,7 @@ impl Scheme for IntDictScheme {
         canonical.dtype().is_int()
     }
 
-    fn produced_encodings(&self) -> Vec<ArrayId> {
+    fn produced_serialized_ids(&self) -> Vec<ArrayId> {
         vec![Dict.id()]
     }
 

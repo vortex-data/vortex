@@ -42,7 +42,7 @@ impl Scheme for ALPScheme {
         canonical.dtype().is_float()
     }
 
-    fn produced_encodings(&self) -> Vec<ArrayId> {
+    fn produced_serialized_ids(&self) -> Vec<ArrayId> {
         let mut encodings = vec![ALP.id()];
         if use_experimental_patches() {
             encodings.push(Patched.id());
