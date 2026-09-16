@@ -49,8 +49,8 @@ jobs:
     strategy:
       matrix:
         include:
-          # Split the 50 array binaries as well as their simulation work. These groups
-          # sum to 43–61s each in run 35033391430, versus 197s for all arrays together.
+          # Distribute both compilation and simulation work across shards. Rebalance
+          # these groups as new benchmarks are added, using CI build and run durations.
           - { shard: 1, name: "Array compute", packages: "vortex-array", array-group: "compute", features: "--features _test-harness" }
           - { shard: 2, name: "Array selection", packages: "vortex-array", array-group: "selection", features: "--features _test-harness" }
           - { shard: 3, name: "Array dictionaries", packages: "vortex-array", array-group: "dictionary", features: "--features _test-harness" }
@@ -260,11 +260,7 @@ jobs:
       - name: Run benchmarks
         uses: CodSpeedHQ/action@4296e51e7041e24dadb86d1d6e8b9320d223dbe8  # v5
         env:
-          # divan's default of 100 samples leaves these benchmarks too noisy to compare
-          # across runs: the same commit measured twice varied by up to 2.2x on the 1,024
-          # element cases and ~50-70% on the 65,536 element ones. At 1,000 samples the same
-          # experiment stays within ~6-10%, and the suite still runs in seconds, so the extra
-          # sampling adds little to the measurement job.
+          # Use more samples to reduce noise between walltime runs.
           DIVAN_SAMPLE_COUNT: "1000"
         with:
           run: bash scripts/bench-taskset.sh cargo codspeed run -- '.*::${{ matrix.features }}::'
