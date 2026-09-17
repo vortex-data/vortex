@@ -10,7 +10,7 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 use futures::stream;
-use vortex_buffer::BufferMut;
+use vortex_buffer::{Buffer, BufferMut};
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -134,13 +134,14 @@ impl ChunkedData {
     }
 
     pub(super) fn make_chunk_offsets_array(chunk_offsets: &[usize]) -> ArrayRef {
-        let mut chunk_offsets_buf = BufferMut::<u64>::with_capacity(chunk_offsets.len());
-        for &offset in chunk_offsets {
-            let offset = u64::try_from(offset)
-                .vortex_expect("chunk offset must fit in u64 for serialization");
-            unsafe { chunk_offsets_buf.push_unchecked(offset) }
-        }
-        PrimitiveArray::new(chunk_offsets_buf.freeze(), Validity::NonNullable).into_array()
+        let chunk_offsets_buf =
+            Buffer::from_trusted_len_iter(chunk_offsets.iter().copied().map(|offset| {
+                u64::try_from(offset)
+                    .vortex_expect("chunk offset must fit in u64 for serialization")
+            }));
+
+        unsafe { PrimitiveArray::new_unchecked(chunk_offsets_buf, Validity::NonNullable) }
+            .into_array()
     }
 
     /// Validates the components that would be used to create a `ChunkedArray`.
@@ -200,7 +201,7 @@ impl Array<Chunked> {
             return self;
         }
         // This is the slow path that will be hit at most once per execution since the second one
-        // *MUST* have execlusive access due to this copy.
+        // *MUST* have exclusive access due to this copy.
         let stats = self.statistics().to_owned();
         let mut data = self.data().clone();
         data.next_builder_slot = next_builder_slot;
