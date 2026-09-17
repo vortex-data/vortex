@@ -53,6 +53,8 @@ jobs:
           echo "::error::Corpus minimization should only run on the develop branch (current: ${{ github.ref }})"
           exit 1
 
+      - uses: runs-on/action@v2
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
       - uses: ./.github/actions/setup-prebuild

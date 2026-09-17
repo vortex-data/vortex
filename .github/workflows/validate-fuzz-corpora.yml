@@ -27,6 +27,8 @@ jobs:
           && format('runs-on={0}/runner={1}/disk=large/tag=fuzz-validate', github.run_id, inputs.runner)
           || 'ubuntu-latest' }}
     steps:
+      - uses: runs-on/action@v2
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
       - name: Download fuzzers
