@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod primitive;
+mod scalar;
 
 use std::cmp::Ordering;
 use std::cmp::Ordering::Equal;
@@ -13,12 +14,8 @@ use std::fmt::Formatter;
 use std::hint;
 
 pub use primitive::*;
+pub use scalar::*;
 use vortex_error::VortexResult;
-
-use crate::ArrayRef;
-use crate::VortexSessionExecute;
-use crate::legacy_session;
-use crate::scalar::Scalar;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum SearchSortedSide {
@@ -269,18 +266,6 @@ fn search_sorted_side_idx<F: FnMut(usize) -> VortexResult<Ordering>>(
         // Note that this is `<=`, unlike the assert in the `Found` path.
         unsafe { hint::assert_unchecked(result <= to) };
         Ok(SearchResult::NotFound(result))
-    }
-}
-
-impl IndexOrd<Scalar> for ArrayRef {
-    #[allow(clippy::disallowed_methods)]
-    fn index_cmp(&self, idx: usize, elem: &Scalar) -> VortexResult<Option<Ordering>> {
-        let scalar_a = self.execute_scalar(idx, &mut legacy_session().create_execution_ctx())?;
-        Ok(scalar_a.partial_cmp(elem))
-    }
-
-    fn index_len(&self) -> usize {
-        Self::len(self)
     }
 }
 
