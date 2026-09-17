@@ -19,6 +19,7 @@
     "chunk_array_builder": 31,
     "chunked_dict_builder": 24,
     "chunked_fsl_canonicalize": 6,
+    "chunked_nested_canonicalize": 10,
     "compare": 9,
     "compare_sorted": 3,
     "copy_to_canonical_width": 0,
