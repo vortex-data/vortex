@@ -125,11 +125,7 @@ impl<T> BufferMut<T> {
         );
 
         if !alignment.is_aligned_to(Alignment::of::<T>()) {
-            vortex_panic!(
-                "Alignment {} must align to the scalar type's alignment {}",
-                alignment,
-                align_of::<T>()
-            );
+            misaligned_scalar_type(alignment, Alignment::of::<T>());
         }
 
         let size = capacity
@@ -1032,6 +1028,12 @@ impl<T> FromIterator<T> for BufferMut<T> {
         buffer.extend(iter);
         buffer
     }
+}
+
+#[cold]
+#[inline(never)]
+fn misaligned_scalar_type(alignment: Alignment, scalar_align: Alignment) -> ! {
+    vortex_panic!("Alignment {alignment} must align to the scalar type's alignment {scalar_align}")
 }
 
 #[cfg(test)]

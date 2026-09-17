@@ -377,18 +377,20 @@ where
     } else {
         (-(scale as i16)) as u32
     };
-    let ten = <T as BigCast>::from(10i8).ok_or_else(
-        || vortex_err!(Compute: "Cannot create decimal scale factor for scale {scale}"),
-    )?;
-    let mut factor = <T as BigCast>::from(1i8).ok_or_else(
-        || vortex_err!(Compute: "Cannot create decimal scale factor for scale {scale}"),
-    )?;
+    let ten = <T as BigCast>::from(10i8).ok_or_else(|| scale_factor_error(scale))?;
+    let mut factor = <T as BigCast>::from(1i8).ok_or_else(|| scale_factor_error(scale))?;
     for _ in 0..exponent {
-        factor = factor.checked_mul(&ten).ok_or_else(
-            || vortex_err!(Compute: "Cannot create decimal scale factor for scale {scale}"),
-        )?;
+        factor = factor
+            .checked_mul(&ten)
+            .ok_or_else(|| scale_factor_error(scale))?;
     }
     Ok(factor)
+}
+
+#[cold]
+#[inline(never)]
+fn scale_factor_error(scale: i8) -> VortexError {
+    vortex_err!(Compute: "Cannot create decimal scale factor for scale {scale}")
 }
 
 fn decimal_value_fits_precision<T: NativeDecimalType>(
@@ -431,6 +433,8 @@ where
     Ok(buffer.freeze())
 }
 
+#[cold]
+#[inline(never)]
 fn primitive_to_decimal_cast_error<S>(value: S, decimal_dtype: DecimalDType) -> VortexError
 where
     S: IntegerPType + ToI256,
