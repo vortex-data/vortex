@@ -145,7 +145,7 @@ class CudaArchitectureTests(CMakeTest):
                 self.assertEqual(args[args.index("--package") + 1], "vortex-cuda-ffi" if cuda == "ON" else "vortex-ffi")
                 self.assertEqual(forwarded.get("VORTEX_CUDA_ARCH_FLAGS"), expected)
                 self.assertEqual(forwarded.get("CUDA_PATH"), str(cuda_root) if cuda == "ON" else None)
-                host_compiler = (selected or None) if cuda == "ON" else env["VORTEX_CUDA_HOST_COMPILER"]
+                host_compiler = (selected or "") if cuda == "ON" else env["VORTEX_CUDA_HOST_COMPILER"]
                 self.assertEqual(forwarded.get("VORTEX_CUDA_HOST_COMPILER"), host_compiler)
                 for name in ("NVCC_CCBIN", "NVCC_PREPEND_FLAGS", "NVCC_APPEND_FLAGS"):
                     self.assertEqual(forwarded.get(name), env.get(name))
