@@ -30,12 +30,19 @@ use crate::array::ArrayParts;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::array::with_empty_buffers;
+use crate::arrays::FixedSizeList;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::Struct;
 use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::chunked::ChunkedData;
 use crate::arrays::chunked::array::ChunkedSlots;
 use crate::arrays::chunked::compute::rules::PARENT_RULES;
+use crate::arrays::chunked::vtable::canonical::ListChunks;
 use crate::arrays::chunked::vtable::canonical::_canonicalize;
+use crate::arrays::chunked::vtable::canonical::swizzle;
+use crate::arrays::chunked::vtable::canonical::swizzle_fixed_size_list;
+use crate::arrays::chunked::vtable::canonical::swizzle_list;
+use crate::arrays::chunked::vtable::canonical::swizzle_struct;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
@@ -257,6 +264,9 @@ impl VTable for Chunked {
                      and every sparse child along identical chunk boundaries"
                 )
             }
+            DType::FixedSizeList(..) => swizzle::<FixedSizeList>(array, swizzle_fixed_size_list),
+            DType::Struct(..) => swizzle::<Struct>(array, swizzle_struct),
+            DType::List(..) => swizzle::<ListChunks>(array, |array| swizzle_list(array, ctx)),
             // Variant need child swizzling that the builder path cannot express.
             DType::Variant(..) => {
                 // TODO(joe)[#7674]: iterative execution here too
@@ -264,10 +274,10 @@ impl VTable for Chunked {
             }
             // For all other types, use the builder path via AppendChild.
             _ => {
-                let slot_idx = array.next_builder_slot.max(ChunkedSlots::CHUNKS_OFFSET);
+                let slot_idx = array.next_child_slot.max(ChunkedSlots::CHUNKS_OFFSET);
                 if slot_idx < array.slots().len() {
                     Ok(ExecutionResult::append_child(
-                        array.with_next_builder_slot(slot_idx + 1),
+                        array.with_next_child_slot(slot_idx + 1),
                         slot_idx,
                     ))
                 } else if slot_idx == ChunkedSlots::CHUNKS_OFFSET {
@@ -278,7 +288,7 @@ impl VTable for Chunked {
                     ))
                 } else {
                     // Every chunk has gone to the builder, which is what the executor will finish.
-                    Ok(ExecutionResult::done_into_builder())
+                    Ok(ExecutionResult::done_into_builder(array))
                 }
             }
         }

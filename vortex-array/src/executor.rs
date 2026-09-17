@@ -32,7 +32,6 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::AnyCanonical;
-use crate::Canonical;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::aggregate_fn::session::AggregateFnSessionExt;
@@ -848,17 +847,15 @@ impl ExecutionResult {
 
     /// Signal that execution is complete and the result is in the executor's active builder.
     ///
-    /// The executor finishes that builder and discards the array carried here, so an encoding
-    /// that has already handed every value over via [`ExecutionStep::AppendChild`] should use
-    /// this rather than building a real empty array of its own dtype only for it to be dropped -
-    /// for a nested dtype that is a recursive construction of empty children.
+    /// Pass the consumed parent array: the executor discards it after finishing the builder,
+    /// avoiding an allocation for a placeholder result.
     ///
-    /// Only valid once at least one [`ExecutionStep::AppendChild`] has been returned, which is
-    /// what guarantees the builder exists. [`finalize_done`] debug-asserts the resulting dtype,
-    /// so a mistake here shows up as a dtype mismatch rather than silently wrong data.
-    pub fn done_into_builder() -> Self {
+    /// Only valid once at least one [`ExecutionStep::AppendChild`] has been returned, which
+    /// guarantees that the executor has an active builder. The parent may have empty child slots
+    /// because its children have already been appended; it must not escape the executor.
+    pub fn done_into_builder(array: impl IntoArray) -> Self {
         Self {
-            array: Canonical::empty(&DType::Null).into_array(),
+            array: array.into_array(),
             step: ExecutionStep::Done,
         }
     }

@@ -10,7 +10,7 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 use futures::stream;
-use vortex_buffer::{Buffer, BufferMut};
+use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -49,8 +49,8 @@ pub struct ChunkedSlots {
 #[derive(Clone, Debug)]
 pub struct ChunkedData {
     pub(super) chunk_offsets: Vec<usize>,
-    /// This is used to find the next child to execute when in executing into a builder.
-    pub(super) next_builder_slot: usize,
+    /// The next child to visit while executing slots or appending into a builder.
+    pub(super) next_child_slot: usize,
 }
 
 impl Display for ChunkedData {
@@ -129,7 +129,7 @@ impl ChunkedData {
     pub(super) fn new(chunk_offsets: Vec<usize>) -> Self {
         Self {
             chunk_offsets,
-            next_builder_slot: ChunkedSlots::CHUNKS_OFFSET,
+            next_child_slot: ChunkedSlots::CHUNKS_OFFSET,
         }
     }
 
@@ -195,27 +195,8 @@ impl Array<Chunked> {
         ))
     }
 
-    pub(super) fn with_next_builder_slot(mut self, next_builder_slot: usize) -> Self {
-        if let Some(data) = self.data_mut() {
-            data.next_builder_slot = next_builder_slot;
-            return self;
-        }
-        // This is the slow path that will be hit at most once per execution since the second one
-        // *MUST* have exclusive access due to this copy.
-        let stats = self.statistics().to_owned();
-        let mut data = self.data().clone();
-        data.next_builder_slot = next_builder_slot;
-        // SAFETY: we only modified next_builder_slot which doesn't affect array invariants.
-        unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(
-                Chunked,
-                self.dtype().clone(),
-                self.len(),
-                data,
-                self.slots().iter().cloned().collect::<ArraySlots>(),
-            ))
-        }
-        .with_stats_set(stats)
+    pub(super) fn with_next_child_slot(self, next_child_slot: usize) -> Self {
+        self.with_data_mut(|data| data.next_child_slot = next_child_slot)
     }
 
     /// Constructs a new `ChunkedArray`.
