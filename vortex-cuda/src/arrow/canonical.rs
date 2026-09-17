@@ -1787,17 +1787,8 @@ mod tests {
         Ok(Buffer::<i16>::from_byte_buffer(private_data_buffer_bytes(array, buffer_idx)?).to_vec())
     }
 
-    /// Upload exact-sized test storage without the padding supplied by normal CUDA uploads.
-    ///
-    /// `ensure_on_device` rounds host upload allocations up to multiples of 64 bytes and zeroes
-    /// the tail, while keeping the handle's logical byte length unchanged. That storage can hide
-    /// out-of-bounds bitmap loads or an exporter that fails to provide cuDF-safe padding.
-    /// These fixtures omit it so the tests exercise partial-word loads and export repair;
-    /// byte slicing additionally exposes unaligned pointers.
-    ///
-    /// cuDF's word-based bitmap reads require aligned storage through the padded extent.
-    /// Padding adds backing bytes, not rows, and its zeroed tail must survive export. Storage
-    /// that cannot meet those requirements must be copied or repacked rather than reused.
+    // Normal uploads add 64-byte padding that can hide out-of-bounds reads and missing export
+    // padding. Use exact-sized allocations so these tests exercise those cases.
     fn upload_unpadded(bytes: &ByteBuffer, ctx: &CudaExecutionCtx) -> VortexResult<BufferHandle> {
         let mut allocation = ctx.device_alloc::<u8>(bytes.len())?;
         ctx.stream()
