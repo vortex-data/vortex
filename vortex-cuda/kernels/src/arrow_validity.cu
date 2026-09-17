@@ -19,7 +19,7 @@ __device__ uint64_t load_input_word(const uint8_t *const input, int64_t word_idx
         return 0;
     }
     const uint64_t available_bytes = input_bytes - byte_idx;
-    // Use a word load only when all 8 bytes are in bounds and the address is aligned;
+    // Load 8 bytes at once only when all 8 are in bounds and the address is 8-byte aligned;
     // byte slicing can break the alignment of an otherwise aligned CUDA allocation.
     if (available_bytes >= sizeof(uint64_t) &&
         reinterpret_cast<uintptr_t>(input + byte_idx) % alignof(uint64_t) == 0) {
