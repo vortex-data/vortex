@@ -157,20 +157,20 @@ fn padded_device_allocation_len<T>(byte_count: usize) -> VortexResult<usize> {
     Ok(min_allocation_bytes.div_ceil(element_size))
 }
 
-/// Zeroes the allocation tail after the copied values.
+/// Zeroes the allocation tail after `initialized_len` elements, not bytes.
 ///
-/// Returned handles are sliced to the copied byte count; the trailing padding
-/// exists so padded mask reads stay within the backing allocation.
-fn zero_padding<T: DeviceRepr + ValidAsZeroBits>(
+/// Copies or kernels must initialize the preceding elements on the same stream.
+/// The trailing padding lets consumers safely read beyond the logical buffer extent.
+pub(crate) fn zero_padding<T: DeviceRepr + ValidAsZeroBits>(
     stream: &VortexCudaStream,
     cuda_slice: &mut CudaSlice<T>,
-    copied_len: usize,
+    initialized_len: usize,
 ) -> VortexResult<()> {
-    if copied_len >= cuda_slice.len() {
+    if initialized_len >= cuda_slice.len() {
         return Ok(());
     }
 
-    let mut padding = cuda_slice.slice_mut(copied_len..);
+    let mut padding = cuda_slice.slice_mut(initialized_len..);
     stream
         .memset_zeros(&mut padding)
         .map_err(|e| vortex_err!("Failed to zero device buffer padding: {}", e))

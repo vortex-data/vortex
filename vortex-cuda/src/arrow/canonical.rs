@@ -44,6 +44,7 @@ use vortex::array::arrays::primitive::PrimitiveDataParts;
 use vortex::array::arrays::struct_::StructDataParts;
 use vortex::array::arrays::varbinview::VarBinViewDataParts;
 use vortex::array::buffer::BufferHandle;
+use vortex::array::buffer::DeviceBuffer;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::array::match_each_decimal_value_type;
 use vortex::array::validity::Validity;
@@ -85,6 +86,7 @@ use crate::executor::execute_validity_cuda;
 use crate::kernel::DecodedVarBin;
 use crate::kernel::decode_fsst_varbin;
 use crate::kernel::decode_onpair_varbin;
+use crate::stream::zero_padding;
 
 /// An implementation of `ExportDeviceArray` that exports Vortex arrays to `ArrowDeviceArray` by
 /// first decoding the array on the GPU and then converting the canonical type to the nearest
@@ -913,15 +915,14 @@ fn device_zeroed_byte_buffer(
         "zero-length validity buffers should be omitted"
     );
     let allocation_len = byte_len.next_multiple_of(CUDF_VALIDITY_BUFFER_PADDING);
-    let mut buffer = ctx.device_alloc::<u8>(allocation_len)?;
-    ctx.stream()
-        .memset_zeros(&mut buffer)
-        .map_err(|err| vortex_err!("Failed to zero Arrow validity buffer: {err}"))?;
-    // The memset above zeroed the whole allocation, including cuDF tail padding.
-    Ok(
-        BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new_with_zeroed_tail(buffer, 0)?))
-            .slice(0..byte_len),
-    )
+    let buffer = ctx
+        .stream()
+        .alloc_zeros::<u8>(allocation_len)
+        .map_err(|err| vortex_err!("Failed to allocate zeroed Arrow validity buffer: {err}"))?;
+    // The whole allocation is zeroed, including cuDF tail padding.
+    Ok(BufferHandle::new_device(
+        CudaDeviceBuffer::new_with_zeroed_tail(buffer, 0)?.slice(0..byte_len),
+    ))
 }
 
 /// Export a bitmap with cuDF-safe storage, repacking it when the bit offsets differ.
@@ -944,7 +945,11 @@ fn export_arrow_validity_bitmap(
         .is_multiple_of(size_of::<u32>() as u64)
         && bitmap.has_zeroed_tail_padding(output_bytes, allocation_bytes)?
     {
-        return Ok(bitmap.slice(0..output_bytes));
+        return Ok(if bitmap.len() == output_bytes {
+            bitmap.clone()
+        } else {
+            bitmap.slice(0..output_bytes)
+        });
     }
 
     copy_arrow_validity_buffer(bitmap, output_bytes, ctx)
@@ -968,23 +973,17 @@ fn copy_arrow_validity_buffer(
 
     let allocation_bytes = output_bytes.next_multiple_of(CUDF_VALIDITY_BUFFER_PADDING);
     let mut output = ctx.device_alloc::<u8>(allocation_bytes)?;
-    ctx.stream()
-        .memset_zeros(&mut output)
-        .map_err(|err| vortex_err!("Failed to zero Arrow validity buffer padding: {err}"))?;
 
     let input_view = input_buffer.cuda_view::<u8>()?.slice(0..output_bytes);
-    let mut output_view = output.slice_mut(0..output_bytes);
     ctx.stream()
-        .memcpy_dtod(&input_view, &mut output_view)
+        .memcpy_dtod(&input_view, &mut output)
         .map_err(|err| vortex_err!("Failed to copy Arrow validity buffer: {err}"))?;
+    // The copy initializes the logical bytes; only the tail needs zeroing.
+    zero_padding(ctx.stream(), &mut output, output_bytes)?;
 
-    Ok(
-        BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new_with_zeroed_tail(
-            output,
-            output_bytes,
-        )?))
-        .slice(0..output_bytes),
-    )
+    Ok(BufferHandle::new_device(
+        CudaDeviceBuffer::new_with_zeroed_tail(output, output_bytes)?.slice(0..output_bytes),
+    ))
 }
 
 pub fn count_arrow_validity_nulls(
@@ -1075,41 +1074,37 @@ pub fn repack_arrow_validity_buffer(
         input_buffer.len()
     );
 
-    let mut output = ctx.device_alloc::<u64>(allocation_words.max(1))?;
-    // The repack kernel writes only the logical bitmap words. Zero the whole backing allocation so
-    // cuDF's padded mask reads see invalid rows, not uninitialized CUDA memory.
-    ctx.stream()
-        .memset_zeros(&mut output)
-        .map_err(|err| vortex_err!("Failed to zero Arrow validity buffer padding: {err}"))?;
+    let mut output = ctx.device_alloc::<u64>(allocation_words)?;
 
-    if output_words > 0 {
-        let input_view = input_buffer.cuda_view::<u8>()?;
-        let len = u64::try_from(len)?;
-        let input_offset = u64::try_from(input_offset)?;
-        let arrow_offset = u64::try_from(arrow_offset)?;
-        let input_bytes = u64::try_from(input_buffer.len())?;
+    let input_view = input_buffer.cuda_view::<u8>()?;
+    let len = u64::try_from(len)?;
+    let input_offset = u64::try_from(input_offset)?;
+    let arrow_offset = u64::try_from(arrow_offset)?;
+    let input_bytes = u64::try_from(input_buffer.len())?;
 
-        let kernel = ctx.load_function_with_suffixes("arrow_validity", &["repack"])?;
-        const REPACK_THREADS_PER_BLOCK: u32 = 256;
-        let num_blocks = u32::try_from(output_words.div_ceil(REPACK_THREADS_PER_BLOCK as usize))?;
-        let config = LaunchConfig {
-            grid_dim: (num_blocks, 1, 1),
-            block_dim: (REPACK_THREADS_PER_BLOCK, 1, 1),
-            shared_mem_bytes: 0,
-        };
-        ctx.launch_kernel_config(&kernel, config, output_words, |args| {
-            args.arg(&input_view)
-                .arg(&mut output)
-                .arg(&len)
-                .arg(&input_offset)
-                .arg(&arrow_offset)
-                .arg(&input_bytes);
-        })?;
-    }
+    let kernel = ctx.load_function_with_suffixes("arrow_validity", &["repack"])?;
+    const REPACK_THREADS_PER_BLOCK: u32 = 256;
+    let num_blocks = u32::try_from(output_words.div_ceil(REPACK_THREADS_PER_BLOCK as usize))?;
+    let config = LaunchConfig {
+        grid_dim: (num_blocks, 1, 1),
+        block_dim: (REPACK_THREADS_PER_BLOCK, 1, 1),
+        shared_mem_bytes: 0,
+    };
+    ctx.launch_kernel_config(&kernel, config, output_words, |args| {
+        args.arg(&input_view)
+            .arg(&mut output)
+            .arg(&len)
+            .arg(&input_offset)
+            .arg(&arrow_offset)
+            .arg(&input_bytes);
+    })?;
 
-    // The memset above zeroed all allocation bytes after the logical output.
-    let output_device = CudaDeviceBuffer::new_with_zeroed_tail(output, output_bytes)?;
-    Ok(BufferHandle::new_device(Arc::new(output_device)).slice(0..output_bytes))
+    // The kernel writes every output word and masks its unused bits; only unwritten words
+    // need zeroing. The padding helper takes elements (u64 words), not bytes.
+    zero_padding(ctx.stream(), &mut output, output_words)?;
+    Ok(BufferHandle::new_device(
+        CudaDeviceBuffer::new_with_zeroed_tail(output, output_bytes)?.slice(0..output_bytes),
+    ))
 }
 
 /// Export a Vortex list-view as an Arrow Device array with `List` layout.
@@ -1527,6 +1522,15 @@ mod tests {
     use crate::session::CudaSession;
     use crate::session::VarBinExportLayout;
 
+    fn device_bool(
+        bits: BitBuffer,
+        validity: Validity,
+        ctx: &CudaExecutionCtx,
+    ) -> VortexResult<BoolArray> {
+        let (offset, len, bytes) = bits.into_inner();
+        let buffer = ctx.stream().copy_to_device_sync(bytes.as_ref())?;
+        BoolArray::try_new_from_handle(buffer, offset, len, validity)
+    }
     unsafe fn release_exported_array(array: *mut ArrowArray) {
         unsafe {
             if let Some(release) = (*array).release {
@@ -1780,12 +1784,18 @@ mod tests {
         Ok(Buffer::<i16>::from_byte_buffer(private_data_buffer_bytes(array, buffer_idx)?).to_vec())
     }
 
-    // Unlike ensure_on_device, exact-sized uploads expose missing padding and partial-word
-    // overreads, even after byte slicing.
-    fn upload_unpadded(
-        bytes: &ByteBuffer,
-        ctx: &mut CudaExecutionCtx,
-    ) -> VortexResult<BufferHandle> {
+    /// Upload exact-sized test storage without the padding supplied by normal CUDA uploads.
+    ///
+    /// `ensure_on_device` rounds host upload allocations up to multiples of 64 bytes and zeroes
+    /// the tail, while keeping the handle's logical byte length unchanged. That storage can hide
+    /// out-of-bounds bitmap loads or an exporter that fails to provide cuDF-safe padding.
+    /// These fixtures omit it so the tests exercise partial-word loads and export repair;
+    /// byte slicing additionally exposes unaligned pointers.
+    ///
+    /// cuDF's word-based bitmap reads require aligned storage through the padded extent.
+    /// Padding adds backing bytes, not rows, and its zeroed tail must survive export. Storage
+    /// that cannot meet those requirements must be copied or repacked rather than reused.
+    fn upload_unpadded(bytes: &ByteBuffer, ctx: &CudaExecutionCtx) -> VortexResult<BufferHandle> {
         let mut allocation = ctx.device_alloc::<u8>(bytes.len())?;
         ctx.stream()
             .memcpy_htod(bytes.as_ref(), &mut allocation)
@@ -2337,12 +2347,13 @@ mod tests {
     async fn test_export_bool(#[case] len: usize, #[case] on_device: bool) -> VortexResult<()> {
         let mut ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
 
-        let array = BoolArray::from_iter([true, false, true].into_iter().take(len)).into_array();
+        let bits = BitBuffer::from_iter([true, false, true].into_iter().take(len));
         let array = if on_device {
-            upload(array, &mut ctx)?
+            device_bool(bits, Validity::NonNullable, &ctx)?
         } else {
-            array
-        };
+            BoolArray::from(bits)
+        }
+        .into_array();
         let input_values = on_device.then(|| array.buffer_handles()[0].clone());
         let mut device_array = array.export_device_array(&mut ctx).await?;
 
@@ -2360,7 +2371,8 @@ mod tests {
             let values = private.buffers[1]
                 .as_ref()
                 .ok_or_else(|| vortex_err!("expected exported bool values"))?;
-            assert_eq!(values.cuda_device_ptr()?, input_values.cuda_device_ptr()?);
+            // Exact-length reuse must not allocate another device-buffer wrapper.
+            assert!(Arc::ptr_eq(values.as_device(), input_values.as_device()));
         }
 
         unsafe { release_exported_array(&raw mut device_array.array) };
@@ -2374,8 +2386,10 @@ mod tests {
     #[case::aligned_unpadded(64, 33, 0)]
     #[case::middle_slice(13, 65, 17)]
     #[case::word_boundary(31, 34, 0)]
+    #[case::below_padding_block(13, 499, 0)]
     // 520 uploaded rows sliced at 13: offset 5, 507 rows, exactly 64 validity bytes.
     #[case::full_padding_block(13, 507, 0)]
+    #[case::above_padding_block(13, 515, 0)]
     #[crate::test]
     async fn test_export_byte_sliced_bool_values(
         #[case] start: usize,
@@ -2386,13 +2400,12 @@ mod tests {
         let mut ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
         let source_len = start + len + suffix_len;
         let source_bits = BitBuffer::from_iter((0..source_len).map(|idx| idx % 5 < 2));
-        let values = upload_unpadded(source_bits.inner(), &mut ctx)?;
+        let values = upload_unpadded(source_bits.inner(), &ctx)?;
         let valid_bits = BitBuffer::from_iter((0..source_len).map(|idx| idx % 3 != 0));
         let validity = if nullable {
-            Validity::Array(upload(
-                BoolArray::from(valid_bits.clone()).into_array(),
-                &mut ctx,
-            )?)
+            Validity::Array(
+                device_bool(valid_bits.clone(), Validity::NonNullable, &ctx)?.into_array(),
+            )
         } else {
             Validity::NonNullable
         };
@@ -3558,6 +3571,10 @@ mod tests {
     #[case::single_tail_bit(7, 0, 1)]
     #[case::exact_word(0, 0, 64)]
     #[case::word_boundary(7, 3, 65)]
+    #[case::below_padding_block(7, 3, 501)]
+    #[case::full_padding_block(7, 3, 509)]
+    #[case::above_padding_block(7, 3, 517)]
+    #[case::multi_block(13, 5, 20_001)]
     #[crate::test]
     async fn test_repack_arrow_validity_buffer_offsets(
         #[case] input_offset: usize,
@@ -3578,9 +3595,9 @@ mod tests {
                     source_bits.next_multiple_of(8) - source_bits,
                 )),
         );
-        let (_, _, input_bytes) = source.into_inner();
+        let input_bytes = source.inner();
         let input_buffer =
-            upload_unpadded(&input_bytes, &mut ctx)?.slice(byte_offset..input_bytes.len());
+            upload_unpadded(input_bytes, &ctx)?.slice(byte_offset..input_bytes.len());
         assert_eq!(
             input_buffer.cuda_device_ptr()? % 8,
             u64::try_from(byte_offset)?
@@ -3609,17 +3626,19 @@ mod tests {
         let len = 100;
         let range = 13..78;
         let valid_bits = BitBuffer::from_iter((0..len).map(|idx| idx % 3 != 0));
-        let validity = Validity::from(valid_bits.clone());
+        let validity = Validity::Array(
+            device_bool(valid_bits.clone(), Validity::NonNullable, &ctx)?.into_array(),
+        );
         let array = if boolean_values {
             // Values and validity have different bit offsets, requiring validity repacking
             // even when the exported values retain their own Arrow offset.
             let values = BitBuffer::from_iter((0..len + 3).map(|idx| idx % 2 == 0));
-            BoolArray::try_new(values.slice(3..len + 3), validity)?.into_array()
+            device_bool(values.slice(3..len + 3), validity, &ctx)?.into_array()
         } else {
-            PrimitiveArray::try_new(Buffer::from_iter(0..i32::try_from(len)?), validity)?
-                .into_array()
+            let values = Buffer::from_iter(0..i32::try_from(len)?);
+            let values = ctx.stream().copy_to_device_sync(values.as_ref())?;
+            PrimitiveArray::from_buffer_handle(values, PType::I32, validity).into_array()
         };
-        let array = upload(array, &mut ctx)?;
         let mut exported = array
             .slice(range.clone())?
             .export_device_array(&mut ctx)
@@ -3687,14 +3706,7 @@ mod tests {
             repack_arrow_validity_buffer(&input_buffer, input_offset, len, arrow_offset, &mut ctx)?;
         ctx.synchronize_stream()?;
 
-        assert_eq!(output.len(), output_bytes);
-        let backing = cuda_backing_allocation(&output)?;
-        let backing_bytes = backing.to_host_sync();
-        assert_eq!(
-            backing_bytes.len(),
-            output_bytes.next_multiple_of(CUDF_VALIDITY_BUFFER_PADDING)
-        );
-        assert!(backing_bytes[output_bytes..].iter().all(|byte| *byte == 0));
+        assert_bitmap_padding(&output, output_bytes, true)?;
 
         Ok(())
     }
@@ -3718,19 +3730,11 @@ mod tests {
         assert_eq!(null_count, 1);
         let buffer = buffer.vortex_expect("nullable validity should export a null buffer");
         let output_bytes = (len + arrow_offset).div_ceil(8);
-        assert_eq!(buffer.len(), output_bytes);
-        let actual = BitBuffer::new(buffer.to_host_sync(), len + arrow_offset)
-            .iter()
-            .collect::<Vec<_>>();
-        assert_eq!(actual, [true, false, true]);
-
-        let backing = cuda_backing_allocation(&buffer)?;
-        let backing_bytes = backing.to_host_sync();
+        let bytes = assert_bitmap_padding(&buffer, output_bytes, true)?;
         assert_eq!(
-            backing_bytes.len(),
-            output_bytes.next_multiple_of(CUDF_VALIDITY_BUFFER_PADDING)
+            BitBuffer::new(bytes, len + arrow_offset),
+            BitBuffer::from_iter([true, false, true])
         );
-        assert!(backing_bytes[output_bytes..].iter().all(|byte| *byte == 0));
 
         Ok(())
     }
@@ -3764,14 +3768,13 @@ mod tests {
         assert_eq!(null_count, 1);
         let buffer = buffer.vortex_expect("nullable validity should export a null buffer");
         assert_eq!(buffer.cuda_device_ptr()?, input_ptr);
-        assert_eq!(buffer.len(), (len + input_offset).div_ceil(8));
-        let actual = BitBuffer::new(buffer.to_host_sync(), len + input_offset)
-            .iter()
-            .collect::<Vec<_>>();
-        let expected = std::iter::repeat_n(false, input_offset)
-            .chain([true, false, true])
-            .collect::<Vec<_>>();
-        assert_eq!(actual, expected);
+        let bytes = assert_bitmap_padding(&buffer, (len + input_offset).div_ceil(8), false)?;
+        assert_eq!(
+            BitBuffer::new(bytes, len + input_offset),
+            BitBuffer::from_iter(
+                std::iter::repeat_n(false, input_offset).chain([true, false, true])
+            )
+        );
 
         Ok(())
     }
@@ -3806,19 +3809,12 @@ mod tests {
         let buffer = buffer.vortex_expect("nullable validity should export a null buffer");
         assert_ne!(buffer.cuda_device_ptr()?, input_ptr);
         let output_bytes = (len + input_offset).div_ceil(8);
-        assert_eq!(buffer.len(), output_bytes);
-        let actual = BitBuffer::new(buffer.to_host_sync(), len + input_offset)
-            .iter()
-            .collect::<Vec<_>>();
-        let expected = std::iter::repeat_n(false, input_offset)
-            .chain([true, false, true])
-            .collect::<Vec<_>>();
-        assert_eq!(actual, expected);
-
-        let backing = cuda_backing_allocation(&buffer)?;
+        let bytes = assert_bitmap_padding(&buffer, output_bytes, true)?;
         assert_eq!(
-            backing.len(),
-            output_bytes.next_multiple_of(CUDF_VALIDITY_BUFFER_PADDING)
+            BitBuffer::new(bytes, len + input_offset),
+            BitBuffer::from_iter(
+                std::iter::repeat_n(false, input_offset).chain([true, false, true])
+            )
         );
 
         Ok(())
@@ -3856,14 +3852,8 @@ mod tests {
 
         assert_eq!(null_count, i64::try_from(len)?);
         let buffer = buffer.vortex_expect("all-false validity should export a null buffer");
-        let bytes = buffer.to_host_sync();
-        assert_eq!(bytes.len(), (len + arrow_offset).div_ceil(8));
+        let bytes = assert_bitmap_padding(&buffer, (len + arrow_offset).div_ceil(8), true)?;
         assert!(bytes.iter().all(|byte| *byte == 0));
-        let backing = cuda_backing_allocation(&buffer)?;
-        assert_eq!(
-            backing.len(),
-            bytes.len().next_multiple_of(CUDF_VALIDITY_BUFFER_PADDING)
-        );
 
         Ok(())
     }
