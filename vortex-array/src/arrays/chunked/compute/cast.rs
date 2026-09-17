@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use itertools::Itertools;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -15,17 +16,14 @@ use crate::scalar_fn::fns::cast::CastReduce;
 
 impl CastReduce for Chunked {
     fn cast(array: ArrayView<'_, Chunked>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        let mut cast_chunks = Vec::new();
-        for chunk in array.iter_chunks() {
-            cast_chunks.push(chunk.cast(dtype.clone())?);
-        }
-
-        // SAFETY: casting all chunks retains all chunks have same DType
-        unsafe {
-            Ok(Some(
-                ChunkedArray::new_unchecked(cast_chunks, dtype.clone()).into_array(),
-            ))
-        }
+        let chunks = array.iter_chunks().map(|chunk| chunk.cast(dtype.clone()));
+        chunks.process_results(|chunks| {
+            // SAFETY: every chunk is cast to the requested dtype.
+            Some(unsafe {
+                ChunkedArray::new_unchecked_sized(chunks, dtype.clone(), array.nchunks())
+                    .into_array()
+            })
+        })
     }
 }
 
