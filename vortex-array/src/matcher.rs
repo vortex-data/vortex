@@ -7,14 +7,6 @@ use crate::ArrayRef;
 pub trait Matcher {
     type Match<'a>;
 
-    /// Whether this matcher is [`AnyCanonical`](crate::AnyCanonical), which the executor checks
-    /// every iteration as its universal stop condition on top of the target matcher.
-    ///
-    /// Executing to canonical form - by far the common case - makes those two the same predicate,
-    /// and this lets the executor answer both with one scan instead of repeating it per iteration.
-    /// Only `AnyCanonical` may override it.
-    const IS_ANY_CANONICAL: bool = false;
-
     /// Check if the given array matches this matcher type
     #[inline]
     fn matches(array: &ArrayRef) -> bool {
