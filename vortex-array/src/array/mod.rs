@@ -144,18 +144,6 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()>;
 
-    /// [`append_to_builder`](Self::append_to_builder) without its dtype check or its length
-    /// post-condition.
-    ///
-    /// The caller must have established that `builder.dtype() == this.dtype()`, and is responsible
-    /// for checking that the builder grew by the number of values it was handed.
-    fn append_to_builder_unchecked(
-        &self,
-        this: &ArrayRef,
-        builder: &mut dyn ArrayBuilder,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<()>;
-
     // --- Visitor methods (formerly in ArrayVisitor) ---
 
     /// Returns the buffers of the array.
@@ -346,7 +334,8 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
         }
         let len = builder.len();
 
-        self.append_to_builder_unchecked(this, builder, ctx)?;
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
+        V::append_to_builder(view, builder, ctx)?;
 
         assert_eq!(
             len + this.len(),
@@ -355,16 +344,6 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
             this.encoding_id(),
         );
         Ok(())
-    }
-
-    fn append_to_builder_unchecked(
-        &self,
-        this: &ArrayRef,
-        builder: &mut dyn ArrayBuilder,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<()> {
-        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        V::append_to_builder(view, builder, ctx)
     }
 
     fn buffers(&self, this: &ArrayRef) -> Vec<ByteBuffer> {
