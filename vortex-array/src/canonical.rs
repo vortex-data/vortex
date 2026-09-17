@@ -1168,8 +1168,6 @@ pub struct AnyCanonical;
 impl Matcher for AnyCanonical {
     type Match<'a> = CanonicalView<'a>;
 
-    const IS_ANY_CANONICAL: bool = true;
-
     #[inline]
     fn matches(array: &ArrayRef) -> bool {
         array.dyn_array().canonical_kind().is_some()
