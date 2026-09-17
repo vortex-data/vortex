@@ -97,8 +97,9 @@ function(_vortex_resolve_ffi_package
         set(_archive_name "libvortex_cuda_ffi.a")
         set(_manifest "${workspace_root}/vortex-cuda/ffi/Cargo.toml")
         list(APPEND _headers "${workspace_root}/vortex-cuda/ffi/cinclude/vortex_cuda.h")
-        # CMake's FindCUDAToolkit module sets these after find_package succeeds.
-        set(_nvcc "${CUDAToolkit_NVCC_EXECUTABLE}")
+        # NVCC locates its configuration and includes relative to its invocation path.
+        # Resolve toolkit symlinks without changing the CUDA target root.
+        file(REAL_PATH "${CUDAToolkit_NVCC_EXECUTABLE}" _nvcc)
         set(_cuda_root "${CUDAToolkit_TARGET_DIR}")
     endif()
 
@@ -253,8 +254,10 @@ block(SCOPE_FOR VARIABLES)
     _vortex_resolve_cargo_profile(_configuration _cargo_profile _cargo_artifact_directory)
 
     set(_cuda_arch_flags "")
+    set(_cuda_host_compiler "")
     if(VORTEX_ENABLE_CUDA)
         _vortex_resolve_cuda_architectures(_cuda_arch_flags)
+        _vortex_resolve_cuda_host_compiler(_cuda_host_compiler)
     endif()
 
     get_filename_component(_workspace_root "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
@@ -346,6 +349,7 @@ block(SCOPE_FOR VARIABLES)
             "-DVORTEX_NVCC_EXECUTABLE=${_nvcc_executable}"
             "-DVORTEX_CUDA_ROOT=${_cuda_root}"
             "-DVORTEX_CUDA_ARCH_FLAGS=${_cuda_arch_flags}"
+            "-DVORTEX_CUDA_HOST_COMPILER=${_cuda_host_compiler}"
             "-DVORTEX_CARGO_BUILD_STD=${_cargo_build_std}"
             "-DVORTEX_CMAKE_FFI_ARCHIVE=${_ffi_archive}"
             "-DVORTEX_FFI_HEADERS=${_ffi_headers}"

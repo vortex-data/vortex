@@ -38,6 +38,7 @@ fn main() {
         "PATH",
         "CUDA_PATH",
         "VORTEX_CUDA_ARCH_FLAGS",
+        "VORTEX_CUDA_HOST_COMPILER",
         "CUDA_VISIBLE_DEVICES",
         "CUDA_DEVICE_ORDER",
         "NVCC_PREPEND_FLAGS",
@@ -165,6 +166,13 @@ fn nvcc_compile_kernel(
         env::var("VORTEX_CUDA_ARCH_FLAGS").unwrap_or_else(|_| "-arch=native".to_owned());
     let mut cmd = Command::new("nvcc");
     cmd.args(architecture_flags.split_whitespace());
+    if let Some(host_compiler) =
+        env::var_os("VORTEX_CUDA_HOST_COMPILER").filter(|path| !path.is_empty())
+    {
+        // Despite its name, --compiler-bindir accepts a compiler executable path.
+        // It is used to honor CMake's host compiler choice; CXX alone does not reliably control NVCC.
+        cmd.arg("--compiler-bindir").arg(host_compiler);
+    }
     if profile == "debug" {
         cmd.arg("-O0");
 
