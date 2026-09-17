@@ -328,8 +328,11 @@ fn export_canonical(
                     export_arrow_validity_buffer(validity, len, meta.offset(), ctx).await?;
 
                 let bits = ctx.ensure_on_device(bits).await?;
-                // cuDF reads BOOL values as mask words, requiring aligned, padded storage too.
-                // Keep the bit offset shared by the values, validity, and Arrow array.
+                // cuDF imports bit-packed BOOL values using 32-bit mask-word reads. A byte
+                // slice can leave the pointer misaligned, and a final word or padded mask read
+                // can extend past the logical buffer. Export word-aligned storage with zeroed
+                // tail padding so these reads stay within the allocation. Preserve the bit
+                // offset: Arrow uses one array offset for both values and validity.
                 let bits = if len == 0 {
                     bits
                 } else {
