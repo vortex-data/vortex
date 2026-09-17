@@ -130,10 +130,9 @@ class CudaArchitectureTests(CMakeTest):
                     build,
                     f"-DVORTEX_ENABLE_CUDA={cuda}",
                     f"-DCMAKE_CUDA_ARCHITECTURES={architectures}",
-                    "-UFIXTURE_CUDA_HOST_COMPILER"
-                    if selected is None
-                    else f"-DFIXTURE_CUDA_HOST_COMPILER={selected}",
-                    env=env | {
+                    "-UFIXTURE_CUDA_HOST_COMPILER" if selected is None else f"-DFIXTURE_CUDA_HOST_COMPILER={selected}",
+                    env=env
+                    | {
                         "NVCC_CCBIN": "configure-time-g++",
                         "VORTEX_CUDA_HOST_COMPILER": "configure-time-private-g++",
                     },
