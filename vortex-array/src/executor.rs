@@ -32,6 +32,7 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::AnyCanonical;
+use crate::Canonical;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::aggregate_fn::session::AggregateFnSessionExt;
@@ -308,11 +309,15 @@ impl ArrayRef {
                 ExecutionStep::AppendChild(i) => {
                     if current_builder.is_none() {
                         trace_op!(record_builder_start(&array));
-                        current_builder = Some(builder_with_capacity_in(
-                            array.dtype(),
-                            array.len(),
-                            ctx.allocator(),
-                        ));
+                        let mut builder =
+                            builder_with_capacity_in(array.dtype(), array.len(), ctx.allocator());
+                        // The parent hands its children over one `AppendChild` at a time, so tell
+                        // the builder how many are coming. A nested builder keeps each appended
+                        // array as a chunk of its child, and without this every one of those chunk
+                        // lists grows incrementally: a 128-chunk array of 8-field structs pays 40
+                        // reallocations for what is eight reserves.
+                        builder.reserve_chunks(array.nchildren());
+                        current_builder = Some(builder);
                     }
                     let (parent, child) = unsafe { array.take_slot_unchecked(i) }?;
 
@@ -642,7 +647,7 @@ fn finalize_done(
         result
     };
 
-    if cfg!(debug_assertions) {
+    if let Some(expected_dtype) = expected_dtype {
         vortex_ensure_eq!(
             output.len(),
             expected_len,
@@ -837,6 +842,23 @@ impl ExecutionResult {
     pub fn done(result: impl IntoArray) -> Self {
         Self {
             array: result.into_array(),
+            step: ExecutionStep::Done,
+        }
+    }
+
+    /// Signal that execution is complete and the result is in the executor's active builder.
+    ///
+    /// The executor finishes that builder and discards the array carried here, so an encoding
+    /// that has already handed every value over via [`ExecutionStep::AppendChild`] should use
+    /// this rather than building a real empty array of its own dtype only for it to be dropped -
+    /// for a nested dtype that is a recursive construction of empty children.
+    ///
+    /// Only valid once at least one [`ExecutionStep::AppendChild`] has been returned, which is
+    /// what guarantees the builder exists. [`finalize_done`] debug-asserts the resulting dtype,
+    /// so a mistake here shows up as a dtype mismatch rather than silently wrong data.
+    pub fn done_into_builder() -> Self {
+        Self {
+            array: Canonical::empty(&DType::Null).into_array(),
             step: ExecutionStep::Done,
         }
     }

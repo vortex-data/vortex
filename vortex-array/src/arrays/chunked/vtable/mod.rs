@@ -270,10 +270,15 @@ impl VTable for Chunked {
                         array.with_next_builder_slot(slot_idx + 1),
                         slot_idx,
                     ))
-                } else {
+                } else if slot_idx == ChunkedSlots::CHUNKS_OFFSET {
+                    // No chunks at all, so nothing was ever appended and the executor holds no
+                    // builder to finish. This array really is empty.
                     Ok(ExecutionResult::done(
                         Canonical::empty(array.dtype()).into_array(),
                     ))
+                } else {
+                    // Every chunk has gone to the builder, which is what the executor will finish.
+                    Ok(ExecutionResult::done_into_builder())
                 }
             }
         }
