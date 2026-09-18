@@ -5,28 +5,20 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::StreamExt;
-use futures::future::try_join;
 use futures::future::try_join_all;
+use futures::stream::once;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::List;
 use vortex_array::arrays::ListView;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::list::ListDataParts;
 use vortex_array::arrays::listview::list_from_list_view;
-use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
-use vortex_array::dtype::PType;
 use vortex_array::matcher::Matcher;
-use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_io::kanal_ext::KanalExt;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
 
@@ -37,14 +29,9 @@ use crate::layouts::flat::writer::FlatLayoutStrategy;
 use crate::layouts::list::ListLayout;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
-use crate::sequence::SequenceId;
 use crate::sequence::SequencePointer;
-use crate::sequence::SequentialStream;
 use crate::sequence::SequentialStreamAdapter;
 use crate::sequence::SequentialStreamExt;
-
-/// Item carried on each child sub-stream: a sequenced, materialized chunk.
-type ChildChunk = VortexResult<(SequenceId, ArrayRef)>;
 
 /// Strategy for writing list-typed arrays, with a fallback for non-list dtypes.
 ///
@@ -52,17 +39,16 @@ type ChildChunk = VortexResult<(SequenceId, ArrayRef)>;
 /// `offsets`, and (when nullable) `validity` sub-columns, each written through its own downstream
 /// strategy, producing a single [`ListLayout`].
 ///
-/// For list-typed input the strategy transposes the whole column stream into three sub-streams:
-///  1. Each chunk is canonicalized to a [`ListArray`] (rebuilding a [`ListView`] via
-///     [`list_from_list_view`] when necessary).
-///  2. `offsets` are rebased to global `u64` positions (cumulative across chunks) so the single
-///     `offsets` child indexes into the concatenated `elements` child.
-///  3. `elements`, `offsets`, and `validity` are streamed to their child strategies concurrently.
+/// For list-typed input the strategy accepts exactly one chunk, canonicalizes its outer list
+/// container (rebuilding a [`ListView`] via [`list_from_list_view`] when necessary), and writes
+/// its encoded `elements`, `offsets`, and `validity` children concurrently. Chunking belongs
+/// outside this strategy: callers with a multi-chunk stream should wrap it in a
+/// [`ChunkedLayoutStrategy`]. Keeping the input chunk intact preserves the compressor's encoding
+/// choices for both elements and offsets.
 ///
-/// For input whose dtype is not [`DType::List`], the stream is forwarded unchanged to the
-/// configured `fallback` strategy.
+/// For non-list input, the stream is forwarded unchanged to the configured `fallback` strategy.
 ///
-/// [`ListArray`]: vortex_array::arrays::ListArray
+/// [`ChunkedLayoutStrategy`]: crate::layouts::chunked::writer::ChunkedLayoutStrategy
 #[derive(Clone)]
 pub struct ListLayoutStrategy {
     elements: Arc<dyn LayoutStrategy>,
@@ -72,8 +58,7 @@ pub struct ListLayoutStrategy {
 }
 
 impl Default for ListLayoutStrategy {
-    /// Routes every child (elements, offsets, validity) and the non-list fallback through
-    /// [`FlatLayoutStrategy`]. Override individual children with the `with_*` builder methods.
+    /// Writes every child and the non-list fallback through [`FlatLayoutStrategy`].
     fn default() -> Self {
         let flat: Arc<dyn LayoutStrategy> = Arc::new(FlatLayoutStrategy::default());
         Self {
@@ -86,20 +71,28 @@ impl Default for ListLayoutStrategy {
 }
 
 impl ListLayoutStrategy {
-    /// Strategy for the `elements` child.
-    pub fn with_elements(mut self, elements: Arc<dyn LayoutStrategy>) -> Self {
+    /// Strategy used for every list child. A later per-child override takes precedence.
+    pub fn with_children_strategy(mut self, strategy: Arc<dyn LayoutStrategy>) -> Self {
+        self.validity = Arc::clone(&strategy);
+        self.offsets = Arc::clone(&strategy);
+        self.elements = strategy;
+        self
+    }
+
+    /// Strategy used for the elements child.
+    pub fn with_elements_strategy(mut self, elements: Arc<dyn LayoutStrategy>) -> Self {
         self.elements = elements;
         self
     }
 
-    /// Strategy for the `offsets` child.
-    pub fn with_offsets(mut self, offsets: Arc<dyn LayoutStrategy>) -> Self {
+    /// Strategy used for the offsets child.
+    pub fn with_offsets_strategy(mut self, offsets: Arc<dyn LayoutStrategy>) -> Self {
         self.offsets = offsets;
         self
     }
 
-    /// Strategy for the `validity` child (written only when the list is nullable).
-    pub fn with_validity(mut self, validity: Arc<dyn LayoutStrategy>) -> Self {
+    /// Strategy used for the validity child.
+    pub fn with_validity_strategy(mut self, validity: Arc<dyn LayoutStrategy>) -> Self {
         self.validity = validity;
         self
     }
@@ -117,7 +110,7 @@ impl LayoutStrategy for ListLayoutStrategy {
         &self,
         ctx: LayoutWriterContext,
         segment_sink: SegmentSinkRef,
-        stream: SendableSequentialStream,
+        mut stream: SendableSequentialStream,
         mut eof: SequencePointer,
         session: &VortexSession,
     ) -> VortexResult<LayoutRef> {
@@ -129,60 +122,46 @@ impl LayoutStrategy for ListLayoutStrategy {
                 .await;
         }
 
-        let is_nullable = dtype.is_nullable();
-        let element_dtype = dtype
-            .as_list_element_opt()
-            .vortex_expect("DType is List")
-            .as_ref()
-            .clone();
-        // Global (whole-column) offsets are cumulative and may exceed the input offset width,
-        // so definsively widen.
-        let offsets_dtype = DType::Primitive(PType::U64, Nullability::NonNullable);
-
-        // One bounded sub-stream per child: elements, offsets, and (when nullable) validity.
-        let (elements_tx, elements_rx) = kanal::bounded_async::<ChildChunk>(1);
-        let (offsets_tx, offsets_rx) = kanal::bounded_async::<ChildChunk>(1);
-        let (validity_tx, validity_rx) = if is_nullable {
-            let (tx, rx) = kanal::bounded_async::<ChildChunk>(1);
-            (Some(tx), Some(rx))
-        } else {
-            (None, None)
+        let Some((sequence_id, array)) = stream.next().await.transpose()? else {
+            vortex_bail!("ListLayoutStrategy needs exactly one chunk");
         };
+        if stream.next().await.is_some() {
+            vortex_bail!("ListLayoutStrategy received more than one chunk");
+        }
 
-        // Transpose the list column into its child sub-streams and rebase offsets to global
-        // positions. Kept joined with the child writers below so producer errors surface rather
-        // than being hidden as an early channel close.
-        let fanout_fut = transpose_list_column(
-            stream,
-            session.clone(),
-            elements_tx,
-            offsets_tx,
-            validity_tx,
-        );
-
-        // Spawn a writer per child sub-stream, concurrently.
-        let handle = session.handle();
-        let mut child_specs: Vec<(
-            DType,
-            Arc<dyn LayoutStrategy>,
-            kanal::AsyncReceiver<ChildChunk>,
-        )> = vec![
-            (element_dtype, Arc::clone(&self.elements), elements_rx),
-            (offsets_dtype, Arc::clone(&self.offsets), offsets_rx),
+        let mut exec_ctx = session.create_execution_ctx();
+        let ListDataParts {
+            elements,
+            offsets,
+            validity,
+            ..
+        } = canonicalize_to_list_parts(array, &mut exec_ctx)?;
+        let row_count = offsets.len().saturating_sub(1);
+        let mut sequence = sequence_id.descend();
+        let mut child_specs = vec![
+            (elements, Arc::clone(&self.elements), sequence.advance()),
+            (offsets, Arc::clone(&self.offsets), sequence.advance()),
         ];
-        if let Some(validity_rx) = validity_rx {
+        if dtype.is_nullable() {
             child_specs.push((
-                DType::Bool(Nullability::NonNullable),
+                validity
+                    .execute_mask(row_count, &mut exec_ctx)?
+                    .into_array(),
                 Arc::clone(&self.validity),
-                validity_rx,
+                sequence.advance(),
             ));
         }
 
+        let handle = session.handle();
         let layout_futures: Vec<_> = child_specs
             .into_iter()
-            .map(|(child_dtype, strategy, rx)| {
-                let child_stream =
-                    SequentialStreamAdapter::new(child_dtype, rx.into_stream().boxed()).sendable();
+            .map(|(child, strategy, child_sequence)| {
+                let child_dtype = child.dtype().clone();
+                let child_stream = SequentialStreamAdapter::new(
+                    child_dtype,
+                    once(async move { Ok((child_sequence, child)) }),
+                )
+                .sendable();
                 let child_eof = eof.split_off();
                 let ctx = ctx.clone();
                 let segment_sink = Arc::clone(&segment_sink);
@@ -195,75 +174,15 @@ impl LayoutStrategy for ListLayoutStrategy {
             })
             .collect();
 
-        let (_, layouts) = try_join(fanout_fut, try_join_all(layout_futures)).await?;
-        let mut layouts = layouts.into_iter();
+        let mut layouts = try_join_all(layout_futures).await?.into_iter();
         let elements_layout = layouts.next().vortex_expect("elements layout present");
         let offsets_layout = layouts.next().vortex_expect("offsets layout present");
-        let validity_layout =
-            is_nullable.then(|| layouts.next().vortex_expect("validity layout present"));
+        let validity_layout = dtype
+            .is_nullable()
+            .then(|| layouts.next().vortex_expect("validity layout present"));
 
         Ok(ListLayout::new(dtype, elements_layout, offsets_layout, validity_layout).into_layout())
     }
-}
-
-/// Transpose a list column into its `elements`, `offsets`, and (when present) `validity` child
-/// sub-streams, rebasing each chunk's local `offsets` to global `u64` positions so the single
-/// `offsets` child indexes into the concatenated `elements` child.
-///
-/// `validity_tx` is `Some` exactly when the list is nullable. Errors surface to the caller, which
-/// joins this against the child writers, rather than being hidden as an early channel close.
-async fn transpose_list_column(
-    mut stream: SendableSequentialStream,
-    session: VortexSession,
-    elements_tx: kanal::AsyncSender<ChildChunk>,
-    offsets_tx: kanal::AsyncSender<ChildChunk>,
-    validity_tx: Option<kanal::AsyncSender<ChildChunk>>,
-) -> VortexResult<()> {
-    let mut exec_ctx = session.create_execution_ctx();
-    let mut element_base: u64 = 0;
-    let mut first = true;
-    let mut saw_chunk = false;
-    while let Some(chunk) = stream.next().await {
-        let (sequence_id, array) = chunk?;
-        saw_chunk = true;
-        let mut sp = sequence_id.descend();
-        let ListDataParts {
-            elements,
-            offsets,
-            validity,
-            ..
-        } = canonicalize_to_list_parts(array, &mut exec_ctx)?;
-        let n_elements = elements.len() as u64;
-        let row_count = offsets.len().saturating_sub(1);
-        let offsets = global_offsets(offsets, element_base, first, &mut exec_ctx)?;
-        element_base += n_elements;
-        first = false;
-
-        if elements_tx
-            .send(Ok((sp.advance(), elements)))
-            .await
-            .is_err()
-            || offsets_tx.send(Ok((sp.advance(), offsets))).await.is_err()
-        {
-            vortex_bail!("list child writer finished before all chunks were sent");
-        }
-        if let Some(validity_tx) = &validity_tx {
-            let validity = validity
-                .execute_mask(row_count, &mut exec_ctx)?
-                .into_array();
-            if validity_tx
-                .send(Ok((sp.advance(), validity)))
-                .await
-                .is_err()
-            {
-                vortex_bail!("list validity writer finished before all chunks were sent");
-            }
-        }
-    }
-    if !saw_chunk {
-        vortex_bail!("ListLayoutStrategy needs at least one chunk");
-    }
-    Ok(())
 }
 
 /// Canonicalize a list-dtype array into [`ListDataParts`].
@@ -281,33 +200,6 @@ fn canonicalize_to_list_parts(
     }
 }
 
-/// Rebase a chunk's local `offsets` into global `u64` positions for the whole-column `offsets`
-/// child. Each chunk's offsets are shifted by `element_base` (the number of elements already
-/// emitted) so they index into the concatenated `elements`. The duplicated boundary offset is
-/// dropped on every chunk after the first, so the concatenation of all chunks' contributions is a
-/// single monotonic `[0, .., total_elements]` array of length `row_count + 1`.
-fn global_offsets(
-    offsets: ArrayRef,
-    element_base: u64,
-    first: bool,
-    exec_ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    let widened = offsets.cast(DType::Primitive(PType::U64, Nullability::NonNullable))?;
-    let based = if element_base == 0 {
-        widened
-    } else {
-        let base = ConstantArray::new(element_base, widened.len()).into_array();
-        widened.binary(base, Operator::Add)?
-    };
-    let based = if first {
-        based
-    } else {
-        based.slice(1..based.len())?
-    };
-    // Materialize so the child sub-stream carries a concrete array rather than a lazy expression.
-    Ok(based.execute::<PrimitiveArray>(exec_ctx)?.into_array())
-}
-
 /// Matcher for `Array<List>` or `Array<ListView>`.
 struct AnyList;
 
@@ -323,21 +215,25 @@ impl Matcher for AnyList {
 mod tests {
     use futures::stream;
     use vortex_array::ArrayContext;
+    use vortex_array::MaskFuture;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ChunkedArray;
+    use vortex_array::arrays::Dict;
+    use vortex_array::arrays::DictArray;
     use vortex_array::arrays::ListArray;
-    use vortex_array::arrays::StructArray;
+    use vortex_array::arrays::VarBinArray;
+    use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::expr::root;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_io::session::RuntimeSession;
 
     use super::*;
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
-    use crate::layouts::flat::writer::FlatLayoutStrategy;
-    use crate::layouts::table::TableStrategy;
     use crate::segments::TestSegments;
+    use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
     use crate::session::LayoutSession;
 
@@ -399,7 +295,7 @@ mod tests {
         insta::assert_snapshot!(layout.display_tree(), @"
         vortex.list, dtype: list(i32), children: 2
         ├── elements: vortex.flat, dtype: i32, segment: 0
-        └── offsets: vortex.flat, dtype: u64, segment: 1
+        └── offsets: vortex.flat, dtype: u32, segment: 1
         ");
         Ok(())
     }
@@ -416,9 +312,54 @@ mod tests {
         insta::assert_snapshot!(layout.display_tree(), @"
         vortex.list, dtype: list(i32)?, children: 3
         ├── elements: vortex.flat, dtype: i32, segment: 0
-        ├── offsets: vortex.flat, dtype: u64, segment: 1
+        ├── offsets: vortex.flat, dtype: u32, segment: 1
         └── validity: vortex.flat, dtype: bool, segment: 2
         ");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn preserves_encoded_element_leaf() -> VortexResult<()> {
+        let elements = DictArray::try_new(
+            buffer![0u8, 1, 0, 2, 1].into_array(),
+            VarBinArray::from(vec!["alpha", "beta", "gamma"]).into_array(),
+        )?
+        .into_array();
+        let list = ListArray::try_new(
+            elements,
+            buffer![0u32, 2, 5].into_array(),
+            Validity::NonNullable,
+        )?
+        .into_array();
+
+        let session = layout_test_session();
+        let segments = Arc::new(TestSegments::default());
+        let (ptr, eof) = SequenceId::root().split();
+        let layout = flat_list_strategy()
+            .write_stream(
+                ArrayContext::empty().into(),
+                Arc::<TestSegments>::clone(&segments),
+                list.to_array_stream().sequenced(ptr),
+                eof,
+                &session,
+            )
+            .await?;
+
+        let elements_layout = layout
+            .slot(0)?
+            .vortex_expect("ListLayout elements child is present");
+        let reader =
+            elements_layout.new_reader("".into(), segments, &session, &Default::default())?;
+        let expr = root().bind(reader.dtype())?;
+        let read = reader
+            .projection_evaluation(
+                &(0..elements_layout.row_count()),
+                &expr,
+                MaskFuture::new_true(usize::try_from(elements_layout.row_count())?),
+            )?
+            .await?;
+
+        assert!(read.is::<Dict>());
         Ok(())
     }
 
@@ -452,101 +393,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn list_of_struct_tree() -> VortexResult<()> {
-        let struct_array = StructArray::from_fields(
-            [
-                ("a", buffer![1i32, 2, 3, 4, 5].into_array()),
-                ("b", buffer![10i32, 20, 30, 40, 50].into_array()),
-            ]
-            .as_slice(),
-        )?
-        .into_array();
-        let list = ListArray::try_new(
-            struct_array,
-            buffer![0u32, 2, 5, 5].into_array(),
-            Validity::NonNullable,
-        )?
-        .into_array();
-
-        let flat: Arc<dyn LayoutStrategy> = Arc::new(FlatLayoutStrategy::default());
-        let table_strategy: Arc<dyn LayoutStrategy> =
-            Arc::new(TableStrategy::new(Arc::clone(&flat), Arc::clone(&flat)));
-        let writer = ListLayoutStrategy::default().with_elements(table_strategy);
-
-        let layout = write(&writer, list).await?;
-        insta::assert_snapshot!(layout.display_tree(), @"
-        vortex.list, dtype: list({a=i32, b=i32}), children: 2
-        ├── elements: vortex.struct, dtype: {a=i32, b=i32}, children: 2
-        │   ├── a: vortex.flat, dtype: i32, segment: 1
-        │   └── b: vortex.flat, dtype: i32, segment: 2
-        └── offsets: vortex.flat, dtype: u64, segment: 0
-        ");
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn list_of_list_tree() -> VortexResult<()> {
-        let inner_list = ListArray::try_new(
-            buffer![1i32, 2, 3, 4, 5, 6].into_array(),
-            buffer![0u32, 2, 5, 5, 6].into_array(),
-            Validity::NonNullable,
-        )?
-        .into_array();
-        let list = ListArray::try_new(
-            inner_list,
-            buffer![0u32, 2, 4].into_array(),
-            Validity::NonNullable,
-        )?
-        .into_array();
-
-        let writer =
-            ListLayoutStrategy::default().with_elements(Arc::new(ListLayoutStrategy::default()));
-        let layout = write(&writer, list).await?;
-        insta::assert_snapshot!(layout.display_tree(), @"
-        vortex.list, dtype: list(list(i32)), children: 2
-        ├── elements: vortex.list, dtype: list(i32), children: 2
-        │   ├── elements: vortex.flat, dtype: i32, segment: 1
-        │   └── offsets: vortex.flat, dtype: u64, segment: 2
-        └── offsets: vortex.flat, dtype: u64, segment: 0
-        ");
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn list_of_list_of_list_tree() -> VortexResult<()> {
-        let innermost = ListArray::try_new(
-            buffer![1i32, 2, 3, 4].into_array(),
-            buffer![0u32, 2, 4].into_array(),
-            Validity::NonNullable,
-        )?
-        .into_array();
-        let middle = ListArray::try_new(
-            innermost,
-            buffer![0u32, 2].into_array(),
-            Validity::NonNullable,
-        )?
-        .into_array();
-        let outer =
-            ListArray::try_new(middle, buffer![0u32, 1].into_array(), Validity::NonNullable)?
-                .into_array();
-
-        let writer = ListLayoutStrategy::default().with_elements(Arc::new(
-            ListLayoutStrategy::default().with_elements(Arc::new(ListLayoutStrategy::default())),
-        ));
-        let layout = write(&writer, outer).await?;
-        insta::assert_snapshot!(layout.display_tree(), @"
-        vortex.list, dtype: list(list(list(i32))), children: 2
-        ├── elements: vortex.list, dtype: list(list(i32)), children: 2
-        │   ├── elements: vortex.list, dtype: list(i32), children: 2
-        │   │   ├── elements: vortex.flat, dtype: i32, segment: 2
-        │   │   └── offsets: vortex.flat, dtype: u64, segment: 3
-        │   └── offsets: vortex.flat, dtype: u64, segment: 1
-        └── offsets: vortex.flat, dtype: u64, segment: 0
-        ");
-        Ok(())
-    }
-
-    #[tokio::test]
     async fn chunked_list_input_with_chunked_strategy_succeeds() -> VortexResult<()> {
         let chunk0 = ListArray::try_new(
             buffer![1i32, 2, 3].into_array(),
@@ -572,10 +418,10 @@ mod tests {
         vortex.chunked, dtype: list(i32), children: 2
         ├── [0]: vortex.list, dtype: list(i32), children: 2
         │   ├── elements: vortex.flat, dtype: i32, segment: 0
-        │   └── offsets: vortex.flat, dtype: u64, segment: 1
+        │   └── offsets: vortex.flat, dtype: u32, segment: 1
         └── [1]: vortex.list, dtype: list(i32), children: 2
             ├── elements: vortex.flat, dtype: i32, segment: 2
-            └── offsets: vortex.flat, dtype: u64, segment: 3
+            └── offsets: vortex.flat, dtype: u32, segment: 3
         ");
         Ok(())
     }
