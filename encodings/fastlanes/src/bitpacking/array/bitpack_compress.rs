@@ -35,7 +35,25 @@ use crate::bitpack_decompress::count_exceptions;
 use crate::bitpacking::array::ChunkWidths;
 use crate::bitpacking::array::chunk_packed_bytes;
 
-/// Encode with caller-supplied chunk widths, gathering exceptions for values that do not fit.
+/// Choose a cost-model width for each chunk, then pack values and gather exceptions.
+pub fn bitpack_to_best_chunk_widths(
+    array: &PrimitiveArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<BitPackedArray> {
+    let plan = chunk_width_plan(array.as_view(), ctx)?;
+    bitpack_encode_planned(array, plan, ctx)
+}
+
+/// The cost-model-optimal bit width of every 1024-element chunk of `array`.
+pub fn best_chunk_widths(
+    array: ArrayView<'_, Primitive>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ChunkWidths> {
+    Ok(chunk_width_plan(array, ctx)?.widths)
+}
+
+/// Bit-pack `array` at the given per-chunk widths, gathering values that do not fit their chunk's
+/// width into patches.
 pub fn bitpack_encode_with_widths(
     array: &PrimitiveArray,
     widths: ChunkWidths,
@@ -58,7 +76,7 @@ pub fn bitpack_encode_with_widths(
 /// Bit-pack `array` at the single best global width chosen by [`find_best_bit_width`].
 ///
 /// Every chunk shares that width, so the result serializes under the original
-/// `fastlanes.bitpacked` format.
+/// `fastlanes.bitpacked` format. See [`bitpack_to_best_chunk_widths`] for per-chunk widths.
 pub fn bitpack_to_best_bit_width(
     array: &PrimitiveArray,
     ctx: &mut ExecutionCtx,
@@ -169,6 +187,76 @@ pub fn gather_patches(
 struct ChunkWidthPlan {
     widths: ChunkWidths,
     num_exceptions: Option<usize>,
+}
+
+fn chunk_width_plan(
+    array: ArrayView<'_, Primitive>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ChunkWidthPlan> {
+    match_each_integer_ptype!(array.ptype(), |P| {
+        chunk_width_plan_typed::<P>(array, ctx)
+    })
+}
+
+fn chunk_width_plan_typed<T: NativePType + PrimInt>(
+    array: ArrayView<'_, Primitive>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ChunkWidthPlan> {
+    let bytes_per_exception = bytes_per_exception(T::PTYPE);
+    let values = array.as_slice::<T>();
+    let num_chunks = values.len().div_ceil(FL_CHUNK_SIZE);
+    let bit_width: fn(T) -> usize =
+        |v: T| (8 * size_of::<T>()) - (PrimInt::leading_zeros(v) as usize);
+
+    let mut widths = BufferMut::<u8>::with_capacity(num_chunks);
+    let mut num_exceptions = 0usize;
+    let mut histogram = vec![0usize; size_of::<T>() * 8 + 1];
+
+    // Score one chunk's histogram and reset it for the next chunk.
+    let mut finish_chunk = |histogram: &mut [usize]| -> u8 {
+        let best = best_chunk_width(histogram, bytes_per_exception);
+        num_exceptions += count_exceptions(best, histogram);
+        histogram.fill(0);
+        best
+    };
+
+    match array
+        .validity()?
+        .execute_mask(array.as_ref().len(), ctx)?
+        .bit_buffer()
+    {
+        AllOr::All => {
+            for chunk in values.chunks(FL_CHUNK_SIZE) {
+                for v in chunk {
+                    histogram[bit_width(*v)] += 1;
+                }
+                widths.push(finish_chunk(&mut histogram));
+            }
+        }
+        AllOr::None => {
+            for _ in 0..num_chunks {
+                widths.push(0);
+            }
+        }
+        AllOr::Some(buffer) => {
+            let mut valid = buffer.iter();
+            for chunk in values.chunks(FL_CHUNK_SIZE) {
+                for v in chunk {
+                    if valid.next().unwrap_or(true) {
+                        histogram[bit_width(*v)] += 1;
+                    } else {
+                        histogram[0] += 1;
+                    }
+                }
+                widths.push(finish_chunk(&mut histogram));
+            }
+        }
+    }
+
+    Ok(ChunkWidthPlan {
+        widths: ChunkWidths::new(widths.freeze()),
+        num_exceptions: Some(num_exceptions),
+    })
 }
 
 fn bitpack_encode_planned(
@@ -383,6 +471,26 @@ where
     }
 }
 
+/// The width minimising one chunk's cost: its packed block plus the exceptions left behind.
+///
+/// A chunk always occupies a whole `128 * width` byte block, so a partial trailing chunk is
+/// charged for its padding.
+fn best_chunk_width(bit_width_freq: &[usize], bytes_per_exception: usize) -> u8 {
+    let len: usize = bit_width_freq.iter().sum();
+    let mut num_packed = 0;
+    let mut best_cost = usize::MAX;
+    let mut best_width = 0;
+    for (bit_width, freq) in bit_width_freq.iter().enumerate() {
+        num_packed += *freq;
+        let cost = chunk_packed_bytes(bit_width as u8) + (len - num_packed) * bytes_per_exception;
+        if cost < best_cost {
+            best_cost = cost;
+            best_width = bit_width;
+        }
+    }
+    best_width as u8
+}
+
 pub fn bit_width_histogram(
     array: ArrayView<'_, Primitive>,
     ctx: &mut ExecutionCtx,
@@ -535,6 +643,19 @@ mod tests {
         crate::initialize(&session);
         session
     });
+
+    #[test]
+    fn test_best_chunk_width() {
+        // 1000 3-bit values and 24 10-bit values in a u16 chunk: 3 bits plus 24 exceptions
+        // (384 + 24 * 6 bytes) beats 10 bits for everything (1280 bytes).
+        let mut freq = vec![0usize; 17];
+        freq[3] = 1000;
+        freq[10] = 24;
+        assert_eq!(best_chunk_width(&freq, bytes_per_exception(PType::U16)), 3);
+        // Make the exceptions expensive enough and the wide width wins.
+        freq[10] = 200;
+        assert_eq!(best_chunk_width(&freq, bytes_per_exception(PType::U16)), 10);
+    }
 
     #[test]
     fn null_patches() {
