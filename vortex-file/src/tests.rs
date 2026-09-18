@@ -15,6 +15,7 @@ use rstest::rstest;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::array_session;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
@@ -33,6 +34,7 @@ use vortex_array::assert_arrays_eq;
 use vortex_array::builders::MapBuilder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
+use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::MapDType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
@@ -53,15 +55,16 @@ use vortex_array::expr::lt_eq;
 use vortex_array::expr::or;
 use vortex_array::expr::root;
 use vortex_array::expr::select;
+use vortex_array::expr::stats::Stat;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
 use vortex_array::extension::datetime::TimestampOptions;
 use vortex_array::field_path;
 use vortex_array::scalar::Scalar;
+use vortex_array::scalar::ScalarValue;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::fns::pack::Pack;
 use vortex_array::scalar_fn::fns::pack::PackOptions;
-use vortex_array::stats::PRUNING_STATS;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::validity::Validity;
@@ -111,6 +114,19 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 
     session
 });
+
+fn pruning_aggregate_fns() -> Vec<AggregateFnRef> {
+    [
+        Stat::Min,
+        Stat::Max,
+        Stat::Sum,
+        Stat::NullCount,
+        Stat::NaNCount,
+    ]
+    .into_iter()
+    .filter_map(|stat| stat.aggregate_fn())
+    .collect()
+}
 
 fn strict_sorted(indices: Buffer<u64>) -> StrictSortedBuffer<u64> {
     StrictSortedBuffer::try_new(indices).expect("test indices should be strictly increasing")
@@ -1304,27 +1320,89 @@ async fn file_take() -> VortexResult<()> {
 }
 
 #[tokio::test]
-#[should_panic(
-    expected = "FileStatsAccumulator temporarily does not support nullable top-level structs"
-)]
-async fn write_nullable_top_level_struct() {
+async fn write_nullable_top_level_struct() -> VortexResult<()> {
     let ages = PrimitiveArray::from_option_iter([Some(25), Some(31), None, Some(57), None]);
+    let row_validity = BoolArray::from_iter([true, true, false, true, false]).into_array();
 
     let array = StructArray::try_new(
         ["age"].into(),
         vec![ages.into_array()],
         5,
-        Validity::AllValid,
-    )
-    .unwrap()
+        Validity::Array(row_validity),
+    )?
     .into_array();
 
-    let mut writer = vec![];
+    let mut buf = ByteBufferMut::empty();
+    let summary = SESSION
+        .write_options()
+        .with_file_statistics(pruning_aggregate_fns())
+        .write(&mut buf, array.to_array_stream())
+        .await?;
+
+    // The root struct is nullable and has 2 null rows, so its own null-count entry (keyed by the
+    // root field path) should reflect that, in addition to the leaf `age` field's stats.
+    let stats = summary
+        .footer()
+        .statistics()
+        .expect("file statistics should be present");
+    let (root_stats, _) = stats
+        .get_by_path(&FieldPath::root())
+        .expect("root struct should have its own null-count stats entry");
+    assert_eq!(
+        root_stats.get(Stat::NullCount).as_exact(),
+        Some(ScalarValue::from(2u64))
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn exclude_legacy_statistics_omits_legacy_but_keeps_nested() -> VortexResult<()> {
+    let inner = StructArray::try_new(
+        ["b"].into(),
+        vec![PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]).into_array()],
+        3,
+        Validity::NonNullable,
+    )?
+    .into_array();
+    let c = PrimitiveArray::from_iter([4i32, 5, 6]).into_array();
+    let array = StructArray::try_new(["a", "c"].into(), vec![inner, c], 3, Validity::NonNullable)?
+        .into_array();
+
+    let mut buf_with_legacy = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut writer, array.to_array_stream())
-        .await
-        .unwrap();
+        .with_file_statistics(pruning_aggregate_fns())
+        .write(&mut buf_with_legacy, array.to_array_stream())
+        .await?;
+
+    let mut buf_without_legacy = ByteBufferMut::empty();
+    let summary = SESSION
+        .write_options()
+        .with_file_statistics(pruning_aggregate_fns())
+        .exclude_legacy_statistics()
+        .write(&mut buf_without_legacy, array.to_array_stream())
+        .await?;
+
+    assert!(
+        buf_without_legacy.len() < buf_with_legacy.len(),
+        "excluding legacy statistics should shrink the footer"
+    );
+
+    // Nested stats should still be fully populated and resolvable by path.
+    let stats = summary
+        .footer()
+        .statistics()
+        .expect("file statistics should be present");
+    let (b_stats, _) = stats
+        .get_by_path(&field_path!(a.b))
+        .expect("nested field stats should still resolve by path");
+    assert_eq!(
+        b_stats.get(Stat::NullCount).as_exact(),
+        Some(ScalarValue::from(1u64))
+    );
+
+    Ok(())
 }
 
 async fn round_trip(
@@ -2024,7 +2102,7 @@ async fn test_writer_with_statistics() -> VortexResult<()> {
     let mut buf = ByteBufferMut::empty();
     let mut writer = SESSION
         .write_options()
-        .with_file_statistics(PRUNING_STATS.to_vec())
+        .with_file_statistics(pruning_aggregate_fns())
         .writer(&mut buf, array.dtype().clone());
 
     writer.push(array).await?;
@@ -2761,6 +2839,66 @@ async fn test_can_prune_composite_predicates() -> VortexResult<()> {
     assert!(!file.can_prune(&gt(col("age"), lit(20)))?);
     assert!(!file.can_prune(&eq(col("age"), lit(18)))?);
     assert!(!file.can_prune(&and(gt(col("age"), lit(20)), gt(col("price"), lit(100))))?);
+
+    Ok(())
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_can_prune_nested_struct_field() -> VortexResult<()> {
+    // Regression test for vortex-data/vortex#6389: whole-file stats now cover nested struct
+    // fields, not just top-level ones, so `can_prune` should resolve `person.age`.
+    let person = StructArray::from_fields(&[("age", buffer![15i32, 18, 22, 25].into_array())])?;
+    let st = StructArray::try_new(
+        ["person"].into(),
+        vec![person.into_array()],
+        4,
+        Validity::NonNullable,
+    )?;
+
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .write(&mut buf, st.into_array().to_array_stream())
+        .await?;
+    let file = SESSION.open_options().open_buffer(buf)?;
+
+    let age = get_item("age", col("person"));
+    assert!(file.can_prune(&gt(age.clone(), lit(30)))?);
+    assert!(!file.can_prune(&gt(age, lit(20)))?);
+
+    Ok(())
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_can_prune_three_level_nested_struct_field() -> VortexResult<()> {
+    // Regression test for vortex-data/vortex#6389: whole-file stats resolve field paths at
+    // arbitrary nesting depth, not just one level.
+    let struct_z = StructArray::from_fields(&[("z", buffer![15i32, 18, 22, 25].into_array())])?;
+    let struct_y = StructArray::try_new(
+        ["y"].into(),
+        vec![struct_z.into_array()],
+        4,
+        Validity::NonNullable,
+    )?;
+    let struct_x = StructArray::try_new(
+        ["x"].into(),
+        vec![struct_y.into_array()],
+        4,
+        Validity::NonNullable,
+    )?;
+
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .write(&mut buf, struct_x.into_array().to_array_stream())
+        .await?;
+    let file = SESSION.open_options().open_buffer(buf)?;
+
+    let z_field = get_item("z", get_item("y", col("x")));
+    assert!(file.can_prune(&gt(z_field.clone(), lit(30)))?);
+    assert!(!file.can_prune(&gt(z_field, lit(20)))?);
 
     Ok(())
 }

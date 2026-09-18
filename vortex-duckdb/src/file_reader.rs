@@ -11,6 +11,7 @@ use url::Url;
 use vortex::array::VortexSessionExecute as _;
 use vortex::array::arrays::struct_::StructArrayExt as _;
 use vortex::dtype::DType;
+use vortex::dtype::FieldPath;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_panic;
@@ -274,16 +275,12 @@ pub fn reader_get_statistics(
         .as_any()
         .downcast_ref::<FileStatsLayoutReader>()?;
 
-    let DType::Struct(fields, _) = &file.reader.dtype() else {
-        return None;
-    };
-    let index = fields.find(column)?;
-    let stats_sets = reader.file_stats().stats_sets();
+    let (stats, dtype) = reader
+        .file_stats()
+        .get_by_path(&FieldPath::from_name(column))?;
 
-    let dtype = fields.field_by_index(index)?;
-
-    let stats = ColumnStatisticsAggregate::new(stats_sets.get(index)?);
-    match ColumnStatistics::try_from(stats, dtype) {
+    let stats = ColumnStatisticsAggregate::new(stats);
+    match ColumnStatistics::try_from(stats, dtype.clone()) {
         Ok(stats) => Some(stats),
         Err(e) => vortex_panic!(e),
     }
@@ -328,11 +325,11 @@ pub fn footer_get_statistics(footer: &Footer, index: usize) -> Option<ColumnStat
     let DType::Struct(fields, _) = footer.dtype() else {
         return None;
     };
+    let name = fields.names().get(index)?;
     let stats = footer.statistics()?;
-    let dtype = fields.field_by_index(index)?;
-    let stats = stats.stats_sets().get(index)?;
+    let (stats, dtype) = stats.get_by_path(&FieldPath::from_name(name.clone()))?;
     let stats = ColumnStatisticsAggregate::new(stats);
-    match ColumnStatistics::try_from(stats, dtype) {
+    match ColumnStatistics::try_from(stats, dtype.clone()) {
         Ok(stats) => Some(stats),
         Err(e) => vortex_panic!(e),
     }

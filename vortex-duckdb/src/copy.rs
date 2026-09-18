@@ -16,6 +16,7 @@ use vortex::array::ArrayRef;
 use vortex::array::stream::ArrayStreamAdapter;
 use vortex::dtype::DType;
 use vortex::dtype::FieldName;
+use vortex::dtype::FieldPath;
 use vortex::dtype::Nullability::NonNullable;
 use vortex::dtype::Nullability::Nullable;
 use vortex::dtype::StructFields;
@@ -211,8 +212,9 @@ pub(crate) fn written_column_stats(
 fn file_stats_from_summary(summary: &WriteSummary) -> WrittenFileStats {
     let num_columns = summary
         .footer()
-        .statistics()
-        .map_or(0, |s| s.stats_sets().len());
+        .dtype()
+        .as_struct_fields_opt()
+        .map_or(1, StructFields::nfields);
     WrittenFileStats {
         row_count: summary.row_count(),
         file_size_bytes: summary.size(),
@@ -223,11 +225,11 @@ fn file_stats_from_summary(summary: &WriteSummary) -> WrittenFileStats {
 }
 
 /// Per-column statistics from a finished write's summary and its precomputed compressed sizes
-/// (`column_sizes`, indexed the same as the footer's stats sets).
+/// (`column_sizes`, indexed by top-level field position).
 ///
-/// Only top-level columns are covered: the footer exposes one statistics set per top-level field,
-/// so nested struct/list leaf columns are not reported (parquet, by contrast, recurses to leaf
-/// paths). Flat tables - the common DuckLake case - are fully covered.
+/// Only top-level columns are covered: nested struct/list leaf columns are not reported (parquet,
+/// by contrast, recurses to leaf paths). Flat tables - the common DuckLake case - are fully
+/// covered.
 fn column_stats_from_summary(
     summary: &WriteSummary,
     column_index: usize,
@@ -237,15 +239,20 @@ fn column_stats_from_summary(
         .footer()
         .statistics()
         .ok_or_else(|| vortex_err!("written file has no statistics"))?;
-    let stats_sets = file_stats.stats_sets();
-    if column_index >= stats_sets.len() {
-        vortex_bail!(
-            "column index {column_index} out of range for {} statistics sets",
-            stats_sets.len()
-        );
-    }
-    let stats = &stats_sets[column_index];
-    let dtype = &file_stats.dtypes()[column_index];
+    let struct_fields = summary
+        .footer()
+        .dtype()
+        .as_struct_fields_opt()
+        .ok_or_else(|| vortex_err!("written file dtype is not a struct"))?;
+    let name = struct_fields.names().get(column_index).ok_or_else(|| {
+        vortex_err!(
+            "column index {column_index} out of range for {} top-level fields",
+            struct_fields.nfields()
+        )
+    })?;
+    let (stats, dtype) = file_stats
+        .get_by_path(&FieldPath::from_name(name.clone()))
+        .ok_or_else(|| vortex_err!("no statistics for column {name}"))?;
 
     Ok(WrittenColumnStats {
         min: exact_scalar_to_duckdb(stats.get(Stat::Min), dtype)?,
@@ -331,16 +338,30 @@ pub fn copy_to_initialize_global(
 #[cfg(test)]
 mod tests {
     use vortex::array::IntoArray;
+    use vortex::array::aggregate_fn::AggregateFnRef;
     use vortex::array::arrays::StructArray;
-    use vortex::array::stats::PRUNING_STATS;
+    use vortex::array::validity::Validity;
     use vortex::buffer::ByteBufferMut;
     use vortex::buffer::buffer;
 
     use super::*;
 
+    fn pruning_aggregate_fns() -> Vec<AggregateFnRef> {
+        [
+            Stat::Min,
+            Stat::Max,
+            Stat::Sum,
+            Stat::NullCount,
+            Stat::NaNCount,
+        ]
+        .into_iter()
+        .filter_map(|stat| stat.aggregate_fn())
+        .collect()
+    }
+
     /// Writes a one-column file and returns its summary, with `file_statistics` controlling which
     /// statistics the footer carries (empty means none at all).
-    fn write_summary(file_statistics: Vec<Stat>) -> WriteSummary {
+    fn write_summary(file_statistics: Vec<AggregateFnRef>) -> WriteSummary {
         RUNTIME.block_on(async {
             let array = StructArray::from_fields(&[("i", buffer![1u32, 2, 3].into_array())])
                 .unwrap()
@@ -357,7 +378,7 @@ mod tests {
 
     #[test]
     fn column_stats_out_of_range_is_an_error() {
-        let summary = write_summary(PRUNING_STATS.to_vec());
+        let summary = write_summary(pruning_aggregate_fns());
         assert!(column_stats_from_summary(&summary, 0, &[]).is_ok());
         assert!(column_stats_from_summary(&summary, 1, &[]).is_err());
     }
@@ -366,5 +387,33 @@ mod tests {
     fn column_stats_without_file_statistics_is_an_error() {
         let summary = write_summary(vec![]);
         assert!(column_stats_from_summary(&summary, 0, &[]).is_err());
+    }
+
+    #[test]
+    fn column_stats_resolves_by_name_past_a_nullable_struct_column() {
+        // Regression test: a nullable top-level struct field ("s") contributes both a `s.b` entry
+        // and a trailing entry for its own null count to the nested (post-order) stats layout, so
+        // that layout has one more entry than there are top-level fields. Resolving a later
+        // top-level column ("c", index 1) by flat position into that layout would silently return
+        // `s`'s own null-count-only entry (which has no Min) instead of `c`'s stats.
+        let summary = RUNTIME.block_on(async {
+            let b = buffer![10i32, 20, 30].into_array();
+            let inner = StructArray::new(["b"].into(), [b], 3, Validity::AllValid).into_array();
+            let c = buffer![7u32, 8, 9].into_array();
+            let outer = StructArray::new(["s", "c"].into(), [inner, c], 3, Validity::NonNullable)
+                .into_array();
+
+            let mut buf = ByteBufferMut::empty();
+            let mut writer = SESSION
+                .write_options()
+                .with_file_statistics(pruning_aggregate_fns())
+                .writer(&mut buf, outer.dtype().clone());
+            writer.push(outer).await.unwrap();
+            writer.finish().await.unwrap()
+        });
+
+        let stats = column_stats_from_summary(&summary, 1, &[]).unwrap();
+        assert!(stats.min.is_some());
+        assert!(stats.max.is_some());
     }
 }

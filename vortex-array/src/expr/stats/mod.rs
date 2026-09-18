@@ -25,6 +25,7 @@ pub use stat_bound::*;
 
 use crate::aggregate_fn;
 use crate::aggregate_fn::AggregateFnRef;
+use crate::aggregate_fn::AggregateFnSatisfaction;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::AggregateFnVTableExt;
 use crate::aggregate_fn::EmptyOptions;
@@ -237,6 +238,18 @@ impl Stat {
             return Some(Self::UncompressedSizeInBytes);
         }
         None
+    }
+
+    pub fn from_aggregate_fn_partial(
+        aggregate_fn: &AggregateFnRef,
+    ) -> Option<(Self, AggregateFnSatisfaction)> {
+        Self::all().find_map(|stat| {
+            let requested = stat.aggregate_fn()?;
+            match aggregate_fn.can_satisfy(&requested) {
+                AggregateFnSatisfaction::No => None,
+                satisfaction => Some((stat, satisfaction)),
+            }
+        })
     }
 
     pub fn name(&self) -> &str {

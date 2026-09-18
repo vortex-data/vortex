@@ -56,9 +56,22 @@ table PostscriptSegment {
 // [footer]
 /// The `FileStatistics` object contains file-level statistics for the Vortex file.
 table FileStatistics {
-    /// Statistics for each field in the root schema. If the root schema is not a struct, there will
-    /// be a single entry in this array.
+    /// Statistics for each top-level field in the root schema, in schema order. If the root schema
+    /// is not a struct, there will be a single entry in this array. Does not recurse into nested
+    /// struct fields; see `nested_field_stats` for that.
+    ///
+    /// Kept in this legacy shape for backward compatibility with readers that predate
+    /// `nested_field_stats`, which strictly validate this array's length against the number of
+    /// top-level struct fields.
     field_stats: [ArrayStats];
+    /// Statistics following a post-order walk of the root `DType` tree: each leaf field gets an
+    /// entry, and each nullable struct additionally gets a trailing null-count entry inserted
+    /// after its children's entries.
+    ///
+    /// Readers that know about this field should prefer it over `field_stats` when present. It is
+    /// absent for files written before nested file stats were supported, and readers that don't
+    /// know about it fall back to `field_stats`'s legacy top-level-fields-only layout.
+    nested_field_stats: [ArrayStats];
 }
 
 /// The `Registry` object stores dictionary-encoded configuration for segments,

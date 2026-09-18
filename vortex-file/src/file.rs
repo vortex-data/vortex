@@ -227,11 +227,7 @@ impl VortexFile {
     /// Row-count-aware pruning predicates are evaluated with the file's total
     /// row count as their scope.
     pub fn can_prune(&self, filter: &Expression) -> VortexResult<bool> {
-        let Some((stats, fields)) = self
-            .footer
-            .statistics()
-            .zip(self.footer.dtype().as_struct_fields_opt())
-        else {
+        let Some(stats) = self.footer.statistics() else {
             return Ok(false);
         };
 
@@ -239,7 +235,6 @@ impl VortexFile {
             &filter.bind(self.footer.dtype())?,
             self.footer.row_count(),
             stats,
-            fields,
             &self.session,
         )
     }
