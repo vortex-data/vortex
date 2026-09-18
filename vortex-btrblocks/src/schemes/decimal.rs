@@ -13,13 +13,13 @@ use vortex_array::arrays::decimal::narrowed_decimal;
 use vortex_array::dtype::DecimalType;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::EstimateVerdict;
-use vortex_compressor::scheme::SchemeConfig;
 use vortex_decimal_byte_parts::DecimalByteParts;
 use vortex_decimal_byte_parts::DecimalBytePartsSlots;
 use vortex_decimal_byte_parts::decimal_byte_parts_v1_id;
 use vortex_decimal_byte_parts::decimal_byte_parts_v2_id;
 use vortex_decimal_byte_parts::split_decimal;
 use vortex_error::VortexResult;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
@@ -42,17 +42,19 @@ pub struct DecimalScheme {
 
 impl Default for DecimalScheme {
     fn default() -> Self {
-        Self { allow_v2: true }
+        Self::new(None)
     }
 }
 
 impl DecimalScheme {
     /// Creates a decimal scheme using v2 for wide values when that format is permitted.
     ///
-    /// Availability is gated separately by [`Scheme::produced_encodings`].
-    pub fn from_config(config: &SchemeConfig) -> Self {
+    /// `None` permits all serialized IDs. Availability is gated separately by
+    /// [`Scheme::produced_encodings`].
+    pub fn new(allowed_serialized_ids: Option<&HashSet<ArrayId>>) -> Self {
         Self {
-            allow_v2: config.allows_serialized_id(&decimal_byte_parts_v2_id()),
+            allow_v2: allowed_serialized_ids
+                .is_none_or(|ids| ids.contains(&decimal_byte_parts_v2_id())),
         }
     }
 }

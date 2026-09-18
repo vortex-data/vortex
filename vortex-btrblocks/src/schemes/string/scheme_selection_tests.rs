@@ -53,7 +53,7 @@ fn test_all_schemes_includes_onpair() {
 
     let ids: Vec<_> = crate::ALL_SCHEMES
         .iter()
-        .map(|constructor| constructor(&crate::SchemeConfig::default()))
+        .map(|constructor| constructor(None))
         .map(|s| s.id())
         .collect();
     assert!(
@@ -97,7 +97,7 @@ fn test_fsst_in_default_scheme_list() -> VortexResult<()> {
     assert!(
         crate::ALL_SCHEMES
             .iter()
-            .map(|constructor| constructor(&crate::SchemeConfig::default()))
+            .map(|constructor| constructor(None))
             .any(|s| s.id() == FSSTScheme.id()),
         "FSSTScheme should be in ALL_SCHEMES",
     );

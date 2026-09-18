@@ -11,7 +11,6 @@ use vortex_array::dtype::DecimalDType;
 use vortex_array::session::ArraySessionExt;
 use vortex_array::validity::Validity;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
-use vortex_btrblocks::SchemeConfig;
 use vortex_btrblocks::SchemeExt;
 use vortex_btrblocks::schemes::decimal::DecimalScheme;
 use vortex_buffer::Buffer;
@@ -28,13 +27,12 @@ use vortex_utils::aliases::hash_set::HashSet;
 #[case::v2_only(vec![decimal_byte_parts_v2_id()], false)]
 #[case::both(vec![decimal_byte_parts_v1_id(), decimal_byte_parts_v2_id()], true)]
 fn supported_ids(#[case] ids: Vec<ArrayId>, #[case] supported: bool) {
-    let config =
-        SchemeConfig::default().with_allowed_serialized_ids(&ids.iter().copied().collect());
+    let allowed_serialized_ids = ids.into_iter().collect();
     // Construction is unconditional; the compressor independently gates the scheme.
-    let scheme = DecimalScheme::from_config(&config);
+    let scheme = DecimalScheme::new(Some(&allowed_serialized_ids));
     let compressor = BtrBlocksCompressorBuilder::empty()
-        .with_new_scheme(DecimalScheme::from_config)
-        .retain_allowed_encodings(&ids.into_iter().collect())
+        .with_new_scheme(DecimalScheme::new)
+        .retain_allowed_encodings(&allowed_serialized_ids)
         .build();
     assert_eq!(compressor.has_scheme(scheme.id()), supported);
 }
@@ -51,7 +49,7 @@ fn decimal_format_follows_configuration(#[values(false, true)] wide: bool) -> Vo
         Validity::NonNullable,
     )
     .into_array();
-    let builder = BtrBlocksCompressorBuilder::empty().with_new_scheme(DecimalScheme::from_config);
+    let builder = BtrBlocksCompressorBuilder::empty().with_new_scheme(DecimalScheme::new);
     let v1 = builder
         .clone()
         .retain_allowed_encodings(&HashSet::from([decimal_byte_parts_v1_id()]))

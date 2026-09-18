@@ -4,9 +4,6 @@
 //! Everything a scheme author implements or receives: the [`Scheme`] trait, exclusion rules,
 //! compression estimates, and the compression context.
 
-mod config;
-pub use config::SchemeConfig;
-
 mod ctx;
 pub use ctx::CompressorContext;
 pub use ctx::MAX_CASCADE;
@@ -139,8 +136,8 @@ pub trait Scheme: Debug + Send + Sync {
     /// merely rearranges do not need to be declared.
     ///
     /// For most encodings this is the in-memory encoding ID. A configurable scheme declares its
-    /// required wire IDs here and uses [`SchemeConfig`] during construction to enable optional
-    /// formats. Every optional format it emits must also be permitted by that configuration.
+    /// required wire IDs here and uses the allowed serialized IDs during construction to enable
+    /// optional formats. Every optional format it emits must also be permitted.
     fn produced_encodings(&self) -> Vec<ArrayId>;
 
     /// Returns the stats generation options this scheme requires. The compressor merges all
