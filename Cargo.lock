@@ -11041,6 +11041,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-elias-fano"
+version = "0.1.0"
+dependencies = [
+ "codspeed-divan-compat",
+ "lending-iterator",
+ "num-traits",
+ "prost 0.14.4",
+ "rstest",
+ "smallvec",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-fastlanes",
+ "vortex-mask",
+ "vortex-session",
+]
+
+[[package]]
 name = "vortex-error"
 version = "0.1.0"
 dependencies = [
