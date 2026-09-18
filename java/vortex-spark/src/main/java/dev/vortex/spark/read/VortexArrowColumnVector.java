@@ -15,6 +15,8 @@ import dev.vortex.relocated.org.apache.arrow.vector.holders.NullableVarCharHolde
 import dev.vortex.relocated.org.apache.arrow.vector.types.TimeUnit;
 import dev.vortex.relocated.org.apache.arrow.vector.types.pojo.ArrowType;
 import dev.vortex.spark.ArrowUtils;
+import java.math.BigDecimal;
+import java.nio.ByteOrder;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.Decimal;
@@ -309,7 +311,12 @@ public class VortexArrowColumnVector extends ColumnVector {
         } else if (vector instanceof Float8Vector float8Vector) {
             accessor = new VortexArrowColumnVector.DoubleAccessor(float8Vector);
         } else if (vector instanceof DecimalVector decimalVector) {
-            accessor = new VortexArrowColumnVector.DecimalAccessor(decimalVector);
+            int precision = decimalVector.getPrecision();
+            if (precision > 0 && precision <= Decimal.MAX_LONG_DIGITS()) {
+                accessor = new VortexArrowColumnVector.SmallDecimalAccessor(decimalVector, ByteOrder.nativeOrder());
+            } else {
+                accessor = new VortexArrowColumnVector.DecimalAccessor(decimalVector);
+            }
         } else if (vector instanceof VarCharVector varCharVector) {
             accessor = new VortexArrowColumnVector.StringAccessor(varCharVector);
         } else if (vector instanceof LargeVarCharVector largeVarCharVector) {
@@ -552,6 +559,36 @@ public class VortexArrowColumnVector extends ColumnVector {
         @Override
         final Decimal getDecimal(int rowId, int precision, int scale) {
             if (isNullAt(rowId)) return null;
+            return Decimal.apply(accessor.getObject(rowId), precision, scale);
+        }
+    }
+
+    static final class SmallDecimalAccessor extends VortexArrowColumnVector.ArrowVectorAccessor {
+
+        private final DecimalVector accessor;
+        private final int lowWordOffset;
+        private final int highWordOffset;
+
+        SmallDecimalAccessor(DecimalVector vector, ByteOrder byteOrder) {
+            super(vector);
+            this.accessor = vector;
+            // Arrow Java stores Decimal128 in native byte order, including the order of its two words.
+            this.lowWordOffset = byteOrder == ByteOrder.LITTLE_ENDIAN ? 0 : Long.BYTES;
+            this.highWordOffset = byteOrder == ByteOrder.LITTLE_ENDIAN ? Long.BYTES : 0;
+        }
+
+        @Override
+        final Decimal getDecimal(int rowId, int precision, int scale) {
+            if (isNullAt(rowId)) return null;
+            long offset = (long) rowId * DecimalVector.TYPE_WIDTH;
+            long unscaled = accessor.getDataBuffer().getLong(offset + lowWordOffset);
+            long high = accessor.getDataBuffer().getLong(offset + highWordOffset);
+            if (high == (unscaled >> 63)) {
+                // Decode with the source scale; Spark performs the requested rescaling and overflow checks.
+                // Keep the expanded Decimal representation for Spark's checked integer casts.
+                return Decimal.apply(BigDecimal.valueOf(unscaled, accessor.getScale()), precision, scale);
+            }
+            // Preserve all 128 bits when the stored integer does not fit in a long.
             return Decimal.apply(accessor.getObject(rowId), precision, scale);
         }
     }
