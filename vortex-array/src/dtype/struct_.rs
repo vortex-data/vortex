@@ -338,6 +338,38 @@ impl StructFields {
         Self::from_fields(names, dtypes)
     }
 
+    /// Create a new [`StructFields`] from names and [`FieldDType`]s, decoding every field
+    /// dtype up front.
+    ///
+    /// Deserialization must use this rather than [`Self::from_fields`]: a [`FieldDType`]
+    /// backed by a view decodes lazily, and the accessors that decode it return a plain
+    /// [`DType`], so a field dtype that fails to decode has nowhere to surface but a panic.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `names` and `dtypes` differ in length, or if any field dtype
+    /// cannot be decoded.
+    pub fn try_from_fields(names: FieldNames, dtypes: Vec<FieldDType>) -> VortexResult<Self> {
+        if names.len() != dtypes.len() {
+            vortex_bail!(
+                "length mismatch between names ({}) and dtypes ({})",
+                names.len(),
+                dtypes.len()
+            );
+        }
+
+        for (name, dtype) in names.iter().zip_eq(dtypes.iter()) {
+            dtype
+                .value()
+                .map_err(|e| e.with_context(format!("invalid dtype for struct field {name}")))?;
+        }
+
+        Ok(Self(Arc::new(StructFieldsInner::from_fields(
+            names,
+            dtypes.into(),
+        ))))
+    }
+
     /// Create a new [`StructFields`] from a  list of names and [`FieldDType`] which can be either lazily or eagerly serialized.
     pub fn from_fields(names: FieldNames, dtypes: Vec<FieldDType>) -> Self {
         if names.len() != dtypes.len() {
