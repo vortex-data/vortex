@@ -3,11 +3,15 @@
 
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::hash::Hash;
+use std::hash::Hasher;
 use std::mem::MaybeUninit;
+use std::ops::Range;
 
 use fastlanes::BitPacking;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::TypedArrayRef;
 use vortex_array::array_slots;
 use vortex_array::arrays::Primitive;
@@ -21,6 +25,8 @@ use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesData;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::child_to_validity;
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -34,6 +40,183 @@ use crate::FL_CHUNK_SIZE;
 use crate::bitpack_compress::bitpack_encode;
 use crate::unpack_iter::BitPacked as BitPackedIter;
 use crate::unpack_iter::BitUnpackedChunks;
+
+/// Bytes occupied by one packed FastLanes chunk of `bit_width`-bit values.
+#[inline]
+pub const fn chunk_packed_bytes(bit_width: u8) -> usize {
+    (FL_CHUNK_SIZE / 8) * bit_width as usize
+}
+
+/// Chunk widths and byte offsets used while encoding or executing bit-packed data.
+/// Execution borrows the materialized children; only encoding computes prefix sums.
+#[derive(Clone, Debug)]
+pub struct ChunkWidths {
+    widths: Widths,
+    byte_offsets: Buffer<u64>,
+    max_width: u8,
+}
+
+#[derive(Clone, Debug)]
+enum Widths {
+    Uniform { width: u8, len: usize },
+    PerChunk(Buffer<u8>),
+}
+
+impl ChunkWidths {
+    /// Build an encoding plan, computing byte offsets from one width per chunk.
+    pub fn new(widths: Buffer<u8>) -> Self {
+        let mut byte_offsets = BufferMut::<u64>::with_capacity(widths.len() + 1);
+        let mut total = 0u64;
+        byte_offsets.push(0);
+        for &width in widths.iter() {
+            total += chunk_packed_bytes(width) as u64;
+            byte_offsets.push(total);
+        }
+        Self::from_buffers(Widths::PerChunk(widths), byte_offsets.freeze())
+    }
+
+    /// `num_chunks` chunks all packed at `bit_width`.
+    pub fn uniform(bit_width: u8, num_chunks: usize) -> Self {
+        Self::from_buffers(
+            Widths::Uniform {
+                width: bit_width,
+                len: num_chunks,
+            },
+            Buffer::from_iter((0..=num_chunks).map(|i| (i * chunk_packed_bytes(bit_width)) as u64)),
+        )
+    }
+
+    fn from_buffers(widths: Widths, byte_offsets: Buffer<u64>) -> Self {
+        let max_width = match &widths {
+            Widths::Uniform { width, .. } => *width,
+            Widths::PerChunk(widths) => widths.iter().copied().max().unwrap_or(0),
+        };
+        Self {
+            widths,
+            byte_offsets,
+            max_width,
+        }
+    }
+
+    /// Number of chunks.
+    #[inline]
+    pub fn len(&self) -> usize {
+        match &self.widths {
+            Widths::Uniform { len, .. } => *len,
+            Widths::PerChunk(widths) => widths.len(),
+        }
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// The bit width of `chunk`.
+    #[inline]
+    pub fn width(&self, chunk: usize) -> u8 {
+        match &self.widths {
+            Widths::Uniform { width, .. } => *width,
+            Widths::PerChunk(widths) => widths[chunk],
+        }
+    }
+
+    /// The widest chunk width.
+    #[inline]
+    pub fn max_width(&self) -> u8 {
+        self.max_width
+    }
+
+    /// The single width shared by every chunk, if they all agree.
+    pub fn uniform_width(&self) -> Option<u8> {
+        if self.is_empty() {
+            return None;
+        }
+        match &self.widths {
+            Widths::Uniform { width, .. } => Some(*width),
+            Widths::PerChunk(widths) => {
+                let first = widths[0];
+                widths.iter().all(|&w| w == first).then_some(first)
+            }
+        }
+    }
+
+    /// Whether every chunk shares one width. An empty array counts as uniform.
+    pub fn is_uniform(&self) -> bool {
+        self.is_empty() || self.uniform_width().is_some()
+    }
+
+    /// Materialize the widths as one byte per chunk.
+    pub fn as_buffer(&self) -> Buffer<u8> {
+        match &self.widths {
+            Widths::Uniform { width, len } => Buffer::from_iter(std::iter::repeat_n(*width, *len)),
+            Widths::PerChunk(widths) => widths.clone(),
+        }
+    }
+
+    /// The offsets child, including the trailing boundary. Slices may start at a nonzero offset.
+    pub fn offsets_array(&self) -> ArrayRef {
+        self.byte_offsets.clone().into_array()
+    }
+
+    /// Byte offset relative to the packed buffer. Passing the chunk count yields the total size.
+    #[inline]
+    pub fn byte_offset(&self, chunk: usize) -> usize {
+        (self.byte_offsets[chunk] - self.byte_offsets[0]) as usize
+    }
+
+    /// Total packed bytes.
+    #[inline]
+    pub fn packed_bytes(&self) -> usize {
+        self.byte_offset(self.len())
+    }
+
+    /// Restrict to chunks without copying or rebasing the offset buffer.
+    pub fn slice(&self, chunks: Range<usize>) -> Self {
+        let widths = match &self.widths {
+            Widths::Uniform { width, .. } => Widths::Uniform {
+                width: *width,
+                len: chunks.len(),
+            },
+            Widths::PerChunk(widths) => Widths::PerChunk(widths.slice(chunks.clone())),
+        };
+        Self::from_buffers(
+            widths,
+            self.byte_offsets.slice(chunks.start..chunks.end + 1),
+        )
+    }
+}
+
+impl PartialEq for ChunkWidths {
+    fn eq(&self, other: &Self) -> bool {
+        self.len() == other.len() && (0..self.len()).all(|i| self.width(i) == other.width(i))
+    }
+}
+
+impl Eq for ChunkWidths {}
+
+impl Hash for ChunkWidths {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.len().hash(state);
+        for i in 0..self.len() {
+            self.width(i).hash(state);
+        }
+    }
+}
+
+impl Display for ChunkWidths {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self.uniform_width() {
+            Some(w) => write!(f, "bit_width: {w}"),
+            None => write!(
+                f,
+                "bit_widths: {} chunks, max {}",
+                self.len(),
+                self.max_width
+            ),
+        }
+    }
+}
 
 #[array_slots(crate::BitPacked)]
 pub struct BitPackedSlots {
@@ -224,25 +407,26 @@ impl BitPackedData {
         unsafe { std::slice::from_raw_parts(packed_ptr, packed_len) }
     }
 
-    /// Accessor for bit unpacked chunks
-    pub fn unpacked_chunks<'a, T: BitPackedIter>(
-        &'a self,
-        dtype: &DType,
-        len: usize,
-        scratch: &'a mut [MaybeUninit<T>; FL_CHUNK_SIZE],
-    ) -> VortexResult<BitUnpackedChunks<'a, T>> {
-        assert_eq!(
-            T::PTYPE,
-            self.ptype(dtype),
-            "Requested type doesn't match the array ptype"
-        );
-        BitUnpackedChunks::try_new(self, len, scratch)
-    }
-
     /// Bit-width of the packed values
     #[inline]
     pub fn bit_width(&self) -> u8 {
         self.bit_width
+    }
+
+    /// Access a chunk using the layout prepared for this operation.
+    #[inline]
+    pub(crate) fn packed_chunk<T: NativePType + BitPacking>(
+        &self,
+        widths: &ChunkWidths,
+        chunk: usize,
+    ) -> (&[T], usize) {
+        let bit_width = widths.width(chunk);
+        let start = widths.byte_offset(chunk) / size_of::<T>();
+        let len = chunk_packed_bytes(bit_width) / size_of::<T>();
+        (
+            &self.packed_slice::<T>()[start..][..len],
+            bit_width as usize,
+        )
     }
 
     #[inline]
@@ -283,6 +467,24 @@ impl BitPackedData {
 }
 
 pub trait BitPackedArrayExt: BitPackedArraySlotsExt {
+    /// Prepare a chunk layout for a bulk operation.
+    fn chunk_widths(&self, _ctx: &mut ExecutionCtx) -> VortexResult<ChunkWidths> {
+        Ok(ChunkWidths::uniform(
+            self.bit_width(),
+            (self.as_ref().len() + self.offset() as usize).div_ceil(FL_CHUNK_SIZE),
+        ))
+    }
+
+    /// Locate one chunk without allocating a layout for the entire array.
+    fn chunk_range(
+        &self,
+        chunk: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<(Range<usize>, u8)> {
+        let len = chunk_packed_bytes(self.bit_width());
+        Ok((chunk * len..(chunk + 1) * len, self.bit_width()))
+    }
+
     #[inline]
     fn packed(&self) -> &BufferHandle {
         BitPackedData::packed(self)
@@ -321,14 +523,14 @@ pub trait BitPackedArrayExt: BitPackedArraySlotsExt {
     #[inline]
     fn unpacked_chunks<'a, T: BitPackedIter>(
         &'a self,
+        widths: &'a ChunkWidths,
         scratch: &'a mut [MaybeUninit<T>; FL_CHUNK_SIZE],
     ) -> VortexResult<BitUnpackedChunks<'a, T>> {
-        BitPackedData::unpacked_chunks::<T>(
-            self,
-            self.as_ref().dtype(),
-            self.as_ref().len(),
-            scratch,
-        )
+        vortex_ensure!(
+            T::PTYPE == self.as_ref().dtype().as_ptype(),
+            "Requested unpack type does not match array dtype"
+        );
+        BitUnpackedChunks::try_new(self, self.as_ref().len(), widths, scratch)
     }
 }
 
@@ -343,8 +545,10 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_buffer::Buffer;
+    use vortex_buffer::buffer;
     use vortex_session::VortexSession;
 
+    use super::ChunkWidths;
     use crate::BitPackedData;
     use crate::bitpacking::array::BitPackedArrayExt;
 
@@ -406,5 +610,22 @@ mod test {
             PrimitiveArray::new(values, vortex_array::validity::Validity::NonNullable),
             &mut ctx
         );
+    }
+    #[test]
+    fn chunk_widths_offsets() {
+        assert_eq!(ChunkWidths::uniform(3, 3).uniform_width(), Some(3));
+        assert_eq!(ChunkWidths::new(Buffer::<u8>::empty()).packed_bytes(), 0);
+
+        let widths = ChunkWidths::new(buffer![3u8, 0, 16]);
+        assert_eq!(widths.uniform_width(), None);
+        assert_eq!(widths.len(), 3);
+        assert_eq!(widths.max_width(), 16);
+        assert_eq!(widths.width(1), 0);
+        assert_eq!(widths.byte_offset(0), 0);
+        assert_eq!(widths.byte_offset(1), 128 * 3);
+        assert_eq!(widths.byte_offset(2), 128 * 3);
+        assert_eq!(widths.packed_bytes(), 128 * 19);
+        assert_eq!(widths.slice(1..3), ChunkWidths::new(buffer![0u8, 16]));
+        assert_eq!(widths.slice(0..1).uniform_width(), Some(3));
     }
 }

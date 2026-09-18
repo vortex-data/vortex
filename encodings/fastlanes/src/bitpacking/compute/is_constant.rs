@@ -23,7 +23,7 @@ use vortex_error::VortexResult;
 
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
-use crate::unpack_iter::BitPacked as BitPackedUnpack;
+use crate::bitpacking::unpack_iter::BitPacked as BitPackedUnpack;
 
 /// BitPacked-specific is_constant kernel with SIMD support.
 #[derive(Debug)]
@@ -56,8 +56,9 @@ fn bitpacked_is_constant<T: BitPackedUnpack, const WIDTH: usize>(
     array: ArrayView<'_, BitPacked>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<bool> {
+    let widths = array.chunk_widths(ctx)?;
     let mut scratch = [const { MaybeUninit::<T>::uninit() }; 1024];
-    let mut bit_unpack_iterator = array.unpacked_chunks::<T>(&mut scratch)?;
+    let mut bit_unpack_iterator = array.unpacked_chunks::<T>(&widths, &mut scratch)?;
     let patches = array
         .patches()
         .map(|p| -> VortexResult<_> {

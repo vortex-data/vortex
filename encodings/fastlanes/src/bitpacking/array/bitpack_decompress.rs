@@ -17,14 +17,13 @@ use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::patches::Patches;
 use vortex_array::scalar::Scalar;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::FL_CHUNK_SIZE;
-use crate::unpack_iter::BitPacked as BitPackedUnpack;
-use crate::unpack_iter::BitUnpackedChunks;
+use crate::bitpacking::unpack_iter::BitPacked as BitPackedUnpack;
+use crate::bitpacking::unpack_iter::BitUnpackedChunks;
 
 /// Unpacks a bit-packed array into a primitive array.
 pub fn unpack_array(
@@ -124,8 +123,9 @@ where
     // SAFETY: `decode` writes a value to every slot in this range.
     let uninit_slice = unsafe { uninit_range.slice_uninit_mut(0, len) };
 
+    let widths = array.chunk_widths(ctx)?;
     let mut scratch = [const { MaybeUninit::<F>::uninit() }; FL_CHUNK_SIZE];
-    let mut chunks = array.unpacked_chunks::<F>(&mut scratch)?;
+    let mut chunks = array.unpacked_chunks::<F>(&widths, &mut scratch)?;
     decode(&mut chunks, uninit_slice, &map);
 
     if let Some(patches) = array.patches() {
@@ -164,19 +164,28 @@ pub(crate) fn apply_patches_to_uninit_range<S: NativePType, T: NativePType, F: F
     Ok(())
 }
 
-pub fn unpack_single(array: ArrayView<'_, BitPacked>, index: usize) -> Scalar {
-    let bit_width = array.bit_width() as usize;
+pub fn unpack_single(
+    array: ArrayView<'_, BitPacked>,
+    index: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Scalar> {
     let ptype = array.dtype().as_ptype();
-    // let packed = array.packed().into_primitive()?;
     let index_in_encoded = index + array.offset() as usize;
+    let chunk = index_in_encoded / FL_CHUNK_SIZE;
+    let index_in_chunk = index_in_encoded % FL_CHUNK_SIZE;
+    let (range, bit_width) = array.chunk_range(chunk, ctx)?;
     let scalar: Scalar = match_each_unsigned_integer_ptype!(ptype.to_unsigned(), |P| {
+        let packed_chunk =
+            &array.packed_slice::<P>()[range.start / size_of::<P>()..range.end / size_of::<P>()];
+        // SAFETY: `packed_chunk` is exactly one packed block at `bit_width`, and the index is
+        // within the chunk.
         unsafe {
-            unpack_single_primitive::<P>(array.packed_slice::<P>(), bit_width, index_in_encoded)
-                .into()
+            BitPacking::unchecked_unpack_single(bit_width as usize, packed_chunk, index_in_chunk)
         }
+        .into()
     });
     // Cast to fix signedness and nullability
-    scalar.cast(array.dtype()).vortex_expect("cast failure")
+    scalar.cast(array.dtype())
 }
 
 /// # Safety
@@ -227,12 +236,13 @@ mod tests {
     use vortex_buffer::Buffer;
     use vortex_buffer::BufferMut;
     use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
     use vortex_session::VortexSession;
 
     use super::*;
     use crate::BitPackedArray;
     use crate::BitPackedData;
-    use crate::bitpack_compress::bitpack_encode;
+    use crate::bitpacking::bitpack_compress::bitpack_encode;
 
     fn encode(array: &PrimitiveArray, bit_width: u8) -> BitPackedArray {
         bitpack_encode(array, bit_width, None, &mut SESSION.create_execution_ctx()).unwrap()
@@ -259,7 +269,7 @@ mod tests {
             .iter()
             .enumerate()
             .for_each(|(i, v)| {
-                let scalar: u16 = (&unpack_single(compressed.as_view(), i))
+                let scalar: u16 = (&unpack_single(compressed.as_view(), i, &mut ctx).unwrap())
                     .try_into()
                     .unwrap();
                 assert_eq!(scalar, *v);

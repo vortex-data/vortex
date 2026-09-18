@@ -25,7 +25,7 @@ use vortex_error::VortexResult;
 use super::chunked_indices;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
-use crate::bitpack_decompress;
+use crate::bitpacking::bitpack_decompress;
 
 // TODO(connor): This is duplicated in `encodings/fastlanes/src/bitpacking/kernels/mod.rs`.
 /// assuming the buffer is already allocated (which will happen at most once) then unpacking
@@ -80,10 +80,8 @@ fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
         return Ok(PrimitiveArray::new(Buffer::<T>::empty(), taken_validity));
     }
 
+    let widths = array.chunk_widths(ctx)?;
     let offset = array.offset() as usize;
-    let bit_width = array.bit_width() as usize;
-
-    let packed = array.packed_slice::<T>();
 
     // Group indices by 1024-element chunk, *without* allocating on the heap
     let indices_iter = indices.as_slice::<I>().iter().map(|i| {
@@ -93,10 +91,9 @@ fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
 
     let mut output = BufferMut::<T>::with_capacity(indices.len());
     let mut unpacked = [const { MaybeUninit::uninit() }; 1024];
-    let chunk_len = 128 * bit_width / size_of::<T>();
 
     chunked_indices(indices_iter, offset, |chunk_idx, indices_within_chunk| {
-        let packed = &packed[chunk_idx * chunk_len..][..chunk_len];
+        let (packed, bit_width) = array.data().packed_chunk::<T>(&widths, chunk_idx);
 
         let mut have_unpacked = false;
         let (offset_chunks, remainder) = indices_within_chunk.as_chunks::<UNPACK_CHUNK_THRESHOLD>();
