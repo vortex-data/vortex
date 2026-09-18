@@ -14,6 +14,8 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
@@ -134,12 +136,21 @@ impl<T: NativePType> PrimitiveBuilder<T> {
 
     /// Finishes the builder directly into a [`PrimitiveArray`].
     pub fn finish_into_primitive(&mut self) -> PrimitiveArray {
+        let values = self.values.take().freeze();
         let validity = self
             .nulls
             .finish_with_nullability(self.dtype().nullability());
 
-        let values = self.values.take().freeze();
-        PrimitiveArray::new(values, validity)
+        assert!(
+            validity.maybe_len().is_none_or(|len| len == values.len()),
+            "validity of length {:?} does not cover the {} values appended",
+            validity.maybe_len(),
+            values.len()
+        );
+
+        // SAFETY: the assert above establishes the only invariant, that an array-backed validity
+        // covers exactly the values appended. The other validities carry no length at all.
+        unsafe { PrimitiveArray::new_unchecked(values, validity) }
     }
 
     /// Extends the primitive array with an iterator.
@@ -150,7 +161,7 @@ impl<T: NativePType> PrimitiveBuilder<T> {
 
     pub(crate) fn append_primitive_array(
         &mut self,
-        array: &PrimitiveArray,
+        array: ArrayView<'_, Primitive>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         debug_assert_eq!(

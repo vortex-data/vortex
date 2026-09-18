@@ -29,12 +29,19 @@ use crate::array::ArrayParts;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::array::with_empty_buffers;
+use crate::arrays::FixedSizeList;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::Struct;
 use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::chunked::ChunkedData;
 use crate::arrays::chunked::array::ChunkedSlots;
 use crate::arrays::chunked::compute::rules::PARENT_RULES;
+use crate::arrays::chunked::vtable::canonical::ListChunks;
 use crate::arrays::chunked::vtable::canonical::_canonicalize;
+use crate::arrays::chunked::vtable::canonical::swizzle;
+use crate::arrays::chunked::vtable::canonical::swizzle_fixed_size_list;
+use crate::arrays::chunked::vtable::canonical::swizzle_list;
+use crate::arrays::chunked::vtable::canonical::swizzle_struct;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
@@ -239,6 +246,9 @@ impl VTable for Chunked {
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
+        // The builder is about to receive one array per chunk, so let any chunk lists it keeps
+        // grow once rather than on the way through.
+        builder.reserve_chunks(array.nchunks());
         for chunk in array.iter_chunks() {
             chunk.append_to_builder(builder, ctx)?;
         }
@@ -260,24 +270,31 @@ impl VTable for Chunked {
                      every sparse child along identical chunk boundaries"
                 )
             }
-            // Struct, List, FixedSizeList, and Variant need child swizzling that the builder path
-            // cannot express.
-            DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..) | DType::Variant(..) => {
+            DType::FixedSizeList(..) => swizzle::<FixedSizeList>(array, swizzle_fixed_size_list),
+            DType::Struct(..) => swizzle::<Struct>(array, swizzle_struct),
+            DType::List(..) => swizzle::<ListChunks>(array, |array| swizzle_list(array, ctx)),
+            // Variant need child swizzling that the builder path cannot express.
+            DType::Variant(..) => {
                 // TODO(joe)[#7674]: iterative execution here too
                 Ok(ExecutionResult::done(_canonicalize(array.as_view(), ctx)?))
             }
             // For all other types, use the builder path via AppendChild.
             _ => {
-                let slot_idx = array.next_builder_slot.max(ChunkedSlots::CHUNKS_OFFSET);
+                let slot_idx = array.next_child_slot.max(ChunkedSlots::CHUNKS_OFFSET);
                 if slot_idx < array.slots().len() {
                     Ok(ExecutionResult::append_child(
-                        array.with_next_builder_slot(slot_idx + 1),
+                        array.with_next_child_slot(slot_idx + 1),
                         slot_idx,
                     ))
-                } else {
+                } else if slot_idx == ChunkedSlots::CHUNKS_OFFSET {
+                    // No chunks at all, so nothing was ever appended and the executor holds no
+                    // builder to finish. This array really is empty.
                     Ok(ExecutionResult::done(
                         Canonical::empty(array.dtype()).into_array(),
                     ))
+                } else {
+                    // Every chunk has gone to the builder, which is what the executor will finish.
+                    Ok(ExecutionResult::done_into_builder(array))
                 }
             }
         }

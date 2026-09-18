@@ -188,7 +188,7 @@ impl VTable for Primitive {
     ) -> VortexResult<()> {
         match_each_native_ptype!(array.ptype(), |P| {
             if let Some(builder) = builder.as_any_mut().downcast_mut::<PrimitiveBuilder<P>>() {
-                return builder.append_primitive_array(&array.into_owned(), ctx);
+                return builder.append_primitive_array(array, ctx);
             }
         });
 

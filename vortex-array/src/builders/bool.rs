@@ -11,6 +11,8 @@ use vortex_error::vortex_ensure;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
+use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::arrays::bool::BoolArrayExt;
 use crate::builders::ArrayBuilder;
@@ -79,21 +81,24 @@ impl BoolBuilder {
             "Null count and value count should match when calling BoolBuilder::finish."
         );
 
-        let inner = self.inner.take().freeze();
-        BoolArray::new(
-            inner,
-            self.nulls.finish_with_nullability(self.dtype.nullability()),
-        )
+        // SAFETY: the assert above establishes the only invariant, that the validity covers
+        // exactly the bits appended.
+        unsafe {
+            BoolArray::new_unchecked(
+                self.inner.take().freeze(),
+                self.nulls.finish_with_nullability(self.dtype.nullability()),
+            )
+        }
     }
 
     pub(crate) fn append_bool_array(
         &mut self,
-        array: &BoolArray,
+        array: ArrayView<'_, Bool>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         self.inner.append_buffer(&array.to_bit_buffer());
         self.nulls
-            .append_validity_mask(&BoolArrayExt::validity(array).execute_mask(array.len(), ctx)?);
+            .append_validity_mask(&BoolArrayExt::validity(&array).execute_mask(array.len(), ctx)?);
         Ok(())
     }
 }

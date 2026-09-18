@@ -196,7 +196,7 @@ impl VTable for Extension {
         let Some(builder) = builder.as_any_mut().downcast_mut::<ExtensionBuilder>() else {
             vortex_bail!("append_to_builder for Extension requires an ExtensionBuilder");
         };
-        builder.append_extension_array(&array.into_owned(), ctx)
+        builder.append_extension_array(array, ctx)
     }
 
     fn reduce(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {

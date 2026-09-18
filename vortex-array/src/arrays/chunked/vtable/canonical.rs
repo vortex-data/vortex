@@ -10,93 +10,242 @@ use vortex_error::vortex_err;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
+use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
+use crate::arrays::FixedSizeList;
 use crate::arrays::FixedSizeListArray;
+use crate::arrays::List;
+use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::Struct;
 use crate::arrays::StructArray;
 use crate::arrays::VariantArray;
 use crate::arrays::chunked::ChunkedArrayExt;
+use crate::arrays::chunked::array::ChunkedSlots;
 use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
+use crate::arrays::list::ListArraySlotsExt;
 use crate::arrays::listview::ListViewArraySlotsExt;
-use crate::arrays::listview::ListViewRebuildMode;
+use crate::arrays::struct_::StructArrayExt;
 use crate::arrays::variant::VariantArraySlotsExt;
-use crate::builders::builder_with_capacity_in;
-use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
-use crate::dtype::Nullability;
-use crate::dtype::PType;
+use crate::match_each_integer_ptype;
+use crate::matcher::Matcher;
 use crate::validity::Validity;
+
+pub(super) struct ListChunks;
+
+impl Matcher for ListChunks {
+    type Match<'a> = ();
+
+    fn try_match(array: &ArrayRef) -> Option<()> {
+        (array.is::<List>() || array.is::<ListView>()).then_some(())
+    }
+}
+
+/// Executes chunks into the required encoding one at a time, then transposes their children.
+pub(super) fn swizzle<V: Matcher + 'static>(
+    array: ChunkedArray,
+    finish: impl FnOnce(ChunkedArray) -> VortexResult<ArrayRef>,
+) -> VortexResult<ExecutionResult> {
+    let next_chunk = array
+        .next_child_slot
+        .saturating_sub(ChunkedSlots::CHUNKS_OFFSET);
+    let needs_execution = array
+        .iter_chunks()
+        .enumerate()
+        .skip(next_chunk)
+        .find(|(_, chunk)| !V::matches(chunk))
+        .map(|(idx, _)| idx + ChunkedSlots::CHUNKS_OFFSET);
+    if let Some(slot) = needs_execution {
+        return Ok(ExecutionResult::execute_slot::<V>(
+            array.with_next_child_slot(slot + 1),
+            slot,
+        ));
+    }
+
+    Ok(ExecutionResult::done(finish(array)?))
+}
+
+pub(super) fn swizzle_fixed_size_list(array: ChunkedArray) -> VortexResult<ArrayRef> {
+    let DType::FixedSizeList(element_dtype, list_size, _) = array.dtype() else {
+        unreachable!("called only for a fixed-size list dtype")
+    };
+    // Canonical FSL children are trimmed to list_size * len; their elements concatenate directly.
+    let element_chunks: Vec<_> = array
+        .iter_chunks()
+        .map(|chunk| chunk.as_::<FixedSizeList>().elements().clone())
+        .collect();
+    let validity = array.validity()?;
+    // SAFETY: all chunks share the parent's FSL dtype, so their elements share element_dtype
+    // and their lengths sum to list_size * array.len(). The parent supplies the combined validity.
+    Ok(unsafe {
+        let elements =
+            ChunkedArray::new_unchecked(element_chunks, element_dtype.as_ref().clone())
+                .into_array();
+        FixedSizeListArray::new_unchecked(elements, *list_size, validity, array.len()).into_array()
+    })
+}
+
+pub(super) fn swizzle_struct(array: ChunkedArray) -> VortexResult<ArrayRef> {
+    let struct_fields = array.dtype().as_struct_fields();
+    let chunks: Vec<_> = array
+        .iter_chunks()
+        .map(|chunk| chunk.as_::<Struct>())
+        .collect();
+    let fields = struct_fields.fields().enumerate().map(|(idx, dtype)| {
+        let children = chunks.iter().map(|chunk| chunk.unmasked_field(idx).clone());
+        // SAFETY: each chunk has the parent's struct dtype, which fixes each field's dtype.
+        unsafe { ChunkedArray::new_unchecked(children, dtype) }.into_array()
+    });
+    let validity = array.validity()?;
+    // SAFETY: each field concatenates the same chunk lengths, summing to array.len(). Their
+    // dtypes come from the parent and its validity applies to exactly those rows, including nulls.
+    Ok(unsafe {
+        StructArray::new_unchecked(fields, struct_fields.clone(), array.len(), validity)
+            .into_array()
+    })
+}
+
+pub(super) fn swizzle_list(array: ChunkedArray, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    let DType::List(element_dtype, _) = array.dtype() else {
+        unreachable!("called only for a list dtype")
+    };
+    let mut elements = Vec::with_capacity(array.nchunks());
+    let mut offsets = ctx.allocator().zeroed::<u64>(array.len());
+    let mut sizes = ctx.allocator().zeroed::<u64>(array.len());
+    let mut element_base = 0usize;
+    let mut row = 0;
+    let mut zero_copy_to_list = true;
+
+    for chunk in array.iter_chunks() {
+        if chunk.is_empty() {
+            continue;
+        }
+        let offsets_out = &mut offsets.as_mut_slice()[row..row + chunk.len()];
+        let sizes_out = &mut sizes.as_mut_slice()[row..row + chunk.len()];
+        let (child, start, end, chunk_zero_copy_to_list) = if let Some(list) = chunk.as_opt::<List>() {
+            let chunk_offsets = list.offsets().clone().execute::<PrimitiveArray>(ctx)?;
+            match_each_integer_ptype!(chunk_offsets.ptype(), |O| {
+                for ((out, size), pair) in offsets_out
+                    .iter_mut()
+                    .zip(sizes_out.iter_mut())
+                    .zip(chunk_offsets.as_slice::<O>().windows(2))
+                {
+                    let start = u64::try_from(pair[0])
+                        .vortex_expect("validated list offset is nonnegative");
+                    let end = u64::try_from(pair[1])
+                        .vortex_expect("validated list offset is nonnegative");
+                    *out = start;
+                    *size = end - start;
+                }
+            });
+            let last = chunk.len() - 1;
+            (
+                list.elements().clone(),
+                offsets_out[0],
+                offsets_out[last] + sizes_out[last],
+                true,
+            )
+        } else {
+            let list = chunk.as_::<ListView>();
+            let chunk_offsets = list.offsets().clone().execute::<PrimitiveArray>(ctx)?;
+            let chunk_sizes = list.sizes().clone().execute::<PrimitiveArray>(ctx)?;
+            match_each_integer_ptype!(chunk_offsets.ptype(), |O| {
+                for (out, &offset) in offsets_out.iter_mut().zip(chunk_offsets.as_slice::<O>()) {
+                    *out = u64::try_from(offset)
+                        .vortex_expect("validated list offset is nonnegative");
+                }
+            });
+            match_each_integer_ptype!(chunk_sizes.ptype(), |S| {
+                for (out, &size) in sizes_out.iter_mut().zip(chunk_sizes.as_slice::<S>()) {
+                    *out = u64::try_from(size).vortex_expect("validated list size is nonnegative");
+                }
+            });
+            // Exact views bound their window with the first and last row. Other layouts need
+            // both extrema so that overlaps and interior gaps remain unchanged.
+            let (start, end) = if list.is_zero_copy_to_list() {
+                let last = chunk.len() - 1;
+                (offsets_out[0], offsets_out[last] + sizes_out[last])
+            } else {
+                offsets_out.iter().zip(sizes_out.iter()).fold(
+                    (u64::MAX, 0),
+                    |(start, end), (&offset, &size)| (start.min(offset), end.max(offset + size)),
+                )
+            };
+            (
+                list.elements().clone(),
+                start,
+                end,
+                list.is_zero_copy_to_list(),
+            )
+        };
+        let start = usize::try_from(start).vortex_expect("offset is bounded by elements.len()");
+        let end = usize::try_from(end).vortex_expect("view end is bounded by elements.len()");
+        let next_base = element_base
+            .checked_add(end - start)
+            .ok_or_else(|| vortex_err!("combined list elements length overflow"))?;
+        for offset in offsets_out {
+            *offset = (*offset - start as u64) + element_base as u64;
+        }
+        elements.push(child.slice(start..end)?);
+        zero_copy_to_list &= chunk_zero_copy_to_list;
+        element_base = next_base;
+        row += chunk.len();
+    }
+    let validity = array.validity()?;
+    // SAFETY: element dtypes come from the common list dtype. Offsets/sizes are non-nullable u64
+    // arrays with one entry per row. Trimming and rebasing preserve each validated view's bounds,
+    // and the checked combined length prevents overflow. Validity comes from the parent. If every
+    // chunk is zero-copyable, trimming makes adjacent chunks meet without gaps or overlaps.
+    Ok(unsafe {
+        let elements =
+            ChunkedArray::new_unchecked(elements, element_dtype.as_ref().clone()).into_array();
+        let offsets =
+            PrimitiveArray::new_unchecked(offsets.freeze(), Validity::NonNullable).into_array();
+        let sizes = PrimitiveArray::new_unchecked(sizes.freeze(), Validity::NonNullable).into_array();
+        ListViewArray::new_unchecked(elements, offsets, sizes, validity)
+            .with_zero_copy_to_list(zero_copy_to_list)
+            .into_array()
+    })
+}
 
 pub(super) fn _canonicalize(
     array: ArrayView<'_, Chunked>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Canonical> {
+    vortex_ensure!(
+        array.dtype().is_variant(),
+        "only variant needs recursive swizzling"
+    );
+
     if array.nchunks() == 0 {
-        if matches!(array.dtype(), DType::Variant(_)) {
-            return VariantArray::try_new(array.array().clone().into_array(), None)
-                .map(Canonical::Variant);
-        }
-        return Ok(Canonical::empty(array.dtype()));
+        return VariantArray::try_new(array.array().clone().into_array(), None)
+            .map(Canonical::Variant);
     }
     if array.nchunks() == 1 {
         return array.chunk(0).clone().execute::<Canonical>(ctx);
     }
 
-    let owned_chunks: Vec<ArrayRef> = array.iter_chunks().cloned().collect();
-    Ok(match array.dtype() {
-        DType::Struct(..) => {
-            let struct_array = pack_struct_chunks(owned_chunks, ctx)?;
-            Canonical::Struct(struct_array)
-        }
-        DType::List(elem_dtype, _) => Canonical::List(swizzle_list_chunks(
-            &owned_chunks,
-            array.array().validity()?,
-            elem_dtype,
-            ctx,
-        )?),
-        DType::FixedSizeList(elem_dtype, list_size, _) => {
-            Canonical::FixedSizeList(swizzle_fixed_size_list_chunks(
-                &owned_chunks,
-                array.array().validity()?,
-                elem_dtype,
-                *list_size,
-                ctx,
-            )?)
-        }
-        DType::Variant(_) => Canonical::Variant(pack_variant_chunks(owned_chunks, ctx)?),
-        _ => {
-            let mut builder = builder_with_capacity_in(array.dtype(), array.len(), ctx.allocator());
-            array.array().append_to_builder(builder.as_mut(), ctx)?;
-            builder.finish_into_canonical(ctx)
-        }
-    })
-}
-
-/// Packs many [`StructArray`]s to instead be a single [`StructArray`], where the [`DynArrayData`](crate::array::DynArrayData) for each
-/// field is a [`ChunkedArray`].
-///
-/// The caller guarantees there are at least 2 chunks.
-fn pack_struct_chunks(chunks: Vec<ArrayRef>, ctx: &mut ExecutionCtx) -> VortexResult<StructArray> {
-    chunks
-        .into_iter()
-        .map(|c| c.execute::<StructArray>(ctx))
-        .process_results(|iter| StructArray::try_concat(iter))?
+    Ok(Canonical::Variant(pack_variant_chunks(
+        array.iter_chunks(),
+        ctx,
+    )?))
 }
 
 /// Packs many [`VariantArray`]s into one [`VariantArray`] with chunked children.
 ///
 /// The caller guarantees there are at least 2 chunks.
-fn pack_variant_chunks(
-    chunks: Vec<ArrayRef>,
+fn pack_variant_chunks<'a>(
+    chunks: impl Iterator<Item = &'a ArrayRef>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<VariantArray> {
     let variant_chunks: Vec<VariantArray> = chunks
         .into_iter()
-        .map(|chunk| chunk.execute::<VariantArray>(ctx))
+        .map(|chunk| chunk.clone().execute::<VariantArray>(ctx))
         .try_collect()?;
 
     let outer_dtype = variant_chunks[0].dtype().clone();
@@ -145,149 +294,10 @@ fn pack_variant_chunks(
     VariantArray::try_new(core_storage, shredded)
 }
 
-/// Packs [`ListViewArray`]s together into a chunked `ListViewArray`.
-///
-/// We use the existing arrays (chunks) to form a chunked array of `elements` (the child array).
-///
-/// The caller guarantees there are at least 2 chunks.
-fn swizzle_list_chunks(
-    chunks: &[ArrayRef],
-    validity: Validity,
-    elem_dtype: &DType,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ListViewArray> {
-    let len: usize = chunks.iter().map(|c| c.len()).sum();
-
-    assert_eq!(
-        chunks[0]
-            .dtype()
-            .as_list_element_opt()
-            .vortex_expect("DType was somehow not a list")
-            .as_ref(),
-        elem_dtype
-    );
-
-    // Since each list array in `chunks` has offsets local to each array, we can reuse the existing
-    // array's child `elements` as the chunks and recompute offsets.
-
-    let mut list_elements_chunks = Vec::with_capacity(chunks.len());
-    let mut num_elements = 0;
-
-    // TODO(connor)[ListView]: We could potentially choose a smaller type here, but that would make
-    // this much more complicated.
-    // We (somewhat arbitrarily) choose `u64` for our offsets and sizes here. These can always be
-    // narrowed later by the compressor.
-    let allocator = ctx.allocator();
-    let mut offsets = allocator.zeroed::<u64>(len);
-    let mut sizes = allocator.zeroed::<u64>(len);
-    let offsets_out = offsets.as_mut_slice();
-    let sizes_slice_out = sizes.as_mut_slice();
-    let mut next_list = 0usize;
-
-    for chunk in chunks {
-        let chunk_array = chunk.clone().execute::<ListViewArray>(ctx)?;
-        // By rebuilding as zero-copy to `List` and trimming all elements (to prevent gaps), we make
-        // the final output `ListView` also zero-copyable to `List`.
-        let chunk_array = chunk_array.rebuild(ListViewRebuildMode::MakeExact, ctx)?;
-
-        // Add the `elements` of the current array as a new chunk.
-        list_elements_chunks.push(chunk_array.elements().clone());
-
-        // Cast offsets and sizes to `u64`.
-        let offsets_arr = chunk_array
-            .offsets()
-            .clone()
-            .cast(DType::Primitive(PType::U64, Nullability::NonNullable))
-            .vortex_expect("Must be able to fit array offsets in u64")
-            .execute::<PrimitiveArray>(ctx)?;
-
-        let sizes_arr = chunk_array
-            .sizes()
-            .clone()
-            .cast(DType::Primitive(PType::U64, Nullability::NonNullable))
-            .vortex_expect("Must be able to fit array offsets in u64")
-            .execute::<PrimitiveArray>(ctx)?;
-
-        let offsets_slice = offsets_arr.as_slice::<u64>();
-        let sizes_slice = sizes_arr.as_slice::<u64>();
-
-        // Append offsets and sizes, adjusting offsets to point into the combined array.
-        for (&offset, &size) in offsets_slice.iter().zip(sizes_slice.iter()) {
-            offsets_out[next_list] = offset + num_elements;
-            sizes_slice_out[next_list] = size;
-            next_list += 1;
-        }
-
-        num_elements += chunk_array.elements().len() as u64;
-    }
-    debug_assert_eq!(next_list, len);
-
-    // SAFETY: elements are sliced from valid `ListViewArray`s (from `to_listview()`).
-    let chunked_elements =
-        unsafe { ChunkedArray::new_unchecked(list_elements_chunks, elem_dtype.clone()) }
-            .into_array();
-
-    let offsets = PrimitiveArray::new(offsets.freeze(), Validity::NonNullable).into_array();
-    let sizes = PrimitiveArray::new(sizes.freeze(), Validity::NonNullable).into_array();
-
-    // SAFETY:
-    // - `offsets` and `sizes` are non-nullable u64 arrays of the same length
-    // - Each `offset[i] + size[i]` list view is within bounds of elements array because it came
-    //   from valid chunks
-    // - Validity came from the outer chunked array so it must have the same length
-    // - Since we made sure that all chunks were zero-copyable to a list above, we know that the
-    //   final concatenated output is also zero-copyable to a list.
-    Ok(unsafe {
-        ListViewArray::new_unchecked(chunked_elements, offsets, sizes, validity)
-            .with_zero_copy_to_list(true)
-    })
-}
-
-/// Packs [`FixedSizeListArray`]s together into a single [`FixedSizeListArray`] whose `elements`
-/// child is a [`ChunkedArray`].
-///
-/// Every chunk shares the same `list_size`, and each chunk's `elements` child is exactly
-/// `list_size * chunk.len()` long and starts at the first list, so we can reuse the chunks'
-/// `elements` children directly as the chunks of a combined `elements` array without copying.
-///
-/// The caller guarantees there are at least 2 chunks.
-fn swizzle_fixed_size_list_chunks(
-    chunks: &[ArrayRef],
-    validity: Validity,
-    elem_dtype: &DType,
-    list_size: u32,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<FixedSizeListArray> {
-    let len: usize = chunks.iter().map(|c| c.len()).sum();
-
-    let mut element_chunks = Vec::with_capacity(chunks.len());
-    for chunk in chunks {
-        let chunk_array = chunk.clone().execute::<FixedSizeListArray>(ctx)?;
-        // A canonical `FixedSizeListArray` keeps its `elements` child trimmed to exactly
-        // `list_size * chunk.len()` starting at the first list, so the children concatenate
-        // cleanly into the combined `elements` array.
-        element_chunks.push(chunk_array.elements().clone());
-    }
-
-    let chunked_elements = ChunkedArray::try_new(element_chunks, elem_dtype.clone())?.into_array();
-
-    FixedSizeListArray::try_new(chunked_elements, list_size, validity, len)
-}
-
 #[cfg(test)]
 mod tests {
-    use std::alloc::Layout;
-    use std::ptr::NonNull;
-    use std::sync::Arc;
     use std::sync::LazyLock;
-    use std::sync::atomic::AtomicUsize;
-    use std::sync::atomic::Ordering;
 
-    use allocator_api2::alloc::AllocError;
-    use allocator_api2::alloc::Allocator;
-    use allocator_api2::alloc::Global;
-    use vortex_buffer::BufferAllocatorRef;
-    use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
     use vortex_error::vortex_err;
@@ -297,47 +307,21 @@ mod tests {
     use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
-    use crate::arrays::FixedSizeListArray;
-    use crate::arrays::ListArray;
-    use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;
-    use crate::arrays::StructArray;
-    use crate::arrays::VarBinViewArray;
     use crate::arrays::VariantArray;
-    use crate::arrays::struct_::StructArrayExt;
     use crate::arrays::variant::VariantArraySlotsExt;
     use crate::assert_arrays_eq;
-    use crate::dtype::DType::List;
     use crate::dtype::DType::Primitive;
     use crate::dtype::DType::Variant as VariantDType;
     use crate::dtype::Nullability::NonNullable;
     use crate::dtype::PType::I32;
-    use crate::memory::MemorySessionExt;
     use crate::scalar::Scalar;
-    use crate::validity::Validity;
 
     /// A shared session for these chunked-array tests, used to create execution contexts.
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
-
-    #[derive(Debug)]
-    struct CountingAllocator {
-        allocations: Arc<AtomicUsize>,
-    }
-
-    // SAFETY: this forwards memory operations to Global and only counts allocations.
-    unsafe impl Allocator for CountingAllocator {
-        fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
-            self.allocations.fetch_add(1, Ordering::Relaxed);
-            Global.allocate(layout)
-        }
-
-        unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
-            // SAFETY: ptr and layout came from Global.
-            unsafe { Global.deallocate(ptr, layout) }
-        }
-    }
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
     fn variant_scalar(value: i32) -> Scalar {
         Scalar::variant(Scalar::primitive(value, NonNullable))
@@ -513,181 +497,5 @@ mod tests {
         assert_eq!(variant.len(), 2);
         assert!(variant.shredded().is_some());
         assert_variant_values(&variant, &[10, 20])
-    }
-
-    #[test]
-    pub fn pack_nested_structs() {
-        let mut ctx = SESSION.create_execution_ctx();
-        let struct_array = StructArray::try_new(
-            ["a"].into(),
-            vec![VarBinViewArray::from_iter_str(["foo", "bar", "baz", "quak"]).into_array()],
-            4,
-            Validity::NonNullable,
-        )
-        .unwrap();
-        let dtype = struct_array.dtype().clone();
-        let chunked = ChunkedArray::try_new(
-            vec![
-                ChunkedArray::try_new(vec![struct_array.clone().into_array()], dtype.clone())
-                    .unwrap()
-                    .into_array(),
-            ],
-            dtype,
-        )
-        .unwrap()
-        .into_array();
-        let canonical_struct = chunked.execute::<StructArray>(&mut ctx).unwrap();
-        let canonical_varbin = canonical_struct
-            .unmasked_field(0)
-            .clone()
-            .execute::<VarBinViewArray>(&mut ctx)
-            .unwrap();
-        let original_varbin = struct_array
-            .unmasked_field(0)
-            .clone()
-            .execute::<VarBinViewArray>(&mut ctx)
-            .unwrap();
-        let orig_mask = original_varbin
-            .validity()
-            .unwrap()
-            .execute_mask(original_varbin.len(), &mut ctx)
-            .unwrap();
-        let orig_values = (0..original_varbin.len())
-            .map(|i| {
-                orig_mask
-                    .value(i)
-                    .then(|| original_varbin.bytes_at(i).to_vec())
-            })
-            .collect::<Vec<_>>();
-        let canon_mask = canonical_varbin
-            .validity()
-            .unwrap()
-            .execute_mask(canonical_varbin.len(), &mut ctx)
-            .unwrap();
-        let canon_values = (0..canonical_varbin.len())
-            .map(|i| {
-                canon_mask
-                    .value(i)
-                    .then(|| canonical_varbin.bytes_at(i).to_vec())
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(orig_values, canon_values);
-    }
-
-    #[test]
-    pub fn pack_nested_lists() {
-        let mut ctx = SESSION.create_execution_ctx();
-        let l1 = ListArray::try_new(
-            buffer![1, 2, 3, 4].into_array(),
-            buffer![0, 3].into_array(),
-            Validity::NonNullable,
-        )
-        .unwrap();
-
-        let l2 = ListArray::try_new(
-            buffer![5, 6].into_array(),
-            buffer![0, 2].into_array(),
-            Validity::NonNullable,
-        )
-        .unwrap();
-
-        let chunked_list = ChunkedArray::try_new(
-            vec![l1.clone().into_array(), l2.clone().into_array()],
-            List(Arc::new(Primitive(I32, NonNullable)), NonNullable),
-        );
-
-        let canon_values = chunked_list
-            .unwrap()
-            .as_array()
-            .clone()
-            .execute::<ListViewArray>(&mut ctx)
-            .unwrap();
-
-        assert_eq!(
-            l1.execute_scalar(0, &mut ctx).unwrap(),
-            canon_values.execute_scalar(0, &mut ctx).unwrap()
-        );
-        assert_eq!(
-            l2.execute_scalar(0, &mut ctx).unwrap(),
-            canon_values.execute_scalar(1, &mut ctx).unwrap()
-        );
-    }
-
-    #[test]
-    fn pack_fixed_size_lists() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-        let f1 = FixedSizeListArray::try_new(
-            buffer![1, 2, 3, 4, 5, 6].into_array(),
-            2,
-            Validity::NonNullable,
-            3,
-        )?;
-        let f2 = FixedSizeListArray::try_new(
-            buffer![7, 8, 9, 10].into_array(),
-            2,
-            Validity::NonNullable,
-            2,
-        )?;
-        let dtype = f1.dtype().clone();
-
-        let chunked =
-            ChunkedArray::try_new(vec![f1.into_array(), f2.into_array()], dtype)?.into_array();
-
-        let canonical = chunked.clone().execute::<Canonical>(&mut ctx)?;
-        let fsl = match canonical {
-            Canonical::FixedSizeList(fsl) => fsl,
-            other => vortex_bail!("expected FixedSizeList canonical array, got {other:?}"),
-        };
-
-        assert_eq!(fsl.len(), 5);
-        let expected = FixedSizeListArray::try_new(
-            buffer![1, 2, 3, 4, 5, 6, 7, 8, 9, 10].into_array(),
-            2,
-            Validity::NonNullable,
-            5,
-        )?;
-        for idx in 0..5 {
-            assert_eq!(
-                chunked.execute_scalar(idx, &mut ctx)?,
-                expected.execute_scalar(idx, &mut ctx)?,
-            );
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn list_canonicalize_uses_memory_session_allocator() {
-        let allocations = Arc::new(AtomicUsize::new(0));
-        let session =
-            crate::array_session().with_allocator(BufferAllocatorRef::new(CountingAllocator {
-                allocations: Arc::clone(&allocations),
-            }));
-        let mut ctx = session.create_execution_ctx();
-
-        let l1 = ListArray::try_new(
-            buffer![1, 2, 3, 4].into_array(),
-            buffer![0, 3].into_array(),
-            Validity::NonNullable,
-        )
-        .unwrap();
-        let l2 = ListArray::try_new(
-            buffer![5, 6].into_array(),
-            buffer![0, 2].into_array(),
-            Validity::NonNullable,
-        )
-        .unwrap();
-
-        let chunked_list = ChunkedArray::try_new(
-            vec![l1.into_array(), l2.into_array()],
-            List(Arc::new(Primitive(I32, NonNullable)), NonNullable),
-        )
-        .unwrap()
-        .into_array();
-
-        drop(chunked_list.execute::<Canonical>(&mut ctx).unwrap());
-        assert!(
-            allocations.load(Ordering::Relaxed) >= 2,
-            "expected offset+size allocations through MemorySession"
-        );
     }
 }

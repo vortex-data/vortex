@@ -195,7 +195,7 @@ impl VTable for Decimal {
         let Some(builder) = builder.as_any_mut().downcast_mut::<DecimalBuilder>() else {
             vortex_bail!("append_to_builder for Decimal requires a DecimalBuilder");
         };
-        builder.append_decimal_array(&array.into_owned(), ctx)
+        builder.append_decimal_array(array, ctx)
     }
 
     fn reduce_parent(

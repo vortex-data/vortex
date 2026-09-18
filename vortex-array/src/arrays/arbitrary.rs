@@ -321,7 +321,6 @@ fn random_list_with_offset_type<O: OffsetBuilderPType>(
     let mut builder = ListViewBuilder::<O, O>::with_capacity_in(
         Arc::clone(elem_dtype),
         null,
-        array_length,
         10,
         vortex_buffer::BufferAllocatorRef::static_ref(),
     );

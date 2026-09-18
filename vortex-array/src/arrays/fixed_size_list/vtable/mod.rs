@@ -211,6 +211,6 @@ impl VTable for FixedSizeList {
         let Some(builder) = builder.as_any_mut().downcast_mut::<FixedSizeListBuilder>() else {
             vortex_bail!("append_to_builder for FixedSizeList requires a FixedSizeListBuilder");
         };
-        builder.append_fixed_size_list_array(&array.into_owned(), ctx)
+        builder.append_fixed_size_list_array(array, ctx)
     }
 }
