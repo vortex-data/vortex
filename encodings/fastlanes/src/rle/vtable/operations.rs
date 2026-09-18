@@ -3,42 +3,32 @@
 
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
+use vortex_array::ProbeState;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use super::RLE;
-use crate::FL_CHUNK_SIZE;
-use crate::rle::RLEArrayExt;
-use crate::rle::RLEArraySlotsExt;
+use crate::rle::probe;
+use crate::rle::probe::RleProbeState;
 
 impl OperationsVTable<RLE> for RLE {
-    type ProbeState = ();
+    type ProbeState = RleProbeState;
+
+    fn probe_scalar(
+        state: &mut ProbeState<'_, RLE>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        probe::scalar_at(state, index, ctx)
+    }
 
     fn scalar_at(
         array: ArrayView<'_, RLE>,
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let offset_in_chunk = array.offset();
-        let chunk_relative_idx = array
-            .indices()
-            .execute_scalar(offset_in_chunk + index, ctx)?;
-
-        let chunk_relative_idx = chunk_relative_idx
-            .as_primitive()
-            .as_::<usize>()
-            .vortex_expect("Index must not be null");
-
-        let chunk_id = (offset_in_chunk + index) / FL_CHUNK_SIZE;
-        let value_idx_offset = array.values_idx_offset(chunk_id, ctx);
-
-        let scalar = array
-            .values()
-            .execute_scalar(value_idx_offset + chunk_relative_idx, ctx)?;
-
-        Scalar::try_new(array.dtype().clone(), scalar.into_value())
+        probe::scalar_at(&mut ProbeState::once(array), index, ctx)
     }
 }
 
@@ -54,9 +44,9 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
     use vortex_session::VortexSession;
 
-    use super::*;
     use crate::RLE;
     use crate::RLEArray;
     use crate::RLEData;

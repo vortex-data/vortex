@@ -15,6 +15,7 @@ pub mod decompress_bool;
 mod iter;
 mod kernel;
 pub mod ops;
+mod probe;
 mod rules;
 #[cfg(test)]
 #[cfg(not(codspeed))]

@@ -4,6 +4,7 @@
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
+use vortex_array::ProbeState;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_array::search_sorted::SearchResult;
@@ -14,19 +15,24 @@ use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
 
 use crate::RunEnd;
-use crate::array::RunEndArrayExt;
-use crate::array::RunEndArraySlotsExt;
 
 impl OperationsVTable<RunEnd> for RunEnd {
     type ProbeState = ();
+
+    fn probe_scalar(
+        state: &mut ProbeState<'_, RunEnd>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        crate::probe::scalar_at(state, index, ctx)
+    }
 
     fn scalar_at(
         array: ArrayView<'_, RunEnd>,
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let physical_index = array.find_physical_index(index, ctx)?;
-        array.values().execute_scalar(physical_index, ctx)
+        crate::probe::scalar_at(&mut ProbeState::once(array), index, ctx)
     }
 }
 

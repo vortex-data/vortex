@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Scalar reads out of a PCO array. Cases are `(access_count, nullable, scattered)`; clustered
-//! indices stay inside one page so a retained decode can be reused, scattered ones cross pages.
+//! Scalar reads out of a PCO array through one repeated probe. Cases are
+//! `(access_count, nullable, scattered)`; clustered indices stay inside one page so the retained
+//! decode is reused, scattered ones cross pages.
 
 use std::sync::LazyLock;
 
@@ -65,11 +66,17 @@ fn scalar_access(bencher: Bencher, (count, nullable, scattered): (usize, bool, b
     let array = pco(nullable);
     let indices = indices(count, scattered);
     bencher
-        .with_inputs(|| (SESSION.create_execution_ctx(), Vec::with_capacity(count)))
-        .bench_refs(|(ctx, scalars)| {
+        .with_inputs(|| {
+            (
+                SESSION.create_execution_ctx(),
+                array.repeated_probe(),
+                Vec::with_capacity(count),
+            )
+        })
+        .bench_refs(|(ctx, probe, scalars)| {
             for &index in &indices {
                 scalars.push(
-                    array
+                    probe
                         .execute_scalar(index, ctx)
                         .vortex_expect("scalar access"),
                 );

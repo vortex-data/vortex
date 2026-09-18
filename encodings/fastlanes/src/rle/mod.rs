@@ -9,6 +9,7 @@ pub use array::RLESlots;
 
 mod compute;
 mod kernel;
+mod probe;
 
 mod vtable;
 pub use vtable::RLE;
