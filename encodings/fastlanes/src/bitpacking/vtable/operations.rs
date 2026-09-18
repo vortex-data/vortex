@@ -8,15 +8,15 @@ use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
 
 use crate::BitPacked;
-use crate::bitpack_decompress;
 use crate::bitpacking::array::BitPackedArrayExt;
+use crate::bitpacking::bitpack_decompress;
 impl OperationsVTable<BitPacked> for BitPacked {
     type ProbeState = ();
 
     fn scalar_at(
         array: ArrayView<'_, BitPacked>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         Ok(
             if let Some(patches) = array.patches()
@@ -24,7 +24,7 @@ impl OperationsVTable<BitPacked> for BitPacked {
             {
                 patch
             } else {
-                bitpack_decompress::unpack_single(array, index)
+                bitpack_decompress::unpack_single(array, index, ctx)?
             },
         )
     }

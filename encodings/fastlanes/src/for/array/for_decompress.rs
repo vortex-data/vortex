@@ -96,6 +96,7 @@ pub(crate) fn fused_decompress<
         .as_::<T>()
         .vortex_expect("cannot be null");
 
+    let widths = bp.chunk_widths(ctx)?;
     let strategy = FoRStrategy { reference: ref_ };
     let mut scratch = [const { MaybeUninit::<T>::uninit() }; FL_CHUNK_SIZE];
 
@@ -103,7 +104,7 @@ pub(crate) fn fused_decompress<
     let mut unpacked = UnpackedChunks::try_new_with_strategy(
         strategy,
         bp.packed_slice::<T>(),
-        bp.bit_width() as usize,
+        &widths,
         bp.offset() as usize,
         bp.len(),
         &mut scratch,

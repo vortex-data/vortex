@@ -26,6 +26,7 @@ use super::take::UNPACK_CHUNK_THRESHOLD;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::BitPackedData;
+use crate::ChunkWidths;
 
 /// The threshold over which it is faster to fully unpack the entire [`BitPackedArray`](crate::BitPackedArray) and then
 /// filter the result than to unpack only specific bitpacked values into the output buffer.
@@ -65,7 +66,7 @@ impl FilterKernel for BitPacked {
         // Filter and patch using the correct unsigned type for FastLanes, then cast to signed if needed.
         let primitive =
             match_each_unsigned_integer_ptype!(array.dtype().as_ptype().to_unsigned(), |U| {
-                let (buffer, validity) = filter_primitive_without_patches::<U>(array, values)?;
+                let (buffer, validity) = filter_primitive_without_patches::<U>(array, values, ctx)?;
                 // reinterpret_cast for signed types.
                 let primitive = PrimitiveArray::new(buffer, validity);
                 if array.dtype().as_ptype().is_signed_int() {
@@ -109,8 +110,10 @@ impl FilterKernel for BitPacked {
 fn filter_primitive_without_patches<U: UnsignedPType + BitPacking>(
     array: ArrayView<'_, BitPacked>,
     selection: &MaskValuesRef,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<(Buffer<U>, Validity)> {
-    let values = filter_with_indices(array.data(), selection.indices());
+    let widths = array.chunk_widths(ctx)?;
+    let values = filter_with_indices(array.data(), &widths, selection.indices());
     let validity = array
         .validity()?
         .filter(&Mask::Values(MaskValuesRef::clone(selection)))?;
@@ -120,24 +123,21 @@ fn filter_primitive_without_patches<U: UnsignedPType + BitPacking>(
 
 fn filter_with_indices<T: NativePType + BitPacking>(
     array: &BitPackedData,
+    widths: &ChunkWidths,
     indices: &[usize],
 ) -> BufferMut<T> {
     let offset = array.offset() as usize;
-    let bit_width = array.bit_width() as usize;
     let mut values = BufferMut::with_capacity(indices.len());
 
     // Some re-usable memory to store per-chunk indices.
     let mut unpacked = [const { MaybeUninit::<T>::uninit() }; 1024];
-    let packed_bytes = array.packed_slice::<T>();
 
     // Group the indices by the FastLanes chunk they belong to.
-    let chunk_size = 128 * bit_width / size_of::<T>();
-
     chunked_indices(
         indices.iter().copied(),
         offset,
         |chunk_idx, indices_within_chunk| {
-            let packed = &packed_bytes[chunk_idx * chunk_size..][..chunk_size];
+            let (packed, bit_width) = array.packed_chunk::<T>(widths, chunk_idx);
 
             if indices_within_chunk.len() == 1024 {
                 // Unpack the entire chunk.

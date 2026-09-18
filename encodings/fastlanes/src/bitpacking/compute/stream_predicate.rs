@@ -35,7 +35,7 @@ use vortex_error::VortexResult;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::FL_CHUNK_SIZE;
-use crate::unpack_iter::BitPacked as BitPackedIter;
+use crate::bitpacking::unpack_iter::BitPacked as BitPackedIter;
 
 /// Stream `predicate` over the unpacked values of a [`BitPackedArray`](crate::BitPackedArray), one FastLanes
 /// block at a time, producing a [`BoolArray`].
@@ -53,8 +53,9 @@ where
     let mut words: BufferMut<u64> = BufferMut::zeroed(len.div_ceil(u64::BITS as usize));
 
     if len > 0 {
+        let widths = array.chunk_widths(ctx)?;
         let mut scratch = [const { MaybeUninit::<T>::uninit() }; FL_CHUNK_SIZE];
-        let mut chunks = array.unpacked_chunks::<T>(&mut scratch)?;
+        let mut chunks = array.unpacked_chunks::<T>(&widths, &mut scratch)?;
         let words = words.as_mut_slice();
 
         if let Some(p) = array.patches() {
