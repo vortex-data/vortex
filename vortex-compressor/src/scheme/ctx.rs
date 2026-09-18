@@ -4,10 +4,13 @@
 //! Compression context for recursive compression.
 
 use std::fmt;
+use std::sync::Arc;
 
+use vortex_array::ArrayId;
 use vortex_error::VortexExpect;
 
 use crate::compressor::ROOT_SCHEME_ID;
+use crate::scheme::AllowedSerializedIds;
 use crate::scheme::SchemeId;
 use crate::stats::GenerateStatsOptions;
 
@@ -38,6 +41,9 @@ pub struct CompressorContext {
     /// [`descendant_exclusions`]: crate::scheme::Scheme::descendant_exclusions
     /// [`ancestor_exclusions`]: crate::scheme::Scheme::ancestor_exclusions
     cascade_history: Vec<(SchemeId, usize)>,
+
+    /// The serialized IDs the writer may emit, shared by every context in a cascade.
+    allowed_serialized_ids: Arc<AllowedSerializedIds>,
 }
 
 impl CompressorContext {
@@ -50,7 +56,17 @@ impl CompressorContext {
             allowed_cascading: MAX_CASCADE,
             merged_stats_options: GenerateStatsOptions::default(),
             cascade_history: Vec::new(),
+            allowed_serialized_ids: Arc::new(AllowedSerializedIds::All),
         }
+    }
+
+    /// Returns a context that carries the writer's permitted serialized IDs.
+    pub(crate) fn with_allowed_serialized_ids(
+        mut self,
+        allowed: Arc<AllowedSerializedIds>,
+    ) -> Self {
+        self.allowed_serialized_ids = allowed;
+        self
     }
 }
 
@@ -62,6 +78,19 @@ impl Default for CompressorContext {
 }
 
 impl CompressorContext {
+    /// Whether the writer may emit `id`.
+    ///
+    /// A scheme with several wire formats calls this before writing any format it does not
+    /// declare in [`produced_encodings`](crate::scheme::Scheme::produced_encodings).
+    pub fn allows_serialized_id(&self, id: &ArrayId) -> bool {
+        self.allowed_serialized_ids.permits(id)
+    }
+
+    /// The serialized IDs the writer may emit.
+    pub fn allowed_serialized_ids(&self) -> &AllowedSerializedIds {
+        &self.allowed_serialized_ids
+    }
+
     /// Whether this context is for sample compression (ratio estimation).
     pub fn is_sample(&self) -> bool {
         self.is_sample

@@ -9,8 +9,12 @@ mod sample;
 mod select;
 mod structural;
 
+use std::sync::Arc;
+
 use crate::builtins::IntDictScheme;
+use crate::scheme::AllowedSerializedIds;
 use crate::scheme::ChildSelection;
+use crate::scheme::CompressorContext;
 use crate::scheme::DescendantExclusion;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
@@ -46,6 +50,9 @@ pub struct CascadingCompressor {
     /// Descendant exclusion rules for the compressor's own cascading (e.g. excluding Dict from
     /// list offsets).
     root_exclusions: Vec<DescendantExclusion>,
+
+    /// The serialized IDs the writer may emit, handed to every [`CompressorContext`].
+    allowed_serialized_ids: Arc<AllowedSerializedIds>,
 }
 
 impl CascadingCompressor {
@@ -63,7 +70,39 @@ impl CascadingCompressor {
         Self {
             schemes,
             root_exclusions,
+            allowed_serialized_ids: Arc::new(AllowedSerializedIds::All),
         }
+    }
+
+    /// Hands the compressor the serialized IDs the writer may emit, intersecting with any
+    /// earlier call.
+    ///
+    /// The set reaches every scheme through [`CompressorContext::allows_serialized_id`], so a
+    /// scheme with several wire formats writes a newer one only when permitted. Callers filter
+    /// the scheme list themselves: every scheme given to [`new`](Self::new) should have all of its
+    /// [`produced_encodings`](Scheme::produced_encodings) permitted, as
+    /// `BtrBlocksCompressorBuilder::retain_allowed_encodings` ensures.
+    pub fn with_allowed_serialized_ids(mut self, allowed: &AllowedSerializedIds) -> Self {
+        let mut merged = (*self.allowed_serialized_ids).clone();
+        merged.intersect(allowed);
+        self.allowed_serialized_ids = Arc::new(merged);
+        self
+    }
+
+    /// The serialized IDs the writer may emit.
+    pub fn allowed_serialized_ids(&self) -> &AllowedSerializedIds {
+        &self.allowed_serialized_ids
+    }
+
+    /// The compression schemes, in registration order.
+    pub fn schemes(&self) -> &[&'static dyn Scheme] {
+        &self.schemes
+    }
+
+    /// The context a compress call starts from, carrying the permitted serialized IDs.
+    pub(crate) fn root_context(&self) -> CompressorContext {
+        CompressorContext::new()
+            .with_allowed_serialized_ids(Arc::clone(&self.allowed_serialized_ids))
     }
 
     /// Returns whether the compressor was configured with `scheme`.
@@ -78,3 +117,6 @@ impl CascadingCompressor {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod edition_tests;

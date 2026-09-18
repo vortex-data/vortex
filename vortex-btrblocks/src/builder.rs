@@ -4,6 +4,7 @@
 //! Builder for configuring `BtrBlocksCompressor` instances.
 
 use vortex_array::ArrayId;
+use vortex_compressor::scheme::AllowedSerializedIds;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::BtrBlocksCompressor;
@@ -90,12 +91,15 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
 #[derive(Debug, Clone)]
 pub struct BtrBlocksCompressorBuilder {
     schemes: Vec<&'static dyn Scheme>,
+    /// The serialized IDs the compressor may write under.
+    allowed_serialized_ids: AllowedSerializedIds,
 }
 
 impl Default for BtrBlocksCompressorBuilder {
     fn default() -> Self {
         Self {
             schemes: ALL_SCHEMES.to_vec(),
+            allowed_serialized_ids: AllowedSerializedIds::All,
         }
     }
 }
@@ -107,6 +111,7 @@ impl BtrBlocksCompressorBuilder {
     pub fn empty() -> Self {
         Self {
             schemes: Vec::new(),
+            allowed_serialized_ids: AllowedSerializedIds::All,
         }
     }
 
@@ -202,23 +207,29 @@ impl BtrBlocksCompressorBuilder {
 
     /// Retains only schemes whose produced serialized IDs all belong to `allowed`.
     ///
-    /// `allowed` holds serialized IDs. The file writer passes the array IDs its enabled editions
-    /// permit.
+    /// The set is also handed to the compressor, intersected with any earlier call, so a scheme
+    /// with several wire formats writes a newer one only when permitted. The file writer passes
+    /// the array IDs its enabled editions permit.
     pub fn retain_allowed_encodings(mut self, allowed: &HashSet<ArrayId>) -> Self {
         self.schemes
             .retain(|s| s.produced_encodings().iter().all(|id| allowed.contains(id)));
+        self.allowed_serialized_ids.restrict(allowed);
         self
     }
 
     /// Builds the configured [`BtrBlocksCompressor`].
     pub fn build(self) -> BtrBlocksCompressor {
-        BtrBlocksCompressor(CascadingCompressor::new(self.schemes))
+        BtrBlocksCompressor(
+            CascadingCompressor::new(self.schemes)
+                .with_allowed_serialized_ids(&self.allowed_serialized_ids),
+        )
     }
 }
 
 #[cfg(test)]
 mod tests {
     use vortex_array::VTable;
+    use vortex_fastlanes::BitPacked;
     use vortex_fastlanes::FoR;
 
     use super::*;
@@ -238,12 +249,20 @@ mod tests {
     #[test]
     fn retain_allowed_encodings_filters_schemes() {
         let allowed: HashSet<ArrayId> = [FoR.id()].into_iter().collect();
-        let builder = BtrBlocksCompressorBuilder::default().retain_allowed_encodings(&allowed);
-        assert_eq!(builder.schemes.len(), 1);
-        assert_eq!(builder.schemes[0].id(), integer::FoRScheme.id());
+        let compressor = BtrBlocksCompressorBuilder::default()
+            .retain_allowed_encodings(&allowed)
+            .build();
+        assert_eq!(compressor.schemes().len(), 1);
+        assert_eq!(compressor.schemes()[0].id(), integer::FoRScheme.id());
+        assert_eq!(
+            compressor.allowed_serialized_ids(),
+            &AllowedSerializedIds::Only(allowed)
+        );
 
-        let none = BtrBlocksCompressorBuilder::default().retain_allowed_encodings(&HashSet::new());
-        assert!(none.schemes.is_empty());
+        let none = BtrBlocksCompressorBuilder::default()
+            .retain_allowed_encodings(&HashSet::new())
+            .build();
+        assert!(none.schemes().is_empty());
     }
 
     #[test]
@@ -252,8 +271,31 @@ mod tests {
             .iter()
             .flat_map(|scheme| scheme.produced_encodings())
             .collect();
-        let builder = BtrBlocksCompressorBuilder::default().retain_allowed_encodings(&allowed);
-        assert_eq!(builder.schemes.len(), ALL_SCHEMES.len());
+        let compressor = BtrBlocksCompressorBuilder::default()
+            .retain_allowed_encodings(&allowed)
+            .build();
+        assert_eq!(compressor.schemes().len(), ALL_SCHEMES.len());
+    }
+
+    #[test]
+    fn unrestricted_builds_permit_everything() {
+        let compressor = BtrBlocksCompressorBuilder::default().build();
+        assert_eq!(
+            compressor.allowed_serialized_ids(),
+            &AllowedSerializedIds::All
+        );
+    }
+
+    #[test]
+    fn repeated_restrictions_intersect() {
+        let first: HashSet<ArrayId> = [FoR.id(), BitPacked.id()].into_iter().collect();
+        let second: HashSet<ArrayId> = [BitPacked.id()].into_iter().collect();
+        let compressor = BtrBlocksCompressorBuilder::default()
+            .retain_allowed_encodings(&first)
+            .retain_allowed_encodings(&second)
+            .build();
+        assert!(!compressor.has_scheme(integer::FoRScheme.id()));
+        assert!(compressor.has_scheme(integer::BitPackingScheme.id()));
     }
 
     #[test]

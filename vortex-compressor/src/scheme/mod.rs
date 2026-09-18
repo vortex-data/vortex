@@ -4,6 +4,8 @@
 //! Everything a scheme author implements or receives: the [`Scheme`] trait, exclusion rules,
 //! compression estimates, and the compression context.
 
+mod allowed;
+pub use allowed::AllowedSerializedIds;
 mod ctx;
 pub use ctx::CompressorContext;
 pub use ctx::MAX_CASCADE;
@@ -124,7 +126,7 @@ pub trait Scheme: Debug + Send + Sync {
     /// Whether this scheme can compress the given canonical array.
     fn matches(&self, canonical: &Canonical) -> bool;
 
-    /// The serialized IDs this scheme itself may write into its compressed output.
+    /// The serialized IDs this scheme always writes into its compressed output.
     ///
     /// Every declared ID must be permitted for the scheme to be used. Cascaded children are
     /// compressed by other schemes, which declare their own IDs, so only arrays constructed
@@ -132,7 +134,11 @@ pub trait Scheme: Debug + Send + Sync {
     /// merely rearranges do not need to be declared.
     ///
     /// For most encodings this is the in-memory encoding ID. An encoding with several wire
-    /// formats declares the wire IDs the scheme writes, which may differ from its in-memory ID.
+    /// formats declares only the format it always writes, which may differ from its in-memory
+    /// ID. It writes a newer format only after [`CompressorContext::allows_serialized_id`]
+    /// permits it, in both [`expected_compression_ratio`](Scheme::expected_compression_ratio)
+    /// and [`compress`](Scheme::compress), so the same writer configuration always yields the
+    /// same output.
     fn produced_encodings(&self) -> Vec<ArrayId>;
 
     /// Returns the stats generation options this scheme requires. The compressor merges all
