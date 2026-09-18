@@ -10,16 +10,19 @@ use arrow_schema::Field;
 use datafusion::arrow::array::ArrayRef as ArrowArrayRef;
 use datafusion::arrow::array::RecordBatch;
 use datafusion::arrow::array::StructArray;
+use datafusion::arrow::buffer::NullBuffer;
 use datafusion_common::assert_batches_eq;
 use datafusion_common::create_array;
 use datafusion_expr::col;
 use datafusion_functions::expr_fn::get_field;
+use datafusion_physical_plan::collect;
+use datafusion_physical_plan::displayable;
 use rstest::rstest;
 
 use crate::common_tests::TestSessionContext;
 
 /// Schema: {id: Int64, outer: {inner: {leaf: Utf8, value: Int64}, extra: Int64}}
-fn make_nested_batch() -> RecordBatch {
+fn make_nested_batch(parent_nulls: bool) -> RecordBatch {
     let leaf_array: ArrowArrayRef = create_array!(Utf8, vec![Some("a"), Some("b"), Some("c")]);
     let value_array: ArrowArrayRef = create_array!(Int64, vec![10i64, 20, 30]);
 
@@ -30,7 +33,7 @@ fn make_nested_batch() -> RecordBatch {
         ]
         .into(),
         vec![leaf_array, value_array],
-        None,
+        parent_nulls.then(|| NullBuffer::from(vec![true, true, false])),
     ));
 
     let extra_array: ArrowArrayRef = create_array!(Int64, vec![100i64, 200, 300]);
@@ -42,7 +45,7 @@ fn make_nested_batch() -> RecordBatch {
         ]
         .into(),
         vec![inner_struct, extra_array],
-        None,
+        parent_nulls.then(|| NullBuffer::from(vec![true, false, true])),
     ));
 
     let id_array: ArrowArrayRef = create_array!(Int64, vec![1i64, 2, 3]);
@@ -57,7 +60,7 @@ async fn test_nested_struct_leaf_projection(
 ) -> anyhow::Result<()> {
     let ctx = TestSessionContext::new(projection_pushdown);
 
-    let batch = make_nested_batch();
+    let batch = make_nested_batch(false);
     ctx.write_arrow_batch("files/nested.vortex", &batch).await?;
 
     let schema = batch.schema();
@@ -99,7 +102,7 @@ async fn test_nested_struct_mid_level_projection(
 ) -> anyhow::Result<()> {
     let ctx = TestSessionContext::new(projection_pushdown);
 
-    let batch = make_nested_batch();
+    let batch = make_nested_batch(false);
     ctx.write_arrow_batch("files/nested.vortex", &batch).await?;
 
     let schema = batch.schema();
@@ -130,5 +133,42 @@ async fn test_nested_struct_mid_level_projection(
         &result
     );
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_nested_struct_null_parent_projection() -> anyhow::Result<()> {
+    let ctx = TestSessionContext::new(true);
+    let batch = make_nested_batch(true);
+    ctx.write_arrow_batch("files/nested.vortex", &batch).await?;
+    let provider = ctx
+        .table_provider("nested_tbl", "/files/", batch.schema().as_ref().clone())
+        .await?;
+
+    let inner = get_field(col("outer"), "inner");
+    let result = ctx
+        .session
+        .read_table(provider)?
+        .select(vec![
+            col("id"),
+            get_field(inner.clone(), "leaf").alias("leaf"),
+            get_field(inner.clone(), "value").alias("value"),
+            inner.alias("inner"),
+        ])?
+        .collect()
+        .await?;
+
+    assert_batches_eq!(
+        [
+            "+----+------+-------+----------------------+",
+            "| id | leaf | value | inner                |",
+            "+----+------+-------+----------------------+",
+            "| 1  | a    | 10    | {leaf: a, value: 10} |",
+            "| 2  |      |       |                      |",
+            "| 3  |      |       |                      |",
+            "+----+------+-------+----------------------+",
+        ],
+        &result
+    );
     Ok(())
 }

@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::future::ready;
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::Weak;
 
 use arrow_array::RecordBatchOptions;
+use arrow_schema::DataType;
 use arrow_schema::Field;
-use arrow_schema::Schema;
 use datafusion_common::DataFusionError;
 use datafusion_common::Result as DFResult;
 use datafusion_common::ScalarValue;
@@ -24,9 +25,12 @@ use datafusion_physical_expr::PhysicalExprRef;
 use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_expr::simplifier::PhysicalExprSimplifier;
 use datafusion_physical_expr::split_conjunction;
+use datafusion_physical_expr::utils::collect_columns;
+use datafusion_physical_expr::utils::conjunction_opt;
 use datafusion_physical_expr::utils::reassign_expr_columns;
 use datafusion_physical_expr_adapter::PhysicalExprAdapterFactory;
 use datafusion_physical_expr_adapter::replace_columns_with_literals;
+use datafusion_physical_plan::filter::batch_filter;
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::metrics::MetricBuilder;
 use datafusion_physical_plan::metrics::MetricCategory;
@@ -40,6 +44,7 @@ use tracing::Instrument;
 use vortex::array::VortexSessionExecute;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
+use vortex::expr::and_collect;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::InstrumentedReadAt;
 use vortex::layout::LayoutReader;
@@ -52,9 +57,9 @@ use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
 
 use crate::VortexAccessPlan;
-use crate::convert::exprs::ExpressionConvertor;
+use crate::convert::exprs::ExpressionConverter;
 use crate::convert::exprs::ProcessedProjection;
-use crate::convert::exprs::make_vortex_predicate;
+use crate::convert::exprs::raw_projection;
 use crate::convert::schema::calculate_physical_schema;
 use crate::metrics::PARTITION_LABEL;
 use crate::metrics::PATH_LABEL;
@@ -71,9 +76,8 @@ pub(crate) struct VortexOpener {
     /// Optional table schema projection. The indices are w.r.t. the `table_schema`, which is
     /// all fields in the final scan result not including the partition columns.
     pub projection: ProjectionExprs,
-    /// Filter expression optimized for pushdown into Vortex scan operations.
-    /// This may be a subset of file_pruning_predicate containing only expressions
-    /// that Vortex can efficiently evaluate.
+    /// Exact filter accepted during planning. Per-file adaptation may move parts
+    /// of it to DataFusion residual evaluation before projection and limits.
     pub filter: Option<PhysicalExprRef>,
     /// Filter expression used by DataFusion's FilePruner to eliminate files based on
     /// statistics and partition values without opening them.
@@ -98,7 +102,7 @@ pub(crate) struct VortexOpener {
     /// Whether the query has output ordering specified
     pub has_output_ordering: bool,
 
-    pub expression_convertor: Arc<dyn ExpressionConvertor>,
+    pub expression_converter: Arc<dyn ExpressionConverter>,
     pub file_metadata_cache: Option<Arc<FileMetadataCache>>,
     /// Whether to enable expression pushdown into the underlying Vortex scan.
     pub projection_pushdown: bool,
@@ -139,7 +143,7 @@ impl FileOpener for VortexOpener {
         let has_output_ordering = self.has_output_ordering;
         let scan_concurrency = self.scan_concurrency;
 
-        let expr_convertor = Arc::clone(&self.expression_convertor);
+        let expr_converter = Arc::clone(&self.expression_converter);
         let projection_pushdown = self.projection_pushdown;
 
         let predicate_creation_errors = MetricBuilder::new(&self.df_metrics)
@@ -258,23 +262,72 @@ impl FileOpener for VortexOpener {
                     // another simplification pass.
                     simplifier.simplify(expr_adapter.rewrite(filter)?)
                 })
-                .transpose()?;
+                .transpose()
+                .map_err(|e| {
+                    exec_datafusion_err!("Failed to adapt filter in {}: {e}", file.path())
+                })?;
             let projection =
                 projection.try_map_exprs(|p| simplifier.simplify(expr_adapter.rewrite(p)?))?;
 
+            // Split the adapted filter into conjuncts Vortex evaluates natively and residual
+            // conjuncts DataFusion evaluates on the raw scan output.
+            let mut native_filters = Vec::new();
+            let mut residual_filters = Vec::new();
+            if let Some(filter) = &filter {
+                if filter.data_type(&this_file_schema)? != DataType::Boolean {
+                    return Err(exec_datafusion_err!(
+                        "Filter must be Boolean in {}: {filter}",
+                        file.path()
+                    ));
+                }
+                for expr in split_conjunction(filter) {
+                    let converted = expr_converter
+                        .try_convert(expr, &this_file_schema)
+                        .map_err(|e| {
+                            exec_datafusion_err!(
+                                "Failed to convert filter {expr} in {}: {e}",
+                                file.path()
+                            )
+                        })?;
+                    match converted {
+                        Some(expr) => native_filters.push(expr),
+                        None => residual_filters.push(Arc::clone(expr)),
+                    }
+                }
+            }
+            let residual_filter = conjunction_opt(residual_filters);
+            let native_filter = and_collect(native_filters)
+                .map(|filter| filter.optimize_recursive(vxf.dtype())?.bind(vxf.dtype()))
+                .transpose()
+                .map_err(|e| {
+                    exec_datafusion_err!("Couldn't bind Vortex scan filter in {}: {e}", file.path())
+                })?;
+
+            // Residual filters must see raw inputs before computed projections or aliases.
             let ProcessedProjection {
                 scan_projection,
+                scan_reference_schema,
                 leftover_projection,
-            } = if projection_pushdown {
-                expr_convertor.split_projection(
-                    projection.clone(),
+            } = if let Some(residual) = &residual_filter {
+                let mut indices = projection.column_indices();
+                indices.extend(collect_columns(residual).iter().map(|column| column.index()));
+                indices.sort_unstable();
+                indices.dedup();
+                let (scan_projection, scan_reference_schema) =
+                    raw_projection(&indices, &this_file_schema)?;
+                ProcessedProjection {
+                    scan_projection,
+                    scan_reference_schema,
+                    leftover_projection: projection,
+                }
+            } else if projection_pushdown {
+                expr_converter.split_projection(
+                    projection,
                     &this_file_schema,
                     output_schema.as_ref(),
                 )?
             } else {
-                // When projection pushdown is disabled, read only the required columns
-                // and apply the full projection after the scan.
-                expr_convertor.no_pushdown_projection(projection.clone(), &this_file_schema)?
+                expr_converter.no_pushdown_projection(projection, &this_file_schema)?
             };
 
             // The schema of the stream returned from the vortex scan.
@@ -287,24 +340,14 @@ impl FileOpener for VortexOpener {
                 })?;
             let scan_dtype = scan_projection.dtype().clone();
 
-            // When projection pushdown is enabled, the scan outputs the projected columns.
-            // When disabled, the scan outputs raw columns and the projection is applied after.
-            let scan_reference_schema = if projection_pushdown {
-                (*output_schema).clone()
-            } else {
-                // Build schema from the raw columns being read
-                let column_indices = projection.column_indices();
-                let fields: Vec<_> = column_indices
-                    .into_iter()
-                    .map(|idx| this_file_schema.field(idx).clone())
-                    .collect();
-                Schema::new_with_metadata(fields, this_file_schema.metadata().clone())
-            };
             let stream_schema =
                 calculate_physical_schema(&scan_dtype, &scan_reference_schema, &session.arrow())?;
 
             let leftover_projection = leftover_projection
                 .try_map_exprs(|expr| reassign_expr_columns(expr, &stream_schema))?;
+            let residual_filter = residual_filter
+                .map(|expr| reassign_expr_columns(expr, &stream_schema))
+                .transpose()?;
             let projector = leftover_projection.make_projector(&stream_schema)?;
 
             // We share our layout readers with others partitions in the scan, so we can only need to read each layout in each file once.
@@ -341,44 +384,9 @@ impl FileOpener for VortexOpener {
                 scan_builder = vortex_plan.apply_to_builder(scan_builder);
             }
 
-            let filter = filter
-                .and_then(|f| {
-                    // Verify that all filters we've accepted from DataFusion get pushed down.
-                    // This will only fail if the user has not configured a suitable
-                    // PhysicalExprAdapterFactory on the file source to handle rewriting the
-                    // expression to handle missing/reordered columns in the Vortex file.
-                    let (pushed, unpushed): (Vec<PhysicalExprRef>, Vec<PhysicalExprRef>) =
-                        split_conjunction(&f)
-                            .into_iter()
-                            .cloned()
-                            .partition(|expr| {
-                                expr_convertor.can_be_pushed_down(expr, &this_file_schema)
-                            });
-
-                    if !unpushed.is_empty() {
-                        return Some(Err(exec_datafusion_err!(
-                            r#"VortexSource accepted but failed to push {} filters.
-                            This should never happen if you have a properly configured
-                            PhysicalExprAdapterFactory configured on the source.
-
-                            Failed filters:
-
-                            {unpushed:#?}
-                            "#,
-                            unpushed.len()
-                        )));
-                    }
-
-                    make_vortex_predicate(expr_convertor.as_ref(), &pushed).transpose()
-                })
-                .transpose()?;
-            let filter = filter
-                .map(|filter| filter.optimize_recursive(vxf.dtype())?.bind(vxf.dtype()))
-                .transpose()
-                .map_err(|e| exec_datafusion_err!("Couldn't bind Vortex scan filter: {e}"))?;
-
             if let Some(limit) = limit
-                && filter.is_none()
+                && native_filter.is_none()
+                && residual_filter.is_none()
             {
                 scan_builder = scan_builder.with_limit(limit);
             }
@@ -391,9 +399,9 @@ impl FileOpener for VortexOpener {
             // the fields the scan's projection and filter reference.
             scan_builder = scan_builder
                 .with_projection(scan_projection)
-                .with_some_filter(filter);
+                .with_some_filter(native_filter);
 
-            if let Some(file_range) = file.range {
+            if let Some(file_range) = &file.range {
                 let byte_range = Range {
                     start: u64::try_from(file_range.start)
                         .map_err(|_| exec_datafusion_err!("Vortex file range start is negative"))?,
@@ -425,6 +433,7 @@ impl FileOpener for VortexOpener {
             }
 
             let stream_target_field = Field::new_struct("", stream_schema.fields().clone(), false);
+            let residual_path = file.path().clone();
             let stream = scan_builder
                 .with_metrics_registry(metrics_registry)
                 .with_ordered(has_output_ordering)
@@ -446,21 +455,29 @@ impl FileOpener for VortexOpener {
                         file.object_meta.location
                     ))))
                 })
-                .map(move |batch| {
-                    let batch = if projector.projection().as_ref().is_empty() {
-                        batch
-                    } else {
-                        batch.and_then(|b| projector.project_batch(&b))
-                    }?;
+                .map(move |batch| -> DFResult<Option<RecordBatch>> {
+                    let mut batch = batch?;
+                    if let Some(residual) = &residual_filter {
+                        batch = batch_filter(&batch, residual).map_err(|e| {
+                            exec_datafusion_err!(
+                                "Failed to evaluate residual filter {residual} in {residual_path}: {e}"
+                            )
+                        })?;
+                        // Do not evaluate the projection on batches the residual filter emptied.
+                        if batch.num_rows() == 0 {
+                            return Ok(None);
+                        }
+                    }
+                    let batch = projector.project_batch(&batch)?;
 
                     let (_, columns, row_count) = batch.into_parts();
-                    RecordBatch::try_new_with_options(
+                    Ok(Some(RecordBatch::try_new_with_options(
                         Arc::clone(&output_schema),
                         columns,
                         &RecordBatchOptions::new().with_row_count(Some(row_count)),
-                    )
-                    .map_err(Into::into)
+                    )?))
                 })
+                .filter_map(|batch| ready(batch.transpose()))
                 .boxed();
 
             if let Some(file_pruner) = file_pruner
@@ -644,6 +661,8 @@ mod tests {
     use datafusion::physical_expr_adapter::DefaultPhysicalExprAdapterFactory;
     use datafusion::scalar::ScalarValue;
     use datafusion_common::Statistics;
+    use datafusion_common::arrow::compute::concat_batches;
+    use datafusion_common::assert_batches_eq;
     use datafusion_common::stats::Precision;
     use datafusion_execution::cache::default_cache::DefaultCache;
     use datafusion_expr::Operator;
@@ -667,7 +686,7 @@ mod tests {
 
     use super::*;
     use crate::VortexAccessPlan;
-    use crate::convert::exprs::DefaultExpressionConvertor;
+    use crate::convert::exprs::DefaultExpressionConverter;
     use crate::persistent::reader::DefaultVortexReaderFactory;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
@@ -848,7 +867,7 @@ mod tests {
             layout_readers: Default::default(),
             natural_splits: Default::default(),
             has_output_ordering: false,
-            expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
+            expression_converter: Arc::new(DefaultExpressionConverter::default()),
             file_metadata_cache: None,
             projection_pushdown: false,
             scan_concurrency: None,
@@ -904,6 +923,51 @@ mod tests {
         let num_rows = data.iter().map(|rb| rb.num_rows()).sum::<usize>();
         assert_eq!((num_batches, num_rows), (0, 0));
 
+        Ok(())
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn test_residual_filter_unprojected_column(
+        #[values(false, true)] projection_pushdown: bool,
+        #[values(false, true)] reordered_schema: bool,
+    ) -> anyhow::Result<()> {
+        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let batch = record_batch!(
+            ("a", Int32, vec![10, 20, 30, 40]),
+            ("unused", Int32, vec![0, 0, 0, 0]),
+            ("b", Int32, vec![Some(1), Some(2), None, Some(4)])
+        )?;
+        let size =
+            write_arrow_to_vortex(Arc::clone(&store), "residual.vortex", batch.clone()).await?;
+        let schema = Arc::new(batch.schema().project(if reordered_schema {
+            &[2, 0, 1]
+        } else {
+            &[0, 1, 2]
+        })?);
+        let modulo: PhysicalExprRef = Arc::new(df_expr::BinaryExpr::new(
+            Arc::new(df_expr::Column::new("b", schema.index_of("b")?)),
+            Operator::Modulo,
+            Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(2)))),
+        ));
+        let filter = Arc::new(df_expr::BinaryExpr::new(
+            modulo,
+            Operator::Eq,
+            Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(0)))),
+        ));
+        let mut opener = make_opener(store, TableSchema::from(Arc::clone(&schema)), Some(filter));
+        opener.projection = ProjectionExprs::from_indices(&[schema.index_of("a")?], &schema);
+        opener.projection_pushdown = projection_pushdown;
+        opener.limit = Some(1);
+        let batches = opener
+            .open(PartitionedFile::new("residual.vortex", size))?
+            .await?
+            .try_collect::<Vec<_>>()
+            .await?;
+        assert_batches_eq!(
+            ["+----+", "| a  |", "+----+", "| 20 |", "| 40 |", "+----+"],
+            &batches
+        );
         Ok(())
     }
 
@@ -1131,7 +1195,7 @@ mod tests {
             layout_readers: Default::default(),
             natural_splits: Default::default(),
             has_output_ordering: false,
-            expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
+            expression_converter: Arc::new(DefaultExpressionConverter::default()),
             file_metadata_cache: None,
             projection_pushdown: false,
             scan_concurrency: None,
@@ -1218,7 +1282,7 @@ mod tests {
             layout_readers: Default::default(),
             natural_splits: Default::default(),
             has_output_ordering: false,
-            expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
+            expression_converter: Arc::new(DefaultExpressionConverter::default()),
             file_metadata_cache: None,
             projection_pushdown: false,
             scan_concurrency: None,
@@ -1372,7 +1436,7 @@ mod tests {
             layout_readers: Default::default(),
             natural_splits: Default::default(),
             has_output_ordering: false,
-            expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
+            expression_converter: Arc::new(DefaultExpressionConverter::default()),
             file_metadata_cache: None,
             projection_pushdown: false,
             scan_concurrency: None,
@@ -1432,7 +1496,7 @@ mod tests {
             layout_readers: Default::default(),
             natural_splits: Default::default(),
             has_output_ordering: false,
-            expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
+            expression_converter: Arc::new(DefaultExpressionConverter::default()),
             file_metadata_cache: None,
             projection_pushdown: false,
             scan_concurrency: None,
@@ -1639,7 +1703,7 @@ mod tests {
             layout_readers: Default::default(),
             natural_splits: Default::default(),
             has_output_ordering: false,
-            expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
+            expression_converter: Arc::new(DefaultExpressionConverter::default()),
             file_metadata_cache: None,
             projection_pushdown: false,
             scan_concurrency: None,
@@ -1712,6 +1776,205 @@ mod tests {
             &DataType::Struct(struct_fields),
             "Struct(Dictionary) type should be preserved"
         );
+        Ok(())
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn test_temporal_adapter_residual(
+        #[values(false, true)] projection_pushdown: bool,
+    ) -> anyhow::Result<()> {
+        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("a", DataType::Int32, false),
+            Field::new(
+                "ts",
+                DataType::Timestamp(arrow_schema::TimeUnit::Millisecond, None),
+                true,
+            ),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(Int32Array::from(vec![10, 20, 30])),
+                Arc::new(arrow_array::TimestampMillisecondArray::from(vec![
+                    Some(1_000),
+                    None,
+                    Some(2_000),
+                ])),
+            ],
+        )?;
+        let size = write_arrow_to_vortex(Arc::clone(&store), "temporal.vortex", batch).await?;
+        let logical = Arc::new(Schema::new(vec![
+            Field::new("a", DataType::Int32, false),
+            Field::new(
+                "ts",
+                DataType::Timestamp(arrow_schema::TimeUnit::Microsecond, None),
+                true,
+            ),
+        ]));
+        let filter: PhysicalExprRef = Arc::new(df_expr::BinaryExpr::new(
+            Arc::new(df_expr::Column::new("ts", 1)),
+            Operator::Eq,
+            Arc::new(df_expr::Literal::new(ScalarValue::TimestampMicrosecond(
+                Some(1_000_000),
+                None,
+            ))),
+        ));
+        assert!(
+            DefaultExpressionConverter::default()
+                .try_convert(&filter, &logical)?
+                .is_some()
+        );
+        let mut opener = make_opener(store, TableSchema::from(logical), Some(filter));
+        opener.projection_pushdown = projection_pushdown;
+        let batches = opener
+            .open(PartitionedFile::new("temporal.vortex", size))?
+            .await?
+            .try_collect::<Vec<_>>()
+            .await?;
+        assert_batches_eq!(["+----+", "| a  |", "+----+", "| 10 |", "+----+"], &batches);
+        Ok(())
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn test_residual_literal_retains_zero_column_rows(
+        #[values(Some(true), Some(false), None)] value: Option<bool>,
+    ) -> anyhow::Result<()> {
+        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let batch = record_batch!(("a", Int32, vec![1, 2, 3]))?;
+        let size =
+            write_arrow_to_vortex(Arc::clone(&store), "literal.vortex", batch.clone()).await?;
+        let mut opener = make_opener(
+            store,
+            TableSchema::from(batch.schema()),
+            Some(Arc::new(df_expr::Literal::new(ScalarValue::Boolean(value)))),
+        );
+        opener.projection = Vec::<ProjectionExpr>::new().into();
+        // Force a supported physical expression to use the residual path.
+        opener.expression_converter = Arc::new(ResidualConverter);
+        let batches = opener
+            .open(PartitionedFile::new("literal.vortex", size))?
+            .await?
+            .try_collect::<Vec<_>>()
+            .await?;
+        assert!(batches.iter().all(|batch| batch.num_columns() == 0));
+        assert_eq!(
+            batches.iter().map(RecordBatch::num_rows).sum::<usize>(),
+            if value == Some(true) { 3 } else { 0 }
+        );
+        Ok(())
+    }
+
+    struct ResidualConverter;
+    impl ExpressionConverter for ResidualConverter {
+        fn try_convert(
+            &self,
+            _expr: &PhysicalExprRef,
+            _schema: &Schema,
+        ) -> DFResult<Option<vortex::expr::Expression>> {
+            Ok(None)
+        }
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn test_native_and_residual_composition(
+        #[values(Operator::And, Operator::Or)] operator: Operator,
+    ) -> anyhow::Result<()> {
+        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let batch = record_batch!(
+            ("a", Int32, vec![10, 20, 30, 40]),
+            ("b", Int32, vec![Some(1), None, Some(2), Some(4)])
+        )?;
+        let size =
+            write_arrow_to_vortex(Arc::clone(&store), "composition.vortex", batch.clone()).await?;
+        let native: PhysicalExprRef = Arc::new(df_expr::BinaryExpr::new(
+            Arc::new(df_expr::Column::new("a", 0)),
+            Operator::Gt,
+            Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(35)))),
+        ));
+        let residual: PhysicalExprRef = Arc::new(df_expr::BinaryExpr::new(
+            Arc::new(df_expr::BinaryExpr::new(
+                Arc::new(df_expr::Column::new("b", 1)),
+                Operator::Modulo,
+                Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(2)))),
+            )),
+            Operator::Eq,
+            Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(0)))),
+        ));
+        let filter: PhysicalExprRef =
+            Arc::new(df_expr::BinaryExpr::new(native, operator, residual));
+        let expected = batch_filter(&batch, &filter)?.project(&[0])?;
+        let opener = make_opener(store, TableSchema::from(batch.schema()), Some(filter));
+        let actual = opener
+            .open(PartitionedFile::new("composition.vortex", size))?
+            .await?
+            .try_collect::<Vec<_>>()
+            .await?;
+        let actual = concat_batches(&expected.schema(), &actual)?;
+        assert_eq!(actual, expected);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_residual_error_has_file_and_predicate() -> anyhow::Result<()> {
+        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let batch = record_batch!(("a", Int32, vec![1, 2]))?;
+        let size =
+            write_arrow_to_vortex(Arc::clone(&store), "filter-error.vortex", batch.clone()).await?;
+        let filter: PhysicalExprRef = Arc::new(df_expr::BinaryExpr::new(
+            Arc::new(df_expr::BinaryExpr::new(
+                Arc::new(df_expr::Column::new("a", 0)),
+                Operator::Divide,
+                Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(0)))),
+            )),
+            Operator::Eq,
+            Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(1)))),
+        ));
+        let mut opener = make_opener(store, TableSchema::from(batch.schema()), Some(filter));
+        opener.expression_converter = Arc::new(ResidualConverter);
+        let result = opener
+            .open(PartitionedFile::new("filter-error.vortex", size))?
+            .await?
+            .try_collect::<Vec<_>>()
+            .await;
+        let error = result
+            .err()
+            .ok_or_else(|| anyhow::anyhow!("Expected division by zero"))?
+            .to_string();
+        assert!(error.contains("filter-error.vortex"), "{error}");
+        assert!(error.contains("residual filter"), "{error}");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_residual_rejects_rows_before_projection_evaluation() -> anyhow::Result<()> {
+        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let batch = record_batch!(("a", Int32, vec![1, 2]))?;
+        let size =
+            write_arrow_to_vortex(Arc::clone(&store), "empty-projection.vortex", batch.clone())
+                .await?;
+        let mut opener = make_opener(
+            store,
+            TableSchema::from(batch.schema()),
+            Some(Arc::new(df_expr::Literal::new(ScalarValue::Boolean(Some(
+                false,
+            ))))),
+        );
+        opener.expression_converter = Arc::new(ResidualConverter);
+        opener.projection = vec![ProjectionExpr {
+            expr: Arc::new(SnapshotErrorExpr),
+            alias: "failure".into(),
+        }]
+        .into();
+        let actual = opener
+            .open(PartitionedFile::new("empty-projection.vortex", size))?
+            .await?
+            .try_collect::<Vec<_>>()
+            .await?;
+        assert_eq!(actual.iter().map(RecordBatch::num_rows).sum::<usize>(), 0);
         Ok(())
     }
 }
