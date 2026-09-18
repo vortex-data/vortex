@@ -32,7 +32,10 @@ use vortex_session::VortexSession;
 
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
+use crate::BitPackedArraySlotsExt;
 use crate::BitPackedData;
+use crate::ChunkWidths;
+use crate::FL_CHUNK_SIZE;
 use crate::bitpacking::array::BitPackedSlots;
 
 /// Metadata of the frozen `fastlanes.bitpacked` wire format.
@@ -66,15 +69,18 @@ fn deserialize_v1(parts: ArrayDeserialization<'_>) -> VortexResult<ArrayRef> {
             metadata.bit_width
         )
     })?;
+    let num_chunks = (len + offset as usize).div_ceil(FL_CHUNK_SIZE);
     let (patches, validity, _) = deserialize_children(children, metadata.patches, dtype, len, 0)?;
 
     let slots = {
         let mut s = ArraySlots::with_capacity(BitPackedSlots::COUNT);
         PatchesData::push_slots(&mut s, patches.as_ref());
         s.push(validity_to_child(&validity, len));
+        let widths = ChunkWidths::uniform(bit_width, num_chunks);
+        s.push(Some(widths.into_array()));
         s
     };
-    let data = BitPackedData::try_new(packed, patches, bit_width, offset)?;
+    let data = BitPackedData::try_new(packed, patches, offset)?;
     Ok(Array::<BitPacked>::try_from_parts(
         ArrayParts::new(BitPacked, dtype.clone(), len, data).with_slots(slots),
     )?
@@ -158,23 +164,36 @@ impl ArrayPlugin for BitPackedPlugin {
     fn serialize(
         &self,
         array: &ArrayRef,
-        _session: &VortexSession,
+        session: &VortexSession,
     ) -> VortexResult<Option<ArraySerialization>> {
         let view = array.as_::<BitPacked>();
-        let metadata = BitPackedMetadata {
-            bit_width: view.bit_width() as u32,
-            offset: view.offset() as u32,
-            patches: view
-                .patches()
-                .map(|p| p.to_metadata(view.len(), view.dtype()))
-                .transpose()?,
+        let widths = view.chunk_widths(&mut session.create_execution_ctx())?;
+        vortex_ensure!(
+            widths.is_uniform(),
+            "Nonuniform widths require the v2 wire format"
+        );
+        {
+            let metadata = BitPackedMetadata {
+                bit_width: widths.max_width() as u32,
+                offset: view.offset() as u32,
+                patches: view
+                    .patches()
+                    .map(|p| p.to_metadata(view.len(), view.dtype()))
+                    .transpose()?,
+            }
+            .encode_to_vec();
+            let children = array.slots()[..BitPackedSlots::WIDTH_TABLE]
+                .iter()
+                .flatten()
+                .cloned()
+                .collect();
+            Ok(Some(ArraySerialization::new(
+                self.id(),
+                metadata,
+                array.buffers(),
+                children,
+            )))
         }
-        .encode_to_vec();
-        Ok(Some(ArraySerialization::from_array(
-            self.id(),
-            array,
-            metadata,
-        )))
     }
 
     fn deserialize(
@@ -229,7 +248,7 @@ impl ArrayPlugin for BitPackedPatchedPlugin {
         let packed = bitpacked.packed().clone();
         let ptype = bitpacked.dtype().as_ptype();
         let validity = bitpacked.validity()?;
-        let bw = bitpacked.bit_width;
+        let bw = bitpacked.width_table().clone();
         let len = bitpacked.len();
         let offset = bitpacked.offset();
 
@@ -300,7 +319,7 @@ mod tests {
         let array = bitpacked.as_array();
 
         let serialization = SESSION.array_serialize(array)?.unwrap();
-        let children = array.children();
+        let children = serialization.children.clone();
         let buffers = array
             .buffers()
             .into_iter()
@@ -353,7 +372,7 @@ mod tests {
         let array = bitpacked.as_array();
 
         let serialization = SESSION.array_serialize(array)?.unwrap();
-        let children = array.children();
+        let children = serialization.children.clone();
         let buffers = array
             .buffers()
             .into_iter()
@@ -386,7 +405,7 @@ mod tests {
         let array = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
 
         let serialization = SESSION.array_serialize(&array)?.unwrap();
-        let children = array.children();
+        let children = serialization.children.clone();
         let buffers = array
             .buffers()
             .into_iter()

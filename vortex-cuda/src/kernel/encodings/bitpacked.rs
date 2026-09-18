@@ -14,6 +14,8 @@ use vortex::array::ArrayRef;
 use vortex::array::ArrayVTable;
 use vortex::array::ArrayView;
 use vortex::array::Canonical;
+use vortex::array::ExecutionCtx;
+use vortex::array::IntoArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::Slice;
 use vortex::array::arrays::slice::SliceArraySlotsExt;
@@ -26,8 +28,10 @@ use vortex::encodings::fastlanes::BitPacked;
 use vortex::encodings::fastlanes::BitPackedArray;
 use vortex::encodings::fastlanes::BitPackedArrayExt;
 use vortex::encodings::fastlanes::BitPackedDataParts;
+use vortex::encodings::fastlanes::ChunkWidths;
 use vortex::encodings::fastlanes::unpack_iter::BitPacked as BitPackedUnpack;
 use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 
@@ -51,9 +55,10 @@ pub(crate) struct BitPackedExecutor;
 /// materialization so exception metadata is sliced consistently.
 pub(crate) fn bitpacked_slice_view(
     bp: ArrayView<'_, BitPacked>,
+    widths: &ChunkWidths,
     offset: usize,
     len: usize,
-) -> VortexResult<(BufferHandle, u16, Range<usize>)> {
+) -> VortexResult<(BufferHandle, ChunkWidths, u16, Range<usize>)> {
     let patch_range = offset..offset + len;
     let offset_start = patch_range.start + bp.offset() as usize;
     let offset_stop = offset_start + len;
@@ -61,11 +66,14 @@ pub(crate) fn bitpacked_slice_view(
     let block_start = offset_start - bitpacked_offset;
     let block_stop = offset_stop.div_ceil(PATCH_CHUNK_SIZE) * PATCH_CHUNK_SIZE;
 
-    let encoded_start = (block_start / 8) * bp.bit_width() as usize;
-    let encoded_stop = (block_stop / 8) * bp.bit_width() as usize;
+    let chunk_start = block_start / PATCH_CHUNK_SIZE;
+    let chunk_stop = block_stop / PATCH_CHUNK_SIZE;
+    let encoded_start = widths.byte_offset(chunk_start);
+    let encoded_stop = widths.byte_offset(chunk_stop);
 
     Ok((
         bp.packed().slice(encoded_start..encoded_stop),
+        widths.slice(chunk_start..chunk_stop),
         u16::try_from(bitpacked_offset)?,
         patch_range,
     ))
@@ -74,6 +82,7 @@ pub(crate) fn bitpacked_slice_view(
 impl BitPackedExecutor {
     fn try_specialize(
         array: ArrayRef,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<(BitPackedArray, Option<Range<usize>>)>> {
         if let Ok(array) = array.clone().try_downcast::<BitPacked>() {
             return Ok(Some((array, None)));
@@ -90,13 +99,15 @@ impl BitPackedExecutor {
         let bp = child.as_::<BitPacked>();
         let offset = slice.data().slice_range().start;
         let len = array.len();
-        let (packed, bitpacked_offset, patch_range) = bitpacked_slice_view(bp, offset, len)?;
+        let widths = bp.chunk_widths(ctx)?;
+        let (packed, widths, bitpacked_offset, patch_range) =
+            bitpacked_slice_view(bp, &widths, offset, len)?;
         let sliced = BitPacked::try_new(
             packed,
             bp.ptype(bp.dtype()),
             child.validity()?.slice(patch_range.clone())?,
             bp.patches(),
-            bp.bit_width(),
+            widths.into_array(),
             len,
             bitpacked_offset,
         )?;
@@ -113,8 +124,8 @@ impl CudaExecute for BitPackedExecutor {
         array: ArrayRef,
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
-        let (array, patch_range) =
-            Self::try_specialize(array)?.ok_or_else(|| vortex_err!("Expected BitPackedArray"))?;
+        let (array, patch_range) = Self::try_specialize(array, ctx.execution_ctx())?
+            .ok_or_else(|| vortex_err!("Expected BitPackedArray"))?;
         let ptype = array.ptype(array.dtype());
 
         match_each_integer_ptype!(ptype, |A| {
@@ -160,9 +171,10 @@ where
     A: BitPackedUnpack + NativePType + DeviceRepr + Send + Sync + 'static,
     A::Physical: DeviceRepr + Send + Sync + 'static,
 {
+    let widths = array.chunk_widths(ctx.execution_ctx())?;
     let BitPackedDataParts {
         offset,
-        bit_width,
+        widths: _,
         len,
         packed,
         patches,
@@ -170,6 +182,9 @@ where
     } = BitPacked::into_parts(array);
 
     vortex_ensure!(len > 0, "Non empty array");
+    let Some(bit_width) = widths.uniform_width() else {
+        vortex_bail!("CUDA bit-unpack requires every chunk to share one bit width");
+    };
     let offset = offset as usize;
 
     let device_input = ctx.ensure_on_device(packed).await?;
@@ -624,8 +639,8 @@ mod tests {
             bitpacked.into_array()
         };
 
-        let (specialized, patch_range) =
-            BitPackedExecutor::try_specialize(array)?.vortex_expect("expected BitPacked input");
+        let (specialized, patch_range) = BitPackedExecutor::try_specialize(array, &mut ctx)?
+            .vortex_expect("expected BitPacked input");
 
         assert_eq!(specialized.len(), expected_len);
         assert_eq!(specialized.offset(), expected_offset);

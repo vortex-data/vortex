@@ -3,7 +3,7 @@ source: vortex-btrblocks/tests/golden.rs
 expression: rendered
 ---
 input: utf8, len=16384, nbytes=653785
-root: vortex.fsst(utf8, len=16384) nbytes=151382
+root: vortex.fsst(utf8, len=16384) nbytes=151384
   metadata: len: 16384, nsymbols: 223
   uncompressed_lengths: vortex.sparse(u8, len=16384) nbytes=3154
     metadata: fill_value: 24u8
@@ -11,5 +11,7 @@ root: vortex.fsst(utf8, len=16384) nbytes=151382
       metadata: ptype: u16
     patch_values: vortex.constant(u8, len=1575) nbytes=2
       metadata: scalar: 23u8
-  codes_offsets: fastlanes.bitpacked(u32, len=16385) nbytes=36992
-    metadata: bit_width: 17, offset: 0
+  codes_offsets: fastlanes.bitpacked(u32, len=16385) nbytes=36994
+    metadata: offset: 0
+    width_table: vortex.constant(u8, len=17) nbytes=2
+      metadata: scalar: 17u8
