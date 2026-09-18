@@ -64,7 +64,7 @@ fn into_canonical_non_nullable(
     bencher
         .with_inputs(|| {
             (
-                ChunkedArray::from_iter(chunks.clone()).into_array(),
+                ChunkedArray::from_iter(chunks.iter().cloned()).into_array(),
                 SESSION.create_execution_ctx(),
             )
         })
@@ -94,7 +94,7 @@ fn canonical_into_non_nullable(
 
     bencher
         .with_inputs(|| {
-            let chunked = ChunkedArray::from_iter(chunks.clone()).into_array();
+            let chunked = ChunkedArray::from_iter(chunks.iter().cloned()).into_array();
             let ctx = SESSION.create_execution_ctx();
             let primitive_builder = PrimitiveBuilder::<i32>::with_capacity_in(
                 chunked.dtype().nullability(),
@@ -145,7 +145,7 @@ fn into_canonical_nullable(
     bencher
         .with_inputs(|| {
             (
-                ChunkedArray::from_iter(chunks.clone()).into_array(),
+                ChunkedArray::from_iter(chunks.iter().cloned()).into_array(),
                 SESSION.create_execution_ctx(),
             )
         })
@@ -175,7 +175,7 @@ fn canonical_into_nullable(
 
     bencher
         .with_inputs(|| {
-            let chunked = ChunkedArray::from_iter(chunks.clone()).into_array();
+            let chunked = ChunkedArray::from_iter(chunks.iter().cloned()).into_array();
             let ctx = SESSION.create_execution_ctx();
             let primitive_builder = PrimitiveBuilder::<i32>::with_capacity_in(
                 chunked.dtype().nullability(),

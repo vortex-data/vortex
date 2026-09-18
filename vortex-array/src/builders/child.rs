@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::BufferAllocatorRef;
-use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::{VortexExpect, VortexResult};
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -134,12 +134,13 @@ impl ChildBuilder {
         self.flush_pending();
         self.chunks_len = 0;
 
-        let mut chunks = std::mem::take(&mut self.chunks);
-        if chunks.len() == 1 {
-            return chunks.remove(0);
+        if self.chunks.len() == 1 {
+            return self.chunks.pop().vortex_expect("single chunk");
         }
 
-        unsafe { ChunkedArray::new_unchecked(chunks, self.dtype.clone()) }.into_array()
+        // SAFETY: every accumulated chunk has the builder's dtype.
+        unsafe { ChunkedArray::new_unchecked(self.chunks.drain(..), self.dtype.clone()) }
+            .into_array()
     }
 
     /// Moves whatever the scalar builder holds into `chunks`, keeping the chunks in logical order.

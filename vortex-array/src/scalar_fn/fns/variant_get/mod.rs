@@ -5,6 +5,7 @@ use std::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
 
+use itertools::Itertools;
 use prost::Message;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -156,15 +157,17 @@ impl ScalarFnVTable for VariantGet {
 
         // TODO(variant): replace this with a Variant builder once one exists.
         // Chunked<Variant> canonicalizes to VariantArray, so this row-wise fallback is safe.
-        let mut chunks = Vec::with_capacity(input.len());
-
-        for idx in 0..input.len() {
-            let scalar = input.execute_scalar(idx, ctx)?;
-            let output = variant_get_scalar(&scalar, options, &dtype)?;
-            chunks.push(ConstantArray::new(output, 1).into_array());
-        }
-
-        let array = ChunkedArray::try_new(chunks, dtype)?.into_array();
+        let chunks = (0..input.len())
+            .map(|idx| -> VortexResult<_> {
+                let scalar = input.execute_scalar(idx, ctx)?;
+                let output = variant_get_scalar(&scalar, options, &dtype)?;
+                Ok(ConstantArray::new(output, 1).into_array())
+            });
+        let array = chunks.process_results(|chunks| {
+            // SAFETY: each output scalar is constructed with the requested variant dtype.
+            unsafe { ChunkedArray::new_unchecked_sized(chunks, dtype.clone(), input.len()) }
+                .into_array()
+        })?;
         VariantArray::try_new(array, None).map(|array| array.into_array())
     }
 

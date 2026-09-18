@@ -77,8 +77,7 @@ fn make_file(columns: usize, chunks: usize) -> VortexFile {
                 })
                 .collect::<Vec<_>>();
             StructArray::from_fields(&fields).unwrap().into_array()
-        })
-        .collect::<Vec<_>>();
+        });
     let array = ChunkedArray::from_iter(struct_chunks).into_array();
 
     let strategy = vortex_file::WriteStrategyBuilder::default()

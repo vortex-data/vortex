@@ -7,13 +7,15 @@ use arrow_array::make_array;
 use arrow_data::ArrayData as ArrowArrayData;
 use arrow_schema::DataType;
 use arrow_schema::Field;
+use itertools::Itertools;
 use pyo3::exceptions::PyValueError;
 use pyo3::intern;
 use pyo3::prelude::*;
 use vortex::array::IntoArray;
 use vortex::array::arrays::ChunkedArray;
 use vortex::error::VortexError;
-use vortex::error::VortexResult;
+use vortex::error::vortex_ensure;
+use vortex::error::vortex_err;
 use vortex_arrow::ArrowSessionExt;
 
 use crate::arrays::PyArrayRef;
@@ -41,16 +43,6 @@ pub(super) fn from_arrow(obj: &Borrowed<'_, '_, PyAny>) -> PyVortexResult<PyArra
         Ok(PyArrayRef::from(enc_array))
     } else if obj.is_instance(chunked_array)? {
         let chunks: Vec<Bound<PyAny>> = obj.getattr(intern!(py, "chunks"))?.extract()?;
-        let encoded_chunks = chunks
-            .iter()
-            .map(|a| {
-                let arrow_array = ArrowArrayData::from_pyarrow(&a.as_borrowed()).map(make_array)?;
-                session()
-                    .arrow()
-                    .from_arrow_array(arrow_array, false)
-                    .map_err(PyVortexError::from)
-            })
-            .collect::<PyVortexResult<Vec<_>>>()?;
         let arrow_dtype = obj
             .getattr(intern!(py, "type"))
             .and_then(|v| DataType::from_pyarrow(&v.as_borrowed()))?;
@@ -58,27 +50,47 @@ pub(super) fn from_arrow(obj: &Borrowed<'_, '_, PyAny>) -> PyVortexResult<PyArra
             .arrow()
             .from_arrow_field(&Field::new("_", arrow_dtype, false))
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
-        Ok(PyArrayRef::from(
-            ChunkedArray::try_new(encoded_chunks, dtype)?.into_array(),
-        ))
+        let encoded_chunks = chunks
+            .iter()
+            .map(|a| -> PyVortexResult<_> {
+                let arrow_array = ArrowArrayData::from_pyarrow(&a.as_borrowed()).map(make_array)?;
+                let encoded = session()
+                    .arrow()
+                    .from_arrow_array(arrow_array, false)
+                    .map_err(PyVortexError::from)?;
+                if encoded.dtype() != &dtype {
+                    return Err(vortex_err!(MismatchedTypes: &dtype, encoded.dtype()).into());
+                }
+                Ok(encoded)
+            });
+        let expected_nchunks = encoded_chunks.size_hint().0;
+        let array = encoded_chunks.process_results(|chunks| {
+            // SAFETY: the iterator validates each converted chunk against the declared dtype.
+            unsafe { ChunkedArray::new_unchecked_sized(chunks, dtype.clone(), expected_nchunks) }
+        })?;
+        Ok(PyArrayRef::from(array.into_array()))
     } else if obj.is_instance(table)? {
         let array_stream = ArrowArrayStreamReader::from_pyarrow(&obj.as_borrowed())?;
         let dtype = session()
             .arrow()
             .from_arrow_schema(array_stream.schema().as_ref())
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
-        let chunks = array_stream
+        let encoded_chunks = array_stream
             .into_iter()
             .map(|b| {
                 b.map_err(VortexError::from).and_then(|b| {
                     let schema = b.schema();
-                    session().arrow().from_arrow_record_batch(b, &schema)
+                    let encoded = session().arrow().from_arrow_record_batch(b, &schema)?;
+                    vortex_ensure!(encoded.dtype() == &dtype, MismatchedTypes: &dtype, encoded.dtype());
+                    Ok(encoded)
                 })
-            })
-            .collect::<VortexResult<Vec<_>>>()?;
-        Ok(PyArrayRef::from(
-            ChunkedArray::try_new(chunks, dtype)?.into_array(),
-        ))
+            });
+        let expected_nchunks = encoded_chunks.size_hint().0;
+        let array = encoded_chunks.process_results(|chunks| {
+            // SAFETY: the iterator validates each converted batch against the stream's dtype.
+            unsafe { ChunkedArray::new_unchecked_sized(chunks, dtype.clone(), expected_nchunks) }
+        })?;
+        Ok(PyArrayRef::from(array.into_array()))
     } else {
         Err(PyValueError::new_err("Cannot convert object to Vortex array").into())
     }

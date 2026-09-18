@@ -50,14 +50,11 @@ pub(crate) fn sample(input: &ArrayRef, sample_size: u32, sample_count: u32) -> A
     );
 
     // For every slice, grab the relevant slice and repack into a new PrimitiveArray.
-    let chunks: Vec<_> = slices
-        .into_iter()
-        .map(|(start, end)| {
-            input
-                .slice(start..end)
-                .vortex_expect("slice should succeed")
-        })
-        .collect();
+    let chunks = slices.into_iter().map(|(start, end)| {
+        input
+            .slice(start..end)
+            .vortex_expect("slice should succeed")
+    });
     // SAFETY: all chunks are slices of `input`, so they share its dtype.
     unsafe { ChunkedArray::new_unchecked(chunks, input.dtype().clone()) }.into_array()
 }

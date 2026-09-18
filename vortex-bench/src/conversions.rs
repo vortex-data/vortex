@@ -10,6 +10,7 @@ use arrow_array::RecordBatch;
 use arrow_select::concat::concat_batches;
 use futures::StreamExt;
 use futures::TryStreamExt;
+use itertools::Itertools;
 use parquet::arrow::AsyncArrowWriter;
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use parquet::arrow::async_reader::ParquetRecordBatchStream;
@@ -142,13 +143,18 @@ pub async fn parquet_to_vortex_chunks_with_batch_size(
         .ok_or_else(|| anyhow::anyhow!("cannot convert an empty Parquet file"))?;
     let combined = concat_batches(&schema, &batches)?;
 
-    let mut chunks = Vec::with_capacity(combined.num_rows().div_ceil(batch_size));
-    for start in (0..combined.num_rows()).step_by(batch_size) {
-        let len = batch_size.min(combined.num_rows() - start);
-        chunks.push(record_batch_to_vortex(combined.slice(start, len))?);
-    }
-
-    Ok(ChunkedArray::from_iter(chunks))
+    let dtype = SESSION.arrow().from_arrow_schema(schema.as_ref())?;
+    let chunks = (0..combined.num_rows())
+        .step_by(batch_size)
+        .map(|start| {
+            let len = batch_size.min(combined.num_rows() - start);
+            record_batch_to_vortex(combined.slice(start, len))
+        });
+    let expected_nchunks = combined.num_rows().div_ceil(batch_size);
+    Ok(chunks.process_results(|chunks| {
+        // SAFETY: every batch is a slice of `combined` and is converted using the same schema.
+        unsafe { ChunkedArray::new_unchecked_sized(chunks, dtype, expected_nchunks) }
+    })?)
 }
 
 /// Convert one Arrow [`RecordBatch`] into a canonical Vortex array.
