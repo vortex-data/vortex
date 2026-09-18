@@ -24,15 +24,41 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
 use crate::BitPacked;
 use crate::BitPackedArray;
-use crate::ChunkWidths;
 use crate::FL_CHUNK_SIZE;
-use crate::bitpack_decompress;
+use crate::bitpack_decompress::count_exceptions;
+use crate::bitpacking::array::ChunkWidths;
+use crate::bitpacking::array::chunk_packed_bytes;
 
+/// Encode with caller-supplied chunk widths, gathering exceptions for values that do not fit.
+pub fn bitpack_encode_with_widths(
+    array: &PrimitiveArray,
+    widths: ChunkWidths,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<BitPackedArray> {
+    let num_chunks = array.len().div_ceil(FL_CHUNK_SIZE);
+    vortex_ensure!(
+        widths.len() == num_chunks,
+        "Expected {num_chunks} chunk widths for {} values, got {}",
+        array.len(),
+        widths.len()
+    );
+    let plan = ChunkWidthPlan {
+        widths,
+        num_exceptions: None,
+    };
+    bitpack_encode_planned(array, plan, ctx)
+}
+
+/// Bit-pack `array` at the single best global width chosen by [`find_best_bit_width`].
+///
+/// Every chunk shares that width, so the result serializes under the original
+/// `fastlanes.bitpacked` format.
 pub fn bitpack_to_best_bit_width(
     array: &PrimitiveArray,
     ctx: &mut ExecutionCtx,
@@ -42,59 +68,32 @@ pub fn bitpack_to_best_bit_width(
     bitpack_encode(array, best_bit_width, Some(&bit_width_freq), ctx)
 }
 
-#[expect(unused_comparisons, clippy::absurd_extreme_comparisons)]
+/// Bit-pack every chunk of `array` at the same `bit_width`, which must be narrower than the type.
+///
+/// `bit_width_freq` is the array's bit-width histogram if already known; it saves recomputing it
+/// to count exceptions.
 pub fn bitpack_encode(
     array: &PrimitiveArray,
     bit_width: u8,
     bit_width_freq: Option<&[usize]>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<BitPackedArray> {
-    let bit_width_freq = match bit_width_freq {
-        Some(freq) => freq,
-        None => &bit_width_histogram(array.as_view(), ctx)?,
-    };
-
-    // Check array contains no negative values.
-    if array.ptype().is_signed_int() {
-        let has_negative_values = match_each_integer_ptype!(array.ptype(), |P| {
-            array.statistics().compute_min::<P>(ctx).unwrap_or_default() < 0
-        });
-        if has_negative_values {
-            vortex_bail!(InvalidArgument: "cannot bitpack_encode array containing negative integers")
-        }
-    }
-
-    let num_exceptions = bitpack_decompress::count_exceptions(bit_width, bit_width_freq);
-
-    if bit_width >= array.ptype().bit_width() as u8 {
-        // Nothing we can do
+    if bit_width as usize >= array.ptype().bit_width() {
         vortex_bail!(
             InvalidArgument: "Cannot pack - specified bit width {bit_width} >= {}",
             array.ptype().bit_width()
         )
     }
-
-    // SAFETY: we check that array only contains non-negative values.
-    let packed = unsafe { bitpack_unchecked(array, bit_width) };
-    let patches = (num_exceptions > 0)
-        .then(|| gather_patches(array, bit_width, num_exceptions, ctx))
-        .transpose()?
-        .flatten();
-
+    let num_exceptions = bit_width_freq.map(|freq| count_exceptions(bit_width, freq));
     let widths = ChunkWidths::uniform(bit_width, array.len().div_ceil(FL_CHUNK_SIZE));
-    let offsets = widths.offsets_array();
-    let bitpacked = BitPacked::try_new(
-        BufferHandle::new_host(packed),
-        array.ptype(),
-        array.validity()?,
-        patches,
-        widths.into_array(),
-        offsets,
-        array.len(),
-        0,
-    )?;
-    bitpacked.statistics().inherit_from(array.statistics());
-    Ok(bitpacked)
+    bitpack_encode_planned(
+        array,
+        ChunkWidthPlan {
+            widths,
+            num_exceptions,
+        },
+        ctx,
+    )
 }
 
 /// Bitpack an array into the specified bit-width without checking statistics.
@@ -109,11 +108,11 @@ pub unsafe fn bitpack_encode_unchecked(
     array: PrimitiveArray,
     bit_width: u8,
 ) -> VortexResult<BitPackedArray> {
+    let widths = ChunkWidths::uniform(bit_width, array.len().div_ceil(FL_CHUNK_SIZE));
     // SAFETY: non-negativity of input checked by caller.
-    let packed = unsafe { bitpack_unchecked(&array, bit_width) };
+    let packed = unsafe { bitpack_unchecked_with_widths(&array, &widths) };
 
     let arr_ref = array.clone().into_array();
-    let widths = ChunkWidths::uniform(bit_width, array.len().div_ceil(FL_CHUNK_SIZE));
     let offsets = widths.offsets_array();
     let bitpacked = BitPacked::try_new(
         BufferHandle::new_host(packed),
@@ -142,69 +141,143 @@ pub unsafe fn bitpack_encode_unchecked(
 /// It is the caller's responsibility to ensure that `parray` is non-negative before calling
 /// this function.
 pub unsafe fn bitpack_unchecked(parray: &PrimitiveArray, bit_width: u8) -> ByteBuffer {
-    let parray = parray.reinterpret_cast(parray.ptype().to_unsigned());
-    match_each_unsigned_integer_ptype!(parray.ptype(), |P| {
-        bitpack_primitive(parray.as_slice::<P>(), bit_width).into_byte_buffer()
-    })
+    let widths = ChunkWidths::uniform(bit_width, parray.len().div_ceil(FL_CHUNK_SIZE));
+    // SAFETY: forwarded to the caller.
+    unsafe { bitpack_unchecked_with_widths(parray, &widths) }
 }
 
 /// Bitpack a slice of primitives down to the given width.
 ///
 /// See `bitpack` for more caller information.
 pub fn bitpack_primitive<T: NativePType + BitPacking>(array: &[T], bit_width: u8) -> Buffer<T> {
-    if bit_width == 0 {
-        return Buffer::<T>::empty();
+    let widths = ChunkWidths::uniform(bit_width, array.len().div_ceil(FL_CHUNK_SIZE));
+    bitpack_primitive_chunked(array, &widths)
+}
+
+/// Gather the values that do not fit `bit_width` into patches.
+pub fn gather_patches(
+    parray: &PrimitiveArray,
+    bit_width: u8,
+    num_exceptions_hint: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<Patches>> {
+    let widths = ChunkWidths::uniform(bit_width, parray.len().div_ceil(FL_CHUNK_SIZE));
+    gather_patches_with_widths(parray, &widths, num_exceptions_hint, ctx)
+}
+
+/// Chosen chunk widths plus, when known, how many values do not fit them.
+struct ChunkWidthPlan {
+    widths: ChunkWidths,
+    num_exceptions: Option<usize>,
+}
+
+fn bitpack_encode_planned(
+    array: &PrimitiveArray,
+    plan: ChunkWidthPlan,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<BitPackedArray> {
+    ensure_non_negative(array, ctx)?;
+    let ChunkWidthPlan {
+        widths,
+        num_exceptions,
+    } = plan;
+
+    // SAFETY: we check that array only contains non-negative values.
+    let packed = unsafe { bitpack_unchecked_with_widths(array, &widths) };
+    let patches = if num_exceptions == Some(0) {
+        None
+    } else {
+        gather_patches_with_widths(array, &widths, num_exceptions.unwrap_or(0), ctx)?
+    };
+
+    let offsets = widths.offsets_array();
+    let bitpacked = BitPacked::try_new(
+        BufferHandle::new_host(packed),
+        array.ptype(),
+        array.validity()?,
+        patches,
+        widths.into_array(),
+        offsets,
+        array.len(),
+        0,
+    )?;
+    bitpacked.statistics().inherit_from(array.statistics());
+    Ok(bitpacked)
+}
+
+#[expect(unused_comparisons, clippy::absurd_extreme_comparisons)]
+fn ensure_non_negative(array: &PrimitiveArray, ctx: &mut ExecutionCtx) -> VortexResult<()> {
+    if array.ptype().is_signed_int() {
+        let has_negative_values = match_each_integer_ptype!(array.ptype(), |P| {
+            array.statistics().compute_min::<P>(ctx).unwrap_or_default() < 0
+        });
+        if has_negative_values {
+            vortex_bail!(InvalidArgument: "cannot bitpack_encode array containing negative integers")
+        }
     }
-    let bit_width = bit_width as usize;
+    Ok(())
+}
 
-    // How many fastlanes vectors we will process.
-    let num_chunks = array.len().div_ceil(1024);
-    let num_full_chunks = array.len() / 1024;
-    let packed_len = 128 * bit_width / size_of::<T>();
-    // packed_len says how many values of size T we're going to include.
-    // 1024 * bit_width / 8 == the number of bytes we're going to get.
-    // then we divide by the size of T to get the number of elements.
+/// Bitpack a [PrimitiveArray] with one width per 1024-element chunk.
+///
+/// # Safety
+///
+/// Internally this function will promote the provided array to its unsigned equivalent. This will
+/// violate ordering guarantees if the array contains any negative values, so the caller must
+/// ensure that `parray` is non-negative.
+pub unsafe fn bitpack_unchecked_with_widths(
+    parray: &PrimitiveArray,
+    widths: &ChunkWidths,
+) -> ByteBuffer {
+    let parray = parray.reinterpret_cast(parray.ptype().to_unsigned());
+    match_each_unsigned_integer_ptype!(parray.ptype(), |P| {
+        bitpack_primitive_chunked(parray.as_slice::<P>(), widths).into_byte_buffer()
+    })
+}
 
-    // Allocate a result byte array.
-    let mut output = BufferMut::<T>::with_capacity(num_chunks * packed_len);
+/// Bitpack a slice of primitives, packing each 1024-element chunk at its own width.
+///
+/// Chunks of width zero contribute no packed bytes; the trailing partial chunk is zero-padded.
+pub fn bitpack_primitive_chunked<T: NativePType + BitPacking>(
+    array: &[T],
+    widths: &ChunkWidths,
+) -> Buffer<T> {
+    let mut output = BufferMut::<T>::with_capacity(widths.packed_bytes() / size_of::<T>());
+    let mut last_chunk = [T::zero(); FL_CHUNK_SIZE];
 
-    // Loop over all but the last chunk.
-    (0..num_full_chunks).for_each(|i| {
-        let start_elem = i * 1024;
+    for (chunk_idx, chunk) in array.chunks(FL_CHUNK_SIZE).enumerate() {
+        let bit_width = widths.width(chunk_idx);
+        if bit_width == 0 {
+            continue;
+        }
+        let packed_len = chunk_packed_bytes(bit_width) / size_of::<T>();
+        let input: &[T] = if chunk.len() == FL_CHUNK_SIZE {
+            chunk
+        } else {
+            last_chunk[..chunk.len()].copy_from_slice(chunk);
+            &last_chunk
+        };
+
         let output_len = output.len();
+        // SAFETY: `input` holds exactly 1024 values and the output window is exactly one packed
+        // block at `bit_width`, which the capacity reserved above accounts for.
         unsafe {
             output.set_len(output_len + packed_len);
             BitPacking::unchecked_pack(
-                bit_width,
-                &array[start_elem..][..1024],
+                bit_width as usize,
+                input,
                 &mut output[output_len..][..packed_len],
             );
-        };
-    });
-
-    // Pad the last chunk with zeros to a full 1024 elements.
-    if num_chunks != num_full_chunks {
-        let last_chunk_size = array.len() % 1024;
-        let mut last_chunk: [T; 1024] = [T::zero(); 1024];
-        last_chunk[..last_chunk_size].copy_from_slice(&array[array.len() - last_chunk_size..]);
-
-        let output_len = output.len();
-        unsafe {
-            output.set_len(output_len + packed_len);
-            BitPacking::unchecked_pack(
-                bit_width,
-                &last_chunk,
-                &mut output[output_len..][..packed_len],
-            );
-        };
+        }
     }
 
     output.freeze()
 }
 
-pub fn gather_patches(
+/// Gather the values that do not fit their chunk's bit width into patches.
+pub fn gather_patches_with_widths(
     parray: &PrimitiveArray,
-    bit_width: u8,
+    widths: &ChunkWidths,
     num_exceptions_hint: usize,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<Patches>> {
@@ -223,7 +296,7 @@ pub fn gather_patches(
         match_each_integer_ptype!(parray.ptype(), |T| {
             gather_patches_impl::<T, u8>(
                 parray.as_slice::<T>(),
-                bit_width,
+                widths,
                 num_exceptions_hint,
                 patch_validity,
                 validity_mask,
@@ -233,7 +306,7 @@ pub fn gather_patches(
         match_each_integer_ptype!(parray.ptype(), |T| {
             gather_patches_impl::<T, u16>(
                 parray.as_slice::<T>(),
-                bit_width,
+                widths,
                 num_exceptions_hint,
                 patch_validity,
                 validity_mask,
@@ -243,7 +316,7 @@ pub fn gather_patches(
         match_each_integer_ptype!(parray.ptype(), |T| {
             gather_patches_impl::<T, u32>(
                 parray.as_slice::<T>(),
-                bit_width,
+                widths,
                 num_exceptions_hint,
                 patch_validity,
                 validity_mask,
@@ -253,7 +326,7 @@ pub fn gather_patches(
         match_each_integer_ptype!(parray.ptype(), |T| {
             gather_patches_impl::<T, u64>(
                 parray.as_slice::<T>(),
-                bit_width,
+                widths,
                 num_exceptions_hint,
                 patch_validity,
                 validity_mask,
@@ -266,7 +339,7 @@ pub fn gather_patches(
 
 fn gather_patches_impl<T, P>(
     data: &[T],
-    bit_width: u8,
+    widths: &ChunkWidths,
     num_exceptions_hint: usize,
     patch_validity: Validity,
     validity_mask: Mask,
@@ -278,16 +351,20 @@ where
     let mut indices: BufferMut<P> = BufferMut::with_capacity(num_exceptions_hint);
     let mut values: BufferMut<T> = BufferMut::with_capacity(num_exceptions_hint);
 
-    let total_chunks = data.len().div_ceil(1024);
+    let total_chunks = data.len().div_ceil(FL_CHUNK_SIZE);
     let mut chunk_offsets: BufferMut<u64> = BufferMut::with_capacity(total_chunks);
 
+    // A value overflows its chunk's width when it has fewer leading zeros than this.
+    let mut overflow_leading_zeros = 0usize;
     for ((idx, value), valid) in data.iter().enumerate().zip(validity_mask.iter()) {
-        if (idx % 1024) == 0 {
+        if idx.is_multiple_of(FL_CHUNK_SIZE) {
             // Record the patch index offset for each chunk.
             chunk_offsets.push(values.len() as u64);
+            overflow_leading_zeros =
+                T::PTYPE.bit_width() - widths.width(idx / FL_CHUNK_SIZE) as usize;
         }
 
-        if (value.leading_zeros() as usize) < T::PTYPE.bit_width() - bit_width as usize && valid {
+        if (value.leading_zeros() as usize) < overflow_leading_zeros && valid {
             indices.push(P::from(idx).vortex_expect("cast index from usize"));
             values.push(*value);
         }
@@ -388,6 +465,7 @@ fn best_bit_width(bit_width_freq: &[usize], bytes_per_exception: usize) -> Vorte
     Ok(best_width as u8)
 }
 
+/// Exceptions cost their value plus a u32 index; we cannot predict how patches compress.
 fn bytes_per_exception(ptype: PType) -> usize {
     ptype.byte_width() + 4
 }
@@ -435,11 +513,9 @@ pub mod test_harness {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::sync::LazyLock;
 
-    use rand::SeedableRng;
-    use rand::rngs::StdRng;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::assert_arrays_eq;
@@ -451,26 +527,14 @@ mod test {
     use vortex_session::VortexSession;
 
     use super::*;
+    use crate::BitPackedArrayExt;
     use crate::BitPackedData;
-    use crate::bitpack_compress::test_harness::make_array;
-    use crate::bitpacking::array::BitPackedArrayExt;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = vortex_array::array_session();
         crate::initialize(&session);
         session
     });
-
-    #[test]
-    fn test_best_bit_width() {
-        // 10 1-bit values, 20 2-bit, etc.
-        let freq = vec![0, 10, 20, 15, 1, 0, 0, 0];
-        // 3-bits => (46 * 3) + (8 * 1 * 5) => 178 bits => 23 bytes and zero exceptions
-        assert_eq!(
-            best_bit_width(&freq, bytes_per_exception(PType::U8)).unwrap(),
-            3
-        );
-    }
 
     #[test]
     fn null_patches() {
@@ -509,14 +573,29 @@ mod test {
         assert!(matches!(err, VortexError::InvalidArgument(_, _)));
     }
 
+    /// Values below 100 with every 40th value pushed above 12 bits, and every 5th null.
+    fn patchy_nullable(len: usize, seed: u32) -> PrimitiveArray {
+        let values = (0..len as u32)
+            .map(|i| {
+                let v = (i * 7919 + seed) % 100;
+                if i % 40 == 0 { v + (1 << 13) } else { v }
+            })
+            .map(|v| v as i32)
+            .collect::<Buffer<i32>>();
+        let validity = Validity::from_iter((0..len).map(|i| i % 5 != 0));
+        PrimitiveArray::new(values, validity)
+    }
+
     #[test]
     fn canonicalize_chunked_of_bitpacked() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        let mut rng = StdRng::seed_from_u64(0);
 
         let chunks = (0..10)
-            .map(|_| make_array(&mut rng, 100, 0.25, 0.25, &mut ctx).unwrap())
-            .collect::<Vec<_>>();
+            .map(|seed| {
+                bitpack_encode(&patchy_nullable(100, seed), 12, None, &mut ctx)
+                    .map(|a| a.into_array())
+            })
+            .collect::<VortexResult<Vec<_>>>()?;
         let chunked = ChunkedArray::from_iter(chunks).into_array();
 
         let into_ca = chunked.clone().execute::<PrimitiveArray>(&mut ctx)?;
@@ -529,151 +608,50 @@ mod test {
         let ca_into = primitive_builder.finish();
 
         assert_arrays_eq!(into_ca, ca_into, &mut ctx);
-
-        let mut primitive_builder = PrimitiveBuilder::<i32>::with_capacity_in(
-            chunked.dtype().nullability(),
-            10 * 100,
-            vortex_buffer::BufferAllocatorRef::static_ref(),
-        );
-        chunked.append_to_builder(&mut primitive_builder, &mut ctx)?;
-        let ca_into = primitive_builder.finish();
-
-        assert_arrays_eq!(into_ca, ca_into, &mut ctx);
-
         Ok(())
+    }
+
+    fn chunk_offsets_of(values: Vec<u32>) -> VortexResult<PrimitiveArray> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let array = PrimitiveArray::from_iter(values);
+        let bitpacked = bitpack_encode(&array, 4, None, &mut ctx)?;
+        let patches = bitpacked
+            .patches()
+            .ok_or_else(|| vortex_err!("expected patches"))?;
+        patches
+            .chunk_offsets()
+            .as_ref()
+            .ok_or_else(|| vortex_err!("expected chunk offsets"))?
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+    }
+
+    fn with_patches(len: usize, patch_indices: &[usize]) -> Vec<u32> {
+        let mut values = vec![0u32; len];
+        patch_indices.iter().for_each(|&idx| values[idx] = 1 << 20);
+        values
     }
 
     #[test]
     fn test_chunk_offsets() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        let patch_value = 1u32 << 20;
-        let patch_indices = [100usize, 200, 3000, 3100];
-        let mut values = vec![0u32; 4096usize];
-
-        patch_indices
-            .iter()
-            .for_each(|&idx| values[idx] = patch_value);
-
-        let array = PrimitiveArray::from_iter(values);
-        let bitpacked = bitpack_encode(&array, 4, None, &mut ctx)?;
-
-        let patches = bitpacked
-            .patches()
-            .ok_or_else(|| vortex_err!("expected patches"))?;
-        let chunk_offsets = patches
-            .chunk_offsets()
-            .as_ref()
-            .ok_or_else(|| vortex_err!("expected chunk offsets"))?
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)?;
-
-        // chunk 0 (0-1023): patches at 100, 200 -> starts at patch index 0
-        // chunk 1 (1024-2047): no patches -> points to patch index 2
-        // chunk 2 (2048-3071): patch at 3000 -> starts at patch index 2
-        // chunk 3 (3072-4095): patch at 3100 -> starts at patch index 3
+        // chunk 0: patches at 100, 200; chunk 1: none; chunk 2: 3000; chunk 3: 3100
         assert_arrays_eq!(
-            chunk_offsets,
+            chunk_offsets_of(with_patches(4096, &[100, 200, 3000, 3100]))?,
             PrimitiveArray::from_iter([0u64, 2, 2, 3]),
             &mut ctx
         );
-        Ok(())
-    }
-
-    #[test]
-    fn test_chunk_offsets_no_patches_in_middle() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-        let patch_value = 1u32 << 20;
-        let patch_indices = [100usize, 200, 2500];
-        let mut values = vec![0u32; 3072usize];
-
-        patch_indices
-            .iter()
-            .for_each(|&idx| values[idx] = patch_value);
-
-        let array = PrimitiveArray::from_iter(values);
-        let bitpacked = bitpack_encode(&array, 4, None, &mut ctx)?;
-
-        let patches = bitpacked
-            .patches()
-            .ok_or_else(|| vortex_err!("expected patches"))?;
-        let chunk_offsets = patches
-            .chunk_offsets()
-            .as_ref()
-            .ok_or_else(|| vortex_err!("expected chunk offsets"))?
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)?;
-
+        // Trailing chunks without patches all point past the last patch.
         assert_arrays_eq!(
-            chunk_offsets,
-            PrimitiveArray::from_iter([0u64, 2, 2]),
-            &mut ctx
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn test_chunk_offsets_trailing_empty_chunks() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-        let patch_value = 1u32 << 20;
-        let patch_indices = [100usize, 200, 1500];
-        let mut values = vec![0u32; 5120usize];
-
-        patch_indices
-            .iter()
-            .for_each(|&idx| values[idx] = patch_value);
-
-        let array = PrimitiveArray::from_iter(values);
-        let bitpacked = bitpack_encode(&array, 4, None, &mut ctx)?;
-
-        let patches = bitpacked
-            .patches()
-            .ok_or_else(|| vortex_err!("expected patches"))?;
-        let chunk_offsets = patches
-            .chunk_offsets()
-            .as_ref()
-            .ok_or_else(|| vortex_err!("expected chunk offsets"))?
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)?;
-
-        // chunk 0 (0-1023): patches at 100, 200 -> starts at patch index 0
-        // chunk 1 (1024-2047): patch at 1500 -> starts at patch index 2
-        // chunk 2 (2048-3071): no patches -> points to patch index 3
-        // chunk 3 (3072-4095): no patches -> points to patch index 3 (remaining chunks filled)
-        // chunk 4 (4096-5119): no patches -> points to patch index 3 (remaining chunks filled)
-        assert_arrays_eq!(
-            chunk_offsets,
+            chunk_offsets_of(with_patches(5120, &[100, 200, 1500]))?,
             PrimitiveArray::from_iter([0u64, 2, 3, 3, 3]),
             &mut ctx
         );
-        Ok(())
-    }
-
-    #[test]
-    fn test_chunk_offsets_single_chunk() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-        let patch_value = 1u32 << 20;
-        let patch_indices = [100usize, 200];
-        let mut values = vec![0u32; 500usize];
-
-        patch_indices
-            .iter()
-            .for_each(|&idx| values[idx] = patch_value);
-
-        let array = PrimitiveArray::from_iter(values);
-        let bitpacked = bitpack_encode(&array, 4, None, &mut ctx)?;
-
-        let patches = bitpacked
-            .patches()
-            .ok_or_else(|| vortex_err!("expected patches"))?;
-        let chunk_offsets = patches
-            .chunk_offsets()
-            .as_ref()
-            .ok_or_else(|| vortex_err!("expected chunk offsets"))?
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)?;
-
-        // Single chunk starting at patch index 0.
-        assert_arrays_eq!(chunk_offsets, PrimitiveArray::from_iter([0u64]), &mut ctx);
+        assert_arrays_eq!(
+            chunk_offsets_of(with_patches(500, &[100, 200]))?,
+            PrimitiveArray::from_iter([0u64]),
+            &mut ctx
+        );
         Ok(())
     }
 }

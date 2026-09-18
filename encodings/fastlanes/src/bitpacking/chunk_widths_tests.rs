@@ -9,20 +9,25 @@ use rstest::rstest;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Constant;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::SliceArray;
 use vortex_array::arrays::slice::SliceKernel;
 use vortex_array::assert_arrays_eq;
 use vortex_array::scalar::Scalar;
 use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::BitPacked;
 use crate::BitPackedArray;
 use crate::BitPackedArrayExt;
 use crate::BitPackedArraySlotsExt;
+use crate::ChunkWidths;
 use crate::FL_CHUNK_SIZE;
+use crate::bitpacking::bitpack_compress::bitpack_encode_with_widths;
 use crate::bitpacking::bitpack_compress::bitpack_to_best_bit_width;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
@@ -53,7 +58,99 @@ fn varied(len_tail: usize) -> Vec<u32> {
 
 fn encode(values: &[u32]) -> VortexResult<BitPackedArray> {
     let mut ctx = SESSION.create_execution_ctx();
-    bitpack_to_best_bit_width(&PrimitiveArray::from_iter(values.iter().copied()), &mut ctx)
+    let widths = ChunkWidths::new(Buffer::from_iter(values.chunks(FL_CHUNK_SIZE).map(
+        |chunk| {
+            chunk
+                .iter()
+                .map(|v| (u32::BITS - v.leading_zeros()) as u8)
+                .max()
+                .unwrap_or(0)
+        },
+    )));
+    bitpack_encode_with_widths(
+        &PrimitiveArray::from_iter(values.iter().copied()),
+        widths,
+        &mut ctx,
+    )
+}
+
+#[test]
+fn explicit_widths_including_full_width_chunk() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let values: Vec<u16> = (0..2 * FL_CHUNK_SIZE + 10)
+        .map(|i| {
+            if i < FL_CHUNK_SIZE {
+                (i % 16) as u16
+            } else {
+                u16::MAX - i as u16
+            }
+        })
+        .collect();
+    let array = PrimitiveArray::from_iter(values.iter().copied());
+    // Chunk 1 and the tail use the full 16 bits, which a single global width could never pick.
+    let widths = ChunkWidths::new(buffer![4u8, 16, 16]);
+    let packed = bitpack_encode_with_widths(&array, widths, &mut ctx)?;
+    assert!(packed.patches().is_none());
+    assert_eq!(
+        packed
+            .chunk_widths(&mut SESSION.create_execution_ctx())?
+            .max_width(),
+        16
+    );
+    assert_arrays_eq!(packed, array, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn slice_preserves_offset_origin() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let values = PrimitiveArray::from_iter((0..3072u32).map(|i| match i / 1024 {
+        0 => i % 8,
+        1 => i % 32,
+        _ => i % 4,
+    }));
+    let packed =
+        bitpack_encode_with_widths(&values, ChunkWidths::new(buffer![3u8, 5, 2]), &mut ctx)?
+            .into_array();
+    let slice = SliceArray::new(packed.clone(), 1100..2300).into_array();
+    let sliced = packed
+        .reduce_parent(&slice, 0)?
+        .ok_or_else(|| vortex_err!("expected bitpacked slice"))?;
+    let bp = sliced.as_::<BitPacked>();
+    assert_eq!(bp.offset(), 76);
+    assert_eq!(bp.packed().len(), 896);
+    assert_arrays_eq!(
+        bp.chunk_offsets(),
+        buffer![384u64, 1024, 1280].into_array(),
+        &mut ctx
+    );
+    assert_arrays_eq!(bp.width_table(), buffer![5u8, 2].into_array(), &mut ctx);
+    // Both primitive children and the packed bytes remain views into the original buffers.
+    let original = packed.as_::<BitPacked>();
+    assert_eq!(
+        bp.packed().as_host().as_ptr(),
+        original.packed().as_host()[384..].as_ptr()
+    );
+    assert_eq!(
+        bp.chunk_offsets()
+            .as_::<Primitive>()
+            .as_slice::<u64>()
+            .as_ptr(),
+        original
+            .chunk_offsets()
+            .as_::<Primitive>()
+            .as_slice::<u64>()[1..]
+            .as_ptr()
+    );
+    let read = sliced.clone();
+    assert_arrays_eq!(
+        read,
+        values.clone().into_array().slice(1100..2300)?,
+        &mut ctx
+    );
+    let nested = sliced.slice(1000..1200)?;
+    assert_arrays_eq!(nested, values.into_array().slice(2100..2300)?, &mut ctx);
+    Ok(())
 }
 
 #[rstest]
