@@ -30,8 +30,8 @@
 //!
 //! Each `Scheme` implementation declares whether it [`matches`](Scheme::matches) a given
 //! canonical form and, if so, estimates the compression ratio (often by compressing a ~1%
-//! sample). There is no dynamic registry — the set of schemes is fixed at build time via
-//! [`ALL_SCHEMES`].
+//! sample). The builder constructs instances using [`ALL_SCHEMES`] and the
+//! permitted serialized IDs.
 //!
 //! Schemes can produce arrays that are themselves further compressed (e.g. FoR then BitPacking),
 //! up to [`MAX_CASCADE`] (3) layers deep. Descendant exclusion rules for of [`SchemeId`] prevents
@@ -85,8 +85,10 @@ pub use vortex_compressor::CascadingCompressor;
 pub use vortex_compressor::scheme::CompressorContext;
 pub use vortex_compressor::scheme::MAX_CASCADE;
 pub use vortex_compressor::scheme::Scheme;
+pub use vortex_compressor::scheme::SchemeConfig;
 pub use vortex_compressor::scheme::SchemeExt;
 pub use vortex_compressor::scheme::SchemeId;
+pub use vortex_compressor::scheme::SchemeRef;
 pub use vortex_compressor::stats::ArrayAndStats;
 pub use vortex_compressor::stats::BoolStats;
 pub use vortex_compressor::stats::FloatStats;

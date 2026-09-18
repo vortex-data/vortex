@@ -356,6 +356,7 @@ mod tests {
     use vortex::io::runtime::current::CurrentThreadRuntime;
     use vortex::io::session::RuntimeSessionExt;
     use vortex_btrblocks::ALL_SCHEMES;
+    use vortex_btrblocks::SchemeConfig;
     use vortex_btrblocks::SchemeExt;
 
     use super::*;
@@ -367,6 +368,7 @@ mod tests {
         let canonical = Canonical::VarBinView(VarBinViewArray::from_iter_str(["value"]));
         let mut actual = ALL_SCHEMES
             .iter()
+            .map(|constructor| constructor(&SchemeConfig::default()))
             .filter(|scheme| scheme.matches(&canonical))
             .map(|scheme| scheme.id())
             .collect::<Vec<_>>();

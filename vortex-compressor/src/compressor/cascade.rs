@@ -240,10 +240,10 @@ impl CascadingCompressor {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let eligible_schemes: Vec<&'static dyn Scheme> = self
+        let eligible_schemes: Vec<&dyn Scheme> = self
             .schemes
             .iter()
-            .copied()
+            .map(|scheme| scheme.as_ref())
             .filter(|s| s.matches(&canonical) && !self.is_excluded(*s, &compress_ctx))
             .collect();
 

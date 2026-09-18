@@ -3,7 +3,11 @@
 
 //! Builder for configuring `BtrBlocksCompressor` instances.
 
+use std::fmt;
+use std::sync::Arc;
+
 use vortex_array::ArrayId;
+use vortex_compressor::scheme::SchemeConfig;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::BtrBlocksCompressor;
@@ -11,6 +15,7 @@ use crate::CascadingCompressor;
 use crate::Scheme;
 use crate::SchemeExt;
 use crate::SchemeId;
+use crate::SchemeRef;
 use crate::schemes::binary;
 use crate::schemes::decimal;
 use crate::schemes::float;
@@ -18,51 +23,54 @@ use crate::schemes::integer;
 use crate::schemes::string;
 use crate::schemes::temporal;
 
-/// All available compression schemes.
+/// A deferred constructor for one scheme instance.
+type SchemeConstructor = dyn Fn(&SchemeConfig) -> SchemeRef + Send + Sync;
+
+/// Constructors for all default compression schemes.
 ///
 /// This list is order-sensitive: the builder preserves this order when constructing
 /// the final scheme list, so that tie-breaking is deterministic.
-pub const ALL_SCHEMES: &[&dyn Scheme] = &[
+pub const ALL_SCHEMES: &[fn(&SchemeConfig) -> SchemeRef] = &[
     ////////////////////////////////////////////////////////////////////////////////////////////////
     // Integer schemes.
     ////////////////////////////////////////////////////////////////////////////////////////////////
     // NOTE: FoR must precede BitPacking to avoid unnecessary patches.
-    &integer::FoRScheme,
+    |_| Arc::new(integer::FoRScheme),
     // NOTE: ZigZag should precede BitPacking because we don't want negative numbers.
-    &integer::ZigZagScheme,
-    &integer::BitPackingScheme,
-    &integer::SparseScheme,
-    &integer::IntDictScheme,
-    &integer::RunEndScheme,
-    &integer::SequenceScheme,
-    &integer::IntRLEScheme,
+    |_| Arc::new(integer::ZigZagScheme),
+    |_| Arc::new(integer::BitPackingScheme),
+    |_| Arc::new(integer::SparseScheme),
+    |_| Arc::new(integer::IntDictScheme),
+    |_| Arc::new(integer::RunEndScheme),
+    |_| Arc::new(integer::SequenceScheme),
+    |_| Arc::new(integer::IntRLEScheme),
     // Delta is omitted here: see [`DELTA_SCHEME`].
     ////////////////////////////////////////////////////////////////////////////////////////////////
     // Float schemes.
     ////////////////////////////////////////////////////////////////////////////////////////////////
-    &float::ALPScheme,
-    &float::ALPRDScheme,
-    &float::FloatDictScheme,
-    &float::NullDominatedSparseScheme,
-    &float::FloatRLEScheme,
+    |_| Arc::new(float::ALPScheme),
+    |_| Arc::new(float::ALPRDScheme),
+    |_| Arc::new(float::FloatDictScheme),
+    |_| Arc::new(float::NullDominatedSparseScheme),
+    |_| Arc::new(float::FloatRLEScheme),
     ////////////////////////////////////////////////////////////////////////////////////////////////
     // String schemes.
     ////////////////////////////////////////////////////////////////////////////////////////////////
-    &string::StringDictScheme,
+    |_| Arc::new(string::StringDictScheme),
     // Both string-fragmentation schemes are registered; the sample-based
     // selector keeps whichever is smaller per column.
-    &string::FSSTScheme,
-    &string::OnPairScheme,
-    &string::NullDominatedSparseScheme,
+    |_| Arc::new(string::FSSTScheme),
+    |_| Arc::new(string::OnPairScheme),
+    |_| Arc::new(string::NullDominatedSparseScheme),
     ////////////////////////////////////////////////////////////////////////////////////////////////
     // Binary schemes.
     ////////////////////////////////////////////////////////////////////////////////////////////////
-    &binary::BinaryDictScheme,
-    &binary::VarBinScheme,
+    |_| Arc::new(binary::BinaryDictScheme),
+    |_| Arc::new(binary::VarBinScheme),
     // Decimal schemes.
-    &decimal::DecimalScheme,
+    |config| Arc::new(decimal::DecimalScheme::from_config(config)),
     // Temporal schemes.
-    &temporal::TemporalScheme,
+    |_| Arc::new(temporal::TemporalScheme),
 ];
 
 /// Delta, kept out of [`ALL_SCHEMES`] because it is slower to decompress than the schemes that
@@ -93,15 +101,25 @@ pub static DELTA_SCHEME: integer::DeltaScheme = integer::DeltaScheme::new(1.25);
 ///     .exclude_schemes([IntDictScheme.id()])
 ///     .build();
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct BtrBlocksCompressorBuilder {
-    schemes: Vec<&'static dyn Scheme>,
+    /// Constructors run once with the final settings before availability is checked.
+    schemes: Vec<Arc<SchemeConstructor>>,
+    /// Serialized IDs available to constructors and the availability gate.
+    config: SchemeConfig,
+    /// Schemes excluded from the constructed compressor.
+    excluded: HashSet<SchemeId>,
 }
 
 impl Default for BtrBlocksCompressorBuilder {
     fn default() -> Self {
         Self {
-            schemes: ALL_SCHEMES.to_vec(),
+            schemes: ALL_SCHEMES
+                .iter()
+                .map(|factory| Arc::new(*factory) as _)
+                .collect(),
+            config: SchemeConfig::default(),
+            excluded: HashSet::default(),
         }
     }
 }
@@ -113,25 +131,24 @@ impl BtrBlocksCompressorBuilder {
     pub fn empty() -> Self {
         Self {
             schemes: Vec::new(),
+            config: SchemeConfig::default(),
+            excluded: HashSet::default(),
         }
     }
 
-    /// Adds an external compression scheme not in [`ALL_SCHEMES`].
+    /// Registers a scheme constructor, called once during [`build`](Self::build) with the final
+    /// serialized-ID restrictions. The resulting instance is gated separately by its required
+    /// [`produced_encodings`](Scheme::produced_encodings).
     ///
-    /// This allows encoding crates outside of `vortex-btrblocks` to register their own schemes
-    /// with the compressor.
-    ///
-    /// # Panics
-    ///
-    /// Panics if a scheme with the same [`SchemeId`] is already present.
-    pub fn with_new_scheme(mut self, scheme: &'static dyn Scheme) -> Self {
-        assert!(
-            !self.schemes.iter().any(|s| s.id() == scheme.id()),
-            "scheme {:?} is already present in the builder",
-            scheme.id(),
-        );
-
-        self.schemes.push(scheme);
+    /// Constructors such as `DecimalScheme::from_config` can be registered directly. Closures
+    /// may capture settings chosen at runtime.
+    pub fn with_new_scheme<S: Scheme + 'static>(
+        mut self,
+        constructor: impl Fn(&SchemeConfig) -> S + Send + Sync + 'static,
+    ) -> Self {
+        self.schemes.push(Arc::new(move |config| {
+            Arc::new(constructor(config)) as SchemeRef
+        }));
         self
     }
 
@@ -141,19 +158,17 @@ impl BtrBlocksCompressorBuilder {
     /// heavy datasets. Requires the `zstd` feature. When the `pco` feature is also enabled,
     /// Pco schemes for integers and floats are included.
     ///
-    /// # Panics
-    ///
-    /// Panics if any of the compact schemes are already present.
+    /// Building panics if any enabled compact scheme is registered more than once.
     #[cfg(feature = "zstd")]
     pub fn with_compact(self) -> Self {
         let builder = self
-            .with_new_scheme(&string::ZstdScheme)
-            .with_new_scheme(&binary::ZstdScheme);
+            .with_new_scheme(|_| string::ZstdScheme)
+            .with_new_scheme(|_| binary::ZstdScheme);
 
         #[cfg(feature = "pco")]
         let builder = builder
-            .with_new_scheme(&integer::PcoScheme)
-            .with_new_scheme(&float::PcoScheme);
+            .with_new_scheme(|_| integer::PcoScheme)
+            .with_new_scheme(|_| float::PcoScheme);
 
         builder
     }
@@ -193,37 +208,66 @@ impl BtrBlocksCompressorBuilder {
 
         #[cfg(feature = "zstd")]
         let builder = builder
-            .with_new_scheme(&binary::ZstdScheme)
-            .with_new_scheme(&binary::ZstdBuffersScheme);
+            .with_new_scheme(|_| binary::ZstdScheme)
+            .with_new_scheme(|_| binary::ZstdBuffersScheme);
 
         builder
     }
 
-    /// Removes the specified compression schemes by their [`SchemeId`].
+    /// Excludes the specified schemes from the constructed compressor.
     pub fn exclude_schemes(mut self, ids: impl IntoIterator<Item = SchemeId>) -> Self {
-        let ids: HashSet<_> = ids.into_iter().collect();
-        self.schemes.retain(|s| !ids.contains(&s.id()));
+        self.excluded.extend(ids);
         self
     }
 
-    /// Retains only schemes whose produced serialized IDs all belong to `allowed`.
+    /// Gates schemes by their required serialized IDs and passes the IDs to their constructors.
     ///
-    /// `allowed` holds serialized IDs. The file writer passes the array IDs its enabled editions
-    /// permit.
+    /// Repeated calls intersect the allowed sets. The final restriction applies to all registered
+    /// constructors, including those added after this call.
     pub fn retain_allowed_encodings(mut self, allowed: &HashSet<ArrayId>) -> Self {
-        self.schemes
-            .retain(|s| s.produced_encodings().iter().all(|id| allowed.contains(id)));
+        self.config = self.config.with_allowed_serialized_ids(allowed);
         self
     }
 
     /// Builds the configured [`BtrBlocksCompressor`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if two enabled constructors return the same [`SchemeId`].
     pub fn build(self) -> BtrBlocksCompressor {
-        BtrBlocksCompressor(CascadingCompressor::new(self.schemes))
+        let mut ids: HashSet<SchemeId> = HashSet::default();
+        let schemes = self
+            .schemes
+            .iter()
+            .map(|constructor| constructor(&self.config))
+            .filter(|scheme| {
+                scheme
+                    .produced_encodings()
+                    .iter()
+                    .all(|id| self.config.allows_serialized_id(id))
+            })
+            .filter(|scheme| !self.excluded.contains(&scheme.id()))
+            .inspect(|scheme| assert!(ids.insert(scheme.id()), "duplicate scheme {}", scheme.id()))
+            .collect();
+        BtrBlocksCompressor(CascadingCompressor::new(schemes))
+    }
+}
+
+impl fmt::Debug for BtrBlocksCompressorBuilder {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("BtrBlocksCompressorBuilder")
+            .field("scheme_count", &self.schemes.len())
+            .field("config", &self.config)
+            .field("excluded", &self.excluded)
+            .finish()
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
     use vortex_array::VTable;
     use vortex_fastlanes::FoR;
 
@@ -244,46 +288,89 @@ mod tests {
     #[test]
     fn retain_allowed_encodings_filters_schemes() {
         let allowed: HashSet<ArrayId> = [FoR.id()].into_iter().collect();
-        let builder = BtrBlocksCompressorBuilder::default().retain_allowed_encodings(&allowed);
-        assert_eq!(builder.schemes.len(), 1);
-        assert_eq!(builder.schemes[0].id(), integer::FoRScheme.id());
+        let builder = BtrBlocksCompressorBuilder::default()
+            .retain_allowed_encodings(&allowed)
+            .build();
+        assert!(builder.has_scheme(integer::FoRScheme.id()));
+        assert!(!builder.has_scheme(integer::BitPackingScheme.id()));
 
-        let none = BtrBlocksCompressorBuilder::default().retain_allowed_encodings(&HashSet::new());
-        assert!(none.schemes.is_empty());
+        let none = BtrBlocksCompressorBuilder::default()
+            .retain_allowed_encodings(&HashSet::new())
+            .build();
+        for constructor in ALL_SCHEMES {
+            let scheme = constructor(&SchemeConfig::default());
+            assert!(!none.has_scheme(scheme.id()));
+        }
     }
 
     #[test]
     fn retaining_all_declared_outputs_keeps_every_scheme() {
-        let allowed: HashSet<ArrayId> = ALL_SCHEMES
+        let schemes: Vec<_> = ALL_SCHEMES
+            .iter()
+            .map(|constructor| constructor(&SchemeConfig::default()))
+            .collect();
+        let allowed = schemes
             .iter()
             .flat_map(|scheme| scheme.produced_encodings())
             .collect();
-        let builder = BtrBlocksCompressorBuilder::default().retain_allowed_encodings(&allowed);
-        assert_eq!(builder.schemes.len(), ALL_SCHEMES.len());
+        let compressor = BtrBlocksCompressorBuilder::default()
+            .retain_allowed_encodings(&allowed)
+            .build();
+        for scheme in schemes {
+            assert!(compressor.has_scheme(scheme.id()));
+        }
+    }
+
+    #[test]
+    fn constructors_receive_final_restrictions_once() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let observed = Arc::clone(&calls);
+        let builder = BtrBlocksCompressorBuilder::empty()
+            .retain_allowed_encodings(&HashSet::from([FoR.id()]))
+            .with_new_scheme(move |config| {
+                observed.fetch_add(1, Ordering::Relaxed);
+                assert!(config.allows_serialized_id(&FoR.id()));
+                integer::FoRScheme
+            })
+            .with_new_scheme(|_| integer::BitPackingScheme)
+            .retain_allowed_encodings(&HashSet::from([FoR.id(), vortex_fastlanes::BitPacked.id()]));
+        assert_eq!(calls.load(Ordering::Relaxed), 0);
+        let compressor = builder.build();
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
+        assert!(compressor.has_scheme(integer::FoRScheme.id()));
+        assert!(!compressor.has_scheme(integer::BitPackingScheme.id()));
+    }
+
+    #[test]
+    #[should_panic(expected = "duplicate scheme")]
+    fn duplicate_schemes_are_rejected_at_build() {
+        BtrBlocksCompressorBuilder::empty()
+            .with_new_scheme(|_| integer::FoRScheme)
+            .with_new_scheme(|_| integer::FoRScheme)
+            .build();
     }
 
     #[test]
     fn cuda_compatible_excludes_alprd() {
-        let builder = BtrBlocksCompressorBuilder::default().only_cuda_compatible();
-        assert!(
-            !builder
-                .schemes
-                .iter()
-                .any(|s| s.id() == float::ALPRDScheme.id())
-        );
+        let builder = BtrBlocksCompressorBuilder::default()
+            .only_cuda_compatible()
+            .build();
+        assert!(!builder.has_scheme(float::ALPRDScheme.id()));
     }
 
     /// `vortex.sparse` has no CUDA decode kernel, so no sparse scheme may survive this preset.
     #[test]
     fn cuda_compatible_excludes_every_sparse_scheme() {
-        let builder = BtrBlocksCompressorBuilder::default().only_cuda_compatible();
+        let builder = BtrBlocksCompressorBuilder::default()
+            .only_cuda_compatible()
+            .build();
         for excluded in [
             integer::SparseScheme.id(),
             float::NullDominatedSparseScheme.id(),
             string::NullDominatedSparseScheme.id(),
         ] {
             assert!(
-                !builder.schemes.iter().any(|s| s.id() == excluded),
+                !builder.has_scheme(excluded),
                 "{excluded} should be excluded"
             );
         }
@@ -291,31 +378,24 @@ mod tests {
 
     #[test]
     fn cuda_compatible_uses_fsst_for_strings() {
-        let builder = BtrBlocksCompressorBuilder::default().only_cuda_compatible();
-        assert!(
-            builder
-                .schemes
-                .iter()
-                .any(|scheme| scheme.id() == string::FSSTScheme.id())
-        );
+        let builder = BtrBlocksCompressorBuilder::default()
+            .only_cuda_compatible()
+            .build();
+        assert!(builder.has_scheme(string::FSSTScheme.id()));
         #[cfg(feature = "zstd")]
-        assert!(
-            !builder
-                .schemes
-                .iter()
-                .any(|scheme| scheme.id() == string::ZstdScheme.id())
-        );
+        assert!(!builder.has_scheme(string::ZstdScheme.id()));
     }
 
     #[test]
     #[cfg(feature = "pco")]
     fn cuda_compatible_excludes_pco() {
         let builder = BtrBlocksCompressorBuilder::default()
-            .with_new_scheme(&integer::PcoScheme)
-            .with_new_scheme(&float::PcoScheme)
-            .only_cuda_compatible();
+            .with_new_scheme(|_| integer::PcoScheme)
+            .with_new_scheme(|_| float::PcoScheme)
+            .only_cuda_compatible()
+            .build();
         for scheme in [integer::PcoScheme.id(), float::PcoScheme.id()] {
-            assert!(!builder.schemes.iter().any(|s| s.id() == scheme));
+            assert!(!builder.has_scheme(scheme));
         }
     }
 }

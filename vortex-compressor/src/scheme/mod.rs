@@ -4,6 +4,9 @@
 //! Everything a scheme author implements or receives: the [`Scheme`] trait, exclusion rules,
 //! compression estimates, and the compression context.
 
+mod config;
+pub use config::SchemeConfig;
+
 mod ctx;
 pub use ctx::CompressorContext;
 pub use ctx::MAX_CASCADE;
@@ -14,6 +17,7 @@ use std::fmt;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::hash::Hasher;
+use std::sync::Arc;
 
 pub use estimate::CompressionEstimate;
 pub use estimate::DeferredEstimate;
@@ -32,6 +36,9 @@ use vortex_error::VortexResult;
 use crate::CascadingCompressor;
 use crate::stats::ArrayAndStats;
 use crate::stats::GenerateStatsOptions;
+
+/// Shared reference to a configured compression scheme.
+pub type SchemeRef = Arc<dyn Scheme>;
 
 /// Unique identifier for a compression scheme.
 ///
@@ -124,15 +131,16 @@ pub trait Scheme: Debug + Send + Sync {
     /// Whether this scheme can compress the given canonical array.
     fn matches(&self, canonical: &Canonical) -> bool;
 
-    /// The serialized IDs this scheme itself may write into its compressed output.
+    /// The serialized IDs required to enable this scheme.
     ///
     /// Every declared ID must be permitted for the scheme to be used. Cascaded children are
     /// compressed by other schemes, which declare their own IDs, so only arrays constructed
     /// directly by [`compress`](Scheme::compress) belong here. Canonical arrays the scheme
     /// merely rearranges do not need to be declared.
     ///
-    /// For most encodings this is the in-memory encoding ID. An encoding with several wire
-    /// formats declares the wire IDs the scheme writes, which may differ from its in-memory ID.
+    /// For most encodings this is the in-memory encoding ID. A configurable scheme declares its
+    /// required wire IDs here and uses [`SchemeConfig`] during construction to enable optional
+    /// formats. Every optional format it emits must also be permitted by that configuration.
     fn produced_encodings(&self) -> Vec<ArrayId>;
 
     /// Returns the stats generation options this scheme requires. The compressor merges all

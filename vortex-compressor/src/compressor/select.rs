@@ -39,10 +39,7 @@ impl WinnerEstimate {
 }
 
 /// Returns `true` if `score` beats the current best estimate.
-fn is_better_score(
-    score: EstimateScore,
-    best: Option<&(&'static dyn Scheme, EstimateScore)>,
-) -> bool {
+fn is_better_score(score: EstimateScore, best: Option<&(&dyn Scheme, EstimateScore)>) -> bool {
     score.is_valid() && best.is_none_or(|(_, best_score)| score.beats(*best_score))
 }
 
@@ -62,15 +59,15 @@ impl CascadingCompressor {
     /// Ties are broken by registration order within each pass.
     ///
     /// [`expected_compression_ratio`]: Scheme::expected_compression_ratio
-    pub(super) fn choose_best_scheme(
+    pub(super) fn choose_best_scheme<'a>(
         &self,
-        schemes: &[&'static dyn Scheme],
+        schemes: &[&'a dyn Scheme],
         data: &ArrayAndStats,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<(&'static dyn Scheme, WinnerEstimate)>> {
-        let mut best: Option<(&'static dyn Scheme, EstimateScore)> = None;
-        let mut deferred: Vec<(&'static dyn Scheme, DeferredEstimate)> = Vec::new();
+    ) -> VortexResult<Option<(&'a dyn Scheme, WinnerEstimate)>> {
+        let mut best: Option<(&dyn Scheme, EstimateScore)> = None;
+        let mut deferred: Vec<(&dyn Scheme, DeferredEstimate)> = Vec::new();
 
         // Pass 1: evaluate every immediate verdict. Stash deferred work for pass 2.
         {

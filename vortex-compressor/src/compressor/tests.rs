@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
 use std::sync::LazyLock;
 
 use parking_lot::Mutex;
@@ -48,7 +49,11 @@ use crate::stats::GenerateStatsOptions;
 static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 fn compressor() -> CascadingCompressor {
-    CascadingCompressor::new(vec![&IntDictScheme, &FloatDictScheme, &StringDictScheme])
+    CascadingCompressor::new(vec![
+        Arc::new(IntDictScheme),
+        Arc::new(FloatDictScheme),
+        Arc::new(StringDictScheme),
+    ])
 }
 
 fn estimate_test_data() -> ArrayAndStats {
@@ -369,7 +374,10 @@ fn test_no_exclusion_without_history() {
 
 #[test]
 fn immediate_always_use_wins_immediately() -> VortexResult<()> {
-    let compressor = CascadingCompressor::new(vec![&DirectRatioScheme, &ImmediateAlwaysUseScheme]);
+    let compressor = CascadingCompressor::new(vec![
+        Arc::new(DirectRatioScheme),
+        Arc::new(ImmediateAlwaysUseScheme),
+    ]);
     let schemes: [&'static dyn Scheme; 2] = [&DirectRatioScheme, &ImmediateAlwaysUseScheme];
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
@@ -387,7 +395,10 @@ fn immediate_always_use_wins_immediately() -> VortexResult<()> {
 
 #[test]
 fn callback_always_use_wins_immediately() -> VortexResult<()> {
-    let compressor = CascadingCompressor::new(vec![&DirectRatioScheme, &CallbackAlwaysUseScheme]);
+    let compressor = CascadingCompressor::new(vec![
+        Arc::new(DirectRatioScheme),
+        Arc::new(CallbackAlwaysUseScheme),
+    ]);
     let schemes: [&'static dyn Scheme; 2] = [&DirectRatioScheme, &CallbackAlwaysUseScheme];
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
@@ -405,7 +416,10 @@ fn callback_always_use_wins_immediately() -> VortexResult<()> {
 
 #[test]
 fn callback_skip_is_ignored() -> VortexResult<()> {
-    let compressor = CascadingCompressor::new(vec![&CallbackSkipScheme, &DirectRatioScheme]);
+    let compressor = CascadingCompressor::new(vec![
+        Arc::new(CallbackSkipScheme),
+        Arc::new(DirectRatioScheme),
+    ]);
     let schemes: [&'static dyn Scheme; 2] = [&CallbackSkipScheme, &DirectRatioScheme];
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
@@ -423,7 +437,10 @@ fn callback_skip_is_ignored() -> VortexResult<()> {
 
 #[test]
 fn callback_ratio_competes_numerically() -> VortexResult<()> {
-    let compressor = CascadingCompressor::new(vec![&DirectRatioScheme, &CallbackRatioScheme]);
+    let compressor = CascadingCompressor::new(vec![
+        Arc::new(DirectRatioScheme),
+        Arc::new(CallbackRatioScheme),
+    ]);
     let schemes: [&'static dyn Scheme; 2] = [&DirectRatioScheme, &CallbackRatioScheme];
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
@@ -441,7 +458,10 @@ fn callback_ratio_competes_numerically() -> VortexResult<()> {
 
 #[test]
 fn zero_byte_sample_loses_to_finite_ratio() -> VortexResult<()> {
-    let compressor = CascadingCompressor::new(vec![&HugeRatioScheme, &ZeroBytesSamplingScheme]);
+    let compressor = CascadingCompressor::new(vec![
+        Arc::new(HugeRatioScheme),
+        Arc::new(ZeroBytesSamplingScheme),
+    ]);
     let schemes: [&'static dyn Scheme; 2] = [&HugeRatioScheme, &ZeroBytesSamplingScheme];
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
@@ -459,7 +479,10 @@ fn zero_byte_sample_loses_to_finite_ratio() -> VortexResult<()> {
 
 #[test]
 fn finite_ratio_displaces_zero_byte_sample() -> VortexResult<()> {
-    let compressor = CascadingCompressor::new(vec![&ZeroBytesSamplingScheme, &HugeRatioScheme]);
+    let compressor = CascadingCompressor::new(vec![
+        Arc::new(ZeroBytesSamplingScheme),
+        Arc::new(HugeRatioScheme),
+    ]);
     let schemes: [&'static dyn Scheme; 2] = [&ZeroBytesSamplingScheme, &HugeRatioScheme];
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
@@ -477,7 +500,7 @@ fn finite_ratio_displaces_zero_byte_sample() -> VortexResult<()> {
 
 #[test]
 fn zero_byte_sample_alone_selects_no_scheme() -> VortexResult<()> {
-    let compressor = CascadingCompressor::new(vec![&ZeroBytesSamplingScheme]);
+    let compressor = CascadingCompressor::new(vec![Arc::new(ZeroBytesSamplingScheme)]);
     let schemes: [&'static dyn Scheme; 1] = [&ZeroBytesSamplingScheme];
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
@@ -579,7 +602,10 @@ fn callback_always_use_overrides_pass_one_best() -> VortexResult<()> {
     // `HugeRatioScheme` returns an immediate `Ratio(100.0)` in pass 1;
     // `CallbackAlwaysUseScheme` returns `AlwaysUse` from its deferred callback in pass 2.
     // The deferred `AlwaysUse` must still win.
-    let compressor = CascadingCompressor::new(vec![&HugeRatioScheme, &CallbackAlwaysUseScheme]);
+    let compressor = CascadingCompressor::new(vec![
+        Arc::new(HugeRatioScheme),
+        Arc::new(CallbackAlwaysUseScheme),
+    ]);
     let schemes: [&'static dyn Scheme; 2] = [&HugeRatioScheme, &CallbackAlwaysUseScheme];
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
@@ -600,7 +626,10 @@ fn threshold_reflects_pass_one_best() -> VortexResult<()> {
     let _guard = OBSERVER_LOCK.lock();
     *OBSERVED_THRESHOLD.lock() = None;
 
-    let compressor = CascadingCompressor::new(vec![&DirectRatioScheme, &ThresholdObservingScheme]);
+    let compressor = CascadingCompressor::new(vec![
+        Arc::new(DirectRatioScheme),
+        Arc::new(ThresholdObservingScheme),
+    ]);
     let schemes: [&'static dyn Scheme; 2] = [&DirectRatioScheme, &ThresholdObservingScheme];
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
@@ -620,8 +649,10 @@ fn threshold_is_none_when_only_prior_is_zero_bytes() -> VortexResult<()> {
     let _guard = OBSERVER_LOCK.lock();
     *OBSERVED_THRESHOLD.lock() = None;
 
-    let compressor =
-        CascadingCompressor::new(vec![&ZeroBytesSamplingScheme, &ThresholdObservingScheme]);
+    let compressor = CascadingCompressor::new(vec![
+        Arc::new(ZeroBytesSamplingScheme),
+        Arc::new(ThresholdObservingScheme),
+    ]);
     let schemes: [&'static dyn Scheme; 2] = [&ZeroBytesSamplingScheme, &ThresholdObservingScheme];
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
@@ -640,7 +671,7 @@ fn threshold_is_none_when_no_prior_scheme() -> VortexResult<()> {
     let _guard = OBSERVER_LOCK.lock();
     *OBSERVED_THRESHOLD.lock() = None;
 
-    let compressor = CascadingCompressor::new(vec![&ThresholdObservingScheme]);
+    let compressor = CascadingCompressor::new(vec![Arc::new(ThresholdObservingScheme)]);
     let schemes: [&'static dyn Scheme; 1] = [&ThresholdObservingScheme];
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
@@ -659,8 +690,10 @@ fn threshold_updates_from_earlier_deferred_callback() -> VortexResult<()> {
 
     // Both schemes are deferred. The first callback registers `Ratio(3.0)`; the second
     // callback must observe it as its threshold.
-    let compressor =
-        CascadingCompressor::new(vec![&CallbackRatioScheme, &ThresholdObservingScheme]);
+    let compressor = CascadingCompressor::new(vec![
+        Arc::new(CallbackRatioScheme),
+        Arc::new(ThresholdObservingScheme),
+    ]);
     let schemes: [&'static dyn Scheme; 2] = [&CallbackRatioScheme, &ThresholdObservingScheme];
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
@@ -680,8 +713,10 @@ fn ratio_tie_between_immediate_and_deferred_favors_immediate() -> VortexResult<(
     // Both schemes produce the same `Ratio(2.0)`, one from pass 1 (immediate) and one from
     // pass 2 (deferred callback). Pass 1 locks in first, and strict `>` tie-breaking means
     // the deferred callback's equal ratio cannot displace it.
-    let compressor =
-        CascadingCompressor::new(vec![&CallbackMatchingRatioScheme, &DirectRatioScheme]);
+    let compressor = CascadingCompressor::new(vec![
+        Arc::new(CallbackMatchingRatioScheme),
+        Arc::new(DirectRatioScheme),
+    ]);
     let schemes: [&'static dyn Scheme; 2] = [&CallbackMatchingRatioScheme, &DirectRatioScheme];
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
@@ -707,7 +742,7 @@ fn all_null_array_compresses_to_constant() -> VortexResult<()> {
 
     // The compressor should produce a `ConstantArray` for an all-null array regardless of
     // which schemes are registered.
-    let compressor = CascadingCompressor::new(vec![&IntDictScheme]);
+    let compressor = CascadingCompressor::new(vec![Arc::new(IntDictScheme)]);
     let mut exec_ctx = SESSION.create_execution_ctx();
     let compressed = compressor.compress(&array, &mut exec_ctx)?;
     assert!(compressed.is::<Constant>());
@@ -729,7 +764,7 @@ fn sampling_uses_scheme_stats_options() -> VortexResult<()> {
     )
     .into_array();
 
-    let compressor = CascadingCompressor::new(vec![&FloatDictScheme]);
+    let compressor = CascadingCompressor::new(vec![Arc::new(FloatDictScheme)]);
 
     // A context with default stats_options (count_distinct_values = false) and
     // marked as a sample so the function skips the sampling step and compresses
