@@ -8,10 +8,11 @@ use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
 use vortex::array::stream::ArrayStreamExt;
 use vortex::file::OpenOptionsSessionExt;
-use vortex::file::WriteOptionsSessionExt;
 
+use crate::CompactionStrategy;
 use crate::IdempotentPath;
 use crate::SESSION;
+use crate::bench_write_options;
 use crate::conversions::parquet_to_vortex_chunks;
 use crate::datasets::Dataset;
 use crate::datasets::data_downloads::download_data;
@@ -65,8 +66,7 @@ impl Dataset for DownloadableDataset {
 
         let data = parquet_to_vortex_chunks(parquet).await?;
         idempotent_async(&vortex, async |path| -> anyhow::Result<()> {
-            SESSION
-                .write_options()
+            bench_write_options(CompactionStrategy::Default)
                 .write(
                     &mut File::create(path)
                         .await
