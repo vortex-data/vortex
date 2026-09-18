@@ -29,7 +29,7 @@
 //!
 //! The first-party edition declarations live in this crate. The public `vortex` crate
 //! re-exports them and registers and enables them on the default session. See the published spec at
-//! <https://docs.vortex.dev/specs/editions.html>.
+//! <https://docs.vortex.dev/specs/versioning.html>.
 
 pub mod declarations;
 mod session;
