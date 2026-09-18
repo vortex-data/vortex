@@ -101,7 +101,8 @@ impl VTable for BitPacked {
             slots.len()
         );
         vortex_ensure!(
-            slots[BitPackedSlots::WIDTH_TABLE].is_some(),
+            slots[BitPackedSlots::WIDTH_TABLE].is_some()
+                && slots[BitPackedSlots::CHUNK_OFFSETS].is_some(),
             "Missing width table or chunk offsets"
         );
         let bp_slots = BitPackedSlotsView::from_slots(slots);
@@ -114,6 +115,7 @@ impl VTable for BitPacked {
             &validity,
             patches.as_ref(),
             bp_slots.width_table,
+            bp_slots.chunk_offsets,
             len,
         )
     }
@@ -221,13 +223,19 @@ impl VTable for BitPacked {
 pub struct BitPacked;
 
 impl BitPacked {
-    /// Build a bit-packed array with one width per chunk.
+    /// Build a bit-packed array with one width per chunk and a trailing byte-offset boundary.
+    /// Offsets may have a nonzero origin, which is subtracted when indexing the packed buffer.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Each physical component of the encoding is explicit"
+    )]
     pub fn try_new(
         packed: BufferHandle,
         ptype: PType,
         validity: Validity,
         patches: Option<Patches>,
         widths: ArrayRef,
+        chunk_offsets: ArrayRef,
         len: usize,
         offset: u16,
     ) -> VortexResult<BitPackedArray> {
@@ -237,19 +245,33 @@ impl BitPacked {
             PatchesData::push_slots(&mut s, patches.as_ref());
             s.push(validity_to_child(&validity, len));
             s.push(Some(widths));
+            s.push(Some(chunk_offsets));
             s
         };
         let data = BitPackedData::try_new(packed, patches, offset)?;
         Array::try_from_parts(ArrayParts::new(BitPacked, dtype, len, data).with_slots(slots))
     }
 
-    /// Replace the width child, dropping statistics that may no longer describe the values.
+    /// Replace the width table, preserving the offsets. Values must agree with the offsets.
+    /// Value-dependent validation of compressed children is deferred until execution.
     pub fn with_width_table(
         array: BitPackedArray,
         table: ArrayRef,
     ) -> VortexResult<BitPackedArray> {
+        let offsets = array.chunk_offsets().clone();
+        Self::with_chunk_layout(array, table, offsets)
+    }
+
+    /// Replace both chunk-layout children. Widths must be non-nullable `u8`, and offsets
+    /// non-nullable `u64`, with adjacent differences equal to `128 * width`.
+    pub fn with_chunk_layout(
+        array: BitPackedArray,
+        widths: ArrayRef,
+        offsets: ArrayRef,
+    ) -> VortexResult<BitPackedArray> {
         let mut slots: ArraySlots = array.slots().iter().cloned().collect();
-        slots[BitPackedSlots::WIDTH_TABLE] = Some(table);
+        slots[BitPackedSlots::WIDTH_TABLE] = Some(widths);
+        slots[BitPackedSlots::CHUNK_OFFSETS] = Some(offsets);
         let dtype = array.dtype().clone();
         let len = array.len();
         Array::try_from_parts(
@@ -262,10 +284,12 @@ impl BitPacked {
         let patches = array.patches();
         let validity = array.validity().vortex_expect("BitPacked validity");
         let widths = array.width_table().clone();
+        let chunk_offsets = array.chunk_offsets().clone();
         let data = array.into_data();
         BitPackedDataParts {
             offset: data.offset,
             widths,
+            chunk_offsets,
             len,
             packed: data.packed,
             patches,

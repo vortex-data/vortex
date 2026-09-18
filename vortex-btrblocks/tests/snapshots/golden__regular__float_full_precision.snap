@@ -3,16 +3,20 @@ source: vortex-btrblocks/tests/golden.rs
 expression: rendered
 ---
 input: f64, len=16384, nbytes=131072
-root: vortex.alprd(f64, len=16384) nbytes=112884
+root: vortex.alprd(f64, len=16384) nbytes=113156
   metadata: right_bit_width: 52, patch_offset: 0
-  left_parts: fastlanes.bitpacked(u16, len=16384) nbytes=6146
+  left_parts: fastlanes.bitpacked(u16, len=16384) nbytes=6282
     metadata: offset: 0
     width_table: vortex.constant(u8, len=16) nbytes=2
       metadata: scalar: 3u8
-  right_parts: fastlanes.bitpacked(u64, len=16384) nbytes=106498
+    chunk_offsets: vortex.primitive(u64, len=17) nbytes=136
+      metadata: ptype: u64
+  right_parts: fastlanes.bitpacked(u64, len=16384) nbytes=106634
     metadata: offset: 0
     width_table: vortex.constant(u8, len=16) nbytes=2
       metadata: scalar: 52u8
+    chunk_offsets: vortex.primitive(u64, len=17) nbytes=136
+      metadata: ptype: u64
   patch_indices: vortex.primitive(u16, len=60) nbytes=120
     metadata: ptype: u16
   patch_values: vortex.primitive(u16, len=60) nbytes=120

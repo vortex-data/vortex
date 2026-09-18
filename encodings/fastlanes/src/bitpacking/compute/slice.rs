@@ -11,6 +11,7 @@ use vortex_array::arrays::slice::SliceKernel;
 use vortex_array::arrays::slice::SliceReduce;
 use vortex_array::patches::Patches;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 
 use crate::BitPacked;
 use crate::BitPackedArraySlotsExt;
@@ -45,8 +46,18 @@ impl SliceKernel for BitPacked {
             .flatten();
 
         let (chunks, _) = slice_chunks(array.offset(), &range);
-        let widths = array.chunk_widths(ctx)?;
-        let encoded = widths.byte_offset(chunks.start)..widths.byte_offset(chunks.end);
+        let base = array.chunk_byte_offset(0, ctx)?;
+        let start = array.chunk_byte_offset(chunks.start, ctx)?;
+        let end = array.chunk_byte_offset(chunks.end, ctx)?;
+        vortex_ensure!(
+            base <= start
+                && start <= end
+                && end - base <= array.packed().len() as u64
+                && (start - base).is_multiple_of(128)
+                && (end - base).is_multiple_of(128),
+            "Slice chunk offsets exceed the packed buffer"
+        );
+        let encoded = usize::try_from(start - base)?..usize::try_from(end - base)?;
         Ok(Some(slice_bitpacked(array, encoded, range, patches)?))
     }
 }
@@ -67,6 +78,7 @@ fn slice_bitpacked(
         array.validity()?.slice(range.clone())?,
         patches,
         array.width_table().slice(chunk_start..chunk_stop)?,
+        array.chunk_offsets().slice(chunk_start..chunk_stop + 1)?,
         range.len(),
         offset as u16,
     )?

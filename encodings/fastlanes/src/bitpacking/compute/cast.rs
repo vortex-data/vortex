@@ -46,6 +46,7 @@ fn build_with_validity(
             .map(|patches| patches.map_values(|values| values.cast(dtype.clone())))
             .transpose()?,
         array.width_table().clone(),
+        array.chunk_offsets().clone(),
         array.len(),
         array.offset(),
     )?

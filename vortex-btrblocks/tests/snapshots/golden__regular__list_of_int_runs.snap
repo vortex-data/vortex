@@ -3,23 +3,27 @@ source: vortex-btrblocks/tests/golden.rs
 expression: rendered
 ---
 input: list(i32), len=4066, nbytes=81804
-root: vortex.list(list(i32), len=4066) nbytes=11152
+root: vortex.list(list(i32), len=4066) nbytes=11224
   metadata: 
-  elements: vortex.runend(i32, len=16384) nbytes=3972
+  elements: vortex.runend(i32, len=16384) nbytes=4004
     metadata: offset: 0
-    ends: fastlanes.for(u16, len=1020) nbytes=1794
+    ends: fastlanes.for(u16, len=1020) nbytes=1810
       metadata: reference: 13u16
-      encoded: fastlanes.bitpacked(u16, len=1020) nbytes=1794
+      encoded: fastlanes.bitpacked(u16, len=1020) nbytes=1810
         metadata: offset: 0
         width_table: vortex.constant(u8, len=1) nbytes=2
           metadata: scalar: 14u8
-    values: fastlanes.for(i32, len=1020) nbytes=2178
+        chunk_offsets: vortex.primitive(u64, len=2) nbytes=16
+          metadata: ptype: u64
+    values: fastlanes.for(i32, len=1020) nbytes=2194
       metadata: reference: -49931i32
-      encoded: fastlanes.bitpacked(i32, len=1020) nbytes=2178
+      encoded: fastlanes.bitpacked(i32, len=1020) nbytes=2194
         metadata: offset: 0
         width_table: vortex.constant(u8, len=1) nbytes=2
           metadata: scalar: 17u8
-  offsets: fastlanes.bitpacked(u16, len=4067) nbytes=7180
+        chunk_offsets: vortex.primitive(u64, len=2) nbytes=16
+          metadata: ptype: u64
+  offsets: fastlanes.bitpacked(u16, len=4067) nbytes=7220
     metadata: offset: 0
     patch_indices: vortex.primitive(u16, len=1) nbytes=2
       metadata: ptype: u16
@@ -29,3 +33,5 @@ root: vortex.list(list(i32), len=4066) nbytes=11152
       metadata: ptype: u8
     width_table: vortex.constant(u8, len=4) nbytes=2
       metadata: scalar: 14u8
+    chunk_offsets: vortex.primitive(u64, len=5) nbytes=40
+      metadata: ptype: u64

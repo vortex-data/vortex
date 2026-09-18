@@ -102,12 +102,14 @@ impl BitPackedExecutor {
         let widths = bp.chunk_widths(ctx)?;
         let (packed, widths, bitpacked_offset, patch_range) =
             bitpacked_slice_view(bp, &widths, offset, len)?;
+        let offsets = widths.offsets_array();
         let sliced = BitPacked::try_new(
             packed,
             bp.ptype(bp.dtype()),
             child.validity()?.slice(patch_range.clone())?,
             bp.patches(),
             widths.into_array(),
+            offsets,
             len,
             bitpacked_offset,
         )?;
@@ -175,6 +177,7 @@ where
     let BitPackedDataParts {
         offset,
         widths: _,
+        chunk_offsets: _,
         len,
         packed,
         patches,
