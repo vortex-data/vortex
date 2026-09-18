@@ -54,7 +54,7 @@ const MAX_I128_LOWER_PARTS: usize = 1;
 const MAX_I256_LOWER_PARTS: usize = 3;
 
 /// The maximum number of 64-bit lower parts an encoded decimal can carry.
-const MAX_LOWER_PARTS: usize = MAX_I256_LOWER_PARTS;
+pub const MAX_LOWER_PARTS: usize = MAX_I256_LOWER_PARTS;
 
 /// Number of bits stored in each lower part.
 const LOWER_PART_BITS: usize = 64;

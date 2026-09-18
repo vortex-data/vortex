@@ -11198,6 +11198,7 @@ dependencies = [
  "object_store",
  "parking_lot",
  "pin-project-lite",
+ "rand 0.10.2",
  "rstest",
  "tokio",
  "tracing",
