@@ -20,7 +20,6 @@ use vortex_error::VortexResult;
 use vortex_fastlanes::RLE;
 use vortex_fastlanes::RLEArrayExt;
 use vortex_fastlanes::RLEArraySlotsExt;
-use vortex_utils::aliases::hash_set::HashSet;
 
 use super::RUN_LENGTH_THRESHOLD;
 use crate::ArrayAndStats;
@@ -107,8 +106,8 @@ impl Scheme for IntRLEScheme {
         canonical.dtype().is_int()
     }
 
-    fn produces_allowed_encodings(&self, allowed_serialized_ids: &HashSet<ArrayId>) -> bool {
-        allowed_serialized_ids.contains(&RLE.id())
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        vec![RLE.id()]
     }
 
     /// Children: values=0, indices=1, offsets=2.

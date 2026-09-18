@@ -12,7 +12,6 @@ use vortex_array::VTable;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
 use vortex_error::VortexResult;
-use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
@@ -32,8 +31,8 @@ impl Scheme for ZstdScheme {
         canonical.dtype().is_binary()
     }
 
-    fn produces_allowed_encodings(&self, allowed_serialized_ids: &HashSet<ArrayId>) -> bool {
-        allowed_serialized_ids.contains(&vortex_zstd::Zstd.id())
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        vec![vortex_zstd::Zstd.id()]
     }
 
     fn expected_compression_ratio(

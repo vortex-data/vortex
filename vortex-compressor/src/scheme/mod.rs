@@ -29,7 +29,6 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_error::VortexResult;
-use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::CascadingCompressor;
 use crate::stats::ArrayAndStats;
@@ -129,13 +128,13 @@ pub trait Scheme: Debug + Send + Sync {
     /// Whether this scheme can compress the given canonical array.
     fn matches(&self, canonical: &Canonical) -> bool;
 
-    /// Whether every encoding this configured instance may directly produce is permitted.
+    /// Serialized IDs this configured instance may directly produce.
     ///
-    /// Check the serialized IDs of arrays constructed directly by [`compress`](Scheme::compress),
+    /// List the serialized IDs of arrays constructed directly by [`compress`](Scheme::compress),
     /// including optional formats enabled on this instance. These may differ from in-memory IDs.
     /// Cascaded children are checked through their own schemes. Canonical arrays the scheme
-    /// merely rearranges do not need to be checked.
-    fn produces_allowed_encodings(&self, allowed_serialized_ids: &HashSet<ArrayId>) -> bool;
+    /// merely rearranges do not need to be listed.
+    fn produced_encodings(&self) -> Vec<ArrayId>;
 
     /// Returns the stats generation options this scheme requires. The compressor merges all
     /// eligible schemes' options before generating stats so that a single stats pass satisfies

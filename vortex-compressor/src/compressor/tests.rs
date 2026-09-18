@@ -27,7 +27,6 @@ use vortex_array::validity::Validity;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
-use vortex_utils::aliases::hash_set::HashSet;
 
 use super::CascadingCompressor;
 use super::ROOT_SCHEME_ID;
@@ -78,8 +77,8 @@ impl Scheme for DirectRatioScheme {
         matches_integer_primitive(canonical)
     }
 
-    fn produces_allowed_encodings(&self, _allowed_serialized_ids: &HashSet<ArrayId>) -> bool {
-        true
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
     }
 
     fn expected_compression_ratio(
@@ -114,8 +113,8 @@ impl Scheme for ImmediateAlwaysUseScheme {
         matches_integer_primitive(canonical)
     }
 
-    fn produces_allowed_encodings(&self, _allowed_serialized_ids: &HashSet<ArrayId>) -> bool {
-        true
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
     }
 
     fn expected_compression_ratio(
@@ -150,8 +149,8 @@ impl Scheme for CallbackAlwaysUseScheme {
         matches_integer_primitive(canonical)
     }
 
-    fn produces_allowed_encodings(&self, _allowed_serialized_ids: &HashSet<ArrayId>) -> bool {
-        true
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
     }
 
     fn expected_compression_ratio(
@@ -188,8 +187,8 @@ impl Scheme for CallbackSkipScheme {
         matches_integer_primitive(canonical)
     }
 
-    fn produces_allowed_encodings(&self, _allowed_serialized_ids: &HashSet<ArrayId>) -> bool {
-        true
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
     }
 
     fn expected_compression_ratio(
@@ -226,8 +225,8 @@ impl Scheme for CallbackRatioScheme {
         matches_integer_primitive(canonical)
     }
 
-    fn produces_allowed_encodings(&self, _allowed_serialized_ids: &HashSet<ArrayId>) -> bool {
-        true
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
     }
 
     fn expected_compression_ratio(
@@ -264,8 +263,8 @@ impl Scheme for HugeRatioScheme {
         matches_integer_primitive(canonical)
     }
 
-    fn produces_allowed_encodings(&self, _allowed_serialized_ids: &HashSet<ArrayId>) -> bool {
-        true
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
     }
 
     fn expected_compression_ratio(
@@ -300,8 +299,8 @@ impl Scheme for ZeroBytesSamplingScheme {
         matches_integer_primitive(canonical)
     }
 
-    fn produces_allowed_encodings(&self, _allowed_serialized_ids: &HashSet<ArrayId>) -> bool {
-        true
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
     }
 
     fn expected_compression_ratio(
@@ -531,8 +530,8 @@ impl Scheme for ThresholdObservingScheme {
         matches_integer_primitive(canonical)
     }
 
-    fn produces_allowed_encodings(&self, _allowed_serialized_ids: &HashSet<ArrayId>) -> bool {
-        true
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
     }
 
     fn expected_compression_ratio(
@@ -572,8 +571,8 @@ impl Scheme for CallbackMatchingRatioScheme {
         matches_integer_primitive(canonical)
     }
 
-    fn produces_allowed_encodings(&self, _allowed_serialized_ids: &HashSet<ArrayId>) -> bool {
-        true
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
     }
 
     fn expected_compression_ratio(

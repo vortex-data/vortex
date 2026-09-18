@@ -23,7 +23,6 @@ use vortex_error::VortexResult;
 use vortex_fastlanes::FoR;
 use vortex_fastlanes::FoRArrayExt;
 use vortex_fastlanes::FoRArraySlotsExt;
-use vortex_utils::aliases::hash_set::HashSet;
 
 use super::BitPackingScheme;
 use crate::ArrayAndStats;
@@ -45,8 +44,8 @@ impl Scheme for FoRScheme {
         canonical.dtype().is_int()
     }
 
-    fn produces_allowed_encodings(&self, allowed_serialized_ids: &HashSet<ArrayId>) -> bool {
-        allowed_serialized_ids.contains(&FoR.id())
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        vec![FoR.id()]
     }
 
     /// Dict codes always start at 0, so FoR (which subtracts the min) is a no-op.

@@ -4,18 +4,28 @@
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
 use vortex_array::array_session;
 use vortex_array::arrays::ChunkedArray;
+use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
+use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::extension::datetime::Date;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::session::ArraySessionExt;
+use vortex_array::stream::ArrayStreamExt;
+use vortex_array::validity::Validity;
+use vortex_btrblocks::BtrBlocksCompressorBuilder;
+use vortex_buffer::Buffer;
 use vortex_buffer::ByteBufferMut;
+use vortex_decimal_byte_parts::DecimalByteParts;
+use vortex_decimal_byte_parts::decimal_byte_parts_v2_id;
 use vortex_edition::ComponentKind;
 use vortex_edition::Edition;
 use vortex_edition::EditionDeclaration;
@@ -592,6 +602,97 @@ async fn explicit_btrblocks_strategy_is_not_reconfigured() -> VortexResult<()> {
         "unexpected error: {error}"
     );
 
+    Ok(())
+}
+
+fn wide_decimals() -> ArrayRef {
+    DecimalArray::new(
+        (0..128i128)
+            .map(|i| (1i128 << 70) + i)
+            .collect::<Buffer<i128>>(),
+        DecimalDType::new(38, 2),
+        Validity::NonNullable,
+    )
+    .into_array()
+}
+
+#[tokio::test]
+async fn explicit_default_strategies_write_wide_decimals() -> VortexResult<()> {
+    let session = <VortexSession as crate::VortexSessionDefault>::default();
+    assert!(
+        !session
+            .enabled_component_ids(ComponentKind::Array)
+            .contains(&decimal_byte_parts_v2_id())
+    );
+    let builders = [
+        BtrBlocksCompressorBuilder::default(),
+        #[cfg(feature = "zstd")]
+        BtrBlocksCompressorBuilder::default().with_compact(),
+    ];
+    let array = wide_decimals();
+    for builder in builders {
+        let mut buffer = ByteBufferMut::empty();
+        session
+            .write_options()
+            .with_strategy(
+                WriteStrategyBuilder::default()
+                    .with_btrblocks_builder(builder)
+                    .build(),
+            )
+            .write(&mut buffer, array.clone().to_array_stream())
+            .await?;
+        let read = session
+            .open_options()
+            .open_buffer(buffer)?
+            .scan()?
+            .into_array_stream()?
+            .read_all()
+            .await?;
+        assert_arrays_eq!(array, read, &mut session.create_execution_ctx());
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn writer_enables_decimal_v2_from_permitted_ids() -> VortexResult<()> {
+    let array = wide_decimals();
+    for (enable_v2, disable_editions) in [(false, false), (true, false), (false, true)] {
+        let session = <VortexSession as crate::VortexSessionDefault>::default();
+        if enable_v2 {
+            const EDITION: EditionId = EditionId::new("decimal-v2-test", 2026, 9, 0);
+            session.editions().declare_edition(Edition {
+                id: EDITION,
+                min_library_version: None,
+            })?;
+            session.editions().declare_inclusion(EditionInclusion::new(
+                ComponentKind::Array,
+                &decimal_byte_parts_v2_id(),
+                EDITION,
+            ))?;
+            session.enable_edition(EDITION)?;
+        }
+        let mut options = session.write_options();
+        if disable_editions {
+            options = options.disable_editions();
+        }
+        let mut buffer = ByteBufferMut::empty();
+        options
+            .write(&mut buffer, array.clone().to_array_stream())
+            .await?;
+        let read = session
+            .open_options()
+            .open_buffer(buffer)?
+            .scan()?
+            .into_array_stream()?
+            .read_all()
+            .await?;
+        assert_eq!(
+            read.depth_first_traversal()
+                .any(|child| child.is::<DecimalByteParts>()),
+            enable_v2 || disable_editions,
+        );
+        assert_arrays_eq!(array, read, &mut session.create_execution_ctx());
+    }
     Ok(())
 }
 

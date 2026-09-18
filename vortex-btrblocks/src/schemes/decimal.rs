@@ -19,7 +19,6 @@ use vortex_decimal_byte_parts::decimal_byte_parts_v1_id;
 use vortex_decimal_byte_parts::decimal_byte_parts_v2_id;
 use vortex_decimal_byte_parts::split_decimal;
 use vortex_error::VortexResult;
-use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
@@ -34,28 +33,18 @@ use crate::SchemeExt;
 /// fit one signed part produce a single-part array under the frozen `vortex.decimal_byte_parts`
 /// format. Wider values need lower parts, and so the `vortex.decimal_byte_parts.v2` format. They
 /// are split only when the writer may emit that format, and stay canonical otherwise.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub struct DecimalScheme {
     /// Whether the permitted serialized IDs include the format for lower parts.
     allow_v2: bool,
 }
 
-impl Default for DecimalScheme {
-    fn default() -> Self {
-        Self::new(None)
-    }
-}
-
 impl DecimalScheme {
-    /// Creates a decimal scheme using v2 for wide values when that format is permitted.
+    /// Creates a decimal scheme that may use v2 for wide values when `allow_v2` is true.
     ///
-    /// `None` permits all serialized IDs. Availability is gated separately by
-    /// [`Scheme::produces_allowed_encodings`].
-    pub fn new(allowed_serialized_ids: Option<&HashSet<ArrayId>>) -> Self {
-        Self {
-            allow_v2: allowed_serialized_ids
-                .is_none_or(|ids| ids.contains(&decimal_byte_parts_v2_id())),
-        }
+    /// The default uses only v1. Availability is gated separately by the compressor builder.
+    pub fn new(allow_v2: bool) -> Self {
+        Self { allow_v2 }
     }
 }
 
@@ -68,10 +57,13 @@ impl Scheme for DecimalScheme {
         matches!(canonical, Canonical::Decimal(_))
     }
 
-    fn produces_allowed_encodings(&self, allowed_serialized_ids: &HashSet<ArrayId>) -> bool {
+    fn produced_encodings(&self) -> Vec<ArrayId> {
         // Single-part arrays always serialize as v1, even when v2 is enabled.
-        allowed_serialized_ids.contains(&decimal_byte_parts_v1_id())
-            && (!self.allow_v2 || allowed_serialized_ids.contains(&decimal_byte_parts_v2_id()))
+        let mut ids = vec![decimal_byte_parts_v1_id()];
+        if self.allow_v2 {
+            ids.push(decimal_byte_parts_v2_id());
+        }
+        ids
     }
 
     /// Children: msp=0, then up to three lower parts.

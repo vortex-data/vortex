@@ -23,7 +23,6 @@ use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexResult;
 use vortex_runend::RunEnd;
 use vortex_runend::compress::runend_encode;
-use vortex_utils::aliases::hash_set::HashSet;
 
 use super::IntRLEScheme;
 use super::SparseScheme;
@@ -49,8 +48,8 @@ impl Scheme for RunEndScheme {
         canonical.dtype().is_int()
     }
 
-    fn produces_allowed_encodings(&self, allowed_serialized_ids: &HashSet<ArrayId>) -> bool {
-        allowed_serialized_ids.contains(&RunEnd.id())
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        vec![RunEnd.id()]
     }
 
     /// Children: values=0, ends=1.

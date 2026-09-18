@@ -21,7 +21,6 @@ use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::builders::dict::dict_encode;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::CascadingCompressor;
 use crate::builtins::IntDictScheme;
@@ -49,8 +48,8 @@ impl Scheme for StringDictScheme {
         canonical.dtype().is_utf8()
     }
 
-    fn produces_allowed_encodings(&self, allowed_serialized_ids: &HashSet<ArrayId>) -> bool {
-        allowed_serialized_ids.contains(&Dict.id())
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        vec![Dict.id()]
     }
 
     fn stats_options(&self) -> GenerateStatsOptions {

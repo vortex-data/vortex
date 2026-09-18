@@ -25,7 +25,6 @@ use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::CascadingCompressor;
 use crate::builtins::IntDictScheme;
@@ -55,8 +54,8 @@ impl Scheme for FloatDictScheme {
         canonical.dtype().is_float()
     }
 
-    fn produces_allowed_encodings(&self, allowed_serialized_ids: &HashSet<ArrayId>) -> bool {
-        allowed_serialized_ids.contains(&Dict.id())
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        vec![Dict.id()]
     }
 
     fn stats_options(&self) -> GenerateStatsOptions {
