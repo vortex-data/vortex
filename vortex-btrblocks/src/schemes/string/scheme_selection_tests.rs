@@ -3,6 +3,7 @@
 
 //! Tests to verify that each string compression scheme produces the expected encoding.
 
+use std::sync::Arc;
 use std::sync::LazyLock;
 
 use vortex_array::IntoArray;
@@ -114,7 +115,7 @@ fn test_fsst_in_default_scheme_list() -> VortexResult<()> {
     let array_ref = array.into_array();
 
     let compressor = BtrBlocksCompressorBuilder::empty()
-        .with_new_scheme(|_| FSSTScheme)
+        .with_new_scheme(|_| Arc::new(FSSTScheme))
         .build();
     let compressed = compressor.compress(&array_ref, &mut SESSION.create_execution_ctx())?;
     assert!(
