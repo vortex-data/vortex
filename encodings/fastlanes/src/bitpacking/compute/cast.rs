@@ -16,6 +16,7 @@ use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 
+use crate::BitPackedArraySlotsExt;
 use crate::bitpacking::BitPacked;
 use crate::bitpacking::array::BitPackedArrayExt;
 use crate::bitpacking::array::bitpack_decompress::unpack_map_into_builder;
@@ -44,7 +45,7 @@ fn build_with_validity(
             .patches()
             .map(|patches| patches.map_values(|values| values.cast(dtype.clone())))
             .transpose()?,
-        array.bit_width(),
+        array.width_table().clone(),
         array.len(),
         array.offset(),
     )?

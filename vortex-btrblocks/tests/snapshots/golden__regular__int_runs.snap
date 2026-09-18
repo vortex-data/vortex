@@ -3,13 +3,17 @@ source: vortex-btrblocks/tests/golden.rs
 expression: rendered
 ---
 input: i32, len=16384, nbytes=65536
-root: vortex.runend(i32, len=16384) nbytes=3968
+root: vortex.runend(i32, len=16384) nbytes=3972
   metadata: offset: 0
-  ends: fastlanes.for(u16, len=1020) nbytes=1792
+  ends: fastlanes.for(u16, len=1020) nbytes=1794
     metadata: reference: 13u16
-    encoded: fastlanes.bitpacked(u16, len=1020) nbytes=1792
-      metadata: bit_width: 14, offset: 0
-  values: fastlanes.for(i32, len=1020) nbytes=2176
+    encoded: fastlanes.bitpacked(u16, len=1020) nbytes=1794
+      metadata: offset: 0
+      width_table: vortex.constant(u8, len=1) nbytes=2
+        metadata: scalar: 14u8
+  values: fastlanes.for(i32, len=1020) nbytes=2178
     metadata: reference: -49931i32
-    encoded: fastlanes.bitpacked(i32, len=1020) nbytes=2176
-      metadata: bit_width: 17, offset: 0
+    encoded: fastlanes.bitpacked(i32, len=1020) nbytes=2178
+      metadata: offset: 0
+      width_table: vortex.constant(u8, len=1) nbytes=2
+        metadata: scalar: 17u8

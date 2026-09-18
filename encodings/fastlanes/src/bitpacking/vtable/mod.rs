@@ -39,13 +39,14 @@ use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::BitPackedArrayExt;
+use crate::BitPackedArraySlotsExt;
 use crate::BitPackedData;
 use crate::BitPackedDataParts;
-use crate::bitpack_decompress::unpack_array;
-use crate::bitpack_decompress::unpack_into_primitive_builder;
 use crate::bitpacking::array::BitPackedSlots;
 use crate::bitpacking::array::BitPackedSlotsView;
 use crate::bitpacking::array::PATCH_SLOTS;
+use crate::bitpacking::bitpack_decompress::unpack_array;
+use crate::bitpacking::bitpack_decompress::unpack_into_primitive_builder;
 use crate::bitpacking::vtable::rules::RULES;
 mod kernels;
 mod operations;
@@ -62,7 +63,6 @@ pub(crate) fn initialize(session: &VortexSession) {
 impl ArrayHash for BitPackedData {
     fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: EqMode) {
         self.offset.hash(state);
-        self.bit_width.hash(state);
         self.packed.array_hash(state, accuracy);
         self.patches_data.hash(state);
     }
@@ -71,7 +71,6 @@ impl ArrayHash for BitPackedData {
 impl ArrayEq for BitPackedData {
     fn array_eq(&self, other: &Self, accuracy: EqMode) -> bool {
         self.offset == other.offset
-            && self.bit_width == other.bit_width
             && self.packed.array_eq(&other.packed, accuracy)
             && self.patches_data == other.patches_data
     }
@@ -95,19 +94,27 @@ impl VTable for BitPacked {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.len() == BitPackedSlots::COUNT,
+            "Expected {} slots, got {}",
+            BitPackedSlots::COUNT,
+            slots.len()
+        );
+        vortex_ensure!(
+            slots[BitPackedSlots::WIDTH_TABLE].is_some(),
+            "Missing width table or chunk offsets"
+        );
         let bp_slots = BitPackedSlotsView::from_slots(slots);
 
         let validity = child_to_validity(bp_slots.validity_child, dtype.nullability());
         let patches =
             PatchesData::patches_from_slots(data.patches_data.as_ref(), len, slots, PATCH_SLOTS);
-        BitPackedData::validate(
-            &data.packed,
+        data.validate(
             dtype.as_ptype(),
             &validity,
             patches.as_ref(),
-            data.bit_width,
+            bp_slots.width_table,
             len,
-            data.offset,
         )
     }
 
@@ -214,34 +221,51 @@ impl VTable for BitPacked {
 pub struct BitPacked;
 
 impl BitPacked {
+    /// Build a bit-packed array with one width per chunk.
     pub fn try_new(
         packed: BufferHandle,
         ptype: PType,
         validity: Validity,
         patches: Option<Patches>,
-        bit_width: u8,
+        widths: ArrayRef,
         len: usize,
         offset: u16,
     ) -> VortexResult<BitPackedArray> {
         let dtype = DType::Primitive(ptype, validity.nullability());
         let slots = {
-            let mut s = ArraySlots::with_capacity(4);
+            let mut s = ArraySlots::with_capacity(BitPackedSlots::COUNT);
             PatchesData::push_slots(&mut s, patches.as_ref());
             s.push(validity_to_child(&validity, len));
+            s.push(Some(widths));
             s
         };
-        let data = BitPackedData::try_new(packed, patches, bit_width, offset)?;
+        let data = BitPackedData::try_new(packed, patches, offset)?;
         Array::try_from_parts(ArrayParts::new(BitPacked, dtype, len, data).with_slots(slots))
+    }
+
+    /// Replace the width child, dropping statistics that may no longer describe the values.
+    pub fn with_width_table(
+        array: BitPackedArray,
+        table: ArrayRef,
+    ) -> VortexResult<BitPackedArray> {
+        let mut slots: ArraySlots = array.slots().iter().cloned().collect();
+        slots[BitPackedSlots::WIDTH_TABLE] = Some(table);
+        let dtype = array.dtype().clone();
+        let len = array.len();
+        Array::try_from_parts(
+            ArrayParts::new(BitPacked, dtype, len, array.into_data()).with_slots(slots),
+        )
     }
 
     pub fn into_parts(array: BitPackedArray) -> BitPackedDataParts {
         let len = array.len();
         let patches = array.patches();
         let validity = array.validity().vortex_expect("BitPacked validity");
+        let widths = array.width_table().clone();
         let data = array.into_data();
         BitPackedDataParts {
             offset: data.offset,
-            bit_width: data.bit_width,
+            widths,
             len,
             packed: data.packed,
             patches,
