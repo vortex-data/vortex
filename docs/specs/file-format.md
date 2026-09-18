@@ -1,9 +1,11 @@
 # File Format
 
 :::{important}
-The Vortex File Format has been considered stable since the release of version 0.36.0. That means that you can expect all
-future versions of the Vortex library to be able to read files written by version 0.36.0 or later (up to and including
-the version doing the reading).
+The Vortex file format's stability guarantee starts with version `0.36.0` of the Vortex Rust crates
+and edition `core2025.05.0`. Later versions of those crates retain read support for the components
+in frozen editions.
+[Versioning](/specs/versioning) explains the guarantee and the requirements for draft and custom
+components.
 :::
 
 :::{seealso}
@@ -17,9 +19,8 @@ definition that allows efficiently querying the layout.
 
 Other considerations for the Vortex file format include:
 
-* Backwards compatibility, and (coming soon) forwards compatibility. The set of encodings a
-  writer may put in a file — and the resulting read-compatibility promise — is governed by
-  [Editions](/specs/editions).
+* File compatibility. Editions constrain which serialized components a writer can use. A writer
+  built with newer Vortex crates can target an older edition that its intended readers support.
 * Fine-grained encryption.
 * Efficient access for both local disk and cloud storage.
 * Minimal overhead reading few columns or rows from wide or long arrays.
