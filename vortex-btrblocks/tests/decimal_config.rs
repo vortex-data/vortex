@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#![cfg(test)]
+
 use rstest::rstest;
 use vortex_array::ArrayId;
 use vortex_array::IntoArray;
@@ -11,6 +13,7 @@ use vortex_array::dtype::DecimalDType;
 use vortex_array::session::ArraySessionExt;
 use vortex_array::validity::Validity;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
+use vortex_btrblocks::Scheme;
 use vortex_btrblocks::SchemeExt;
 use vortex_btrblocks::schemes::decimal::DecimalScheme;
 use vortex_buffer::Buffer;
@@ -30,11 +33,27 @@ fn supported_ids(#[case] ids: Vec<ArrayId>, #[case] supported: bool) {
     let allowed_serialized_ids = ids.into_iter().collect();
     // Construction is unconditional; the compressor independently gates the scheme.
     let scheme = DecimalScheme::new(Some(&allowed_serialized_ids));
+    assert_eq!(
+        scheme.produces_allowed_encodings(&allowed_serialized_ids),
+        supported
+    );
     let compressor = BtrBlocksCompressorBuilder::empty()
         .with_new_scheme(DecimalScheme::new)
         .retain_allowed_encodings(&allowed_serialized_ids)
         .build();
     assert_eq!(compressor.has_scheme(scheme.id()), supported);
+}
+
+#[test]
+fn v1_writer_rejects_preconfigured_v2_scheme() {
+    let scheme = DecimalScheme::default();
+    let allowed_serialized_ids = HashSet::from([decimal_byte_parts_v1_id()]);
+    assert!(!scheme.produces_allowed_encodings(&allowed_serialized_ids));
+    let compressor = BtrBlocksCompressorBuilder::empty()
+        .with_new_scheme(move |_| scheme)
+        .retain_allowed_encodings(&allowed_serialized_ids)
+        .build();
+    assert!(!compressor.has_scheme(scheme.id()));
 }
 
 #[rstest]

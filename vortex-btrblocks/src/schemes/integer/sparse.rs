@@ -23,6 +23,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_sparse::Sparse;
 use vortex_sparse::SparseExt as _;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use super::IntRLEScheme;
 use super::RunEndScheme;
@@ -46,8 +47,9 @@ impl Scheme for SparseScheme {
         canonical.dtype().is_int()
     }
 
-    fn produced_encodings(&self) -> Vec<ArrayId> {
-        vec![Sparse.id(), Constant.id()]
+    fn produces_allowed_encodings(&self, allowed_serialized_ids: &HashSet<ArrayId>) -> bool {
+        allowed_serialized_ids.contains(&Sparse.id())
+            && allowed_serialized_ids.contains(&Constant.id())
     }
 
     fn stats_options(&self) -> GenerateStatsOptions {

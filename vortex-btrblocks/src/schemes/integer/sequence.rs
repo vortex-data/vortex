@@ -23,6 +23,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_sequence::Sequence;
 use vortex_sequence::sequence_encode;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
@@ -43,8 +44,8 @@ impl Scheme for SequenceScheme {
         canonical.dtype().is_int()
     }
 
-    fn produced_encodings(&self) -> Vec<ArrayId> {
-        vec![Sequence.id()]
+    fn produces_allowed_encodings(&self, allowed_serialized_ids: &HashSet<ArrayId>) -> bool {
+        allowed_serialized_ids.contains(&Sequence.id())
     }
 
     /// Sequence encoding on dictionary codes just adds a layer of indirection without compressing

@@ -20,6 +20,7 @@ use vortex_onpair::OnPair;
 use vortex_onpair::OnPairArrayExt;
 use vortex_onpair::OnPairArraySlotsExt;
 use vortex_onpair::onpair_compress;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
@@ -48,8 +49,8 @@ impl Scheme for OnPairScheme {
         canonical.dtype().is_utf8()
     }
 
-    fn produced_encodings(&self) -> Vec<ArrayId> {
-        vec![OnPair.id()]
+    fn produces_allowed_encodings(&self, allowed_serialized_ids: &HashSet<ArrayId>) -> bool {
+        allowed_serialized_ids.contains(&OnPair.id())
     }
 
     /// 4 primitive slot children flow through the cascading compressor:

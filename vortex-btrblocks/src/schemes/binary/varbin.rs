@@ -25,6 +25,7 @@ use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
 use vortex_compressor::scheme::SchemeExt;
 use vortex_error::VortexResult;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
@@ -44,8 +45,8 @@ impl Scheme for VarBinScheme {
         canonical.dtype().is_binary()
     }
 
-    fn produced_encodings(&self) -> Vec<ArrayId> {
-        vec![VarBin.id()]
+    fn produces_allowed_encodings(&self, allowed_serialized_ids: &HashSet<ArrayId>) -> bool {
+        allowed_serialized_ids.contains(&VarBin.id())
     }
 
     fn num_children(&self) -> usize {

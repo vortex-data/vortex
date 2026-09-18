@@ -21,6 +21,7 @@ use vortex_compressor::scheme::DeferredEstimate;
 use vortex_compressor::scheme::DescendantExclusion;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexResult;
+use vortex_utils::aliases::hash_set::HashSet;
 use vortex_zigzag::ZigZag;
 use vortex_zigzag::ZigZagArraySlotsExt;
 use vortex_zigzag::zigzag_encode;
@@ -46,8 +47,8 @@ impl Scheme for ZigZagScheme {
         canonical.dtype().is_int()
     }
 
-    fn produced_encodings(&self) -> Vec<ArrayId> {
-        vec![ZigZag.id()]
+    fn produces_allowed_encodings(&self, allowed_serialized_ids: &HashSet<ArrayId>) -> bool {
+        allowed_serialized_ids.contains(&ZigZag.id())
     }
 
     /// Children: encoded=0.

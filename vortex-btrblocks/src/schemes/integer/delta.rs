@@ -24,6 +24,7 @@ use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexResult;
 use vortex_fastlanes::Delta;
 use vortex_fastlanes::FL_CHUNK_SIZE;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
@@ -97,8 +98,8 @@ impl Scheme for DeltaScheme {
         canonical.dtype().is_int()
     }
 
-    fn produced_encodings(&self) -> Vec<ArrayId> {
-        vec![Delta.id()]
+    fn produces_allowed_encodings(&self, allowed_serialized_ids: &HashSet<ArrayId>) -> bool {
+        allowed_serialized_ids.contains(&Delta.id())
     }
 
     fn num_children(&self) -> usize {

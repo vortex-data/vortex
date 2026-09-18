@@ -15,6 +15,7 @@ use vortex_compressor::scheme::DescendantExclusion;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexResult;
 use vortex_fastlanes::RLE;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
@@ -38,8 +39,8 @@ impl Scheme for FloatRLEScheme {
         canonical.dtype().is_float()
     }
 
-    fn produced_encodings(&self) -> Vec<ArrayId> {
-        vec![RLE.id()]
+    fn produces_allowed_encodings(&self, allowed_serialized_ids: &HashSet<ArrayId>) -> bool {
+        allowed_serialized_ids.contains(&RLE.id())
     }
 
     /// Children: values=0, indices=1, offsets=2.

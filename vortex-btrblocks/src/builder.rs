@@ -137,8 +137,8 @@ impl BtrBlocksCompressorBuilder {
     }
 
     /// Registers a scheme constructor, called once during [`build`](Self::build) with the final
-    /// serialized-ID restrictions. The resulting instance is gated separately by its required
-    /// [`produced_encodings`](Scheme::produced_encodings).
+    /// serialized-ID restrictions. The resulting instance is gated separately by
+    /// [`produces_allowed_encodings`](Scheme::produces_allowed_encodings).
     ///
     /// `None` means all serialized IDs are permitted. Constructors such as `DecimalScheme::new`
     /// can be registered directly. Closures may capture settings chosen at runtime.
@@ -244,12 +244,9 @@ impl BtrBlocksCompressorBuilder {
             .iter()
             .map(|constructor| constructor(self.allowed_serialized_ids.as_ref()))
             .filter(|scheme| {
-                self.allowed_serialized_ids.as_ref().is_none_or(|allowed| {
-                    scheme
-                        .produced_encodings()
-                        .iter()
-                        .all(|id| allowed.contains(id))
-                })
+                self.allowed_serialized_ids
+                    .as_ref()
+                    .is_none_or(|allowed| scheme.produces_allowed_encodings(allowed))
             })
             .filter(|scheme| !self.excluded.contains(&scheme.id()))
             .inspect(|scheme| assert!(ids.insert(scheme.id()), "duplicate scheme {}", scheme.id()))
@@ -288,6 +285,10 @@ mod tests {
     fn default_includes_all_schemes() {
         let builder = BtrBlocksCompressorBuilder::default();
         assert_eq!(builder.schemes.len(), ALL_SCHEMES.len());
+        let compressor = builder.build();
+        for constructor in ALL_SCHEMES {
+            assert!(compressor.has_scheme(constructor(None).id()));
+        }
     }
 
     #[test]
@@ -305,24 +306,6 @@ mod tests {
         for constructor in ALL_SCHEMES {
             let scheme = constructor(None);
             assert!(!none.has_scheme(scheme.id()));
-        }
-    }
-
-    #[test]
-    fn retaining_all_declared_outputs_keeps_every_scheme() {
-        let schemes: Vec<_> = ALL_SCHEMES
-            .iter()
-            .map(|constructor| constructor(None))
-            .collect();
-        let allowed = schemes
-            .iter()
-            .flat_map(|scheme| scheme.produced_encodings())
-            .collect();
-        let compressor = BtrBlocksCompressorBuilder::default()
-            .retain_allowed_encodings(&allowed)
-            .build();
-        for scheme in schemes {
-            assert!(compressor.has_scheme(scheme.id()));
         }
     }
 

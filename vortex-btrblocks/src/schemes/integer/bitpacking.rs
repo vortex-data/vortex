@@ -20,6 +20,7 @@ use vortex_fastlanes::BitPacked;
 use vortex_fastlanes::bitpack_compress::bit_width_histogram;
 use vortex_fastlanes::bitpack_compress::bitpack_encode;
 use vortex_fastlanes::bitpack_compress::find_best_bit_width;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
@@ -40,12 +41,9 @@ impl Scheme for BitPackingScheme {
         canonical.dtype().is_int()
     }
 
-    fn produced_encodings(&self) -> Vec<ArrayId> {
-        let mut encodings = vec![BitPacked.id()];
-        if use_experimental_patches() {
-            encodings.push(Patched.id());
-        }
-        encodings
+    fn produces_allowed_encodings(&self, allowed_serialized_ids: &HashSet<ArrayId>) -> bool {
+        allowed_serialized_ids.contains(&BitPacked.id())
+            && (!use_experimental_patches() || allowed_serialized_ids.contains(&Patched.id()))
     }
 
     fn expected_compression_ratio(

@@ -18,6 +18,7 @@ use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexResult;
 use vortex_sparse::Sparse;
 use vortex_sparse::SparseExt as _;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
@@ -42,8 +43,8 @@ impl Scheme for NullDominatedSparseScheme {
         canonical.dtype().is_utf8()
     }
 
-    fn produced_encodings(&self) -> Vec<ArrayId> {
-        vec![Sparse.id()]
+    fn produces_allowed_encodings(&self, allowed_serialized_ids: &HashSet<ArrayId>) -> bool {
+        allowed_serialized_ids.contains(&Sparse.id())
     }
 
     /// Children: indices=0.

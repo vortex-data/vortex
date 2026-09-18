@@ -21,6 +21,7 @@ use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexResult;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
@@ -42,12 +43,9 @@ impl Scheme for ALPScheme {
         canonical.dtype().is_float()
     }
 
-    fn produced_encodings(&self) -> Vec<ArrayId> {
-        let mut encodings = vec![ALP.id()];
-        if use_experimental_patches() {
-            encodings.push(Patched.id());
-        }
-        encodings
+    fn produces_allowed_encodings(&self, allowed_serialized_ids: &HashSet<ArrayId>) -> bool {
+        allowed_serialized_ids.contains(&ALP.id())
+            && (!use_experimental_patches() || allowed_serialized_ids.contains(&Patched.id()))
     }
 
     /// Children: encoded_ints=0.

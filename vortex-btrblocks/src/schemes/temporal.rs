@@ -23,6 +23,7 @@ use vortex_datetime_parts::DateTimeParts;
 use vortex_datetime_parts::TemporalParts;
 use vortex_datetime_parts::split_temporal;
 use vortex_error::VortexResult;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
@@ -55,8 +56,8 @@ impl Scheme for TemporalScheme {
         )
     }
 
-    fn produced_encodings(&self) -> Vec<ArrayId> {
-        vec![DateTimeParts.id()]
+    fn produces_allowed_encodings(&self, allowed_serialized_ids: &HashSet<ArrayId>) -> bool {
+        allowed_serialized_ids.contains(&DateTimeParts.id())
     }
 
     /// Children: days=0, seconds=1, subseconds=2.

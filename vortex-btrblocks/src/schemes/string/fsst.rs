@@ -25,6 +25,7 @@ use vortex_fsst::FSSTArraySlotsExt;
 use vortex_fsst::FSSTSymbolTable;
 use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_train_compressor;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
@@ -50,8 +51,8 @@ impl Scheme for FSSTScheme {
         canonical.dtype().is_utf8() || canonical.dtype().is_binary()
     }
 
-    fn produced_encodings(&self) -> Vec<ArrayId> {
-        vec![FSST.id(), VarBin.id()]
+    fn produces_allowed_encodings(&self, allowed_serialized_ids: &HashSet<ArrayId>) -> bool {
+        allowed_serialized_ids.contains(&FSST.id()) && allowed_serialized_ids.contains(&VarBin.id())
     }
 
     /// Children: lengths=0, code_offsets=1.

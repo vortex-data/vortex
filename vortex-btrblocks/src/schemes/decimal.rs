@@ -50,7 +50,7 @@ impl DecimalScheme {
     /// Creates a decimal scheme using v2 for wide values when that format is permitted.
     ///
     /// `None` permits all serialized IDs. Availability is gated separately by
-    /// [`Scheme::produced_encodings`].
+    /// [`Scheme::produces_allowed_encodings`].
     pub fn new(allowed_serialized_ids: Option<&HashSet<ArrayId>>) -> Self {
         Self {
             allow_v2: allowed_serialized_ids
@@ -68,9 +68,10 @@ impl Scheme for DecimalScheme {
         matches!(canonical, Canonical::Decimal(_))
     }
 
-    fn produced_encodings(&self) -> Vec<ArrayId> {
+    fn produces_allowed_encodings(&self, allowed_serialized_ids: &HashSet<ArrayId>) -> bool {
         // Single-part arrays always serialize as v1, even when v2 is enabled.
-        vec![decimal_byte_parts_v1_id()]
+        allowed_serialized_ids.contains(&decimal_byte_parts_v1_id())
+            && (!self.allow_v2 || allowed_serialized_ids.contains(&decimal_byte_parts_v2_id()))
     }
 
     /// Children: msp=0, then up to three lower parts.
