@@ -1553,6 +1553,19 @@ wheels = [
 ]
 
 [[package]]
+name = "psycopg"
+version = "3.3.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
+    { name = "tzdata", marker = "sys_platform == 'win32'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/72/73/8fb739d0f6bba247b9b93c9840c402a4f88545be5f1d4b02b23366371c00/psycopg-3.3.5.tar.gz", hash = "sha256:d0a3d9ccf5788af054cbd745278cb02401b5c312aeaafbf2c6144460aec47da4", size = 166508, upload-time = "2026-08-31T22:45:43.151Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3d/2e/d0a645bcaadde68bd6d93c43f02f14b0191bdda367ce3f7722abe3da744a/psycopg-3.3.5-py3-none-any.whl", hash = "sha256:ce5aa5cdb4f9379f00f487590e5890bfa7df9a164648c969ffa628505e21af4e", size = 213598, upload-time = "2026-08-31T22:39:02.184Z" },
+]
+
+[[package]]
 name = "ptyprocess"
 version = "0.7.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2403,6 +2416,7 @@ dev = [
     { name = "filelock" },
     { name = "ipython" },
     { name = "pip" },
+    { name = "psycopg" },
     { name = "pytest" },
     { name = "ruff" },
     { name = "urllib3" },
@@ -2420,6 +2434,7 @@ dev = [
     { name = "filelock", specifier = ">=3.20.3" },
     { name = "ipython", specifier = ">=8.26.0" },
     { name = "pip", specifier = ">=23.3.2" },
+    { name = "psycopg", specifier = ">=3.2" },
     { name = "pytest", specifier = ">=7.4.0" },
     { name = "ruff", specifier = ">=0.7.1" },
     { name = "urllib3", specifier = ">=2.6.3" },

@@ -27,8 +27,10 @@ import argparse
 import json
 import math
 import os
+import random
 import subprocess
 import sys
+import time
 import urllib.request
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -424,7 +426,7 @@ _FIELD_TYPES: dict[str, tuple[tuple[str, str], ...]] = {
 def _validate_record_values(record: dict, kind: str, index: int) -> None:
     """Validate every field's type/range before the Postgres write.
 
-    Runs in `ingest_postgres`'s loop, where the record index is known. It drives
+    Runs before any transaction, where the record index is known. It drives
     type/range checks from `_FIELD_TYPES`, then applies semantic checks the type
     alone does not cover (the storage enum + memory quartet for query_measurements).
     """
@@ -741,60 +743,82 @@ def _upsert_commit(conn, commit: dict) -> None:
     )
 
 
-# CI runs concurrent writers whose upserts can touch commits and dimensions in
-# conflicting orders. Retrying transaction-level deadlocks and serialization
-# failures keeps each JSONL file all-or-nothing.
-_WRITE_CONFLICT_ATTEMPTS = 128
+# Eight attempts cap repeated conflicts. The elapsed budget includes transaction work and backoff,
+# but does not cancel an active transaction. Per-statement and lock timeouts bound individual waits.
+_WRITE_CONFLICT_ATTEMPTS = 8
+_WRITE_CONFLICT_BUDGET_SECONDS = 120.0
+_WRITE_CONFLICT_BACKOFF_SECONDS = 10.0
 
 
 def _retry_write_conflicts(op: Callable[[], _T]) -> _T:
-    """Retry `op` on a Postgres write conflict.
+    """Retry whole transactions only for deadlocks (40P01) and serialization failures (40001)."""
+    import psycopg
 
-    Row-level `ON CONFLICT DO UPDATE` upserts touching the same commits or
-    dimensions in conflicting orders can deadlock. The retryable Postgres errors are deadlock
-    (`SQLSTATE 40P01`) and serialization failure (`40001`); both abort one transaction cleanly,
-    so re-running the whole transaction is safe. A non-retryable error (e.g. a validation
-    `SystemExit`) propagates immediately. Returns `op`'s value on the first success.
-    """
-    from psycopg import errors as pg_errors
-
+    started = time.monotonic()
     for attempt in range(1, _WRITE_CONFLICT_ATTEMPTS + 1):
         try:
-            return op()
-        except (pg_errors.DeadlockDetected, pg_errors.SerializationFailure):
-            # The failing `op`'s `with conn.transaction()` block already rolled back, so the
-            # connection is idle and the whole transaction can be retried. Re-raise on the
-            # final attempt.
-            if attempt >= _WRITE_CONFLICT_ATTEMPTS:
+            result = op()
+        except psycopg.Error as exc:
+            elapsed = time.monotonic() - started
+            retryable = exc.sqlstate in ("40P01", "40001")
+            remaining = _WRITE_CONFLICT_BUDGET_SECONDS - elapsed
+            if not retryable or attempt == _WRITE_CONFLICT_ATTEMPTS or remaining <= 0:
+                outcome = "exhausted" if retryable else "failed"
+                print(
+                    f"ingest attempt={attempt} elapsed={elapsed:.3f}s sqlstate={exc.sqlstate} outcome={outcome}",
+                    file=sys.stderr,
+                )
                 raise
+
+            ceiling = min(2 ** (attempt - 1), _WRITE_CONFLICT_BACKOFF_SECONDS)
+            delay = min(random.uniform(ceiling / 2, ceiling), remaining)
+            print(
+                f"ingest attempt={attempt} elapsed={elapsed:.3f}s sqlstate={exc.sqlstate} "
+                f"outcome=retry delay={delay:.3f}s",
+                file=sys.stderr,
+            )
+            time.sleep(delay)
+            # A delayed wakeup must not start another transaction after the retry budget expires.
+            elapsed = time.monotonic() - started
+            if elapsed >= _WRITE_CONFLICT_BUDGET_SECONDS:
+                print(
+                    f"ingest attempt={attempt} elapsed={elapsed:.3f}s sqlstate={exc.sqlstate} outcome=exhausted",
+                    file=sys.stderr,
+                )
+                raise
+        else:
+            elapsed = time.monotonic() - started
+            print(f"ingest attempt={attempt} elapsed={elapsed:.3f}s sqlstate=none outcome=committed", file=sys.stderr)
+            return result
     raise AssertionError("unreachable: _retry_write_conflicts exited without return or raise")
 
 
 def ingest_postgres(conn, commit: dict, records: list[dict]) -> tuple[int, int]:
-    """Upsert a commit and its records into Postgres, retrying on write conflicts."""
+    """Validate the entire file before atomically upserting it, with bounded conflict retries."""
+    sha = commit["sha"]
+    if not isinstance(sha, str) or len(sha) != 40 or any(c not in "0123456789abcdef" for c in sha):
+        raise SystemExit(f"commit SHA must be 40-hex lowercase, got: {sha!r}")
+    for idx, record in enumerate(records):
+        kind = _validate_record_fields(record, idx)
+        _validate_record_values(record, kind, idx)
+        if record["commit_sha"] != sha:
+            raise SystemExit(
+                f"record {idx} ({kind}): commit_sha {record['commit_sha']!r} does not "
+                f"match the requested commit SHA {sha!r}"
+            )
+
     mid_mod = _measurement_id_module()
     return _retry_write_conflicts(lambda: _ingest_postgres_once(conn, commit, records, mid_mod))
 
 
 def _ingest_postgres_once(conn, commit: dict, records: list[dict], mid_mod) -> tuple[int, int]:
-    """Upsert a commit and its records in one transaction (a single attempt).
-
-    Upsert `commits` first, then each fact record while classifying it as inserted
-    or updated. Any validation failure rolls the whole transaction back.
-    """
+    """Upsert the validated commit and records in one transaction, rolling back on any error."""
     inserted = 0
     updated = 0
     with conn.transaction():
         _upsert_commit(conn, commit)
-        for idx, record in enumerate(records):
-            kind = _validate_record_fields(record, idx)
-            if record["commit_sha"] != commit["sha"]:
-                raise SystemExit(
-                    f"record {idx} ({kind}): commit_sha {record['commit_sha']!r} does not "
-                    f"match the requested commit SHA {commit['sha']!r}"
-                )
-            _validate_record_values(record, kind, idx)
-            if _APPLY_RECORD[kind](conn, mid_mod, record):
+        for record in records:
+            if _APPLY_RECORD[record["kind"]](conn, mid_mod, record):
                 updated += 1
             else:
                 inserted += 1
@@ -892,7 +916,10 @@ def connect_postgres(dsn: str, region: str | None) -> object:
     # left-to-right (last wins), so appending ours last makes it authoritative even if the DSN
     # already set one.
     existing_options = params.get("options") or ""
-    params["options"] = f"{existing_options} -c search_path=public".strip()
+    params["options"] = (
+        f"{existing_options} -c search_path=public -c statement_timeout=30000 -c lock_timeout=10000"
+    ).strip()
+    params["connect_timeout"] = 10
 
     conn = psycopg.connect(**params)
     # Verify the RESOLVED transport actually used TLS, not merely that the DSN requested
@@ -970,9 +997,7 @@ def refresh_site_cache(base_url: str, token: str, timeout: float) -> None:
 def _main_postgres(args: argparse.Namespace) -> int:
     records = read_records(args.jsonl_path)
     # `build_commit` runs `git show <commit_sha>`, so the SHA must be in the runner's local git
-    # history. The v4 ingest step inherits the v3 `--server` step's checkout assumption (the default
-    # checkout provides the head SHA); a shallow checkout missing the SHA fails loud here, and the
-    # v4 step is best-effort (continue-on-error), so it never fails the job.
+    # history. A shallow checkout missing the SHA fails before opening a database connection.
     commit = build_commit(args.commit_sha, args.repo_url, args.git_dir)
     conn = connect_postgres(args.postgres, args.region)
     try:

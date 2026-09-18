@@ -19,6 +19,8 @@ packages = ["dummy"] # Required for workspace project
 dev = [
     "ipython>=8.26.0",
     "pip>=23.3.2",
+    # The ingest writer tests under scripts/tests import psycopg; ty needs it for type information.
+    "psycopg>=3.2",
     "pytest>=7.4.0",
     "ruff>=0.7.1",
     # forced transitive bumps
