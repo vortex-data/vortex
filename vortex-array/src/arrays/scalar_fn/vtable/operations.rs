@@ -60,6 +60,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
 
+    use crate::ArrayRef;
     use crate::ArraySlots;
     use crate::Canonical;
     use crate::IntoArray;
@@ -242,6 +243,62 @@ mod tests {
         let expected = BoolArray::from_iter([false, true, false]).into_array();
         assert_arrays_eq!(result, expected, &mut ctx);
 
+        Ok(())
+    }
+
+    /// Mul(Add(a1, a2), a3)
+    fn scalar_nested_add() -> VortexResult<ArrayRef> {
+        let lhs_n = PrimitiveArray::from_option_iter((0..10i64).map(|i| (i % 4 != 0).then_some(i)));
+        let rhs_r = PrimitiveArray::from_iter(0..10i64);
+
+        let scalar_fn_n = TypedScalarFnInstance::new(Binary, Operator::Add).erased();
+        let args_n = vec![lhs_n.into_array(), rhs_r.into_array()];
+
+        let lhs = ScalarFnArray::try_new(scalar_fn_n, args_n)?.into_array();
+        let rhs = PrimitiveArray::from_iter(0..10i64);
+
+        let scalar_fn = TypedScalarFnInstance::new(Binary, Operator::Mul).erased();
+        let args = vec![lhs.into_array(), rhs.into_array()];
+
+        Ok(ScalarFnArray::try_new(scalar_fn, args)?.into_array())
+    }
+
+    #[test]
+    fn scalar_fn_probe() -> VortexResult<()> {
+        let ctx = &mut array_session().create_execution_ctx();
+        let array = scalar_nested_add()?;
+        let mut probe = array.probe();
+
+        assert!(!probe.execute_is_valid(0, ctx)?);
+        assert!(probe.execute_scalar(0, ctx)?.is_null());
+        assert!(probe.execute_is_valid(9, ctx)?);
+        assert_eq!(probe.execute_scalar(9, ctx)?, Scalar::from(Some(162i64)));
+
+        Ok(())
+    }
+
+    #[test]
+    fn scalar_fn_repeated_probe() -> VortexResult<()> {
+        let ctx = &mut array_session().create_execution_ctx();
+        let array = scalar_nested_add()?;
+        let mut probe = array.repeated_probe();
+
+        assert!(!probe.execute_is_valid(0, ctx)?);
+        assert!(probe.execute_scalar(0, ctx)?.is_null());
+        assert!(probe.execute_is_valid(9, ctx)?);
+        assert_eq!(probe.execute_scalar(9, ctx)?, Scalar::from(Some(162i64)));
+
+        Ok(())
+    }
+
+    #[test]
+    fn scalar_fn_all_valid() -> VortexResult<()> {
+        let ctx = &mut array_session().create_execution_ctx();
+        let array = scalar_nested_add()?;
+        assert!(!array.all_valid(ctx)?);
+        assert!(!array.all_invalid(ctx)?);
+        assert_eq!(array.valid_count(ctx)?, 7);
+        assert_eq!(array.invalid_count(ctx)?, 3);
         Ok(())
     }
 }
