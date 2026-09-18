@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Serialization plugins for the frozen bit-packed format and its external-patches adapter.
+//! [`ArrayPlugin`]s for bit-packed arrays.
+//!
+//! [`BitPackedPlugin`] owns the wire history of `BitPacked`: the frozen `fastlanes.bitpacked`
+//! format for arrays whose chunks share one width, and `fastlanes.bitpacked_v2`, whose width
+//! table and offsets children describe each chunk. [`BitPackedPatchedPlugin`] reads both and lifts
+//! interior patches into a `Patched` array.
 
 use prost::Message;
 use vortex_array::Array;
@@ -29,6 +34,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
@@ -37,6 +43,8 @@ use crate::BitPackedData;
 use crate::ChunkWidths;
 use crate::FL_CHUNK_SIZE;
 use crate::bitpacking::array::BitPackedSlots;
+use crate::bitpacking::array::CHUNK_OFFSETS_DTYPE;
+use crate::bitpacking::array::WIDTH_TABLE_DTYPE;
 
 /// Metadata of the frozen `fastlanes.bitpacked` wire format.
 #[derive(Clone, prost::Message)]
@@ -154,13 +162,44 @@ fn deserialize_children(
     ))
 }
 
-/// Serialization boundary for the frozen `fastlanes.bitpacked` wire format.
+/// The serialized format for arrays whose chunks do not all share one bit width.
+///
+/// The original `fastlanes.bitpacked` format carries a single `bit_width`, and readers of that
+/// format assume every chunk uses it. Arrays with differing chunk widths therefore serialize under
+/// this successor ID, which older readers reject as unknown instead of misreading.
+pub fn bitpacked_v2_id() -> ArrayId {
+    static ID: CachedId = CachedId::new("fastlanes.bitpacked_v2");
+    *ID
+}
+
+/// Metadata of the `fastlanes.bitpacked_v2` format. Chunk widths and byte offsets travel
+/// in separate children, keeping the metadata bounded.
+///
+/// Tag 1 is left unused: it is `bit_width` in the original format, so metadata misdirected across
+/// the two IDs decodes to the right fields and fails on the child layout instead.
+#[derive(Clone, prost::Message)]
+pub(crate) struct BitPackedV2Metadata {
+    #[prost(uint32, tag = "2")]
+    pub(crate) offset: u32,
+    #[prost(message, optional, tag = "3")]
+    pub(crate) patches: Option<PatchesMetadata>,
+}
+
+/// The [`ArrayPlugin`] for `BitPacked`, owning both of its wire formats.
+///
+/// Arrays whose chunks share one width serialize without either layout child as the
+/// frozen `fastlanes.bitpacked` format, byte for byte. Differing widths serialize as
+/// `fastlanes.bitpacked_v2`, with the width table followed by the byte-offset boundaries.
 #[derive(Debug, Clone)]
 pub struct BitPackedPlugin;
 
 impl ArrayPlugin for BitPackedPlugin {
     fn id(&self) -> ArrayId {
         ArrayVTable::id(&BitPacked)
+    }
+
+    fn serialized_ids(&self) -> Vec<ArrayId> {
+        vec![self.id(), bitpacked_v2_id()]
     }
 
     fn serialize(
@@ -170,11 +209,7 @@ impl ArrayPlugin for BitPackedPlugin {
     ) -> VortexResult<Option<ArraySerialization>> {
         let view = array.as_::<BitPacked>();
         let widths = view.chunk_widths(&mut session.create_execution_ctx())?;
-        vortex_ensure!(
-            widths.is_uniform(),
-            "Nonuniform widths require the v2 wire format"
-        );
-        {
+        if widths.is_uniform() {
             let metadata = BitPackedMetadata {
                 bit_width: widths.max_width() as u32,
                 offset: view.offset() as u32,
@@ -189,27 +224,79 @@ impl ArrayPlugin for BitPackedPlugin {
                 .flatten()
                 .cloned()
                 .collect();
-            Ok(Some(ArraySerialization::new(
+            return Ok(Some(ArraySerialization::new(
                 self.id(),
                 metadata,
                 array.buffers(),
                 children,
-            )))
+            )));
         }
+        let metadata = BitPackedV2Metadata {
+            offset: view.offset() as u32,
+            patches: view
+                .patches()
+                .map(|p| p.to_metadata(view.len(), view.dtype()))
+                .transpose()?,
+        }
+        .encode_to_vec();
+        // The children run patches, validity, width table, then chunk offsets.
+        Ok(Some(ArraySerialization::from_array(
+            bitpacked_v2_id(),
+            array,
+            metadata,
+        )))
     }
 
     fn deserialize(
         &self,
         parts: ArrayDeserialization<'_>,
-        _session: &VortexSession,
+        session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
+        if parts.serialized_id == self.id() {
+            return deserialize_v1(parts);
+        }
         vortex_ensure!(
-            parts.serialized_id == self.id(),
+            parts.serialized_id == bitpacked_v2_id(),
             "BitPacked plugin does not recognize serialized ID {}",
             parts.serialized_id,
         );
-        deserialize_v1(parts)
+        deserialize_v2(parts, session)
     }
+}
+
+/// Read the `fastlanes.bitpacked_v2` format: [`BitPackedV2Metadata`], one packed buffer, and
+/// children running patches, validity, width table, then chunk offsets.
+fn deserialize_v2(
+    parts: ArrayDeserialization<'_>,
+    _session: &VortexSession,
+) -> VortexResult<ArrayRef> {
+    let ArrayDeserialization {
+        dtype,
+        len,
+        metadata,
+        buffers,
+        children,
+        ..
+    } = parts;
+    let metadata = BitPackedV2Metadata::decode(metadata)?;
+    let packed = single_buffer(buffers)?;
+    let offset = offset_from_metadata(metadata.offset)?;
+    let num_chunks = (len + offset as usize).div_ceil(FL_CHUNK_SIZE);
+    let (patches, validity, table_idx) =
+        deserialize_children(children, metadata.patches, dtype, len, 2)?;
+    let table = children.get(table_idx, &WIDTH_TABLE_DTYPE, num_chunks)?;
+    let offsets = children.get(table_idx + 1, &CHUNK_OFFSETS_DTYPE, num_chunks + 1)?;
+    Ok(BitPacked::try_new(
+        packed,
+        dtype.as_ptype(),
+        validity,
+        patches,
+        table,
+        offsets,
+        len,
+        offset,
+    )?
+    .into_array())
 }
 
 /// Custom deserialization plugin that converts a BitPacked array with interior
@@ -221,8 +308,11 @@ impl ArrayPlugin for BitPackedPatchedPlugin {
     fn id(&self) -> ArrayId {
         // We reuse the existing `BitPacked` ID so that we can take over its
         // deserialization pathway.
-        // TODO(joe): dedup method name
-        ArrayVTable::id(&BitPacked)
+        BitPackedPlugin.id()
+    }
+
+    fn serialized_ids(&self) -> Vec<ArrayId> {
+        BitPackedPlugin.serialized_ids()
     }
 
     fn serialize(
@@ -230,7 +320,6 @@ impl ArrayPlugin for BitPackedPatchedPlugin {
         array: &ArrayRef,
         session: &VortexSession,
     ) -> VortexResult<Option<ArraySerialization>> {
-        // Both plugins share the same wire contract.
         BitPackedPlugin.serialize(array, session)
     }
 
@@ -250,13 +339,13 @@ impl ArrayPlugin for BitPackedPatchedPlugin {
         let packed = bitpacked.packed().clone();
         let ptype = bitpacked.dtype().as_ptype();
         let validity = bitpacked.validity()?;
-        let bw = bitpacked.width_table().clone();
+        let widths = bitpacked.width_table().clone();
         let offsets = bitpacked.chunk_offsets().clone();
         let len = bitpacked.len();
         let offset = bitpacked.offset();
 
         let bitpacked_without_patches =
-            BitPacked::try_new(packed, ptype, validity, None, bw, offsets, len, offset)?
+            BitPacked::try_new(packed, ptype, validity, None, widths, offsets, len, offset)?
                 .into_array();
 
         let patched = Patched::from_array_and_patches(
