@@ -4,6 +4,7 @@
 use fastlanes::BitPacking;
 use itertools::Itertools;
 use num_traits::PrimInt;
+use num_traits::Zero;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -14,10 +15,12 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
+use vortex_array::dtype::PhysicalPType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
+use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
@@ -35,13 +38,220 @@ use crate::bitpack_decompress::count_exceptions;
 use crate::bitpacking::array::ChunkWidths;
 use crate::bitpacking::array::chunk_packed_bytes;
 
-/// Choose a cost-model width for each chunk, then pack values and gather exceptions.
+/// Bit-pack an array choosing the cost-model-optimal width for every 1024-element chunk.
+///
+/// Each chunk is charged for its packed block plus the exceptions left behind, so a chunk of small
+/// values stays narrow no matter how wide its neighbours are.
+///
+/// Every chunk is processed in one go while it sits in L1: histogram, width choice, exception
+/// gathering and packing, so the values are streamed from memory once.
 pub fn bitpack_to_best_chunk_widths(
+    array: &PrimitiveArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<BitPackedArray> {
+    ensure_non_negative(array, ctx)?;
+    let validity = array.validity()?;
+    let mask = validity.execute_mask(array.len(), ctx)?;
+    let patch_validity = match validity {
+        Validity::NonNullable => Validity::NonNullable,
+        _ => Validity::AllValid,
+    };
+
+    let len = array.len();
+    let (widths, packed, patches) = match_each_integer_ptype!(array.ptype(), |T| {
+        encode_chunks::<T>(array.as_slice::<T>(), &mask, patch_validity)?
+    });
+
+    let offsets = widths.offsets_array();
+    let bitpacked = BitPacked::try_new(
+        BufferHandle::new_host(packed),
+        array.ptype(),
+        validity,
+        patches,
+        widths.into_array(),
+        offsets,
+        len,
+        0,
+    )?;
+    bitpacked.statistics().inherit_from(array.statistics());
+    Ok(bitpacked)
+}
+
+/// Multi-pass reference for [`bitpack_to_best_chunk_widths`]: one pass to choose widths, one to
+/// pack, and one to gather exceptions. Kept to check the fused encoder against.
+#[cfg(test)]
+pub(crate) fn bitpack_to_best_chunk_widths_multipass(
     array: &PrimitiveArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<BitPackedArray> {
     let plan = chunk_width_plan(array.as_view(), ctx)?;
     bitpack_encode_planned(array, plan, ctx)
+}
+
+/// Histogram, choose a width, gather exceptions and pack, one 1024-element chunk at a time.
+///
+/// Patch indices use the narrowest unsigned type that can address every value.
+fn encode_chunks<T>(
+    values: &[T],
+    mask: &Mask,
+    patch_validity: Validity,
+) -> VortexResult<(ChunkWidths, ByteBuffer, Option<Patches>)>
+where
+    T: NativePType + PrimInt + PhysicalPType,
+    T::Physical: BitPacking + NativePType,
+{
+    let len = values.len();
+    if len < u8::MAX as usize {
+        encode_chunks_indexed::<T, u8>(values, mask, patch_validity)
+    } else if len < u16::MAX as usize {
+        encode_chunks_indexed::<T, u16>(values, mask, patch_validity)
+    } else if len < u32::MAX as usize {
+        encode_chunks_indexed::<T, u32>(values, mask, patch_validity)
+    } else {
+        encode_chunks_indexed::<T, u64>(values, mask, patch_validity)
+    }
+}
+
+fn encode_chunks_indexed<T, P>(
+    values: &[T],
+    mask: &Mask,
+    patch_validity: Validity,
+) -> VortexResult<(ChunkWidths, ByteBuffer, Option<Patches>)>
+where
+    T: NativePType + PrimInt + PhysicalPType,
+    T::Physical: BitPacking + NativePType,
+    P: IntegerPType,
+{
+    let bits = T::PTYPE.bit_width();
+    let bytes_per_exception = bytes_per_exception(T::PTYPE);
+    let num_chunks = values.len().div_ceil(FL_CHUNK_SIZE);
+
+    let mut widths = BufferMut::<u8>::with_capacity(num_chunks);
+    let mut chunk_offsets = BufferMut::<u64>::with_capacity(num_chunks);
+    let mut indices = BufferMut::<P>::empty();
+    let mut patch_values = BufferMut::<T>::empty();
+
+    let validity = match mask.bit_buffer() {
+        AllOr::All => None,
+        AllOr::Some(bits) => Some(bits),
+        // Every value is null: every chunk is zero-width and there is nothing to pack.
+        AllOr::None => {
+            widths.extend_trusted(std::iter::repeat_n(0u8, num_chunks));
+            chunk_offsets.extend_trusted(std::iter::repeat_n(0u64, num_chunks));
+            return Ok((ChunkWidths::new(widths.freeze()), ByteBuffer::empty(), None));
+        }
+    };
+
+    // Every chunk packs into a whole block, so the padded size bounds the output; a short trailing
+    // chunk can pack to more than its raw size. The buffer is shrunk to its exact size at the end.
+    let mut packed = BufferMut::<T::Physical>::with_capacity(num_chunks * FL_CHUNK_SIZE);
+    let mut histogram = vec![0usize; bits + 1];
+    // Zero-padded copy of the trailing partial chunk.
+    let mut padded = [T::Physical::zero(); FL_CHUNK_SIZE];
+
+    for (chunk_idx, chunk) in values.chunks(FL_CHUNK_SIZE).enumerate() {
+        let base = chunk_idx * FL_CHUNK_SIZE;
+        let chunk_validity = validity.map(|v| v.slice(base..base + chunk.len()));
+
+        histogram.fill(0);
+        for_each_valid_width(chunk, chunk_validity.as_ref(), |_, _, width| {
+            histogram[width] += 1;
+        });
+
+        let bit_width = best_chunk_width(&histogram, bytes_per_exception);
+        widths.push(bit_width);
+        chunk_offsets.push(patch_values.len() as u64);
+
+        // The chunk is still in L1, so a second walk over it is cheaper than remembering widths.
+        if count_exceptions(bit_width, &histogram) > 0 {
+            for_each_valid_width(chunk, chunk_validity.as_ref(), |i, value, width| {
+                if width > bit_width as usize {
+                    indices.push(P::from(base + i).vortex_expect("cast index from usize"));
+                    patch_values.push(value);
+                }
+            });
+        }
+
+        if bit_width > 0 {
+            let input: &[T::Physical] = if chunk.len() == FL_CHUNK_SIZE {
+                as_physical(chunk)
+            } else {
+                padded[..chunk.len()].copy_from_slice(as_physical(chunk));
+                &padded
+            };
+            let packed_len = chunk_packed_bytes(bit_width) / size_of::<T::Physical>();
+            let start = packed.len();
+            // SAFETY: `input` holds exactly 1024 values and the output window is exactly one
+            // packed block at `bit_width`, within the raw-size capacity reserved above.
+            unsafe {
+                packed.set_len(start + packed_len);
+                BitPacking::unchecked_pack(bit_width as usize, input, &mut packed[start..]);
+            }
+        }
+    }
+
+    let packed = if packed.len() < packed.capacity() {
+        let mut exact = BufferMut::<T::Physical>::with_capacity(packed.len());
+        exact.extend_from_slice(&packed);
+        exact.freeze()
+    } else {
+        packed.freeze()
+    };
+
+    let patches = if indices.is_empty() {
+        None
+    } else {
+        Some(Patches::new(
+            values.len(),
+            0,
+            indices.into_array(),
+            PrimitiveArray::new(patch_values, patch_validity).into_array(),
+            Some(chunk_offsets.into_array()),
+        )?)
+    };
+
+    Ok((
+        ChunkWidths::new(widths.freeze()),
+        packed.into_byte_buffer(),
+        patches,
+    ))
+}
+
+/// Call `f(index, value, bit_width)` for every value of `chunk`; nulls report a width of zero.
+#[inline]
+fn for_each_valid_width<T: NativePType + PrimInt>(
+    chunk: &[T],
+    validity: Option<&BitBuffer>,
+    mut f: impl FnMut(usize, T, usize),
+) {
+    let bits = T::PTYPE.bit_width();
+    match validity {
+        None => {
+            for (i, &v) in chunk.iter().enumerate() {
+                f(i, v, bits - PrimInt::leading_zeros(v) as usize);
+            }
+        }
+        Some(validity) => {
+            for ((i, &v), valid) in chunk.iter().enumerate().zip(validity.iter()) {
+                let width = if valid {
+                    bits - PrimInt::leading_zeros(v) as usize
+                } else {
+                    0
+                };
+                f(i, v, width);
+            }
+        }
+    }
+}
+
+/// View signed or unsigned values as their unsigned physical twin, which FastLanes packs.
+fn as_physical<T: PhysicalPType>(values: &[T]) -> &[T::Physical] {
+    const {
+        assert!(size_of::<T>() == size_of::<T::Physical>());
+        assert!(align_of::<T>() == align_of::<T::Physical>());
+    }
+    // SAFETY: `Physical` is the same-width unsigned integer, so the layouts match exactly.
+    unsafe { std::slice::from_raw_parts(values.as_ptr().cast(), values.len()) }
 }
 
 /// The cost-model-optimal bit width of every 1024-element chunk of `array`.

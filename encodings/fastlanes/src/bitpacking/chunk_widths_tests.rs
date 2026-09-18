@@ -65,6 +65,7 @@ use crate::bitpacked_v2_id;
 use crate::bitpacking::bitpack_compress::bitpack_encode_with_widths;
 use crate::bitpacking::bitpack_compress::bitpack_to_best_bit_width;
 use crate::bitpacking::bitpack_compress::bitpack_to_best_chunk_widths;
+use crate::bitpacking::bitpack_compress::bitpack_to_best_chunk_widths_multipass;
 use crate::bitpacking::plugin::BitPackedMetadata;
 use crate::bitpacking::plugin::BitPackedV2Metadata;
 
@@ -832,4 +833,56 @@ fn conformance(#[case] array: BitPackedArray) {
     test_filter_conformance(&array, &mut ctx);
     test_cast_conformance(&array, &mut ctx);
     test_binary_numeric_array(&array, &mut ctx);
+}
+
+/// The fused single-walk encoder must produce exactly what the multi-pass one does.
+#[rstest]
+#[case::varied(PrimitiveArray::from_iter(varied(100)))]
+#[case::varied_exact(PrimitiveArray::from_iter(varied(0)))]
+#[case::tiny(PrimitiveArray::from_iter([5u32, 1 << 20, 7]))]
+#[case::nullable_signed(PrimitiveArray::new(
+    Buffer::from_iter(varied(50).into_iter().map(|v| v as i32)),
+    Validity::from_iter((0..4 * FL_CHUNK_SIZE + 50).map(|i| i % 7 != 0)),
+))]
+#[case::all_null(PrimitiveArray::new(Buffer::from_iter(varied(9)), Validity::AllInvalid))]
+#[case::short_and_wide(short_and_wide())]
+fn fused_matches_multipass(#[case] array: PrimitiveArray) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let fused = bitpack_to_best_chunk_widths(&array, &mut ctx)?;
+    let multipass = bitpack_to_best_chunk_widths_multipass(&array, &mut ctx)?;
+    assert_eq!(
+        fused.chunk_widths(&mut SESSION.create_execution_ctx())?,
+        multipass.chunk_widths(&mut SESSION.create_execution_ctx())?
+    );
+    assert_eq!(fused.packed().as_host(), multipass.packed().as_host());
+    assert_eq!(
+        fused.patches().map(|p| p.num_patches()),
+        multipass.patches().map(|p| p.num_patches())
+    );
+    assert_eq!(fused.nbytes(), multipass.nbytes());
+    assert_arrays_eq!(fused, array, &mut ctx);
+    Ok(())
+}
+
+/// 200 u8 values needing 7 bits: the single padded block (896 bytes) is larger than the raw
+/// array (200 bytes), which an encoder sizing its output by the raw length overflows.
+fn short_and_wide() -> PrimitiveArray {
+    PrimitiveArray::from_iter((0..200u8).map(|i| i.wrapping_mul(97) % 128))
+}
+
+#[test]
+fn short_chunk_packs_wider_than_raw() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let array = short_and_wide();
+    let packed = bitpack_to_best_chunk_widths(&array, &mut ctx)?;
+    assert_eq!(
+        packed
+            .chunk_widths(&mut SESSION.create_execution_ctx())?
+            .as_buffer()
+            .as_slice(),
+        &[7]
+    );
+    assert!(packed.packed().len() > array.nbytes() as usize);
+    assert_arrays_eq!(packed, array, &mut ctx);
+    Ok(())
 }
