@@ -27,6 +27,7 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 
 pub use array::vx_array;
+pub use array::vx_array_free;
 pub use array::vx_array_ref;
 pub use dtype::vx_dtype;
 pub use error::try_or;

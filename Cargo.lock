@@ -10911,7 +10911,9 @@ name = "vortex-cuda-ffi"
 version = "0.1.0"
 dependencies = [
  "arrow-schema 59.3.0",
+ "cbindgen",
  "futures",
+ "tempfile",
  "vortex",
  "vortex-cuda",
  "vortex-cuda-macros",

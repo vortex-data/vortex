@@ -65,6 +65,7 @@ use vortex_onpair::OnPair;
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
 use crate::CudaExecutionCtx;
+use crate::DictionaryExport;
 use crate::VarBinExportLayout;
 use crate::arrow::ARROW_DEVICE_CUDA;
 use crate::arrow::ArrowArray;
@@ -114,7 +115,14 @@ impl ExportDeviceArray for CanonicalDeviceArrayExport {
         array: ArrayRef,
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<ArrowDeviceArrayWithSchema> {
-        let array = rebuild_array_for_export_schema(array, ctx.execution_ctx())?;
+        let array = match ctx.cuda_session().dictionary_export() {
+            DictionaryExport::Preserve => {
+                rebuild_array_for_export_schema(array, ctx.execution_ctx())?
+            }
+            // Dictionary layouts no longer affect the schema. Preserve other encodings for
+            // structural recursion and direct FSST/OnPair export.
+            DictionaryExport::Decode => array,
+        };
         let schema = arrow_schema_for_array(&array, ctx)?;
         let array = self.export_device_array(array, ctx).await?;
         Ok(ArrowDeviceArrayWithSchema { schema, array })
@@ -205,7 +213,10 @@ fn export_array(
 ) -> BoxFuture<'_, VortexResult<(ArrowArray, SyncEvent)>> {
     Box::pin(async {
         let array = match array.try_downcast::<Dict>() {
-            Ok(dict) => return export_dict(dict, ctx).await,
+            Ok(dict) if ctx.cuda_session().dictionary_export() == DictionaryExport::Preserve => {
+                return export_dict(dict, ctx).await;
+            }
+            Ok(dict) => dict.into_array(),
             Err(array) => array,
         };
         let array = match array.try_downcast::<Struct>() {
@@ -1495,7 +1506,9 @@ mod tests {
     use vortex::extension::datetime::TimeUnit;
 
     use crate::CudaBufferExt;
+    use crate::CudaDispatchMode;
     use crate::CudaExecutionCtx;
+    use crate::DictionaryExport;
     use crate::arrow::ARROW_DEVICE_CUDA;
     use crate::arrow::ArrowArray;
     use crate::arrow::ArrowDeviceArray;
@@ -1504,8 +1517,10 @@ mod tests {
     use crate::arrow::arrow_schema_for_array;
     use crate::arrow::canonical::export_arrow_validity_buffer;
     use crate::arrow::canonical::repack_arrow_validity_buffer;
+    use crate::arrow::dictionary_tests::upload;
     use crate::device_buffer::CUDF_VALIDITY_BUFFER_PADDING;
     use crate::device_buffer::cuda_backing_allocation;
+    use crate::executor::CudaArrayExt;
     use crate::session::CudaSession;
     use crate::session::VarBinExportLayout;
 
@@ -1752,28 +1767,14 @@ mod tests {
         array: &ArrowArray,
         buffer_idx: usize,
     ) -> VortexResult<Vec<i32>> {
-        let private_data = unsafe { &*array.private_data.cast::<PrivateData>() };
-        let buffer = private_data.buffers[buffer_idx]
-            .as_ref()
-            .vortex_expect("buffer should be present");
-        Ok(Buffer::<i32>::from_byte_buffer(buffer.to_host_sync())
-            .iter()
-            .copied()
-            .collect())
+        Ok(Buffer::<i32>::from_byte_buffer(private_data_buffer_bytes(array, buffer_idx)?).to_vec())
     }
 
     fn private_data_buffer_i16_values(
         array: &ArrowArray,
         buffer_idx: usize,
     ) -> VortexResult<Vec<i16>> {
-        let private_data = unsafe { &*array.private_data.cast::<PrivateData>() };
-        let buffer = private_data.buffers[buffer_idx]
-            .as_ref()
-            .vortex_expect("buffer should be present");
-        Ok(Buffer::<i16>::from_byte_buffer(buffer.to_host_sync())
-            .iter()
-            .copied()
-            .collect())
+        Ok(Buffer::<i16>::from_byte_buffer(private_data_buffer_bytes(array, buffer_idx)?).to_vec())
     }
 
     fn private_data_buffer_bytes(
@@ -2590,9 +2591,28 @@ mod tests {
     async fn test_export_fsst_varbin_contents(
         #[case] values: Vec<Option<&'static [u8]>>,
         #[case] dtype: DType,
+        #[values(DictionaryExport::Preserve, DictionaryExport::Decode)] policy: DictionaryExport,
     ) -> VortexResult<()> {
-        let mut ctx = cuda_ctx_with_varbin_layout(VarBinExportLayout::VarBin)?;
+        // Direct FSST varbin export must work when execute_cuda rejects standalone FSST,
+        // ruling out eager canonicalization.
+        let mut ctx = cuda_ctx_with_varbin_layout(VarBinExportLayout::VarBin)?
+            .with_dictionary_export(policy)
+            .with_dispatch_mode(CudaDispatchMode::DynDispatchOnly);
         let fsst = fsst_array_from(&values, dtype.clone(), &mut ctx)?;
+        // CUDA FSST needs a host symbol table. Upload codes and lengths to prevent CPU fallback.
+        let mut slots = Vec::new();
+        for slot in fsst.slots().iter() {
+            slots.push(match slot {
+                Some(child) => Some(upload(child.clone(), &mut ctx)?),
+                None => None,
+            });
+        }
+        // SAFETY: Child values are unchanged; upload only changes buffer placement.
+        let fsst = unsafe { fsst.with_slots(slots.into()) }?;
+        if !fsst.is_empty() {
+            assert!(!fsst.is_host());
+            assert!(fsst.clone().execute_cuda(&mut ctx).await.is_err());
+        }
 
         let mut exported = fsst.export_device_array_with_schema(&mut ctx).await?;
         let expected_data_type = if matches!(dtype, DType::Utf8(_)) {

@@ -27,3 +27,8 @@ pool and CUDA state are reused as well.
 On Linux, use `vx_cuda_scan_path_arrow_device_stream_with_options` with
 `vx_cuda_scan_options.flags = VX_CUDA_SCAN_FLAG_DIRECT_IO` to bypass the operating system page
 cache for pooled data-plane reads. Footer and zone-map reads remain buffered on the host.
+
+`build.rs` generates `cinclude/vortex_cuda.h` with cbindgen on stable Rust, without macro
+expansion. Edit the API and docs in `src/lib.rs`, not the generated header; commit
+regenerated headers with API changes. `cbindgen.toml` supplies the standard Arrow Device
+interface compatibility preamble.

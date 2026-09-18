@@ -22,7 +22,11 @@ vortex-cuda = { path = ".." }
 vortex-ffi = { path = "../../vortex-ffi" }
 
 [dev-dependencies]
+tempfile = { workspace = true }
 vortex-cuda-macros = { workspace = true }
+
+[build-dependencies]
+cbindgen = { workspace = true }
 
 [lib]
 name = "vortex_cuda_ffi"

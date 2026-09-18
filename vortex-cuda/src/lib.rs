@@ -69,6 +69,7 @@ pub use pooled_read_at::PooledFileReadAtOptions;
 pub use pooled_read_at::PooledObjectStoreReadAt;
 pub use session::CudaSession;
 pub use session::CudaSessionExt;
+pub use session::DictionaryExport;
 pub use session::VarBinExportLayout;
 pub use stream::VortexCudaStream;
 pub use stream_pool::VortexCudaStreamPool;
