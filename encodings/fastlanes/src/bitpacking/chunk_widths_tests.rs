@@ -15,20 +15,29 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayVTable;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::fns::is_constant::is_constant;
+use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::Constant;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::SliceArray;
 use vortex_array::arrays::slice::SliceKernel;
 use vortex_array::assert_arrays_eq;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
 use vortex_array::compute::conformance::cast::test_cast_conformance;
 use vortex_array::compute::conformance::consistency::test_array_consistency;
 use vortex_array::compute::conformance::filter::test_filter_conformance;
 use vortex_array::compute::conformance::take::test_take_conformance;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::fns::between::BetweenOptions;
+use vortex_array::scalar_fn::fns::between::StrictComparison;
+use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::serde::SerializedArray;
@@ -40,6 +49,7 @@ use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
@@ -50,9 +60,11 @@ use crate::BitPackedArraySlotsExt;
 use crate::BitPackedPlugin;
 use crate::ChunkWidths;
 use crate::FL_CHUNK_SIZE;
+use crate::FoR;
 use crate::bitpacked_v2_id;
 use crate::bitpacking::bitpack_compress::bitpack_encode_with_widths;
 use crate::bitpacking::bitpack_compress::bitpack_to_best_bit_width;
+use crate::bitpacking::bitpack_compress::bitpack_to_best_chunk_widths;
 use crate::bitpacking::plugin::BitPackedMetadata;
 use crate::bitpacking::plugin::BitPackedV2Metadata;
 
@@ -84,24 +96,262 @@ fn varied(len_tail: usize) -> Vec<u32> {
 
 fn encode(values: &[u32]) -> VortexResult<BitPackedArray> {
     let mut ctx = SESSION.create_execution_ctx();
-    let widths = ChunkWidths::new(Buffer::from_iter(values.chunks(FL_CHUNK_SIZE).map(
-        |chunk| {
-            chunk
-                .iter()
-                .map(|v| (u32::BITS - v.leading_zeros()) as u8)
-                .max()
-                .unwrap_or(0)
-        },
-    )));
-    bitpack_encode_with_widths(
-        &PrimitiveArray::from_iter(values.iter().copied()),
-        widths,
-        &mut ctx,
-    )
+    bitpack_to_best_chunk_widths(&PrimitiveArray::from_iter(values.iter().copied()), &mut ctx)
 }
 
 fn primitive(values: &[u32]) -> ArrayRef {
     PrimitiveArray::from_iter(values.iter().copied()).into_array()
+}
+
+#[test]
+fn picks_a_width_per_chunk() -> VortexResult<()> {
+    let packed = encode(&varied(100))?;
+    let widths = packed.chunk_widths(&mut SESSION.create_execution_ctx())?;
+    assert_eq!(
+        widths.uniform_width(),
+        None,
+        "chunks differ in magnitude: {widths}"
+    );
+    assert_eq!(widths.len(), 5);
+    assert_eq!(widths.width(2), 0, "an all-zero chunk stores nothing");
+    assert!(widths.width(0) < widths.width(1));
+    assert!(widths.width(1) < widths.width(3));
+    assert_eq!(widths.max_width(), widths.width(3));
+    assert_eq!(
+        packed
+            .chunk_widths(&mut SESSION.create_execution_ctx())?
+            .max_width(),
+        widths.max_width()
+    );
+    assert!(
+        packed.patches().is_some(),
+        "chunk 1 outliers become patches"
+    );
+    Ok(())
+}
+
+#[test]
+fn uniform_data_gets_equal_widths() -> VortexResult<()> {
+    let values: Vec<u32> = (0..3000).map(|i| i % 128).collect();
+    let packed = encode(&values)?;
+    assert_eq!(
+        packed
+            .chunk_widths(&mut SESSION.create_execution_ctx())?
+            .len(),
+        3
+    );
+    assert_eq!(
+        packed
+            .chunk_widths(&mut SESSION.create_execution_ctx())?
+            .uniform_width(),
+        Some(7)
+    );
+    assert_eq!(
+        packed
+            .chunk_widths(&mut SESSION.create_execution_ctx())?
+            .max_width(),
+        7
+    );
+    Ok(())
+}
+
+#[rstest]
+#[case::exact_chunks(0)]
+#[case::partial_tail(100)]
+#[case::single_tail(1)]
+fn roundtrip(#[case] tail: usize) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let values = varied(tail);
+    let packed = encode(&values)?;
+    assert_arrays_eq!(packed, primitive(&values), &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn scalar_at_every_chunk() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let values = varied(100);
+    let packed = encode(&values)?.into_array();
+    for idx in [
+        0,
+        5,
+        1024,
+        1024 + 7,
+        1024 + 307,
+        2048,
+        2500,
+        3072,
+        4000,
+        4095,
+        4096,
+        4195,
+    ] {
+        assert_eq!(
+            packed.execute_scalar(idx, &mut ctx)?,
+            Scalar::from(values[idx]),
+            "index {idx}"
+        );
+    }
+    Ok(())
+}
+
+#[rstest]
+#[case::within_first_chunk(10..900)]
+#[case::across_first_boundary(900..1100)]
+#[case::whole_middle_chunks(1024..3072)]
+#[case::through_zero_chunk(1500..2600)]
+#[case::into_tail(3000..4150)]
+#[case::tail_only(4100..4196)]
+fn slice_matches_primitive(#[case] range: std::ops::Range<usize>) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let values = varied(100);
+    let packed = encode(&values)?.into_array();
+    let sliced = packed.slice(range.clone())?;
+    let expected = primitive(&values).slice(range.clone())?;
+    assert_arrays_eq!(sliced, expected, &mut ctx);
+
+    // The slice is still bit-packed and keeps only the widths of the chunks it overlaps.
+    let sliced = sliced.execute::<ArrayRef>(&mut ctx)?;
+    if let Some(bp) = sliced.as_opt::<BitPacked>() {
+        let expected_chunks = (range.end).div_ceil(FL_CHUNK_SIZE) - range.start / FL_CHUNK_SIZE;
+        assert_eq!(
+            bp.chunk_widths(&mut SESSION.create_execution_ctx())?.len(),
+            expected_chunks
+        );
+    }
+    assert_eq!(
+        sliced.execute_scalar(0, &mut ctx)?,
+        Scalar::from(values[range.start])
+    );
+    Ok(())
+}
+
+#[test]
+fn take_sparse_indices() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let values = varied(100);
+    let packed = encode(&values)?.into_array();
+    // Few enough indices that the kernel unpacks single values rather than the whole array.
+    let indices = [3usize, 1030, 1031, 1331, 2100, 3500, 4100];
+    let taken = packed
+        .take(buffer![3u64, 1030, 1031, 1331, 2100, 3500, 4100].into_array())?
+        .execute::<PrimitiveArray>(&mut ctx)?;
+    assert_arrays_eq!(
+        taken,
+        PrimitiveArray::from_iter(indices.iter().map(|&i| values[i])),
+        &mut ctx
+    );
+    Ok(())
+}
+
+#[test]
+fn filter_sparse_mask() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let values = varied(100);
+    let packed = encode(&values)?.into_array();
+    let indices = vec![3usize, 1030, 1031, 1331, 2100, 3500, 4100];
+    let filtered = packed
+        .filter(Mask::from_indices(values.len(), indices.clone()))?
+        .execute::<PrimitiveArray>(&mut ctx)?;
+    assert_arrays_eq!(
+        filtered,
+        PrimitiveArray::from_iter(indices.iter().map(|&i| values[i])),
+        &mut ctx
+    );
+    Ok(())
+}
+
+#[rstest]
+#[case(Operator::Eq)]
+#[case(Operator::Lt)]
+#[case(Operator::Gte)]
+fn compare_constant_matches_primitive(#[case] op: Operator) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let values = varied(100);
+    let packed = encode(&values)?.into_array();
+    // Zero lands inside the all-zero chunk's range, exercising the zero-width fused path.
+    for rhs in [0u32, 5, 3000] {
+        let rhs = ConstantArray::new(rhs, values.len()).into_array();
+        let got = packed
+            .clone()
+            .binary(rhs.clone(), op)?
+            .execute::<BoolArray>(&mut ctx)?;
+        let want = primitive(&values)
+            .binary(rhs, op)?
+            .execute::<BoolArray>(&mut ctx)?;
+        assert_arrays_eq!(got, want, &mut ctx);
+    }
+    Ok(())
+}
+
+#[test]
+fn between_matches_primitive() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let values = varied(100);
+    let packed = encode(&values)?.into_array();
+    let lower = ConstantArray::new(2u32, values.len()).into_array();
+    let upper = ConstantArray::new(3000u32, values.len()).into_array();
+    let options = BetweenOptions {
+        lower_strict: StrictComparison::NonStrict,
+        upper_strict: StrictComparison::Strict,
+    };
+    let got = packed
+        .between(lower.clone(), upper.clone(), options.clone())?
+        .execute::<BoolArray>(&mut ctx)?;
+    let want = primitive(&values)
+        .between(lower, upper, options)?
+        .execute::<BoolArray>(&mut ctx)?;
+    assert_arrays_eq!(got, want, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn widening_cast_matches_primitive() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let values = varied(100);
+    let packed = encode(&values)?.into_array();
+    let target = DType::Primitive(PType::U64, Nullability::NonNullable);
+    let got = packed
+        .cast(target.clone())?
+        .execute::<PrimitiveArray>(&mut ctx)?;
+    let want = primitive(&values)
+        .cast(target)?
+        .execute::<PrimitiveArray>(&mut ctx)?;
+    assert_arrays_eq!(got, want, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn not_constant() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let packed = encode(&varied(100))?.into_array();
+    assert!(!is_constant(&packed, &mut ctx)?);
+    Ok(())
+}
+
+#[test]
+fn nullable_and_signed_roundtrip() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let values: Vec<i32> = varied(50).into_iter().map(|v| v as i32).collect();
+    let validity = Validity::from_iter((0..values.len()).map(|i| i % 7 != 0));
+    let array = PrimitiveArray::new(Buffer::from_iter(values.iter().copied()), validity.clone());
+    let packed = bitpack_to_best_chunk_widths(&array, &mut ctx)?;
+    assert_eq!(
+        packed
+            .chunk_widths(&mut SESSION.create_execution_ctx())?
+            .uniform_width(),
+        None
+    );
+    assert_eq!(
+        packed.dtype(),
+        &DType::Primitive(PType::I32, Nullability::Nullable)
+    );
+    assert_arrays_eq!(
+        packed,
+        PrimitiveArray::new(Buffer::from_iter(values.iter().copied()), validity),
+        &mut ctx
+    );
+    Ok(())
 }
 
 #[test]
@@ -128,6 +378,20 @@ fn explicit_widths_including_full_width_chunk() -> VortexResult<()> {
         16
     );
     assert_arrays_eq!(packed, array, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn for_fused_decode() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let values = varied(100);
+    let packed = encode(&values)?.into_array();
+    let for_array = FoR::try_new(packed, Scalar::from(1000u32))?;
+    assert_arrays_eq!(
+        for_array,
+        PrimitiveArray::from_iter(values.iter().map(|v| v + 1000)),
+        &mut ctx
+    );
     Ok(())
 }
 
@@ -555,4 +819,17 @@ fn each_format_keeps_its_contract() -> VortexResult<()> {
         "the v2 ID must demand a width table"
     );
     Ok(())
+}
+
+#[rstest]
+#[case::varied(encode(&varied(100)).unwrap())]
+#[case::varied_exact(encode(&varied(0)).unwrap())]
+fn conformance(#[case] array: BitPackedArray) {
+    let mut ctx = SESSION.create_execution_ctx();
+    let array = array.into_array();
+    test_array_consistency(&array, &mut ctx);
+    test_take_conformance(&array, &mut ctx);
+    test_filter_conformance(&array, &mut ctx);
+    test_cast_conformance(&array, &mut ctx);
+    test_binary_numeric_array(&array, &mut ctx);
 }
