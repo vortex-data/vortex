@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Native comparison of primitive arrays via bit-packing lane kernels.
+//! Native comparison of primitive arrays with byte-oriented bitmap packing.
 
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BufferAllocatorRef;
+use vortex_buffer::BufferMut;
+use vortex_buffer::collect_bool_word;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
@@ -19,8 +21,7 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::match_each_native_ptype;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::binary::compare::collect_bits;
-use crate::scalar_fn::fns::binary::compare::collect_zip_bits;
+use crate::scalar_fn::fns::binary::compare::bit_buffer_from_words;
 use crate::scalar_fn::fns::binary::compare::compare_validity;
 use crate::scalar_fn::fns::binary::primitive_operand::PrimitiveOperand;
 use crate::scalar_fn::fns::operators::CompareOperator;
@@ -139,4 +140,41 @@ fn compare_slice_constant<T: NativePType>(
         CompareOperator::Lt => collect_bits(lhs, |a: T| a.is_lt(rhs), allocator),
         CompareOperator::Lte => collect_bits(lhs, |a: T| a.is_le(rhs), allocator),
     }
+}
+
+fn collect_bits<T: Copy>(
+    values: &[T],
+    f: impl Fn(T) -> bool,
+    allocator: &BufferAllocatorRef,
+) -> BitBuffer {
+    let (chunks, tail) = values.as_chunks::<64>();
+    let mut words = BufferMut::<u64>::zeroed_in(values.len().div_ceil(64), allocator.clone());
+    // Fixed-size chunks let the compiler prove the predicate's indexing stays in bounds.
+    for (word, chunk) in words.iter_mut().zip(chunks) {
+        *word = collect_bool_word(64, |i| f(chunk[i]));
+    }
+    if !tail.is_empty() {
+        words[chunks.len()] = collect_bool_word(tail.len(), |i| f(tail[i]));
+    }
+    bit_buffer_from_words(words, values.len())
+}
+
+fn collect_zip_bits<T: Copy>(
+    lhs: &[T],
+    rhs: &[T],
+    f: impl Fn(T, T) -> bool,
+    allocator: &BufferAllocatorRef,
+) -> BitBuffer {
+    assert_eq!(lhs.len(), rhs.len());
+    let (left_chunks, left_tail) = lhs.as_chunks::<64>();
+    let (right_chunks, right_tail) = rhs.as_chunks::<64>();
+    let mut words = BufferMut::<u64>::zeroed_in(lhs.len().div_ceil(64), allocator.clone());
+    for ((word, left), right) in words.iter_mut().zip(left_chunks).zip(right_chunks) {
+        *word = collect_bool_word(64, |i| f(left[i], right[i]));
+    }
+    if !left_tail.is_empty() {
+        words[left_chunks.len()] =
+            collect_bool_word(left_tail.len(), |i| f(left_tail[i], right_tail[i]));
+    }
+    bit_buffer_from_words(words, lhs.len())
 }

@@ -883,3 +883,102 @@ fn struct_of_map_compare() -> VortexResult<()> {
 
     Ok(())
 }
+
+#[rstest]
+fn primitive_comparisons_across_bitmap_words(
+    #[values(
+        PType::I8, PType::I16, PType::I32, PType::I64, PType::U8, PType::U16, PType::U32,
+        PType::U64, PType::F16, PType::F32, PType::F64
+    )]
+    ptype: PType,
+    #[values(0, 1, 63, 64, 65, 129)] len: usize,
+    #[values(
+        CompareOperator::Eq,
+        CompareOperator::NotEq,
+        CompareOperator::Lt,
+        CompareOperator::Lte,
+        CompareOperator::Gt,
+        CompareOperator::Gte
+    )]
+    op: CompareOperator,
+) -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let value_for_type = |value: Option<i16>| {
+        value.map(|value| {
+            if ptype.is_unsigned_int() {
+                value.abs()
+            } else {
+                value
+            }
+        })
+    };
+    let left: Vec<_> = [Some(-128i16), Some(-1), None, Some(127), Some(42), Some(2)]
+        .into_iter()
+        .cycle()
+        .take(len)
+        .map(value_for_type)
+        .collect();
+    let right: Vec<_> = [
+        Some(-1i16),
+        Some(-128),
+        Some(127),
+        None,
+        Some(42),
+        Some(3),
+        Some(100),
+    ]
+    .into_iter()
+    .cycle()
+    .take(len)
+    .map(value_for_type)
+    .collect();
+    let dtype = DType::Primitive(ptype, Nullability::Nullable);
+    let lhs = PrimitiveArray::from_option_iter(left.iter().copied())
+        .into_array()
+        .cast(dtype.clone())?
+        .execute::<PrimitiveArray>(&mut ctx)?
+        .into_array();
+    let rhs = PrimitiveArray::from_option_iter(right.iter().copied())
+        .into_array()
+        .cast(dtype.clone())?
+        .execute::<PrimitiveArray>(&mut ctx)?
+        .into_array();
+    let predicate = |a: i16, b: i16| match op {
+        CompareOperator::Eq => a == b,
+        CompareOperator::NotEq => a != b,
+        CompareOperator::Lt => a < b,
+        CompareOperator::Lte => a <= b,
+        CompareOperator::Gt => a > b,
+        CompareOperator::Gte => a >= b,
+    };
+    let expected = BoolArray::from_iter(
+        left.iter()
+            .zip(&right)
+            .map(|(a, b)| a.zip(*b).map(|(a, b)| predicate(a, b))),
+    );
+    assert_arrays_eq!(lhs.binary(rhs, op.into())?, expected, &mut ctx);
+
+    let constant = ConstantArray::new(
+        Scalar::primitive(42u8, Nullability::Nullable).cast(&dtype)?,
+        len,
+    )
+    .into_array();
+    for swapped in [false, true] {
+        let actual = if swapped {
+            constant.binary(lhs.clone(), op.into())?
+        } else {
+            lhs.binary(constant.clone(), op.into())?
+        };
+        let expected = BoolArray::from_iter(left.iter().map(|value| {
+            value.map(|value| {
+                if swapped {
+                    predicate(42, value)
+                } else {
+                    predicate(value, 42)
+                }
+            })
+        }));
+        assert_arrays_eq!(actual, expected, &mut ctx);
+    }
+    Ok(())
+}
