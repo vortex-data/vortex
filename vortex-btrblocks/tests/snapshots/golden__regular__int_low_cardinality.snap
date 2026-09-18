@@ -3,11 +3,13 @@ source: vortex-btrblocks/tests/golden.rs
 expression: rendered
 ---
 input: i64, len=16384, nbytes=131072
-root: vortex.dict(i64, len=16384) nbytes=6194
+root: vortex.dict(i64, len=16384) nbytes=6330
   metadata: all_values_referenced: true
-  codes: fastlanes.bitpacked(u8, len=16384) nbytes=6146
+  codes: fastlanes.bitpacked(u8, len=16384) nbytes=6282
     metadata: offset: 0
     width_table: vortex.constant(u8, len=16) nbytes=2
       metadata: scalar: 3u8
+    chunk_offsets: vortex.primitive(u64, len=17) nbytes=136
+      metadata: ptype: u64
   values: vortex.primitive(i64, len=6) nbytes=48
     metadata: ptype: i64

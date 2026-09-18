@@ -3,25 +3,29 @@ source: vortex-btrblocks/tests/golden.rs
 expression: rendered
 ---
 input: {id=i64, category=utf8, value=f64}, len=16384, nbytes=524288
-root: vortex.struct({id=i64, category=utf8, value=f64}, len=16384) nbytes=57529
+root: vortex.struct({id=i64, category=utf8, value=f64}, len=16384) nbytes=57801
   metadata: 
   id: vortex.sequence(i64, len=16384) nbytes=0
     metadata: base: 10000i64, multiplier: 7i64
-  category: vortex.dict(utf8, len=16384) nbytes=8375
+  category: vortex.dict(utf8, len=16384) nbytes=8511
     metadata: all_values_referenced: true
-    codes: fastlanes.bitpacked(u8, len=16384) nbytes=8194
+    codes: fastlanes.bitpacked(u8, len=16384) nbytes=8330
       metadata: offset: 0
       width_table: vortex.constant(u8, len=16) nbytes=2
         metadata: scalar: 4u8
+      chunk_offsets: vortex.primitive(u64, len=17) nbytes=136
+        metadata: ptype: u64
     values: vortex.fsst(utf8, len=12) nbytes=181
       metadata: len: 12, nsymbols: 9
       uncompressed_lengths: vortex.primitive(u8, len=12) nbytes=12
         metadata: ptype: u8
       codes_offsets: vortex.primitive(u8, len=13) nbytes=13
         metadata: ptype: u8
-  value: vortex.alp(f64, len=16384) nbytes=49154
+  value: vortex.alp(f64, len=16384) nbytes=49290
     metadata: exponents: e: 14, f: 12
-    encoded: fastlanes.bitpacked(i64, len=16384) nbytes=49154
+    encoded: fastlanes.bitpacked(i64, len=16384) nbytes=49290
       metadata: offset: 0
       width_table: vortex.constant(u8, len=16) nbytes=2
         metadata: scalar: 24u8
+      chunk_offsets: vortex.primitive(u64, len=17) nbytes=136
+        metadata: ptype: u64

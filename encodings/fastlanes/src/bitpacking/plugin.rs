@@ -77,7 +77,9 @@ fn deserialize_v1(parts: ArrayDeserialization<'_>) -> VortexResult<ArrayRef> {
         PatchesData::push_slots(&mut s, patches.as_ref());
         s.push(validity_to_child(&validity, len));
         let widths = ChunkWidths::uniform(bit_width, num_chunks);
+        let offsets = widths.offsets_array();
         s.push(Some(widths.into_array()));
+        s.push(Some(offsets));
         s
     };
     let data = BitPackedData::try_new(packed, patches, offset)?;
@@ -249,11 +251,13 @@ impl ArrayPlugin for BitPackedPatchedPlugin {
         let ptype = bitpacked.dtype().as_ptype();
         let validity = bitpacked.validity()?;
         let bw = bitpacked.width_table().clone();
+        let offsets = bitpacked.chunk_offsets().clone();
         let len = bitpacked.len();
         let offset = bitpacked.offset();
 
         let bitpacked_without_patches =
-            BitPacked::try_new(packed, ptype, validity, None, bw, len, offset)?.into_array();
+            BitPacked::try_new(packed, ptype, validity, None, bw, offsets, len, offset)?
+                .into_array();
 
         let patched = Patched::from_array_and_patches(
             bitpacked_without_patches,

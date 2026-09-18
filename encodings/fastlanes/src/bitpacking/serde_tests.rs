@@ -57,7 +57,7 @@ fn uniform_widths_serialize_as_original_format() -> VortexResult<()> {
     let values: Vec<u32> = (0..3000).map(|i| i % 128).collect();
     let packed =
         bitpack_to_best_bit_width(&PrimitiveArray::from_iter(values.iter().copied()), &mut ctx)?;
-    assert_eq!(packed.as_array().children().len(), 1);
+    assert_eq!(packed.as_array().children().len(), 2);
     assert!(
         SESSION
             .array_serialize(packed.as_array())?

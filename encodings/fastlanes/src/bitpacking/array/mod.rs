@@ -51,7 +51,7 @@ pub const fn chunk_packed_bytes(bit_width: u8) -> usize {
 }
 
 /// Chunk widths and byte offsets used while encoding or executing bit-packed data.
-/// Operations use this view to address each packed chunk.
+/// Execution borrows the materialized children; only encoding computes prefix sums.
 #[derive(Clone, Debug)]
 pub struct ChunkWidths {
     widths: Widths,
@@ -238,6 +238,10 @@ pub struct BitPackedSlots {
     /// One non-nullable `u8` width per 1024-element chunk. Uniform widths use a constant array.
     #[slot(4)]
     pub width_table: ArrayRef,
+    /// Non-nullable `u64` byte boundaries, with one trailing entry after the last chunk.
+    /// The first offset is the origin of the packed buffer and may be nonzero after slicing.
+    #[slot(5)]
+    pub chunk_offsets: ArrayRef,
 }
 
 pub(crate) const PATCH_SLOTS: PatchSlotIndices = PatchSlotIndices {
@@ -249,6 +253,9 @@ pub(crate) const PATCH_SLOTS: PatchSlotIndices = PatchSlotIndices {
 /// The dtype of the width table child: one byte per chunk.
 pub(crate) const WIDTH_TABLE_DTYPE: DType = DType::Primitive(PType::U8, Nullability::NonNullable);
 
+pub(crate) const CHUNK_OFFSETS_DTYPE: DType =
+    DType::Primitive(PType::U64, Nullability::NonNullable);
+
 impl IntoArray for ChunkWidths {
     fn into_array(self) -> ArrayRef {
         if self.is_uniform() {
@@ -259,23 +266,34 @@ impl IntoArray for ChunkWidths {
     }
 }
 
-/// Read the width child without executing it during reduction.
-pub(crate) fn materialized_widths(table: &ArrayRef) -> VortexResult<Option<ChunkWidths>> {
-    if let Some(constant) = table.as_opt::<Constant>() {
-        return Ok(Some(ChunkWidths::uniform(
-            u8::try_from(constant.scalar())?,
-            table.len(),
-        )));
-    }
-    Ok(table
+/// Read materialized children without executing them during reduction.
+pub(crate) fn materialized_widths(
+    table: &ArrayRef,
+    offsets: &ArrayRef,
+) -> VortexResult<Option<ChunkWidths>> {
+    let widths = if let Some(constant) = table.as_opt::<Constant>() {
+        Widths::Uniform {
+            width: u8::try_from(constant.scalar())?,
+            len: table.len(),
+        }
+    } else if let Some(primitive) = table
         .as_opt::<Primitive>()
         .filter(|a| a.buffer_handle().is_on_host())
-        .map(|a| ChunkWidths::new(a.to_buffer::<u8>())))
+    {
+        Widths::PerChunk(primitive.to_buffer::<u8>())
+    } else {
+        return Ok(None);
+    };
+    Ok(offsets
+        .as_opt::<Primitive>()
+        .filter(|a| a.buffer_handle().is_on_host())
+        .map(|a| ChunkWidths::from_buffers(widths, a.to_buffer::<u64>())))
 }
 
 pub struct BitPackedDataParts {
     pub offset: u16,
     pub widths: ArrayRef,
+    pub chunk_offsets: ArrayRef,
     pub len: usize,
     pub packed: BufferHandle,
     pub patches: Option<Patches>,
@@ -324,9 +342,11 @@ impl BitPackedData {
     /// * `validity` must have `length` len
     /// * Any patches must have any `array_len` equal to `length`
     /// * The width-table child must hold one non-nullable `u8` per chunk.
+    /// * The offsets child must hold `num_chunks + 1` non-nullable `u64` byte boundaries.
     ///
     /// Once the widths are materialized, they must be no wider than `ptype`, and the packed
-    /// buffer must be exactly the sum of the chunks' packed sizes. Compressed children are checked at execution time, before unpacking.
+    /// buffer must be exactly the sum of the chunks' packed sizes. Offset differences must
+    /// match the widths. Compressed children are checked at execution time, before unpacking.
     ///
     /// Any violation of these preconditions will result in an error.
     pub fn try_new(
@@ -352,6 +372,7 @@ impl BitPackedData {
         validity: &Validity,
         patches: Option<&Patches>,
         table: &ArrayRef,
+        offsets: &ArrayRef,
         length: usize,
     ) -> VortexResult<()> {
         vortex_ensure!(ptype.is_int(), MismatchedTypes: "integer", ptype);
@@ -378,8 +399,19 @@ impl BitPackedData {
             "Expected {num_chunks} chunk widths, got {}",
             table.len()
         );
+        vortex_ensure!(
+            offsets.dtype() == &CHUNK_OFFSETS_DTYPE,
+            "BitPacked chunk offsets must be {CHUNK_OFFSETS_DTYPE}, got {}",
+            offsets.dtype()
+        );
+        vortex_ensure!(
+            offsets.len() == num_chunks + 1,
+            "Expected {} chunk offsets, got {}",
+            num_chunks + 1,
+            offsets.len()
+        );
         // Compressed children are checked once materialized, before any unchecked unpacking.
-        if let Some(widths) = materialized_widths(table)? {
+        if let Some(widths) = materialized_widths(table, offsets)? {
             Self::validate_widths(&self.packed, ptype, &widths)?;
         }
         Ok(())
@@ -504,24 +536,40 @@ pub trait BitPackedArrayExt: BitPackedArraySlotsExt {
         BitPackedData::packed(self)
     }
 
-    /// Prepare and validate the width child once for a bulk operation.
+    /// Prepare and validate both children once for a bulk operation, without computing prefix sums.
     fn chunk_widths(&self, ctx: &mut ExecutionCtx) -> VortexResult<ChunkWidths> {
-        let widths = match materialized_widths(self.width_table())? {
+        let widths = match materialized_widths(self.width_table(), self.chunk_offsets())? {
             Some(widths) => widths,
-            None => ChunkWidths::new(
-                self.width_table()
+            None => {
+                let table = self.width_table();
+                let widths = if let Some(constant) = table.as_opt::<Constant>() {
+                    Widths::Uniform {
+                        width: u8::try_from(constant.scalar())?,
+                        len: table.len(),
+                    }
+                } else {
+                    Widths::PerChunk(
+                        table
+                            .clone()
+                            .execute::<PrimitiveArray>(ctx)?
+                            .to_buffer::<u8>(),
+                    )
+                };
+                let offsets = self
+                    .chunk_offsets()
                     .clone()
                     .execute::<PrimitiveArray>(ctx)?
-                    .to_buffer::<u8>(),
-            ),
+                    .to_buffer::<u64>();
+                ChunkWidths::from_buffers(widths, offsets)
+            }
         };
         BitPackedData::validate_widths(self.packed(), self.as_ref().dtype().as_ptype(), &widths)?;
         Ok(widths)
     }
 
-    /// Read and validate widths only when the child is already materialized.
+    /// Read and validate widths and offsets only when their children are already materialized.
     fn materialized_chunk_widths(&self) -> VortexResult<Option<ChunkWidths>> {
-        let widths = materialized_widths(self.width_table())?;
+        let widths = materialized_widths(self.width_table(), self.chunk_offsets())?;
         if let Some(widths) = &widths {
             BitPackedData::validate_widths(
                 self.packed(),
@@ -532,18 +580,70 @@ pub trait BitPackedArrayExt: BitPackedArraySlotsExt {
         Ok(widths)
     }
 
-    /// Locate and validate one chunk using the width table.
+    /// Read one byte boundary without executing the entire offsets child.
+    fn chunk_byte_offset(&self, boundary: usize, ctx: &mut ExecutionCtx) -> VortexResult<u64> {
+        vortex_ensure!(
+            boundary < self.chunk_offsets().len(),
+            "Chunk boundary out of bounds"
+        );
+        if let Some(offsets) = self
+            .chunk_offsets()
+            .as_opt::<Primitive>()
+            .filter(|a| a.buffer_handle().is_on_host())
+        {
+            Ok(offsets.as_slice::<u64>()[boundary])
+        } else {
+            u64::try_from(&self.chunk_offsets().execute_scalar(boundary, ctx)?)
+        }
+    }
+
+    /// Locate and validate one chunk using scalar child access, without materializing the tables.
     fn chunk_range(
         &self,
         chunk: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<(Range<usize>, u8)> {
-        let widths = self.chunk_widths(ctx)?;
-        vortex_ensure!(chunk < widths.len(), "Chunk index out of bounds");
-        Ok((
-            widths.byte_offset(chunk)..widths.byte_offset(chunk + 1),
-            widths.width(chunk),
-        ))
+        vortex_ensure!(
+            chunk < self.width_table().len(),
+            "Chunk index out of bounds"
+        );
+        let width = if let Some(table) = self
+            .width_table()
+            .as_opt::<Primitive>()
+            .filter(|a| a.buffer_handle().is_on_host())
+        {
+            table.as_slice::<u8>()[chunk]
+        } else if let Some(table) = self.width_table().as_opt::<Constant>() {
+            u8::try_from(table.scalar())?
+        } else {
+            u8::try_from(&self.width_table().execute_scalar(chunk, ctx)?)?
+        };
+        vortex_ensure!(
+            width as usize <= self.as_ref().dtype().as_ptype().bit_width(),
+            "Unsupported bit width {width}"
+        );
+        let base = self.chunk_byte_offset(0, ctx)?;
+        let start = if chunk == 0 {
+            base
+        } else {
+            self.chunk_byte_offset(chunk, ctx)?
+        };
+        let end = self.chunk_byte_offset(chunk + 1, ctx)?;
+        vortex_ensure!(
+            end.checked_sub(start) == Some(chunk_packed_bytes(width) as u64),
+            "Chunk {chunk} offsets do not match its bit width"
+        );
+        let start = start
+            .checked_sub(base)
+            .ok_or_else(|| vortex_err!("Chunk offset precedes buffer origin"))?;
+        let end = end
+            .checked_sub(base)
+            .ok_or_else(|| vortex_err!("Chunk offset precedes buffer origin"))?;
+        vortex_ensure!(
+            start % (FL_CHUNK_SIZE / 8) as u64 == 0 && end <= self.packed().len() as u64,
+            "Chunk offsets are unaligned or exceed the packed buffer"
+        );
+        Ok((usize::try_from(start)?..usize::try_from(end)?, width))
     }
 
     #[inline]
