@@ -6,6 +6,7 @@ mod cast;
 mod compare;
 mod filter;
 mod like;
+pub(crate) mod uncompressed_size_in_bytes;
 
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
