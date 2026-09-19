@@ -223,8 +223,17 @@ impl Footer {
     }
 
     /// Validate that every segment declared in the footer lies within a file of `file_size` bytes.
+    ///
+    /// "Every segment" includes the user-defined metadata segments, not just the segment map: all
+    /// three open paths hand [`Self::segment_specs_with_metadata`] to the segment source, so a
+    /// metadata locator is as much a part of the file's declared byte ranges as a data segment.
     pub(crate) fn validate_file_size(&self, file_size: u64) -> VortexResult<()> {
-        validate_segments_within_file(&self.segments, file_size)
+        validate_segments_within_file(
+            self.segments
+                .iter()
+                .chain(self.metadata.iter().map(|(_key, segment)| segment)),
+            file_size,
+        )
     }
 
     /// Returns a serializer for this footer.
@@ -243,7 +252,10 @@ impl Footer {
 /// A corrupt or malicious file can declare a segment whose offset or length extends past the end
 /// of the file. Rejecting such files up front ensures that later slicing of the backing buffer
 /// returns a [`VortexError`](vortex_error::VortexError) rather than panicking (see issue #8819).
-fn validate_segments_within_file(segments: &[SegmentSpec], file_size: u64) -> VortexResult<()> {
+fn validate_segments_within_file<'a>(
+    segments: impl IntoIterator<Item = &'a SegmentSpec>,
+    file_size: u64,
+) -> VortexResult<()> {
     for segment in segments {
         let within_file = segment
             .offset
@@ -263,7 +275,11 @@ fn validate_segments_within_file(segments: &[SegmentSpec], file_size: u64) -> Vo
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
     use vortex_buffer::Alignment;
+    use vortex_layout::layouts::flat::FlatLayout;
+    use vortex_layout::segments::SegmentId;
 
     use super::*;
 
@@ -273,6 +289,25 @@ mod tests {
             length,
             alignment: Alignment::none(),
         }
+    }
+
+    /// A footer whose segment map holds a single 100-byte segment at offset 0, plus one
+    /// user-defined metadata segment.
+    fn footer_with_metadata_segment(metadata: SegmentSpec) -> Footer {
+        let layout = FlatLayout::new(
+            1,
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            SegmentId::from(0),
+            ReadContext::new([]),
+        )
+        .into_layout();
+        Footer::new(
+            layout,
+            Arc::from([segment(0, 100)]),
+            None,
+            ReadContext::new([]),
+        )
+        .with_metadata_segments(Arc::from([("some.key".to_string(), metadata)]))
     }
 
     #[test]
@@ -292,5 +327,21 @@ mod tests {
     fn rejects_segment_offset_length_overflow() {
         let err = validate_segments_within_file(&[segment(u64::MAX, 1)], u64::MAX).unwrap_err();
         assert!(err.to_string().contains("past the end"), "{err}");
+    }
+
+    /// Metadata segments reach the segment source alongside the segment map, so they have to clear
+    /// the same bound.
+    #[test]
+    fn rejects_metadata_segment_extending_past_end_of_file() {
+        let err = footer_with_metadata_segment(segment(100, 51))
+            .validate_file_size(150)
+            .unwrap_err();
+        assert!(err.to_string().contains("past the end"), "{err}");
+    }
+
+    #[test]
+    fn accepts_metadata_segment_within_file() -> VortexResult<()> {
+        footer_with_metadata_segment(segment(100, 50)).validate_file_size(150)?;
+        Ok(())
     }
 }
