@@ -10,8 +10,10 @@ use vortex_array::dtype::DType;
 use vortex_array::flatbuffers::FlatBuffer;
 use vortex_array::flatbuffers::WriteFlatBufferExt;
 use vortex_array::serde::SerializeOptions;
+use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
@@ -87,10 +89,20 @@ impl MessageEncoder {
                 (header, body_len)
             }
             EncoderMessage::Buffer(buffer) => {
+                let alignment = buffer.alignment();
+                // The decoder reads this exponent back through
+                // `Alignment::try_from_untrusted_exponent`, which refuses anything above
+                // `MAX_UNTRUSTED`. Writing a larger one produces a stream no reader accepts.
+                if alignment > Alignment::MAX_UNTRUSTED {
+                    vortex_bail!(
+                        "Buffer alignment {alignment} exceeds {}, the largest an IPC reader accepts",
+                        Alignment::MAX_UNTRUSTED
+                    );
+                }
                 let header = fb::BufferMessage::create(
                     &mut fbb,
                     &fb::BufferMessageArgs {
-                        alignment_exponent: buffer.alignment().exponent(),
+                        alignment_exponent: alignment.exponent(),
                     },
                 )
                 .as_union_value();
@@ -133,5 +145,44 @@ impl MessageEncoder {
         buffers[1] = fb_buffer.into_inner().into_bytes();
 
         Ok(buffers)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_buffer::Alignment;
+    use vortex_buffer::ByteBuffer;
+    use vortex_error::VortexResult;
+
+    use super::EncoderMessage;
+    use super::MessageEncoder;
+    use crate::test::SESSION;
+
+    fn encode_with_alignment(alignment: Alignment) -> VortexResult<()> {
+        let buffer = ByteBuffer::zeroed_aligned(alignment.as_usize(), alignment);
+        MessageEncoder::new(SESSION.clone()).encode(EncoderMessage::Buffer(&buffer))?;
+        Ok(())
+    }
+
+    /// Every alignment the decoder's `try_from_untrusted_exponent` accepts must encode.
+    #[test]
+    fn encodes_alignments_a_reader_accepts() -> VortexResult<()> {
+        for bytes in [1, 64, 4 * 1024, 64 * 1024] {
+            encode_with_alignment(Alignment::new(bytes))?;
+        }
+        Ok(())
+    }
+
+    /// Past `MAX_UNTRUSTED` the write has to fail here, because every reader rejects it.
+    #[test]
+    fn refuses_alignments_no_reader_accepts() {
+        for bytes in [128 * 1024, 1024 * 1024] {
+            let err = encode_with_alignment(Alignment::new(bytes))
+                .expect_err("an alignment above MAX_UNTRUSTED must not be encodable");
+            assert!(
+                err.to_string().contains("largest an IPC reader accepts"),
+                "unexpected error for {bytes}-byte alignment: {err}"
+            );
+        }
     }
 }
