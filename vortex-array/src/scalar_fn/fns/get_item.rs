@@ -3,6 +3,7 @@
 
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::slice;
 
 use prost::Message;
 use vortex_error::VortexResult;
@@ -54,6 +55,57 @@ impl GetItem {
         field_name: impl Into<FieldName>,
     ) -> VortexResult<ScalarFnArray> {
         ScalarFnArray::try_new(GetItem.bind(field_name.into()), vec![input])
+    }
+
+    /// Read `field_name` out of `struct_node`, without a `get_item` node where possible.
+    ///
+    /// Rules that read a field out of their own child use this instead of building the
+    /// `get_item` node themselves. The optimizer visits children before their parent, so a
+    /// `get_item` that a rule introduces is never simplified again. Removing it here keeps the
+    /// output of the rule a fixed point.
+    pub(crate) fn project_node<T: ReduceNode>(
+        struct_node: &T,
+        field_name: &FieldName,
+    ) -> VortexResult<T> {
+        if let Some(field) = Self::project_pack_node(struct_node, field_name)? {
+            return Ok(field);
+        }
+
+        struct_node.new_node(
+            GetItem.bind(field_name.clone()),
+            slice::from_ref(struct_node),
+        )
+    }
+
+    /// Read `field_name` straight out of a `pack` node, which holds each field as a child.
+    ///
+    /// Returns `None` if `struct_node` is not a `pack`, or does not hold `field_name`.
+    fn project_pack_node<T: ReduceNode>(
+        struct_node: &T,
+        field_name: &FieldName,
+    ) -> VortexResult<Option<T>> {
+        let Some(pack) = struct_node
+            .scalar_fn()
+            .and_then(|scalar_fn| scalar_fn.as_opt::<Pack>())
+        else {
+            return Ok(None);
+        };
+        let Some(idx) = pack.names.find(field_name) else {
+            return Ok(None);
+        };
+
+        let mut field = struct_node.child(idx);
+
+        // A nullable pack intersects its validity into the field, so mask the field with an
+        // all-true literal to make its dtype nullable.
+        if pack.nullability.is_nullable() {
+            field = struct_node.new_node(
+                Mask.bind(EmptyOptions),
+                &[field, struct_node.new_node(Literal.bind(true.into()), &[])?],
+            )?;
+        }
+
+        Ok(Some(field))
     }
 }
 
@@ -163,25 +215,7 @@ impl ScalarFnVTable for GetItem {
     }
 
     fn reduce<T: ReduceNode>(&self, field_name: &FieldName, node: &T) -> VortexResult<Option<T>> {
-        let child = node.child(0);
-        if let Some(child_fn) = child.scalar_fn()
-            && let Some(pack) = child_fn.as_opt::<Pack>()
-            && let Some(idx) = pack.names.find(field_name)
-        {
-            let mut field = child.child(idx);
-
-            // Possibly mask the field if the pack is nullable
-            if pack.nullability.is_nullable() {
-                field = node.new_node(
-                    Mask.bind(EmptyOptions),
-                    &[field, node.new_node(Literal.bind(true.into()), &[])?],
-                )?;
-            }
-
-            return Ok(Some(field));
-        }
-
-        Ok(None)
+        Self::project_pack_node(&node.child(0), field_name)
     }
 
     fn simplify_untyped(

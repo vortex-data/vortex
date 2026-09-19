@@ -175,12 +175,12 @@ impl ScalarFnVTable for Merge {
 
     fn reduce<T: ReduceNode>(&self, options: &Self::Options, node: &T) -> VortexResult<Option<T>> {
         let mut names = Vec::with_capacity(node.child_count() * 2);
-        let mut children = Vec::with_capacity(node.child_count() * 2);
+        let mut fields: Vec<T> = Vec::with_capacity(node.child_count() * 2);
         let mut duplicate_names = HashSet::<_>::new();
 
         for child in (0..node.child_count()).map(|i| node.child(i)) {
             let child_dtype = child.node_dtype()?;
-            if !child_dtype.is_struct() {
+            if !child_dtype.is_struct() || child_dtype.is_nullable() {
                 vortex_bail!(
                     "Merge child must return a non-nullable struct dtype, got {}",
                     child_dtype
@@ -192,12 +192,18 @@ impl ScalarFnVTable for Merge {
                 .vortex_expect("expected struct");
 
             for name in child_dtype.names().iter() {
+                // `project_node` reads straight out of a `pack` child, so this reduction leaves
+                // behind no `get_item` for a later pass to simplify. The child is non-nullable,
+                // so the read cannot intersect a struct validity into the field, which is the
+                // only way it could change the field dtype.
+                let field = GetItem::project_node(&child, name)?;
+
                 if let Some(idx) = names.iter().position(|n| n == name) {
                     duplicate_names.insert(name.clone());
-                    children[idx] = child.clone();
+                    fields[idx] = field;
                 } else {
                     names.push(name.clone());
-                    children.push(child.clone());
+                    fields.push(field);
                 }
             }
 
@@ -209,18 +215,12 @@ impl ScalarFnVTable for Merge {
             }
         }
 
-        let pack_children: Vec<_> = names
-            .iter()
-            .zip(children)
-            .map(|(name, child)| node.new_node(GetItem.bind(name.clone()), &[child]))
-            .try_collect()?;
-
         let pack_expr = node.new_node(
             Pack.bind(PackOptions {
                 names: FieldNames::from(names),
                 nullability: node.node_dtype()?.nullability(),
             }),
-            &pack_children,
+            &fields,
         )?;
 
         Ok(Some(pack_expr))
