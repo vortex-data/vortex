@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query IITR
+SELECT dt.d_year,
+       item.i_brand_id brand_id,
+       item.i_brand brand,
+       sum(ss_ext_sales_price) ext_price
+FROM date_dim dt,
+     store_sales,
+     item
+WHERE dt.d_date_sk = store_sales.ss_sold_date_sk
+  AND store_sales.ss_item_sk = item.i_item_sk
+  AND item.i_manager_id = 1
+  AND dt.d_moy=11
+  AND dt.d_year=2000
+GROUP BY dt.d_year,
+         item.i_brand,
+         item.i_brand_id
+ORDER BY dt.d_year,
+         ext_price DESC,
+         brand_id
+LIMIT 100 ;
+----
+2000 1002002 importoamalg #2 34450.8
+2000 7008009 namelessbrand #9 24017.78
+2000 7008004 namelessbrand #4 22773.96
+2000 4004001 edu packedu pack #1 22016.68
+2000 10004005 importounivamalg #6 18132.92
+2000 1001002 amalgamalg #2 17659.32
+2000 7010004 univnameless #4 15930.77
+2000 10004004 edu packunivamalg #4 15246.46
+2000 5001001 brandunivamalg #11 12194.13
+2000 7006007 edu packamalg #2 11702.69
+2000 10010013 univamalgamalg #13 5092.18
