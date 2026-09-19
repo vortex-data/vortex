@@ -12,6 +12,7 @@ use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::DecimalType;
 use crate::dtype::MAX_PRECISION;
+use crate::dtype::MAX_SCALE;
 use crate::dtype::NativeDecimalType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -1420,4 +1421,72 @@ fn test_fits_in_precision_mixed_decimal_value_types() {
     assert!(!DecimalValue::I64(100000).fits_in_precision(dtype));
     assert!(DecimalValue::I128(99999).fits_in_precision(dtype));
     assert!(!DecimalValue::I256(i256::from_i128(100000)).fits_in_precision(dtype));
+}
+
+fn cast_decimal_to_f64(precision: u8, scale: i8, stored: i64) -> VortexResult<f64> {
+    let scalar = Scalar::decimal(
+        DecimalValue::I64(stored),
+        DecimalDType::new(precision, scale),
+        Nullability::NonNullable,
+    );
+    let casted = scalar.cast(&DType::Primitive(PType::F64, Nullability::NonNullable))?;
+    (&casted).try_into()
+}
+
+/// The float target of [`Scalar::cast`] has to hold across the whole scale domain of
+/// `DecimalDType`, the way `cast_decimal_to_integer_policy` pins the integer target. Computing
+/// `10^scale` in `i128` did not: a scale above 38 overflowed the factor, and a negative scale
+/// reached `pow` as a wrapped `u32` exponent.
+///
+/// The tolerance is relative because `10^scale` stops being exactly representable in `f64` above
+/// `10^22`; what is asserted here is the magnitude and sign, which is what those two paths got
+/// catastrophically wrong.
+#[rstest]
+#[case::negative_scale(5, -5, 1, 100_000.0)]
+#[case::extreme_negative_scale(1, -30, 1, 1e30)]
+#[case::scale_past_i128(MAX_PRECISION, 39, 1, 1e-39)]
+#[case::max_scale(MAX_PRECISION, MAX_SCALE, 1, 1e-76)]
+#[case::negative_value_negative_scale(5, -5, -1, -100_000.0)]
+fn cast_decimal_to_f64_spans_the_scale_domain(
+    #[case] precision: u8,
+    #[case] scale: i8,
+    #[case] stored: i64,
+    #[case] expected: f64,
+) -> VortexResult<()> {
+    let value = cast_decimal_to_f64(precision, scale, stored)?;
+    assert!(
+        (value - expected).abs() <= expected.abs() * 1e-15,
+        "decimal({precision},{scale}) storing {stored} cast to {value}, expected {expected}"
+    );
+    Ok(())
+}
+
+/// Scales up to 22 keep an exactly representable factor, so the ordinary case stays bit-exact.
+#[rstest]
+#[case(10, 2, 12345, 123.45)]
+#[case(10, 0, -7, -7.0)]
+#[case(20, 6, 1_500_000, 1.5)]
+fn cast_decimal_to_f64_is_exact_for_common_scales(
+    #[case] precision: u8,
+    #[case] scale: i8,
+    #[case] stored: i64,
+    #[case] expected: f64,
+) -> VortexResult<()> {
+    assert_eq!(cast_decimal_to_f64(precision, scale, stored)?, expected);
+    Ok(())
+}
+
+/// `f32` and `f16` are rounded from the same `f64` intermediate, so a wrong intermediate reached
+/// them too. `f32` is the one that can hold `1e5`.
+#[test]
+fn cast_decimal_to_narrow_float_uses_the_same_scale_factor() -> VortexResult<()> {
+    let scalar = Scalar::decimal(
+        DecimalValue::I64(1),
+        DecimalDType::new(5, -5),
+        Nullability::NonNullable,
+    );
+    let f32_value: f32 =
+        (&scalar.cast(&DType::Primitive(PType::F32, Nullability::NonNullable))?).try_into()?;
+    assert_eq!(f32_value, 100_000.0);
+    Ok(())
 }
