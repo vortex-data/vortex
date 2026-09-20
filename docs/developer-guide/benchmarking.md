@@ -159,6 +159,15 @@ benchmark is about kernel code rather than memory bandwidth.
 
 Use `#[cfg(not(codspeed))]` for benchmarks that are incompatible with CodSpeed.
 
+### Keep third-party and frozen baselines out of CodSpeed
+
+A benchmark of code that Vortex does not own, such as an arrow-rs kernel over the same data, or
+of a frozen copy of an old Vortex implementation, cannot regress because of a pull request, so a
+change in its number is never actionable. On the walltime legs these baselines were among the
+noisiest series in the suite. Keep them for local `cargo bench` comparisons, but gate them with
+`#[cfg(not(codspeed))]` and leave them untagged, as `vortex-compute/benches/lane_kernels.rs` and
+`vortex-buffer/benches/collect_bool.rs` do.
+
 ### CodSpeed's single-run model
 
 CI benchmarks run under [CodSpeed's CPU simulation](https://codspeed.io/docs/instruments/cpu),

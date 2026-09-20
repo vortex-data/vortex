@@ -13,10 +13,13 @@
 //! equivalent arrow-rs kernel over the same data shape, so the divan report
 //! lines up side-by-side.
 //!
-//! The checked-add pair carries `#[cpu_features]`, so both are measured on every
-//! walltime CPU-feature leg rather than in simulation: they are one lane loop
-//! compiled differently per leg, and comparing them against arrow-rs is only
-//! meaningful under the same build flags. The cast benches stay in simulation.
+//! `lanezip_checked_add_u32` carries `#[cpu_features]`, so it is measured on every
+//! walltime CPU-feature leg rather than in simulation: it is one lane loop compiled
+//! differently per leg. Its arrow-rs sibling is compiled only outside CodSpeed. The
+//! arrow kernel is not Vortex code, so a change in its walltime is never actionable,
+//! and it flipped by up to 67% between runs of identical code. Run `cargo bench`
+//! locally to compare the pair under the same build flags. The cast benches stay in
+//! simulation.
 
 #![expect(clippy::unwrap_used)]
 #![expect(clippy::clone_on_ref_ptr)]
@@ -24,10 +27,12 @@
 use std::mem::MaybeUninit;
 use std::sync::Arc;
 
+#[cfg(not(codspeed))]
 use arrow_arith::numeric::add;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::Int32Array;
 use arrow_array::UInt16Array;
+#[cfg(not(codspeed))]
 use arrow_array::UInt32Array;
 use arrow_array::UInt64Array;
 use arrow_buffer::NullBuffer;
@@ -289,7 +294,9 @@ struct AddFixture {
     rhs_mask: BitBuffer,
     /// Plain `Vec<bool>` mirrors of the validity masks — used to build the arrow
     /// `NullBuffer`s for the baseline bench.
+    #[cfg(not(codspeed))]
     lhs_valid: Vec<bool>,
+    #[cfg(not(codspeed))]
     rhs_valid: Vec<bool>,
 }
 
@@ -333,7 +340,9 @@ fn add_fixture(n: usize) -> AddFixture {
         rhs,
         lhs_mask,
         rhs_mask,
+        #[cfg(not(codspeed))]
         lhs_valid,
+        #[cfg(not(codspeed))]
         rhs_valid,
     }
 }
@@ -361,7 +370,7 @@ fn lanezip_checked_add_u32(bencher: Bencher, n: usize) {
         });
 }
 
-#[vortex_bench_support::cpu_features]
+#[cfg(not(codspeed))]
 #[divan::bench(args = ADD_SIZES)]
 fn arrow_checked_add_u32(bencher: Bencher, n: usize) {
     let f = add_fixture(n);
