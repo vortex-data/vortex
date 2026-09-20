@@ -36,9 +36,10 @@ Set the selection before starting the write, which captures the permitted format
 
 An edition declaration describes permitted formats. Registering it does not install the code to
 read or write those formats. When constructing a session without the defaults, register the required
-implementations and declarations, then enable the target editions. Enabling an unregistered edition
-returns an error. A selection that permits no components cannot serialize any edition-governed
-component.
+implementations and declarations, then enable the target editions. See
+[Registering plugins](../../developer-guide/internals/session.md#registering-plugins) for the
+registration API. Enabling an unregistered edition returns an error. A selection that permits no
+components cannot serialize any edition-governed component.
 
 ## Edition families
 
@@ -60,10 +61,10 @@ editions in that family and month. These are Vortex editions, separate from Rust
 
 ## Reader versions
 
-For each selected frozen edition, find its recorded minimum version and its _origin_: the project
-that supplies the component implementations. The `core` family's origin is `vortex`, so its
-`min_library_version` refers to the shared Vortex Rust crate version. An independent plugin can name
-a different origin with its own release numbers.
+For each selected frozen edition, find its recorded minimum version and its _origin_ in the
+[registry](editions.md). The origin is the project that supplies the component implementations.
+The `core` family's origin is `vortex`, so its `min_library_version` refers to the shared Vortex Rust
+crate version. An independent plugin can name a different origin with its own release numbers.
 
 For editions with the same origin, use at least the highest recorded minimum. For different
 origins, check each project separately. In both cases, register the implementations in the reader.

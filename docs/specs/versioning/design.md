@@ -34,7 +34,8 @@ can use its own encoding.
 An _array plugin_ supplies serialization and deserialization for an in-memory array representation.
 Its serializer returns a wire ID, metadata, buffers, and children. The writer checks that ID and the
 serialized children against the selected editions. A reader uses the IDs in the file to find the
-registered plugins that interpret those formats.
+registered plugins that interpret those formats. A missing implementation causes an
+[unknown-ID error](using-editions.md#unknown-ids).
 
 ```{figure} ../../_static/versioning-flow.svg
 :alt: Edition checks constrain writing. Stored wire IDs select the reader's plugins.
@@ -51,7 +52,7 @@ these integers in one signed integer child array.
 The current implementation also supports wider values split across several children: a signed
 most-significant part followed by unsigned lower parts. One Rust array type handles both shapes.
 The original format's contract permits only the single-child shape, so the additional children
-require a new wire ID.
+require a new wire ID.[^decimal-availability]
 
 | Array structure | Wire ID selected by the serializer |
 |---|---|
@@ -142,7 +143,8 @@ possible combination. Versions must meet the minimum for each origin, and the im
 be registered in the reader.
 
 An edition declaration supplies permissions, not implementations. Registering a later declaration
-with an older library does not teach that library to read or write new formats.
+with an older library does not teach that library to read or write new formats. See
+[Writer configuration](using-editions.md#writer-configuration) for how to register and select editions.
 
 The [compatibility matrix](compatibility.md) shows the combinations of writer version, edition,
 serialized format, and reader version.
@@ -203,3 +205,6 @@ The planned improvement is to configure a scheme's behavior for the selected edi
 to retain an older mode when its newer mode requires a forbidden format. That configuration needs
 to apply consistently to estimation, sampling, full compression, children, and fallbacks.
 General per-writer scheme configuration is not implemented, and its API is unsettled.
+
+[^decimal-availability]: No declared edition currently permits the multi-child format. The
+    [compression section](#compression) describes what the default compressor produces today.

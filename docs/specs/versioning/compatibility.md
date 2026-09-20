@@ -20,11 +20,12 @@ a suitable representation. Reader results apply only after a successful write.
 | Newer | Original | Original | Allowed[^compression][^decimal] | Reads | Reads[^current-array] |
 | Newer | Original | Extended | Forbidden | N/A | N/A |
 | Newer | Later | Original | Allowed[^compression][^decimal] | Reads | Reads[^current-array] |
-| Newer | Later | Extended | Allowed[^compression] | Unknown ID | Reads |
+| Newer | Later | Extended | Allowed[^compression] | [Unknown ID](using-editions.md#unknown-ids) | Reads |
 
-The format column is not a separate writer setting. The serializer selects a format from the array's
-structure, and the writer checks its edition permissions. A writer targeting the later edition can
-still produce the original format, which both readers can read.
+The format column is not a separate writer setting. The serializer
+[selects a format](design.md#format-selection) from the array's structure, and the writer checks its
+edition permissions. A writer targeting the later edition can still produce the original format,
+which both readers can read.
 
 For the compatibility guarantee and minimum reader versions, see [Versioning](../versioning.md).
 The [design](design.md#compatibility-invariants) explains the invariants behind these outcomes.
