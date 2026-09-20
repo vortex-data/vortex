@@ -2,7 +2,7 @@
 
 These docs explain how Vortex keeps files readable as its Rust implementation changes. They cover
 how to write files for older deployments and how to add encoding formats without breaking existing
-files.[^proof]
+files.
 
 ## The Vortex Rust library
 
@@ -81,5 +81,3 @@ versioning/editions
 The [implementation roadmap](versioning/arrays-and-compression.md#implementation-roadmap) covers
 the remaining work, including configuring compression to produce formats permitted by the target
 edition.
-
-[^proof]: For a mathematical treatment, see the [formal proof of the versioning model (PDF)](../_static/versioning-proof.pdf).
