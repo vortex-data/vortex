@@ -1,70 +1,80 @@
-# Versioning
+# Versioning and compatibility
 
-These docs explain how Vortex keeps files readable as its Rust implementation changes. They cover
-how to write files for older deployments and how to add encoding formats without breaking existing
-files.
+Vortex retains read support for its frozen serialized formats as the library evolves. An application
+can upgrade its Vortex reader without rewriting files that use those formats. Writers can also
+restrict their output to formats that an older deployment supports, so the applications producing
+and consuming files do not need to upgrade together.
 
-## The Vortex Rust library
+An _edition_ names a set of formats that a writer is allowed to put in a file. Once an edition is
+_frozen_, that set and its reader requirements stay fixed. The first frozen edition is
+`core2025.05.0`, supported from version `0.36.0` of the Vortex Rust library. Later versions retain
+read support for its formats and those of subsequent frozen editions.
 
-Vortex's Rust library provides the array types and algorithms that an application uses to compress
-and process data **in memory**. It also reads and writes files. The code is split across the
-`vortex` crate and supporting crates such as `vortex-array` and `vortex-file`.
+This guarantee concerns file compatibility. The library's programming interfaces follow
+[Rust's semantic versioning rules](https://doc.rust-lang.org/cargo/reference/semver.html), so an API
+change can require application changes even when existing files remain readable.
 
-The _library version_, such as `0.85.0`, is the version shared by these crates when they are
-published. Changes to the crates follow
-[Rust's semantic versioning rules for crates](https://doc.rust-lang.org/cargo/reference/semver.html).
-Published versions of the `vortex` crate are on
-[crates.io](https://crates.io/crates/vortex/versions), with release notes on
-[GitHub](https://github.com/vortex-data/vortex/releases).
+## A newer writer and an older reader
 
-In these docs, a _reader_ is the Vortex code that an application uses to read files. A _writer_
-is the Vortex code it uses to write files. Each uses a particular crate version and the component
-implementations registered by that application. One application can use both.
+Consider two applications. A service writes files using Vortex `0.85.0`, while a query engine reads
+them using Vortex `0.84.0`. These numbers identify the Rust library versions used by each application.
 
-## Editions
+The service selects `core2026.08.0` for writing. That edition's recorded minimum reader version is
+`0.84.0`, so the query engine meets the version requirement. With the required implementations
+registered, it can read valid files successfully written within that edition's restrictions.
 
-When writing a file, an application selects an _edition_: a named set of formats it is allowed to
-**serialize to disk**. To write files for an older deployment, select an edition whose formats
-the Vortex code in that deployment can decode. The application writing the file still uses the
-in-memory array types and algorithms provided by its own version of the Vortex crates.
+The service still uses its own library's array implementations and compression algorithms. Its
+edition selection limits the formats it serializes. Improvements that preserve those formats do
+not require an update to the query engine.
 
-Editions belong to _families_. The `core` family covers the default writer's formats, while optional
-features can have their own families. Edition names use dates: `core2026.08.3` belongs to the `core`
-family, `2026.08` gives its year and month, and `3` distinguishes editions in that family and month.
-These are Vortex editions, separate from Rust language editions such as Rust 2024.
+If the service instead selects `core2026.08.3`, the edition permits additional formats and records
+a minimum of `0.85.0`. The older query engine is no longer guaranteed to read every file the service
+can produce. It can still read a particular file if that file uses only formats it supports.
 
-Once an edition is _frozen_, its permitted formats and reader requirements stay fixed. New formats
-go into later editions.
+An edition's minimum therefore answers a deployment question: which version supports *all* the
+formats this writer is permitted to use? It is not necessarily the earliest version that can read
+one particular file.
 
-## Array plugins
+## What the guarantee requires
 
-An _array plugin_ implements the read and write code for an array encoding. It can read an older
-serialized format into the current in-memory array type, and write that type in an older format when
-the array's structure allows it. **The serialized format and the Rust array type do not have to
-change together.**
+**A successful write with edition checks enabled uses only permitted formats.** A reader that
+supports all those formats can read the output. The reader must also understand the enclosing
+[file format](file-format.md).
 
-For example, a service can update its Vortex crates while keeping the edition it previously
-selected for writing. The service uses the new crate version's array implementations, but writes
-only formats permitted by that edition. Applications that could decode all those formats before
-the update can still decode the output afterward, without updating their own Vortex crates.
+Meeting a minimum library version is part of that requirement. The application must also register
+the implementations that read the formats, including any optional plugins. An independent plugin
+can have its own versions and compatibility policy. Upgrading Vortex alone does not install it.
 
-**Encoding changes must be additive:** support for a new serialized format must preserve read
-support for the old formats. The
-[decimal encoding example](versioning/arrays-and-compression.md#example-decimal-children) shows
-one array implementation supporting two serialized formats.
+Edition selection does not guarantee that every input or custom writing strategy can produce a
+permitted file. An array can need a format that the edition forbids, or a custom strategy can choose
+an unsupported layout. The write fails when its serialized output violates the selection.
 
-## Suggested reading order
+Draft editions have no frozen compatibility guarantee. Custom formats written with edition checks
+disabled also fall outside the edition guarantee. The [registry](versioning/editions.md) distinguishes
+frozen editions from drafts and lists their formats and recorded minimum versions.
 
-After this overview, read the pages in this order:
+## Upgrading a deployment
 
-1. [Using editions](versioning/using-editions.md): select formats for a writer and find the crate
-   versions and plugins its readers need.
-2. [Arrays and compression](versioning/arrays-and-compression.md): follow a decimal array through
-   compression, serialization, and reading to see how one implementation supports multiple formats.
-3. [Compatibility](versioning/compatibility.md): use the invariants and matrix to work through the
-   combinations of old and new readers, writers, editions, and serialized formats.
-4. [Edition lifecycle and registry](versioning/editions.md): add or revise a format, or look up an
-   edition's components and minimum reader version. This page is also a reference to return to later.
+An application upgrading its reader must retain the plugins needed by its existing files. The
+updated implementations must continue to decode their frozen formats, including formats that
+writers no longer choose.
+
+An application upgrading its writer must also consider its consumers. The default Vortex session
+selects the newest frozen `core` edition, so a library upgrade can change the default output
+permissions. To keep serving older readers, explicitly select an edition whose requirements those
+readers meet. Change that selection when the readers can support the additional formats.
+
+Selecting an older edition affects writing. It does not prevent the same application from reading
+newer formats that its registered implementations support.
+
+## Configuration, design, and reference
+
+- [Using editions](versioning/using-editions.md) shows how to configure a writer, check reader
+  requirements, and diagnose incompatible output or missing implementations.
+- [How Vortex evolves its formats](versioning/design.md) explains the separation between library
+  releases, serialized formats, and editions through a worked example and compatibility tables.
+- [Edition registry](versioning/editions.md) lists the formats and minimum versions, with instructions
+  for introducing formats and maintaining edition records.
 
 ```{toctree}
 ---
@@ -73,11 +83,6 @@ hidden: true
 ---
 
 versioning/using-editions
-versioning/arrays-and-compression
-versioning/compatibility
+versioning/design
 versioning/editions
 ```
-
-The [implementation roadmap](versioning/arrays-and-compression.md#implementation-roadmap) covers
-the remaining work, including configuring compression to produce formats permitted by the target
-edition.

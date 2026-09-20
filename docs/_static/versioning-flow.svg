@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="470" viewBox="0 0 900 470"
+     role="img" aria-labelledby="title description">
+  <!-- SPDX-License-Identifier: CC-BY-4.0 -->
+  <!-- SPDX-FileCopyrightText: Copyright the Vortex contributors -->
+  <title id="title">Edition checks on the write path, format dispatch on the read path</title>
+  <desc id="description">
+    The selected edition supplies permitted formats to the default compressor's scheme filter and
+    to the final serialization checks. Compression produces an in-memory array. Its plugin selects
+    a wire representation. The writer checks the actual wire IDs, including serialized children,
+    and rejects forbidden output. A reader uses the stored IDs to find its registered plugins and
+    construct its own in-memory array, independently of the writer's library version.
+  </desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7"
+            markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 Z" fill="#475569"/>
+    </marker>
+    <marker id="permission-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7"
+            markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 Z" fill="#2563a6"/>
+    </marker>
+  </defs>
+  <rect width="900" height="470" rx="12" fill="#ffffff"/>
+  <g font-family="Arial, Helvetica, sans-serif" fill="#172033" text-anchor="middle">
+    <rect x="248" y="16" width="404" height="58" rx="8" fill="#eaf3fc" stroke="#2563a6"/>
+    <text x="450" y="51" font-size="18">Selected edition: permitted formats</text>
+
+    <rect x="16" y="112" width="868" height="156" rx="10" fill="#f6f7f9" stroke="#cbd5e1"/>
+    <text x="450" y="137" font-size="16" font-weight="bold">Writer's library</text>
+
+    <g fill="none" stroke="#2563a6" stroke-width="2" stroke-dasharray="5 4"
+       marker-end="url(#permission-arrow)">
+      <path d="M 450 74 V 92 H 114 V 157"/>
+      <path d="M 450 74 V 92 H 749 V 157"/>
+    </g>
+
+    <g fill="#ffffff" stroke="#94a3b8">
+      <rect x="24" y="158" width="180" height="80" rx="7"/>
+      <rect x="240" y="158" width="165" height="80" rx="7"/>
+      <rect x="441" y="158" width="165" height="80" rx="7"/>
+      <rect x="642" y="158" width="214" height="80" rx="7"/>
+    </g>
+    <g font-size="17">
+      <text x="114" y="184">Default compressor</text>
+      <text x="322" y="192">In-memory array</text>
+      <text x="524" y="184">Plugin serializer</text>
+      <text x="749" y="184">Check actual wire IDs</text>
+    </g>
+    <g font-size="14" fill="#475569">
+      <text x="114" y="207">Filter schemes, then</text>
+      <text x="114" y="225">compress values</text>
+      <text x="322" y="215">Buffers and children</text>
+      <text x="524" y="207">Select wire ID,</text>
+      <text x="524" y="225">metadata, and parts</text>
+      <text x="749" y="207">Include serialized children</text>
+      <text x="749" y="225">Reject forbidden output</text>
+    </g>
+    <g fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)">
+      <path d="M 204 198 H 239"/>
+      <path d="M 405 198 H 440"/>
+      <path d="M 606 198 H 641"/>
+      <path d="M 749 238 V 300 H 114 V 365"/>
+    </g>
+    <text x="450" y="291" font-size="14" fill="#475569">Permitted serialized output</text>
+
+    <rect x="228" y="320" width="656" height="138" rx="10" fill="#f0f7f6" stroke="#bfd8d2"/>
+    <text x="556" y="346" font-size="16" font-weight="bold">Reader's library</text>
+    <g fill="#ffffff" stroke="#94a3b8">
+      <rect x="24" y="366" width="180" height="80" rx="7"/>
+      <rect x="250" y="366" width="245" height="80" rx="7"/>
+      <rect x="554" y="366" width="286" height="80" rx="7"/>
+    </g>
+    <g font-size="17">
+      <text x="114" y="397">File</text>
+      <text x="372" y="397">Decode by stored wire ID</text>
+      <text x="697" y="397">Reader's in-memory array</text>
+    </g>
+    <g font-size="14" fill="#475569">
+      <text x="114" y="423">Wire IDs and data</text>
+      <text x="372" y="423">Use registered plugins</text>
+      <text x="697" y="423">Preserve values, types, and nulls</text>
+    </g>
+    <g fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)">
+      <path d="M 204 406 H 249"/>
+      <path d="M 495 406 H 553"/>
+    </g>
+  </g>
+</svg>

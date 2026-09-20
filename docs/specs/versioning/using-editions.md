@@ -1,122 +1,120 @@
 # Using editions
 
-To write files for another deployment, select editions whose formats that deployment can read.
-This page explains how to configure that selection and find the crate versions and plugins
-required to read the output.
+To write files for an older deployment, select editions whose formats that deployment supports.
+The [versioning overview](../versioning.md) explains the guarantee. This page shows the Rust
+configuration API and the requirements to check on each side of a deployment.
 
-## Selecting edition families
+## Configure a writer
 
-An _edition family_ groups editions for a related set of formats. For example, `core` covers the
-default writer's formats, while `tensor` and `zstd` cover optional features. Keeping these in
-separate families lets a writer enable an optional feature without changing its `core` selection.
+A _session_ holds the registered implementations, edition declarations, and enabled editions. The
+following function creates write options targeting `core2026.08.0`, whose recorded minimum reader
+version is `0.84.0`:
 
-**A writer selects at most one edition from each family.** Selecting `core2026.08.3` and
-`tensor2026.04.0`, for example, permits every component in either edition. Within a family, later
-editions include the components from all earlier editions, so selecting a later edition adds
-formats to the permitted set.
+```rust
+use vortex::VortexSessionDefault;
+use vortex::editions::CORE_2026_08_0;
+use vortex::editions::EditionSessionExt;
+use vortex::error::VortexResult;
+use vortex::file::VortexWriteOptions;
+use vortex::file::WriteOptionsSessionExt;
+use vortex::session::VortexSession;
 
-## Components and wire IDs
+fn writer_for_older_readers() -> VortexResult<VortexWriteOptions> {
+    let session = VortexSession::default();
+    session.enable_edition(CORE_2026_08_0)?;
 
-Reading a file requires more than decoding its compressed arrays. The reader also needs to
-understand how the file is laid out, how to interpret custom data types, and how to use any stored
-summaries to skip irrelevant data. Editions cover each of these parts of the file.
+    Ok(session.write_options())
+}
+```
 
-An edition lists _components_, such as array encodings and file layouts. Each component has a kind
-and an ID stored in the file, called its _wire ID_. **The kind and ID together identify the
-component.** The array and layout encodings named `vortex.chunked`, for example, are distinct
-components despite sharing the same ID string.
+Use the returned options' `write` method to write an array stream to an output. The
+[Rust quickstart](../../getting-started/rust.rst) covers the input and I/O setup. The example uses
+file support from the `vortex` crate. It does not require the consuming application to select the
+same edition in its reader session.
 
-_Zone maps_ store summaries such as the minimum and maximum in a group of rows. A reader can use
-these to skip a group when no value in it can match a filter. The _aggregate functions_ that compute
-these summaries also have wire IDs for their serialized definitions.
+The default session registers the standard implementations and edition declarations. It currently
+enables `core2026.08.3`. Calling `enable_edition` replaces the enabled edition from the same family.
+Set the selection before starting the write, which captures the permitted formats at that point.
 
-| Kind | What the wire ID identifies |
-|---|---|
-| `array` | An array's serialized representation |
-| `layout` | A node in the file's layout tree |
-| `dtype` | An extension dtype: a custom logical data type in the schema |
-| `aggregate` | An aggregate function stored in a zone map |
+An edition declaration describes permitted formats. Registering it does not install the code to
+read or write those formats. When constructing a session without the defaults, register the required
+implementations and declarations, then enable the target editions. Enabling an unregistered edition
+returns an error. A selection that permits no components cannot serialize any edition-governed
+component.
 
-## Configuring a writer
+## Select optional features
 
-A _session_ holds the writer's registered implementations and edition selection. The default
-session from the `vortex` crate targets `core2026.08.3`. A session constructed without those defaults
-needs its editions registered and enabled before writing.
+An _edition family_ groups editions for related formats. The `core` family covers the default
+writer's formats. Optional features have their own families, such as `tensor` and `zstd`, so they can
+add formats without changing an application's `core` selection.
 
-_Registering_ an edition makes its declaration available to the session, including which components
-it permits. _Enabling_ the edition selects those components for writing. **The component
-implementations must be registered separately.** Enabling another edition from the same family
-replaces the previous selection.
+A writer selects at most one edition per family. Selecting `core2026.08.0` and `tensor2026.04.0`
+permits every component in either edition. Within one family, a later edition includes all earlier
+members. Across families, the selections are independent.
 
-To write files for an older deployment, select a `core` edition whose recorded minimum does not
-exceed that deployment's Vortex crate version. The deployment must also register the required
-component implementations. Optional modules can enable their own families alongside `core`, such
-as `tensor2026.04.0` for tensor support or `zstd2026.02.0` for Zstd buffer wrapping. If the selected
-editions permit no components, the writer cannot serialize any edition-governed component.
+Check the [registry](editions.md#edition-registry) before enabling an optional family. For example,
+`tensor2026.04.0` is a draft and has no frozen minimum reader version. Adding it does not extend
+`core`'s frozen guarantee to the tensor formats. Both applications need the appropriate tensor
+implementations.
 
-For custom or experimental formats outside the edition declarations, the Rust writer provides
-`disable_editions()`. This disables checks for arrays, layouts, extension dtypes, and aggregate
-functions, while still requiring their implementations to be registered. Files written with these
-checks disabled have **no edition compatibility guarantee**.
+An edition name such as `core2026.08.3` contains its family, year, month, and a number distinguishing
+editions in that family and month. These are Vortex editions, separate from Rust language editions.
 
-## Checks during writing
+## Choose reader versions
 
-The final checks apply to what the writer actually serializes. A permitted array encoding can
-contain child arrays with other encodings, so the writer must check those children too.
+For each selected frozen edition, find its recorded minimum version and its _origin_: the project
+that supplies the component implementations. The `core` family's origin is `vortex`, so its
+`min_library_version` refers to the shared Vortex Rust crate version. An independent plugin can name
+a different origin with its own release numbers.
 
-| Kind | Check |
-|---|---|
-| Arrays | Check the serializer's returned ID, then serialize and check its children recursively. |
-| Layouts | Check every serialized layout ID. The layout strategy must use permitted layouts. |
-| Extension dtypes | Check all extension dtypes in the schema, including nested ones, before writing bytes. |
-| Aggregate functions | Check every function stored in a zone map against the edition and its format contract. |
+For editions with the same origin, use at least the highest recorded minimum. For different
+origins, check each project separately. In both cases, register the implementations in the reader.
+A sufficiently recent library without a required plugin is not enough.
 
-A zone-map aggregate that the edition forbids causes the write to fail. Silently omitting it
-changes which filters can use the configured zone map to skip rows. This differs from an aggregate
-that does not apply to a column's data type: the writer omits that aggregate, so there is no
-serialized component to check.
+For example, `core2026.08.0` records `0.84.0`, while `core2026.08.3` records `0.85.0`. A Vortex reader
+using `0.85.0` with the required implementations meets either edition's requirements. The recorded
+minimum covers every permitted format, including formats that an individual file does not use.
+An older reader can sometimes read that file, but that is insufficient evidence that it supports the
+writer's entire target edition.
 
-For example, `core2026.08.0` declares `min`, `max`, `bounded_min`, `bounded_max`, `nan_count`, and
-`null_count`. It does not declare `sum` because zone maps do not store sums. File-level statistics
-store sums in a fixed legacy field governed by the enclosing format's contract.
+## When writing fails
 
-## Choosing a reader version
+Edition checks apply to the actual serialized output, including child arrays, layouts, nested
+extension dtypes, and stored aggregate functions. An array encoding can be permitted while one of
+its children uses a forbidden encoding. The writer rejects that output too.
 
-A frozen edition records the minimum version of the code needed to read all its components.
-For example, version `0.85.0` of the Vortex crates implements decoding for every format in
-`core2026.08.3`. It also retains decoding for the formats in `core2026.08.0`, whose recorded minimum
-is `0.84.0`. The application reading the file must register those implementations in its session.
+The default writer filters compression schemes by the formats they declare. A custom strategy or
+compressor is responsible for constructing permitted representations. Selecting an edition does
+not automatically reconfigure a custom strategy, and final checks still apply.
 
-The edition family names an _origin_, the project that supplies its component implementations.
-For `core`, the origin is `vortex`, so the edition's `min_library_version` refers to the shared
-[Vortex Rust crate version](../versioning.md#the-vortex-rust-library). An independent plugin can
-name a different origin with its own version numbers.
+When a write fails because a format is forbidden, choose a permitted representation or strategy.
+Alternatively, select a later edition after confirming that the readers meet its requirements.
+[The decimal example](design.md#example-decimal-children) shows why an array's structure can require
+a newer format even when its values appear suitable for an older one.
 
-**Each origin has its own minimum version.** When selected editions share an origin, use a version
-of that project's code at or above the highest recorded minimum. When the origins differ, check
-each project separately. In particular, check an independent plugin's version even if the Vortex
-crates already meet the `core` requirement. The reader must also register the required component
-implementations, including any optional plugins.
+For custom or experimental output, `VortexWriteOptions::disable_editions()` disables the array,
+layout, extension-dtype, and aggregate checks. It does not register missing implementations. Files
+written this way have no edition compatibility guarantee, so producers and consumers must agree on
+the required implementations themselves.
 
-The recorded minimum covers every format the edition permits, including ones that a particular
-file does not use. An earlier crate version can therefore sometimes read that file, even though
-it cannot read every file permitted by the edition.
+## When a reader reports an unknown ID
 
-## Unknown-component errors
+An unknown-ID error means that the reader has no registered implementation for that component.
+Look up its kind and ID in the [registry](editions.md#edition-registry). The kind matters because an
+array and a layout can share the same ID string while describing different formats.
 
-An unknown-ID error means that the reader has no registered implementation for a component in the
-file. Find its kind and ID in the [registry](editions.md#edition-registry):
+- For a frozen edition, use at least the recorded minimum version of its origin and register the
+  required optional module.
+- For a draft edition, obtain a build that implements the component from the producer. A draft does
+  not promise support in a published release.
+- For a component absent from the registry, obtain its implementation from the producer and register
+  it with the session.
 
-1. For a frozen edition, use at least the recorded minimum version of its origin and register any
-   required optional module.
-2. For a draft edition, use a build that implements the component. The draft does not guarantee
-   support in a published crate version. Ask the producer which build to use.
-3. For a component absent from the registry, obtain its implementation from the producer and
-   register it with the session.
+Inspection and copying tools can use `allow_unknown` to retain the serialized data of unknown arrays,
+layouts, and extension dtypes without interpreting it. Those objects are not available for ordinary
+computation.
 
-Inspection and copying tools can use `allow_unknown` to preserve unknown arrays, layouts, and
-extension dtypes. The reader retains their serialized data without interpreting it, so these
-objects are not available for computation. An unknown aggregate disables the affected zone-map
-pruning. Data reads remain correct, but they cannot use that aggregate to skip rows.
-
-[Next: Arrays and compression](arrays-and-compression.md)
+With `allow_unknown`, an unknown aggregate disables pruning for the affected zone-map layout. Its
+data remains readable if the reader supports the other required formats. Without `allow_unknown`,
+the unknown aggregate causes an error. Retaining unknown components or disabling pruning does not
+establish full support for the file's formats.

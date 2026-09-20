@@ -1,81 +1,18 @@
-# Edition lifecycle and registry
+# Edition registry
 
-A new serialized format needs testing before Vortex commits to reading it indefinitely. This page
-describes how a format becomes part of a frozen edition and lists the formats in each edition.
-For writer configuration and reader version requirements, see [Using editions](using-editions.md).
-
-**Freezing an edition fixes its formats and reader requirements.** Later versions of the code that
-implements those formats must retain read support. New formats go into later editions.
-
-## Format testing and promotion
-
-A format intended for `core` starts in a dedicated edition family. This lets applications try the
-format before it becomes part of the default writer's output.
-
-The first edition is a _draft_: it has no recorded `min_library_version` and no frozen compatibility
-guarantee. A draft format is expected to be complete. If testing reveals a defect whose correction
-changes what readers must understand, the correction needs a new wire ID and a later edition.
-
-After that initial testing, the format can enter a new `preview` edition so that more applications
-can opt in to it. A later `core` edition can then include it for default use. **The format and its
-wire ID stay the same during promotion.** Only the set of editions that permit it changes.
-
-The current `preview` edition contains no components. Its first component will go into a new
-edition. Optional plugins also have their own families, including `tensor`, `zstd`, `spatial`, and
-`json`, which can add editions independently of `core`.
-
-## Freezing an edition
-
-Each edition family names an _origin_, the project that supplies its component implementations.
-The `core` family uses `vortex` as its origin, so its minimum versions refer to the Vortex Rust
-crates. An independent plugin can have its own origin and version numbers.
-
-A stable edition can freeze when its origin project publishes the code that first supports it. For a
-`core` edition, this happens when the Vortex crates are published. Until that crate version is
-known, the Rust declaration uses `min_library_version: None`. The version is filled in afterward,
-usually while the next crate version is being developed. **Filling in the field records the
-original freeze.** The compatibility guarantee applies from the published crate version, even if
-the declaration is updated later. An independent plugin follows the same process with its own
-project's versions.
-
-**Deprecating a format does not remove the requirement to read it.** A writer can stop choosing
-that format and use other formats permitted by the target edition. Readers must retain support
-for the deprecated format because existing files can contain it.
-
-## Maintaining edition records
-
-Default edition declarations are in `vortex-edition/src/declarations/`. Optional modules keep
-their declarations with their implementation code. The exported TOML records are under
-`vortex/editions/`, grouped by family. The family record names the origin. A frozen edition record
-gives the minimum version of that origin's code.
-
-For a new component, declare its own family and draft edition. For a revision, add a later edition
-to the family that owns the earlier ID. Promotion adds the tested format to new `preview` and
-`core` editions. When an edition freezes, record the first version of its origin's code that
-supports every component in the edition. **Do not change a frozen edition's membership or the
-contracts of its formats.**
-
-Regenerate the records with:
-
-```sh
-cargo run -p xtask -- generate-editions
-```
-
-CI's `check-editions` command rejects changes to frozen records, including renames, unfreezing, and
-deletion. It also rejects a new edition that does not follow its family's chronology. Changes to
-permitted formats require a later edition.
-
-## Edition registry
+This page lists edition membership and reader versions. For configuration, see
+[Using editions](using-editions.md). For the reasoning behind frozen formats and cumulative
+membership, see [How Vortex evolves its formats](design.md).
 
 Each entry lists the components added by that edition. It also permits every component from
 earlier editions in the same family, so an entry does not repeat the complete permitted set.
 
-### Frozen `core` editions
+## Frozen `core` editions
 
 The origin of every edition below is `vortex`. Each minimum refers to the shared version of the
 Vortex Rust crates, including the `vortex` crate.
 
-#### `core2025.05.0`
+### `core2025.05.0`
 
 Minimum Vortex Rust crate version: `0.36.0`.
 
@@ -87,19 +24,19 @@ Minimum Vortex Rust crate version: `0.36.0`.
 - `layout`: `vortex.chunked`, `vortex.dict`, `vortex.flat`, `vortex.stats`, `vortex.struct`
 - `dtype`: `vortex.date`, `vortex.time`, `vortex.timestamp`
 
-#### `core2025.06.0`
+### `core2025.06.0`
 
 Minimum Vortex Rust crate version: `0.40.0`.
 
 - `array`: `vortex.pco`, `vortex.sequence`, `vortex.zstd`
 
-#### `core2025.10.0`
+### `core2025.10.0`
 
 Minimum Vortex Rust crate version: `0.54.0`.
 
 - `array`: `fastlanes.rle`, `vortex.fixed_size_list`, `vortex.listview`, `vortex.masked`
 
-#### `core2026.08.0`
+### `core2026.08.0`
 
 Minimum Vortex Rust crate version: `0.84.0`.
 
@@ -107,52 +44,125 @@ Minimum Vortex Rust crate version: `0.84.0`.
 - `aggregate`: `vortex.bounded_max`, `vortex.bounded_min`, `vortex.max`, `vortex.min`,
   `vortex.nan_count`, `vortex.null_count`
 
-#### `core2026.08.1`
+### `core2026.08.1`
 
 Minimum Vortex Rust crate version: `0.84.0`.
 
 - `array`: `vortex.onpair`
 
-#### `core2026.08.2`
+### `core2026.08.2`
 
 Minimum Vortex Rust crate version: `0.85.0`.
 
 - `array`: `vortex.map`
 
-#### `core2026.08.3`
+### `core2026.08.3`
 
 Minimum Vortex Rust crate version: `0.85.0`.
 
 - `array`: `vortex.parquet.variant`, `vortex.variant`
 - `dtype`: `vortex.uuid`
 
-### Editions without a frozen guarantee
+## Editions without a frozen guarantee
 
 These editions have no recorded minimum version of their origin project's code. New formats and
 revisions get new draft editions. Vortex-maintained draft formats are expected to remain compatible
 unless a defect blocks promotion into `core`. Independent plugin projects state their own policy.
 
-#### `preview2026.08.0`
+### `preview2026.08.0`
 
 This edition currently adds no components.
 
-#### `tensor2026.04.0`
+### `tensor2026.04.0`
 
 - `array`: `vortex.tensor.cosine_similarity`, `vortex.tensor.inner_product`, `vortex.tensor.l2_norm`,
   `vortex.tensor.l2_normalize`
 - `dtype`: `vortex.tensor.fixed_shape_tensor`, `vortex.tensor.vector`
 
-#### `zstd2026.02.0`
+### `zstd2026.02.0`
 
 - `array`: `vortex.zstd_buffers`
 
-#### `spatial2026.08.0`
+### `spatial2026.08.0`
 
 - `dtype`: `vortex.st.box`, `vortex.st.linestring`, `vortex.st.multilinestring`,
   `vortex.st.multipoint`, `vortex.st.multipolygon`, `vortex.st.point`, `vortex.st.polygon`,
   `vortex.st.wkb`
 - `aggregate`: `vortex.st.aabb`
 
-#### `json2026.08.0`
+### `json2026.08.0`
 
 - `dtype`: `vortex.json`
+
+## Component checks
+
+The writer checks the formats it actually serializes against the selected editions. The checks
+cover four kinds of component:
+
+| Kind | Writing rule |
+|---|---|
+| Arrays | Check the serializer's returned wire ID and every serialized child recursively. |
+| Layouts | Check every serialized layout ID. The writing strategy must use permitted layouts. |
+| Extension dtypes | Check all extension dtypes in the schema, including nested ones, before writing bytes. |
+| Aggregate functions | Check every function stored in a zone map against the edition and its format contract. |
+
+A forbidden zone-map aggregate causes the write to fail. Silently omitting it would change which
+filters can use the configured zone map to skip rows. An aggregate that does not apply to a column's
+data type is different: the writer omits it, so there is no serialized component to check.
+
+For example, `core2026.08.0` declares `min`, `max`, `bounded_min`, `bounded_max`, `nan_count`, and
+`null_count`. It does not declare `sum` because zone maps do not store sums. File-level statistics
+store sums in a fixed legacy field governed by the enclosing format's contract.
+
+## Format testing and promotion
+
+A format intended for `core` starts in a dedicated edition family. Its first edition is a draft,
+with no recorded `min_library_version` and no frozen compatibility guarantee. The format is expected
+to be complete. If testing reveals a defect whose correction changes what readers must understand,
+the correction needs a new wire ID and a later edition.
+
+After initial testing, the format can enter a new `preview` edition for broader opt-in use. A later
+`core` edition can include it for default use. Promotion preserves the format and its wire ID. Only
+the editions that permit it change. The current `preview` edition is empty, so its first component
+must go into a new edition.
+
+Optional plugins can also keep their own families, such as `tensor`, `zstd`, `spatial`, and `json`,
+which add editions independently of `core`.
+
+## Freezing an edition
+
+A family names its origin, the project that supplies its implementations. A stable edition can
+freeze when that project publishes the code that first supports all its members. For `core`, the
+origin is `vortex` and the release is a Vortex Rust crate version. Independent plugins follow the
+same process using their own versions.
+
+Until the release version is known, the declaration uses `min_library_version: None`. Once it is
+known, the field records that original release, usually while the next release is in development.
+Filling in the field documents the freeze. The guarantee applies from the recorded release, even
+if the declaration is updated later.
+
+A frozen edition's membership, origin, and minimum version stay fixed. Deprecating a format can stop
+writers from choosing it, but readers must retain support because existing files can contain it.
+
+## Maintaining edition records
+
+Default declarations live in `vortex-edition/src/declarations/`. Optional modules keep declarations
+with their implementation code. The exported TOML records are under `vortex/editions/`, grouped by
+family. Each family names its origin, and each frozen edition records a minimum version of that
+origin's code.
+
+1. For a new component, declare its own family and draft edition. For a revision, add a later
+   edition to the family that owns the earlier ID.
+2. To promote a tested format, add it to new `preview` and `core` editions without changing its ID
+   or contract.
+3. When an edition freezes, record the first release of its origin that supports every permitted
+   component, including inherited members.
+4. Regenerate the records:
+
+   ```sh
+   cargo run -p xtask -- generate-editions
+   ```
+
+CI's `check-editions` command rejects changes to frozen records, including renames, unfreezing, and
+deletion. It also rejects a new edition that does not follow its family's chronology. Changes to
+permitted formats require a later edition.

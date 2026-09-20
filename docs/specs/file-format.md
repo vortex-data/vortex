@@ -107,23 +107,18 @@ as of June 2025, it might look as follows.
 
 ## Backward Compatibility
 
-Backward compatibility guarantees that any **older** Vortex file can be read by **newer** versions of the Vortex library,
-and is expected from all releases of Vortex from version 0.36.0 onwards.
+Later Vortex library versions retain read support for frozen formats, beginning with the formats in
+`core2025.05.0`, supported from version `0.36.0`. The reader must retain the required component
+implementations, including optional plugins. See [Versioning](versioning.md) for the guarantee and
+its boundaries.
 
 ## Forward Compatibility
 
-:::{warning}
-Forward compatibility is not yet implemented, but is planned to ship prior to the 1.0 release.
-:::
+Newer writers can already produce files for older readers by
+[selecting editions](versioning/using-editions.md) whose formats those readers support. That allows
+applications to upgrade independently while continuing to exchange files in supported formats.
 
-Forward compatibility extends the preceding stability guarantee such that **newer** Vortex files can be read by
-**older** versions of the Vortex library.
-
-The intent of this work is to allow us to continue to evolve the Vortex File Format, avoiding calcification
-and remaining up-to-date with new compression codecs and layout optimizations -- without breaking existing
-readers or requiring lockstep upgrades.
-
-The plan is that at write-time, a minimum supported reader version is declared. Any encodings or layouts added after that minimum
-reader version can then be embedded into the file with WebAssembly decompression logic. Old readers are able to decompress new
-data (slower than native code, but still with SIMD acceleration) and read the file. New readers are able to make the best use of
-these encodings with native decompression logic and additional push-down compute functions (which also provides an incentive to upgrade).
+Reading a newly introduced format with an older reader is a separate capability. A proposed approach
+embeds WebAssembly decoding logic for new encodings and layouts in the file. An older reader with
+the required execution support could then interpret them without a native implementation. This
+approach is not implemented and is not part of the edition compatibility guarantee.

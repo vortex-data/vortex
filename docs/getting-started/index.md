@@ -27,3 +27,7 @@ Rust Quickstart <rust>
 C++ Quickstart <cpp>
 Java Quickstart <java>
 ```
+
+For upgrades and files shared between applications, see
+[Versioning and compatibility](../specs/versioning.md). It explains the read guarantee and how to
+target formats supported by older deployments.

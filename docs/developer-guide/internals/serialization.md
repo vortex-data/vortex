@@ -1,9 +1,10 @@
 # Serialization
 
-Vortex uses the same binary representation for arrays in memory, on disk, and over the wire.
-Metadata is stored in FlatBuffers for O(1) field access without parsing, and data buffers are
-stored separately with alignment guarantees that enable zero-copy reads. Appropriate padding is
-written into Vortex files to ensure that segments can be memory-mapped with correct alignment.
+Vortex stores array-tree metadata in FlatBuffers and data buffers separately, with alignment that
+enables zero-copy reads. A serializer can reuse an array's buffers while adapting its metadata or
+children to a supported wire format. The in-memory array and its serialized representation can
+evolve independently, as described in the [versioning design](../../specs/versioning/design.md).
+Padding in Vortex files allows segments to be memory-mapped with the required alignment.
 
 ## Array Serialization
 
@@ -27,9 +28,10 @@ On the wire, a serialized array is:
 [padding] [buffer 0] [padding] [buffer 1] ... [flatbuffer] [u32 flatbuffer length]
 ```
 
-Deserialization constructs an `ArrayParts` value that holds the FlatBuffer and buffer handles
-without copying. The array is then decoded by resolving the array ID through the session's
-registry and calling `build()` on the corresponding vtable.
+`SerializedArray` holds the serialized tree and buffer handles. Decoding resolves the stored wire ID
+through the session's plugin registry and calls the plugin's `deserialize` method with the metadata,
+buffers, and children. The plugin validates that wire format and constructs an array supported by
+the current implementation.
 
 ## IPC Format
 
@@ -107,11 +109,10 @@ bindings, which `build.rs` compiles into `OUT_DIR`. The read/write traits they a
 
 ## Zero-Copy Design
 
-The alignment and padding system is designed so that serialized buffers can be used directly
-as in-memory arrays without copying. When a segment is read from disk or received over the
-network, the I/O subsystem allocates an aligned buffer matching the segment's alignment
-requirement. The resulting buffer handle can be used directly by the array without
-reallocating or copying the data.
+The alignment and padding system allows serialized buffers to be used directly in in-memory arrays
+without copying. When a segment is read from disk or received over the network, the I/O subsystem
+allocates an aligned buffer matching the segment's alignment requirement. The resulting buffer
+handle can be used directly by the array without reallocating or copying the data.
 
-This property holds across all three contexts: in-memory arrays, on-disk file segments, and
-over-the-wire IPC messages all use the same layout and alignment conventions.
+Reusing buffers does not require the reader's array tree to have the same structure as the serialized
+tree. A plugin can adapt a historical format while retaining its data buffers.

@@ -72,7 +72,7 @@ internals. Build and benchmark locally.
   [ALP](https://github.com/spiraldb/alp) — no decompression needed for many operations.
 
 - **Extensible file format**: Zero-allocation reads, FlatBuffer metadata for O(1) column access,
-  and optional WASM decompression kernels for forward compatibility.
+  and [editions](specs/versioning.md) for writing formats supported by older readers.
 
 - **Query engine integration**: Filter and projection pushdown through the Scan API, with native
   integrations for DataFusion, DuckDB, Spark, Trino, and Ray.
