@@ -7,11 +7,15 @@ use arrow_buffer::ArrowNativeType;
 use arrow_buffer::MutableBuffer;
 use arrow_buffer::ScalarBuffer;
 use divan::Bencher;
+use mimalloc::MiMalloc;
 use num_traits::PrimInt;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_err;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     divan::main();

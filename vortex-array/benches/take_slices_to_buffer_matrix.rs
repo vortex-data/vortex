@@ -14,12 +14,16 @@
 
 use divan::Bencher;
 use divan::counter::BytesCount;
+use mimalloc::MiMalloc;
 use rand::SeedableRng;
 use rand::prelude::*;
 use rand_distr::Distribution;
 use rand_distr::Normal;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     divan::main();

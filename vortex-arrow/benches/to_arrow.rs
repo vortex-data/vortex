@@ -13,6 +13,7 @@ use arrow_schema::Field;
 use divan::Bencher;
 use divan::counter::ItemsCount;
 use itertools::iproduct;
+use mimalloc::MiMalloc;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -47,6 +48,9 @@ use vortex_onpair::DEFAULT_CONFIG;
 use vortex_onpair::onpair_compress;
 use vortex_session::VortexSession;
 use vortex_zstd::Zstd;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     LazyLock::force(&SESSION);

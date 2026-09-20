@@ -3,6 +3,8 @@
 
 #![expect(clippy::unwrap_used)]
 
+use mimalloc::MiMalloc;
+
 #[cfg(not(codspeed))]
 mod benchmarks {
     use std::sync::LazyLock;
@@ -61,6 +63,9 @@ mod benchmarks {
             });
     }
 }
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     divan::main()

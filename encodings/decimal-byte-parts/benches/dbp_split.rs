@@ -8,6 +8,7 @@ mod common;
 
 use divan::Bencher;
 use divan::black_box;
+use mimalloc::MiMalloc;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -21,6 +22,9 @@ use vortex_mask::Mask;
 use crate::common::cases;
 use crate::common::i128_values;
 use crate::common::i256_values;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     divan::main();

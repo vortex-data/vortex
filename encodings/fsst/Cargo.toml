@@ -32,6 +32,7 @@ _test-harness = ["dep:rand", "vortex-array/_test-harness"]
 
 [dev-dependencies]
 divan = { workspace = true }
+mimalloc = { workspace = true }
 rand = { workspace = true }
 rstest = { workspace = true }
 test-with = { workspace = true }

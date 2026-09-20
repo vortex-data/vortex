@@ -17,11 +17,15 @@
 use std::sync::LazyLock;
 
 use divan::Bencher;
+use mimalloc::MiMalloc;
 use vortex_array::VortexSessionExecute;
 use vortex_array::array_session;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_session::VortexSession;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     divan::main();

@@ -20,6 +20,7 @@ use std::sync::LazyLock;
 
 use divan::Bencher;
 use divan::counter::ItemsCount;
+use mimalloc::MiMalloc;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
@@ -38,6 +39,9 @@ use vortex_layout::layouts::zoned::aggregates::bloom_filter::BloomFilter;
 use vortex_layout::layouts::zoned::aggregates::bloom_filter::BloomOptions;
 use vortex_layout::layouts::zoned::aggregates::bloom_filter::HashFn;
 use vortex_session::VortexSession;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     LazyLock::force(&SESSION);

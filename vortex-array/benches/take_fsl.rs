@@ -15,6 +15,7 @@ use std::sync::LazyLock;
 
 use divan::Bencher;
 use divan::counter::BytesCount;
+use mimalloc::MiMalloc;
 use num_traits::FromPrimitive;
 use rand::RngExt;
 use rand::SeedableRng;
@@ -39,6 +40,9 @@ use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_session::VortexSession;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     LazyLock::force(&SESSION);

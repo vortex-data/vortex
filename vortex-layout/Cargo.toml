@@ -64,6 +64,7 @@ divan = { workspace = true }
 futures = { workspace = true, features = ["executor"] }
 goldenfile = { workspace = true }
 insta = { workspace = true }
+mimalloc = { workspace = true }
 rand = { workspace = true }
 rstest = { workspace = true }
 temp-env = { workspace = true }

@@ -8,6 +8,7 @@ mod common;
 
 use divan::Bencher;
 use divan::black_box;
+use mimalloc::MiMalloc;
 use vortex_array::dtype::DecimalType;
 use vortex_array::dtype::i256;
 use vortex_buffer::buffer;
@@ -21,6 +22,9 @@ use vortex_mask::Mask;
 use crate::common::cases;
 use crate::common::i128_values;
 use crate::common::i256_values;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     divan::main();

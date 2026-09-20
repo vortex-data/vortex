@@ -40,6 +40,7 @@ use arrow_cast::CastOptions;
 use arrow_cast::cast_with_options;
 use arrow_schema::DataType;
 use divan::Bencher;
+use mimalloc::MiMalloc;
 use num_traits::AsPrimitive;
 use num_traits::NumCast;
 use rand::SeedableRng;
@@ -52,6 +53,9 @@ use vortex_compute::lane_kernels::IndexedSinkExt;
 use vortex_compute::lane_kernels::IndexedSourceExt;
 use vortex_compute::lane_kernels::LaneZip;
 use vortex_compute::lane_kernels::ReinterpretSink;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     assert_overflow_parity();

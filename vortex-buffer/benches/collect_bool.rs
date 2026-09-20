@@ -28,11 +28,15 @@
 //! A plain `cargo bench` ignores all of it and runs everything on the host.
 
 use divan::Bencher;
+use mimalloc::MiMalloc;
 use vortex_buffer::BitBuffer;
 #[cfg(not(codspeed))]
 use vortex_buffer::collect_bool_word_scalar;
 #[cfg(not(codspeed))]
 use vortex_buffer::pack_bool_word_swar;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     // Pre-warm CPUID feature detection so the one-time probe cost is never

@@ -12,6 +12,7 @@ use allocator_api2::alloc::Global;
 use arrow_buffer::MutableBuffer;
 use bytes::BytesMut;
 use divan::Bencher;
+use mimalloc::MiMalloc;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
@@ -22,6 +23,9 @@ const SIZES: &[usize] = &[64, 256, 1024, 16_384, 65_536];
 
 /// Allocate-and-drop pairs per timed iteration.
 const BATCH: usize = 256;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     divan::main();

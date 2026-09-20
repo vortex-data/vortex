@@ -182,16 +182,22 @@ trace — including cache and memory access costs. This has several implications
   [walltime instrument](https://codspeed.io/docs/instruments/walltime) or be gated with
   `#[cfg(not(codspeed))]`.
 
-### Prefer `mimalloc` for throughput benchmarks
+### Use `mimalloc` as the global allocator
 
-Throughput benchmarks should use `mimalloc` as the global allocator to reduce system allocator
-noise:
+Every benchmark binary uses `mimalloc` as its global allocator:
 
 ```rust
 use mimalloc::MiMalloc;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 ```
+
+The system allocator's cost depends on its state, which differs between runner images and between
+runs, so allocation inside a timed region made several simulation benchmarks flip between two
+values on pull requests that could not have affected them. `mimalloc` does the same work every
+time, and one allocator for every binary means no benchmark measures a different allocator from
+its neighbours. Add the two lines to every new benchmark file; each crate with benchmarks already
+has the `mimalloc` dev-dependency.
 
 ## SQL Benchmarks
 

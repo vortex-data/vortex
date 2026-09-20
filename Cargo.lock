@@ -10598,6 +10598,7 @@ dependencies = [
  "alp",
  "codspeed-divan-compat",
  "itertools 0.14.0",
+ "mimalloc",
  "num-traits",
  "prost 0.14.4",
  "rand 0.10.2",
@@ -10694,6 +10695,7 @@ dependencies = [
  "arrow-select 59.3.0",
  "codspeed-divan-compat",
  "itertools 0.14.0",
+ "mimalloc",
  "num-traits",
  "rstest",
  "simdutf8",
@@ -10786,6 +10788,7 @@ dependencies = [
  "codspeed-divan-compat",
  "insta",
  "itertools 0.14.0",
+ "mimalloc",
  "pco",
  "rand 0.10.2",
  "rstest",
@@ -10826,6 +10829,7 @@ dependencies = [
  "codspeed-divan-compat",
  "itertools 0.14.0",
  "memmap2",
+ "mimalloc",
  "num-traits",
  "rstest",
  "serde",
@@ -10911,6 +10915,7 @@ version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
  "itertools 0.14.0",
+ "mimalloc",
  "num-traits",
  "parking_lot",
  "rand 0.10.2",
@@ -10934,6 +10939,7 @@ dependencies = [
  "arrow-cast 59.3.0",
  "arrow-schema 59.3.0",
  "codspeed-divan-compat",
+ "mimalloc",
  "num-traits",
  "rand 0.10.2",
  "vortex-bench-support",
@@ -11047,6 +11053,7 @@ name = "vortex-datetime-parts"
 version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
+ "mimalloc",
  "num-traits",
  "prost 0.14.4",
  "rand 0.10.2",
@@ -11064,6 +11071,7 @@ version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
  "hegeltest",
+ "mimalloc",
  "num-traits",
  "prost 0.14.4",
  "rand 0.10.2",
@@ -11145,6 +11153,7 @@ dependencies = [
  "fastlanes 0.7.2",
  "itertools 0.14.0",
  "lending-iterator",
+ "mimalloc",
  "num-traits",
  "prost 0.14.4",
  "rand 0.10.2",
@@ -11194,6 +11203,7 @@ dependencies = [
  "futures",
  "itertools 0.14.0",
  "kanal",
+ "mimalloc",
  "moka",
  "object_store",
  "parking_lot",
@@ -11237,6 +11247,7 @@ version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
  "fsst-rs",
+ "mimalloc",
  "num-traits",
  "prost 0.14.4",
  "rand 0.10.2",
@@ -11384,6 +11395,7 @@ dependencies = [
  "insta",
  "itertools 0.14.0",
  "kanal",
+ "mimalloc",
  "moka",
  "once_cell",
  "parking_lot",
@@ -11422,6 +11434,7 @@ version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
  "itertools 0.14.0",
+ "mimalloc",
  "rstest",
  "serde",
  "vortex-buffer",
@@ -11453,6 +11466,7 @@ name = "vortex-onpair"
 version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
+ "mimalloc",
  "num-traits",
  "onpair",
  "prost 0.14.4",
@@ -11495,6 +11509,7 @@ name = "vortex-pco"
 version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
+ "mimalloc",
  "pco",
  "prost 0.14.4",
  "rstest",
@@ -11637,6 +11652,7 @@ version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
  "itertools 0.14.0",
+ "mimalloc",
  "num-traits",
  "prost 0.14.4",
  "rstest",

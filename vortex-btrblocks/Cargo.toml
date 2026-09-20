@@ -42,6 +42,7 @@ vortex-zstd = { workspace = true, optional = true }
 arrow-array = { workspace = true }
 divan = { workspace = true }
 insta = { workspace = true }
+mimalloc = { workspace = true }
 rstest = { workspace = true }
 test-with = { workspace = true }
 tpchgen = { workspace = true }

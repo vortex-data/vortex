@@ -65,6 +65,7 @@ vortex-build = { workspace = true }
 [dev-dependencies]
 allocator-api2 = { workspace = true }
 divan = { workspace = true }
+mimalloc = { workspace = true }
 rstest = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 vortex-array = { workspace = true, features = ["_test-harness"] }

@@ -6,6 +6,7 @@
 use std::sync::LazyLock;
 
 use divan::Bencher;
+use mimalloc::MiMalloc;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::RecursiveCanonical;
@@ -27,6 +28,9 @@ use vortex_fsst::test_utils::LOW_MATCH_DOMAIN;
 use vortex_fsst::test_utils::NUM_STRINGS;
 use vortex_fsst::test_utils::generate_url_data;
 use vortex_session::VortexSession;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     divan::main();
