@@ -1,4 +1,4 @@
-# How Vortex evolves its formats
+# Versioning design
 
 A file can outlive the application that wrote it. Its readers can also belong to different services,
 with different upgrade schedules. Meanwhile, the library writing those files needs to improve its
@@ -6,16 +6,14 @@ compression algorithms and in-memory data structures. Tying every such change to
 would force readers to upgrade even when the stored data could remain the same.
 
 Vortex separates the implementation used by an application from the serialized formats it reads and
-writes. An application selects an _edition_ to limit its writer's output to a known set of formats.
-The [versioning overview](../versioning.md) describes the deployment guarantee. This page explains
-how those pieces fit together and what their implementations must preserve.
+writes. The [versioning overview](../versioning.md) describes the compatibility guarantee.
 
-## What changes independently
+## Versions and formats
 
 A library release supplies code: array implementations, compression algorithms, readers, and writers.
 A serialized format specifies how to interpret stored metadata and buffers. Its _wire ID_ identifies
 that contract, including the supported data types and any child arrays. An edition groups these IDs
-into a set of permitted formats, giving a writer a named target for compatible output.
+into a set of permitted formats.
 
 For example, a newer library can improve how it compresses a dictionary's values while keeping the
 same dictionary format. It can also change its internal array fields while retaining code to read
@@ -25,7 +23,7 @@ The file container has a separate [version tag](../file-format.md#file-specifica
 the enclosing format. Component wire IDs describe the arrays and other structures within that
 container, so those components can evolve independently.
 
-## From values to a file and back
+## Serialization
 
 In Vortex, compression produces an encoded array in memory. The default compressor chooses among
 _compression schemes_, each of which changes the representation while preserving values, data types,
@@ -41,13 +39,8 @@ registered plugins that interpret those formats.
 ```{figure} ../../_static/versioning-flow.svg
 :alt: Edition checks constrain writing. Stored wire IDs select the reader's plugins.
 
-The array path through the default writer and a reader. Edition selection constrains writing.
-The reader uses its own library implementations to decode the formats stored in the file.
+Serialization and reading can use different versions of the library.
 ```
-
-This separation lets one current plugin read several historical formats. It also lets a writer use
-an older format when the current array's structure fits that format, without constructing an old
-version of the Rust array type.
 
 ## Example: decimal children
 
@@ -83,7 +76,7 @@ children to determine whether they could fit in one integer child. An array with
 the extended format even if its values happen to be small. There is no need for a format-version
 field on the in-memory array to distinguish these cases.
 
-### Choosing a writable format
+### Format selection
 
 A serializer must choose the oldest supported writable format that preserves the array's
 representation without recompression. A plugin can adapt metadata, buffers, or children to fit an
@@ -103,7 +96,7 @@ exceptional values, called patches, inside the ALP array. The current plugin rea
 `Patched` parent around an ALP child without patches. The values stay the same even though the
 reader's array tree differs from the stored tree.
 
-## Compatibility includes the children
+## Children and other components
 
 Suppose the decimal serializer selects the original wire ID, but its integer child uses an encoding
 that the target edition forbids. Checking only the decimal ID would accept a file that the intended
@@ -127,17 +120,15 @@ rules for each kind.
 The kind and ID together identify a contract. For example, the array and layout named
 `vortex.chunked` are separate components. Supporting one does not imply support for the other.
 
-## Editions as deployment targets
+## Editions
 
 Applications need a way to select compatible output without maintaining their own inventory of
 every component. A frozen edition gives that inventory a stable name and records a library version
 that supports all its members. New formats require a later edition, leaving the earlier target
-available to writers serving older deployments.
+available to writers targeting older versions.
 
 An _edition family_ groups editions for related components. Membership is cumulative within a
-family: each later edition includes all earlier members. An application can opt into additional
-formats by changing its target, while the writer remains free to choose an earlier format.
-Permitting a newer format does not require every output to use it.
+family: each later edition includes all earlier members.
 
 The `core` family covers the default writer's formats. Optional features have independent families.
 A writer can select one `core` edition and one `tensor` edition, for example, and use the union of
@@ -151,53 +142,21 @@ possible combination. Versions must meet the minimum for each origin, and the im
 be registered in the reader.
 
 An edition declaration supplies permissions, not implementations. Registering a later declaration
-with an older library does not teach that library to read or write new formats. Conversely, a
-reader with the required implementations does not need the writer's edition selection to interpret
-the IDs in a file.
+with an older library does not teach that library to read or write new formats.
 
-## Compatibility tables
-
-Writing and reading answer different questions. Writing checks the format selected by the plugin
-against the target's permissions. Reading checks the format actually in the file against the
-reader's implementations.
-
-The following tables use the two decimal formats above. The current core editions permit the
-original format. An illustrative later edition permits both. No declared edition currently permits
-`vortex.decimal_byte_parts.v2`, so the later edition here is an example, not a selectable release.
-Assume the other components of the file are permitted and supported.
-
-| Serializer output | Target permits original only | Target permits both |
-|---|---|---|
-| Original format, one signed child | Allowed | Allowed |
-| Extended format, additional lower parts | Rejected | Allowed |
-
-These outcomes depend on the serializer's actual output. The table does not assume that compression
-can construct either shape for every input.
-
-| Format in the file | Reader supporting original only | Reader supporting both |
-|---|---|---|
-| Original format | Reads | Reads |
-| Extended format | Unknown ID | Reads |
-
-An old writer that supports only the original format cannot produce the extended format, even with
-a later edition declaration. A new writer can still produce the original format. This is why the
-writer's library version alone cannot determine whether an older reader can read its output.
-
-The recorded minimum version promises support for an edition's entire permitted set. A file that
-uses only a subset can sometimes be read by an earlier version. That possibility does not establish
-that the earlier version can read every file produced under the same edition selection.
+The [compatibility matrix](compatibility.md) shows the combinations of writer version, edition,
+serialized format, and reader version.
 
 ## Compatibility invariants
-
-The examples rely on six rules:
 
 1. **A frozen wire contract is immutable.** Its valid data types, metadata, buffers, children,
    options, and meanings stay fixed. A reader-visible extension requires a new ID.
 2. **Compression, serialization, and reading preserve meaning.** Each serializer produces a valid
    instance of its chosen contract. Each reader enforces that exact contract. All three operations
    preserve values, data types, nulls, and the meaning of other components.
-3. **Later implementations retain historical read support.** Frozen formats remain readable even
-   after writers stop choosing them. Edition selection does not restrict what a reader can read.
+3. **Readers preserve backward compatibility.** Later implementations retain read support for frozen
+   formats, including those writers no longer choose. Edition selection does not restrict what a
+   reader can read.
 4. **Frozen edition records are immutable.** Membership, origin, and recorded minimum stay fixed.
    Membership is cumulative within each family. Selecting multiple families takes their union.
 5. **Edition enforcement covers the whole output.** Every serialized component must be permitted,
@@ -212,42 +171,35 @@ IDs used by the file ⊆ IDs permitted by the editions ⊆ IDs supported by the 
 ```
 
 The IDs here include their component kinds. With valid serialized data, correct implementations, and
-support for the enclosing file format, the reader can interpret the output. Retaining those
-contracts and implementations preserves that ability across later releases.
+support for the enclosing file format, the reader can interpret the output.
 
 This read guarantee is separate from a writer's ability to produce suitable output. A writer must
 retain the behavior needed for the target editions it supports, but it does not need to retain every
-historical writing implementation. Its oldest-format selection policy and compression choices
-determine how it produces that output.
+historical writing implementation.
 
-## Introducing a format
+## New formats
 
-A new format needs testing before its implementation takes on the obligation to read it
-indefinitely. A format intended for `core` starts in a dedicated edition family, then can enter
-`preview` for broader opt-in use, and finally a later `core` edition for default use. Promotion
-changes which editions permit the format. Its wire ID and interpretation remain the same.
+A new format starts in a draft edition so it can be tested before its origin commits to reading it
+indefinitely. Drafts have no recorded minimum version or frozen guarantee. A format intended for
+`core` can progress from its own family to `preview` for broader testing, then to `core` for default
+use. Promotion preserves its wire ID and interpretation. The
+[registry instructions](editions.md#format-testing-and-promotion) cover promotion, freezing, and
+recording the minimum version.
 
-A draft edition has no recorded minimum version and no frozen guarantee. A frozen edition records
-the first release of its origin that supports all its members. The
-[registry maintenance instructions](editions.md#maintaining-edition-records) describe when to record
-that release and how to introduce revisions. Deprecating a format can stop writers from choosing
-it, but cannot remove the obligation to read existing files.
-
-## Current compression behavior and its limit
+## Compression
 
 The default BtrBlocks compressor filters schemes by their declared output wire IDs. A scheme is
 excluded if any declared ID is forbidden. Schemes used for child compression go through the same
-filtering. Final serialization checks still reject forbidden output, including output from custom
-compressors.
+filtering.
 
 The current decimal scheme produces only single-child arrays and declares the original wire ID.
 Values too wide for it remain in the standard uncompressed decimal representation. The multi-child
-serializer exists, but the default scheme does not construct those arrays and no edition permits
-their newer ID.
+serializer exists, but the default scheme does not construct those arrays and no declared edition
+permits their newer ID.
+
+### Planned scheme configuration
 
 The planned improvement is to configure a scheme's behavior for the selected editions, allowing it
 to retain an older mode when its newer mode requires a forbidden format. That configuration needs
 to apply consistently to estimation, sampling, full compression, children, and fallbacks.
-General per-writer scheme configuration is not implemented, and its API is unsettled. It improves
-which compatible representations the compressor can produce. The final output checks already
-establish the edition restriction.
+General per-writer scheme configuration is not implemented, and its API is unsettled.

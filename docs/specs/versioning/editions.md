@@ -1,11 +1,8 @@
 # Edition registry
 
-This page lists edition membership and reader versions. For configuration, see
-[Using editions](using-editions.md). For the reasoning behind frozen formats and cumulative
-membership, see [How Vortex evolves its formats](design.md).
-
 Each entry lists the components added by that edition. It also permits every component from
-earlier editions in the same family, so an entry does not repeat the complete permitted set.
+earlier editions in the same family. See [Using editions](using-editions.md) for configuration and
+[Versioning design](design.md) for the compatibility rules.
 
 ## Frozen `core` editions
 
@@ -63,7 +60,7 @@ Minimum Vortex Rust crate version: `0.85.0`.
 - `array`: `vortex.parquet.variant`, `vortex.variant`
 - `dtype`: `vortex.uuid`
 
-## Editions without a frozen guarantee
+## Draft editions
 
 These editions have no recorded minimum version of their origin project's code. New formats and
 revisions get new draft editions. Vortex-maintained draft formats are expected to remain compatible
@@ -126,15 +123,10 @@ After initial testing, the format can enter a new `preview` edition for broader 
 the editions that permit it change. The current `preview` edition is empty, so its first component
 must go into a new edition.
 
-Optional plugins can also keep their own families, such as `tensor`, `zstd`, `spatial`, and `json`,
-which add editions independently of `core`.
-
 ## Freezing an edition
 
-A family names its origin, the project that supplies its implementations. A stable edition can
-freeze when that project publishes the code that first supports all its members. For `core`, the
-origin is `vortex` and the release is a Vortex Rust crate version. Independent plugins follow the
-same process using their own versions.
+A stable edition can freeze when its origin publishes the code that first supports all its members.
+For `core`, this is a Vortex Rust crate release. Independent plugins use their own versions.
 
 Until the release version is known, the declaration uses `min_library_version: None`. Once it is
 known, the field records that original release, usually while the next release is in development.
@@ -148,8 +140,7 @@ writers from choosing it, but readers must retain support because existing files
 
 Default declarations live in `vortex-edition/src/declarations/`. Optional modules keep declarations
 with their implementation code. The exported TOML records are under `vortex/editions/`, grouped by
-family. Each family names its origin, and each frozen edition records a minimum version of that
-origin's code.
+family.
 
 1. For a new component, declare its own family and draft edition. For a revision, add a later
    edition to the family that owns the earlier ID.
