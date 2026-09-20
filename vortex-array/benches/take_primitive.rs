@@ -29,8 +29,9 @@ fn main() {
 /// Number of indices to take. The top tier is sized to keep CodSpeed simulation under 1ms.
 const NUM_INDICES: &[usize] = &[1_000, 10_000, 25_000];
 
-/// Large enough to measure both cache-resident and streaming dictionary decoding.
-const GT_NUM_INDICES: &[usize] = &[1_000_000, 16_000_000];
+/// One million codes is the largest input that keeps the walltime legs under the 1 ms budget. A
+/// 16 million case ran for 7 ms to 11 ms and swung by up to 60% between runs of identical code.
+const GT_NUM_INDICES: &[usize] = &[1_000_000];
 
 /// Size of the source vector / dictionary values.
 const VECTOR_SIZE: &[usize] = &[16, 256, 2048, 8192];

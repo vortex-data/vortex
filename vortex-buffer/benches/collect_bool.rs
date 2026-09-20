@@ -46,6 +46,14 @@ fn main() {
 
 const INPUT_SIZE: &[usize] = &[1024, 65_536];
 
+/// Sizes for the `words_gather_*` benchmarks.
+///
+/// The tagged pair is measured on the walltime legs, where a 1024-bool gather ran in tens of
+/// nanoseconds, within timer resolution, and its reported time moved by 2x between runs of
+/// identical code. A million bools keeps each iteration in the tens to hundreds of microseconds
+/// and the scalar loop still well under the 1 ms budget.
+const GATHER_INPUT_SIZE: &[usize] = &[65_536, 1_048_576];
+
 /// Deterministic pseudo-random words (LCG), the source for all benchmark inputs.
 fn make_words(len: usize) -> impl Iterator<Item = u64> {
     let mut state = 0x9E37_79B9_7F4A_7C15u64;
@@ -107,7 +115,7 @@ fn bench_words_gather(
 }
 
 #[vortex_bench_support::cpu_features]
-#[divan::bench(args = INPUT_SIZE)]
+#[divan::bench(args = GATHER_INPUT_SIZE)]
 fn words_gather_dispatch(bencher: Bencher, len: usize) {
     bench_words_gather(bencher, len, |words, len, bools| {
         // SAFETY: `collect_bool_words` invokes the predicate with indices `0..len` only.
@@ -116,7 +124,7 @@ fn words_gather_dispatch(bencher: Bencher, len: usize) {
 }
 
 #[vortex_bench_support::cpu_features]
-#[divan::bench(args = INPUT_SIZE)]
+#[divan::bench(args = GATHER_INPUT_SIZE)]
 fn words_gather_scalar(bencher: Bencher, len: usize) {
     bench_words_gather(bencher, len, |words, len, bools| {
         // SAFETY: `collect_bool_words_old` invokes the predicate with indices `0..len` only.
@@ -126,7 +134,7 @@ fn words_gather_scalar(bencher: Bencher, len: usize) {
 
 #[cfg(target_arch = "x86_64")]
 #[cfg(not(codspeed))]
-#[divan::bench(args = INPUT_SIZE)]
+#[divan::bench(args = GATHER_INPUT_SIZE)]
 fn words_gather_sse2(bencher: Bencher, len: usize) {
     bench_words_gather(bencher, len, |words, len, bools| {
         // SAFETY: SSE2 is part of the x86-64 baseline; indices passed are `0..len`.
@@ -136,7 +144,7 @@ fn words_gather_sse2(bencher: Bencher, len: usize) {
 
 #[cfg(target_arch = "x86_64")]
 #[cfg(not(codspeed))]
-#[divan::bench(args = INPUT_SIZE)]
+#[divan::bench(args = GATHER_INPUT_SIZE)]
 fn words_gather_avx2(bencher: Bencher, len: usize) {
     if !is_x86_feature_detected!("avx2") {
         return;
@@ -149,7 +157,7 @@ fn words_gather_avx2(bencher: Bencher, len: usize) {
 
 #[cfg(target_arch = "x86_64")]
 #[cfg(not(codspeed))]
-#[divan::bench(args = INPUT_SIZE)]
+#[divan::bench(args = GATHER_INPUT_SIZE)]
 fn words_gather_avx512(bencher: Bencher, len: usize) {
     if !(is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("avx512bw")) {
         return;
@@ -162,7 +170,7 @@ fn words_gather_avx512(bencher: Bencher, len: usize) {
 
 #[cfg(target_arch = "aarch64")]
 #[cfg(not(codspeed))]
-#[divan::bench(args = INPUT_SIZE)]
+#[divan::bench(args = GATHER_INPUT_SIZE)]
 fn words_gather_neon(bencher: Bencher, len: usize) {
     bench_words_gather(bencher, len, |words, len, bools| {
         // SAFETY: NEON is part of the aarch64 baseline; indices passed are `0..len`.

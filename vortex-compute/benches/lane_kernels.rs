@@ -54,7 +54,16 @@ fn main() {
     divan::main();
 }
 
+/// Lanes per cast input; the casts run in simulation.
 const SIZES: &[usize] = &[16_384];
+
+/// Lanes per checked-add input; the checked adds run on the walltime legs.
+///
+/// Walltime needs longer iterations than simulation: at 16_384 lanes an iteration took a few
+/// microseconds and its reported time flipped by up to 25% between runs of identical code.
+/// 65_536 lanes make each iteration several times longer while two inputs, two masks, and the
+/// output still fit in a 1 MiB L2 cache.
+const ADD_SIZES: &[usize] = &[65_536];
 
 // -----------------------------------------------------------------------------
 // Cast fixture (u64/u16/i32 lanes + a single validity mask).
@@ -330,7 +339,7 @@ fn add_fixture(n: usize) -> AddFixture {
 }
 
 #[vortex_bench_support::cpu_features]
-#[divan::bench(args = SIZES)]
+#[divan::bench(args = ADD_SIZES)]
 fn lanezip_checked_add_u32(bencher: Bencher, n: usize) {
     let f = add_fixture(n);
     bencher
@@ -353,7 +362,7 @@ fn lanezip_checked_add_u32(bencher: Bencher, n: usize) {
 }
 
 #[vortex_bench_support::cpu_features]
-#[divan::bench(args = SIZES)]
+#[divan::bench(args = ADD_SIZES)]
 fn arrow_checked_add_u32(bencher: Bencher, n: usize) {
     let f = add_fixture(n);
     let lhs_arr: ArrowArrayRef = Arc::new(UInt32Array::new(

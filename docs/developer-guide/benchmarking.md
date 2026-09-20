@@ -134,6 +134,27 @@ benchmark binary takes. CodSpeed reports exactly that: its performance report on
 request lists the per-iteration time under `HEAD` for every benchmark the pull request adds
 or changes, so check any new benchmark there before merging.
 
+### Keep per-iteration work above the harness floor
+
+The budget has a floor as well as a ceiling. CodSpeed runs each benchmark once and adds a fixed
+cost of roughly half a microsecond of reported time around the closure. A closure that does tens
+of nanoseconds of real work, such as one small allocation or a fast path that finds nothing to
+do, reports mostly that floor, and the floor moves by more than 10% between runs of identical
+code. Such benchmarks flag regressions on pull requests that do not touch Rust at all.
+
+Aim for at least a few microseconds of real work per iteration:
+
+- When the operation itself is tiny, repeat it a fixed number of times inside the closure and
+  black-box each result, as `vortex-buffer/benches/allocation.rs` does.
+- Drop degenerate inputs, such as a zero-byte allocation or a compaction with nothing to move.
+- Size inputs by bytes rather than element count so narrow and wide types land in the same
+  range, as `vortex-array/benches/filter_fixed_width.rs` does.
+
+Benchmarks tagged `#[cpu_features]` run on the walltime legs instead, where the floor is timer
+resolution and per-iteration jitter. Give those at least tens of microseconds per iteration, and
+keep the working set inside the L2 cache of the leg machines (1 MiB on the Graviton leg) when the
+benchmark is about kernel code rather than memory bandwidth.
+
 ### Gate CodSpeed-incompatible benchmarks
 
 Use `#[cfg(not(codspeed))]` for benchmarks that are incompatible with CodSpeed.
