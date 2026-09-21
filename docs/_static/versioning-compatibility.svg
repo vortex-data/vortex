@@ -2,16 +2,16 @@
      role="img" aria-labelledby="title description">
   <!-- SPDX-License-Identifier: CC-BY-4.0 -->
   <!-- SPDX-FileCopyrightText: Copyright the Vortex contributors -->
-  <title id="title">How array plugins preserve compatibility across memory and wire formats</title>
+  <title id="title">How array plugins convert between in-memory encodings and wire formats</title>
   <desc id="description">
     Writing starts with an in-memory array. Its ID selects a serializer plugin.
     If no plugin can serialize this representation, the write fails. Otherwise, the plugin chooses
     the oldest supported writable format that preserves the representation without recompression.
     The plugin returns a wire ID, metadata, buffers, and child arrays. It can adapt these components
     to the selected wire contract. Each returned child is serialized recursively. The writer checks
-    all returned IDs against the editions,
-    along with layouts, extension types, and stored aggregates. Forbidden output fails the write,
-    without retrying with a different permitted wire ID. After a successful write, the
+    all returned IDs against the editions, along with layouts, extension types, and stored
+    aggregates. If any ID is forbidden, the write fails without retrying a different permitted ID.
+    After a successful write, the
     reader must support the file format and have plugins for the stored wire IDs. Each plugin
     validates the stored ID's contract and constructs an in-memory array, adapting the
     structure when needed and reusing buffers where possible. Missing support or invalid serialized
@@ -78,7 +78,7 @@
 
     <rect x="24" y="292" width="300" height="76" rx="8" fill="#fff3eb" stroke="#b77a51"/>
     <text x="174" y="319" font-size="19" font-weight="bold">Write fails</text>
-    <text x="174" y="345" font-size="16">No serializer or writable format.</text>
+    <text x="174" y="345" font-size="16">No serializer or writable format exists.</text>
 
     <text x="534" y="310" font-size="17" fill="#475569">If another encoding is needed,</text>
     <text x="534" y="334" font-size="17" fill="#475569">recompress the array before</text>
@@ -86,7 +86,7 @@
 
     <rect x="744" y="292" width="300" height="76" rx="8" fill="#fff3eb" stroke="#b77a51"/>
     <text x="894" y="319" font-size="19" font-weight="bold">Write fails: forbidden output</text>
-    <text x="894" y="345" font-size="16">No retry with a different permitted ID.</text>
+    <text x="894" y="345" font-size="16">The writer does not retry another ID.</text>
 
     <rect x="394" y="392" width="292" height="62" rx="8" fill="#eaf3fc" stroke="#2563a6"/>
     <text x="540" y="417" font-size="19" font-weight="bold">File: wire IDs and data</text>
@@ -115,7 +115,7 @@
 
     <rect x="24" y="704" width="300" height="62" rx="8" fill="#fff3eb" stroke="#b77a51"/>
     <text x="174" y="730" font-size="18" font-weight="bold">Missing reader support</text>
-    <text x="174" y="754" font-size="16">Unsupported file format or unknown ID.</text>
+    <text x="174" y="754" font-size="16">The file format or an ID is unsupported.</text>
 
     <rect x="384" y="704" width="300" height="62" rx="8" fill="#fff3eb" stroke="#b77a51"/>
     <text x="534" y="730" font-size="18" font-weight="bold">Reject invalid serialized data</text>

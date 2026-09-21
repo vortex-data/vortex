@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="388" viewBox="0 0 1040 388"
+     role="img" aria-labelledby="title description">
+  <!-- SPDX-License-Identifier: CC-BY-4.0 -->
+  <!-- SPDX-FileCopyrightText: Copyright the Vortex contributors -->
+  <title id="title">Writers check permissions, while readers validate contracts.</title>
+  <desc id="description">
+    On writing, in-memory array IDs select serializer plugins. The plugins return wire IDs,
+    metadata, buffers, and children, which are recursively serialized. Edition checks reject any
+    forbidden output ID, including children's IDs, without retrying a different wire format.
+    On reading, stored wire IDs select registered deserializer plugins. An unknown ID causes an
+    error. The plugins validate metadata, buffers, data types, and children against each stored
+    contract. Invalid data causes an error. Successful decoding constructs the reader&#x27;s in-memory
+    encodings, adapting structure while preserving values, data types, and nulls. These are logical
+    groups of checks, not an exact execution timeline. The enclosing file format must be supported,
+    serializers must be available, edition enforcement is enabled, and unknown IDs are rejected.
+  </desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6"
+            markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 Z" fill="#475569"/>
+    </marker>
+  </defs>
+  <rect width="1040" height="388" rx="12" fill="#ffffff"/>
+  <g font-family="Arial, Helvetica, sans-serif" fill="#172033">
+    <text x="24" y="32" font-size="24" font-weight="bold">Writers check permissions, while readers validate contracts.</text>
+    <text x="24" y="59" font-size="16" fill="#475569">Edition checks are enabled, unknown IDs are rejected, and serializers and file support are available.</text>
+    <text x="24" y="118" font-size="17" font-weight="bold">WRITE</text>
+    <text x="24" y="140" font-size="15" fill="#475569">Memory</text>
+    <text x="24" y="159" font-size="15" fill="#475569">to storage</text>
+    <text x="24" y="278" font-size="17" font-weight="bold">READ</text>
+    <text x="24" y="300" font-size="15" fill="#475569">Storage</text>
+    <text x="24" y="319" font-size="15" fill="#475569">to memory</text>
+    <rect x="126" y="84" width="266" height="96" rx="8" fill="#eaf3fc" stroke="#2563a6"/>
+    <rect x="438" y="84" width="266" height="96" rx="8" fill="#eaf3fc" stroke="#2563a6"/>
+    <rect x="750" y="84" width="266" height="96" rx="8" fill="#eaf3fc" stroke="#2563a6"/>
+    <rect x="126" y="244" width="266" height="96" rx="8" fill="#f0f7f6" stroke="#52867f"/>
+    <rect x="438" y="244" width="266" height="96" rx="8" fill="#f0f7f6" stroke="#52867f"/>
+    <rect x="750" y="244" width="266" height="96" rx="8" fill="#f0f7f6" stroke="#52867f"/>
+    <text x="144" y="111" font-size="18" font-weight="bold">Select serializer plugins</text>
+    <text x="144" y="139" font-size="17">Use each array&#x27;s in-memory ID.</text>
+    <text x="144" y="164" font-size="17">Plugins choose wire formats.</text>
+    <text x="456" y="111" font-size="17" font-weight="bold">Serialize each array and child</text>
+    <text x="456" y="139" font-size="17">The plugin returns an ID,</text>
+    <text x="456" y="164" font-size="17">metadata, buffers, and children.</text>
+    <text x="768" y="111" font-size="18" font-weight="bold">Is every wire ID permitted?</text>
+    <text x="768" y="139" font-size="17">Check the selected editions.</text>
+    <text x="768" y="164" font-size="17">Yes: the output is permitted.</text>
+    <text x="144" y="271" font-size="18" font-weight="bold">Find deserializer plugins</text>
+    <text x="144" y="299" font-size="17">Use each stored wire ID.</text>
+    <text x="144" y="324" font-size="17">Is the plugin registered?</text>
+    <text x="456" y="271" font-size="18" font-weight="bold">Validate each contract</text>
+    <text x="456" y="299" font-size="17">Do metadata, buffers, types,</text>
+    <text x="456" y="324" font-size="17">and children satisfy that ID?</text>
+    <text x="768" y="271" font-size="18" font-weight="bold">Construct encoded arrays</text>
+    <text x="768" y="299" font-size="17">Adapt the structure as needed.</text>
+    <text x="768" y="324" font-size="17">Keep values, types, and nulls.</text>
+    <text x="883" y="211" font-size="16" fill="#9a3412" text-anchor="middle">No: the write fails without retrying.</text>
+    <text x="259" y="372" font-size="16" fill="#9a3412" text-anchor="middle">No: the wire ID is unknown.</text>
+    <text x="571" y="372" font-size="16" fill="#9a3412" text-anchor="middle">No: the data is invalid.</text>
+    <path d="M 392 132 H 434" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+    <path d="M 704 132 H 746" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+    <path d="M 883 180 V 194" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+    <path d="M 392 292 H 434" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+    <path d="M 704 292 H 746" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+    <path d="M 259 340 V 355" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+    <path d="M 571 340 V 355" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+    <text x="414" y="282" font-size="15" fill="#475569" text-anchor="middle">Yes</text>
+    <text x="726" y="282" font-size="15" fill="#475569" text-anchor="middle">Yes</text>
+  </g>
+</svg>

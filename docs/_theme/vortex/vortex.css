@@ -252,6 +252,10 @@ table.docutils th, table.docutils td {
 }
 table.docutils th { background: var(--bg-alt); }
 
+table.versioning-terms p { margin: 0; }
+table.versioning-terms td:first-child { white-space: nowrap; }
+figure.versioning-diagram { margin-inline: 0; }
+
 .page-index .content > section > h1 {
   position: absolute;
   width: 1px; height: 1px;

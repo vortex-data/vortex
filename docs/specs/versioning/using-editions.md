@@ -1,7 +1,7 @@
 # Using editions
 
-To write files for an older Vortex version, select editions whose formats that version supports. See
-[Versioning](../versioning.md) for the compatibility guarantee.
+To write files for an older Vortex version, select editions whose wire formats that version
+supports. See [Versioning](../versioning.md) for the compatibility guarantee.
 
 ## Writer configuration
 
@@ -30,16 +30,17 @@ Use the returned options' `write` method to write an array stream to an output. 
 [Rust quickstart](../../getting-started/rust.rst) covers the input and I/O setup. The example uses
 file support from the `vortex` crate.
 
-The default session registers the standard implementations and edition declarations. It currently
-enables `core2026.08.3`. Calling `enable_edition` replaces the enabled edition from the same family.
-Set the selection before starting the write, which captures the permitted formats at that point.
+The default session registers the standard implementations and edition declarations, and it
+currently enables `core2026.08.3`. Calling `enable_edition` replaces the enabled edition from the
+same family. Set the selection before starting the write, because that is when the writer captures
+the permitted wire IDs.
 
 An edition declaration describes permitted formats, but registering it does not install the code to
 read or write those formats. When constructing a session without the defaults, register the required
 implementations and declarations, then enable the target editions. See
 [Registering plugins](../../developer-guide/internals/session.md#registering-plugins) for the
-registration API. Enabling an unregistered edition returns an error. A selection that permits no
-components cannot serialize any edition-governed component.
+registration API. Enabling an unregistered edition returns an error, while a selection that permits
+no components prevents the writer from serializing any component governed by editions.
 
 ## Edition families
 
@@ -49,11 +50,11 @@ can add formats without changing an application's `core` selection.
 
 A writer selects at most one edition per family. Selecting `core2026.08.0` and `tensor2026.04.0`
 permits every component in either edition. Within one family, a later edition includes all earlier
-members. Across families, the selections are independent.
+members. Across families, however, the selections are independent.
 
 Check the [registry](editions.md#edition-registry) before enabling an optional family. For example,
 `tensor2026.04.0` is a draft and has no frozen minimum reader version. Adding it does not extend
-`core`'s frozen guarantee to the tensor formats. Both applications need the appropriate tensor
+`core`'s frozen guarantee to the tensor formats. Both applications still need the appropriate tensor
 implementations.
 
 An edition name such as `core2026.08.3` contains its family, year, month, and a number
@@ -67,9 +68,10 @@ For each selected frozen edition, find its recorded minimum version and its _ori
 `core` family's origin is `vortex`, so its `min_library_version` refers to the shared Vortex Rust
 crate version. An independent plugin can name a different origin with its own release numbers.
 
-For editions with the same origin, use at least the highest recorded minimum. For different origins,
-check each project separately. In both cases, register the implementations in the reader. A
-sufficiently recent library without a required plugin is not enough.
+For editions with the same origin, use at least the highest recorded minimum, whereas editions from
+different origins require a separate version check for each project. In both cases, the reader must
+register the required implementations, since meeting the version requirement alone does not make a
+plugin available.
 
 ## Write errors
 
@@ -77,8 +79,8 @@ The writer rejects forbidden formats in arrays, children, layouts, nested extens
 stored aggregate functions.
 
 Selecting an edition restricts the permitted output, but does not automatically reconfigure a custom
-strategy or compressor. Those implementations must construct permitted representations themselves.
-The default compressor's filtering is described in [Compression](design.md#compression).
+strategy or compressor. Those implementations must therefore construct permitted representations
+themselves. The default compressor's filtering is described in [Compression](design.md#compression).
 
 When a write fails because a format is forbidden, choose a permitted representation or strategy.
 Alternatively, select a later edition after confirming that the readers meet its requirements.
@@ -86,9 +88,9 @@ Alternatively, select a later edition after confirming that the readers meet its
 a newer format even when its values appear suitable for an older one.
 
 For custom or experimental output, `VortexWriteOptions::disable_editions()` disables the array,
-layout, extension-dtype, and aggregate checks. It does not register missing implementations. Files
-written this way have no edition compatibility guarantee, so producers and consumers must agree on
-the required implementations themselves.
+layout, extension-dtype, and aggregate checks. However, it does not register missing
+implementations. Files written this way have no edition compatibility guarantee, so producers and
+consumers must agree on the required implementations themselves.
 
 ## Unknown IDs
 
@@ -107,6 +109,6 @@ Inspection and copying tools can use `allow_unknown` to retain the serialized da
 arrays, layouts, and extension dtypes without interpreting it. However, retaining those objects does
 not make them available for ordinary computation.
 
-With `allow_unknown`, an unknown aggregate disables pruning for the affected zone-map layout.
-However, the layout's data remains readable if the reader supports the other required formats.
-Without `allow_unknown`, the unknown aggregate causes an error.
+With `allow_unknown`, an unknown aggregate disables pruning for the affected zone-map layout, but
+the layout's data remains readable if the reader supports the other required wire formats. Without
+`allow_unknown`, the unknown aggregate causes an error.

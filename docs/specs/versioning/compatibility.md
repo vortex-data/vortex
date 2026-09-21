@@ -1,17 +1,19 @@
 # Compatibility matrix
 
 The matrix shows which wire formats each library can write, which the target edition permits, and
-which each reader supports. The names are illustrative rather than actual Vortex versions or editions:
+which each reader supports. The names are illustrative rather than actual Vortex versions or
+editions:
 
-- **Format A** and **Format B** have distinct wire IDs and contracts. Format A was introduced first.
+- **Format A** and **Format B** have distinct wire IDs and contracts, with Format A introduced
+  first.
 - **Library 1** reads and writes only Format A.
 - **Library 2** reads and writes both formats through one array implementation.
-- **Edition 1** permits only Format A. **Edition 2** permits both formats.
+- **Edition 1** permits only Format A, whereas **Edition 2** permits both formats.
 
-Both readers are assumed to support all other components in the file. **Unsupported** means the
-writer has no implementation for that format. **Forbidden** means the target edition excludes it.
-**Allowed** means both requirements are met, but the writer must still construct an array that the
-format can represent. Reader results apply only after a successful write.
+Both readers are assumed to support all other components in the file. **Unsupported** means that the
+writer has no implementation for that format, whereas **Forbidden** means that the target edition
+excludes it. **Allowed** means both requirements are met, but the writer must still construct an
+array that the format can represent. Reader results apply only after a successful write.
 
 | Writer         | Target edition               | Format        | Write result[^representation] | Library&nbsp;1 reader                       | Library&nbsp;2 reader |
 | -------------- | ---------------------------- | ------------- | ----------------------------- | ------------------------------------------- | --------------------- |
@@ -24,10 +26,10 @@ format can represent. Reader results apply only after a successful write.
 | Library&nbsp;2 | Edition&nbsp;2               | Format&nbsp;A | Allowed[^compression]         | Reads                                       | Reads[^current-array] |
 | Library&nbsp;2 | Edition&nbsp;2               | Format&nbsp;B | Allowed[^compression]         | [Unknown ID](using-editions.md#unknown-ids) | Reads                 |
 
-The serializer [selects a format](design.md#format-selection) from the array's structure. The writer
-then checks whether the target edition permits it. The format column shows that selection, not a
-separate writer setting. Edition 2 permits both formats, so a writer targeting it can still produce
-Format A for Library 1 to read.
+The serializer [selects a format](design.md#format-selection) from the array's structure, after
+which the writer checks whether the target edition permits it. The format column shows that
+selection, not a separate writer setting. Edition 2 permits both formats, so a writer targeting it
+can still produce Format A for Library 1 to read.
 
 ## Compatibility checks
 
@@ -39,18 +41,18 @@ plugins. It assumes correct implementations, edition checks enabled, and full de
 :alt: Plugins select and validate wire formats while adapting arrays between memory and storage.
 :target: ../../_static/versioning-compatibility.svg
 
-The writer selects a plugin by the array's in-memory ID. The reader selects a plugin by the stored
-wire ID. Each plugin can adapt the array structure while preserving values, data types, and nulls.
-The diagram groups related checks. In the implementation, component checks occur at several points
-during writing and reading.
+The writer selects a plugin by the array's in-memory ID, whereas the reader selects a plugin by the
+stored wire ID. In either direction, the plugin can adapt the array structure while preserving
+values, data types, and nulls. The diagram groups related checks, although in the implementation
+component checks occur at several points during writing and reading.
 ```
 
-If the serializer returns a forbidden ID, the write fails. The writer does not retry with a
-different permitted ID. When the target requires a different encoding, the array must be
-recompressed before serialization. See [Format selection](design.md#format-selection).
+If the serializer returns a forbidden ID, the write fails without retrying a different permitted ID.
+When the target requires a different encoding, the array must be recompressed before serialization.
+See [Format selection](design.md#format-selection).
 
-The matrix assumes valid serialized data. The diagram also shows the reader rejecting data that
-violates the stored ID's contract. Format compatibility does not prevent I/O errors.
+The matrix assumes valid serialized data, whereas the diagram also shows the reader rejecting data
+that violates the stored ID's contract. Format compatibility does not prevent I/O errors.
 
 The [component checks](editions.md#component-checks) cover arrays and their children, layouts,
 extension types, and stored aggregates. The reader needs implementations for the components the file
@@ -62,8 +64,8 @@ For the compatibility guarantee and minimum reader versions, see [Versioning](..
 
 [^representation]:
     An input array can require a format that the target edition forbids. A serializer can adapt
-    metadata, buffers, or children without recompression. If the target requires a different
-    encoding, the array must be recompressed before serialization or the write fails.
+    metadata, buffers, or children without recompression, but compatibility can require a different
+    encoding. In that case, the array must be recompressed before serialization or the write fails.
 
 [^current-array]:
     Library 2 reads Format A into its own array implementation, adapting the structure only if
@@ -74,8 +76,8 @@ For the compatibility guarantee and minimum reader versions, see [Versioning](..
     support for Format B, so Library 1 still writes only Format A.
 
 [^compression]:
-    The default compressor filters schemes by their declared output wire IDs. General per-writer
-    scheme configuration is not implemented. The planned configuration will select compatible
-    behavior before estimation, sampling, and full compression to avoid recompression solely to meet
-    the edition. These cells still require the writer to construct a permitted representation. See
-    [Compression](design.md#compression) for the current behavior and planned work.
+    The default compressor filters schemes by their declared output wire IDs, but general per-writer
+    scheme configuration is not implemented. The planned configuration would select compatible
+    behavior before estimation, sampling, and full compression, avoiding recompression solely to
+    meet the edition. These cells still require the writer to construct a permitted representation.
+    See [Compression](design.md#compression) for the current behavior and planned work.

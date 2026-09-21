@@ -1,81 +1,72 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="460" viewBox="0 0 1040 460"
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="500" viewBox="0 0 1040 500"
      role="img" aria-labelledby="title description">
   <!-- SPDX-License-Identifier: CC-BY-4.0 -->
   <!-- SPDX-FileCopyrightText: Copyright the Vortex contributors -->
-  <title id="title">Library 2 uses one array implementation for Formats A and B</title>
+  <title id="title">One decimal encoding, two wire contracts</title>
   <desc id="description">
-    In this illustrative example, Library 1 supports only Format A. Library 2 supports Formats A and B
-    through one in-memory array implementation. Format A was introduced first. The serializer selects
-    Format A's wire ID when that format can represent the array without recompression.
-    Otherwise, Format B's wire ID is needed. The plugin can adapt metadata, buffers, or children.
-    Edition checks validate the selected wire ID and serialized children. They do not choose the
-    format. On reading, the stored wire ID selects a deserializer, which must validate that ID's
-    contract. Library 2 decodes both formats into its own array implementation, adapting the stored
-    structure when needed. It does not need a separate type for Format A. Values, data types, and
-    nulls are preserved. Library 1 can read Format A when it supports all other
-    components the file uses.
+    DecimalBytePartsArray holds either one signed integer child or a signed most-significant child
+    followed by up to three unsigned lower-part children. The plugin serializes the single-child
+    shape using vortex.decimal_byte_parts, called v1 here, and the multi-child shape using
+    vortex.decimal_byte_parts.v2. Both wire contracts deserialize into DecimalBytePartsArray.
+    v1 metadata records the signed child&#x27;s type and a lower-part count of zero. v2 metadata records
+    the signed child&#x27;s type and the ordered types of zero to three lower parts. Thus v2 also accepts
+    one child, although the serializer selects v1 for that shape. Both contracts require a decimal
+    data type and have no buffers of their own. Each child has the same length as the parent, and the
+    signed child carries the parent's nullability, while lower parts are non-nullable. The arrows show serialization
+    choices and the corresponding reads, not every valid v2 input. Values, data types, and nulls
+    are preserved. Frozen wire contracts are immutable. Edition permissions are checked separately,
+    and no declared edition currently permits v2.
   </desc>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7"
-            markerHeight="7" orient="auto-start-reverse">
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6"
+            markerHeight="6" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 Z" fill="#475569"/>
     </marker>
   </defs>
-  <rect width="1040" height="460" rx="12" fill="#ffffff"/>
-  <g font-family="Arial, Helvetica, sans-serif" fill="#172033" text-anchor="middle">
-    <text x="520" y="32" font-size="23" font-weight="bold">Library 2 uses one array implementation for both wire formats</text>
-    <text x="520" y="60" font-size="17" fill="#475569">Illustrative formats with distinct wire IDs. Format A was introduced before Format B.</text>
-
-    <text x="150" y="99" font-size="18" font-weight="bold">LIBRARY 2 WRITER</text>
-    <text x="520" y="99" font-size="18" font-weight="bold">WIRE FORMAT</text>
-    <text x="890" y="99" font-size="18" font-weight="bold">LIBRARY 2 READER</text>
-
-    <g fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)">
-      <path d="M 280 180 H 380"/>
-      <path d="M 280 290 H 380"/>
-      <path d="M 660 180 H 760"/>
-      <path d="M 660 290 H 760"/>
-    </g>
-    <text x="330" y="156" font-size="15" fill="#475569">serialize</text>
-    <text x="330" y="318" font-size="15" fill="#475569">serialize</text>
-    <text x="710" y="156" font-size="15" fill="#475569">deserialize</text>
-    <text x="710" y="318" font-size="15" fill="#475569">deserialize</text>
-
-    <rect x="20" y="126" width="260" height="218" rx="9" fill="#f6f7f9" stroke="#94a3b8"/>
-    <text x="150" y="158" font-size="20" font-weight="bold">In-memory array</text>
-    <text x="150" y="185" font-size="17">The array's ID selects the plugin.</text>
-    <text x="150" y="226" font-size="16">Choose the oldest writable format</text>
-    <text x="150" y="250" font-size="17">that needs no recompression.</text>
-    <text x="150" y="289" font-size="17">Adapt metadata, buffers,</text>
-    <text x="150" y="313" font-size="17">or children to that contract.</text>
-
-    <rect x="380" y="126" width="280" height="98" rx="9" fill="#eaf3fc" stroke="#2563a6"/>
-    <text x="520" y="150" font-size="20" font-weight="bold">Format A</text>
-    <text x="520" y="174" font-size="17">Represents the array without</text>
-    <text x="520" y="196" font-size="17">recompression.</text>
-    <text x="520" y="215" font-size="15" fill="#475569">Wire ID, metadata, buffers, children</text>
-
-    <rect x="380" y="246" width="280" height="98" rx="9" fill="#eaf3fc" stroke="#2563a6"/>
-    <text x="520" y="270" font-size="20" font-weight="bold">Format B</text>
-    <text x="520" y="294" font-size="17">Required when Format A cannot</text>
-    <text x="520" y="316" font-size="17">preserve the representation.</text>
-    <text x="520" y="335" font-size="15" fill="#475569">Wire ID, metadata, buffers, children</text>
-
-    <rect x="760" y="126" width="260" height="218" rx="9" fill="#f0f7f6" stroke="#52867f"/>
-    <text x="890" y="158" font-size="20" font-weight="bold">In-memory array</text>
-    <text x="890" y="187" font-size="17">The wire ID selects the plugin</text>
-    <text x="890" y="211" font-size="17">and the contract it validates.</text>
-    <text x="890" y="249" font-size="17">Adapt the structure if needed.</text>
-    <text x="890" y="287" font-size="17">Both formats can use the same</text>
-    <text x="890" y="311" font-size="17">in-memory representation.</text>
-
-    <rect x="380" y="366" width="280" height="70" rx="8" fill="#f6f7f9" stroke="#94a3b8"/>
-    <text x="520" y="392" font-size="18" font-weight="bold">Edition permissions</text>
-    <text x="520" y="416" font-size="16">Check the selected IDs and children.</text>
-
-    <text x="150" y="391" font-size="17" fill="#475569">Library 1 supports Format A only.</text>
-    <text x="150" y="415" font-size="17" fill="#475569">Library 2 supports both formats.</text>
-    <text x="890" y="391" font-size="16" font-weight="bold" fill="#35685f">Preserve values, types, and nulls.</text>
-    <text x="890" y="415" font-size="16" fill="#475569">No separate array type for Format A.</text>
+  <rect width="1040" height="500" rx="12" fill="#ffffff"/>
+  <g font-family="Arial, Helvetica, sans-serif" fill="#172033">
+    <text x="24" y="32" font-size="24" font-weight="bold">One decimal encoding, two wire contracts</text>
+    <text x="24" y="59" font-size="17" fill="#475569">The plugin converts between an array in memory and its serialized metadata and children.</text>
+    <text x="24" y="99" font-size="17" font-weight="bold">IN MEMORY</text>
+    <text x="570" y="99" font-size="17" font-weight="bold">ON WIRE</text>
+    <rect x="24" y="113" width="372" height="259" rx="8" fill="#f6f7f9" stroke="#94a3b8"/>
+    <text x="42" y="140" font-size="18" font-weight="bold">DecimalBytePartsArray</text>
+    <path d="M 168 187 H 220" fill="none" stroke="#94a3b8" stroke-width="2"/>
+    <path d="M 168 299 H 194 V 277 H 220 M 194 299 V 325 H 220" fill="none" stroke="#94a3b8" stroke-width="2"/>
+    <rect x="42" y="168" width="126" height="38" rx="5" fill="#ffffff" stroke="#94a3b8"/>
+    <rect x="220" y="168" width="156" height="38" rx="5" fill="#ffffff" stroke="#94a3b8"/>
+    <rect x="42" y="280" width="126" height="38" rx="5" fill="#ffffff" stroke="#94a3b8"/>
+    <rect x="220" y="258" width="156" height="38" rx="5" fill="#ffffff" stroke="#94a3b8"/>
+    <rect x="220" y="306" width="156" height="38" rx="5" fill="#ffffff" stroke="#94a3b8"/>
+    <text x="105" y="193" font-size="17" text-anchor="middle">Decimals</text>
+    <text x="298" y="193" font-size="17" text-anchor="middle">Signed child</text>
+    <text x="105" y="305" font-size="17" text-anchor="middle">Decimals</text>
+    <text x="298" y="283" font-size="17" text-anchor="middle">Signed child</text>
+    <text x="298" y="331" font-size="17" text-anchor="middle">Unsigned child</text>
+    <text x="42" y="230" font-size="16" fill="#475569">One child</text>
+    <text x="42" y="358" font-size="16" fill="#475569">Multiple children (two shown)</text>
+    <path d="M 410 180 H 554" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+    <path d="M 554 210 H 410" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+    <path d="M 410 291 H 554" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+    <path d="M 554 321 H 410" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+    <text x="482" y="170" font-size="16" fill="#475569" text-anchor="middle">serialize</text>
+    <text x="482" y="233" font-size="16" fill="#475569" text-anchor="middle">deserialize</text>
+    <text x="482" y="281" font-size="16" fill="#475569" text-anchor="middle">serialize</text>
+    <text x="482" y="344" font-size="16" fill="#475569" text-anchor="middle">deserialize</text>
+    <rect x="570" y="113" width="446" height="126" rx="8" fill="#eaf3fc" stroke="#2563a6"/>
+    <text x="588" y="140" font-size="18" font-weight="bold">v1: exactly one signed child</text>
+    <text x="588" y="166" font-size="17" font-family="monospace">vortex.decimal_byte_parts</text>
+    <text x="588" y="197" font-size="17">Metadata: child type, lower-part count = 0</text>
+    <text x="588" y="223" font-size="17">Children: [signed]</text>
+    <rect x="570" y="253" width="446" height="119" rx="8" fill="#eaf3fc" stroke="#2563a6"/>
+    <text x="588" y="280" font-size="18" font-weight="bold">v2: signed child + 0 to 3 unsigned children</text>
+    <text x="588" y="306" font-size="17" font-family="monospace">vortex.decimal_byte_parts.v2</text>
+    <text x="588" y="334" font-size="17">Metadata: signed type, ordered lower-part types</text>
+    <text x="588" y="359" font-size="16">Children: [signed, lower parts, most significant first]</text>
+    <text x="24" y="397" font-size="17">Although v2 accepts one child, the serializer chooses v1 when there are no lower parts.</text>
+    <text x="24" y="419" font-size="16" fill="#475569">Both contracts require a decimal dtype and have no own buffers. Each child has the same length as the parent.</text>
+    <text x="24" y="441" font-size="16" fill="#475569">The signed child carries the parent's nullability, whereas lower parts are non-nullable.</text>
+    <text x="24" y="463" font-size="16" fill="#475569">Conversions preserve values, types, and nulls. Frozen wire contracts remain fixed.</text>
+    <text x="24" y="485" font-size="16" fill="#475569">Edition permissions are checked separately, and no declared edition currently permits v2.</text>
   </g>
 </svg>
