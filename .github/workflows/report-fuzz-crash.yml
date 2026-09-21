@@ -32,8 +32,6 @@ on:
         description: "The issue number that was created or commented on"
         value: ${{ jobs.report.outputs.issue_number }}
     secrets:
-      claude_code_oauth_token:
-        required: false
       gh_token:
         required: true
       # incident.io alert source token from Alerts > Alert sources > Custom HTTP.
@@ -120,7 +118,11 @@ jobs:
         continue-on-error: true
         uses: anthropics/claude-code-action@bf38e86e58df9ebf3420326d019f955bb3be64dd  # v1
         with:
-          claude_code_oauth_token: ${{ secrets.claude_code_oauth_token }}
+          # A called workflow sees the caller's OIDC subject, so `vortex-claude-ci`
+          # matches here too and no secret needs passing down.
+          anthropic_federation_rule_id: ${{ vars.ANTHROPIC_FEDERATION_RULE_CI }}
+          anthropic_organization_id: ${{ vars.ANTHROPIC_ORGANIZATION_ID }}
+          anthropic_service_account_id: ${{ vars.ANTHROPIC_SERVICE_ACCOUNT_ID }}
           github_token: ${{ secrets.gh_token }}
           show_full_output: true
           prompt: |

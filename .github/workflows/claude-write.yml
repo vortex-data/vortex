@@ -10,10 +10,11 @@ name: Claude Code (Write)
 # 4. Store these environment secrets in `claude-automation`:
 #    - APP_ID
 #    - APP_PRIVATE_KEY
-#    - CLAUDE_CODE_OAUTH_TOKEN
-# 5. Create a repository or organization Actions variable:
+# 5. Create repository or organization Actions variables:
 #    - CLAUDE_APP_LOGIN
 #      Set this to the bot login for the GitHub App, usually `<app-slug>[bot]`.
+#    - ANTHROPIC_ORGANIZATION_ID, ANTHROPIC_SERVICE_ACCOUNT_ID, ANTHROPIC_FEDERATION_RULE_WRITE
+#      Identifiers, not credentials. The write rule matches only this workflow.
 #
 # Why this workflow exists separately
 # - This is the only workflow that can read the GitHub App private key.
@@ -197,7 +198,12 @@ jobs:
         id: claude
         uses: anthropics/claude-code-action@fbda2eb1bdc90d319b8d853f5deb53bca199a7c1  # v1.0.140
         with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # The environment puts `environment:claude-automation` in the OIDC subject,
+          # which is all the `vortex-claude-write` rule matches. Unreachable elsewhere.
+          anthropic_federation_rule_id: ${{ vars.ANTHROPIC_FEDERATION_RULE_WRITE }}
+          anthropic_organization_id: ${{ vars.ANTHROPIC_ORGANIZATION_ID }}
+          anthropic_service_account_id: ${{ vars.ANTHROPIC_SERVICE_ACCOUNT_ID }}
+
           github_token: ${{ steps.app-token.outputs.token }}
 
           # Claude may inspect CI state on related PRs, but this workflow is otherwise

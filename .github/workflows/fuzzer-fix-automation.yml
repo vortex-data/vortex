@@ -274,7 +274,10 @@ jobs:
           ARTIFACT_URL: ${{ steps.extract.outputs.artifact_url }}
         uses: anthropics/claude-code-action@bf38e86e58df9ebf3420326d019f955bb3be64dd  # v1
         with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Same `vortex-claude-ci` rule as the rest of the fuzz pipeline.
+          anthropic_federation_rule_id: ${{ vars.ANTHROPIC_FEDERATION_RULE_CI }}
+          anthropic_organization_id: ${{ vars.ANTHROPIC_ORGANIZATION_ID }}
+          anthropic_service_account_id: ${{ vars.ANTHROPIC_SERVICE_ACCOUNT_ID }}
           # Use the App token (not GITHUB_TOKEN) so the committed fix branch and
           # its draft PR trigger normal pull_request CI workflows.
           github_token: ${{ steps.app-token.outputs.token }}
