@@ -16,14 +16,11 @@ use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
 use vortex_compressor::scheme::DescendantExclusion;
 use vortex_compressor::scheme::EstimateVerdict;
-use vortex_compressor::scheme::SchemeId;
 use vortex_error::VortexResult;
-use vortex_fastlanes::Delta;
 use vortex_fastlanes::RLE;
 use vortex_fastlanes::RLEArrayExt;
 use vortex_fastlanes::RLEArraySlotsExt;
 
-use super::DeltaScheme;
 use super::RUN_LENGTH_THRESHOLD;
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
@@ -59,26 +56,20 @@ pub(crate) fn rle_compress(
         exec_ctx,
     )?;
 
-    let compressed_indices = {
-        let rle_indices_primitive = rle_array
-            .indices()
-            .clone()
-            .execute::<PrimitiveArray>(exec_ctx)?
-            .narrow(exec_ctx)?;
-        let rle_indices = rle_indices_primitive.into_array();
-        if compressor.has_scheme(DeltaScheme::default().id()) {
-            try_compress_delta(
-                compressor,
-                &rle_indices,
-                &compress_ctx,
-                scheme.id(),
-                1,
-                exec_ctx,
-            )?
-        } else {
-            compressor.compress_child(&rle_indices, &compress_ctx, scheme.id(), 1, exec_ctx)?
-        }
-    };
+    // TODO(joe): re-apply Delta to these monotone indices once the compressor can say whether a
+    // scheme is eligible for a given child; applying it by hand bypassed the exclusion rules.
+    let rle_indices_primitive = rle_array
+        .indices()
+        .clone()
+        .execute::<PrimitiveArray>(exec_ctx)?
+        .narrow(exec_ctx)?;
+    let compressed_indices = compressor.compress_child(
+        &rle_indices_primitive.into_array(),
+        &compress_ctx,
+        scheme.id(),
+        1,
+        exec_ctx,
+    )?;
 
     let rle_offsets_primitive = rle_array
         .values_idx_offsets()
@@ -104,35 +95,6 @@ pub(crate) fn rle_compress(
         )
         .into_array())
     }
-}
-
-pub(crate) fn try_compress_delta(
-    compressor: &CascadingCompressor,
-    child: &ArrayRef,
-    parent_ctx: &CompressorContext,
-    parent_id: SchemeId,
-    child_index: usize,
-    exec_ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    let child_primitive = child.clone().execute::<PrimitiveArray>(exec_ctx)?;
-    let (bases, deltas) = vortex_fastlanes::delta_compress(&child_primitive, exec_ctx)?;
-
-    let compressed_bases = compressor.compress_child(
-        &bases.into_array(),
-        parent_ctx,
-        parent_id,
-        child_index,
-        exec_ctx,
-    )?;
-    let compressed_deltas = compressor.compress_child(
-        &deltas.into_array(),
-        parent_ctx,
-        parent_id,
-        child_index,
-        exec_ctx,
-    )?;
-
-    Delta::try_new(compressed_bases, compressed_deltas, 0, child.len()).map(IntoArray::into_array)
 }
 
 impl Scheme for IntRLEScheme {

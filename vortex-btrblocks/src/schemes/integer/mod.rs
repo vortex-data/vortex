@@ -22,7 +22,6 @@ pub use for_::FoRScheme;
 pub use pco::PcoScheme;
 pub use rle::IntRLEScheme;
 pub(crate) use rle::rle_compress;
-pub(crate) use rle::try_compress_delta;
 pub use runend::RunEndScheme;
 pub use sequence::SequenceScheme;
 pub use sparse::SparseScheme;
