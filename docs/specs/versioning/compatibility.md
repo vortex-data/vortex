@@ -17,15 +17,34 @@ a suitable representation. Reader results apply only after a successful write.
 | Older          | Original            | Extended | Unsupported and forbidden       | N/A                                         | N/A                   |
 | Older          | Later[^declaration] | Original | Allowed                         | Reads                                       | Reads[^current-array] |
 | Older          | Later[^declaration] | Extended | Unsupported                     | N/A                                         | N/A                   |
-| Newer          | Original            | Original | Allowed[^compression][^decimal] | Reads                                       | Reads[^current-array] |
+| Newer          | Original            | Original | Allowed[^compression]           | Reads                                       | Reads[^current-array] |
 | Newer          | Original            | Extended | Forbidden                       | N/A                                         | N/A                   |
-| Newer          | Later               | Original | Allowed[^compression][^decimal] | Reads                                       | Reads[^current-array] |
+| Newer          | Later               | Original | Allowed[^compression]           | Reads                                       | Reads[^current-array] |
 | Newer          | Later               | Extended | Allowed[^compression]           | [Unknown ID](using-editions.md#unknown-ids) | Reads                 |
 
 The format column is not a separate writer setting. The serializer
 [selects a format](design.md#format-selection) from the array's structure, and the writer checks its
 edition permissions. A writer targeting the later edition can still produce the original format,
 which both readers can read.
+
+## Compatibility checks
+
+This tree checks the requirements for a particular file. It assumes valid data, correct
+implementations, edition checks enabled, and full decoding with `allow_unknown` disabled.
+
+```{figure} ../../_static/versioning-compatibility.svg
+:alt: A decision tree checks writer support, edition permissions, and reader support in turn.
+
+A logical checklist, not the order of implementation steps. Edition checks occur at several points
+during writing. The tree stops at the first unmet requirement, while the matrix can show multiple
+restrictions. Permission to write does not guarantee successful I/O.
+```
+
+The [component checks](editions.md#component-checks) cover arrays and their children, layouts,
+extension types, and stored aggregates. Reader support concerns the components the file actually
+uses, not every component its edition permits. A writer targeting a later edition can therefore
+produce a file that an older reader supports. See [Unknown IDs](using-editions.md#unknown-ids) for
+missing implementations and the exceptions available with `allow_unknown`.
 
 For the compatibility guarantee and minimum reader versions, see [Versioning](../versioning.md). The
 [design](design.md#compatibility-invariants) explains the invariants behind these outcomes.
@@ -52,8 +71,3 @@ For the compatibility guarantee and minimum reader versions, see [Versioning](..
     output needs no recompression solely to meet the edition. These cells are conditional on the
     writer constructing a permitted representation. See [Compression](design.md#compression) for the
     current behavior and planned work.
-
-[^decimal]:
-    The newer writer can construct a decimal array with one integer child and serialize it in the
-    original format without recompression. Additional lower-part children require the extended
-    format. See the [decimal example](design.md#example-decimal-children).

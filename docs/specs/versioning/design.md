@@ -38,10 +38,15 @@ registered plugins that interpret those formats. A missing implementation causes
 [unknown-ID error](using-editions.md#unknown-ids).
 
 ```{figure} ../../_static/versioning-flow.svg
-:alt: Edition checks constrain writing. Stored wire IDs select the reader's plugins.
+:alt: A dictionary's codes and values are serialized, checked, and read back as a dictionary.
 
-Serialization and reading can use different versions of the library.
+An illustrative dictionary encoding. Writer and reader can use different library versions while
+preserving values, types, and nullability. The default compressor is not required to choose this
+encoding for these values. The example uses one dictionary format throughout.
 ```
+
+The figure follows the array through serialization. The file writer also checks layouts,
+extension types, and stored aggregates against the selected editions.
 
 ## Example: decimal children
 

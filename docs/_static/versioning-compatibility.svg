@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="1080" viewBox="0 0 480 1080"
+     role="img" aria-labelledby="title description">
+  <!-- SPDX-License-Identifier: CC-BY-4.0 -->
+  <!-- SPDX-FileCopyrightText: Copyright the Vortex contributors -->
+  <title id="title">Compatibility checks for a particular Vortex file</title>
+  <desc id="description">
+    First, can the writer construct and serialize the representation? If not, the representation is
+    unsupported. If it can, do the selected editions permit every serialized component? If not, the
+    output is forbidden. Otherwise, writing is permitted. After a successful write, can the reader
+    decode the enclosing file format and every component used by this file? If not, it lacks format
+    support or a required implementation. Otherwise, the file is readable. This logical checklist
+    assumes valid data, correct implementations, edition checks enabled, and full decoding with
+    allow_unknown disabled. It stops at the first unmet requirement, not necessarily the first check
+    performed by the implementation. Permission to write does not guarantee successful I/O.
+  </desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7"
+            markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 Z" fill="#475569"/>
+    </marker>
+  </defs>
+  <rect width="480" height="1080" rx="12" fill="#ffffff"/>
+  <g font-family="Arial, Helvetica, sans-serif" fill="#172033" text-anchor="middle">
+    <text x="240" y="34" font-size="24" font-weight="bold">Can this file be written and read?</text>
+    <text x="240" y="61" font-size="18" fill="#475569">Follow each Yes to the next requirement.</text>
+
+    <rect x="20" y="84" width="440" height="116" rx="10" fill="#eaf3fc" stroke="#2563a6"/>
+    <text x="240" y="113" font-size="18" font-weight="bold" fill="#2563a6">1. Writer support</text>
+    <text x="240" y="145" font-size="21">Can this writer construct and</text>
+    <text x="240" y="173" font-size="21">serialize the representation?</text>
+
+    <g fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)">
+      <path d="M 120 200 V 320"/>
+      <path d="M 360 200 V 240"/>
+    </g>
+    <g font-size="18" fill="#475569" text-anchor="start">
+      <text x="133" y="227">Yes</text>
+      <text x="373" y="227">No</text>
+    </g>
+    <rect x="260" y="240" width="200" height="64" rx="8" fill="#fff3eb" stroke="#b77a51"/>
+    <text x="360" y="266" font-size="20" font-weight="bold">Unsupported</text>
+    <text x="360" y="291" font-size="20">representation</text>
+
+    <rect x="20" y="320" width="440" height="116" rx="10" fill="#eaf3fc" stroke="#2563a6"/>
+    <text x="240" y="349" font-size="18" font-weight="bold" fill="#2563a6">2. Edition permissions</text>
+    <text x="240" y="381" font-size="21">Do the selected editions permit</text>
+    <text x="240" y="409" font-size="21">every serialized component?</text>
+
+    <g fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)">
+      <path d="M 120 436 V 556"/>
+      <path d="M 360 436 V 476"/>
+    </g>
+    <g font-size="18" fill="#475569" text-anchor="start">
+      <text x="133" y="463">Yes</text>
+      <text x="373" y="463">No</text>
+    </g>
+    <rect x="260" y="476" width="200" height="64" rx="8" fill="#fff3eb" stroke="#b77a51"/>
+    <text x="360" y="502" font-size="20" font-weight="bold">Forbidden</text>
+    <text x="360" y="527" font-size="20">output</text>
+
+    <rect x="20" y="556" width="440" height="80" rx="10" fill="#f0f7f6" stroke="#52867f"/>
+    <text x="240" y="588" font-size="22" font-weight="bold">Writing is permitted</text>
+    <text x="240" y="615" font-size="19">Continue after a successful write.</text>
+    <path d="M 240 636 V 680" fill="none" stroke="#475569" stroke-width="2"
+          marker-end="url(#arrow)"/>
+
+    <rect x="20" y="680" width="440" height="144" rx="10" fill="#eaf3fc" stroke="#2563a6"/>
+    <text x="240" y="709" font-size="18" font-weight="bold" fill="#2563a6">3. Reader support</text>
+    <text x="240" y="741" font-size="21">Can this reader decode the file format</text>
+    <text x="240" y="769" font-size="21">and every component</text>
+    <text x="240" y="797" font-size="21">used by this file?</text>
+
+    <g fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)">
+      <path d="M 120 824 V 984"/>
+      <path d="M 360 824 V 864"/>
+    </g>
+    <g font-size="18" fill="#475569" text-anchor="start">
+      <text x="133" y="851">Yes</text>
+      <text x="373" y="851">No</text>
+    </g>
+    <rect x="260" y="864" width="200" height="104" rx="8" fill="#fff3eb" stroke="#b77a51"/>
+    <text x="360" y="892" font-size="19" font-weight="bold">Unsupported format</text>
+    <text x="360" y="919" font-size="19">or missing</text>
+    <text x="360" y="946" font-size="19">implementation</text>
+
+    <rect x="20" y="984" width="440" height="72" rx="10" fill="#f0f7f6" stroke="#52867f"/>
+    <text x="240" y="1028" font-size="24" font-weight="bold">Readable</text>
+  </g>
+</svg>

@@ -1,14 +1,20 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="900" height="470" viewBox="0 0 900 470"
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="1890" viewBox="0 0 480 1890"
      role="img" aria-labelledby="title description">
   <!-- SPDX-License-Identifier: CC-BY-4.0 -->
   <!-- SPDX-FileCopyrightText: Copyright the Vortex contributors -->
-  <title id="title">Edition checks on the write path, format dispatch on the read path</title>
+  <title id="title">A dictionary array from writer to file to reader</title>
   <desc id="description">
-    The selected edition supplies permitted formats to the default compressor's scheme filter and
-    to the final serialization checks. Compression produces an in-memory array. Its plugin selects
-    a wire representation. The writer checks the actual wire IDs, including serialized children,
-    and rejects forbidden output. A reader uses the stored IDs to find its registered plugins and
-    construct its own in-memory array, independently of the writer's library version.
+    This illustrative dictionary encoding represents three non-null i32 values, [10, 20, 10], with
+    u8 codes [0, 1, 0] and i32 dictionary values [10, 20]. The selected editions filter the default
+    compressor's schemes and constrain the serialized array IDs. The serializer records the root ID
+    vortex.dict and dictionary metadata. Its two children use vortex.primitive and own the codes and
+    values buffers. The root has no data buffers. Array edition checks cover the root and both
+    children. After a successful write, the file contains schema and row-count context, format IDs,
+    array metadata, and child buffers. The reader resolves the stored IDs through its registered
+    plugins and reconstructs a dictionary array with the same logical values, type, and nullability.
+    Writer and reader can use different library versions. The file writer also checks layouts,
+    extension types, and stored aggregates. This example uses one dictionary format throughout and
+    does not predict the default compressor's choice for this small input.
   </desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7"
@@ -20,69 +26,102 @@
       <path d="M 0 0 L 10 5 L 0 10 Z" fill="#2563a6"/>
     </marker>
   </defs>
-  <rect width="900" height="470" rx="12" fill="#ffffff"/>
-  <g font-family="Arial, Helvetica, sans-serif" fill="#172033" text-anchor="middle">
-    <rect x="248" y="16" width="404" height="58" rx="8" fill="#eaf3fc" stroke="#2563a6"/>
-    <text x="450" y="51" font-size="18">Selected edition: permitted formats</text>
+  <rect width="480" height="1890" rx="12" fill="#ffffff"/>
+  <text x="240" y="28" font-family="Arial, Helvetica, sans-serif" font-size="22"
+        font-weight="bold" fill="#172033" text-anchor="middle">Illustrative dictionary encoding</text>
+  <g transform="translate(0 40)" font-family="Arial, Helvetica, sans-serif"
+     fill="#172033" text-anchor="middle">
+    <rect x="60" y="16" width="392" height="80" rx="10" fill="#eaf3fc" stroke="#2563a6"/>
+    <text x="256" y="48" font-size="23" font-weight="bold">Selected editions</text>
+    <text x="256" y="77" font-size="20">Permitted serialized formats</text>
 
-    <rect x="16" y="112" width="868" height="156" rx="10" fill="#f6f7f9" stroke="#cbd5e1"/>
-    <text x="450" y="137" font-size="16" font-weight="bold">Writer's library</text>
+    <rect x="12" y="118" width="456" height="1006" rx="12" fill="#f6f7f9" stroke="#cbd5e1"/>
+    <text x="256" y="150" font-size="24" font-weight="bold">Writer</text>
 
-    <g fill="none" stroke="#2563a6" stroke-width="2" stroke-dasharray="5 4"
-       marker-end="url(#permission-arrow)">
-      <path d="M 450 74 V 92 H 114 V 157"/>
-      <path d="M 450 74 V 92 H 749 V 157"/>
+    <g fill="none" stroke="#2563a6" stroke-width="2" stroke-dasharray="5 4">
+      <path d="M 60 56 H 32 V 1036"/>
+      <path d="M 32 350 H 60" marker-end="url(#permission-arrow)"/>
+      <path d="M 32 1036 H 60" marker-end="url(#permission-arrow)"/>
     </g>
 
-    <g fill="#ffffff" stroke="#94a3b8">
-      <rect x="24" y="158" width="180" height="80" rx="7"/>
-      <rect x="240" y="158" width="165" height="80" rx="7"/>
-      <rect x="441" y="158" width="165" height="80" rx="7"/>
-      <rect x="642" y="158" width="214" height="80" rx="7"/>
-    </g>
-    <g font-size="17">
-      <text x="114" y="184">Default compressor</text>
-      <text x="322" y="192">In-memory array</text>
-      <text x="524" y="184">Plugin serializer</text>
-      <text x="749" y="184">Check actual wire IDs</text>
-    </g>
-    <g font-size="14" fill="#475569">
-      <text x="114" y="207">Filter schemes, then</text>
-      <text x="114" y="225">compress values</text>
-      <text x="322" y="215">Buffers and children</text>
-      <text x="524" y="207">Select wire ID,</text>
-      <text x="524" y="225">metadata, and parts</text>
-      <text x="749" y="207">Include serialized children</text>
-      <text x="749" y="225">Reject forbidden output</text>
-    </g>
-    <g fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)">
-      <path d="M 204 198 H 239"/>
-      <path d="M 405 198 H 440"/>
-      <path d="M 606 198 H 641"/>
-      <path d="M 749 238 V 300 H 114 V 365"/>
-    </g>
-    <text x="450" y="291" font-size="14" fill="#475569">Permitted serialized output</text>
+    <rect x="60" y="174" width="392" height="90" rx="8" fill="#ffffff" stroke="#94a3b8"/>
+    <text x="256" y="207" font-size="22" font-weight="bold">Input: [10, 20, 10]</text>
+    <text x="256" y="238" font-size="20">i32, 3 rows, no nulls</text>
+    <path d="M 256 264 V 304" fill="none" stroke="#475569" stroke-width="2"
+          marker-end="url(#arrow)"/>
 
-    <rect x="228" y="320" width="656" height="138" rx="10" fill="#f0f7f6" stroke="#bfd8d2"/>
-    <text x="556" y="346" font-size="16" font-weight="bold">Reader's library</text>
-    <g fill="#ffffff" stroke="#94a3b8">
-      <rect x="24" y="366" width="180" height="80" rx="7"/>
-      <rect x="250" y="366" width="245" height="80" rx="7"/>
-      <rect x="554" y="366" width="286" height="80" rx="7"/>
+    <rect x="60" y="304" width="392" height="112" rx="8" fill="#ffffff" stroke="#94a3b8"/>
+    <text x="256" y="336" font-size="22" font-weight="bold">Choose an encoding</text>
+    <text x="256" y="366" font-size="19">The default compressor filters schemes</text>
+    <text x="256" y="393" font-size="19">by their declared output format IDs.</text>
+    <path d="M 256 416 V 456" fill="none" stroke="#475569" stroke-width="2"
+          marker-end="url(#arrow)"/>
+
+    <rect x="60" y="456" width="392" height="190" rx="8" fill="#ffffff" stroke="#94a3b8"/>
+    <text x="256" y="487" font-size="22" font-weight="bold">Array in memory</text>
+    <text x="256" y="518" font-size="19">Dictionary: i32, 3 rows, no nulls</text>
+    <path d="M 74 531 V 609 H 90 M 74 559 H 90" fill="none" stroke="#94a3b8" stroke-width="2"/>
+    <rect x="90" y="538" width="342" height="42" rx="6" fill="#f6f7f9" stroke="#cbd5e1"/>
+    <rect x="90" y="588" width="342" height="42" rx="6" fill="#f6f7f9" stroke="#cbd5e1"/>
+    <g font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="19" text-anchor="start">
+      <text x="104" y="565">Codes (u8): [0, 1, 0]</text>
+      <text x="104" y="615">Values (i32): [10, 20]</text>
     </g>
-    <g font-size="17">
-      <text x="114" y="397">File</text>
-      <text x="372" y="397">Decode by stored wire ID</text>
-      <text x="697" y="397">Reader's in-memory array</text>
+    <path d="M 256 646 V 686" fill="none" stroke="#475569" stroke-width="2"
+          marker-end="url(#arrow)"/>
+
+    <rect x="60" y="686" width="392" height="266" rx="8" fill="#ffffff" stroke="#94a3b8"/>
+    <text x="256" y="718" font-size="22" font-weight="bold">Serialize the array tree</text>
+    <text x="256" y="749" font-size="20" font-family="ui-monospace, SFMono-Regular, Consolas, monospace">Root ID: vortex.dict</text>
+    <text x="256" y="778" font-size="19">Metadata: code type u8, 2 values</text>
+    <text x="256" y="805" font-size="18" fill="#475569">The root has no data buffers.</text>
+    <path d="M 80 819 V 893 H 94 M 80 837 H 94" fill="none" stroke="#94a3b8" stroke-width="2"/>
+    <g font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="18" text-anchor="start">
+      <text x="100" y="841">Codes: vortex.primitive</text>
+      <text x="118" y="866" fill="#475569">Buffer: u8 [0, 1, 0]</text>
+      <text x="100" y="897">Values: vortex.primitive</text>
+      <text x="118" y="922" fill="#475569">Buffer: i32 [10, 20]</text>
     </g>
-    <g font-size="14" fill="#475569">
-      <text x="114" y="423">Wire IDs and data</text>
-      <text x="372" y="423">Use registered plugins</text>
-      <text x="697" y="423">Preserve values, types, and nulls</text>
+    <path d="M 256 952 V 992" fill="none" stroke="#475569" stroke-width="2"
+          marker-end="url(#arrow)"/>
+
+    <rect x="60" y="992" width="392" height="110" rx="8" fill="#ffffff" stroke="#2563a6"/>
+    <text x="256" y="1024" font-size="22" font-weight="bold">Check the serialized IDs</text>
+    <text x="256" y="1054" font-size="19">Root and child IDs must be permitted.</text>
+    <text x="256" y="1082" font-size="19">A forbidden ID fails the write.</text>
+    <path d="M 256 1102 V 1158" fill="none" stroke="#475569" stroke-width="2"
+          marker-end="url(#arrow)"/>
+    <text x="270" y="1138" font-size="18" fill="#475569" text-anchor="start">Successful write</text>
+
+    <rect x="60" y="1158" width="392" height="146" rx="10" fill="#eaf3fc" stroke="#2563a6"/>
+    <text x="256" y="1190" font-size="24" font-weight="bold">File</text>
+    <text x="256" y="1220" font-size="19">Type: non-null i32, row count: 3</text>
+    <text x="256" y="1250" font-size="20">Format IDs and array metadata</text>
+    <text x="256" y="1278" font-size="20">Codes and values buffers</text>
+
+    <rect x="12" y="1336" width="456" height="394" rx="12" fill="#f0f7f6" stroke="#bfd8d2"/>
+    <text x="60" y="1366" font-size="24" font-weight="bold" text-anchor="start">Reader</text>
+    <path d="M 256 1304 V 1380" fill="none" stroke="#475569" stroke-width="2"
+          marker-end="url(#arrow)"/>
+
+    <rect x="60" y="1380" width="392" height="112" rx="8" fill="#ffffff" stroke="#94a3b8"/>
+    <text x="256" y="1412" font-size="22" font-weight="bold">Resolve the stored IDs</text>
+    <text x="256" y="1442" font-size="19">Find registered reader plugins.</text>
+    <text x="256" y="1470" font-size="19">Decode metadata and children.</text>
+    <path d="M 256 1492 V 1532" fill="none" stroke="#475569" stroke-width="2"
+          marker-end="url(#arrow)"/>
+
+    <rect x="60" y="1532" width="392" height="176" rx="8" fill="#ffffff" stroke="#52867f"/>
+    <text x="256" y="1565" font-size="22" font-weight="bold">Dictionary array in memory</text>
+    <g font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="19">
+      <text x="256" y="1598">Codes (u8): [0, 1, 0]</text>
+      <text x="256" y="1627">Values (i32): [10, 20]</text>
     </g>
-    <g fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)">
-      <path d="M 204 406 H 249"/>
-      <path d="M 495 406 H 553"/>
-    </g>
+    <text x="256" y="1660" font-size="20">Logical values: [10, 20, 10]</text>
+    <text x="256" y="1689" font-size="19" fill="#475569">i32, 3 rows, no nulls</text>
+
+    <text x="240" y="1759" font-size="20" font-weight="bold">Writer and reader versions can differ.</text>
+    <text x="240" y="1795" font-size="18" fill="#475569">The file writer also checks layouts,</text>
+    <text x="240" y="1820" font-size="18" fill="#475569">extension types, and stored aggregates.</text>
   </g>
 </svg>
