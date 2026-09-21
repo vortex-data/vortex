@@ -6,6 +6,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, TypeVar, final
 
+import pyarrow as pa
 from ray.data import Datasource, ReadTask
 from ray.data.block import BlockMetadata
 from ray.data.context import DataContext
@@ -21,7 +22,6 @@ from ..expr import Expr as VortexExpr
 from ..type_aliases import IntoProjection
 
 if TYPE_CHECKING:
-    import pandas
     import pyarrow.compute as pc
 
 T = TypeVar("T")
@@ -136,17 +136,12 @@ def _read_task(
         input_files=tuple(paths),
     )
 
-    def read() -> Iterable[pandas.DataFrame]:
+    def read() -> Iterable[pa.Table]:
         # If we could serialize a PyVortexFile and a PyExpr, we could set those up earlier.
-
         vx_filter = ensure_vortex_expression(filter, schema=schema)
         for path in paths:
             f = vx_open(path)
             for rb in f.to_arrow(columns, expr=vx_filter, batch_size=batch_size):
-                # We would prefer to generate Arrow, but we run into this issue: https://github.com/apache/arrow/issues/47279
-                #
-                # yield pa.Table.from_batches([rb])
-                #
-                yield rb.to_pandas()
+                yield pa.Table.from_batches([rb])
 
     return ReadTask(read, metadata, schema)

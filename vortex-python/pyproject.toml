@@ -42,7 +42,9 @@ polars = ["polars>=1.31.0"]
 pandas = ["pandas>=2.2.0"]
 numpy = ["numpy>=1.26.0"]
 duckdb = ["duckdb>=1.1.2"]
-ray = ["ray>=2.48"]
+# Ray sizes Arrow blocks via `Table.nbytes`, which only supports `string_view`
+# from pyarrow 24 onward (https://github.com/apache/arrow/issues/47279).
+ray = ["ray>=2.48", "pyarrow>=24"]
 # The datasets integration relies on private `datasets` APIs, so cap the next major version.
 hf = ["datasets>=4.0.0,<6", "huggingface-hub>=0.34.0"]
 
