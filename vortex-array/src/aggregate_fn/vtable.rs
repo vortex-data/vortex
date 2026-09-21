@@ -40,6 +40,15 @@ pub struct AggregateDTypes {
 }
 
 impl AggregateDTypes {
+    /// Pair already-resolved dtypes, e.g. the dtypes a nested aggregate derives for its children.
+    pub fn new(dtype: DType, return_dtype: DType, partial_dtype: DType) -> Self {
+        Self {
+            dtype,
+            return_dtype,
+            partial_dtype,
+        }
+    }
+
     /// Resolve the return and partial dtypes of `vtable` bound to `options` over `dtype`.
     ///
     /// Fails if the aggregate cannot be applied to `dtype`.
@@ -62,11 +71,7 @@ impl AggregateDTypes {
                 dtype
             )
         })?;
-        Ok(Self {
-            dtype,
-            return_dtype,
-            partial_dtype,
-        })
+        Ok(Self::new(dtype, return_dtype, partial_dtype))
     }
 
     /// Pair these dtypes with `options` for one aggregate execution call.

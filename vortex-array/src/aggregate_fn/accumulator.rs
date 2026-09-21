@@ -44,15 +44,24 @@ pub struct Accumulator<V: AggregateFnVTable> {
 impl<V: AggregateFnVTable> Accumulator<V> {
     pub fn try_new(vtable: V, options: V::Options, dtype: DType) -> VortexResult<Self> {
         let dtypes = AggregateDTypes::try_new(&vtable, &options, dtype)?;
+
+        Ok(Self::from_dtypes(vtable, options, dtypes))
+    }
+
+    /// Build an accumulator over dtypes that are already resolved.
+    ///
+    /// A nested accumulator takes the dtypes its parent already derived, instead of resolving
+    /// them again for every batch.
+    pub fn from_dtypes(vtable: V, options: V::Options, dtypes: AggregateDTypes) -> Self {
         let aggregate_fn = AggregateFn::new(vtable.clone(), options.clone()).erased();
 
-        Ok(Self {
+        Self {
             vtable,
             options,
             aggregate_fn,
             dtypes,
             partial: None,
-        })
+        }
     }
 
     /// The state of a group with no accumulated values.

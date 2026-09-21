@@ -138,6 +138,21 @@ pub trait BinaryCombined: 'static + Send + Sync + Clone {
     }
 }
 
+/// Resolve a child's return dtype, the one dtype the combined parent does not already hold.
+fn child_return_dtype<V: AggregateFnVTable>(
+    vtable: &V,
+    options: &V::Options,
+    input_dtype: &DType,
+) -> VortexResult<DType> {
+    vtable.return_dtype(options, input_dtype).ok_or_else(|| {
+        vortex_err!(
+            "Aggregate function {} cannot be applied to dtype {}",
+            vtable.id(),
+            input_dtype
+        )
+    })
+}
+
 /// Adapter that exposes any [`BinaryCombined`] as an [`AggregateFnVTable`].
 #[derive(Clone, Debug)]
 pub struct Combined<T: BinaryCombined>(pub T);
@@ -148,15 +163,50 @@ impl<T: BinaryCombined> Combined<T> {
         Self(inner)
     }
 
-    /// Construct a pair of empty child accumulators.
+    /// Derive both children's dtypes from the parent's, rather than resolving them again.
+    ///
+    /// Both children read the parent's input, and the parent's partial dtype is the struct the
+    /// children's partials were resolved into: `{left: <left partial>, right: <right partial>}`.
+    /// Only the children's return dtypes are left to resolve.
+    fn child_dtypes(
+        &self,
+        args: AggregateArgs<'_, CombinedOptions<T>>,
+    ) -> VortexResult<(AggregateDTypes, AggregateDTypes)> {
+        let partials = args.partial_dtype.as_struct_fields_opt().ok_or_else(|| {
+            vortex_err!(
+                "Combined partial dtype must be a struct, got {}",
+                args.partial_dtype
+            )
+        })?;
+        let [Some(l_partial), Some(r_partial)] =
+            [partials.field_by_index(0), partials.field_by_index(1)]
+        else {
+            vortex_bail!(
+                "Combined partial dtype {} must have two fields",
+                args.partial_dtype
+            );
+        };
+
+        let l_return = child_return_dtype(&self.0.left(), &args.options.0, args.dtype)?;
+        let r_return = child_return_dtype(&self.0.right(), &args.options.1, args.dtype)?;
+
+        Ok((
+            AggregateDTypes::new(args.dtype.clone(), l_return, l_partial),
+            AggregateDTypes::new(args.dtype.clone(), r_return, r_partial),
+        ))
+    }
+
+    /// Construct a pair of empty child accumulators over the derived child dtypes.
     fn new_child_accumulators(
         &self,
         args: AggregateArgs<'_, CombinedOptions<T>>,
     ) -> VortexResult<ChildAccumulators<T>> {
-        let left = Accumulator::try_new(self.0.left(), args.options.0.clone(), args.dtype.clone())?;
-        let right =
-            Accumulator::try_new(self.0.right(), args.options.1.clone(), args.dtype.clone())?;
-        Ok((left, right))
+        let (l_dtypes, r_dtypes) = self.child_dtypes(args)?;
+
+        Ok((
+            Accumulator::from_dtypes(self.0.left(), args.options.0.clone(), l_dtypes),
+            Accumulator::from_dtypes(self.0.right(), args.options.1.clone(), r_dtypes),
+        ))
     }
 }
 
@@ -283,12 +333,15 @@ impl<T: BinaryCombined> AggregateFnVTable for Combined<T> {
     ) -> VortexResult<ArrayRef> {
         let l_field = states.get_item(FieldName::from(self.0.left_name()))?;
         let r_field = states.get_item(FieldName::from(self.0.right_name()))?;
-        let left = self.0.left();
-        let right = self.0.right();
-        let l_dtypes = AggregateDTypes::try_new(&left, &args.options.0, args.dtype.clone())?;
-        let r_dtypes = AggregateDTypes::try_new(&right, &args.options.1, args.dtype.clone())?;
-        let l_finalized = left.finalize(l_dtypes.args(&args.options.0), l_field)?;
-        let r_finalized = right.finalize(r_dtypes.args(&args.options.1), r_field)?;
+        let (l_dtypes, r_dtypes) = self.child_dtypes(args)?;
+        let l_finalized = self
+            .0
+            .left()
+            .finalize(l_dtypes.args(&args.options.0), l_field)?;
+        let r_finalized = self
+            .0
+            .right()
+            .finalize(r_dtypes.args(&args.options.1), r_field)?;
         BinaryCombined::finalize(&self.0, args, l_finalized, r_finalized)
     }
 
