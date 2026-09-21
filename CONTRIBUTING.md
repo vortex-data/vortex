@@ -129,6 +129,24 @@ make -C docs serve
 
 Use `make -C docs help` to list focused targets, and finish documentation changes with `check`.
 
+#### PR previews
+
+PRs with branches in `vortex-data/vortex` get a docs preview when they change `docs/` or a docs
+workflow. This includes draft PRs and PRs targeting another feature branch. Fork PRs do not get
+hosted previews. Resolve merge conflicts before building a preview.
+
+Add the `preview-docs` label to preview other changes, such as API documentation generated from
+source code. The label stays on the PR and enables previews for later pushes. Removing it stops
+updates only if the PR no longer changes docs or a docs workflow.
+
+The deployment status links to the latest preview for the PR. The workflow summary also records
+the built commit and an immutable deployment URL. Previews build the PR head commit. Eligibility
+uses the complete PR diff, so rebasing over upstream docs changes does not enable a preview for
+an unrelated PR.
+
+Closing a PR or removing its last reason for a preview stops new preview builds. The last hosted
+build and its deployment record remain available. Preview checks are not required for merging.
+
 ## Governance
 
 Vortex is an independent open-source project and not controlled by any single company. The Vortex Project is a sub-project of the Linux Foundation Projects. As such, the governance is subject to the terms of the [Technical Charter](https://vortex.dev/charter.pdf).
