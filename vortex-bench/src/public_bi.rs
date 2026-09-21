@@ -32,15 +32,16 @@ use vortex::array::stream::ArrayStreamExt;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::file::OpenOptionsSessionExt;
-use vortex::file::WriteOptionsSessionExt;
 use vortex::utils::aliases::hash_map::HashMap;
 
 use crate::Benchmark;
 use crate::BenchmarkDataset;
+use crate::CompactionStrategy;
 use crate::Format;
 use crate::IdempotentPath;
 use crate::SESSION;
 use crate::TableSpec;
+use crate::bench_write_options;
 use crate::conversions::parquet_to_vortex_chunks;
 use crate::datasets::Dataset;
 use crate::datasets::data_downloads::decompress_bz2;
@@ -364,8 +365,7 @@ impl PBIData {
                 let data = parquet_to_vortex_chunks(parquet).await?;
                 let vortex_file =
                     idempotent_async(&vortex, async |output_path| -> anyhow::Result<()> {
-                        SESSION
-                            .write_options()
+                        bench_write_options(CompactionStrategy::Default)
                             .write(
                                 &mut File::create(output_path)
                                     .await

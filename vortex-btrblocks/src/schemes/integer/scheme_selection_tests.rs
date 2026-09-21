@@ -21,6 +21,8 @@ use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_fastlanes::BitPacked;
+#[cfg(not(feature = "pco"))]
+use vortex_fastlanes::BlockedFoR;
 use vortex_fastlanes::FoR;
 use vortex_runend::RunEnd;
 use vortex_sequence::Sequence;
@@ -28,6 +30,15 @@ use vortex_session::VortexSession;
 use vortex_sparse::Sparse;
 
 use crate::BtrBlocksCompressor;
+#[cfg(not(feature = "pco"))]
+use crate::BtrBlocksCompressorBuilder;
+#[cfg(not(feature = "pco"))]
+use crate::SchemeExt;
+#[cfg(not(feature = "pco"))]
+use crate::schemes::integer::BlockedFoRScheme;
+#[cfg(not(feature = "pco"))]
+use crate::schemes::integer::FoRScheme;
+
 static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 #[test]
@@ -42,7 +53,113 @@ fn test_constant_compressed() -> VortexResult<()> {
 
 #[test]
 fn test_for_compressed() -> VortexResult<()> {
+    // Fewer than 1024 values, so the blocked scheme falls back to a single global reference.
     let values: Vec<i32> = (0..1000).map(|i| 1_000_000 + ((i * 37) % 100)).collect();
+    let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
+    let btr = BtrBlocksCompressor::default();
+    let compressed = btr.compress(&array.into_array(), &mut SESSION.create_execution_ctx())?;
+    assert!(compressed.is::<FoR>());
+    Ok(())
+}
+
+/// BlockedFoR is opt-in rather than part of [`crate::ALL_SCHEMES`], so the caller adds it.
+///
+/// Restricted to the default scheme set: `Delta` and `Pco` model this same shape and beat the
+/// blocked scheme on it, so with those compiled in the choice says nothing about this scheme.
+/// The bit-width property it exists for is covered feature-independently in `vortex-fastlanes`.
+#[cfg(not(feature = "pco"))]
+#[test]
+fn test_blocked_for_compressed() -> VortexResult<()> {
+    // Values that stay tightly clustered within each 1024-value block but drift far apart over
+    // the array: the shape a single global reference cannot capture.
+    let values: Vec<i64> = (0..16_384)
+        .map(|i| 1_000_000 + (i / 1024) * 1_000_000 + ((i * 7919) % 101))
+        .collect();
+    let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable).into_array();
+
+    let btr = BtrBlocksCompressorBuilder::default()
+        .with_new_scheme(&BlockedFoRScheme)
+        .build();
+    let compressed = btr.compress(&array, &mut SESSION.create_execution_ctx())?;
+    assert!(compressed.is::<BlockedFoR>());
+    Ok(())
+}
+
+/// Adding the blocked scheme must never make an array bigger than the default set alone does.
+///
+/// Its estimate is closed-form, so on repeated values it cannot see that `RunEnd` cascades to
+/// two `Sequence` children for zero bytes, or that global `FoR` already packs the run's narrow
+/// range. Without a guard the analytic ratio outbids both — TPC-H `ps_partkey`, four suppliers
+/// per part, went from 0 bytes to 800 kB.
+#[cfg(not(feature = "pco"))]
+#[test]
+fn test_blocked_for_never_loses_to_default_schemes_on_runs() -> VortexResult<()> {
+    // Run length 4, drifting far enough over the array that per-block references would narrow
+    // the residuals from 12 bits to 8 and so win on the closed-form estimate alone.
+    let values: Vec<i64> = (0..16_384).map(|i| 1 + i / 4).collect();
+    let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable).into_array();
+
+    let baseline =
+        BtrBlocksCompressor::default().compress(&array, &mut SESSION.create_execution_ctx())?;
+    let blocked = BtrBlocksCompressorBuilder::default()
+        .with_new_scheme(&BlockedFoRScheme)
+        .build()
+        .compress(&array, &mut SESSION.create_execution_ctx())?;
+
+    assert!(
+        !blocked.is::<BlockedFoR>(),
+        "blocked scheme took a run-length array"
+    );
+    assert!(
+        blocked.nbytes() <= baseline.nbytes(),
+        "{} bytes with the blocked scheme vs {} without",
+        blocked.nbytes(),
+        baseline.nbytes()
+    );
+    Ok(())
+}
+
+/// The blocked scheme must stand in for `FoRScheme` where that scheme is absent.
+///
+/// Every block here spans the same range as the whole array, so per-block references narrow
+/// nothing. The blocked scheme must still take the array: its references are all equal and cascade
+/// to a constant for almost nothing. Skipping instead would leave a compressor built without
+/// `FoRScheme` applying no frame of reference at all, dropping the array to plain bit packing —
+/// on ClickBench `WatchID` that cost 1.61%.
+#[cfg(not(feature = "pco"))]
+#[test]
+fn test_blocked_for_stands_in_for_global_for() -> VortexResult<()> {
+    let values: Vec<i32> = (0..16_384).map(|i| 1_000_000 + ((i * 37) % 100)).collect();
+    let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable).into_array();
+
+    let compressed = BtrBlocksCompressorBuilder::default()
+        .exclude_schemes([FoRScheme.id()])
+        .with_new_scheme(&BlockedFoRScheme)
+        .build()
+        .compress(&array, &mut SESSION.create_execution_ctx())?;
+
+    assert!(
+        compressed.is::<BlockedFoR>(),
+        "expected the blocked scheme to stand in for global FoR, got {}",
+        compressed.encoding_id()
+    );
+
+    let global =
+        BtrBlocksCompressor::default().compress(&array, &mut SESSION.create_execution_ctx())?;
+    assert!(
+        compressed.nbytes() <= global.nbytes() + global.nbytes() / 100,
+        "standing in for FoR cost more than 1%: {} vs {}",
+        compressed.nbytes(),
+        global.nbytes()
+    );
+    Ok(())
+}
+
+/// Per-block references cost more than they save when every block spans the same range as the
+/// whole array, so where global FoR is available it should take the array.
+#[test]
+fn test_blocked_for_falls_back_to_global_for() -> VortexResult<()> {
+    let values: Vec<i32> = (0..16_384).map(|i| 1_000_000 + ((i * 37) % 100)).collect();
     let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
     let btr = BtrBlocksCompressor::default();
     let compressed = btr.compress(&array.into_array(), &mut SESSION.create_execution_ctx())?;

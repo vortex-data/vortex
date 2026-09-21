@@ -4,6 +4,7 @@
 //! Integer compression schemes.
 
 mod bitpacking;
+mod blocked_for;
 mod delta;
 mod for_;
 mod rle;
@@ -16,6 +17,7 @@ mod zigzag;
 mod pco;
 
 pub use bitpacking::BitPackingScheme;
+pub use blocked_for::BlockedFoRScheme;
 pub use delta::DeltaScheme;
 pub use for_::FoRScheme;
 #[cfg(feature = "pco")]

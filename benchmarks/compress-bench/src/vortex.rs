@@ -18,10 +18,11 @@ use vortex::dtype::FieldNames;
 use vortex::expr::root;
 use vortex::expr::select;
 use vortex::file::OpenOptionsSessionExt;
-use vortex::file::WriteOptionsSessionExt;
 use vortex_arrow::ArrowSessionExt;
+use vortex_bench::CompactionStrategy;
 use vortex_bench::Format;
 use vortex_bench::SESSION;
+use vortex_bench::bench_write_options;
 use vortex_bench::compress::Compressed;
 use vortex_bench::compress::CompressedData;
 use vortex_bench::compress::Compressor;
@@ -49,8 +50,7 @@ impl Compressor for VortexCompressor {
         let mut buf = Vec::new();
         let start = Instant::now();
         let mut cursor = Cursor::new(&mut buf);
-        SESSION
-            .write_options()
+        bench_write_options(CompactionStrategy::Default)
             .write(&mut cursor, array.to_array_stream())
             .await?;
         let elapsed = start.elapsed();
