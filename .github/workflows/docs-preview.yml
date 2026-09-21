@@ -16,7 +16,7 @@ jobs:
       github.repository == 'vortex-data/vortex' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       ((github.event.action != 'labeled' && github.event.action != 'unlabeled' && github.event.action != 'edited') ||
-       github.event.label.name == 'preview-docs' ||
+       github.event.label.name == 'action/preview-docs' ||
        (github.event.action == 'edited' && github.event.changes.base.ref))
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -39,13 +39,13 @@ jobs:
               core.setOutput('eligible', false);
               return;
             }
-            let eligible = pr.labels.some(label => label.name === 'preview-docs');
+            let eligible = pr.labels.some(label => label.name === 'action/preview-docs');
             if (!eligible) {
               const files = await github.paginate(github.rest.pulls.listFiles, {
                 ...context.repo, pull_number: pr.number, per_page: 100,
               });
               if (files.length !== pr.changed_files) {
-                throw new Error('Incomplete PR file list. Retry, or add preview-docs to opt in.');
+                throw new Error('Incomplete PR file list. Retry, or add action/preview-docs to opt in.');
               }
               const workflows = new Set([
                 '.github/workflows/docs.yml',

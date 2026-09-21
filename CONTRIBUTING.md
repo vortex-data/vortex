@@ -135,7 +135,7 @@ PRs with branches in `vortex-data/vortex` get a docs preview when they change `d
 workflow. This includes draft PRs and PRs targeting another feature branch. Fork PRs do not get
 hosted previews. Resolve merge conflicts before building a preview.
 
-Add the `preview-docs` label to preview other changes, such as API documentation generated from
+Add the `action/preview-docs` label to preview other changes, such as API documentation generated from
 source code. The label stays on the PR and enables previews for later pushes. Removing it stops
 updates only if the PR no longer changes docs or a docs workflow.
 
