@@ -120,6 +120,8 @@ jobs:
           run: cargo codspeed run
           token: ${{ secrets.CODSPEED_TOKEN }}
           mode: "simulation"
+          # Cached package restoration fails on dangling libc6-dbg documentation symlinks.
+          cache-instruments: "false"
 
   # Compile on smaller VMs from the same CPU family as the measurement hosts. Globally
   # enabled features also affect build scripts, so the build host must support them.
