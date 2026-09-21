@@ -1,12 +1,12 @@
 # Versioning design
 
-A file can outlive the application that wrote it. Its readers can also belong to different services,
-with different upgrade schedules. Meanwhile, the library writing those files needs to improve its
-compression algorithms and in-memory data structures. Tying every such change to a new file format
-would force readers to upgrade even when the stored data could remain the same.
+Applications that share files can use different library versions and upgrade at different times. New
+library releases need to improve compression and in-memory data structures while continuing to read
+existing files. They also need a way to write files for applications that have not upgraded.
 
-Vortex separates the implementation used by an application from the serialized formats it reads and
-writes. The [versioning overview](../versioning.md) describes the compatibility guarantee.
+Vortex separates library implementations from the serialized formats they read and write. An
+implementation can change while retaining a format that existing readers understand. The
+[versioning overview](../versioning.md) describes the compatibility guarantee.
 
 ## Versions and formats
 
@@ -51,42 +51,34 @@ deserialization. Both formats decode into Library 2's array implementation, so i
 separate type for Format A.
 ```
 
-The writer checks the selected wire ID and every serialized child against the target editions.
-These checks also cover layouts, extension types, and stored aggregates.
+The writer checks the selected wire ID and every serialized child against the target editions. These
+checks also cover layouts, extension types, and stored aggregates.
 
 ## Example: decimal children
 
-Consider the decimal values `[1.25, 2.50, 3.75]`. They can be represented as the integers
-`[125, 250, 375]` with a scale of two decimal places. The original decimal-byte-parts format stores
-these integers in one signed integer child array.
+The decimal-byte-parts encoding stores decimal values in integer child arrays. It can store each
+value in one child or split it across several children. One in-memory array type handles both
+shapes, but the original wire contract permits only one child. Supporting additional children
+therefore requires a new wire ID.[^decimal-availability]
 
-The current implementation also supports wider values split across several children: a signed
-most-significant part followed by unsigned lower parts. One Rust array type handles both shapes, but
-the original format's contract permits only the single-child shape. The additional children
-therefore require a new wire ID.[^decimal-availability]
+| Array structure          | Wire ID selected by the serializer |
+| ------------------------ | ---------------------------------- |
+| One signed integer child | `vortex.decimal_byte_parts`        |
+| Several integer children | `vortex.decimal_byte_parts.v2`     |
 
-| Array structure                                    | Wire ID selected by the serializer |
-| -------------------------------------------------- | ---------------------------------- |
-| One signed integer child, no lower parts           | `vortex.decimal_byte_parts`        |
-| A signed integer child with additional lower parts | `vortex.decimal_byte_parts.v2`     |
+For a single-child array, the serializer reuses the child and writes the original format's metadata
+without recompression. An array with several children uses the second format, even if its values are
+small enough to fit in one child. Combining those parts into one child requires re-encoding, which
+the serializer does not perform.
 
-The current array type's in-memory ID matches the newer wire ID, but its serializer can return the
-original ID. The writer must therefore check the serializer's returned ID.
+The array type's in-memory ID is `vortex.decimal_byte_parts.v2` for both shapes. Since the
+serializer can return a different wire ID, the writer must check the returned ID against the target
+editions.
 
-For the example values, the serializer reuses the child containing `[125, 250, 375]` and writes the
-original format's metadata. No recompression is needed. The updated reader can decode that file
-directly into its current array type, with no lower-part children.
-
-The reader must still enforce the original contract when it sees the original ID. For that format,
-the `lower_part_count` metadata field must be zero and the array must have one signed integer child.
-Understanding additional children under the new ID does not make them valid under the old ID.
-Otherwise, a new writer could label extended data as the original format and produce a file that an
-old reader cannot interpret.
-
-The serializer chooses from the array's structure, not by inspecting whether values across several
-children can fit in one integer child. An array with lower parts uses the extended format even if
-its values happen to be small. There is no need for a format-version field on the in-memory array to
-distinguish these cases.
+Both wire formats deserialize into the same in-memory array type. The reader must still validate the
+contract identified by the stored ID: `vortex.decimal_byte_parts` requires exactly one signed
+integer child. Support for multiple children under the second ID does not make them valid under the
+first ID.
 
 ### Format selection
 
@@ -104,9 +96,9 @@ compatibility requires a different encoding of the same values, that is a compre
 write path must arrange that work explicitly or fail.
 
 Reading can also change the array structure. For example, the old ALP floating-point format stores
-exceptional values, called patches, inside the ALP array. The current plugin reads it into a
-`Patched` parent around an ALP child without patches. The values stay the same even though the
-reader's array tree differs from the stored tree.
+exceptional values, called patches, inside the ALP array. With the experimental `Patched` encoding
+enabled, the reader moves those patches into a `Patched` parent around an ALP child without patches.
+The values stay the same even though the reader's array tree differs from the stored tree.
 
 ## Children and other components
 

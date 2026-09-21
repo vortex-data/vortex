@@ -13,16 +13,16 @@ writer has no implementation for that format. **Forbidden** means the target edi
 **Allowed** means both requirements are met, but the writer must still construct an array that the
 format can represent. Reader results apply only after a successful write.
 
-| Writer    | Target edition          | Format   | Write result[^representation] | Library 1 reader                            | Library 2 reader      |
-| --------- | ----------------------- | -------- | ----------------------------- | ------------------------------------------- | --------------------- |
-| Library 1 | Edition 1               | Format A | Allowed                       | Reads                                       | Reads[^current-array] |
-| Library 1 | Edition 1               | Format B | Unsupported and forbidden     | N/A                                         | N/A                   |
-| Library 1 | Edition 2[^declaration] | Format A | Allowed                       | Reads                                       | Reads[^current-array] |
-| Library 1 | Edition 2[^declaration] | Format B | Unsupported                   | N/A                                         | N/A                   |
-| Library 2 | Edition 1               | Format A | Allowed[^compression]         | Reads                                       | Reads[^current-array] |
-| Library 2 | Edition 1               | Format B | Forbidden                     | N/A                                         | N/A                   |
-| Library 2 | Edition 2               | Format A | Allowed[^compression]         | Reads                                       | Reads[^current-array] |
-| Library 2 | Edition 2               | Format B | Allowed[^compression]         | [Unknown ID](using-editions.md#unknown-ids) | Reads                 |
+| Writer         | Target edition               | Format        | Write result[^representation] | Library&nbsp;1 reader                       | Library&nbsp;2 reader |
+| -------------- | ---------------------------- | ------------- | ----------------------------- | ------------------------------------------- | --------------------- |
+| Library&nbsp;1 | Edition&nbsp;1               | Format&nbsp;A | Allowed                       | Reads                                       | Reads[^current-array] |
+| Library&nbsp;1 | Edition&nbsp;1               | Format&nbsp;B | Unsupported and forbidden     | N/A                                         | N/A                   |
+| Library&nbsp;1 | Edition&nbsp;2[^declaration] | Format&nbsp;A | Allowed                       | Reads                                       | Reads[^current-array] |
+| Library&nbsp;1 | Edition&nbsp;2[^declaration] | Format&nbsp;B | Unsupported                   | N/A                                         | N/A                   |
+| Library&nbsp;2 | Edition&nbsp;1               | Format&nbsp;A | Allowed[^compression]         | Reads                                       | Reads[^current-array] |
+| Library&nbsp;2 | Edition&nbsp;1               | Format&nbsp;B | Forbidden                     | N/A                                         | N/A                   |
+| Library&nbsp;2 | Edition&nbsp;2               | Format&nbsp;A | Allowed[^compression]         | Reads                                       | Reads[^current-array] |
+| Library&nbsp;2 | Edition&nbsp;2               | Format&nbsp;B | Allowed[^compression]         | [Unknown ID](using-editions.md#unknown-ids) | Reads                 |
 
 The serializer [selects a format](design.md#format-selection) from the array's structure. The writer
 then checks whether the target edition permits it. The format column shows that selection, not a
@@ -45,9 +45,9 @@ The diagram groups related checks. In the implementation, component checks occur
 during writing and reading.
 ```
 
-If the serializer returns a forbidden ID, the write fails. The writer does not retry with a different
-permitted ID. When the target requires a different encoding, the array must be recompressed before
-serialization. See [Format selection](design.md#format-selection).
+If the serializer returns a forbidden ID, the write fails. The writer does not retry with a
+different permitted ID. When the target requires a different encoding, the array must be
+recompressed before serialization. See [Format selection](design.md#format-selection).
 
 The matrix assumes valid serialized data. The diagram also shows the reader rejecting data that
 violates the stored ID's contract. Format compatibility does not prevent I/O errors.
