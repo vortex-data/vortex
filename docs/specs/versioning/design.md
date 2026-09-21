@@ -55,18 +55,50 @@ and nulls. An array can contain buffers and other arrays, called _children_. A d
 example, has a child for its values and another for the codes that refer to those values. Each child
 can use its own encoding.
 
-The array's in-memory ID selects its serializer, which returns a wire ID, metadata, buffers, and
-children. Those children are then serialized through their own plugins. Conversely, the reader uses
-each stored wire ID to select a deserializer and the contract it must validate. Since a plugin can
-adapt metadata, buffers, or children in either direction, the in-memory and serialized structures
-need not be identical. However, both conversions must preserve values, data types, and nulls.
+### Array plugin conversions
+
+An array plugin provides the code to serialize an in-memory array and read serialized data back into
+an array. A plugin can support several wire formats. Support grows by adding wire IDs, while the
+rules for frozen IDs stay fixed and readers retain the code needed to read them.
+
+When writing an array, Vortex finds its serializer using the array's in-memory encoding ID. The
+serializer chooses a wire format and returns that format's wire ID, metadata, buffers, and child
+arrays. It can construct different metadata, buffers, or children from those in the input array to
+meet the chosen format's requirements. The library can therefore change its in-memory array data
+structures while continuing to serialize data according to the same wire format. Each returned child
+is then serialized through its own plugin.
+
+When reading, however, Vortex finds the deserializer using the wire ID stored in the file. As it
+constructs an in-memory array, the deserializer must check that the metadata, buffers, data types,
+and children satisfy the rules for that ID. It can arrange the buffers and children differently in
+memory, or return an array whose encoding ID differs from the plugin's own in-memory ID. **A plugin
+can therefore read several wire formats into the same in-memory array type.**
+
+These operations do not upgrade or downgrade the file. A reader can use an array implementation
+added after the file was written, but the file's contents and wire IDs remain unchanged. Similarly,
+a writer can use its current array implementation to serialize data in a wire format introduced by
+an earlier library release. Neither operation requires a separate in-memory array type for each wire
+format. Both must preserve values, data types, and nulls, although the array's structure in memory
+can change when it is serialized and read back.
+
+An application can opt out of a particular conversion during reading by
+[registering another plugin for the same wire ID](../../developer-guide/internals/session.md#registering-plugins).
+That plugin must read the same serialized data correctly, but it can construct a different encoding
+in memory. This gives the application control over how the data is represented without changing the
+file or the rules for interpreting it.
+
+For example, the ALP wire format stores exceptional values, called patches, inside the ALP array.
+With experimental `Patched` support enabled, the registered plugin constructs a `Patched` parent
+that holds those patches and an ALP child that has none. In contrast, the standard ALP plugin keeps
+the patches inside the ALP array in memory. Registering the standard plugin opts out of that change
+to the array structure, while still reading the same stored data under the same wire ID.
 
 ## Example: decimal children
 
-The decimal-byte-parts encoding stores decimal values in integer child arrays. It can store each
-value in one child or split it across several children. One in-memory array type handles both
-shapes, but the v1 wire contract permits only one child. Supporting additional children therefore
-requires a new wire ID.[^decimal-availability]
+The decimal-byte-parts plugin can serialize the same in-memory array type using two wire formats.
+Its encoding stores decimal values in integer child arrays, either in one child or split across
+several children. The v1 wire contract permits only one child, while v2 adds support for multiple
+children under a distinct wire ID.[^decimal-availability]
 
 ```{figure} ../../_static/versioning-flow.svg
 :alt: One decimal encoding holds either one signed child or a signed child with unsigned lower parts. The serializer chooses v1 for one child and v2 for multiple children. Both wire formats deserialize into the same array type.
@@ -91,7 +123,7 @@ Both wire formats deserialize into the same in-memory array type. However, the r
 validate the contract identified by the stored ID: `vortex.decimal_byte_parts` requires exactly one
 signed integer child. Support for multiple children under v2 does not make them valid under v1.
 
-### Format selection
+## Format selection
 
 A serializer must choose the oldest supported writable format that preserves the array's
 representation without recompression. A plugin can adapt metadata, buffers, or children to fit an
@@ -104,12 +136,8 @@ through this serializer, which selects v1.
 
 This policy preserves compatibility with readers of the earlier wire format when the existing
 representation allows it. If compatibility requires a different encoding of the same values, the
-write path must arrange recompression before serialization or fail.
-
-Reading can also change the array structure. For example, the ALP floating-point wire format stores
-exceptional values, called patches, inside the ALP array. With the experimental `Patched` encoding
-enabled, the reader moves those patches into a `Patched` parent around an ALP child without patches.
-The values stay the same even though the reader's array tree differs from the stored tree.
+write path must arrange recompression before serialization or fail. Selecting an edition does not
+perform that conversion automatically.
 
 ## Write and read checks
 
