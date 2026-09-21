@@ -3,34 +3,47 @@
 
 # Performance findings
 
-[Research overview](../README.md)
+[Overview](../README.md)
 
-RowFn overhead is measurable, but one percentage hides different costs. Type dispatch and batch
-validation add work outside the row loop. Decoding, null handling, and output collection can change
-the algorithm that the loop executes.
+RowFn adds batch work, and some execution paths also change the per-row algorithm. The evidence
+supports several specific improvements. It does not establish one framework overhead percentage.
 
-The local experiment compares the current framework with two equivalent canonical `i64` kernels.
-It includes decode, new output allocation, array construction, and output destruction.
+## What the measurements show
 
-- Against the same output collector, RowFn adds about 101 to 104 ns for batches of 1 to 1,024 rows.
-- At 16,384 rows, RowFn takes about 2.53 us versus 1.44 us for a direct iterator kernel.
-  A direct kernel with the shared RowFn collector takes about 2.43 us.
-- Reused-argument RowFn and both direct kernels issue the same allocation requests in this fixture.
-  Constructing fresh arguments adds one 16-byte allocation and associated ownership operations.
+| Experiment | Result | What the comparison establishes |
+| --- | --- | --- |
+| Apple M4 Max, canonical unary `i64`, shared output collector. | About 101 to 104 ns of extra batch work at 1 to 1,024 rows. | The wrapper cost while retaining a framework collector in both paths. |
+| Same ARM experiment, 16,384 rows. | RowFn 2.53 us, direct collector 2.43 us, direct iterator 1.44 us. | Output collection matters beyond batch dispatch. Both loops use vector arithmetic. |
+| Same ARM fixture, allocation requests. | Reused arguments match both direct kernels. Fresh arguments add one 16-byte request. | No extra allocation request in the reused fixture. This does not measure allocator block sizes. |
+| Xeon sweep, binary primitive operations, stock x86-64 target. | About 0.5 us per small dense invocation, about 1.3 us with array-backed validity. | Total invocation estimates in that fixture. Matched in-cache slopes resolve little additional dense per-row cost. |
+| Xeon sweep, cheap UTF-8 predicate. | About 18 ns/row versus 0.56 ns/row over prevalidated raw views. | Decoding and validation dominate this comparison. The baseline has stronger input preconditions. |
+| Xeon sweep, rejected evidence with `RUST_BACKTRACE=1`. | About 7.7 us inferred for a discarded rich error. | A candidate retry cost, estimated by subtraction. No isolated backtrace experiment established the split. |
 
-The shared-collector comparison measures the additional batch wrapper while holding one framework
-component fixed. It does not establish that total RowFn overhead is about 100 ns. Both comparisons
-matter. These results apply to Apple M4 Max, rustc 1.98.0, and the measured release configuration.
+The ARM run uses one codegen unit and a unary wrapping operation. The x86 run uses 16 codegen units,
+different operations, and different baselines. Their numbers cannot be averaged, ranked as competing
+implementations, or used to predict a portable adapter.
 
-Read the findings in this order:
+The ARM report retains the harness, raw observations, and compiler excerpts. The x86 report retains
+result tables and the protocol. Its temporary sweep source and raw output were not retained.
+The [evidence record](../evidence.md) states these different reproduction limits.
 
-1. [Local measurements](local-measurements.md) gives the results, baseline contracts, and limits.
-2. [Cost model](cost-model.md) separates setup, decoding, row work, validity, output, and host costs.
-3. [Measurement plan](measurement-plan.md) specifies the remaining targets and demand-mask cases.
-4. [Compiler evidence](compiler-evidence.md) explains the observed collector distinction.
-5. [Reproduction](reproduction.md) retains the exact harness and commands.
-6. [Raw observations](raw-observations.md) contains every final timing and allocation observation.
+## What deserves further work
 
-A separate library needs this separation in its API and benchmark suite. A generic type abstraction
-can preserve static row dispatch, but that alone does not preserve output code generation or host
-representation. No Arrow, DataFusion, DuckDB, x86 runtime, or query benchmark was run in this study.
+Source inspection supports repeated type validation, UTF-8 sanitation, rich retry errors, and
+missing specialized Boolean visits on selected paths. Lazy validity operations and filtered input
+execution also add costs outside the closure. These are optimization candidates, not verified fixes.
+
+The [candidate analysis](optimization-candidates.md) gives each cause, required invariant, and
+proposed comparison. The [pipeline trace](pipeline-trace.md) maps costs to execution scenarios.
+
+No experiment here measures an extracted library, a real host adapter, or an end-to-end query.
+Dense primitive results do not cover nullable strings, geometry decoding, or filtered execution.
+
+## Detailed evidence
+
+- [ARM measurements](local-measurements.md), [exact harness](reproduction.md), and
+  [raw observations](raw-observations.md).
+- [ARM compiler evidence](compiler-evidence.md), including the collector distinction and its limits.
+- [x86 measurements](x86-measurements.md) and [the x86 measurement protocol](x86-measurement-plan.md).
+- [Cost model](cost-model.md), with binding, decoding, rows, validity, output, and host costs separated.
+- [Remaining measurement plan](measurement-plan.md), including selections and real host integration.

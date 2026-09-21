@@ -46,6 +46,7 @@ Read the detailed notes by question:
 - [Where must Vortex propagate demand?](current-vortex.md)
 - [What does Velox already implement?](velox.md)
 - [Which design and validation steps are necessary?](adoption.md)
+- [Where does demand enter the API, and how are partial results represented?](design-options.md)
 
 Demand is independent of the [generic type system](../type-system/README.md). Supporting functions
 that produce null from valid inputs is a separate expansion of the current RowFn contract.

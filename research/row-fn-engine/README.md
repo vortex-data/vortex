@@ -1,103 +1,74 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 <!-- SPDX-FileCopyrightText: Copyright the Vortex contributors -->
 
-# RowFn as a portable library
+# RowFn engine research
 
-**RowFn can become a portable function library, but replacing `DType` alone is insufficient.** The
-useful boundary separates function semantics, typed row access, and host integration. A function can
-then define one operation for every adapter that supports its semantic and storage requirements.
+**RowFn can become a shared function library for Vortex and other engines.** The useful boundary
+separates function semantics, typed row execution, and host adapters. Replacing `DType` is part of
+that work. Decoding, output ownership, errors, and registration need the same treatment.
 
-This is a research report against Vortex commit
-[`96bd521eb0`](https://github.com/vortex-data/vortex/commit/96bd521eb0565555def2af7b8e97e96891728da6),
-dated 2026-09-21. The proposed library and adapters are not implemented. Start with the findings
-below, then follow the links for evidence and design details.
+The recommendation is to prove this boundary with Vortex and Arrow before stabilizing an API.
+DataFusion can then reuse the Arrow adapter. DuckDB needs a separate choice between its C callback
+and a version-matched C++ adapter.
 
-## Findings
+This tree contains findings and design proposals, dated 2026-09-21. The portable library and host
+adapters are not implemented. The [evidence record](evidence.md) identifies source revisions,
+completed experiments, and their limits.
 
-### 1. A generic type system needs a semantic contract
+## Start here
 
-An associated `Host::Type` can remove the direct Vortex dependency. It cannot tell one function how
-to interpret every host's timestamps, decimals, extension types, or nested nullability.
+These pages contain the main argument. The other files provide supporting detail.
 
-The strongest candidate combines host-native types with a small, extensible semantic protocol.
-Binding establishes supported type capabilities once. Typed readers and writers then handle the
-batch without inspecting a logical type for every row.
+| Page | What it answers |
+| --- | --- |
+| [Design](architecture.md) | What belongs in the library, and which API choices remain open? |
+| [Performance](performance/README.md) | What was measured, and which costs need attention? |
+| [Demand and completion](definedness/README.md) | How can conditionals avoid errors in rows they do not need? |
+| [Next steps](next-steps.md) | Which changes and experiments resolve the remaining questions? |
 
-This permits new hosts and type extensions. It does not make arbitrary unknown types executable
-without a definition of their operations. Unsupported mappings remain explicit errors.
+## Main findings
 
-An [isolated Rust proof](type-system/compiled-proof.md) compiles one binder and row loop against two
-independent adapter crates. It establishes the generic and borrowing mechanisms, not full host
-integration. Read [type-system options and counterexamples](type-system/README.md) for the remaining
-semantic questions.
+**The type system can be generic.** Current row loops already operate on typed values and views.
+An isolated [Rust experiment](type-system/compiled-proof.md) demonstrates shared dispatch and
+borrowing across two adapter crates. A portable function still needs a semantic contract.
+An `i64` timestamp, a decimal coefficient, and an ordinary integer are not interchangeable inputs.
 
-### 2. Vortex dependencies extend through input, output, and evaluation
+**Outer nullability can move to the binding boundary.** The core can represent a semantic type and
+its outer nullability separately. Nested child nullability and extension metadata must survive.
+A small built-in type vocabulary is useful, but hosts must be able to reject unsupported types.
+The [type analysis](type-system/README.md) compares this with an extensible capability design.
 
-Current input decoders accept `ArrayRef` and `ExecutionCtx`. Output builders and sinks construct
-Vortex arrays. Constants, validity, allocation, output labels, errors, serialization, and the scalar
-function vtable add further ties.
+**Most reusable logic sits between host operations.** Typed traversal, constants, preparation,
+deferred failure evidence, and sink initialization belong in the core. Adapters own column access,
+allocation, output construction, and host registration. Explicit wrappers such as `VortexRowFn<F>`
+avoid the blanket-implementation constraints. The [source inventory](current-system/README.md)
+maps the boundary and its safety obligations.
 
-The portable pieces are the typed row operation and much of the traversal machinery. Host adapters
-need to own column access and output construction. Query optimizations and expression evaluation
-remain separate integration layers.
+**Overhead has several causes.** The ARM experiment isolates about 101 to 104 ns of additional batch
+work with a shared collector. It also finds a larger collector difference at 16,384 rows. The x86
+sweep reports different setup costs and exposes UTF-8 validation, retry, and nullable execution
+costs. These are different experiments, not one combined benchmark. The
+[performance summary](performance/README.md) keeps both baselines and their limits visible.
 
-Read the [current execution path and dependency inventory](current-system/README.md), then the
-[proposed architecture](architecture.md).
+**Demand, completion, and validity are different facts.** A caller requests rows. A successful call
+completes those rows, including null results. Validity says which completed results are non-null.
+Demand must reach child evaluation, decoding, and preparation before the row loop. A bitmap added
+only to that loop is insufficient. The [definedness contract](definedness/contract.md) states the
+required behavior and safe output representation.
 
-### 3. Host integration has measurable boundaries
+**The row API needs a batch alternative.** Buffer reuse, dictionary transforms, and fused kernels
+can require whole-column access. Keep that path under the same function semantics. Existing
+RowFn also has a narrower contract than a general UDF: strict null propagation, fixed arity,
+synchronous execution, and no null result from valid inputs. Those extensions need separate design.
 
-An arrow-rs adapter and a DataFusion UDF adapter can share column access. DataFusion still needs its
-own binding and function metadata. Arrow transport alone does not provide that contract.
+## Supporting detail
 
-DuckDB's C scalar callback receives flattened inputs in the inspected version. A C++ adapter can
-retain native vector information, with a different versioning contract. DataFusion's existing FFI
-route also expands scalar arguments to arrays, unlike native Rust UDF calls.
-
-The target can be one shared function definition with separately compiled adapters. One binary
-that loads everywhere requires an additional ABI design.
-
-Read the [Arrow, DataFusion, and DuckDB integration research](integrations/README.md).
-
-### 4. Overhead is a set of costs, not one framework percentage
-
-An exact description needs a specified entry point, input representation, execution path, output
-contract, and baseline. Binding, argument construction, decoding, validity, row execution, and output
-construction contribute different costs.
-
-Source work counts and native timings answer different questions. The report separates them and
-records the local experiment, controls, reproduction, and limitations. Those results concern the
-current Vortex implementation, not the proposed portable library.
-
-On Apple M4 Max, the measured `i64` function adds about 101 to 104 ns against a shared output
-collector at 1 to 1,024 rows. At 16,384 rows, RowFn takes 2.53 us. The direct iterator takes 1.44 us,
-and the direct shared collector takes 2.43 us. The collector difference therefore matters alongside
-the batch wrapper. Reused-argument paths make the same allocation requests in this fixture.
-
-Read the [performance model and measurement report](performance/README.md).
-
-### 5. Demand and definedness need contracts separate from validity
-
-Input demand says which results the caller needs. Output definedness says which results are
-complete. Validity says which complete results are non-null. A computed null is defined. An
-unrequested row is not necessarily null.
-
-These are separate facts, but they do not require separate allocated bitmaps on every call.
-Compact batches and successful full-batch execution can carry some guarantees implicitly.
-
-The request must reach child evaluation and decoding. A final-loop mask cannot suppress earlier
-errors. Dictionary rewrites and partial-result caches also need the correct row domain.
-
-Read the [definedness model, examples, and evaluator changes](definedness/README.md).
-
-## Recommended first experiment
-
-Extract a small semantic binder and typed executor behind Vortex and plain-slice adapters. Then add
-Arrow/DataFusion using the same function definitions. Use integer arithmetic, timestamp metadata,
-UTF-8 output, and a fixed-size vector case to expose different boundaries.
-
-Introduce demand through one conditional expression before fixing the public execution API. Keep
-batch-level implementations available for functions that reuse whole buffers or exploit encodings.
-
-The [next experiments](next-steps.md) define the evidence needed to accept each design decision.
-The [prior-art comparison](prior-art.md) covers Velox and Substrait. The
-[evidence guide](evidence.md) records the source and measurement boundaries.
+| Topic | Detailed reading |
+| --- | --- |
+| Current framework | [Execution](current-system/execution.md), [contracts](current-system/contracts.md), [consumers](current-system/consumers.md), [design history](current-system/design-history.md). |
+| Type design | [Alternatives](type-system/alternatives.md), [binding contract](type-system/portable-contract.md), [type inventory](type-system/dtype-inventory.md), [host mappings](type-system/mappings.md). |
+| Extraction | [Dependencies](current-system/dependencies.md), [crate and trait choices](current-system/engine-boundary.md). |
+| Host adapters | [Arrow, DataFusion, and DuckDB](integrations/README.md), [storage and ownership](integrations/storage-and-ownership.md). |
+| Execution semantics | [Worked cases](definedness/worked-cases.md), [API alternatives](definedness/design-options.md), [current Vortex behavior](definedness/current-vortex.md). |
+| Measurements | [ARM results](performance/local-measurements.md), [x86 results](performance/x86-measurements.md), [optimization candidates](performance/optimization-candidates.md). |
+| Prior art | [Comparison and lessons](prior-art.md), including Velox, Arrow, DuckDB, DataFusion, ClickHouse, Polars, Presto, Spark, and Substrait. |
