@@ -43,8 +43,9 @@ pandas = ["pandas>=2.2.0"]
 numpy = ["numpy>=1.26.0"]
 duckdb = ["duckdb>=1.1.2"]
 # Ray sizes Arrow blocks via `Table.nbytes`, which only supports `string_view`
-# from pyarrow 24 onward (https://github.com/apache/arrow/issues/47279).
-ray = ["ray>=2.48", "pyarrow>=24"]
+# from pyarrow 24 onward (https://github.com/apache/arrow/issues/47279), so pin a
+# Ray release that is compatible with a pyarrow this new.
+ray = ["ray>=2.56", "pyarrow>=24"]
 # The datasets integration relies on private `datasets` APIs, so cap the next major version.
 hf = ["datasets>=4.0.0,<6", "huggingface-hub>=0.34.0"]
 
@@ -88,7 +89,7 @@ dev = [
     "pyarrow-stubs>=17.16",
     "pytest-benchmark>=5.1.0",
     "pytest-xdist>=3.5.0",
-    "ray>=2.48",
+    "ray>=2.56",
     # forced transitive bumps
     "protobuf>=6.33.5",
 ]

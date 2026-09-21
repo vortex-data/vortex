@@ -2314,6 +2314,7 @@ polars = [
     { name = "polars" },
 ]
 ray = [
+    { name = "pyarrow" },
     { name = "ray" },
 ]
 
@@ -2344,7 +2345,8 @@ requires-dist = [
     { name = "pandas", marker = "extra == 'pandas'", specifier = ">=2.2.0" },
     { name = "polars", marker = "extra == 'polars'", specifier = ">=1.31.0" },
     { name = "pyarrow", specifier = ">=17.0.0" },
-    { name = "ray", marker = "extra == 'ray'", specifier = ">=2.48" },
+    { name = "pyarrow", marker = "extra == 'ray'", specifier = ">=24" },
+    { name = "ray", marker = "extra == 'ray'", specifier = ">=2.56" },
     { name = "substrait", specifier = ">=0.23.0,<0.29.0" },
     { name = "typing-extensions", specifier = ">=4.5.0" },
     { name = "vortex-data-cuda", marker = "extra == 'cuda'", directory = "vortex-python-cuda" },
@@ -2366,7 +2368,7 @@ dev = [
     { name = "pyarrow-stubs", specifier = ">=17.16" },
     { name = "pytest-benchmark", specifier = ">=5.1.0" },
     { name = "pytest-xdist", specifier = ">=3.5.0" },
-    { name = "ray", specifier = ">=2.48" },
+    { name = "ray", specifier = ">=2.56" },
 ]
 
 [[package]]
