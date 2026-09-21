@@ -72,9 +72,9 @@ runs:
         mkdir -p ~/.config/sccache
         echo 'server_startup_timeout_ms = 60000' > ~/.config/sccache/config
 
-    - name: Rust Compile Cache
+    - name: Install sccache
       if: inputs.enable-sccache == 'true'
-      uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696  # v0.0.10
+      uses: ./.github/actions/setup-sccache
 
     - name: Enable Rust compiler caching
       if: inputs.enable-sccache == 'true'
