@@ -23,7 +23,7 @@ const DUCKDB_RELEASES_URL: &str = "https://ci-builds.vortex.dev";
 
 const DUCKDB_SOURCE_RELEASE_URL: &str = "https://github.com/duckdb/duckdb/archive/refs/tags";
 const DUCKDB_SOURCE_COMMIT_URL: &str = "https://github.com/duckdb/duckdb/archive";
-const DEFAULT_DUCKDB_VERSION: &str = "31151d40e6906f2056db8a2c45b336b153c9f871";
+const DEFAULT_DUCKDB_VERSION: &str = "31adc8b766540e1dffbfdd3804632b59d237b342";
 
 const BUILD_ARTIFACTS: [&str; 3] = ["libduckdb.dylib", "libduckdb.so", "libduckdb_static.a"];
 const BUILD_MARKER: &str = ".vx-build-complete";
@@ -409,9 +409,8 @@ fn build_duckdb(version: &DuckDBVersion, duckdb_repo_dir: &Path) {
         DuckDBVersion::Release(_) => "parquet",
         // tpch/tpcds/parquet needed for benchmarks
         // icu needed for timestamptz tests
-        // spatial needed for spatial override tests
         // httpfs needed for s3 write test
-        DuckDBVersion::Commit(_) => "parquet;tpch;tpcds;icu;spatial;httpfs",
+        DuckDBVersion::Commit(_) => "parquet;tpch;tpcds;icu;httpfs",
     };
 
     let envs = [

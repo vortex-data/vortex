@@ -168,7 +168,7 @@ static unique_ptr<TableRef> VortexScanReplacement(ClientContext &context,
     auto table_function = make_uniq<TableFunctionRef>();
 
     vector<unique_ptr<ParsedExpression>> children(1);
-    children[0] = make_uniq<ConstantExpression>(Value(table_name));
+    children[0] = ConstantExpression::String(table_name);
     table_function->function = make_uniq<FunctionExpression>("read_vortex", std::move(children));
 
     if (!FileSystem::HasGlob(table_name)) {

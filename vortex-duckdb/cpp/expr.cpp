@@ -76,7 +76,7 @@ extern "C" duckdb_value duckdb_vx_expr_bound_constant_get_value(duckdb_vx_expr f
         return nullptr;
     }
     auto &expr = reinterpret_cast<Expression *>(ffi_expr)->Cast<BoundConstantExpression>();
-    return reinterpret_cast<duckdb_value>(&expr.GetValueMutable());
+    return reinterpret_cast<duckdb_value>(const_cast<Value *>(&expr.GetValue()));
 }
 
 extern "C" void duckdb_vx_expr_get_bound_comparison(duckdb_vx_expr ffi_expr,

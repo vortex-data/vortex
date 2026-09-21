@@ -42,7 +42,7 @@ else
         BUILD_SHELL=false \
         BUILD_UNITTESTS=false \
         ENABLE_UNITTEST_CPP_TESTS=false \
-        BUILD_EXTENSIONS="parquet;tpch;tpcds" \
+        BUILD_EXTENSIONS="parquet;tpch;tpcds;icu;httpfs" \
         $extra
 
     lib_dir="${src_dir}/build/release/src"
