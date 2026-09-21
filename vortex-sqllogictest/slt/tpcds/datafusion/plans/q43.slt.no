@@ -1,0 +1,82 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT s_store_name,
+       s_store_id,
+       sum(CASE
+               WHEN (d_day_name='Sunday') THEN ss_sales_price
+               ELSE NULL
+           END) sun_sales,
+       sum(CASE
+               WHEN (d_day_name='Monday') THEN ss_sales_price
+               ELSE NULL
+           END) mon_sales,
+       sum(CASE
+               WHEN (d_day_name='Tuesday') THEN ss_sales_price
+               ELSE NULL
+           END) tue_sales,
+       sum(CASE
+               WHEN (d_day_name='Wednesday') THEN ss_sales_price
+               ELSE NULL
+           END) wed_sales,
+       sum(CASE
+               WHEN (d_day_name='Thursday') THEN ss_sales_price
+               ELSE NULL
+           END) thu_sales,
+       sum(CASE
+               WHEN (d_day_name='Friday') THEN ss_sales_price
+               ELSE NULL
+           END) fri_sales,
+       sum(CASE
+               WHEN (d_day_name='Saturday') THEN ss_sales_price
+               ELSE NULL
+           END) sat_sales
+FROM date_dim,
+     store_sales,
+     store
+WHERE d_date_sk = ss_sold_date_sk
+  AND s_store_sk = ss_store_sk
+  AND s_gmt_offset = -5
+  AND d_year = 2000
+GROUP BY s_store_name,
+         s_store_id
+ORDER BY s_store_name,
+         s_store_id,
+         sun_sales,
+         mon_sales,
+         tue_sales,
+         wed_sales,
+         thu_sales,
+         fri_sales,
+         sat_sales
+LIMIT 100;
+----
+logical_plan
+01)Sort: store.s_store_name ASC NULLS LAST, store.s_store_id ASC NULLS LAST, fetch=100
+02)--Projection: store.s_store_name, store.s_store_id, sum(CASE WHEN date_dim.d_day_name = Utf8("Sunday") THEN store_sales.ss_sales_price ELSE NULL END) AS sun_sales, sum(CASE WHEN date_dim.d_day_name = Utf8("Monday") THEN store_sales.ss_sales_price ELSE NULL END) AS mon_sales, sum(CASE WHEN date_dim.d_day_name = Utf8("Tuesday") THEN store_sales.ss_sales_price ELSE NULL END) AS tue_sales, sum(CASE WHEN date_dim.d_day_name = Utf8("Wednesday") THEN store_sales.ss_sales_price ELSE NULL END) AS wed_sales, sum(CASE WHEN date_dim.d_day_name = Utf8("Thursday") THEN store_sales.ss_sales_price ELSE NULL END) AS thu_sales, sum(CASE WHEN date_dim.d_day_name = Utf8("Friday") THEN store_sales.ss_sales_price ELSE NULL END) AS fri_sales, sum(CASE WHEN date_dim.d_day_name = Utf8("Saturday") THEN store_sales.ss_sales_price ELSE NULL END) AS sat_sales
+03)----Aggregate: groupBy=[[store.s_store_name, store.s_store_id]], aggr=[[sum(CASE WHEN date_dim.d_day_name = Utf8View("Sunday") THEN store_sales.ss_sales_price ELSE Decimal128(NULL,7,2) END) AS sum(CASE WHEN date_dim.d_day_name = Utf8("Sunday") THEN store_sales.ss_sales_price ELSE NULL END), sum(CASE WHEN date_dim.d_day_name = Utf8View("Monday") THEN store_sales.ss_sales_price ELSE Decimal128(NULL,7,2) END) AS sum(CASE WHEN date_dim.d_day_name = Utf8("Monday") THEN store_sales.ss_sales_price ELSE NULL END), sum(CASE WHEN date_dim.d_day_name = Utf8View("Tuesday") THEN store_sales.ss_sales_price ELSE Decimal128(NULL,7,2) END) AS sum(CASE WHEN date_dim.d_day_name = Utf8("Tuesday") THEN store_sales.ss_sales_price ELSE NULL END), sum(CASE WHEN date_dim.d_day_name = Utf8View("Wednesday") THEN store_sales.ss_sales_price ELSE Decimal128(NULL,7,2) END) AS sum(CASE WHEN date_dim.d_day_name = Utf8("Wednesday") THEN store_sales.ss_sales_price ELSE NULL END), sum(CASE WHEN date_dim.d_day_name = Utf8View("Thursday") THEN store_sales.ss_sales_price ELSE Decimal128(NULL,7,2) END) AS sum(CASE WHEN date_dim.d_day_name = Utf8("Thursday") THEN store_sales.ss_sales_price ELSE NULL END), sum(CASE WHEN date_dim.d_day_name = Utf8View("Friday") THEN store_sales.ss_sales_price ELSE Decimal128(NULL,7,2) END) AS sum(CASE WHEN date_dim.d_day_name = Utf8("Friday") THEN store_sales.ss_sales_price ELSE NULL END), sum(CASE WHEN date_dim.d_day_name = Utf8View("Saturday") THEN store_sales.ss_sales_price ELSE Decimal128(NULL,7,2) END) AS sum(CASE WHEN date_dim.d_day_name = Utf8("Saturday") THEN store_sales.ss_sales_price ELSE NULL END)]]
+04)------Projection: date_dim.d_day_name, store_sales.ss_sales_price, store.s_store_id, store.s_store_name
+05)--------Inner Join: store_sales.ss_store_sk = store.s_store_sk
+06)----------Projection: date_dim.d_day_name, store_sales.ss_store_sk, store_sales.ss_sales_price
+07)------------Inner Join: date_dim.d_date_sk = store_sales.ss_sold_date_sk
+08)--------------Projection: date_dim.d_date_sk, date_dim.d_day_name
+09)----------------Filter: date_dim.d_year = Int64(2000)
+10)------------------TableScan: date_dim projection=[d_date_sk, d_year, d_day_name], partial_filters=[date_dim.d_year = Int64(2000)]
+11)--------------TableScan: store_sales projection=[ss_sold_date_sk, ss_store_sk, ss_sales_price]
+12)----------Projection: store.s_store_sk, store.s_store_id, store.s_store_name
+13)------------Filter: store.s_gmt_offset = Decimal128(-5.00,5,2)
+14)--------------TableScan: store projection=[s_store_sk, s_store_id, s_store_name, s_gmt_offset], partial_filters=[store.s_gmt_offset = Decimal128(-5.00,5,2)]
+physical_plan
+01)SortPreservingMergeExec: [s_store_name@0 ASC NULLS LAST, s_store_id@1 ASC NULLS LAST], fetch=100
+02)--ProjectionExec: expr=[s_store_name@0 as s_store_name, s_store_id@1 as s_store_id, sum(CASE WHEN date_dim.d_day_name = Utf8("Sunday") THEN store_sales.ss_sales_price ELSE NULL END)@2 as sun_sales, sum(CASE WHEN date_dim.d_day_name = Utf8("Monday") THEN store_sales.ss_sales_price ELSE NULL END)@3 as mon_sales, sum(CASE WHEN date_dim.d_day_name = Utf8("Tuesday") THEN store_sales.ss_sales_price ELSE NULL END)@4 as tue_sales, sum(CASE WHEN date_dim.d_day_name = Utf8("Wednesday") THEN store_sales.ss_sales_price ELSE NULL END)@5 as wed_sales, sum(CASE WHEN date_dim.d_day_name = Utf8("Thursday") THEN store_sales.ss_sales_price ELSE NULL END)@6 as thu_sales, sum(CASE WHEN date_dim.d_day_name = Utf8("Friday") THEN store_sales.ss_sales_price ELSE NULL END)@7 as fri_sales, sum(CASE WHEN date_dim.d_day_name = Utf8("Saturday") THEN store_sales.ss_sales_price ELSE NULL END)@8 as sat_sales]
+03)----SortExec: TopK(fetch=100), expr=[s_store_name@0 ASC NULLS LAST, s_store_id@1 ASC NULLS LAST], preserve_partitioning=[true]
+04)------AggregateExec: mode=FinalPartitioned, gby=[s_store_name@0 as s_store_name, s_store_id@1 as s_store_id], aggr=[sum(CASE WHEN date_dim.d_day_name = Sunday THEN store_sales.ss_sales_price ELSE NULL END) as sum(CASE WHEN date_dim.d_day_name = Utf8("Sunday") THEN store_sales.ss_sales_price ELSE NULL END), sum(CASE WHEN date_dim.d_day_name = Monday THEN store_sales.ss_sales_price ELSE NULL END) as sum(CASE WHEN date_dim.d_day_name = Utf8("Monday") THEN store_sales.ss_sales_price ELSE NULL END), sum(CASE WHEN date_dim.d_day_name = Tuesday THEN store_sales.ss_sales_price ELSE NULL END) as sum(CASE WHEN date_dim.d_day_name = Utf8("Tuesday") THEN store_sales.ss_sales_price ELSE NULL END), sum(CASE WHEN date_dim.d_day_name = Wednesday THEN store_sales.ss_sales_price ELSE NULL END) as sum(CASE WHEN date_dim.d_day_name = Utf8("Wednesday") THEN store_sales.ss_sales_price ELSE NULL END), sum(CASE WHEN date_dim.d_day_name = Thursday THEN store_sales.ss_sales_price ELSE NULL END) as sum(CASE WHEN date_dim.d_day_name = Utf8("Thursday") THEN store_sales.ss_sales_price ELSE NULL END), sum(CASE WHEN date_dim.d_day_name = Friday THEN store_sales.ss_sales_price ELSE NULL END) as sum(CASE WHEN date_dim.d_day_name = Utf8("Friday") THEN store_sales.ss_sales_price ELSE NULL END), sum(CASE WHEN date_dim.d_day_name = Saturday THEN store_sales.ss_sales_price ELSE NULL END) as sum(CASE WHEN date_dim.d_day_name = Utf8("Saturday") THEN store_sales.ss_sales_price ELSE NULL END)]
+05)--------RepartitionExec: partitioning=Hash([s_store_name@0, s_store_id@1], 4), input_partitions=4
+06)----------AggregateExec: mode=Partial, gby=[s_store_name@3 as s_store_name, s_store_id@2 as s_store_id], aggr=[sum(CASE WHEN date_dim.d_day_name = Sunday THEN store_sales.ss_sales_price ELSE NULL END) as sum(CASE WHEN date_dim.d_day_name = Utf8("Sunday") THEN store_sales.ss_sales_price ELSE NULL END), sum(CASE WHEN date_dim.d_day_name = Monday THEN store_sales.ss_sales_price ELSE NULL END) as sum(CASE WHEN date_dim.d_day_name = Utf8("Monday") THEN store_sales.ss_sales_price ELSE NULL END), sum(CASE WHEN date_dim.d_day_name = Tuesday THEN store_sales.ss_sales_price ELSE NULL END) as sum(CASE WHEN date_dim.d_day_name = Utf8("Tuesday") THEN store_sales.ss_sales_price ELSE NULL END), sum(CASE WHEN date_dim.d_day_name = Wednesday THEN store_sales.ss_sales_price ELSE NULL END) as sum(CASE WHEN date_dim.d_day_name = Utf8("Wednesday") THEN store_sales.ss_sales_price ELSE NULL END), sum(CASE WHEN date_dim.d_day_name = Thursday THEN store_sales.ss_sales_price ELSE NULL END) as sum(CASE WHEN date_dim.d_day_name = Utf8("Thursday") THEN store_sales.ss_sales_price ELSE NULL END), sum(CASE WHEN date_dim.d_day_name = Friday THEN store_sales.ss_sales_price ELSE NULL END) as sum(CASE WHEN date_dim.d_day_name = Utf8("Friday") THEN store_sales.ss_sales_price ELSE NULL END), sum(CASE WHEN date_dim.d_day_name = Saturday THEN store_sales.ss_sales_price ELSE NULL END) as sum(CASE WHEN date_dim.d_day_name = Utf8("Saturday") THEN store_sales.ss_sales_price ELSE NULL END)]
+07)------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_store_sk@0, ss_store_sk@1)], projection=[d_day_name@3, ss_sales_price@5, s_store_id@1, s_store_name@2]
+08)--------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store.vortex]]}, projection=[s_store_sk, s_store_id, s_store_name], file_type=vortex, predicate: s_gmt_offset@27 = -5.00
+09)--------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@0)], projection=[d_day_name@1, ss_store_sk@3, ss_sales_price@4]
+10)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_day_name], file_type=vortex, predicate: d_year@6 = 2000
+11)----------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_store_sk, ss_sales_price], file_type=vortex

@@ -1,0 +1,51 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT dt.d_year,
+       item.i_category_id,
+       item.i_category,
+       sum(ss_ext_sales_price)
+FROM date_dim dt,
+     store_sales,
+     item
+WHERE dt.d_date_sk = store_sales.ss_sold_date_sk
+  AND store_sales.ss_item_sk = item.i_item_sk
+  AND item.i_manager_id = 1
+  AND dt.d_moy=11
+  AND dt.d_year=2000
+GROUP BY dt.d_year,
+         item.i_category_id,
+         item.i_category
+ORDER BY sum(ss_ext_sales_price) DESC,dt.d_year,
+                                      item.i_category_id,
+                                      item.i_category
+LIMIT 100 ;
+----
+logical_plan
+01)Sort: sum(store_sales.ss_ext_sales_price) DESC NULLS FIRST, dt.d_year ASC NULLS LAST, item.i_category_id ASC NULLS LAST, item.i_category ASC NULLS LAST, fetch=100
+02)--Aggregate: groupBy=[[dt.d_year, item.i_category_id, item.i_category]], aggr=[[sum(store_sales.ss_ext_sales_price)]]
+03)----Projection: dt.d_year, store_sales.ss_ext_sales_price, item.i_category_id, item.i_category
+04)------Inner Join: store_sales.ss_item_sk = item.i_item_sk
+05)--------Projection: dt.d_year, store_sales.ss_item_sk, store_sales.ss_ext_sales_price
+06)----------Inner Join: dt.d_date_sk = store_sales.ss_sold_date_sk
+07)------------SubqueryAlias: dt
+08)--------------Projection: date_dim.d_date_sk, date_dim.d_year
+09)----------------Filter: date_dim.d_moy = Int64(11) AND date_dim.d_year = Int64(2000)
+10)------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_moy = Int64(11), date_dim.d_year = Int64(2000)]
+11)------------TableScan: store_sales projection=[ss_sold_date_sk, ss_item_sk, ss_ext_sales_price]
+12)--------Projection: item.i_item_sk, item.i_category_id, item.i_category
+13)----------Filter: item.i_manager_id = Int64(1)
+14)------------TableScan: item projection=[i_item_sk, i_category_id, i_category, i_manager_id], partial_filters=[item.i_manager_id = Int64(1)]
+physical_plan
+01)SortPreservingMergeExec: [sum(store_sales.ss_ext_sales_price)@3 DESC, d_year@0 ASC NULLS LAST, i_category_id@1 ASC NULLS LAST, i_category@2 ASC NULLS LAST], fetch=100
+02)--SortExec: TopK(fetch=100), expr=[sum(store_sales.ss_ext_sales_price)@3 DESC, i_category_id@1 ASC NULLS LAST, i_category@2 ASC NULLS LAST], preserve_partitioning=[true]
+03)----AggregateExec: mode=FinalPartitioned, gby=[d_year@0 as d_year, i_category_id@1 as i_category_id, i_category@2 as i_category], aggr=[sum(store_sales.ss_ext_sales_price)], ordering_mode=PartiallySorted([0])
+04)------RepartitionExec: partitioning=Hash([d_year@0, i_category_id@1, i_category@2], 4), input_partitions=4
+05)--------AggregateExec: mode=Partial, gby=[d_year@0 as d_year, i_category_id@2 as i_category_id, i_category@3 as i_category], aggr=[sum(store_sales.ss_ext_sales_price)], ordering_mode=PartiallySorted([0])
+06)----------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, ss_item_sk@1)], projection=[d_year@3, ss_ext_sales_price@5, i_category_id@1, i_category@2]
+07)------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_category_id, i_category], file_type=vortex, predicate: i_manager_id@20 = 1
+08)------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@0)], projection=[d_year@1, ss_item_sk@3, ss_ext_sales_price@4]
+09)--------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_year], file_type=vortex, predicate: d_moy@8 = 11 AND d_year@6 = 2000
+10)--------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_item_sk, ss_ext_sales_price], file_type=vortex

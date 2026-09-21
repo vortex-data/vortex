@@ -91,6 +91,10 @@ uuid = { workspace = true, features = ["js"], optional = true }
 name = "bloom_filter"
 harness = false
 
+[[bench]]
+name = "aggregate_partial_merge"
+harness = false
+
 [lints]
 workspace = true
 

@@ -17,6 +17,8 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 use twox_hash::XxHash3_64;
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexError;
 use vortex_error::vortex_err;
 
@@ -31,6 +33,9 @@ pub(super) const BYTES_PER_SPLIT: usize = size_of::<u32>(); // 4 bytes
 
 /// Block size (32 bytes [256 bits])
 pub(super) const BLOCK_SIZE: usize = SPLITS_PER_BLOCK * BYTES_PER_SPLIT;
+
+/// One block: the eight splits a hash selects together and a mask is applied to.
+pub(super) type Block = [u32; SPLITS_PER_BLOCK];
 
 /// Eight odd constants for multiply-shift hashing.
 ///
@@ -93,14 +98,18 @@ impl TryFrom<u32> for HashFn {
 /// ```rust
 /// use vortex_array::dtype::{DType, Nullability};
 /// use vortex_layout::layouts::zoned::aggregates::bloom_filter::{BloomFilter, BloomOptions};
-/// use vortex_array::aggregate_fn::AggregateFnVTable;
+/// use vortex_array::aggregate_fn::{AggregateFnVTable, AggregateDTypes};
 ///
 /// let filter = BloomFilter {};
+/// let options = BloomOptions::default();
+/// let dtypes = AggregateDTypes::try_new(
+///     &filter,
+///     &options,
+///     DType::Binary(Nullability::NonNullable),
+/// )
+/// .expect("valid input dtype");
 /// let mut zone = filter
-///     .empty_partial(
-///         &BloomOptions::default(),
-///         &DType::Binary(Nullability::NonNullable),
-///     )
+///     .empty_partial(dtypes.args(&options))
 ///     .expect("valid partial");
 ///
 /// zone.insert(b"Denmark");
@@ -110,9 +119,27 @@ impl TryFrom<u32> for HashFn {
 /// assert_eq!(zone.contains(b"Brazil"), false);
 /// ```
 pub struct BloomPartial {
-    blocks: Vec<[u32; 8]>,
-    hash_fn: HashFn,
+    blocks: Blocks,
 }
+
+/// The filter's blocks.
+///
+/// A partial parsed from a stored filter is only ever read, as the second operand of a merge or
+/// by a membership query, so it keeps the scalar's own buffer and stays `Frozen`. The partial an
+/// accumulator writes into thaws on its first write and then stays `Thawed`, so an insert checks
+/// which it is once and then writes one block.
+enum Blocks {
+    Frozen(Buffer<Block>),
+    Thawed(BufferMut<Block>),
+}
+
+impl PartialEq for BloomPartial {
+    fn eq(&self, other: &Self) -> bool {
+        self.blocks() == other.blocks()
+    }
+}
+
+impl Eq for BloomPartial {}
 
 impl BloomPartial {
     /// Returns the blocks len.
@@ -120,7 +147,32 @@ impl BloomPartial {
     /// Matches [BloomOptions::blocks_count]
     #[inline]
     pub(super) fn len(&self) -> usize {
-        self.blocks.len()
+        self.blocks().len()
+    }
+
+    /// Every block of the filter.
+    #[inline]
+    fn blocks(&self) -> &[Block] {
+        match &self.blocks {
+            Blocks::Frozen(blocks) => blocks.as_slice(),
+            Blocks::Thawed(blocks) => blocks.as_slice(),
+        }
+    }
+
+    /// The blocks for writing, thawing a frozen partial first.
+    ///
+    /// Thawing is free when nothing else holds the buffer; a partial still sharing the scalar it
+    /// was parsed from copies once and never again.
+    #[inline]
+    fn blocks_mut(&mut self) -> &mut [Block] {
+        if let Blocks::Frozen(blocks) = &mut self.blocks {
+            self.blocks = Blocks::Thawed(std::mem::take(blocks).into_mut());
+        }
+        match &mut self.blocks {
+            Blocks::Thawed(blocks) => blocks.as_mut_slice(),
+            // Thawed just above; an empty slice keeps this total without a panic path.
+            Blocks::Frozen(_) => &mut [],
+        }
     }
 
     /// Inserts a value expressed in bytes into
@@ -168,31 +220,38 @@ impl BloomPartial {
         clippy::cast_possible_truncation,
         reason = "the mask uses the low 32 bits of the 64-bit hash"
     )]
-    fn lower_hash_bits(&self, hash: u64) -> u32 {
+    fn lower_hash_bits(hash: u64) -> u32 {
         hash as u32
     }
 
     /// Adds a hash into a single block of the bloom filter.
+    ///
+    /// Inlined so the insert loops here and in other crates see straight through to the block
+    /// write; a call into this method costs more instructions than the write itself.
+    #[inline]
     fn add_hash(&mut self, hash: u64) {
-        // 1. Use the upper 32 bits from the hash value to select a block.
-        let block_idx = self.block_index(hash, self.blocks.len());
+        // 1. Use the lower 32 bits to construct a mask.
+        let mask = Self::make_mask(Self::lower_hash_bits(hash));
 
-        // 2. Use the lower 32 bits to construct a mask.
-        let mask = self.make_mask(self.lower_hash_bits(hash));
+        // 2. Use the upper 32 bits from the hash value to select a block. The blocks are fetched
+        //    once, so an insert checks whether the partial is thawed exactly once.
+        let blocks = self.blocks_mut();
+        let block = &mut blocks[Self::block_index(hash, blocks.len())];
 
-        // 3. Apply the mask to the block selected in step 1.
+        // 3. Apply the mask to the block selected in step 2.
         for i in 0..8 {
-            self.blocks[block_idx][i] |= mask[i];
+            block[i] |= mask[i];
         }
     }
 
     /// Checks whether a hash is (probably) present in the filter.
+    #[inline]
     fn find_hash(&self, hash: u64) -> bool {
-        let idx = self.block_index(hash, self.blocks.len());
-        let mask = self.make_mask(self.lower_hash_bits(hash));
+        let mask = Self::make_mask(Self::lower_hash_bits(hash));
+        let blocks = self.blocks();
+        let block = &blocks[Self::block_index(hash, blocks.len())];
 
         let mut missing = 0u32;
-        let block = &self.blocks[idx];
 
         // The original solution uses _mm256_testc_si256
         // checks if all the bits in mask are also set in *block. Scalar
@@ -206,7 +265,8 @@ impl BloomPartial {
 
     /// Takes a hash value and creates a mask with one bit set in each 32-bit lane.
     /// These are the bits to set or check when accessing the block.
-    fn make_mask(&self, hash: u32) -> [u32; 8] {
+    #[inline]
+    fn make_mask(hash: u32) -> Block {
         let mut out = [0u32; 8];
 
         for i in 0..8 {
@@ -229,7 +289,7 @@ impl BloomPartial {
     /// Although `blocks_count` is a `usize`, its value is limited to `u32::MAX`
     /// by [`BloomOptions`] and the serialization format.
     #[inline]
-    fn block_index(&self, hash: u64, blocks_count: usize) -> usize {
+    fn block_index(hash: u64, blocks_count: usize) -> usize {
         (((hash >> 32) * blocks_count as u64) >> 32) as usize
     }
 }
@@ -238,30 +298,11 @@ impl BloomPartial {
 /// start an empty partial from [`super::BloomFilter`].
 impl From<&BloomOptions> for BloomPartial {
     fn from(options: &BloomOptions) -> Self {
-        Self {
-            blocks: vec![[0u32; 8]; options.blocks_count.get() as usize],
-            hash_fn: options.hash_fn,
-        }
-    }
-}
-
-impl PartialEq for BloomPartial {
-    fn eq(&self, other: &Self) -> bool {
-        // Currently, the Bloom filter only supports one hash function,
-        // so two partials with the same blocks are equal.
-        // If the filter supports more hash functions in the future,
-        // this would no longer be true, because the same blocks could represent
-        // different values.
-        self.blocks == other.blocks && self.hash_fn == other.hash_fn
-    }
-}
-
-#[cfg(test)]
-impl From<Vec<[u32; 8]>> for BloomPartial {
-    fn from(value: Vec<[u32; 8]>) -> Self {
-        BloomPartial {
-            blocks: value,
-            hash_fn: HashFn::XxHash3_64, // Default. Only used for tests.
+        // Matched exhaustively: a new hash function must revisit how partials are hashed.
+        match options.hash_fn {
+            HashFn::XxHash3_64 => Self {
+                blocks: Blocks::Thawed(BufferMut::zeroed(options.blocks_count.get() as usize)),
+            },
         }
     }
 }
@@ -329,8 +370,10 @@ mod tests {
             .flat_map(u32::to_le_bytes)
             .collect();
 
-        let bytes: Vec<u8> = bloom_filter.serialize();
-        assert_eq!(bytes, expected_bytes);
+        assert_eq!(
+            bloom_filter.serialize().as_slice(),
+            expected_bytes.as_slice()
+        );
     }
 
     // Similar to the goldenfile tests, but for hash functions.

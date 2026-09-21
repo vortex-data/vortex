@@ -97,8 +97,9 @@ function(_vortex_resolve_ffi_package
         set(_archive_name "libvortex_cuda_ffi.a")
         set(_manifest "${workspace_root}/vortex-cuda/ffi/Cargo.toml")
         list(APPEND _headers "${workspace_root}/vortex-cuda/ffi/cinclude/vortex_cuda.h")
-        # CMake's FindCUDAToolkit module sets these after find_package succeeds.
-        set(_nvcc "${CUDAToolkit_NVCC_EXECUTABLE}")
+        # NVCC locates its configuration and includes relative to its invocation path.
+        # Resolve toolkit symlinks without changing the CUDA target root.
+        file(REAL_PATH "${CUDAToolkit_NVCC_EXECUTABLE}" _nvcc)
         set(_cuda_root "${CUDAToolkit_TARGET_DIR}")
     endif()
 
@@ -253,8 +254,10 @@ block(SCOPE_FOR VARIABLES)
     _vortex_resolve_cargo_profile(_configuration _cargo_profile _cargo_artifact_directory)
 
     set(_cuda_arch_flags "")
+    set(_cuda_host_compiler "")
     if(VORTEX_ENABLE_CUDA)
         _vortex_resolve_cuda_architectures(_cuda_arch_flags)
+        _vortex_resolve_cuda_host_compiler(_cuda_host_compiler)
     endif()
 
     get_filename_component(_workspace_root "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
@@ -346,6 +349,7 @@ block(SCOPE_FOR VARIABLES)
             "-DVORTEX_NVCC_EXECUTABLE=${_nvcc_executable}"
             "-DVORTEX_CUDA_ROOT=${_cuda_root}"
             "-DVORTEX_CUDA_ARCH_FLAGS=${_cuda_arch_flags}"
+            "-DVORTEX_CUDA_HOST_COMPILER=${_cuda_host_compiler}"
             "-DVORTEX_CARGO_BUILD_STD=${_cargo_build_std}"
             "-DVORTEX_CMAKE_FFI_ARCHIVE=${_ffi_archive}"
             "-DVORTEX_FFI_HEADERS=${_ffi_headers}"
@@ -373,9 +377,45 @@ block(SCOPE_FOR VARIABLES)
         INTERFACE_INCLUDE_DIRECTORIES "${_ffi_include_dir}")
     add_dependencies(vortex_ffi_static vortex_ffi_cargo_build)
     _vortex_attach_system_dependencies(vortex_ffi_static "${VORTEX_RUST_TARGET}")
+    # Link Rust once, and keep its internal symbols out of the shared C ABI.
+    add_library(vortex_ffi_shared SHARED "${CMAKE_CURRENT_LIST_DIR}/shared.c")
+    if(NOT BUILD_SHARED_LIBS OR NOT PROJECT_IS_TOP_LEVEL)
+        set_target_properties(vortex_ffi_shared PROPERTIES EXCLUDE_FROM_ALL TRUE)
+    endif()
+    target_link_libraries(vortex_ffi_shared PRIVATE
+        "$<LINK_LIBRARY:WHOLE_ARCHIVE,vortex_ffi_static>")
+    target_include_directories(vortex_ffi_shared INTERFACE "${_ffi_include_dir}")
+    set_target_properties(vortex_ffi_shared PROPERTIES OUTPUT_NAME vortex_ffi)
+    if(APPLE)
+        target_link_options(vortex_ffi_shared PRIVATE
+            # Export only the C ABI; Mach-O prefixes C symbols with an underscore.
+            "LINKER:-exported_symbol,_vx_*"
+            # Discard unreachable code and data pulled in by whole-archive linking.
+            "LINKER:-dead_strip")
+    elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        # Keep the generated linker script in the build tree.
+        set(_exports "${CMAKE_CURRENT_BINARY_DIR}/vortex-ffi-exports.map")
+        # Export vx_*; localize all other symbols. GENERATE preserves unchanged timestamps.
+        file(GENERATE OUTPUT "${_exports}" CONTENT "{ global: vx_*; local: *; };\n")
+        target_link_options(vortex_ffi_shared PRIVATE
+            # Apply the export allowlist to the Rust archive and its dependencies.
+            "LINKER:--version-script=${_exports}"
+            # Discard sections unreachable from exported symbols and other linker roots.
+            "LINKER:--gc-sections")
+        # Relink if the generated export policy changes.
+        set_property(TARGET vortex_ffi_shared APPEND PROPERTY LINK_DEPENDS "${_exports}")
+
+        # GNU ld depfiles break on spaces; CMake already tracks the archive and script.
+        # Defer disabling linker depfiles so child directories keep their settings.
+        cmake_language(DEFER CALL set CMAKE_LINK_DEPENDS_USE_LINKER FALSE)
+    else()
+        message(FATAL_ERROR "Vortex shared-library exports are not configured for ${CMAKE_SYSTEM_NAME}")
+    endif()
     if(_sanitizer_compile_flag)
-        target_compile_options(vortex_ffi_static INTERFACE "${_sanitizer_compile_flag}")
-        target_link_options(vortex_ffi_static INTERFACE "${_sanitizer_compile_flag}")
+        foreach(_target IN ITEMS vortex_ffi_static vortex_ffi_shared)
+            target_compile_options(${_target} INTERFACE "${_sanitizer_compile_flag}")
+            target_link_options(${_target} INTERFACE "${_sanitizer_compile_flag}")
+        endforeach()
     endif()
 
     message(STATUS "Vortex Rust target: ${VORTEX_RUST_TARGET}")

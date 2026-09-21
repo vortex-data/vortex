@@ -10,6 +10,8 @@ use crate::arrays::Constant;
 use crate::scalar::Scalar;
 
 impl OperationsVTable<Constant> for Constant {
+    type ProbeState = ();
+
     fn scalar_at(
         array: ArrayView<'_, Constant>,
         _index: usize,

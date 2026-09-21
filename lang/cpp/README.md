@@ -17,7 +17,7 @@ cmake --build build/cpp --parallel
 CMake runs Cargo for you. Configuration and builds download uncached dependencies.
 
 **Native builds only:** GNU/Linux x86_64 and aarch64, plus macOS arm64 for standalone development.
-Cross-compilation, universal binaries, Windows, musl, and shared Vortex targets are unsupported.
+Cross-compilation, universal binaries, Windows, and musl are unsupported.
 
 ## Embed in a CMake project
 
@@ -25,11 +25,13 @@ Vendor or fetch a pinned, complete checkout:
 
 ```cmake
 add_subdirectory(path/to/vortex vortex)
-target_link_libraries(my_cpp_target PRIVATE Vortex::cpp_static)
-target_link_libraries(my_c_target PRIVATE Vortex::ffi_static)
+target_link_libraries(my_cpp_target PRIVATE Vortex::cpp_shared)
+target_link_libraries(my_c_target PRIVATE Vortex::ffi_shared)
 ```
 
 Vortex leaves parent build settings unchanged. Its archives are position-independent.
+
+For static linkage, use `Vortex::ffi_static` and `Vortex::cpp_static`.
 
 ## Build options
 
@@ -38,6 +40,7 @@ options. Defaults below are for standalone builds.
 
 | Option                      | Default  | Purpose                                                     |
 | --------------------------- | -------- | ----------------------------------------------------------- |
+| `BUILD_SHARED_LIBS`         | `OFF`    | Build shared Vortex libraries.                              |
 | `VORTEX_BUILD_TESTS`        | `OFF`    | C API and C++23 wrapper tests.                              |
 | `VORTEX_BUILD_EXAMPLES`     | `OFF`    | C/C++ examples.                                             |
 | `VORTEX_WARNINGS_AS_ERRORS` | `ON`     | Warnings as errors for Vortex targets only.                 |
@@ -48,6 +51,7 @@ options. Defaults below are for standalone builds.
 | `VORTEX_DEBUG_INFO`         | `2`      | C/C++ and Rust debug info: `0` none, `1` limited, `2` full. |
 | `VORTEX_ENABLE_CUDA`        | `OFF`    | Linux-only [CUDA build](#cuda).                             |
 
+As a standard CMake option, `BUILD_SHARED_LIBS` also affects dependencies such as Catch2.
 Embedded builds default `VORTEX_WARNINGS_AS_ERRORS` to `OFF`. Parents must call
 `enable_testing()` to register tests.
 
@@ -172,7 +176,7 @@ This does not retarget the prebuilt nvCOMP SDK.
 
 - Kernel sources are generated in the checkout. Compiled kernels live in Cargo's build directory
   and are embedded in the archive as fat binaries.
-- CMake does not stage shared libraries. `libvortex_cub.so` must remain at its Cargo build path
+- CMake does not stage CUDA dependency libraries. `libvortex_cub.so` must remain at its Cargo build path
   or beside the executable. `libnvcomp.so` is loaded from its original Cargo build path.
 - CUDA operations require a compatible NVIDIA driver and an accessible GPU.
 

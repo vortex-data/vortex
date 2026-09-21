@@ -29,7 +29,7 @@ class ConfigureTests(CMakeTest):
                 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/defaults.txt"
                     "${CMAKE_BUILD_TYPE}\n${VORTEX_WARNINGS_AS_ERRORS}\n")
                 if(PROJECT_NAME STREQUAL "VortexCXX")
-                    get_target_property(options vortex_cxx COMPILE_OPTIONS)
+                    get_target_property(options vortex_cxx_static COMPILE_OPTIONS)
                     file(APPEND "${CMAKE_CURRENT_BINARY_DIR}/defaults.txt" "${options}\n")
                 endif()
             endfunction()

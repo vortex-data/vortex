@@ -1,0 +1,227 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT CASE
+           WHEN
+                  (SELECT count(*)
+                   FROM store_sales
+                   WHERE ss_quantity BETWEEN 1 AND 20) > 74129 THEN
+                  (SELECT avg(ss_ext_discount_amt)
+                   FROM store_sales
+                   WHERE ss_quantity BETWEEN 1 AND 20)
+           ELSE
+                  (SELECT avg(ss_net_paid)
+                   FROM store_sales
+                   WHERE ss_quantity BETWEEN 1 AND 20)
+       END bucket1,
+       CASE
+           WHEN
+                  (SELECT count(*)
+                   FROM store_sales
+                   WHERE ss_quantity BETWEEN 21 AND 40) > 122840 THEN
+                  (SELECT avg(ss_ext_discount_amt)
+                   FROM store_sales
+                   WHERE ss_quantity BETWEEN 21 AND 40)
+           ELSE
+                  (SELECT avg(ss_net_paid)
+                   FROM store_sales
+                   WHERE ss_quantity BETWEEN 21 AND 40)
+       END bucket2,
+       CASE
+           WHEN
+                  (SELECT count(*)
+                   FROM store_sales
+                   WHERE ss_quantity BETWEEN 41 AND 60) > 56580 THEN
+                  (SELECT avg(ss_ext_discount_amt)
+                   FROM store_sales
+                   WHERE ss_quantity BETWEEN 41 AND 60)
+           ELSE
+                  (SELECT avg(ss_net_paid)
+                   FROM store_sales
+                   WHERE ss_quantity BETWEEN 41 AND 60)
+       END bucket3,
+       CASE
+           WHEN
+                  (SELECT count(*)
+                   FROM store_sales
+                   WHERE ss_quantity BETWEEN 61 AND 80) > 10097 THEN
+                  (SELECT avg(ss_ext_discount_amt)
+                   FROM store_sales
+                   WHERE ss_quantity BETWEEN 61 AND 80)
+           ELSE
+                  (SELECT avg(ss_net_paid)
+                   FROM store_sales
+                   WHERE ss_quantity BETWEEN 61 AND 80)
+       END bucket4,
+       CASE
+           WHEN
+                  (SELECT count(*)
+                   FROM store_sales
+                   WHERE ss_quantity BETWEEN 81 AND 100) > 165306 THEN
+                  (SELECT avg(ss_ext_discount_amt)
+                   FROM store_sales
+                   WHERE ss_quantity BETWEEN 81 AND 100)
+           ELSE
+                  (SELECT avg(ss_net_paid)
+                   FROM store_sales
+                   WHERE ss_quantity BETWEEN 81 AND 100)
+       END bucket5
+FROM reason
+WHERE r_reason_sk = 1 ;
+----
+logical_plan
+01)Projection: CASE WHEN (<subquery>) > Int64(74129) THEN (<subquery>) ELSE (<subquery>) END AS bucket1, CASE WHEN (<subquery>) > Int64(122840) THEN (<subquery>) ELSE (<subquery>) END AS bucket2, CASE WHEN (<subquery>) > Int64(56580) THEN (<subquery>) ELSE (<subquery>) END AS bucket3, CASE WHEN (<subquery>) > Int64(10097) THEN (<subquery>) ELSE (<subquery>) END AS bucket4, CASE WHEN (<subquery>) > Int64(165306) THEN (<subquery>) ELSE (<subquery>) END AS bucket5
+02)--Subquery:
+03)----Projection: count(Int64(1)) AS count(*)
+04)------Aggregate: groupBy=[[]], aggr=[[count(Int64(1))]]
+05)--------Projection:
+06)----------Filter: store_sales.ss_quantity >= Int64(1) AND store_sales.ss_quantity <= Int64(20)
+07)------------TableScan: store_sales projection=[ss_quantity], partial_filters=[store_sales.ss_quantity >= Int64(1), store_sales.ss_quantity <= Int64(20)]
+08)--Subquery:
+09)----Aggregate: groupBy=[[]], aggr=[[avg(store_sales.ss_ext_discount_amt)]]
+10)------Projection: store_sales.ss_ext_discount_amt
+11)--------Filter: store_sales.ss_quantity >= Int64(1) AND store_sales.ss_quantity <= Int64(20)
+12)----------TableScan: store_sales projection=[ss_quantity, ss_ext_discount_amt], partial_filters=[store_sales.ss_quantity >= Int64(1), store_sales.ss_quantity <= Int64(20)]
+13)--Subquery:
+14)----Aggregate: groupBy=[[]], aggr=[[avg(store_sales.ss_net_paid)]]
+15)------Projection: store_sales.ss_net_paid
+16)--------Filter: store_sales.ss_quantity >= Int64(1) AND store_sales.ss_quantity <= Int64(20)
+17)----------TableScan: store_sales projection=[ss_quantity, ss_net_paid], partial_filters=[store_sales.ss_quantity >= Int64(1), store_sales.ss_quantity <= Int64(20)]
+18)--Subquery:
+19)----Projection: count(Int64(1)) AS count(*)
+20)------Aggregate: groupBy=[[]], aggr=[[count(Int64(1))]]
+21)--------Projection:
+22)----------Filter: store_sales.ss_quantity >= Int64(21) AND store_sales.ss_quantity <= Int64(40)
+23)------------TableScan: store_sales projection=[ss_quantity], partial_filters=[store_sales.ss_quantity >= Int64(21), store_sales.ss_quantity <= Int64(40)]
+24)--Subquery:
+25)----Aggregate: groupBy=[[]], aggr=[[avg(store_sales.ss_ext_discount_amt)]]
+26)------Projection: store_sales.ss_ext_discount_amt
+27)--------Filter: store_sales.ss_quantity >= Int64(21) AND store_sales.ss_quantity <= Int64(40)
+28)----------TableScan: store_sales projection=[ss_quantity, ss_ext_discount_amt], partial_filters=[store_sales.ss_quantity >= Int64(21), store_sales.ss_quantity <= Int64(40)]
+29)--Subquery:
+30)----Aggregate: groupBy=[[]], aggr=[[avg(store_sales.ss_net_paid)]]
+31)------Projection: store_sales.ss_net_paid
+32)--------Filter: store_sales.ss_quantity >= Int64(21) AND store_sales.ss_quantity <= Int64(40)
+33)----------TableScan: store_sales projection=[ss_quantity, ss_net_paid], partial_filters=[store_sales.ss_quantity >= Int64(21), store_sales.ss_quantity <= Int64(40)]
+34)--Subquery:
+35)----Projection: count(Int64(1)) AS count(*)
+36)------Aggregate: groupBy=[[]], aggr=[[count(Int64(1))]]
+37)--------Projection:
+38)----------Filter: store_sales.ss_quantity >= Int64(41) AND store_sales.ss_quantity <= Int64(60)
+39)------------TableScan: store_sales projection=[ss_quantity], partial_filters=[store_sales.ss_quantity >= Int64(41), store_sales.ss_quantity <= Int64(60)]
+40)--Subquery:
+41)----Aggregate: groupBy=[[]], aggr=[[avg(store_sales.ss_ext_discount_amt)]]
+42)------Projection: store_sales.ss_ext_discount_amt
+43)--------Filter: store_sales.ss_quantity >= Int64(41) AND store_sales.ss_quantity <= Int64(60)
+44)----------TableScan: store_sales projection=[ss_quantity, ss_ext_discount_amt], partial_filters=[store_sales.ss_quantity >= Int64(41), store_sales.ss_quantity <= Int64(60)]
+45)--Subquery:
+46)----Aggregate: groupBy=[[]], aggr=[[avg(store_sales.ss_net_paid)]]
+47)------Projection: store_sales.ss_net_paid
+48)--------Filter: store_sales.ss_quantity >= Int64(41) AND store_sales.ss_quantity <= Int64(60)
+49)----------TableScan: store_sales projection=[ss_quantity, ss_net_paid], partial_filters=[store_sales.ss_quantity >= Int64(41), store_sales.ss_quantity <= Int64(60)]
+50)--Subquery:
+51)----Projection: count(Int64(1)) AS count(*)
+52)------Aggregate: groupBy=[[]], aggr=[[count(Int64(1))]]
+53)--------Projection:
+54)----------Filter: store_sales.ss_quantity >= Int64(61) AND store_sales.ss_quantity <= Int64(80)
+55)------------TableScan: store_sales projection=[ss_quantity], partial_filters=[store_sales.ss_quantity >= Int64(61), store_sales.ss_quantity <= Int64(80)]
+56)--Subquery:
+57)----Aggregate: groupBy=[[]], aggr=[[avg(store_sales.ss_ext_discount_amt)]]
+58)------Projection: store_sales.ss_ext_discount_amt
+59)--------Filter: store_sales.ss_quantity >= Int64(61) AND store_sales.ss_quantity <= Int64(80)
+60)----------TableScan: store_sales projection=[ss_quantity, ss_ext_discount_amt], partial_filters=[store_sales.ss_quantity >= Int64(61), store_sales.ss_quantity <= Int64(80)]
+61)--Subquery:
+62)----Aggregate: groupBy=[[]], aggr=[[avg(store_sales.ss_net_paid)]]
+63)------Projection: store_sales.ss_net_paid
+64)--------Filter: store_sales.ss_quantity >= Int64(61) AND store_sales.ss_quantity <= Int64(80)
+65)----------TableScan: store_sales projection=[ss_quantity, ss_net_paid], partial_filters=[store_sales.ss_quantity >= Int64(61), store_sales.ss_quantity <= Int64(80)]
+66)--Subquery:
+67)----Projection: count(Int64(1)) AS count(*)
+68)------Aggregate: groupBy=[[]], aggr=[[count(Int64(1))]]
+69)--------Projection:
+70)----------Filter: store_sales.ss_quantity >= Int64(81) AND store_sales.ss_quantity <= Int64(100)
+71)------------TableScan: store_sales projection=[ss_quantity], partial_filters=[store_sales.ss_quantity >= Int64(81), store_sales.ss_quantity <= Int64(100)]
+72)--Subquery:
+73)----Aggregate: groupBy=[[]], aggr=[[avg(store_sales.ss_ext_discount_amt)]]
+74)------Projection: store_sales.ss_ext_discount_amt
+75)--------Filter: store_sales.ss_quantity >= Int64(81) AND store_sales.ss_quantity <= Int64(100)
+76)----------TableScan: store_sales projection=[ss_quantity, ss_ext_discount_amt], partial_filters=[store_sales.ss_quantity >= Int64(81), store_sales.ss_quantity <= Int64(100)]
+77)--Subquery:
+78)----Aggregate: groupBy=[[]], aggr=[[avg(store_sales.ss_net_paid)]]
+79)------Projection: store_sales.ss_net_paid
+80)--------Filter: store_sales.ss_quantity >= Int64(81) AND store_sales.ss_quantity <= Int64(100)
+81)----------TableScan: store_sales projection=[ss_quantity, ss_net_paid], partial_filters=[store_sales.ss_quantity >= Int64(81), store_sales.ss_quantity <= Int64(100)]
+82)--Filter: reason.r_reason_sk = Int64(1)
+83)----TableScan: reason projection=[r_reason_sk], partial_filters=[reason.r_reason_sk = Int64(1)]
+physical_plan
+01)ScalarSubqueryExec: subqueries=15
+02)--ProjectionExec: expr=[CASE WHEN scalar_subquery(<pending>) > 74129 THEN scalar_subquery(<pending>) ELSE scalar_subquery(<pending>) END as bucket1, CASE WHEN scalar_subquery(<pending>) > 122840 THEN scalar_subquery(<pending>) ELSE scalar_subquery(<pending>) END as bucket2, CASE WHEN scalar_subquery(<pending>) > 56580 THEN scalar_subquery(<pending>) ELSE scalar_subquery(<pending>) END as bucket3, CASE WHEN scalar_subquery(<pending>) > 10097 THEN scalar_subquery(<pending>) ELSE scalar_subquery(<pending>) END as bucket4, CASE WHEN scalar_subquery(<pending>) > 165306 THEN scalar_subquery(<pending>) ELSE scalar_subquery(<pending>) END as bucket5]
+03)----RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+04)------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/reason.vortex]]}, projection=[r_reason_sk], file_type=vortex, predicate: r_reason_sk@0 = 1
+05)--ProjectionExec: expr=[count(Int64(1))@0 as count(*)]
+06)----AggregateExec: mode=Final, gby=[], aggr=[count(Int64(1))]
+07)------CoalescePartitionsExec
+08)--------AggregateExec: mode=Partial, gby=[], aggr=[count(Int64(1))]
+09)----------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, file_type=vortex, predicate: ss_quantity@10 >= 1 AND ss_quantity@10 <= 20
+10)--AggregateExec: mode=Final, gby=[], aggr=[avg(store_sales.ss_ext_discount_amt)]
+11)----CoalescePartitionsExec
+12)------AggregateExec: mode=Partial, gby=[], aggr=[avg(store_sales.ss_ext_discount_amt)]
+13)--------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_ext_discount_amt], file_type=vortex, predicate: ss_quantity@10 >= 1 AND ss_quantity@10 <= 20
+14)--AggregateExec: mode=Final, gby=[], aggr=[avg(store_sales.ss_net_paid)]
+15)----CoalescePartitionsExec
+16)------AggregateExec: mode=Partial, gby=[], aggr=[avg(store_sales.ss_net_paid)]
+17)--------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_net_paid], file_type=vortex, predicate: ss_quantity@10 >= 1 AND ss_quantity@10 <= 20
+18)--ProjectionExec: expr=[count(Int64(1))@0 as count(*)]
+19)----AggregateExec: mode=Final, gby=[], aggr=[count(Int64(1))]
+20)------CoalescePartitionsExec
+21)--------AggregateExec: mode=Partial, gby=[], aggr=[count(Int64(1))]
+22)----------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, file_type=vortex, predicate: ss_quantity@10 >= 21 AND ss_quantity@10 <= 40
+23)--AggregateExec: mode=Final, gby=[], aggr=[avg(store_sales.ss_ext_discount_amt)]
+24)----CoalescePartitionsExec
+25)------AggregateExec: mode=Partial, gby=[], aggr=[avg(store_sales.ss_ext_discount_amt)]
+26)--------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_ext_discount_amt], file_type=vortex, predicate: ss_quantity@10 >= 21 AND ss_quantity@10 <= 40
+27)--AggregateExec: mode=Final, gby=[], aggr=[avg(store_sales.ss_net_paid)]
+28)----CoalescePartitionsExec
+29)------AggregateExec: mode=Partial, gby=[], aggr=[avg(store_sales.ss_net_paid)]
+30)--------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_net_paid], file_type=vortex, predicate: ss_quantity@10 >= 21 AND ss_quantity@10 <= 40
+31)--ProjectionExec: expr=[count(Int64(1))@0 as count(*)]
+32)----AggregateExec: mode=Final, gby=[], aggr=[count(Int64(1))]
+33)------CoalescePartitionsExec
+34)--------AggregateExec: mode=Partial, gby=[], aggr=[count(Int64(1))]
+35)----------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, file_type=vortex, predicate: ss_quantity@10 >= 41 AND ss_quantity@10 <= 60
+36)--AggregateExec: mode=Final, gby=[], aggr=[avg(store_sales.ss_ext_discount_amt)]
+37)----CoalescePartitionsExec
+38)------AggregateExec: mode=Partial, gby=[], aggr=[avg(store_sales.ss_ext_discount_amt)]
+39)--------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_ext_discount_amt], file_type=vortex, predicate: ss_quantity@10 >= 41 AND ss_quantity@10 <= 60
+40)--AggregateExec: mode=Final, gby=[], aggr=[avg(store_sales.ss_net_paid)]
+41)----CoalescePartitionsExec
+42)------AggregateExec: mode=Partial, gby=[], aggr=[avg(store_sales.ss_net_paid)]
+43)--------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_net_paid], file_type=vortex, predicate: ss_quantity@10 >= 41 AND ss_quantity@10 <= 60
+44)--ProjectionExec: expr=[count(Int64(1))@0 as count(*)]
+45)----AggregateExec: mode=Final, gby=[], aggr=[count(Int64(1))]
+46)------CoalescePartitionsExec
+47)--------AggregateExec: mode=Partial, gby=[], aggr=[count(Int64(1))]
+48)----------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, file_type=vortex, predicate: ss_quantity@10 >= 61 AND ss_quantity@10 <= 80
+49)--AggregateExec: mode=Final, gby=[], aggr=[avg(store_sales.ss_ext_discount_amt)]
+50)----CoalescePartitionsExec
+51)------AggregateExec: mode=Partial, gby=[], aggr=[avg(store_sales.ss_ext_discount_amt)]
+52)--------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_ext_discount_amt], file_type=vortex, predicate: ss_quantity@10 >= 61 AND ss_quantity@10 <= 80
+53)--AggregateExec: mode=Final, gby=[], aggr=[avg(store_sales.ss_net_paid)]
+54)----CoalescePartitionsExec
+55)------AggregateExec: mode=Partial, gby=[], aggr=[avg(store_sales.ss_net_paid)]
+56)--------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_net_paid], file_type=vortex, predicate: ss_quantity@10 >= 61 AND ss_quantity@10 <= 80
+57)--ProjectionExec: expr=[count(Int64(1))@0 as count(*)]
+58)----AggregateExec: mode=Final, gby=[], aggr=[count(Int64(1))]
+59)------CoalescePartitionsExec
+60)--------AggregateExec: mode=Partial, gby=[], aggr=[count(Int64(1))]
+61)----------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, file_type=vortex, predicate: ss_quantity@10 >= 81 AND ss_quantity@10 <= 100
+62)--AggregateExec: mode=Final, gby=[], aggr=[avg(store_sales.ss_ext_discount_amt)]
+63)----CoalescePartitionsExec
+64)------AggregateExec: mode=Partial, gby=[], aggr=[avg(store_sales.ss_ext_discount_amt)]
+65)--------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_ext_discount_amt], file_type=vortex, predicate: ss_quantity@10 >= 81 AND ss_quantity@10 <= 100
+66)--AggregateExec: mode=Final, gby=[], aggr=[avg(store_sales.ss_net_paid)]
+67)----CoalescePartitionsExec
+68)------AggregateExec: mode=Partial, gby=[], aggr=[avg(store_sales.ss_net_paid)]
+69)--------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_net_paid], file_type=vortex, predicate: ss_quantity@10 >= 81 AND ss_quantity@10 <= 100

@@ -8,6 +8,8 @@
 #   target_link_libraries(my_c_target PRIVATE Vortex::ffi_static)
 #   target_link_libraries(my_cpp_target PRIVATE Vortex::cpp_static)
 #
+# Use Vortex::ffi_shared and Vortex::cpp_shared for shared linkage.
+#
 # See lang/cpp/README.md for build options and embedding requirements,
 # and vortex-ffi/README.md for C API development.
 

@@ -188,6 +188,11 @@ duckdb_state register_table_function(DatabaseInstance &db, LogicalType parameter
 
     fn.filter_pushdown = true;
     fn.filter_prune = true;
+    // Pushed-down filters, projections and aggregates live in the FFI bind data, which has no
+    // serializer. DuckDB's common-subplan optimizer keys scans on their serialized form, so
+    // without this two scans of the same file with different pushed-down filters look identical
+    // and are merged into one shared CTE, returning the wrong rows for one of them.
+    fn.verify_serialization = false;
 
     fn.pushdown_expression = [](auto &, const auto &, Expression &expression) {
         return duckdb_table_function_pushdown_expression(reinterpret_cast<duckdb_vx_expr>(&expression));
@@ -207,6 +212,28 @@ duckdb_state register_table_function(DatabaseInstance &db, LogicalType parameter
     fn.statistics = MultiFileFunction<VortexReaderInterface>::MultiFileScanStats;
     fn.get_partition_stats = get_partition_stats;
     fn.get_multi_file_reader = get_multi_file_reader;
+
+    /**
+     * duckdb's serialization is broken. If you don't set serialize/deserialize
+     * callbacks, duckdb serializes only the internal state which doesn't work
+     * for Vortex if you have filters pushed down. Worse, duckdb uses this
+     * information for CommonSubplanOptimizer which then merges different
+     * Vortex scans (with different filters pushed down) into one scan in tpcds.
+     *
+     * However, this is a regression on q15 and such where we do have
+     * completely equal scans which can't be merged. This is a reasonable price
+     * for correctness.
+     *
+     * Very unexpectedly verify_serialization doesn't do any verification but
+     * disables serialization at all.
+     */
+    fn.verify_serialization = false;
+    fn.serialize = [](auto &, auto, auto &) {
+        throw NotImplementedException("Can't serialize Vortex state");
+    };
+    fn.deserialize = [](auto &, auto &) -> unique_ptr<FunctionData> {
+        throw NotImplementedException("Can't deserialize Vortex state");
+    };
 
     try {
         auto &system_catalog = Catalog::GetSystemCatalog(db);

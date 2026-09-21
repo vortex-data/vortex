@@ -11,6 +11,8 @@ use crate::arrays::extension::ExtensionArrayExt;
 use crate::scalar::Scalar;
 
 impl OperationsVTable<Extension> for Extension {
+    type ProbeState = ();
+
     fn scalar_at(
         array: ArrayView<'_, Extension>,
         index: usize,

@@ -200,10 +200,10 @@ impl BtrBlocksCompressorBuilder {
         self
     }
 
-    /// Retains only schemes whose produced encodings all belong to `allowed`.
+    /// Retains only schemes whose produced serialized IDs all belong to `allowed`.
     ///
-    /// The file writer uses this to restrict compression to the encodings of its configured
-    /// editions.
+    /// `allowed` holds serialized IDs. The file writer passes the array IDs its enabled editions
+    /// permit.
     pub fn retain_allowed_encodings(mut self, allowed: &HashSet<ArrayId>) -> Self {
         self.schemes
             .retain(|s| s.produced_encodings().iter().all(|id| allowed.contains(id)));

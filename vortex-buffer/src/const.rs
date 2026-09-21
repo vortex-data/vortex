@@ -20,12 +20,18 @@ impl<T, const A: usize> ConstBuffer<T, A> {
     }
 
     /// Align the given buffer (possibly with a copy) and return a new `ConstBuffer`.
-    pub fn align_from<B: Into<Buffer<T>>>(buf: B) -> Self {
+    pub fn align_from<B: Into<Buffer<T>>>(buf: B) -> Self
+    where
+        T: Copy,
+    {
         Self(buf.into().aligned(Self::alignment()))
     }
 
     /// Create a new [`ConstBuffer`] with a copy from the provided slice.
-    pub fn copy_from<B: AsRef<[T]>>(buf: B) -> Self {
+    pub fn copy_from<B: AsRef<[T]>>(buf: B) -> Self
+    where
+        T: Copy,
+    {
         Self(Buffer::<T>::copy_from_aligned(buf, Self::alignment()))
     }
 

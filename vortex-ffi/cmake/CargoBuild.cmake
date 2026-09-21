@@ -156,9 +156,11 @@ function(_vortex_make_cargo_environment output)
         # Architecture tokens contain no whitespace. Preserve an empty value for OFF;
         # omitting it would inherit ambient flags or fall back to native.
         string(JOIN " " _cuda_arch_flags ${VORTEX_CUDA_ARCH_FLAGS})
+        # An empty host compiler clears inherited Vortex overrides without overriding NVCC defaults.
         list(APPEND _environment
             "CUDA_PATH=${VORTEX_CUDA_ROOT}"
-            "VORTEX_CUDA_ARCH_FLAGS=${_cuda_arch_flags}")
+            "VORTEX_CUDA_ARCH_FLAGS=${_cuda_arch_flags}"
+            "VORTEX_CUDA_HOST_COMPILER=${VORTEX_CUDA_HOST_COMPILER}")
     endif()
 
     if(VORTEX_APPLE_DEPLOYMENT_TARGET)

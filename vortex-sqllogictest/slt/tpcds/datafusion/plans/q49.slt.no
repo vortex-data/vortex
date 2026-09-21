@@ -1,0 +1,249 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT channel,
+       item,
+       return_ratio,
+       return_rank,
+       currency_rank
+FROM
+  (SELECT 'web' AS channel,
+          web.item,
+          web.return_ratio,
+          web.return_rank,
+          web.currency_rank
+   FROM
+     (SELECT item,
+             return_ratio,
+             currency_ratio,
+             rank() OVER (
+                          ORDER BY return_ratio) AS return_rank,
+                         rank() OVER (
+                                      ORDER BY currency_ratio) AS currency_rank
+      FROM
+        (SELECT ws.ws_item_sk AS item,
+                (cast(sum(coalesce(wr.wr_return_quantity,0)) AS decimal(15,4))/ cast(sum(coalesce(ws.ws_quantity,0)) AS decimal(15,4))) AS return_ratio,
+                (cast(sum(coalesce(wr.wr_return_amt,0)) AS decimal(15,4))/ cast(sum(coalesce(ws.ws_net_paid,0)) AS decimal(15,4))) AS currency_ratio
+         FROM web_sales ws
+         LEFT OUTER JOIN web_returns wr ON (ws.ws_order_number = wr.wr_order_number
+                                            AND ws.ws_item_sk = wr.wr_item_sk) ,date_dim
+         WHERE wr.wr_return_amt > 10000
+           AND ws.ws_net_profit > 1
+           AND ws.ws_net_paid > 0
+           AND ws.ws_quantity > 0
+           AND ws_sold_date_sk = d_date_sk
+           AND d_year = 2001
+           AND d_moy = 12
+         GROUP BY ws.ws_item_sk) in_web) web
+   WHERE (web.return_rank <= 10
+          OR web.currency_rank <= 10)
+   UNION SELECT 'catalog' AS channel,
+                catalog.item,
+                catalog.return_ratio,
+                catalog.return_rank,
+                catalog.currency_rank
+   FROM
+     (SELECT item,
+             return_ratio,
+             currency_ratio,
+             rank() OVER (
+                          ORDER BY return_ratio) AS return_rank,
+                         rank() OVER (
+                                      ORDER BY currency_ratio) AS currency_rank
+      FROM
+        (SELECT cs.cs_item_sk AS item,
+                (cast(sum(coalesce(cr.cr_return_quantity,0)) AS decimal(15,4))/ cast(sum(coalesce(cs.cs_quantity,0)) AS decimal(15,4))) AS return_ratio,
+                (cast(sum(coalesce(cr.cr_return_amount,0)) AS decimal(15,4))/ cast(sum(coalesce(cs.cs_net_paid,0)) AS decimal(15,4))) AS currency_ratio
+         FROM catalog_sales cs
+         LEFT OUTER JOIN catalog_returns cr ON (cs.cs_order_number = cr.cr_order_number
+                                                AND cs.cs_item_sk = cr.cr_item_sk) ,date_dim
+         WHERE cr.cr_return_amount > 10000
+           AND cs.cs_net_profit > 1
+           AND cs.cs_net_paid > 0
+           AND cs.cs_quantity > 0
+           AND cs_sold_date_sk = d_date_sk
+           AND d_year = 2001
+           AND d_moy = 12
+         GROUP BY cs.cs_item_sk) in_cat) CATALOG
+   WHERE (catalog.return_rank <= 10
+          OR catalog.currency_rank <=10)
+   UNION SELECT 'store' AS channel,
+                store.item,
+                store.return_ratio,
+                store.return_rank,
+                store.currency_rank
+   FROM
+     (SELECT item,
+             return_ratio,
+             currency_ratio,
+             rank() OVER (
+                          ORDER BY return_ratio) AS return_rank,
+                         rank() OVER (
+                                      ORDER BY currency_ratio) AS currency_rank
+      FROM
+        (SELECT sts.ss_item_sk AS item,
+                (cast(sum(coalesce(sr.sr_return_quantity,0)) AS decimal(15,4))/cast(sum(coalesce(sts.ss_quantity,0)) AS decimal(15,4))) AS return_ratio,
+                (cast(sum(coalesce(sr.sr_return_amt,0)) AS decimal(15,4))/cast(sum(coalesce(sts.ss_net_paid,0)) AS decimal(15,4))) AS currency_ratio
+         FROM store_sales sts
+         LEFT OUTER JOIN store_returns sr ON (sts.ss_ticket_number = sr.sr_ticket_number
+                                              AND sts.ss_item_sk = sr.sr_item_sk) ,date_dim
+         WHERE sr.sr_return_amt > 10000
+           AND sts.ss_net_profit > 1
+           AND sts.ss_net_paid > 0
+           AND sts.ss_quantity > 0
+           AND ss_sold_date_sk = d_date_sk
+           AND d_year = 2001
+           AND d_moy = 12
+         GROUP BY sts.ss_item_sk) in_store) store
+   WHERE (store.return_rank <= 10
+          OR store.currency_rank <= 10) ) sq1
+ORDER BY 1 NULLS FIRST,
+         4 NULLS FIRST,
+         5 NULLS FIRST,
+         2 NULLS FIRST
+LIMIT 100;
+----
+logical_plan
+01)Sort: sq1.channel ASC NULLS FIRST, sq1.return_rank ASC NULLS FIRST, sq1.currency_rank ASC NULLS FIRST, sq1.item ASC NULLS FIRST, fetch=100
+02)--SubqueryAlias: sq1
+03)----Aggregate: groupBy=[[channel, item, return_ratio, return_rank, currency_rank]], aggr=[[]]
+04)------Union
+05)--------Projection: Utf8("web") AS channel, web.item, web.return_ratio, web.return_rank, web.currency_rank
+06)----------SubqueryAlias: web
+07)------------Projection: in_web.item, in_web.return_ratio, rank() ORDER BY [in_web.return_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW AS return_rank, rank() ORDER BY [in_web.currency_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW AS currency_rank
+08)--------------Filter: rank() ORDER BY [in_web.return_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW <= UInt64(10) OR rank() ORDER BY [in_web.currency_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW <= UInt64(10)
+09)----------------Projection: in_web.item, in_web.return_ratio, rank() ORDER BY [in_web.return_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW, rank() ORDER BY [in_web.currency_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+10)------------------WindowAggr: windowExpr=[[rank() ORDER BY [in_web.currency_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW]]
+11)--------------------WindowAggr: windowExpr=[[rank() ORDER BY [in_web.return_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW]]
+12)----------------------SubqueryAlias: in_web
+13)------------------------Projection: ws.ws_item_sk AS item, CAST(sum(coalesce(wr.wr_return_quantity,Int64(0))) AS Decimal128(15, 4)) / CAST(sum(coalesce(ws.ws_quantity,Int64(0))) AS Decimal128(15, 4)) AS return_ratio, CAST(sum(coalesce(wr.wr_return_amt,Int64(0))) AS Decimal128(15, 4)) / CAST(sum(coalesce(ws.ws_net_paid,Int64(0))) AS Decimal128(15, 4)) AS currency_ratio
+14)--------------------------Aggregate: groupBy=[[ws.ws_item_sk]], aggr=[[sum(CASE WHEN wr.wr_return_quantity IS NOT NULL THEN wr.wr_return_quantity ELSE Int64(0) END) AS sum(coalesce(wr.wr_return_quantity,Int64(0))), sum(CASE WHEN ws.ws_quantity IS NOT NULL THEN ws.ws_quantity ELSE Int64(0) END) AS sum(coalesce(ws.ws_quantity,Int64(0))), sum(CASE WHEN __common_expr_1 IS NOT NULL THEN __common_expr_1 ELSE Decimal128(0.00,22,2) END) AS sum(coalesce(wr.wr_return_amt,Int64(0))), sum(CASE WHEN __common_expr_2 IS NOT NULL THEN __common_expr_2 ELSE Decimal128(0.00,22,2) END) AS sum(coalesce(ws.ws_net_paid,Int64(0)))]]
+15)----------------------------Projection: CAST(wr.wr_return_amt AS Decimal128(22, 2)) AS __common_expr_1, CAST(ws.ws_net_paid AS Decimal128(22, 2)) AS __common_expr_2, ws.ws_item_sk, ws.ws_quantity, wr.wr_return_quantity
+16)------------------------------Inner Join: ws.ws_sold_date_sk = date_dim.d_date_sk
+17)--------------------------------Projection: ws.ws_sold_date_sk, ws.ws_item_sk, ws.ws_quantity, ws.ws_net_paid, wr.wr_return_quantity, wr.wr_return_amt
+18)----------------------------------Inner Join: ws.ws_order_number = wr.wr_order_number, ws.ws_item_sk = wr.wr_item_sk
+19)------------------------------------SubqueryAlias: ws
+20)--------------------------------------Projection: web_sales.ws_sold_date_sk, web_sales.ws_item_sk, web_sales.ws_order_number, web_sales.ws_quantity, web_sales.ws_net_paid
+21)----------------------------------------Filter: web_sales.ws_net_profit > Decimal128(1.00,7,2) AND web_sales.ws_net_paid > Decimal128(0.00,7,2) AND web_sales.ws_quantity > Int64(0)
+22)------------------------------------------TableScan: web_sales projection=[ws_sold_date_sk, ws_item_sk, ws_order_number, ws_quantity, ws_net_paid, ws_net_profit], partial_filters=[web_sales.ws_net_profit > Decimal128(1.00,7,2), web_sales.ws_net_paid > Decimal128(0.00,7,2), web_sales.ws_quantity > Int64(0)]
+23)------------------------------------SubqueryAlias: wr
+24)--------------------------------------Filter: web_returns.wr_return_amt > Decimal128(10000.00,7,2)
+25)----------------------------------------TableScan: web_returns projection=[wr_item_sk, wr_order_number, wr_return_quantity, wr_return_amt], partial_filters=[web_returns.wr_return_amt > Decimal128(10000.00,7,2)]
+26)--------------------------------Projection: date_dim.d_date_sk
+27)----------------------------------Filter: date_dim.d_year = Int64(2001) AND date_dim.d_moy = Int64(12)
+28)------------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_year = Int64(2001), date_dim.d_moy = Int64(12)]
+29)--------Projection: Utf8("catalog") AS channel, catalog.item, catalog.return_ratio, catalog.return_rank, catalog.currency_rank
+30)----------SubqueryAlias: catalog
+31)------------Projection: in_cat.item, in_cat.return_ratio, rank() ORDER BY [in_cat.return_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW AS return_rank, rank() ORDER BY [in_cat.currency_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW AS currency_rank
+32)--------------Filter: rank() ORDER BY [in_cat.return_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW <= UInt64(10) OR rank() ORDER BY [in_cat.currency_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW <= UInt64(10)
+33)----------------Projection: in_cat.item, in_cat.return_ratio, rank() ORDER BY [in_cat.return_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW, rank() ORDER BY [in_cat.currency_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+34)------------------WindowAggr: windowExpr=[[rank() ORDER BY [in_cat.currency_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW]]
+35)--------------------WindowAggr: windowExpr=[[rank() ORDER BY [in_cat.return_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW]]
+36)----------------------SubqueryAlias: in_cat
+37)------------------------Projection: cs.cs_item_sk AS item, CAST(sum(coalesce(cr.cr_return_quantity,Int64(0))) AS Decimal128(15, 4)) / CAST(sum(coalesce(cs.cs_quantity,Int64(0))) AS Decimal128(15, 4)) AS return_ratio, CAST(sum(coalesce(cr.cr_return_amount,Int64(0))) AS Decimal128(15, 4)) / CAST(sum(coalesce(cs.cs_net_paid,Int64(0))) AS Decimal128(15, 4)) AS currency_ratio
+38)--------------------------Aggregate: groupBy=[[cs.cs_item_sk]], aggr=[[sum(CASE WHEN cr.cr_return_quantity IS NOT NULL THEN cr.cr_return_quantity ELSE Int64(0) END) AS sum(coalesce(cr.cr_return_quantity,Int64(0))), sum(CASE WHEN cs.cs_quantity IS NOT NULL THEN cs.cs_quantity ELSE Int64(0) END) AS sum(coalesce(cs.cs_quantity,Int64(0))), sum(CASE WHEN __common_expr_3 IS NOT NULL THEN __common_expr_3 ELSE Decimal128(0.00,22,2) END) AS sum(coalesce(cr.cr_return_amount,Int64(0))), sum(CASE WHEN __common_expr_4 IS NOT NULL THEN __common_expr_4 ELSE Decimal128(0.00,22,2) END) AS sum(coalesce(cs.cs_net_paid,Int64(0)))]]
+39)----------------------------Projection: CAST(cr.cr_return_amount AS Decimal128(22, 2)) AS __common_expr_3, CAST(cs.cs_net_paid AS Decimal128(22, 2)) AS __common_expr_4, cs.cs_item_sk, cs.cs_quantity, cr.cr_return_quantity
+40)------------------------------Inner Join: cs.cs_sold_date_sk = date_dim.d_date_sk
+41)--------------------------------Projection: cs.cs_sold_date_sk, cs.cs_item_sk, cs.cs_quantity, cs.cs_net_paid, cr.cr_return_quantity, cr.cr_return_amount
+42)----------------------------------Inner Join: cs.cs_order_number = cr.cr_order_number, cs.cs_item_sk = cr.cr_item_sk
+43)------------------------------------SubqueryAlias: cs
+44)--------------------------------------Projection: catalog_sales.cs_sold_date_sk, catalog_sales.cs_item_sk, catalog_sales.cs_order_number, catalog_sales.cs_quantity, catalog_sales.cs_net_paid
+45)----------------------------------------Filter: catalog_sales.cs_net_profit > Decimal128(1.00,7,2) AND catalog_sales.cs_net_paid > Decimal128(0.00,7,2) AND catalog_sales.cs_quantity > Int64(0)
+46)------------------------------------------TableScan: catalog_sales projection=[cs_sold_date_sk, cs_item_sk, cs_order_number, cs_quantity, cs_net_paid, cs_net_profit], partial_filters=[catalog_sales.cs_net_profit > Decimal128(1.00,7,2), catalog_sales.cs_net_paid > Decimal128(0.00,7,2), catalog_sales.cs_quantity > Int64(0)]
+47)------------------------------------SubqueryAlias: cr
+48)--------------------------------------Filter: catalog_returns.cr_return_amount > Decimal128(10000.00,7,2)
+49)----------------------------------------TableScan: catalog_returns projection=[cr_item_sk, cr_order_number, cr_return_quantity, cr_return_amount], partial_filters=[catalog_returns.cr_return_amount > Decimal128(10000.00,7,2)]
+50)--------------------------------Projection: date_dim.d_date_sk
+51)----------------------------------Filter: date_dim.d_year = Int64(2001) AND date_dim.d_moy = Int64(12)
+52)------------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_year = Int64(2001), date_dim.d_moy = Int64(12)]
+53)--------Projection: Utf8("store") AS channel, store.item, store.return_ratio, store.return_rank, store.currency_rank
+54)----------SubqueryAlias: store
+55)------------Projection: in_store.item, in_store.return_ratio, rank() ORDER BY [in_store.return_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW AS return_rank, rank() ORDER BY [in_store.currency_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW AS currency_rank
+56)--------------Filter: rank() ORDER BY [in_store.return_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW <= UInt64(10) OR rank() ORDER BY [in_store.currency_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW <= UInt64(10)
+57)----------------Projection: in_store.item, in_store.return_ratio, rank() ORDER BY [in_store.return_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW, rank() ORDER BY [in_store.currency_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+58)------------------WindowAggr: windowExpr=[[rank() ORDER BY [in_store.currency_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW]]
+59)--------------------WindowAggr: windowExpr=[[rank() ORDER BY [in_store.return_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW]]
+60)----------------------SubqueryAlias: in_store
+61)------------------------Projection: sts.ss_item_sk AS item, CAST(sum(coalesce(sr.sr_return_quantity,Int64(0))) AS Decimal128(15, 4)) / CAST(sum(coalesce(sts.ss_quantity,Int64(0))) AS Decimal128(15, 4)) AS return_ratio, CAST(sum(coalesce(sr.sr_return_amt,Int64(0))) AS Decimal128(15, 4)) / CAST(sum(coalesce(sts.ss_net_paid,Int64(0))) AS Decimal128(15, 4)) AS currency_ratio
+62)--------------------------Aggregate: groupBy=[[sts.ss_item_sk]], aggr=[[sum(CASE WHEN sr.sr_return_quantity IS NOT NULL THEN sr.sr_return_quantity ELSE Int64(0) END) AS sum(coalesce(sr.sr_return_quantity,Int64(0))), sum(CASE WHEN sts.ss_quantity IS NOT NULL THEN sts.ss_quantity ELSE Int64(0) END) AS sum(coalesce(sts.ss_quantity,Int64(0))), sum(CASE WHEN __common_expr_5 IS NOT NULL THEN __common_expr_5 ELSE Decimal128(0.00,22,2) END) AS sum(coalesce(sr.sr_return_amt,Int64(0))), sum(CASE WHEN __common_expr_6 IS NOT NULL THEN __common_expr_6 ELSE Decimal128(0.00,22,2) END) AS sum(coalesce(sts.ss_net_paid,Int64(0)))]]
+63)----------------------------Projection: CAST(sr.sr_return_amt AS Decimal128(22, 2)) AS __common_expr_5, CAST(sts.ss_net_paid AS Decimal128(22, 2)) AS __common_expr_6, sts.ss_item_sk, sts.ss_quantity, sr.sr_return_quantity
+64)------------------------------Inner Join: sts.ss_sold_date_sk = date_dim.d_date_sk
+65)--------------------------------Projection: sts.ss_sold_date_sk, sts.ss_item_sk, sts.ss_quantity, sts.ss_net_paid, sr.sr_return_quantity, sr.sr_return_amt
+66)----------------------------------Inner Join: sts.ss_ticket_number = sr.sr_ticket_number, sts.ss_item_sk = sr.sr_item_sk
+67)------------------------------------SubqueryAlias: sts
+68)--------------------------------------Projection: store_sales.ss_sold_date_sk, store_sales.ss_item_sk, store_sales.ss_ticket_number, store_sales.ss_quantity, store_sales.ss_net_paid
+69)----------------------------------------Filter: store_sales.ss_net_profit > Decimal128(1.00,7,2) AND store_sales.ss_net_paid > Decimal128(0.00,7,2) AND store_sales.ss_quantity > Int64(0)
+70)------------------------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_item_sk, ss_ticket_number, ss_quantity, ss_net_paid, ss_net_profit], partial_filters=[store_sales.ss_net_profit > Decimal128(1.00,7,2), store_sales.ss_net_paid > Decimal128(0.00,7,2), store_sales.ss_quantity > Int64(0)]
+71)------------------------------------SubqueryAlias: sr
+72)--------------------------------------Filter: store_returns.sr_return_amt > Decimal128(10000.00,7,2)
+73)----------------------------------------TableScan: store_returns projection=[sr_item_sk, sr_ticket_number, sr_return_quantity, sr_return_amt], partial_filters=[store_returns.sr_return_amt > Decimal128(10000.00,7,2)]
+74)--------------------------------Projection: date_dim.d_date_sk
+75)----------------------------------Filter: date_dim.d_year = Int64(2001) AND date_dim.d_moy = Int64(12)
+76)------------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_year = Int64(2001), date_dim.d_moy = Int64(12)]
+physical_plan
+01)SortPreservingMergeExec: [channel@0 ASC, return_rank@3 ASC, currency_rank@4 ASC, item@1 ASC], fetch=100
+02)--SortExec: TopK(fetch=100), expr=[channel@0 ASC, return_rank@3 ASC, currency_rank@4 ASC, item@1 ASC], preserve_partitioning=[true]
+03)----AggregateExec: mode=FinalPartitioned, gby=[channel@0 as channel, item@1 as item, return_ratio@2 as return_ratio, return_rank@3 as return_rank, currency_rank@4 as currency_rank], aggr=[]
+04)------RepartitionExec: partitioning=Hash([channel@0, item@1, return_ratio@2, return_rank@3, currency_rank@4], 4), input_partitions=12
+05)--------AggregateExec: mode=Partial, gby=[channel@0 as channel, item@1 as item, return_ratio@2 as return_ratio, return_rank@3 as return_rank, currency_rank@4 as currency_rank], aggr=[], ordering_mode=PartiallySorted([0, 4])
+06)----------UnionExec
+07)------------ProjectionExec: expr=[web as channel, item@0 as item, return_ratio@1 as return_ratio, rank() ORDER BY [in_web.return_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@2 as return_rank, rank() ORDER BY [in_web.currency_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@3 as currency_rank]
+08)--------------FilterExec: rank() ORDER BY [in_web.return_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@2 <= 10 OR rank() ORDER BY [in_web.currency_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@3 <= 10
+09)----------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1, maintains_sort_order=true
+10)------------------ProjectionExec: expr=[item@0 as item, return_ratio@1 as return_ratio, rank() ORDER BY [in_web.return_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@3 as rank() ORDER BY [in_web.return_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW, rank() ORDER BY [in_web.currency_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@4 as rank() ORDER BY [in_web.currency_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW]
+11)--------------------BoundedWindowAggExec: wdw=[rank() ORDER BY [in_web.currency_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW: Field { "rank() ORDER BY [in_web.currency_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW": UInt64 }, frame: RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW], mode=[Sorted]
+12)----------------------SortExec: expr=[currency_ratio@2 ASC NULLS LAST], preserve_partitioning=[false]
+13)------------------------BoundedWindowAggExec: wdw=[rank() ORDER BY [in_web.return_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW: Field { "rank() ORDER BY [in_web.return_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW": UInt64 }, frame: RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW], mode=[Sorted]
+14)--------------------------SortPreservingMergeExec: [return_ratio@1 ASC NULLS LAST]
+15)----------------------------SortExec: expr=[return_ratio@1 ASC NULLS LAST], preserve_partitioning=[true]
+16)------------------------------ProjectionExec: expr=[ws_item_sk@0 as item, CAST(sum(coalesce(wr.wr_return_quantity,Int64(0)))@1 AS Decimal128(15, 4)) / CAST(sum(coalesce(ws.ws_quantity,Int64(0)))@2 AS Decimal128(15, 4)) as return_ratio, CAST(sum(coalesce(wr.wr_return_amt,Int64(0)))@3 AS Decimal128(15, 4)) / CAST(sum(coalesce(ws.ws_net_paid,Int64(0)))@4 AS Decimal128(15, 4)) as currency_ratio]
+17)--------------------------------AggregateExec: mode=FinalPartitioned, gby=[ws_item_sk@0 as ws_item_sk], aggr=[sum(CASE WHEN wr.wr_return_quantity IS NOT NULL THEN wr.wr_return_quantity ELSE 0 END) as sum(coalesce(wr.wr_return_quantity,Int64(0))), sum(CASE WHEN ws.ws_quantity IS NOT NULL THEN ws.ws_quantity ELSE 0 END) as sum(coalesce(ws.ws_quantity,Int64(0))), sum(CASE WHEN __common_expr_1 IS NOT NULL THEN __common_expr_1 ELSE 0.00 END) as sum(coalesce(wr.wr_return_amt,Int64(0))), sum(CASE WHEN __common_expr_2 IS NOT NULL THEN __common_expr_2 ELSE 0.00 END) as sum(coalesce(ws.ws_net_paid,Int64(0)))]
+18)----------------------------------RepartitionExec: partitioning=Hash([ws_item_sk@0], 4), input_partitions=4
+19)------------------------------------AggregateExec: mode=Partial, gby=[ws_item_sk@2 as ws_item_sk], aggr=[sum(CASE WHEN wr.wr_return_quantity IS NOT NULL THEN wr.wr_return_quantity ELSE 0 END) as sum(coalesce(wr.wr_return_quantity,Int64(0))), sum(CASE WHEN ws.ws_quantity IS NOT NULL THEN ws.ws_quantity ELSE 0 END) as sum(coalesce(ws.ws_quantity,Int64(0))), sum(CASE WHEN __common_expr_1 IS NOT NULL THEN __common_expr_1 ELSE 0.00 END) as sum(coalesce(wr.wr_return_amt,Int64(0))), sum(CASE WHEN __common_expr_2 IS NOT NULL THEN __common_expr_2 ELSE 0.00 END) as sum(coalesce(ws.ws_net_paid,Int64(0)))]
+20)--------------------------------------ProjectionExec: expr=[CAST(wr_return_amt@0 AS Decimal128(22, 2)) as __common_expr_1, CAST(ws_net_paid@1 AS Decimal128(22, 2)) as __common_expr_2, ws_item_sk@2 as ws_item_sk, ws_quantity@3 as ws_quantity, wr_return_quantity@4 as wr_return_quantity]
+21)----------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ws_sold_date_sk@0)], projection=[wr_return_amt@6, ws_net_paid@4, ws_item_sk@2, ws_quantity@3, wr_return_quantity@5]
+22)------------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_year@6 = 2001 AND d_moy@8 = 12
+23)------------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(wr_order_number@1, ws_order_number@2), (wr_item_sk@0, ws_item_sk@1)], projection=[ws_sold_date_sk@4, ws_item_sk@5, ws_quantity@7, ws_net_paid@8, wr_return_quantity@2, wr_return_amt@3]
+24)--------------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/web_returns.vortex]]}, projection=[wr_item_sk, wr_order_number, wr_return_quantity, wr_return_amt], file_type=vortex, predicate: wr_return_amt@15 > 10000.00
+25)--------------------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>]]}, projection=[ws_sold_date_sk, ws_item_sk, ws_order_number, ws_quantity, ws_net_paid], file_type=vortex, predicate: ws_net_profit@33 > 1.00 AND ws_net_paid@29 > 0.00 AND ws_quantity@18 > 0
+26)------------ProjectionExec: expr=[catalog as channel, item@0 as item, return_ratio@1 as return_ratio, rank() ORDER BY [in_cat.return_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@2 as return_rank, rank() ORDER BY [in_cat.currency_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@3 as currency_rank]
+27)--------------FilterExec: rank() ORDER BY [in_cat.return_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@2 <= 10 OR rank() ORDER BY [in_cat.currency_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@3 <= 10
+28)----------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1, maintains_sort_order=true
+29)------------------ProjectionExec: expr=[item@0 as item, return_ratio@1 as return_ratio, rank() ORDER BY [in_cat.return_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@3 as rank() ORDER BY [in_cat.return_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW, rank() ORDER BY [in_cat.currency_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@4 as rank() ORDER BY [in_cat.currency_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW]
+30)--------------------BoundedWindowAggExec: wdw=[rank() ORDER BY [in_cat.currency_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW: Field { "rank() ORDER BY [in_cat.currency_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW": UInt64 }, frame: RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW], mode=[Sorted]
+31)----------------------SortExec: expr=[currency_ratio@2 ASC NULLS LAST], preserve_partitioning=[false]
+32)------------------------BoundedWindowAggExec: wdw=[rank() ORDER BY [in_cat.return_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW: Field { "rank() ORDER BY [in_cat.return_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW": UInt64 }, frame: RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW], mode=[Sorted]
+33)--------------------------SortPreservingMergeExec: [return_ratio@1 ASC NULLS LAST]
+34)----------------------------SortExec: expr=[return_ratio@1 ASC NULLS LAST], preserve_partitioning=[true]
+35)------------------------------ProjectionExec: expr=[cs_item_sk@0 as item, CAST(sum(coalesce(cr.cr_return_quantity,Int64(0)))@1 AS Decimal128(15, 4)) / CAST(sum(coalesce(cs.cs_quantity,Int64(0)))@2 AS Decimal128(15, 4)) as return_ratio, CAST(sum(coalesce(cr.cr_return_amount,Int64(0)))@3 AS Decimal128(15, 4)) / CAST(sum(coalesce(cs.cs_net_paid,Int64(0)))@4 AS Decimal128(15, 4)) as currency_ratio]
+36)--------------------------------AggregateExec: mode=FinalPartitioned, gby=[cs_item_sk@0 as cs_item_sk], aggr=[sum(CASE WHEN cr.cr_return_quantity IS NOT NULL THEN cr.cr_return_quantity ELSE 0 END) as sum(coalesce(cr.cr_return_quantity,Int64(0))), sum(CASE WHEN cs.cs_quantity IS NOT NULL THEN cs.cs_quantity ELSE 0 END) as sum(coalesce(cs.cs_quantity,Int64(0))), sum(CASE WHEN __common_expr_3 IS NOT NULL THEN __common_expr_3 ELSE 0.00 END) as sum(coalesce(cr.cr_return_amount,Int64(0))), sum(CASE WHEN __common_expr_4 IS NOT NULL THEN __common_expr_4 ELSE 0.00 END) as sum(coalesce(cs.cs_net_paid,Int64(0)))]
+37)----------------------------------RepartitionExec: partitioning=Hash([cs_item_sk@0], 4), input_partitions=4
+38)------------------------------------AggregateExec: mode=Partial, gby=[cs_item_sk@2 as cs_item_sk], aggr=[sum(CASE WHEN cr.cr_return_quantity IS NOT NULL THEN cr.cr_return_quantity ELSE 0 END) as sum(coalesce(cr.cr_return_quantity,Int64(0))), sum(CASE WHEN cs.cs_quantity IS NOT NULL THEN cs.cs_quantity ELSE 0 END) as sum(coalesce(cs.cs_quantity,Int64(0))), sum(CASE WHEN __common_expr_3 IS NOT NULL THEN __common_expr_3 ELSE 0.00 END) as sum(coalesce(cr.cr_return_amount,Int64(0))), sum(CASE WHEN __common_expr_4 IS NOT NULL THEN __common_expr_4 ELSE 0.00 END) as sum(coalesce(cs.cs_net_paid,Int64(0)))]
+39)--------------------------------------ProjectionExec: expr=[CAST(cr_return_amount@0 AS Decimal128(22, 2)) as __common_expr_3, CAST(cs_net_paid@1 AS Decimal128(22, 2)) as __common_expr_4, cs_item_sk@2 as cs_item_sk, cs_quantity@3 as cs_quantity, cr_return_quantity@4 as cr_return_quantity]
+40)----------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, cs_sold_date_sk@0)], projection=[cr_return_amount@6, cs_net_paid@4, cs_item_sk@2, cs_quantity@3, cr_return_quantity@5]
+41)------------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_year@6 = 2001 AND d_moy@8 = 12
+42)------------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(cr_order_number@1, cs_order_number@2), (cr_item_sk@0, cs_item_sk@1)], projection=[cs_sold_date_sk@4, cs_item_sk@5, cs_quantity@7, cs_net_paid@8, cr_return_quantity@2, cr_return_amount@3]
+43)--------------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/catalog_returns.vortex]]}, projection=[cr_item_sk, cr_order_number, cr_return_quantity, cr_return_amount], file_type=vortex, predicate: cr_return_amount@18 > 10000.00
+44)--------------------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>]]}, projection=[cs_sold_date_sk, cs_item_sk, cs_order_number, cs_quantity, cs_net_paid], file_type=vortex, predicate: cs_net_profit@33 > 1.00 AND cs_net_paid@29 > 0.00 AND cs_quantity@18 > 0
+45)------------ProjectionExec: expr=[store as channel, item@0 as item, return_ratio@1 as return_ratio, rank() ORDER BY [in_store.return_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@2 as return_rank, rank() ORDER BY [in_store.currency_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@3 as currency_rank]
+46)--------------FilterExec: rank() ORDER BY [in_store.return_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@2 <= 10 OR rank() ORDER BY [in_store.currency_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@3 <= 10
+47)----------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1, maintains_sort_order=true
+48)------------------ProjectionExec: expr=[item@0 as item, return_ratio@1 as return_ratio, rank() ORDER BY [in_store.return_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@3 as rank() ORDER BY [in_store.return_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW, rank() ORDER BY [in_store.currency_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@4 as rank() ORDER BY [in_store.currency_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW]
+49)--------------------BoundedWindowAggExec: wdw=[rank() ORDER BY [in_store.currency_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW: Field { "rank() ORDER BY [in_store.currency_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW": UInt64 }, frame: RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW], mode=[Sorted]
+50)----------------------SortExec: expr=[currency_ratio@2 ASC NULLS LAST], preserve_partitioning=[false]
+51)------------------------BoundedWindowAggExec: wdw=[rank() ORDER BY [in_store.return_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW: Field { "rank() ORDER BY [in_store.return_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW": UInt64 }, frame: RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW], mode=[Sorted]
+52)--------------------------SortPreservingMergeExec: [return_ratio@1 ASC NULLS LAST]
+53)----------------------------SortExec: expr=[return_ratio@1 ASC NULLS LAST], preserve_partitioning=[true]
+54)------------------------------ProjectionExec: expr=[ss_item_sk@0 as item, CAST(sum(coalesce(sr.sr_return_quantity,Int64(0)))@1 AS Decimal128(15, 4)) / CAST(sum(coalesce(sts.ss_quantity,Int64(0)))@2 AS Decimal128(15, 4)) as return_ratio, CAST(sum(coalesce(sr.sr_return_amt,Int64(0)))@3 AS Decimal128(15, 4)) / CAST(sum(coalesce(sts.ss_net_paid,Int64(0)))@4 AS Decimal128(15, 4)) as currency_ratio]
+55)--------------------------------AggregateExec: mode=FinalPartitioned, gby=[ss_item_sk@0 as ss_item_sk], aggr=[sum(CASE WHEN sr.sr_return_quantity IS NOT NULL THEN sr.sr_return_quantity ELSE 0 END) as sum(coalesce(sr.sr_return_quantity,Int64(0))), sum(CASE WHEN sts.ss_quantity IS NOT NULL THEN sts.ss_quantity ELSE 0 END) as sum(coalesce(sts.ss_quantity,Int64(0))), sum(CASE WHEN __common_expr_5 IS NOT NULL THEN __common_expr_5 ELSE 0.00 END) as sum(coalesce(sr.sr_return_amt,Int64(0))), sum(CASE WHEN __common_expr_6 IS NOT NULL THEN __common_expr_6 ELSE 0.00 END) as sum(coalesce(sts.ss_net_paid,Int64(0)))]
+56)----------------------------------RepartitionExec: partitioning=Hash([ss_item_sk@0], 4), input_partitions=4
+57)------------------------------------AggregateExec: mode=Partial, gby=[ss_item_sk@2 as ss_item_sk], aggr=[sum(CASE WHEN sr.sr_return_quantity IS NOT NULL THEN sr.sr_return_quantity ELSE 0 END) as sum(coalesce(sr.sr_return_quantity,Int64(0))), sum(CASE WHEN sts.ss_quantity IS NOT NULL THEN sts.ss_quantity ELSE 0 END) as sum(coalesce(sts.ss_quantity,Int64(0))), sum(CASE WHEN __common_expr_5 IS NOT NULL THEN __common_expr_5 ELSE 0.00 END) as sum(coalesce(sr.sr_return_amt,Int64(0))), sum(CASE WHEN __common_expr_6 IS NOT NULL THEN __common_expr_6 ELSE 0.00 END) as sum(coalesce(sts.ss_net_paid,Int64(0)))]
+58)--------------------------------------ProjectionExec: expr=[CAST(sr_return_amt@0 AS Decimal128(22, 2)) as __common_expr_5, CAST(ss_net_paid@1 AS Decimal128(22, 2)) as __common_expr_6, ss_item_sk@2 as ss_item_sk, ss_quantity@3 as ss_quantity, sr_return_quantity@4 as sr_return_quantity]
+59)----------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@0)], projection=[sr_return_amt@6, ss_net_paid@4, ss_item_sk@2, ss_quantity@3, sr_return_quantity@5]
+60)------------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_year@6 = 2001 AND d_moy@8 = 12
+61)------------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(sr_ticket_number@1, ss_ticket_number@2), (sr_item_sk@0, ss_item_sk@1)], projection=[ss_sold_date_sk@4, ss_item_sk@5, ss_quantity@7, ss_net_paid@8, sr_return_quantity@2, sr_return_amt@3]
+62)--------------------------------------------CoalescePartitionsExec
+63)----------------------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>]]}, projection=[sr_item_sk, sr_ticket_number, sr_return_quantity, sr_return_amt], file_type=vortex, predicate: sr_return_amt@11 > 10000.00
+64)--------------------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_item_sk, ss_ticket_number, ss_quantity, ss_net_paid], file_type=vortex, predicate: ss_net_profit@22 > 1.00 AND ss_net_paid@20 > 0.00 AND ss_quantity@10 > 0

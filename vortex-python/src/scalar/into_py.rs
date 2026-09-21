@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::cmp::Ordering;
-
 use pyo3::Bound;
 use pyo3::IntoPyObject;
 use pyo3::PyAny;
@@ -22,7 +20,6 @@ use vortex::buffer::ByteBuffer;
 use vortex::dtype::DType;
 use vortex::dtype::PType;
 use vortex::dtype::half::f16;
-use vortex::dtype::i256;
 use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
 use vortex::scalar::DecimalValue;
@@ -151,59 +148,6 @@ impl<'py> IntoPyObject<'py> for PyVortex<ListScalar<'_>> {
     }
 }
 
-trait DecimalIntoParts: Sized {
-    /// Split an integer encoding a decimal with the given `scale` into a
-    /// (whole number, decimal) parts.
-    ///
-    /// For example, for the number 123i128 and scale 2, this will return returns (1, 23).
-    fn decimal_parts(self, scale: i8) -> (Self, Self);
-}
-
-macro_rules! impl_decimal_into_parts {
-    ($ty:ident, $ten:expr) => {
-        impl DecimalIntoParts for $ty {
-            fn decimal_parts(self, scale: i8) -> (Self, Self) {
-                let scale_factor = $ten.pow(scale.unsigned_abs() as u32);
-                match scale.cmp(&0) {
-                    Ordering::Equal => (self, 0),
-                    Ordering::Less => {
-                        // Negative scale -> apply the given number of trailing zeros
-                        (self * scale_factor, 0)
-                    }
-                    Ordering::Greater => {
-                        // Positive scale -> extract the leading/trailing digits separately.
-                        (self / scale_factor, self % scale_factor)
-                    }
-                }
-            }
-        }
-    };
-}
-
-impl_decimal_into_parts!(i8, 10i8);
-impl_decimal_into_parts!(i16, 10i16);
-impl_decimal_into_parts!(i32, 10i32);
-impl_decimal_into_parts!(i64, 10i64);
-impl_decimal_into_parts!(i128, 10i128);
-
-impl DecimalIntoParts for i256 {
-    fn decimal_parts(self, scale: i8) -> (Self, Self) {
-        match scale.cmp(&0) {
-            Ordering::Equal => (self, i256::ZERO),
-            Ordering::Less => {
-                // Negative scale -> apply the given number of trailing zeros
-                let scale_factor = i256::from_i128(10).wrapping_pow(-scale as u32);
-                (self * scale_factor, i256::ZERO)
-            }
-            Ordering::Greater => {
-                // Positive scale -> extract the leading/trailing digits separately.
-                let scale_factor = i256::from_i128(10).wrapping_pow(scale as u32);
-                (self / scale_factor, self % scale_factor)
-            }
-        }
-    }
-}
-
 fn decimal_value_to_py(
     py: Python,
     scale: i8,
@@ -211,10 +155,16 @@ fn decimal_value_to_py(
 ) -> PyResult<Bound<PyAny>> {
     let decimal_class = decimal_class(py)?;
 
-    match_each_decimal_value!(decimal_value, |value| {
-        let (whole, decimal) = value.decimal_parts(scale);
-        let repr =
-            format!("{}.{:0>width$}", whole, decimal, width = scale as usize).into_pyobject(py)?;
-        decimal_class.call1((repr,))
-    })
+    // Hand `Decimal` the unscaled integer and an exponent rather than splitting the value into
+    // whole and fractional digits here. Splitting has to reproduce sign handling, zero padding and
+    // the negative-scale case, and `Decimal` already does all three: it parses this form exactly
+    // (the context precision bounds arithmetic, not construction) and the value it returns carries
+    // an exponent of exactly `-scale`, so the dtype's scale survives the round trip.
+    //
+    // The exponent is negated through `i16` because `-i8::MIN` overflows, and `MIN_SCALE` is not
+    // bounded away from `i8::MIN`.
+    let repr = match_each_decimal_value!(decimal_value, |value| {
+        format!("{value}E{}", -i16::from(scale))
+    });
+    decimal_class.call1((repr.into_pyobject(py)?,))
 }

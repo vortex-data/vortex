@@ -95,20 +95,23 @@ pub(crate) fn fill_bits(slice: &mut [u8], start_bit: usize, end_bit: usize, valu
 #[derive(Debug, Clone)]
 pub struct BitBufferMut {
     buffer: ByteBufferMut,
-    /// Represents the offset of the bit buffer into the first byte.
+    /// Represents the offset in bits at which the bit buffer starts.
     ///
-    /// This is always less than 8 (for when the bit buffer is not aligned to a byte).
+    /// Unlike [`BitBuffer`], this is not normalised into the first byte: [`Self::from_buffer`]
+    /// stores what the caller passed, and `BitPackedArray` passes a whole-chunk offset.
     offset: usize,
     len: usize,
 }
 
 impl BitBufferMut {
     /// Create new bit buffer from given byte buffer and logical bit length
+    ///
+    /// Panics if the buffer is not large enough to hold `len` bits after the offset.
     #[inline]
     pub fn from_buffer(buffer: ByteBufferMut, offset: usize, len: usize) -> Self {
         assert!(
-            len <= buffer.len() * 8,
-            "Buffer len {} is too short for the given length {len}",
+            len.saturating_add(offset) <= buffer.len().saturating_mul(8),
+            "Buffer len {} is too short for offset {offset} and length {len}",
             buffer.len()
         );
         Self {
@@ -1318,5 +1321,48 @@ mod tests {
         for i in 0..10 {
             assert_eq!(bit_buf.value(i), i % 2 == 0);
         }
+    }
+
+    /// The bound has to cover the offset as well as the length, matching
+    /// `BitBuffer::new_with_offset`. One byte backs eight bits, so an offset of one leaves room
+    /// for seven.
+    #[rstest]
+    #[case(0, 8)]
+    #[case(1, 7)]
+    #[case(7, 1)]
+    #[case(8, 0)]
+    fn from_buffer_accepts_offset_plus_len_within_the_buffer(
+        #[case] offset: usize,
+        #[case] len: usize,
+    ) {
+        let bits = BitBufferMut::from_buffer(buffer_mut![0u8; 1], offset, len);
+        assert_eq!(bits.len(), len);
+    }
+
+    #[rstest]
+    #[case::offset_pushes_past_the_end(1, 8)]
+    #[case::offset_alone_past_the_end(9, 0)]
+    #[case::len_alone_past_the_end(0, 9)]
+    #[should_panic(expected = "is too short for offset")]
+    fn from_buffer_rejects_offset_plus_len_past_the_buffer(
+        #[case] offset: usize,
+        #[case] len: usize,
+    ) {
+        BitBufferMut::from_buffer(buffer_mut![0u8; 1], offset, len);
+    }
+
+    /// `BitPackedArray` passes a whole-chunk offset, so an offset far above eight is legitimate
+    /// as long as the buffer backs it.
+    #[test]
+    fn from_buffer_allows_offsets_beyond_one_byte() {
+        let bits = BitBufferMut::from_buffer(buffer_mut![0u8; 128], 1000, 24);
+        assert_eq!(bits.len(), 24);
+    }
+
+    /// Saturating arithmetic keeps a huge offset from wrapping into an accepted bound.
+    #[test]
+    #[should_panic(expected = "is too short for offset")]
+    fn from_buffer_does_not_wrap_on_a_huge_offset() {
+        BitBufferMut::from_buffer(buffer_mut![0u8; 1], usize::MAX, 8);
     }
 }

@@ -1,0 +1,105 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT distinct(i_product_name)
+FROM item i1
+WHERE i_manufact_id BETWEEN 738 AND 738+40
+  AND
+    (SELECT count(*) AS item_cnt
+     FROM item
+     WHERE (i_manufact = i1.i_manufact
+            AND ((i_category = 'Women'
+                  AND (i_color = 'powder'
+                       OR i_color = 'khaki')
+                  AND (i_units = 'Ounce'
+                       OR i_units = 'Oz')
+                  AND (i_size = 'medium'
+                       OR i_size = 'extra large'))
+                 OR (i_category = 'Women'
+                     AND (i_color = 'brown'
+                          OR i_color = 'honeydew')
+                     AND (i_units = 'Bunch'
+                          OR i_units = 'Ton')
+                     AND (i_size = 'N/A'
+                          OR i_size = 'small'))
+                 OR (i_category = 'Men'
+                     AND (i_color = 'floral'
+                          OR i_color = 'deep')
+                     AND (i_units = 'N/A'
+                          OR i_units = 'Dozen')
+                     AND (i_size = 'petite'
+                          OR i_size = 'petite'))
+                 OR (i_category = 'Men'
+                     AND (i_color = 'light'
+                          OR i_color = 'cornflower')
+                     AND (i_units = 'Box'
+                          OR i_units = 'Pound')
+                     AND (i_size = 'medium'
+                          OR i_size = 'extra large'))))
+       OR (i_manufact = i1.i_manufact
+           AND ((i_category = 'Women'
+                 AND (i_color = 'midnight'
+                      OR i_color = 'snow')
+                 AND (i_units = 'Pallet'
+                      OR i_units = 'Gross')
+                 AND (i_size = 'medium'
+                      OR i_size = 'extra large'))
+                OR (i_category = 'Women'
+                    AND (i_color = 'cyan'
+                         OR i_color = 'papaya')
+                    AND (i_units = 'Cup'
+                         OR i_units = 'Dram')
+                    AND (i_size = 'N/A'
+                         OR i_size = 'small'))
+                OR (i_category = 'Men'
+                    AND (i_color = 'orange'
+                         OR i_color = 'frosted')
+                    AND (i_units = 'Each'
+                         OR i_units = 'Tbl')
+                    AND (i_size = 'petite'
+                         OR i_size = 'petite'))
+                OR (i_category = 'Men'
+                    AND (i_color = 'forest'
+                         OR i_color = 'ghost')
+                    AND (i_units = 'Lb'
+                         OR i_units = 'Bundle')
+                    AND (i_size = 'medium'
+                         OR i_size = 'extra large'))))) > 0
+ORDER BY i_product_name
+LIMIT 100;
+----
+logical_plan
+01)Sort: i1.i_product_name ASC NULLS LAST, fetch=100
+02)--Aggregate: groupBy=[[i1.i_product_name]], aggr=[[]]
+03)----Projection: i1.i_product_name
+04)------Filter: CASE WHEN __scalar_sq_1.__always_true IS NULL THEN Int64(0) ELSE __scalar_sq_1.item_cnt END > Int64(0)
+05)--------Projection: i1.i_product_name, __scalar_sq_1.item_cnt, __scalar_sq_1.__always_true
+06)----------Left Join: i1.i_manufact = __scalar_sq_1.i_manufact
+07)------------SubqueryAlias: i1
+08)--------------Projection: item.i_manufact, item.i_product_name
+09)----------------Filter: item.i_manufact_id >= Int64(738) AND item.i_manufact_id <= Int64(778)
+10)------------------TableScan: item projection=[i_manufact_id, i_manufact, i_product_name], partial_filters=[item.i_manufact_id >= Int64(738), item.i_manufact_id <= Int64(778)]
+11)------------SubqueryAlias: __scalar_sq_1
+12)--------------Projection: count(Int64(1)) AS item_cnt, item.i_manufact, Boolean(true) AS __always_true
+13)----------------Aggregate: groupBy=[[item.i_manufact]], aggr=[[count(Int64(1))]]
+14)------------------Projection: item.i_manufact
+15)--------------------Filter: __common_expr_4 AND ((item.i_color = Utf8View("powder") OR item.i_color = Utf8View("khaki")) AND (item.i_units = Utf8View("Ounce") OR item.i_units = Utf8View("Oz")) AND (item.i_size = Utf8View("medium") OR item.i_size = Utf8View("extra large")) OR (item.i_color = Utf8View("brown") OR item.i_color = Utf8View("honeydew")) AND (item.i_units = Utf8View("Bunch") OR item.i_units = Utf8View("Ton")) AND (item.i_size = Utf8View("N/A") OR item.i_size = Utf8View("small"))) OR item.i_category = Utf8View("Men") AND (item.i_color = Utf8View("floral") OR item.i_color = Utf8View("deep")) AND (item.i_units = Utf8View("N/A") OR item.i_units = Utf8View("Dozen")) AND item.i_size = Utf8View("petite") OR item.i_category = Utf8View("Men") AND (item.i_color = Utf8View("light") OR item.i_color = Utf8View("cornflower")) AND (item.i_units = Utf8View("Box") OR item.i_units = Utf8View("Pound")) AND (item.i_size = Utf8View("medium") OR item.i_size = Utf8View("extra large")) OR __common_expr_4 AND ((item.i_color = Utf8View("midnight") OR item.i_color = Utf8View("snow")) AND (item.i_units = Utf8View("Pallet") OR item.i_units = Utf8View("Gross")) AND (item.i_size = Utf8View("medium") OR item.i_size = Utf8View("extra large")) OR (item.i_color = Utf8View("cyan") OR item.i_color = Utf8View("papaya")) AND (item.i_units = Utf8View("Cup") OR item.i_units = Utf8View("Dram")) AND (item.i_size = Utf8View("N/A") OR item.i_size = Utf8View("small"))) OR item.i_category = Utf8View("Men") AND (item.i_color = Utf8View("orange") OR item.i_color = Utf8View("frosted")) AND (item.i_units = Utf8View("Each") OR item.i_units = Utf8View("Tbl")) AND item.i_size = Utf8View("petite") OR item.i_category = Utf8View("Men") AND (item.i_color = Utf8View("forest") OR item.i_color = Utf8View("ghost")) AND (item.i_units = Utf8View("Lb") OR item.i_units = Utf8View("Bundle")) AND (item.i_size = Utf8View("medium") OR item.i_size = Utf8View("extra large"))
+16)----------------------Projection: item.i_category = Utf8View("Women") AS __common_expr_4, item.i_category, item.i_manufact, item.i_size, item.i_color, item.i_units
+17)------------------------TableScan: item projection=[i_category, i_manufact, i_size, i_color, i_units], partial_filters=[item.i_category = Utf8View("Women") AND ((item.i_color = Utf8View("powder") OR item.i_color = Utf8View("khaki")) AND (item.i_units = Utf8View("Ounce") OR item.i_units = Utf8View("Oz")) AND (item.i_size = Utf8View("medium") OR item.i_size = Utf8View("extra large")) OR (item.i_color = Utf8View("brown") OR item.i_color = Utf8View("honeydew")) AND (item.i_units = Utf8View("Bunch") OR item.i_units = Utf8View("Ton")) AND (item.i_size = Utf8View("N/A") OR item.i_size = Utf8View("small"))) OR item.i_category = Utf8View("Men") AND (item.i_color = Utf8View("floral") OR item.i_color = Utf8View("deep")) AND (item.i_units = Utf8View("N/A") OR item.i_units = Utf8View("Dozen")) AND item.i_size = Utf8View("petite") OR item.i_category = Utf8View("Men") AND (item.i_color = Utf8View("light") OR item.i_color = Utf8View("cornflower")) AND (item.i_units = Utf8View("Box") OR item.i_units = Utf8View("Pound")) AND (item.i_size = Utf8View("medium") OR item.i_size = Utf8View("extra large")) OR item.i_category = Utf8View("Women") AND ((item.i_color = Utf8View("midnight") OR item.i_color = Utf8View("snow")) AND (item.i_units = Utf8View("Pallet") OR item.i_units = Utf8View("Gross")) AND (item.i_size = Utf8View("medium") OR item.i_size = Utf8View("extra large")) OR (item.i_color = Utf8View("cyan") OR item.i_color = Utf8View("papaya")) AND (item.i_units = Utf8View("Cup") OR item.i_units = Utf8View("Dram")) AND (item.i_size = Utf8View("N/A") OR item.i_size = Utf8View("small"))) OR item.i_category = Utf8View("Men") AND (item.i_color = Utf8View("orange") OR item.i_color = Utf8View("frosted")) AND (item.i_units = Utf8View("Each") OR item.i_units = Utf8View("Tbl")) AND item.i_size = Utf8View("petite") OR item.i_category = Utf8View("Men") AND (item.i_color = Utf8View("forest") OR item.i_color = Utf8View("ghost")) AND (item.i_units = Utf8View("Lb") OR item.i_units = Utf8View("Bundle")) AND (item.i_size = Utf8View("medium") OR item.i_size = Utf8View("extra large"))]
+physical_plan
+01)SortPreservingMergeExec: [i_product_name@0 ASC NULLS LAST], fetch=100
+02)--SortExec: TopK(fetch=100), expr=[i_product_name@0 ASC NULLS LAST], preserve_partitioning=[true]
+03)----AggregateExec: mode=FinalPartitioned, gby=[i_product_name@0 as i_product_name], aggr=[], lim=[100]
+04)------RepartitionExec: partitioning=Hash([i_product_name@0], 4), input_partitions=4
+05)--------AggregateExec: mode=Partial, gby=[i_product_name@0 as i_product_name], aggr=[], lim=[100]
+06)----------FilterExec: CASE WHEN __always_true@2 IS NULL THEN 0 ELSE item_cnt@1 END > 0, projection=[i_product_name@0]
+07)------------HashJoinExec: mode=CollectLeft, join_type=Left, on=[(i_manufact@0, i_manufact@1)], projection=[i_product_name@1, item_cnt@2, __always_true@4]
+08)--------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_manufact, i_product_name], file_type=vortex, predicate: i_manufact_id@13 >= 738 AND i_manufact_id@13 <= 778
+09)--------------ProjectionExec: expr=[count(Int64(1))@1 as item_cnt, i_manufact@0 as i_manufact, true as __always_true]
+10)----------------AggregateExec: mode=FinalPartitioned, gby=[i_manufact@0 as i_manufact], aggr=[count(Int64(1))]
+11)------------------RepartitionExec: partitioning=Hash([i_manufact@0], 4), input_partitions=4
+12)--------------------AggregateExec: mode=Partial, gby=[i_manufact@0 as i_manufact], aggr=[count(Int64(1))]
+13)----------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+14)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_manufact], file_type=vortex, predicate: i_category@12 = Women AND ((i_color@17 = powder OR i_color@17 = khaki) AND (i_units@18 = Ounce OR i_units@18 = Oz) AND (i_size@15 = medium OR i_size@15 = extra large) OR (i_color@17 = brown OR i_color@17 = honeydew) AND (i_units@18 = Bunch OR i_units@18 = Ton) AND (i_size@15 = N/A OR i_size@15 = small)) OR i_category@12 = Men AND (i_color@17 = floral OR i_color@17 = deep) AND (i_units@18 = N/A OR i_units@18 = Dozen) AND i_size@15 = petite OR i_category@12 = Men AND (i_color@17 = light OR i_color@17 = cornflower) AND (i_units@18 = Box OR i_units@18 = Pound) AND (i_size@15 = medium OR i_size@15 = extra large) OR i_category@12 = Women AND ((i_color@17 = midnight OR i_color@17 = snow) AND (i_units@18 = Pallet OR i_units@18 = Gross) AND (i_size@15 = medium OR i_size@15 = extra large) OR (i_color@17 = cyan OR i_color@17 = papaya) AND (i_units@18 = Cup OR i_units@18 = Dram) AND (i_size@15 = N/A OR i_size@15 = small)) OR i_category@12 = Men AND (i_color@17 = orange OR i_color@17 = frosted) AND (i_units@18 = Each OR i_units@18 = Tbl) AND i_size@15 = petite OR i_category@12 = Men AND (i_color@17 = forest OR i_color@17 = ghost) AND (i_units@18 = Lb OR i_units@18 = Bundle) AND (i_size@15 = medium OR i_size@15 = extra large)

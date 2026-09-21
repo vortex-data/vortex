@@ -52,6 +52,8 @@ coverage.xml
 *.cover
 *.py,cover
 .hypothesis/
+# hegeltest's example database, the Rust equivalent of .hypothesis/
+.hegel/
 .pytest_cache/
 cover/
 

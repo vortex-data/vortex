@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::iter;
-use std::ptr;
 use std::sync::Arc;
 
 use itertools::Itertools as _;
@@ -642,14 +641,7 @@ where
         let byte_start = offset_range[0].as_();
         let byte_end = offset_range[length].as_();
         let src = &data[byte_start..byte_end];
-        // SAFETY: `src` and the checked `spare` range have equal lengths and cannot overlap.
-        unsafe {
-            ptr::copy_nonoverlapping(
-                src.as_ptr(),
-                spare[cursor..][..src.len()].as_mut_ptr().cast::<u8>(),
-                src.len(),
-            );
-        }
+        spare[cursor..][..src.len()].write_copy_of_slice(src);
         cursor += src.len();
     }
     // SAFETY: the loop initialized the prefix `0..cursor` of the spare capacity.
@@ -735,14 +727,7 @@ where
         let byte_start = offset_range[0].as_();
         let byte_end = offset_range[length].as_();
         let src = &data[byte_start..byte_end];
-        // SAFETY: `src` and the checked `spare` range have equal lengths and cannot overlap.
-        unsafe {
-            ptr::copy_nonoverlapping(
-                src.as_ptr(),
-                spare[cursor..][..src.len()].as_mut_ptr().cast::<u8>(),
-                src.len(),
-            );
-        }
+        spare[cursor..][..src.len()].write_copy_of_slice(src);
         cursor += src.len();
     }
     // SAFETY: the loop initialized the prefix `0..cursor` of the spare capacity.

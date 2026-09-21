@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::iter;
-use std::ptr;
 use std::sync::Arc;
 
 use itertools::Itertools as _;
@@ -180,16 +179,7 @@ where
     for &start in starts {
         let start = start.as_();
         let src = &source[start..][..length];
-        // SAFETY: `src` and the checked `spare` range have equal lengths and cannot overlap.
-        unsafe {
-            ptr::copy_nonoverlapping(
-                src.as_ptr(),
-                spare[cursor..][..src.len()]
-                    .as_mut_ptr()
-                    .cast::<BinaryView>(),
-                src.len(),
-            );
-        }
+        spare[cursor..][..src.len()].write_copy_of_slice(src);
         cursor += src.len();
     }
     // SAFETY: the loop initialized the prefix `0..cursor` of the spare capacity.
@@ -219,16 +209,7 @@ where
         let start = start.as_();
         let length = length.as_();
         let src = &source[start..][..length];
-        // SAFETY: `src` and the checked `spare` range have equal lengths and cannot overlap.
-        unsafe {
-            ptr::copy_nonoverlapping(
-                src.as_ptr(),
-                spare[cursor..][..src.len()]
-                    .as_mut_ptr()
-                    .cast::<BinaryView>(),
-                src.len(),
-            );
-        }
+        spare[cursor..][..src.len()].write_copy_of_slice(src);
         cursor += src.len();
     }
     // SAFETY: the loop initialized the prefix `0..cursor` of the spare capacity.

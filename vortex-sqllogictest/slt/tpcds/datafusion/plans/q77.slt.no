@@ -1,0 +1,252 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+WITH ss AS
+  (SELECT s_store_sk,
+          sum(ss_ext_sales_price) AS sales,
+          sum(ss_net_profit) AS profit
+   FROM store_sales,
+        date_dim,
+        store
+   WHERE ss_sold_date_sk = d_date_sk
+     AND d_date BETWEEN cast('2000-08-23' AS date) AND cast('2000-09-22' AS date)
+     AND ss_store_sk = s_store_sk
+   GROUP BY s_store_sk) ,
+     sr AS
+  (SELECT s_store_sk,
+          sum(sr_return_amt) AS returns_,
+          sum(sr_net_loss) AS profit_loss
+   FROM store_returns,
+        date_dim,
+        store
+   WHERE sr_returned_date_sk = d_date_sk
+     AND d_date BETWEEN cast('2000-08-23' AS date) AND cast('2000-09-22' AS date)
+     AND sr_store_sk = s_store_sk
+   GROUP BY s_store_sk),
+     cs AS
+  (SELECT cs_call_center_sk,
+          sum(cs_ext_sales_price) AS sales,
+          sum(cs_net_profit) AS profit
+   FROM catalog_sales,
+        date_dim
+   WHERE cs_sold_date_sk = d_date_sk
+     AND d_date BETWEEN cast('2000-08-23' AS date) AND cast('2000-09-22' AS date)
+   GROUP BY cs_call_center_sk),
+     cr AS
+  (SELECT cr_call_center_sk,
+          sum(cr_return_amount) AS returns_,
+          sum(cr_net_loss) AS profit_loss
+   FROM catalog_returns,
+        date_dim
+   WHERE cr_returned_date_sk = d_date_sk
+     AND d_date BETWEEN cast('2000-08-23' AS date) AND cast('2000-09-22' AS date)
+   GROUP BY cr_call_center_sk ),
+     ws AS
+  (SELECT wp_web_page_sk,
+          sum(ws_ext_sales_price) AS sales,
+          sum(ws_net_profit) AS profit
+   FROM web_sales,
+        date_dim,
+        web_page
+   WHERE ws_sold_date_sk = d_date_sk
+     AND d_date BETWEEN cast('2000-08-23' AS date) AND cast('2000-09-22' AS date)
+     AND ws_web_page_sk = wp_web_page_sk
+   GROUP BY wp_web_page_sk),
+     wr AS
+  (SELECT wp_web_page_sk,
+          sum(wr_return_amt) AS returns_,
+          sum(wr_net_loss) AS profit_loss
+   FROM web_returns,
+        date_dim,
+        web_page
+   WHERE wr_returned_date_sk = d_date_sk
+     AND d_date BETWEEN cast('2000-08-23' AS date) AND cast('2000-09-22' AS date)
+     AND wr_web_page_sk = wp_web_page_sk
+   GROUP BY wp_web_page_sk)
+SELECT channel ,
+       id ,
+       sum(sales) AS sales ,
+       sum(returns_) AS returns_ ,
+       sum(profit) AS profit
+FROM
+  (SELECT 'store channel' AS channel ,
+          ss.s_store_sk AS id ,
+          sales ,
+          coalesce(returns_, 0) AS returns_ ,
+          (profit - coalesce(profit_loss,0)) AS profit
+   FROM ss
+   LEFT JOIN sr ON ss.s_store_sk = sr.s_store_sk
+   UNION ALL SELECT 'catalog channel' AS channel ,
+                    cs_call_center_sk AS id ,
+                    sales ,
+                    returns_ ,
+                    (profit - profit_loss) AS profit
+   FROM cs ,
+        cr
+   UNION ALL SELECT 'web channel' AS channel ,
+                    ws.wp_web_page_sk AS id ,
+                    sales ,
+                    coalesce(returns_, 0) returns_ ,
+                    (profit - coalesce(profit_loss,0)) AS profit
+   FROM ws
+   LEFT JOIN wr ON ws.wp_web_page_sk = wr.wp_web_page_sk ) x
+GROUP BY ROLLUP (channel,
+                 id)
+ORDER BY channel NULLS FIRST,
+         id NULLS FIRST,
+         returns_ DESC
+LIMIT 100;
+----
+logical_plan
+01)Sort: x.channel ASC NULLS FIRST, x.id ASC NULLS FIRST, returns_ DESC NULLS FIRST, fetch=100
+02)--Projection: x.channel, x.id, sum(x.sales) AS sales, sum(x.returns_) AS returns_, sum(x.profit) AS profit
+03)----Aggregate: groupBy=[[ROLLUP (x.channel, x.id)]], aggr=[[sum(x.sales), sum(x.returns_), sum(x.profit)]]
+04)------SubqueryAlias: x
+05)--------Union
+06)----------Projection: Utf8("store channel") AS channel, ss.s_store_sk AS id, ss.sales, CASE WHEN __common_expr_1 IS NOT NULL THEN __common_expr_1 ELSE Decimal128(0.00,22,2) END AS returns_, ss.profit - CASE WHEN __common_expr_2 IS NOT NULL THEN __common_expr_2 ELSE Decimal128(0.00,22,2) END AS profit
+07)------------Projection: CAST(sr.returns_ AS Decimal128(22, 2)) AS __common_expr_1, CAST(sr.profit_loss AS Decimal128(22, 2)) AS __common_expr_2, ss.s_store_sk, ss.sales, ss.profit
+08)--------------Left Join: ss.s_store_sk = sr.s_store_sk
+09)----------------SubqueryAlias: ss
+10)------------------Projection: store.s_store_sk, sum(store_sales.ss_ext_sales_price) AS sales, sum(store_sales.ss_net_profit) AS profit
+11)--------------------Aggregate: groupBy=[[store.s_store_sk]], aggr=[[sum(store_sales.ss_ext_sales_price), sum(store_sales.ss_net_profit)]]
+12)----------------------Projection: store_sales.ss_ext_sales_price, store_sales.ss_net_profit, store.s_store_sk
+13)------------------------Inner Join: store_sales.ss_store_sk = store.s_store_sk
+14)--------------------------Projection: store_sales.ss_store_sk, store_sales.ss_ext_sales_price, store_sales.ss_net_profit
+15)----------------------------Inner Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
+16)------------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_store_sk, ss_ext_sales_price, ss_net_profit]
+17)------------------------------Projection: date_dim.d_date_sk
+18)--------------------------------Filter: date_dim.d_date >= Date32("2000-08-23") AND date_dim.d_date <= Date32("2000-09-22")
+19)----------------------------------TableScan: date_dim projection=[d_date_sk, d_date], partial_filters=[date_dim.d_date >= Date32("2000-08-23"), date_dim.d_date <= Date32("2000-09-22")]
+20)--------------------------TableScan: store projection=[s_store_sk]
+21)----------------SubqueryAlias: sr
+22)------------------Projection: store.s_store_sk, sum(store_returns.sr_return_amt) AS returns_, sum(store_returns.sr_net_loss) AS profit_loss
+23)--------------------Aggregate: groupBy=[[store.s_store_sk]], aggr=[[sum(store_returns.sr_return_amt), sum(store_returns.sr_net_loss)]]
+24)----------------------Projection: store_returns.sr_return_amt, store_returns.sr_net_loss, store.s_store_sk
+25)------------------------Inner Join: store_returns.sr_store_sk = store.s_store_sk
+26)--------------------------Projection: store_returns.sr_store_sk, store_returns.sr_return_amt, store_returns.sr_net_loss
+27)----------------------------Inner Join: store_returns.sr_returned_date_sk = date_dim.d_date_sk
+28)------------------------------TableScan: store_returns projection=[sr_returned_date_sk, sr_store_sk, sr_return_amt, sr_net_loss]
+29)------------------------------Projection: date_dim.d_date_sk
+30)--------------------------------Filter: date_dim.d_date >= Date32("2000-08-23") AND date_dim.d_date <= Date32("2000-09-22")
+31)----------------------------------TableScan: date_dim projection=[d_date_sk, d_date], partial_filters=[date_dim.d_date >= Date32("2000-08-23"), date_dim.d_date <= Date32("2000-09-22")]
+32)--------------------------TableScan: store projection=[s_store_sk]
+33)----------Projection: Utf8("catalog channel") AS channel, cs.cs_call_center_sk AS id, cs.sales, CAST(cr.returns_ AS Decimal128(22, 2)) AS returns_, CAST(cs.profit - cr.profit_loss AS Decimal128(23, 2)) AS profit
+34)------------Cross Join:
+35)--------------SubqueryAlias: cs
+36)----------------Projection: catalog_sales.cs_call_center_sk, sum(catalog_sales.cs_ext_sales_price) AS sales, sum(catalog_sales.cs_net_profit) AS profit
+37)------------------Aggregate: groupBy=[[catalog_sales.cs_call_center_sk]], aggr=[[sum(catalog_sales.cs_ext_sales_price), sum(catalog_sales.cs_net_profit)]]
+38)--------------------Projection: catalog_sales.cs_call_center_sk, catalog_sales.cs_ext_sales_price, catalog_sales.cs_net_profit
+39)----------------------Inner Join: catalog_sales.cs_sold_date_sk = date_dim.d_date_sk
+40)------------------------TableScan: catalog_sales projection=[cs_sold_date_sk, cs_call_center_sk, cs_ext_sales_price, cs_net_profit]
+41)------------------------Projection: date_dim.d_date_sk
+42)--------------------------Filter: date_dim.d_date >= Date32("2000-08-23") AND date_dim.d_date <= Date32("2000-09-22")
+43)----------------------------TableScan: date_dim projection=[d_date_sk, d_date], partial_filters=[date_dim.d_date >= Date32("2000-08-23"), date_dim.d_date <= Date32("2000-09-22")]
+44)--------------SubqueryAlias: cr
+45)----------------Projection: sum(catalog_returns.cr_return_amount) AS returns_, sum(catalog_returns.cr_net_loss) AS profit_loss
+46)------------------Aggregate: groupBy=[[catalog_returns.cr_call_center_sk]], aggr=[[sum(catalog_returns.cr_return_amount), sum(catalog_returns.cr_net_loss)]]
+47)--------------------Projection: catalog_returns.cr_call_center_sk, catalog_returns.cr_return_amount, catalog_returns.cr_net_loss
+48)----------------------Inner Join: catalog_returns.cr_returned_date_sk = date_dim.d_date_sk
+49)------------------------TableScan: catalog_returns projection=[cr_returned_date_sk, cr_call_center_sk, cr_return_amount, cr_net_loss]
+50)------------------------Projection: date_dim.d_date_sk
+51)--------------------------Filter: date_dim.d_date >= Date32("2000-08-23") AND date_dim.d_date <= Date32("2000-09-22")
+52)----------------------------TableScan: date_dim projection=[d_date_sk, d_date], partial_filters=[date_dim.d_date >= Date32("2000-08-23"), date_dim.d_date <= Date32("2000-09-22")]
+53)----------Projection: Utf8("web channel") AS channel, ws.wp_web_page_sk AS id, ws.sales, CASE WHEN __common_expr_3 IS NOT NULL THEN __common_expr_3 ELSE Decimal128(0.00,22,2) END AS returns_, ws.profit - CASE WHEN __common_expr_4 IS NOT NULL THEN __common_expr_4 ELSE Decimal128(0.00,22,2) END AS profit
+54)------------Projection: CAST(wr.returns_ AS Decimal128(22, 2)) AS __common_expr_3, CAST(wr.profit_loss AS Decimal128(22, 2)) AS __common_expr_4, ws.wp_web_page_sk, ws.sales, ws.profit
+55)--------------Left Join: ws.wp_web_page_sk = wr.wp_web_page_sk
+56)----------------SubqueryAlias: ws
+57)------------------Projection: web_page.wp_web_page_sk, sum(web_sales.ws_ext_sales_price) AS sales, sum(web_sales.ws_net_profit) AS profit
+58)--------------------Aggregate: groupBy=[[web_page.wp_web_page_sk]], aggr=[[sum(web_sales.ws_ext_sales_price), sum(web_sales.ws_net_profit)]]
+59)----------------------Projection: web_sales.ws_ext_sales_price, web_sales.ws_net_profit, web_page.wp_web_page_sk
+60)------------------------Inner Join: web_sales.ws_web_page_sk = web_page.wp_web_page_sk
+61)--------------------------Projection: web_sales.ws_web_page_sk, web_sales.ws_ext_sales_price, web_sales.ws_net_profit
+62)----------------------------Inner Join: web_sales.ws_sold_date_sk = date_dim.d_date_sk
+63)------------------------------TableScan: web_sales projection=[ws_sold_date_sk, ws_web_page_sk, ws_ext_sales_price, ws_net_profit]
+64)------------------------------Projection: date_dim.d_date_sk
+65)--------------------------------Filter: date_dim.d_date >= Date32("2000-08-23") AND date_dim.d_date <= Date32("2000-09-22")
+66)----------------------------------TableScan: date_dim projection=[d_date_sk, d_date], partial_filters=[date_dim.d_date >= Date32("2000-08-23"), date_dim.d_date <= Date32("2000-09-22")]
+67)--------------------------TableScan: web_page projection=[wp_web_page_sk]
+68)----------------SubqueryAlias: wr
+69)------------------Projection: web_page.wp_web_page_sk, sum(web_returns.wr_return_amt) AS returns_, sum(web_returns.wr_net_loss) AS profit_loss
+70)--------------------Aggregate: groupBy=[[web_page.wp_web_page_sk]], aggr=[[sum(web_returns.wr_return_amt), sum(web_returns.wr_net_loss)]]
+71)----------------------Projection: web_returns.wr_return_amt, web_returns.wr_net_loss, web_page.wp_web_page_sk
+72)------------------------Inner Join: web_returns.wr_web_page_sk = web_page.wp_web_page_sk
+73)--------------------------Projection: web_returns.wr_web_page_sk, web_returns.wr_return_amt, web_returns.wr_net_loss
+74)----------------------------Inner Join: web_returns.wr_returned_date_sk = date_dim.d_date_sk
+75)------------------------------TableScan: web_returns projection=[wr_returned_date_sk, wr_web_page_sk, wr_return_amt, wr_net_loss]
+76)------------------------------Projection: date_dim.d_date_sk
+77)--------------------------------Filter: date_dim.d_date >= Date32("2000-08-23") AND date_dim.d_date <= Date32("2000-09-22")
+78)----------------------------------TableScan: date_dim projection=[d_date_sk, d_date], partial_filters=[date_dim.d_date >= Date32("2000-08-23"), date_dim.d_date <= Date32("2000-09-22")]
+79)--------------------------TableScan: web_page projection=[wp_web_page_sk]
+physical_plan
+01)SortPreservingMergeExec: [channel@0 ASC, id@1 ASC, returns_@3 DESC], fetch=100
+02)--SortExec: TopK(fetch=100), expr=[channel@0 ASC, id@1 ASC, returns_@3 DESC], preserve_partitioning=[true]
+03)----ProjectionExec: expr=[channel@0 as channel, id@1 as id, sum(x.sales)@3 as sales, sum(x.returns_)@4 as returns_, sum(x.profit)@5 as profit]
+04)------AggregateExec: mode=FinalPartitioned, gby=[channel@0 as channel, id@1 as id, __grouping_id@2 as __grouping_id], aggr=[sum(x.sales), sum(x.returns_), sum(x.profit)]
+05)--------RepartitionExec: partitioning=Hash([channel@0, id@1, __grouping_id@2], 4), input_partitions=4
+06)----------AggregateExec: mode=Partial, gby=[(NULL as channel, NULL as id), (channel@0 as channel, NULL as id), (channel@0 as channel, id@1 as id)], aggr=[sum(x.sales), sum(x.returns_), sum(x.profit)]
+07)------------InterleaveExec
+08)--------------ProjectionExec: expr=[store channel as channel, s_store_sk@2 as id, sales@3 as sales, CAST(CASE WHEN __common_expr_1@0 IS NOT NULL THEN __common_expr_1@0 ELSE 0.00 END AS Decimal128(22, 2)) as returns_, profit@4 - CASE WHEN __common_expr_2@1 IS NOT NULL THEN __common_expr_2@1 ELSE 0.00 END as profit]
+09)----------------ProjectionExec: expr=[CAST(returns_@0 AS Decimal128(22, 2)) as __common_expr_1, CAST(profit_loss@1 AS Decimal128(22, 2)) as __common_expr_2, s_store_sk@2 as s_store_sk, sales@3 as sales, profit@4 as profit]
+10)------------------HashJoinExec: mode=CollectLeft, join_type=Right, on=[(s_store_sk@0, s_store_sk@0)], projection=[returns_@1, profit_loss@2, s_store_sk@3, sales@4, profit@5]
+11)--------------------CoalescePartitionsExec
+12)----------------------ProjectionExec: expr=[s_store_sk@0 as s_store_sk, sum(store_returns.sr_return_amt)@1 as returns_, sum(store_returns.sr_net_loss)@2 as profit_loss]
+13)------------------------AggregateExec: mode=FinalPartitioned, gby=[s_store_sk@0 as s_store_sk], aggr=[sum(store_returns.sr_return_amt), sum(store_returns.sr_net_loss)]
+14)--------------------------RepartitionExec: partitioning=Hash([s_store_sk@0], 4), input_partitions=4
+15)----------------------------AggregateExec: mode=Partial, gby=[s_store_sk@2 as s_store_sk], aggr=[sum(store_returns.sr_return_amt), sum(store_returns.sr_net_loss)]
+16)------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_store_sk@0, sr_store_sk@0)], projection=[sr_return_amt@2, sr_net_loss@3, s_store_sk@0]
+17)--------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store.vortex]]}, projection=[s_store_sk], file_type=vortex
+18)--------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, sr_returned_date_sk@0)], projection=[sr_store_sk@2, sr_return_amt@3, sr_net_loss@4]
+19)----------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_date@2 >= 2000-08-23 AND d_date@2 <= 2000-09-22
+20)----------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>]]}, projection=[sr_returned_date_sk, sr_store_sk, sr_return_amt, sr_net_loss], file_type=vortex
+21)--------------------ProjectionExec: expr=[s_store_sk@0 as s_store_sk, sum(store_sales.ss_ext_sales_price)@1 as sales, sum(store_sales.ss_net_profit)@2 as profit]
+22)----------------------AggregateExec: mode=FinalPartitioned, gby=[s_store_sk@0 as s_store_sk], aggr=[sum(store_sales.ss_ext_sales_price), sum(store_sales.ss_net_profit)]
+23)------------------------RepartitionExec: partitioning=Hash([s_store_sk@0], 4), input_partitions=4
+24)--------------------------AggregateExec: mode=Partial, gby=[s_store_sk@2 as s_store_sk], aggr=[sum(store_sales.ss_ext_sales_price), sum(store_sales.ss_net_profit)]
+25)----------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_store_sk@0, ss_store_sk@0)], projection=[ss_ext_sales_price@2, ss_net_profit@3, s_store_sk@0]
+26)------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store.vortex]]}, projection=[s_store_sk], file_type=vortex
+27)------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@0)], projection=[ss_store_sk@2, ss_ext_sales_price@3, ss_net_profit@4]
+28)--------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_date@2 >= 2000-08-23 AND d_date@2 <= 2000-09-22
+29)--------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_store_sk, ss_ext_sales_price, ss_net_profit], file_type=vortex
+30)--------------ProjectionExec: expr=[catalog channel as channel, cs_call_center_sk@2 as id, sales@3 as sales, CAST(returns_@0 AS Decimal128(22, 2)) as returns_, CAST(profit@4 - profit_loss@1 AS Decimal128(23, 2)) as profit]
+31)----------------CrossJoinExec
+32)------------------CoalescePartitionsExec
+33)--------------------ProjectionExec: expr=[sum(catalog_returns.cr_return_amount)@1 as returns_, sum(catalog_returns.cr_net_loss)@2 as profit_loss]
+34)----------------------AggregateExec: mode=FinalPartitioned, gby=[cr_call_center_sk@0 as cr_call_center_sk], aggr=[sum(catalog_returns.cr_return_amount), sum(catalog_returns.cr_net_loss)]
+35)------------------------RepartitionExec: partitioning=Hash([cr_call_center_sk@0], 4), input_partitions=4
+36)--------------------------AggregateExec: mode=Partial, gby=[cr_call_center_sk@0 as cr_call_center_sk], aggr=[sum(catalog_returns.cr_return_amount), sum(catalog_returns.cr_net_loss)]
+37)----------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, cr_returned_date_sk@0)], projection=[cr_call_center_sk@2, cr_return_amount@3, cr_net_loss@4]
+38)------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_date@2 >= 2000-08-23 AND d_date@2 <= 2000-09-22
+39)------------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+40)--------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/catalog_returns.vortex]]}, projection=[cr_returned_date_sk, cr_call_center_sk, cr_return_amount, cr_net_loss], file_type=vortex
+41)------------------ProjectionExec: expr=[cs_call_center_sk@0 as cs_call_center_sk, sum(catalog_sales.cs_ext_sales_price)@1 as sales, sum(catalog_sales.cs_net_profit)@2 as profit]
+42)--------------------AggregateExec: mode=FinalPartitioned, gby=[cs_call_center_sk@0 as cs_call_center_sk], aggr=[sum(catalog_sales.cs_ext_sales_price), sum(catalog_sales.cs_net_profit)]
+43)----------------------RepartitionExec: partitioning=Hash([cs_call_center_sk@0], 4), input_partitions=4
+44)------------------------AggregateExec: mode=Partial, gby=[cs_call_center_sk@0 as cs_call_center_sk], aggr=[sum(catalog_sales.cs_ext_sales_price), sum(catalog_sales.cs_net_profit)]
+45)--------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, cs_sold_date_sk@0)], projection=[cs_call_center_sk@2, cs_ext_sales_price@3, cs_net_profit@4]
+46)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_date@2 >= 2000-08-23 AND d_date@2 <= 2000-09-22
+47)----------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>]]}, projection=[cs_sold_date_sk, cs_call_center_sk, cs_ext_sales_price, cs_net_profit], file_type=vortex
+48)--------------ProjectionExec: expr=[web channel as channel, wp_web_page_sk@2 as id, sales@3 as sales, CAST(CASE WHEN __common_expr_3@0 IS NOT NULL THEN __common_expr_3@0 ELSE 0.00 END AS Decimal128(22, 2)) as returns_, profit@4 - CASE WHEN __common_expr_4@1 IS NOT NULL THEN __common_expr_4@1 ELSE 0.00 END as profit]
+49)----------------ProjectionExec: expr=[CAST(returns_@0 AS Decimal128(22, 2)) as __common_expr_3, CAST(profit_loss@1 AS Decimal128(22, 2)) as __common_expr_4, wp_web_page_sk@2 as wp_web_page_sk, sales@3 as sales, profit@4 as profit]
+50)------------------HashJoinExec: mode=CollectLeft, join_type=Right, on=[(wp_web_page_sk@0, wp_web_page_sk@0)], projection=[returns_@1, profit_loss@2, wp_web_page_sk@3, sales@4, profit@5]
+51)--------------------CoalescePartitionsExec
+52)----------------------ProjectionExec: expr=[wp_web_page_sk@0 as wp_web_page_sk, sum(web_returns.wr_return_amt)@1 as returns_, sum(web_returns.wr_net_loss)@2 as profit_loss]
+53)------------------------AggregateExec: mode=FinalPartitioned, gby=[wp_web_page_sk@0 as wp_web_page_sk], aggr=[sum(web_returns.wr_return_amt), sum(web_returns.wr_net_loss)]
+54)--------------------------RepartitionExec: partitioning=Hash([wp_web_page_sk@0], 4), input_partitions=4
+55)----------------------------AggregateExec: mode=Partial, gby=[wp_web_page_sk@2 as wp_web_page_sk], aggr=[sum(web_returns.wr_return_amt), sum(web_returns.wr_net_loss)]
+56)------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(wp_web_page_sk@0, wr_web_page_sk@0)], projection=[wr_return_amt@2, wr_net_loss@3, wp_web_page_sk@0]
+57)--------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/web_page.vortex]]}, projection=[wp_web_page_sk], file_type=vortex
+58)--------------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+59)----------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, wr_returned_date_sk@0)], projection=[wr_web_page_sk@2, wr_return_amt@3, wr_net_loss@4]
+60)------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_date@2 >= 2000-08-23 AND d_date@2 <= 2000-09-22
+61)------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/web_returns.vortex]]}, projection=[wr_returned_date_sk, wr_web_page_sk, wr_return_amt, wr_net_loss], file_type=vortex
+62)--------------------ProjectionExec: expr=[wp_web_page_sk@0 as wp_web_page_sk, sum(web_sales.ws_ext_sales_price)@1 as sales, sum(web_sales.ws_net_profit)@2 as profit]
+63)----------------------AggregateExec: mode=FinalPartitioned, gby=[wp_web_page_sk@0 as wp_web_page_sk], aggr=[sum(web_sales.ws_ext_sales_price), sum(web_sales.ws_net_profit)]
+64)------------------------RepartitionExec: partitioning=Hash([wp_web_page_sk@0], 4), input_partitions=4
+65)--------------------------AggregateExec: mode=Partial, gby=[wp_web_page_sk@2 as wp_web_page_sk], aggr=[sum(web_sales.ws_ext_sales_price), sum(web_sales.ws_net_profit)]
+66)----------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(wp_web_page_sk@0, ws_web_page_sk@0)], projection=[ws_ext_sales_price@2, ws_net_profit@3, wp_web_page_sk@0]
+67)------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/web_page.vortex]]}, projection=[wp_web_page_sk], file_type=vortex
+68)------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ws_sold_date_sk@0)], projection=[ws_web_page_sk@2, ws_ext_sales_price@3, ws_net_profit@4]
+69)--------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_date@2 >= 2000-08-23 AND d_date@2 <= 2000-09-22
+70)--------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>]]}, projection=[ws_sold_date_sk, ws_web_page_sk, ws_ext_sales_price, ws_net_profit], file_type=vortex

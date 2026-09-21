@@ -14,6 +14,8 @@ use crate::rle::RLEArrayExt;
 use crate::rle::RLEArraySlotsExt;
 
 impl OperationsVTable<RLE> for RLE {
+    type ProbeState = ();
+
     fn scalar_at(
         array: ArrayView<'_, RLE>,
         index: usize,

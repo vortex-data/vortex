@@ -250,7 +250,7 @@ fn trace_scan_compare_on_compressed_quantity() -> VortexResult<()> {
     optimize root=vortex.binary(bool, len=4096) session=false
       reduce_parent static:DictionaryScalarFnValuesPushDownRule slot=0 parent=vortex.binary(bool, len=4096) child=vortex.dict(i16, len=4096) -> vortex.dict(bool, len=4096)
       done output=vortex.dict(bool, len=4096)
-        child_execute_parent session[0]:execute_parent_fn slot=0 parent=vortex.binary(bool, len=4096) child=vortex.decimal_byte_parts(decimal(15,2), len=4096) -> vortex.dict(bool, len=4096)
+        child_execute_parent session[0]:execute_parent_fn slot=0 parent=vortex.binary(bool, len=4096) child=vortex.decimal_byte_parts.v2(decimal(15,2), len=4096) -> vortex.dict(bool, len=4096)
       iter 1 current=vortex.dict(bool, len=4096) builder_active=false
         ExecuteSlot slot=0 parent=vortex.dict(bool, len=4096) child=fastlanes.bitpacked(u8, len=4096)
       iter 2 current=fastlanes.bitpacked(u8, len=4096) stack_parent=vortex.dict(bool, len=4096) slot=0 builder_active=false
@@ -403,8 +403,8 @@ fn trace_scan_filter_on_compressed_table() -> VortexResult<()> {
         optimize root=vortex.filter(i16, len=43) session=false
           reduce_parent static:FilterReduceAdaptor(Dict) slot=0 parent=vortex.filter(i16, len=43) child=vortex.dict(i16, len=4096) -> vortex.dict(i16, len=43)
           done output=vortex.dict(i16, len=43)
-        reduce_parent static:DecimalBytePartsFilterPushDownRule slot=0 parent=vortex.filter(decimal(15,2), len=43) child=vortex.decimal_byte_parts(decimal(15,2), len=4096) -> vortex.decimal_byte_parts(decimal(15,2), len=43)
-        done output=vortex.decimal_byte_parts(decimal(15,2), len=43)
+        reduce_parent static:FilterReduceAdaptor(DecimalByteParts) slot=0 parent=vortex.filter(decimal(15,2), len=43) child=vortex.decimal_byte_parts.v2(decimal(15,2), len=4096) -> vortex.decimal_byte_parts.v2(decimal(15,2), len=43)
+        done output=vortex.decimal_byte_parts.v2(decimal(15,2), len=43)
       optimize root=vortex.filter(vortex.date[days](i32), len=43) session=false
         optimize root=vortex.filter(i32, len=43) session=false
           reduce_parent static:FoRFilterPushDownRule slot=0 parent=vortex.filter(i32, len=43) child=fastlanes.for(i32, len=4096) -> fastlanes.for(i32, len=43)
@@ -439,6 +439,9 @@ fn trace_scan_take_on_compressed_table() -> VortexResult<()> {
 
     insta::assert_snapshot!(optimized.trace.to_string(), @"
     optimize root=vortex.dict({l_quantity=decimal(15,2), l_shipdate=vortex.date[days](i32), l_shipmode=utf8}, len=64) session=false
+      optimize root=vortex.dict(decimal(15,2), len=64) session=false
+        reduce_parent static:TakeReduceAdaptor(DecimalByteParts) slot=1 parent=vortex.dict(decimal(15,2), len=64) child=vortex.decimal_byte_parts.v2(decimal(15,2), len=4096) -> vortex.decimal_byte_parts.v2(decimal(15,2), len=64)
+        done output=vortex.decimal_byte_parts.v2(decimal(15,2), len=64)
       optimize root=vortex.dict(vortex.date[days](i32), len=64) session=false
         reduce_parent static:TakeReduceAdaptor(Extension) slot=1 parent=vortex.dict(vortex.date[days](i32), len=64) child=vortex.ext(vortex.date[days](i32), len=4096) -> vortex.ext(vortex.date[days](i32), len=64)
         done output=vortex.ext(vortex.date[days](i32), len=64)

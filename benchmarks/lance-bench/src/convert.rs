@@ -19,7 +19,7 @@ use lance::deps::arrow_schema::DataType;
 use lance::deps::arrow_schema::Field;
 use lance::deps::arrow_schema::Schema;
 use lance::deps::arrow_schema::SchemaRef;
-use lance_encoding::version::LanceFileVersion;
+use lance_file::version::LanceFileVersion;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use tokio::fs::create_dir_all;
 use tracing::info;
@@ -183,14 +183,14 @@ pub async fn convert_parquet_to_lance<'p>(
                 LanceDataset::write(
                     Box::new(converting_iter),
                     lance_path_str,
-                    Some(WriteParams::with_storage_version(LanceFileVersion::V2_1)),
+                    Some(WriteParams::with_storage_version(LanceFileVersion::Stable)),
                 )
                 .await?;
             } else {
                 LanceDataset::write(
                     Box::new(batch_iter),
                     lance_path_str,
-                    Some(WriteParams::with_storage_version(LanceFileVersion::V2_1)),
+                    Some(WriteParams::with_storage_version(LanceFileVersion::Stable)),
                 )
                 .await?;
             }

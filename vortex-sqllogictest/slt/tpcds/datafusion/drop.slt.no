@@ -1,0 +1,74 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+statement ok
+DROP TABLE web_site;
+
+statement ok
+DROP TABLE web_sales;
+
+statement ok
+DROP TABLE web_returns;
+
+statement ok
+DROP TABLE web_page;
+
+statement ok
+DROP TABLE warehouse;
+
+statement ok
+DROP TABLE time_dim;
+
+statement ok
+DROP TABLE store_sales;
+
+statement ok
+DROP TABLE store_returns;
+
+statement ok
+DROP TABLE store;
+
+statement ok
+DROP TABLE ship_mode;
+
+statement ok
+DROP TABLE reason;
+
+statement ok
+DROP TABLE promotion;
+
+statement ok
+DROP TABLE item;
+
+statement ok
+DROP TABLE inventory;
+
+statement ok
+DROP TABLE income_band;
+
+statement ok
+DROP TABLE household_demographics;
+
+statement ok
+DROP TABLE date_dim;
+
+statement ok
+DROP TABLE customer_demographics;
+
+statement ok
+DROP TABLE customer_address;
+
+statement ok
+DROP TABLE customer;
+
+statement ok
+DROP TABLE catalog_sales;
+
+statement ok
+DROP TABLE catalog_returns;
+
+statement ok
+DROP TABLE catalog_page;
+
+statement ok
+DROP TABLE call_center;

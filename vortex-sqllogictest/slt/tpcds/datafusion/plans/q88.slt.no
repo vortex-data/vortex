@@ -1,0 +1,406 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT *
+FROM
+  (SELECT count(*) h8_30_to_9
+   FROM store_sales,
+        household_demographics,
+        time_dim,
+        store
+   WHERE ss_sold_time_sk = time_dim.t_time_sk
+     AND ss_hdemo_sk = household_demographics.hd_demo_sk
+     AND ss_store_sk = s_store_sk
+     AND time_dim.t_hour = 8
+     AND time_dim.t_minute >= 30
+     AND ((household_demographics.hd_dep_count = 4
+           AND household_demographics.hd_vehicle_count<=4+2)
+          OR (household_demographics.hd_dep_count = 2
+              AND household_demographics.hd_vehicle_count<=2+2)
+          OR (household_demographics.hd_dep_count = 0
+              AND household_demographics.hd_vehicle_count<=0+2))
+     AND store.s_store_name = 'ese') s1,
+  (SELECT count(*) h9_to_9_30
+   FROM store_sales,
+        household_demographics,
+        time_dim,
+        store
+   WHERE ss_sold_time_sk = time_dim.t_time_sk
+     AND ss_hdemo_sk = household_demographics.hd_demo_sk
+     AND ss_store_sk = s_store_sk
+     AND time_dim.t_hour = 9
+     AND time_dim.t_minute < 30
+     AND ((household_demographics.hd_dep_count = 4
+           AND household_demographics.hd_vehicle_count<=4+2)
+          OR (household_demographics.hd_dep_count = 2
+              AND household_demographics.hd_vehicle_count<=2+2)
+          OR (household_demographics.hd_dep_count = 0
+              AND household_demographics.hd_vehicle_count<=0+2))
+     AND store.s_store_name = 'ese') s2,
+  (SELECT count(*) h9_30_to_10
+   FROM store_sales,
+        household_demographics,
+        time_dim,
+        store
+   WHERE ss_sold_time_sk = time_dim.t_time_sk
+     AND ss_hdemo_sk = household_demographics.hd_demo_sk
+     AND ss_store_sk = s_store_sk
+     AND time_dim.t_hour = 9
+     AND time_dim.t_minute >= 30
+     AND ((household_demographics.hd_dep_count = 4
+           AND household_demographics.hd_vehicle_count<=4+2)
+          OR (household_demographics.hd_dep_count = 2
+              AND household_demographics.hd_vehicle_count<=2+2)
+          OR (household_demographics.hd_dep_count = 0
+              AND household_demographics.hd_vehicle_count<=0+2))
+     AND store.s_store_name = 'ese') s3,
+  (SELECT count(*) h10_to_10_30
+   FROM store_sales,
+        household_demographics,
+        time_dim,
+        store
+   WHERE ss_sold_time_sk = time_dim.t_time_sk
+     AND ss_hdemo_sk = household_demographics.hd_demo_sk
+     AND ss_store_sk = s_store_sk
+     AND time_dim.t_hour = 10
+     AND time_dim.t_minute < 30
+     AND ((household_demographics.hd_dep_count = 4
+           AND household_demographics.hd_vehicle_count<=4+2)
+          OR (household_demographics.hd_dep_count = 2
+              AND household_demographics.hd_vehicle_count<=2+2)
+          OR (household_demographics.hd_dep_count = 0
+              AND household_demographics.hd_vehicle_count<=0+2))
+     AND store.s_store_name = 'ese') s4,
+  (SELECT count(*) h10_30_to_11
+   FROM store_sales,
+        household_demographics,
+        time_dim,
+        store
+   WHERE ss_sold_time_sk = time_dim.t_time_sk
+     AND ss_hdemo_sk = household_demographics.hd_demo_sk
+     AND ss_store_sk = s_store_sk
+     AND time_dim.t_hour = 10
+     AND time_dim.t_minute >= 30
+     AND ((household_demographics.hd_dep_count = 4
+           AND household_demographics.hd_vehicle_count<=4+2)
+          OR (household_demographics.hd_dep_count = 2
+              AND household_demographics.hd_vehicle_count<=2+2)
+          OR (household_demographics.hd_dep_count = 0
+              AND household_demographics.hd_vehicle_count<=0+2))
+     AND store.s_store_name = 'ese') s5,
+  (SELECT count(*) h11_to_11_30
+   FROM store_sales,
+        household_demographics,
+        time_dim,
+        store
+   WHERE ss_sold_time_sk = time_dim.t_time_sk
+     AND ss_hdemo_sk = household_demographics.hd_demo_sk
+     AND ss_store_sk = s_store_sk
+     AND time_dim.t_hour = 11
+     AND time_dim.t_minute < 30
+     AND ((household_demographics.hd_dep_count = 4
+           AND household_demographics.hd_vehicle_count<=4+2)
+          OR (household_demographics.hd_dep_count = 2
+              AND household_demographics.hd_vehicle_count<=2+2)
+          OR (household_demographics.hd_dep_count = 0
+              AND household_demographics.hd_vehicle_count<=0+2))
+     AND store.s_store_name = 'ese') s6,
+  (SELECT count(*) h11_30_to_12
+   FROM store_sales,
+        household_demographics,
+        time_dim,
+        store
+   WHERE ss_sold_time_sk = time_dim.t_time_sk
+     AND ss_hdemo_sk = household_demographics.hd_demo_sk
+     AND ss_store_sk = s_store_sk
+     AND time_dim.t_hour = 11
+     AND time_dim.t_minute >= 30
+     AND ((household_demographics.hd_dep_count = 4
+           AND household_demographics.hd_vehicle_count<=4+2)
+          OR (household_demographics.hd_dep_count = 2
+              AND household_demographics.hd_vehicle_count<=2+2)
+          OR (household_demographics.hd_dep_count = 0
+              AND household_demographics.hd_vehicle_count<=0+2))
+     AND store.s_store_name = 'ese') s7,
+  (SELECT count(*) h12_to_12_30
+   FROM store_sales,
+        household_demographics,
+        time_dim,
+        store
+   WHERE ss_sold_time_sk = time_dim.t_time_sk
+     AND ss_hdemo_sk = household_demographics.hd_demo_sk
+     AND ss_store_sk = s_store_sk
+     AND time_dim.t_hour = 12
+     AND time_dim.t_minute < 30
+     AND ((household_demographics.hd_dep_count = 4
+           AND household_demographics.hd_vehicle_count<=4+2)
+          OR (household_demographics.hd_dep_count = 2
+              AND household_demographics.hd_vehicle_count<=2+2)
+          OR (household_demographics.hd_dep_count = 0
+              AND household_demographics.hd_vehicle_count<=0+2))
+     AND store.s_store_name = 'ese') s8 ;
+----
+logical_plan
+01)Cross Join:
+02)--Cross Join:
+03)----Cross Join:
+04)------Cross Join:
+05)--------Cross Join:
+06)----------Cross Join:
+07)------------Cross Join:
+08)--------------SubqueryAlias: s1
+09)----------------Projection: count(Int64(1)) AS count(*) AS h8_30_to_9
+10)------------------Aggregate: groupBy=[[]], aggr=[[count(Int64(1))]]
+11)--------------------Projection:
+12)----------------------Inner Join: store_sales.ss_store_sk = store.s_store_sk
+13)------------------------Projection: store_sales.ss_store_sk
+14)--------------------------Inner Join: store_sales.ss_sold_time_sk = time_dim.t_time_sk
+15)----------------------------Projection: store_sales.ss_sold_time_sk, store_sales.ss_store_sk
+16)------------------------------Inner Join: store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk
+17)--------------------------------TableScan: store_sales projection=[ss_sold_time_sk, ss_hdemo_sk, ss_store_sk]
+18)--------------------------------Projection: household_demographics.hd_demo_sk
+19)----------------------------------Filter: household_demographics.hd_dep_count = Int64(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int64(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int64(0) AND household_demographics.hd_vehicle_count <= Int32(2)
+20)------------------------------------TableScan: household_demographics projection=[hd_demo_sk, hd_dep_count, hd_vehicle_count], partial_filters=[household_demographics.hd_dep_count = Int64(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int64(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int64(0) AND household_demographics.hd_vehicle_count <= Int32(2)]
+21)----------------------------Projection: time_dim.t_time_sk
+22)------------------------------Filter: time_dim.t_hour = Int64(8) AND time_dim.t_minute >= Int64(30)
+23)--------------------------------TableScan: time_dim projection=[t_time_sk, t_hour, t_minute], partial_filters=[time_dim.t_hour = Int64(8), time_dim.t_minute >= Int64(30)]
+24)------------------------Projection: store.s_store_sk
+25)--------------------------Filter: store.s_store_name = Utf8View("ese")
+26)----------------------------TableScan: store projection=[s_store_sk, s_store_name], partial_filters=[store.s_store_name = Utf8View("ese")]
+27)--------------SubqueryAlias: s2
+28)----------------Projection: count(Int64(1)) AS count(*) AS h9_to_9_30
+29)------------------Aggregate: groupBy=[[]], aggr=[[count(Int64(1))]]
+30)--------------------Projection:
+31)----------------------Inner Join: store_sales.ss_store_sk = store.s_store_sk
+32)------------------------Projection: store_sales.ss_store_sk
+33)--------------------------Inner Join: store_sales.ss_sold_time_sk = time_dim.t_time_sk
+34)----------------------------Projection: store_sales.ss_sold_time_sk, store_sales.ss_store_sk
+35)------------------------------Inner Join: store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk
+36)--------------------------------TableScan: store_sales projection=[ss_sold_time_sk, ss_hdemo_sk, ss_store_sk]
+37)--------------------------------Projection: household_demographics.hd_demo_sk
+38)----------------------------------Filter: household_demographics.hd_dep_count = Int64(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int64(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int64(0) AND household_demographics.hd_vehicle_count <= Int32(2)
+39)------------------------------------TableScan: household_demographics projection=[hd_demo_sk, hd_dep_count, hd_vehicle_count], partial_filters=[household_demographics.hd_dep_count = Int64(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int64(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int64(0) AND household_demographics.hd_vehicle_count <= Int32(2)]
+40)----------------------------Projection: time_dim.t_time_sk
+41)------------------------------Filter: time_dim.t_hour = Int64(9) AND time_dim.t_minute < Int64(30)
+42)--------------------------------TableScan: time_dim projection=[t_time_sk, t_hour, t_minute], partial_filters=[time_dim.t_hour = Int64(9), time_dim.t_minute < Int64(30)]
+43)------------------------Projection: store.s_store_sk
+44)--------------------------Filter: store.s_store_name = Utf8View("ese")
+45)----------------------------TableScan: store projection=[s_store_sk, s_store_name], partial_filters=[store.s_store_name = Utf8View("ese")]
+46)------------SubqueryAlias: s3
+47)--------------Projection: count(Int64(1)) AS count(*) AS h9_30_to_10
+48)----------------Aggregate: groupBy=[[]], aggr=[[count(Int64(1))]]
+49)------------------Projection:
+50)--------------------Inner Join: store_sales.ss_store_sk = store.s_store_sk
+51)----------------------Projection: store_sales.ss_store_sk
+52)------------------------Inner Join: store_sales.ss_sold_time_sk = time_dim.t_time_sk
+53)--------------------------Projection: store_sales.ss_sold_time_sk, store_sales.ss_store_sk
+54)----------------------------Inner Join: store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk
+55)------------------------------TableScan: store_sales projection=[ss_sold_time_sk, ss_hdemo_sk, ss_store_sk]
+56)------------------------------Projection: household_demographics.hd_demo_sk
+57)--------------------------------Filter: household_demographics.hd_dep_count = Int64(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int64(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int64(0) AND household_demographics.hd_vehicle_count <= Int32(2)
+58)----------------------------------TableScan: household_demographics projection=[hd_demo_sk, hd_dep_count, hd_vehicle_count], partial_filters=[household_demographics.hd_dep_count = Int64(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int64(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int64(0) AND household_demographics.hd_vehicle_count <= Int32(2)]
+59)--------------------------Projection: time_dim.t_time_sk
+60)----------------------------Filter: time_dim.t_hour = Int64(9) AND time_dim.t_minute >= Int64(30)
+61)------------------------------TableScan: time_dim projection=[t_time_sk, t_hour, t_minute], partial_filters=[time_dim.t_hour = Int64(9), time_dim.t_minute >= Int64(30)]
+62)----------------------Projection: store.s_store_sk
+63)------------------------Filter: store.s_store_name = Utf8View("ese")
+64)--------------------------TableScan: store projection=[s_store_sk, s_store_name], partial_filters=[store.s_store_name = Utf8View("ese")]
+65)----------SubqueryAlias: s4
+66)------------Projection: count(Int64(1)) AS count(*) AS h10_to_10_30
+67)--------------Aggregate: groupBy=[[]], aggr=[[count(Int64(1))]]
+68)----------------Projection:
+69)------------------Inner Join: store_sales.ss_store_sk = store.s_store_sk
+70)--------------------Projection: store_sales.ss_store_sk
+71)----------------------Inner Join: store_sales.ss_sold_time_sk = time_dim.t_time_sk
+72)------------------------Projection: store_sales.ss_sold_time_sk, store_sales.ss_store_sk
+73)--------------------------Inner Join: store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk
+74)----------------------------TableScan: store_sales projection=[ss_sold_time_sk, ss_hdemo_sk, ss_store_sk]
+75)----------------------------Projection: household_demographics.hd_demo_sk
+76)------------------------------Filter: household_demographics.hd_dep_count = Int64(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int64(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int64(0) AND household_demographics.hd_vehicle_count <= Int32(2)
+77)--------------------------------TableScan: household_demographics projection=[hd_demo_sk, hd_dep_count, hd_vehicle_count], partial_filters=[household_demographics.hd_dep_count = Int64(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int64(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int64(0) AND household_demographics.hd_vehicle_count <= Int32(2)]
+78)------------------------Projection: time_dim.t_time_sk
+79)--------------------------Filter: time_dim.t_hour = Int64(10) AND time_dim.t_minute < Int64(30)
+80)----------------------------TableScan: time_dim projection=[t_time_sk, t_hour, t_minute], partial_filters=[time_dim.t_hour = Int64(10), time_dim.t_minute < Int64(30)]
+81)--------------------Projection: store.s_store_sk
+82)----------------------Filter: store.s_store_name = Utf8View("ese")
+83)------------------------TableScan: store projection=[s_store_sk, s_store_name], partial_filters=[store.s_store_name = Utf8View("ese")]
+84)--------SubqueryAlias: s5
+85)----------Projection: count(Int64(1)) AS count(*) AS h10_30_to_11
+86)------------Aggregate: groupBy=[[]], aggr=[[count(Int64(1))]]
+87)--------------Projection:
+88)----------------Inner Join: store_sales.ss_store_sk = store.s_store_sk
+89)------------------Projection: store_sales.ss_store_sk
+90)--------------------Inner Join: store_sales.ss_sold_time_sk = time_dim.t_time_sk
+91)----------------------Projection: store_sales.ss_sold_time_sk, store_sales.ss_store_sk
+92)------------------------Inner Join: store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk
+93)--------------------------TableScan: store_sales projection=[ss_sold_time_sk, ss_hdemo_sk, ss_store_sk]
+94)--------------------------Projection: household_demographics.hd_demo_sk
+95)----------------------------Filter: household_demographics.hd_dep_count = Int64(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int64(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int64(0) AND household_demographics.hd_vehicle_count <= Int32(2)
+96)------------------------------TableScan: household_demographics projection=[hd_demo_sk, hd_dep_count, hd_vehicle_count], partial_filters=[household_demographics.hd_dep_count = Int64(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int64(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int64(0) AND household_demographics.hd_vehicle_count <= Int32(2)]
+97)----------------------Projection: time_dim.t_time_sk
+98)------------------------Filter: time_dim.t_hour = Int64(10) AND time_dim.t_minute >= Int64(30)
+99)--------------------------TableScan: time_dim projection=[t_time_sk, t_hour, t_minute], partial_filters=[time_dim.t_hour = Int64(10), time_dim.t_minute >= Int64(30)]
+100)------------------Projection: store.s_store_sk
+101)--------------------Filter: store.s_store_name = Utf8View("ese")
+102)----------------------TableScan: store projection=[s_store_sk, s_store_name], partial_filters=[store.s_store_name = Utf8View("ese")]
+103)------SubqueryAlias: s6
+104)--------Projection: count(Int64(1)) AS count(*) AS h11_to_11_30
+105)----------Aggregate: groupBy=[[]], aggr=[[count(Int64(1))]]
+106)------------Projection:
+107)--------------Inner Join: store_sales.ss_store_sk = store.s_store_sk
+108)----------------Projection: store_sales.ss_store_sk
+109)------------------Inner Join: store_sales.ss_sold_time_sk = time_dim.t_time_sk
+110)--------------------Projection: store_sales.ss_sold_time_sk, store_sales.ss_store_sk
+111)----------------------Inner Join: store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk
+112)------------------------TableScan: store_sales projection=[ss_sold_time_sk, ss_hdemo_sk, ss_store_sk]
+113)------------------------Projection: household_demographics.hd_demo_sk
+114)--------------------------Filter: household_demographics.hd_dep_count = Int64(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int64(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int64(0) AND household_demographics.hd_vehicle_count <= Int32(2)
+115)----------------------------TableScan: household_demographics projection=[hd_demo_sk, hd_dep_count, hd_vehicle_count], partial_filters=[household_demographics.hd_dep_count = Int64(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int64(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int64(0) AND household_demographics.hd_vehicle_count <= Int32(2)]
+116)--------------------Projection: time_dim.t_time_sk
+117)----------------------Filter: time_dim.t_hour = Int64(11) AND time_dim.t_minute < Int64(30)
+118)------------------------TableScan: time_dim projection=[t_time_sk, t_hour, t_minute], partial_filters=[time_dim.t_hour = Int64(11), time_dim.t_minute < Int64(30)]
+119)----------------Projection: store.s_store_sk
+120)------------------Filter: store.s_store_name = Utf8View("ese")
+121)--------------------TableScan: store projection=[s_store_sk, s_store_name], partial_filters=[store.s_store_name = Utf8View("ese")]
+122)----SubqueryAlias: s7
+123)------Projection: count(Int64(1)) AS count(*) AS h11_30_to_12
+124)--------Aggregate: groupBy=[[]], aggr=[[count(Int64(1))]]
+125)----------Projection:
+126)------------Inner Join: store_sales.ss_store_sk = store.s_store_sk
+127)--------------Projection: store_sales.ss_store_sk
+128)----------------Inner Join: store_sales.ss_sold_time_sk = time_dim.t_time_sk
+129)------------------Projection: store_sales.ss_sold_time_sk, store_sales.ss_store_sk
+130)--------------------Inner Join: store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk
+131)----------------------TableScan: store_sales projection=[ss_sold_time_sk, ss_hdemo_sk, ss_store_sk]
+132)----------------------Projection: household_demographics.hd_demo_sk
+133)------------------------Filter: household_demographics.hd_dep_count = Int64(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int64(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int64(0) AND household_demographics.hd_vehicle_count <= Int32(2)
+134)--------------------------TableScan: household_demographics projection=[hd_demo_sk, hd_dep_count, hd_vehicle_count], partial_filters=[household_demographics.hd_dep_count = Int64(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int64(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int64(0) AND household_demographics.hd_vehicle_count <= Int32(2)]
+135)------------------Projection: time_dim.t_time_sk
+136)--------------------Filter: time_dim.t_hour = Int64(11) AND time_dim.t_minute >= Int64(30)
+137)----------------------TableScan: time_dim projection=[t_time_sk, t_hour, t_minute], partial_filters=[time_dim.t_hour = Int64(11), time_dim.t_minute >= Int64(30)]
+138)--------------Projection: store.s_store_sk
+139)----------------Filter: store.s_store_name = Utf8View("ese")
+140)------------------TableScan: store projection=[s_store_sk, s_store_name], partial_filters=[store.s_store_name = Utf8View("ese")]
+141)--SubqueryAlias: s8
+142)----Projection: count(Int64(1)) AS count(*) AS h12_to_12_30
+143)------Aggregate: groupBy=[[]], aggr=[[count(Int64(1))]]
+144)--------Projection:
+145)----------Inner Join: store_sales.ss_store_sk = store.s_store_sk
+146)------------Projection: store_sales.ss_store_sk
+147)--------------Inner Join: store_sales.ss_sold_time_sk = time_dim.t_time_sk
+148)----------------Projection: store_sales.ss_sold_time_sk, store_sales.ss_store_sk
+149)------------------Inner Join: store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk
+150)--------------------TableScan: store_sales projection=[ss_sold_time_sk, ss_hdemo_sk, ss_store_sk]
+151)--------------------Projection: household_demographics.hd_demo_sk
+152)----------------------Filter: household_demographics.hd_dep_count = Int64(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int64(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int64(0) AND household_demographics.hd_vehicle_count <= Int32(2)
+153)------------------------TableScan: household_demographics projection=[hd_demo_sk, hd_dep_count, hd_vehicle_count], partial_filters=[household_demographics.hd_dep_count = Int64(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int64(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int64(0) AND household_demographics.hd_vehicle_count <= Int32(2)]
+154)----------------Projection: time_dim.t_time_sk
+155)------------------Filter: time_dim.t_hour = Int64(12) AND time_dim.t_minute < Int64(30)
+156)--------------------TableScan: time_dim projection=[t_time_sk, t_hour, t_minute], partial_filters=[time_dim.t_hour = Int64(12), time_dim.t_minute < Int64(30)]
+157)------------Projection: store.s_store_sk
+158)--------------Filter: store.s_store_name = Utf8View("ese")
+159)----------------TableScan: store projection=[s_store_sk, s_store_name], partial_filters=[store.s_store_name = Utf8View("ese")]
+physical_plan
+01)ProjectionExec: expr=[h8_30_to_9@1 as h8_30_to_9, h9_to_9_30@2 as h9_to_9_30, h9_30_to_10@3 as h9_30_to_10, h10_to_10_30@4 as h10_to_10_30, h10_30_to_11@5 as h10_30_to_11, h11_to_11_30@6 as h11_to_11_30, h11_30_to_12@7 as h11_30_to_12, h12_to_12_30@0 as h12_to_12_30]
+02)--CrossJoinExec
+03)----ProjectionExec: expr=[count(Int64(1))@0 as h12_to_12_30]
+04)------AggregateExec: mode=Final, gby=[], aggr=[count(Int64(1))]
+05)--------CoalescePartitionsExec
+06)----------AggregateExec: mode=Partial, gby=[], aggr=[count(Int64(1))]
+07)------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_store_sk@0, ss_store_sk@0)], projection=[]
+08)--------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store.vortex]]}, projection=[s_store_sk], file_type=vortex, predicate: s_store_name@5 = ese
+09)--------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(t_time_sk@0, ss_sold_time_sk@0)], projection=[ss_store_sk@2]
+10)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/time_dim.vortex]]}, projection=[t_time_sk], file_type=vortex, predicate: t_hour@3 = 12 AND t_minute@4 < 30
+11)----------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(hd_demo_sk@0, ss_hdemo_sk@1)], projection=[ss_sold_time_sk@1, ss_store_sk@3]
+12)------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/household_demographics.vortex]]}, projection=[hd_demo_sk], file_type=vortex, predicate: hd_dep_count@3 = 4 AND hd_vehicle_count@4 <= 6 OR hd_dep_count@3 = 2 AND hd_vehicle_count@4 <= 4 OR hd_dep_count@3 = 0 AND hd_vehicle_count@4 <= 2
+13)------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_time_sk, ss_hdemo_sk, ss_store_sk], file_type=vortex
+14)----ProjectionExec: expr=[h8_30_to_9@1 as h8_30_to_9, h9_to_9_30@2 as h9_to_9_30, h9_30_to_10@3 as h9_30_to_10, h10_to_10_30@4 as h10_to_10_30, h10_30_to_11@5 as h10_30_to_11, h11_to_11_30@6 as h11_to_11_30, h11_30_to_12@0 as h11_30_to_12]
+15)------CrossJoinExec
+16)--------ProjectionExec: expr=[count(Int64(1))@0 as h11_30_to_12]
+17)----------AggregateExec: mode=Final, gby=[], aggr=[count(Int64(1))]
+18)------------CoalescePartitionsExec
+19)--------------AggregateExec: mode=Partial, gby=[], aggr=[count(Int64(1))]
+20)----------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_store_sk@0, ss_store_sk@0)], projection=[]
+21)------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store.vortex]]}, projection=[s_store_sk], file_type=vortex, predicate: s_store_name@5 = ese
+22)------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(t_time_sk@0, ss_sold_time_sk@0)], projection=[ss_store_sk@2]
+23)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/time_dim.vortex]]}, projection=[t_time_sk], file_type=vortex, predicate: t_hour@3 = 11 AND t_minute@4 >= 30
+24)--------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(hd_demo_sk@0, ss_hdemo_sk@1)], projection=[ss_sold_time_sk@1, ss_store_sk@3]
+25)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/household_demographics.vortex]]}, projection=[hd_demo_sk], file_type=vortex, predicate: hd_dep_count@3 = 4 AND hd_vehicle_count@4 <= 6 OR hd_dep_count@3 = 2 AND hd_vehicle_count@4 <= 4 OR hd_dep_count@3 = 0 AND hd_vehicle_count@4 <= 2
+26)----------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_time_sk, ss_hdemo_sk, ss_store_sk], file_type=vortex
+27)--------ProjectionExec: expr=[h8_30_to_9@1 as h8_30_to_9, h9_to_9_30@2 as h9_to_9_30, h9_30_to_10@3 as h9_30_to_10, h10_to_10_30@4 as h10_to_10_30, h10_30_to_11@5 as h10_30_to_11, h11_to_11_30@0 as h11_to_11_30]
+28)----------CrossJoinExec
+29)------------ProjectionExec: expr=[count(Int64(1))@0 as h11_to_11_30]
+30)--------------AggregateExec: mode=Final, gby=[], aggr=[count(Int64(1))]
+31)----------------CoalescePartitionsExec
+32)------------------AggregateExec: mode=Partial, gby=[], aggr=[count(Int64(1))]
+33)--------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_store_sk@0, ss_store_sk@0)], projection=[]
+34)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store.vortex]]}, projection=[s_store_sk], file_type=vortex, predicate: s_store_name@5 = ese
+35)----------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(t_time_sk@0, ss_sold_time_sk@0)], projection=[ss_store_sk@2]
+36)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/time_dim.vortex]]}, projection=[t_time_sk], file_type=vortex, predicate: t_hour@3 = 11 AND t_minute@4 < 30
+37)------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(hd_demo_sk@0, ss_hdemo_sk@1)], projection=[ss_sold_time_sk@1, ss_store_sk@3]
+38)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/household_demographics.vortex]]}, projection=[hd_demo_sk], file_type=vortex, predicate: hd_dep_count@3 = 4 AND hd_vehicle_count@4 <= 6 OR hd_dep_count@3 = 2 AND hd_vehicle_count@4 <= 4 OR hd_dep_count@3 = 0 AND hd_vehicle_count@4 <= 2
+39)--------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_time_sk, ss_hdemo_sk, ss_store_sk], file_type=vortex
+40)------------ProjectionExec: expr=[h8_30_to_9@1 as h8_30_to_9, h9_to_9_30@2 as h9_to_9_30, h9_30_to_10@3 as h9_30_to_10, h10_to_10_30@4 as h10_to_10_30, h10_30_to_11@0 as h10_30_to_11]
+41)--------------CrossJoinExec
+42)----------------ProjectionExec: expr=[count(Int64(1))@0 as h10_30_to_11]
+43)------------------AggregateExec: mode=Final, gby=[], aggr=[count(Int64(1))]
+44)--------------------CoalescePartitionsExec
+45)----------------------AggregateExec: mode=Partial, gby=[], aggr=[count(Int64(1))]
+46)------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_store_sk@0, ss_store_sk@0)], projection=[]
+47)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store.vortex]]}, projection=[s_store_sk], file_type=vortex, predicate: s_store_name@5 = ese
+48)--------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(t_time_sk@0, ss_sold_time_sk@0)], projection=[ss_store_sk@2]
+49)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/time_dim.vortex]]}, projection=[t_time_sk], file_type=vortex, predicate: t_hour@3 = 10 AND t_minute@4 >= 30
+50)----------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(hd_demo_sk@0, ss_hdemo_sk@1)], projection=[ss_sold_time_sk@1, ss_store_sk@3]
+51)------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/household_demographics.vortex]]}, projection=[hd_demo_sk], file_type=vortex, predicate: hd_dep_count@3 = 4 AND hd_vehicle_count@4 <= 6 OR hd_dep_count@3 = 2 AND hd_vehicle_count@4 <= 4 OR hd_dep_count@3 = 0 AND hd_vehicle_count@4 <= 2
+52)------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_time_sk, ss_hdemo_sk, ss_store_sk], file_type=vortex
+53)----------------ProjectionExec: expr=[h8_30_to_9@1 as h8_30_to_9, h9_to_9_30@2 as h9_to_9_30, h9_30_to_10@3 as h9_30_to_10, h10_to_10_30@0 as h10_to_10_30]
+54)------------------CrossJoinExec
+55)--------------------ProjectionExec: expr=[count(Int64(1))@0 as h10_to_10_30]
+56)----------------------AggregateExec: mode=Final, gby=[], aggr=[count(Int64(1))]
+57)------------------------CoalescePartitionsExec
+58)--------------------------AggregateExec: mode=Partial, gby=[], aggr=[count(Int64(1))]
+59)----------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_store_sk@0, ss_store_sk@0)], projection=[]
+60)------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store.vortex]]}, projection=[s_store_sk], file_type=vortex, predicate: s_store_name@5 = ese
+61)------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(t_time_sk@0, ss_sold_time_sk@0)], projection=[ss_store_sk@2]
+62)--------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/time_dim.vortex]]}, projection=[t_time_sk], file_type=vortex, predicate: t_hour@3 = 10 AND t_minute@4 < 30
+63)--------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(hd_demo_sk@0, ss_hdemo_sk@1)], projection=[ss_sold_time_sk@1, ss_store_sk@3]
+64)----------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/household_demographics.vortex]]}, projection=[hd_demo_sk], file_type=vortex, predicate: hd_dep_count@3 = 4 AND hd_vehicle_count@4 <= 6 OR hd_dep_count@3 = 2 AND hd_vehicle_count@4 <= 4 OR hd_dep_count@3 = 0 AND hd_vehicle_count@4 <= 2
+65)----------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_time_sk, ss_hdemo_sk, ss_store_sk], file_type=vortex
+66)--------------------ProjectionExec: expr=[h8_30_to_9@1 as h8_30_to_9, h9_to_9_30@2 as h9_to_9_30, h9_30_to_10@0 as h9_30_to_10]
+67)----------------------CrossJoinExec
+68)------------------------ProjectionExec: expr=[count(Int64(1))@0 as h9_30_to_10]
+69)--------------------------AggregateExec: mode=Final, gby=[], aggr=[count(Int64(1))]
+70)----------------------------CoalescePartitionsExec
+71)------------------------------AggregateExec: mode=Partial, gby=[], aggr=[count(Int64(1))]
+72)--------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_store_sk@0, ss_store_sk@0)], projection=[]
+73)----------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store.vortex]]}, projection=[s_store_sk], file_type=vortex, predicate: s_store_name@5 = ese
+74)----------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(t_time_sk@0, ss_sold_time_sk@0)], projection=[ss_store_sk@2]
+75)------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/time_dim.vortex]]}, projection=[t_time_sk], file_type=vortex, predicate: t_hour@3 = 9 AND t_minute@4 >= 30
+76)------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(hd_demo_sk@0, ss_hdemo_sk@1)], projection=[ss_sold_time_sk@1, ss_store_sk@3]
+77)--------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/household_demographics.vortex]]}, projection=[hd_demo_sk], file_type=vortex, predicate: hd_dep_count@3 = 4 AND hd_vehicle_count@4 <= 6 OR hd_dep_count@3 = 2 AND hd_vehicle_count@4 <= 4 OR hd_dep_count@3 = 0 AND hd_vehicle_count@4 <= 2
+78)--------------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_time_sk, ss_hdemo_sk, ss_store_sk], file_type=vortex
+79)------------------------CrossJoinExec
+80)--------------------------ProjectionExec: expr=[count(Int64(1))@0 as h8_30_to_9]
+81)----------------------------AggregateExec: mode=Final, gby=[], aggr=[count(Int64(1))]
+82)------------------------------CoalescePartitionsExec
+83)--------------------------------AggregateExec: mode=Partial, gby=[], aggr=[count(Int64(1))]
+84)----------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_store_sk@0, ss_store_sk@0)], projection=[]
+85)------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store.vortex]]}, projection=[s_store_sk], file_type=vortex, predicate: s_store_name@5 = ese
+86)------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(t_time_sk@0, ss_sold_time_sk@0)], projection=[ss_store_sk@2]
+87)--------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/time_dim.vortex]]}, projection=[t_time_sk], file_type=vortex, predicate: t_hour@3 = 8 AND t_minute@4 >= 30
+88)--------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(hd_demo_sk@0, ss_hdemo_sk@1)], projection=[ss_sold_time_sk@1, ss_store_sk@3]
+89)----------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/household_demographics.vortex]]}, projection=[hd_demo_sk], file_type=vortex, predicate: hd_dep_count@3 = 4 AND hd_vehicle_count@4 <= 6 OR hd_dep_count@3 = 2 AND hd_vehicle_count@4 <= 4 OR hd_dep_count@3 = 0 AND hd_vehicle_count@4 <= 2
+90)----------------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_time_sk, ss_hdemo_sk, ss_store_sk], file_type=vortex
+91)--------------------------ProjectionExec: expr=[count(Int64(1))@0 as h9_to_9_30]
+92)----------------------------AggregateExec: mode=Final, gby=[], aggr=[count(Int64(1))]
+93)------------------------------CoalescePartitionsExec
+94)--------------------------------AggregateExec: mode=Partial, gby=[], aggr=[count(Int64(1))]
+95)----------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_store_sk@0, ss_store_sk@0)], projection=[]
+96)------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store.vortex]]}, projection=[s_store_sk], file_type=vortex, predicate: s_store_name@5 = ese
+97)------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(t_time_sk@0, ss_sold_time_sk@0)], projection=[ss_store_sk@2]
+98)--------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/time_dim.vortex]]}, projection=[t_time_sk], file_type=vortex, predicate: t_hour@3 = 9 AND t_minute@4 < 30
+99)--------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(hd_demo_sk@0, ss_hdemo_sk@1)], projection=[ss_sold_time_sk@1, ss_store_sk@3]
+100)----------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/household_demographics.vortex]]}, projection=[hd_demo_sk], file_type=vortex, predicate: hd_dep_count@3 = 4 AND hd_vehicle_count@4 <= 6 OR hd_dep_count@3 = 2 AND hd_vehicle_count@4 <= 4 OR hd_dep_count@3 = 0 AND hd_vehicle_count@4 <= 2
+101)----------------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_time_sk, ss_hdemo_sk, ss_store_sk], file_type=vortex

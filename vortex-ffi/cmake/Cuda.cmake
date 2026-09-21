@@ -1,9 +1,25 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-# Translate CMake's architecture policy for Cargo-owned NVCC invocations.
+# Translate CMake's CUDA policy for Cargo-owned NVCC invocations.
 
 include_guard(GLOBAL)
+
+function(_vortex_resolve_cuda_host_compiler output)
+    # --compiler-bindir accepts one executable, not a shell command. Existing paths may
+    # contain whitespace, but launcher/argument lists cannot be forwarded intact.
+    if(CMAKE_CUDA_HOST_COMPILER MATCHES ";" OR
+        (CMAKE_CUDA_HOST_COMPILER MATCHES "[ \t\r\n]" AND
+            NOT EXISTS "${CMAKE_CUDA_HOST_COMPILER}"))
+        message(FATAL_ERROR
+            "CMAKE_CUDA_HOST_COMPILER must name a single compiler executable for "
+            "--compiler-bindir; launchers with arguments and compiler arguments are unsupported: "
+            "'${CMAKE_CUDA_HOST_COMPILER}'")
+    endif()
+
+    # Do not infer a host compiler from CXX or capture ambient NVCC_CCBIN.
+    set(${output} "${CMAKE_CUDA_HOST_COMPILER}" PARENT_SCOPE)
+endfunction()
 
 function(_vortex_resolve_cuda_architectures output)
     # Keep the default local: embedding projects own the variable and its cache.

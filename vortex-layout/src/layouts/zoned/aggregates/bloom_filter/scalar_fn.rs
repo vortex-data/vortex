@@ -160,10 +160,10 @@ impl ScalarFnVTable for BloomContains {
             // over `BinaryView::MAX_INLINED_SIZE` to spot changes. I'm keeping it this way just to
             // keep this function "robust" for now.
             let bytes = if view.is_inlined() {
-                view.as_inlined().value()
+                Buffer::copy_from(view.as_inlined().value())
             } else {
                 let view_ref = view.as_view();
-                &buffers[view_ref.buffer_index as usize][view_ref.as_range()]
+                buffers[view_ref.buffer_index as usize].slice(view_ref.as_range())
             };
 
             // One possible performance optimization here would be to hash the needle and
@@ -332,7 +332,7 @@ mod tests {
         for value in values {
             partial.insert_scalar(value)?;
         }
-        Ok(partial.serialize())
+        Ok(partial.serialize().as_slice().to_vec())
     }
 
     #[test]

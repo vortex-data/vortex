@@ -79,13 +79,13 @@ TEST_CASE("Operator overloading", "[expr]") {
     Array array = Array::primitive<uint32_t>(data);
 
     Array applied = array.apply(expr::root() == expr::lit<uint32_t>(2));
-    auto bits = applied.bools(session);
-    REQUIRE(bits.size() == data.size());
-    REQUIRE_FALSE(bits.value(0));
-    REQUIRE(bits.value(1));
-    REQUIRE(bits.value(2));
-    REQUIRE_FALSE(bits.value(3));
-    REQUIRE_THROWS_AS(bits.value(data.size()), VortexException);
+    PrimitiveView<bool> view = applied.bools(session);
+    REQUIRE(view.size() == data.size());
+    BoolView values = view.values();
+    REQUIRE_FALSE(values[0]);
+    REQUIRE(values[1]);
+    REQUIRE(values[2]);
+    REQUIRE_FALSE(values[3]);
 }
 
 TEST_CASE("Apply error", "[expr]") {
