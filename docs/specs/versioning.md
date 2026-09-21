@@ -34,9 +34,9 @@ That edition's recorded minimum reader version is `0.84.0`, so the query engine 
 requirement. With the required implementations
 registered, it can read valid files successfully written within that edition's restrictions.
 
-The service still uses its own library's array implementations and compression algorithms. Its
-edition selection limits the formats it serializes. Improvements that preserve those formats do
-not require an update to the query engine. The
+Edition selection limits the serialized formats, but the service still uses its own library's array
+implementations and compression algorithms. Improvements that preserve those formats do not require
+an update to the query engine. The
 [decimal example](versioning/design.md#example-decimal-children) shows how a newer implementation
 can still write an older format.
 
@@ -73,8 +73,8 @@ the default output permissions. To keep serving older readers, explicitly select
 requirements those readers meet. Change that selection when the readers can support the additional
 formats.
 
-Selecting an older edition affects writing. It does not prevent the same application from reading
-newer formats that its registered implementations support.
+Selecting an older edition restricts what the application writes, but it can still read newer formats
+that its registered implementations support.
 
 ```{toctree}
 ---

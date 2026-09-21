@@ -1,7 +1,7 @@
 # Edition registry
 
-Each entry lists the components added by that edition. It also permits every component from
-earlier editions in the same family. See [Using editions](using-editions.md) for configuration and
+Each entry lists the components added by that edition. It also permits every component from earlier
+editions in the same family. See [Using editions](using-editions.md) for configuration and
 [Versioning design](design.md) for the compatibility rules.
 
 ## Frozen `core` editions
@@ -72,8 +72,8 @@ This edition currently adds no components.
 
 ### `tensor2026.04.0`
 
-- `array`: `vortex.tensor.cosine_similarity`, `vortex.tensor.inner_product`, `vortex.tensor.l2_norm`,
-  `vortex.tensor.l2_normalize`
+- `array`: `vortex.tensor.cosine_similarity`, `vortex.tensor.inner_product`,
+  `vortex.tensor.l2_norm`, `vortex.tensor.l2_normalize`
 - `dtype`: `vortex.tensor.fixed_shape_tensor`, `vortex.tensor.vector`
 
 ### `zstd2026.02.0`
@@ -93,14 +93,14 @@ This edition currently adds no components.
 
 ## Component checks
 
-The writer checks the formats it actually serializes against the selected editions. The checks
-cover four kinds of component:
+The writer checks the formats it actually serializes against the selected editions. The checks cover
+four kinds of component:
 
-| Kind | Writing rule |
-|---|---|
-| Arrays | Check the serializer's returned wire ID and every serialized child recursively. |
-| Layouts | Check every serialized layout ID. The writing strategy must use permitted layouts. |
-| Extension dtypes | Check all extension dtypes in the schema, including nested ones, before writing bytes. |
+| Kind                | Writing rule                                                                           |
+| ------------------- | -------------------------------------------------------------------------------------- |
+| Arrays              | Check the serializer's returned wire ID and every serialized child recursively.        |
+| Layouts             | Check every serialized layout ID. The writing strategy must use permitted layouts.     |
+| Extension dtypes    | Check all extension dtypes in the schema, including nested ones, before writing bytes. |
 | Aggregate functions | Check every function stored in a zone map against the edition and its format contract. |
 
 A forbidden zone-map aggregate causes the write to fail. Silently omitting it would change which
@@ -108,15 +108,15 @@ filters can use the configured zone map to skip rows. An aggregate that does not
 data type is different: the writer omits it, so there is no serialized component to check.
 
 For example, `core2026.08.0` declares `min`, `max`, `bounded_min`, `bounded_max`, `nan_count`, and
-`null_count`. It does not declare `sum` because zone maps do not store sums. File-level statistics
-store sums in a fixed legacy field governed by the enclosing format's contract.
+`null_count`. Zone maps do not store sums, so the edition does not declare `sum`. File-level
+statistics do store sums, in a fixed legacy field governed by the enclosing format's contract.
 
 ## Format testing and promotion
 
 A format intended for `core` starts in a dedicated edition family. Its first edition is a draft,
-with no recorded `min_library_version` and no frozen compatibility guarantee. The format is expected
-to be complete. If testing reveals a defect whose correction changes what readers must understand,
-the correction needs a new wire ID and a later edition.
+with no recorded `min_library_version` and no frozen compatibility guarantee. Even at this draft
+stage, the format is expected to be complete. If testing reveals a defect whose correction changes
+what readers must understand, the correction needs a new wire ID and a later edition.
 
 After initial testing, the format can enter a new `preview` edition for broader opt-in use. A later
 `core` edition can include it for default use. Promotion preserves the format and its wire ID. Only
@@ -130,8 +130,8 @@ For `core`, this is a Vortex Rust crate release. Independent plugins use their o
 
 Until the release version is known, the declaration uses `min_library_version: None`. Once it is
 known, the field records that original release, usually while the next release is in development.
-Filling in the field documents the freeze. The guarantee applies from the recorded release, even
-if the declaration is updated later.
+Filling in the field documents the freeze. The guarantee applies from the recorded release, even if
+the declaration is updated later.
 
 A frozen edition's membership, origin, and minimum version stay fixed. Deprecating a format can stop
 writers from choosing it, but readers must retain support because existing files can contain it.

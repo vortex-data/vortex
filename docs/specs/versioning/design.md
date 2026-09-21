@@ -10,10 +10,10 @@ writes. The [versioning overview](../versioning.md) describes the compatibility 
 
 ## Versions and formats
 
-A library release supplies code: array implementations, compression algorithms, readers, and writers.
-A serialized format specifies how to interpret stored metadata and buffers. Its _wire ID_ identifies
-that contract, including the supported data types and any child arrays. An edition groups these IDs
-into a set of permitted formats.
+A library release supplies code: array implementations, compression algorithms, readers, and
+writers. A serialized format specifies how to interpret stored metadata and buffers. Its _wire ID_
+identifies that contract, including the supported data types and any child arrays. An edition groups
+these IDs into a set of permitted formats.
 
 For example, a newer library can improve how it compresses a dictionary's values while keeping the
 same dictionary format. It can also change its internal array fields while retaining code to read
@@ -50,17 +50,17 @@ Consider the decimal values `[1.25, 2.50, 3.75]`. They can be represented as the
 these integers in one signed integer child array.
 
 The current implementation also supports wider values split across several children: a signed
-most-significant part followed by unsigned lower parts. One Rust array type handles both shapes.
-The original format's contract permits only the single-child shape, so the additional children
-require a new wire ID.[^decimal-availability]
+most-significant part followed by unsigned lower parts. One Rust array type handles both shapes, but
+the original format's contract permits only the single-child shape. The additional children
+therefore require a new wire ID.[^decimal-availability]
 
-| Array structure | Wire ID selected by the serializer |
-|---|---|
-| One signed integer child, no lower parts | `vortex.decimal_byte_parts` |
-| A signed integer child with additional lower parts | `vortex.decimal_byte_parts.v2` |
+| Array structure                                    | Wire ID selected by the serializer |
+| -------------------------------------------------- | ---------------------------------- |
+| One signed integer child, no lower parts           | `vortex.decimal_byte_parts`        |
+| A signed integer child with additional lower parts | `vortex.decimal_byte_parts.v2`     |
 
-The current array type's in-memory ID matches the newer wire ID. The writer must therefore check the
-serializer's returned ID to determine which format it puts in the file.
+The current array type's in-memory ID matches the newer wire ID, but its serializer can return the
+original ID. The writer must therefore check the serializer's returned ID.
 
 For the example values, the serializer reuses the child containing `[125, 250, 375]` and writes the
 original format's metadata. No recompression is needed. The updated reader can decode that file
@@ -69,13 +69,13 @@ directly into its current array type, with no lower-part children.
 The reader must still enforce the original contract when it sees the original ID. For that format,
 the `lower_part_count` metadata field must be zero and the array must have one signed integer child.
 Understanding additional children under the new ID does not make them valid under the old ID.
-Otherwise, a new writer could label extended data as the original format and produce a file that
-an old reader cannot interpret.
+Otherwise, a new writer could label extended data as the original format and produce a file that an
+old reader cannot interpret.
 
-The serializer chooses from the array's structure. It does not inspect values across several
-children to determine whether they could fit in one integer child. An array with lower parts uses
-the extended format even if its values happen to be small. There is no need for a format-version
-field on the in-memory array to distinguish these cases.
+The serializer chooses from the array's structure, not by inspecting whether values across several
+children can fit in one integer child. An array with lower parts uses the extended format even if
+its values happen to be small. There is no need for a format-version field on the in-memory array to
+distinguish these cases.
 
 ### Format selection
 
@@ -88,9 +88,9 @@ forbidden, the write fails. It does not retry a newer format because that format
 permitted. In particular, a custom edition that permits only the newer decimal ID cannot write the
 single-child array through this serializer, which selects the original ID.
 
-This policy preserves older-reader compatibility when the existing representation allows it.
-Producing a different encoding of the same values is a compression decision. If an array needs that
-work to fit the target edition, the write path must arrange it explicitly or fail.
+This policy preserves older-reader compatibility when the existing representation allows it. If
+compatibility requires a different encoding of the same values, that is a compression decision. The
+write path must arrange that work explicitly or fail.
 
 Reading can also change the array structure. For example, the old ALP floating-point format stores
 exceptional values, called patches, inside the ALP array. The current plugin reads it into a
@@ -106,27 +106,27 @@ reader cannot decode. The writer must check every child recursively.
 The same requirement extends beyond arrays. A file also describes its layout, logical types, and
 stored summaries used for pruning. Editions cover each of these component kinds:
 
-| Kind | What its wire ID identifies |
-|---|---|
-| `array` | An array's serialized representation |
-| `layout` | A node in the file's layout tree |
-| `dtype` | An extension dtype, which defines a custom logical type |
-| `aggregate` | An aggregate function stored in a zone map |
+| Kind        | What its wire ID identifies                             |
+| ----------- | ------------------------------------------------------- |
+| `array`     | An array's serialized representation                    |
+| `layout`    | A node in the file's layout tree                        |
+| `dtype`     | An extension dtype, which defines a custom logical type |
+| `aggregate` | An aggregate function stored in a zone map              |
 
-A _zone map_ stores summaries for a group of rows, such as its minimum and maximum. Readers use those
-summaries to skip groups that cannot match a filter. Their aggregate definitions need stable meaning
-just as array formats do. The [component checks](editions.md#component-checks) describe the writing
-rules for each kind.
+A _zone map_ stores summaries for a group of rows, such as its minimum and maximum. Readers use
+those summaries to skip groups that cannot match a filter. Their aggregate definitions need stable
+meaning just as array formats do. The [component checks](editions.md#component-checks) describe the
+writing rules for each kind.
 
 The kind and ID together identify a contract. For example, the array and layout named
 `vortex.chunked` are separate components. Supporting one does not imply support for the other.
 
 ## Editions
 
-Applications need a way to select compatible output without maintaining their own inventory of
-every component. A frozen edition gives that inventory a stable name and records a library version
-that supports all its members. New formats require a later edition, leaving the earlier target
-available to writers targeting older versions.
+Applications need a way to select compatible output without maintaining their own inventory of every
+component. A frozen edition gives that inventory a stable name and records a library version that
+supports all its members. New formats require a later edition, leaving the earlier target available
+to writers targeting older versions.
 
 An _edition family_ groups editions for related components. Membership is cumulative within a
 family: each later edition includes all earlier members.
@@ -137,14 +137,15 @@ their permitted components. This avoids tying a change in an optional feature to
 application's core target. The reader must satisfy both selections' requirements.
 
 Each family names an _origin_, the project that supplies its implementations. A frozen edition's
-minimum version refers to that origin. For `core`, it is the Vortex Rust library. Independent plugins
-can use their own release numbers, so there is no single version comparison that covers every
-possible combination. Versions must meet the minimum for each origin, and the implementations must
-be registered in the reader.
+minimum version refers to that origin. For `core`, it is the Vortex Rust library. Independent
+plugins can use their own release numbers, so there is no single version comparison that covers
+every possible combination. Versions must meet the minimum for each origin, and the implementations
+must be registered in the reader.
 
 An edition declaration supplies permissions, not implementations. Registering a later declaration
 with an older library does not teach that library to read or write new formats. See
-[Writer configuration](using-editions.md#writer-configuration) for how to register and select editions.
+[Writer configuration](using-editions.md#writer-configuration) for how to register and select
+editions.
 
 The [compatibility matrix](compatibility.md) shows the combinations of writer version, edition,
 serialized format, and reader version.
@@ -202,9 +203,10 @@ permits their newer ID.
 ### Planned scheme configuration
 
 The planned improvement is to configure a scheme's behavior for the selected editions, allowing it
-to retain an older mode when its newer mode requires a forbidden format. That configuration needs
-to apply consistently to estimation, sampling, full compression, children, and fallbacks.
-General per-writer scheme configuration is not implemented, and its API is unsettled.
+to retain an older mode when its newer mode requires a forbidden format. That configuration needs to
+apply consistently to estimation, sampling, full compression, children, and fallbacks. General
+per-writer scheme configuration is not implemented, and its API is unsettled.
 
-[^decimal-availability]: No declared edition currently permits the multi-child format. The
+[^decimal-availability]:
+    No declared edition currently permits the multi-child format. The
     [compression section](#compression) describes what the default compressor produces today.
