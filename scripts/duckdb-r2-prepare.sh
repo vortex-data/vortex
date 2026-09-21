@@ -33,6 +33,28 @@ else
     extra=""
     if [ "$PLATFORM_OS" = "osx" ]; then
         extra="OSX_BUILD_UNIVERSAL=1"
+
+        # httpfs needs OpenSSL, but homebrew ships only arm64.
+        openssl_version="3.6.4"
+        curl -fSL --retry 3 -o openssl.tar.gz \
+            "https://github.com/openssl/openssl/releases/download/openssl-${openssl_version}/openssl-${openssl_version}.tar.gz"
+        for arch in arm64 x86_64; do
+            mkdir "openssl-$arch"
+            tar -xzf openssl.tar.gz -C "openssl-$arch" --strip-components 1
+            (
+                cd "openssl-$arch"
+                ./Configure "darwin64-$arch-cc" no-shared no-tests
+                make "-j$(sysctl -n hw.ncpu)" build_libs
+            )
+        done
+        OPENSSL_ROOT_DIR="$PWD/openssl-universal"
+        export OPENSSL_ROOT_DIR
+        mkdir -p "$OPENSSL_ROOT_DIR/lib"
+        cp -a openssl-arm64/include "$OPENSSL_ROOT_DIR/include"
+        for lib in libssl.a libcrypto.a; do
+            lipo -create "openssl-arm64/$lib" "openssl-x86_64/$lib" \
+                -output "$OPENSSL_ROOT_DIR/lib/$lib"
+        done
     fi
 
     make -C "$src_dir" \
