@@ -37,16 +37,22 @@ serialized children against the selected editions. A reader uses the IDs in the 
 registered plugins that interpret those formats. A missing implementation causes an
 [unknown-ID error](using-editions.md#unknown-ids).
 
-```{figure} ../../_static/versioning-flow.svg
-:alt: A dictionary's codes and values are serialized, checked, and read back as a dictionary.
+The following example uses two formats with distinct wire IDs and contracts. Library 1 supports only
+Format A. Library 2 adds support for Format B and retains support for Format A, using one in-memory
+array implementation for both. The [compatibility matrix](compatibility.md) uses the same names.
 
-An illustrative dictionary encoding. Writer and reader can use different library versions while
-preserving values, types, and nullability. The default compressor is not required to choose this
-encoding for these values. The example uses one dictionary format throughout.
+```{figure} ../../_static/versioning-flow.svg
+:alt: Library 2 serializes and deserializes Formats A and B through one in-memory array implementation.
+:target: ../../_static/versioning-flow.svg
+
+Library 2 writes Format A when it can represent the array without recompression. Otherwise, it needs
+Format B. The plugin can adapt metadata, buffers, or children during serialization and
+deserialization. Both formats decode into Library 2's array implementation, so it does not need a
+separate type for Format A.
 ```
 
-The figure follows the array through serialization. The file writer also checks layouts,
-extension types, and stored aggregates against the selected editions.
+The writer checks the selected wire ID and every serialized child against the target editions.
+These checks also cover layouts, extension types, and stored aggregates.
 
 ## Example: decimal children
 

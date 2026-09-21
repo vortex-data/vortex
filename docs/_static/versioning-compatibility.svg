@@ -1,17 +1,23 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="480" height="1080" viewBox="0 0 480 1080"
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="800" viewBox="0 0 1080 800"
      role="img" aria-labelledby="title description">
   <!-- SPDX-License-Identifier: CC-BY-4.0 -->
   <!-- SPDX-FileCopyrightText: Copyright the Vortex contributors -->
-  <title id="title">Compatibility checks for a particular Vortex file</title>
+  <title id="title">How array plugins preserve compatibility across memory and wire formats</title>
   <desc id="description">
-    First, can the writer construct and serialize the representation? If not, the representation is
-    unsupported. If it can, do the selected editions permit every serialized component? If not, the
-    output is forbidden. Otherwise, writing is permitted. After a successful write, can the reader
-    decode the enclosing file format and every component used by this file? If not, it lacks format
-    support or a required implementation. Otherwise, the file is readable. This logical checklist
-    assumes valid data, correct implementations, edition checks enabled, and full decoding with
-    allow_unknown disabled. It stops at the first unmet requirement, not necessarily the first check
-    performed by the implementation. Permission to write does not guarantee successful I/O.
+    Writing starts with an in-memory array. Its ID selects a serializer plugin.
+    If no plugin can serialize this representation, the write fails. Otherwise, the plugin chooses
+    the oldest supported writable format that preserves the representation without recompression.
+    The plugin returns a wire ID, metadata, buffers, and child arrays. It can adapt these components
+    to the selected wire contract. Each returned child is serialized recursively. The writer checks
+    all returned IDs against the editions,
+    along with layouts, extension types, and stored aggregates. Forbidden output fails the write,
+    without retrying with a different permitted wire ID. After a successful write, the
+    reader must support the file format and have plugins for the stored wire IDs. Each plugin
+    validates the stored ID's contract and constructs an in-memory array, adapting the
+    structure when needed and reusing buffers where possible. Missing support or invalid serialized
+    data causes an error. Values, data types, and nulls are preserved. The diagram assumes edition
+    checks are enabled and allow_unknown is disabled. It groups related checks, which occur at
+    several points during writing and reading.
   </desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7"
@@ -19,71 +25,103 @@
       <path d="M 0 0 L 10 5 L 0 10 Z" fill="#475569"/>
     </marker>
   </defs>
-  <rect width="480" height="1080" rx="12" fill="#ffffff"/>
+  <rect width="1080" height="800" rx="12" fill="#ffffff"/>
   <g font-family="Arial, Helvetica, sans-serif" fill="#172033" text-anchor="middle">
-    <text x="240" y="34" font-size="24" font-weight="bold">Can this file be written and read?</text>
-    <text x="240" y="61" font-size="18" fill="#475569">Follow each Yes to the next requirement.</text>
-
-    <rect x="20" y="84" width="440" height="116" rx="10" fill="#eaf3fc" stroke="#2563a6"/>
-    <text x="240" y="113" font-size="18" font-weight="bold" fill="#2563a6">1. Writer support</text>
-    <text x="240" y="145" font-size="21">Can this writer construct and</text>
-    <text x="240" y="173" font-size="21">serialize the representation?</text>
+    <text x="24" y="29" font-size="21" font-weight="bold" text-anchor="start">WRITE</text>
+    <text x="105" y="29" font-size="17" fill="#475569" text-anchor="start">Start with an in-memory array.</text>
 
     <g fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)">
-      <path d="M 120 200 V 320"/>
-      <path d="M 360 200 V 240"/>
+      <path d="M 324 153 H 384"/>
+      <path d="M 684 153 H 744"/>
+      <path d="M 174 250 V 292"/>
+      <path d="M 894 250 V 292"/>
+      <path d="M 1044 153 H 1060 V 423 H 686"/>
+      <path d="M 394 423 H 8 V 584 H 24"/>
+      <path d="M 324 584 H 384"/>
+      <path d="M 684 584 H 744"/>
+      <path d="M 174 658 V 704"/>
+      <path d="M 534 658 V 704"/>
     </g>
-    <g font-size="18" fill="#475569" text-anchor="start">
-      <text x="133" y="227">Yes</text>
-      <text x="373" y="227">No</text>
+    <g font-size="16" fill="#475569">
+      <text x="354" y="143">Yes</text>
+      <text x="710" y="143">Then</text>
+      <text x="192" y="277">No</text>
+      <text x="912" y="277">No</text>
+      <text x="1032" y="277">Yes</text>
+      <text x="354" y="574">Yes</text>
+      <text x="714" y="574">Yes</text>
+      <text x="192" y="688">No</text>
+      <text x="552" y="688">No</text>
     </g>
-    <rect x="260" y="240" width="200" height="64" rx="8" fill="#fff3eb" stroke="#b77a51"/>
-    <text x="360" y="266" font-size="20" font-weight="bold">Unsupported</text>
-    <text x="360" y="291" font-size="20">representation</text>
 
-    <rect x="20" y="320" width="440" height="116" rx="10" fill="#eaf3fc" stroke="#2563a6"/>
-    <text x="240" y="349" font-size="18" font-weight="bold" fill="#2563a6">2. Edition permissions</text>
-    <text x="240" y="381" font-size="21">Do the selected editions permit</text>
-    <text x="240" y="409" font-size="21">every serialized component?</text>
+    <rect x="24" y="60" width="300" height="190" rx="9" fill="#eaf3fc" stroke="#2563a6"/>
+    <text x="174" y="91" font-size="20" font-weight="bold">Find the serializer plugin</text>
+    <text x="174" y="120" font-size="17">Look up the in-memory ID.</text>
+    <text x="174" y="164" font-size="18">Can the plugin serialize this</text>
+    <text x="174" y="189" font-size="18">representation without</text>
+    <text x="174" y="214" font-size="18">recompression?</text>
 
-    <g fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)">
-      <path d="M 120 436 V 556"/>
-      <path d="M 360 436 V 476"/>
-    </g>
-    <g font-size="18" fill="#475569" text-anchor="start">
-      <text x="133" y="463">Yes</text>
-      <text x="373" y="463">No</text>
-    </g>
-    <rect x="260" y="476" width="200" height="64" rx="8" fill="#fff3eb" stroke="#b77a51"/>
-    <text x="360" y="502" font-size="20" font-weight="bold">Forbidden</text>
-    <text x="360" y="527" font-size="20">output</text>
+    <rect x="384" y="60" width="300" height="190" rx="9" fill="#f6f7f9" stroke="#94a3b8"/>
+    <text x="534" y="91" font-size="20" font-weight="bold">Select the wire format</text>
+    <text x="534" y="120" font-size="17">Choose the oldest writable format</text>
+    <text x="534" y="144" font-size="17">that preserves the representation.</text>
+    <text x="534" y="177" font-size="17">Adapt metadata, buffers, or children.</text>
+    <text x="534" y="209" font-size="17">Return the wire ID and these parts.</text>
+    <text x="534" y="233" font-size="16" fill="#475569">Serialize each returned child recursively.</text>
 
-    <rect x="20" y="556" width="440" height="80" rx="10" fill="#f0f7f6" stroke="#52867f"/>
-    <text x="240" y="588" font-size="22" font-weight="bold">Writing is permitted</text>
-    <text x="240" y="615" font-size="19">Continue after a successful write.</text>
-    <path d="M 240 636 V 680" fill="none" stroke="#475569" stroke-width="2"
-          marker-end="url(#arrow)"/>
+    <rect x="744" y="60" width="300" height="190" rx="9" fill="#eaf3fc" stroke="#2563a6"/>
+    <text x="894" y="91" font-size="20" font-weight="bold">Check edition permissions</text>
+    <text x="894" y="124" font-size="18">Is every returned wire ID permitted,</text>
+    <text x="894" y="149" font-size="18">including all serialized children?</text>
+    <text x="894" y="189" font-size="17">Also check layouts, extension types,</text>
+    <text x="894" y="214" font-size="17">and stored aggregates.</text>
 
-    <rect x="20" y="680" width="440" height="144" rx="10" fill="#eaf3fc" stroke="#2563a6"/>
-    <text x="240" y="709" font-size="18" font-weight="bold" fill="#2563a6">3. Reader support</text>
-    <text x="240" y="741" font-size="21">Can this reader decode the file format</text>
-    <text x="240" y="769" font-size="21">and every component</text>
-    <text x="240" y="797" font-size="21">used by this file?</text>
+    <rect x="24" y="292" width="300" height="76" rx="8" fill="#fff3eb" stroke="#b77a51"/>
+    <text x="174" y="319" font-size="19" font-weight="bold">Write fails</text>
+    <text x="174" y="345" font-size="16">No serializer or writable format.</text>
 
-    <g fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)">
-      <path d="M 120 824 V 984"/>
-      <path d="M 360 824 V 864"/>
-    </g>
-    <g font-size="18" fill="#475569" text-anchor="start">
-      <text x="133" y="851">Yes</text>
-      <text x="373" y="851">No</text>
-    </g>
-    <rect x="260" y="864" width="200" height="104" rx="8" fill="#fff3eb" stroke="#b77a51"/>
-    <text x="360" y="892" font-size="19" font-weight="bold">Unsupported format</text>
-    <text x="360" y="919" font-size="19">or missing</text>
-    <text x="360" y="946" font-size="19">implementation</text>
+    <text x="534" y="310" font-size="17" fill="#475569">If another encoding is needed,</text>
+    <text x="534" y="334" font-size="17" fill="#475569">recompress the array before</text>
+    <text x="534" y="358" font-size="17" fill="#475569">serialization.</text>
 
-    <rect x="20" y="984" width="440" height="72" rx="10" fill="#f0f7f6" stroke="#52867f"/>
-    <text x="240" y="1028" font-size="24" font-weight="bold">Readable</text>
+    <rect x="744" y="292" width="300" height="76" rx="8" fill="#fff3eb" stroke="#b77a51"/>
+    <text x="894" y="319" font-size="19" font-weight="bold">Write fails: forbidden output</text>
+    <text x="894" y="345" font-size="16">No retry with a different permitted ID.</text>
+
+    <rect x="394" y="392" width="292" height="62" rx="8" fill="#eaf3fc" stroke="#2563a6"/>
+    <text x="540" y="417" font-size="19" font-weight="bold">File: wire IDs and data</text>
+    <text x="540" y="441" font-size="16">After a successful write</text>
+
+    <text x="24" y="486" font-size="21" font-weight="bold" text-anchor="start">READ</text>
+    <text x="99" y="486" font-size="17" fill="#475569" text-anchor="start">Select implementations by the stored IDs.</text>
+
+    <rect x="24" y="510" width="300" height="148" rx="9" fill="#eaf3fc" stroke="#2563a6"/>
+    <text x="174" y="541" font-size="20" font-weight="bold">Find the reader plugins</text>
+    <text x="174" y="572" font-size="17">Look up the stored wire IDs.</text>
+    <text x="174" y="608" font-size="18">Does the reader support the file</text>
+    <text x="174" y="633" font-size="18">format and all required wire IDs?</text>
+
+    <rect x="384" y="510" width="300" height="148" rx="9" fill="#eaf3fc" stroke="#2563a6"/>
+    <text x="534" y="541" font-size="20" font-weight="bold">Validate the wire contract</text>
+    <text x="534" y="574" font-size="18">Are its metadata, buffers,</text>
+    <text x="534" y="599" font-size="18">types, and children valid?</text>
+    <text x="534" y="635" font-size="16" fill="#475569">Each wire ID has a fixed contract.</text>
+
+    <rect x="744" y="510" width="300" height="148" rx="9" fill="#f0f7f6" stroke="#52867f"/>
+    <text x="894" y="541" font-size="18" font-weight="bold">Construct the in-memory array</text>
+    <text x="894" y="574" font-size="17">Adapt the stored structure if needed.</text>
+    <text x="894" y="601" font-size="17">Reuse buffers where possible.</text>
+    <text x="894" y="634" font-size="16">Use the reader's array implementation.</text>
+
+    <rect x="24" y="704" width="300" height="62" rx="8" fill="#fff3eb" stroke="#b77a51"/>
+    <text x="174" y="730" font-size="18" font-weight="bold">Missing reader support</text>
+    <text x="174" y="754" font-size="16">Unsupported file format or unknown ID.</text>
+
+    <rect x="384" y="704" width="300" height="62" rx="8" fill="#fff3eb" stroke="#b77a51"/>
+    <text x="534" y="730" font-size="18" font-weight="bold">Reject invalid serialized data</text>
+    <text x="534" y="754" font-size="16">The stored ID determines the contract.</text>
+
+    <text x="894" y="730" font-size="16" font-weight="bold" fill="#35685f">Preserve values, types, and nulls.</text>
+    <text x="894" y="754" font-size="16" fill="#475569">The in-memory array tree can differ.</text>
   </g>
 </svg>

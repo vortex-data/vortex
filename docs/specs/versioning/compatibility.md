@@ -1,73 +1,81 @@
 # Compatibility matrix
 
-This matrix covers backward compatibility and writing for older readers as an encoding gains a new
-wire format. The versions and editions are illustrative:
+The matrix shows which formats each library can write, which the target edition permits, and which
+each reader supports. It uses illustrative names rather than actual Vortex versions or editions:
 
-- The older library reads and writes only the original format.
-- The newer library reads and writes both formats through its current array implementation.
-- The original edition permits only the original format. The later edition permits both.
+- **Format A** and **Format B** have distinct wire IDs and contracts. Format A was introduced first.
+- **Library 1** reads and writes only Format A.
+- **Library 2** reads and writes both formats through one array implementation.
+- **Edition 1** permits only Format A. **Edition 2** permits both formats.
 
-Both readers are assumed to support the rest of the file with the required plugins. **Allowed**
-means the writer implements the format and the edition permits it, provided the writer can construct
-a suitable representation. Reader results apply only after a successful write.
+Both readers are assumed to support all other components in the file. **Unsupported** means the
+writer has no implementation for that format. **Forbidden** means the target edition excludes it.
+**Allowed** means both requirements are met, but the writer must still construct an array that the
+format can represent. Reader results apply only after a successful write.
 
-| Writer version | Target edition      | Format   | Write result[^representation]   | Older reader                                | Newer reader          |
-| -------------- | ------------------- | -------- | ------------------------------- | ------------------------------------------- | --------------------- |
-| Older          | Original            | Original | Allowed                         | Reads                                       | Reads[^current-array] |
-| Older          | Original            | Extended | Unsupported and forbidden       | N/A                                         | N/A                   |
-| Older          | Later[^declaration] | Original | Allowed                         | Reads                                       | Reads[^current-array] |
-| Older          | Later[^declaration] | Extended | Unsupported                     | N/A                                         | N/A                   |
-| Newer          | Original            | Original | Allowed[^compression]           | Reads                                       | Reads[^current-array] |
-| Newer          | Original            | Extended | Forbidden                       | N/A                                         | N/A                   |
-| Newer          | Later               | Original | Allowed[^compression]           | Reads                                       | Reads[^current-array] |
-| Newer          | Later               | Extended | Allowed[^compression]           | [Unknown ID](using-editions.md#unknown-ids) | Reads                 |
+| Writer    | Target edition          | Format   | Write result[^representation] | Library 1 reader                            | Library 2 reader      |
+| --------- | ----------------------- | -------- | ----------------------------- | ------------------------------------------- | --------------------- |
+| Library 1 | Edition 1               | Format A | Allowed                       | Reads                                       | Reads[^current-array] |
+| Library 1 | Edition 1               | Format B | Unsupported and forbidden     | N/A                                         | N/A                   |
+| Library 1 | Edition 2[^declaration] | Format A | Allowed                       | Reads                                       | Reads[^current-array] |
+| Library 1 | Edition 2[^declaration] | Format B | Unsupported                   | N/A                                         | N/A                   |
+| Library 2 | Edition 1               | Format A | Allowed[^compression]         | Reads                                       | Reads[^current-array] |
+| Library 2 | Edition 1               | Format B | Forbidden                     | N/A                                         | N/A                   |
+| Library 2 | Edition 2               | Format A | Allowed[^compression]         | Reads                                       | Reads[^current-array] |
+| Library 2 | Edition 2               | Format B | Allowed[^compression]         | [Unknown ID](using-editions.md#unknown-ids) | Reads                 |
 
-The format column is not a separate writer setting. The serializer
-[selects a format](design.md#format-selection) from the array's structure, and the writer checks its
-edition permissions. A writer targeting the later edition can still produce the original format,
-which both readers can read.
+The serializer [selects a format](design.md#format-selection) from the array's structure. The writer
+then checks whether the target edition permits it. The format column shows that selection, not a
+separate writer setting. Edition 2 permits both formats, so a writer targeting it can still produce
+Format A for Library 1 to read.
 
 ## Compatibility checks
 
-This tree checks the requirements for a particular file. It assumes valid data, correct
-implementations, edition checks enabled, and full decoding with `allow_unknown` disabled.
+The diagram follows an array from memory to storage and back through the serializer and reader
+plugins. It assumes correct implementations, edition checks enabled, and full decoding with
+`allow_unknown` disabled.
 
 ```{figure} ../../_static/versioning-compatibility.svg
-:alt: A decision tree checks writer support, edition permissions, and reader support in turn.
+:alt: Plugins select and validate wire formats while adapting arrays between memory and storage.
+:target: ../../_static/versioning-compatibility.svg
 
-A logical checklist, not the order of implementation steps. Edition checks occur at several points
-during writing. The tree stops at the first unmet requirement, while the matrix can show multiple
-restrictions. Permission to write does not guarantee successful I/O.
+The writer selects a plugin by the array's in-memory ID. The reader selects a plugin by the stored
+wire ID. Each plugin can adapt the array structure while preserving values, data types, and nulls.
+The diagram groups related checks. In the implementation, component checks occur at several points
+during writing and reading.
 ```
 
+If the serializer returns a forbidden ID, the write fails. The writer does not retry with a different
+permitted ID. When the target requires a different encoding, the array must be recompressed before
+serialization. See [Format selection](design.md#format-selection).
+
+The matrix assumes valid serialized data. The diagram also shows the reader rejecting data that
+violates the stored ID's contract. Format compatibility does not prevent I/O errors.
+
 The [component checks](editions.md#component-checks) cover arrays and their children, layouts,
-extension types, and stored aggregates. Reader support concerns the components the file actually
-uses, not every component its edition permits. A writer targeting a later edition can therefore
-produce a file that an older reader supports. See [Unknown IDs](using-editions.md#unknown-ids) for
+extension types, and stored aggregates. The reader needs implementations for the components the file
+uses, not every component its edition permits. See [Unknown IDs](using-editions.md#unknown-ids) for
 missing implementations and the exceptions available with `allow_unknown`.
 
 For the compatibility guarantee and minimum reader versions, see [Versioning](../versioning.md). The
 [design](design.md#compatibility-invariants) explains the invariants behind these outcomes.
 
 [^representation]:
-    An input array can require a format that the target forbids. The plugin can provide a lossless
-    structural downgrade. If the array requires recompression, the write path must arrange it
-    explicitly or fail.
+    An input array can require a format that the target edition forbids. A serializer can adapt
+    metadata, buffers, or children without recompression. If the target requires a different
+    encoding, the array must be recompressed before serialization or the write fails.
 
 [^current-array]:
-    The newer reader reads the original format into its current implementation. The plugin adapts
-    the structure only if necessary. Using a newer version of the Vortex crates does not itself
-    require an array upgrade or conversion.
+    Library 2 reads Format A into its own array implementation, adapting the structure only if
+    necessary. A library upgrade alone does not require an array conversion.
 
 [^declaration]:
-    The older writer needs the later edition's declaration to select it. Registering the declaration
-    does not add support for the extended format, so the older writer still writes only the original
-    format.
+    Library 1 needs Edition 2's declaration to select it. Registering the declaration does not add
+    support for Format B, so Library 1 still writes only Format A.
 
 [^compression]:
-    Current schemes declare the serialized IDs that they produce, and the builder filters them by
-    those IDs. General per-writer scheme configuration is not implemented. The planned configuration
-    would select compatible behavior before estimation, sampling, and full compression, so the
-    output needs no recompression solely to meet the edition. These cells are conditional on the
-    writer constructing a permitted representation. See [Compression](design.md#compression) for the
-    current behavior and planned work.
+    The default compressor filters schemes by their declared output wire IDs. General per-writer
+    scheme configuration is not implemented. The planned configuration will select compatible
+    behavior before estimation, sampling, and full compression to avoid recompression solely to meet
+    the edition. These cells still require the writer to construct a permitted representation. See
+    [Compression](design.md#compression) for the current behavior and planned work.
