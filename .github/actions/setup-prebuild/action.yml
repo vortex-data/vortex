@@ -152,12 +152,13 @@ runs:
         mkdir -p ~/.config/sccache
         echo 'server_startup_timeout_ms = 60000' > ~/.config/sccache/config
 
-    # Applies to every CMake invocation in opted-in upstream jobs.
+    # Applies to Cargo and CMake invocations in opted-in upstream jobs.
     - name: Enable compiler caching
       if: github.repository == 'vortex-data/vortex' && inputs.enable-sccache == 'true'
       shell: bash
       run: |
         sccache --start-server
+        echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
         echo "CMAKE_C_COMPILER_LAUNCHER=sccache" >> "$GITHUB_ENV"
         echo "CMAKE_CXX_COMPILER_LAUNCHER=sccache" >> "$GITHUB_ENV"
 
