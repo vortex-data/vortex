@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::mem;
 use std::mem::MaybeUninit;
 
 use fastlanes::BitPacking;
@@ -23,15 +22,11 @@ use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 
 use super::chunked_indices;
+use super::unpack_chunk_threshold;
+use super::unpack_indices_into;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
-use crate::bitpack_decompress;
-
-// TODO(connor): This is duplicated in `encodings/fastlanes/src/bitpacking/kernels/mod.rs`.
-/// assuming the buffer is already allocated (which will happen at most once) then unpacking
-/// all 1024 elements takes ~8.8x as long as unpacking a single element on an M2 Macbook Air.
-/// see <https://github.com/vortex-data/vortex/pull/190#issue-2223752833>
-pub(super) const UNPACK_CHUNK_THRESHOLD: usize = 8;
+const FULL_ARRAY_DECODE_RATIO: usize = 8;
 
 impl TakeExecute for BitPacked {
     fn take(
@@ -40,7 +35,7 @@ impl TakeExecute for BitPacked {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         // If the indices are large enough, it's faster to flatten and take the primitive array.
-        if indices.len() * UNPACK_CHUNK_THRESHOLD > array.len() {
+        if indices.len() * FULL_ARRAY_DECODE_RATIO > array.len() {
             let prim = array.array().clone().execute::<PrimitiveArray>(ctx)?;
             return prim.into_array().take(indices.clone()).map(Some);
         }
@@ -98,41 +93,22 @@ fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
     chunked_indices(indices_iter, offset, |chunk_idx, indices_within_chunk| {
         let packed = &packed[chunk_idx * chunk_len..][..chunk_len];
 
-        let mut have_unpacked = false;
-        let (offset_chunks, remainder) = indices_within_chunk.as_chunks::<UNPACK_CHUNK_THRESHOLD>();
-
-        // this loop only runs if we have at least UNPACK_CHUNK_THRESHOLD offsets
-        for offset_chunk in offset_chunks {
-            if !have_unpacked {
-                unsafe {
-                    let dst: &mut [MaybeUninit<T>] = &mut unpacked;
-                    let dst: &mut [T] = mem::transmute(dst);
-                    BitPacking::unchecked_unpack(bit_width, packed, dst);
-                }
-                have_unpacked = true;
+        if indices_within_chunk.len() > unpack_chunk_threshold::<T>() {
+            // SAFETY: The validated bit width fits `T`. The source and destination contain one
+            // complete FastLanes block. The call initializes every destination value.
+            unsafe {
+                let dst: &mut [MaybeUninit<T>] = &mut unpacked;
+                let dst: &mut [T] = std::mem::transmute(dst);
+                BitPacking::unchecked_unpack(bit_width, packed, dst);
             }
-
-            for &index in offset_chunk {
-                output.push(unsafe { unpacked[index].assume_init() });
-            }
-        }
-
-        // if we have a remainder (i.e., < UNPACK_CHUNK_THRESHOLD leftover offsets), we need to handle it
-        if !remainder.is_empty() {
-            if have_unpacked {
-                // we already bulk unpacked this chunk, so we can just push the remaining elements
-                for &index in remainder {
-                    output.push(unsafe { unpacked[index].assume_init() });
-                }
-            } else {
-                // we had fewer than UNPACK_CHUNK_THRESHOLD offsets in the first place,
-                // so we need to unpack each one individually
-                for &index in remainder {
-                    output.push(unsafe {
-                        bitpack_decompress::unpack_single_primitive::<T>(packed, bit_width, index)
-                    });
-                }
-            }
+            output.extend_trusted(
+                indices_within_chunk
+                    .iter()
+                    // SAFETY: The preceding unpack initialized the complete temporary block.
+                    .map(|&index| unsafe { unpacked.get_unchecked(index).assume_init() }),
+            );
+        } else {
+            unpack_indices_into(&mut output, bit_width, packed, indices_within_chunk);
         }
     });
 
@@ -157,7 +133,7 @@ fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
 
 #[cfg(test)]
 #[expect(clippy::cast_possible_truncation)]
-mod test {
+mod tests {
     use std::sync::LazyLock;
 
     use rand::RngExt;
@@ -172,18 +148,90 @@ mod test {
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use crate::BitPackedArray;
     use crate::BitPackedData;
     use crate::bitpacking::array::BitPackedArrayExt;
     use crate::bitpacking::compute::take::take_primitive;
+    use crate::bitpacking::compute::take::unpack_chunk_threshold;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = vortex_array::array_session();
         crate::initialize(&session);
         session
     });
+
+    #[test]
+    fn sparse_extraction_covers_batch_and_full_chunk_paths() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+
+        macro_rules! check_type {
+            ($T:ty, $bit_width:expr) => {{
+                let values = (0..2_048)
+                    .map(|index| (index % 127) as $T)
+                    .collect::<Vec<_>>();
+                let packed = BitPackedData::encode(
+                    &PrimitiveArray::from_iter(values.iter().copied()).into_array(),
+                    $bit_width,
+                    &mut ctx,
+                )?;
+                let threshold = unpack_chunk_threshold::<$T>();
+
+                for selected in [threshold, threshold + 1] {
+                    let indices = (0..selected)
+                        .map(|index| (index * 1_024 / selected) as u32)
+                        .collect::<Vec<_>>();
+                    let actual = take_primitive::<$T, u32>(
+                        packed.as_view(),
+                        &PrimitiveArray::from_iter(indices.iter().copied()),
+                        Validity::NonNullable,
+                        &mut ctx,
+                    )?;
+                    let expected = indices
+                        .iter()
+                        .map(|&index| values[index as usize])
+                        .collect::<Vec<_>>();
+                    assert_eq!(actual.as_slice::<$T>(), expected);
+                }
+            }};
+        }
+
+        check_type!(u8, 7);
+        check_type!(u16, 15);
+        check_type!(u32, 31);
+        check_type!(u64, 63);
+        Ok(())
+    }
+
+    #[test]
+    fn sparse_take_preserves_nullable_order_and_duplicates() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = (0..8_192).map(|index| index as u32).collect::<Vec<_>>();
+        let packed = BitPackedData::encode(
+            &PrimitiveArray::from_iter(values.iter().copied()).into_array(),
+            13,
+            &mut ctx,
+        )?;
+        let indices = [
+            Some(3_073u32),
+            Some(2),
+            None,
+            Some(2),
+            Some(1_025),
+            Some(3_073),
+            Some(0),
+        ];
+        let actual = packed
+            .take(PrimitiveArray::from_option_iter(indices).into_array())?
+            .execute::<PrimitiveArray>(&mut ctx)?;
+        let expected = PrimitiveArray::from_option_iter(
+            indices.map(|index| index.map(|index| values[index as usize])),
+        );
+        assert_arrays_eq!(actual, expected, &mut ctx);
+        Ok(())
+    }
 
     #[test]
     fn take_indices() {
