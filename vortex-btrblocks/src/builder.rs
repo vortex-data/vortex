@@ -37,7 +37,8 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
     &integer::SequenceScheme,
     &integer::IntRLEScheme,
     // Prefer all other schemes above delta, for now (since its slower to decompress).
-    &integer::DeltaScheme::new(1.25),
+    // TODO(robert): Re-enable once we have scheme filtering.
+    // &integer::DeltaScheme::new(1.25),
     ////////////////////////////////////////////////////////////////////////////////////////////////
     // Float schemes.
     ////////////////////////////////////////////////////////////////////////////////////////////////
