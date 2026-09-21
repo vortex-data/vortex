@@ -11,19 +11,22 @@ import java.util.Map;
 import org.apache.spark.sql.connector.catalog.Column;
 import org.apache.spark.sql.connector.expressions.Expression;
 import org.apache.spark.sql.connector.expressions.Expressions;
-import org.apache.spark.sql.connector.expressions.LiteralValue;
 import org.apache.spark.sql.connector.expressions.filter.Predicate;
 import org.apache.spark.sql.types.DataTypes;
+import org.apache.spark.sql.types.StructType;
 import org.junit.jupiter.api.Test;
 
 final class VortexScanTest {
     @Test
     void exposesPredicateColumnsEvenWhenProjectionIsEmpty() {
         Column id = Column.create("id", DataTypes.IntegerType);
-        Predicate predicate = new Predicate(
-                "=", new Expression[] {Expressions.column("id"), new LiteralValue<>(7, DataTypes.IntegerType)});
-        VortexScan scan =
-                new VortexScan(List.of("data.vortex"), List.of(id), List.of(), new Predicate[] {predicate}, Map.of());
+        Predicate predicate = new Predicate("IS_NOT_NULL", new Expression[] {Expressions.column("id")});
+        VortexScanBuilder builder =
+                new VortexScanBuilder(Map.of()).addPath("data.vortex").addColumn(id);
+
+        assertEquals(0, builder.pushPredicates(new Predicate[] {predicate}).length);
+        builder.pruneColumns(new StructType());
+        VortexScan scan = (VortexScan) builder.build();
 
         assertEquals(0, scan.readSchema().size());
         assertArrayEquals(new String[] {"id"}, scan.tableSchema().fieldNames());
