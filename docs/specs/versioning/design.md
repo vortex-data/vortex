@@ -4,20 +4,21 @@ Applications that share files can use different library versions and upgrade at 
 library releases need to improve compression and in-memory data structures while continuing to read
 existing files. They also need a way to write files for applications that have not upgraded.
 
-Vortex separates library implementations from the serialized formats they read and write. An
-implementation can change while retaining a format that existing readers understand. The
-[versioning overview](../versioning.md) describes the compatibility guarantee.
+Vortex separates in-memory array encodings and compression code from the wire formats stored in
+files. These implementations can change while retaining wire formats that existing readers
+understand. The [versioning overview](../versioning.md) describes the compatibility guarantee.
 
 ## Versions and formats
 
 A library release supplies code: array implementations, compression algorithms, readers, and
-writers. A serialized format specifies how to interpret stored metadata and buffers. Its _wire ID_
-identifies that contract, including the supported data types and any child arrays. An edition groups
-these IDs into a set of permitted formats.
+writers. An array's _encoding_ defines its in-memory representation. Its _wire format_ specifies how
+to interpret serialized metadata, buffers, and children. A _wire ID_ identifies that contract,
+including the supported data types. An edition groups wire IDs into a set of permitted serialized
+representations.
 
 For example, a newer library can improve how it compresses a dictionary's values while keeping the
-same dictionary format. It can also change its internal array fields while retaining code to read
-old files. Only a change to what a reader must understand requires a new serialized contract.
+same dictionary wire format. It can also change its internal array fields while retaining code to
+read old files. Only a change to what a reader must understand requires a new serialized contract.
 
 The file container has a separate [version tag](../file-format.md#file-specification). It describes
 the enclosing format. Component wire IDs describe the arrays and other structures within that
@@ -31,13 +32,13 @@ and nulls. An array can contain buffers and other arrays, called _children_. A d
 example, has a child for its values and another for the codes that refer to those values. Each child
 can use its own encoding.
 
-An _array plugin_ supplies serialization and deserialization for an in-memory array representation.
+An _array plugin_ supplies serialization and deserialization for an in-memory array encoding.
 Its serializer returns a wire ID, metadata, buffers, and children. The writer checks that ID and the
 serialized children against the selected editions. A reader uses the IDs in the file to find the
-registered plugins that interpret those formats. A missing implementation causes an
-[unknown-ID error](using-editions.md#unknown-ids).
+registered plugins that decode the stored data into in-memory encodings. A missing implementation
+causes an [unknown-ID error](using-editions.md#unknown-ids).
 
-The following example uses two formats with distinct wire IDs and contracts. Library 1 supports only
+The following example uses two wire formats with distinct IDs and contracts. Library 1 supports only
 Format A. Library 2 adds support for Format B and retains support for Format A, using one in-memory
 array implementation for both. The [compatibility matrix](compatibility.md) uses the same names.
 
@@ -102,9 +103,9 @@ The values stay the same even though the reader's array tree differs from the st
 
 ## Children and other components
 
-Suppose the decimal serializer selects the original wire ID, but its integer child uses an encoding
-that the target edition forbids. Checking only the decimal ID would accept a file that the intended
-reader cannot decode. The writer must check every child recursively.
+Suppose the decimal serializer selects the original wire ID, but its integer child's serializer
+returns an ID that the target edition forbids. Checking only the decimal ID accepts output that the
+intended reader cannot decode. The writer must check every child recursively.
 
 The same requirement extends beyond arrays. A file also describes its layout, logical types, and
 stored summaries used for pruning. Editions cover each of these component kinds:

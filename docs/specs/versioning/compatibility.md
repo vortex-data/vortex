@@ -1,7 +1,7 @@
 # Compatibility matrix
 
-The matrix shows which formats each library can write, which the target edition permits, and which
-each reader supports. It uses illustrative names rather than actual Vortex versions or editions:
+The matrix shows which wire formats each library can write, which the target edition permits, and
+which each reader supports. The names are illustrative rather than actual Vortex versions or editions:
 
 - **Format A** and **Format B** have distinct wire IDs and contracts. Format A was introduced first.
 - **Library 1** reads and writes only Format A.
