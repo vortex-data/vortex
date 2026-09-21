@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <!-- SPDX-FileCopyrightText: Copyright the Vortex contributors -->
 
-# Local overhead measurements
+# ARM overhead measurements
 
 The current framework has measurable batch overhead, and its output collector also affects cost.
 A matched experiment separates those effects for one canonical `i64` operation on Apple M4 Max.

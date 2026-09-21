@@ -1,161 +1,132 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <!-- SPDX-FileCopyrightText: Copyright the Vortex contributors -->
 
-# A portable row-function library
+# Proposed library design
 
-[Research overview](README.md)
+[Overview](README.md)
 
-**Proposal:** share the function definition and typed execution machinery. Keep host types, column
-ownership, query planning, and registration in adapters.
+Share function semantics and typed execution. Let each host bind its types, provide input views,
+and construct its output. This targets one function definition with separately compiled adapters.
+A binary that loads into every engine needs a separate ABI and distribution contract.
 
-The core needs a type contract. It does not need to own every host's type system. A function can
-declare the semantic types and input/output capabilities that it understands. An adapter can either
-establish those capabilities or reject the binding.
+The design below is a recommendation. The [small Rust proof](type-system/compiled-proof.md)
+establishes generic dispatch and borrowing, but does not implement this library.
 
-This design targets ordinary CPU scalar functions. It does not turn a scalar row callback into an
-aggregate, a table function, or a query engine.
-
-## Three different portability goals
-
-| Goal | Meaning | Assessment |
-| --- | --- | --- |
-| Shared function source | One function defines its semantics and row operation for several hosts. | Feasible with common semantic contracts and host adapters. |
-| Shared execution machinery | Hosts reuse typed loops, constant handling, error reduction, and selection logic. | Feasible after separating input/output access from Vortex. |
-| Shared executable binary | One compiled artifact loads into every host. | A separate ABI and distribution problem. Rust generics do not provide this guarantee. |
-
-The first experiment can demonstrate the first two goals. The
-[host integration notes](integrations/README.md) describe the separate C and C++ boundaries.
-
-## Proposed responsibilities
+## Execution boundary
 
 ```mermaid
 flowchart TD
-    F[Function semantics and typed row operation] --> B[Bind supported semantic types]
-    B --> P[Prepare typed input views and output writer]
-    P --> R[Run over requested rows]
+    F[Function: meaning, supported types, row operation] --> B[Bind types and output contract]
+    H[Host adapter: types, columns, ownership] --> B
+    B --> P[Prepare this batch: views, constants, writers]
+    H --> P
+    E[Host evaluator: requested rows] --> P
+    P --> R[Typed row execution]
     R --> O[Finish host output]
-    V[Vortex adapter] --> B
-    A[Arrow and DataFusion adapters] --> B
-    D[DuckDB adapter] --> B
-    V --> P
-    A --> P
-    D --> P
-    Q[Host expression evaluator] -->|row demand| P
-    Q -->|registration and optimizer metadata| B
 ```
 
-These are responsibility boundaries, not a requirement for six public crates.
+| Responsibility | Owns |
+| --- | --- |
+| Function | Accepted semantics, options, output inference, preparation, and the typed operation. |
+| Shared executor | Constant addressing, traversal, selected rows, deferred evidence, and output completion. |
+| Host adapter | Types, decoding, validity access, allocation, output metadata, error conversion, and registration. |
+| Host evaluator | Child evaluation, demand propagation, expression caching, cancellation, and optimizer rules. |
 
-| Component | Owns | Does not decide |
+These boundaries do not require one public trait or crate for every row in the table. The first
+prototype needs a small core, a Vortex adapter, and an adapter with no Vortex array dependency.
+The [extraction notes](current-system/engine-boundary.md) cover concrete trait and dependency choices.
+
+## Bind types once, prepare each batch
+
+Function binding selects a signature and output contract from types, options, and relevant host
+configuration. It can retain timezone rules, decimal parameters, or tensor shape across compatible
+batches. A literal that determines output type needs an explicit place in this binding.
+
+Batch preparation handles encodings, row counts, constants, ownership, validity, and demand.
+Prepared state that borrows a batch must stay within that batch. A constant argument can change
+between calls, so constant-derived preparation cannot silently become permanent binding state.
+
+Current RowFn dispatch runs during both planning and execution. Execution must reproduce the plan.
+A retained bound call can avoid repeated dispatch only if it preserves that contract and validates
+changing batch facts. A cache key needs every semantic option and relevant host setting.
+
+The runtime registry can erase a function behind a batch entry point. Inside that entry point,
+typed views and writers keep the row loop statically dispatched. Generated code and measurements
+must establish the resulting cost. Generic traits alone do not establish it.
+
+## Use a small semantic vocabulary with explicit capabilities
+
+Two API shapes are useful. A host trait with associated types makes extraction concrete. Semantic
+capabilities let functions state the domains that they understand without requiring every host type.
+
+| Choice | Benefit | Constraint |
 | --- | --- | --- |
-| Function definition | Supported signatures, result semantics, options, row operation, null/error policy. | Host casts, storage layout, registration names. |
-| Semantic type support | Identity, parameters, and capabilities for supported type domains. | Every host's complete catalog of types. |
-| Typed executor | Traversal, constant specialization, selected rows, deferred errors, output completion. | SQL coercion rules or query rewrites. |
-| Host adapter | Type binding, decoding, borrowed views, allocation, output construction, host errors. | Whether distinct logical types have equivalent semantics without an explicit contract. |
-| Host evaluator | Child evaluation, row demand propagation, caching, cancellation, optimizer integration. | Access to undefined results. |
+| `Engine` plus `TypeSystem`, with a closed built-in vocabulary. | A direct migration from current traits and common primitive implementations. | An opaque host type alone cannot support shared overload selection. A closed vocabulary needs an extension path. |
+| Typed semantic capabilities with host bindings. | Functions require only supported domains. New domains can live outside the core. | Capability laws, registration, and lifetime proofs need precise definitions. |
 
-The [type-system analysis](type-system/README.md) compares designs for the semantic boundary.
-The [dependency inventory](current-system/README.md) maps current Vortex code to these components.
+The recommendation combines these ideas: associated host types, a small common vocabulary, and
+typed bindings for the selected signature. Host-specific functions can still inspect native types.
+The exact trait layout remains open until the prototype demonstrates both paths.
 
-## Bind once, prepare each batch, execute typed loops
+A host must not promise every built-in type to execute one supported function. Missing types return
+a binding error. This matters for unsigned integers, half precision, and fixed-size lists.
 
-Binding takes the function options and host argument types. It resolves a concrete signature, result
-type, and semantic policy. It also chooses input readers and an output constructor that support that
-signature.
+Semantic support also exceeds storage compatibility. Timestamp units and timezone rules affect
+behavior. Decimal precision, scale, and overflow rules affect results. Geometry extensions need
+their own identity and metadata contract. Matching physical widths cannot authorize these mappings.
+The [type alternatives](type-system/alternatives.md) retain the detailed tradeoffs.
 
-A bound function can retain type-derived state. Examples include timestamp units, decimal precision,
-and the identity of an extension type. It must not retain borrows into a previous input batch.
+## Separate outer nullability without losing nested constraints
 
-Batch preparation handles facts that can change between invocations: encoding, constants, row count,
-input ownership, validity, and requested rows. Prepared state derived from a batch constant belongs
-to that batch unless a separate lifetime and cache contract permits reuse.
+The core can represent a type use as a semantic type plus outer nullability. The Vortex adapter
+splits and restores `DType`. Arrow needs the complete `Field` to preserve nullability and extensions.
 
-The row loop receives concrete views and a concrete operation. A registry can erase the function
-type at the batch boundary. Erasing each row value or invoking a virtual function per cell adds a
-different cost model.
+Child nullability remains part of a nested type's contract. Current `eq_ignore_nullability` ignores
+nullability recursively. It cannot replace a comparison that relaxes only the outer level.
+`DType::Null` also needs an explicit binding rule because it has no non-nullable form.
 
-This is a design target, not a code-generation result. Inlining, vectorization, code size, and batch
-dispatch still need measurements. The [performance notes](performance/README.md) define those checks.
+An output label can preserve a semantic interpretation over compatible storage. It cannot stand
+in for a conversion. Timestamp rescaling, decimal rescaling, and offset-width changes need explicit
+operations, with their own possible errors. Empty and all-null outputs still need the planned type.
+The [mapping examples](type-system/mappings.md) show these boundaries.
 
-Current RowFn invokes the same generic dispatch during planning and execution. Its documentation
-requires both visits to depend only on options and argument types. An extracted binder can retain
-the selected signature instead of repeating that work. That change still needs a concrete lifetime
-and invalidation design. See the current
-[dispatch contract](https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/unstable/row/row_fn.rs#L81-L91).
+## Keep errors and safety as separate contracts
 
-A literal argument can also determine an output type. Such a value needs an explicit place in the
-binding contract. A batch constant can change between calls, so it cannot silently change a retained
-output schema. Current RowFn dispatch receives types and options, not arbitrary argument values.
+Current `RowFn::INFALLIBLE` describes semantic row errors. `InputElement::DECODE_INFALLIBLE`
+describes decoder errors. `DENSE_SAFE` describes access to null payloads. None of these flags alone
+authorizes execution outside caller demand.
 
-## Preserve semantics before selecting storage
+The portable boundary needs binding errors, row-local errors, and infrastructure errors. Compact
+failure evidence can stay in the row loop. Rich host errors belong at the point that a failure
+becomes observable. Selected replay must preserve the host's error policy.
 
-Consider a function that truncates a timestamp to a minute. Its result contract includes the unit,
-timezone interpretation, overflow behavior, and treatment of values before the epoch. An `i64`
-reader alone proves none of these properties.
+Input owners must outlive their views. Output writers must preserve row identity and initialization
+proofs. Skipped rows need safe storage before export. These obligations survive every trait and
+crate boundary. The [safety inventory](current-system/contracts.md) records the current contracts.
 
-The function first binds a supported timestamp meaning. The adapter then supplies an appropriate
-reader and output constructor. The constructor must preserve the semantic result type even for an
-empty or all-null batch.
+## Pass demand explicitly and retain completion when needed
 
-An extension identifier and storage type do not prove that two extensions mean the same thing. A
-geometry function also needs a contract for its coordinate system, geometry representation, and
-invalid-input behavior. Unsupported mappings must return binding errors.
+For a strict function, the active rows are caller demand intersected with input validity.
+Requested null rows are complete without a row callback. On success, every requested row has a
+value or a null result.
 
-Coercion belongs in an explicit policy. A host can insert a cast before a RowFn call, but that cast
-must preserve the function's declared semantics. Silent loss of precision is not type compatibility.
+An ordinary call can carry completion implicitly through its known demand. A cached partial result
+needs coverage metadata. Null placeholders can make storage safe, but cannot replace that metadata
+or silently widen a non-nullable function result.
 
-## Keep demand separate from execution strategy
+Start with exact selected execution or compact batches. Dense speculation needs additional proofs
+about safe access, effects, and suppressed errors. Demand must reach decoding and child evaluation.
+The [demand contract](definedness/contract.md) and [API choices](definedness/design-options.md)
+explain the implications for Vortex conditionals.
 
-Demand states which results the caller needs. Validity states which completed results are non-null.
-The executor can choose dense, indexed, or compact execution without changing either meaning.
+## Preserve host registration and batch implementations
 
-A pure, total operation can compute extra rows when its readers and writers permit that work.
-A fallible operation must not expose errors from undemanded rows. Decode and preparation errors need
-the same classification. Allocation and whole-column structural failures remain separate concerns.
+Explicit wrappers such as `VortexRowFn<F>` keep registration, persistence, and optimizer hooks in
+the adapter. A separate adapter crate cannot blanket-implement a foreign host trait for a bare
+generic function type. The wrapper also permits custom host hooks alongside a shared row kernel.
 
-Every output needs a completion guarantee. A host that accepts only ordinary total arrays needs
-safe storage at export. Filling undemanded slots does not make those slots semantically defined.
+A batch implementation can reuse buffers or operate on dictionary values under the same function
+semantics. The row implementation remains a general fallback. The extraction does not promise
+expression fusion, in-place reuse, aggregates, asynchronous calls, or device execution.
 
-The [definedness proposal](definedness/README.md) specifies row domains, partial results, errors,
-and nested values. It is an extension to the evaluator as well as the RowFn boundary.
-
-## Retain a batch-level escape path
-
-A row callback is a useful authoring interface, but some functions naturally operate on whole
-columns. An identity function can return its input. A list operation can reuse offsets or child
-buffers. An encoding-aware function can transform dictionary values without expanding every row.
-
-The library needs an optional batch implementation under the same semantic function identity.
-The adapter selects it only when its preconditions hold. The row implementation supplies the
-general fallback and the reference behavior.
-
-This does not require compressed encodings in the portable core. A Vortex adapter can retain its
-encoding rules. The [prior-art comparison](prior-art.md) explains the corresponding limit of
-Velox's simple-function interface.
-
-Expression fusion is another independent question. A sequence of array-to-array calls can allocate
-intermediate columns even when each individual row loop is efficient. Retaining a typed operation
-separately from its host wrapper leaves room for later composition. The initial extraction does not
-promise cross-function fusion. A fused native baseline and separate RowFn calls measure this
-materialization difference as well as invocation costs.
-
-## Contracts that need explicit decisions
-
-- **Function effects:** specify determinism, side effects, and permitted reevaluation. Dense retries
-  and constant folding depend on these properties.
-- **Errors:** distinguish binding errors, row-local semantic errors, and infrastructure errors.
-  Specify whether error position and order are observable.
-- **Identity:** define a function namespace and semantic version. A registration name alone does
-  not establish equivalent behavior across hosts.
-- **Memory:** specify alignment, ownership, buffer lifetimes, and writer completion. A foreign
-  allocator requires a compatible release path.
-- **Extensions:** define capability registration and unsupported-type behavior. Keep opaque type
-  transport separate from the ability to execute an operation on that type.
-- **Caching:** include semantic options and relevant host context in binding keys. Bind caches and
-  partial-result caches need different keys and invalidation rules.
-
-Current RowFn already prohibits side effects and panics in row callbacks. Those requirements make
-dense execution and retry possible. They need to survive extraction as public contracts, rather
-than disappearing behind a generic trait. See the
-[visitor requirements](https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/unstable/row/visitor/row_visitor.rs#L80-L85)
-and [sink callback requirements](https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/unstable/row/visitor/row_visitor.rs#L165-L174).
+The [next steps](next-steps.md) separate this extraction from performance fixes and wider UDF support.

@@ -45,6 +45,8 @@ preserve existing null and failure contracts before any broader type catalog is 
 
 - [Where current code needs `DType`](current-boundary.md).
 - [Three designs and their tradeoffs](alternatives.md).
+- [The associated-type and built-in vocabulary option](associated-types.md).
+- [Detailed inventory of type operations](dtype-inventory.md).
 - [A proposed binding contract and API sketches](portable-contract.md).
 - [The isolated Rust compilation experiment](compiled-proof.md).
 - [Mappings that succeed, lose information, or fail](mappings.md).

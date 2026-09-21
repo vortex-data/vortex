@@ -8,6 +8,24 @@
 The useful comparisons separate function authoring, type semantics, column transport, and expression
 evaluation. No source reviewed here establishes a universal function ABI across the target engines.
 
+## Function-framework comparison
+
+| System | Relevant mechanism | Lesson for RowFn |
+| --- | --- | --- |
+| [Velox](prior-art/velox.md). | Typed row functions, nested writers, selection, and per-row errors. | Extend null and ownership contracts explicitly. Preserve a batch path. |
+| [DuckDB](prior-art/duckdb.md). | Bind callbacks, typed executors, constants, and dictionary selections. | Keep representation-aware input access and host metadata in the adapter. |
+| [Arrow Rust](prior-art/arrow-rs.md). | Dense, fallible, nullable-output, and mutable arity kernels. | Compare equivalent operation and output contracts. |
+| [DataFusion](prior-art/datafusion.md). | Signatures, fields, scalar operands, volatility, and optimizer hooks. | Reuse Arrow access while retaining a separate host binder. |
+| [ClickHouse](prior-art/other-systems.md#clickhouse). | Bound functions and default constant, null, and encoding handling. | Common policies can surround a batch implementation. |
+| [Polars](prior-art/other-systems.md#polars-plugins). | Expression plugins, elementwise helpers, and reusable string capacity. | Source portability and shared-library packaging are separate contracts. |
+| [Presto and Spark](prior-art/other-systems.md#presto). | Declarative signatures, null conventions, and planner properties. | Strictness, result nullability, determinism, and foldability are distinct. |
+| [Substrait](prior-art/other-systems.md#substrait-extension-functions). | Function identities, type relationships, options, and required constants. | An optional declaration layer complements executable bindings. |
+
+The detailed surveys preserve API comparisons and source references. The
+[versioned integration notes](integrations/README.md) define the selected adapter targets.
+Other engines also separate binding from execution. RowFn's explicit plan-reproduction check is
+the narrower mechanism to preserve, not evidence that planning is unique to RowFn.
+
 ## Velox: shared execution behind a row interface
 
 The 2024 paper *Simple (yet Efficient) Function Authoring for Vectorized Engines* describes Velox's

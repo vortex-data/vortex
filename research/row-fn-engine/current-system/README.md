@@ -22,6 +22,8 @@ The detailed notes follow that boundary:
 - [Safety and errors](contracts.md) records the contracts that extraction must preserve.
 - [Consumers and limits](consumers.md) shows actual users and function families outside this API.
 - [Extraction boundary](extraction.md) proposes a small core, host adapters, and ownership rules.
+- [Crate and trait choices](engine-boundary.md) compares an `Engine` interface with smaller capabilities.
+- [Design history](design-history.md) retains the PR evidence and records abandoned proposals.
 
 Two details differ from older designs. Filtered execution now writes directly into the original
 output positions. Every sink must support initialized placeholders for skipped rows. There is no

@@ -39,6 +39,30 @@ Nullary functions are supported. They execute for the caller's explicit row coun
 validity or all-constant folding.
 [Source: nullary behavior][nullary].
 
+## Consumer contracts to preserve
+
+The existing consumer tests constrain more than the row values. A Vortex adapter must retain these
+behaviors. Another host needs an explicit equivalent representation contract.
+
+| Case | Required behavior |
+| --- | --- |
+| All-constant tensor or geometry inputs. | Compute once and retain Vortex's constant output encoding. |
+| Encoded constants versus materialized rows. | Preserve the same arithmetic values without extra rounding. |
+| A null constant operand. | Return an all-null output with the planned logical type and nullability. |
+| Empty non-nullable input. | Preserve the non-nullable result type. An empty selection does not imply an all-null type. |
+| Masked tensor and geometry inputs. | Preserve input-derived validity through decoding and output. |
+| Convex-hull output. | Preserve the geometry label and metadata over the polygon storage, including constant results. |
+| Invalid arity. | Reject the call before dispatch. |
+| Contract errors. | Retain function identity in diagnostics. |
+
+The tensor functions also implement Vortex array persistence with child-type metadata. Geometry
+functions use the scalar registration path. Those persistence formats remain host responsibilities.
+Sources: [tensor functions][tensor-kernel], [L2 norm][l2], [convex hull][hull].
+
+The shipped cosine function recomputes norms in its row operation. The documentation's prepared
+cosine example therefore identifies a possible optimization, not a completed migration. Constant
+norm preparation needs separate measurements and must preserve arithmetic semantics.
+
 ## Families that need another contract
 
 | Function family | Current boundary | Required addition or host path |

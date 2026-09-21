@@ -102,6 +102,10 @@ a type system. A registry entry must state which values and parameters the opera
 
 ## Recommended combination
 
+The [associated-type option](associated-types.md) gives a concrete migration shape with a small
+built-in vocabulary. Its useful parts fit this combination. Its blanket requirement that every
+host support every built-in kind does not: binding needs to admit partial host support.
+
 Keep the native type behind a host adapter. Define small semantic descriptions for shared function
 domains. Bind each accepted signature to typed input and output capabilities.
 
