@@ -25,8 +25,8 @@ if(VORTEX_WARNINGS_AS_ERRORS)
     target_compile_options(vortex_ffi_test PRIVATE -Werror)
 endif()
 target_link_libraries(vortex_ffi_test PRIVATE
-    ${_vortex_ffi_target}
+    Vortex::ffi
     Catch2::Catch2WithMain
-    nanoarrow_shared)
+    nanoarrow::nanoarrow)
 
 catch_discover_tests(vortex_ffi_test)

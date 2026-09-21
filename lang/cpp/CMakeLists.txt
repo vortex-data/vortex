@@ -72,10 +72,10 @@ add_library(Vortex::cpp_shared ALIAS vortex_cxx_shared)
 
 if(BUILD_SHARED_LIBS)
     set_target_properties(vortex_cxx_static PROPERTIES EXCLUDE_FROM_ALL TRUE)
-    set(_vortex_cpp_target Vortex::cpp_shared)
+    add_library(Vortex::cpp ALIAS vortex_cxx_shared)
 else()
     set_target_properties(vortex_cxx_shared PROPERTIES EXCLUDE_FROM_ALL TRUE)
-    set(_vortex_cpp_target Vortex::cpp_static)
+    add_library(Vortex::cpp ALIAS vortex_cxx_static)
 endif()
 
 foreach(_target IN ITEMS vortex_cxx_static vortex_cxx_shared)

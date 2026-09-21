@@ -5,10 +5,10 @@
 # lang/cpp adds the C++ wrapper. Both also support standalone configuration.
 #
 #   add_subdirectory(path/to/vortex vortex)
-#   target_link_libraries(my_c_target PRIVATE Vortex::ffi_static)
-#   target_link_libraries(my_cpp_target PRIVATE Vortex::cpp_static)
+#   target_link_libraries(my_c_target PRIVATE Vortex::ffi)
+#   target_link_libraries(my_cpp_target PRIVATE Vortex::cpp)
 #
-# Use Vortex::ffi_shared and Vortex::cpp_shared for shared linkage.
+# BUILD_SHARED_LIBS selects linkage; explicit _static and _shared targets also exist.
 #
 # See lang/cpp/README.md for build options and embedding requirements,
 # and vortex-ffi/README.md for C API development.

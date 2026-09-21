@@ -25,13 +25,16 @@ Vendor or fetch a pinned, complete checkout:
 
 ```cmake
 add_subdirectory(path/to/vortex vortex)
-target_link_libraries(my_cpp_target PRIVATE Vortex::cpp_shared)
-target_link_libraries(my_c_target PRIVATE Vortex::ffi_shared)
+target_link_libraries(my_cpp_target PRIVATE Vortex::cpp)
+target_link_libraries(my_c_target PRIVATE Vortex::ffi)
 ```
 
 Vortex leaves parent build settings unchanged. Its archives are position-independent.
 
-For static linkage, use `Vortex::ffi_static` and `Vortex::cpp_static`.
+`Vortex::cpp` and `Vortex::ffi` follow `BUILD_SHARED_LIBS` when Vortex is configured:
+`OFF` selects static linkage; `ON` selects shared linkage. Set it before adding Vortex.
+The explicit `Vortex::cpp_static`, `Vortex::cpp_shared`, `Vortex::ffi_static`, and
+`Vortex::ffi_shared` targets remain available regardless of the option.
 
 ## Build options
 
@@ -40,7 +43,7 @@ options. Defaults below are for standalone builds.
 
 | Option                      | Default  | Purpose                                                     |
 | --------------------------- | -------- | ----------------------------------------------------------- |
-| `BUILD_SHARED_LIBS`         | `OFF`    | Build shared Vortex libraries.                              |
+| `BUILD_SHARED_LIBS`         | `OFF`    | Select shared linkage for default targets.                  |
 | `VORTEX_BUILD_TESTS`        | `OFF`    | C API and C++23 wrapper tests.                              |
 | `VORTEX_BUILD_EXAMPLES`     | `OFF`    | C/C++ examples.                                             |
 | `VORTEX_WARNINGS_AS_ERRORS` | `ON`     | Warnings as errors for Vortex targets only.                 |
@@ -51,7 +54,15 @@ options. Defaults below are for standalone builds.
 | `VORTEX_DEBUG_INFO`         | `2`      | C/C++ and Rust debug info: `0` none, `1` limited, `2` full. |
 | `VORTEX_ENABLE_CUDA`        | `OFF`    | Linux-only [CUDA build](#cuda).                             |
 
-As a standard CMake option, `BUILD_SHARED_LIBS` also affects dependencies such as Catch2.
+Tests and examples use the selected Vortex linkage and Nanoarrow's corresponding
+`nanoarrow::nanoarrow` target. Catch2 also follows `BUILD_SHARED_LIBS`; header-only
+dependencies have no linkage choice. Dependencies already configured by a parent keep
+their existing configuration, so set the option consistently before fetching dependencies.
+
+The Rust implementation is always built as a position-independent static archive,
+embedded into the shared FFI library when shared linkage is selected. `BUILD_SHARED_LIBS=OFF`
+does not request a fully static executable or change system/CUDA runtime linkage.
+
 Embedded builds default `VORTEX_WARNINGS_AS_ERRORS` to `OFF`. Parents must call
 `enable_testing()` to register tests.
 

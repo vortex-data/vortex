@@ -56,9 +56,10 @@ include(cmake/Configure.cmake)
 
 add_library(Vortex::ffi_static ALIAS vortex_ffi_static)
 add_library(Vortex::ffi_shared ALIAS vortex_ffi_shared)
-set(_vortex_ffi_target Vortex::ffi_static)
 if(BUILD_SHARED_LIBS)
-    set(_vortex_ffi_target Vortex::ffi_shared)
+    add_library(Vortex::ffi ALIAS vortex_ffi_shared)
+else()
+    add_library(Vortex::ffi ALIAS vortex_ffi_static)
 endif()
 
 # Test and example dependencies are fetched at configure time and never installed.
