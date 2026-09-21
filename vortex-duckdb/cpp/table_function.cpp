@@ -18,6 +18,7 @@
 #include "duckdb/common/multi_file/multi_file_reader.hpp"
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/main/capi/capi_internal.hpp"
+#include "duckdb/logging/logger.hpp"
 #include "duckdb/main/connection.hpp"
 #include "duckdb/function/partition_stats.hpp"
 #include "duckdb/parser/parsed_data/create_table_function_info.hpp"
@@ -263,13 +264,9 @@ extern "C" duckdb_state duckdb_vx_register_version_function(duckdb_database ffi_
     const DatabaseWrapper &wrapper = *reinterpret_cast<DatabaseWrapper *>(ffi_db);
     DatabaseInstance &db = *wrapper.database->instance;
 
-    const string quoted = KeywordHelper::WriteQuoted(version);
+    const string definition = StringUtil::Format("() AS %s", SQLString::ToString(version));
+    const DefaultMacro macro {DEFAULT_SCHEMA, "vortex_version", definition.c_str()};
 
-    const DefaultMacro macro {DEFAULT_SCHEMA,
-                              "vortex_version",
-                              {nullptr},
-                              {{nullptr, nullptr}},
-                              quoted.c_str()};
     try {
         auto info = DefaultFunctionGenerator::CreateInternalMacroInfo(macro);
         auto &system_catalog = Catalog::GetSystemCatalog(db);
