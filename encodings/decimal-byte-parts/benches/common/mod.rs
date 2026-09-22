@@ -10,10 +10,30 @@ use vortex_array::dtype::DecimalType;
 use vortex_array::dtype::i256;
 use vortex_buffer::Buffer;
 
+/// Decimal widths under test, with the input plus output bytes each row moves.
+///
+/// Splitting reads one decimal and writes a most significant part plus lower parts of the same
+/// total width, and assembly does the reverse, so both move twice the decimal's size per row.
+const WIDTHS: [(DecimalType, usize); 2] = [
+    (DecimalType::I128, 2 * size_of::<i128>()),
+    (DecimalType::I256, 2 * size_of::<i256>()),
+];
+
+/// Working set per kernel iteration.
+///
+/// The kernel benchmarks run on the walltime legs, where a case that takes under a microsecond
+/// reports mostly per-iteration jitter: at 1,024 rows the `i128` kernels took 0.4 to 1.2 µs and
+/// moved by 10 to 19% on pull requests that changed no decimal code. Budgeting by bytes puts
+/// every case in the microsecond range, and the largest one still fits the 1 MiB L2 cache of the
+/// Graviton leg, so these stay measurements of kernel code rather than of memory bandwidth.
+const WORKING_SET_BYTES: [usize; 2] = [256 * 1024, 1024 * 1024];
+
 pub(super) fn cases() -> Vec<(DecimalType, usize)> {
-    [DecimalType::I128, DecimalType::I256]
+    WIDTHS
         .into_iter()
-        .flat_map(|values_type| [1_024, 8_192].map(|len| (values_type, len)))
+        .flat_map(|(values_type, bytes_per_row)| {
+            WORKING_SET_BYTES.map(|bytes| (values_type, bytes / bytes_per_row))
+        })
         .collect()
 }
 
@@ -46,6 +66,8 @@ pub(super) mod arrays {
     use super::i128_values;
     use super::i256_values;
 
+    /// These benchmarks never run in CI, so they keep the small row counts that make a local
+    /// `cargo bench` quick, rather than the kernel benchmarks' walltime-safe sizes.
     pub(crate) fn cases() -> Vec<(DecimalType, usize)> {
         [DecimalType::I64, DecimalType::I128, DecimalType::I256]
             .into_iter()
