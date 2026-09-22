@@ -568,7 +568,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn scan_options_default_to_buffered_io() -> VortexResult<()> {
+    fn test_scan_options_default_to_buffered_io() -> VortexResult<()> {
         let options = vx_cuda_scan_options::default();
         assert_eq!(options.flags, 0);
         assert_eq!(options.batch_rows, 0);
@@ -582,7 +582,7 @@ mod tests {
     }
 
     #[test]
-    fn maps_scan_options_and_ignores_unknown_flags() -> VortexResult<()> {
+    fn test_maps_scan_options() -> VortexResult<()> {
         let buffered = PooledFileReadAtOptions::default();
         for (flags, batch_rows, read_at_options) in [
             (0, 8192, buffered),
@@ -606,7 +606,7 @@ mod tests {
     }
 
     #[cuda_test]
-    fn scan_decodes_dictionaries_and_reuses_session_resources() -> VortexResult<()> {
+    fn test_scan_decodes_dictionaries_and_reuses_session_resources() -> VortexResult<()> {
         // A distinct allocator identity detects accidental reconstruction of a default session.
         let allocator = BufferAllocatorRef::new(StaticBufferAllocator);
         let session = VortexSession::default()
