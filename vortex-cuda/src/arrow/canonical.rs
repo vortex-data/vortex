@@ -942,7 +942,8 @@ fn export_arrow_validity_bitmap(
 
     let output_bytes = validity_bitmap_byte_len(len, arrow_offset)?;
     let allocation_bytes = output_bytes.next_multiple_of(CUDF_VALIDITY_BUFFER_PADDING);
-    // A full padding block can still begin at an unaligned byte-sliced address.
+    // cuDF uses 4-byte-aligned uint32_t mask words, independent of host architecture.
+    // Our repacker checks 8-byte load alignment separately and falls back to byte reads.
     if bitmap
         .cuda_device_ptr()?
         .is_multiple_of(size_of::<u32>() as u64)
