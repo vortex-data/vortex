@@ -1,0 +1,33 @@
+   Compiling vortex-array v0.1.0 (/private/tmp/vortex-row-fn-bool-bench/vortex-array)
+    Finished `bench` profile [optimized + debuginfo] target(s) in 2.94s
+     Running benches/row_fn_bool_retry.rs (/tmp/row-fn-bool-ci-bench-target/release/deps/row_fn_bool_retry-3e5e29bbff57792a)
+row_fn_bool_retry
+├─ neon::multiversioned_neon
+│  ╰─ 16384
+│     ├─ (Columns, AllValid)
+│     ├─ (Columns, NullOnlyFailure)
+│     ├─ (Columns, ObservableFailure)
+│     ├─ (Columns, PartialAccepted)
+│     ├─ (ConstantLhs, AllValid)
+│     ├─ (ConstantLhs, NullOnlyFailure)
+│     ├─ (ConstantLhs, ObservableFailure)
+│     ├─ (ConstantLhs, PartialAccepted)
+│     ├─ (ConstantRhs, AllValid)
+│     ├─ (ConstantRhs, NullOnlyFailure)
+│     ├─ (ConstantRhs, ObservableFailure)
+│     ╰─ (ConstantRhs, PartialAccepted)
+╰─ neon::plain_neon
+   ╰─ 16384
+      ├─ (Columns, AllValid)
+      ├─ (Columns, NullOnlyFailure)
+      ├─ (Columns, ObservableFailure)
+      ├─ (Columns, PartialAccepted)
+      ├─ (ConstantLhs, AllValid)
+      ├─ (ConstantLhs, NullOnlyFailure)
+      ├─ (ConstantLhs, ObservableFailure)
+      ├─ (ConstantLhs, PartialAccepted)
+      ├─ (ConstantRhs, AllValid)
+      ├─ (ConstantRhs, NullOnlyFailure)
+      ├─ (ConstantRhs, ObservableFailure)
+      ╰─ (ConstantRhs, PartialAccepted)
+

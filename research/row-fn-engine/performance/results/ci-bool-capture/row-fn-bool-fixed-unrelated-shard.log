@@ -1,0 +1,2272 @@
+﻿2026-09-22T20:01:18.5637571Z Current runner version: '2.336.0'
+2026-09-22T20:01:18.5643975Z Runner name: 'runs-on--i-0cc92c6124b250c39--2d1a9e91-7'
+2026-09-22T20:01:18.5644823Z Runner group name: 'Default'
+2026-09-22T20:01:18.5645754Z Machine name: 'ip-10-1-11-45'
+2026-09-22T20:01:18.5666788Z ##[group]🏃 Runner details (c7i-flex.4xlarge, spot, v3.3.0)
+2026-09-22T20:01:18.5668293Z ┌───────────────────┬───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+2026-09-22T20:01:18.5669359Z │       INFO        │                                                     VALUE                                                     │
+2026-09-22T20:01:18.5670390Z ├───────────────────┼───────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+2026-09-22T20:01:18.5671678Z │ Labels            │ [runs-on=35777490085/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=bench-codspeed-9] │
+2026-09-22T20:01:18.5673218Z │ Extras            │ [s3-cache]                                                                                                    │
+2026-09-22T20:01:18.5674351Z │ PrivateIp         │ 10.1.11.45                                                                                                    │
+2026-09-22T20:01:18.5675539Z │ IsPrivate         │ false                                                                                                         │
+2026-09-22T20:01:18.5676696Z │ Environment       │ production                                                                                                    │
+2026-09-22T20:01:18.5677769Z │ StackName         │ runs-on-v3                                                                                                    │
+2026-09-22T20:01:18.5679001Z │ Region            │ us-east-1                                                                                                     │
+2026-09-22T20:01:18.5680179Z │ AvailabilityZone  │ us-east-1a                                                                                                    │
+2026-09-22T20:01:18.5681268Z │ Version           │ v3.3.0                                                                                                        │
+2026-09-22T20:01:18.5682489Z │ RunnerName        │ runs-on--i-0cc92c6124b250c39--2d1a9e91-7                                                                      │
+2026-09-22T20:01:18.5683842Z │ AssignmentId      │ 2d1a9e91-744a-4304-bc5c-d3116a3174a1                                                                          │
+2026-09-22T20:01:18.5685290Z │ BucketCacheName   │ runs-on-v3-s3bucketcache-dbnub4tpjhpv                                                                         │
+2026-09-22T20:01:18.5686571Z │ InstanceId        │ i-0cc92c6124b250c39                                                                                           │
+2026-09-22T20:01:18.5687795Z │ InstanceType      │ c7i-flex.4xlarge                                                                                              │
+2026-09-22T20:01:18.5689027Z │ InstanceLifecycle │ spot                                                                                                          │
+2026-09-22T20:01:18.5690141Z │ InstanceRAM       │ 31551.28 MiB                                                                                                  │
+2026-09-22T20:01:18.5691167Z │ InstanceCPU       │ 16 cores                                                                                                      │
+2026-09-22T20:01:18.5692232Z │ InstanceDisk1     │ /=/dev/nvme0n1p1                                                                                              │
+2026-09-22T20:01:18.5693337Z │                   │ Free=76.97GiB Used=18.84GiB                                                                                   │
+2026-09-22T20:01:18.5694747Z │ ImageId           │ ami-0d8875560af9e1401                                                                                         │
+2026-09-22T20:01:18.5696001Z │ ImageName         │ vortex-ci-v2-x64-20260831011844                                                                               │
+2026-09-22T20:01:18.5697091Z │ Platform          │ linux                                                                                                         │
+2026-09-22T20:01:18.5698241Z │ Architecture      │ x64                                                                                                           │
+2026-09-22T20:01:18.5699273Z │ HasPreinstall     │ false                                                                                                         │
+2026-09-22T20:01:18.5700320Z │ HasPrerun         │ false                                                                                                         │
+2026-09-22T20:01:18.5701437Z │ IsDebug           │ false                                                                                                         │
+2026-09-22T20:01:18.5702443Z │ Integrations      │ []                                                                                                            │
+2026-09-22T20:01:18.5703511Z └───────────────────┴───────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+2026-09-22T20:01:18.5704322Z ##[endgroup]
+2026-09-22T20:01:18.5704878Z ##[group]⏱️ Timings - 20.45s
+2026-09-22T20:01:18.5705604Z ┌──────────────────────┬─────────────────────────────────┬─────────┬────────┐
+2026-09-22T20:01:18.5706451Z │         TIME         │              STEP               │  DIFF   │ TOTAL  │
+2026-09-22T20:01:18.5707205Z ├──────────────────────┼─────────────────────────────────┼─────────┼────────┤
+2026-09-22T20:01:18.5708179Z │ 2026-09-22T20:00:54Z │ job-created                     │ 0ms     │ 0.0s   │
+2026-09-22T20:01:18.5709068Z │ 2026-09-22T20:00:55Z │ job-received                    │ 1544ms  │ 1.54s  │
+2026-09-22T20:01:18.5709943Z │ 2026-09-22T20:00:55Z │ job-scheduled                   │ 20ms    │ 1.56s  │
+2026-09-22T20:01:18.5710889Z │ 2026-09-22T20:00:58Z │ instance-pending                │ 2435ms  │ 4.00s  │
+2026-09-22T20:01:18.5711734Z │ 2026-09-22T20:00:59Z │ runner-registered               │ 1801ms  │ 5.80s  │
+2026-09-22T20:01:18.5712620Z │ 2026-09-22T20:01:12Z │ agent-booting                   │ 12750ms │ 18.55s │
+2026-09-22T20:01:18.5713472Z │ 2026-09-22T20:01:12Z │ runner-setup-global-env         │ 20ms    │ 18.57s │
+2026-09-22T20:01:18.5714330Z │ 2026-09-22T20:01:12Z │ runner-setup-user               │ 67ms    │ 18.64s │
+2026-09-22T20:01:18.5715217Z │ 2026-09-22T20:01:12Z │ agent-metadata                  │ 102ms   │ 18.74s │
+2026-09-22T20:01:18.5716047Z │ 2026-09-22T20:01:12Z │ instance-config                 │ 79ms    │ 18.82s │
+2026-09-22T20:01:18.5716916Z │ 2026-09-22T20:01:12Z │ runner-otel-setup-tracer        │ 0ms     │ 18.82s │
+2026-09-22T20:01:18.5717810Z │ 2026-09-22T20:01:12Z │ runner-otel-setup-collector     │ 0ms     │ 18.82s │
+2026-09-22T20:01:18.5719011Z │ 2026-09-22T20:01:14Z │ runner-resize-disk              │ 1404ms  │ 20.23s │
+2026-09-22T20:01:18.5720120Z │ 2026-09-22T20:01:14Z │ runner-prepare-mount-points     │ 0ms     │ 20.23s │
+2026-09-22T20:01:18.5721075Z │ 2026-09-22T20:01:14Z │ runner-setup-mount-points       │ 70ms    │ 20.30s │
+2026-09-22T20:01:18.5721998Z │ 2026-09-22T20:01:14Z │ runner-setup-agent              │ 3ms     │ 20.30s │
+2026-09-22T20:01:18.5722927Z │ 2026-09-22T20:01:14Z │ runner-setup-aws-profile        │ 0ms     │ 20.30s │
+2026-09-22T20:01:18.5723869Z │ 2026-09-22T20:01:14Z │ runner-setup-host               │ 0ms     │ 20.30s │
+2026-09-22T20:01:18.5724776Z │ 2026-09-22T20:01:14Z │ runner-config                   │ 34ms    │ 20.33s │
+2026-09-22T20:01:18.5725720Z │ 2026-09-22T20:01:14Z │ runner-otel-restart             │ 0ms     │ 20.33s │
+2026-09-22T20:01:18.5726619Z │ 2026-09-22T20:01:14Z │ runner-env                      │ 5ms     │ 20.34s │
+2026-09-22T20:01:18.5727522Z │ 2026-09-22T20:01:14Z │ runner-setup-integrations       │ 63ms    │ 20.40s │
+2026-09-22T20:01:18.5728597Z │ 2026-09-22T20:01:14Z │ runner-chown-runner-directories │ 0ms     │ 20.40s │
+2026-09-22T20:01:18.5729585Z │ 2026-09-22T20:01:14Z │ runner-start-local-server       │ 0ms     │ 20.40s │
+2026-09-22T20:01:18.5730511Z │ 2026-09-22T20:01:14Z │ runner-setup-s3-cache           │ 41ms    │ 20.44s │
+2026-09-22T20:01:18.5731418Z │ 2026-09-22T20:01:14Z │ runner-setup-hooks              │ 4ms     │ 20.45s │
+2026-09-22T20:01:18.5732274Z └──────────────────────┴─────────────────────────────────┴─────────┴────────┘
+2026-09-22T20:01:18.5732986Z ##[endgroup]
+2026-09-22T20:01:18.5734052Z ##[group]GITHUB_TOKEN Permissions
+2026-09-22T20:01:18.5736558Z Contents: read
+2026-09-22T20:01:18.5737113Z Metadata: read
+2026-09-22T20:01:18.5737704Z ##[endgroup]
+2026-09-22T20:01:18.5740613Z Secret source: Actions
+2026-09-22T20:01:18.5741415Z Cache mode: write
+2026-09-22T20:01:18.5742082Z Prepare workflow directory
+2026-09-22T20:01:18.6081978Z Prepare all required actions
+2026-09-22T20:01:18.6128480Z Getting action download info
+2026-09-22T20:01:18.8136713Z Download action repository 'runs-on/action@v2' (SHA:efac073ea2507ec18797de3a81704201ade11d9d)
+2026-09-22T20:01:19.4826108Z Download action repository 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' (SHA:3d3c42e5aac5ba805825da76410c181273ba90b1)
+2026-09-22T20:01:19.5393209Z Download action repository 'taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995' (SHA:66c9585ef5ca780ee69399975a5e911f47905995)
+2026-09-22T20:01:19.6337156Z Download action repository 'CodSpeedHQ/action@4296e51e7041e24dadb86d1d6e8b9320d223dbe8' (SHA:4296e51e7041e24dadb86d1d6e8b9320d223dbe8)
+2026-09-22T20:01:19.8647119Z Getting action download info
+2026-09-22T20:01:19.9647721Z Download action repository 'actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7' (SHA:668228422ae6a00e4ad889ee87cd7109ec5666a7)
+2026-09-22T20:01:20.2141607Z Getting action download info
+2026-09-22T20:01:20.3155260Z Download action repository 'actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd' (SHA:ed597411d8f924073f98dfc5c65a23a2325f34cd)
+2026-09-22T20:01:20.4890966Z Complete job name: Benchmark with Codspeed (Shard #9 - Strings, tensor & spatial)
+2026-09-22T20:01:20.5466139Z A job started hook has been configured by the self-hosted runner administrator
+2026-09-22T20:01:20.6605762Z ##[group]Run '/runs-on/pre.sh'
+2026-09-22T20:01:20.6642764Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-09-22T20:01:20.6644092Z ##[endgroup]
+2026-09-22T20:01:20.6867376Z 
+2026-09-22T20:01:20.6869021Z 👋 This self-hosted runner was launched with RunsOn (https://runs-on.com). Join the party!
+2026-09-22T20:01:20.6870376Z 
+2026-09-22T20:01:20.6884193Z ##[group]Job identity
+2026-09-22T20:01:20.6885184Z Organization: vortex-data
+2026-09-22T20:01:20.6886122Z Repository: vortex-data/vortex
+2026-09-22T20:01:20.6887095Z Workflow: Codspeed Benchmarking
+2026-09-22T20:01:20.6888193Z Job: bench-codspeed
+2026-09-22T20:01:20.6889689Z ##[endgroup]
+2026-09-22T20:01:20.6890123Z 
+2026-09-22T20:01:20.6891255Z ##[group]💡 Additional environment variables available in your steps
+2026-09-22T20:01:20.6969902Z ACTIONS_CACHE_SERVICE_V2=true
+2026-09-22T20:01:20.6976587Z ACTIONS_CACHE_URL=http://10.1.11.45:6871/
+2026-09-22T20:01:20.6978216Z ACTIONS_RESULTS_URL=http://10.1.11.45:6871/
+2026-09-22T20:01:20.6979455Z ACTIONS_RUNNER_HOOK_JOB_COMPLETED=/runs-on/post.sh
+2026-09-22T20:01:20.6980651Z ACTIONS_RUNNER_HOOK_JOB_STARTED=/runs-on/pre.sh
+2026-09-22T20:01:20.6981864Z GITHUB_API_URL=https://api.github.com/
+2026-09-22T20:01:20.6982953Z GITHUB_HOST=github.com
+2026-09-22T20:01:20.6984028Z GITHUB_SERVER_URL=https://github.com/
+2026-09-22T20:01:20.6985114Z RUNNER_TOOL_CACHE=/opt/hostedtoolcache
+2026-09-22T20:01:20.6986246Z RUNS_ON_AGENT_ARCH=x64
+2026-09-22T20:01:20.6987141Z RUNS_ON_AGENT_BINARY=/runs-on/agent
+2026-09-22T20:01:20.6988194Z RUNS_ON_AGENT_USER=runner
+2026-09-22T20:01:20.6989084Z RUNS_ON_AMI_ID=ami-0d8875560af9e1401
+2026-09-22T20:01:20.6990036Z RUNS_ON_AWS_AZ=us-east-1a
+2026-09-22T20:01:20.6990931Z RUNS_ON_AWS_REGION=us-east-1
+2026-09-22T20:01:20.6991985Z RUNS_ON_ENV_CUSTOM_FILE=/runs-on/env.custom
+2026-09-22T20:01:20.6992984Z RUNS_ON_HOME=/runs-on
+2026-09-22T20:01:20.6993872Z RUNS_ON_INSTANCE_ID=i-0cc92c6124b250c39
+2026-09-22T20:01:20.6994923Z RUNS_ON_INSTANCE_LAUNCHED_AT=2026-09-22T20:00:55Z
+2026-09-22T20:01:20.6996374Z RUNS_ON_INSTANCE_LIFECYCLE=spot
+2026-09-22T20:01:20.6997419Z RUNS_ON_INSTANCE_TYPE=c7i-flex.4xlarge
+2026-09-22T20:01:20.6998814Z RUNS_ON_RUNNER_NAME=runs-on--i-0cc92c6124b250c39--2d1a9e91-7
+2026-09-22T20:01:20.7000388Z RUNS_ON_S3_BUCKET_CACHE=runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:20.7001920Z RUNS_ON_S3_CACHE_REPO_PREFIX=cache/repo/vortex-data/vortex
+2026-09-22T20:01:20.7003250Z RUNS_ON_STACK_NAME=runs-on-v3
+2026-09-22T20:01:20.7004222Z RUNS_ON_VERSION=v3.3.0
+2026-09-22T20:01:20.7005673Z ##[endgroup]
+2026-09-22T20:01:20.7006097Z 
+2026-09-22T20:01:20.7316893Z ##[group]Run runs-on/action@v2
+2026-09-22T20:01:20.7318108Z with:
+2026-09-22T20:01:20.7318863Z   sccache: s3
+2026-09-22T20:01:20.7319623Z   show_env: false
+2026-09-22T20:01:20.7320447Z   show_costs: inline
+2026-09-22T20:01:20.7321290Z   network_interface: enp39s0
+2026-09-22T20:01:20.7322181Z   disk_device: nvme0n1p1
+2026-09-22T20:01:20.7329418Z   token: ***
+2026-09-22T20:01:20.7330203Z   sticky_wait_timeout: 15m
+2026-09-22T20:01:20.7331008Z env:
+2026-09-22T20:01:20.7331722Z   CARGO_TERM_COLOR: always
+2026-09-22T20:01:20.7332548Z   RUST_BACKTRACE: 1
+2026-09-22T20:01:20.7333372Z   NIGHTLY_TOOLCHAIN: nightly-2026-09-10
+2026-09-22T20:01:20.7334359Z   RUNNER_TOOL_CACHE: /opt/hostedtoolcache
+2026-09-22T20:01:20.7335317Z   RUNS_ON_HOME: /runs-on
+2026-09-22T20:01:20.7336128Z   RUNS_ON_VERSION: v3.3.0
+2026-09-22T20:01:20.7336999Z   RUNS_ON_AGENT_BINARY: /runs-on/agent
+2026-09-22T20:01:20.7338084Z   RUNS_ON_AGENT_ARCH: x64
+2026-09-22T20:01:20.7338981Z   RUNS_ON_AGENT_USER: runner
+2026-09-22T20:01:20.7339953Z   RUNS_ON_AMI_ID: ami-0d8875560af9e1401
+2026-09-22T20:01:20.7340934Z   RUNS_ON_AWS_REGION: us-east-1
+2026-09-22T20:01:20.7341827Z   RUNS_ON_AWS_AZ: us-east-1a
+2026-09-22T20:01:20.7342916Z   RUNS_ON_ENV_CUSTOM_FILE: /runs-on/env.custom
+2026-09-22T20:01:20.7344088Z   RUNS_ON_INSTANCE_ID: i-0cc92c6124b250c39
+2026-09-22T20:01:20.7345181Z   RUNS_ON_INSTANCE_LIFECYCLE: spot
+2026-09-22T20:01:20.7346213Z   RUNS_ON_INSTANCE_TYPE: c7i-flex.4xlarge
+2026-09-22T20:01:20.7347289Z   RUNS_ON_STACK_NAME: runs-on-v3
+2026-09-22T20:01:20.7348677Z   RUNS_ON_S3_BUCKET_CACHE: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:20.7349993Z   ACTIONS_RUNNER_HOOK_JOB_STARTED: /runs-on/pre.sh
+2026-09-22T20:01:20.7351162Z   ACTIONS_RUNNER_HOOK_JOB_COMPLETED: /runs-on/post.sh
+2026-09-22T20:01:20.7352285Z   GITHUB_SERVER_URL: https://github.com/
+2026-09-22T20:01:20.7353300Z   GITHUB_API_URL: https://api.github.com/
+2026-09-22T20:01:20.7354266Z   GITHUB_HOST: github.com
+2026-09-22T20:01:20.7355300Z   RUNS_ON_RUNNER_NAME: runs-on--i-0cc92c6124b250c39--2d1a9e91-7
+2026-09-22T20:01:20.7356526Z   RUNS_ON_INSTANCE_LAUNCHED_AT: 2026-09-22T20:00:55Z
+2026-09-22T20:01:20.7357610Z   ACTIONS_CACHE_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:20.7359011Z   ACTIONS_CACHE_SERVICE_V2: true
+2026-09-22T20:01:20.7360049Z   ACTIONS_RESULTS_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:20.7361275Z   RUNS_ON_S3_CACHE_REPO_PREFIX: cache/repo/vortex-data/vortex
+2026-09-22T20:01:20.7362372Z ##[endgroup]
+2026-09-22T20:01:22.3003508Z Input 'show_env': false
+2026-09-22T20:01:22.3003928Z Input 'show_costs': inline
+2026-09-22T20:01:22.3004205Z Input 'metrics': []
+2026-09-22T20:01:22.3004426Z Input 'network_interface': enp39s0
+2026-09-22T20:01:22.3004678Z Input 'disk_device': nvme0n1p1
+2026-09-22T20:01:22.3004904Z Input 'sccache': s3
+2026-09-22T20:01:22.3005204Z Input 'sticky_cache': []
+2026-09-22T20:01:22.3005441Z Input 'sticky_wait_timeout': 15m0s
+2026-09-22T20:01:22.3005931Z ZCTIONS_RESULTS_URL is set: https://results-receiver.actions.githubusercontent.com/
+2026-09-22T20:01:22.3006622Z ZCTIONS_CACHE_URL is set: https://acghubeus1.actions.githubusercontent.com/XtqVEj2MXQCbzj6x6n8CMomnIjyhqqRNuSgameoSnKmgcNZw2F/
+2026-09-22T20:01:22.3007369Z ACTIONS_RUNTIME_TOKEN is set.
+2026-09-22T20:01:22.3008443Z Config update response status: 200 OK
+2026-09-22T20:01:22.3009958Z show_costs is enabled. You will find cost details in the post-execution step of this action.
+2026-09-22T20:01:22.3010494Z Configuring sccache with S3 backend...
+2026-09-22T20:01:22.3010939Z Using bucket: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:22.3011278Z Using region: us-east-1
+2026-09-22T20:01:22.3011511Z Set SCCACHE_REGION=us-east-1
+2026-09-22T20:01:22.3011750Z Set SCCACHE_GHA_ENABLED=false
+2026-09-22T20:01:22.3012042Z Set SCCACHE_S3_KEY_PREFIX=cache/sccache
+2026-09-22T20:01:22.3012375Z Set RUSTC_WRAPPER=sccache
+2026-09-22T20:01:22.3012771Z Set SCCACHE_BUCKET=runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:22.3013320Z sccache S3 backend configured successfully!
+2026-09-22T20:01:22.3014246Z Action finished.
+2026-09-22T20:01:22.3223350Z ##[group]Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+2026-09-22T20:01:22.3223753Z with:
+2026-09-22T20:01:22.3224014Z   repository: vortex-data/vortex
+2026-09-22T20:01:22.3226528Z   token: ***
+2026-09-22T20:01:22.3226740Z   ssh-strict: true
+2026-09-22T20:01:22.3226958Z   ssh-user: git
+2026-09-22T20:01:22.3227227Z   persist-credentials: true
+2026-09-22T20:01:22.3227528Z   clean: true
+2026-09-22T20:01:22.3227756Z   sparse-checkout-cone-mode: true
+2026-09-22T20:01:22.3228388Z   fetch-depth: 1
+2026-09-22T20:01:22.3228612Z   fetch-tags: false
+2026-09-22T20:01:22.3228829Z   show-progress: true
+2026-09-22T20:01:22.3229047Z   lfs: false
+2026-09-22T20:01:22.3229250Z   submodules: false
+2026-09-22T20:01:22.3229472Z   set-safe-directory: true
+2026-09-22T20:01:22.3229735Z   allow-unsafe-pr-checkout: false
+2026-09-22T20:01:22.3229982Z env:
+2026-09-22T20:01:22.3230181Z   CARGO_TERM_COLOR: always
+2026-09-22T20:01:22.3230409Z   RUST_BACKTRACE: 1
+2026-09-22T20:01:22.3230687Z   NIGHTLY_TOOLCHAIN: nightly-2026-09-10
+2026-09-22T20:01:22.3230988Z   RUNNER_TOOL_CACHE: /opt/hostedtoolcache
+2026-09-22T20:01:22.3231256Z   RUNS_ON_HOME: /runs-on
+2026-09-22T20:01:22.3231500Z   RUNS_ON_VERSION: v3.3.0
+2026-09-22T20:01:22.3231750Z   RUNS_ON_AGENT_BINARY: /runs-on/agent
+2026-09-22T20:01:22.3232018Z   RUNS_ON_AGENT_ARCH: x64
+2026-09-22T20:01:22.3232255Z   RUNS_ON_AGENT_USER: runner
+2026-09-22T20:01:22.3232504Z   RUNS_ON_AMI_ID: ami-0d8875560af9e1401
+2026-09-22T20:01:22.3232779Z   RUNS_ON_AWS_REGION: us-east-1
+2026-09-22T20:01:22.3233037Z   RUNS_ON_AWS_AZ: us-east-1a
+2026-09-22T20:01:22.3233298Z   RUNS_ON_ENV_CUSTOM_FILE: /runs-on/env.custom
+2026-09-22T20:01:22.3233598Z   RUNS_ON_INSTANCE_ID: i-0cc92c6124b250c39
+2026-09-22T20:01:22.3233875Z   RUNS_ON_INSTANCE_LIFECYCLE: spot
+2026-09-22T20:01:22.3234142Z   RUNS_ON_INSTANCE_TYPE: c7i-flex.4xlarge
+2026-09-22T20:01:22.3234414Z   RUNS_ON_STACK_NAME: runs-on-v3
+2026-09-22T20:01:22.3234744Z   RUNS_ON_S3_BUCKET_CACHE: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:22.3235121Z   ACTIONS_RUNNER_HOOK_JOB_STARTED: /runs-on/pre.sh
+2026-09-22T20:01:22.3235466Z   ACTIONS_RUNNER_HOOK_JOB_COMPLETED: /runs-on/post.sh
+2026-09-22T20:01:22.3235926Z   GITHUB_SERVER_URL: https://github.com/
+2026-09-22T20:01:22.3236235Z   GITHUB_API_URL: https://api.github.com/
+2026-09-22T20:01:22.3236507Z   GITHUB_HOST: github.com
+2026-09-22T20:01:22.3236819Z   RUNS_ON_RUNNER_NAME: runs-on--i-0cc92c6124b250c39--2d1a9e91-7
+2026-09-22T20:01:22.3237178Z   RUNS_ON_INSTANCE_LAUNCHED_AT: 2026-09-22T20:00:55Z
+2026-09-22T20:01:22.3237493Z   ACTIONS_CACHE_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:22.3237773Z   ACTIONS_CACHE_SERVICE_V2: true
+2026-09-22T20:01:22.3238202Z   ACTIONS_RESULTS_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:22.3238556Z   RUNS_ON_S3_CACHE_REPO_PREFIX: cache/repo/vortex-data/vortex
+2026-09-22T20:01:22.3238891Z   RUNS_ON_ACTION_COST_TRACKING_CLAIMED: true
+2026-09-22T20:01:22.3239169Z   SCCACHE_REGION: us-east-1
+2026-09-22T20:01:22.3239419Z   SCCACHE_GHA_ENABLED: false
+2026-09-22T20:01:22.3239676Z   SCCACHE_S3_KEY_PREFIX: cache/sccache
+2026-09-22T20:01:22.3239945Z   RUSTC_WRAPPER: sccache
+2026-09-22T20:01:22.3240253Z   SCCACHE_BUCKET: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:22.3240564Z ##[endgroup]
+2026-09-22T20:01:22.4943179Z Syncing repository: vortex-data/vortex
+2026-09-22T20:01:22.4943855Z ##[group]Getting Git version info
+2026-09-22T20:01:22.4944258Z Working directory is '/home/runner/_work/vortex/vortex'
+2026-09-22T20:01:22.4944771Z [command]/usr/bin/git version
+2026-09-22T20:01:22.4967478Z git version 2.55.0
+2026-09-22T20:01:22.4981678Z ##[endgroup]
+2026-09-22T20:01:22.4997867Z Temporarily overriding HOME='/home/runner/_work/_temp/d7e8f94a-41f4-40f7-be04-848e5204aeab' before making global git config changes
+2026-09-22T20:01:22.4998672Z Adding repository directory to the temporary git global config as a safe directory
+2026-09-22T20:01:22.4999963Z [command]/usr/bin/git config --global --add safe.directory /home/runner/_work/vortex/vortex
+2026-09-22T20:01:22.5030596Z Deleting the contents of '/home/runner/_work/vortex/vortex'
+2026-09-22T20:01:22.5036088Z ##[group]Determining repository object format
+2026-09-22T20:01:22.5036617Z ##[endgroup]
+2026-09-22T20:01:22.5036971Z ##[group]Initializing the repository
+2026-09-22T20:01:22.5042746Z [command]/usr/bin/git init /home/runner/_work/vortex/vortex
+2026-09-22T20:01:22.5272612Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-09-22T20:01:22.5273725Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-09-22T20:01:22.5274247Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-09-22T20:01:22.5274642Z hint: call:
+2026-09-22T20:01:22.5274935Z hint:
+2026-09-22T20:01:22.5275282Z hint: 	git config --global init.defaultBranch <name>
+2026-09-22T20:01:22.5275698Z hint:
+2026-09-22T20:01:22.5276087Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-09-22T20:01:22.5276652Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-09-22T20:01:22.5277118Z hint:
+2026-09-22T20:01:22.5277526Z hint: 	git branch -m <name>
+2026-09-22T20:01:22.5277997Z hint:
+2026-09-22T20:01:22.5278389Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-09-22T20:01:22.5279010Z Initialized empty Git repository in /home/runner/_work/vortex/vortex/.git/
+2026-09-22T20:01:22.5282446Z [command]/usr/bin/git remote add origin https://github.com/vortex-data/vortex
+2026-09-22T20:01:22.5344845Z ##[endgroup]
+2026-09-22T20:01:22.5345387Z ##[group]Disabling automatic garbage collection
+2026-09-22T20:01:22.5353633Z [command]/usr/bin/git config --local gc.auto 0
+2026-09-22T20:01:22.5408907Z ##[endgroup]
+2026-09-22T20:01:22.5409451Z ##[group]Setting up auth
+2026-09-22T20:01:22.5409846Z Removing SSH command configuration
+2026-09-22T20:01:22.5414504Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-09-22T20:01:22.5443405Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-09-22T20:01:22.7234916Z Removing HTTP extra header
+2026-09-22T20:01:22.7242410Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-09-22T20:01:22.7271257Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-09-22T20:01:22.7472684Z Removing includeIf entries pointing to credentials config files
+2026-09-22T20:01:22.7477440Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-09-22T20:01:22.7505914Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-09-22T20:01:22.7712836Z [command]/usr/bin/git config --file /home/runner/_work/_temp/git-credentials-b7a55da4-fc1b-4d12-a1e1-a05ea6a6a977.config http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-09-22T20:01:22.7749830Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/_work/vortex/vortex/.git.path /home/runner/_work/_temp/git-credentials-b7a55da4-fc1b-4d12-a1e1-a05ea6a6a977.config
+2026-09-22T20:01:22.7779684Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/_work/vortex/vortex/.git/worktrees/*.path /home/runner/_work/_temp/git-credentials-b7a55da4-fc1b-4d12-a1e1-a05ea6a6a977.config
+2026-09-22T20:01:22.7807181Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-b7a55da4-fc1b-4d12-a1e1-a05ea6a6a977.config
+2026-09-22T20:01:22.7834242Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-b7a55da4-fc1b-4d12-a1e1-a05ea6a6a977.config
+2026-09-22T20:01:22.7857512Z ##[endgroup]
+2026-09-22T20:01:22.7858467Z ##[group]Fetching the repository
+2026-09-22T20:01:22.7863247Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +a02b33f28ac4d652b4f478237c6448c4006e9936:refs/remotes/pull/9986/merge
+2026-09-22T20:01:24.4927973Z From https://github.com/vortex-data/vortex
+2026-09-22T20:01:24.4928792Z  * [new ref]         a02b33f28ac4d652b4f478237c6448c4006e9936 -> pull/9986/merge
+2026-09-22T20:01:24.4929924Z ##[endgroup]
+2026-09-22T20:01:24.4930282Z ##[group]Determining the checkout info
+2026-09-22T20:01:24.4930648Z ##[endgroup]
+2026-09-22T20:01:24.4934419Z [command]/usr/bin/git sparse-checkout disable
+2026-09-22T20:01:24.5014191Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-09-22T20:01:24.5043374Z ##[group]Checking out the ref
+2026-09-22T20:01:24.5047941Z [command]/usr/bin/git checkout --progress --force refs/remotes/pull/9986/merge
+2026-09-22T20:01:24.6932096Z Note: switching to 'refs/remotes/pull/9986/merge'.
+2026-09-22T20:01:24.6932548Z 
+2026-09-22T20:01:24.6932844Z You are in 'detached HEAD' state. You can look around, make experimental
+2026-09-22T20:01:24.6933350Z changes and commit them, and you can discard any commits you make in this
+2026-09-22T20:01:24.6933797Z state without impacting any branches by switching back to a branch.
+2026-09-22T20:01:24.6934054Z 
+2026-09-22T20:01:24.6934236Z If you want to create a new branch to retain commits you create, you may
+2026-09-22T20:01:24.6934651Z do so (now or later) by using -c with the switch command. Example:
+2026-09-22T20:01:24.6934898Z 
+2026-09-22T20:01:24.6935008Z   git switch -c <new-branch-name>
+2026-09-22T20:01:24.6935173Z 
+2026-09-22T20:01:24.6935273Z Or undo this operation with:
+2026-09-22T20:01:24.6935506Z 
+2026-09-22T20:01:24.6935599Z   git switch -
+2026-09-22T20:01:24.6935757Z 
+2026-09-22T20:01:24.6935965Z Turn off this advice by setting config variable advice.detachedHead to false
+2026-09-22T20:01:24.6936226Z 
+2026-09-22T20:01:24.6936580Z HEAD is now at a02b33f Merge 2ed0398caf41241ea4ca65fe41780195f823a033 into 57f084f50b239befc2bbf5ecf7b06fec4f49bf38
+2026-09-22T20:01:24.6948164Z ##[endgroup]
+2026-09-22T20:01:24.7006396Z [command]/usr/bin/git log -1 --format=%H
+2026-09-22T20:01:24.7031870Z a02b33f28ac4d652b4f478237c6448c4006e9936
+2026-09-22T20:01:24.7237870Z Prepare all required actions
+2026-09-22T20:01:24.7238700Z Getting action download info
+2026-09-22T20:01:24.8073737Z Download action repository 'dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87' (SHA:6bed0761d98439e5a578e2877258200ad565ba87)
+2026-09-22T20:01:24.9033210Z ##[group]Run ./.github/actions/setup-prebuild
+2026-09-22T20:01:24.9033493Z with:
+2026-09-22T20:01:24.9033679Z   enable-sccache: true
+2026-09-22T20:01:24.9035772Z   repo-token: ***
+2026-09-22T20:01:24.9035979Z   components: clippy, rustfmt
+2026-09-22T20:01:24.9036196Z   protoc-version: 29.3
+2026-09-22T20:01:24.9036384Z env:
+2026-09-22T20:01:24.9036568Z   CARGO_TERM_COLOR: always
+2026-09-22T20:01:24.9036770Z   RUST_BACKTRACE: 1
+2026-09-22T20:01:24.9036973Z   NIGHTLY_TOOLCHAIN: nightly-2026-09-10
+2026-09-22T20:01:24.9037227Z   RUNNER_TOOL_CACHE: /opt/hostedtoolcache
+2026-09-22T20:01:24.9037513Z   RUNS_ON_HOME: /runs-on
+2026-09-22T20:01:24.9037712Z   RUNS_ON_VERSION: v3.3.0
+2026-09-22T20:01:24.9038104Z   RUNS_ON_AGENT_BINARY: /runs-on/agent
+2026-09-22T20:01:24.9038348Z   RUNS_ON_AGENT_ARCH: x64
+2026-09-22T20:01:24.9038552Z   RUNS_ON_AGENT_USER: runner
+2026-09-22T20:01:24.9038770Z   RUNS_ON_AMI_ID: ami-0d8875560af9e1401
+2026-09-22T20:01:24.9039010Z   RUNS_ON_AWS_REGION: us-east-1
+2026-09-22T20:01:24.9039240Z   RUNS_ON_AWS_AZ: us-east-1a
+2026-09-22T20:01:24.9039492Z   RUNS_ON_ENV_CUSTOM_FILE: /runs-on/env.custom
+2026-09-22T20:01:24.9039768Z   RUNS_ON_INSTANCE_ID: i-0cc92c6124b250c39
+2026-09-22T20:01:24.9040026Z   RUNS_ON_INSTANCE_LIFECYCLE: spot
+2026-09-22T20:01:24.9040269Z   RUNS_ON_INSTANCE_TYPE: c7i-flex.4xlarge
+2026-09-22T20:01:24.9040521Z   RUNS_ON_STACK_NAME: runs-on-v3
+2026-09-22T20:01:24.9040816Z   RUNS_ON_S3_BUCKET_CACHE: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:24.9041163Z   ACTIONS_RUNNER_HOOK_JOB_STARTED: /runs-on/pre.sh
+2026-09-22T20:01:24.9041474Z   ACTIONS_RUNNER_HOOK_JOB_COMPLETED: /runs-on/post.sh
+2026-09-22T20:01:24.9041787Z   GITHUB_SERVER_URL: https://github.com/
+2026-09-22T20:01:24.9042056Z   GITHUB_API_URL: https://api.github.com/
+2026-09-22T20:01:24.9042302Z   GITHUB_HOST: github.com
+2026-09-22T20:01:24.9042583Z   RUNS_ON_RUNNER_NAME: runs-on--i-0cc92c6124b250c39--2d1a9e91-7
+2026-09-22T20:01:24.9042914Z   RUNS_ON_INSTANCE_LAUNCHED_AT: 2026-09-22T20:00:55Z
+2026-09-22T20:01:24.9043199Z   ACTIONS_CACHE_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:24.9043458Z   ACTIONS_CACHE_SERVICE_V2: true
+2026-09-22T20:01:24.9043708Z   ACTIONS_RESULTS_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:24.9044014Z   RUNS_ON_S3_CACHE_REPO_PREFIX: cache/repo/vortex-data/vortex
+2026-09-22T20:01:24.9044328Z   RUNS_ON_ACTION_COST_TRACKING_CLAIMED: true
+2026-09-22T20:01:24.9044581Z   SCCACHE_REGION: us-east-1
+2026-09-22T20:01:24.9044802Z   SCCACHE_GHA_ENABLED: false
+2026-09-22T20:01:24.9045031Z   SCCACHE_S3_KEY_PREFIX: cache/sccache
+2026-09-22T20:01:24.9045274Z   RUSTC_WRAPPER: sccache
+2026-09-22T20:01:24.9045538Z   SCCACHE_BUCKET: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:24.9045829Z ##[endgroup]
+2026-09-22T20:01:24.9108627Z ##[start-action display=Resolve toolchain config;id=__self.toolchain-config]
+2026-09-22T20:01:24.9134693Z ##[group]Run DEFAULT_VERSION=$(grep channel rust-toolchain.toml | awk -F'"' '{print $2}')
+2026-09-22T20:01:24.9135246Z [36;1mDEFAULT_VERSION=$(grep channel rust-toolchain.toml | awk -F'"' '{print $2}')[0m
+2026-09-22T20:01:24.9135649Z [36;1mTOOLCHAIN="${TOOLCHAIN_OVERRIDE:-$DEFAULT_VERSION}"[0m
+2026-09-22T20:01:24.9135987Z [36;1mecho "toolchain=$TOOLCHAIN" >> "$GITHUB_OUTPUT"[0m
+2026-09-22T20:01:24.9136315Z [36;1mecho "RUSTUP_TOOLCHAIN=$DEFAULT_VERSION" >> "$GITHUB_ENV"[0m
+2026-09-22T20:01:24.9161873Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-09-22T20:01:24.9162178Z env:
+2026-09-22T20:01:24.9162373Z   CARGO_TERM_COLOR: always
+2026-09-22T20:01:24.9162593Z   RUST_BACKTRACE: 1
+2026-09-22T20:01:24.9162803Z   NIGHTLY_TOOLCHAIN: nightly-2026-09-10
+2026-09-22T20:01:24.9163200Z   RUNNER_TOOL_CACHE: /opt/hostedtoolcache
+2026-09-22T20:01:24.9163584Z   RUNS_ON_HOME: /runs-on
+2026-09-22T20:01:24.9163804Z   RUNS_ON_VERSION: v3.3.0
+2026-09-22T20:01:24.9164027Z   RUNS_ON_AGENT_BINARY: /runs-on/agent
+2026-09-22T20:01:24.9164273Z   RUNS_ON_AGENT_ARCH: x64
+2026-09-22T20:01:24.9164485Z   RUNS_ON_AGENT_USER: runner
+2026-09-22T20:01:24.9164715Z   RUNS_ON_AMI_ID: ami-0d8875560af9e1401
+2026-09-22T20:01:24.9164961Z   RUNS_ON_AWS_REGION: us-east-1
+2026-09-22T20:01:24.9165190Z   RUNS_ON_AWS_AZ: us-east-1a
+2026-09-22T20:01:24.9165433Z   RUNS_ON_ENV_CUSTOM_FILE: /runs-on/env.custom
+2026-09-22T20:01:24.9165714Z   RUNS_ON_INSTANCE_ID: i-0cc92c6124b250c39
+2026-09-22T20:01:24.9165963Z   RUNS_ON_INSTANCE_LIFECYCLE: spot
+2026-09-22T20:01:24.9166208Z   RUNS_ON_INSTANCE_TYPE: c7i-flex.4xlarge
+2026-09-22T20:01:24.9166457Z   RUNS_ON_STACK_NAME: runs-on-v3
+2026-09-22T20:01:24.9166747Z   RUNS_ON_S3_BUCKET_CACHE: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:24.9167095Z   ACTIONS_RUNNER_HOOK_JOB_STARTED: /runs-on/pre.sh
+2026-09-22T20:01:24.9167412Z   ACTIONS_RUNNER_HOOK_JOB_COMPLETED: /runs-on/post.sh
+2026-09-22T20:01:24.9167712Z   GITHUB_SERVER_URL: https://github.com/
+2026-09-22T20:01:24.9168094Z   GITHUB_API_URL: https://api.github.com/
+2026-09-22T20:01:24.9168351Z   GITHUB_HOST: github.com
+2026-09-22T20:01:24.9168622Z   RUNS_ON_RUNNER_NAME: runs-on--i-0cc92c6124b250c39--2d1a9e91-7
+2026-09-22T20:01:24.9168954Z   RUNS_ON_INSTANCE_LAUNCHED_AT: 2026-09-22T20:00:55Z
+2026-09-22T20:01:24.9169248Z   ACTIONS_CACHE_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:24.9169509Z   ACTIONS_CACHE_SERVICE_V2: true
+2026-09-22T20:01:24.9169754Z   ACTIONS_RESULTS_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:24.9170070Z   RUNS_ON_S3_CACHE_REPO_PREFIX: cache/repo/vortex-data/vortex
+2026-09-22T20:01:24.9170377Z   RUNS_ON_ACTION_COST_TRACKING_CLAIMED: true
+2026-09-22T20:01:24.9170633Z   SCCACHE_REGION: us-east-1
+2026-09-22T20:01:24.9170852Z   SCCACHE_GHA_ENABLED: false
+2026-09-22T20:01:24.9171082Z   SCCACHE_S3_KEY_PREFIX: cache/sccache
+2026-09-22T20:01:24.9171315Z   RUSTC_WRAPPER: sccache
+2026-09-22T20:01:24.9171579Z   SCCACHE_BUCKET: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:24.9171856Z   TOOLCHAIN_OVERRIDE: 
+2026-09-22T20:01:24.9172061Z ##[endgroup]
+2026-09-22T20:01:24.9275742Z ##[end-action id=__self.toolchain-config;outcome=success;conclusion=success;duration_ms=16]
+2026-09-22T20:01:24.9278212Z ##[start-action display=Check for rustup;id=__self.check-rustup]
+2026-09-22T20:01:24.9295976Z ##[group]Run echo "exists=$(command -v rustup &> /dev/null && echo 'true' || echo 'false')" >> "$GITHUB_OUTPUT"
+2026-09-22T20:01:24.9296612Z [36;1mecho "exists=$(command -v rustup &> /dev/null && echo 'true' || echo 'false')" >> "$GITHUB_OUTPUT"[0m
+2026-09-22T20:01:24.9321642Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-09-22T20:01:24.9321956Z env:
+2026-09-22T20:01:24.9322158Z   CARGO_TERM_COLOR: always
+2026-09-22T20:01:24.9322379Z   RUST_BACKTRACE: 1
+2026-09-22T20:01:24.9322692Z   NIGHTLY_TOOLCHAIN: nightly-2026-09-10
+2026-09-22T20:01:24.9322992Z   RUNNER_TOOL_CACHE: /opt/hostedtoolcache
+2026-09-22T20:01:24.9323248Z   RUNS_ON_HOME: /runs-on
+2026-09-22T20:01:24.9323476Z   RUNS_ON_VERSION: v3.3.0
+2026-09-22T20:01:24.9323746Z   RUNS_ON_AGENT_BINARY: /runs-on/agent
+2026-09-22T20:01:24.9323996Z   RUNS_ON_AGENT_ARCH: x64
+2026-09-22T20:01:24.9324211Z   RUNS_ON_AGENT_USER: runner
+2026-09-22T20:01:24.9324438Z   RUNS_ON_AMI_ID: ami-0d8875560af9e1401
+2026-09-22T20:01:24.9324680Z   RUNS_ON_AWS_REGION: us-east-1
+2026-09-22T20:01:24.9324906Z   RUNS_ON_AWS_AZ: us-east-1a
+2026-09-22T20:01:24.9325155Z   RUNS_ON_ENV_CUSTOM_FILE: /runs-on/env.custom
+2026-09-22T20:01:24.9325424Z   RUNS_ON_INSTANCE_ID: i-0cc92c6124b250c39
+2026-09-22T20:01:24.9325675Z   RUNS_ON_INSTANCE_LIFECYCLE: spot
+2026-09-22T20:01:24.9325922Z   RUNS_ON_INSTANCE_TYPE: c7i-flex.4xlarge
+2026-09-22T20:01:24.9326174Z   RUNS_ON_STACK_NAME: runs-on-v3
+2026-09-22T20:01:24.9326542Z   RUNS_ON_S3_BUCKET_CACHE: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:24.9327013Z   ACTIONS_RUNNER_HOOK_JOB_STARTED: /runs-on/pre.sh
+2026-09-22T20:01:24.9327423Z   ACTIONS_RUNNER_HOOK_JOB_COMPLETED: /runs-on/post.sh
+2026-09-22T20:01:24.9327733Z   GITHUB_SERVER_URL: https://github.com/
+2026-09-22T20:01:24.9328122Z   GITHUB_API_URL: https://api.github.com/
+2026-09-22T20:01:24.9328375Z   GITHUB_HOST: github.com
+2026-09-22T20:01:24.9328659Z   RUNS_ON_RUNNER_NAME: runs-on--i-0cc92c6124b250c39--2d1a9e91-7
+2026-09-22T20:01:24.9328994Z   RUNS_ON_INSTANCE_LAUNCHED_AT: 2026-09-22T20:00:55Z
+2026-09-22T20:01:24.9329276Z   ACTIONS_CACHE_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:24.9329534Z   ACTIONS_CACHE_SERVICE_V2: true
+2026-09-22T20:01:24.9329780Z   ACTIONS_RESULTS_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:24.9330094Z   RUNS_ON_S3_CACHE_REPO_PREFIX: cache/repo/vortex-data/vortex
+2026-09-22T20:01:24.9330411Z   RUNS_ON_ACTION_COST_TRACKING_CLAIMED: true
+2026-09-22T20:01:24.9330661Z   SCCACHE_REGION: us-east-1
+2026-09-22T20:01:24.9330877Z   SCCACHE_GHA_ENABLED: false
+2026-09-22T20:01:24.9331102Z   SCCACHE_S3_KEY_PREFIX: cache/sccache
+2026-09-22T20:01:24.9331341Z   RUSTC_WRAPPER: sccache
+2026-09-22T20:01:24.9331599Z   SCCACHE_BUCKET: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:24.9332049Z   RUSTUP_TOOLCHAIN: 1.98.0
+2026-09-22T20:01:24.9332385Z ##[endgroup]
+2026-09-22T20:01:24.9391045Z ##[end-action id=__self.check-rustup;outcome=success;conclusion=success;duration_ms=11]
+2026-09-22T20:01:24.9393347Z ##[start-action display=Install Rust;id=__self.__dtolnay_rust-toolchain]
+2026-09-22T20:01:24.9404832Z ##[end-action id=__self.__dtolnay_rust-toolchain;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-09-22T20:01:24.9408403Z ##[start-action display=Reconcile prebuilt Rust installation;id=__self.__run]
+2026-09-22T20:01:24.9426355Z ##[group]Run TOOLCHAIN_FOUND=false
+2026-09-22T20:01:24.9426704Z [36;1mTOOLCHAIN_FOUND=false[0m
+2026-09-22T20:01:24.9427028Z [36;1mfor INSTALLED in $(rustup toolchain list | awk '{print $1}'); do[0m
+2026-09-22T20:01:24.9427375Z [36;1m  case "$INSTALLED" in[0m
+2026-09-22T20:01:24.9427673Z [36;1m    "$TOOLCHAIN"|"$TOOLCHAIN"-*) TOOLCHAIN_FOUND=true ;;[0m
+2026-09-22T20:01:24.9428127Z [36;1m  esac[0m
+2026-09-22T20:01:24.9428318Z [36;1mdone[0m
+2026-09-22T20:01:24.9428535Z [36;1mif [ "$TOOLCHAIN_FOUND" != true ]; then[0m
+2026-09-22T20:01:24.9428876Z [36;1m  rustup toolchain install "$TOOLCHAIN" --profile minimal[0m
+2026-09-22T20:01:24.9429198Z [36;1mfi[0m
+2026-09-22T20:01:24.9429377Z [36;1m[0m
+2026-09-22T20:01:24.9429627Z [36;1mTOOLCHAIN_HOST=$(rustc +"$TOOLCHAIN" --print host-tuple)[0m
+2026-09-22T20:01:24.9430067Z [36;1mINSTALLED_COMPONENTS=$(rustup component list --toolchain "$TOOLCHAIN" --installed)[0m
+2026-09-22T20:01:24.9430463Z [36;1mMISSING_COMPONENTS=()[0m
+2026-09-22T20:01:24.9430748Z [36;1mIFS=',' read -ra REQUESTED_COMPONENTS <<< "$COMPONENTS"[0m
+2026-09-22T20:01:24.9431090Z [36;1mfor COMPONENT in "${REQUESTED_COMPONENTS[@]}"; do[0m
+2026-09-22T20:01:24.9431387Z [36;1m  COMPONENT=${COMPONENT// /}[0m
+2026-09-22T20:01:24.9431655Z [36;1m  [ -z "$COMPONENT" ] && continue[0m
+2026-09-22T20:01:24.9431934Z [36;1m  if [ "$COMPONENT" = llvm-tools ]; then[0m
+2026-09-22T20:01:24.9432226Z [36;1m    COMPONENT=llvm-tools-preview[0m
+2026-09-22T20:01:24.9432474Z [36;1m  fi[0m
+2026-09-22T20:01:24.9432732Z [36;1m  if ! grep -Fqx "$COMPONENT" <<< "$INSTALLED_COMPONENTS" && \[0m
+2026-09-22T20:01:24.9433150Z [36;1m     ! grep -Fqx "$COMPONENT-$TOOLCHAIN_HOST" <<< "$INSTALLED_COMPONENTS"; then[0m
+2026-09-22T20:01:24.9433525Z [36;1m    MISSING_COMPONENTS+=("$COMPONENT")[0m
+2026-09-22T20:01:24.9433798Z [36;1m  fi[0m
+2026-09-22T20:01:24.9433977Z [36;1mdone[0m
+2026-09-22T20:01:24.9434195Z [36;1mif [ ${#MISSING_COMPONENTS[@]} -gt 0 ]; then[0m
+2026-09-22T20:01:24.9434564Z [36;1m  rustup component add --toolchain "$TOOLCHAIN" "${MISSING_COMPONENTS[@]}"[0m
+2026-09-22T20:01:24.9434899Z [36;1mfi[0m
+2026-09-22T20:01:24.9435076Z [36;1m[0m
+2026-09-22T20:01:24.9435379Z [36;1mINSTALLED_TARGETS=$(rustup target list --toolchain "$TOOLCHAIN" --installed)[0m
+2026-09-22T20:01:24.9435844Z [36;1mMISSING_TARGETS=()[0m
+2026-09-22T20:01:24.9436204Z [36;1mIFS=',' read -ra REQUESTED_TARGETS <<< "$TARGETS"[0m
+2026-09-22T20:01:24.9436516Z [36;1mfor TARGET in "${REQUESTED_TARGETS[@]}"; do[0m
+2026-09-22T20:01:24.9436784Z [36;1m  TARGET=${TARGET// /}[0m
+2026-09-22T20:01:24.9437022Z [36;1m  [ -z "$TARGET" ] && continue[0m
+2026-09-22T20:01:24.9437322Z [36;1m  if ! grep -Fqx "$TARGET" <<< "$INSTALLED_TARGETS"; then[0m
+2026-09-22T20:01:24.9437625Z [36;1m    MISSING_TARGETS+=("$TARGET")[0m
+2026-09-22T20:01:24.9437864Z [36;1m  fi[0m
+2026-09-22T20:01:24.9438162Z [36;1mdone[0m
+2026-09-22T20:01:24.9438377Z [36;1mif [ ${#MISSING_TARGETS[@]} -gt 0 ]; then[0m
+2026-09-22T20:01:24.9438720Z [36;1m  rustup target add --toolchain "$TOOLCHAIN" "${MISSING_TARGETS[@]}"[0m
+2026-09-22T20:01:24.9439039Z [36;1mfi[0m
+2026-09-22T20:01:24.9462371Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-09-22T20:01:24.9462707Z env:
+2026-09-22T20:01:24.9462915Z   CARGO_TERM_COLOR: always
+2026-09-22T20:01:24.9463144Z   RUST_BACKTRACE: 1
+2026-09-22T20:01:24.9463448Z   NIGHTLY_TOOLCHAIN: nightly-2026-09-10
+2026-09-22T20:01:24.9463764Z   RUNNER_TOOL_CACHE: /opt/hostedtoolcache
+2026-09-22T20:01:24.9464055Z   RUNS_ON_HOME: /runs-on
+2026-09-22T20:01:24.9464318Z   RUNS_ON_VERSION: v3.3.0
+2026-09-22T20:01:24.9464613Z   RUNS_ON_AGENT_BINARY: /runs-on/agent
+2026-09-22T20:01:24.9464876Z   RUNS_ON_AGENT_ARCH: x64
+2026-09-22T20:01:24.9465110Z   RUNS_ON_AGENT_USER: runner
+2026-09-22T20:01:24.9465350Z   RUNS_ON_AMI_ID: ami-0d8875560af9e1401
+2026-09-22T20:01:24.9465609Z   RUNS_ON_AWS_REGION: us-east-1
+2026-09-22T20:01:24.9465862Z   RUNS_ON_AWS_AZ: us-east-1a
+2026-09-22T20:01:24.9466167Z   RUNS_ON_ENV_CUSTOM_FILE: /runs-on/env.custom
+2026-09-22T20:01:24.9466497Z   RUNS_ON_INSTANCE_ID: i-0cc92c6124b250c39
+2026-09-22T20:01:24.9466784Z   RUNS_ON_INSTANCE_LIFECYCLE: spot
+2026-09-22T20:01:24.9467042Z   RUNS_ON_INSTANCE_TYPE: c7i-flex.4xlarge
+2026-09-22T20:01:24.9467314Z   RUNS_ON_STACK_NAME: runs-on-v3
+2026-09-22T20:01:24.9467628Z   RUNS_ON_S3_BUCKET_CACHE: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:24.9468113Z   ACTIONS_RUNNER_HOOK_JOB_STARTED: /runs-on/pre.sh
+2026-09-22T20:01:24.9468449Z   ACTIONS_RUNNER_HOOK_JOB_COMPLETED: /runs-on/post.sh
+2026-09-22T20:01:24.9468778Z   GITHUB_SERVER_URL: https://github.com/
+2026-09-22T20:01:24.9469067Z   GITHUB_API_URL: https://api.github.com/
+2026-09-22T20:01:24.9469332Z   GITHUB_HOST: github.com
+2026-09-22T20:01:24.9469888Z   RUNS_ON_RUNNER_NAME: runs-on--i-0cc92c6124b250c39--2d1a9e91-7
+2026-09-22T20:01:24.9470350Z   RUNS_ON_INSTANCE_LAUNCHED_AT: 2026-09-22T20:00:55Z
+2026-09-22T20:01:24.9470668Z   ACTIONS_CACHE_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:24.9470945Z   ACTIONS_CACHE_SERVICE_V2: true
+2026-09-22T20:01:24.9471207Z   ACTIONS_RESULTS_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:24.9471537Z   RUNS_ON_S3_CACHE_REPO_PREFIX: cache/repo/vortex-data/vortex
+2026-09-22T20:01:24.9471860Z   RUNS_ON_ACTION_COST_TRACKING_CLAIMED: true
+2026-09-22T20:01:24.9472133Z   SCCACHE_REGION: us-east-1
+2026-09-22T20:01:24.9472374Z   SCCACHE_GHA_ENABLED: false
+2026-09-22T20:01:24.9472611Z   SCCACHE_S3_KEY_PREFIX: cache/sccache
+2026-09-22T20:01:24.9472859Z   RUSTC_WRAPPER: sccache
+2026-09-22T20:01:24.9473133Z   SCCACHE_BUCKET: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:24.9473429Z   RUSTUP_TOOLCHAIN: 1.98.0
+2026-09-22T20:01:24.9473652Z   TOOLCHAIN: 1.98.0
+2026-09-22T20:01:24.9473877Z   COMPONENTS: clippy, rustfmt
+2026-09-22T20:01:24.9474103Z   TARGETS: 
+2026-09-22T20:01:24.9474292Z ##[endgroup]
+2026-09-22T20:01:25.3293190Z info: syncing channel updates for 1.98.0-x86_64-unknown-linux-gnu
+2026-09-22T20:01:25.5186128Z info: latest update on 2026-08-20 for version 1.98.0 (88d9e12ae 2026-08-18)
+2026-09-22T20:01:25.5224914Z info: downloading 3 components
+2026-09-22T20:01:33.7055902Z info: syncing channel updates for 1.98.0-x86_64-unknown-linux-gnu
+2026-09-22T20:01:33.7473214Z 
+2026-09-22T20:01:33.7534672Z   1.98.0-x86_64-unknown-linux-gnu unchanged - rustc 1.98.0 (88d9e12ae 2026-08-18)
+2026-09-22T20:01:33.7534971Z 
+2026-09-22T20:01:33.8443332Z info: downloading component clippy
+2026-09-22T20:01:34.3935106Z info: downloading component rustfmt
+2026-09-22T20:01:34.7262503Z ##[end-action id=__self.__run;outcome=success;conclusion=success;duration_ms=9785]
+2026-09-22T20:01:34.7267069Z ##[start-action display=Reconcile mold installation;id=__self.__run_2]
+2026-09-22T20:01:34.7284846Z ##[group]Run if ! command -v mold >/dev/null; then
+2026-09-22T20:01:34.7285173Z [36;1mif ! command -v mold >/dev/null; then[0m
+2026-09-22T20:01:34.7285431Z [36;1m  sudo apt-get update[0m
+2026-09-22T20:01:34.7285658Z [36;1m  sudo apt-get install -y mold[0m
+2026-09-22T20:01:34.7285875Z [36;1mfi[0m
+2026-09-22T20:01:34.7309771Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-09-22T20:01:34.7310061Z env:
+2026-09-22T20:01:34.7310251Z   CARGO_TERM_COLOR: always
+2026-09-22T20:01:34.7310460Z   RUST_BACKTRACE: 1
+2026-09-22T20:01:34.7310694Z   NIGHTLY_TOOLCHAIN: nightly-2026-09-10
+2026-09-22T20:01:34.7310969Z   RUNNER_TOOL_CACHE: /opt/hostedtoolcache
+2026-09-22T20:01:34.7311212Z   RUNS_ON_HOME: /runs-on
+2026-09-22T20:01:34.7311419Z   RUNS_ON_VERSION: v3.3.0
+2026-09-22T20:01:34.7311633Z   RUNS_ON_AGENT_BINARY: /runs-on/agent
+2026-09-22T20:01:34.7311860Z   RUNS_ON_AGENT_ARCH: x64
+2026-09-22T20:01:34.7312067Z   RUNS_ON_AGENT_USER: runner
+2026-09-22T20:01:34.7312290Z   RUNS_ON_AMI_ID: ami-0d8875560af9e1401
+2026-09-22T20:01:34.7312520Z   RUNS_ON_AWS_REGION: us-east-1
+2026-09-22T20:01:34.7312737Z   RUNS_ON_AWS_AZ: us-east-1a
+2026-09-22T20:01:34.7312966Z   RUNS_ON_ENV_CUSTOM_FILE: /runs-on/env.custom
+2026-09-22T20:01:34.7313233Z   RUNS_ON_INSTANCE_ID: i-0cc92c6124b250c39
+2026-09-22T20:01:34.7313478Z   RUNS_ON_INSTANCE_LIFECYCLE: spot
+2026-09-22T20:01:34.7313722Z   RUNS_ON_INSTANCE_TYPE: c7i-flex.4xlarge
+2026-09-22T20:01:34.7313964Z   RUNS_ON_STACK_NAME: runs-on-v3
+2026-09-22T20:01:34.7314246Z   RUNS_ON_S3_BUCKET_CACHE: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:34.7314577Z   ACTIONS_RUNNER_HOOK_JOB_STARTED: /runs-on/pre.sh
+2026-09-22T20:01:34.7314876Z   ACTIONS_RUNNER_HOOK_JOB_COMPLETED: /runs-on/post.sh
+2026-09-22T20:01:34.7315171Z   GITHUB_SERVER_URL: https://github.com/
+2026-09-22T20:01:34.7315437Z   GITHUB_API_URL: https://api.github.com/
+2026-09-22T20:01:34.7315679Z   GITHUB_HOST: github.com
+2026-09-22T20:01:34.7316019Z   RUNS_ON_RUNNER_NAME: runs-on--i-0cc92c6124b250c39--2d1a9e91-7
+2026-09-22T20:01:34.7316342Z   RUNS_ON_INSTANCE_LAUNCHED_AT: 2026-09-22T20:00:55Z
+2026-09-22T20:01:34.7316608Z   ACTIONS_CACHE_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:34.7316855Z   ACTIONS_CACHE_SERVICE_V2: true
+2026-09-22T20:01:34.7317102Z   ACTIONS_RESULTS_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:34.7317600Z   RUNS_ON_S3_CACHE_REPO_PREFIX: cache/repo/vortex-data/vortex
+2026-09-22T20:01:34.7317913Z   RUNS_ON_ACTION_COST_TRACKING_CLAIMED: true
+2026-09-22T20:01:34.7318180Z   SCCACHE_REGION: us-east-1
+2026-09-22T20:01:34.7318395Z   SCCACHE_GHA_ENABLED: false
+2026-09-22T20:01:34.7318629Z   SCCACHE_S3_KEY_PREFIX: cache/sccache
+2026-09-22T20:01:34.7318870Z   RUSTC_WRAPPER: sccache
+2026-09-22T20:01:34.7319124Z   SCCACHE_BUCKET: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:34.7319400Z   RUSTUP_TOOLCHAIN: 1.98.0
+2026-09-22T20:01:34.7319612Z ##[endgroup]
+2026-09-22T20:01:34.7372428Z ##[end-action id=__self.__run_2;outcome=success;conclusion=success;duration_ms=10]
+2026-09-22T20:01:34.7375533Z ##[start-action display=Check protoc installation;id=__self.check-protoc]
+2026-09-22T20:01:34.7390245Z ##[group]Run EXPECTED="libprotoc $PROTOC_VERSION"
+2026-09-22T20:01:34.7390560Z [36;1mEXPECTED="libprotoc $PROTOC_VERSION"[0m
+2026-09-22T20:01:34.7390852Z [36;1mACTUAL=$(protoc --version 2>/dev/null || true)[0m
+2026-09-22T20:01:34.7391228Z [36;1mecho "install=$([ "$ACTUAL" = "$EXPECTED" ] && echo false || echo true)" >> "$GITHUB_OUTPUT"[0m
+2026-09-22T20:01:34.7413742Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-09-22T20:01:34.7414172Z env:
+2026-09-22T20:01:34.7414354Z   CARGO_TERM_COLOR: always
+2026-09-22T20:01:34.7414559Z   RUST_BACKTRACE: 1
+2026-09-22T20:01:34.7414864Z   NIGHTLY_TOOLCHAIN: nightly-2026-09-10
+2026-09-22T20:01:34.7415115Z   RUNNER_TOOL_CACHE: /opt/hostedtoolcache
+2026-09-22T20:01:34.7415347Z   RUNS_ON_HOME: /runs-on
+2026-09-22T20:01:34.7415545Z   RUNS_ON_VERSION: v3.3.0
+2026-09-22T20:01:34.7415757Z   RUNS_ON_AGENT_BINARY: /runs-on/agent
+2026-09-22T20:01:34.7415984Z   RUNS_ON_AGENT_ARCH: x64
+2026-09-22T20:01:34.7416182Z   RUNS_ON_AGENT_USER: runner
+2026-09-22T20:01:34.7416400Z   RUNS_ON_AMI_ID: ami-0d8875560af9e1401
+2026-09-22T20:01:34.7416626Z   RUNS_ON_AWS_REGION: us-east-1
+2026-09-22T20:01:34.7416840Z   RUNS_ON_AWS_AZ: us-east-1a
+2026-09-22T20:01:34.7417063Z   RUNS_ON_ENV_CUSTOM_FILE: /runs-on/env.custom
+2026-09-22T20:01:34.7417418Z   RUNS_ON_INSTANCE_ID: i-0cc92c6124b250c39
+2026-09-22T20:01:34.7417652Z   RUNS_ON_INSTANCE_LIFECYCLE: spot
+2026-09-22T20:01:34.7417891Z   RUNS_ON_INSTANCE_TYPE: c7i-flex.4xlarge
+2026-09-22T20:01:34.7418141Z   RUNS_ON_STACK_NAME: runs-on-v3
+2026-09-22T20:01:34.7418411Z   RUNS_ON_S3_BUCKET_CACHE: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:34.7418724Z   ACTIONS_RUNNER_HOOK_JOB_STARTED: /runs-on/pre.sh
+2026-09-22T20:01:34.7419010Z   ACTIONS_RUNNER_HOOK_JOB_COMPLETED: /runs-on/post.sh
+2026-09-22T20:01:34.7419289Z   GITHUB_SERVER_URL: https://github.com/
+2026-09-22T20:01:34.7419739Z   GITHUB_API_URL: https://api.github.com/
+2026-09-22T20:01:34.7419971Z   GITHUB_HOST: github.com
+2026-09-22T20:01:34.7420224Z   RUNS_ON_RUNNER_NAME: runs-on--i-0cc92c6124b250c39--2d1a9e91-7
+2026-09-22T20:01:34.7420526Z   RUNS_ON_INSTANCE_LAUNCHED_AT: 2026-09-22T20:00:55Z
+2026-09-22T20:01:34.7420790Z   ACTIONS_CACHE_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:34.7421081Z   ACTIONS_CACHE_SERVICE_V2: true
+2026-09-22T20:01:34.7421322Z   ACTIONS_RESULTS_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:34.7421604Z   RUNS_ON_S3_CACHE_REPO_PREFIX: cache/repo/vortex-data/vortex
+2026-09-22T20:01:34.7421897Z   RUNS_ON_ACTION_COST_TRACKING_CLAIMED: true
+2026-09-22T20:01:34.7422121Z   SCCACHE_REGION: us-east-1
+2026-09-22T20:01:34.7422324Z   SCCACHE_GHA_ENABLED: false
+2026-09-22T20:01:34.7422538Z   SCCACHE_S3_KEY_PREFIX: cache/sccache
+2026-09-22T20:01:34.7422754Z   RUSTC_WRAPPER: sccache
+2026-09-22T20:01:34.7422986Z   SCCACHE_BUCKET: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:34.7423247Z   RUSTUP_TOOLCHAIN: 1.98.0
+2026-09-22T20:01:34.7423440Z   PROTOC_VERSION: 29.3
+2026-09-22T20:01:34.7423622Z ##[endgroup]
+2026-09-22T20:01:34.9106929Z ##[end-action id=__self.check-protoc;outcome=success;conclusion=success;duration_ms=173]
+2026-09-22T20:01:34.9109312Z ##[start-action display=Install protoc;id=__self.__self]
+2026-09-22T20:01:34.9114023Z ##[end-action id=__self.__self;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-09-22T20:01:34.9115506Z ##[start-action display=Install sccache;id=__self.__self_2]
+2026-09-22T20:01:34.9150055Z Prepare all required actions
+2026-09-22T20:01:34.9150541Z Getting action download info
+2026-09-22T20:01:35.0177398Z Download action repository 'actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9' (SHA:55cc8345863c7cc4c66a329aec7e433d2d1c52a9)
+2026-09-22T20:01:35.1729087Z Download action repository 'mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696' (SHA:9e7fa8a12102821edf02ca5dbea1acd0f89a2696)
+2026-09-22T20:01:35.2823478Z ##[group]Run ./.github/actions/setup-sccache
+2026-09-22T20:01:35.2823893Z with:
+2026-09-22T20:01:35.2824175Z   version: v0.18.0
+2026-09-22T20:01:35.2824426Z env:
+2026-09-22T20:01:35.2824709Z   CARGO_TERM_COLOR: always
+2026-09-22T20:01:35.2824995Z   RUST_BACKTRACE: 1
+2026-09-22T20:01:35.2825292Z   NIGHTLY_TOOLCHAIN: nightly-2026-09-10
+2026-09-22T20:01:35.2825866Z   RUNNER_TOOL_CACHE: /opt/hostedtoolcache
+2026-09-22T20:01:35.2826175Z   RUNS_ON_HOME: /runs-on
+2026-09-22T20:01:35.2826485Z   RUNS_ON_VERSION: v3.3.0
+2026-09-22T20:01:35.2826787Z   RUNS_ON_AGENT_BINARY: /runs-on/agent
+2026-09-22T20:01:35.2827098Z   RUNS_ON_AGENT_ARCH: x64
+2026-09-22T20:01:35.2827718Z   RUNS_ON_AGENT_USER: runner
+2026-09-22T20:01:35.2828004Z   RUNS_ON_AMI_ID: ami-0d8875560af9e1401
+2026-09-22T20:01:35.2828449Z   RUNS_ON_AWS_REGION: us-east-1
+2026-09-22T20:01:35.2828748Z   RUNS_ON_AWS_AZ: us-east-1a
+2026-09-22T20:01:35.2829081Z   RUNS_ON_ENV_CUSTOM_FILE: /runs-on/env.custom
+2026-09-22T20:01:35.2829438Z   RUNS_ON_INSTANCE_ID: i-0cc92c6124b250c39
+2026-09-22T20:01:35.2829797Z   RUNS_ON_INSTANCE_LIFECYCLE: spot
+2026-09-22T20:01:35.2830190Z   RUNS_ON_INSTANCE_TYPE: c7i-flex.4xlarge
+2026-09-22T20:01:35.2830557Z   RUNS_ON_STACK_NAME: runs-on-v3
+2026-09-22T20:01:35.2831018Z   RUNS_ON_S3_BUCKET_CACHE: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:35.2831511Z   ACTIONS_RUNNER_HOOK_JOB_STARTED: /runs-on/pre.sh
+2026-09-22T20:01:35.2831966Z   ACTIONS_RUNNER_HOOK_JOB_COMPLETED: /runs-on/post.sh
+2026-09-22T20:01:35.2832423Z   GITHUB_SERVER_URL: https://github.com/
+2026-09-22T20:01:35.2832809Z   GITHUB_API_URL: https://api.github.com/
+2026-09-22T20:01:35.2833534Z   GITHUB_HOST: github.com
+2026-09-22T20:01:35.2833948Z   RUNS_ON_RUNNER_NAME: runs-on--i-0cc92c6124b250c39--2d1a9e91-7
+2026-09-22T20:01:35.2834404Z   RUNS_ON_INSTANCE_LAUNCHED_AT: 2026-09-22T20:00:55Z
+2026-09-22T20:01:35.2834876Z   ACTIONS_CACHE_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:35.2835264Z   ACTIONS_CACHE_SERVICE_V2: true
+2026-09-22T20:01:35.2835667Z   ACTIONS_RESULTS_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:35.2836251Z   RUNS_ON_S3_CACHE_REPO_PREFIX: cache/repo/vortex-data/vortex
+2026-09-22T20:01:35.2836708Z   RUNS_ON_ACTION_COST_TRACKING_CLAIMED: true
+2026-09-22T20:01:35.2837280Z   SCCACHE_REGION: us-east-1
+2026-09-22T20:01:35.2837656Z   SCCACHE_GHA_ENABLED: false
+2026-09-22T20:01:35.2838024Z   SCCACHE_S3_KEY_PREFIX: cache/sccache
+2026-09-22T20:01:35.2838388Z   RUSTC_WRAPPER: sccache
+2026-09-22T20:01:35.2838740Z   SCCACHE_BUCKET: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:35.2839121Z   RUSTUP_TOOLCHAIN: 1.98.0
+2026-09-22T20:01:35.2839459Z ##[endgroup]
+2026-09-22T20:01:35.2846862Z ##[start-action display=Check sccache installation;id=__self.__self_2.tool-cache]
+2026-09-22T20:01:35.2863495Z ##[group]Run VERSION="${SCCACHE_VERSION#v}"
+2026-09-22T20:01:35.2863848Z [36;1mVERSION="${SCCACHE_VERSION#v}"[0m
+2026-09-22T20:01:35.2864233Z [36;1mecho "path=${RUNNER_TOOL_CACHE}/sccache/$VERSION" >> "$GITHUB_OUTPUT"[0m
+2026-09-22T20:01:35.2864678Z [36;1mACTUAL=$(sccache --version 2>/dev/null || true)[0m
+2026-09-22T20:01:35.2865047Z [36;1mif [ "$ACTUAL" = "sccache $VERSION" ]; then[0m
+2026-09-22T20:01:35.2865376Z [36;1m  echo "Using preinstalled $ACTUAL"[0m
+2026-09-22T20:01:35.2865707Z [36;1m  echo "installed=true" >> "$GITHUB_OUTPUT"[0m
+2026-09-22T20:01:35.2866011Z [36;1melse[0m
+2026-09-22T20:01:35.2866336Z [36;1m  echo "Installing sccache $VERSION (found: ${ACTUAL:-none})"[0m
+2026-09-22T20:01:35.2866927Z [36;1m  echo "installed=false" >> "$GITHUB_OUTPUT"[0m
+2026-09-22T20:01:35.2867358Z [36;1mfi[0m
+2026-09-22T20:01:35.2891757Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-09-22T20:01:35.2892101Z env:
+2026-09-22T20:01:35.2892445Z   CARGO_TERM_COLOR: always
+2026-09-22T20:01:35.2892731Z   RUST_BACKTRACE: 1
+2026-09-22T20:01:35.2893051Z   NIGHTLY_TOOLCHAIN: nightly-2026-09-10
+2026-09-22T20:01:35.2893386Z   RUNNER_TOOL_CACHE: /opt/hostedtoolcache
+2026-09-22T20:01:35.2893674Z   RUNS_ON_HOME: /runs-on
+2026-09-22T20:01:35.2893969Z   RUNS_ON_VERSION: v3.3.0
+2026-09-22T20:01:35.2894246Z   RUNS_ON_AGENT_BINARY: /runs-on/agent
+2026-09-22T20:01:35.2894572Z   RUNS_ON_AGENT_ARCH: x64
+2026-09-22T20:01:35.2894852Z   RUNS_ON_AGENT_USER: runner
+2026-09-22T20:01:35.2895117Z   RUNS_ON_AMI_ID: ami-0d8875560af9e1401
+2026-09-22T20:01:35.2895436Z   RUNS_ON_AWS_REGION: us-east-1
+2026-09-22T20:01:35.2895714Z   RUNS_ON_AWS_AZ: us-east-1a
+2026-09-22T20:01:35.2896006Z   RUNS_ON_ENV_CUSTOM_FILE: /runs-on/env.custom
+2026-09-22T20:01:35.2896382Z   RUNS_ON_INSTANCE_ID: i-0cc92c6124b250c39
+2026-09-22T20:01:35.2896671Z   RUNS_ON_INSTANCE_LIFECYCLE: spot
+2026-09-22T20:01:35.2896988Z   RUNS_ON_INSTANCE_TYPE: c7i-flex.4xlarge
+2026-09-22T20:01:35.2897514Z   RUNS_ON_STACK_NAME: runs-on-v3
+2026-09-22T20:01:35.2897976Z   RUNS_ON_S3_BUCKET_CACHE: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:35.2898407Z   ACTIONS_RUNNER_HOOK_JOB_STARTED: /runs-on/pre.sh
+2026-09-22T20:01:35.2898746Z   ACTIONS_RUNNER_HOOK_JOB_COMPLETED: /runs-on/post.sh
+2026-09-22T20:01:35.2899109Z   GITHUB_SERVER_URL: https://github.com/
+2026-09-22T20:01:35.2899430Z   GITHUB_API_URL: https://api.github.com/
+2026-09-22T20:01:35.2899759Z   GITHUB_HOST: github.com
+2026-09-22T20:01:35.2900094Z   RUNS_ON_RUNNER_NAME: runs-on--i-0cc92c6124b250c39--2d1a9e91-7
+2026-09-22T20:01:35.2900496Z   RUNS_ON_INSTANCE_LAUNCHED_AT: 2026-09-22T20:00:55Z
+2026-09-22T20:01:35.2900848Z   ACTIONS_CACHE_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:35.2901162Z   ACTIONS_CACHE_SERVICE_V2: true
+2026-09-22T20:01:35.2901478Z   ACTIONS_RESULTS_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:35.2901849Z   RUNS_ON_S3_CACHE_REPO_PREFIX: cache/repo/vortex-data/vortex
+2026-09-22T20:01:35.2902220Z   RUNS_ON_ACTION_COST_TRACKING_CLAIMED: true
+2026-09-22T20:01:35.2902548Z   SCCACHE_REGION: us-east-1
+2026-09-22T20:01:35.2902827Z   SCCACHE_GHA_ENABLED: false
+2026-09-22T20:01:35.2903124Z   SCCACHE_S3_KEY_PREFIX: cache/sccache
+2026-09-22T20:01:35.2903428Z   RUSTC_WRAPPER: sccache
+2026-09-22T20:01:35.2903747Z   SCCACHE_BUCKET: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:35.2904130Z   RUSTUP_TOOLCHAIN: 1.98.0
+2026-09-22T20:01:35.2904420Z   SCCACHE_VERSION: v0.18.0
+2026-09-22T20:01:35.2904758Z ##[endgroup]
+2026-09-22T20:01:35.5440984Z Installing sccache 0.18.0 (found: sccache 0.14.0)
+2026-09-22T20:01:35.5449738Z ##[end-action id=__self.__self_2.tool-cache;outcome=success;conclusion=success;duration_ms=260]
+2026-09-22T20:01:35.5452356Z ##[start-action display=Restore sccache installation;id=__self.__self_2.restore]
+2026-09-22T20:01:35.5504570Z ##[group]Run actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+2026-09-22T20:01:35.5504967Z with:
+2026-09-22T20:01:35.5505231Z   path: /opt/hostedtoolcache/sccache/0.18.0
+2026-09-22T20:01:35.5505572Z   key: sccache-tool-v1-Linux-X64-v0.18.0
+2026-09-22T20:01:35.5505915Z   enableCrossOsArchive: false
+2026-09-22T20:01:35.5506196Z   fail-on-cache-miss: false
+2026-09-22T20:01:35.5506497Z   lookup-only: false
+2026-09-22T20:01:35.5506738Z env:
+2026-09-22T20:01:35.5507006Z   CARGO_TERM_COLOR: always
+2026-09-22T20:01:35.5507406Z   RUST_BACKTRACE: 1
+2026-09-22T20:01:35.5507670Z   NIGHTLY_TOOLCHAIN: nightly-2026-09-10
+2026-09-22T20:01:35.5507984Z   RUNNER_TOOL_CACHE: /opt/hostedtoolcache
+2026-09-22T20:01:35.5508305Z   RUNS_ON_HOME: /runs-on
+2026-09-22T20:01:35.5508677Z   RUNS_ON_VERSION: v3.3.0
+2026-09-22T20:01:35.5508954Z   RUNS_ON_AGENT_BINARY: /runs-on/agent
+2026-09-22T20:01:35.5509236Z   RUNS_ON_AGENT_ARCH: x64
+2026-09-22T20:01:35.5509503Z   RUNS_ON_AGENT_USER: runner
+2026-09-22T20:01:35.5509802Z   RUNS_ON_AMI_ID: ami-0d8875560af9e1401
+2026-09-22T20:01:35.5510109Z   RUNS_ON_AWS_REGION: us-east-1
+2026-09-22T20:01:35.5510392Z   RUNS_ON_AWS_AZ: us-east-1a
+2026-09-22T20:01:35.5510681Z   RUNS_ON_ENV_CUSTOM_FILE: /runs-on/env.custom
+2026-09-22T20:01:35.5511006Z   RUNS_ON_INSTANCE_ID: i-0cc92c6124b250c39
+2026-09-22T20:01:35.5511299Z   RUNS_ON_INSTANCE_LIFECYCLE: spot
+2026-09-22T20:01:35.5511632Z   RUNS_ON_INSTANCE_TYPE: c7i-flex.4xlarge
+2026-09-22T20:01:35.5511932Z   RUNS_ON_STACK_NAME: runs-on-v3
+2026-09-22T20:01:35.5512269Z   RUNS_ON_S3_BUCKET_CACHE: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:35.5512648Z   ACTIONS_RUNNER_HOOK_JOB_STARTED: /runs-on/pre.sh
+2026-09-22T20:01:35.5512988Z   ACTIONS_RUNNER_HOOK_JOB_COMPLETED: /runs-on/post.sh
+2026-09-22T20:01:35.5513380Z   GITHUB_SERVER_URL: https://github.com/
+2026-09-22T20:01:35.5513696Z   GITHUB_API_URL: https://api.github.com/
+2026-09-22T20:01:35.5513990Z   GITHUB_HOST: github.com
+2026-09-22T20:01:35.5514310Z   RUNS_ON_RUNNER_NAME: runs-on--i-0cc92c6124b250c39--2d1a9e91-7
+2026-09-22T20:01:35.5514669Z   RUNS_ON_INSTANCE_LAUNCHED_AT: 2026-09-22T20:00:55Z
+2026-09-22T20:01:35.5515042Z   ACTIONS_CACHE_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:35.5515511Z   ACTIONS_CACHE_SERVICE_V2: true
+2026-09-22T20:01:35.5516015Z   ACTIONS_RESULTS_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:35.5516426Z   RUNS_ON_S3_CACHE_REPO_PREFIX: cache/repo/vortex-data/vortex
+2026-09-22T20:01:35.5516829Z   RUNS_ON_ACTION_COST_TRACKING_CLAIMED: true
+2026-09-22T20:01:35.5517235Z   SCCACHE_REGION: us-east-1
+2026-09-22T20:01:35.5517598Z   SCCACHE_GHA_ENABLED: false
+2026-09-22T20:01:35.5517888Z   SCCACHE_S3_KEY_PREFIX: cache/sccache
+2026-09-22T20:01:35.5518206Z   RUSTC_WRAPPER: sccache
+2026-09-22T20:01:35.5518533Z   SCCACHE_BUCKET: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:35.5518859Z   RUSTUP_TOOLCHAIN: 1.98.0
+2026-09-22T20:01:35.5519146Z ##[endgroup]
+2026-09-22T20:01:35.7935614Z Cache hit for: sccache-tool-v1-Linux-X64-v0.18.0
+2026-09-22T20:01:35.9504726Z Cache Size: ~8 MB (8910161 B)
+2026-09-22T20:01:35.9542465Z [command]/usr/bin/tar -xf /home/runner/_work/_temp/bd2832ca-cfe6-43f0-b350-73922f80a08d/cache.tzst -P -C /home/runner/_work/vortex/vortex --use-compress-program unzstd
+2026-09-22T20:01:35.9889862Z Cache restored successfully
+2026-09-22T20:01:36.1015470Z Cache restored from key: sccache-tool-v1-Linux-X64-v0.18.0
+2026-09-22T20:01:36.1074284Z ##[end-action id=__self.__self_2.restore;outcome=success;conclusion=success;duration_ms=562]
+2026-09-22T20:01:36.1077089Z ##[start-action display=Install sccache;id=__self.__self_2.__mozilla-actions_sccache-action]
+2026-09-22T20:01:36.1113941Z ##[group]Run mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696
+2026-09-22T20:01:36.1114421Z with:
+2026-09-22T20:01:36.1114687Z   version: v0.18.0
+2026-09-22T20:01:36.1116996Z   token: ***
+2026-09-22T20:01:36.1117459Z   disable_annotations: false
+2026-09-22T20:01:36.1117788Z env:
+2026-09-22T20:01:36.1118087Z   CARGO_TERM_COLOR: always
+2026-09-22T20:01:36.1118384Z   RUST_BACKTRACE: 1
+2026-09-22T20:01:36.1118734Z   NIGHTLY_TOOLCHAIN: nightly-2026-09-10
+2026-09-22T20:01:36.1119076Z   RUNNER_TOOL_CACHE: /opt/hostedtoolcache
+2026-09-22T20:01:36.1119433Z   RUNS_ON_HOME: /runs-on
+2026-09-22T20:01:36.1119748Z   RUNS_ON_VERSION: v3.3.0
+2026-09-22T20:01:36.1120061Z   RUNS_ON_AGENT_BINARY: /runs-on/agent
+2026-09-22T20:01:36.1120527Z   RUNS_ON_AGENT_ARCH: x64
+2026-09-22T20:01:36.1120813Z   RUNS_ON_AGENT_USER: runner
+2026-09-22T20:01:36.1121111Z   RUNS_ON_AMI_ID: ami-0d8875560af9e1401
+2026-09-22T20:01:36.1121455Z   RUNS_ON_AWS_REGION: us-east-1
+2026-09-22T20:01:36.1121761Z   RUNS_ON_AWS_AZ: us-east-1a
+2026-09-22T20:01:36.1122084Z   RUNS_ON_ENV_CUSTOM_FILE: /runs-on/env.custom
+2026-09-22T20:01:36.1122457Z   RUNS_ON_INSTANCE_ID: i-0cc92c6124b250c39
+2026-09-22T20:01:36.1122788Z   RUNS_ON_INSTANCE_LIFECYCLE: spot
+2026-09-22T20:01:36.1123135Z   RUNS_ON_INSTANCE_TYPE: c7i-flex.4xlarge
+2026-09-22T20:01:36.1123469Z   RUNS_ON_STACK_NAME: runs-on-v3
+2026-09-22T20:01:36.1123850Z   RUNS_ON_S3_BUCKET_CACHE: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:36.1124283Z   ACTIONS_RUNNER_HOOK_JOB_STARTED: /runs-on/pre.sh
+2026-09-22T20:01:36.1124666Z   ACTIONS_RUNNER_HOOK_JOB_COMPLETED: /runs-on/post.sh
+2026-09-22T20:01:36.1125066Z   GITHUB_SERVER_URL: https://github.com/
+2026-09-22T20:01:36.1125411Z   GITHUB_API_URL: https://api.github.com/
+2026-09-22T20:01:36.1125751Z   GITHUB_HOST: github.com
+2026-09-22T20:01:36.1126095Z   RUNS_ON_RUNNER_NAME: runs-on--i-0cc92c6124b250c39--2d1a9e91-7
+2026-09-22T20:01:36.1126524Z   RUNS_ON_INSTANCE_LAUNCHED_AT: 2026-09-22T20:00:55Z
+2026-09-22T20:01:36.1126917Z   ACTIONS_CACHE_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:36.1127375Z   ACTIONS_CACHE_SERVICE_V2: true
+2026-09-22T20:01:36.1127724Z   ACTIONS_RESULTS_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:36.1128098Z   RUNS_ON_S3_CACHE_REPO_PREFIX: cache/repo/vortex-data/vortex
+2026-09-22T20:01:36.1128533Z   RUNS_ON_ACTION_COST_TRACKING_CLAIMED: true
+2026-09-22T20:01:36.1128851Z   SCCACHE_REGION: us-east-1
+2026-09-22T20:01:36.1129133Z   SCCACHE_GHA_ENABLED: false
+2026-09-22T20:01:36.1129440Z   SCCACHE_S3_KEY_PREFIX: cache/sccache
+2026-09-22T20:01:36.1129738Z   RUSTC_WRAPPER: sccache
+2026-09-22T20:01:36.1130212Z   SCCACHE_BUCKET: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:36.1130691Z   RUSTUP_TOOLCHAIN: 1.98.0
+2026-09-22T20:01:36.1130962Z ##[endgroup]
+2026-09-22T20:01:36.1870850Z try to setup sccache version: v0.18.0
+2026-09-22T20:01:36.1877815Z find sccache at: /opt/hostedtoolcache/sccache/0.18.0/x64
+2026-09-22T20:01:36.1937594Z ##[end-action id=__self.__self_2.__mozilla-actions_sccache-action;outcome=success;conclusion=success;duration_ms=85]
+2026-09-22T20:01:36.1940321Z ##[start-action display=Save sccache installation;id=__self.__self_2.__actions_cache]
+2026-09-22T20:01:36.1948336Z ##[end-action id=__self.__self_2.__actions_cache;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-09-22T20:01:36.1960372Z ##[end-action id=__self.__self_2;outcome=success;conclusion=success;duration_ms=1284]
+2026-09-22T20:01:36.1962658Z ##[start-action display=Configure sccache timeout;id=__self.__run_3]
+2026-09-22T20:01:36.1981240Z ##[group]Run mkdir -p ~/.config/sccache
+2026-09-22T20:01:36.1981612Z [36;1mmkdir -p ~/.config/sccache[0m
+2026-09-22T20:01:36.1982017Z [36;1mecho 'server_startup_timeout_ms = 60000' > ~/.config/sccache/config[0m
+2026-09-22T20:01:36.2010241Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-09-22T20:01:36.2010625Z env:
+2026-09-22T20:01:36.2010925Z   CARGO_TERM_COLOR: always
+2026-09-22T20:01:36.2011243Z   RUST_BACKTRACE: 1
+2026-09-22T20:01:36.2011519Z   NIGHTLY_TOOLCHAIN: nightly-2026-09-10
+2026-09-22T20:01:36.2011843Z   RUNNER_TOOL_CACHE: /opt/hostedtoolcache
+2026-09-22T20:01:36.2012162Z   RUNS_ON_HOME: /runs-on
+2026-09-22T20:01:36.2012433Z   RUNS_ON_VERSION: v3.3.0
+2026-09-22T20:01:36.2012896Z   RUNS_ON_AGENT_BINARY: /runs-on/agent
+2026-09-22T20:01:36.2013195Z   RUNS_ON_AGENT_ARCH: x64
+2026-09-22T20:01:36.2013472Z   RUNS_ON_AGENT_USER: runner
+2026-09-22T20:01:36.2013772Z   RUNS_ON_AMI_ID: ami-0d8875560af9e1401
+2026-09-22T20:01:36.2014074Z   RUNS_ON_AWS_REGION: us-east-1
+2026-09-22T20:01:36.2014432Z   RUNS_ON_AWS_AZ: us-east-1a
+2026-09-22T20:01:36.2014761Z   RUNS_ON_ENV_CUSTOM_FILE: /runs-on/env.custom
+2026-09-22T20:01:36.2015136Z   RUNS_ON_INSTANCE_ID: i-0cc92c6124b250c39
+2026-09-22T20:01:36.2015457Z   RUNS_ON_INSTANCE_LIFECYCLE: spot
+2026-09-22T20:01:36.2015761Z   RUNS_ON_INSTANCE_TYPE: c7i-flex.4xlarge
+2026-09-22T20:01:36.2016220Z   RUNS_ON_STACK_NAME: runs-on-v3
+2026-09-22T20:01:36.2016611Z   RUNS_ON_S3_BUCKET_CACHE: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:36.2017008Z   ACTIONS_RUNNER_HOOK_JOB_STARTED: /runs-on/pre.sh
+2026-09-22T20:01:36.2017531Z   ACTIONS_RUNNER_HOOK_JOB_COMPLETED: /runs-on/post.sh
+2026-09-22T20:01:36.2017898Z   GITHUB_SERVER_URL: https://github.com/
+2026-09-22T20:01:36.2018256Z   GITHUB_API_URL: https://api.github.com/
+2026-09-22T20:01:36.2018588Z   GITHUB_HOST: github.com
+2026-09-22T20:01:36.2018922Z   RUNS_ON_RUNNER_NAME: runs-on--i-0cc92c6124b250c39--2d1a9e91-7
+2026-09-22T20:01:36.2019306Z   RUNS_ON_INSTANCE_LAUNCHED_AT: 2026-09-22T20:00:55Z
+2026-09-22T20:01:36.2019673Z   ACTIONS_CACHE_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:36.2019999Z   ACTIONS_CACHE_SERVICE_V2: on
+2026-09-22T20:01:36.2020339Z   ACTIONS_RESULTS_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:36.2020702Z   RUNS_ON_S3_CACHE_REPO_PREFIX: cache/repo/vortex-data/vortex
+2026-09-22T20:01:36.2021096Z   RUNS_ON_ACTION_COST_TRACKING_CLAIMED: true
+2026-09-22T20:01:36.2021419Z   SCCACHE_REGION: us-east-1
+2026-09-22T20:01:36.2021704Z   SCCACHE_GHA_ENABLED: false
+2026-09-22T20:01:36.2021982Z   SCCACHE_S3_KEY_PREFIX: cache/sccache
+2026-09-22T20:01:36.2022313Z   RUSTC_WRAPPER: sccache
+2026-09-22T20:01:36.2022638Z   SCCACHE_BUCKET: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:36.2022987Z   RUSTUP_TOOLCHAIN: 1.98.0
+2026-09-22T20:01:36.2023324Z   SCCACHE_PATH: /opt/hostedtoolcache/sccache/0.18.0/x64/sccache
+2026-09-22T20:01:36.2065002Z   ACTIONS_RUNTIME_TOKEN: ***
+2026-09-22T20:01:36.2065359Z ##[endgroup]
+2026-09-22T20:01:36.2137097Z ##[end-action id=__self.__run_3;outcome=success;conclusion=success;duration_ms=17]
+2026-09-22T20:01:36.2139977Z ##[start-action display=Enable compiler caching;id=__self.__run_4]
+2026-09-22T20:01:36.2160361Z ##[group]Run sccache --start-server
+2026-09-22T20:01:36.2160739Z [36;1msccache --start-server[0m
+2026-09-22T20:01:36.2161121Z [36;1mecho "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"[0m
+2026-09-22T20:01:36.2161536Z [36;1mecho "CMAKE_C_COMPILER_LAUNCHER=sccache" >> "$GITHUB_ENV"[0m
+2026-09-22T20:01:36.2161955Z [36;1mecho "CMAKE_CXX_COMPILER_LAUNCHER=sccache" >> "$GITHUB_ENV"[0m
+2026-09-22T20:01:36.2184975Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-09-22T20:01:36.2185344Z env:
+2026-09-22T20:01:36.2185669Z   CARGO_TERM_COLOR: always
+2026-09-22T20:01:36.2185940Z   RUST_BACKTRACE: 1
+2026-09-22T20:01:36.2186209Z   NIGHTLY_TOOLCHAIN: nightly-2026-09-10
+2026-09-22T20:01:36.2186531Z   RUNNER_TOOL_CACHE: /opt/hostedtoolcache
+2026-09-22T20:01:36.2186842Z   RUNS_ON_HOME: /runs-on
+2026-09-22T20:01:36.2187118Z   RUNS_ON_VERSION: v3.3.0
+2026-09-22T20:01:36.2187556Z   RUNS_ON_AGENT_BINARY: /runs-on/agent
+2026-09-22T20:01:36.2187868Z   RUNS_ON_AGENT_ARCH: x64
+2026-09-22T20:01:36.2188141Z   RUNS_ON_AGENT_USER: runner
+2026-09-22T20:01:36.2188437Z   RUNS_ON_AMI_ID: ami-0d8875560af9e1401
+2026-09-22T20:01:36.2188737Z   RUNS_ON_AWS_REGION: us-east-1
+2026-09-22T20:01:36.2189009Z   RUNS_ON_AWS_AZ: us-east-1a
+2026-09-22T20:01:36.2189322Z   RUNS_ON_ENV_CUSTOM_FILE: /runs-on/env.custom
+2026-09-22T20:01:36.2189643Z   RUNS_ON_INSTANCE_ID: i-0cc92c6124b250c39
+2026-09-22T20:01:36.2189953Z   RUNS_ON_INSTANCE_LIFECYCLE: spot
+2026-09-22T20:01:36.2190249Z   RUNS_ON_INSTANCE_TYPE: c7i-flex.4xlarge
+2026-09-22T20:01:36.2190538Z   RUNS_ON_STACK_NAME: runs-on-v3
+2026-09-22T20:01:36.2190906Z   RUNS_ON_S3_BUCKET_CACHE: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:36.2191286Z   ACTIONS_RUNNER_HOOK_JOB_STARTED: /runs-on/pre.sh
+2026-09-22T20:01:36.2191655Z   ACTIONS_RUNNER_HOOK_JOB_COMPLETED: /runs-on/post.sh
+2026-09-22T20:01:36.2192018Z   GITHUB_SERVER_URL: https://github.com/
+2026-09-22T20:01:36.2192342Z   GITHUB_API_URL: https://api.github.com/
+2026-09-22T20:01:36.2192682Z   GITHUB_HOST: github.com
+2026-09-22T20:01:36.2193035Z   RUNS_ON_RUNNER_NAME: runs-on--i-0cc92c6124b250c39--2d1a9e91-7
+2026-09-22T20:01:36.2193411Z   RUNS_ON_INSTANCE_LAUNCHED_AT: 2026-09-22T20:00:55Z
+2026-09-22T20:01:36.2193754Z   ACTIONS_CACHE_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:36.2194062Z   ACTIONS_CACHE_SERVICE_V2: on
+2026-09-22T20:01:36.2194346Z   ACTIONS_RESULTS_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:36.2194769Z   RUNS_ON_S3_CACHE_REPO_PREFIX: cache/repo/vortex-data/vortex
+2026-09-22T20:01:36.2195121Z   RUNS_ON_ACTION_COST_TRACKING_CLAIMED: true
+2026-09-22T20:01:36.2195432Z   SCCACHE_REGION: us-east-1
+2026-09-22T20:01:36.2195801Z   SCCACHE_GHA_ENABLED: false
+2026-09-22T20:01:36.2196082Z   SCCACHE_S3_KEY_PREFIX: cache/sccache
+2026-09-22T20:01:36.2196447Z   RUSTC_WRAPPER: sccache
+2026-09-22T20:01:36.2196758Z   SCCACHE_BUCKET: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:36.2197111Z   RUSTUP_TOOLCHAIN: 1.98.0
+2026-09-22T20:01:36.2197586Z   SCCACHE_PATH: /opt/hostedtoolcache/sccache/0.18.0/x64/sccache
+2026-09-22T20:01:36.2237490Z   ACTIONS_RUNTIME_TOKEN: ***
+2026-09-22T20:01:36.2237830Z ##[endgroup]
+2026-09-22T20:01:36.2293552Z sccache: Starting the server...
+2026-09-22T20:01:36.3748733Z sccache: Listening on address 127.0.0.1:4226
+2026-09-22T20:01:36.3849529Z ##[end-action id=__self.__run_4;outcome=success;conclusion=success;duration_ms=170]
+2026-09-22T20:01:36.3852466Z ##[start-action display=Full Rust setup;id=__self.__self_3]
+2026-09-22T20:01:36.3858684Z ##[end-action id=__self.__self_3;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-09-22T20:01:36.3861139Z ##[start-action display=Install flatc (for FlatBuffers code generation);id=__self.__self_4]
+2026-09-22T20:01:36.3885659Z Prepare all required actions
+2026-09-22T20:01:36.3918093Z ##[group]Run ./.github/actions/setup-flatc
+2026-09-22T20:01:36.3918374Z with:
+2026-09-22T20:01:36.3918593Z   flatc_version: 25.12.19
+2026-09-22T20:01:36.3918793Z env:
+2026-09-22T20:01:36.3919078Z   CARGO_TERM_COLOR: always
+2026-09-22T20:01:36.3919287Z   RUST_BACKTRACE: 1
+2026-09-22T20:01:36.3919594Z   NIGHTLY_TOOLCHAIN: nightly-2026-09-10
+2026-09-22T20:01:36.3919857Z   RUNNER_TOOL_CACHE: /opt/hostedtoolcache
+2026-09-22T20:01:36.3920087Z   RUNS_ON_HOME: /runs-on
+2026-09-22T20:01:36.3920281Z   RUNS_ON_VERSION: v3.3.0
+2026-09-22T20:01:36.3920486Z   RUNS_ON_AGENT_BINARY: /runs-on/agent
+2026-09-22T20:01:36.3920704Z   RUNS_ON_AGENT_ARCH: x64
+2026-09-22T20:01:36.3920902Z   RUNS_ON_AGENT_USER: runner
+2026-09-22T20:01:36.3921108Z   RUNS_ON_AMI_ID: ami-0d8875560af9e1401
+2026-09-22T20:01:36.3921331Z   RUNS_ON_AWS_REGION: us-east-1
+2026-09-22T20:01:36.3921540Z   RUNS_ON_AWS_AZ: us-east-1a
+2026-09-22T20:01:36.3921759Z   RUNS_ON_ENV_CUSTOM_FILE: /runs-on/env.custom
+2026-09-22T20:01:36.3922006Z   RUNS_ON_INSTANCE_ID: i-0cc92c6124b250c39
+2026-09-22T20:01:36.3922247Z   RUNS_ON_INSTANCE_LIFECYCLE: spot
+2026-09-22T20:01:36.3922470Z   RUNS_ON_INSTANCE_TYPE: c7i-flex.4xlarge
+2026-09-22T20:01:36.3922700Z   RUNS_ON_STACK_NAME: runs-on-v3
+2026-09-22T20:01:36.3922975Z   RUNS_ON_S3_BUCKET_CACHE: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:36.3923289Z   ACTIONS_RUNNER_HOOK_JOB_STARTED: /runs-on/pre.sh
+2026-09-22T20:01:36.3923573Z   ACTIONS_RUNNER_HOOK_JOB_COMPLETED: /runs-on/post.sh
+2026-09-22T20:01:36.3923856Z   GITHUB_SERVER_URL: https://github.com/
+2026-09-22T20:01:36.3924101Z   GITHUB_API_URL: https://api.github.com/
+2026-09-22T20:01:36.3924328Z   GITHUB_HOST: github.com
+2026-09-22T20:01:36.3924581Z   RUNS_ON_RUNNER_NAME: runs-on--i-0cc92c6124b250c39--2d1a9e91-7
+2026-09-22T20:01:36.3924882Z   RUNS_ON_INSTANCE_LAUNCHED_AT: 2026-09-22T20:00:55Z
+2026-09-22T20:01:36.3925151Z   ACTIONS_CACHE_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:36.3925385Z   ACTIONS_CACHE_SERVICE_V2: on
+2026-09-22T20:01:36.3925606Z   ACTIONS_RESULTS_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:36.3925889Z   RUNS_ON_S3_CACHE_REPO_PREFIX: cache/repo/vortex-data/vortex
+2026-09-22T20:01:36.3926165Z   RUNS_ON_ACTION_COST_TRACKING_CLAIMED: true
+2026-09-22T20:01:36.3926396Z   SCCACHE_REGION: us-east-1
+2026-09-22T20:01:36.3926605Z   SCCACHE_GHA_ENABLED: false
+2026-09-22T20:01:36.3926815Z   SCCACHE_S3_KEY_PREFIX: cache/sccache
+2026-09-22T20:01:36.3927031Z   RUSTC_WRAPPER: sccache
+2026-09-22T20:01:36.3927468Z   SCCACHE_BUCKET: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:36.3927742Z   RUSTUP_TOOLCHAIN: 1.98.0
+2026-09-22T20:01:36.3927995Z   SCCACHE_PATH: /opt/hostedtoolcache/sccache/0.18.0/x64/sccache
+2026-09-22T20:01:36.3967610Z   ACTIONS_RUNTIME_TOKEN: ***
+2026-09-22T20:01:36.3967888Z   CMAKE_C_COMPILER_LAUNCHER: sccache
+2026-09-22T20:01:36.3968186Z   CMAKE_CXX_COMPILER_LAUNCHER: sccache
+2026-09-22T20:01:36.3968490Z ##[endgroup]
+2026-09-22T20:01:36.3972010Z ##[start-action display=Install flatc;id=__self.__self_4.__run]
+2026-09-22T20:01:36.3987299Z ##[group]Run set -euo pipefail
+2026-09-22T20:01:36.3987609Z [36;1mset -euo pipefail[0m
+2026-09-22T20:01:36.3987815Z [36;1m[0m
+2026-09-22T20:01:36.3987993Z [36;1mVERSION="25.12.19"[0m
+2026-09-22T20:01:36.3988310Z [36;1mif [ "$(flatc --version 2>/dev/null)" = "flatc version ${VERSION}" ]; then[0m
+2026-09-22T20:01:36.3988685Z [36;1m  echo "flatc ${VERSION} is already installed"[0m
+2026-09-22T20:01:36.3988947Z [36;1m  exit 0[0m
+2026-09-22T20:01:36.3989128Z [36;1mfi[0m
+2026-09-22T20:01:36.3989301Z [36;1m[0m
+2026-09-22T20:01:36.3989477Z [36;1mARCH=$(uname -m)[0m
+2026-09-22T20:01:36.3989720Z [36;1mOS=$(uname -s | tr '[:upper:]' '[:lower:]')[0m
+2026-09-22T20:01:36.3989973Z [36;1m[0m
+2026-09-22T20:01:36.3990247Z [36;1m# Official binaries exist for x86_64 glibc Linux, macOS and Windows only.[0m
+2026-09-22T20:01:36.3990589Z [36;1mASSET=""[0m
+2026-09-22T20:01:36.3990779Z [36;1mcase "$OS" in[0m
+2026-09-22T20:01:36.3990975Z [36;1m  linux)[0m
+2026-09-22T20:01:36.3991227Z [36;1m    if [ "$ARCH" = "x86_64" ] && ! ldd /bin/sh 2>&1 | grep -qi musl; then[0m
+2026-09-22T20:01:36.3991584Z [36;1m      ASSET="Linux.flatc.binary.clang++-18.zip"[0m
+2026-09-22T20:01:36.3991846Z [36;1m    fi[0m
+2026-09-22T20:01:36.3992115Z [36;1m    ;;[0m
+2026-09-22T20:01:36.3992291Z [36;1m  darwin)[0m
+2026-09-22T20:01:36.3992558Z [36;1m    case "$ARCH" in[0m
+2026-09-22T20:01:36.3992810Z [36;1m      arm64)  ASSET="Mac.flatc.binary.zip" ;;[0m
+2026-09-22T20:01:36.3993123Z [36;1m      x86_64) ASSET="MacIntel.flatc.binary.zip" ;;[0m
+2026-09-22T20:01:36.3993386Z [36;1m    esac[0m
+2026-09-22T20:01:36.3993561Z [36;1m    ;;[0m
+2026-09-22T20:01:36.3993763Z [36;1m  *) ASSET="Windows.flatc.binary.zip" ;;[0m
+2026-09-22T20:01:36.3994011Z [36;1mesac[0m
+2026-09-22T20:01:36.3994187Z [36;1m[0m
+2026-09-22T20:01:36.3994497Z [36;1m# This sometimes runs in a container where the user is root and there is no sudo.[0m
+2026-09-22T20:01:36.3994855Z [36;1mif command -v sudo &>/dev/null[0m
+2026-09-22T20:01:36.3995079Z [36;1mthen[0m
+2026-09-22T20:01:36.3995255Z [36;1m  CMD=sudo[0m
+2026-09-22T20:01:36.3995438Z [36;1melse[0m
+2026-09-22T20:01:36.3995609Z [36;1m  CMD=[0m
+2026-09-22T20:01:36.3995874Z [36;1mfi[0m
+2026-09-22T20:01:36.3996051Z [36;1m[0m
+2026-09-22T20:01:36.3996408Z [36;1mRELEASE="https://github.com/google/flatbuffers/releases/download/v${VERSION}"[0m
+2026-09-22T20:01:36.3996843Z [36;1mif [ -n "$ASSET" ]; then[0m
+2026-09-22T20:01:36.3997284Z [36;1m  curl -fsSL -o /tmp/flatc.zip "${RELEASE}/${ASSET}"[0m
+2026-09-22T20:01:36.3997672Z [36;1m  unzip -o /tmp/flatc.zip -d /tmp/flatc[0m
+2026-09-22T20:01:36.3997981Z [36;1m  rm -f /tmp/flatc.zip[0m
+2026-09-22T20:01:36.3998228Z [36;1melse[0m
+2026-09-22T20:01:36.3998572Z [36;1m  echo "No official flatc binary for ${OS}/${ARCH}; building ${VERSION} from source"[0m
+2026-09-22T20:01:36.3999017Z [36;1m  git clone --depth 1 --branch "v${VERSION}" \[0m
+2026-09-22T20:01:36.3999357Z [36;1m    https://github.com/google/flatbuffers.git /tmp/flatbuffers[0m
+2026-09-22T20:01:36.3999733Z [36;1m  cmake -S /tmp/flatbuffers -B /tmp/flatbuffers/build \[0m
+2026-09-22T20:01:36.4000036Z [36;1m    -DCMAKE_BUILD_TYPE=Release \[0m
+2026-09-22T20:01:36.4000300Z [36;1m    -DFLATBUFFERS_BUILD_TESTS=OFF \[0m
+2026-09-22T20:01:36.4000579Z [36;1m    -DFLATBUFFERS_BUILD_FLATLIB=OFF \[0m
+2026-09-22T20:01:36.4000852Z [36;1m    -DFLATBUFFERS_BUILD_FLATHASH=OFF \[0m
+2026-09-22T20:01:36.4001117Z [36;1m    -DFLATBUFFERS_INSTALL=OFF[0m
+2026-09-22T20:01:36.4001414Z [36;1m  cmake --build /tmp/flatbuffers/build --target flatc \[0m
+2026-09-22T20:01:36.4001737Z [36;1m    --parallel "$(nproc 2>/dev/null || echo 4)"[0m
+2026-09-22T20:01:36.4002004Z [36;1m  mkdir -p /tmp/flatc[0m
+2026-09-22T20:01:36.4002266Z [36;1m  mv /tmp/flatbuffers/build/flatc /tmp/flatc/flatc[0m
+2026-09-22T20:01:36.4002541Z [36;1m  rm -rf /tmp/flatbuffers[0m
+2026-09-22T20:01:36.4002764Z [36;1mfi[0m
+2026-09-22T20:01:36.4002935Z [36;1m[0m
+2026-09-22T20:01:36.4003150Z [36;1mif [ "$OS" = "linux" ] || [ "$OS" = "darwin" ]; then[0m
+2026-09-22T20:01:36.4003444Z [36;1m  $CMD mv /tmp/flatc/flatc /usr/local/bin/[0m
+2026-09-22T20:01:36.4003691Z [36;1melse[0m
+2026-09-22T20:01:36.4003957Z [36;1m  # Windows runners do not have /usr/local/bin on PATH for non-bash steps.[0m
+2026-09-22T20:01:36.4004309Z [36;1m  mkdir -p "$HOME/.local/bin"[0m
+2026-09-22T20:01:36.4004577Z [36;1m  mv /tmp/flatc/flatc.exe "$HOME/.local/bin/"[0m
+2026-09-22T20:01:36.4004877Z [36;1m  cygpath -w "$HOME/.local/bin" >> "$GITHUB_PATH"[0m
+2026-09-22T20:01:36.4005162Z [36;1m  export PATH="$HOME/.local/bin:$PATH"[0m
+2026-09-22T20:01:36.4005403Z [36;1mfi[0m
+2026-09-22T20:01:36.4005574Z [36;1m[0m
+2026-09-22T20:01:36.4005759Z [36;1mrm -rf /tmp/flatc[0m
+2026-09-22T20:01:36.4005972Z [36;1mflatc --version[0m
+2026-09-22T20:01:36.4030130Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-09-22T20:01:36.4030403Z env:
+2026-09-22T20:01:36.4030584Z   CARGO_TERM_COLOR: always
+2026-09-22T20:01:36.4030777Z   RUST_BACKTRACE: 1
+2026-09-22T20:01:36.4030969Z   NIGHTLY_TOOLCHAIN: nightly-2026-09-10
+2026-09-22T20:01:36.4031214Z   RUNNER_TOOL_CACHE: /opt/hostedtoolcache
+2026-09-22T20:01:36.4031432Z   RUNS_ON_HOME: /runs-on
+2026-09-22T20:01:36.4031736Z   RUNS_ON_VERSION: v3.3.0
+2026-09-22T20:01:36.4031949Z   RUNS_ON_AGENT_BINARY: /runs-on/agent
+2026-09-22T20:01:36.4032250Z   RUNS_ON_AGENT_ARCH: x64
+2026-09-22T20:01:36.4032452Z   RUNS_ON_AGENT_USER: runner
+2026-09-22T20:01:36.4032674Z   RUNS_ON_AMI_ID: ami-0d8875560af9e1401
+2026-09-22T20:01:36.4032901Z   RUNS_ON_AWS_REGION: us-east-1
+2026-09-22T20:01:36.4033112Z   RUNS_ON_AWS_AZ: us-east-1a
+2026-09-22T20:01:36.4033334Z   RUNS_ON_ENV_CUSTOM_FILE: /runs-on/env.custom
+2026-09-22T20:01:36.4033582Z   RUNS_ON_INSTANCE_ID: i-0cc92c6124b250c39
+2026-09-22T20:01:36.4033816Z   RUNS_ON_INSTANCE_LIFECYCLE: spot
+2026-09-22T20:01:36.4034050Z   RUNS_ON_INSTANCE_TYPE: c7i-flex.4xlarge
+2026-09-22T20:01:36.4034285Z   RUNS_ON_STACK_NAME: runs-on-v3
+2026-09-22T20:01:36.4034558Z   RUNS_ON_S3_BUCKET_CACHE: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:36.4034870Z   ACTIONS_RUNNER_HOOK_JOB_STARTED: /runs-on/pre.sh
+2026-09-22T20:01:36.4035154Z   ACTIONS_RUNNER_HOOK_JOB_COMPLETED: /runs-on/post.sh
+2026-09-22T20:01:36.4035439Z   GITHUB_SERVER_URL: https://github.com/
+2026-09-22T20:01:36.4035765Z   GITHUB_API_URL: https://api.github.com/
+2026-09-22T20:01:36.4036009Z   GITHUB_HOST: github.com
+2026-09-22T20:01:36.4036263Z   RUNS_ON_RUNNER_NAME: runs-on--i-0cc92c6124b250c39--2d1a9e91-7
+2026-09-22T20:01:36.4036585Z   RUNS_ON_INSTANCE_LAUNCHED_AT: 2026-09-22T20:00:55Z
+2026-09-22T20:01:36.4036871Z   ACTIONS_CACHE_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:36.4037222Z   ACTIONS_CACHE_SERVICE_V2: on
+2026-09-22T20:01:36.4037481Z   ACTIONS_RESULTS_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:36.4037796Z   RUNS_ON_S3_CACHE_REPO_PREFIX: cache/repo/vortex-data/vortex
+2026-09-22T20:01:36.4038103Z   RUNS_ON_ACTION_COST_TRACKING_CLAIMED: true
+2026-09-22T20:01:36.4038353Z   SCCACHE_REGION: us-east-1
+2026-09-22T20:01:36.4038582Z   SCCACHE_GHA_ENABLED: false
+2026-09-22T20:01:36.4038814Z   SCCACHE_S3_KEY_PREFIX: cache/sccache
+2026-09-22T20:01:36.4039049Z   RUSTC_WRAPPER: sccache
+2026-09-22T20:01:36.4039305Z   SCCACHE_BUCKET: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:36.4039587Z   RUSTUP_TOOLCHAIN: 1.98.0
+2026-09-22T20:01:36.4039857Z   SCCACHE_PATH: /opt/hostedtoolcache/sccache/0.18.0/x64/sccache
+2026-09-22T20:01:36.4078738Z   ACTIONS_RUNTIME_TOKEN: ***
+2026-09-22T20:01:36.4079016Z   CMAKE_C_COMPILER_LAUNCHER: sccache
+2026-09-22T20:01:36.4079317Z   CMAKE_CXX_COMPILER_LAUNCHER: sccache
+2026-09-22T20:01:36.4079575Z ##[endgroup]
+2026-09-22T20:01:36.5230850Z flatc 25.12.19 is already installed
+2026-09-22T20:01:36.5238135Z ##[end-action id=__self.__self_4.__run;outcome=success;conclusion=success;duration_ms=126]
+2026-09-22T20:01:36.5242856Z ##[end-action id=__self.__self_4;outcome=success;conclusion=success;duration_ms=138]
+2026-09-22T20:01:36.5275165Z Prepare all required actions
+2026-09-22T20:01:36.5310703Z ##[group]Run ./.github/actions/system-info
+2026-09-22T20:01:36.5311052Z env:
+2026-09-22T20:01:36.5311308Z   CARGO_TERM_COLOR: always
+2026-09-22T20:01:36.5311608Z   RUST_BACKTRACE: 1
+2026-09-22T20:01:36.5311912Z   NIGHTLY_TOOLCHAIN: nightly-2026-09-10
+2026-09-22T20:01:36.5312334Z   RUNNER_TOOL_CACHE: /opt/hostedtoolcache
+2026-09-22T20:01:36.5312703Z   RUNS_ON_HOME: /runs-on
+2026-09-22T20:01:36.5312995Z   RUNS_ON_VERSION: v3.3.0
+2026-09-22T20:01:36.5313312Z   RUNS_ON_AGENT_BINARY: /runs-on/agent
+2026-09-22T20:01:36.5313663Z   RUNS_ON_AGENT_ARCH: x64
+2026-09-22T20:01:36.5313959Z   RUNS_ON_AGENT_USER: runner
+2026-09-22T20:01:36.5314284Z   RUNS_ON_AMI_ID: ami-0d8875560af9e1401
+2026-09-22T20:01:36.5314637Z   RUNS_ON_AWS_REGION: us-east-1
+2026-09-22T20:01:36.5314976Z   RUNS_ON_AWS_AZ: us-east-1a
+2026-09-22T20:01:36.5315307Z   RUNS_ON_ENV_CUSTOM_FILE: /runs-on/env.custom
+2026-09-22T20:01:36.5315921Z   RUNS_ON_INSTANCE_ID: i-0cc92c6124b250c39
+2026-09-22T20:01:36.5316193Z   RUNS_ON_INSTANCE_LIFECYCLE: spot
+2026-09-22T20:01:36.5316445Z   RUNS_ON_INSTANCE_TYPE: c7i-flex.4xlarge
+2026-09-22T20:01:36.5316704Z   RUNS_ON_STACK_NAME: runs-on-v3
+2026-09-22T20:01:36.5317004Z   RUNS_ON_S3_BUCKET_CACHE: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:36.5317769Z   ACTIONS_RUNNER_HOOK_JOB_STARTED: /runs-on/pre.sh
+2026-09-22T20:01:36.5318081Z   ACTIONS_RUNNER_HOOK_JOB_COMPLETED: /runs-on/post.sh
+2026-09-22T20:01:36.5318374Z   GITHUB_SERVER_URL: https://github.com/
+2026-09-22T20:01:36.5318633Z   GITHUB_API_URL: https://api.github.com/
+2026-09-22T20:01:36.5318871Z   GITHUB_HOST: github.com
+2026-09-22T20:01:36.5319125Z   RUNS_ON_RUNNER_NAME: runs-on--i-0cc92c6124b250c39--2d1a9e91-7
+2026-09-22T20:01:36.5319446Z   RUNS_ON_INSTANCE_LAUNCHED_AT: 2026-09-22T20:00:55Z
+2026-09-22T20:01:36.5319717Z   ACTIONS_CACHE_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:36.5319964Z   ACTIONS_CACHE_SERVICE_V2: on
+2026-09-22T20:01:36.5320195Z   ACTIONS_RESULTS_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:36.5320483Z   RUNS_ON_S3_CACHE_REPO_PREFIX: cache/repo/vortex-data/vortex
+2026-09-22T20:01:36.5320773Z   RUNS_ON_ACTION_COST_TRACKING_CLAIMED: true
+2026-09-22T20:01:36.5321003Z   SCCACHE_REGION: us-east-1
+2026-09-22T20:01:36.5321216Z   SCCACHE_GHA_ENABLED: false
+2026-09-22T20:01:36.5321421Z   SCCACHE_S3_KEY_PREFIX: cache/sccache
+2026-09-22T20:01:36.5321636Z   RUSTC_WRAPPER: sccache
+2026-09-22T20:01:36.5321870Z   SCCACHE_BUCKET: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:36.5322134Z   RUSTUP_TOOLCHAIN: 1.98.0
+2026-09-22T20:01:36.5322376Z   SCCACHE_PATH: /opt/hostedtoolcache/sccache/0.18.0/x64/sccache
+2026-09-22T20:01:36.5362409Z   ACTIONS_RUNTIME_TOKEN: ***
+2026-09-22T20:01:36.5362664Z   CMAKE_C_COMPILER_LAUNCHER: sccache
+2026-09-22T20:01:36.5362933Z   CMAKE_CXX_COMPILER_LAUNCHER: sccache
+2026-09-22T20:01:36.5363180Z ##[endgroup]
+2026-09-22T20:01:36.5366745Z ##[start-action display=CPU, Memory & Disk Info;id=__self_2.__run]
+2026-09-22T20:01:36.5379118Z ##[group]Run echo "=== CPU Model ==="
+2026-09-22T20:01:36.5379396Z [36;1mecho "=== CPU Model ==="[0m
+2026-09-22T20:01:36.5379625Z [36;1mlscpu[0m
+2026-09-22T20:01:36.5379829Z [36;1mecho "=== /proc/cpuinfo summary ==="[0m
+2026-09-22T20:01:36.5380182Z [36;1m# x86 exposes "model name"; aarch64 has no such line (lscpu above covers it), and[0m
+2026-09-22T20:01:36.5380627Z [36;1m# `shell: bash` runs with `set -e`, so a missing match must not fail the step.[0m
+2026-09-22T20:01:36.5380967Z [36;1mgrep -m1 "model name" /proc/cpuinfo || true[0m
+2026-09-22T20:01:36.5381207Z [36;1mnproc[0m
+2026-09-22T20:01:36.5381378Z [36;1mecho "=== CPU Flags ==="[0m
+2026-09-22T20:01:36.5381624Z [36;1m# x86 exposes "flags"; aarch64 exposes "Features".[0m
+2026-09-22T20:01:36.5381919Z [36;1mgrep -m1 -E "^(flags|Features)" /proc/cpuinfo || true[0m
+2026-09-22T20:01:36.5382172Z [36;1m[0m
+2026-09-22T20:01:36.5382337Z [36;1mecho "=== Memory ==="[0m
+2026-09-22T20:01:36.5382537Z [36;1mfree -h[0m
+2026-09-22T20:01:36.5382802Z [36;1mecho "=== /proc/meminfo ==="[0m
+2026-09-22T20:01:36.5383021Z [36;1mcat /proc/meminfo[0m
+2026-09-22T20:01:36.5383205Z [36;1m[0m
+2026-09-22T20:01:36.5383368Z [36;1mecho "=== Block Devices ==="[0m
+2026-09-22T20:01:36.5383570Z [36;1mlsblk[0m
+2026-09-22T20:01:36.5383750Z [36;1mecho "=== Disk Usage ==="[0m
+2026-09-22T20:01:36.5383955Z [36;1mdf -hT[0m
+2026-09-22T20:01:36.5384125Z [36;1mecho "=== Mounts ==="[0m
+2026-09-22T20:01:36.5384329Z [36;1mmount | grep -E "^/dev"[0m
+2026-09-22T20:01:36.5384540Z [36;1mecho "=== NVMe Devices ==="[0m
+2026-09-22T20:01:36.5384781Z [36;1mls -la /dev/nvme* 2>/dev/null || echo "No NVMe"[0m
+2026-09-22T20:01:36.5385043Z [36;1msudo nvme list 2>/dev/null || true[0m
+2026-09-22T20:01:36.5408971Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-09-22T20:01:36.5409249Z env:
+2026-09-22T20:01:36.5409434Z   CARGO_TERM_COLOR: always
+2026-09-22T20:01:36.5409636Z   RUST_BACKTRACE: 1
+2026-09-22T20:01:36.5409834Z   NIGHTLY_TOOLCHAIN: nightly-2026-09-10
+2026-09-22T20:01:36.5410089Z   RUNNER_TOOL_CACHE: /opt/hostedtoolcache
+2026-09-22T20:01:36.5410328Z   RUNS_ON_HOME: /runs-on
+2026-09-22T20:01:36.5410526Z   RUNS_ON_VERSION: v3.3.0
+2026-09-22T20:01:36.5410735Z   RUNS_ON_AGENT_BINARY: /runs-on/agent
+2026-09-22T20:01:36.5410953Z   RUNS_ON_AGENT_ARCH: x64
+2026-09-22T20:01:36.5411249Z   RUNS_ON_AGENT_USER: runner
+2026-09-22T20:01:36.5411461Z   RUNS_ON_AMI_ID: ami-0d8875560af9e1401
+2026-09-22T20:01:36.5411697Z   RUNS_ON_AWS_REGION: us-east-1
+2026-09-22T20:01:36.5411907Z   RUNS_ON_AWS_AZ: us-east-1a
+2026-09-22T20:01:36.5412132Z   RUNS_ON_ENV_CUSTOM_FILE: /runs-on/env.custom
+2026-09-22T20:01:36.5412382Z   RUNS_ON_INSTANCE_ID: i-0cc92c6124b250c39
+2026-09-22T20:01:36.5412613Z   RUNS_ON_INSTANCE_LIFECYCLE: spot
+2026-09-22T20:01:36.5412837Z   RUNS_ON_INSTANCE_TYPE: c7i-flex.4xlarge
+2026-09-22T20:01:36.5413074Z   RUNS_ON_STACK_NAME: runs-on-v3
+2026-09-22T20:01:36.5413338Z   RUNS_ON_S3_BUCKET_CACHE: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:36.5413651Z   ACTIONS_RUNNER_HOOK_JOB_STARTED: /runs-on/pre.sh
+2026-09-22T20:01:36.5413927Z   ACTIONS_RUNNER_HOOK_JOB_COMPLETED: /runs-on/post.sh
+2026-09-22T20:01:36.5414207Z   GITHUB_SERVER_URL: https://github.com/
+2026-09-22T20:01:36.5414458Z   GITHUB_API_URL: https://api.github.com/
+2026-09-22T20:01:36.5414688Z   GITHUB_HOST: github.com
+2026-09-22T20:01:36.5414937Z   RUNS_ON_RUNNER_NAME: runs-on--i-0cc92c6124b250c39--2d1a9e91-7
+2026-09-22T20:01:36.5415240Z   RUNS_ON_INSTANCE_LAUNCHED_AT: 2026-09-22T20:00:55Z
+2026-09-22T20:01:36.5415502Z   ACTIONS_CACHE_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:36.5415739Z   ACTIONS_CACHE_SERVICE_V2: on
+2026-09-22T20:01:36.5415970Z   ACTIONS_RESULTS_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:36.5416257Z   RUNS_ON_S3_CACHE_REPO_PREFIX: cache/repo/vortex-data/vortex
+2026-09-22T20:01:36.5416546Z   RUNS_ON_ACTION_COST_TRACKING_CLAIMED: true
+2026-09-22T20:01:36.5416785Z   SCCACHE_REGION: us-east-1
+2026-09-22T20:01:36.5416995Z   SCCACHE_GHA_ENABLED: false
+2026-09-22T20:01:36.5417302Z   SCCACHE_S3_KEY_PREFIX: cache/sccache
+2026-09-22T20:01:36.5417534Z   RUSTC_WRAPPER: sccache
+2026-09-22T20:01:36.5417769Z   SCCACHE_BUCKET: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:36.5418027Z   RUSTUP_TOOLCHAIN: 1.98.0
+2026-09-22T20:01:36.5418280Z   SCCACHE_PATH: /opt/hostedtoolcache/sccache/0.18.0/x64/sccache
+2026-09-22T20:01:36.5457572Z   ACTIONS_RUNTIME_TOKEN: ***
+2026-09-22T20:01:36.5457830Z   CMAKE_C_COMPILER_LAUNCHER: sccache
+2026-09-22T20:01:36.5458104Z   CMAKE_CXX_COMPILER_LAUNCHER: sccache
+2026-09-22T20:01:36.5458371Z ##[endgroup]
+2026-09-22T20:01:36.5501988Z === CPU Model ===
+2026-09-22T20:01:36.5555492Z Architecture:                            x86_64
+2026-09-22T20:01:36.5555986Z CPU op-mode(s):                          32-bit, 64-bit
+2026-09-22T20:01:36.5556343Z Address sizes:                           46 bits physical, 48 bits virtual
+2026-09-22T20:01:36.5556693Z Byte Order:                              Little Endian
+2026-09-22T20:01:36.5556961Z CPU(s):                                  16
+2026-09-22T20:01:36.5557899Z On-line CPU(s) list:                     0-15
+2026-09-22T20:01:36.5558188Z Vendor ID:                               GenuineIntel
+2026-09-22T20:01:36.5558481Z Model name:                              Intel(R) Xeon(R) Platinum 8488C
+2026-09-22T20:01:36.5558791Z CPU family:                              6
+2026-09-22T20:01:36.5559052Z Model:                                   143
+2026-09-22T20:01:36.5559310Z Thread(s) per core:                      2
+2026-09-22T20:01:36.5559561Z Core(s) per socket:                      8
+2026-09-22T20:01:36.5559804Z Socket(s):                               1
+2026-09-22T20:01:36.5560046Z Stepping:                                8
+2026-09-22T20:01:36.5560316Z BogoMIPS:                                4800.00
+2026-09-22T20:01:36.5562693Z Flags:                                   fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ss ht syscall nx pdpe1gb rdtscp lm constant_tsc rep_good nopl xtopology nonstop_tsc cpuid tsc_known_freq pni pclmulqdq ssse3 fma cx16 pdcm pcid sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand hypervisor lahf_lm abm 3dnowprefetch cpuid_fault ssbd ibrs ibpb stibp ibrs_enhanced fsgsbase tsc_adjust bmi1 avx2 smep bmi2 erms invpcid avx512f avx512dq rdseed adx smap avx512ifma clflushopt clwb avx512cd sha_ni avx512bw avx512vl xsaveopt xsavec xgetbv1 xsaves avx_vnni avx512_bf16 wbnoinvd ida arat avx512vbmi umip pku ospke waitpkg avx512_vbmi2 gfni vaes vpclmulqdq avx512_vnni avx512_bitalg tme avx512_vpopcntdq rdpid cldemote movdiri movdir64b md_clear serialize amx_bf16 avx512_fp16 amx_tile amx_int8 flush_l1d arch_capabilities
+2026-09-22T20:01:36.5565212Z Hypervisor vendor:                       KVM
+2026-09-22T20:01:36.5565488Z Virtualization type:                     full
+2026-09-22T20:01:36.5565784Z L1d cache:                               384 KiB (8 instances)
+2026-09-22T20:01:36.5566097Z L1i cache:                               256 KiB (8 instances)
+2026-09-22T20:01:36.5566421Z L2 cache:                                16 MiB (8 instances)
+2026-09-22T20:01:36.5566734Z L3 cache:                                105 MiB (1 instance)
+2026-09-22T20:01:36.5567009Z NUMA node(s):                            1
+2026-09-22T20:01:36.5567392Z NUMA node0 CPU(s):                       0-15
+2026-09-22T20:01:36.5567689Z Vulnerability Gather data sampling:      Not affected
+2026-09-22T20:01:36.5568035Z Vulnerability Ghostwrite:                Not affected
+2026-09-22T20:01:36.5568346Z Vulnerability Indirect target selection: Not affected
+2026-09-22T20:01:36.5568769Z Vulnerability Itlb multihit:             Not affected
+2026-09-22T20:01:36.5569081Z Vulnerability L1tf:                      Not affected
+2026-09-22T20:01:36.5569367Z Vulnerability Mds:                       Not affected
+2026-09-22T20:01:36.5569654Z Vulnerability Meltdown:                  Not affected
+2026-09-22T20:01:36.5569946Z Vulnerability Mmio stale data:           Not affected
+2026-09-22T20:01:36.5570251Z Vulnerability Old microcode:             Not affected
+2026-09-22T20:01:36.5570547Z Vulnerability Reg file data sampling:    Not affected
+2026-09-22T20:01:36.5570888Z Vulnerability Retbleed:                  Not affected
+2026-09-22T20:01:36.5571159Z Vulnerability Spec rstack overflow:      Not affected
+2026-09-22T20:01:36.5571531Z Vulnerability Spec store bypass:         Mitigation; Speculative Store Bypass disabled via prctl
+2026-09-22T20:01:36.5572033Z Vulnerability Spectre v1:                Mitigation; usercopy/swapgs barriers and __user pointer sanitization
+2026-09-22T20:01:36.5572611Z Vulnerability Spectre v2:                Mitigation; Enhanced / Automatic IBRS; IBPB conditional; PBRSB-eIBRS SW sequence; BHI BHI_DIS_S
+2026-09-22T20:01:36.5573062Z Vulnerability Srbds:                     Not affected
+2026-09-22T20:01:36.5573328Z Vulnerability Tsa:                       Not affected
+2026-09-22T20:01:36.5573593Z Vulnerability Tsx async abort:           Not affected
+2026-09-22T20:01:36.5573917Z Vulnerability Vmscape:                   Not affected
+2026-09-22T20:01:36.5574187Z === /proc/cpuinfo summary ===
+2026-09-22T20:01:36.5574439Z model name	: Intel(R) Xeon(R) Platinum 8488C
+2026-09-22T20:01:36.5587734Z 16
+2026-09-22T20:01:36.5589237Z === CPU Flags ===
+2026-09-22T20:01:36.5599659Z flags		: fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ss ht syscall nx pdpe1gb rdtscp lm constant_tsc rep_good nopl xtopology nonstop_tsc cpuid tsc_known_freq pni pclmulqdq ssse3 fma cx16 pdcm pcid sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand hypervisor lahf_lm abm 3dnowprefetch cpuid_fault ssbd ibrs ibpb stibp ibrs_enhanced fsgsbase tsc_adjust bmi1 avx2 smep bmi2 erms invpcid avx512f avx512dq rdseed adx smap avx512ifma clflushopt clwb avx512cd sha_ni avx512bw avx512vl xsaveopt xsavec xgetbv1 xsaves avx_vnni avx512_bf16 wbnoinvd ida arat avx512vbmi umip pku ospke waitpkg avx512_vbmi2 gfni vaes vpclmulqdq avx512_vnni avx512_bitalg tme avx512_vpopcntdq rdpid cldemote movdiri movdir64b md_clear serialize amx_bf16 avx512_fp16 amx_tile amx_int8 flush_l1d arch_capabilities
+2026-09-22T20:01:36.5601953Z === Memory ===
+2026-09-22T20:01:36.5625625Z                total        used        free      shared  buff/cache   available
+2026-09-22T20:01:36.5629291Z Mem:            30Gi       1.4Gi        28Gi        47Mi       1.1Gi        29Gi
+2026-09-22T20:01:36.5632622Z Swap:             0B          0B          0B
+2026-09-22T20:01:36.5632886Z === /proc/meminfo ===
+2026-09-22T20:01:36.5633085Z MemTotal:       32308512 kB
+2026-09-22T20:01:36.5633298Z MemFree:        30100172 kB
+2026-09-22T20:01:36.5633523Z MemAvailable:   30864928 kB
+2026-09-22T20:01:36.5633719Z Buffers:           37024 kB
+2026-09-22T20:01:36.5633909Z Cached:          1110564 kB
+2026-09-22T20:01:36.5634099Z SwapCached:            0 kB
+2026-09-22T20:01:36.5634287Z Active:           655424 kB
+2026-09-22T20:01:36.5634483Z Inactive:         833136 kB
+2026-09-22T20:01:36.5634673Z Active(anon):     389620 kB
+2026-09-22T20:01:36.5634872Z Inactive(anon):        0 kB
+2026-09-22T20:01:36.5635064Z Active(file):     265804 kB
+2026-09-22T20:01:36.5635252Z Inactive(file):   833136 kB
+2026-09-22T20:01:36.5635444Z Unevictable:        1876 kB
+2026-09-22T20:01:36.5635697Z Mlocked:               0 kB
+2026-09-22T20:01:36.5635919Z SwapTotal:             0 kB
+2026-09-22T20:01:36.5636124Z SwapFree:              0 kB
+2026-09-22T20:01:36.5636324Z Zswap:                 0 kB
+2026-09-22T20:01:36.5636522Z Zswapped:              0 kB
+2026-09-22T20:01:36.5636718Z Dirty:            696732 kB
+2026-09-22T20:01:36.5636926Z Writeback:             4 kB
+2026-09-22T20:01:36.5637116Z AnonPages:        343296 kB
+2026-09-22T20:01:36.5637515Z Mapped:           180052 kB
+2026-09-22T20:01:36.5637711Z Shmem:             48528 kB
+2026-09-22T20:01:36.5637905Z KReclaimable:      54612 kB
+2026-09-22T20:01:36.5638093Z Slab:             148316 kB
+2026-09-22T20:01:36.5638282Z SReclaimable:      54612 kB
+2026-09-22T20:01:36.5638475Z SUnreclaim:        93704 kB
+2026-09-22T20:01:36.5638680Z KernelStack:        7468 kB
+2026-09-22T20:01:36.5638875Z PageTables:         5932 kB
+2026-09-22T20:01:36.5639070Z SecPageTables:         0 kB
+2026-09-22T20:01:36.5639262Z NFS_Unstable:          0 kB
+2026-09-22T20:01:36.5639450Z Bounce:                0 kB
+2026-09-22T20:01:36.5639637Z WritebackTmp:          0 kB
+2026-09-22T20:01:36.5639832Z CommitLimit:    16154256 kB
+2026-09-22T20:01:36.5640029Z Committed_AS:    2425988 kB
+2026-09-22T20:01:36.5640222Z VmallocTotal:   34359738367 kB
+2026-09-22T20:01:36.5640424Z VmallocUsed:       20696 kB
+2026-09-22T20:01:36.5640616Z VmallocChunk:          0 kB
+2026-09-22T20:01:36.5640805Z Percpu:             7488 kB
+2026-09-22T20:01:36.5641001Z HardwareCorrupted:     0 kB
+2026-09-22T20:01:36.5641200Z AnonHugePages:         0 kB
+2026-09-22T20:01:36.5641403Z ShmemHugePages:        0 kB
+2026-09-22T20:01:36.5641599Z ShmemPmdMapped:        0 kB
+2026-09-22T20:01:36.5641792Z FileHugePages:    569344 kB
+2026-09-22T20:01:36.5641986Z FilePmdMapped:         0 kB
+2026-09-22T20:01:36.5642280Z CmaTotal:              0 kB
+2026-09-22T20:01:36.5642479Z CmaFree:               0 kB
+2026-09-22T20:01:36.5642679Z Unaccepted:            0 kB
+2026-09-22T20:01:36.5642870Z Balloon:               0 kB
+2026-09-22T20:01:36.5643063Z HugePages_Total:       0
+2026-09-22T20:01:36.5643262Z HugePages_Free:        0
+2026-09-22T20:01:36.5643460Z HugePages_Rsvd:        0
+2026-09-22T20:01:36.5643655Z HugePages_Surp:        0
+2026-09-22T20:01:36.5643850Z Hugepagesize:       2048 kB
+2026-09-22T20:01:36.5644053Z Hugetlb:               0 kB
+2026-09-22T20:01:36.5644243Z DirectMap4k:       90544 kB
+2026-09-22T20:01:36.5644433Z DirectMap2M:     4591616 kB
+2026-09-22T20:01:36.5644620Z DirectMap1G:    29360128 kB
+2026-09-22T20:01:36.5644818Z === Block Devices ===
+2026-09-22T20:01:36.5654567Z NAME         MAJ:MIN RM  SIZE RO TYPE MOUNTPOINTS
+2026-09-22T20:01:36.5654851Z nvme0n1      259:0    0  100G  0 disk 
+2026-09-22T20:01:36.5655108Z ├─nvme0n1p1  259:1    0   99G  0 part /
+2026-09-22T20:01:36.5655350Z ├─nvme0n1p14 259:2    0    4M  0 part 
+2026-09-22T20:01:36.5655591Z ├─nvme0n1p15 259:3    0  106M  0 part /boot/efi
+2026-09-22T20:01:36.5655843Z └─nvme0n1p16 259:4    0  913M  0 part /boot
+2026-09-22T20:01:36.5656078Z === Disk Usage ===
+2026-09-22T20:01:36.5720054Z Filesystem      Type      Size  Used Avail Use% Mounted on
+2026-09-22T20:01:36.5720682Z tmpfs           tmpfs     3.1G  1.1M  3.1G   1% /run
+2026-09-22T20:01:36.5721022Z efivarfs        efivarfs  128K  3.3K  120K   3% /sys/firmware/efi/efivars
+2026-09-22T20:01:36.5721366Z /dev/nvme0n1p1  ext4       96G   20G   77G  21% /
+2026-09-22T20:01:36.5721656Z tmpfs           tmpfs      16G     0   16G   0% /dev/shm
+2026-09-22T20:01:36.5721955Z tmpfs           tmpfs     5.0M     0  5.0M   0% /run/lock
+2026-09-22T20:01:36.5722251Z tmpfs           tmpfs      16G     0   16G   0% /run/qemu
+2026-09-22T20:01:36.5722547Z /dev/nvme0n1p16 ext4      881M   94M  726M  12% /boot
+2026-09-22T20:01:36.5722841Z /dev/nvme0n1p15 vfat      105M  6.2M   99M   6% /boot/efi
+2026-09-22T20:01:36.5723119Z === Mounts ===
+2026-09-22T20:01:36.5734389Z /dev/nvme0n1p1 on / type ext4 (rw,relatime,discard,errors=remount-ro,commit=30)
+2026-09-22T20:01:36.5734786Z /dev/nvme0n1p16 on /boot type ext4 (rw,relatime)
+2026-09-22T20:01:36.5735262Z /dev/nvme0n1p15 on /boot/efi type vfat (rw,relatime,fmask=0077,dmask=0077,codepage=437,iocharset=iso8859-1,shortname=mixed,errors=remount-ro)
+2026-09-22T20:01:36.5735716Z === NVMe Devices ===
+2026-09-22T20:01:36.5744990Z crw------- 1 root root 241, 0 Sep 22 20:01 /dev/nvme0
+2026-09-22T20:01:36.5745295Z brw-rw---- 1 root disk 259, 0 Sep 22 20:01 /dev/nvme0n1
+2026-09-22T20:01:36.5745571Z brw-rw---- 1 root disk 259, 1 Sep 22 20:01 /dev/nvme0n1p1
+2026-09-22T20:01:36.5745851Z brw-rw---- 1 root disk 259, 2 Sep 22 20:01 /dev/nvme0n1p14
+2026-09-22T20:01:36.5746131Z brw-rw---- 1 root disk 259, 3 Sep 22 20:01 /dev/nvme0n1p15
+2026-09-22T20:01:36.5746403Z brw-rw---- 1 root disk 259, 4 Sep 22 20:01 /dev/nvme0n1p16
+2026-09-22T20:01:36.6478266Z ##[end-action id=__self_2.__run;outcome=success;conclusion=success;duration_ms=111]
+2026-09-22T20:01:36.6585597Z ##[group]Run taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
+2026-09-22T20:01:36.6585950Z with:
+2026-09-22T20:01:36.6586128Z   tool: cargo-codspeed
+2026-09-22T20:01:36.6586312Z   locked: true
+2026-09-22T20:01:36.6586515Z   no-default-features: false
+2026-09-22T20:01:36.6586724Z   all-features: false
+2026-09-22T20:01:36.6586899Z env:
+2026-09-22T20:01:36.6587059Z   CARGO_TERM_COLOR: always
+2026-09-22T20:01:36.6587371Z   RUST_BACKTRACE: 1
+2026-09-22T20:01:36.6587565Z   NIGHTLY_TOOLCHAIN: nightly-2026-09-10
+2026-09-22T20:01:36.6587798Z   RUNNER_TOOL_CACHE: /opt/hostedtoolcache
+2026-09-22T20:01:36.6588030Z   RUNS_ON_HOME: /runs-on
+2026-09-22T20:01:36.6588214Z   RUNS_ON_VERSION: v3.3.0
+2026-09-22T20:01:36.6588413Z   RUNS_ON_AGENT_BINARY: /runs-on/agent
+2026-09-22T20:01:36.6588625Z   RUNS_ON_AGENT_ARCH: x64
+2026-09-22T20:01:36.6588815Z   RUNS_ON_AGENT_USER: runner
+2026-09-22T20:01:36.6589012Z   RUNS_ON_AMI_ID: ami-0d8875560af9e1401
+2026-09-22T20:01:36.6589264Z   RUNS_ON_AWS_REGION: us-east-1
+2026-09-22T20:01:36.6589463Z   RUNS_ON_AWS_AZ: us-east-1a
+2026-09-22T20:01:36.6589670Z   RUNS_ON_ENV_CUSTOM_FILE: /runs-on/env.custom
+2026-09-22T20:01:36.6589941Z   RUNS_ON_INSTANCE_ID: i-0cc92c6124b250c39
+2026-09-22T20:01:36.6590226Z   RUNS_ON_INSTANCE_LIFECYCLE: spot
+2026-09-22T20:01:36.6590458Z   RUNS_ON_INSTANCE_TYPE: c7i-flex.4xlarge
+2026-09-22T20:01:36.6590677Z   RUNS_ON_STACK_NAME: runs-on-v3
+2026-09-22T20:01:36.6590931Z   RUNS_ON_S3_BUCKET_CACHE: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:36.6591225Z   ACTIONS_RUNNER_HOOK_JOB_STARTED: /runs-on/pre.sh
+2026-09-22T20:01:36.6591491Z   ACTIONS_RUNNER_HOOK_JOB_COMPLETED: /runs-on/post.sh
+2026-09-22T20:01:36.6591755Z   GITHUB_SERVER_URL: https://github.com/
+2026-09-22T20:01:36.6591996Z   GITHUB_API_URL: https://api.github.com/
+2026-09-22T20:01:36.6592216Z   GITHUB_HOST: github.com
+2026-09-22T20:01:36.6592456Z   RUNS_ON_RUNNER_NAME: runs-on--i-0cc92c6124b250c39--2d1a9e91-7
+2026-09-22T20:01:36.6592750Z   RUNS_ON_INSTANCE_LAUNCHED_AT: 2026-09-22T20:00:55Z
+2026-09-22T20:01:36.6593002Z   ACTIONS_CACHE_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:36.6593311Z   ACTIONS_CACHE_SERVICE_V2: on
+2026-09-22T20:01:36.6593543Z   ACTIONS_RESULTS_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:36.6593918Z   RUNS_ON_S3_CACHE_REPO_PREFIX: cache/repo/vortex-data/vortex
+2026-09-22T20:01:36.6594186Z   RUNS_ON_ACTION_COST_TRACKING_CLAIMED: true
+2026-09-22T20:01:36.6594408Z   SCCACHE_REGION: us-east-1
+2026-09-22T20:01:36.6594602Z   SCCACHE_GHA_ENABLED: false
+2026-09-22T20:01:36.6594854Z   SCCACHE_S3_KEY_PREFIX: cache/sccache
+2026-09-22T20:01:36.6595070Z   RUSTC_WRAPPER: sccache
+2026-09-22T20:01:36.6595300Z   SCCACHE_BUCKET: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:36.6595588Z   RUSTUP_TOOLCHAIN: 1.98.0
+2026-09-22T20:01:36.6595948Z   SCCACHE_PATH: /opt/hostedtoolcache/sccache/0.18.0/x64/sccache
+2026-09-22T20:01:36.6636940Z   ACTIONS_RUNTIME_TOKEN: ***
+2026-09-22T20:01:36.6637375Z   CMAKE_C_COMPILER_LAUNCHER: sccache
+2026-09-22T20:01:36.6637717Z   CMAKE_CXX_COMPILER_LAUNCHER: sccache
+2026-09-22T20:01:36.6637996Z ##[endgroup]
+2026-09-22T20:01:36.6646296Z ##[start-action display=Prepare (non-Windows);id=__taiki-e_cache-cargo-install-action.pre-unix]
+2026-09-22T20:01:36.6660770Z ##[group]Run set -eu
+2026-09-22T20:01:36.6661040Z [36;1mset -eu[0m
+2026-09-22T20:01:36.6661260Z [36;1mif ! command -v bash >/dev/null; then[0m
+2026-09-22T20:01:36.6661566Z [36;1m  if grep -Eq '^ID=alpine' /etc/os-release; then[0m
+2026-09-22T20:01:36.6661984Z [36;1m    printf '::group::Install packages required for cache-cargo-install-action (bash)\n'[0m
+2026-09-22T20:01:36.6662408Z [36;1m    # NB: sync with apk_install in pre.sh[0m
+2026-09-22T20:01:36.6662713Z [36;1m    if command -v sudo >/dev/null; then[0m
+2026-09-22T20:01:36.6662985Z [36;1m      sudo apk --no-cache add bash[0m
+2026-09-22T20:01:36.6663255Z [36;1m    elif command -v doas >/dev/null; then[0m
+2026-09-22T20:01:36.6663523Z [36;1m      doas apk --no-cache add bash[0m
+2026-09-22T20:01:36.6663855Z [36;1m    else[0m
+2026-09-22T20:01:36.6664068Z [36;1m      apk --no-cache add bash[0m
+2026-09-22T20:01:36.6664296Z [36;1m    fi[0m
+2026-09-22T20:01:36.6664496Z [36;1m    printf '::endgroup::\n'[0m
+2026-09-22T20:01:36.6664723Z [36;1m  else[0m
+2026-09-22T20:01:36.6664995Z [36;1m    printf '::error::cache-cargo-install-action requires bash\n'[0m
+2026-09-22T20:01:36.6665306Z [36;1m    exit 1[0m
+2026-09-22T20:01:36.6665500Z [36;1m  fi[0m
+2026-09-22T20:01:36.6665679Z [36;1mfi[0m
+2026-09-22T20:01:36.6665927Z [36;1mbash --noprofile --norc "${GITHUB_ACTION_PATH:?}/pre.sh"[0m
+2026-09-22T20:01:36.6690029Z shell: /usr/bin/sh -e {0}
+2026-09-22T20:01:36.6690268Z env:
+2026-09-22T20:01:36.6690458Z   CARGO_TERM_COLOR: always
+2026-09-22T20:01:36.6690679Z   RUST_BACKTRACE: 1
+2026-09-22T20:01:36.6690890Z   NIGHTLY_TOOLCHAIN: nightly-2026-09-10
+2026-09-22T20:01:36.6691156Z   RUNNER_TOOL_CACHE: /opt/hostedtoolcache
+2026-09-22T20:01:36.6691408Z   RUNS_ON_HOME: /runs-on
+2026-09-22T20:01:36.6691631Z   RUNS_ON_VERSION: v3.3.0
+2026-09-22T20:01:36.6691855Z   RUNS_ON_AGENT_BINARY: /runs-on/agent
+2026-09-22T20:01:36.6692094Z   RUNS_ON_AGENT_ARCH: x64
+2026-09-22T20:01:36.6692308Z   RUNS_ON_AGENT_USER: runner
+2026-09-22T20:01:36.6692532Z   RUNS_ON_AMI_ID: ami-0d8875560af9e1401
+2026-09-22T20:01:36.6692780Z   RUNS_ON_AWS_REGION: us-east-1
+2026-09-22T20:01:36.6693002Z   RUNS_ON_AWS_AZ: us-east-1a
+2026-09-22T20:01:36.6693237Z   RUNS_ON_ENV_CUSTOM_FILE: /runs-on/env.custom
+2026-09-22T20:01:36.6693504Z   RUNS_ON_INSTANCE_ID: i-0cc92c6124b250c39
+2026-09-22T20:01:36.6693766Z   RUNS_ON_INSTANCE_LIFECYCLE: spot
+2026-09-22T20:01:36.6694007Z   RUNS_ON_INSTANCE_TYPE: c7i-flex.4xlarge
+2026-09-22T20:01:36.6694258Z   RUNS_ON_STACK_NAME: runs-on-v3
+2026-09-22T20:01:36.6694544Z   RUNS_ON_S3_BUCKET_CACHE: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:36.6694885Z   ACTIONS_RUNNER_HOOK_JOB_STARTED: /runs-on/pre.sh
+2026-09-22T20:01:36.6695194Z   ACTIONS_RUNNER_HOOK_JOB_COMPLETED: /runs-on/post.sh
+2026-09-22T20:01:36.6695500Z   GITHUB_SERVER_URL: https://github.com/
+2026-09-22T20:01:36.6695766Z   GITHUB_API_URL: https://api.github.com/
+2026-09-22T20:01:36.6696014Z   GITHUB_HOST: github.com
+2026-09-22T20:01:36.6696281Z   RUNS_ON_RUNNER_NAME: runs-on--i-0cc92c6124b250c39--2d1a9e91-7
+2026-09-22T20:01:36.6696707Z   RUNS_ON_INSTANCE_LAUNCHED_AT: 2026-09-22T20:00:55Z
+2026-09-22T20:01:36.6696996Z   ACTIONS_CACHE_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:36.6697342Z   ACTIONS_CACHE_SERVICE_V2: on
+2026-09-22T20:01:36.6697590Z   ACTIONS_RESULTS_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:36.6697899Z   RUNS_ON_S3_CACHE_REPO_PREFIX: cache/repo/vortex-data/vortex
+2026-09-22T20:01:36.6698199Z   RUNS_ON_ACTION_COST_TRACKING_CLAIMED: true
+2026-09-22T20:01:36.6698443Z   SCCACHE_REGION: us-east-1
+2026-09-22T20:01:36.6698665Z   SCCACHE_GHA_ENABLED: false
+2026-09-22T20:01:36.6698889Z   SCCACHE_S3_KEY_PREFIX: cache/sccache
+2026-09-22T20:01:36.6699126Z   RUSTC_WRAPPER: sccache
+2026-09-22T20:01:36.6699386Z   SCCACHE_BUCKET: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:36.6699666Z   RUSTUP_TOOLCHAIN: 1.98.0
+2026-09-22T20:01:36.6699941Z   SCCACHE_PATH: /opt/hostedtoolcache/sccache/0.18.0/x64/sccache
+2026-09-22T20:01:36.6740647Z   ACTIONS_RUNTIME_TOKEN: ***
+2026-09-22T20:01:36.6740923Z   CMAKE_C_COMPILER_LAUNCHER: sccache
+2026-09-22T20:01:36.6741219Z   CMAKE_CXX_COMPILER_LAUNCHER: sccache
+2026-09-22T20:01:36.6741488Z   INPUT_TOOL: cargo-codspeed
+2026-09-22T20:01:36.6741741Z   INPUT_LOCKED: true
+2026-09-22T20:01:36.6741993Z   INPUT_GIT: 
+2026-09-22T20:01:36.6742210Z   INPUT_TAG: 
+2026-09-22T20:01:36.6742426Z   INPUT_REV: 
+2026-09-22T20:01:36.6742625Z   INPUT_FEATURES: 
+2026-09-22T20:01:36.6742865Z   INPUT_NO_DEFAULT_FEATURES: false
+2026-09-22T20:01:36.6743128Z   INPUT_ALL_FEATURES: false
+2026-09-22T20:01:36.6743545Z   ACTION_USER_AGENT: taiki-e/cache-cargo-install-action (66c9585ef5ca780ee69399975a5e911f47905995)
+2026-09-22T20:01:36.6743950Z ##[endgroup]
+2026-09-22T20:01:36.7872625Z ##[end-action id=__taiki-e_cache-cargo-install-action.pre-unix;outcome=success;conclusion=success;duration_ms=122]
+2026-09-22T20:01:36.7877054Z ##[start-action display=Prepare (Windows);id=__taiki-e_cache-cargo-install-action.pre-windows]
+2026-09-22T20:01:36.7880341Z ##[end-action id=__taiki-e_cache-cargo-install-action.pre-windows;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-09-22T20:01:36.7881897Z ##[start-action display=Restore Cache;id=__taiki-e_cache-cargo-install-action.cache]
+2026-09-22T20:01:36.7910359Z ##[group]Run actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7
+2026-09-22T20:01:36.7910638Z with:
+2026-09-22T20:01:36.7910836Z   path: /opt/hostedtoolcache/cargo-codspeed/bin
+2026-09-22T20:01:36.7911302Z   key: cargo-codspeed-5.0.2-x86_64-linux-gnu-2.39-features-default-no-default-features-false-all-features-false
+2026-09-22T20:01:36.7911724Z   enableCrossOsArchive: false
+2026-09-22T20:01:36.7911937Z   fail-on-cache-miss: false
+2026-09-22T20:01:36.7912131Z   lookup-only: false
+2026-09-22T20:01:36.7912317Z   save-always: false
+2026-09-22T20:01:36.7912512Z env:
+2026-09-22T20:01:36.7912682Z   CARGO_TERM_COLOR: always
+2026-09-22T20:01:36.7912879Z   RUST_BACKTRACE: 1
+2026-09-22T20:01:36.7913075Z   NIGHTLY_TOOLCHAIN: nightly-2026-09-10
+2026-09-22T20:01:36.7913322Z   RUNNER_TOOL_CACHE: /opt/hostedtoolcache
+2026-09-22T20:01:36.7913558Z   RUNS_ON_HOME: /runs-on
+2026-09-22T20:01:36.7913748Z   RUNS_ON_VERSION: v3.3.0
+2026-09-22T20:01:36.7913954Z   RUNS_ON_AGENT_BINARY: /runs-on/agent
+2026-09-22T20:01:36.7914173Z   RUNS_ON_AGENT_ARCH: x64
+2026-09-22T20:01:36.7914365Z   RUNS_ON_AGENT_USER: runner
+2026-09-22T20:01:36.7914577Z   RUNS_ON_AMI_ID: ami-0d8875560af9e1401
+2026-09-22T20:01:36.7914805Z   RUNS_ON_AWS_REGION: us-east-1
+2026-09-22T20:01:36.7915028Z   RUNS_ON_AWS_AZ: us-east-1a
+2026-09-22T20:01:36.7915257Z   RUNS_ON_ENV_CUSTOM_FILE: /runs-on/env.custom
+2026-09-22T20:01:36.7915522Z   RUNS_ON_INSTANCE_ID: i-0cc92c6124b250c39
+2026-09-22T20:01:36.7915880Z   RUNS_ON_INSTANCE_LIFECYCLE: spot
+2026-09-22T20:01:36.7916139Z   RUNS_ON_INSTANCE_TYPE: c7i-flex.4xlarge
+2026-09-22T20:01:36.7916399Z   RUNS_ON_STACK_NAME: runs-on-v3
+2026-09-22T20:01:36.7916694Z   RUNS_ON_S3_BUCKET_CACHE: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:36.7917040Z   ACTIONS_RUNNER_HOOK_JOB_STARTED: /runs-on/pre.sh
+2026-09-22T20:01:36.7917478Z   ACTIONS_RUNNER_HOOK_JOB_COMPLETED: /runs-on/post.sh
+2026-09-22T20:01:36.7917905Z   GITHUB_SERVER_URL: https://github.com/
+2026-09-22T20:01:36.7918181Z   GITHUB_API_URL: https://api.github.com/
+2026-09-22T20:01:36.7918442Z   GITHUB_HOST: github.com
+2026-09-22T20:01:36.7918719Z   RUNS_ON_RUNNER_NAME: runs-on--i-0cc92c6124b250c39--2d1a9e91-7
+2026-09-22T20:01:36.7919031Z   RUNS_ON_INSTANCE_LAUNCHED_AT: 2026-09-22T20:00:55Z
+2026-09-22T20:01:36.7919301Z   ACTIONS_CACHE_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:36.7919550Z   ACTIONS_CACHE_SERVICE_V2: on
+2026-09-22T20:01:36.7919778Z   ACTIONS_RESULTS_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:36.7920074Z   RUNS_ON_S3_CACHE_REPO_PREFIX: cache/repo/vortex-data/vortex
+2026-09-22T20:01:36.7920380Z   RUNS_ON_ACTION_COST_TRACKING_CLAIMED: true
+2026-09-22T20:01:36.7920631Z   SCCACHE_REGION: us-east-1
+2026-09-22T20:01:36.7920839Z   SCCACHE_GHA_ENABLED: false
+2026-09-22T20:01:36.7921058Z   SCCACHE_S3_KEY_PREFIX: cache/sccache
+2026-09-22T20:01:36.7921279Z   RUSTC_WRAPPER: sccache
+2026-09-22T20:01:36.7921522Z   SCCACHE_BUCKET: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:36.7921789Z   RUSTUP_TOOLCHAIN: 1.98.0
+2026-09-22T20:01:36.7922040Z   SCCACHE_PATH: /opt/hostedtoolcache/sccache/0.18.0/x64/sccache
+2026-09-22T20:01:36.7963929Z   ACTIONS_RUNTIME_TOKEN: ***
+2026-09-22T20:01:36.7964227Z   CMAKE_C_COMPILER_LAUNCHER: sccache
+2026-09-22T20:01:36.7964549Z   CMAKE_CXX_COMPILER_LAUNCHER: sccache
+2026-09-22T20:01:36.7964859Z ##[endgroup]
+2026-09-22T20:01:36.9665298Z Cache hit for: cargo-codspeed-5.0.2-x86_64-linux-gnu-2.39-features-default-no-default-features-false-all-features-false
+2026-09-22T20:01:37.0212695Z Cache Size: ~1 MB (965444 B)
+2026-09-22T20:01:37.0252022Z [command]/usr/bin/tar -xf /home/runner/_work/_temp/6d9c67ed-5494-4090-8f31-550c68bcb30f/cache.tzst -P -C /home/runner/_work/vortex/vortex --use-compress-program unzstd
+2026-09-22T20:01:37.0337784Z Cache restored successfully
+2026-09-22T20:01:37.0406098Z Cache restored from key: cargo-codspeed-5.0.2-x86_64-linux-gnu-2.39-features-default-no-default-features-false-all-features-false
+2026-09-22T20:01:37.0459372Z ##[end-action id=__taiki-e_cache-cargo-install-action.cache;outcome=success;conclusion=success;duration_ms=257]
+2026-09-22T20:01:37.0471736Z ##[start-action display=Install cargo-codspeed (non-Windows);id=__taiki-e_cache-cargo-install-action.__run]
+2026-09-22T20:01:37.0475978Z ##[end-action id=__taiki-e_cache-cargo-install-action.__run;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-09-22T20:01:37.0480245Z ##[start-action display=Install cargo-codspeed (Windows);id=__taiki-e_cache-cargo-install-action.__run_2]
+2026-09-22T20:01:37.0483863Z ##[end-action id=__taiki-e_cache-cargo-install-action.__run_2;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-09-22T20:01:37.0508206Z ##[group]Run cargo codspeed build --locked --features _test-harness $(printf -- '-p %s ' vortex-fsst vortex-tensor vortex-spatial)  --profile bench
+2026-09-22T20:01:37.0508951Z [36;1mcargo codspeed build --locked --features _test-harness $(printf -- '-p %s ' vortex-fsst vortex-tensor vortex-spatial)  --profile bench[0m
+2026-09-22T20:01:37.0533608Z shell: /usr/bin/bash -e {0}
+2026-09-22T20:01:37.0533831Z env:
+2026-09-22T20:01:37.0534011Z   CARGO_TERM_COLOR: always
+2026-09-22T20:01:37.0534210Z   RUST_BACKTRACE: 1
+2026-09-22T20:01:37.0534413Z   NIGHTLY_TOOLCHAIN: nightly-2026-09-10
+2026-09-22T20:01:37.0534665Z   RUNNER_TOOL_CACHE: /opt/hostedtoolcache
+2026-09-22T20:01:37.0534905Z   RUNS_ON_HOME: /runs-on
+2026-09-22T20:01:37.0535101Z   RUNS_ON_VERSION: v3.3.0
+2026-09-22T20:01:37.0535304Z   RUNS_ON_AGENT_BINARY: /runs-on/agent
+2026-09-22T20:01:37.0535526Z   RUNS_ON_AGENT_ARCH: x64
+2026-09-22T20:01:37.0535724Z   RUNS_ON_AGENT_USER: runner
+2026-09-22T20:01:37.0535971Z   RUNS_ON_AMI_ID: ami-0d8875560af9e1401
+2026-09-22T20:01:37.0536194Z   RUNS_ON_AWS_REGION: us-east-1
+2026-09-22T20:01:37.0536401Z   RUNS_ON_AWS_AZ: us-east-1a
+2026-09-22T20:01:37.0536620Z   RUNS_ON_ENV_CUSTOM_FILE: /runs-on/env.custom
+2026-09-22T20:01:37.0536869Z   RUNS_ON_INSTANCE_ID: i-0cc92c6124b250c39
+2026-09-22T20:01:37.0537330Z   RUNS_ON_INSTANCE_LIFECYCLE: spot
+2026-09-22T20:01:37.0537563Z   RUNS_ON_INSTANCE_TYPE: c7i-flex.4xlarge
+2026-09-22T20:01:37.0537793Z   RUNS_ON_STACK_NAME: runs-on-v3
+2026-09-22T20:01:37.0538062Z   RUNS_ON_S3_BUCKET_CACHE: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:37.0538374Z   ACTIONS_RUNNER_HOOK_JOB_STARTED: /runs-on/pre.sh
+2026-09-22T20:01:37.0538656Z   ACTIONS_RUNNER_HOOK_JOB_COMPLETED: /runs-on/post.sh
+2026-09-22T20:01:37.0538944Z   GITHUB_SERVER_URL: https://github.com/
+2026-09-22T20:01:37.0539188Z   GITHUB_API_URL: https://api.github.com/
+2026-09-22T20:01:37.0539418Z   GITHUB_HOST: github.com
+2026-09-22T20:01:37.0539672Z   RUNS_ON_RUNNER_NAME: runs-on--i-0cc92c6124b250c39--2d1a9e91-7
+2026-09-22T20:01:37.0539970Z   RUNS_ON_INSTANCE_LAUNCHED_AT: 2026-09-22T20:00:55Z
+2026-09-22T20:01:37.0540235Z   ACTIONS_CACHE_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:37.0540473Z   ACTIONS_CACHE_SERVICE_V2: on
+2026-09-22T20:01:37.0540695Z   ACTIONS_RESULTS_URL: http://10.1.11.45:6871/
+2026-09-22T20:01:37.0540978Z   RUNS_ON_S3_CACHE_REPO_PREFIX: cache/repo/vortex-data/vortex
+2026-09-22T20:01:37.0541259Z   RUNS_ON_ACTION_COST_TRACKING_CLAIMED: true
+2026-09-22T20:01:37.0541487Z   SCCACHE_REGION: us-east-1
+2026-09-22T20:01:37.0541690Z   SCCACHE_GHA_ENABLED: false
+2026-09-22T20:01:37.0541894Z   SCCACHE_S3_KEY_PREFIX: cache/sccache
+2026-09-22T20:01:37.0542110Z   RUSTC_WRAPPER: sccache
+2026-09-22T20:01:37.0542347Z   SCCACHE_BUCKET: runs-on-v3-s3bucketcache-dbnub4tpjhpv
+2026-09-22T20:01:37.0542603Z   RUSTUP_TOOLCHAIN: 1.98.0
+2026-09-22T20:01:37.0542848Z   SCCACHE_PATH: /opt/hostedtoolcache/sccache/0.18.0/x64/sccache
+2026-09-22T20:01:37.0585899Z   ACTIONS_RUNTIME_TOKEN: ***
+2026-09-22T20:01:37.0586177Z   CMAKE_C_COMPILER_LAUNCHER: sccache
+2026-09-22T20:01:37.0586422Z   CMAKE_CXX_COMPILER_LAUNCHER: sccache
+2026-09-22T20:01:37.0586814Z   RUSTFLAGS: -C target-feature=+avx2 -C force-frame-pointers=yes -C link-arg=-fuse-ld=mold
+2026-09-22T20:01:37.0587305Z   VORTEX_BENCH_VARIANT: simulation
+2026-09-22T20:01:37.0587575Z ##[endgroup]
+2026-09-22T20:01:42.9773442Z [cargo-codspeed] Measurement mode: 
+2026-09-22T20:01:42.9777950Z 
+2026-09-22T20:01:43.4294033Z [1m[92m   Compiling[0m proc-macro2 v1.0.107
+2026-09-22T20:01:43.4294451Z [1m[92m   Compiling[0m unicode-ident v1.0.24
+2026-09-22T20:01:43.4294842Z [1m[92m   Compiling[0m quote v1.0.47
+2026-09-22T20:01:43.4295196Z [1m[92m   Compiling[0m libc v0.2.189
+2026-09-22T20:01:43.4295580Z [1m[92m   Compiling[0m cfg-if v1.0.4
+2026-09-22T20:01:43.4295843Z [1m[92m   Compiling[0m autocfg v1.5.1
+2026-09-22T20:01:43.4296102Z [1m[92m   Compiling[0m smallvec v1.16.1
+2026-09-22T20:01:43.4296379Z [1m[92m   Compiling[0m libm v0.2.16
+2026-09-22T20:01:43.4296928Z [1m[92m   Compiling[0m bitflags v2.13.2
+2026-09-22T20:01:43.4351279Z [1m[92m   Compiling[0m memchr v2.8.3
+2026-09-22T20:01:43.4390001Z [1m[92m   Compiling[0m parking_lot_core v0.9.12
+2026-09-22T20:01:43.4481421Z [1m[92m   Compiling[0m crossbeam-utils v0.8.23
+2026-09-22T20:01:43.4533703Z [1m[92m   Compiling[0m pin-project-lite v0.2.17
+2026-09-22T20:01:43.4563599Z [1m[92m   Compiling[0m bytes v1.12.1
+2026-09-22T20:01:43.5353767Z [1m[92m   Compiling[0m getrandom v0.3.4
+2026-09-22T20:01:43.5458979Z [1m[92m   Compiling[0m itoa v1.0.18
+2026-09-22T20:01:43.5587505Z [1m[92m   Compiling[0m futures-core v0.3.34
+2026-09-22T20:01:43.5640197Z [1m[92m   Compiling[0m either v1.18.0
+2026-09-22T20:01:43.5673269Z [1m[92m   Compiling[0m zerocopy v0.8.57
+2026-09-22T20:01:43.5799231Z [1m[92m   Compiling[0m allocator-api2 v0.2.21
+2026-09-22T20:01:43.5894932Z [1m[92m   Compiling[0m hashbrown v0.17.1
+2026-09-22T20:01:43.5987688Z [1m[92m   Compiling[0m equivalent v1.0.2
+2026-09-22T20:01:43.6014252Z [1m[92m   Compiling[0m num-traits v0.2.19
+2026-09-22T20:01:43.6183375Z [1m[92m   Compiling[0m anyhow v1.0.104
+2026-09-22T20:01:43.6231833Z [1m[92m   Compiling[0m semver v1.0.28
+2026-09-22T20:01:43.6511486Z [1m[92m   Compiling[0m regex-syntax v0.8.11
+2026-09-22T20:01:43.6924299Z [1m[92m   Compiling[0m rustc_version v0.4.1
+2026-09-22T20:01:43.7159685Z [1m[92m   Compiling[0m serde_core v1.0.229
+2026-09-22T20:01:43.7380667Z [1m[92m   Compiling[0m rustversion v1.0.23
+2026-09-22T20:01:43.7449412Z [1m[92m   Compiling[0m indexmap v2.14.2
+2026-09-22T20:01:43.7548404Z [1m[92m   Compiling[0m foldhash v0.2.0
+2026-09-22T20:01:43.8169769Z [1m[92m   Compiling[0m shlex v2.0.1
+2026-09-22T20:01:43.8621763Z [1m[92m   Compiling[0m find-msvc-tools v0.1.12
+2026-09-22T20:01:43.8768763Z [1m[92m   Compiling[0m zmij v1.0.23
+2026-09-22T20:01:43.8835007Z [1m[92m   Compiling[0m aho-corasick v1.1.5
+2026-09-22T20:01:43.8946621Z [1m[92m   Compiling[0m fnv v1.0.7
+2026-09-22T20:01:43.9013094Z [1m[92m   Compiling[0m futures-io v0.3.34
+2026-09-22T20:01:43.9159876Z [1m[92m   Compiling[0m serde_json v1.0.151
+2026-09-22T20:01:43.9160681Z [1m[92m   Compiling[0m itertools v0.10.5
+2026-09-22T20:01:43.9301417Z [1m[92m   Compiling[0m slab v0.4.12
+2026-09-22T20:01:43.9785986Z [1m[92m   Compiling[0m once_cell v1.21.4
+2026-09-22T20:01:44.0023079Z [1m[92m   Compiling[0m version_check v0.9.5
+2026-09-22T20:01:44.0080449Z [1m[92m   Compiling[0m rustix v1.1.4
+2026-09-22T20:01:44.0540138Z [1m[92m   Compiling[0m futures-sink v0.3.34
+2026-09-22T20:01:44.0644906Z [1m[92m   Compiling[0m scopeguard v1.2.0
+2026-09-22T20:01:44.0717053Z [1m[92m   Compiling[0m parking v2.2.1
+2026-09-22T20:01:44.0721468Z [1m[92m   Compiling[0m ahash v0.8.12
+2026-09-22T20:01:44.1017083Z [1m[92m   Compiling[0m linux-raw-sys v0.12.1
+2026-09-22T20:01:44.1188385Z [1m[92m   Compiling[0m winnow v1.0.4
+2026-09-22T20:01:44.1246262Z [1m[92m   Compiling[0m futures-channel v0.3.34
+2026-09-22T20:01:44.1246727Z [1m[92m   Compiling[0m fastrand v2.5.0
+2026-09-22T20:01:44.1306572Z [1m[92m   Compiling[0m toml_datetime v1.1.1+spec-1.1.0
+2026-09-22T20:01:44.1368498Z [1m[92m   Compiling[0m logos-codegen v0.15.1
+2026-09-22T20:01:44.1369042Z [1m[92m   Compiling[0m log v0.4.34
+2026-09-22T20:01:44.1434203Z [1m[92m   Compiling[0m regex-automata v0.4.18
+2026-09-22T20:01:44.2106966Z [1m[92m   Compiling[0m futures-task v0.3.34
+2026-09-22T20:01:44.2168628Z [1m[92m   Compiling[0m glob v0.3.4
+2026-09-22T20:01:44.2236713Z [1m[92m   Compiling[0m beef v0.5.2
+2026-09-22T20:01:44.2408514Z [1m[92m   Compiling[0m syn v2.0.119
+2026-09-22T20:01:44.2409103Z [1m[92m   Compiling[0m syn v3.0.5
+2026-09-22T20:01:44.2482862Z [1m[92m   Compiling[0m jobserver v0.1.35
+2026-09-22T20:01:44.2517445Z [1m[92m   Compiling[0m num-integer v0.1.47
+2026-09-22T20:01:44.2948422Z [1m[92m   Compiling[0m lazy_static v1.5.0
+2026-09-22T20:01:44.2971586Z [1m[92m   Compiling[0m event-listener v5.4.2
+2026-09-22T20:01:44.3018368Z [1m[92m   Compiling[0m toml_parser v1.1.3+spec-1.1.0
+2026-09-22T20:01:44.3050878Z [1m[92m   Compiling[0m lock_api v0.4.14
+2026-09-22T20:01:44.3080516Z [1m[92m   Compiling[0m unicode-width v0.1.14
+2026-09-22T20:01:44.3122098Z [1m[92m   Compiling[0m rand_core v0.10.1
+2026-09-22T20:01:44.3297139Z [1m[92m   Compiling[0m cc v1.4.6
+2026-09-22T20:01:44.3356579Z [1m[92m   Compiling[0m getrandom v0.4.3
+2026-09-22T20:01:44.3520102Z [1m[92m   Compiling[0m num-bigint v0.5.1
+2026-09-22T20:01:44.3547769Z [1m[92m   Compiling[0m thiserror v2.0.20
+2026-09-22T20:01:44.3836272Z [1m[92m   Compiling[0m toml_edit v0.25.15+spec-1.1.0
+2026-09-22T20:01:44.3942173Z [1m[92m   Compiling[0m event-listener-strategy v0.5.4
+2026-09-22T20:01:44.3999534Z [1m[92m   Compiling[0m flatbuffers v25.12.19
+2026-09-22T20:01:44.4339362Z [1m[92m   Compiling[0m prettyplease v0.2.37
+2026-09-22T20:01:44.4610835Z [1m[92m   Compiling[0m foldhash v0.1.5
+2026-09-22T20:01:44.4793279Z [1m[92m   Compiling[0m arrow-schema v59.3.0
+2026-09-22T20:01:44.4968482Z [1m[92m   Compiling[0m tracing-core v0.1.36
+2026-09-22T20:01:44.5280431Z [1m[92m   Compiling[0m fixedbitset v0.5.7
+2026-09-22T20:01:44.5459288Z [1m[92m   Compiling[0m hashbrown v0.15.5
+2026-09-22T20:01:44.5516630Z [1m[92m   Compiling[0m jiff-core v0.1.1
+2026-09-22T20:01:44.5608947Z [1m[92m   Compiling[0m proc-macro-crate v3.5.0
+2026-09-22T20:01:44.5935272Z [1m[92m   Compiling[0m regex v1.13.1
+2026-09-22T20:01:44.6150040Z [1m[92m   Compiling[0m radium v0.7.0
+2026-09-22T20:01:44.6249750Z [1m[92m   Compiling[0m simdutf8 v0.1.5
+2026-09-22T20:01:44.6308139Z [1m[92m   Compiling[0m multimap v0.10.1
+2026-09-22T20:01:44.6374148Z [1m[92m   Compiling[0m heck v0.5.0
+2026-09-22T20:01:44.6590771Z [1m[92m   Compiling[0m petgraph v0.8.3
+2026-09-22T20:01:44.6626395Z [1m[92m   Compiling[0m tap v1.0.1
+2026-09-22T20:01:44.6766920Z [1m[92m   Compiling[0m paste v1.0.15
+2026-09-22T20:01:44.6845067Z [1m[92m   Compiling[0m stable_deref_trait v1.2.1
+2026-09-22T20:01:44.6942098Z [1m[92m   Compiling[0m async-lock v3.4.2
+2026-09-22T20:01:44.6976629Z [1m[92m   Compiling[0m parking_lot v0.12.5
+2026-09-22T20:01:44.7017553Z [1m[92m   Compiling[0m getrandom v0.2.17
+2026-09-22T20:01:44.7053061Z [1m[92m   Compiling[0m funty v2.0.0
+2026-09-22T20:01:44.7138801Z [1m[92m   Compiling[0m itertools v0.14.0
+2026-09-22T20:01:44.7289106Z [1m[92m   Compiling[0m wyz v0.5.1
+2026-09-22T20:01:44.7465761Z [1m[92m   Compiling[0m thiserror-impl v2.0.20
+2026-09-22T20:01:44.7505115Z [1m[92m   Compiling[0m futures-macro v0.3.34
+2026-09-22T20:01:44.7539165Z [1m[92m   Compiling[0m jiff v0.2.37
+2026-09-22T20:01:44.7738153Z [1m[92m   Compiling[0m zerocopy-derive v0.8.57
+2026-09-22T20:01:44.7842609Z [1m[92m   Compiling[0m prost-derive v0.14.4
+2026-09-22T20:01:44.7939319Z [1m[92m   Compiling[0m miette-derive v7.6.0
+2026-09-22T20:01:44.7988668Z [1m[92m   Compiling[0m logos-codegen v0.16.1
+2026-09-22T20:01:44.8476866Z [1m[92m   Compiling[0m tracing-attributes v0.1.31
+2026-09-22T20:01:44.8641638Z [1m[92m   Compiling[0m num_enum_derive v0.7.6
+2026-09-22T20:01:44.9050344Z [1m[92m   Compiling[0m bitvec v1.1.1
+2026-09-22T20:01:44.9754724Z [1m[92m   Compiling[0m rand_core v0.6.4
+2026-09-22T20:01:45.0211282Z [1m[92m   Compiling[0m tempfile v3.27.0
+2026-09-22T20:01:45.0415223Z [1m[92m   Compiling[0m logos-derive v0.16.1
+2026-09-22T20:01:45.0648943Z [1m[92m   Compiling[0m synstructure v0.13.2
+2026-09-22T20:01:45.0738459Z [1m[92m   Compiling[0m ppv-lite86 v0.2.21
+2026-09-22T20:01:45.1018679Z [1m[92m   Compiling[0m logos-derive v0.15.1
+2026-09-22T20:01:45.1258499Z [1m[92m   Compiling[0m rstest_macros v0.26.1
+2026-09-22T20:01:45.2138761Z [1m[92m   Compiling[0m cpufeatures v0.3.1
+2026-09-22T20:01:45.2262498Z [1m[92m   Compiling[0m unicode-segmentation v1.13.3
+2026-09-22T20:01:45.2265688Z [1m[92m   Compiling[0m rand_chacha v0.3.1
+2026-09-22T20:01:45.3123639Z [1m[92m   Compiling[0m chacha20 v0.10.2
+2026-09-22T20:01:45.3186904Z [1m[92m   Compiling[0m logos v0.15.1
+2026-09-22T20:01:45.3187890Z [1m[92m   Compiling[0m logos v0.16.1
+2026-09-22T20:01:45.3264946Z [1m[92m   Compiling[0m futures-util v0.3.34
+2026-09-22T20:01:45.3558568Z [1m[92m   Compiling[0m console v0.15.11
+2026-09-22T20:01:45.3598265Z [1m[92m   Compiling[0m arc-swap v1.9.2
+2026-09-22T20:01:45.3946937Z [1m[92m   Compiling[0m similar v2.7.0
+2026-09-22T20:01:45.4088403Z [1m[92m   Compiling[0m relative-path v1.9.3
+2026-09-22T20:01:45.4195093Z [1m[92m   Compiling[0m rand v0.8.8
+2026-09-22T20:01:45.4738467Z [1m[92m   Compiling[0m zerofrom-derive v0.1.7
+2026-09-22T20:01:45.4968435Z [1m[92m   Compiling[0m rand v0.10.2
+2026-09-22T20:01:45.5011466Z [1m[92m   Compiling[0m enum-iterator-derive v1.5.0
+2026-09-22T20:01:45.5878564Z [1m[92m   Compiling[0m uuid v1.26.1
+2026-09-22T20:01:45.6154882Z [1m[92m   Compiling[0m similar-asserts v1.7.0
+2026-09-22T20:01:45.6328740Z [1m[92m   Compiling[0m futures-timer v3.0.4
+2026-09-22T20:01:45.6744465Z [1m[92m   Compiling[0m yansi v1.0.1
+2026-09-22T20:01:45.6868626Z [1m[92m   Compiling[0m num_enum v0.7.6
+2026-09-22T20:01:45.7128774Z [1m[92m   Compiling[0m static_assertions v1.1.0
+2026-09-22T20:01:45.7558601Z [1m[92m   Compiling[0m miette v7.6.0
+2026-09-22T20:01:45.7934393Z [1m[92m   Compiling[0m rustc-hash v2.1.3
+2026-09-22T20:01:45.8118415Z [1m[92m   Compiling[0m rstest_reuse v0.7.0
+2026-09-22T20:01:45.8148598Z [1m[92m   Compiling[0m vortex-array-macros v0.1.0 (/home/runner/_work/vortex/vortex/vortex-array-macros)
+2026-09-22T20:01:45.8251416Z [1m[92m   Compiling[0m humansize v2.1.3
+2026-09-22T20:01:45.8491397Z [1m[92m   Compiling[0m arcref v0.2.0
+2026-09-22T20:01:45.9168479Z [1m[92m   Compiling[0m goldenfile v1.11.0
+2026-09-22T20:01:45.9322694Z [1m[92m   Compiling[0m inventory v0.3.24
+2026-09-22T20:01:45.9458758Z [1m[92m   Compiling[0m yoke-derive v0.8.2
+2026-09-22T20:01:45.9569502Z [1m[92m   Compiling[0m zerovec-derive v0.11.6
+2026-09-22T20:01:45.9718651Z [1m[92m   Compiling[0m approx v0.5.1
+2026-09-22T20:01:45.9916203Z [1m[92m   Compiling[0m tracing v0.1.44
+2026-09-22T20:01:46.0058615Z [1m[92m   Compiling[0m futures-executor v0.3.34
+2026-09-22T20:01:46.0148408Z [1m[92m   Compiling[0m iana-time-zone v0.1.65
+2026-09-22T20:01:46.0348419Z [1m[92m   Compiling[0m displaydoc v0.2.7
+2026-09-22T20:01:46.0672510Z [1m[92m   Compiling[0m cmake v0.1.58
+2026-09-22T20:01:46.1328594Z [1m[92m   Compiling[0m chrono v0.4.45
+2026-09-22T20:01:46.1500475Z [1m[92m   Compiling[0m futures v0.3.34
+2026-09-22T20:01:46.2038523Z [1m[92m   Compiling[0m fs_extra v1.3.0
+2026-09-22T20:01:46.2111450Z [1m[92m   Compiling[0m prost v0.14.4
+2026-09-22T20:01:46.2231555Z [1m[92m   Compiling[0m thiserror v1.0.69
+2026-09-22T20:01:46.2459079Z [1m[92m   Compiling[0m dunce v1.0.5
+2026-09-22T20:01:46.2801920Z [1m[92m   Compiling[0m pkg-config v0.3.34
+2026-09-22T20:01:46.3088489Z [1m[92m   Compiling[0m socket2 v0.6.5
+2026-09-22T20:01:46.3383551Z [1m[92m   Compiling[0m prost-types v0.14.4
+2026-09-22T20:01:46.3518313Z [1m[92m   Compiling[0m enum-iterator v2.3.0
+2026-09-22T20:01:46.3579899Z [1m[92m   Compiling[0m vortex-error v0.1.0 (/home/runner/_work/vortex/vortex/vortex-error)
+2026-09-22T20:01:46.3648883Z [1m[92m   Compiling[0m serde v1.0.229
+2026-09-22T20:01:46.3984452Z [1m[92m   Compiling[0m thiserror-impl v1.0.69
+2026-09-22T20:01:46.4329061Z [1m[92m   Compiling[0m serde_derive v1.0.229
+2026-09-22T20:01:46.4788629Z [1m[92m   Compiling[0m mio v1.2.3
+2026-09-22T20:01:46.4960581Z [1m[92m   Compiling[0m crossbeam-epoch v0.9.21
+2026-09-22T20:01:46.5104164Z [1m[92m   Compiling[0m aws-lc-sys v0.45.0
+2026-09-22T20:01:46.5138445Z [1m[92m   Compiling[0m atomic-waker v1.1.2
+2026-09-22T20:01:46.5442393Z [1m[92m   Compiling[0m rand_core v0.9.5
+2026-09-22T20:01:46.6047543Z [1m[92m   Compiling[0m syn v1.0.109
+2026-09-22T20:01:46.6208507Z [1m[92m   Compiling[0m byteorder v1.5.0
+2026-09-22T20:01:46.6421457Z [1m[92m   Compiling[0m base64 v0.23.1
+2026-09-22T20:01:46.6687916Z [1m[92m   Compiling[0m tokio v1.53.1
+2026-09-22T20:01:46.6825429Z [1m[92m   Compiling[0m num-complex v0.4.6
+2026-09-22T20:01:46.7327096Z [1m[92m   Compiling[0m prost-reflect v0.16.5
+2026-09-22T20:01:46.7418591Z [1m[92m   Compiling[0m protox-parse v0.9.0
+2026-09-22T20:01:46.7475999Z [1m[92m   Compiling[0m prost-build v0.14.4
+2026-09-22T20:01:46.7908391Z [1m[92m   Compiling[0m crossbeam-deque v0.8.8
+2026-09-22T20:01:46.7977766Z [1m[92m   Compiling[0m cfg_aliases v0.2.2
+2026-09-22T20:01:46.8298601Z [1m[92m   Compiling[0m aws-lc-rs v1.18.1
+2026-09-22T20:01:46.8746792Z [1m[92m   Compiling[0m nix v0.31.3
+2026-09-22T20:01:46.9302248Z [1m[92m   Compiling[0m rayon-core v1.13.0
+2026-09-22T20:01:46.9364244Z [1m[92m   Compiling[0m lexical-util v1.0.7
+2026-09-22T20:01:46.9368909Z [1m[92m   Compiling[0m terminal_size v0.4.4
+2026-09-22T20:01:46.9791056Z [1m[92m   Compiling[0m codspeed v5.0.1
+2026-09-22T20:01:47.0228648Z [1m[92m   Compiling[0m icu_properties_data v2.3.0
+2026-09-22T20:01:47.0510509Z [1m[92m   Compiling[0m half v2.7.1
+2026-09-22T20:01:47.0913383Z [1m[92m   Compiling[0m anstyle v1.0.14
+2026-09-22T20:01:47.1017653Z [1m[92m   Compiling[0m heapless v0.8.0
+2026-09-22T20:01:47.1528526Z [1m[92m   Compiling[0m clap_lex v1.1.0
+2026-09-22T20:01:47.1623082Z [1m[92m   Compiling[0m icu_normalizer_data v2.3.0
+2026-09-22T20:01:47.1841707Z [1m[92m   Compiling[0m hashbrown v0.14.5
+2026-09-22T20:01:47.2158478Z [1m[92m   Compiling[0m arrow-buffer v59.3.0
+2026-09-22T20:01:47.2202455Z [1m[92m   Compiling[0m protox v0.9.1
+2026-09-22T20:01:47.2678551Z [1m[92m   Compiling[0m rand_chacha v0.9.0
+2026-09-22T20:01:47.2692397Z [1m[92m   Compiling[0m clap_builder v4.6.6
+2026-09-22T20:01:47.3151487Z [1m[92m   Compiling[0m hash32 v0.3.1
+2026-09-22T20:01:47.3321785Z [1m[92m   Compiling[0m zerofrom v0.1.8
+2026-09-22T20:01:47.3717750Z [1m[92m   Compiling[0m vortex-build v0.1.0 (/home/runner/_work/vortex/vortex/vortex-build)
+2026-09-22T20:01:47.3902828Z [1m[92m   Compiling[0m statrs v0.18.0
+2026-09-22T20:01:47.3946920Z [1m[92m   Compiling[0m fsst-rs v0.6.0
+2026-09-22T20:01:47.4076543Z [1m[92m   Compiling[0m rand v0.9.5
+2026-09-22T20:01:47.4162259Z [1m[92m   Compiling[0m divan-macros v0.1.17
+2026-09-22T20:01:47.4168435Z [1m[92m   Compiling[0m libmimalloc-sys v0.1.49
+2026-09-22T20:01:47.4287845Z [1m[92m   Compiling[0m dashmap v6.2.1
+2026-09-22T20:01:47.4430902Z [1m[92m   Compiling[0m colored v3.1.1
+2026-09-22T20:01:47.4543234Z [1m[92m   Compiling[0m vortex-array v0.1.0 (/home/runner/_work/vortex/vortex/vortex-array)
+2026-09-22T20:01:47.4788840Z [1m[92m   Compiling[0m vortex-buffer v0.1.0 (/home/runner/_work/vortex/vortex/vortex-buffer)
+2026-09-22T20:01:47.5220510Z [1m[92m   Compiling[0m arrow-data v59.3.0
+2026-09-22T20:01:47.5459959Z [1m[92m   Compiling[0m yoke v0.8.3
+2026-09-22T20:01:47.5594994Z [1m[92m   Compiling[0m rayon v1.12.0
+2026-09-22T20:01:47.5720540Z [1m[92m   Compiling[0m ext-trait-proc_macros v1.0.1
+2026-09-22T20:01:47.5791405Z [1m[92m   Compiling[0m lexical-parse-integer v1.0.6
+2026-09-22T20:01:47.6348892Z [1m[92m   Compiling[0m vortex-utils v0.1.0 (/home/runner/_work/vortex/vortex/vortex-utils)
+2026-09-22T20:01:47.6568428Z [1m[92m   Compiling[0m lasso v0.7.3
+2026-09-22T20:01:47.6965657Z [1m[92m   Compiling[0m clap v4.6.6
+2026-09-22T20:01:47.7078515Z [1m[92m   Compiling[0m lexical-write-integer v1.0.6
+2026-09-22T20:01:47.7339146Z [1m[92m   Compiling[0m concurrent-queue v2.5.0
+2026-09-22T20:01:47.7768598Z [1m[92m   Compiling[0m hashbrown v0.16.1
+2026-09-22T20:01:47.8248925Z [1m[92m   Compiling[0m vortex-compute v0.1.0 (/home/runner/_work/vortex/vortex/vortex-compute)
+2026-09-22T20:01:47.8340829Z [1m[92m   Compiling[0m vortex-session v0.1.0 (/home/runner/_work/vortex/vortex/vortex-session)
+2026-09-22T20:01:47.8341900Z [1m[92m   Compiling[0m vortex-mask v0.1.0 (/home/runner/_work/vortex/vortex/vortex-mask)
+2026-09-22T20:01:47.8347966Z [1m[92m   Compiling[0m seq-macro v0.3.6
+2026-09-22T20:01:47.8469163Z [1m[92m   Compiling[0m arrow-array v59.3.0
+2026-09-22T20:01:47.8507566Z [1m[92m   Compiling[0m condtype v1.3.0
+2026-09-22T20:01:47.8508551Z [1m[92m   Compiling[0m codspeed-divan-compat v5.0.1
+2026-09-22T20:01:47.8509352Z [1m[92m   Compiling[0m const_for v0.1.6
+2026-09-22T20:01:47.9131229Z [1m[92m   Compiling[0m pastey v0.2.3
+2026-09-22T20:01:47.9200538Z [1m[92m   Compiling[0m macro_rules_attribute-proc_macro v0.1.3
+2026-09-22T20:01:47.9279779Z [1m[92m   Compiling[0m regex-lite v0.1.9
+2026-09-22T20:01:47.9376066Z [1m[92m   Compiling[0m ext-trait v1.0.1
+2026-09-22T20:01:47.9378555Z [1m[92m   Compiling[0m rstar v0.12.2
+2026-09-22T20:01:47.9519358Z [1m[92m   Compiling[0m lexical-write-float v1.0.6
+2026-09-22T20:01:48.0049200Z [1m[92m   Compiling[0m lexical-parse-float v1.0.6
+2026-09-22T20:01:48.0318829Z [1m[92m   Compiling[0m codspeed-divan-compat-macros v5.0.1
+2026-09-22T20:01:48.0428162Z [1m[92m   Compiling[0m nougat-proc_macros v0.2.4
+2026-09-22T20:01:48.0589419Z [1m[92m   Compiling[0m futures-lite v2.6.1
+2026-09-22T20:01:48.0771362Z [1m[92m   Compiling[0m extension-traits v1.0.1
+2026-09-22T20:01:48.0929652Z [1m[92m   Compiling[0m geo-types v0.7.20
+2026-09-22T20:01:48.0989343Z [1m[92m   Compiling[0m zerovec v0.11.8
+2026-09-22T20:01:48.1508303Z [1m[92m   Compiling[0m lending-iterator-proc_macros v0.1.7
+2026-09-22T20:01:48.1620816Z [1m[92m   Compiling[0m clang-sys v1.9.1
+2026-09-22T20:01:48.1791138Z [1m[92m   Compiling[0m lexical-core v1.0.6
+2026-09-22T20:01:48.1848637Z [1m[92m   Compiling[0m atoi v2.0.0
+2026-09-22T20:01:48.1917362Z [1m[92m   Compiling[0m macro_rules_attribute v0.1.3
+2026-09-22T20:01:48.2431169Z [1m[92m   Compiling[0m ryu v1.0.23
+2026-09-22T20:01:48.2649863Z [1m[92m   Compiling[0m polonius-the-crab v0.2.1
+2026-09-22T20:01:48.2802827Z [1m[92m   Compiling[0m httparse v1.10.1
+2026-09-22T20:01:48.2838426Z [1m[92m   Compiling[0m rustls v0.23.45
+2026-09-22T20:01:48.2899188Z [1m[92m   Compiling[0m never-say-never v6.6.666
+2026-09-22T20:01:48.3535965Z [1m[92m   Compiling[0m fastlanes v0.7.2
+2026-09-22T20:01:48.3601703Z [1m[92m   Compiling[0m fastlanes v0.6.1
+2026-09-22T20:01:48.3930490Z [1m[92m   Compiling[0m rstest v0.26.1
+2026-09-22T20:01:48.3938187Z [1m[92m   Compiling[0m itertools v0.15.0
+2026-09-22T20:01:48.3939090Z [1m[92m   Compiling[0m async-io v2.6.0
+2026-09-22T20:01:48.4128237Z [1m[92m   Compiling[0m minimal-lexical v0.2.1
+2026-09-22T20:01:48.4446137Z [1m[92m   Compiling[0m async-task v4.7.1
+2026-09-22T20:01:48.5185905Z [1m[92m   Compiling[0m geo-traits v0.3.0
+2026-09-22T20:01:48.5261669Z [1m[92m   Compiling[0m arrow-select v59.3.0
+2026-09-22T20:01:48.5658632Z [1m[92m   Compiling[0m nom v7.1.3
+2026-09-22T20:01:48.5778336Z [1m[92m   Compiling[0m onpair v0.2.1
+2026-09-22T20:01:48.5808610Z [1m[92m   Compiling[0m async-channel v2.5.0
+2026-09-22T20:01:48.5958809Z [1m[92m   Compiling[0m polling v3.11.0
+2026-09-22T20:01:48.6572104Z [1m[92m   Compiling[0m zigzag v0.1.0
+2026-09-22T20:01:48.6769481Z [1m[92m   Compiling[0m libloading v0.8.9
+2026-09-22T20:01:48.7109655Z [1m[92m   Compiling[0m bindgen v0.72.1
+2026-09-22T20:01:48.7519982Z [1m[92m   Compiling[0m alp v0.0.4
+2026-09-22T20:01:48.7584407Z [1m[92m   Compiling[0m tinystr v0.8.4
+2026-09-22T20:01:48.7700140Z [1m[92m   Compiling[0m nougat v0.2.4
+2026-09-22T20:01:48.8140039Z [1m[92m   Compiling[0m vortex-edition v0.1.0 (/home/runner/_work/vortex/vortex/vortex-edition)
+2026-09-22T20:01:48.8395176Z [1m[92m   Compiling[0m lending-iterator v0.1.7
+2026-09-22T20:01:48.8474909Z [1m[92m   Compiling[0m piper v0.2.5
+2026-09-22T20:01:48.8538433Z [1m[92m   Compiling[0m errno v0.3.14
+2026-09-22T20:01:48.8573624Z [1m[92m   Compiling[0m cexpr v0.6.0
+2026-09-22T20:01:48.8608412Z [1m[92m   Compiling[0m itertools v0.13.0
+2026-09-22T20:01:48.9197987Z [1m[92m   Compiling[0m zeroize v1.9.0
+2026-09-22T20:01:48.9235471Z [1m[92m   Compiling[0m writeable v0.6.4
+2026-09-22T20:01:48.9770340Z [1m[92m   Compiling[0m litemap v0.8.3
+2026-09-22T20:01:48.9861006Z [1m[92m   Compiling[0m shlex v1.3.0
+2026-09-22T20:01:48.9959888Z [1m[92m   Compiling[0m signal-hook-registry v1.4.8
+2026-09-22T20:01:48.9988981Z [1m[92m   Compiling[0m http v1.5.0
+2026-09-22T20:01:49.0029206Z [1m[92m   Compiling[0m blocking v1.7.0
+2026-09-22T20:01:49.0465628Z [1m[92m   Compiling[0m potential_utf v0.1.6
+2026-09-22T20:01:49.0524552Z [1m[92m   Compiling[0m icu_locale_core v2.3.0
+2026-09-22T20:01:49.0566808Z [1m[92m   Compiling[0m zerotrie v0.2.5
+2026-09-22T20:01:49.1218685Z [1m[92m   Compiling[0m utf8_iter v1.0.4
+2026-09-22T20:01:49.1219201Z [1m[92m   Compiling[0m async-signal v0.2.14
+2026-09-22T20:01:49.1459802Z [1m[92m   Compiling[0m rustls-pki-types v1.15.1
+2026-09-22T20:01:49.1526303Z [1m[92m   Compiling[0m geoarrow-schema v0.8.0 (https://github.com/geoarrow/geoarrow-rs?rev=855d2e138e54ce503c4488d5bb795ca1ea880d1f#855d2e13)
+2026-09-22T20:01:49.1702625Z [1m[92m   Compiling[0m wkt v0.14.0
+2026-09-22T20:01:49.1760586Z [1m[92m   Compiling[0m wkb v0.9.2
+2026-09-22T20:01:49.1883944Z [1m[92m   Compiling[0m arrow-ord v59.3.0
+2026-09-22T20:01:49.1965749Z [1m[92m   Compiling[0m icu_collections v2.3.0
+2026-09-22T20:01:49.2322922Z [1m[92m   Compiling[0m icu_provider v2.3.1
+2026-09-22T20:01:49.2819658Z [1m[92m   Compiling[0m i_float v1.15.0
+2026-09-22T20:01:49.3333896Z [1m[92m   Compiling[0m portable-atomic v1.15.0
+2026-09-22T20:01:49.3472992Z [1m[92m   Compiling[0m i_shape v1.14.0
+2026-09-22T20:01:49.3647360Z [1m[92m   Compiling[0m geoarrow-array v0.8.0 (https://github.com/geoarrow/geoarrow-rs?rev=855d2e138e54ce503c4488d5bb795ca1ea880d1f#855d2e13)
+2026-09-22T20:01:49.3648405Z [1m[92m   Compiling[0m async-process v2.5.0
+2026-09-22T20:01:49.4501466Z [1m[92m   Compiling[0m http-body v1.1.0
+2026-09-22T20:01:49.4684998Z [1m[92m   Compiling[0m async-net v2.0.0
+2026-09-22T20:01:49.4773408Z [1m[92m   Compiling[0m async-fs v2.2.0
+2026-09-22T20:01:49.4774214Z [1m[92m   Compiling[0m async-executor v1.14.0
+2026-09-22T20:01:49.5078402Z [1m[92m   Compiling[0m async-stream-impl v0.3.6
+2026-09-22T20:01:49.5109229Z [1m[92m   Compiling[0m multiversion-macros v0.9.0
+2026-09-22T20:01:49.5209524Z [1m[92m   Compiling[0m async-trait v0.1.92
+2026-09-22T20:01:49.5268748Z [1m[92m   Compiling[0m encoding_rs v0.8.41
+2026-09-22T20:01:49.5557079Z [1m[92m   Compiling[0m itertools v0.11.0
+2026-09-22T20:01:49.5800533Z [1m[92m   Compiling[0m crossbeam-channel v0.5.17
+2026-09-22T20:01:49.5858915Z [1m[92m   Compiling[0m arrow-cast v59.3.0
+2026-09-22T20:01:49.6038840Z [1m[92m   Compiling[0m sketches-ddsketch v0.4.1
+2026-09-22T20:01:49.6076356Z [1m[92m   Compiling[0m robust v1.2.0
+2026-09-22T20:01:49.6755599Z [1m[92m   Compiling[0m bytemuck v1.25.2
+2026-09-22T20:01:49.6978747Z [1m[92m   Compiling[0m i_key_sort v0.6.0
+2026-09-22T20:01:49.7325150Z [1m[92m   Compiling[0m rust_decimal v1.43.0
+2026-09-22T20:01:49.7601391Z [1m[92m   Compiling[0m untrusted v0.9.0
+2026-09-22T20:01:49.7656179Z [1m[92m   Compiling[0m percent-encoding v2.3.2
+2026-09-22T20:01:49.7704221Z [1m[92m   Compiling[0m custom-labels v0.4.6
+2026-09-22T20:01:49.7781391Z [1m[92m   Compiling[0m codspeed-divan-compat-walltime v5.0.1
+2026-09-22T20:01:49.7933417Z [1m[92m   Compiling[0m i_tree v0.16.0
+2026-09-22T20:01:49.8168883Z [1m[92m   Compiling[0m earcutr v0.4.3
+2026-09-22T20:01:49.8226253Z [1m[92m   Compiling[0m async-stream v0.3.6
+2026-09-22T20:01:49.8448642Z [1m[92m   Compiling[0m roaring v0.11.5
+2026-09-22T20:01:49.8509562Z [1m[92m   Compiling[0m spade v2.15.1
+2026-09-22T20:01:49.9298288Z [1m[92m   Compiling[0m vortex-metrics v0.1.0 (/home/runner/_work/vortex/vortex/vortex-metrics)
+2026-09-22T20:01:49.9674214Z [1m[92m   Compiling[0m i_overlay v4.0.7
+2026-09-22T20:01:50.0329562Z [1m[92m   Compiling[0m smol v2.0.2
+2026-09-22T20:01:50.1303580Z [1m[92m   Compiling[0m icu_properties v2.3.0
+2026-09-22T20:01:50.1433362Z [1m[92m   Compiling[0m icu_normalizer v2.3.0
+2026-09-22T20:01:50.1672156Z [1m[92m   Compiling[0m tokio-util v0.7.19
+2026-09-22T20:01:50.1998641Z [1m[92m   Compiling[0m vortex-layout v0.1.0 (/home/runner/_work/vortex/vortex/vortex-layout)
+2026-09-22T20:01:50.2239296Z [1m[92m   Compiling[0m kanal v0.1.1
+2026-09-22T20:01:50.2299092Z [1m[92m   Compiling[0m geographiclib-rs v0.2.7
+2026-09-22T20:01:50.2480099Z [1m[92m   Compiling[0m tower-service v0.3.3
+2026-09-22T20:01:50.2565299Z [1m[92m   Compiling[0m subtle v2.6.1
+2026-09-22T20:01:50.2747673Z [1m[92m   Compiling[0m tagptr v0.2.0
+2026-09-22T20:01:50.2982974Z [1m[92m   Compiling[0m try-lock v0.2.5
+2026-09-22T20:01:50.3078615Z [1m[92m   Compiling[0m float_next_after v1.0.0
+2026-09-22T20:01:50.3311442Z [1m[92m   Compiling[0m h2 v0.4.19
+2026-09-22T20:01:50.3562678Z [1m[92m   Compiling[0m moka v0.12.16
+2026-09-22T20:01:50.3646109Z [1m[92m   Compiling[0m idna_adapter v1.2.2
+2026-09-22T20:01:50.3731546Z [1m[92m   Compiling[0m want v0.3.1
+2026-09-22T20:01:50.3908951Z [1m[92m   Compiling[0m geoarrow-cast v0.8.0 (https://github.com/geoarrow/geoarrow-rs?rev=855d2e138e54ce503c4488d5bb795ca1ea880d1f#855d2e13)
+2026-09-22T20:01:50.3949128Z [1m[92m   Compiling[0m geoarrow v0.8.0 (https://github.com/geoarrow/geoarrow-rs?rev=855d2e138e54ce503c4488d5bb795ca1ea880d1f#855d2e13)
+2026-09-22T20:01:50.4387479Z [1m[92m   Compiling[0m twox-hash v2.1.4
+2026-09-22T20:01:50.4503656Z [1m[92m   Compiling[0m geo v0.31.0
+2026-09-22T20:01:50.4852973Z [1m[92m   Compiling[0m multiversion_no_op v1.0.0
+2026-09-22T20:01:50.5102042Z [1m[92m   Compiling[0m termtree v1.0.0
+2026-09-22T20:01:50.5622392Z [1m[92m   Compiling[0m bit-vec v0.9.1
+2026-09-22T20:01:50.5903209Z [1m[92m   Compiling[0m idna v1.1.0
+2026-09-22T20:01:50.6343712Z [1m[92m   Compiling[0m form_urlencoded v1.2.2
+2026-09-22T20:01:50.6424941Z [1m[92m   Compiling[0m sync_wrapper v1.0.2
+2026-09-22T20:01:50.6532008Z [1m[92m   Compiling[0m hyper v1.11.1
+2026-09-22T20:01:50.6668687Z [1m[92m   Compiling[0m tower-layer v0.3.3
+2026-09-22T20:01:50.6733667Z [1m[92m   Compiling[0m openssl-probe v0.2.1
+2026-09-22T20:01:50.7020780Z [1m[92m   Compiling[0m ipnet v2.12.2
+2026-09-22T20:01:50.7067266Z [1m[92m   Compiling[0m base64 v0.22.1
+2026-09-22T20:01:50.7285226Z [1m[92m   Compiling[0m tower v0.5.3
+2026-09-22T20:01:50.7341900Z [1m[92m   Compiling[0m url v2.5.8
+2026-09-22T20:01:50.7386324Z [1m[92m   Compiling[0m rustls-native-certs v0.8.4
+2026-09-22T20:01:50.7869660Z [1m[92m   Compiling[0m multiversion v0.9.0
+2026-09-22T20:01:50.8208429Z [1m[92m   Compiling[0m hyper-util v0.1.20
+2026-09-22T20:01:50.8377359Z [1m[92m   Compiling[0m arrayvec v0.7.8
+2026-09-22T20:01:50.8463473Z [1m[92m   Compiling[0m core_detect v1.0.0
+2026-09-22T20:01:50.8825369Z [1m[92m   Compiling[0m tower-http v0.6.11
+2026-09-22T20:01:50.9682725Z [1m[92m   Compiling[0m http-body-util v0.1.5
+2026-09-22T20:01:50.9888967Z [1m[92m   Compiling[0m utf8-width v0.1.9
+2026-09-22T20:01:51.0304412Z [1m[92m   Compiling[0m mime v0.3.17
+2026-09-22T20:01:51.0350622Z [1m[92m   Compiling[0m ping v0.7.1
+2026-09-22T20:01:51.0481756Z [1m[92m   Compiling[0m byte-unit v5.2.6
+2026-09-22T20:01:51.1005890Z [1m[92m   Compiling[0m sysinfo v0.38.4
+2026-09-22T20:01:51.1048289Z [1m[92m   Compiling[0m which v8.0.6
+2026-09-22T20:01:51.1128524Z [1m[92m   Compiling[0m uzers v0.12.2
+2026-09-22T20:01:51.1321322Z [1m[92m   Compiling[0m num_cpus v1.17.0
+2026-09-22T20:01:52.3397673Z [1m[92m   Compiling[0m mimalloc v0.1.52
+2026-09-22T20:01:56.7309831Z [1m[92m   Compiling[0m rustls-webpki v0.103.15
+2026-09-22T20:01:57.1946702Z [1m[92m   Compiling[0m tokio-rustls v0.26.5
+2026-09-22T20:01:57.1947122Z [1m[92m   Compiling[0m rustls-platform-verifier v0.7.0
+2026-09-22T20:01:57.2664780Z [1m[92m   Compiling[0m hyper-rustls v0.27.9
+2026-09-22T20:01:57.3327073Z [1m[92m   Compiling[0m reqwest v0.13.5
+2026-09-22T20:01:57.5387553Z [1m[92m   Compiling[0m test-with-derive v0.16.3
+2026-09-22T20:01:59.2662715Z [1m[92m   Compiling[0m test-with v0.16.3
+2026-09-22T20:02:45.0453970Z ##[error]Process completed with exit code 137.
+2026-09-22T20:02:45.0601016Z Post job cleanup.
+2026-09-22T20:02:45.0604112Z ##[start-action display=Restore Cache;id=__3f3cda98-2100-4846-94f9-ff613e17b6f5.cache]
+2026-09-22T20:02:45.0606036Z ##[end-action id=__3f3cda98-2100-4846-94f9-ff613e17b6f5.cache;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-09-22T20:02:45.0731205Z Post job cleanup.
+2026-09-22T20:02:45.0735199Z ##[start-action display=Install sccache;id=__b23c3657-3711-45b5-beb2-fecc2818c137.__mozilla-actions_sccache-action]
+2026-09-22T20:02:45.0760205Z Post job cleanup.
+2026-09-22T20:02:45.1470783Z ##[group]Get human-readable stats
+2026-09-22T20:02:45.1481943Z [command]/opt/hostedtoolcache/sccache/0.18.0/x64/sccache --show-stats
+2026-09-22T20:02:45.1528553Z Compile requests                    1363
+2026-09-22T20:02:45.1528917Z Compile requests executed           1245
+2026-09-22T20:02:45.1529172Z Cache hits                          1236
+2026-09-22T20:02:45.1529410Z Cache hits (Assembler)               242
+2026-09-22T20:02:45.1529651Z Cache hits (C/C++)                   522
+2026-09-22T20:02:45.1529893Z Cache hits (Rust)                    472
+2026-09-22T20:02:45.1530129Z Cache misses                           1
+2026-09-22T20:02:45.1530384Z Cache misses (C/C++)                   1
+2026-09-22T20:02:45.1531114Z Cache hits rate                    99.92 %
+2026-09-22T20:02:45.1531381Z Cache hits rate (Assembler)       100.00 %
+2026-09-22T20:02:45.1531625Z Cache hits rate (C/C++)            99.81 %
+2026-09-22T20:02:45.1531869Z Cache hits rate (Rust)            100.00 %
+2026-09-22T20:02:45.1532108Z Cache timeouts                         0
+2026-09-22T20:02:45.1532339Z Cache read errors                      0
+2026-09-22T20:02:45.1532837Z Forced recaches                        0
+2026-09-22T20:02:45.1533085Z Cache write errors                     0
+2026-09-22T20:02:45.1533320Z Cache errors                           0
+2026-09-22T20:02:45.1533550Z Compilations                           1
+2026-09-22T20:02:45.1533791Z Compilation failures                   7
+2026-09-22T20:02:45.1534040Z Non-cacheable compilations             0
+2026-09-22T20:02:45.1534288Z Non-cacheable calls                  111
+2026-09-22T20:02:45.1534547Z Non-compilation calls                  7
+2026-09-22T20:02:45.1534800Z Unsupported compiler calls             0
+2026-09-22T20:02:45.1535054Z Average cache write                0.088 s
+2026-09-22T20:02:45.1535318Z Average compiler                   4.011 s
+2026-09-22T20:02:45.1535579Z Average cache read hit             0.038 s
+2026-09-22T20:02:45.1535847Z Failed distributed compilations        0
+2026-09-22T20:02:45.1536017Z 
+2026-09-22T20:02:45.1536114Z Non-cacheable reasons:
+2026-09-22T20:02:45.1536330Z crate-type                            89
+2026-09-22T20:02:45.1536599Z missing input                          8
+2026-09-22T20:02:45.1536831Z -                                      7
+2026-09-22T20:02:45.1537063Z -o                                     6
+2026-09-22T20:02:45.1537472Z missing emit                           1
+2026-09-22T20:02:45.1537631Z 
+2026-09-22T20:02:45.1537887Z Cache location                  s3, name: runs-on-v3-s3bucketcache-dbnub4tpjhpv, prefix: /cache/sccache/
+2026-09-22T20:02:45.1538309Z Base directories                (none)
+2026-09-22T20:02:45.1538562Z Version (client)                0.18.0
+2026-09-22T20:02:45.1543252Z ##[endgroup]
+2026-09-22T20:02:45.1543599Z ##[group]Get JSON stats
+2026-09-22T20:02:45.1545377Z [command]/opt/hostedtoolcache/sccache/0.18.0/x64/sccache --show-stats --stats-format=json
+2026-09-22T20:02:45.1574304Z {"stats":{"compile_requests":1363,"requests_unsupported_compiler":0,"requests_not_compile":7,"requests_not_cacheable":111,"requests_executed":1245,"cache_errors":{"counts":{},"adv_counts":{}},"cache_hits":{"counts":{"Assembler":242,"C/C++":522,"Rust":472},"adv_counts":{"c++ [gcc]":1,"rust":472,"assemblerToPreprocess [gcc]":242,"c [gcc]":521}},"cache_misses":{"counts":{"C/C++":1},"adv_counts":{"c [gcc]":1}},"cache_timeouts":0,"cache_read_errors":0,"non_cacheable_compilations":0,"forced_recaches":0,"cache_write_errors":0,"cache_writes":1,"cache_write_duration":{"secs":0,"nanos":88606553},"cache_read_hit_duration":{"secs":47,"nanos":868040106},"compilations":1,"compiler_write_duration":{"secs":4,"nanos":11577864},"compile_fails":7,"not_cached":{"-":7,"missing emit":1,"-o":6,"crate-type":89,"missing input":8},"dist_compiles":{},"dist_errors":0,"multi_level":null},"cache_location":"s3, name: runs-on-v3-s3bucketcache-dbnub4tpjhpv, prefix: /cache/sccache/","cache_size":null,"max_cache_size":null,"use_preprocessor_cache_mode":false,"version":"0.18.0","basedirs":[]}
+2026-09-22T20:02:45.1577606Z ##[endgroup]
+2026-09-22T20:02:45.1588742Z ##[notice]100% - 1236 hits, 1 miss, 0 errors
+2026-09-22T20:02:45.1589002Z 
+2026-09-22T20:02:45.1589112Z Full human-readable stats:
+2026-09-22T20:02:45.1589346Z Compile requests                    1363
+2026-09-22T20:02:45.1589596Z Compile requests executed           1245
+2026-09-22T20:02:45.1589833Z Cache hits                          1236
+2026-09-22T20:02:45.1590066Z Cache hits (Assembler)               242
+2026-09-22T20:02:45.1590307Z Cache hits (C/C++)                   522
+2026-09-22T20:02:45.1590541Z Cache hits (Rust)                    472
+2026-09-22T20:02:45.1590772Z Cache misses                           1
+2026-09-22T20:02:45.1591253Z Cache misses (C/C++)                   1
+2026-09-22T20:02:45.1591505Z Cache hits rate                    99.92 %
+2026-09-22T20:02:45.1591760Z Cache hits rate (Assembler)       100.00 %
+2026-09-22T20:02:45.1592007Z Cache hits rate (C/C++)            99.81 %
+2026-09-22T20:02:45.1592257Z Cache hits rate (Rust)            100.00 %
+2026-09-22T20:02:45.1592497Z Cache timeouts                         0
+2026-09-22T20:02:45.1592736Z Cache read errors                      0
+2026-09-22T20:02:45.1592974Z Forced recaches                        0
+2026-09-22T20:02:45.1593210Z Cache write errors                     0
+2026-09-22T20:02:45.1593445Z Cache errors                           0
+2026-09-22T20:02:45.1593685Z Compilations                           1
+2026-09-22T20:02:45.1593924Z Compilation failures                   7
+2026-09-22T20:02:45.1594172Z Non-cacheable compilations             0
+2026-09-22T20:02:45.1594416Z Non-cacheable calls                  111
+2026-09-22T20:02:45.1594658Z Non-compilation calls                  7
+2026-09-22T20:02:45.1594907Z Unsupported compiler calls             0
+2026-09-22T20:02:45.1595162Z Average cache write                0.088 s
+2026-09-22T20:02:45.1595621Z Average compiler                   4.011 s
+2026-09-22T20:02:45.1595885Z Average cache read hit             0.038 s
+2026-09-22T20:02:45.1596148Z Failed distributed compilations        0
+2026-09-22T20:02:45.1596323Z 
+2026-09-22T20:02:45.1596413Z Non-cacheable reasons:
+2026-09-22T20:02:45.1596640Z crate-type                            89
+2026-09-22T20:02:45.1596893Z missing input                          8
+2026-09-22T20:02:45.1597279Z -                                      7
+2026-09-22T20:02:45.1597565Z -o                                     6
+2026-09-22T20:02:45.1597799Z missing emit                           1
+2026-09-22T20:02:45.1597956Z 
+2026-09-22T20:02:45.1598223Z Cache location                  s3, name: runs-on-v3-s3bucketcache-dbnub4tpjhpv, prefix: /cache/sccache/
+2026-09-22T20:02:45.1598646Z Base directories                (none)
+2026-09-22T20:02:45.1598907Z Version (client)                0.18.0
+2026-09-22T20:02:45.1599057Z 
+2026-09-22T20:02:45.1649752Z ##[end-action id=__b23c3657-3711-45b5-beb2-fecc2818c137.__mozilla-actions_sccache-action;outcome=success;conclusion=success;duration_ms=91]
+2026-09-22T20:02:45.1704014Z Post job cleanup.
+2026-09-22T20:02:45.2441928Z [command]/usr/bin/git version
+2026-09-22T20:02:45.2489860Z git version 2.55.0
+2026-09-22T20:02:45.2516428Z Temporarily overriding HOME='/home/runner/_work/_temp/581bbc2d-5d7f-4d91-b905-622aa86d8728' before making global git config changes
+2026-09-22T20:02:45.2517577Z Adding repository directory to the temporary git global config as a safe directory
+2026-09-22T20:02:45.2523415Z [command]/usr/bin/git config --global --add safe.directory /home/runner/_work/vortex/vortex
+2026-09-22T20:02:45.2552183Z Removing SSH command configuration
+2026-09-22T20:02:45.2557811Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-09-22T20:02:45.2586711Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-09-22T20:02:45.2794222Z Removing HTTP extra header
+2026-09-22T20:02:45.2801728Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-09-22T20:02:45.2832542Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-09-22T20:02:45.3037287Z Removing includeIf entries pointing to credentials config files
+2026-09-22T20:02:45.3043335Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-09-22T20:02:45.3072046Z includeif.gitdir:/home/runner/_work/vortex/vortex/.git.path
+2026-09-22T20:02:45.3072449Z includeif.gitdir:/home/runner/_work/vortex/vortex/.git/worktrees/*.path
+2026-09-22T20:02:45.3073142Z includeif.gitdir:/github/workspace/.git.path
+2026-09-22T20:02:45.3073460Z includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-09-22T20:02:45.3079930Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/_work/vortex/vortex/.git.path
+2026-09-22T20:02:45.3100413Z /home/runner/_work/_temp/git-credentials-b7a55da4-fc1b-4d12-a1e1-a05ea6a6a977.config
+2026-09-22T20:02:45.3108371Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/_work/vortex/vortex/.git.path \/home\/runner\/_work\/_temp\/git\-credentials\-b7a55da4\-fc1b\-4d12\-a1e1\-a05ea6a6a977\.config
+2026-09-22T20:02:45.3141638Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/_work/vortex/vortex/.git/worktrees/*.path
+2026-09-22T20:02:45.3162841Z /home/runner/_work/_temp/git-credentials-b7a55da4-fc1b-4d12-a1e1-a05ea6a6a977.config
+2026-09-22T20:02:45.3169059Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/_work/vortex/vortex/.git/worktrees/*.path \/home\/runner\/_work\/_temp\/git\-credentials\-b7a55da4\-fc1b\-4d12\-a1e1\-a05ea6a6a977\.config
+2026-09-22T20:02:45.3200294Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path
+2026-09-22T20:02:45.3219306Z /github/runner_temp/git-credentials-b7a55da4-fc1b-4d12-a1e1-a05ea6a6a977.config
+2026-09-22T20:02:45.3224606Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path \/github\/runner_temp\/git\-credentials\-b7a55da4\-fc1b\-4d12\-a1e1\-a05ea6a6a977\.config
+2026-09-22T20:02:45.3250457Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-09-22T20:02:45.3272345Z /github/runner_temp/git-credentials-b7a55da4-fc1b-4d12-a1e1-a05ea6a6a977.config
+2026-09-22T20:02:45.3280575Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path \/github\/runner_temp\/git\-credentials\-b7a55da4\-fc1b\-4d12\-a1e1\-a05ea6a6a977\.config
+2026-09-22T20:02:45.3309658Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-09-22T20:02:45.3504316Z Removing credentials config '/home/runner/_work/_temp/git-credentials-b7a55da4-fc1b-4d12-a1e1-a05ea6a6a977.config'
+2026-09-22T20:02:45.3606301Z Post job cleanup.
+2026-09-22T20:02:45.4425014Z Running post-execution phase...
+2026-09-22T20:02:45.4425463Z Input 'show_env': false
+2026-09-22T20:02:45.4425686Z Input 'show_costs': inline
+2026-09-22T20:02:45.4425887Z Input 'metrics': []
+2026-09-22T20:02:45.4426089Z Input 'network_interface': enp39s0
+2026-09-22T20:02:45.4426345Z Input 'disk_device': nvme0n1p1
+2026-09-22T20:02:45.4426549Z Input 'sccache': s3
+2026-09-22T20:02:45.4426732Z Input 'sticky_cache': []
+2026-09-22T20:02:45.4426937Z Input 'sticky_wait_timeout': 15m0s
+2026-09-22T20:02:45.4427450Z ZCTIONS_RESULTS_URL is set: https://results-receiver.actions.githubusercontent.com/
+2026-09-22T20:02:45.4428089Z ZCTIONS_CACHE_URL is set: https://acghubeus1.actions.githubusercontent.com/XtqVEj2MXQCbzj6x6n8CMomnIjyhqqRNuSgameoSnKmgcNZw2F/
+2026-09-22T20:02:45.4428614Z ACTIONS_RUNTIME_TOKEN is set.
+2026-09-22T20:02:45.4946531Z Mapped zone name us-east-1a to zone ID use1-az6
+2026-09-22T20:02:45.7366717Z ## Execution Cost Summary
+2026-09-22T20:02:45.7367027Z 
+2026-09-22T20:02:45.7367365Z | metric                 | value            |
+2026-09-22T20:02:45.7367715Z | ---------------------- | ---------------- |
+2026-09-22T20:02:45.7368003Z | Instance Type          | c7i-flex.4xlarge |
+2026-09-22T20:02:45.7368267Z | Instance Lifecycle     | spot             |
+2026-09-22T20:02:45.7368521Z | Region                 | us-east-1        |
+2026-09-22T20:02:45.7368774Z | Platform               | Linux/UNIX       |
+2026-09-22T20:02:45.7369022Z | Arch                   | x64              |
+2026-09-22T20:02:45.7369267Z | Az                     | us-east-1a       |
+2026-09-22T20:02:45.7369517Z | Zone ID                | use1-az6         |
+2026-09-22T20:02:45.7370162Z | Duration               | 1.84 minutes     |
+2026-09-22T20:02:45.7370403Z | Cost                   | $0.0090          |
+2026-09-22T20:02:45.7370719Z | GitHub equivalent cost | $0.0840          |
+2026-09-22T20:02:45.7370965Z | Savings                | $0.0750 (89.3%)  |
+2026-09-22T20:02:45.7371124Z 
+2026-09-22T20:02:45.7371221Z Post-execution phase finished.
+2026-09-22T20:02:45.7418143Z A job completed hook has been configured by the self-hosted runner administrator
+2026-09-22T20:02:45.7449437Z ##[group]Run '/runs-on/post.sh'
+2026-09-22T20:02:45.7469519Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-09-22T20:02:45.7469814Z ##[endgroup]
+2026-09-22T20:02:45.7510164Z Thanks for using RunsOn!
+2026-09-22T20:02:45.7512276Z ##[error]AWS interrupted the EC2 Spot instance running this job. RunsOn can retry it after the workflow run finishes.
+2026-09-22T20:02:45.7513212Z 
+2026-09-22T20:02:45.7513305Z 📊 Job Metrics
+2026-09-22T20:02:46.1927056Z ================================================================================
+2026-09-22T20:02:46.1927786Z ✅ No significant resource constraints detected
+2026-09-22T20:02:46.1928104Z ================================================================================
+2026-09-22T20:02:46.1928306Z 
+2026-09-22T20:02:46.1928436Z  4.44 ┤                                                                ╭────
+2026-09-22T20:02:46.1928825Z  4.01 ┤                                                           ╭────╯
+2026-09-22T20:02:46.1929142Z  3.58 ┤                                                     ╭─────╯
+2026-09-22T20:02:46.1929500Z  3.16 ┤                                 ╭───────────────────╯
+2026-09-22T20:02:46.1929785Z  2.73 ┤                          ╭──────╯
+2026-09-22T20:02:46.1930054Z  2.30 ┤                       ╭──╯
+2026-09-22T20:02:46.1930359Z  1.87 ┤                    ╭──╯
+2026-09-22T20:02:46.1930590Z  1.44 ┤                  ╭─╯
+2026-09-22T20:02:46.1930814Z  1.02 ┤               ╭──╯
+2026-09-22T20:02:46.1931027Z  0.59 ┤   ╭───────────╯
+2026-09-22T20:02:46.1931249Z  0.16 ┼───╯
+2026-09-22T20:02:46.1931508Z               CPU Load Average (1m) (min: 0.16, max: 4.44, avg: 2.30)
+2026-09-22T20:02:46.1931720Z 
+2026-09-22T20:02:46.1932194Z  100.00 ┤                                                               [32m╭─────[0m
+2026-09-22T20:02:46.1932605Z   90.00 ┤                                                   [32m╭───────────╯[0m   [91m╭─[0m
+2026-09-22T20:02:46.1932988Z   80.00 ┤                                           [32m╭───────╯[0m             [91m╭[94m╭──[0m
+2026-09-22T20:02:46.1933420Z   70.00 ┤                                [93m╭───╮[32m──────╯[0m                   [94m╭──╯╭[93m╭[0m
+2026-09-22T20:02:46.1933856Z   60.00 ┤                            [93m╭───╯[32m───[93m╰──╮[0m                    [94m╭──╯╭[93m╭─╭─[0m
+2026-09-22T20:02:46.1934350Z   50.00 ┤                         [93m╭──╯[32m──╯[93m╭──╮[94m╮[91m╮[93m╮╰──╮[0m            [91m╭─[94m╭──╯╭─[93m╭╭──╯[91m╭[0m
+2026-09-22T20:02:46.1934873Z   40.00 ┤              [32m╭───[94m╭───[93m╭──╭──────╯[32m──[93m╰───╮[94m───╮[91m───────────[94m╭─╯╭─[93m╭╭──╯[91m───╯[0m
+2026-09-22T20:02:46.1935836Z   30.00 ┤    [94m╭──────────[32m╭───[93m╭─────╯[94m╯[91m╯[94m╯[0m         [94m╰[93m╰──╮[94m╰──────╮[93m─[94m╭──╯─[91m╭─[93m╭─╯[91m╯[93m─[94m╭[32m╭───[0m
+2026-09-22T20:02:46.1936502Z   20.00 ┼[91m─────[32m╭────[93m╭────────╯[94m╯[91m╯[94m╯[0m                   [93m╰───╮[32m───[94m╰─╯[32m───[93m╭──╯[32m─────╯[93m───[0m
+2026-09-22T20:02:46.1937038Z   10.00 ┼[93m──────────╯[94m─╯[91m╯[94m─╯[0m                              [93m╰───╮[32m╰╯[93m╭──╯[94m──╯[0m
+2026-09-22T20:02:46.1937570Z    0.00 ┼[94m───╯[0m                                             [93m╰╰──╯[94m╯[0m
+2026-09-22T20:02:46.1937960Z            CPU Utilization per Core (%) (min: 0.00, max: 99.33, avg: 31.14 %)
+2026-09-22T20:02:46.1938193Z 
+2026-09-22T20:02:46.1938745Z          [91m■[0m cpu0   [32m■[0m cpu1   [94m■[0m cpu2   [93m■[0m cpu3   [91m■[0m cpu4   [32m■[0m cpu5   [94m■[0m cpu6   [93m■[0m cpu7   [91m■[0m cpu8   [32m■[0m cpu9   [94m■[0m cpu10   [93m■[0m cpu11   [91m■[0m cpu12   [32m■[0m cpu13   [94m■[0m cpu14   [93m■[0m cpu15
+2026-09-22T20:02:46.1939401Z 
+2026-09-22T20:02:46.1939486Z  100.00 ┤
+2026-09-22T20:02:46.1939660Z   90.00 ┤
+2026-09-22T20:02:46.1939824Z   80.00 ┤
+2026-09-22T20:02:46.1940155Z   70.00 ┤
+2026-09-22T20:02:46.1940331Z   60.00 ┤
+2026-09-22T20:02:46.1940491Z   50.00 ┤
+2026-09-22T20:02:46.1940652Z   40.00 ┤
+2026-09-22T20:02:46.1940811Z   30.00 ┤
+2026-09-22T20:02:46.1940972Z   20.00 ┤
+2026-09-22T20:02:46.1941207Z   10.00 ┤                   ╭─────────────────────────────────────────────────
+2026-09-22T20:02:46.1941490Z    0.00 ┼───────────────────╯
+2026-09-22T20:02:46.1941767Z               Memory Utilization (%) (min: 1.67, max: 13.11, avg: 7.06 %)
+2026-09-22T20:02:46.1941985Z 
+2026-09-22T20:02:46.1942084Z  197 ┤                                [32m╭──╮[0m
+2026-09-22T20:02:46.1942369Z  177 ┤                              [32m╭─╯[0m  [32m╰─╮[0m
+2026-09-22T20:02:46.1942717Z  157 ┤                            [32m╭─╯[0m      [32m╰─╮[0m                            [32m╭[0m
+2026-09-22T20:02:46.1943102Z  138 ┤                          [32m╭─╯[0m          [32m╰╮[0m                         [32m╭─╯[0m
+2026-09-22T20:02:46.1943511Z  118 ┼[32m───╮[0m                    [32m╭─╯[0m             [32m╰─╮[0m                     [32m╭─╯[0m
+2026-09-22T20:02:46.1943925Z   98 ┤   [32m╰───╮[0m             [32m╭──╯[0m                 [32m╰─╮[0m                [32m╭──╯[0m
+2026-09-22T20:02:46.1944327Z   79 ┤       [32m╰────╮[0m      [32m╭─╯[0m                      [32m╰╮[0m             [32m╭─╯[0m
+2026-09-22T20:02:46.1944704Z   59 ┤            [32m╰───╮╭─╯[0m                         [32m╰─╮[0m         [32m╭─╯[0m
+2026-09-22T20:02:46.1945056Z   39 ┤                [32m╰╯[0m                             [32m╰─╮[0m     [32m╭─╯[0m
+2026-09-22T20:02:46.1945389Z   20 ┤                                                 [32m╰╮[0m [32m╭──╯[0m
+2026-09-22T20:02:46.1945786Z    0 ┼[91m──────────────────────────────────────────────────[32m╰─╯[91m────────────────[0m
+2026-09-22T20:02:46.1946196Z        Disk I/O by Direction (MB/s) (min: 0, max: 201.22, avg: 54.06 MB/s)
+2026-09-22T20:02:46.1946513Z 
+2026-09-22T20:02:46.1946662Z                              [91m■[0m / (read)   [32m■[0m / (write)
+2026-09-22T20:02:46.1946861Z 
+2026-09-22T20:02:46.1946964Z  1105 ┤                                [91m╭──╮[0m
+2026-09-22T20:02:46.1947421Z   994 ┤                             [91m╭──╯[0m  [91m╰─╮[0m
+2026-09-22T20:02:46.1947727Z   884 ┤                          [91m╭──╯[0m       [91m╰─╮[0m
+2026-09-22T20:02:46.1948017Z   773 ┤                       [91m╭──╯[0m            [91m╰╮[0m
+2026-09-22T20:02:46.1948347Z   663 ┤                    [91m╭──╯[0m                [91m╰─╮[0m                        [91m╭─[0m
+2026-09-22T20:02:46.1948757Z   552 ┼[91m──────────╮[0m      [91m╭──╯[0m                     [91m╰─╮[0m                   [91m╭──╯[0m
+2026-09-22T20:02:46.1949240Z   442 ┤          [91m╰──────╯[0m                          [91m╰╮[0m               [91m╭──╯[0m
+2026-09-22T20:02:46.1949585Z   331 ┤                                             [91m╰─╮[0m          [91m╭──╯[0m
+2026-09-22T20:02:46.1949999Z   221 ┤                                               [91m╰─╮[0m     [91m╭──╯[0m
+2026-09-22T20:02:46.1950386Z   110 ┼[32m─────────────╮[0m     [32m╭─────────────────────────╮[0m   [91m╰╮[0m  [91m╭─╯[0m
+2026-09-22T20:02:46.1950773Z     0 ┤             [32m╰─────╯[0m                         [32m╰───────────────────────[0m
+2026-09-22T20:02:46.1951177Z        Disk Operations by Direction (ops/s) (min: 0, max: 1123.48, avg: 310.11 ops/s)
+2026-09-22T20:02:46.1951435Z 
+2026-09-22T20:02:46.1951549Z                               [91m■[0m / (write)   [32m■[0m / (read)
+2026-09-22T20:02:46.1951740Z 
+2026-09-22T20:02:46.1951834Z  26.19 ┤               [32m╭───────╮[0m
+2026-09-22T20:02:46.1952115Z  23.57 ┤             [32m╭─╯[0m       [32m╰──────────╮[0m
+2026-09-22T20:02:46.1952408Z  20.95 ┤          [32m╭──╯[0m                    [32m╰─╮[0m
+2026-09-22T20:02:46.1952699Z  18.33 ┤       [32m╭──╯[0m                         [32m╰─╮[0m
+2026-09-22T20:02:46.1953006Z  15.71 ┤     [32m╭─╯[0m                              [32m╰─╮[0m
+2026-09-22T20:02:46.1953329Z  13.09 ┤  [32m╭──╯[0m                                  [32m╰─╮[0m
+2026-09-22T20:02:46.1953637Z  10.47 ┼[32m──╯[0m                                       [32m╰─╮[0m
+2026-09-22T20:02:46.1953938Z   7.86 ┤                                            [32m╰─╮[0m
+2026-09-22T20:02:46.1954229Z   5.24 ┤                                              [32m╰─╮[0m
+2026-09-22T20:02:46.1954511Z   2.62 ┤                                                [32m╰─╮[0m
+2026-09-22T20:02:46.1954837Z   0.00 ┼[91m──────────────────────────────────────────────────[32m╰──────────────────[0m
+2026-09-22T20:02:46.1955232Z         Network I/O by Direction (MB/s) (min: 0.00, max: 26.35, avg: 5.85 MB/s)
+2026-09-22T20:02:46.1955648Z 
+2026-09-22T20:02:46.1955811Z                       [91m■[0m enp39s0 (transmit)   [32m■[0m enp39s0 (receive)
+2026-09-22T20:02:46.1956032Z 
+2026-09-22T20:02:46.1956115Z  100.00 ┤
+2026-09-22T20:02:46.1956292Z   90.00 ┤
+2026-09-22T20:02:46.1956461Z   80.00 ┤
+2026-09-22T20:02:46.1956647Z   70.00 ┤
+2026-09-22T20:02:46.1956815Z   60.00 ┤
+2026-09-22T20:02:46.1956983Z   50.00 ┤
+2026-09-22T20:02:46.1957232Z   40.00 ┤
+2026-09-22T20:02:46.1957464Z   30.00 ┤                                        ╭────────────────────────────
+2026-09-22T20:02:46.1957768Z   20.00 ┼────────────────────────────────────────╯
+2026-09-22T20:02:46.1958014Z   10.00 ┤
+2026-09-22T20:02:46.1958178Z    0.00 ┤
+2026-09-22T20:02:46.1958443Z          Filesystem Utilization by Mount (min: 19.66, max: 25.12, avg: 22.99 %)
+2026-09-22T20:02:46.1958691Z 
+2026-09-22T20:02:46.1958788Z 📈 Summary Statistics:
+2026-09-22T20:02:46.1959071Z --------------------------------------------------------------------------------
+2026-09-22T20:02:46.1959556Z   system.cpu.load_average.1m                     min: 0.16  max: 4.44  avg: 2.30 
+2026-09-22T20:02:46.1959953Z   system.cpu.load_average.5m                     min: 0.03  max: 1.31  avg: 0.61 
+2026-09-22T20:02:46.1960375Z   system.memory.utilization (used)               min: 1.67  max: 13.11  avg: 7.06 %
+2026-09-22T20:02:46.1960868Z   system.filesystem.utilization (/)              min: 19.66  max: 25.12  avg: 22.99 %
+2026-09-22T20:02:46.1961245Z ================================================================================
+2026-09-22T20:02:46.7164239Z 📤 metrics.jsonl uploaded (207032 bytes) to s3://runs-on-v3-s3bucketcache-dbnub4tpjhpv/cache/metrics/v1/vortex-data/vortex/35777490085/bench-codspeed/i-0cc92c6124b250c39/metrics.jsonl
+2026-09-22T20:02:46.7211334Z ##[error]Process completed with exit code 1.
+2026-09-22T20:02:46.7270337Z Cleaning up orphan processes
+2026-09-22T20:02:46.8394901Z Terminate orphan process: pid (1694) (sccache)

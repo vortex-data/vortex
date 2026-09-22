@@ -1,0 +1,61 @@
+   Compiling memchr v2.8.3
+   Compiling rustix v1.1.4
+   Compiling num-traits v0.2.19
+   Compiling cc v1.4.6
+   Compiling getrandom v0.4.3
+   Compiling syn v2.0.119
+   Compiling serde_derive v1.0.229
+   Compiling slab v0.4.12
+   Compiling futures-core v0.3.34
+   Compiling vortex-bench-support v0.1.0 (/private/tmp/vortex-row-fn-bool/benchmarks/bench-support)
+   Compiling simdutf8 v0.1.5
+   Compiling futures-util v0.3.34
+   Compiling codspeed v5.0.1
+   Compiling libmimalloc-sys v0.1.49
+   Compiling divan-macros v0.1.17
+   Compiling zerocopy-derive v0.8.57
+   Compiling prost-derive v0.14.4
+   Compiling serde v1.0.229
+   Compiling aho-corasick v1.1.5
+   Compiling serde_json v1.0.151
+   Compiling codspeed-divan-compat-macros v5.0.1
+   Compiling zerocopy v0.8.57
+   Compiling prost v0.14.4
+   Compiling vortex-error v0.1.0 (/private/tmp/vortex-row-fn-bool/vortex-error)
+   Compiling approx v0.5.1
+   Compiling num-integer v0.1.47
+   Compiling half v2.7.1
+   Compiling statrs v0.18.0
+   Compiling mimalloc v0.1.52
+   Compiling terminal_size v0.4.4
+   Compiling num-bigint v0.5.1
+   Compiling clap_builder v4.6.6
+   Compiling regex-automata v0.4.18
+   Compiling arrow-buffer v59.3.0
+   Compiling clap v4.6.6
+   Compiling codspeed-divan-compat-walltime v5.0.1
+   Compiling regex v1.13.1
+   Compiling rstest_macros v0.26.1
+   Compiling codspeed-divan-compat v5.0.1
+   Compiling rstest v0.26.1
+   Compiling vortex-buffer v0.1.0 (/private/tmp/vortex-row-fn-bool/vortex-buffer)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.46s
+────────────
+ Nextest run ID 02bae1d9-f124-43b0-9f69-d8389fca909a with nextest profile: default
+    Starting 14 tests across 1 binary (867 tests skipped)
+        PASS [   0.010s] ( 1/14) vortex-buffer bit::pack::tests::collect_bool_word_partial_lens_match::case_4
+        PASS [   0.010s] ( 2/14) vortex-buffer bit::pack::tests::multiversioned_matches_inline::case_5
+        PASS [   0.010s] ( 3/14) vortex-buffer bit::pack::tests::multiversioned_matches_inline::case_4
+        PASS [   0.010s] ( 4/14) vortex-buffer bit::pack::tests::collect_bool_word_partial_lens_match::case_1
+        PASS [   0.010s] ( 5/14) vortex-buffer bit::pack::tests::swar_matches_scalar
+        PASS [   0.010s] ( 6/14) vortex-buffer bit::pack::tests::multiversioned_matches_inline::case_6
+        PASS [   0.010s] ( 7/14) vortex-buffer bit::pack::tests::dispatch_matches_scalar
+        PASS [   0.010s] ( 8/14) vortex-buffer bit::pack::tests::collect_bool_word_partial_lens_match::case_5
+        PASS [   0.010s] ( 9/14) vortex-buffer bit::pack::tests::collect_bool_word_partial_lens_match::case_2
+        PASS [   0.010s] (10/14) vortex-buffer bit::pack::tests::multiversioned_matches_inline::case_3
+        PASS [   0.010s] (11/14) vortex-buffer bit::pack::tests::collect_bool_word_partial_lens_match::case_3
+        PASS [   0.010s] (12/14) vortex-buffer bit::pack::tests::multiversioned_matches_inline::case_2
+        PASS [   0.010s] (13/14) vortex-buffer bit::pack::tests::neon_matches_scalar
+        PASS [   0.011s] (14/14) vortex-buffer bit::pack::tests::multiversioned_matches_inline::case_1
+────────────
+     Summary [   0.013s] 14 tests run: 14 passed, 867 skipped

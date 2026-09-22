@@ -1,0 +1,474 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.24
+   Compiling libc v0.2.189
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.12
+   Compiling cfg-if v1.0.4
+   Compiling autocfg v1.5.1
+   Compiling bytes v1.12.1
+   Compiling pkg-config v0.3.34
+   Compiling dunce v1.0.5
+   Compiling fs_extra v1.3.0
+   Compiling anyhow v1.0.104
+   Compiling semver v1.0.28
+   Compiling memchr v2.8.3
+   Compiling libm v0.2.16
+   Compiling either v1.18.0
+   Compiling once_cell v1.21.4
+   Compiling rustc_version v0.4.1
+   Compiling bitflags v2.13.2
+   Compiling pin-project-lite v0.2.17
+   Compiling num-traits v0.2.19
+   Compiling equivalent v1.0.2
+   Compiling regex-syntax v0.8.11
+   Compiling aws-lc-rs v1.18.1
+   Compiling hashbrown v0.17.1
+   Compiling fnv v1.0.7
+   Compiling itertools v0.10.5
+   Compiling icu_properties_data v2.3.0
+   Compiling indexmap v2.14.2
+   Compiling icu_normalizer_data v2.3.0
+   Compiling zerocopy v0.8.57
+   Compiling getrandom v0.3.4
+   Compiling rustversion v1.0.23
+   Compiling futures-core v0.3.34
+   Compiling allocator-api2 v0.2.21
+   Compiling jobserver v0.1.35
+   Compiling stable_deref_trait v1.2.1
+   Compiling aho-corasick v1.1.5
+   Compiling smallvec v1.16.1
+   Compiling futures-sink v0.3.34
+   Compiling rustls v0.23.45
+   Compiling syn v2.0.119
+   Compiling syn v3.0.5
+   Compiling cc v1.4.6
+   Compiling regex-automata v0.4.18
+   Compiling itoa v1.0.18
+   Compiling core-foundation-sys v0.8.7
+   Compiling httparse v1.10.1
+   Compiling socket2 v0.6.5
+   Compiling slab v0.4.12
+   Compiling futures-channel v0.3.34
+   Compiling mio v1.2.3
+   Compiling cmake v0.1.58
+   Compiling futures-io v0.3.34
+   Compiling tokio v1.53.1
+   Compiling synstructure v0.13.2
+   Compiling aws-lc-sys v0.45.0
+   Compiling zerocopy-derive v0.8.57
+   Compiling prost-derive v0.14.4
+   Compiling litemap v0.8.3
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling futures-macro v0.3.34
+   Compiling rustix v1.1.4
+   Compiling zerofrom-derive v0.1.7
+   Compiling yoke-derive v0.8.2
+   Compiling foldhash v0.2.0
+   Compiling futures-task v0.3.34
+   Compiling writeable v0.6.4
+   Compiling http v1.5.0
+   Compiling zerofrom v0.1.8
+   Compiling logos-codegen v0.15.1
+   Compiling linux-raw-sys v0.12.1
+   Compiling log v0.4.34
+   Compiling utf8_iter v1.0.4
+   Compiling yoke v0.8.3
+   Compiling futures-util v0.3.34
+   Compiling scopeguard v1.2.0
+   Compiling zeroize v1.9.0
+   Compiling prost v0.14.4
+   Compiling zerovec v0.11.8
+   Compiling zerotrie v0.2.5
+   Compiling ppv-lite86 v0.2.21
+   Compiling regex v1.13.1
+   Compiling tinystr v0.8.4
+   Compiling potential_utf v0.1.6
+   Compiling lazy_static v1.5.0
+   Compiling beef v0.5.2
+   Compiling icu_locale_core v2.3.0
+   Compiling icu_collections v2.3.0
+   Compiling icu_provider v2.3.1
+   Compiling prost-types v0.14.4
+   Compiling rustls-pki-types v1.15.1
+   Compiling http-body v1.1.0
+   Compiling logos-codegen v0.16.1
+   Compiling miette-derive v7.6.0
+   Compiling encoding_rs v0.8.41
+   Compiling tracing-core v0.1.36
+   Compiling flatbuffers v25.12.19
+   Compiling untrusted v0.9.0
+   Compiling rand_core v0.10.1
+   Compiling percent-encoding v2.3.2
+   Compiling unicode-width v0.1.14
+   Compiling version_check v0.9.5
+   Compiling winnow v1.0.4
+   Compiling getrandom v0.4.3
+   Compiling system-configuration-sys v0.6.0
+   Compiling serde_core v1.0.229
+   Compiling rust_decimal v1.43.0
+   Compiling thiserror v2.0.20
+   Compiling thiserror v1.0.69
+   Compiling toml_parser v1.1.3+spec-1.1.0
+   Compiling ahash v0.8.12
+   Compiling miette v7.6.0
+   Compiling tracing v0.1.44
+   Compiling logos-derive v0.16.1
+   Compiling logos-derive v0.15.1
+   Compiling icu_normalizer v2.3.0
+   Compiling icu_properties v2.3.0
+   Compiling tokio-util v0.7.19
+   Compiling thiserror-impl v2.0.20
+   Compiling errno v0.3.14
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+   Compiling tower-service v0.3.3
+   Compiling jiff-core v0.1.1
+   Compiling try-lock v0.2.5
+   Compiling radium v0.7.0
+   Compiling simdutf8 v0.1.5
+   Compiling atomic-waker v1.1.2
+   Compiling prettyplease v0.2.37
+   Compiling parking_lot_core v0.9.12
+   Compiling foldhash v0.1.5
+   Compiling subtle v2.6.1
+   Compiling hashbrown v0.15.5
+   Compiling h2 v0.4.19
+   Compiling want v0.3.1
+   Compiling toml_edit v0.25.15+spec-1.1.0
+   Compiling idna_adapter v1.2.2
+   Compiling logos v0.15.1
+   Compiling logos v0.16.1
+   Compiling num-integer v0.1.47
+   Compiling thiserror-impl v1.0.69
+   Compiling core-foundation v0.9.4
+   Compiling arrow-schema v59.3.0
+   Compiling multiversion_no_op v1.0.0
+   Compiling serde v1.0.229
+   Compiling fixedbitset v0.5.7
+   Compiling tap v1.0.1
+   Compiling cfg_aliases v0.2.2
+   Compiling zmij v1.0.23
+   Compiling fastrand v2.5.0
+   Compiling crossbeam-utils v0.8.23
+   Compiling tempfile v3.27.0
+   Compiling nix v0.31.3
+   Compiling wyz v0.5.1
+   Compiling num-bigint v0.5.1
+   Compiling petgraph v0.8.3
+   Compiling system-configuration v0.7.0
+   Compiling hyper v1.11.1
+   Compiling prost-reflect v0.16.5
+   Compiling protox-parse v0.9.0
+   Compiling idna v1.1.0
+   Compiling rand_core v0.9.5
+   Compiling proc-macro-crate v3.5.0
+   Compiling form_urlencoded v1.2.2
+   Compiling lock_api v0.4.14
+   Compiling half v2.7.1
+   Compiling serde_derive v1.0.229
+   Compiling security-framework-sys v2.17.0
+   Compiling core-foundation v0.10.1
+   Compiling sync_wrapper v1.0.2
+   Compiling getrandom v0.2.17
+   Compiling jiff v0.2.37
+   Compiling serde_json v1.0.151
+   Compiling tower-layer v0.3.3
+   Compiling unicode-segmentation v1.13.3
+   Compiling multimap v0.10.1
+   Compiling heck v0.5.0
+   Compiling ipnet v2.12.2
+   Compiling base64 v0.22.1
+   Compiling funty v2.0.0
+   Compiling prost-build v0.14.4
+   Compiling tower v0.5.3
+   Compiling hyper-util v0.1.20
+   Compiling itertools v0.14.0
+   Compiling rand_core v0.6.4
+   Compiling hashbrown v0.14.5
+   Compiling security-framework v3.7.0
+   Compiling url v2.5.8
+   Compiling rand_chacha v0.9.0
+   Compiling protox v0.9.1
+   Compiling terminal_size v0.4.4
+   Compiling similar v2.7.0
+   Compiling approx v0.5.1
+   Compiling multiversion-macros v0.9.0
+   Compiling codspeed v5.0.1
+   Compiling objc2-core-foundation v0.3.2
+   Compiling bitvec v1.1.1
+   Compiling rstest_macros v0.26.1
+   Compiling openssl-probe v0.2.1
+   Compiling arrayvec v0.7.8
+   Compiling anstyle v1.0.14
+   Compiling parking v2.2.1
+   Compiling clap_lex v1.1.0
+   Compiling cpufeatures v0.3.1
+   Compiling chacha20 v0.10.2
+   Compiling clap_builder v4.6.6
+   Compiling event-listener v5.4.2
+   Compiling rustls-native-certs v0.8.4
+   Compiling objc2-io-kit v0.3.2
+   Compiling multiversion v0.9.0
+   Compiling dashmap v6.2.1
+   Compiling arrow-buffer v59.3.0
+   Compiling statrs v0.18.0
+   Compiling vortex-build v0.1.0 (/private/tmp/vortex-row-fn-bool-codegen/vortex-build)
+   Compiling rand v0.9.5
+   Compiling tower-http v0.6.11
+   Compiling rand_chacha v0.3.1
+   Compiling console v0.15.11
+   Compiling http-body-util v0.1.5
+   Compiling divan-macros v0.1.17
+   Compiling libmimalloc-sys v0.1.49
+   Compiling iana-time-zone v0.1.65
+   Compiling base64 v0.23.1
+   Compiling unicode-width v0.2.2
+   Compiling bytecount v0.6.9
+   Compiling mime v0.3.17
+   Compiling paste v1.0.15
+   Compiling glob v0.3.4
+   Compiling relative-path v1.9.3
+   Compiling utf8-width v0.1.9
+   Compiling core_detect v1.0.0
+   Compiling colored v3.1.1
+   Compiling similar-asserts v1.7.0
+   Compiling byte-unit v5.2.6
+   Compiling papergrid v0.18.0
+   Compiling chrono v0.4.45
+   Compiling rand v0.8.8
+   Compiling lasso v0.7.3
+   Compiling ping v0.7.1
+   Compiling vortex-array v0.1.0 (/private/tmp/vortex-row-fn-bool-codegen/vortex-array)
+   Compiling sysinfo v0.38.4
+   Compiling event-listener-strategy v0.5.4
+   Compiling rand v0.10.2
+   Compiling parking_lot v0.12.5
+   Compiling futures-executor v0.3.34
+   Compiling vortex-utils v0.1.0 (/private/tmp/vortex-row-fn-bool-codegen/vortex-utils)
+   Compiling uzers v0.12.2
+   Compiling enum-iterator-derive v1.5.0
+   Compiling num_enum_derive v0.7.6
+   Compiling arc-swap v1.9.2
+   Compiling which v8.0.6
+   Compiling num_cpus v1.17.0
+   Compiling regex-lite v0.1.9
+   Compiling futures-timer v3.0.4
+   Compiling condtype v1.3.0
+   Compiling static_assertions v1.1.0
+   Compiling codspeed-divan-compat v5.0.1
+   Compiling yansi v1.0.1
+   Compiling num_enum v0.7.6
+   Compiling codspeed-divan-compat-macros v5.0.1
+   Compiling enum-iterator v2.3.0
+   Compiling goldenfile v1.11.0
+   Compiling rstest v0.26.1
+   Compiling futures v0.3.34
+   Compiling async-lock v3.4.2
+   Compiling rstest_reuse v0.7.0
+   Compiling vortex-error v0.1.0 (/private/tmp/vortex-row-fn-bool-codegen/vortex-error)
+   Compiling console v0.16.6
+   Compiling humansize v2.1.3
+   Compiling vortex-array-macros v0.1.0 (/private/tmp/vortex-row-fn-bool-codegen/vortex-array-macros)
+   Compiling inventory v0.3.24
+   Compiling uuid v1.26.1
+   Compiling vortex-buffer v0.1.0 (/private/tmp/vortex-row-fn-bool-codegen/vortex-buffer)
+   Compiling vortex-session v0.1.0 (/private/tmp/vortex-row-fn-bool-codegen/vortex-session)
+   Compiling tabled v0.21.0
+   Compiling rustc-hash v2.1.3
+   Compiling arcref v0.2.0
+   Compiling mimalloc v0.1.52
+   Compiling rand_distr v0.6.0
+   Compiling serde_test v1.0.177
+   Compiling insta v1.48.0
+   Compiling vortex-bench-support v0.1.0 (/private/tmp/vortex-row-fn-bool-codegen/benchmarks/bench-support)
+   Compiling clap v4.6.6
+   Compiling codspeed-divan-compat-walltime v5.0.1
+   Compiling vortex-compute v0.1.0 (/private/tmp/vortex-row-fn-bool-codegen/vortex-compute)
+   Compiling vortex-mask v0.1.0 (/private/tmp/vortex-row-fn-bool-codegen/vortex-mask)
+   Compiling rustls-webpki v0.103.15
+   Compiling tokio-rustls v0.26.5
+   Compiling rustls-platform-verifier v0.7.0
+   Compiling hyper-rustls v0.27.9
+   Compiling reqwest v0.13.5
+   Compiling test-with-derive v0.16.3
+   Compiling test-with v0.16.3
+remark: library/core/src/iter/range.rs:900:12: loop not vectorized
+remark: library/core/src/iter/range.rs:900:12: loop not vectorized
+remark: library/core/src/iter/range.rs:900:12: loop not vectorized
+remark: library/core/src/iter/range.rs:900:12: loop not vectorized
+remark: library/core/src/iter/range.rs:900:12: loop not vectorized
+remark: library/core/src/iter/range.rs:900:12: loop not vectorized
+remark: library/core/src/slice/iter/macros.rs:28:9: loop not vectorized
+remark: library/core/src/slice/iter/macros.rs:28:9: loop not vectorized
+remark: library/core/src/slice/iter/macros.rs:28:9: loop not vectorized
+remark: library/core/src/slice/iter/macros.rs:28:9: loop not vectorized
+remark: library/core/src/slice/iter/macros.rs:28:9: loop not vectorized
+remark: library/core/src/slice/iter/macros.rs:28:9: loop not vectorized
+remark: library/core/src/slice/iter/macros.rs:28:9: loop not vectorized
+remark: library/core/src/slice/iter/macros.rs:28:9: loop not vectorized
+remark: library/alloc/src/sync.rs:2834:12: loop not vectorized
+remark: library/alloc/src/sync.rs:2834:12: loop not vectorized
+remark: library/core/src/slice/iter/macros.rs:180:28: loop not vectorized
+remark: library/core/src/slice/iter/macros.rs:180:28: loop not vectorized
+remark: library/core/src/ptr/mod.rs:818:14: loop not vectorized
+remark: library/core/src/slice/iter/macros.rs:180:28: loop not vectorized
+remark: library/core/src/slice/iter/macros.rs:180:28: loop not vectorized
+remark: library/core/src/ptr/mod.rs:818:14: loop not vectorized
+remark: library/core/src/iter/adapters/step_by.rs:446:20: loop not vectorized
+remark: src/control/bitmask.rs:40:16: loop not vectorized
+remark: src/control/bitmask.rs:40:16: loop not vectorized
+remark: src/control/bitmask.rs:40:16: loop not vectorized
+remark: library/core/src/intrinsics/mod.rs:436:8: loop not vectorized
+remark: library/core/src/slice/iter/macros.rs:180:28: loop not vectorized
+remark: vortex-buffer/src/buffer_mut.rs:496:12: loop not vectorized
+remark: vortex-buffer/src/buffer_mut.rs:496:12: loop not vectorized
+remark: vortex-array/src/scalar_fn/unstable/row/execute/owned.rs:157:37: loop not vectorized
+remark: library/core/src/slice/iter/macros.rs:180:28: loop not vectorized
+remark: library/core/src/slice/iter/macros.rs:180:28: loop not vectorized
+remark: library/core/src/slice/iter/macros.rs:180:28: loop not vectorized
+remark: library/core/src/slice/iter/macros.rs:180:28: loop not vectorized
+remark: vortex-array/src/scalar_fn/unstable/row/execute/owned.rs:172:57: loop not vectorized
+remark: vortex-array/src/scalar_fn/unstable/row/execute/owned.rs:172:57: loop not vectorized
+remark: library/core/src/option.rs:592:23: loop not vectorized
+remark: library/core/src/slice/iter/macros.rs:180:28: loop not vectorized
+remark: vortex-array/src/scalar_fn/unstable/row/execute/owned.rs:157:37: loop not vectorized
+remark: vortex-array/src/scalar_fn/unstable/row/execute/owned.rs:172:57: loop not vectorized
+remark: vortex-array/src/scalar_fn/unstable/row/execute/owned.rs:172:57: loop not vectorized
+remark: vortex-array/src/scalar_fn/unstable/row/execute/owned.rs:230:37: loop not vectorized
+remark: vortex-array/src/scalar_fn/unstable/row/execute/owned.rs:244:57: loop not vectorized
+remark: vortex-array/src/scalar_fn/unstable/row/execute/owned.rs:244:57: loop not vectorized
+remark: vortex-array/src/scalar_fn/unstable/row/execute/owned.rs:230:37: loop not vectorized
+remark: vortex-array/src/scalar_fn/unstable/row/execute/owned.rs:244:57: loop not vectorized
+remark: vortex-array/src/scalar_fn/unstable/row/execute/owned.rs:244:57: loop not vectorized
+remark: library/core/src/slice/iter/macros.rs:180:28: loop not vectorized
+remark: src/time/timestamp/mod.rs:10:50: loop not vectorized
+remark: library/core/src/slice/iter/macros.rs:180:28: loop not vectorized
+remark: src/stats/sample.rs:34:18: loop not vectorized
+remark: library/core/src/iter/traits/iterator.rs:2493:9: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: library/alloc/src/raw_vec/mod.rs:635:12: loop not vectorized
+remark: library/alloc/src/raw_vec/mod.rs:635:12: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: library/core/src/iter/traits/iterator.rs:2998:26: loop not vectorized
+remark: library/core/src/iter/traits/iterator.rs:2998:26: loop not vectorized
+remark: library/core/src/iter/traits/iterator.rs:2998:26: loop not vectorized
+remark: library/core/src/iter/traits/iterator.rs:2998:26: loop not vectorized
+remark: library/core/src/iter/range.rs:900:12: loop not vectorized
+remark: library/core/src/iter/range.rs:900:12: loop not vectorized
+remark: library/core/src/option.rs:1162:9: loop not vectorized
+remark: library/core/src/iter/traits/iterator.rs:2998:26: loop not vectorized
+remark: library/core/src/iter/range.rs:900:12: loop not vectorized
+remark: library/core/src/iter/range.rs:900:12: loop not vectorized
+remark: library/core/src/iter/range.rs:900:12: loop not vectorized
+remark: library/core/src/iter/range.rs:900:12: loop not vectorized
+remark: library/core/src/option.rs:1162:9: loop not vectorized
+remark: library/core/src/iter/traits/iterator.rs:2998:26: loop not vectorized
+remark: src/time/timestamp/mod.rs:10:50: loop not vectorized
+remark: library/core/src/slice/iter/macros.rs:180:28: loop not vectorized
+remark: src/stats/sample.rs:34:18: loop not vectorized
+remark: library/core/src/iter/traits/iterator.rs:2493:9: loop not vectorized
+remark: library/core/src/slice/iter/macros.rs:180:28: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: library/core/src/iter/range.rs:900:12: loop not vectorized
+remark: library/core/src/iter/range.rs:900:12: loop not vectorized
+remark: library/core/src/iter/range.rs:900:12: loop not vectorized
+remark: library/core/src/iter/range.rs:900:12: loop not vectorized
+remark: library/core/src/slice/iter/macros.rs:180:28: loop not vectorized
+remark: library/core/src/slice/iter/macros.rs:180:28: loop not vectorized
+remark: library/core/src/slice/iter/macros.rs:180:28: loop not vectorized
+remark: library/core/src/slice/iter/macros.rs:180:28: loop not vectorized
+remark: library/core/src/slice/iter/macros.rs:180:28: loop not vectorized
+remark: library/core/src/iter/adapters/take.rs:37:12: loop not vectorized
+remarkremark: : library/core/src/ptr/mod.rs:823:1library/core/src/iter/adapters/mod.rs:195:14: : loop not vectorizedloop not vectorized
+
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: src/lib.rs:1191:16: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: library/core/src/iter/adapters/mod.rs:195:14: loop not vectorized
+remark: src/lib.rs:1191:16: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: library/core/src/iter/adapters/mod.rs:195:14: loop not vectorized
+remark: src/lib.rs:1191:16: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: library/alloc/src/sync.rs:2834:12: loop not vectorized
+remark: library/alloc/src/sync.rs:2834:12: loop not vectorized
+remark: library/core/src/iter/adapters/mod.rs:195:14: loop not vectorized
+remark: src/lib.rs:1191:16: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: library/alloc/src/sync.rs:2834:12: loop not vectorized
+remark: library/alloc/src/sync.rs:2834:12: loop not vectorized
+remark: library/alloc/src/sync.rs:2834:12: loop not vectorized
+remark: library/alloc/src/sync.rs:2834:12: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: library/core/src/option.rs:660:9: loop not vectorized
+remark: library/core/src/slice/iter/macros.rs:180:28: loop not vectorized
+remark: library/alloc/src/sync.rs:2834:12: loop not vectorized
+remark: library/alloc/src/sync.rs:2834:12: loop not vectorized
+remark: library/core/src/option.rs:660:9: loop not vectorized
+remark: library/core/src/slice/iter/macros.rs:180:28: loop not vectorized
+remark: vortex-array/src/scalar_fn/unstable/row/batch/planning.rs:33:13: loop not vectorized
+remark: library/core/src/slice/iter/macros.rs:180:28: loop not vectorized
+remark: library/alloc/src/sync.rs:2834:12: loop not vectorized
+remark: library/alloc/src/sync.rs:2834:12: loop not vectorized
+remark: vortex-array/src/scalar_fn/unstable/row/batch/planning.rs:33:13: loop not vectorized
+remark: library/core/src/slice/iter/macros.rs:180:28: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: vortex-array/src/dtype/dtype_impl.rs:61:9: loop not vectorized
+remark: library/core/src/slice/iter/macros.rs:180:28: loop not vectorized
+remark: library/core/src/slice/iter/macros.rs:180:28: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: library/alloc/src/sync.rs:2834:12: loop not vectorized
+remark: library/alloc/src/sync.rs:2834:12: loop not vectorized
+remark: library/core/src/iter/range.rs:900:12: loop not vectorized
+remark: vortex-buffer/src/bit/buf_mut.rs:745:18: loop not vectorized
+remark: library/core/src/slice/iter/macros.rs:180:28: loop not vectorized
+remark: src/entry/list.rs:57:9: loop not vectorized
+remark: src/entry/list.rs:57:9: loop not vectorized
+remark: library/core/src/iter/range.rs:900:12: loop not vectorized
+remark: vortex-buffer/src/bit/buf_mut.rs:745:18: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: library/core/src/ptr/mod.rs:823:1: loop not vectorized
+remark: vortex-array/src/dtype/dtype_impl.rs:61:9: loop not vectorized
+remark: vortex-array/src/dtype/dtype_impl.rs:61:9: loop not vectorized
+remark: library/core/src/slice/iter/macros.rs:180:28: loop not vectorized
+warning: linker stderr: ignoring deprecated linker optimization setting '1'
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `vortex-array` (bench "row_fn_bool_retry") generated 1 warning
+    Finished `bench` profile [optimized + debuginfo] target(s) in 1m 20s
