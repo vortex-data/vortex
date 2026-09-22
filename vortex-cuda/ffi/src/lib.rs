@@ -622,7 +622,7 @@ mod tests {
             let get_next = stream.get_next.expect("missing get_next");
             let release = stream.release.expect("missing release");
             let schema = stream_schema(&mut stream);
-            let mut exported = empty_device_array();
+            let mut exported = ArrowDeviceArray::empty();
             // SAFETY: The live stream owns the callback, and the output is writable.
             unsafe {
                 assert_eq!(get_next(&raw mut stream, &raw mut exported), 0);
@@ -676,16 +676,6 @@ mod tests {
         schema
     }
 
-    fn empty_device_array() -> ArrowDeviceArray {
-        ArrowDeviceArray {
-            array: vortex_cuda::arrow::ArrowArray::empty(),
-            device_id: 0,
-            device_type: 0,
-            sync_event: ptr::null_mut(),
-            reserved: [0; 3],
-        }
-    }
-
     /// # Safety
     /// `session` and `array` must be valid borrowed FFI handles for the duration of the call.
     unsafe fn export_array(
@@ -694,7 +684,7 @@ mod tests {
     ) -> (FFI_ArrowSchema, ArrowDeviceArray) {
         let mut error = ptr::null_mut();
         let mut schema = FFI_ArrowSchema::empty();
-        let mut device_array = empty_device_array();
+        let mut device_array = ArrowDeviceArray::empty();
         // SAFETY: The caller guarantees valid handles; all outputs are live and writable.
         let status = unsafe {
             vx_cuda_array_export_arrow_device(
@@ -805,7 +795,7 @@ mod tests {
         let session = test_session(VortexSession::default());
         let array = test_array(PrimitiveArray::from_iter(0u32..5));
         let mut schema = FFI_ArrowSchema::empty();
-        let mut device_array = empty_device_array();
+        let mut device_array = ArrowDeviceArray::empty();
         let mut error = ptr::null_mut();
 
         let status = unsafe {

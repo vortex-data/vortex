@@ -438,7 +438,7 @@ fn read_projected_batches(stream: &mut ArrowDeviceArrayStream) -> VortexResult<V
     let get_next = stream.get_next.expect("missing get_next");
     let mut batches = Vec::new();
     loop {
-        let mut array = empty_device_array();
+        let mut array = ArrowDeviceArray::empty();
         // SAFETY: This live stream owns the callback; array is writable.
         let status = unsafe { get_next(stream, &raw mut array) };
         vortex_ensure!(status == 0, "get_next failed: {}", stream_error(stream));

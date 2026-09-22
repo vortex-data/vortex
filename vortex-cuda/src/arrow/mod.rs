@@ -114,10 +114,11 @@ impl ArrowArray {
 }
 
 impl ArrowDeviceArray {
-    /// A zeroed device array: an empty Arrow array with no device. Used as a
-    /// callback output placeholder and as the basis for the end-of-stream
-    /// marker.
-    fn empty() -> Self {
+    /// Create an empty, released array with zeroed device metadata and a null sync event.
+    ///
+    /// Use this as storage for an Arrow C device callback output or as the basis for an
+    /// end-of-stream marker. No CUDA device is selected; `device_id` and `device_type` are zero.
+    pub fn empty() -> Self {
         Self {
             array: ArrowArray::empty(),
             device_id: 0,
