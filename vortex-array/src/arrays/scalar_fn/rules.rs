@@ -16,16 +16,23 @@ use crate::arrays::Slice;
 use crate::arrays::StructArray;
 use crate::arrays::filter::prepare_mask_for_reuse;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
+use crate::expr::not;
+use crate::expr::root;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::optimizer::rules::ReduceRuleSet;
 use crate::scalar_fn::ArrayReduceNode;
+use crate::scalar_fn::fns::is_not_null::IsNotNull;
+use crate::scalar_fn::fns::is_null::IsNull;
 use crate::scalar_fn::fns::pack::Pack;
 use crate::validity::Validity;
 
-pub(super) const RULES: ReduceRuleSet<ScalarFn> =
-    ReduceRuleSet::new(&[&ScalarFnPackToStructRule, &ScalarFnAbstractReduceRule]);
+pub(super) const RULES: ReduceRuleSet<ScalarFn> = ReduceRuleSet::new(&[
+    &ScalarFnPackToStructRule,
+    &ScalarFnAbstractReduceRule,
+    &IsNullReduceRule,
+]);
 
 pub(super) const PARENT_RULES: ParentRuleSet<ScalarFn> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&ScalarFilterPushdownRule),
@@ -55,6 +62,38 @@ impl ArrayReduceRule<ScalarFn> for ScalarFnPackToStructRule {
             )?
             .into_array(),
         ))
+    }
+}
+
+/// Reduce IsNull(x) -> lit(false) if !x.nullable or x.validity().
+/// Reduce IsNotNull(x) -> lit(true) if !x.nullable or x.validity()
+#[derive(Debug)]
+struct IsNullReduceRule;
+impl ArrayReduceRule<ScalarFn> for IsNullReduceRule {
+    fn reduce(&self, view: ArrayView<'_, ScalarFn>) -> VortexResult<Option<ArrayRef>> {
+        let mut is_null = view.scalar_fn().is::<IsNull>();
+        if !is_null {
+            if view.scalar_fn().is::<IsNotNull>() {
+                is_null = false;
+            } else {
+                return Ok(None);
+            }
+        }
+
+        let validity = match view.get_child(0).validity()? {
+            Validity::NonNullable | Validity::AllValid => {
+                ConstantArray::new(!is_null, view.len()).into_array()
+            }
+            Validity::AllInvalid => ConstantArray::new(is_null, view.len()).into_array(),
+            Validity::Array(array) => {
+                if is_null {
+                    array.apply(&not(root()))?
+                } else {
+                    array
+                }
+            }
+        };
+        Ok(Some(validity))
     }
 }
 
@@ -137,6 +176,7 @@ impl ArrayParentReduceRule<ScalarFn> for ScalarFilterPushdownRule {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
@@ -146,6 +186,7 @@ mod tests {
     use crate::VortexSessionExecute;
     use crate::array::IntoArray;
     use crate::array_session;
+    use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
     use crate::arrays::Constant;
     use crate::arrays::Filter;
@@ -160,7 +201,9 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::expr::cast;
+    use crate::expr::is_not_null;
     use crate::expr::is_null;
+    use crate::expr::not;
     use crate::expr::root;
     use crate::optimizer::rules::ArrayParentReduceRule;
     use crate::scalar::Scalar;
@@ -168,6 +211,7 @@ mod tests {
     use crate::scalar_fn::fns::binary::Binary;
     use crate::scalar_fn::fns::literal::Literal;
     use crate::scalar_fn::fns::operators::Operator;
+    use crate::validity::Validity;
 
     #[rstest]
     #[case(0, [14, 14, 14, 14, 14])]
@@ -267,5 +311,39 @@ mod tests {
 
         let expr = is_null(root());
         array.apply(&expr).vortex_expect("expr evaluation");
+    }
+
+    #[test]
+    fn test_reduce_isnull() -> VortexResult<()> {
+        let session = array_session();
+        let ctx = &mut session.create_execution_ctx();
+        let validity = BoolArray::from_iter([true, false, true]).into_array();
+
+        assert_arrays_eq!(
+            validity.clone().apply(&is_null(root()))?,
+            ConstantArray::new(false, 3),
+            ctx
+        );
+        assert_arrays_eq!(
+            validity.clone().apply(&is_not_null(root()))?,
+            ConstantArray::new(true, 3),
+            ctx
+        );
+
+        let buffer = buffer![1, 2, 3];
+        let nullable = PrimitiveArray::new(buffer, Validity::Array(validity.clone())).into_array();
+
+        assert_arrays_eq!(
+            nullable.clone().apply(&is_not_null(root()))?,
+            validity.clone(),
+            ctx
+        );
+        assert_arrays_eq!(
+            nullable.apply(&is_null(root()))?,
+            validity.apply(&not(root()))?,
+            ctx
+        );
+
+        Ok(())
     }
 }
