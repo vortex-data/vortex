@@ -30,8 +30,8 @@
 //!
 //! Each `Scheme` implementation declares whether it [`matches`](Scheme::matches) a given
 //! canonical form and, if so, estimates the compression ratio (often by compressing a ~1%
-//! sample). [`all_schemes`] selects the default Decimal scheme's format from the permitted
-//! serialized IDs when constructing the scheme list.
+//! sample). [`all_schemes`] provides the default scheme list. When permitted serialized IDs are
+//! supplied, the builder selects compatible versions and filters the schemes during `build()`.
 //!
 //! Schemes can produce arrays that are themselves further compressed (e.g. FoR then BitPacking),
 //! up to [`MAX_CASCADE`] (3) layers deep. Descendant exclusion rules for of [`SchemeId`] prevents

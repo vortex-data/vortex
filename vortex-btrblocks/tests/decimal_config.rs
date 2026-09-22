@@ -66,21 +66,13 @@ fn assert_serialized_id(array: &ArrayRef, expected: ArrayId) -> VortexResult<()>
 #[case::v2_only(vec![decimal_byte_parts_v2_id()], false)]
 #[case::both(vec![decimal_byte_parts_v1_id(), decimal_byte_parts_v2_id()], true)]
 fn supported_ids(#[case] ids: Vec<ArrayId>, #[case] supported: bool) {
-    let compressor = BtrBlocksCompressorBuilder::new(&ids.into_iter().collect()).build();
+    let compressor = BtrBlocksCompressorBuilder::default()
+        .with_allowed_encodings(&ids.into_iter().collect())
+        .build();
     assert_eq!(
         compressor.has_scheme(DecimalScheme::default().id()),
         supported
     );
-}
-
-#[test]
-fn v1_writer_rejects_preconfigured_v2_scheme() {
-    let scheme = &DECIMAL_V2;
-    let compressor = BtrBlocksCompressorBuilder::empty()
-        .with_new_scheme(scheme)
-        .retain_allowed_encodings(&HashSet::from([decimal_byte_parts_v1_id()]))
-        .build();
-    assert!(!compressor.has_scheme(scheme.id()));
 }
 
 #[test]
@@ -92,18 +84,28 @@ fn decimal_defaults_to_v1() {
 }
 
 #[rstest]
-fn cuda_preset_keeps_later_v1_registration(#[values(false, true)] restrict_ids: bool) {
-    let id = DecimalScheme::default().id();
-    let mut builder = BtrBlocksCompressorBuilder::empty()
+fn cuda_permissions_apply_to_later_registrations(
+    #[values(false, true)] v2: bool,
+    #[values(false, true)] wide: bool,
+) -> VortexResult<()> {
+    let allowed = HashSet::from([decimal_byte_parts_v1_id(), decimal_byte_parts_v2_id()]);
+    let scheme = if v2 { &DECIMAL_V2 } else { &DECIMAL_V1 };
+    let compressor = BtrBlocksCompressorBuilder::empty()
+        .with_allowed_encodings(&allowed)
         .only_cuda_compatible()
-        .with_new_scheme(&DECIMAL_V1);
-    if restrict_ids {
-        builder = builder.retain_allowed_encodings(&HashSet::from([
-            decimal_byte_parts_v1_id(),
-            decimal_byte_parts_v2_id(),
-        ]));
+        .with_new_scheme(scheme)
+        .with_allowed_encodings(&allowed)
+        .build();
+    assert!(compressor.has_scheme(scheme.id()));
+    let array = decimal_array(wide);
+    let mut ctx = SESSION.create_execution_ctx();
+    let compressed = compressor.compress(&array, &mut ctx)?;
+    assert_eq!(compressed.is::<DecimalByteParts>(), !wide);
+    if !wide {
+        assert_serialized_id(&compressed, decimal_byte_parts_v1_id())?;
     }
-    assert!(builder.build().has_scheme(id));
+    assert_arrays_eq!(array, compressed, &mut ctx);
+    Ok(())
 }
 
 #[rstest]
@@ -127,12 +129,17 @@ fn decimal_format_follows_configuration(#[values(false, true)] wide: bool) -> Vo
     let array = decimal_array(wide);
     let builder = BtrBlocksCompressorBuilder::default();
     let default = builder.clone().build();
-    let v1 = BtrBlocksCompressorBuilder::new(&HashSet::from([decimal_byte_parts_v1_id()])).build();
-    let v2 = BtrBlocksCompressorBuilder::new(&HashSet::from([
-        decimal_byte_parts_v1_id(),
-        decimal_byte_parts_v2_id(),
-    ]))
-    .build();
+    let v1 = builder
+        .clone()
+        .with_allowed_encodings(&HashSet::from([decimal_byte_parts_v1_id()]))
+        .build();
+    let v2 = builder
+        .clone()
+        .with_allowed_encodings(&HashSet::from([
+            decimal_byte_parts_v1_id(),
+            decimal_byte_parts_v2_id(),
+        ]))
+        .build();
     let default_again = builder.build();
 
     for (compressor, v2) in [
@@ -160,27 +167,39 @@ fn decimal_format_follows_configuration(#[values(false, true)] wide: bool) -> Vo
 }
 
 #[rstest]
-fn explicit_decimal_format_is_preserved(
-    #[values(false, true)] v2: bool,
-    #[values(false, true)] restrict_ids: bool,
-    #[values(false, true)] replace_default: bool,
+#[case::unrestricted(None)]
+#[case::v1(Some(false))]
+#[case::v2(Some(true))]
+fn registered_decimal_uses_allowed_version(
+    #[case] allowed_v2: Option<bool>,
+    #[values(false, true)] initial_v2: bool,
+    #[values(false, true)] register_later: bool,
 ) -> VortexResult<()> {
     let array = decimal_array(true);
-    let scheme = if v2 { &DECIMAL_V2 } else { &DECIMAL_V1 };
-    let mut builder = if replace_default {
-        BtrBlocksCompressorBuilder::default().exclude_schemes([scheme.id()])
+    let scheme = if initial_v2 {
+        &DECIMAL_V2
     } else {
-        BtrBlocksCompressorBuilder::empty()
+        &DECIMAL_V1
+    };
+    let mut builder = BtrBlocksCompressorBuilder::empty();
+    if !register_later {
+        builder = builder.with_new_scheme(scheme);
     }
-    .with_new_scheme(scheme);
-    if restrict_ids {
-        builder = builder.retain_allowed_encodings(&HashSet::from([
-            decimal_byte_parts_v1_id(),
-            decimal_byte_parts_v2_id(),
-        ]));
+    if let Some(v2) = allowed_v2 {
+        let mut allowed = HashSet::from([decimal_byte_parts_v1_id()]);
+        if v2 {
+            allowed.insert(decimal_byte_parts_v2_id());
+        }
+        builder = builder.with_allowed_encodings(&allowed);
     }
+    if register_later {
+        builder = builder.with_new_scheme(scheme);
+    }
+    let compressor = builder.build();
+    assert!(compressor.has_scheme(scheme.id()));
     let mut ctx = SESSION.create_execution_ctx();
-    let compressed = builder.build().compress(&array, &mut ctx)?;
+    let compressed = compressor.compress(&array, &mut ctx)?;
+    let v2 = allowed_v2.unwrap_or(initial_v2);
     assert_eq!(compressed.is::<DecimalByteParts>(), v2);
     if v2 {
         assert_serialized_id(&compressed, decimal_byte_parts_v2_id())?;
@@ -189,18 +208,30 @@ fn explicit_decimal_format_is_preserved(
     Ok(())
 }
 
-#[test]
-fn filtering_removes_incompatible_decimal_without_reconfiguration() -> VortexResult<()> {
-    let array = decimal_array(true);
+#[rstest]
+fn decimal_version_uses_intersection(
+    #[values(false, true)] restrictive_first: bool,
+    #[values(false, true)] wide: bool,
+) -> VortexResult<()> {
+    let array = decimal_array(wide);
     let v1 = HashSet::from([decimal_byte_parts_v1_id()]);
     let both = HashSet::from([decimal_byte_parts_v1_id(), decimal_byte_parts_v2_id()]);
-    let compressor = BtrBlocksCompressorBuilder::new(&both)
-        .retain_allowed_encodings(&v1)
+    let (first, second) = if restrictive_first {
+        (&v1, &both)
+    } else {
+        (&both, &v1)
+    };
+    let compressor = BtrBlocksCompressorBuilder::default()
+        .with_allowed_encodings(first)
+        .with_allowed_encodings(second)
         .build();
-    assert!(!compressor.has_scheme(DECIMAL_V1.id()));
+    assert!(compressor.has_scheme(DECIMAL_V1.id()));
     let mut ctx = SESSION.create_execution_ctx();
     let compressed = compressor.compress(&array, &mut ctx)?;
-    assert!(!compressed.is::<DecimalByteParts>());
+    assert_eq!(compressed.is::<DecimalByteParts>(), !wide);
+    if !wide {
+        assert_serialized_id(&compressed, decimal_byte_parts_v1_id())?;
+    }
     assert_arrays_eq!(array, compressed, &mut ctx);
     Ok(())
 }
@@ -222,7 +253,9 @@ fn varying_decimal_parts_require_child_compression(
         allowed.extend(FoRScheme.produced_encodings());
         allowed.extend(BitPackingScheme.produced_encodings());
     }
-    let compressor = BtrBlocksCompressorBuilder::new(&allowed).build();
+    let compressor = BtrBlocksCompressorBuilder::default()
+        .with_allowed_encodings(&allowed)
+        .build();
     let mut ctx = SESSION.create_execution_ctx();
     let compressed = compressor.compress(&array, &mut ctx)?;
     // Without integer schemes, distinct parts occupy the same space as canonical decimals.
@@ -237,22 +270,21 @@ fn varying_decimal_parts_require_child_compression(
 #[rstest]
 fn cuda_preset_keeps_only_decimal_v1(
     #[values(false, true)] wide: bool,
-    #[values(false, true)] v2: bool,
+    #[values(false, true)] restrict_ids: bool,
 ) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let array = decimal_array(wide);
-    let builder = if v2 {
-        BtrBlocksCompressorBuilder::new(&HashSet::from([
+    let mut builder = BtrBlocksCompressorBuilder::default();
+    if restrict_ids {
+        builder = builder.with_allowed_encodings(&HashSet::from([
             decimal_byte_parts_v1_id(),
             decimal_byte_parts_v2_id(),
-        ]))
-    } else {
-        BtrBlocksCompressorBuilder::default()
-    };
+        ]));
+    }
     let compressor = builder.only_cuda_compatible().build();
-    assert_eq!(compressor.has_scheme(DECIMAL_V1.id()), !v2);
+    assert!(compressor.has_scheme(DECIMAL_V1.id()));
     let compressed = compressor.compress(&array, &mut ctx)?;
-    assert_eq!(compressed.is::<DecimalByteParts>(), !wide && !v2);
+    assert_eq!(compressed.is::<DecimalByteParts>(), !wide);
     if compressed.is::<DecimalByteParts>() {
         assert_serialized_id(&compressed, decimal_byte_parts_v1_id())?;
     }

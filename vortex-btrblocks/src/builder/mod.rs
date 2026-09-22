@@ -19,12 +19,11 @@ use crate::schemes::integer;
 use crate::schemes::string;
 use crate::schemes::temporal;
 
-/// Returns the default compression schemes, configured for the permitted serialized IDs.
+/// Returns the default compression schemes, including Decimal v1.
 ///
-/// Decimal uses v2 when its serialized ID is permitted, and v1 otherwise. This configures the
-/// schemes without filtering them; [`BtrBlocksCompressorBuilder::retain_allowed_encodings`] removes
-/// schemes whose outputs are not permitted. The order is preserved for deterministic tie-breaking.
-pub fn all_schemes(allowed_serialized_ids: &HashSet<ArrayId>) -> Vec<&'static dyn Scheme> {
+/// The order is preserved for deterministic tie-breaking. The builder selects compatible versions
+/// and filters schemes during [`BtrBlocksCompressorBuilder::build`].
+pub fn all_schemes() -> Vec<&'static dyn Scheme> {
     vec![
         ////////////////////////////////////////////////////////////////////////////////////////////////
         // Integer schemes.
@@ -63,11 +62,7 @@ pub fn all_schemes(allowed_serialized_ids: &HashSet<ArrayId>) -> Vec<&'static dy
         &binary::BinaryDictScheme,
         &binary::VarBinScheme,
         // Decimal schemes.
-        if allowed_serialized_ids.contains(&decimal_byte_parts_v2_id()) {
-            &decimal::DecimalScheme::new(true)
-        } else {
-            &decimal::DecimalScheme::new(false)
-        },
+        &decimal::DecimalScheme::new(false),
         // Temporal schemes.
         &temporal::TemporalScheme,
     ]
@@ -86,8 +81,9 @@ pub static DELTA_SCHEME: integer::DeltaScheme = integer::DeltaScheme::new(1.25);
 /// schemes (Pco, Zstd) are not in `all_schemes` and must be added explicitly via
 /// [`with_new_scheme`](BtrBlocksCompressorBuilder::with_new_scheme) or `with_compact` when the
 /// `zstd` feature is enabled.
-/// Use [`Self::new`] to select defaults for a writer's permitted serialized IDs; [`Self::default`]
-/// keeps Decimal on v1.
+/// [`Self::with_allowed_encodings`] sets the permitted serialized IDs. [`Self::build`] selects
+/// compatible scheme versions and filters their outputs. Without an allowlist, the registered
+/// configurations are preserved, including Decimal v1 in the defaults.
 ///
 /// # Examples
 ///
@@ -106,35 +102,26 @@ pub static DELTA_SCHEME: integer::DeltaScheme = integer::DeltaScheme::new(1.25);
 #[derive(Debug, Clone)]
 pub struct BtrBlocksCompressorBuilder {
     schemes: Vec<&'static dyn Scheme>,
+    allowed_serialized_ids: Option<HashSet<ArrayId>>,
 }
 
 impl Default for BtrBlocksCompressorBuilder {
     fn default() -> Self {
         Self {
-            schemes: all_schemes(&HashSet::new()),
+            schemes: all_schemes(),
+            allowed_serialized_ids: None,
         }
     }
 }
 
 impl BtrBlocksCompressorBuilder {
-    /// Creates the default scheme list for the permitted serialized IDs.
-    ///
-    /// Selects the v2 Decimal scheme when permitted, then filters unavailable schemes.
-    /// The selection is fixed; later filtering can remove the scheme but does not reconfigure it.
-    /// [`Self::default`] uses the v1 Decimal scheme without filtering other schemes.
-    pub fn new(allowed_serialized_ids: &HashSet<ArrayId>) -> Self {
-        Self {
-            schemes: all_schemes(allowed_serialized_ids),
-        }
-        .retain_allowed_encodings(allowed_serialized_ids)
-    }
-
     /// Creates a builder with no schemes registered.
     ///
     /// Useful when the caller wants explicit, scheme-by-scheme control over the compressor.
     pub fn empty() -> Self {
         Self {
             schemes: Vec::new(),
+            allowed_serialized_ids: None,
         }
     }
 
@@ -185,8 +172,11 @@ impl BtrBlocksCompressorBuilder {
     ///
     /// Both the array-level and the buffer-level Zstd schemes are added. Buffer-level
     /// compression preserves binary arrays' buffer layout for zero-conversion GPU decompression,
-    /// but belongs to the opt-in `zstd` edition, so callers filter the two through
-    /// [`retain_allowed_encodings`](Self::retain_allowed_encodings).
+    /// but belongs to the opt-in `zstd` edition. Set edition permissions with
+    /// [`with_allowed_encodings`](Self::with_allowed_encodings) before applying this preset.
+    /// This removes Decimal v2 from the stored allowlist so [`Self::build`] selects v1.
+    /// Subsequent allowlists can only narrow these permissions. Without an allowlist, the default
+    /// Decimal configuration stays on v1 and schemes already producing v2 are removed.
     ///
     /// This preset is intended for files that will be decoded by CUDA kernels. It may choose a
     /// larger encoded representation than the default compressor.
@@ -212,9 +202,13 @@ impl BtrBlocksCompressorBuilder {
         #[cfg(feature = "pco")]
         excluded.extend([integer::PcoScheme.id(), float::PcoScheme.id()]);
         let mut builder = self.exclude_schemes(excluded);
-        builder
-            .schemes
-            .retain(|scheme| !scheme.produced_encodings().contains(&decimal_byte_parts_v2_id()));
+        if let Some(allowed) = &mut builder.allowed_serialized_ids {
+            allowed.remove(&decimal_byte_parts_v2_id());
+        } else {
+            builder
+                .schemes
+                .retain(|scheme| !scheme.produced_encodings().contains(&decimal_byte_parts_v2_id()));
+        }
 
         #[cfg(feature = "zstd")]
         let builder = builder
@@ -233,18 +227,39 @@ impl BtrBlocksCompressorBuilder {
         self
     }
 
-    /// Retains only schemes whose produced serialized IDs all belong to `allowed`.
+    /// Restricts the serialized IDs that compression schemes may produce.
     ///
-    /// `allowed` holds serialized IDs. The file writer passes the array IDs its enabled editions
-    /// permit. This filters the current list without reconfiguring its schemes.
-    pub fn retain_allowed_encodings(mut self, allowed: &HashSet<ArrayId>) -> Self {
-        self.schemes
-            .retain(|s| s.produced_encodings().iter().all(|id| allowed.contains(id)));
+    /// Repeated calls intersect the allowed sets. An empty set permits no serialized IDs.
+    /// [`Self::build`] selects compatible versions and filters all registered schemes, including
+    /// schemes added after this call. Apply [`Self::only_cuda_compatible`] after supplying the
+    /// initial allowlist so it can remove unsupported formats from these permissions.
+    pub fn with_allowed_encodings(mut self, allowed: &HashSet<ArrayId>) -> Self {
+        match &mut self.allowed_serialized_ids {
+            Some(current) => current.retain(|id| allowed.contains(id)),
+            None => self.allowed_serialized_ids = Some(allowed.clone()),
+        }
         self
     }
 
     /// Builds the configured [`BtrBlocksCompressor`].
-    pub fn build(self) -> BtrBlocksCompressor {
+    ///
+    /// When allowed encodings are supplied, selects the latest compatible Decimal version and
+    /// removes schemes whose declared outputs are not all permitted. This also reconfigures
+    /// explicitly registered Decimal schemes. Without an allowlist, configurations are preserved.
+    pub fn build(mut self) -> BtrBlocksCompressor {
+        if let Some(allowed) = &self.allowed_serialized_ids {
+            for scheme in &mut self.schemes {
+                if scheme.id() == decimal::DecimalScheme::default().id() {
+                    *scheme = if allowed.contains(&decimal_byte_parts_v2_id()) {
+                        &decimal::DecimalScheme::new(true)
+                    } else {
+                        &decimal::DecimalScheme::new(false)
+                    };
+                }
+            }
+            self.schemes
+                .retain(|s| s.produced_encodings().iter().all(|id| allowed.contains(id)));
+        }
         BtrBlocksCompressor(CascadingCompressor::new(self.schemes))
     }
 }

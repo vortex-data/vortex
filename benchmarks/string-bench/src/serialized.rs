@@ -365,7 +365,7 @@ mod tests {
         // Every default scheme whose dtype gate accepts canonical Utf8 must be
         // excluded when another root string encoding is forced.
         let canonical = Canonical::VarBinView(VarBinViewArray::from_iter_str(["value"]));
-        let mut actual = all_schemes(&Default::default())
+        let mut actual = all_schemes()
             .iter()
             .filter(|scheme| scheme.matches(&canonical))
             .map(|scheme| scheme.id())

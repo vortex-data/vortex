@@ -384,13 +384,14 @@ impl PyVortexWriteOptions {
                 .enabled_component_ids(ComponentKind::Array)
                 .into_iter()
                 .collect();
-            let mut compressor = BtrBlocksCompressorBuilder::new(&allowed_encodings);
+            let mut compressor = BtrBlocksCompressorBuilder::default()
+                .with_allowed_encodings(&allowed_encodings);
             if self.use_compact_encodings {
                 compressor = compressor.with_compact();
             }
             let strategy = WriteStrategyBuilder::default()
-                .with_btrblocks_builder(compressor.retain_allowed_encodings(&allowed_encodings));
-            let strategy = strategy.build();
+                .with_btrblocks_builder(compressor)
+                .build();
             current_runtime().block_on(async move {
                 match resolve_store(path, store.map(|x| x.into_inner()))? {
                     ResolvedStore::ObjectStore(store, path) => {

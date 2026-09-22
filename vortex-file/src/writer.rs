@@ -252,7 +252,10 @@ impl VortexWriteOptions {
         let strategy = match self.strategy {
             Some(strategy) => strategy,
             None => WriteStrategyBuilder::default()
-                .with_btrblocks_builder(BtrBlocksCompressorBuilder::new(&allowed_serialized_ids))
+                .with_btrblocks_builder(
+                    BtrBlocksCompressorBuilder::default()
+                        .with_allowed_encodings(&allowed_serialized_ids),
+                )
                 .build(),
         };
         let dtype = stream.dtype().clone();

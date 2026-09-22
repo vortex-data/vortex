@@ -19,7 +19,7 @@ fn empty_starts_with_no_schemes() {
 
 #[test]
 fn default_includes_all_schemes() {
-    let schemes = all_schemes(&HashSet::new());
+    let schemes = all_schemes();
     let builder = BtrBlocksCompressorBuilder::default();
     assert_eq!(builder.schemes.len(), schemes.len());
     let compressor = builder.build();
@@ -29,42 +29,76 @@ fn default_includes_all_schemes() {
 }
 
 #[test]
-fn retain_allowed_encodings_filters_schemes() {
+fn allowed_encodings_filter_schemes_on_build() {
     let allowed: HashSet<ArrayId> = [FoR.id()].into_iter().collect();
     let compressor = BtrBlocksCompressorBuilder::default()
-        .retain_allowed_encodings(&allowed)
+        .with_allowed_encodings(&allowed)
         .build();
     assert!(compressor.has_scheme(integer::FoRScheme.id()));
     assert!(!compressor.has_scheme(integer::BitPackingScheme.id()));
 
     let none = BtrBlocksCompressorBuilder::default()
-        .retain_allowed_encodings(&HashSet::new())
+        .with_allowed_encodings(&HashSet::new())
         .build();
-    for scheme in all_schemes(&HashSet::new()) {
+    for scheme in all_schemes() {
         assert!(!none.has_scheme(scheme.id()));
     }
 }
 
 #[test]
 fn all_produced_encodings_retain_every_default_scheme() {
-    let allowed: HashSet<_> = all_schemes(&HashSet::new())
+    let allowed: HashSet<_> = all_schemes()
         .iter()
         .flat_map(|scheme| scheme.produced_encodings())
         .chain([decimal_byte_parts_v2_id()])
         .collect();
-    let compressor = BtrBlocksCompressorBuilder::new(&allowed).build();
-    for scheme in all_schemes(&allowed) {
+    let compressor = BtrBlocksCompressorBuilder::default()
+        .with_allowed_encodings(&allowed)
+        .build();
+    for scheme in all_schemes() {
         assert!(compressor.has_scheme(scheme.id()));
     }
 }
 
-#[test]
-fn filtering_leaves_later_registrations_unchanged() {
-    let compressor = BtrBlocksCompressorBuilder::empty()
-        .retain_allowed_encodings(&HashSet::new())
-        .with_new_scheme(&integer::FoRScheme)
+#[rstest]
+fn allowed_encodings_apply_regardless_of_registration_order(
+    #[values(false, true)] permitted: bool,
+    #[values(false, true)] register_later: bool,
+) {
+    let allowed = if permitted {
+        HashSet::from([FoR.id()])
+    } else {
+        HashSet::new()
+    };
+    let mut builder = BtrBlocksCompressorBuilder::empty();
+    if !register_later {
+        builder = builder.with_new_scheme(&integer::FoRScheme);
+    }
+    builder = builder.with_allowed_encodings(&allowed);
+    if register_later {
+        builder = builder.with_new_scheme(&integer::FoRScheme);
+    }
+    assert_eq!(builder.build().has_scheme(integer::FoRScheme.id()), permitted);
+}
+
+#[rstest]
+fn allowed_encodings_intersect(#[values(false, true)] restrictive_first: bool) {
+    let all = all_schemes()
+        .iter()
+        .flat_map(|scheme| scheme.produced_encodings())
+        .collect();
+    let restricted = HashSet::from([FoR.id()]);
+    let (first, second) = if restrictive_first {
+        (&restricted, &all)
+    } else {
+        (&all, &restricted)
+    };
+    let compressor = BtrBlocksCompressorBuilder::default()
+        .with_allowed_encodings(first)
+        .with_allowed_encodings(second)
         .build();
     assert!(compressor.has_scheme(integer::FoRScheme.id()));
+    assert!(!compressor.has_scheme(integer::BitPackingScheme.id()));
 }
 
 #[test]
@@ -89,7 +123,7 @@ fn excluded_scheme_can_be_replaced() {
 
 #[test]
 fn default_schemes_can_be_registered() {
-    let schemes = all_schemes(&HashSet::new());
+    let schemes = all_schemes();
     let compressor = schemes
         .iter()
         .fold(BtrBlocksCompressorBuilder::empty(), |builder, scheme| {
@@ -108,7 +142,7 @@ fn default_schemes_can_be_registered() {
 )]
 fn allowed_formats_do_not_restore_decimal(#[case] builder: BtrBlocksCompressorBuilder) {
     let compressor = builder
-        .retain_allowed_encodings(&HashSet::from([
+        .with_allowed_encodings(&HashSet::from([
             vortex_decimal_byte_parts::decimal_byte_parts_v1_id(),
             decimal_byte_parts_v2_id(),
         ]))

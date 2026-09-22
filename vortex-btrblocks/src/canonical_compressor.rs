@@ -293,8 +293,8 @@ mod tests {
         // The CUDA preset carries both Zstd schemes; the edition filter decides which one
         // survives.
         let compressor = BtrBlocksCompressorBuilder::default()
+            .with_allowed_encodings(&HashSet::from([allowed]))
             .only_cuda_compatible()
-            .retain_allowed_encodings(&HashSet::from([allowed]))
             .build();
         let mut ctx = SESSION.create_execution_ctx();
         let compressed = compressor.compress(&array.clone().into_array(), &mut ctx)?;

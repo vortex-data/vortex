@@ -278,7 +278,7 @@ pub fn retain_edition_encodings(
         .enabled_component_ids(ComponentKind::Array)
         .into_iter()
         .collect();
-    builder.retain_allowed_encodings(&allowed)
+    builder.with_allowed_encodings(&allowed)
 }
 
 /// Verify that local data has already been prepared for the requested benchmark formats.

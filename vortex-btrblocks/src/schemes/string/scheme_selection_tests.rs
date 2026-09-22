@@ -15,7 +15,6 @@ use vortex_array::dtype::Nullability;
 use vortex_error::VortexResult;
 use vortex_fsst::FSST;
 use vortex_session::VortexSession;
-use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::BtrBlocksCompressor;
 use crate::BtrBlocksCompressorBuilder;
@@ -54,10 +53,7 @@ fn test_dict_compressed() -> VortexResult<()> {
 
 #[test]
 fn test_all_schemes_includes_onpair() {
-    let ids: Vec<_> = all_schemes(&HashSet::new())
-        .iter()
-        .map(|s| s.id())
-        .collect();
+    let ids: Vec<_> = all_schemes().iter().map(|s| s.id()).collect();
     assert!(
         ids.contains(&OnPairScheme.id()),
         "OnPairScheme not registered in all_schemes"
@@ -93,9 +89,7 @@ fn test_default_btrblocks_compressor_selects_onpair() -> VortexResult<()> {
 fn test_fsst_in_default_scheme_list() -> VortexResult<()> {
     // FSST is registered by default.
     assert!(
-        all_schemes(&HashSet::new())
-            .iter()
-            .any(|s| s.id() == FSSTScheme.id()),
+        all_schemes().iter().any(|s| s.id() == FSSTScheme.id()),
         "FSSTScheme should be in all_schemes",
     );
 

@@ -100,11 +100,9 @@ impl Compressor for GpuVortexCompressor {
         // partition rather than whatever the default strategy would regroup them into.
         let strategy = Arc::new(ChunkedLayoutStrategy::new(CompressingStrategy::new(
             CudaFlatLayoutStrategy::default(),
-            retain_edition_encodings(
-                &SESSION,
-                BtrBlocksCompressorBuilder::default().only_cuda_compatible(),
-            )
-            .build(),
+            retain_edition_encodings(&SESSION, BtrBlocksCompressorBuilder::default())
+                .only_cuda_compatible()
+                .build(),
         )));
         let start = Instant::now();
         SESSION

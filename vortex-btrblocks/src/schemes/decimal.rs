@@ -34,18 +34,19 @@ use crate::SchemeExt;
 /// format. Wider values need lower parts, and so the `vortex.decimal_byte_parts.v2` format. The
 /// v2 scheme splits these values; the v1 scheme leaves them canonical.
 ///
-/// The default uses v1. [`crate::all_schemes`] selects v2 when the permitted serialized IDs include
-/// that format. This choice is fixed at construction.
+/// The default uses v1. When an allowlist is supplied, [`crate::BtrBlocksCompressorBuilder::build`]
+/// selects the latest permitted version, including for explicitly registered Decimal schemes.
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub struct DecimalScheme {
     v2: bool,
 }
 
 impl DecimalScheme {
-    /// Creates a decimal scheme with a fixed choice of v1 or v2.
+    /// Creates a decimal scheme configured for v1 or v2.
     ///
     /// With `v2` set, wide values are split into multiple parts. Otherwise, they stay canonical.
     /// Single-part values serialize as v1 in either case.
+    /// A compressor builder with allowed encodings may select a different version during build.
     pub const fn new(v2: bool) -> Self {
         Self { v2 }
     }
