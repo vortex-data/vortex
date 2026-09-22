@@ -1062,8 +1062,7 @@ pub fn repack_arrow_validity_buffer(
         output_bytes > 0,
         "zero-length validity buffers should be omitted"
     );
-    // The CUDA kernel writes the bitmap as u64 words, so round the logical byte length up to the
-    // number of words that cover the exported Arrow bytes.
+    // The nonzero byte count guarantees at least one u64 output word.
     let output_words = output_bytes.div_ceil(size_of::<u64>());
     // `device_alloc::<u64>` takes a word count, while the padding policy is expressed in bytes.
     // Round up so the padded byte allocation is fully represented by whole u64 words.
@@ -3668,6 +3667,7 @@ mod tests {
     }
 
     #[rstest]
+    #[case::empty(0, 0)]
     #[case::truncated(7, 2)]
     #[case::overflow(usize::MAX, 1)]
     #[crate::test]
