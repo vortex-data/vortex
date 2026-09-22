@@ -71,8 +71,11 @@ typedef struct vx_cuda_scan_options {
      */
     uint32_t flags;
     /**
-     * Maximum rows in each output batch. Zero preserves layout boundaries without a row cap.
-     * Physical layout boundaries may produce shorter batches.
+     * Rows in each output batch, except for a possibly smaller final batch.
+     * Zero preserves layout boundaries without a row cap. Nonzero values split at exact row
+     * counts independently of layout boundaries: 1,000 rows with 300 yields 300/300/300/100.
+     * Cross-layout batches still require CUDA-supported encodings; CUDA concatenation of
+     * `Chunked` arrays is currently unsupported.
      */
     size_t batch_rows;
 } vx_cuda_scan_options;
@@ -117,7 +120,10 @@ vx_array_sink *vx_cuda_array_sink_open_file(const vx_session *session,
  * value disables byte-size coalescing and outer layout dictionaries, so passing 8,192 is not
  * equivalent to passing zero.
  *
- * Write and scan sizing are independent; scan batches preserve on-disk layout boundaries.
+ * Write and scan sizing are independent. Zero scan `batch_rows` preserves on-disk layout
+ * boundaries; nonzero values request exact row counts with a possibly smaller final batch.
+ * Cross-layout batches still require CUDA-supported encodings; CUDA concatenation of `Chunked`
+ * arrays is currently unsupported.
  *
  * # Safety
  *
@@ -155,11 +161,14 @@ int vx_cuda_scan_path_arrow_device_stream(const vx_session *session,
                                           vx_error **error_out);
 
 /**
- * Scan a local Vortex file with bounded row batches.
+ * Scan a local Vortex file with exact row batches and a possibly smaller final batch.
  *
  * Uses [`vx_cuda_scan_path_arrow_device_stream`]'s export and ownership rules.
- * `batch_rows` caps output rows; zero uses layout splitting. Physical boundaries may shorten
- * batches. Scan and write sizing are independent; scans preserve on-disk layout boundaries.
+ * Zero preserves layout boundaries without a row cap, so batches may be large. Nonzero
+ * `batch_rows` splits at exact row counts independently of layout boundaries. For example,
+ * 1,000 rows with `batch_rows = 300` yields batches of 300/300/300/100 rows.
+ * Scan and write sizing are independent. Cross-layout batches still require CUDA-supported
+ * encodings; CUDA concatenation of `Chunked` arrays is currently unsupported.
  *
  * # Safety
  *

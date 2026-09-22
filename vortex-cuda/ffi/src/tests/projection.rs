@@ -23,6 +23,7 @@ use vortex::dtype::Nullability;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::LayoutStrategy;
+use vortex::layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex::layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex::layout::layouts::table::TableStrategy;
 use vortex::layout::segments::SegmentFuture;
@@ -222,6 +223,64 @@ fn test_projected_scan_zero_batch_rows_preserves_large_layout_span() -> VortexRe
         let splits = projected_scan(&file, columns, 0)?.full_file_splits()?;
         assert_eq!(splits, [0, 1_000_000]);
     }
+    Ok(())
+}
+
+#[test]
+fn test_projected_scan_exact_batch_rows_with_final_tail() -> VortexResult<()> {
+    let session = session();
+    let file = flat_ids_file(&session, 1_000)?;
+    let expected = StructArray::try_new(
+        ["ids"].into(),
+        vec![PrimitiveArray::from_iter(0u32..1_000).into_array()],
+        1_000,
+        Validity::NonNullable,
+    )?
+    .into_array();
+    for columns in [names(&[])?, names(&["ids"])?] {
+        let batches: Vec<ArrayRef> = ffi_runtime().block_on(
+            projected_scan(&file, columns, 300)?
+                .into_array_stream()?
+                .try_collect(),
+        )?;
+        let lengths: Vec<_> = batches.iter().map(|batch| batch.len()).collect();
+        assert_eq!(lengths, [300, 300, 300, 100]);
+        let actual = ChunkedArray::try_new(batches, expected.dtype().clone())?.into_array();
+        assert_arrays_eq!(actual, expected, &mut session.create_execution_ctx());
+    }
+    Ok(())
+}
+
+#[test]
+fn test_projected_scan_exact_batch_rows_crosses_layout_blocks() -> VortexResult<()> {
+    let session = session();
+    let input = table()?;
+    let columns = names(&["値.x", "ids"])?;
+    let expected = input.project(columns.as_ref())?.into_array();
+    let input = input.into_array();
+    let chunks = ChunkedArray::try_new(
+        vec![input.slice(0..2)?, input.slice(2..4)?, input.slice(4..5)?],
+        input.dtype().clone(),
+    )?
+    .into_array();
+    let file = open_file(
+        &session,
+        chunks,
+        Arc::new(ChunkedLayoutStrategy::new(FlatLayoutStrategy::default())),
+    )?;
+    assert_eq!(
+        projected_scan(&file, columns.clone(), 0)?.full_file_splits()?,
+        [0, 2, 4, 5]
+    );
+    let batches: Vec<ArrayRef> = ffi_runtime().block_on(
+        projected_scan(&file, columns, 3)?
+            .into_array_stream()?
+            .try_collect(),
+    )?;
+    let lengths: Vec<_> = batches.iter().map(|batch| batch.len()).collect();
+    assert_eq!(lengths, [3, 2]);
+    let actual = ChunkedArray::try_new(batches, expected.dtype().clone())?.into_array();
+    assert_arrays_eq!(actual, expected, &mut session.create_execution_ctx());
     Ok(())
 }
 
@@ -511,10 +570,14 @@ fn read_projected_batches(stream: &mut ArrowDeviceArrayStream) -> VortexResult<V
     Ok(batches)
 }
 
-fn check_projected_file(block_rows: usize, batch_rows: usize) -> VortexResult<()> {
+fn check_projected_file(
+    input: StructArray,
+    block_rows: usize,
+    batch_rows: usize,
+    expected_lengths: &[usize],
+) -> VortexResult<()> {
     let session = session().with_some(CudaSession::try_default()?);
     register_cuda_layout(&session);
-    let input = table()?;
     let columns = ["値.x", "ids"];
     let expected = input.project(names(&columns)?.as_ref())?.into_array();
     let mut file = NamedTempFile::new()?;
@@ -542,7 +605,7 @@ fn check_projected_file(block_rows: usize, batch_rows: usize) -> VortexResult<()
     assert_eq!(Schema::try_from(&schema)?, Schema::new(expected_fields));
     let batches = read_projected_batches(&mut stream.0)?;
     let lengths: Vec<_> = batches.iter().map(|batch| batch.len()).collect();
-    assert_eq!(lengths, [2, 2, 1]);
+    assert_eq!(lengths, expected_lengths);
     let actual = ChunkedArray::try_new(batches, expected.dtype().clone())?.into_array();
     assert_arrays_eq!(
         actual,
@@ -554,10 +617,27 @@ fn check_projected_file(block_rows: usize, batch_rows: usize) -> VortexResult<()
 
 #[cuda_test]
 fn test_projection_gpu_subdivides_large_blocks() -> VortexResult<()> {
-    check_projected_file(0, 2)
+    check_projected_file(table()?, 5, 2, &[2, 2, 1])
 }
 
 #[cuda_test]
 fn test_projection_gpu_preserves_small_block_boundaries() -> VortexResult<()> {
-    check_projected_file(2, 0)
+    check_projected_file(table()?, 2, 0, &[2, 2, 1])
+}
+
+#[cuda_test]
+fn test_projection_gpu_exact_batch_rows_with_final_tail() -> VortexResult<()> {
+    let input = StructArray::try_new(
+        ["ids", "値.x"].into(),
+        vec![
+            PrimitiveArray::from_iter(0u32..1_000).into_array(),
+            PrimitiveArray::from_option_iter(
+                (0i64..1_000).map(|value| (value % 2 == 0).then_some(value)),
+            )
+            .into_array(),
+        ],
+        1_000,
+        Validity::NonNullable,
+    )?;
+    check_projected_file(input, 1_000, 300, &[300, 300, 300, 100])
 }

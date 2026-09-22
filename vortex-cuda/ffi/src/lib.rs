@@ -76,8 +76,11 @@ pub const VX_CUDA_SCAN_FLAG_DIRECT_IO: u32 = 1u32 << 0;
 pub struct vx_cuda_scan_options {
     /// A bitwise combination of `VX_CUDA_SCAN_FLAG_*` values. Unknown bits are ignored.
     pub flags: u32,
-    /// Maximum rows in each output batch. Zero preserves layout boundaries without a row cap.
-    /// Physical layout boundaries may produce shorter batches.
+    /// Rows in each output batch, except for a possibly smaller final batch.
+    /// Zero preserves layout boundaries without a row cap. Nonzero values split at exact row
+    /// counts independently of layout boundaries: 1,000 rows with 300 yields 300/300/300/100.
+    /// Cross-layout batches still require CUDA-supported encodings; CUDA concatenation of
+    /// `Chunked` arrays is currently unsupported.
     pub batch_rows: usize,
 }
 
@@ -161,7 +164,10 @@ pub unsafe extern "C-unwind" fn vx_cuda_array_sink_open_file(
 /// value disables byte-size coalescing and outer layout dictionaries, so passing 8,192 is not
 /// equivalent to passing zero.
 ///
-/// Write and scan sizing are independent; scan batches preserve on-disk layout boundaries.
+/// Write and scan sizing are independent. Zero scan `batch_rows` preserves on-disk layout
+/// boundaries; nonzero values request exact row counts with a possibly smaller final batch.
+/// Cross-layout batches still require CUDA-supported encodings; CUDA concatenation of `Chunked`
+/// arrays is currently unsupported.
 ///
 /// # Safety
 ///
@@ -226,11 +232,14 @@ pub unsafe extern "C-unwind" fn vx_cuda_scan_path_arrow_device_stream(
     }
 }
 
-/// Scan a local Vortex file with bounded row batches.
+/// Scan a local Vortex file with exact row batches and a possibly smaller final batch.
 ///
 /// Uses [`vx_cuda_scan_path_arrow_device_stream`]'s export and ownership rules.
-/// `batch_rows` caps output rows; zero uses layout splitting. Physical boundaries may shorten
-/// batches. Scan and write sizing are independent; scans preserve on-disk layout boundaries.
+/// Zero preserves layout boundaries without a row cap, so batches may be large. Nonzero
+/// `batch_rows` splits at exact row counts independently of layout boundaries. For example,
+/// 1,000 rows with `batch_rows = 300` yields batches of 300/300/300/100 rows.
+/// Scan and write sizing are independent. Cross-layout batches still require CUDA-supported
+/// encodings; CUDA concatenation of `Chunked` arrays is currently unsupported.
 ///
 /// # Safety
 ///
@@ -382,7 +391,7 @@ unsafe fn scan_columns(columns: *const vx_view, ncolumns: usize) -> VortexResult
     Ok(names.into())
 }
 
-/// Apply projection before column reads; row limits subdivide, never merge, layout splits.
+/// Apply projection before column reads; zero preserves layouts, nonzero splits by row count.
 fn projected_scan(
     file: &VortexFile,
     columns: FieldNames,
@@ -396,9 +405,7 @@ fn projected_scan(
     let split_by = if batch_rows == 0 {
         SplitBy::Layout
     } else {
-        let max_rows = u64::try_from(batch_rows)
-            .map_err(|_| vortex_err!("CUDA scan batch row count is too large"))?;
-        SplitBy::LayoutSubSplitting { max_rows }
+        SplitBy::RowCount(batch_rows)
     };
     Ok(scan.with_split_by(split_by))
 }
