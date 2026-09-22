@@ -20,12 +20,6 @@ const WIDTHS: [(DecimalType, usize); 2] = [
 ];
 
 /// Working set per kernel iteration.
-///
-/// The kernel benchmarks run on the walltime legs, where a case that takes under a microsecond
-/// reports mostly per-iteration jitter: at 1,024 rows the `i128` kernels took 0.4 to 1.2 µs and
-/// moved by 10 to 19% on pull requests that changed no decimal code. Budgeting by bytes puts
-/// every case in the microsecond range, and the largest one still fits the 1 MiB L2 cache of the
-/// Graviton leg, so these stay measurements of kernel code rather than of memory bandwidth.
 const WORKING_SET_BYTES: [usize; 2] = [256 * 1024, 1024 * 1024];
 
 pub(super) fn cases() -> Vec<(DecimalType, usize)> {
@@ -66,8 +60,6 @@ pub(super) mod arrays {
     use super::i128_values;
     use super::i256_values;
 
-    /// These benchmarks never run in CI, so they keep the small row counts that make a local
-    /// `cargo bench` quick, rather than the kernel benchmarks' walltime-safe sizes.
     pub(crate) fn cases() -> Vec<(DecimalType, usize)> {
         [DecimalType::I64, DecimalType::I128, DecimalType::I256]
             .into_iter()
