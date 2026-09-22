@@ -1267,7 +1267,7 @@ mod tests {
         assert_eq!(status, VX_CUDA_ERR);
         assert!(!error.is_null());
         unsafe {
-            vortex_ffi::vx_error_free(error);
+            vx_error_free(error);
             free_test_array(array);
             free_test_session(session);
         }
