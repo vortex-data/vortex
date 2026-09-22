@@ -25,7 +25,10 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::VarBinViewArray;
+use crate::arrays::varbinview::BinaryView;
 use crate::assert_arrays_eq;
+use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
@@ -43,6 +46,8 @@ use crate::scalar_fn::unstable::row::OutputElement;
 use crate::scalar_fn::unstable::row::OutputSink;
 use crate::scalar_fn::unstable::row::RowFn;
 use crate::scalar_fn::unstable::row::RowVisitor;
+use crate::scalar_fn::unstable::row::Utf8Column;
+use crate::scalar_fn::unstable::row::execute::execute_bool_dense_attempt;
 use crate::scalar_fn::unstable::row::execute_rows;
 use crate::scalar_fn::unstable::row::row_fn_return_dtype;
 use crate::validity::Validity;
@@ -82,6 +87,20 @@ struct PackedGreaterThan<const MULTIVERSIONED: bool>;
 
 #[derive(Clone)]
 struct DeferredGreaterThan<const MULTIVERSIONED: bool>;
+
+#[derive(Clone, Copy)]
+enum BooleanInputShape {
+    Columns,
+    ConstantLhs,
+    ConstantRhs,
+}
+
+#[derive(Clone, Copy)]
+enum BooleanValidity {
+    AllValid,
+    AllNull,
+    Partial,
+}
 
 #[derive(Clone)]
 struct ValidOnlyPositive;
@@ -864,6 +883,100 @@ fn test_deferred_bool_output_handles_partial_constants() -> VortexResult<()> {
     assert_arrays_eq!(&actual, &expected, &mut ctx);
 
     Ok(())
+}
+
+#[rstest]
+#[case::empty(0)]
+#[case::one(1)]
+#[case::word_tail(63)]
+#[case::word(64)]
+#[case::word_remainder(65)]
+#[case::multiword(130)]
+fn test_deferred_bool_sliced_validity_and_constants(
+    #[case] len: usize,
+    #[values(false, true)] multiversioned: bool,
+    #[values(
+        BooleanInputShape::Columns,
+        BooleanInputShape::ConstantLhs,
+        BooleanInputShape::ConstantRhs
+    )]
+    input_shape: BooleanInputShape,
+    #[values(
+        BooleanValidity::AllValid,
+        BooleanValidity::AllNull,
+        BooleanValidity::Partial
+    )]
+    validity_pattern: BooleanValidity,
+) -> VortexResult<()> {
+    let valid = |index: usize| match validity_pattern {
+        BooleanValidity::AllValid => true,
+        BooleanValidity::AllNull => false,
+        BooleanValidity::Partial => index % 3 != 0,
+    };
+    let validity = Validity::Array(BoolArray::from_iter((0..len + 2).map(valid)).into_array());
+    let varying = PrimitiveArray::new(
+        (0..len + 2)
+            .map(|index| if valid(index) { index as i64 } else { i64::MIN })
+            .collect::<Vec<_>>(),
+        validity,
+    )
+    .into_array()
+    .slice(1..len + 1)?;
+    let constant = ConstantArray::new(32_i64, len).into_array();
+    let other = PrimitiveArray::from_iter(std::iter::repeat_n(32_i64, len)).into_array();
+    let (lhs, rhs) = match input_shape {
+        BooleanInputShape::Columns => (varying, other),
+        BooleanInputShape::ConstantLhs => (constant, varying),
+        BooleanInputShape::ConstantRhs => (varying, constant),
+    };
+    let args = VecExecutionArgs::new(vec![lhs, rhs], len);
+    let mut ctx = array_session().create_execution_ctx();
+    let actual = if multiversioned {
+        execute_rows(&DeferredGreaterThan::<true>, &EmptyOptions, &args, &mut ctx)?
+    } else {
+        execute_rows(
+            &DeferredGreaterThan::<false>,
+            &EmptyOptions,
+            &args,
+            &mut ctx,
+        )?
+    };
+    let expected = BoolArray::from_iter((1..len + 1).map(|index| {
+        valid(index).then_some(if matches!(input_shape, BooleanInputShape::ConstantLhs) {
+            32 > index as i64
+        } else {
+            index as i64 > 32
+        })
+    }))
+    .into_array();
+    assert_arrays_eq!(&actual, &expected, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn test_deferred_bool_decode_error_is_terminal() {
+    let views = Buffer::from(vec![BinaryView::make_view(&[0xff], 0, 0)]);
+    let input = VarBinViewArray::new_handle(
+        BufferHandle::new_host(views.into_byte_buffer()),
+        Default::default(),
+        DType::Utf8(Nullability::NonNullable),
+        Validity::NonNullable,
+    )
+    .into_array();
+    let args = VecExecutionArgs::new(vec![input], 1);
+    let mut ctx = array_session().create_execution_ctx();
+
+    let result = execute_bool_dense_attempt::<(Utf8Column,), (), bool, true>(
+        &args,
+        &mut ctx,
+        |_| (),
+        |&(), (value,)| (!value.is_empty(), false),
+        |_| Ok(()),
+    );
+    assert!(
+        result.is_err(),
+        "a decode error must not become a deferred row error"
+    );
 }
 
 #[test]
