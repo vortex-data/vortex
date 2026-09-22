@@ -1044,8 +1044,11 @@ vx_dtype_from_arrow_schema(const vx_session *session, FFI_ArrowSchema *schema, v
 void vx_error_free(const vx_error *ptr);
 
 /**
- * Return error message for this error.
- * Returned view is valid while "error" is valid.
+ * Return a message view borrowed from `error`.
+ *
+ * # Safety
+ *
+ * `error` must be a non-null, live `vx_error` handle and remain live while the view is used.
  */
 vx_view vx_error_message(const vx_error *error);
 
