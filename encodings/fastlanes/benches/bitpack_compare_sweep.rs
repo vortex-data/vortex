@@ -126,15 +126,18 @@ macro_rules! bench_type {
 
             #[divan::bench(args = 1..$native_bits)]
             fn compare(bencher: Bencher, width: usize) {
-                let (array, rhs, mut ctx) = setup::<$T>(width);
-                bencher.counter(ItemsCount::new(LEN)).bench_local(|| {
-                    array
-                        .clone()
-                        .binary(rhs.clone(), OP)
-                        .unwrap()
-                        .execute::<BoolArray>(&mut ctx)
-                        .unwrap()
-                });
+                let (array, rhs, _) = setup::<$T>(width);
+                bencher
+                    .counter(ItemsCount::new(LEN))
+                    .with_inputs(|| (&array, &rhs, SESSION.create_execution_ctx()))
+                    .bench_local_refs(|(array, rhs, ctx)| {
+                        array
+                            .clone()
+                            .binary(rhs.clone(), OP)
+                            .unwrap()
+                            .execute::<BoolArray>(ctx)
+                            .unwrap()
+                    });
             }
         }
     };

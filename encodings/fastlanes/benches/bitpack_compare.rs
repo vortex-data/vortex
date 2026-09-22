@@ -92,56 +92,68 @@ fn build_inputs<const BW: u8>(len: usize) -> (ArrayRef, ArrayRef, ExecutionCtx) 
 
 #[divan::bench(args = LENS, consts = BIT_WIDTHS)]
 fn fast_eq_out_of_range<const BW: u8>(bencher: Bencher, len: usize) {
-    let (array, rhs, mut ctx) = build_inputs::<BW>(len);
-    bencher.counter(ItemsCount::new(len)).bench_local(|| {
-        array
-            .clone()
-            .binary(rhs.clone(), Operator::Eq)
-            .unwrap()
-            .execute::<BoolArray>(&mut ctx)
-            .unwrap()
-    });
+    let (array, rhs, _) = build_inputs::<BW>(len);
+    bencher
+        .counter(ItemsCount::new(len))
+        .with_inputs(|| (&array, &rhs, SESSION.create_execution_ctx()))
+        .bench_local_refs(|(array, rhs, ctx)| {
+            array
+                .clone()
+                .binary(rhs.clone(), Operator::Eq)
+                .unwrap()
+                .execute::<BoolArray>(ctx)
+                .unwrap()
+        });
 }
 
 #[divan::bench(args = LENS, consts = BIT_WIDTHS)]
 fn baseline_eq<const BW: u8>(bencher: Bencher, len: usize) {
-    let (array, rhs, mut ctx) = build_inputs::<BW>(len);
-    bencher.counter(ItemsCount::new(len)).bench_local(|| {
-        // What the fallback would do: materialize the unpacked primitive, then run Arrow
-        // compare on it.
-        let primitive = array.clone().execute::<PrimitiveArray>(&mut ctx).unwrap();
-        primitive
-            .into_array()
-            .binary(rhs.clone(), Operator::Eq)
-            .unwrap()
-            .execute::<BoolArray>(&mut ctx)
-            .unwrap()
-    });
+    let (array, rhs, _) = build_inputs::<BW>(len);
+    bencher
+        .counter(ItemsCount::new(len))
+        .with_inputs(|| (&array, &rhs, SESSION.create_execution_ctx()))
+        .bench_local_refs(|(array, rhs, ctx)| {
+            // What the fallback would do: materialize the unpacked primitive, then run Arrow
+            // compare on it.
+            let primitive = array.clone().execute::<PrimitiveArray>(ctx).unwrap();
+            primitive
+                .into_array()
+                .binary(rhs.clone(), Operator::Eq)
+                .unwrap()
+                .execute::<BoolArray>(ctx)
+                .unwrap()
+        });
 }
 
 #[divan::bench(args = LENS, consts = BIT_WIDTHS)]
 fn fast_lt_out_of_range<const BW: u8>(bencher: Bencher, len: usize) {
-    let (array, rhs, mut ctx) = build_inputs::<BW>(len);
-    bencher.counter(ItemsCount::new(len)).bench_local(|| {
-        array
-            .clone()
-            .binary(rhs.clone(), Operator::Lt)
-            .unwrap()
-            .execute::<BoolArray>(&mut ctx)
-            .unwrap()
-    });
+    let (array, rhs, _) = build_inputs::<BW>(len);
+    bencher
+        .counter(ItemsCount::new(len))
+        .with_inputs(|| (&array, &rhs, SESSION.create_execution_ctx()))
+        .bench_local_refs(|(array, rhs, ctx)| {
+            array
+                .clone()
+                .binary(rhs.clone(), Operator::Lt)
+                .unwrap()
+                .execute::<BoolArray>(ctx)
+                .unwrap()
+        });
 }
 
 #[divan::bench(args = LENS, consts = BIT_WIDTHS)]
 fn baseline_lt<const BW: u8>(bencher: Bencher, len: usize) {
-    let (array, rhs, mut ctx) = build_inputs::<BW>(len);
-    bencher.counter(ItemsCount::new(len)).bench_local(|| {
-        let primitive = array.clone().execute::<PrimitiveArray>(&mut ctx).unwrap();
-        primitive
-            .into_array()
-            .binary(rhs.clone(), Operator::Lt)
-            .unwrap()
-            .execute::<BoolArray>(&mut ctx)
-            .unwrap()
-    });
+    let (array, rhs, _) = build_inputs::<BW>(len);
+    bencher
+        .counter(ItemsCount::new(len))
+        .with_inputs(|| (&array, &rhs, SESSION.create_execution_ctx()))
+        .bench_local_refs(|(array, rhs, ctx)| {
+            let primitive = array.clone().execute::<PrimitiveArray>(ctx).unwrap();
+            primitive
+                .into_array()
+                .binary(rhs.clone(), Operator::Lt)
+                .unwrap()
+                .execute::<BoolArray>(ctx)
+                .unwrap()
+        });
 }

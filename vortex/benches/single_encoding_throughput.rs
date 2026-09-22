@@ -27,7 +27,6 @@ use vortex::encodings::alp::RDEncoder;
 use vortex::encodings::alp::RDEncoderExt;
 use vortex::encodings::alp::alp_encode;
 use vortex::encodings::fastlanes::Delta;
-use vortex::encodings::fastlanes::DeltaData;
 use vortex::encodings::fastlanes::FoR;
 use vortex::encodings::fastlanes::delta_compress;
 use vortex::encodings::fsst::fsst_compress;
@@ -129,8 +128,8 @@ fn bench_bitpacked_compress_u32(bencher: Bencher) {
     let bit_width = 8;
 
     with_byte_counter(bencher, NUM_VALUES * 4)
-        .with_inputs(|| uint_array.clone())
-        .bench_values(|a| unsafe { bitpack_encode_unchecked(a, bit_width).unwrap() });
+        .with_inputs(|| (uint_array.clone(), bit_width))
+        .bench_values(|(a, bit_width)| unsafe { bitpack_encode_unchecked(a, bit_width).unwrap() });
 }
 
 #[divan::bench(name = "bitpacked_decompress_u32")]
@@ -179,10 +178,7 @@ fn bench_delta_compress_u32(bencher: Bencher) {
 
     with_byte_counter(bencher, NUM_VALUES * 4)
         .with_inputs(|| (&uint_array, SESSION.create_execution_ctx()))
-        .bench_refs(|(a, ctx)| {
-            let (_bases, _deltas) = delta_compress(a, ctx).unwrap();
-            DeltaData::try_new(0).unwrap()
-        });
+        .bench_refs(|(a, ctx)| delta_compress(a, ctx).unwrap());
 }
 
 #[divan::bench(name = "delta_decompress_u32")]
@@ -429,8 +425,14 @@ fn bench_fsst_compress_string(bencher: Bencher) {
     let nbytes = varbinview_arr.nbytes();
 
     with_byte_counter(bencher, nbytes)
-        .with_inputs(|| (&varbinview_arr, SESSION.create_execution_ctx()))
-        .bench_refs(|(a, ctx)| fsst_compress(a, &fsst_compressor, ctx).unwrap());
+        .with_inputs(|| {
+            (
+                &varbinview_arr,
+                &fsst_compressor,
+                SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(a, compressor, ctx)| fsst_compress(a, compressor, ctx).unwrap());
 }
 
 #[divan::bench(name = "fsst_decompress_string")]

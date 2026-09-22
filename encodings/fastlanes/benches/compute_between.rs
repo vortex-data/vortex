@@ -114,14 +114,17 @@ mod primitive {
         let mut rng = StdRng::seed_from_u64(0);
         let arr = generate_primitive_array::<T>(&mut rng, len);
 
+        let lower = ConstantArray::new(min, arr.len()).into_array();
+        let upper = ConstantArray::new(max, arr.len()).into_array();
+
         bencher
-            .with_inputs(|| (&arr, SESSION.create_execution_ctx()))
-            .bench_refs(|(arr, ctx)| {
+            .with_inputs(|| (&arr, &lower, &upper, SESSION.create_execution_ctx()))
+            .bench_refs(|(arr, lower, upper, ctx)| {
                 arr.clone()
                     .into_array()
                     .between(
-                        ConstantArray::new(min, arr.len()).into_array(),
-                        ConstantArray::new(max, arr.len()).into_array(),
+                        lower.clone(),
+                        upper.clone(),
                         BetweenOptions {
                             lower_strict: NonStrict,
                             upper_strict: NonStrict,
@@ -167,13 +170,16 @@ mod bitpack {
         let mut rng = StdRng::seed_from_u64(0);
         let arr = generate_bit_pack_primitive_array::<T>(&mut rng, len);
 
+        let lower = ConstantArray::new(min, arr.len()).into_array();
+        let upper = ConstantArray::new(max, arr.len()).into_array();
+
         bencher
-            .with_inputs(|| (&arr, SESSION.create_execution_ctx()))
-            .bench_refs(|(arr, ctx)| {
+            .with_inputs(|| (&arr, &lower, &upper, SESSION.create_execution_ctx()))
+            .bench_refs(|(arr, lower, upper, ctx)| {
                 arr.clone()
                     .between(
-                        ConstantArray::new(min, arr.len()).into_array(),
-                        ConstantArray::new(max, arr.len()).into_array(),
+                        lower.clone(),
+                        upper.clone(),
                         BetweenOptions {
                             lower_strict: NonStrict,
                             upper_strict: NonStrict,
@@ -219,13 +225,16 @@ mod alp {
         let mut rng = StdRng::seed_from_u64(0);
         let arr = generate_alp_bit_pack_primitive_array::<T>(&mut rng, len);
 
+        let lower = ConstantArray::new(min, arr.len()).into_array();
+        let upper = ConstantArray::new(max, arr.len()).into_array();
+
         bencher
-            .with_inputs(|| (&arr, SESSION.create_execution_ctx()))
-            .bench_refs(|(arr, ctx)| {
+            .with_inputs(|| (&arr, &lower, &upper, SESSION.create_execution_ctx()))
+            .bench_refs(|(arr, lower, upper, ctx)| {
                 arr.clone()
                     .between(
-                        ConstantArray::new(min, arr.len()).into_array(),
-                        ConstantArray::new(max, arr.len()).into_array(),
+                        lower.clone(),
+                        upper.clone(),
                         BetweenOptions {
                             lower_strict: NonStrict,
                             upper_strict: NonStrict,
