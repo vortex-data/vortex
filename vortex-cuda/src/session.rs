@@ -40,10 +40,19 @@ pub enum VarBinExportLayout {
     VarBinView,
 }
 
-/// Dictionary policy for Arrow Device exports, including dictionaries nested in structs and lists.
+/// Controls whether Arrow Device exports keep dictionary encoding or fully decode it,
+/// including dictionaries nested inside structs and lists.
+///
+/// For example, indices `[0, 1, 0]` and dictionary values `["apple", "pear"]` export as:
+///
+/// - [`Preserve`](Self::Preserve): separate index and dictionary-value arrays, with an Arrow
+///   dictionary type.
+/// - [`Decode`](Self::Decode): the plain string array `["apple", "pear", "apple"]`, with no
+///   dictionary indices or dictionary child.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum DictionaryExport {
-    /// Keep separate indices and dictionary values; the Arrow schema includes the index type.
+    /// Keep separate index and dictionary-value arrays rather than expanding repeated values.
+    /// The Arrow schema retains the dictionary type, including its index type.
     #[default]
     Preserve,
     /// Expand dictionaries into plain values for a stable schema across batches.
