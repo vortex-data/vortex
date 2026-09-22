@@ -7,13 +7,13 @@ use std::any::Any;
 use std::ops::BitAnd;
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::Once;
 use std::sync::OnceLock;
 
 use async_trait::async_trait;
 use futures::FutureExt;
 use futures::StreamExt;
 use futures::future::BoxFuture;
-use parking_lot::Mutex;
 use vortex::array::ArrayRef;
 use vortex::array::ArrayVTable;
 use vortex::array::MaskFuture;
@@ -68,6 +68,8 @@ use vortex::scalar::Scalar;
 use vortex::scalar::ScalarTruncation;
 use vortex::scalar::lower_bound;
 use vortex::scalar::upper_bound;
+use vortex::session::SessionExt;
+use vortex::session::SessionVar;
 use vortex::session::VortexSession;
 use vortex::session::registry::CachedId;
 use vortex::session::registry::ReadContext;
@@ -542,6 +544,24 @@ fn extract_constant_buffers(chunk: &ArrayRef) -> Vec<InlinedBuffer> {
     result
 }
 
+#[derive(Clone, Debug, Default)]
+struct CudaLayoutRegistration(Arc<Once>);
+
+impl SessionVar for CudaLayoutRegistration {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+}
+
+const CUDA_EDITION_FAMILY: EditionFamily = EditionFamily {
+    name: "cuda",
+    origin: "vortex-cuda",
+    doc: "CUDA-readable layouts, enabled only when CUDA layout support is registered.",
+};
 const CUDA_EDITION: EditionId = EditionId::new("cuda", 2026, 9, 0);
 static CUDA_EDITION_DECLARATION: EditionDeclaration = EditionDeclaration {
     edition: Edition {
@@ -551,38 +571,45 @@ static CUDA_EDITION_DECLARATION: EditionDeclaration = EditionDeclaration {
     added: &[EditionMember::layout(&"vortex.cuda_flat")],
 };
 
-/// Register the [`CudaFlatLayoutEncoding`] and enable its draft `cuda` edition for writing.
+/// Register [`CudaFlat`] and its draft `cuda` edition once per session.
 ///
-/// Other edition selections and checks are unchanged. The draft has no cross-version
-/// compatibility guarantee; readers must register the CUDA layout.
+/// A newly registered edition is enabled for writing only if no `cuda` edition is selected.
+/// A pre-registered edition and subsequent calls leave writer policy unchanged. Other edition
+/// selections and checks are unchanged. The draft has no cross-version compatibility guarantee;
+/// readers must register the CUDA layout.
 ///
 /// Call this alongside [`crate::initialize_cuda`] when setting up a CUDA-enabled session.
 /// Registration itself does not require a GPU.
 pub fn register_cuda_layout(session: &VortexSession) {
-    session
-        .layouts()
-        .register(LayoutEncodingRef::new_ref(&CudaFlat));
-
-    // Concurrent CUDA FFI calls may register session clones; serialize the check and registration
-    // because edition declarations reject duplicates.
-    static REGISTRATION_LOCK: Mutex<()> = Mutex::new(());
-    let _guard = REGISTRATION_LOCK.lock();
-    if session.editions().find(&CUDA_EDITION).is_none() {
+    // Edition declarations publish the edition before its members. All callers must wait for
+    // initialization to finish rather than treating an unlocked edition lookup as completion.
+    session.get::<CudaLayoutRegistration>().0.call_once(|| {
         session
-            .editions()
-            .declare_family(&EditionFamily {
-                name: "cuda",
-                origin: "vortex-cuda",
-                doc: "CUDA-readable layouts, enabled only when CUDA layout support is registered.",
-            })
-            .vortex_expect("CUDA edition family is valid");
+            .layouts()
+            .register(LayoutEncodingRef::new_ref(&CudaFlat));
+        if session.editions().find(&CUDA_EDITION).is_some() {
+            return;
+        }
+        if session.editions().find_family("cuda").is_none() {
+            session
+                .editions()
+                .declare_family(&CUDA_EDITION_FAMILY)
+                .vortex_expect("CUDA edition family is valid");
+        }
         session
             .register_edition(&CUDA_EDITION_DECLARATION)
             .vortex_expect("CUDA edition declaration is valid");
-    }
-    session
-        .enable_edition(CUDA_EDITION)
-        .vortex_expect("CUDA edition is registered");
+        if !session
+            .enabled_editions()
+            .editions()
+            .iter()
+            .any(|edition| edition.family == CUDA_EDITION.family)
+        {
+            session
+                .enable_edition(CUDA_EDITION)
+                .vortex_expect("CUDA edition is registered");
+        }
+    });
 }
 
 #[cfg(test)]
@@ -632,7 +659,14 @@ mod tests {
         std::thread::scope(|scope| {
             for _ in 0..4 {
                 let session = session.clone();
-                scope.spawn(move || register_cuda_layout(&session));
+                scope.spawn(move || {
+                    register_cuda_layout(&session);
+                    assert!(
+                        session
+                            .enabled_component_ids(ComponentKind::Layout)
+                            .contains(&CudaFlat.id())
+                    );
+                });
             }
         });
         register_cuda_layout(&session);
@@ -649,6 +683,87 @@ mod tests {
                 .enabled_component_ids(ComponentKind::Layout)
                 .contains(&CudaFlat.id())
         );
+        Ok(())
+    }
+
+    #[rstest]
+    fn test_cuda_registration_preserves_selected_cuda_edition(
+        #[values(false, true)] register_first: bool,
+    ) -> VortexResult<()> {
+        const OTHER_CUDA_EDITION: EditionId = EditionId::new("cuda", 2026, 8, 0);
+        let session = VortexSession::default();
+        if register_first {
+            register_cuda_layout(&session);
+        } else {
+            session.editions().declare_family(&CUDA_EDITION_FAMILY)?;
+        }
+        session.register_edition(&EditionDeclaration {
+            edition: Edition {
+                id: OTHER_CUDA_EDITION,
+                min_library_version: None,
+            },
+            added: &[],
+        })?;
+        session.enable_edition(OTHER_CUDA_EDITION)?;
+        let mut expected_editions = session.enabled_editions().editions();
+        expected_editions.sort_unstable();
+        let expected_layouts = session.enabled_component_ids(ComponentKind::Layout);
+        assert!(!expected_layouts.contains(&CudaFlat.id()));
+
+        std::thread::scope(|scope| {
+            for _ in 0..4 {
+                let session = session.clone();
+                let expected_editions = &expected_editions;
+                let expected_layouts = &expected_layouts;
+                scope.spawn(move || {
+                    register_cuda_layout(&session);
+                    let mut enabled_editions = session.enabled_editions().editions();
+                    enabled_editions.sort_unstable();
+                    assert_eq!(&enabled_editions, expected_editions);
+                    assert_eq!(
+                        &session.enabled_component_ids(ComponentKind::Layout),
+                        expected_layouts
+                    );
+                });
+            }
+        });
+        register_cuda_layout(&session);
+        assert!(session.editions().find(&CUDA_EDITION).is_some());
+        assert!(
+            session
+                .enabled_editions()
+                .editions()
+                .contains(&OTHER_CUDA_EDITION)
+        );
+        session.editions().validate()?;
+        Ok(())
+    }
+
+    #[rstest]
+    fn test_cuda_registration_preserves_pre_registered_edition_policy(
+        #[values(false, true)] enabled: bool,
+    ) -> VortexResult<()> {
+        let session = VortexSession::default();
+        session.editions().declare_family(&CUDA_EDITION_FAMILY)?;
+        session.register_edition(&CUDA_EDITION_DECLARATION)?;
+        if enabled {
+            session.enable_edition(CUDA_EDITION)?;
+        }
+        let mut expected_editions = session.enabled_editions().editions();
+        expected_editions.sort_unstable();
+        let expected_layouts = session.enabled_component_ids(ComponentKind::Layout);
+
+        register_cuda_layout(&session);
+        register_cuda_layout(&session);
+
+        let mut enabled_editions = session.enabled_editions().editions();
+        enabled_editions.sort_unstable();
+        assert_eq!(enabled_editions, expected_editions);
+        assert_eq!(
+            session.enabled_component_ids(ComponentKind::Layout),
+            expected_layouts
+        );
+        session.editions().validate()?;
         Ok(())
     }
 
