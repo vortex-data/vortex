@@ -87,7 +87,7 @@ use arrow_c_abi::ArrowSchema;
 #[doc(hidden)]
 pub mod test_harness {
     pub use crate::arrow::canonical::count_arrow_validity_nulls;
-    pub use crate::arrow::canonical::repack_arrow_validity_buffer;
+    pub use crate::arrow::canonical::repack_arrow_bitmap;
 }
 
 /// CUDA device memory.

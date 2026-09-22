@@ -184,6 +184,26 @@ impl CudaDeviceBuffer {
     }
 }
 
+/// Include the slice's leading bytes up to an 8-byte boundary, without extending its tail.
+/// CUDA allocations are aligned, so the prefix remains within the backing allocation.
+pub(crate) fn cuda_aligned_bitmap_view(
+    handle: &BufferHandle,
+) -> VortexResult<(CudaView<'_, u8>, usize)> {
+    let device_buffer = handle
+        .as_device_opt()
+        .ok_or_else(|| vortex_err!("Buffer is not on device"))?;
+    let cuda_buf = device_buffer
+        .as_any()
+        .downcast_ref::<CudaDeviceBuffer>()
+        .ok_or_else(|| vortex_err!("expected CudaDeviceBuffer, was {device_buffer:?}"))?;
+    let prefix_bytes = cuda_buf.offset % size_of::<u64>();
+    let view = cuda_buf
+        .allocation
+        .as_bytes_view()
+        .slice(cuda_buf.offset - prefix_bytes..cuda_buf.offset + cuda_buf.len);
+    Ok((view, prefix_bytes))
+}
+
 #[cfg(test)]
 pub(crate) fn cuda_backing_allocation(handle: &BufferHandle) -> VortexResult<BufferHandle> {
     let device_buffer = handle

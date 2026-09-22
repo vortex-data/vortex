@@ -18,6 +18,7 @@ use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
 use vortex::array::arrays::Bool;
+use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::Dict;
 use vortex::array::arrays::DictArray;
@@ -81,12 +82,17 @@ use crate::arrow::cuda_decimal_value_type;
 use crate::arrow::list_view::export_device_list_view;
 use crate::cub::exclusive_sum_i32;
 use crate::device_buffer::CUDF_VALIDITY_BUFFER_PADDING;
+use crate::device_buffer::cuda_aligned_bitmap_view;
 use crate::executor::CudaArrayExt;
 use crate::executor::execute_validity_cuda;
 use crate::kernel::DecodedVarBin;
 use crate::kernel::decode_fsst_varbin;
 use crate::kernel::decode_onpair_varbin;
 use crate::stream::zero_padding;
+
+const BITMAP_THREADS_PER_BLOCK: u32 = 256;
+// Exercise grid-stride wrapping on small bitmaps in tests.
+const MAX_BITMAP_BLOCKS: u32 = if cfg!(test) { 2 } else { 4096 };
 
 /// An implementation of `ExportDeviceArray` that exports Vortex arrays to `ArrowDeviceArray` by
 /// first decoding the array on the GPU and then converting the canonical type to the nearest
@@ -319,34 +325,7 @@ fn export_canonical(
                 let buffer = ctx.ensure_on_device(buffer).await?;
                 export_fixed_size(buffer, len, 0, validity_buffer, null_count, ctx)
             }
-            Canonical::Bool(bool_array) => {
-                let len = bool_array.len();
-                let validity = bool_array.validity()?;
-                let BoolDataParts { bits, meta } = bool_array.into_data().into_parts(len);
-
-                let (validity_buffer, null_count) =
-                    export_arrow_validity_buffer(validity, len, meta.offset(), ctx).await?;
-
-                let bits = ctx.ensure_on_device(bits).await?;
-                // cuDF imports bit-packed BOOL values using 32-bit mask-word reads. A byte
-                // slice can leave the pointer misaligned, and a final word or padded mask read
-                // can extend past the logical buffer. Export word-aligned storage with zeroed
-                // tail padding so these reads stay within the allocation. Preserve the bit
-                // offset: Arrow uses one array offset for both values and validity.
-                let bits = if len == 0 {
-                    bits
-                } else {
-                    export_arrow_validity_bitmap(&bits, meta.offset(), len, meta.offset(), ctx)?
-                };
-                export_fixed_size(
-                    bits,
-                    meta.len(),
-                    meta.offset(),
-                    validity_buffer,
-                    null_count,
-                    ctx,
-                )
-            }
+            Canonical::Bool(bool_array) => export_bool(bool_array, ctx).await,
             Canonical::List(listview) => export_list_view(listview, ctx).await,
             Canonical::FixedSizeList(fixed_size_list) => {
                 export_fixed_size_list(fixed_size_list, ctx).await
@@ -360,6 +339,26 @@ fn export_canonical(
             c => vortex_bail!("unsupported Arrow Device export for {} array", c.dtype()),
         }
     })
+}
+
+async fn export_bool(
+    array: BoolArray,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<(ArrowArray, SyncEvent)> {
+    let len = array.len();
+    let validity = array.validity()?;
+    let BoolDataParts { bits, meta } = array.into_data().into_parts(len);
+    let (validity_buffer, null_count) =
+        export_arrow_validity_buffer(validity, len, meta.offset(), ctx).await?;
+
+    let bits = ctx.ensure_on_device(bits).await?;
+    // cuDF reads bool values as padded mask words. Values and validity share Arrow's offset.
+    let bits = if len == 0 {
+        bits
+    } else {
+        export_arrow_bitmap(&bits, meta.offset(), len, meta.offset(), ctx)?
+    };
+    export_fixed_size(bits, len, meta.offset(), validity_buffer, null_count, ctx)
 }
 
 /// Export a Vortex dictionary array as an Arrow Device dictionary array.
@@ -877,7 +876,7 @@ pub(super) async fn export_arrow_validity_buffer(
         // This only marks every row null via buffer 0, the validity bitmap.
         Validity::AllInvalid => Ok((
             Some(device_zeroed_byte_buffer(
-                validity_bitmap_byte_len(len, arrow_offset)?,
+                arrow_bitmap_byte_len(len, arrow_offset)?,
                 ctx,
             )?),
             i64::try_from(len)?,
@@ -891,8 +890,7 @@ pub(super) async fn export_arrow_validity_buffer(
             })?;
             let BoolDataParts { bits, meta } = array.into_data().into_parts(len);
             let bitmap = ctx.ensure_on_device(bits).await?;
-            let bitmap =
-                export_arrow_validity_bitmap(&bitmap, meta.offset(), len, arrow_offset, ctx)?;
+            let bitmap = export_arrow_bitmap(&bitmap, meta.offset(), len, arrow_offset, ctx)?;
             // Keep nullable exports self-describing for consumers that require exact null counts.
             let null_count = count_arrow_validity_nulls(&bitmap, len, arrow_offset, ctx)?;
             Ok((Some(bitmap), null_count))
@@ -900,15 +898,15 @@ pub(super) async fn export_arrow_validity_buffer(
     }
 }
 
-/// Return the byte length needed for `len` validity bits at the given bit offset.
-fn validity_bitmap_byte_len(len: usize, arrow_offset: usize) -> VortexResult<usize> {
+/// Byte length of a bitmap with `len` bits at the given offset.
+fn arrow_bitmap_byte_len(len: usize, arrow_offset: usize) -> VortexResult<usize> {
     Ok(len
         .checked_add(arrow_offset)
-        .ok_or_else(|| vortex_err!("Arrow validity bit length overflows usize"))?
+        .ok_or_else(|| vortex_err!("Arrow bitmap bit length overflows usize"))?
         .div_ceil(8))
 }
 
-/// Allocate a zeroed device buffer with cuDF-safe padding for Arrow validity masks.
+/// Allocate a zeroed bitmap with cuDF-safe padding.
 fn device_zeroed_byte_buffer(
     byte_len: usize,
     ctx: &mut CudaExecutionCtx,
@@ -929,7 +927,7 @@ fn device_zeroed_byte_buffer(
 }
 
 /// Export a bitmap with cuDF-safe storage, repacking it when the bit offsets differ.
-fn export_arrow_validity_bitmap(
+fn export_arrow_bitmap(
     bitmap: &BufferHandle,
     input_offset: usize,
     len: usize,
@@ -937,30 +935,25 @@ fn export_arrow_validity_bitmap(
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<BufferHandle> {
     if input_offset != arrow_offset {
-        return repack_arrow_validity_buffer(bitmap, input_offset, len, arrow_offset, ctx);
+        return repack_arrow_bitmap(bitmap, input_offset, len, arrow_offset, ctx);
     }
 
-    let output_bytes = validity_bitmap_byte_len(len, arrow_offset)?;
+    let output_bytes = arrow_bitmap_byte_len(len, arrow_offset)?;
     let allocation_bytes = output_bytes.next_multiple_of(CUDF_VALIDITY_BUFFER_PADDING);
-    // cuDF uses 4-byte-aligned uint32_t mask words, independent of host architecture.
-    // Our repacker checks 8-byte load alignment separately and falls back to byte reads.
+    // cuDF reads both validity and bool values as 4-byte-aligned mask words.
     if bitmap
         .cuda_device_ptr()?
         .is_multiple_of(size_of::<u32>() as u64)
         && bitmap.has_zeroed_tail_padding(output_bytes, allocation_bytes)?
     {
-        return Ok(if bitmap.len() == output_bytes {
-            bitmap.clone()
-        } else {
-            bitmap.slice(0..output_bytes)
-        });
+        return Ok(bitmap.slice(0..output_bytes));
     }
 
-    copy_arrow_validity_buffer(bitmap, output_bytes, ctx)
+    copy_arrow_bitmap(bitmap, output_bytes, ctx)
 }
 
-/// Copies a validity bitmap into a new cuDF-padded buffer without shifting bits.
-fn copy_arrow_validity_buffer(
+/// Copy a bitmap into cuDF-padded storage without shifting bits.
+fn copy_arrow_bitmap(
     input_buffer: &BufferHandle,
     output_bytes: usize,
     ctx: &mut CudaExecutionCtx,
@@ -1000,7 +993,7 @@ pub fn count_arrow_validity_nulls(
         return Ok(0);
     }
 
-    let expected_bytes = validity_bitmap_byte_len(len, arrow_offset)?;
+    let expected_bytes = arrow_bitmap_byte_len(len, arrow_offset)?;
     vortex_ensure!(
         bitmap.len() >= expected_bytes,
         "Arrow validity bitmap has {} bytes, expected at least {expected_bytes}",
@@ -1017,13 +1010,16 @@ pub fn count_arrow_validity_nulls(
     let arrow_offset = u64::try_from(arrow_offset)?;
 
     let kernel = ctx.load_function_with_suffixes("arrow_validity", &["count_valid"])?;
-    const COUNT_THREADS_PER_BLOCK: u32 = 256;
-    const MAX_COUNT_BLOCKS: u32 = 4096;
-    let num_blocks = u32::try_from(expected_bytes.div_ceil(COUNT_THREADS_PER_BLOCK as usize))?
-        .clamp(1, MAX_COUNT_BLOCKS);
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "capped at MAX_BITMAP_BLOCKS"
+    )]
+    let num_blocks = expected_bytes
+        .div_ceil(BITMAP_THREADS_PER_BLOCK as usize)
+        .clamp(1, MAX_BITMAP_BLOCKS as usize) as u32;
     let config = LaunchConfig {
         grid_dim: (num_blocks, 1, 1),
-        block_dim: (COUNT_THREADS_PER_BLOCK, 1, 1),
+        block_dim: (BITMAP_THREADS_PER_BLOCK, 1, 1),
         shared_mem_bytes: 0,
     };
     ctx.launch_kernel_config(&kernel, config, expected_bytes, |args| {
@@ -1044,20 +1040,16 @@ pub fn count_arrow_validity_nulls(
     Ok(i64::try_from(len - valid_count)?)
 }
 
-/// Repack a validity bitmap into Arrow layout without copying bitmap bits back to the CPU.
-///
-/// Vortex bitmaps may start at any bit offset. Arrow exposes only a byte-addressed validity buffer
-/// plus an array offset, so sliced compact exports need a GPU rewrite when either side has a
-/// bit-level offset. The output handle keeps Arrow's logical byte length, while the backing
-/// allocation is zero-padded to cuDF's mask allocation size for consumers that read full masks.
-pub fn repack_arrow_validity_buffer(
+/// Repack validity or bool values on the GPU to match Arrow's bit offset.
+/// The output retains its logical byte length with zeroed, cuDF-sized tail padding.
+pub fn repack_arrow_bitmap(
     input_buffer: &BufferHandle,
     input_offset: usize,
     len: usize,
     arrow_offset: usize,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<BufferHandle> {
-    let output_bytes = validity_bitmap_byte_len(len, arrow_offset)?;
+    let output_bytes = arrow_bitmap_byte_len(len, arrow_offset)?;
     vortex_ensure!(
         output_bytes > 0,
         "zero-length validity buffers should be omitted"
@@ -1070,7 +1062,7 @@ pub fn repack_arrow_validity_buffer(
         .next_multiple_of(CUDF_VALIDITY_BUFFER_PADDING)
         .div_ceil(size_of::<u64>());
 
-    let expected_input_bytes = validity_bitmap_byte_len(len, input_offset)?;
+    let expected_input_bytes = arrow_bitmap_byte_len(len, input_offset)?;
     vortex_ensure!(
         input_buffer.len() >= expected_input_bytes,
         "Arrow validity bitmap has {} bytes, expected at least {expected_input_bytes}",
@@ -1079,24 +1071,24 @@ pub fn repack_arrow_validity_buffer(
 
     let mut output = ctx.device_alloc::<u64>(allocation_words)?;
 
-    let input_view = input_buffer.cuda_view::<u8>()?;
+    let (input_view, prefix_bytes) = cuda_aligned_bitmap_view(input_buffer)?;
     let len = u64::try_from(len)?;
-    let input_offset = u64::try_from(input_offset)?;
+    let input_offset = u64::try_from(input_offset)? + (prefix_bytes * 8) as u64;
     let arrow_offset = u64::try_from(arrow_offset)?;
-    let input_bytes = u64::try_from(input_buffer.len())?;
+    let input_bytes = u64::try_from(input_view.len())?;
 
     let kernel = ctx.load_function_with_suffixes("arrow_validity", &["repack"])?;
-    const REPACK_THREADS_PER_BLOCK: u32 = 256;
-    const MAX_REPACK_BLOCKS: usize = 4096;
     // The kernel's grid-stride loop covers words beyond the capped grid.
-    let num_blocks = u32::try_from(
-        output_words
-            .div_ceil(REPACK_THREADS_PER_BLOCK as usize)
-            .min(MAX_REPACK_BLOCKS),
-    )?;
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "capped at MAX_BITMAP_BLOCKS"
+    )]
+    let num_blocks = output_words
+        .div_ceil(BITMAP_THREADS_PER_BLOCK as usize)
+        .min(MAX_BITMAP_BLOCKS as usize) as u32;
     let config = LaunchConfig {
         grid_dim: (num_blocks, 1, 1),
-        block_dim: (REPACK_THREADS_PER_BLOCK, 1, 1),
+        block_dim: (BITMAP_THREADS_PER_BLOCK, 1, 1),
         shared_mem_bytes: 0,
     };
     ctx.launch_kernel_config(&kernel, config, output_words, |args| {
@@ -1521,7 +1513,7 @@ mod tests {
     use crate::arrow::PrivateData;
     use crate::arrow::arrow_schema_for_array;
     use crate::arrow::canonical::export_arrow_validity_buffer;
-    use crate::arrow::canonical::repack_arrow_validity_buffer;
+    use crate::arrow::canonical::repack_arrow_bitmap;
     use crate::arrow::dictionary_tests::upload;
     use crate::arrow::tests::private_data_buffer_bytes;
     use crate::device_buffer::CUDF_VALIDITY_BUFFER_PADDING;
@@ -2370,8 +2362,7 @@ mod tests {
             let values = private.buffers[1]
                 .as_ref()
                 .ok_or_else(|| vortex_err!("expected exported bool values"))?;
-            // Exact-length reuse must not allocate another device-buffer wrapper.
-            assert!(Arc::ptr_eq(values.as_device(), input_values.as_device()));
+            assert_eq!(values.cuda_device_ptr()?, input_values.cuda_device_ptr()?);
         }
 
         unsafe { release_exported_array(&raw mut device_array.array) };
@@ -2433,9 +2424,7 @@ mod tests {
                 .as_ref()
                 .ok_or_else(|| vortex_err!("expected exported bool buffer {index}"))?;
             let bytes = assert_bitmap_padding(buffer, logical_bytes, false)?;
-            if index == 0 {
-                assert!(buffer.has_zeroed_tail_padding(logical_bytes, padded_bytes)?);
-            }
+            assert!(buffer.has_zeroed_tail_padding(logical_bytes, padded_bytes)?);
             assert_eq!(
                 BitBuffer::new(bytes, offset + len).slice(offset..offset + len),
                 expected.slice(range.clone())
@@ -3560,26 +3549,28 @@ mod tests {
         Ok(())
     }
 
-    #[rstest::rstest]
-    #[case::input_ahead_of_arrow(5, 3, 9)]
-    #[case::arrow_ahead_of_input(3, 70, 9)]
-    #[case::equal_offsets(7, 7, 9)]
-    #[case::byte_aligned_input(0, 9, 9)]
-    #[case::word_aligned_offsets(64, 128, 130)]
-    #[case::multi_word(13, 0, 301)]
-    #[case::single_tail_bit(7, 0, 1)]
-    #[case::exact_word(0, 0, 64)]
-    #[case::word_boundary(7, 3, 65)]
-    #[case::below_padding_block(7, 3, 501)]
-    #[case::full_padding_block(7, 3, 509)]
-    #[case::above_padding_block(7, 3, 517)]
-    #[case::multi_block(13, 5, 20_001)]
+    #[rstest]
+    #[case::input_ahead_of_arrow(5, 3, 9, 0)]
+    #[case::arrow_ahead_of_input(3, 70, 9, 1)]
+    #[case::equal_offsets(7, 7, 9, 7)]
+    #[case::byte_aligned_input(0, 9, 9, 1)]
+    #[case::word_aligned_offsets(64, 128, 130, 0)]
+    #[case::multi_word(13, 0, 301, 15)]
+    #[case::single_tail_bit(7, 0, 1, 1)]
+    #[case::exact_word(0, 0, 64, 0)]
+    #[case::word_boundary(7, 3, 65, 7)]
+    #[case::below_padding_block(7, 3, 501, 1)]
+    #[case::full_padding_block(7, 3, 509, 7)]
+    #[case::above_padding_block(7, 3, 517, 1)]
+    #[case::multi_block(13, 5, 20_001, 0)]
+    // The test cap of two blocks forces multiple grid-stride iterations.
+    #[case::capped_grid(13, 5, 100_001, 7)]
     #[crate::test]
-    async fn test_repack_arrow_validity_buffer_offsets(
+    async fn test_repack_arrow_bitmap_offsets(
         #[case] input_offset: usize,
         #[case] arrow_offset: usize,
         #[case] len: usize,
-        #[values(0, 1, 7)] byte_offset: usize,
+        #[case] byte_offset: usize,
     ) -> VortexResult<()> {
         let mut ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
 
@@ -3599,11 +3590,10 @@ mod tests {
             upload_unpadded(input_bytes, &ctx)?.slice(byte_offset..input_bytes.len());
         assert_eq!(
             input_buffer.cuda_device_ptr()? % 8,
-            u64::try_from(byte_offset)?
+            u64::try_from(byte_offset % 8)?
         );
         let output_bits = len + arrow_offset;
-        let output =
-            repack_arrow_validity_buffer(&input_buffer, input_offset, len, arrow_offset, &mut ctx)?;
+        let output = repack_arrow_bitmap(&input_buffer, input_offset, len, arrow_offset, &mut ctx)?;
         ctx.synchronize_stream()?;
 
         let expected =
@@ -3676,7 +3666,7 @@ mod tests {
     #[case::truncated(7, 2)]
     #[case::overflow(usize::MAX, 1)]
     #[crate::test]
-    async fn test_repack_arrow_validity_buffer_rejects_invalid_range(
+    async fn test_repack_arrow_bitmap_rejects_invalid_range(
         #[case] input_offset: usize,
         #[case] len: usize,
     ) -> VortexResult<()> {
@@ -3684,30 +3674,7 @@ mod tests {
         let input = ctx
             .ensure_on_device(BufferHandle::new_host(ByteBuffer::from(vec![0xff])))
             .await?;
-        assert!(repack_arrow_validity_buffer(&input, input_offset, len, 0, &mut ctx).is_err());
-        Ok(())
-    }
-
-    #[crate::test]
-    async fn test_repack_arrow_validity_buffer_zeroes_padding() -> VortexResult<()> {
-        let mut ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
-            .vortex_expect("failed to create execution context");
-
-        let len = 9;
-        let arrow_offset = 3;
-        let source = BitBuffer::from_iter(std::iter::repeat_n(true, len));
-        let (input_offset, _, input_buffer) = source.into_inner();
-        let input_buffer = ctx
-            .ensure_on_device(BufferHandle::new_host(input_buffer))
-            .await?;
-        let output_bytes = (len + arrow_offset).div_ceil(8);
-
-        let output =
-            repack_arrow_validity_buffer(&input_buffer, input_offset, len, arrow_offset, &mut ctx)?;
-        ctx.synchronize_stream()?;
-
-        assert_bitmap_padding(&output, output_bytes, true)?;
-
+        assert!(repack_arrow_bitmap(&input, input_offset, len, 0, &mut ctx).is_err());
         Ok(())
     }
 
@@ -3739,48 +3706,44 @@ mod tests {
         Ok(())
     }
 
+    #[rstest]
+    #[case::unsliced(0)]
+    #[case::sliced(8)]
     #[crate::test]
-    async fn test_export_validity_buffer_reuses_matching_padded_device_bitmap() -> VortexResult<()>
-    {
-        let mut ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
-            .vortex_expect("failed to create execution context");
-
-        let len = 3;
-        let source = BitBuffer::from_iter([true, false, true]);
-        let (input_offset, _, input_buffer) = source.into_inner();
-        let input_buffer = ctx
-            .ensure_on_device(BufferHandle::new_host(input_buffer))
-            .await?;
-        let input_ptr = input_buffer.cuda_device_ptr()?;
-        let validity = BoolArray::new_handle(
-            input_buffer.clone(),
-            input_offset,
-            len,
-            Validity::NonNullable,
-        )
-        .into_array();
-
+    async fn test_export_validity_buffer_reuses_matching_padded_device_bitmap(
+        #[case] byte_offset: usize,
+    ) -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
+        let len = 449;
+        let logical_bits = (0..len).map(|idx| idx % 3 != 0);
+        let source = BitBuffer::from_iter(
+            std::iter::repeat_n(true, byte_offset * 8).chain(logical_bits.clone()),
+        );
+        let input = ctx.stream().copy_to_device_sync(source.inner().as_ref())?;
+        let input_ptr = input.cuda_device_ptr()? + byte_offset as u64;
+        // Slicing to the end preserves the zeroed tail, measured from the allocation base.
+        let input = input.slice(byte_offset..input.len());
+        let validity =
+            BoolArray::try_new_from_handle(input, 0, len, Validity::NonNullable)?.into_array();
         let (buffer, null_count) =
-            export_arrow_validity_buffer(Validity::Array(validity), len, input_offset, &mut ctx)
-                .await?;
-        ctx.synchronize_stream()?;
+            export_arrow_validity_buffer(Validity::Array(validity), len, 0, &mut ctx).await?;
 
-        assert_eq!(null_count, 1);
+        assert_eq!(
+            null_count,
+            i64::try_from(logical_bits.clone().filter(|bit| !bit).count())?
+        );
         let buffer = buffer.vortex_expect("nullable validity should export a null buffer");
         assert_eq!(buffer.cuda_device_ptr()?, input_ptr);
-        let bytes = assert_bitmap_padding(&buffer, (len + input_offset).div_ceil(8), false)?;
+        let bytes = assert_bitmap_padding(&buffer, len.div_ceil(8), false)?;
         assert_eq!(
-            BitBuffer::new(bytes, len + input_offset),
-            BitBuffer::from_iter(
-                std::iter::repeat_n(false, input_offset).chain([true, false, true])
-            )
+            BitBuffer::new(bytes, len),
+            BitBuffer::from_iter(logical_bits)
         );
-
         Ok(())
     }
 
     #[crate::test]
-    async fn test_export_validity_buffer_repacks_matching_offset_without_tail_padding()
+    async fn test_export_validity_buffer_copies_matching_offset_without_tail_padding()
     -> VortexResult<()> {
         let mut ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
