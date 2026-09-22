@@ -152,7 +152,10 @@ fn decode_page<T: Number + NativePType>(
     let mut decoder = chunk
         .page_decompressor(buffer, n_values)
         .map_err(vortex_err_from_pco)?;
-    let mut values = BufferMut::<T>::zeroed_in(n_values, ctx.allocator().clone());
+    let mut values = BufferMut::<T>::with_capacity_in(n_values, ctx.allocator().clone());
+    // SAFETY: the buffer reserves `n_values` elements, and the page decompressor was built for
+    // exactly that count, so `read` writes every element before anything observes it.
+    unsafe { values.set_len(n_values) };
     decoder.read(&mut values).map_err(vortex_err_from_pco)?;
     Ok(PrimitiveArray::new(values.freeze(), Validity::NonNullable))
 }
