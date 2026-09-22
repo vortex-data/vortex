@@ -470,9 +470,11 @@ impl Patches {
     ///
     /// [`SearchResult::Found(patch_idx)`]: SearchResult::Found
     /// [`SearchResult::NotFound(insertion_point)`]: SearchResult::NotFound
+    #[allow(clippy::disallowed_methods)]
     pub fn search_index(&self, index: usize) -> VortexResult<SearchResult> {
         if self.chunk_offsets.is_some() {
-            return self.search_index_chunked(index);
+            let mut ctx = legacy_session().create_execution_ctx();
+            return self.search_index_chunked(index, &mut ctx);
         }
 
         search_index_binary_search(&self.indices, index + self.offset)
@@ -487,8 +489,11 @@ impl Patches {
     /// or the insertion point if not found.
     ///
     /// Returns an error if `chunk_offsets` or `offset_within_chunk` are not set.
-    #[allow(clippy::disallowed_methods)]
-    fn search_index_chunked(&self, index: usize) -> VortexResult<SearchResult> {
+    fn search_index_chunked(
+        &self,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<SearchResult> {
         let Some(chunk_offsets) = &self.chunk_offsets else {
             vortex_bail!("chunk_offsets is required to be set")
         };
@@ -503,13 +508,12 @@ impl Patches {
 
         let chunk_idx = (index + self.offset % PATCH_CHUNK_SIZE) / PATCH_CHUNK_SIZE;
 
-        // The three reads below are of the same array, so they share one probe and one context
-        // rather than building a pair per read as `Self::chunk_offset_at` does.
+        // The three reads below are of the same array, so they share one probe rather than
+        // building one per read as `Self::chunk_offset_at` does.
         let mut probe = chunk_offsets.repeated_probe();
-        let mut ctx = legacy_session().create_execution_ctx();
         let mut chunk_offset_at = |idx: usize| -> VortexResult<usize> {
             probe
-                .execute_scalar(idx, &mut ctx)?
+                .execute_scalar(idx, ctx)?
                 .as_primitive()
                 .as_::<usize>()
                 .ok_or_else(|| vortex_err!("chunk offset does not fit in usize"))
