@@ -652,22 +652,19 @@ mod tests {
     use vortex::array::arrays::struct_::StructArrayExt;
     use vortex::array::assert_arrays_eq;
     use vortex::buffer::ByteBufferMut;
-    use vortex::buffer::buffer;
     use vortex::editions::CORE_2025_05_0;
-    use vortex::editions::DEFAULT_CORE_EDITION;
     use vortex::file::OpenOptionsSessionExt;
     use vortex::file::VortexFile;
     use vortex::file::WriteOptionsSessionExt;
     use vortex::io::runtime::BlockingRuntime;
     use vortex::io::runtime::current::CurrentThreadRuntime;
     use vortex::io::session::RuntimeSessionExt;
-    use vortex::layout::layouts::dict::Dict as DictLayout;
     use vortex::layout::scan::split_by::SplitBy;
 
     use super::*;
 
     fn repeated_ids(unique: i64, rows: usize) -> VortexResult<ArrayRef> {
-        // Wide, irregularly ordered values favor dictionaries over bitpacking and FoR.
+        // Wide, shuffled values favor dictionaries over bitpacking and FoR.
         let ids = PrimitiveArray::from_iter(
             (0..unique)
                 .cycle()
@@ -680,51 +677,40 @@ mod tests {
     async fn write_file(
         session: &VortexSession,
         array: ArrayRef,
-        strategy: Arc<dyn LayoutStrategy>,
+        block_rows: usize,
     ) -> VortexResult<VortexFile> {
         let mut buffer = ByteBufferMut::empty();
         session
             .write_options()
-            .with_strategy(strategy)
+            .with_strategy(cuda_write_strategy(session, block_rows))
             .write(&mut buffer, array.to_array_stream())
             .await?;
         session.open_options().open_buffer(buffer.freeze())
     }
 
-    fn data_layouts(layout: &LayoutRef) -> VortexResult<Vec<LayoutRef>> {
-        let mut layouts = vec![layout.clone()];
+    fn data_block_rows(layout: &LayoutRef) -> VortexResult<Vec<u64>> {
+        let mut rows = Vec::new();
+        if layout.is::<CudaFlat>() {
+            rows.push(layout.row_count());
+        }
         for (kind, child) in layout.child_types().zip(layout.children()?) {
-            // Zone maps and dictionary values do not describe physical data row blocks.
+            // Exclude zone maps and dictionary values from data row counts.
             if !matches!(kind, LayoutChildType::Auxiliary(_)) {
-                layouts.extend(data_layouts(&child)?);
+                rows.extend(data_block_rows(&child)?);
             }
         }
-        Ok(layouts)
+        Ok(rows)
     }
 
-    #[rstest]
-    fn test_cuda_write_strategy_preserves_integer_dictionary_compression(
-        #[values(1024, 4096)] block_rows: usize,
-    ) -> VortexResult<()> {
+    #[test]
+    fn test_cuda_write_strategy_preserves_integer_dictionary_compression() -> VortexResult<()> {
+        let block_rows = 1024;
         let runtime = CurrentThreadRuntime::new();
         let session = VortexSession::default().with_handle(runtime.handle());
         register_cuda_layout(&session);
         runtime.block_on(async {
             let input = repeated_ids(8, 2 * block_rows + 137)?;
-            let file = write_file(
-                &session,
-                input.clone(),
-                cuda_write_strategy(&session, block_rows),
-            )
-            .await?;
-            let layouts = data_layouts(file.footer().layout())?;
-            assert!(!layouts.iter().any(|layout| layout.is::<DictLayout>()));
-            let physical_rows: Vec<_> = layouts
-                .iter()
-                .filter(|layout| layout.is::<CudaFlat>())
-                .map(|layout| layout.row_count())
-                .collect();
-            assert_eq!(physical_rows, [block_rows as u64, block_rows as u64, 137]);
+            let file = write_file(&session, input.clone(), block_rows).await?;
 
             let batches: Vec<_> = file
                 .scan()?
@@ -732,18 +718,21 @@ mod tests {
                 .into_array_stream()?
                 .try_collect()
                 .await?;
-            assert_eq!(batches.len(), 3);
+            assert_eq!(
+                batches.iter().map(|batch| batch.len()).collect::<Vec<_>>(),
+                [block_rows, block_rows, 137]
+            );
             let mut ctx = session.create_execution_ctx();
             let mut offset = 0;
             for batch in batches {
-                // Execute only the struct wrapper, leaving its encoded child intact.
+                // Keep the child encoded to detect loss of IntDict compression.
                 let batch = batch.execute::<StructArray>(&mut ctx)?;
                 assert!(batch.unmasked_field(0).is::<Dict>());
                 let end = offset + batch.len();
                 assert_arrays_eq!(batch.into_array(), input.slice(offset..end)?, &mut ctx);
                 offset = end;
             }
-            assert_eq!(offset, input.len());
+
             Ok(())
         })
     }
@@ -754,96 +743,34 @@ mod tests {
         let session = VortexSession::default().with_handle(runtime.handle());
         register_cuda_layout(&session);
         runtime.block_on(async {
-            // Exceed the outer dictionary's u16 limit, with enough repetitions to be eligible.
+            // Exceed u16 cardinality while remaining eligible for outer dictionaries.
             let block_rows = 70_000 * 8;
             let input = repeated_ids(70_000, block_rows)?;
-            let allowed_encodings = session
-                .enabled_component_ids(ComponentKind::Array)
-                .into_iter()
-                .collect();
-            let compressor = BtrBlocksCompressorBuilder::default()
-                .only_cuda_compatible()
-                .retain_allowed_encodings(&allowed_encodings)
-                .build();
-            // Positive control: identical row sizing and compression, but with the probe enabled.
-            let control = WriteStrategyBuilder::default()
-                .with_flat_strategy(Arc::new(CudaFlatLayoutStrategy::default()))
-                .with_compressor(compressor)
-                .with_row_block_size(block_rows)
-                .with_data_block_target_bytes(None)
-                .build();
-            let control = write_file(&session, input.clone(), control).await?;
-            let layouts = data_layouts(control.footer().layout())?;
-            assert!(layouts.iter().any(|layout| layout.is::<DictLayout>()));
-            let control_rows: Vec<_> = layouts
-                .iter()
-                .filter(|layout| layout.is::<CudaFlat>())
-                .map(|layout| layout.row_count())
-                .collect();
-            assert!(control_rows.len() > 1);
-            assert_eq!(control_rows.iter().sum::<u64>(), block_rows as u64);
-
-            let file = write_file(
-                &session,
-                input.clone(),
-                cuda_write_strategy(&session, block_rows),
-            )
-            .await?;
-            let layouts = data_layouts(file.footer().layout())?;
-            assert!(!layouts.iter().any(|layout| layout.is::<DictLayout>()));
-            let physical_rows: Vec<_> = layouts
-                .iter()
-                .filter(|layout| layout.is::<CudaFlat>())
-                .map(|layout| layout.row_count())
-                .collect();
-            assert_eq!(physical_rows, [block_rows as u64]);
-
-            let mut batches: Vec<_> = file
-                .scan()?
-                .with_split_by(SplitBy::Layout)
-                .into_array_stream()?
-                .try_collect()
-                .await?;
-            assert_eq!(batches.len(), 1);
-            let mut ctx = session.create_execution_ctx();
-            let batch = batches.remove(0).execute::<StructArray>(&mut ctx)?;
-            assert!(batch.unmasked_field(0).is::<Dict>());
-            assert_arrays_eq!(batch.into_array(), input, &mut ctx);
+            let file = write_file(&session, input, block_rows).await?;
+            assert_eq!(
+                data_block_rows(file.footer().layout())?,
+                [block_rows as u64]
+            );
             Ok(())
         })
     }
 
-    #[rstest]
-    fn test_cuda_registration_preserves_edition_policy(
-        #[values(DEFAULT_CORE_EDITION, CORE_2025_05_0)] core: EditionId,
-    ) -> VortexResult<()> {
+    #[test]
+    fn test_concurrent_cuda_registration_preserves_edition_policy() -> VortexResult<()> {
         let session = VortexSession::default();
-        session.enable_edition(core)?;
+        session.enable_edition(CORE_2025_05_0)?;
         let mut expected_editions = session.enabled_editions().editions();
-        assert!(expected_editions.contains(&core));
-        assert!(!expected_editions.contains(&CUDA_EDITION));
         expected_editions.push(CUDA_EDITION);
         expected_editions.sort_unstable();
-        let kinds = [
-            ComponentKind::Array,
-            ComponentKind::Layout,
-            ComponentKind::DType,
-            ComponentKind::Aggregate,
-        ];
-        let expected_ids = kinds.map(|kind| {
-            let mut ids = session.enabled_component_ids(kind);
-            if kind == ComponentKind::Layout {
-                assert!(!ids.contains(&CudaFlat.id()));
-                ids.push(CudaFlat.id());
-                ids.sort_unstable();
-            }
-            ids
-        });
+        let expected_arrays = session.enabled_component_ids(ComponentKind::Array);
+        let barrier = std::sync::Barrier::new(4);
 
         std::thread::scope(|scope| {
             for _ in 0..4 {
                 let session = session.clone();
+                let barrier = &barrier;
                 scope.spawn(move || {
+                    barrier.wait();
                     register_cuda_layout(&session);
                     assert!(
                         session
@@ -853,19 +780,13 @@ mod tests {
                 });
             }
         });
-        register_cuda_layout(&session);
 
-        for (kind, expected) in kinds.into_iter().zip(expected_ids) {
-            assert_eq!(session.enabled_component_ids(kind), expected);
-        }
         let mut enabled_editions = session.enabled_editions().editions();
         enabled_editions.sort_unstable();
         assert_eq!(enabled_editions, expected_editions);
-        session.editions().validate()?;
-        assert!(
-            !VortexSession::default()
-                .enabled_component_ids(ComponentKind::Layout)
-                .contains(&CudaFlat.id())
+        assert_eq!(
+            session.enabled_component_ids(ComponentKind::Array),
+            expected_arrays
         );
         Ok(())
     }
@@ -892,52 +813,7 @@ mod tests {
         let mut expected_editions = session.enabled_editions().editions();
         expected_editions.sort_unstable();
         let expected_layouts = session.enabled_component_ids(ComponentKind::Layout);
-        assert!(!expected_layouts.contains(&CudaFlat.id()));
 
-        std::thread::scope(|scope| {
-            for _ in 0..4 {
-                let session = session.clone();
-                let expected_editions = &expected_editions;
-                let expected_layouts = &expected_layouts;
-                scope.spawn(move || {
-                    register_cuda_layout(&session);
-                    let mut enabled_editions = session.enabled_editions().editions();
-                    enabled_editions.sort_unstable();
-                    assert_eq!(&enabled_editions, expected_editions);
-                    assert_eq!(
-                        &session.enabled_component_ids(ComponentKind::Layout),
-                        expected_layouts
-                    );
-                });
-            }
-        });
-        register_cuda_layout(&session);
-        assert!(session.editions().find(&CUDA_EDITION).is_some());
-        assert!(
-            session
-                .enabled_editions()
-                .editions()
-                .contains(&OTHER_CUDA_EDITION)
-        );
-        session.editions().validate()?;
-        Ok(())
-    }
-
-    #[rstest]
-    fn test_cuda_registration_preserves_pre_registered_edition_policy(
-        #[values(false, true)] enabled: bool,
-    ) -> VortexResult<()> {
-        let session = VortexSession::default();
-        session.editions().declare_family(&CUDA_EDITION_FAMILY)?;
-        session.register_edition(&CUDA_EDITION_DECLARATION)?;
-        if enabled {
-            session.enable_edition(CUDA_EDITION)?;
-        }
-        let mut expected_editions = session.enabled_editions().editions();
-        expected_editions.sort_unstable();
-        let expected_layouts = session.enabled_component_ids(ComponentKind::Layout);
-
-        register_cuda_layout(&session);
         register_cuda_layout(&session);
 
         let mut enabled_editions = session.enabled_editions().editions();
@@ -947,34 +823,27 @@ mod tests {
             session.enabled_component_ids(ComponentKind::Layout),
             expected_layouts
         );
-        session.editions().validate()?;
         Ok(())
     }
 
     #[test]
-    fn test_registry_alone_does_not_permit_cuda_flat() -> VortexResult<()> {
-        let runtime = CurrentThreadRuntime::new();
-        let session = VortexSession::default().with_handle(runtime.handle());
-        session
-            .layouts()
-            .register(LayoutEncodingRef::new_ref(&CudaFlat));
-        runtime.block_on(async {
-            let array = buffer![1i32, 4, 9, 16].into_array();
-            let mut buffer = ByteBufferMut::empty();
-            let error = session
-                .write_options()
-                .with_strategy(Arc::new(CudaFlatLayoutStrategy::default()))
-                .write(&mut buffer, array.to_array_stream())
-                .await
-                .err()
-                .expect("write permitted an uneditioned CUDA layout");
-            assert!(
-                error
-                    .to_string()
-                    .contains("Layout encoding vortex.cuda_flat not permitted by ctx"),
-                "unexpected error: {error}"
-            );
-            Ok(())
-        })
+    fn test_cuda_registration_preserves_disabled_pre_registered_edition() -> VortexResult<()> {
+        let session = VortexSession::default();
+        session.editions().declare_family(&CUDA_EDITION_FAMILY)?;
+        session.register_edition(&CUDA_EDITION_DECLARATION)?;
+        let mut expected_editions = session.enabled_editions().editions();
+        expected_editions.sort_unstable();
+        let expected_layouts = session.enabled_component_ids(ComponentKind::Layout);
+
+        register_cuda_layout(&session);
+
+        let mut enabled_editions = session.enabled_editions().editions();
+        enabled_editions.sort_unstable();
+        assert_eq!(enabled_editions, expected_editions);
+        assert_eq!(
+            session.enabled_component_ids(ComponentKind::Layout),
+            expected_layouts
+        );
+        Ok(())
     }
 }

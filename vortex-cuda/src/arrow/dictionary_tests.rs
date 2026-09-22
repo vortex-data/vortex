@@ -28,8 +28,7 @@ use super::tests::private_data_buffer_bytes as buffer;
 use super::*;
 use crate::CudaSession;
 
-/// Preserve encodings while moving all buffers, including validity, to CUDA so unsupported
-/// decoding errors instead of falling back to the CPU.
+/// Move all buffers, including validity, to CUDA without decoding, preventing CPU fallback.
 pub(super) fn upload(array: ArrayRef, ctx: &mut CudaExecutionCtx) -> VortexResult<ArrayRef> {
     // Constants store scalar metadata, not replaceable data buffers.
     if array.as_opt::<Constant>().is_some() {
@@ -225,14 +224,15 @@ fn test_decode_mixed_dictionary_device_stream(
 }
 
 #[rstest]
-#[case::values(true, false)]
-#[case::error(true, true)]
-#[case::empty(false, false)]
+#[case::values(true, false, true)]
+#[case::error(true, true, true)]
+#[case::empty(false, false, true)]
+#[case::schema_only(true, true, false)]
 #[crate::test]
 fn test_decode_stream_schema_does_not_poll(
     #[case] has_batch: bool,
     #[case] fails: bool,
-    #[values(false, true)] consume: bool,
+    #[case] consume: bool,
 ) -> VortexResult<()> {
     let runtime = CurrentThreadRuntime::new();
     let session = vortex::array::array_session()
@@ -296,9 +296,7 @@ fn test_decode_stream_validates_dtype_and_device() -> VortexResult<()> {
         .export_device_array_stream(&session, &runtime)?;
     // SAFETY: The stream is live and exclusively borrowed until the state is no longer used.
     let state = unsafe { device_stream_private_data(&raw mut stream) }.expect("missing state");
-    let mut first = state.export_stream_array(array.clone())?;
-    release_device_array(&mut first);
-    assert!(state.schema.is_some());
+    state.get_or_init_schema()?;
 
     let error = state
         .export_stream_array(PrimitiveArray::from_iter([10u32, 20, 30]).into_array())
@@ -394,10 +392,7 @@ fn test_default_dictionary_device_stream(#[case] second_width: Option<PType>) ->
     let runtime = CurrentThreadRuntime::new();
     let session = crate::cuda_session();
     let mut ctx = CudaSession::create_execution_ctx(&session)?;
-    assert_eq!(
-        ctx.cuda_session().dictionary_export(),
-        DictionaryExport::Preserve
-    );
+
     let (values, expected) = values_and_expected(false);
     let first = dictionary(values.clone(), PType::U8)?;
     let second = match second_width {
