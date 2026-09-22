@@ -1,0 +1,36 @@
+{
+  "date": "2026-09-22",
+  "cpu": "Apple M4 Max",
+  "memory_bytes": 137438953472,
+  "os": "Darwin Mac.localdomain 27.0.0 Darwin Kernel Version 27.0.0: Tue Aug 11 21:05:48 PDT 2026; root:xnu-13432.1.9~1/RELEASE_ARM64_T6041 arm64",
+  "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)\nbinary: rustc\ncommit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea\ncommit-date: 2026-08-18\nhost: aarch64-apple-darwin\nrelease: 1.98.0\nLLVM version: 22.1.8",
+  "cargo": "cargo 1.98.0 (797e8a9bc 2026-08-05)",
+  "target": "aarch64-apple-darwin",
+  "profile": "release",
+  "opt_level": 3,
+  "codegen_units": 16,
+  "lto": false,
+  "rustflags": [
+    "-C",
+    "force-frame-pointers=yes"
+  ],
+  "target_cpu_override": null,
+  "rustc_wrapper": "kache",
+  "allocator": "mimalloc 0.1.52",
+  "libmimalloc_sys": "0.1.49",
+  "affinity": null,
+  "frequency_lock": false,
+  "thermal_control": false,
+  "kache": "0.14.2",
+  "environment_flag_overrides": {},
+  "base_commit": "133aacdb7ef30f781552ec1f1d6ada9193bc9b4e",
+  "candidate_commit": "5da85984788541f4f344473291d40a58f52eac2d",
+  "branch": "ct/row-fn-utf8-decode",
+  "source_sha256": {
+    "src/main.rs": "96a1a46fdab60c7bcc2d46e383246f96f4d5c0820403440c9b2256dbae07fdbc",
+    "Cargo.toml": "bfcc67b7dc5d92e70f76c8b65cd776705ee1895c710ddac65754d30dff80343a",
+    "Cargo.lock": "dc8f3848422932c9910d748bd44688fa8e59ab67e96dddd103893ce1d7287aff"
+  },
+  "comparison": "Independent PR against develop. Identical benchmark source and lockfile in both builds.",
+  "pairs": 6
+}
