@@ -61,6 +61,16 @@ impl VortexCudaStream {
         }
     }
 
+    /// Allocates bitmap bytes with cuDF-sized padding, zeroing only the tail.
+    ///
+    /// The producer must initialize `byte_count` bytes on this stream and leave the padding untouched.
+    pub(crate) fn device_alloc_bitmap(&self, byte_count: usize) -> VortexResult<CudaSlice<u8>> {
+        let allocation_len = padded_device_allocation_len::<u8>(byte_count)?;
+        let mut buffer = self.device_alloc::<u8>(allocation_len)?;
+        zero_padding(self, &mut buffer, byte_count)?;
+        Ok(buffer)
+    }
+
     /// Copies host data to the device.
     ///
     /// Allocates device memory, schedules an async copy, and returns a future
