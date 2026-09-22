@@ -1,0 +1,16 @@
+   Compiling vortex-array v0.1.0 (/private/tmp/vortex-row-fn-utf8-bench/vortex-array)
+    Finished `bench` profile [optimized + debuginfo] target(s) in 2.25s
+     Running benches/row_fn_utf8.rs (/tmp/row-fn-utf8-ci-bench-target/release/deps/row_fn_utf8-1fc10c8ec539db54)
+Timer precision: 41 ns
+row_fn_utf8                          fastest       │ slowest       │ median        │ mean          │ samples │ iters
+╰─ neon::decode_neon                               │               │               │               │         │
+   ╰─ 8192                                         │               │               │               │         │
+      ├─ (External, AllValid)        79.62 µs      │ 182.2 µs      │ 82.6 µs       │ 84.63 µs      │ 100     │ 100
+      │                              102.8 Mitem/s │ 44.94 Mitem/s │ 99.17 Mitem/s │ 96.79 Mitem/s │         │
+      ├─ (External, OneNullInEight)  72.91 µs      │ 143.8 µs      │ 76.02 µs      │ 77.47 µs      │ 100     │ 100
+      │                              112.3 Mitem/s │ 56.95 Mitem/s │ 107.7 Mitem/s │ 105.7 Mitem/s │         │
+      ├─ (Inline, AllValid)          30.04 µs      │ 36.91 µs      │ 30.49 µs      │ 31.86 µs      │ 100     │ 100
+      │                              272.6 Mitem/s │ 221.9 Mitem/s │ 268.5 Mitem/s │ 257 Mitem/s   │         │
+      ╰─ (Inline, OneNullInEight)    31.04 µs      │ 43.16 µs      │ 33.41 µs      │ 33.77 µs      │ 100     │ 100
+                                     263.9 Mitem/s │ 189.7 Mitem/s │ 245.1 Mitem/s │ 242.5 Mitem/s │         │
+

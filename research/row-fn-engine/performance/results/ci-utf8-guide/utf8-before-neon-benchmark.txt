@@ -1,0 +1,15 @@
+2026-09-22T19:14:17.4370611Z Running vortex-array row_fn_utf8
+2026-09-22T19:14:17.4406760Z Timer precision: 29 ns
+2026-09-22T19:14:17.4407234Z row_fn_utf8                          fastest       │ slowest       │ median        │ mean          │ samples │ iters
+2026-09-22T19:14:17.4410946Z ╰─ neon::decode_neon                               │               │               │               │         │
+2026-09-22T19:14:17.4411887Z    ╰─ 8192                                         │               │               │               │         │
+2026-09-22T19:14:17.6313561Z       ├─ (External, AllValid)        112 µs        │ 136.3 µs      │ 113.4 µs      │ 114.1 µs      │ 1000    │ 1000
+2026-09-22T19:14:17.6314208Z       │                              73.13 Mitem/s │ 60.09 Mitem/s │ 72.22 Mitem/s │ 71.75 Mitem/s │         │
+2026-09-22T19:14:17.8215519Z       ├─ (External, OneNullInEight)  115.8 µs      │ 143.3 µs      │ 116.9 µs      │ 117.9 µs      │ 1000    │ 1000
+2026-09-22T19:14:17.8216184Z       │                              70.7 Mitem/s  │ 57.13 Mitem/s │ 70.03 Mitem/s │ 69.46 Mitem/s │         │
+2026-09-22T19:14:17.9465751Z       ├─ (Inline, AllValid)          54.02 µs      │ 60.39 µs      │ 54.1 µs       │ 54.71 µs      │ 1000    │ 1000
+2026-09-22T19:14:17.9466548Z       │                              151.6 Mitem/s │ 135.6 Mitem/s │ 151.4 Mitem/s │ 149.7 Mitem/s │         │
+2026-09-22T19:14:18.0796075Z       ╰─ (Inline, OneNullInEight)    61.26 µs      │ 72.19 µs      │ 61.76 µs      │ 62.55 µs      │ 1000    │ 1000
+2026-09-22T19:14:18.0796914Z                                      133.7 Mitem/s │ 113.4 Mitem/s │ 132.6 Mitem/s │ 130.9 Mitem/s │         │
+2026-09-22T19:14:18.0797610Z 
+2026-09-22T19:14:18.0801802Z Done running row_fn_utf8

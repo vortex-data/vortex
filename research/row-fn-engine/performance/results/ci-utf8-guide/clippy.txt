@@ -1,0 +1,2 @@
+    Checking vortex-array v0.1.0 (/private/tmp/vortex-row-fn-utf8-bench/vortex-array)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.15s

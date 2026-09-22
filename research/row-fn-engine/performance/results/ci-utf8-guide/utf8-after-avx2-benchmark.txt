@@ -1,0 +1,15 @@
+2026-09-22T19:15:53.9920988Z Running vortex-array row_fn_utf8
+2026-09-22T19:15:53.9962395Z Timer precision: 22 ns
+2026-09-22T19:15:53.9962972Z row_fn_utf8                          fastest       │ slowest       │ median        │ mean          │ samples │ iters
+2026-09-22T19:15:53.9963766Z ╰─ avx2::decode_avx2                               │               │               │               │         │
+2026-09-22T19:15:53.9964308Z    ╰─ 8192                                         │               │               │               │         │
+2026-09-22T19:15:54.2582608Z       ├─ (External, AllValid)        154.8 µs      │ 200.5 µs      │ 182.8 µs      │ 182.4 µs      │ 1000    │ 1000
+2026-09-22T19:15:54.2583534Z       │                              52.88 Mitem/s │ 40.84 Mitem/s │ 44.81 Mitem/s │ 44.91 Mitem/s │         │
+2026-09-22T19:15:54.4937649Z       ├─ (External, OneNullInEight)  150.3 µs      │ 172.4 µs      │ 160.3 µs      │ 161 µs        │ 1000    │ 1000
+2026-09-22T19:15:54.4938516Z       │                              54.48 Mitem/s │ 47.51 Mitem/s │ 51.08 Mitem/s │ 50.85 Mitem/s │         │
+2026-09-22T19:15:54.6837130Z       ├─ (Inline, AllValid)          112.4 µs      │ 129 µs        │ 112.8 µs      │ 114 µs        │ 1000    │ 1000
+2026-09-22T19:15:54.6837906Z       │                              72.82 Mitem/s │ 63.47 Mitem/s │ 72.61 Mitem/s │ 71.85 Mitem/s │         │
+2026-09-22T19:15:54.8564390Z       ╰─ (Inline, OneNullInEight)    89.32 µs      │ 110.5 µs      │ 95.24 µs      │ 96.31 µs      │ 1000    │ 1000
+2026-09-22T19:15:54.8565191Z                                      91.71 Mitem/s │ 74.08 Mitem/s │ 86.01 Mitem/s │ 85.05 Mitem/s │         │
+2026-09-22T19:15:54.8565569Z 
+2026-09-22T19:15:54.8570136Z Done running row_fn_utf8

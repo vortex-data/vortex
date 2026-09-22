@@ -1,5 +1,9 @@
 # Native CI comparison for the RowFn performance stacks
 
+The UTF-8 measurements below are historical. The [revised UTF-8 comparison](ci-utf8-guide.md)
+uses cases above the wall-time floor and excludes output destruction, as the benchmark guide
+requires. Do not use the old tiny-case results as CI proof for the revised PR.
+
 The benchmark-only parents establish a baseline with the same benchmark source as each fix.
 All four CodSpeed workflows completed successfully on September 22, 2026, including all twelve
 native timing jobs. Successful execution does not mean the performance changes are acceptable.

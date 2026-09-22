@@ -7,6 +7,8 @@ benchmark-only PR so CI can compare the same cases before and after the change.
 
 The [native CI comparison](ci-comparison.md) records the stacked PR results, including the
 x86 Boolean multiversioned regressions that block merging that fix.
+The [revised UTF-8 comparison](ci-utf8-guide.md) applies the repository's timing floor and ceiling
+and excludes output destruction. It supersedes the original UTF-8 benchmark protocol.
 
 | PR | Evidence | Original measured snapshot |
 | --- | --- | --- |
