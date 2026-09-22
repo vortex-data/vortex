@@ -1,7 +1,7 @@
 # Independent PR measurements
 
 The comparison isolates this PR against `133aacdb7e` on Apple M4 Max, `aarch64-apple-darwin`.
-The candidate source is `b17c6da787`. Subsequent commits only add evidence.
+The candidate source is `b17c6da787`. Subsequent commits add evidence and test lint cleanup.
 Both variants use rustc 1.98.0, LLVM 22.1.8, and the [documented protocol](../README.md).
 [Environment](environment.json), binary hashes, raw samples, and [quartiles](summary.csv) are retained.
 
@@ -55,7 +55,9 @@ partial validity. Existing tests cover all-constant execution and observable fai
 A direct executor test confirms that decoding errors remain terminal. Allocation failure was
 not injected. Rich row errors retain the existing construction and retry semantics.
 
-`cargo clippy -p vortex-array --lib --features unstable_row_fns -- -D warnings` passes.
+`cargo clippy -p vortex-array --all-targets --all-features -- -D warnings` passes.
+The earlier library-only check also passes.
 Formatting uses `nightly-2026-09-10`. Test, lint, and build logs are retained here.
-No workspace-wide tests, doctests, all-feature linting, x86 runtime measurements, or end-to-end
-queries ran for this split. The measurements do not establish cold-buffer behavior.
+No workspace-wide tests, doctests, x86 runtime measurements, or end-to-end queries ran for this
+split. The pre-push workspace lint attempt also found an existing macOS `single_element_loop`
+lint in `vortex-cuda/ffi/src/lib.rs:1092`, which is unchanged from the PR base. The measurements do not establish cold-buffer behavior.

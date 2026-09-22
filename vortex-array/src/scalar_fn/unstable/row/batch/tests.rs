@@ -911,7 +911,7 @@ fn test_deferred_bool_sliced_validity_and_constants(
     let valid = |index: usize| match validity_pattern {
         BooleanValidity::AllValid => true,
         BooleanValidity::AllNull => false,
-        BooleanValidity::Partial => index % 3 != 0,
+        BooleanValidity::Partial => !index.is_multiple_of(3),
     };
     let validity = Validity::Array(BoolArray::from_iter((0..len + 2).map(valid)).into_array());
     let varying = PrimitiveArray::new(

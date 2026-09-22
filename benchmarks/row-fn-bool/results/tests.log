@@ -1,474 +1,182 @@
-    Blocking waiting for file lock on package cache
-    Blocking waiting for file lock on package cache
-    Blocking waiting for file lock on package cache
-    Blocking waiting for file lock on package cache
-    Blocking waiting for file lock on package cache
-   Compiling proc-macro2 v1.0.107
-   Compiling unicode-ident v1.0.24
-   Compiling quote v1.0.47
-   Compiling libc v0.2.189
-   Compiling cfg-if v1.0.4
-   Compiling bitflags v2.13.2
-   Compiling bytes v1.12.1
-   Compiling memchr v2.8.3
-   Compiling once_cell v1.21.4
-   Compiling pin-project-lite v0.2.17
-   Compiling shlex v2.0.1
-   Compiling find-msvc-tools v0.1.12
-   Compiling equivalent v1.0.2
-   Compiling autocfg v1.5.1
-   Compiling fnv v1.0.7
-   Compiling futures-core v0.3.34
-   Compiling futures-sink v0.3.34
-   Compiling core-foundation-sys v0.8.7
-   Compiling semver v1.0.28
-   Compiling regex-syntax v0.8.11
-   Compiling smallvec v1.16.1
-   Compiling libm v0.2.16
-   Compiling slab v0.4.12
-   Compiling itoa v1.0.18
-   Compiling anyhow v1.0.104
-   Compiling num-traits v0.2.19
-   Compiling either v1.18.0
-   Compiling rustc_version v0.4.1
-   Compiling hashbrown v0.17.1
-   Compiling aho-corasick v1.1.5
-   Compiling stable_deref_trait v1.2.1
-   Compiling pkg-config v0.3.34
-   Compiling zerocopy v0.8.57
-   Compiling dunce v1.0.5
-   Compiling futures-task v0.3.34
-   Compiling futures-io v0.3.34
-   Compiling fs_extra v1.3.0
-   Compiling futures-channel v0.3.34
-   Compiling allocator-api2 v0.2.21
-   Compiling getrandom v0.3.4
-   Compiling http v1.5.0
-   Compiling indexmap v2.14.2
-   Compiling itertools v0.10.5
-   Compiling aws-lc-rs v1.18.1
-   Compiling tracing-core v0.1.36
-   Compiling zeroize v1.9.0
-   Compiling rustversion v1.0.23
-   Compiling system-configuration-sys v0.6.0
-   Compiling log v0.4.34
-   Compiling tracing v0.1.44
-   Compiling regex-automata v0.4.18
-   Compiling writeable v0.6.4
-   Compiling litemap v0.8.3
-   Compiling http-body v1.1.0
-   Compiling rustls-pki-types v1.15.1
-   Compiling rustls v0.23.45
-   Compiling untrusted v0.9.0
-   Compiling tower-service v0.3.3
-   Compiling icu_properties_data v2.3.0
-   Compiling atomic-waker v1.1.2
-   Compiling httparse v1.10.1
-   Compiling percent-encoding v2.3.2
-   Compiling utf8_iter v1.0.4
-   Compiling icu_normalizer_data v2.3.0
-   Compiling subtle v2.6.1
-   Compiling rustix v1.1.4
-   Compiling try-lock v0.2.5
-   Compiling foldhash v0.2.0
-   Compiling logos-codegen v0.15.1
-   Compiling scopeguard v1.2.0
-   Compiling want v0.3.1
-   Compiling beef v0.5.2
-   Compiling jobserver v0.1.35
-   Compiling socket2 v0.6.5
-   Compiling mio v1.2.3
-   Compiling syn v2.0.119
-   Compiling syn v3.0.5
-   Compiling errno v0.3.14
-   Compiling tokio v1.53.1
-   Compiling lazy_static v1.5.0
-   Compiling cc v1.4.6
-   Compiling fastrand v2.5.0
-   Compiling flatbuffers v25.12.19
-   Compiling sync_wrapper v1.0.2
-   Compiling base64 v0.22.1
-   Compiling version_check v0.9.5
-   Compiling cmake v0.1.58
-   Compiling serde_core v1.0.229
-   Compiling tower-layer v0.3.3
-   Compiling winnow v1.0.4
-   Compiling unicode-width v0.1.14
-   Compiling zerovec-derive v0.11.6
-   Compiling synstructure v0.13.2
-   Compiling displaydoc v0.2.7
-   Compiling futures-macro v0.3.34
-   Compiling regex v1.13.1
-   Compiling zerocopy-derive v0.8.57
-   Compiling prost-derive v0.14.4
-   Compiling miette-derive v7.6.0
-   Compiling logos-codegen v0.16.1
-   Compiling ppv-lite86 v0.2.21
-   Compiling aws-lc-sys v0.45.0
-   Compiling zerofrom-derive v0.1.7
-   Compiling yoke-derive v0.8.2
-   Compiling thiserror v2.0.20
-   Compiling ipnet v2.12.2
-   Compiling getrandom v0.4.3
-   Compiling rand_core v0.10.1
-   Compiling logos-derive v0.15.1
-   Compiling logos-derive v0.16.1
-   Compiling miette v7.6.0
-   Compiling futures-util v0.3.34
-   Compiling tokio-util v0.7.19
-   Compiling toml_parser v1.1.3+spec-1.1.0
-   Compiling zerofrom v0.1.8
-   Compiling prost v0.14.4
-   Compiling ahash v0.8.12
-   Compiling thiserror-impl v2.0.20
-   Compiling encoding_rs v0.8.41
-   Compiling form_urlencoded v1.2.2
-   Compiling toml_datetime v1.1.1+spec-1.1.0
-   Compiling yoke v0.8.3
-   Compiling jiff-core v0.1.1
-   Compiling radium v0.7.0
-   Compiling prost-types v0.14.4
-   Compiling foldhash v0.1.5
-   Compiling prettyplease v0.2.37
-   Compiling simdutf8 v0.1.5
-   Compiling rust_decimal v1.43.0
-   Compiling parking_lot_core v0.9.12
-   Compiling hashbrown v0.15.5
-   Compiling jiff v0.2.37
-   Compiling toml_edit v0.25.15+spec-1.1.0
-   Compiling logos v0.16.1
-   Compiling h2 v0.4.19
-   Compiling zerovec v0.11.8
-   Compiling zerotrie v0.2.5
-   Compiling logos v0.15.1
-   Compiling num-integer v0.1.47
-   Compiling core-foundation v0.9.4
-   Compiling itertools v0.14.0
-   Compiling objc2-core-foundation v0.3.2
-   Compiling arrayvec v0.7.8
-   Compiling glob v0.3.4
-   Compiling zmij v1.0.23
-   Compiling tinystr v0.8.4
-   Compiling potential_utf v0.1.6
-   Compiling multiversion_no_op v1.0.0
-   Compiling cfg_aliases v0.2.2
-   Compiling arrow-schema v59.3.0
-   Compiling serde v1.0.229
-   Compiling crossbeam-utils v0.8.23
-   Compiling fixedbitset v0.5.7
-   Compiling tap v1.0.1
-   Compiling icu_collections v2.3.0
-   Compiling thiserror v1.0.69
-   Compiling half v2.7.1
-   Compiling protox-parse v0.9.0
-   Compiling icu_locale_core v2.3.0
-   Compiling nix v0.31.3
-   Compiling num-bigint v0.5.1
-   Compiling wyz v0.5.1
-   Compiling petgraph v0.8.3
-   Compiling system-configuration v0.7.0
-   Compiling hyper v1.11.1
-   Compiling rand_core v0.9.5
-   Compiling tempfile v3.27.0
-   Compiling prost-reflect v0.16.5
-   Compiling proc-macro-crate v3.5.0
-   Compiling vortex-error v0.1.0 (/private/tmp/vortex-row-fn-bool/vortex-error)
-   Compiling thiserror-impl v1.0.69
-   Compiling serde_derive v1.0.229
-   Compiling lock_api v0.4.14
-   Compiling core-foundation v0.10.1
-   Compiling security-framework-sys v2.17.0
-   Compiling getrandom v0.2.17
-   Compiling multimap v0.10.1
-   Compiling icu_provider v2.3.1
-   Compiling serde_json v1.0.151
-   Compiling unicode-segmentation v1.13.3
-   Compiling funty v2.0.0
-   Compiling heck v0.5.0
-   Compiling bitvec v1.1.1
-   Compiling protox v0.9.1
-   Compiling hyper-util v0.1.20
-   Compiling prost-build v0.14.4
-   Compiling similar v2.7.0
-   Compiling security-framework v3.7.0
-   Compiling rand_core v0.6.4
-   Compiling arrow-buffer v59.3.0
-   Compiling hashbrown v0.14.5
-   Compiling icu_properties v2.3.0
-   Compiling icu_normalizer v2.3.0
-   Compiling rand_chacha v0.9.0
-   Compiling tower v0.5.3
-   Compiling terminal_size v0.4.4
-   Compiling codspeed v5.0.1
-   Compiling approx v0.5.1
-   Compiling idna_adapter v1.2.2
-   Compiling http-body-util v0.1.5
-   Compiling rstest_macros v0.26.1
-   Compiling iana-time-zone v0.1.65
-   Compiling mime v0.3.17
-   Compiling parking v2.2.1
-   Compiling anstyle v1.0.14
-   Compiling base64 v0.23.1
-   Compiling utf8-width v0.1.9
-   Compiling clap_lex v1.1.0
-   Compiling vortex-build v0.1.0 (/private/tmp/vortex-row-fn-bool/vortex-build)
-   Compiling idna v1.1.0
-   Compiling vortex-buffer v0.1.0 (/private/tmp/vortex-row-fn-bool/vortex-buffer)
-   Compiling event-listener v5.4.2
-   Compiling statrs v0.18.0
-   Compiling dashmap v6.2.1
-   Compiling clap_builder v4.6.6
-   Compiling rand v0.9.5
-   Compiling url v2.5.8
-   Compiling rand_chacha v0.3.1
-   Compiling objc2-io-kit v0.3.2
-   Compiling chacha20 v0.10.2
-   Compiling tower-http v0.6.11
-   Compiling divan-macros v0.1.17
-   Compiling libmimalloc-sys v0.1.49
-   Compiling console v0.15.11
-   Compiling unicode-width v0.2.2
-   Compiling colored v3.1.1
-   Compiling paste v1.0.15
-   Compiling relative-path v1.9.3
-   Compiling bytecount v0.6.9
-   Compiling rand v0.10.2
-   Compiling similar-asserts v1.7.0
    Compiling vortex-array v0.1.0 (/private/tmp/vortex-row-fn-bool/vortex-array)
-   Compiling sysinfo v0.38.4
-   Compiling byte-unit v5.2.6
-   Compiling papergrid v0.18.0
-   Compiling clap v4.6.6
-   Compiling lasso v0.7.3
-   Compiling rand v0.8.8
-   Compiling ping v0.7.1
-   Compiling event-listener-strategy v0.5.4
-   Compiling chrono v0.4.45
-   Compiling parking_lot v0.12.5
-   Compiling futures-executor v0.3.34
-   Compiling enum-iterator-derive v1.5.0
-   Compiling num_enum_derive v0.7.6
-   Compiling vortex-utils v0.1.0 (/private/tmp/vortex-row-fn-bool/vortex-utils)
-   Compiling which v8.0.6
-   Compiling num_cpus v1.17.0
-   Compiling uzers v0.12.2
-   Compiling arc-swap v1.9.2
-   Compiling regex-lite v0.1.9
-   Compiling yansi v1.0.1
-   Compiling codspeed-divan-compat v5.0.1
-   Compiling futures-timer v3.0.4
-   Compiling static_assertions v1.1.0
-   Compiling condtype v1.3.0
-   Compiling enum-iterator v2.3.0
-   Compiling futures v0.3.34
-   Compiling vortex-session v0.1.0 (/private/tmp/vortex-row-fn-bool/vortex-session)
-   Compiling num_enum v0.7.6
-   Compiling rstest v0.26.1
-   Compiling goldenfile v1.11.0
-   Compiling rstest_reuse v0.7.0
-   Compiling async-lock v3.4.2
-   Compiling tabled v0.21.0
-   Compiling codspeed-divan-compat-macros v5.0.1
-   Compiling vortex-mask v0.1.0 (/private/tmp/vortex-row-fn-bool/vortex-mask)
-   Compiling vortex-compute v0.1.0 (/private/tmp/vortex-row-fn-bool/vortex-compute)
-   Compiling vortex-array-macros v0.1.0 (/private/tmp/vortex-row-fn-bool/vortex-array-macros)
-   Compiling console v0.16.6
-   Compiling humansize v2.1.3
-   Compiling rustc-hash v2.1.3
-   Compiling uuid v1.26.1
-   Compiling inventory v0.3.24
-   Compiling arcref v0.2.0
-   Compiling rand_distr v0.6.0
-   Compiling insta v1.48.0
-   Compiling serde_test v1.0.177
-   Compiling vortex-bench-support v0.1.0 (/private/tmp/vortex-row-fn-bool/benchmarks/bench-support)
-   Compiling mimalloc v0.1.52
-   Compiling codspeed-divan-compat-walltime v5.0.1
-   Compiling rustls-webpki v0.103.15
-   Compiling tokio-rustls v0.26.5
-   Compiling rustls-platform-verifier v0.7.0
-   Compiling hyper-rustls v0.27.9
-   Compiling reqwest v0.13.5
-   Compiling test-with-derive v0.16.3
-   Compiling test-with v0.16.3
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 49.62s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 24.56s
 ────────────
- Nextest run ID 8c6c53fa-1452-4ed8-9d8e-95858b8d0584 with nextest profile: default
+ Nextest run ID 65b288b4-bd60-46a7-96c7-404e9752c9bb with nextest profile: default
     Starting 175 tests across 1 binary (3510 tests skipped)
-        PASS [   0.017s] (  1/175) vortex-array scalar_fn::unstable::row::batch::tests::test_declared_output_dtype_labels_all_null_batch
-        PASS [   0.018s] (  2/175) vortex-array scalar_fn::unstable::row::batch::tests::test_bool_output_word_boundaries::case_5_above_word
-        PASS [   0.019s] (  3/175) vortex-array scalar_fn::unstable::row::batch::tests::test_bool_output_handles_all_constant_input
-        PASS [   0.018s] (  4/175) vortex-array scalar_fn::unstable::row::batch::tests::test_declared_output_dtype_labels_batch::case_1_all_valid
-        PASS [   0.019s] (  5/175) vortex-array scalar_fn::unstable::row::batch::tests::test_bool_output_handles_nullary_rows
-        PASS [   0.019s] (  6/175) vortex-array scalar_fn::unstable::row::batch::tests::test_bool_output_builds_packed_values
-        PASS [   0.019s] (  7/175) vortex-array scalar_fn::unstable::row::batch::tests::test_declared_output_dtype_labels_batch::case_2_partially_valid
-        PASS [   0.019s] (  8/175) vortex-array scalar_fn::unstable::row::batch::tests::test_bool_output_word_boundaries::case_2_one
-        PASS [   0.019s] (  9/175) vortex-array scalar_fn::unstable::row::batch::tests::test_declared_output_dtype_labels_batch::case_3_array_backed_all_valid
-        PASS [   0.019s] ( 10/175) vortex-array scalar_fn::unstable::row::batch::tests::test_bool_output_word_boundaries::case_1_empty
-        PASS [   0.019s] ( 11/175) vortex-array scalar_fn::unstable::row::batch::tests::test_declared_output_dtype_labels_constant_batch
-        PASS [   0.020s] ( 12/175) vortex-array scalar_fn::unstable::row::batch::tests::test_bool_output_handles_partial_constants
-        PASS [   0.020s] ( 13/175) vortex-array scalar_fn::unstable::row::batch::tests::test_bool_output_word_boundaries::case_6_multiword_remainder
-        PASS [   0.020s] ( 14/175) vortex-array scalar_fn::unstable::row::batch::tests::test_bool_output_word_boundaries::case_3_below_word
-        PASS [   0.020s] ( 15/175) vortex-array scalar_fn::unstable::row::batch::tests::test_declared_output_dtype_labels_empty_batch
-        PASS [   0.020s] ( 16/175) vortex-array scalar_fn::unstable::row::batch::tests::test_bool_output_word_boundaries::case_4_exact_word
-        PASS [   0.008s] ( 17/175) vortex-array scalar_fn::unstable::row::batch::tests::test_declared_output_dtype_reaches_planning
-        PASS [   0.010s] ( 18/175) vortex-array scalar_fn::unstable::row::batch::tests::test_declared_output_dtype_rejects_bad_label::case_2_not_an_extension
-        PASS [   0.011s] ( 19/175) vortex-array scalar_fn::unstable::row::batch::tests::test_declared_output_dtype_labels_sink_output::case_1_all_valid
-        PASS [   0.011s] ( 20/175) vortex-array scalar_fn::unstable::row::batch::tests::test_declared_output_dtype_rejects_mismatched_storage
-        PASS [   0.010s] ( 21/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_output_reports_valid_row_failure
-        PASS [   0.011s] ( 22/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_1_empty::multiversioned_1_false::input_shape_1_BooleanInputShape__Columns::validity_pattern_1_BooleanValidity__AllValid
-        PASS [   0.011s] ( 23/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_output_handles_partial_constants
-        PASS [   0.010s] ( 24/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_1_empty::multiversioned_1_false::input_shape_1_BooleanInputShape__Columns::validity_pattern_2_BooleanValidity__AllNull
-        PASS [   0.011s] ( 25/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_decode_error_is_terminal
-        PASS [   0.011s] ( 26/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_output_builds_packed_values
-        PASS [   0.011s] ( 27/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_1_empty::multiversioned_1_false::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_1_BooleanValidity__AllValid
-        PASS [   0.012s] ( 28/175) vortex-array scalar_fn::unstable::row::batch::tests::test_declared_output_dtype_rejects_bad_label::case_1_nullable
-        PASS [   0.012s] ( 29/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_1_empty::multiversioned_1_false::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_3_BooleanValidity__Partial
-        PASS [   0.013s] ( 30/175) vortex-array scalar_fn::unstable::row::batch::tests::test_declared_output_dtype_labels_sink_output::case_2_partially_valid
-        PASS [   0.013s] ( 31/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_1_empty::multiversioned_1_false::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_2_BooleanValidity__AllNull
-        PASS [   0.013s] ( 32/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_1_empty::multiversioned_1_false::input_shape_1_BooleanInputShape__Columns::validity_pattern_3_BooleanValidity__Partial
-        PASS [   0.009s] ( 33/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_1_empty::multiversioned_1_false::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_2_BooleanValidity__AllNull
-        PASS [   0.011s] ( 34/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_1_empty::multiversioned_1_false::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_1_BooleanValidity__AllValid
-        PASS [   0.009s] ( 35/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_1_empty::multiversioned_2_true::input_shape_1_BooleanInputShape__Columns::validity_pattern_1_BooleanValidity__AllValid
-        PASS [   0.010s] ( 36/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_1_empty::multiversioned_1_false::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_3_BooleanValidity__Partial
-        PASS [   0.009s] ( 37/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_1_empty::multiversioned_2_true::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_1_BooleanValidity__AllValid
-        PASS [   0.010s] ( 38/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_1_empty::multiversioned_2_true::input_shape_1_BooleanInputShape__Columns::validity_pattern_2_BooleanValidity__AllNull
-        PASS [   0.010s] ( 39/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_1_empty::multiversioned_2_true::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_3_BooleanValidity__Partial
-        PASS [   0.011s] ( 40/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_1_empty::multiversioned_2_true::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_3_BooleanValidity__Partial
-        PASS [   0.010s] ( 41/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_2_one::multiversioned_1_false::input_shape_1_BooleanInputShape__Columns::validity_pattern_1_BooleanValidity__AllValid
-        PASS [   0.011s] ( 42/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_1_empty::multiversioned_2_true::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_2_BooleanValidity__AllNull
-        PASS [   0.012s] ( 43/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_1_empty::multiversioned_2_true::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_1_BooleanValidity__AllValid
-        PASS [   0.010s] ( 44/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_2_one::multiversioned_1_false::input_shape_1_BooleanInputShape__Columns::validity_pattern_2_BooleanValidity__AllNull
-        PASS [   0.013s] ( 45/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_1_empty::multiversioned_2_true::input_shape_1_BooleanInputShape__Columns::validity_pattern_3_BooleanValidity__Partial
-        PASS [   0.013s] ( 46/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_1_empty::multiversioned_2_true::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_2_BooleanValidity__AllNull
-        PASS [   0.010s] ( 47/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_2_one::multiversioned_1_false::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_1_BooleanValidity__AllValid
-        PASS [   0.011s] ( 48/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_2_one::multiversioned_1_false::input_shape_1_BooleanInputShape__Columns::validity_pattern_3_BooleanValidity__Partial
-        PASS [   0.010s] ( 49/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_2_one::multiversioned_1_false::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_3_BooleanValidity__Partial
-        PASS [   0.009s] ( 50/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_2_one::multiversioned_1_false::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_2_BooleanValidity__AllNull
-        PASS [   0.009s] ( 51/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_2_one::multiversioned_1_false::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_1_BooleanValidity__AllValid
-        PASS [   0.011s] ( 52/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_2_one::multiversioned_1_false::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_2_BooleanValidity__AllNull
-        PASS [   0.010s] ( 53/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_2_one::multiversioned_1_false::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_3_BooleanValidity__Partial
-        PASS [   0.009s] ( 54/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_2_one::multiversioned_2_true::input_shape_1_BooleanInputShape__Columns::validity_pattern_2_BooleanValidity__AllNull
-        PASS [   0.011s] ( 55/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_2_one::multiversioned_2_true::input_shape_1_BooleanInputShape__Columns::validity_pattern_1_BooleanValidity__AllValid
-        PASS [   0.010s] ( 56/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_2_one::multiversioned_2_true::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_2_BooleanValidity__AllNull
-        PASS [   0.010s] ( 57/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_2_one::multiversioned_2_true::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_3_BooleanValidity__Partial
-        PASS [   0.012s] ( 58/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_2_one::multiversioned_2_true::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_1_BooleanValidity__AllValid
-        PASS [   0.013s] ( 59/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_2_one::multiversioned_2_true::input_shape_1_BooleanInputShape__Columns::validity_pattern_3_BooleanValidity__Partial
-        PASS [   0.011s] ( 60/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_3_word_tail::multiversioned_1_false::input_shape_1_BooleanInputShape__Columns::validity_pattern_1_BooleanValidity__AllValid
-        PASS [   0.012s] ( 61/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_2_one::multiversioned_2_true::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_2_BooleanValidity__AllNull
-        PASS [   0.011s] ( 62/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_3_word_tail::multiversioned_1_false::input_shape_1_BooleanInputShape__Columns::validity_pattern_2_BooleanValidity__AllNull
-        PASS [   0.013s] ( 63/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_2_one::multiversioned_2_true::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_3_BooleanValidity__Partial
-        PASS [   0.014s] ( 64/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_2_one::multiversioned_2_true::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_1_BooleanValidity__AllValid
-        PASS [   0.011s] ( 65/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_3_word_tail::multiversioned_1_false::input_shape_1_BooleanInputShape__Columns::validity_pattern_3_BooleanValidity__Partial
-        PASS [   0.010s] ( 66/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_3_word_tail::multiversioned_1_false::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_3_BooleanValidity__Partial
-        PASS [   0.011s] ( 67/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_3_word_tail::multiversioned_1_false::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_1_BooleanValidity__AllValid
-        PASS [   0.011s] ( 68/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_3_word_tail::multiversioned_1_false::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_2_BooleanValidity__AllNull
-        PASS [   0.010s] ( 69/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_3_word_tail::multiversioned_1_false::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_1_BooleanValidity__AllValid
-        PASS [   0.010s] ( 70/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_3_word_tail::multiversioned_1_false::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_2_BooleanValidity__AllNull
-        PASS [   0.010s] ( 71/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_3_word_tail::multiversioned_1_false::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_3_BooleanValidity__Partial
-        PASS [   0.012s] ( 72/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_3_word_tail::multiversioned_2_true::input_shape_1_BooleanInputShape__Columns::validity_pattern_1_BooleanValidity__AllValid
-        PASS [   0.010s] ( 73/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_3_word_tail::multiversioned_2_true::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_2_BooleanValidity__AllNull
-        PASS [   0.010s] ( 74/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_3_word_tail::multiversioned_2_true::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_1_BooleanValidity__AllValid
-        PASS [   0.011s] ( 75/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_3_word_tail::multiversioned_2_true::input_shape_1_BooleanInputShape__Columns::validity_pattern_2_BooleanValidity__AllNull
-        PASS [   0.011s] ( 76/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_3_word_tail::multiversioned_2_true::input_shape_1_BooleanInputShape__Columns::validity_pattern_3_BooleanValidity__Partial
-        PASS [   0.011s] ( 77/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_3_word_tail::multiversioned_2_true::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_3_BooleanValidity__Partial
-        PASS [   0.012s] ( 78/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_3_word_tail::multiversioned_2_true::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_1_BooleanValidity__AllValid
-        PASS [   0.011s] ( 79/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_3_word_tail::multiversioned_2_true::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_2_BooleanValidity__AllNull
+        PASS [   0.023s] (  1/175) vortex-array scalar_fn::unstable::row::batch::tests::test_declared_output_dtype_labels_empty_batch
+        PASS [   0.023s] (  2/175) vortex-array scalar_fn::unstable::row::batch::tests::test_declared_output_dtype_labels_all_null_batch
+        PASS [   0.024s] (  3/175) vortex-array scalar_fn::unstable::row::batch::tests::test_bool_output_handles_nullary_rows
+        PASS [   0.024s] (  4/175) vortex-array scalar_fn::unstable::row::batch::tests::test_bool_output_word_boundaries::case_4_exact_word
+        PASS [   0.024s] (  5/175) vortex-array scalar_fn::unstable::row::batch::tests::test_declared_output_dtype_labels_batch::case_3_array_backed_all_valid
+        PASS [   0.024s] (  6/175) vortex-array scalar_fn::unstable::row::batch::tests::test_bool_output_word_boundaries::case_6_multiword_remainder
+        PASS [   0.024s] (  7/175) vortex-array scalar_fn::unstable::row::batch::tests::test_bool_output_word_boundaries::case_5_above_word
+        PASS [   0.024s] (  8/175) vortex-array scalar_fn::unstable::row::batch::tests::test_bool_output_word_boundaries::case_3_below_word
+        PASS [   0.024s] (  9/175) vortex-array scalar_fn::unstable::row::batch::tests::test_declared_output_dtype_labels_batch::case_1_all_valid
+        PASS [   0.024s] ( 10/175) vortex-array scalar_fn::unstable::row::batch::tests::test_bool_output_builds_packed_values
+        PASS [   0.025s] ( 11/175) vortex-array scalar_fn::unstable::row::batch::tests::test_bool_output_handles_all_constant_input
+        PASS [   0.024s] ( 12/175) vortex-array scalar_fn::unstable::row::batch::tests::test_bool_output_word_boundaries::case_1_empty
+        PASS [   0.025s] ( 13/175) vortex-array scalar_fn::unstable::row::batch::tests::test_declared_output_dtype_labels_constant_batch
+        PASS [   0.025s] ( 14/175) vortex-array scalar_fn::unstable::row::batch::tests::test_bool_output_handles_partial_constants
+        PASS [   0.025s] ( 15/175) vortex-array scalar_fn::unstable::row::batch::tests::test_declared_output_dtype_labels_batch::case_2_partially_valid
+        PASS [   0.025s] ( 16/175) vortex-array scalar_fn::unstable::row::batch::tests::test_bool_output_word_boundaries::case_2_one
+        PASS [   0.011s] ( 17/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_1_empty::multiversioned_1_false::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_2_BooleanValidity__AllNull
+        PASS [   0.012s] ( 18/175) vortex-array scalar_fn::unstable::row::batch::tests::test_declared_output_dtype_labels_sink_output::case_1_all_valid
+        PASS [   0.012s] ( 19/175) vortex-array scalar_fn::unstable::row::batch::tests::test_declared_output_dtype_labels_sink_output::case_2_partially_valid
+        PASS [   0.012s] ( 20/175) vortex-array scalar_fn::unstable::row::batch::tests::test_declared_output_dtype_reaches_planning
+        PASS [   0.012s] ( 21/175) vortex-array scalar_fn::unstable::row::batch::tests::test_declared_output_dtype_rejects_bad_label::case_2_not_an_extension
+        PASS [   0.011s] ( 22/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_1_empty::multiversioned_1_false::input_shape_1_BooleanInputShape__Columns::validity_pattern_2_BooleanValidity__AllNull
+        PASS [   0.011s] ( 23/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_1_empty::multiversioned_1_false::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_3_BooleanValidity__Partial
+        PASS [   0.012s] ( 24/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_output_handles_partial_constants
+        PASS [   0.012s] ( 25/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_1_empty::multiversioned_1_false::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_1_BooleanValidity__AllValid
+        PASS [   0.012s] ( 26/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_output_builds_packed_values
+        PASS [   0.012s] ( 27/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_output_reports_valid_row_failure
+        PASS [   0.012s] ( 28/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_1_empty::multiversioned_1_false::input_shape_1_BooleanInputShape__Columns::validity_pattern_1_BooleanValidity__AllValid
+        PASS [   0.013s] ( 29/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_decode_error_is_terminal
+        PASS [   0.013s] ( 30/175) vortex-array scalar_fn::unstable::row::batch::tests::test_declared_output_dtype_rejects_bad_label::case_1_nullable
+        PASS [   0.013s] ( 31/175) vortex-array scalar_fn::unstable::row::batch::tests::test_declared_output_dtype_rejects_mismatched_storage
+        PASS [   0.014s] ( 32/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_1_empty::multiversioned_1_false::input_shape_1_BooleanInputShape__Columns::validity_pattern_3_BooleanValidity__Partial
+        PASS [   0.009s] ( 33/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_1_empty::multiversioned_2_true::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_1_BooleanValidity__AllValid
+        PASS [   0.010s] ( 34/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_1_empty::multiversioned_2_true::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_2_BooleanValidity__AllNull
+        PASS [   0.010s] ( 35/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_1_empty::multiversioned_2_true::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_3_BooleanValidity__Partial
+        PASS [   0.011s] ( 36/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_1_empty::multiversioned_1_false::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_1_BooleanValidity__AllValid
+        PASS [   0.011s] ( 37/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_1_empty::multiversioned_1_false::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_3_BooleanValidity__Partial
+        PASS [   0.011s] ( 38/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_1_empty::multiversioned_2_true::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_1_BooleanValidity__AllValid
+        PASS [   0.011s] ( 39/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_1_empty::multiversioned_2_true::input_shape_1_BooleanInputShape__Columns::validity_pattern_2_BooleanValidity__AllNull
+        PASS [   0.012s] ( 40/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_1_empty::multiversioned_1_false::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_2_BooleanValidity__AllNull
+        PASS [   0.010s] ( 41/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_2_one::multiversioned_1_false::input_shape_1_BooleanInputShape__Columns::validity_pattern_2_BooleanValidity__AllNull
+        PASS [   0.010s] ( 42/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_2_one::multiversioned_1_false::input_shape_1_BooleanInputShape__Columns::validity_pattern_3_BooleanValidity__Partial
+        PASS [   0.012s] ( 43/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_1_empty::multiversioned_2_true::input_shape_1_BooleanInputShape__Columns::validity_pattern_1_BooleanValidity__AllValid
+        PASS [   0.012s] ( 44/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_1_empty::multiversioned_2_true::input_shape_1_BooleanInputShape__Columns::validity_pattern_3_BooleanValidity__Partial
+        PASS [   0.011s] ( 45/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_1_empty::multiversioned_2_true::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_3_BooleanValidity__Partial
+        PASS [   0.012s] ( 46/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_1_empty::multiversioned_2_true::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_2_BooleanValidity__AllNull
+        PASS [   0.012s] ( 47/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_2_one::multiversioned_1_false::input_shape_1_BooleanInputShape__Columns::validity_pattern_1_BooleanValidity__AllValid
+        PASS [   0.011s] ( 48/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_2_one::multiversioned_1_false::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_1_BooleanValidity__AllValid
+        PASS [   0.010s] ( 49/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_2_one::multiversioned_1_false::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_2_BooleanValidity__AllNull
+        PASS [   0.009s] ( 50/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_2_one::multiversioned_2_true::input_shape_1_BooleanInputShape__Columns::validity_pattern_3_BooleanValidity__Partial
+        PASS [   0.009s] ( 51/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_2_one::multiversioned_2_true::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_1_BooleanValidity__AllValid
+        PASS [   0.009s] ( 52/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_2_one::multiversioned_2_true::input_shape_1_BooleanInputShape__Columns::validity_pattern_1_BooleanValidity__AllValid
+        PASS [   0.010s] ( 53/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_2_one::multiversioned_1_false::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_1_BooleanValidity__AllValid
+        PASS [   0.010s] ( 54/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_2_one::multiversioned_1_false::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_3_BooleanValidity__Partial
+        PASS [   0.011s] ( 55/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_2_one::multiversioned_1_false::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_3_BooleanValidity__Partial
+        PASS [   0.011s] ( 56/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_2_one::multiversioned_1_false::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_2_BooleanValidity__AllNull
+        PASS [   0.011s] ( 57/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_2_one::multiversioned_2_true::input_shape_1_BooleanInputShape__Columns::validity_pattern_2_BooleanValidity__AllNull
+        PASS [   0.010s] ( 58/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_2_one::multiversioned_2_true::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_1_BooleanValidity__AllValid
+        PASS [   0.011s] ( 59/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_2_one::multiversioned_2_true::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_2_BooleanValidity__AllNull
+        PASS [   0.010s] ( 60/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_2_one::multiversioned_2_true::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_2_BooleanValidity__AllNull
+        PASS [   0.011s] ( 61/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_2_one::multiversioned_2_true::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_3_BooleanValidity__Partial
+        PASS [   0.011s] ( 62/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_2_one::multiversioned_2_true::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_3_BooleanValidity__Partial
+        PASS [   0.010s] ( 63/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_3_word_tail::multiversioned_1_false::input_shape_1_BooleanInputShape__Columns::validity_pattern_2_BooleanValidity__AllNull
+        PASS [   0.011s] ( 64/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_3_word_tail::multiversioned_1_false::input_shape_1_BooleanInputShape__Columns::validity_pattern_1_BooleanValidity__AllValid
+        PASS [   0.009s] ( 65/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_3_word_tail::multiversioned_1_false::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_2_BooleanValidity__AllNull
+        PASS [   0.010s] ( 66/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_3_word_tail::multiversioned_1_false::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_2_BooleanValidity__AllNull
+        PASS [   0.010s] ( 67/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_3_word_tail::multiversioned_1_false::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_1_BooleanValidity__AllValid
+        PASS [   0.010s] ( 68/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_3_word_tail::multiversioned_1_false::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_1_BooleanValidity__AllValid
+        PASS [   0.009s] ( 69/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_3_word_tail::multiversioned_2_true::input_shape_1_BooleanInputShape__Columns::validity_pattern_2_BooleanValidity__AllNull
+        PASS [   0.011s] ( 70/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_3_word_tail::multiversioned_1_false::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_3_BooleanValidity__Partial
+        PASS [   0.011s] ( 71/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_3_word_tail::multiversioned_1_false::input_shape_1_BooleanInputShape__Columns::validity_pattern_3_BooleanValidity__Partial
+        PASS [   0.009s] ( 72/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_3_word_tail::multiversioned_2_true::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_2_BooleanValidity__AllNull
+        PASS [   0.010s] ( 73/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_3_word_tail::multiversioned_1_false::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_3_BooleanValidity__Partial
+        PASS [   0.010s] ( 74/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_3_word_tail::multiversioned_2_true::input_shape_1_BooleanInputShape__Columns::validity_pattern_1_BooleanValidity__AllValid
+        PASS [   0.011s] ( 75/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_3_word_tail::multiversioned_2_true::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_1_BooleanValidity__AllValid
+        PASS [   0.010s] ( 76/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_3_word_tail::multiversioned_2_true::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_3_BooleanValidity__Partial
+        PASS [   0.011s] ( 77/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_3_word_tail::multiversioned_2_true::input_shape_1_BooleanInputShape__Columns::validity_pattern_3_BooleanValidity__Partial
+        PASS [   0.009s] ( 78/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_3_word_tail::multiversioned_2_true::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_2_BooleanValidity__AllNull
+        PASS [   0.010s] ( 79/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_3_word_tail::multiversioned_2_true::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_1_BooleanValidity__AllValid
         PASS [   0.011s] ( 80/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_3_word_tail::multiversioned_2_true::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_3_BooleanValidity__Partial
-        PASS [   0.009s] ( 81/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_4_word::multiversioned_1_false::input_shape_1_BooleanInputShape__Columns::validity_pattern_2_BooleanValidity__AllNull
-        PASS [   0.010s] ( 82/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_4_word::multiversioned_1_false::input_shape_1_BooleanInputShape__Columns::validity_pattern_1_BooleanValidity__AllValid
-        PASS [   0.010s] ( 83/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_4_word::multiversioned_1_false::input_shape_1_BooleanInputShape__Columns::validity_pattern_3_BooleanValidity__Partial
-        PASS [   0.010s] ( 84/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_4_word::multiversioned_1_false::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_2_BooleanValidity__AllNull
-        PASS [   0.009s] ( 85/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_4_word::multiversioned_1_false::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_3_BooleanValidity__Partial
-        PASS [   0.011s] ( 86/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_4_word::multiversioned_1_false::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_1_BooleanValidity__AllValid
-        PASS [   0.010s] ( 87/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_4_word::multiversioned_1_false::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_1_BooleanValidity__AllValid
-        PASS [   0.009s] ( 88/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_4_word::multiversioned_2_true::input_shape_1_BooleanInputShape__Columns::validity_pattern_2_BooleanValidity__AllNull
-        PASS [   0.010s] ( 89/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_4_word::multiversioned_2_true::input_shape_1_BooleanInputShape__Columns::validity_pattern_3_BooleanValidity__Partial
-        PASS [   0.011s] ( 90/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_4_word::multiversioned_1_false::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_2_BooleanValidity__AllNull
-        PASS [   0.010s] ( 91/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_4_word::multiversioned_2_true::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_1_BooleanValidity__AllValid
-        PASS [   0.012s] ( 92/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_4_word::multiversioned_1_false::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_3_BooleanValidity__Partial
-        PASS [   0.012s] ( 93/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_4_word::multiversioned_2_true::input_shape_1_BooleanInputShape__Columns::validity_pattern_1_BooleanValidity__AllValid
-        PASS [   0.010s] ( 94/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_4_word::multiversioned_2_true::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_1_BooleanValidity__AllValid
-        PASS [   0.011s] ( 95/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_4_word::multiversioned_2_true::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_3_BooleanValidity__Partial
-        PASS [   0.011s] ( 96/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_4_word::multiversioned_2_true::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_2_BooleanValidity__AllNull
-        PASS [   0.009s] ( 97/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_5_word_remainder::multiversioned_1_false::input_shape_1_BooleanInputShape__Columns::validity_pattern_3_BooleanValidity__Partial
-        PASS [   0.013s] ( 98/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_4_word::multiversioned_2_true::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_2_BooleanValidity__AllNull
-        PASS [   0.010s] ( 99/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_5_word_remainder::multiversioned_1_false::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_1_BooleanValidity__AllValid
-        PASS [   0.011s] (100/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_5_word_remainder::multiversioned_1_false::input_shape_1_BooleanInputShape__Columns::validity_pattern_1_BooleanValidity__AllValid
-        PASS [   0.011s] (101/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_5_word_remainder::multiversioned_1_false::input_shape_1_BooleanInputShape__Columns::validity_pattern_2_BooleanValidity__AllNull
-        PASS [   0.013s] (102/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_4_word::multiversioned_2_true::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_3_BooleanValidity__Partial
-        PASS [   0.011s] (103/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_5_word_remainder::multiversioned_1_false::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_2_BooleanValidity__AllNull
+        PASS [   0.009s] ( 81/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_4_word::multiversioned_1_false::input_shape_1_BooleanInputShape__Columns::validity_pattern_1_BooleanValidity__AllValid
+        PASS [   0.009s] ( 82/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_4_word::multiversioned_1_false::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_1_BooleanValidity__AllValid
+        PASS [   0.009s] ( 83/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_4_word::multiversioned_1_false::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_2_BooleanValidity__AllNull
+        PASS [   0.009s] ( 84/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_4_word::multiversioned_1_false::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_2_BooleanValidity__AllNull
+        PASS [   0.009s] ( 85/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_4_word::multiversioned_1_false::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_3_BooleanValidity__Partial
+        PASS [   0.012s] ( 86/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_4_word::multiversioned_1_false::input_shape_1_BooleanInputShape__Columns::validity_pattern_3_BooleanValidity__Partial
+        PASS [   0.012s] ( 87/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_4_word::multiversioned_1_false::input_shape_1_BooleanInputShape__Columns::validity_pattern_2_BooleanValidity__AllNull
+        PASS [   0.010s] ( 88/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_4_word::multiversioned_1_false::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_1_BooleanValidity__AllValid
+        PASS [   0.011s] ( 89/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_4_word::multiversioned_1_false::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_3_BooleanValidity__Partial
+        PASS [   0.009s] ( 90/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_4_word::multiversioned_2_true::input_shape_1_BooleanInputShape__Columns::validity_pattern_1_BooleanValidity__AllValid
+        PASS [   0.010s] ( 91/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_4_word::multiversioned_2_true::input_shape_1_BooleanInputShape__Columns::validity_pattern_3_BooleanValidity__Partial
+        PASS [   0.010s] ( 92/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_4_word::multiversioned_2_true::input_shape_1_BooleanInputShape__Columns::validity_pattern_2_BooleanValidity__AllNull
+        PASS [   0.010s] ( 93/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_4_word::multiversioned_2_true::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_3_BooleanValidity__Partial
+        PASS [   0.010s] ( 94/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_4_word::multiversioned_2_true::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_2_BooleanValidity__AllNull
+        PASS [   0.011s] ( 95/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_4_word::multiversioned_2_true::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_1_BooleanValidity__AllValid
+        PASS [   0.010s] ( 96/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_4_word::multiversioned_2_true::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_1_BooleanValidity__AllValid
+        PASS [   0.011s] ( 97/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_4_word::multiversioned_2_true::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_2_BooleanValidity__AllNull
+        PASS [   0.011s] ( 98/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_5_word_remainder::multiversioned_1_false::input_shape_1_BooleanInputShape__Columns::validity_pattern_1_BooleanValidity__AllValid
+        PASS [   0.009s] ( 99/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_5_word_remainder::multiversioned_1_false::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_2_BooleanValidity__AllNull
+        PASS [   0.010s] (100/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_5_word_remainder::multiversioned_1_false::input_shape_1_BooleanInputShape__Columns::validity_pattern_3_BooleanValidity__Partial
+        PASS [   0.010s] (101/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_5_word_remainder::multiversioned_1_false::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_2_BooleanValidity__AllNull
+        PASS [   0.011s] (102/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_5_word_remainder::multiversioned_1_false::input_shape_1_BooleanInputShape__Columns::validity_pattern_2_BooleanValidity__AllNull
+        PASS [   0.012s] (103/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_4_word::multiversioned_2_true::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_3_BooleanValidity__Partial
         PASS [   0.011s] (104/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_5_word_remainder::multiversioned_1_false::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_1_BooleanValidity__AllValid
-        PASS [   0.010s] (105/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_5_word_remainder::multiversioned_1_false::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_3_BooleanValidity__Partial
-        PASS [   0.012s] (106/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_5_word_remainder::multiversioned_1_false::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_3_BooleanValidity__Partial
-        PASS [   0.012s] (107/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_5_word_remainder::multiversioned_1_false::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_2_BooleanValidity__AllNull
-        PASS [   0.012s] (108/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_5_word_remainder::multiversioned_2_true::input_shape_1_BooleanInputShape__Columns::validity_pattern_1_BooleanValidity__AllValid
-        PASS [   0.012s] (109/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_5_word_remainder::multiversioned_2_true::input_shape_1_BooleanInputShape__Columns::validity_pattern_2_BooleanValidity__AllNull
-        PASS [   0.010s] (110/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_5_word_remainder::multiversioned_2_true::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_2_BooleanValidity__AllNull
-        PASS [   0.011s] (111/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_5_word_remainder::multiversioned_2_true::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_1_BooleanValidity__AllValid
-        PASS [   0.011s] (112/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_5_word_remainder::multiversioned_2_true::input_shape_1_BooleanInputShape__Columns::validity_pattern_3_BooleanValidity__Partial
-        PASS [   0.010s] (113/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_5_word_remainder::multiversioned_2_true::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_3_BooleanValidity__Partial
-        PASS [   0.011s] (114/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_5_word_remainder::multiversioned_2_true::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_3_BooleanValidity__Partial
-        PASS [   0.011s] (115/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_5_word_remainder::multiversioned_2_true::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_2_BooleanValidity__AllNull
-        PASS [   0.010s] (116/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_6_multiword::multiversioned_1_false::input_shape_1_BooleanInputShape__Columns::validity_pattern_2_BooleanValidity__AllNull
-        PASS [   0.010s] (117/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_6_multiword::multiversioned_1_false::input_shape_1_BooleanInputShape__Columns::validity_pattern_3_BooleanValidity__Partial
-        PASS [   0.013s] (118/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_5_word_remainder::multiversioned_2_true::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_1_BooleanValidity__AllValid
-        PASS [   0.012s] (119/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_6_multiword::multiversioned_1_false::input_shape_1_BooleanInputShape__Columns::validity_pattern_1_BooleanValidity__AllValid
-        PASS [   0.010s] (120/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_6_multiword::multiversioned_1_false::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_1_BooleanValidity__AllValid
-        PASS [   0.010s] (121/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_6_multiword::multiversioned_1_false::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_3_BooleanValidity__Partial
-        PASS [   0.009s] (122/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_6_multiword::multiversioned_1_false::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_1_BooleanValidity__AllValid
-        PASS [   0.011s] (123/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_6_multiword::multiversioned_1_false::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_3_BooleanValidity__Partial
-        PASS [   0.013s] (124/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_6_multiword::multiversioned_1_false::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_2_BooleanValidity__AllNull
-        PASS [   0.012s] (125/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_6_multiword::multiversioned_1_false::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_2_BooleanValidity__AllNull
-        PASS [   0.011s] (126/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_6_multiword::multiversioned_2_true::input_shape_1_BooleanInputShape__Columns::validity_pattern_3_BooleanValidity__Partial
-        PASS [   0.011s] (127/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_6_multiword::multiversioned_2_true::input_shape_1_BooleanInputShape__Columns::validity_pattern_2_BooleanValidity__AllNull
-        PASS [   0.010s] (128/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_6_multiword::multiversioned_2_true::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_1_BooleanValidity__AllValid
-        PASS [   0.011s] (129/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_6_multiword::multiversioned_2_true::input_shape_1_BooleanInputShape__Columns::validity_pattern_1_BooleanValidity__AllValid
-        PASS [   0.009s] (130/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_6_multiword::multiversioned_2_true::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_3_BooleanValidity__Partial
-        PASS [   0.010s] (131/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_6_multiword::multiversioned_2_true::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_2_BooleanValidity__AllNull
-        PASS [   0.011s] (132/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_6_multiword::multiversioned_2_true::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_1_BooleanValidity__AllValid
-        PASS [   0.011s] (133/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_6_multiword::multiversioned_2_true::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_2_BooleanValidity__AllNull
-        PASS [   0.011s] (134/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_6_multiword::multiversioned_2_true::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_3_BooleanValidity__Partial
-        PASS [   0.012s] (135/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_owned_array_backed_all_valid_error_does_not_retry
-        PASS [   0.010s] (136/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_owned_execution_does_not_retry_partially_valid_success
-        PASS [   0.010s] (137/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_owned_execution_handles_constant_lhs
-        PASS [   0.009s] (138/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_owned_execution_retries_null_row_failure
-        PASS [   0.010s] (139/175) vortex-array scalar_fn::unstable::row::batch::tests::test_execution_rejects_a_changed_output_dtype
-        PASS [   0.010s] (140/175) vortex-array scalar_fn::unstable::row::batch::tests::test_filtered_execution_skips_invalid_decode_payloads
-        PASS [   0.011s] (141/175) vortex-array scalar_fn::unstable::row::batch::tests::test_dense_retry_filters_when_direct_valid_rows_are_unavailable
-        PASS [   0.011s] (142/175) vortex-array scalar_fn::unstable::row::batch::tests::test_filtered_execution_preserves_runtime_sink_params::case_1_width_two
-        PASS [   0.010s] (143/175) vortex-array scalar_fn::unstable::row::batch::tests::test_fixed_size_list_sink_uses_runtime_width::case_2_dense_width_four
-        PASS [   0.014s] (144/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_owned_execution_retries_and_reports_valid_row_failure
-        PASS [   0.011s] (145/175) vortex-array scalar_fn::unstable::row::batch::tests::test_filtered_execution_preserves_runtime_sink_params::case_2_zero_width
-        PASS [   0.012s] (146/175) vortex-array scalar_fn::unstable::row::batch::tests::test_finalize_kernel_output_rejects_nested_dtype_mismatch
-        PASS [   0.011s] (147/175) vortex-array scalar_fn::unstable::row::batch::tests::test_fixed_size_list_sink_uses_runtime_width::case_3_empty
-        PASS [   0.013s] (148/175) vortex-array scalar_fn::unstable::row::batch::tests::test_fixed_size_list_sink_uses_runtime_width::case_1_dense_width_two
-        PASS [   0.010s] (149/175) vortex-array scalar_fn::unstable::row::batch::tests::test_fixed_size_list_sink_uses_runtime_width::case_5_all_null
-        PASS [   0.011s] (150/175) vortex-array scalar_fn::unstable::row::batch::tests::test_fixed_size_list_sink_uses_runtime_width::case_4_zero_width
-        PASS [   0.010s] (151/175) vortex-array scalar_fn::unstable::row::batch::tests::test_fixed_size_list_sink_uses_runtime_width::case_6_partially_valid
-        PASS [   0.010s] (152/175) vortex-array scalar_fn::unstable::row::batch::tests::test_undeclared_output_dtype_keeps_the_storage_dtype
-        PASS [   0.013s] (153/175) vortex-array scalar_fn::unstable::row::batch::tests::test_kernel_output_rejects_nulls_at_function_boundary
-        PASS [   0.011s] (154/175) vortex-array scalar_fn::unstable::row::batch::tests::test_valid_only_bool_output_skips_invalid_rows
-        PASS [   0.010s] (155/175) vortex-array scalar_fn::unstable::row::types::element::tuple::tests::test_batch_const_preserves_filtered_extension
+        PASS [   0.010s] (105/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_5_word_remainder::multiversioned_2_true::input_shape_1_BooleanInputShape__Columns::validity_pattern_1_BooleanValidity__AllValid
+        PASS [   0.010s] (106/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_5_word_remainder::multiversioned_2_true::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_1_BooleanValidity__AllValid
+        PASS [   0.012s] (107/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_5_word_remainder::multiversioned_1_false::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_3_BooleanValidity__Partial
+        PASS [   0.010s] (108/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_5_word_remainder::multiversioned_2_true::input_shape_1_BooleanInputShape__Columns::validity_pattern_3_BooleanValidity__Partial
+        PASS [   0.013s] (109/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_5_word_remainder::multiversioned_1_false::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_1_BooleanValidity__AllValid
+        PASS [   0.011s] (110/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_5_word_remainder::multiversioned_2_true::input_shape_1_BooleanInputShape__Columns::validity_pattern_2_BooleanValidity__AllNull
+        PASS [   0.012s] (111/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_5_word_remainder::multiversioned_1_false::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_3_BooleanValidity__Partial
+        PASS [   0.011s] (112/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_5_word_remainder::multiversioned_2_true::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_2_BooleanValidity__AllNull
+        PASS [   0.011s] (113/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_5_word_remainder::multiversioned_2_true::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_3_BooleanValidity__Partial
+        PASS [   0.009s] (114/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_6_multiword::multiversioned_1_false::input_shape_1_BooleanInputShape__Columns::validity_pattern_1_BooleanValidity__AllValid
+        PASS [   0.011s] (115/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_5_word_remainder::multiversioned_2_true::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_1_BooleanValidity__AllValid
+        PASS [   0.010s] (116/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_6_multiword::multiversioned_1_false::input_shape_1_BooleanInputShape__Columns::validity_pattern_3_BooleanValidity__Partial
+        PASS [   0.011s] (117/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_5_word_remainder::multiversioned_2_true::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_2_BooleanValidity__AllNull
+        PASS [   0.011s] (118/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_5_word_remainder::multiversioned_2_true::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_3_BooleanValidity__Partial
+        PASS [   0.010s] (119/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_6_multiword::multiversioned_1_false::input_shape_1_BooleanInputShape__Columns::validity_pattern_2_BooleanValidity__AllNull
+        PASS [   0.010s] (120/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_6_multiword::multiversioned_1_false::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_2_BooleanValidity__AllNull
+        PASS [   0.009s] (121/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_6_multiword::multiversioned_1_false::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_2_BooleanValidity__AllNull
+        PASS [   0.010s] (122/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_6_multiword::multiversioned_1_false::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_3_BooleanValidity__Partial
+        PASS [   0.010s] (123/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_6_multiword::multiversioned_1_false::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_3_BooleanValidity__Partial
+        PASS [   0.010s] (124/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_6_multiword::multiversioned_1_false::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_1_BooleanValidity__AllValid
+        PASS [   0.010s] (125/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_6_multiword::multiversioned_2_true::input_shape_1_BooleanInputShape__Columns::validity_pattern_1_BooleanValidity__AllValid
+        PASS [   0.012s] (126/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_6_multiword::multiversioned_1_false::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_1_BooleanValidity__AllValid
+        PASS [   0.010s] (127/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_6_multiword::multiversioned_2_true::input_shape_1_BooleanInputShape__Columns::validity_pattern_3_BooleanValidity__Partial
+        PASS [   0.012s] (128/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_6_multiword::multiversioned_2_true::input_shape_1_BooleanInputShape__Columns::validity_pattern_2_BooleanValidity__AllNull
+        PASS [   0.009s] (129/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_6_multiword::multiversioned_2_true::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_2_BooleanValidity__AllNull
+        PASS [   0.009s] (130/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_6_multiword::multiversioned_2_true::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_1_BooleanValidity__AllValid
+        PASS [   0.010s] (131/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_6_multiword::multiversioned_2_true::input_shape_2_BooleanInputShape__ConstantLhs::validity_pattern_3_BooleanValidity__Partial
+        PASS [   0.010s] (132/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_owned_execution_does_not_retry_partially_valid_success
+        PASS [   0.010s] (133/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_6_multiword::multiversioned_2_true::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_3_BooleanValidity__Partial
+        PASS [   0.011s] (134/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_6_multiword::multiversioned_2_true::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_1_BooleanValidity__AllValid
+        PASS [   0.010s] (135/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_owned_execution_handles_constant_lhs
+        PASS [   0.012s] (136/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_bool_sliced_validity_and_constants::case_6_multiword::multiversioned_2_true::input_shape_3_BooleanInputShape__ConstantRhs::validity_pattern_2_BooleanValidity__AllNull
+        PASS [   0.010s] (137/175) vortex-array scalar_fn::unstable::row::batch::tests::test_execution_rejects_a_changed_output_dtype
+        PASS [   0.012s] (138/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_owned_array_backed_all_valid_error_does_not_retry
+        PASS [   0.010s] (139/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_owned_execution_retries_and_reports_valid_row_failure
+        PASS [   0.010s] (140/175) vortex-array scalar_fn::unstable::row::batch::tests::test_filtered_execution_preserves_runtime_sink_params::case_1_width_two
+        PASS [   0.009s] (141/175) vortex-array scalar_fn::unstable::row::batch::tests::test_filtered_execution_preserves_runtime_sink_params::case_2_zero_width
+        PASS [   0.012s] (142/175) vortex-array scalar_fn::unstable::row::batch::tests::test_dense_retry_filters_when_direct_valid_rows_are_unavailable
+        PASS [   0.012s] (143/175) vortex-array scalar_fn::unstable::row::batch::tests::test_deferred_owned_execution_retries_null_row_failure
+        PASS [   0.009s] (144/175) vortex-array scalar_fn::unstable::row::batch::tests::test_finalize_kernel_output_rejects_nested_dtype_mismatch
+        PASS [   0.012s] (145/175) vortex-array scalar_fn::unstable::row::batch::tests::test_filtered_execution_skips_invalid_decode_payloads
+        PASS [   0.009s] (146/175) vortex-array scalar_fn::unstable::row::batch::tests::test_fixed_size_list_sink_uses_runtime_width::case_2_dense_width_four
+        PASS [   0.011s] (147/175) vortex-array scalar_fn::unstable::row::batch::tests::test_fixed_size_list_sink_uses_runtime_width::case_1_dense_width_two
+        PASS [   0.009s] (148/175) vortex-array scalar_fn::unstable::row::batch::tests::test_fixed_size_list_sink_uses_runtime_width::case_4_zero_width
+        PASS [   0.012s] (149/175) vortex-array scalar_fn::unstable::row::batch::tests::test_fixed_size_list_sink_uses_runtime_width::case_3_empty
+        PASS [   0.011s] (150/175) vortex-array scalar_fn::unstable::row::batch::tests::test_fixed_size_list_sink_uses_runtime_width::case_5_all_null
+        PASS [   0.009s] (151/175) vortex-array scalar_fn::unstable::row::execute::sink::tests::test_skip_invalid_sink_rechecks_rows_after_initialization
+        PASS [   0.010s] (152/175) vortex-array scalar_fn::unstable::row::batch::tests::test_valid_only_bool_output_skips_invalid_rows
+        PASS [   0.009s] (153/175) vortex-array scalar_fn::unstable::row::types::element::tuple::tests::test_batch_const_preserves_filtered_extension
+        PASS [   0.010s] (154/175) vortex-array scalar_fn::unstable::row::batch::tests::test_kernel_output_rejects_nulls_at_function_boundary
+        PASS [   0.010s] (155/175) vortex-array scalar_fn::unstable::row::batch::tests::test_undeclared_output_dtype_keeps_the_storage_dtype
         PASS [   0.010s] (156/175) vortex-array scalar_fn::unstable::row::batch::tests::test_valid_only_empty_batch_preserves_nonnullable_dtype
-        PASS [   0.009s] (157/175) vortex-array scalar_fn::unstable::row::types::element::tuple::tests::test_view_lens_match_checks_each_view
-        PASS [   0.010s] (158/175) vortex-array scalar_fn::unstable::row::execute::sink::tests::test_skip_invalid_sink_rechecks_rows_after_initialization
-        PASS [   0.010s] (159/175) vortex-array scalar_fn::unstable::row::types::element::tuple::tests::test_batch_constant_uses_constant_decoder
-        PASS [   0.010s] (160/175) vortex-array scalar_fn::unstable::row::types::element::tuple::tests::test_batch_const_unwraps_filtered_masked_constant
-        PASS [   0.011s] (161/175) vortex-array scalar_fn::unstable::row::types::element::tuple::tests::test_null_tolerant_decline_precedes_decoding
-        PASS [   0.009s] (162/175) vortex-array scalar_fn::unstable::row::types::sink::utf8::tests::sink_finishes_empty_and_skipped_rows
-        PASS [   0.010s] (163/175) vortex-array scalar_fn::unstable::row::types::element::utf8::tests::constant_decodes_inlined_and_referenced_values::case_2
-        PASS [   0.011s] (164/175) vortex-array scalar_fn::unstable::row::types::element::utf8::tests::constant_decodes_inlined_and_referenced_values::case_1
-        PASS [   0.010s] (165/175) vortex-array scalar_fn::unstable::row::types::element::utf8::tests::input_sanitizes_unvalidated_null_views
-        PASS [   0.011s] (166/175) vortex-array scalar_fn::unstable::row::types::element::utf8::tests::input_rejects_unvalidated_utf8
-        PASS [   0.011s] (167/175) vortex-array scalar_fn::unstable::row::types::element::utf8::tests::input_reads_inline_referenced_and_view_metadata
-        PASS [   0.007s] (168/175) vortex-array scalar_fn::unstable::row::types::view::tests::tuple_len_rejects_mismatch
-        PASS [   0.010s] (169/175) vortex-array scalar_fn::unstable::row::types::sink::utf8::tests::sink_writes_owned_borrowed_and_cow_values
-        PASS [   0.007s] (170/175) vortex-array scalar_fn::unstable::row::vtable::tests::test_return_dtype_rejects_wrong_arity_before_dispatch
-        PASS [   0.009s] (171/175) vortex-array scalar_fn::unstable::row::vtable::tests::test_execute_nullary_rows::case_1_empty
+        PASS [   0.010s] (157/175) vortex-array scalar_fn::unstable::row::types::element::tuple::tests::test_batch_constant_uses_constant_decoder
+        PASS [   0.012s] (158/175) vortex-array scalar_fn::unstable::row::batch::tests::test_fixed_size_list_sink_uses_runtime_width::case_6_partially_valid
+        PASS [   0.010s] (159/175) vortex-array scalar_fn::unstable::row::types::element::tuple::tests::test_batch_const_unwraps_filtered_masked_constant
+        PASS [   0.008s] (160/175) vortex-array scalar_fn::unstable::row::types::element::tuple::tests::test_view_lens_match_checks_each_view
+        PASS [   0.009s] (161/175) vortex-array scalar_fn::unstable::row::types::element::tuple::tests::test_null_tolerant_decline_precedes_decoding
+        PASS [   0.008s] (162/175) vortex-array scalar_fn::unstable::row::types::element::utf8::tests::constant_decodes_inlined_and_referenced_values::case_2
+        PASS [   0.008s] (163/175) vortex-array scalar_fn::unstable::row::types::element::utf8::tests::constant_decodes_inlined_and_referenced_values::case_1
+        PASS [   0.009s] (164/175) vortex-array scalar_fn::unstable::row::types::element::utf8::tests::input_reads_inline_referenced_and_view_metadata
+        PASS [   0.008s] (165/175) vortex-array scalar_fn::unstable::row::types::view::tests::tuple_len_rejects_mismatch
+        PASS [   0.009s] (166/175) vortex-array scalar_fn::unstable::row::types::sink::utf8::tests::sink_finishes_empty_and_skipped_rows
+        PASS [   0.009s] (167/175) vortex-array scalar_fn::unstable::row::types::sink::utf8::tests::sink_writes_owned_borrowed_and_cow_values
+        PASS [   0.009s] (168/175) vortex-array scalar_fn::unstable::row::vtable::tests::test_execute_nullary_rows::case_1_empty
+        PASS [   0.009s] (169/175) vortex-array scalar_fn::unstable::row::types::element::utf8::tests::input_sanitizes_unvalidated_null_views
+        PASS [   0.008s] (170/175) vortex-array scalar_fn::unstable::row::vtable::tests::test_return_dtype_rejects_wrong_arity_before_dispatch
+        PASS [   0.010s] (171/175) vortex-array scalar_fn::unstable::row::types::element::utf8::tests::input_rejects_unvalidated_utf8
         PASS [   0.009s] (172/175) vortex-array scalar_fn::unstable::row::vtable::tests::test_execute_nullary_rows::case_2_nonempty
-        PASS [   0.009s] (173/175) vortex-array scalar_fn::unstable::row::vtable::tests::test_execute_rejects_dispatch_that_changes_after_planning
-        PASS [   0.009s] (174/175) vortex-array scalar_fn::unstable::row::vtable::tests::test_execute_rejects_wrong_arity_before_dispatch
-        PASS [   0.008s] (175/175) vortex-array scalar_fn::unstable::row::vtable::tests::test_execute_revalidates_element_types_after_planning
+        PASS [   0.009s] (173/175) vortex-array scalar_fn::unstable::row::vtable::tests::test_execute_rejects_wrong_arity_before_dispatch
+        PASS [   0.009s] (174/175) vortex-array scalar_fn::unstable::row::vtable::tests::test_execute_rejects_dispatch_that_changes_after_planning
+        PASS [   0.009s] (175/175) vortex-array scalar_fn::unstable::row::vtable::tests::test_execute_revalidates_element_types_after_planning
 ────────────
-     Summary [   0.131s] 175 tests run: 175 passed, 3510 skipped
+     Summary [   0.135s] 175 tests run: 175 passed, 3510 skipped
