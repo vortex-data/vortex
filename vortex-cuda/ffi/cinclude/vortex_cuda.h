@@ -87,7 +87,7 @@ extern "C" {
 /**
  * Create a CUDA Vortex session.
  *
- * Repeated [`vx_cuda_array_export_arrow_device`] calls reuse this CUDA state. Returns an owned
+ * Repeated `vx_cuda_array_export_arrow_device` calls reuse this CUDA state. Returns an owned
  * session handle, or null and an optional `vx_error` on failure.
  *
  * # Safety
@@ -127,7 +127,7 @@ vx_array_sink *vx_cuda_array_sink_open_file(const vx_session *session,
  *
  * # Safety
  *
- * Same requirements as [`vx_cuda_array_sink_open_file`].
+ * Same requirements as `vx_cuda_array_sink_open_file`.
  */
 vx_array_sink *vx_cuda_array_sink_open_file_block_rows(const vx_session *session,
                                                        vx_view path,
@@ -138,7 +138,7 @@ vx_array_sink *vx_cuda_array_sink_open_file_block_rows(const vx_session *session
 /**
  * Scan a local Vortex file with buffered I/O and export an Arrow C Device stream.
  *
- * Requires CUDA-supported encodings/layouts, such as files from [`vx_cuda_array_sink_open_file`].
+ * Requires CUDA-supported encodings/layouts, such as files from `vx_cuda_array_sink_open_file`.
  * Footer/zone-map reads stay on the host; data reaches the GPU through pinned staging buffers
  * reused across scans with the same CUDA session.
  *
@@ -163,7 +163,7 @@ int vx_cuda_scan_path_arrow_device_stream(const vx_session *session,
 /**
  * Scan a local Vortex file with exact row batches and a possibly smaller final batch.
  *
- * Uses [`vx_cuda_scan_path_arrow_device_stream`]'s export and ownership rules.
+ * Uses `vx_cuda_scan_path_arrow_device_stream`'s export and ownership rules.
  * Zero preserves layout boundaries without a row cap, so batches may be large. Nonzero
  * `batch_rows` splits at exact row counts independently of layout boundaries. For example,
  * 1,000 rows with `batch_rows = 300` yields batches of 300/300/300/100 rows.
@@ -172,7 +172,7 @@ int vx_cuda_scan_path_arrow_device_stream(const vx_session *session,
  *
  * # Safety
  *
- * Same requirements as [`vx_cuda_scan_path_arrow_device_stream`].
+ * Same requirements as `vx_cuda_scan_path_arrow_device_stream`.
  */
 int vx_cuda_scan_path_arrow_device_stream_batch_rows(const vx_session *session,
                                                      vx_view path,
@@ -181,14 +181,14 @@ int vx_cuda_scan_path_arrow_device_stream_batch_rows(const vx_session *session,
                                                      vx_error **error_out);
 
 /**
- * Like [`vx_cuda_scan_path_arrow_device_stream`], with explicit scan options.
+ * Like `vx_cuda_scan_path_arrow_device_stream`, with explicit scan options.
  *
  * Null or zero-initialized `options` selects buffered I/O and layout-derived batch splitting.
  *
  * # Safety
  *
- * Same requirements as [`vx_cuda_scan_path_arrow_device_stream`]; non-null `options` must
- * point to a valid [`vx_cuda_scan_options`].
+ * Same requirements as `vx_cuda_scan_path_arrow_device_stream`; non-null `options` must
+ * point to a valid `vx_cuda_scan_options`.
  */
 int vx_cuda_scan_path_arrow_device_stream_with_options(const vx_session *session,
                                                        vx_view path,
@@ -200,7 +200,7 @@ int vx_cuda_scan_path_arrow_device_stream_with_options(const vx_session *session
  * Scan a local Vortex file with ordered top-level column projection.
  *
  * Same options, ownership, and file requirements as
- * [`vx_cuda_scan_path_arrow_device_stream_with_options`]. Projection precedes decoding and skips
+ * `vx_cuda_scan_path_arrow_device_stream_with_options`. Projection precedes decoding and skips
  * unselected column I/O when the file layout stores columns separately.
  * Names are literal and case-sensitive; a nonempty projection rejects unknown/duplicate names
  * and non-struct files. `ncolumns == 0` ignores `columns` and selects all. Names are copied;
@@ -208,8 +208,8 @@ int vx_cuda_scan_path_arrow_device_stream_with_options(const vx_session *session
  *
  * # Safety
  *
- * In addition to [`vx_cuda_scan_path_arrow_device_stream_with_options`]'s requirements,
- * nonzero `ncolumns` requires that many initialized, aligned [`vx_view`] values at `columns`.
+ * In addition to `vx_cuda_scan_path_arrow_device_stream_with_options`'s requirements,
+ * nonzero `ncolumns` requires that many initialized, aligned `vx_view` values at `columns`.
  * Each name borrows `len` readable UTF-8 bytes for this call; null is allowed only for zero length.
  */
 int vx_cuda_scan_path_arrow_device_stream_projected(const vx_session *session,
