@@ -1,0 +1,4 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling row-fn-utf8-probe v0.0.0 (/private/tmp/vortex-row-fn-utf8/benchmarks/row-fn-utf8)
+    Finished `release` profile [optimized] target(s) in 0.59s

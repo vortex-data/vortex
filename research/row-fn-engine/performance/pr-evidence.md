@@ -1,0 +1,23 @@
+# Evidence for the RowFn performance PRs
+
+This branch retains the research, benchmark source, raw measurements, compiler excerpts, and
+verification logs. It is an evidence archive and is not intended to merge into `develop`.
+The two PRs contain only production changes and correctness tests.
+
+| PR | Evidence | Original measured snapshot |
+| --- | --- | --- |
+| [#9985](https://github.com/vortex-data/vortex/pull/9985), UTF-8 decode | [Benchmark and results](../../../benchmarks/row-fn-utf8/) | `6b507e8ac9012f58487431dea24ea33e142c5e00` |
+| [#9986](https://github.com/vortex-data/vortex/pull/9986), Boolean retry | [Benchmark and results](../../../benchmarks/row-fn-bool/) | `5cdf87a89651d4ca0405afad3cff0e066f9db58d` |
+
+The original snapshots remain ancestors of this branch. Each snapshot contains its independent
+production change and its own benchmark package. The evidence branch tip contains both changes.
+For an independent reproduction, create a worktree at the relevant snapshot and follow its
+benchmark README. Do not use the combined branch tip as an independent PR measurement.
+
+```bash
+git worktree add --detach /tmp/row-fn-utf8-evidence 6b507e8ac9012f58487431dea24ea33e142c5e00
+git worktree add --detach /tmp/row-fn-bool-evidence 5cdf87a89651d4ca0405afad3cff0e066f9db58d
+```
+
+The [full investigation](follow-up.md) retains the other candidates and rejected experiments.
+The measurements are native ARM results. They do not establish x86 or end-to-end query performance.

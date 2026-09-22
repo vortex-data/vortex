@@ -1,0 +1,36 @@
+{
+  "date": "2026-09-22",
+  "cpu": "Apple M4 Max",
+  "memory_bytes": 137438953472,
+  "os": "Darwin Mac.localdomain 27.0.0 Darwin Kernel Version 27.0.0: Tue Aug 11 21:05:48 PDT 2026; root:xnu-13432.1.9~1/RELEASE_ARM64_T6041 arm64",
+  "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)\nbinary: rustc\ncommit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea\ncommit-date: 2026-08-18\nhost: aarch64-apple-darwin\nrelease: 1.98.0\nLLVM version: 22.1.8",
+  "cargo": "cargo 1.98.0 (797e8a9bc 2026-08-05)",
+  "target": "aarch64-apple-darwin",
+  "profile": "release",
+  "opt_level": 3,
+  "codegen_units": 16,
+  "lto": false,
+  "rustflags": [
+    "-C",
+    "force-frame-pointers=yes"
+  ],
+  "target_cpu_override": null,
+  "rustc_wrapper": "kache",
+  "allocator": "mimalloc 0.1.52",
+  "libmimalloc_sys": "0.1.49",
+  "affinity": null,
+  "frequency_lock": false,
+  "thermal_control": false,
+  "kache": "0.14.2",
+  "environment_flag_overrides": {},
+  "base_commit": "133aacdb7ef30f781552ec1f1d6ada9193bc9b4e",
+  "candidate_commit": "b17c6da787914e62f068b3e00f42fae764dbd375",
+  "branch": "ct/row-fn-bool-retry",
+  "source_sha256": {
+    "src/main.rs": "5c922e826924eababc5a6aa8b1241fef499882b80bf65530d61d14cd110b1947",
+    "Cargo.toml": "4a6333d12a06afd86eb67c16c48f50aa6f895ad8b65682bbc2999ef8a0e51824",
+    "Cargo.lock": "e2380bf6f64a3879722f2b123d2717c2ebaafedf17096e27fa3bd21ff49bfce3"
+  },
+  "comparison": "Independent PR against develop. Identical benchmark source and lockfile in both builds.",
+  "pairs": 3
+}

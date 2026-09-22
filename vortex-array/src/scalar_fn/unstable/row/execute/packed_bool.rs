@@ -13,6 +13,7 @@ use vortex_compute::lane_kernels::IndexedSource;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
+use super::DenseAttempt;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -65,6 +66,30 @@ where
     Args: IndexedElementTuple,
     Fail: FailureEvidence,
 {
+    match execute_bool_dense_attempt::<Args, Prepared, Fail, MULTIVERSIONED>(
+        args,
+        ctx,
+        prepare,
+        apply,
+        finish_failure,
+    )? {
+        DenseAttempt::Values(values) => Ok(values),
+        DenseAttempt::DeferredError(error) => Err(error),
+    }
+}
+
+/// Pack a dense attempt, keeping row failure separate from terminal decoding errors.
+pub(crate) fn execute_bool_dense_attempt<Args, Prepared, Fail, const MULTIVERSIONED: bool>(
+    args: &dyn ExecutionArgs,
+    ctx: &mut ExecutionCtx,
+    prepare: impl FnOnce(Args::ConstElems<'_>) -> Prepared,
+    apply: impl Fn(&Prepared, Args::Elems<'_>) -> (bool, Fail),
+    finish_failure: impl FnOnce(Fail) -> VortexResult<()>,
+) -> VortexResult<DenseAttempt>
+where
+    Args: IndexedElementTuple,
+    Fail: FailureEvidence,
+{
     const {
         assert!(
             size_of::<Fail>() <= size_of::<bool>(),
@@ -96,7 +121,10 @@ where
         BitBuffer::collect_bool(row_count, collect)
     };
 
-    finish_failure(failure)?;
-
-    Ok(BoolArray::new(values, Validity::NonNullable).into_array())
+    match finish_failure(failure) {
+        Ok(()) => Ok(DenseAttempt::Values(
+            BoolArray::new(values, Validity::NonNullable).into_array(),
+        )),
+        Err(error) => Ok(DenseAttempt::DeferredError(error)),
+    }
 }

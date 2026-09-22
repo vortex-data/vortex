@@ -1,0 +1,376 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.47
+   Compiling libc v0.2.189
+   Compiling cfg-if v1.0.4
+   Compiling bitflags v2.13.2
+   Compiling bytes v1.12.1
+   Compiling memchr v2.8.3
+   Compiling once_cell v1.21.4
+   Compiling pin-project-lite v0.2.17
+   Compiling find-msvc-tools v0.1.12
+   Compiling shlex v2.0.1
+   Compiling equivalent v1.0.2
+   Compiling autocfg v1.5.1
+   Compiling fnv v1.0.7
+   Compiling futures-core v0.3.34
+   Compiling futures-sink v0.3.34
+   Compiling core-foundation-sys v0.8.7
+   Compiling semver v1.0.28
+   Compiling regex-syntax v0.8.11
+   Compiling slab v0.4.12
+   Compiling libm v0.2.16
+   Compiling smallvec v1.16.1
+   Compiling anyhow v1.0.104
+   Compiling itoa v1.0.18
+   Compiling num-traits v0.2.19
+   Compiling hashbrown v0.17.1
+   Compiling rustc_version v0.4.1
+   Compiling either v1.18.0
+   Compiling aho-corasick v1.1.5
+   Compiling stable_deref_trait v1.2.1
+   Compiling fs_extra v1.3.0
+   Compiling dunce v1.0.5
+   Compiling futures-task v0.3.34
+   Compiling pkg-config v0.3.34
+   Compiling zerocopy v0.8.57
+   Compiling futures-io v0.3.34
+   Compiling futures-channel v0.3.34
+   Compiling allocator-api2 v0.2.21
+   Compiling getrandom v0.3.4
+   Compiling indexmap v2.14.2
+   Compiling http v1.5.0
+   Compiling itertools v0.10.5
+   Compiling aws-lc-rs v1.18.1
+   Compiling tracing-core v0.1.36
+   Compiling rustversion v1.0.23
+   Compiling zeroize v1.9.0
+   Compiling log v0.4.34
+   Compiling writeable v0.6.4
+   Compiling system-configuration-sys v0.6.0
+   Compiling litemap v0.8.3
+   Compiling rustls-pki-types v1.15.1
+   Compiling regex-automata v0.4.18
+   Compiling utf8_iter v1.0.4
+   Compiling jobserver v0.1.35
+   Compiling socket2 v0.6.5
+   Compiling tracing v0.1.44
+   Compiling mio v1.2.3
+   Compiling icu_properties_data v2.3.0
+   Compiling http-body v1.1.0
+   Compiling icu_normalizer_data v2.3.0
+   Compiling tower-service v0.3.3
+   Compiling httparse v1.10.1
+   Compiling percent-encoding v2.3.2
+   Compiling rustls v0.23.45
+   Compiling untrusted v0.9.0
+   Compiling atomic-waker v1.1.2
+   Compiling try-lock v0.2.5
+   Compiling foldhash v0.2.0
+   Compiling rustix v1.1.4
+   Compiling subtle v2.6.1
+   Compiling want v0.3.1
+   Compiling syn v2.0.119
+   Compiling syn v3.0.5
+   Compiling errno v0.3.14
+   Compiling tokio v1.53.1
+   Compiling cc v1.4.6
+   Compiling logos-codegen v0.15.1
+   Compiling scopeguard v1.2.0
+   Compiling fastrand v2.5.0
+   Compiling beef v0.5.2
+   Compiling lazy_static v1.5.0
+   Compiling flatbuffers v25.12.19
+   Compiling sync_wrapper v1.0.2
+   Compiling version_check v0.9.5
+   Compiling unicode-width v0.1.14
+   Compiling serde_core v1.0.229
+   Compiling winnow v1.0.4
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling cmake v0.1.58
+   Compiling futures-macro v0.3.34
+   Compiling synstructure v0.13.2
+   Compiling zerocopy-derive v0.8.57
+   Compiling prost-derive v0.14.4
+   Compiling regex v1.13.1
+   Compiling miette-derive v7.6.0
+   Compiling logos-codegen v0.16.1
+   Compiling rand_core v0.10.1
+   Compiling aws-lc-sys v0.45.0
+   Compiling zerofrom-derive v0.1.7
+   Compiling yoke-derive v0.8.2
+   Compiling thiserror v2.0.20
+   Compiling getrandom v0.4.3
+   Compiling ppv-lite86 v0.2.21
+   Compiling base64 v0.22.1
+   Compiling tower-layer v0.3.3
+   Compiling ipnet v2.12.2
+   Compiling logos-derive v0.15.1
+   Compiling futures-util v0.3.34
+   Compiling miette v7.6.0
+   Compiling tokio-util v0.7.19
+   Compiling logos-derive v0.16.1
+   Compiling toml_parser v1.1.3+spec-1.1.0
+   Compiling zerofrom v0.1.8
+   Compiling prost v0.14.4
+   Compiling thiserror-impl v2.0.20
+   Compiling ahash v0.8.12
+   Compiling form_urlencoded v1.2.2
+   Compiling encoding_rs v0.8.41
+   Compiling radium v0.7.0
+   Compiling yoke v0.8.3
+   Compiling simdutf8 v0.1.5
+   Compiling prost-types v0.14.4
+   Compiling rust_decimal v1.43.0
+   Compiling prettyplease v0.2.37
+   Compiling parking_lot_core v0.9.12
+   Compiling foldhash v0.1.5
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+   Compiling jiff-core v0.1.1
+   Compiling h2 v0.4.19
+   Compiling hashbrown v0.15.5
+   Compiling toml_edit v0.25.15+spec-1.1.0
+   Compiling zerovec v0.11.8
+   Compiling zerotrie v0.2.5
+   Compiling logos v0.16.1
+   Compiling jiff v0.2.37
+   Compiling logos v0.15.1
+   Compiling num-integer v0.1.47
+   Compiling core-foundation v0.9.4
+   Compiling itertools v0.14.0
+   Compiling objc2-core-foundation v0.3.2
+   Compiling tap v1.0.1
+   Compiling thiserror v1.0.69
+   Compiling tinystr v0.8.4
+   Compiling potential_utf v0.1.6
+   Compiling cfg_aliases v0.2.2
+   Compiling arrayvec v0.7.8
+   Compiling multiversion_no_op v1.0.0
+   Compiling serde v1.0.229
+   Compiling zmij v1.0.23
+   Compiling fixedbitset v0.5.7
+   Compiling crossbeam-utils v0.8.23
+   Compiling icu_collections v2.3.0
+   Compiling arrow-schema v59.3.0
+   Compiling glob v0.3.4
+   Compiling icu_locale_core v2.3.0
+   Compiling half v2.7.1
+   Compiling system-configuration v0.7.0
+   Compiling petgraph v0.8.3
+   Compiling nix v0.31.3
+   Compiling vortex-error v0.1.0 (/private/tmp/vortex-row-fn-utf8/vortex-error)
+   Compiling wyz v0.5.1
+   Compiling num-bigint v0.5.1
+   Compiling hyper v1.11.1
+   Compiling protox-parse v0.9.0
+   Compiling tempfile v3.27.0
+   Compiling rand_core v0.9.5
+   Compiling prost-reflect v0.16.5
+   Compiling proc-macro-crate v3.5.0
+   Compiling thiserror-impl v1.0.69
+   Compiling serde_derive v1.0.229
+   Compiling lock_api v0.4.14
+   Compiling security-framework-sys v2.17.0
+   Compiling icu_provider v2.3.1
+   Compiling getrandom v0.2.17
+   Compiling core-foundation v0.10.1
+   Compiling funty v2.0.0
+   Compiling multimap v0.10.1
+   Compiling serde_json v1.0.151
+   Compiling unicode-segmentation v1.13.3
+   Compiling heck v0.5.0
+   Compiling prost-build v0.14.4
+   Compiling bitvec v1.1.1
+   Compiling hyper-util v0.1.20
+   Compiling similar v2.7.0
+   Compiling security-framework v3.7.0
+   Compiling protox v0.9.1
+   Compiling rand_core v0.6.4
+   Compiling arrow-buffer v59.3.0
+   Compiling hashbrown v0.14.5
+   Compiling rand_chacha v0.9.0
+   Compiling icu_properties v2.3.0
+   Compiling icu_normalizer v2.3.0
+   Compiling tower v0.5.3
+   Compiling terminal_size v0.4.4
+   Compiling codspeed v5.0.1
+   Compiling approx v0.5.1
+   Compiling http-body-util v0.1.5
+   Compiling rstest_macros v0.26.1
+   Compiling iana-time-zone v0.1.65
+   Compiling parking v2.2.1
+   Compiling idna_adapter v1.2.2
+   Compiling utf8-width v0.1.9
+   Compiling clap_lex v1.1.0
+   Compiling mime v0.3.17
+   Compiling base64 v0.23.1
+   Compiling anstyle v1.0.14
+   Compiling vortex-buffer v0.1.0 (/private/tmp/vortex-row-fn-utf8/vortex-buffer)
+   Compiling event-listener v5.4.2
+   Compiling statrs v0.18.0
+   Compiling idna v1.1.0
+   Compiling vortex-build v0.1.0 (/private/tmp/vortex-row-fn-utf8/vortex-build)
+   Compiling rand v0.9.5
+   Compiling dashmap v6.2.1
+   Compiling url v2.5.8
+   Compiling clap_builder v4.6.6
+   Compiling rand_chacha v0.3.1
+   Compiling objc2-io-kit v0.3.2
+   Compiling tower-http v0.6.11
+   Compiling chacha20 v0.10.2
+   Compiling divan-macros v0.1.17
+   Compiling libmimalloc-sys v0.1.49
+   Compiling console v0.15.11
+   Compiling colored v3.1.1
+   Compiling bytecount v0.6.9
+   Compiling relative-path v1.9.3
+   Compiling unicode-width v0.2.2
+   Compiling paste v1.0.15
+   Compiling byte-unit v5.2.6
+   Compiling similar-asserts v1.7.0
+   Compiling clap v4.6.6
+   Compiling rand v0.10.2
+   Compiling lasso v0.7.3
+   Compiling rand v0.8.8
+   Compiling sysinfo v0.38.4
+   Compiling papergrid v0.18.0
+   Compiling ping v0.7.1
+   Compiling vortex-array v0.1.0 (/private/tmp/vortex-row-fn-utf8/vortex-array)
+   Compiling event-listener-strategy v0.5.4
+   Compiling chrono v0.4.45
+   Compiling parking_lot v0.12.5
+   Compiling futures-executor v0.3.34
+   Compiling num_enum_derive v0.7.6
+   Compiling enum-iterator-derive v1.5.0
+   Compiling vortex-utils v0.1.0 (/private/tmp/vortex-row-fn-utf8/vortex-utils)
+   Compiling arc-swap v1.9.2
+   Compiling uzers v0.12.2
+   Compiling which v8.0.6
+   Compiling num_cpus v1.17.0
+   Compiling regex-lite v0.1.9
+   Compiling static_assertions v1.1.0
+   Compiling yansi v1.0.1
+   Compiling futures-timer v3.0.4
+   Compiling codspeed-divan-compat v5.0.1
+   Compiling condtype v1.3.0
+   Compiling futures v0.3.34
+   Compiling vortex-session v0.1.0 (/private/tmp/vortex-row-fn-utf8/vortex-session)
+   Compiling enum-iterator v2.3.0
+   Compiling num_enum v0.7.6
+   Compiling rstest v0.26.1
+   Compiling goldenfile v1.11.0
+   Compiling tabled v0.21.0
+   Compiling async-lock v3.4.2
+   Compiling rstest_reuse v0.7.0
+   Compiling codspeed-divan-compat-macros v5.0.1
+   Compiling vortex-mask v0.1.0 (/private/tmp/vortex-row-fn-utf8/vortex-mask)
+   Compiling vortex-compute v0.1.0 (/private/tmp/vortex-row-fn-utf8/vortex-compute)
+   Compiling vortex-array-macros v0.1.0 (/private/tmp/vortex-row-fn-utf8/vortex-array-macros)
+   Compiling console v0.16.6
+   Compiling humansize v2.1.3
+   Compiling rustc-hash v2.1.3
+   Compiling arcref v0.2.0
+   Compiling inventory v0.3.24
+   Compiling uuid v1.26.1
+   Compiling rand_distr v0.6.0
+   Compiling insta v1.48.0
+   Compiling serde_test v1.0.177
+   Compiling vortex-bench-support v0.1.0 (/private/tmp/vortex-row-fn-utf8/benchmarks/bench-support)
+   Compiling mimalloc v0.1.52
+   Compiling codspeed-divan-compat-walltime v5.0.1
+   Compiling rustls-webpki v0.103.15
+   Compiling tokio-rustls v0.26.5
+   Compiling rustls-platform-verifier v0.7.0
+   Compiling hyper-rustls v0.27.9
+   Compiling reqwest v0.13.5
+   Compiling test-with-derive v0.16.3
+   Compiling test-with v0.16.3
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 49.60s
+────────────
+ Nextest run ID a7e3fbb9-f7c1-4d6c-a0b1-959f92cbbf13 with nextest profile: default
+    Starting 78 tests across 1 binary (3501 tests skipped)
+        PASS [   0.011s] ( 1/78) vortex-array arrays::varbinview::build_views::tests::fast_path_empty_input
+        PASS [   0.012s] ( 2/78) vortex-array arrays::varbinview::build_views::tests::fast_path_roundtrip::case_5_empty_values_interleaved
+        PASS [   0.012s] ( 3/78) vortex-array arrays::varbinview::build_views::tests::output_buffers_are_zero_copy
+        PASS [   0.012s] ( 4/78) vortex-array arrays::varbinview::build_views::tests::fast_path_taken_at_exact_boundary
+        PASS [   0.012s] ( 5/78) vortex-array arrays::varbinview::build_views::tests::fast_path_roundtrip::case_1_mixed
+        PASS [   0.013s] ( 6/78) vortex-array arrays::varbinview::build_views::tests::short_lengths_panic
+        PASS [   0.013s] ( 7/78) vortex-array arrays::varbinview::build_views::tests::test_to_canonical_large
+        PASS [   0.013s] ( 8/78) vortex-array arrays::varbinview::build_views::tests::fast_path_roundtrip::case_6_single_long
+        PASS [   0.014s] ( 9/78) vortex-array arrays::varbinview::build_views::tests::fast_path_matches_make_view
+        PASS [   0.013s] (10/78) vortex-array arrays::varbinview::build_views::tests::fast_path_roundtrip::case_2_inline_boundary
+        PASS [   0.014s] (11/78) vortex-array arrays::varbinview::build_views::tests::test_max_buffer_len_too_large_panics
+        PASS [   0.014s] (12/78) vortex-array arrays::varbinview::build_views::tests::from_offsets_matches_lengths_and_is_zero_copy
+        PASS [   0.014s] (13/78) vortex-array arrays::varbinview::build_views::tests::fast_and_slow_paths_agree
+        PASS [   0.014s] (14/78) vortex-array arrays::varbinview::build_views::tests::fast_path_roundtrip::case_4_all_reference
+        PASS [   0.014s] (15/78) vortex-array arrays::varbinview::build_views::tests::fast_path_roundtrip::case_3_all_inlined
+        PASS [   0.018s] (16/78) vortex-array arrays::varbinview::build_views::tests::fast_path_large_offsets
+        PASS [   0.014s] (17/78) vortex-array arrays::varbinview::compact::tests::test_validity_code_paths::case_1_non_nullable
+        PASS [   0.015s] (18/78) vortex-array arrays::varbinview::compact::tests::test_optimize_single_buffer
+        PASS [   0.016s] (19/78) vortex-array arrays::varbinview::compact::tests::test_optimize_no_buffers
+        PASS [   0.018s] (20/78) vortex-array arrays::varbinview::compact::tests::test_optimize_compacts_buffers
+        PASS [   0.016s] (21/78) vortex-array arrays::varbinview::compact::tests::test_validity_code_paths::case_4_mixed_validity
+        PASS [   0.016s] (22/78) vortex-array arrays::varbinview::compute::cast::tests::test_cast_varbinview_conformance::case_1
+        PASS [   0.016s] (23/78) vortex-array arrays::varbinview::compute::cast::tests::test_cast_varbinview_conformance::case_2
+        PASS [   0.016s] (24/78) vortex-array arrays::varbinview::compact::tests::test_validity_code_paths::case_3_all_invalid
+        PASS [   0.017s] (25/78) vortex-array arrays::varbinview::compact::tests::test_validity_code_paths::case_2_all_valid
+        PASS [   0.017s] (26/78) vortex-array arrays::varbinview::compact::tests::test_slice_strategy_with_contiguous_range
+        PASS [   0.018s] (27/78) vortex-array arrays::varbinview::compact::tests::test_selective_compaction_preserves_well_utilized_buffers
+        PASS [   0.017s] (28/78) vortex-array arrays::varbinview::compact::tests::test_selective_compaction_with_threshold_zero
+        PASS [   0.018s] (29/78) vortex-array arrays::varbinview::compact::tests::test_selective_compaction_with_mixed_utilization
+        PASS [   0.018s] (30/78) vortex-array arrays::varbinview::compact::tests::test_selective_compaction_with_high_threshold
+        PASS [   0.019s] (31/78) vortex-array arrays::varbinview::compact::tests::test_optimize_with_long_strings
+        PASS [   0.013s] (32/78) vortex-array arrays::varbinview::compute::cast::tests::test_cast_varbinview_conformance::case_3
+        PASS [   0.010s] (33/78) vortex-array arrays::varbinview::compute::cast::tests::try_cast_varbin_nullable::case_1
+        PASS [   0.012s] (34/78) vortex-array arrays::varbinview::compute::cast::tests::test_cast_varbinview_conformance::case_4
+        PASS [   0.012s] (35/78) vortex-array arrays::varbinview::compute::cast::tests::test_cast_varbinview_conformance::case_5
+        PASS [   0.012s] (36/78) vortex-array arrays::varbinview::compute::cast::tests::test_cast_varbinview_conformance::case_6
+        PASS [   0.010s] (37/78) vortex-array arrays::varbinview::compute::cast::tests::try_cast_varbin_nullable::case_4
+        PASS [   0.011s] (38/78) vortex-array arrays::varbinview::compute::take::tests::test_take_varbinview_conformance::case_1
+        PASS [   0.014s] (39/78) vortex-array arrays::varbinview::compute::cast::tests::try_cast_varbin_fail::case_1
+        PASS [   0.012s] (40/78) vortex-array arrays::varbinview::compute::take::tests::test_take_varbinview_conformance::case_4
+        PASS [   0.013s] (41/78) vortex-array arrays::varbinview::compute::take::tests::take_nullable_indices
+        PASS [   0.014s] (42/78) vortex-array arrays::varbinview::compute::cast::tests::try_cast_varbin_nullable::case_2
+        PASS [   0.014s] (43/78) vortex-array arrays::varbinview::compute::take::tests::test_take_varbinview_conformance::case_2
+        PASS [   0.015s] (44/78) vortex-array arrays::varbinview::compute::cast::tests::try_cast_varbin_nullable::case_3
+        PASS [   0.015s] (45/78) vortex-array arrays::varbinview::compute::cast::tests::try_cast_varbin_fail::case_2
+        PASS [   0.014s] (46/78) vortex-array arrays::varbinview::compute::take::tests::test_take_varbinview_conformance::case_3
+        PASS [   0.015s] (47/78) vortex-array arrays::varbinview::compute::mask::tests::take_mask_var_bin_view_array
+        PASS [   0.015s] (48/78) vortex-array arrays::varbinview::compute::take::tests::take_nullable
+        PASS [   0.011s] (49/78) vortex-array arrays::varbinview::compute::tests::test_varbinview_consistency::case_4_varbinview_empty_strings
+        PASS [   0.012s] (50/78) vortex-array arrays::varbinview::compute::tests::take_nullable
+        PASS [   0.012s] (51/78) vortex-array arrays::varbinview::compute::tests::test_varbinview_consistency::case_3_varbinview_binary
+        PASS [   0.013s] (52/78) vortex-array arrays::varbinview::compute::tests::test_varbinview_consistency::case_2_varbinview_nullable_str
+        PASS [   0.014s] (53/78) vortex-array arrays::varbinview::compute::tests::test_varbinview_consistency::case_1_varbinview_str
+        PASS [   0.012s] (54/78) vortex-array arrays::varbinview::compute::tests::test_varbinview_consistency::case_5_varbinview_single
+        PASS [   0.010s] (55/78) vortex-array arrays::varbinview::tests::validate_replaces_null_views
+        PASS [   0.011s] (56/78) vortex-array arrays::varbinview::tests::slice_array
+        PASS [   0.010s] (57/78) vortex-array arrays::varbinview::view::tests::new_ref_matches_make_view::case_1
+        PASS [   0.012s] (58/78) vortex-array arrays::varbinview::tests::binary_view_size_and_alignment
+        PASS [   0.013s] (59/78) vortex-array arrays::varbinview::tests::deserialize_null_views
+        PASS [   0.012s] (60/78) vortex-array arrays::varbinview::tests::flatten_array
+        PASS [   0.012s] (61/78) vortex-array arrays::varbinview::tests::varbin_view
+        PASS [   0.013s] (62/78) vortex-array arrays::varbinview::compute::zip::tests::zip_varbinview_kernel_zips
+        PASS [   0.014s] (63/78) vortex-array arrays::varbinview::compute::tests::test_varbinview_consistency::case_6_varbinview_large_strings
+        PASS [   0.014s] (64/78) vortex-array arrays::varbinview::compute::tests::test_varbinview_consistency::case_7_varbinview_all_null
+        PASS [   0.009s] (65/78) vortex-array arrays::varbinview::view::tests::new_ref_matches_make_view::case_5
+        PASS [   0.008s] (66/78) vortex-array arrays::varbinview::view::tests::new_ref_matches_make_view::case_6
+        PASS [   0.010s] (67/78) vortex-array arrays::varbinview::view::tests::new_ref_matches_make_view::case_4
+        PASS [   0.011s] (68/78) vortex-array arrays::varbinview::view::tests::new_ref_matches_make_view::case_2
+        PASS [   0.011s] (69/78) vortex-array arrays::varbinview::view::tests::new_ref_matches_make_view::case_3
+        PASS [   0.008s] (70/78) vortex-array scalar_fn::unstable::row::types::element::utf8::tests::constant_decodes_inlined_and_referenced_values::case_1
+        PASS [   0.011s] (71/78) vortex-array arrays::varbinview::vtable::tests::test_nullable_varbinview_serde_roundtrip
+        PASS [   0.008s] (72/78) vortex-array scalar_fn::unstable::row::types::element::utf8::tests::input_sanitizes_unvalidated_null_views
+        PASS [   0.009s] (73/78) vortex-array scalar_fn::unstable::row::types::element::utf8::tests::input_sanitizes_sliced_null_views_repeatedly::case_2_one
+        PASS [   0.010s] (74/78) vortex-array scalar_fn::unstable::row::types::element::utf8::tests::constant_decodes_inlined_and_referenced_values::case_2
+        PASS [   0.010s] (75/78) vortex-array scalar_fn::unstable::row::types::element::utf8::tests::input_rejects_unvalidated_utf8
+        PASS [   0.010s] (76/78) vortex-array scalar_fn::unstable::row::types::element::utf8::tests::input_reads_inline_referenced_and_view_metadata
+        PASS [   0.009s] (77/78) vortex-array scalar_fn::unstable::row::types::element::utf8::tests::input_sanitizes_sliced_null_views_repeatedly::case_3_word_remainder
+        PASS [   0.009s] (78/78) vortex-array scalar_fn::unstable::row::types::element::utf8::tests::input_sanitizes_sliced_null_views_repeatedly::case_1_empty
+────────────
+     Summary [   0.069s] 78 tests run: 78 passed, 3501 skipped

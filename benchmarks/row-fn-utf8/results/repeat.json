@@ -1,0 +1,14 @@
+{
+  "backtrace": "0",
+  "pairs": 3,
+  "binaries": {
+    "before": {
+      "path": "/private/tmp/row-fn-pr-before/release/row-fn-utf8-probe",
+      "sha256": "1b37dd38d6912926088a359e978a5fed6d5fafdc620cd3839e93542e1c53bd02"
+    },
+    "after": {
+      "path": "/private/tmp/row-fn-pr-utf8-after/release/row-fn-utf8-probe",
+      "sha256": "6124a1b00af286b569715a15d7ff1646c8cc6c83d6f7ffc5876e43abd61010ef"
+    }
+  }
+}

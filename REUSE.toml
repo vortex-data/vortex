@@ -69,3 +69,13 @@ SPDX-License-Identifier = "CC-BY-4.0"
 path = "research/row-fn-engine/performance/results/**"
 SPDX-FileCopyrightText = "Copyright the Vortex contributors"
 SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = "benchmarks/row-fn-utf8/results/**"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = "benchmarks/row-fn-bool/results/**"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "Apache-2.0"

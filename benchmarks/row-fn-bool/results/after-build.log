@@ -1,0 +1,4 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling row-fn-bool-probe v0.0.0 (/private/tmp/vortex-row-fn-bool/benchmarks/row-fn-bool)
+    Finished `release` profile [optimized] target(s) in 1.10s
