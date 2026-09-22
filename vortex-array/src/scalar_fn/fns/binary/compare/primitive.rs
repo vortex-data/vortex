@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Native comparison of primitive arrays with byte-oriented bitmap packing.
+//! Native comparison of primitive arrays with specialized bitmap packing for 8-bit inputs.
 
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BufferAllocatorRef;
@@ -142,11 +142,16 @@ fn compare_slice_constant<T: NativePType>(
     }
 }
 
-fn collect_bits<T: Copy>(
+fn collect_bits<T: NativePType>(
     values: &[T],
     f: impl Fn(T) -> bool,
     allocator: &BufferAllocatorRef,
 ) -> BitBuffer {
+    // This type check folds away during monomorphization. Wider masks keep the lane kernel:
+    // byte packing regresses 64-bit comparisons on AVX2.
+    if !matches!(T::PTYPE, PType::I8 | PType::U8) {
+        return super::collect_bits(values, f, allocator);
+    }
     let (chunks, tail) = values.as_chunks::<64>();
     let mut words = BufferMut::<u64>::zeroed_in(values.len().div_ceil(64), allocator.clone());
     // Fixed-size chunks let the compiler prove the predicate's indexing stays in bounds.
@@ -159,12 +164,15 @@ fn collect_bits<T: Copy>(
     bit_buffer_from_words(words, values.len())
 }
 
-fn collect_zip_bits<T: Copy>(
+fn collect_zip_bits<T: NativePType>(
     lhs: &[T],
     rhs: &[T],
     f: impl Fn(T, T) -> bool,
     allocator: &BufferAllocatorRef,
 ) -> BitBuffer {
+    if !matches!(T::PTYPE, PType::I8 | PType::U8) {
+        return super::collect_zip_bits(lhs, rhs, f, allocator);
+    }
     assert_eq!(lhs.len(), rhs.len());
     let (left_chunks, left_tail) = lhs.as_chunks::<64>();
     let (right_chunks, right_tail) = rhs.as_chunks::<64>();
