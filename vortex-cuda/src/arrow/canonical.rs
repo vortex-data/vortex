@@ -119,8 +119,7 @@ impl ExportDeviceArray for CanonicalDeviceArrayExport {
             DictionaryExport::Preserve => {
                 rebuild_array_for_export_schema(array, ctx.execution_ctx())?
             }
-            // Dictionary layouts no longer affect the schema. Preserve other encodings for
-            // structural recursion and direct FSST/OnPair export.
+            // Decode schemas use only dtype; keep encodings for recursion and FSST/OnPair export.
             DictionaryExport::Decode => array,
         };
         let schema = arrow_schema_for_array(&array, ctx)?;
@@ -2583,8 +2582,7 @@ mod tests {
         #[case] dtype: DType,
         #[values(DictionaryExport::Preserve, DictionaryExport::Decode)] policy: DictionaryExport,
     ) -> VortexResult<()> {
-        // Direct FSST varbin export must work when execute_cuda rejects standalone FSST,
-        // ruling out eager canonicalization.
+        // Reject standalone FSST execution to catch eager canonicalization before direct export.
         let mut ctx = cuda_ctx_with_varbin_layout(VarBinExportLayout::VarBin)?
             .with_dictionary_export(policy)
             .with_dispatch_mode(CudaDispatchMode::DynDispatchOnly);

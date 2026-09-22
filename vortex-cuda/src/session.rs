@@ -40,24 +40,14 @@ pub enum VarBinExportLayout {
     VarBinView,
 }
 
-/// Controls whether Arrow Device exports keep dictionary encoding or fully decode it,
-/// including dictionaries nested inside structs and lists.
-///
-/// For example, indices `[0, 1, 0]` and dictionary values `["apple", "pear"]` export as:
-///
-/// - [`Preserve`](Self::Preserve): separate index and dictionary-value arrays, with an Arrow
-///   dictionary type.
-/// - [`Decode`](Self::Decode): the plain string array `["apple", "pear", "apple"]`, with no
-///   dictionary indices or dictionary child.
+/// Dictionary policy for Arrow Device exports, including dictionaries nested in structs and lists.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum DictionaryExport {
-    /// Keep separate index and dictionary-value arrays rather than expanding repeated values.
-    /// The Arrow schema retains the dictionary type, including its index type.
+    /// Keep separate indices and dictionary values; the Arrow schema includes the index type.
     #[default]
     Preserve,
-    /// Fully decode dictionary encoding into plain values on CUDA, including repeated values.
-    /// This keeps one plain Arrow schema across batches with different dictionary encodings,
-    /// but may increase device memory use. Device-resident inputs require CUDA decoding support.
+    /// Expand dictionaries into plain values for a stable schema across batches.
+    /// May increase device memory use; device-resident inputs require CUDA decoding support.
     Decode,
 }
 

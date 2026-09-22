@@ -72,15 +72,12 @@ const VX_CUDA_SCAN_KNOWN_FLAGS: u32 = VX_CUDA_SCAN_FLAG_DIRECT_IO;
 pub struct vx_cuda_scan_options {
     /// A bitwise combination of `VX_CUDA_SCAN_FLAG_*` values. Unknown bits are rejected.
     pub flags: u32,
-    /// Rows in each output batch, except for a possibly smaller final batch.
-    /// Zero preserves layout boundaries without a row cap. Nonzero values split at exact row
-    /// counts independently of layout boundaries: 1,000 rows with 300 yields 300/300/300/100.
-    /// Cross-layout batches still require CUDA-supported encodings; CUDA concatenation of
-    /// `Chunked` arrays is currently unsupported.
+    /// Rows per batch, except for a possibly smaller final batch. Zero preserves layout boundaries.
+    /// Nonzero counts ignore layout boundaries and may require unsupported CUDA `Chunked`
+    /// concatenation.
     pub batch_rows: usize,
 }
 
-/// Initialize CUDA support on `session` and return the same borrow.
 fn session_with_cuda(session: &VortexSession) -> &VortexSession {
     session.get::<CudaSession>();
     register_cuda_layout(session);
@@ -89,8 +86,7 @@ fn session_with_cuda(session: &VortexSession) -> &VortexSession {
 
 /// Create a CUDA Vortex session.
 ///
-/// Repeated `vx_cuda_array_export_arrow_device` calls reuse this CUDA state. Returns an owned
-/// session handle, or null and an optional `vx_error` on failure.
+/// Returns an owned handle with reusable CUDA state, or null and an optional `vx_error` on failure.
 ///
 /// # Safety
 ///
@@ -131,15 +127,9 @@ pub unsafe extern "C-unwind" fn vx_cuda_array_sink_open_file(
 
 /// Open a CUDA-readable Vortex file sink with a fixed row block size.
 ///
-/// `block_rows` controls the row granularity of CUDA-flat data blocks. Passing zero uses the default
-/// writer strategy: 8,192-row blocks may be coalesced into data blocks targeting 1 MiB. Any nonzero
-/// value disables byte-size coalescing and outer layout dictionaries, but retains per-block
-/// dictionary compression. Passing 8,192 is therefore not equivalent to passing zero.
-///
-/// Write and scan sizing are independent. Zero scan `batch_rows` preserves on-disk layout
-/// boundaries; nonzero values request exact row counts with a possibly smaller final batch.
-/// Cross-layout batches still require CUDA-supported encodings; CUDA concatenation of `Chunked`
-/// arrays is currently unsupported.
+/// Zero `block_rows` uses default writer sizing. Nonzero values disable byte-size coalescing and
+/// outer layout dictionaries, but retain per-block dictionary compression.
+/// Write sizing is independent of scan `batch_rows`; see `vx_cuda_scan_options`.
 ///
 /// # Safety
 ///
@@ -173,9 +163,8 @@ pub unsafe extern "C-unwind" fn vx_cuda_array_sink_open_file_block_rows(
 /// Footer/zone-map reads stay on the host; data reaches the GPU through pinned staging buffers
 /// reused across scans with the same CUDA session.
 ///
-/// Dictionaries, including nested children, decode on CUDA for a stable plain Arrow schema,
-/// without changing session policy. Decoding can increase device memory use and requires CUDA
-/// support for device-resident dictionaries.
+/// Dictionaries, including nested children, decode on CUDA to a stable plain Arrow schema without
+/// changing session policy. Decoding requires CUDA support and may increase device memory use.
 ///
 /// Returns `0` with an owned `out_stream`; release it and each batch via their Arrow callbacks.
 /// Returns `1` on error, writing a `vx_error` if `error_out` is non-null; free it with `vx_error_free`.
@@ -207,11 +196,8 @@ pub unsafe extern "C-unwind" fn vx_cuda_scan_path_arrow_device_stream(
 /// Scan a local Vortex file with exact row batches and a possibly smaller final batch.
 ///
 /// Uses `vx_cuda_scan_path_arrow_device_stream`'s export and ownership rules.
-/// Zero preserves layout boundaries without a row cap, so batches may be large. Nonzero
-/// `batch_rows` splits at exact row counts independently of layout boundaries. For example,
-/// 1,000 rows with `batch_rows = 300` yields batches of 300/300/300/100 rows.
-/// Scan and write sizing are independent. Cross-layout batches still require CUDA-supported
-/// encodings; CUDA concatenation of `Chunked` arrays is currently unsupported.
+/// `batch_rows` follows `vx_cuda_scan_options`: zero preserves layout boundaries; nonzero counts
+/// ignore them and may require unsupported CUDA `Chunked` concatenation.
 ///
 /// # Safety
 ///
@@ -363,7 +349,7 @@ unsafe fn scan_columns(columns: *const vx_view, ncolumns: usize) -> VortexResult
     Ok(names.into())
 }
 
-/// Apply projection before column reads; zero preserves layouts, nonzero splits by row count.
+/// Apply projection before column reads.
 fn projected_scan(
     file: &VortexFile,
     columns: FieldNames,

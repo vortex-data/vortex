@@ -114,10 +114,8 @@ impl ArrowArray {
 }
 
 impl ArrowDeviceArray {
-    /// Create an empty, released array with zeroed device metadata and a null sync event.
-    ///
-    /// Use this as storage for an Arrow C device callback output or as the basis for an
-    /// end-of-stream marker. No CUDA device is selected; `device_id` and `device_type` are zero.
+    /// Create a released array with zeroed device metadata and a null sync event.
+    /// Use as callback output storage or an end-of-stream marker base; no device is selected.
     pub fn empty() -> Self {
         Self {
             array: ArrowArray::empty(),
@@ -497,12 +495,11 @@ pub trait DeviceArrayStreamExt {
     /// returned [`ArrowDeviceArrayStream`] owns the Vortex stream and must be released through its
     /// embedded `release` callback.
     ///
-    /// The Arrow Device stream contract requires all arrays to share the schema reported by
-    /// `get_schema`. By default, the schema is derived from the first array, or from the logical
-    /// dtype for an empty stream. Chunks exporting different Arrow types are rejected mid-stream.
-    /// With [`DictionaryExport::Decode`], the logical dtype determines a stable plain schema even
-    /// when chunks vary between dictionary/plain encodings or dictionary index widths. In this
-    /// mode, `get_schema` does not pull or export a batch; read/decode errors surface in `get_next`.
+    /// All arrays must share the `get_schema` schema. By default, it comes from the first array
+    /// (the logical dtype for empty streams); chunks exporting different Arrow types are rejected.
+    /// With [`DictionaryExport::Decode`], the dtype determines a plain schema independent of chunk
+    /// encoding or dictionary index width. `get_schema` does not pull or export a batch;
+    /// read/decode errors surface in `get_next`.
     ///
     /// Drive the returned stream from one thread. `runtime` must be the runtime that owns the
     /// underlying scan tasks and per-array exports.
@@ -953,7 +950,7 @@ mod tests {
     use crate::arrow::release_device_array;
     use crate::arrow::release_schema;
 
-    /// Copy a CUDA buffer from a live, unreleased array produced by this exporter to the host.
+    /// Copy a CUDA buffer to the host; requires a live array from this exporter.
     pub(super) fn private_data_buffer_bytes(
         array: &ArrowArray,
         index: usize,

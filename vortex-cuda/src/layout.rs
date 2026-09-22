@@ -549,9 +549,8 @@ fn extract_constant_buffers(chunk: &ArrayRef) -> Vec<InlinedBuffer> {
 
 /// Build a CUDA-flat writer using only CUDA-compatible, session-enabled array encodings.
 ///
-/// Register CUDA layout support with [`register_cuda_layout`] before writing. A zero `block_rows`
-/// uses the default writer's row sizing and dictionary policy. A nonzero value sets explicit row
-/// blocks, disables outer layout dictionaries and byte-size coalescing, and retains per-block
+/// Requires [`register_cuda_layout`]. Zero `block_rows` uses default sizing and dictionary policy;
+/// nonzero sets row blocks without outer dictionaries or byte coalescing, retaining per-block
 /// dictionary compression.
 pub fn cuda_write_strategy(session: &VortexSession, block_rows: usize) -> Arc<dyn LayoutStrategy> {
     let allowed_encodings = session
@@ -566,8 +565,7 @@ pub fn cuda_write_strategy(session: &VortexSession, block_rows: usize) -> Arc<dy
     if block_rows == 0 {
         strategy.with_btrblocks_builder(builder).build()
     } else {
-        // Outer dictionaries can split blocks into u16-sized runs. Disable their probe, but pass
-        // an opaque compressor so the writer does not also exclude per-block IntDict compression.
+        // An opaque compressor keeps IntDict; disabling the probe avoids u16-sized outer blocks.
         strategy
             .with_compressor(builder.build())
             .with_probe_compressor(BtrBlocksCompressorBuilder::empty().build())
@@ -606,16 +604,13 @@ static CUDA_EDITION_DECLARATION: EditionDeclaration = EditionDeclaration {
 
 /// Register [`CudaFlat`] and its draft `cuda` edition once per session.
 ///
-/// A newly registered edition is enabled for writing only if no `cuda` edition is selected.
-/// A pre-registered edition and subsequent calls leave writer policy unchanged. Other edition
-/// selections and checks are unchanged. The draft has no cross-version compatibility guarantee;
-/// readers must register the CUDA layout.
+/// Enables a newly registered edition only if no `cuda` edition is selected; otherwise preserves
+/// writer policy, including on repeated calls. The draft has no cross-version compatibility
+/// guarantee. Readers must also register the layout.
 ///
-/// Call this alongside [`crate::initialize_cuda`] when setting up a CUDA-enabled session.
-/// Registration itself does not require a GPU.
+/// Call alongside [`crate::initialize_cuda`]; registration itself needs no GPU.
 pub fn register_cuda_layout(session: &VortexSession) {
-    // Edition declarations publish the edition before its members. All callers must wait for
-    // initialization to finish rather than treating an unlocked edition lookup as completion.
+    // Editions are published before their members; concurrent callers must wait for both.
     session.get::<CudaLayoutRegistration>().0.call_once(|| {
         session
             .layouts()
