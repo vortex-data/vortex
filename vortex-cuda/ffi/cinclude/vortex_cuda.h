@@ -67,7 +67,7 @@ struct ArrowDeviceArrayStream {
  */
 typedef struct vx_cuda_scan_options {
     /**
-     * A bitwise combination of `VX_CUDA_SCAN_FLAG_*` values. Unknown bits are ignored.
+     * A bitwise combination of `VX_CUDA_SCAN_FLAG_*` values. Unknown bits are rejected.
      */
     uint32_t flags;
     /**

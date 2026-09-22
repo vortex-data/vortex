@@ -62,13 +62,15 @@ const VX_CUDA_ERR: c_int = 1;
 /// Footer and zone-map reads remain buffered. Supported only on Linux.
 pub const VX_CUDA_SCAN_FLAG_DIRECT_IO: u32 = 1u32 << 0;
 
+const VX_CUDA_SCAN_KNOWN_FLAGS: u32 = VX_CUDA_SCAN_FLAG_DIRECT_IO;
+
 /// Options for scanning a CUDA-compatible Vortex file.
 ///
 /// Zero-initialize this struct to use buffered file I/O and layout-derived batch splitting.
 #[repr(C)]
 #[derive(Default)]
 pub struct vx_cuda_scan_options {
-    /// A bitwise combination of `VX_CUDA_SCAN_FLAG_*` values. Unknown bits are ignored.
+    /// A bitwise combination of `VX_CUDA_SCAN_FLAG_*` values. Unknown bits are rejected.
     pub flags: u32,
     /// Rows in each output batch, except for a possibly smaller final batch.
     /// Zero preserves layout boundaries without a row cap. Nonzero values split at exact row
@@ -393,15 +395,20 @@ fn scan_export_ctx(session: &VortexSession) -> VortexResult<CudaExecutionCtx> {
     )
 }
 
-/// Parse scan settings; null selects defaults and unknown flags are ignored.
+/// Parse scan settings; null selects defaults and unknown flags are rejected.
 ///
 /// # Safety
 ///
-/// Non-null `options` must point to an initialized, aligned [`vx_cuda_scan_options`].
+/// Non-null `options` must point to an initialized, aligned `vx_cuda_scan_options`.
 unsafe fn scan_options(options: *const vx_cuda_scan_options) -> VortexResult<CudaScanOptions> {
     let defaults = vx_cuda_scan_options::default();
     // SAFETY: The caller guarantees that a non-null options pointer is valid for this call.
     let options = unsafe { options.as_ref() }.unwrap_or(&defaults);
+    vortex_ensure!(
+        options.flags & !VX_CUDA_SCAN_KNOWN_FLAGS == 0,
+        "unsupported CUDA scan option flags: {:#x}",
+        options.flags & !VX_CUDA_SCAN_KNOWN_FLAGS
+    );
     let read_at_options = PooledFileReadAtOptions::default();
     let read_at_options = if options.flags & VX_CUDA_SCAN_FLAG_DIRECT_IO == 0 {
         read_at_options
@@ -557,15 +564,8 @@ mod tests {
         let buffered = PooledFileReadAtOptions::default();
         for (flags, batch_rows, read_at_options) in [
             (0, 8192, buffered),
-            (1 << 1, 0, buffered),
             #[cfg(target_os = "linux")]
             (VX_CUDA_SCAN_FLAG_DIRECT_IO, 0, buffered.with_direct_io()),
-            #[cfg(target_os = "linux")]
-            (
-                VX_CUDA_SCAN_FLAG_DIRECT_IO | (1 << 1),
-                8192,
-                buffered.with_direct_io(),
-            ),
         ] {
             let options = vx_cuda_scan_options { flags, batch_rows };
             // SAFETY: options lives for the duration of parsing.
@@ -574,6 +574,26 @@ mod tests {
             assert_eq!(parsed.batch_rows, batch_rows, "flags={flags}");
         }
         Ok(())
+    }
+
+    #[test]
+    fn test_scan_options_reject_unknown_flags() {
+        for flags in [1 << 1, VX_CUDA_SCAN_FLAG_DIRECT_IO | (1 << 1), u32::MAX] {
+            let options = vx_cuda_scan_options {
+                flags,
+                batch_rows: 0,
+            };
+            // SAFETY: options remains live throughout parsing.
+            let error = unsafe { scan_options(&raw const options) }
+                .err()
+                .expect("unknown flags must be rejected");
+            assert!(
+                error
+                    .to_string()
+                    .contains("unsupported CUDA scan option flags"),
+                "{error}"
+            );
+        }
     }
 
     #[cuda_test]
