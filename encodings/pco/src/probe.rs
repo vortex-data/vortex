@@ -19,8 +19,8 @@ use vortex_array::match_each_native_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_err;
 use vortex_mask::Mask;
 
 use crate::Pco;
@@ -40,7 +40,8 @@ pub struct PcoProbeState {
     validity: Option<Mask>,
     rank: Vec<usize>,
     pages: Vec<Page>,
-    last_page: usize,
+    /// The page the previous probe landed in, `None` until the first probe resolves one.
+    last_page: Option<usize>,
 }
 
 struct Page {
@@ -105,18 +106,17 @@ pub(crate) fn scalar_at(
             }
         }
     }
-    let page_index = if state.pages[state.last_page].values.contains(&value_index) {
-        state.last_page
-    } else {
-        state
+    let page_index = match state.last_page {
+        Some(last) if state.pages[last].values.contains(&value_index) => last,
+        _ => state
             .pages
-            .partition_point(|page| page.values.end <= value_index)
+            .partition_point(|page| page.values.end <= value_index),
     };
-    state.last_page = page_index;
+    state.last_page = Some(page_index);
     let page = state
         .pages
         .get_mut(page_index)
-        .ok_or_else(|| vortex_err!("Missing PCO page for value {value_index}"))?;
+        .vortex_expect("PCO pages cover every valid value index");
     let values = match &mut page.decoded {
         Some(decoded) => decoded,
         slot @ None => {
