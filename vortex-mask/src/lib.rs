@@ -543,9 +543,9 @@ impl Mask {
             Bound::Unbounded => self.len(),
         };
 
-        assert!(start <= end);
-        assert!(start <= self.len());
-        assert!(end <= self.len());
+        debug_assert!(start <= end);
+        debug_assert!(start <= self.len());
+        debug_assert!(end <= self.len());
         let len = end - start;
 
         // Slicing the whole mask is the identity. `Self` is `Arc`-backed, so the clone is cheap

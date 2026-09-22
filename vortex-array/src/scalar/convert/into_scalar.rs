@@ -35,21 +35,26 @@ macro_rules! impl_into_scalar {
 
         impl From<$ty> for Scalar {
             fn from(value: $ty) -> Self {
-                Self::try_new(
-                    DType::$variant(Nullability::NonNullable),
-                    Some(ScalarValue::from(value)),
-                )
-                .vortex_expect("unable to construct a `Scalar`")
+                // SAFETY: dtype and value are built from $variant
+                unsafe {
+                    Self::new_unchecked(
+                        DType::$variant(Nullability::NonNullable),
+                        Some(ScalarValue::from(value)),
+                    )
+                }
             }
         }
 
         impl From<Option<$ty>> for Scalar {
             fn from(value: Option<$ty>) -> Self {
-                Self::try_new(
-                    DType::$variant(Nullability::Nullable),
-                    value.map(ScalarValue::from),
-                )
-                .vortex_expect("unable to construct a `Scalar`")
+                // SAFETY: dtype and value are built from $variant. DType is
+                // nullable, so None is valid
+                unsafe {
+                    Self::new_unchecked(
+                        DType::$variant(Nullability::Nullable),
+                        value.map(ScalarValue::from),
+                    )
+                }
             }
         }
     };

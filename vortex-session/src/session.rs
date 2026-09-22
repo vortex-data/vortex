@@ -11,7 +11,7 @@
 //!   read never takes a lock, it can never deadlock, and because it never holds a lock across the
 //!   returned reference there is no reader/writer contention.
 //!
-//! * **Writes** ([`VortexSession::with_some`], [`SessionExt::get`] on a missing default) are
+//! * **Writes** ([`VortexSession::with_some`], [`SessionExt::get`] on a missing default are
 //!   copy-on-write: the map is cloned, the change applied to the private copy, and the new map
 //!   atomically published. The value is constructed *before* the map is updated, so no user code
 //!   (in particular, no `Default::default` implementation) ever runs while a lock is held. This is

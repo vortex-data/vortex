@@ -4,7 +4,6 @@
 //! Conversions for [`PrimitiveScalar`]s.
 
 use vortex_error::VortexError;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -104,26 +103,29 @@ macro_rules! primitive_scalar {
         /// Non-nullable `Into<Scalar>` implementation for T.
         impl From<$T> for Scalar {
             fn from(value: $T) -> Self {
-                Scalar::try_new(
-                    DType::Primitive(<$T>::PTYPE, Nullability::NonNullable),
-                    Some(ScalarValue::Primitive(value.into())),
-                )
-                .vortex_expect(
-                    "somehow unable to construct a primitive `Scalar` from a native type",
-                )
+                // SAFETY: Primitive dtype of T::PTYPE by definition always
+                // matches Primitive value built from T
+                unsafe {
+                    Scalar::new_unchecked(
+                        DType::Primitive(<$T>::PTYPE, Nullability::NonNullable),
+                        Some(ScalarValue::Primitive(value.into())),
+                    )
+                }
             }
         }
 
         /// Nullable `Into<Scalar>` implementation for T.
         impl From<Option<$T>> for Scalar {
             fn from(value: Option<$T>) -> Self {
-                Scalar::try_new(
-                    DType::Primitive(<$T>::PTYPE, Nullability::Nullable),
-                    value.map(|value| ScalarValue::Primitive(value.into())),
-                )
-                .vortex_expect(
-                    "somehow unable to construct a primitive `Scalar` from a native type",
-                )
+                // SAFETY: Primitive dtype of T::PTYPE by definition always
+                // matches Primitive value built from T. dtype is nullable so
+                // None is valid
+                unsafe {
+                    Scalar::new_unchecked(
+                        DType::Primitive(<$T>::PTYPE, Nullability::Nullable),
+                        value.map(|value| ScalarValue::Primitive(value.into())),
+                    )
+                }
             }
         }
     };
@@ -199,20 +201,25 @@ impl From<usize> for ScalarValue {
 
 impl From<usize> for Scalar {
     fn from(value: usize) -> Self {
-        Scalar::try_new(
-            DType::Primitive(PType::U64, Nullability::NonNullable),
-            Some(ScalarValue::Primitive((value as u64).into())),
-        )
-        .vortex_expect("somehow unable to construct a primitive `Scalar` from a native type")
+        // SAFETY: U64 always matches a primitive value built from u64
+        unsafe {
+            Scalar::new_unchecked(
+                DType::Primitive(PType::U64, Nullability::NonNullable),
+                Some(ScalarValue::Primitive((value as u64).into())),
+            )
+        }
     }
 }
 
 impl From<Option<usize>> for Scalar {
     fn from(value: Option<usize>) -> Self {
-        Scalar::try_new(
-            DType::Primitive(PType::U64, Nullability::Nullable),
-            value.map(|value| ScalarValue::Primitive((value as u64).into())),
-        )
-        .vortex_expect("somehow unable to construct a primitive `Scalar` from a native type")
+        // SAFETY: U64 always matches a primitive value built from u64. Dtype
+        // is nullable so None is valid.
+        unsafe {
+            Scalar::new_unchecked(
+                DType::Primitive(PType::U64, Nullability::Nullable),
+                value.map(|value| ScalarValue::Primitive((value as u64).into())),
+            )
+        }
     }
 }
