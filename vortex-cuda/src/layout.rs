@@ -29,8 +29,10 @@ use vortex::array::serde::SerializedArray;
 use vortex::array::stats::StatsSetRef;
 use vortex::buffer::BufferString;
 use vortex::buffer::ByteBuffer;
+use vortex::compressor::BtrBlocksCompressorBuilder;
 use vortex::dtype::DType;
 use vortex::dtype::FieldMask;
+use vortex::editions::ComponentKind;
 use vortex::editions::Edition;
 use vortex::editions::EditionDeclaration;
 use vortex::editions::EditionFamily;
@@ -41,6 +43,7 @@ use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_panic;
+use vortex::file::WriteStrategyBuilder;
 use vortex::layout::Layout;
 use vortex::layout::LayoutChildType;
 use vortex::layout::LayoutDeserializeArgs;
@@ -544,6 +547,30 @@ fn extract_constant_buffers(chunk: &ArrayRef) -> Vec<InlinedBuffer> {
     result
 }
 
+/// Build a CUDA-flat writer using only session-enabled encodings.
+pub fn cuda_write_strategy(session: &VortexSession, block_rows: usize) -> Arc<dyn LayoutStrategy> {
+    let allowed_encodings = session
+        .enabled_component_ids(ComponentKind::Array)
+        .into_iter()
+        .collect();
+    let mut strategy = WriteStrategyBuilder::default()
+        .with_btrblocks_builder(
+            BtrBlocksCompressorBuilder::default()
+                .only_cuda_compatible()
+                .retain_allowed_encodings(&allowed_encodings),
+        )
+        .with_flat_strategy(Arc::new(CudaFlatLayoutStrategy::default()));
+    if block_rows > 0 {
+        // Preserve explicit row blocks: outer layout dictionaries can split a high-cardinality
+        // block into u16-sized dictionary runs, while a byte target can coalesce adjacent blocks.
+        strategy = strategy
+            .with_probe_compressor(BtrBlocksCompressorBuilder::empty().build())
+            .with_row_block_size(block_rows)
+            .with_data_block_target_bytes(None);
+    }
+    strategy.build()
+}
+
 #[derive(Clone, Debug, Default)]
 struct CudaLayoutRegistration(Arc<Once>);
 
@@ -620,7 +647,6 @@ mod tests {
     use vortex::buffer::ByteBufferMut;
     use vortex::buffer::buffer;
     use vortex::editions::CORE_2025_05_0;
-    use vortex::editions::ComponentKind;
     use vortex::editions::DEFAULT_CORE_EDITION;
     use vortex::file::WriteOptionsSessionExt;
     use vortex::io::runtime::BlockingRuntime;

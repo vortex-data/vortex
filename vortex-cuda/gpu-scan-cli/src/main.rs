@@ -23,13 +23,9 @@ use vortex::array::arrays::Dict;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::struct_::StructArrayExt;
 use vortex::buffer::ByteBufferMut;
-use vortex::compressor::BtrBlocksCompressorBuilder;
-use vortex::editions::ComponentKind;
-use vortex::editions::EditionSessionExt;
 use vortex::error::VortexResult;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
-use vortex::file::WriteStrategyBuilder;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::SessionExt;
 use vortex::session::VortexSession;
@@ -38,7 +34,7 @@ use vortex_cuda::CudaSession;
 use vortex_cuda::PooledByteBufferReadAt;
 use vortex_cuda::TracingLaunchStrategy;
 use vortex_cuda::executor::CudaArrayExt;
-use vortex_cuda::layout::CudaFlatLayoutStrategy;
+use vortex_cuda::layout::cuda_write_strategy;
 use vortex_cuda::layout::register_cuda_layout;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
@@ -92,23 +88,6 @@ async fn main() -> VortexResult<()> {
     }
 }
 
-/// Build the write strategy used for CUDA-compatible file output.
-#[cuda_available]
-fn cuda_write_strategy(session: &VortexSession) -> Arc<dyn vortex::layout::LayoutStrategy> {
-    let allowed_encodings = session
-        .enabled_component_ids(ComponentKind::Array)
-        .into_iter()
-        .collect();
-    WriteStrategyBuilder::default()
-        .with_btrblocks_builder(
-            BtrBlocksCompressorBuilder::default()
-                .only_cuda_compatible()
-                .retain_allowed_encodings(&allowed_encodings),
-        )
-        .with_flat_strategy(Arc::new(CudaFlatLayoutStrategy::default()))
-        .build()
-}
-
 /// Convert an input Vortex file to CUDA-compatible encodings and write to disk.
 #[cuda_available]
 async fn cmd_convert(input: PathBuf, output: PathBuf) -> VortexResult<()> {
@@ -121,7 +100,7 @@ async fn cmd_convert(input: PathBuf, output: PathBuf) -> VortexResult<()> {
     let mut out = tokio::fs::File::create(&output).await?;
     session
         .write_options()
-        .with_strategy(cuda_write_strategy(&session))
+        .with_strategy(cuda_write_strategy(&session, 0))
         .write(&mut out, scan)
         .await?;
 
@@ -233,7 +212,7 @@ async fn recompress_for_gpu(
     let mut out = ByteBufferMut::empty();
     let result = session
         .write_options()
-        .with_strategy(cuda_write_strategy(session))
+        .with_strategy(cuda_write_strategy(session, 0))
         .write(&mut out, scan)
         .await?;
 

@@ -10,16 +10,12 @@
 
 use std::os::raw::c_int;
 use std::ptr;
-use std::sync::Arc;
 
 use arrow_schema::ffi::FFI_ArrowSchema;
 use vortex::array::ArrayRef;
 use vortex::array::stream::ArrayStreamExt;
-use vortex::compressor::BtrBlocksCompressorBuilder;
 use vortex::dtype::FieldName;
 use vortex::dtype::FieldNames;
-use vortex::editions::ComponentKind;
-use vortex::editions::EditionSessionExt;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
@@ -27,9 +23,7 @@ use vortex::expr::root;
 use vortex::expr::select;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
-use vortex::file::WriteStrategyBuilder;
 use vortex::io::runtime::BlockingRuntime;
-use vortex::layout::LayoutStrategy;
 use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::layout::scan::split_by::SplitBy;
 use vortex::session::SessionExt;
@@ -44,7 +38,7 @@ use vortex_cuda::arrow::ArrowDeviceArray;
 use vortex_cuda::arrow::ArrowDeviceArrayStream;
 use vortex_cuda::arrow::DeviceArrayExt;
 use vortex_cuda::arrow::DeviceArrayStreamExt;
-use vortex_cuda::layout::CudaFlatLayoutStrategy;
+use vortex_cuda::layout::cuda_write_strategy;
 use vortex_cuda::layout::register_cuda_layout;
 use vortex_ffi::ffi_runtime;
 use vortex_ffi::try_or;
@@ -89,30 +83,6 @@ fn session_with_cuda(session: &VortexSession) -> &VortexSession {
     session.get::<CudaSession>();
     register_cuda_layout(session);
     session
-}
-
-/// Build a CUDA-flat writer using only session-enabled encodings.
-fn cuda_write_strategy(session: &VortexSession, block_rows: usize) -> Arc<dyn LayoutStrategy> {
-    let allowed_encodings = session
-        .enabled_component_ids(ComponentKind::Array)
-        .into_iter()
-        .collect();
-    let mut strategy = WriteStrategyBuilder::default()
-        .with_btrblocks_builder(
-            BtrBlocksCompressorBuilder::default()
-                .only_cuda_compatible()
-                .retain_allowed_encodings(&allowed_encodings),
-        )
-        .with_flat_strategy(Arc::new(CudaFlatLayoutStrategy::default()));
-    if block_rows > 0 {
-        // Preserve explicit row blocks: outer layout dictionaries can split a high-cardinality
-        // block into u16-sized dictionary runs, while a byte target can coalesce adjacent blocks.
-        strategy = strategy
-            .with_probe_compressor(BtrBlocksCompressorBuilder::empty().build())
-            .with_row_block_size(block_rows)
-            .with_data_block_target_bytes(None);
-    }
-    strategy.build()
 }
 
 /// Create a CUDA Vortex session.
