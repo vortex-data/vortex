@@ -3,6 +3,7 @@
 
 //! Measures packed Boolean dense attempts and nullable retry through public RowFn execution.
 
+use std::array;
 use std::sync::LazyLock;
 
 use divan::Bencher;
@@ -33,7 +34,8 @@ static GLOBAL: MiMalloc = MiMalloc;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
-const SIZES: &[usize] = &[64, 16_384];
+const SIZES: &[usize] = &[16_384];
+const BATCHES_PER_ITER: usize = 8;
 const CASES: &[(InputShape, Scenario)] = &[
     (InputShape::Columns, Scenario::AllValid),
     (InputShape::ConstantLhs, Scenario::AllValid),
@@ -169,10 +171,16 @@ fn bench_predicate<const MULTIVERSIONED: bool>(
     drop(result);
 
     bencher
-        .counter(ItemsCount::new(rows))
-        .with_inputs(|| (&args, SESSION.create_execution_ctx()))
-        .bench_refs(|(args, ctx)| {
-            let result = execute_rows(&function, &EmptyOptions, *args, ctx);
-            drop(divan::black_box(result));
+        .counter(ItemsCount::new(rows * BATCHES_PER_ITER))
+        .with_inputs(|| {
+            (
+                &args,
+                array::from_fn::<_, BATCHES_PER_ITER, _>(|_| SESSION.create_execution_ctx()),
+            )
+        })
+        .bench_refs(|(args, contexts)| {
+            contexts
+                .each_mut()
+                .map(|ctx| execute_rows(&function, &EmptyOptions, *args, ctx))
         });
 }
