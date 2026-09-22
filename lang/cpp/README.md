@@ -96,6 +96,16 @@ Cargo's `test` and `bench` profiles are unsupported.
 - Nightly builds without Rust sanitizers may regenerate `vortex.h`.
   Nightly and CUDA builds need a writable checkout for generated sources.
 
+### Linker selection
+
+`-DCMAKE_LINKER_TYPE=MOLD` (or `LLD`; CMake 3.29+) also selects the linker rustc uses for build
+scripts and proc macros. Cargo links nothing else: CMake links the Rust archive with its own linker
+flags. Custom types need CMake's
+[C driver mapping](https://cmake.org/cmake/help/latest/variable/CMAKE_LANG_USING_LINKER_TYPE.html)
+as plain driver flags: empty mappings (`SYSTEM` on Linux), `LINKER:`/`SHELL:` prefixes, and
+direct-linker modes are unsupported. Unset/`DEFAULT` leaves Cargo unchanged; `CMAKE_LINKER` and
+per-target overrides are not forwarded.
+
 ## Development
 
 ### Tests and examples
@@ -116,9 +126,10 @@ cargo fetch --locked
 python3 -m unittest discover -s vortex-ffi/cmake/tests -v
 ```
 
-Missing tools fail the tests rather than skipping them. These checks cover embedding,
-compiler flags, rebuilds, generated headers, and CUDA architecture forwarding;
-the C/C++ CI jobs build and test Vortex itself.
+Missing tools fail the tests rather than skipping them; only the real-link regression is
+Linux-only. These checks cover embedding, compiler flags, linker selection, rebuilds,
+generated headers, and CUDA architecture forwarding; the C/C++ CI jobs build and test Vortex
+itself.
 
 ### Sanitizers
 

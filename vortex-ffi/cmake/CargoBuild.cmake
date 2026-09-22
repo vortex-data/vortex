@@ -75,8 +75,9 @@ function(_vortex_build_tool_path output)
     set(${output} "${_path}" PARENT_SCOPE)
 endfunction()
 
-# Wrap the compiler for host-only flag filtering without hiding arguments from cc-rs probes.
-function(_vortex_native_compiler_launcher compiler arg1 output)
+# Wrap the compiler for host-only flag filtering without hiding arguments from cc-rs
+# probes. The Rust linker variant also appends CMake's linker selection.
+function(_vortex_compiler_launcher compiler arg1 rust_linker output)
     _vortex_reject_semicolon("compiler ARG1" "${arg1}")
     _vortex_encode_shell_arguments(_compiler "${compiler}")
     separate_arguments(_command UNIX_COMMAND "${_compiler} ${arg1}")
@@ -89,8 +90,13 @@ function(_vortex_native_compiler_launcher compiler arg1 output)
     set(_known_wrappers ccache distcc sccache icecc cachepot buildcache kache env
         "$ENV{CC_KNOWN_WRAPPER_CUSTOM}")
     set(_use_rustc_wrapper true)
+    set(_linker_flags "")
     list(LENGTH _command _command_length)
-    if(_command_length GREATER 1 AND _compiler_name IN_LIST _known_wrappers)
+    if(rust_linker)
+        # Do not apply the native RUSTC_WRAPPER fallback to Rust links.
+        set(_use_rustc_wrapper false)
+        _vortex_encode_shell_arguments(_linker_flags "${VORTEX_RUST_LINKER_FLAGS}")
+    elseif(_command_length GREATER 1 AND _compiler_name IN_LIST _known_wrappers)
         set(_use_rustc_wrapper false)
     endif()
 
@@ -102,13 +108,21 @@ function(_vortex_native_compiler_launcher compiler arg1 output)
     string(SHA256 _key "${_script}")
     set(_directory "${VORTEX_CARGO_TARGET_DIR}/cmake-native-tools")
     set(_launcher "${_directory}/cc-${_key}")
+    if(rust_linker)
+        # rustc infers a compiler driver from the -gcc suffix and then adds no linker
+        # selection of its own, leaving the choice to the mapping.
+        string(APPEND _launcher "-gcc")
+        # Cargo accepts a single executable path, not a shell command.
+        set(${output} "${_launcher}" PARENT_SCOPE)
+    else()
+        # An explicit cc-rs wrapper suppresses its outer RUSTC_WRAPPER fallback.
+        # It splits CC/CXX on whitespace, so resolve the launcher through PATH.
+        set(${output} "env cc-${_key}" PARENT_SCOPE)
+    endif()
     file(MAKE_DIRECTORY "${_directory}")
     file(WRITE "${_launcher}" "${_script}")
     file(CHMOD "${_launcher}" PERMISSIONS
         OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
-    # An explicit cc-rs wrapper suppresses its outer RUSTC_WRAPPER fallback.
-    # It splits CC/CXX on whitespace, so resolve the launcher through PATH.
-    set(${output} "env cc-${_key}" PARENT_SCOPE)
 endfunction()
 
 # Assemble the Cargo environment from the selected tools and flags.
@@ -122,8 +136,8 @@ function(_vortex_make_cargo_environment output)
     string(JOIN "${_separator}" _rustflags ${VORTEX_RUSTFLAGS})
     _vortex_encode_shell_arguments(_cflags ${VORTEX_CFLAGS})
     _vortex_encode_shell_arguments(_cxxflags ${VORTEX_CXXFLAGS})
-    _vortex_native_compiler_launcher("${VORTEX_C_COMPILER}" "${VORTEX_C_COMPILER_ARG1}" _cc)
-    _vortex_native_compiler_launcher("${VORTEX_CXX_COMPILER}" "${VORTEX_CXX_COMPILER_ARG1}" _cxx)
+    _vortex_compiler_launcher("${VORTEX_C_COMPILER}" "${VORTEX_C_COMPILER_ARG1}" false _cc)
+    _vortex_compiler_launcher("${VORTEX_CXX_COMPILER}" "${VORTEX_CXX_COMPILER_ARG1}" false _cxx)
     _vortex_build_tool_path(_cargo_path)
 
     set(_environment
@@ -134,6 +148,15 @@ function(_vortex_make_cargo_environment output)
         "CFLAGS_${_target_key}=${_cflags}"
         "CXXFLAGS_${_target_key}=${_cxxflags}"
         "CARGO_ENCODED_RUSTFLAGS=${_rustflags}")
+
+    if(VORTEX_RUST_LINKER_FLAGS)
+        # Cargo links only build scripts and proc macros; CMake links the archive itself.
+        # Those host links must not inherit the C/C++ instrumentation.
+        _vortex_compiler_launcher("${VORTEX_C_COMPILER}" "${VORTEX_C_COMPILER_ARG1}"
+            true _rust_linker)
+        string(TOUPPER "${_target_key}" _cargo_target_key)
+        list(APPEND _environment "CARGO_TARGET_${_cargo_target_key}_LINKER=${_rust_linker}")
+    endif()
 
     # Tool lookup prefers the literal triple over its underscore spelling.
     foreach(_key IN ITEMS "${VORTEX_RUST_TARGET}" "${_target_key}")

@@ -8,6 +8,7 @@ import json
 import shlex
 import shutil
 import subprocess
+import sys
 import tomllib
 import unittest
 from pathlib import Path
@@ -60,12 +61,15 @@ class CompilerCommandTests(CMakeTest):
         generator="Ninja",
         build_name=None,
         debug_info=None,
+        linker_hook=None,
     ) -> None:
         self.build_dir = self.work / (build_name or f"{generator} build directory's")
         self.target_dir = self.build_dir / "ffi/cargo-target"
         options = []
         if debug_info is not None:
             options.append(f"-DVORTEX_DEBUG_INFO={debug_info}")
+        if linker_hook is not None:
+            options.append(f"-DCMAKE_PROJECT_VortexFFI_INCLUDE={linker_hook}")
         include = self.source / "native-helper/include directory's"
         errors = ["-Werror", "-Werror=unused-variable", "-pedantic-errors"] if policy else []
         for language, compiler in (("C", "clang"), ("CXX", "clang++")):
@@ -178,6 +182,36 @@ class CompilerCommandTests(CMakeTest):
                 for runtime in ("ubsan", "llvm_gcda"):
                     self.assertEqual(runtime in symbols, target, symbols)
                 self.assertEqual(obj.with_suffix(".gcno").exists(), target)
+
+    def test_explicit_linker_reaches_cargo_build_scripts(self) -> None:
+        if sys.platform != "linux":
+            self.skipTest("Real linker regression uses a Linux linker command line")
+        log = self.work / "linker calls.jsonl"
+        selected_linker = self.executable(
+            "linker tools' directory/selected ld",
+            f"""\
+            import json, os, sys
+            with open({str(log)!r}, 'a') as log:
+                log.write(json.dumps(sys.argv[1:]) + '\\n')
+            os.execvp('ld', ['ld', *sys.argv[1:]])
+            """,
+        )
+        hook = self.write(
+            "linker.cmake",
+            f"""\
+            # Probe Threads before installing the Cargo-only linker fixture.
+            set(THREADS_PREFER_PTHREAD_FLAG TRUE)
+            find_package(Threads REQUIRED)
+            set(CMAKE_LINKER_TYPE VortexFixture)
+            set(CMAKE_C_USING_LINKER_VortexFixture [==[-fuse-ld={selected_linker}]==])
+            """,
+        )
+        self.configure(linker_hook=hook, instrumentation=True)
+        self.build()
+        calls = [json.loads(line) for line in log.read_text().splitlines()]
+        self.assertTrue(any("build_script_build" in arg for args in calls for arg in args), calls)
+        # Coverage on the host link would pull in the profile runtime.
+        self.assertFalse(any("clang_rt.profile" in arg for args in calls for arg in args), calls)
 
 
 if __name__ == "__main__":

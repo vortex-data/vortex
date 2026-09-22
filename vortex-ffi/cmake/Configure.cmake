@@ -252,6 +252,26 @@ endfunction()
 # the public Vortex C++ target.
 block(SCOPE_FOR VARIABLES)
     _vortex_resolve_cargo_profile(_configuration _cargo_profile _cargo_artifact_directory)
+    # One Cargo build serves all consumers; follow the directory/toolchain selection.
+    # rustc links its build scripts and proc macros through the C driver.
+    set(_rust_linker_flags "")
+    if(CMAKE_LINKER_TYPE AND NOT CMAKE_LINKER_TYPE STREQUAL "DEFAULT")
+        # CMake 4.0 reads CMAKE_C_LINK_MODE instead of CMAKE_C_USING_LINKER_MODE.
+        # Outside driver mode the mapping is a linker tool path, not driver flags.
+        if(CMAKE_C_LINK_MODE STREQUAL "LINKER" OR CMAKE_C_USING_LINKER_MODE STREQUAL "TOOL")
+            message(FATAL_ERROR "Vortex forwards CMAKE_LINKER_TYPE to Cargo only through the "
+                "C compiler driver, not in TOOL/LINKER mode")
+        endif()
+        set(_mapping "CMAKE_C_USING_LINKER_${CMAKE_LINKER_TYPE}")
+        # CMake expands LINKER: and SHELL: prefixes at generate time; the launcher does not.
+        if("${${_mapping}}" STREQUAL "" OR "${${_mapping}}" MATCHES "(^|;)(LINKER|SHELL):")
+            message(FATAL_ERROR
+                "Cannot forward CMAKE_LINKER_TYPE=${CMAKE_LINKER_TYPE} to Cargo: ${_mapping} "
+                "must hold plain driver flags, but is '${${_mapping}}'. CMake 3.29+ defines "
+                "the built-in types; use DEFAULT to leave the Rust linker unchanged.")
+        endif()
+        set(_rust_linker_flags "${${_mapping}}")
+    endif()
 
     set(_cuda_arch_flags "")
     set(_cuda_host_compiler "")
@@ -357,6 +377,7 @@ block(SCOPE_FOR VARIABLES)
             "-DVORTEX_RUSTFLAGS=${_rustflags}"
             "-DVORTEX_CFLAGS=${_native_c_flags}"
             "-DVORTEX_CXXFLAGS=${_native_cxx_flags}"
+            "-DVORTEX_RUST_LINKER_FLAGS=${_rust_linker_flags}"
             "-DVORTEX_C_COMPILER=${CMAKE_C_COMPILER}"
             "-DVORTEX_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
             "-DVORTEX_C_COMPILER_ARG1=${CMAKE_C_COMPILER_ARG1}"

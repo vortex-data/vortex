@@ -4,9 +4,9 @@
 
 # Mandatory compiler arguments also apply to compiler-family and flag probes.
 set -- @_compiler_command@ "$@"
-# Cargo clears Rust flags for native build-tool dependencies under --target.
-# Their links lack sanitizer and coverage runtimes.
-if [ -z "${CARGO_ENCODED_RUSTFLAGS:-}" ]; then
+# Build tools stay uninstrumented: the Rust linker is host-only, and Cargo
+# clears Rust flags for host build-tool dependencies under --target.
+if @rust_linker@ || [ -z "${CARGO_ENCODED_RUSTFLAGS:-}" ]; then
     for arg do
         shift
         case "$arg" in
@@ -24,4 +24,5 @@ if @_use_rustc_wrapper@; then
         sccache|cachepot|buildcache|kache) set -- "$RUSTC_WRAPPER" "$@" ;;
     esac
 fi
-exec "$@"
+# Linker flags are empty for native compilation; otherwise the selection wins last.
+exec "$@" @_linker_flags@

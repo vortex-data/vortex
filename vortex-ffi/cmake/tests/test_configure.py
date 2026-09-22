@@ -201,6 +201,51 @@ class ConfigureTests(CMakeTest):
         self.cmake_build(build)
         assert_selection(None)
 
+    def test_linker_type_reaches_cargo_and_default_keeps_ambient(self) -> None:
+        hook = self.write(
+            "linker.cmake",
+            """\
+            # Probe Threads before installing the Cargo-only linker fixture.
+            set(THREADS_PREFER_PTHREAD_FLAG TRUE)
+            find_package(Threads REQUIRED)
+            set(CMAKE_LINKER_TYPE VortexFixture)
+            set(CMAKE_C_USING_LINKER_VortexFixture "-fuse-ld=fixture ld;-Wl,--fixture-selection")
+            """,
+        )
+        self.configure("linker", f"-DCMAKE_PROJECT_VortexFFI_INCLUDE={hook}")
+        build = self.work / "linker"
+        self.cmake_build(build, "--target", "vortex_ffi_cargo_build")
+        recorded = self.cargo_recording(build / "cargo-target")
+        target = recorded["args"][recorded["args"].index("--target") + 1]
+        key = f"CARGO_TARGET_{target.upper().replace('-', '_')}_LINKER"
+        linker = Path(recorded["env"][key])
+        self.assertTrue(linker.name.endswith("-gcc"), linker)
+        self.assertIn("'-fuse-ld=fixture ld' '-Wl,--fixture-selection'", linker.read_text())
+        for compiler in ("CC", "CXX"):
+            launcher = linker.parent / recorded["env"][f"{compiler}_{target}"].removeprefix("env ")
+            self.assertNotIn("fixture", launcher.read_text(), launcher)
+
+        self.env[key] = "/ambient/linker"
+        for options in ((), ("-DCMAKE_LINKER_TYPE=DEFAULT",)):
+            with self.subTest(options=options):
+                self.configure("default", *options)
+                self.cmake_build(self.work / "default", "--target", "vortex_ffi_cargo_build")
+                env = self.cargo_recording(self.work / "default/cargo-target")["env"]
+                self.assertEqual(env[key], "/ambient/linker")
+
+    def test_invalid_linker_selections(self) -> None:
+        for setting, diagnostic in (
+            ("", "CMAKE_C_USING_LINKER_VortexFixture"),
+            ('set(CMAKE_C_USING_LINKER_VortexFixture "LINKER:-ld_classic")', "LINKER:-ld_classic"),
+            ('set(CMAKE_C_USING_LINKER_VortexFixture "SHELL:-fuse-ld=lld")', "SHELL:-fuse-ld=lld"),
+            ("set(CMAKE_C_USING_LINKER_MODE TOOL)", "TOOL"),
+            ("set(CMAKE_C_LINK_MODE LINKER)", "LINKER"),
+        ):
+            with self.subTest(setting=setting):
+                hook = self.write("invalid.cmake", f"set(CMAKE_LINKER_TYPE VortexFixture)\n{setting}\n")
+                result = self.configure("invalid", f"-DCMAKE_PROJECT_VortexFFI_INCLUDE={hook}", success=False)
+                self.assertIn(diagnostic, result.stdout + result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
