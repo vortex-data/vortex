@@ -19,67 +19,71 @@ use crate::schemes::integer;
 use crate::schemes::string;
 use crate::schemes::temporal;
 
-static DECIMAL_V1: decimal::DecimalScheme = decimal::DecimalScheme::new(false);
-static DECIMAL_V2: decimal::DecimalScheme = decimal::DecimalScheme::new(true);
-
-/// All available compression schemes.
+/// Returns the default compression schemes, configured for the permitted serialized IDs.
 ///
-/// This list is order-sensitive: the builder preserves this order when constructing
-/// the final scheme list, so that tie-breaking is deterministic.
-pub const ALL_SCHEMES: &[&dyn Scheme] = &[
-    ////////////////////////////////////////////////////////////////////////////////////////////////
-    // Integer schemes.
-    ////////////////////////////////////////////////////////////////////////////////////////////////
-    // NOTE: FoR must precede BitPacking to avoid unnecessary patches.
-    &integer::FoRScheme,
-    // NOTE: ZigZag should precede BitPacking because we don't want negative numbers.
-    &integer::ZigZagScheme,
-    &integer::BitPackingScheme,
-    &integer::SparseScheme,
-    &integer::IntDictScheme,
-    &integer::RunEndScheme,
-    &integer::SequenceScheme,
-    &integer::IntRLEScheme,
-    // Delta is omitted here: see [`DELTA_SCHEME`].
-    ////////////////////////////////////////////////////////////////////////////////////////////////
-    // Float schemes.
-    ////////////////////////////////////////////////////////////////////////////////////////////////
-    &float::ALPScheme,
-    &float::ALPRDScheme,
-    &float::FloatDictScheme,
-    &float::NullDominatedSparseScheme,
-    &float::FloatRLEScheme,
-    ////////////////////////////////////////////////////////////////////////////////////////////////
-    // String schemes.
-    ////////////////////////////////////////////////////////////////////////////////////////////////
-    &string::StringDictScheme,
-    // Both string-fragmentation schemes are registered; the sample-based
-    // selector keeps whichever is smaller per column.
-    &string::FSSTScheme,
-    &string::OnPairScheme,
-    &string::NullDominatedSparseScheme,
-    ////////////////////////////////////////////////////////////////////////////////////////////////
-    // Binary schemes.
-    ////////////////////////////////////////////////////////////////////////////////////////////////
-    &binary::BinaryDictScheme,
-    &binary::VarBinScheme,
-    // Decimal schemes.
-    &DECIMAL_V1,
-    // Temporal schemes.
-    &temporal::TemporalScheme,
-];
+/// Decimal uses v2 when its serialized ID is permitted, and v1 otherwise. This configures the
+/// schemes without filtering them; [`BtrBlocksCompressorBuilder::retain_allowed_encodings`] removes
+/// schemes whose outputs are not permitted. The order is preserved for deterministic tie-breaking.
+pub fn all_schemes(allowed_serialized_ids: &HashSet<ArrayId>) -> Vec<&'static dyn Scheme> {
+    vec![
+        ////////////////////////////////////////////////////////////////////////////////////////////////
+        // Integer schemes.
+        ////////////////////////////////////////////////////////////////////////////////////////////////
+        // NOTE: FoR must precede BitPacking to avoid unnecessary patches.
+        &integer::FoRScheme,
+        // NOTE: ZigZag should precede BitPacking because we don't want negative numbers.
+        &integer::ZigZagScheme,
+        &integer::BitPackingScheme,
+        &integer::SparseScheme,
+        &integer::IntDictScheme,
+        &integer::RunEndScheme,
+        &integer::SequenceScheme,
+        &integer::IntRLEScheme,
+        // Delta is omitted here: see [`DELTA_SCHEME`].
+        ////////////////////////////////////////////////////////////////////////////////////////////////
+        // Float schemes.
+        ////////////////////////////////////////////////////////////////////////////////////////////////
+        &float::ALPScheme,
+        &float::ALPRDScheme,
+        &float::FloatDictScheme,
+        &float::NullDominatedSparseScheme,
+        &float::FloatRLEScheme,
+        ////////////////////////////////////////////////////////////////////////////////////////////////
+        // String schemes.
+        ////////////////////////////////////////////////////////////////////////////////////////////////
+        &string::StringDictScheme,
+        // Both string-fragmentation schemes are registered; the sample-based
+        // selector keeps whichever is smaller per column.
+        &string::FSSTScheme,
+        &string::OnPairScheme,
+        &string::NullDominatedSparseScheme,
+        ////////////////////////////////////////////////////////////////////////////////////////////////
+        // Binary schemes.
+        ////////////////////////////////////////////////////////////////////////////////////////////////
+        &binary::BinaryDictScheme,
+        &binary::VarBinScheme,
+        // Decimal schemes.
+        if allowed_serialized_ids.contains(&decimal_byte_parts_v2_id()) {
+            &decimal::DecimalScheme::new(true)
+        } else {
+            &decimal::DecimalScheme::new(false)
+        },
+        // Temporal schemes.
+        &temporal::TemporalScheme,
+    ]
+}
 
-/// Delta, kept out of [`ALL_SCHEMES`] because it is slower to decompress than the schemes that
+/// Delta, kept out of [`all_schemes`] because it is slower to decompress than the schemes that
 /// would otherwise win. Callers that want it opt in with
 /// [`with_new_scheme`](BtrBlocksCompressorBuilder::with_new_scheme).
 ///
-/// TODO(robert): Return it to [`ALL_SCHEMES`] once we have scheme filtering.
+/// TODO(robert): Return it to [`all_schemes`] once we have scheme filtering.
 pub static DELTA_SCHEME: integer::DeltaScheme = integer::DeltaScheme::new(1.25);
 
 /// Builder for creating configured [`BtrBlocksCompressor`] instances.
 ///
-/// By default, all schemes in [`ALL_SCHEMES`] are enabled in a deterministic order. Feature-gated
-/// schemes (Pco, Zstd) are not in `ALL_SCHEMES` and must be added explicitly via
+/// By default, all schemes in [`all_schemes`] are enabled in a deterministic order. Feature-gated
+/// schemes (Pco, Zstd) are not in `all_schemes` and must be added explicitly via
 /// [`with_new_scheme`](BtrBlocksCompressorBuilder::with_new_scheme) or `with_compact` when the
 /// `zstd` feature is enabled.
 /// Use [`Self::new`] to select defaults for a writer's permitted serialized IDs; [`Self::default`]
@@ -91,7 +95,7 @@ pub static DELTA_SCHEME: integer::DeltaScheme = integer::DeltaScheme::new(1.25);
 /// use vortex_btrblocks::{BtrBlocksCompressorBuilder, Scheme, SchemeExt};
 /// use vortex_btrblocks::schemes::integer::IntDictScheme;
 ///
-/// // Default compressor with all schemes in ALL_SCHEMES.
+/// // Default compressor with all schemes from all_schemes.
 /// let compressor = BtrBlocksCompressorBuilder::default().build();
 ///
 /// // Remove specific schemes.
@@ -107,7 +111,7 @@ pub struct BtrBlocksCompressorBuilder {
 impl Default for BtrBlocksCompressorBuilder {
     fn default() -> Self {
         Self {
-            schemes: ALL_SCHEMES.to_vec(),
+            schemes: all_schemes(&HashSet::new()),
         }
     }
 }
@@ -119,15 +123,10 @@ impl BtrBlocksCompressorBuilder {
     /// The selection is fixed; later filtering can remove the scheme but does not reconfigure it.
     /// [`Self::default`] uses the v1 Decimal scheme without filtering other schemes.
     pub fn new(allowed_serialized_ids: &HashSet<ArrayId>) -> Self {
-        let mut builder = Self::default();
-        if allowed_serialized_ids.contains(&decimal_byte_parts_v2_id()) {
-            for scheme in &mut builder.schemes {
-                if scheme.id() == DECIMAL_V1.id() {
-                    *scheme = &DECIMAL_V2;
-                }
-            }
+        Self {
+            schemes: all_schemes(allowed_serialized_ids),
         }
-        builder.retain_allowed_encodings(allowed_serialized_ids)
+        .retain_allowed_encodings(allowed_serialized_ids)
     }
 
     /// Creates a builder with no schemes registered.
@@ -139,7 +138,7 @@ impl BtrBlocksCompressorBuilder {
         }
     }
 
-    /// Adds an external compression scheme not in [`ALL_SCHEMES`].
+    /// Adds an external compression scheme not in [`all_schemes`].
     ///
     /// This allows encoding crates outside of `vortex-btrblocks` to register their own schemes
     /// with the compressor.

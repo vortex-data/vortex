@@ -6,6 +6,7 @@ use vortex_array::VTable;
 use vortex_fastlanes::FoR;
 
 use super::*;
+use crate::schemes::decimal::DecimalScheme;
 
 static DELTA_2: integer::DeltaScheme = integer::DeltaScheme::new(2.0);
 static DELTA_3: integer::DeltaScheme = integer::DeltaScheme::new(3.0);
@@ -18,10 +19,11 @@ fn empty_starts_with_no_schemes() {
 
 #[test]
 fn default_includes_all_schemes() {
+    let schemes = all_schemes(&HashSet::new());
     let builder = BtrBlocksCompressorBuilder::default();
-    assert_eq!(builder.schemes.len(), ALL_SCHEMES.len());
+    assert_eq!(builder.schemes.len(), schemes.len());
     let compressor = builder.build();
-    for scheme in ALL_SCHEMES {
+    for scheme in schemes {
         assert!(compressor.has_scheme(scheme.id()));
     }
 }
@@ -38,20 +40,20 @@ fn retain_allowed_encodings_filters_schemes() {
     let none = BtrBlocksCompressorBuilder::default()
         .retain_allowed_encodings(&HashSet::new())
         .build();
-    for scheme in ALL_SCHEMES {
+    for scheme in all_schemes(&HashSet::new()) {
         assert!(!none.has_scheme(scheme.id()));
     }
 }
 
 #[test]
 fn all_produced_encodings_retain_every_default_scheme() {
-    let allowed: HashSet<_> = ALL_SCHEMES
+    let allowed: HashSet<_> = all_schemes(&HashSet::new())
         .iter()
         .flat_map(|scheme| scheme.produced_encodings())
         .chain([decimal_byte_parts_v2_id()])
         .collect();
     let compressor = BtrBlocksCompressorBuilder::new(&allowed).build();
-    for scheme in ALL_SCHEMES {
+    for scheme in all_schemes(&allowed) {
         assert!(compressor.has_scheme(scheme.id()));
     }
 }
@@ -87,20 +89,23 @@ fn excluded_scheme_can_be_replaced() {
 
 #[test]
 fn default_schemes_can_be_registered() {
-    let compressor = ALL_SCHEMES
+    let schemes = all_schemes(&HashSet::new());
+    let compressor = schemes
         .iter()
         .fold(BtrBlocksCompressorBuilder::empty(), |builder, scheme| {
             builder.with_new_scheme(*scheme)
         })
         .build();
-    for scheme in ALL_SCHEMES {
+    for scheme in schemes {
         assert!(compressor.has_scheme(scheme.id()));
     }
 }
 
 #[rstest]
 #[case::empty(BtrBlocksCompressorBuilder::empty())]
-#[case::excluded(BtrBlocksCompressorBuilder::default().exclude_schemes([DECIMAL_V1.id()]))]
+#[case::excluded(
+    BtrBlocksCompressorBuilder::default().exclude_schemes([DecimalScheme::default().id()])
+)]
 fn allowed_formats_do_not_restore_decimal(#[case] builder: BtrBlocksCompressorBuilder) {
     let compressor = builder
         .retain_allowed_encodings(&HashSet::from([
@@ -108,7 +113,7 @@ fn allowed_formats_do_not_restore_decimal(#[case] builder: BtrBlocksCompressorBu
             decimal_byte_parts_v2_id(),
         ]))
         .build();
-    assert!(!compressor.has_scheme(DECIMAL_V1.id()));
+    assert!(!compressor.has_scheme(DecimalScheme::default().id()));
 }
 
 #[test]
@@ -116,12 +121,12 @@ fn cuda_compatible_does_not_add_decimal() {
     let compressor = BtrBlocksCompressorBuilder::empty()
         .only_cuda_compatible()
         .build();
-    assert!(!compressor.has_scheme(DECIMAL_V1.id()));
+    assert!(!compressor.has_scheme(DecimalScheme::default().id()));
 }
 
 #[test]
 fn cuda_compatible_does_not_restore_excluded_decimal() {
-    let id = DECIMAL_V1.id();
+    let id = DecimalScheme::default().id();
     let compressor = BtrBlocksCompressorBuilder::default()
         .exclude_schemes([id])
         .only_cuda_compatible()

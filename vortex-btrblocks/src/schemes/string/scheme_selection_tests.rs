@@ -15,8 +15,14 @@ use vortex_array::dtype::Nullability;
 use vortex_error::VortexResult;
 use vortex_fsst::FSST;
 use vortex_session::VortexSession;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::BtrBlocksCompressor;
+use crate::BtrBlocksCompressorBuilder;
+use crate::SchemeExt;
+use crate::all_schemes;
+use crate::schemes::string::FSSTScheme;
+use crate::schemes::string::onpair::OnPairScheme;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
@@ -48,13 +54,13 @@ fn test_dict_compressed() -> VortexResult<()> {
 
 #[test]
 fn test_all_schemes_includes_onpair() {
-    use crate::SchemeExt;
-    use crate::schemes::string::onpair::OnPairScheme;
-
-    let ids: Vec<_> = crate::ALL_SCHEMES.iter().map(|s| s.id()).collect();
+    let ids: Vec<_> = all_schemes(&HashSet::new())
+        .iter()
+        .map(|s| s.id())
+        .collect();
     assert!(
         ids.contains(&OnPairScheme.id()),
-        "OnPairScheme not registered in ALL_SCHEMES"
+        "OnPairScheme not registered in all_schemes"
     );
 }
 
@@ -85,14 +91,12 @@ fn test_default_btrblocks_compressor_selects_onpair() -> VortexResult<()> {
 /// still produces an FSST array.
 #[test]
 fn test_fsst_in_default_scheme_list() -> VortexResult<()> {
-    use crate::BtrBlocksCompressorBuilder;
-    use crate::SchemeExt;
-    use crate::schemes::string::FSSTScheme;
-
     // FSST is registered by default.
     assert!(
-        crate::ALL_SCHEMES.iter().any(|s| s.id() == FSSTScheme.id()),
-        "FSSTScheme should be in ALL_SCHEMES",
+        all_schemes(&HashSet::new())
+            .iter()
+            .any(|s| s.id() == FSSTScheme.id()),
+        "FSSTScheme should be in all_schemes",
     );
 
     // An FSST-only builder still produces an FSST array for FSST-favourable

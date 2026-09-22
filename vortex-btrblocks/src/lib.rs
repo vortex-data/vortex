@@ -30,8 +30,8 @@
 //!
 //! Each `Scheme` implementation declares whether it [`matches`](Scheme::matches) a given
 //! canonical form and, if so, estimates the compression ratio (often by compressing a ~1%
-//! sample). The builder starts with [`ALL_SCHEMES`] and selects the default Decimal scheme's
-//! format from the permitted serialized IDs.
+//! sample). [`all_schemes`] selects the default Decimal scheme's format from the permitted
+//! serialized IDs when constructing the scheme list.
 //!
 //! Schemes can produce arrays that are themselves further compressed (e.g. FoR then BitPacking),
 //! up to [`MAX_CASCADE`] (3) layers deep. Descendant exclusion rules for of [`SchemeId`] prevents
@@ -76,9 +76,9 @@ mod trace_tests;
 
 // Re-export framework types from vortex-compressor for backwards compatibility.
 // Btrblocks-specific exports.
-pub use builder::ALL_SCHEMES;
 pub use builder::BtrBlocksCompressorBuilder;
 pub use builder::DELTA_SCHEME;
+pub use builder::all_schemes;
 pub use canonical_compressor::BtrBlocksCompressor;
 pub use schemes::patches::compress_patches;
 pub use vortex_compressor::CascadingCompressor;

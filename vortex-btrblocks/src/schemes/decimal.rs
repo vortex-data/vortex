@@ -34,8 +34,8 @@ use crate::SchemeExt;
 /// format. Wider values need lower parts, and so the `vortex.decimal_byte_parts.v2` format. The
 /// v2 scheme splits these values; the v1 scheme leaves them canonical.
 ///
-/// The default uses v1. [`crate::BtrBlocksCompressorBuilder::new`] selects v2 when its permitted
-/// serialized IDs include that format. This choice is fixed at construction.
+/// The default uses v1. [`crate::all_schemes`] selects v2 when the permitted serialized IDs include
+/// that format. This choice is fixed at construction.
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub struct DecimalScheme {
     v2: bool,
