@@ -610,7 +610,6 @@ fn is_convertible_expr(expr: &Arc<dyn PhysicalExpr>) -> bool {
             ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(sf).is_some()
                 || ScalarFunctionExpr::try_downcast_func::<OctetLengthFunc>(sf).is_some()
                 || ScalarFunctionExpr::try_downcast_func::<ArrayLength>(sf).is_some()
-                || ScalarFunctionExpr::try_downcast_func::<DateTruncFunc>(sf).is_some()
         })
 }
 
@@ -1271,6 +1270,22 @@ mod tests {
         let date_trunc = date_trunc_expr(utf8_lit("month"), cast, &schema);
 
         assert!(!can_be_pushed_down_impl(&date_trunc, &schema));
+    }
+
+    #[rstest]
+    fn test_can_be_pushed_down_cast_of_zoned_date_trunc_not_supported() {
+        // A cast around date_trunc must not bypass the timezone check on its input.
+        let schema = Schema::new(vec![Field::new(
+            "ts",
+            DataType::Timestamp(ArrowTimeUnit::Microsecond, Some("America/New_York".into())),
+            true,
+        )]);
+        let ts = Arc::new(df_expr::Column::new("ts", 0)) as Arc<dyn PhysicalExpr>;
+        let date_trunc = date_trunc_expr(utf8_lit("month"), ts, &schema);
+        let cast = Arc::new(df_expr::CastExpr::new(date_trunc, DataType::Date32, None))
+            as Arc<dyn PhysicalExpr>;
+
+        assert!(!can_be_pushed_down_impl(&cast, &schema));
     }
 
     #[rstest]

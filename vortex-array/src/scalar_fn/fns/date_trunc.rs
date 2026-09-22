@@ -214,11 +214,7 @@ impl ScalarFnVTable for DateTrunc {
             .clone()
             .execute::<PrimitiveArray>(ctx)?;
         let validity = storage.validity()?;
-        let values = storage
-            .as_slice::<i64>()
-            .iter()
-            .map(|v| divisor.truncate(*v))
-            .collect::<VortexResult<Buffer<i64>>>()?;
+        let values = divisor.truncate_all(storage.as_slice::<i64>())?;
         let storage = PrimitiveArray::new(values, validity).into_array();
         Ok(ExtensionArray::new(ext_dtype, storage).into_array())
     }
@@ -306,6 +302,57 @@ impl TruncDivisor {
         }
     }
 
+    /// Floors every value to the start of the unit.
+    ///
+    /// Overflow is only possible within a few years of `i64::MIN`, so it is checked once over
+    /// the whole slice. That keeps the per-row loop infallible, and each supported divisor is a
+    /// compile-time constant so the division lowers to a multiply.
+    fn truncate_all(self, values: &[i64]) -> VortexResult<Buffer<i64>> {
+        let margin = match self {
+            Self::Fixed(n) => n - 1,
+            // A calendar unit moves a value back by at most a year and a day.
+            Self::Calendar(_, per_day) => 367 * per_day,
+        };
+        let lower = i64::MIN + margin;
+        if values.iter().fold(false, |low, &v| low | (v < lower)) {
+            return values.iter().map(|&v| self.truncate(v)).collect();
+        }
+
+        Ok(match self {
+            Self::Fixed(n) => match n {
+                // Seconds.
+                60 => map(values, floor_to::<60>),
+                3_600 => map(values, floor_to::<3_600>),
+                86_400 => map(values, floor_to::<86_400>),
+                // Milliseconds.
+                1_000 => map(values, floor_to::<1_000>),
+                60_000 => map(values, floor_to::<60_000>),
+                3_600_000 => map(values, floor_to::<3_600_000>),
+                86_400_000 => map(values, floor_to::<86_400_000>),
+                // Microseconds.
+                1_000_000 => map(values, floor_to::<1_000_000>),
+                60_000_000 => map(values, floor_to::<60_000_000>),
+                3_600_000_000 => map(values, floor_to::<3_600_000_000>),
+                86_400_000_000 => map(values, floor_to::<86_400_000_000>),
+                // Nanoseconds.
+                1_000_000_000 => map(values, floor_to::<1_000_000_000>),
+                60_000_000_000 => map(values, floor_to::<60_000_000_000>),
+                3_600_000_000_000 => map(values, floor_to::<3_600_000_000_000>),
+                86_400_000_000_000 => map(values, floor_to::<86_400_000_000_000>),
+                n => map(values, |v| v.wrapping_sub(v.rem_euclid(n))),
+            },
+            Self::Calendar(unit, per_day) => match per_day {
+                86_400 => map(values, |v| calendar_floor::<86_400>(unit, v)),
+                86_400_000 => map(values, |v| calendar_floor::<86_400_000>(unit, v)),
+                86_400_000_000 => map(values, |v| calendar_floor::<86_400_000_000>(unit, v)),
+                86_400_000_000_000 => {
+                    map(values, |v| calendar_floor::<86_400_000_000_000>(unit, v))
+                }
+                _ => unreachable!("per_day is derived from a TimeUnit"),
+            },
+        })
+    }
+
     /// Floors `value` to the start of the unit. Only fails when the result would fall below
     /// `i64::MIN`, which no real timestamp gets close to.
     fn truncate(self, value: i64) -> VortexResult<i64> {
@@ -315,27 +362,49 @@ impl TruncDivisor {
                 .checked_sub(value.rem_euclid(n))
                 .ok_or_else(out_of_range),
             Self::Calendar(unit, per_day) => {
-                let days = value.div_euclid(per_day);
-                let start = match unit {
-                    // The epoch is a Thursday, three days after a Monday.
-                    DateTruncUnit::Week => days - (days + 3).rem_euclid(7),
-                    DateTruncUnit::Month => {
-                        let (_, _, day_of_month) = civil_from_days(days);
-                        days - (day_of_month - 1)
-                    }
-                    DateTruncUnit::Quarter => {
-                        let (year, month, _) = civil_from_days(days);
-                        days_from_civil(year, 1 + 3 * ((month - 1) / 3), 1)
-                    }
-                    DateTruncUnit::Year => {
-                        let (year, ..) = civil_from_days(days);
-                        days_from_civil(year, 1, 1)
-                    }
-                    _ => unreachable!("{unit} is a fixed-length unit"),
-                };
+                let start = calendar_start_day(unit, value.div_euclid(per_day));
                 start.checked_mul(per_day).ok_or_else(out_of_range)
             }
         }
+    }
+}
+
+fn map(values: &[i64], f: impl Fn(i64) -> i64) -> Buffer<i64> {
+    values.iter().map(|&v| f(v)).collect()
+}
+
+/// Floors `v` to a multiple of `N`, which the caller has checked cannot overflow.
+#[inline]
+fn floor_to<const N: i64>(v: i64) -> i64 {
+    v.wrapping_sub(v.rem_euclid(N))
+}
+
+/// Floors `v`, in storage units with `PER_DAY` units per day, to the start of a calendar unit.
+/// The caller has checked the result cannot overflow.
+#[inline]
+fn calendar_floor<const PER_DAY: i64>(unit: DateTruncUnit, v: i64) -> i64 {
+    calendar_start_day(unit, v.div_euclid(PER_DAY)).wrapping_mul(PER_DAY)
+}
+
+/// Returns the first day, counted from the Unix epoch, of the calendar unit containing `days`.
+#[inline]
+fn calendar_start_day(unit: DateTruncUnit, days: i64) -> i64 {
+    match unit {
+        // The epoch is a Thursday, three days after a Monday.
+        DateTruncUnit::Week => days - (days + 3).rem_euclid(7),
+        DateTruncUnit::Month => {
+            let (_, _, day_of_month) = civil_from_days(days);
+            days - (day_of_month - 1)
+        }
+        DateTruncUnit::Quarter => {
+            let (year, month, _) = civil_from_days(days);
+            days_from_civil(year, 1 + 3 * ((month - 1) / 3), 1)
+        }
+        DateTruncUnit::Year => {
+            let (year, ..) = civil_from_days(days);
+            days_from_civil(year, 1, 1)
+        }
+        _ => unreachable!("{unit} is a fixed-length unit"),
     }
 }
 
@@ -392,6 +461,7 @@ mod tests {
     use vortex_error::VortexResult;
 
     use super::*;
+    use crate::Canonical;
     use crate::VortexSessionExecute;
     use crate::array_session;
     use crate::arrays::datetime::TemporalData;
@@ -488,6 +558,21 @@ mod tests {
         let result = array.apply(&date_trunc(unit, root()))?;
         let expected = timestamps(vec![base - base.rem_euclid(step), -step], time_unit);
         assert_arrays_eq!(result, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_near_min_uses_checked_path() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let array = timestamps(vec![i64::MIN + 125, 61], TimeUnit::Seconds);
+        let result = array.apply(&date_trunc(DateTruncUnit::Minute, root()))?;
+        let lowest = i64::MIN + 125 - (i64::MIN + 125).rem_euclid(60);
+        let expected = timestamps(vec![lowest, 60], TimeUnit::Seconds);
+        assert_arrays_eq!(result, expected, &mut ctx);
+
+        let underflow = timestamps(vec![i64::MIN + 5], TimeUnit::Seconds)
+            .apply(&date_trunc(DateTruncUnit::Minute, root()))?;
+        assert!(underflow.execute::<Canonical>(&mut ctx).is_err());
         Ok(())
     }
 
