@@ -160,6 +160,14 @@ fn open_file(
         .open_buffer(file_bytes(session, array, strategy)?)
 }
 
+fn flat_ids_file(session: &VortexSession, rows: u32) -> VortexResult<VortexFile> {
+    let ids = PrimitiveArray::from_iter(0..rows).into_array();
+    let rows = ids.len();
+    let input =
+        StructArray::try_new(["ids"].into(), vec![ids], rows, Validity::NonNullable)?.into_array();
+    open_file(session, input, Arc::new(FlatLayoutStrategy::default()))
+}
+
 #[test]
 fn test_cuda_write_strategy_preserves_high_cardinality_row_blocks() -> VortexResult<()> {
     let session = session();
@@ -177,6 +185,32 @@ fn test_cuda_write_strategy_preserves_high_cardinality_row_blocks() -> VortexRes
             .try_collect(),
     )?;
     assert_eq!(lengths, [rows]);
+    Ok(())
+}
+
+#[test]
+fn test_projected_scan_rejects_unknown_field() -> VortexResult<()> {
+    let session = session();
+    let file = flat_ids_file(&session, 5)?;
+    assert_error(
+        projected_scan(&file, names(&["missing"])?, 0),
+        "must be a subset of child fields",
+    );
+    Ok(())
+}
+
+#[test]
+fn test_projected_scan_rejects_nonstruct_projection() -> VortexResult<()> {
+    let session = session();
+    let file = open_file(
+        &session,
+        PrimitiveArray::from_iter(0u32..5).into_array(),
+        Arc::new(FlatLayoutStrategy::default()),
+    )?;
+    assert_error(
+        projected_scan(&file, names(&["ids"])?, 0),
+        "Select child must return a struct dtype",
+    );
     Ok(())
 }
 

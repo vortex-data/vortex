@@ -292,10 +292,11 @@ pub unsafe extern "C-unwind" fn vx_cuda_scan_path_arrow_device_stream_with_optio
 /// Scan a local Vortex file with ordered top-level column projection.
 ///
 /// Same options, ownership, and file requirements as
-/// [`vx_cuda_scan_path_arrow_device_stream_with_options`]. Projection precedes column I/O/decoding.
-/// Names are literal and case-sensitive; unknown/duplicate names and non-struct files are rejected.
-/// `ncolumns == 0` ignores `columns` and selects all. Names are copied; empty files retain the
-/// projected schema. Errors leave `out_stream` unchanged.
+/// [`vx_cuda_scan_path_arrow_device_stream_with_options`]. Projection precedes decoding and skips
+/// unselected column I/O when the file layout stores columns separately.
+/// Names are literal and case-sensitive; a nonempty projection rejects unknown/duplicate names
+/// and non-struct files. `ncolumns == 0` ignores `columns` and selects all. Names are copied;
+/// empty files retain the projected schema. Errors leave `out_stream` unchanged.
 ///
 /// # Safety
 ///
@@ -389,15 +390,6 @@ fn projected_scan(
 ) -> VortexResult<ScanBuilder<ArrayRef>> {
     let mut scan = file.scan()?;
     if !columns.is_empty() {
-        let fields = file.dtype().as_struct_fields_opt().ok_or_else(|| {
-            vortex_err!("CUDA scan column projection requires a struct file dtype")
-        })?;
-        for name in columns.iter() {
-            vortex_ensure!(
-                fields.find(name).is_some(),
-                "unknown CUDA scan column: {name:?}"
-            );
-        }
         let projection = select(columns, root()).optimize(file.dtype())?;
         scan = scan.with_projection(projection.bind(file.dtype())?);
     }

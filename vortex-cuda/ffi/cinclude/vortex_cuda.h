@@ -191,10 +191,11 @@ int vx_cuda_scan_path_arrow_device_stream_with_options(const vx_session *session
  * Scan a local Vortex file with ordered top-level column projection.
  *
  * Same options, ownership, and file requirements as
- * [`vx_cuda_scan_path_arrow_device_stream_with_options`]. Projection precedes column I/O/decoding.
- * Names are literal and case-sensitive; unknown/duplicate names and non-struct files are rejected.
- * `ncolumns == 0` ignores `columns` and selects all. Names are copied; empty files retain the
- * projected schema. Errors leave `out_stream` unchanged.
+ * [`vx_cuda_scan_path_arrow_device_stream_with_options`]. Projection precedes decoding and skips
+ * unselected column I/O when the file layout stores columns separately.
+ * Names are literal and case-sensitive; a nonempty projection rejects unknown/duplicate names
+ * and non-struct files. `ncolumns == 0` ignores `columns` and selects all. Names are copied;
+ * empty files retain the projected schema. Errors leave `out_stream` unchanged.
  *
  * # Safety
  *
