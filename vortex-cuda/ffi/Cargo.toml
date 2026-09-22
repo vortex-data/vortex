@@ -22,6 +22,7 @@ vortex-cuda = { path = ".." }
 vortex-ffi = { path = "../../vortex-ffi" }
 
 [dev-dependencies]
+cudarc = { workspace = true }
 tempfile = { workspace = true }
 vortex-cuda-macros = { workspace = true }
 

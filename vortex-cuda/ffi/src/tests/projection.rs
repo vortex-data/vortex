@@ -1,18 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ffi::CStr;
 use std::io::Write;
 use std::mem::MaybeUninit;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
+use cudarc::driver::CudaContext;
+use cudarc::driver::result;
+use cudarc::driver::sys::CUevent;
 use futures::TryStreamExt;
 use tempfile::NamedTempFile;
 use vortex::array::VortexSessionExecute;
+use vortex::array::arrays::ChunkedArray;
 use vortex::array::assert_arrays_eq;
+use vortex::buffer::BitBuffer;
+use vortex::buffer::Buffer;
 use vortex::buffer::ByteBuffer;
 use vortex::buffer::ByteBufferMut;
+use vortex::dtype::NativePType;
+use vortex::dtype::Nullability;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::LayoutStrategy;
@@ -21,6 +28,9 @@ use vortex::layout::layouts::table::TableStrategy;
 use vortex::layout::segments::SegmentFuture;
 use vortex::layout::segments::SegmentId;
 use vortex::layout::segments::SegmentSource;
+use vortex_cuda::arrow::ArrowArray;
+use vortex_ffi::vx_error_free;
+use vortex_ffi::vx_error_message;
 
 use super::*;
 
@@ -128,15 +138,8 @@ fn table() -> VortexResult<StructArray> {
 fn file_bytes(
     session: &VortexSession,
     array: ArrayRef,
-    cuda_block_rows: Option<usize>,
+    strategy: Arc<dyn LayoutStrategy>,
 ) -> VortexResult<ByteBuffer> {
-    let strategy: Arc<dyn LayoutStrategy> = if let Some(block_rows) = cuda_block_rows {
-        register_cuda_layout(session);
-        cuda_write_strategy(session, block_rows)
-    } else {
-        let flat: Arc<dyn LayoutStrategy> = Arc::new(FlatLayoutStrategy::default());
-        Arc::new(TableStrategy::new(Arc::clone(&flat), flat))
-    };
     let mut bytes = ByteBufferMut::empty();
     ffi_runtime().block_on(
         session
@@ -150,11 +153,11 @@ fn file_bytes(
 fn open_file(
     session: &VortexSession,
     array: ArrayRef,
-    cuda_block_rows: Option<usize>,
+    strategy: Arc<dyn LayoutStrategy>,
 ) -> VortexResult<VortexFile> {
     session
         .open_options()
-        .open_buffer(file_bytes(session, array, cuda_block_rows)?)
+        .open_buffer(file_bytes(session, array, strategy)?)
 }
 
 #[test]
@@ -165,7 +168,8 @@ fn test_cuda_write_strategy_preserves_high_cardinality_row_blocks() -> VortexRes
     let rows = ids.len();
     let input =
         StructArray::try_new(["ids"].into(), vec![ids], rows, Validity::NonNullable)?.into_array();
-    let file = open_file(&session, input, Some(rows))?;
+    register_cuda_layout(&session);
+    let file = open_file(&session, input, cuda_write_strategy(&session, rows))?;
     let lengths: Vec<_> = ffi_runtime().block_on(
         projected_scan(&file, names(&["ids"])?, rows)?
             .into_array_stream()?
@@ -200,7 +204,9 @@ fn test_projection_cpu_never_requests_unselected_column_segments() -> VortexResu
     let input = table()?;
     let columns = names(&["値.x", "ids"])?;
     let expected = input.project(columns.as_ref())?.into_array();
-    let file = open_file(&session, input.into_array(), None)?;
+    let flat: Arc<dyn LayoutStrategy> = Arc::new(FlatLayoutStrategy::default());
+    let strategy = Arc::new(TableStrategy::new(Arc::clone(&flat), flat));
+    let file = open_file(&session, input.into_array(), strategy)?;
     // TableStrategy writes one flat child per column, so child 1 is exactly the unused column.
     let children = file.footer().layout().children()?;
     let forbidden = children[1].segment_ids();
@@ -254,13 +260,17 @@ fn test_projection_ffi_validation_without_cuda() {
             &raw mut error,
         )
     };
-    assert_eq!(status, VX_CUDA_ERR);
+    // SAFETY: This call owns the returned error and frees it exactly once.
+    let message = unsafe { take_error_message(error) }.expect("missing FFI error");
+    assert_eq!(status, VX_CUDA_ERR, "{message}");
+    assert!(
+        message.contains("null CUDA scan columns with nonzero count"),
+        "{message}"
+    );
     assert_eq!(stream.device_type, -1);
     assert!(stream.release.is_none());
-    assert!(!error.is_null());
-    // SAFETY: This call owns the returned error and frees it exactly once.
-    unsafe { vortex_ffi::vx_error_free(error) };
-    // SAFETY: Null output is rejected before any other input is used; error output is optional.
+    error = ptr::null_mut();
+    // SAFETY: Null output is rejected before any other input is used; error is writable.
     assert_eq!(
         unsafe {
             vx_cuda_scan_path_arrow_device_stream_projected(
@@ -270,33 +280,43 @@ fn test_projection_ffi_validation_without_cuda() {
                 ptr::null(),
                 0,
                 ptr::null_mut(),
-                ptr::null_mut(),
+                &raw mut error,
             )
         },
         VX_CUDA_ERR
     );
+    // SAFETY: This call owns the returned error and frees it exactly once.
+    let message = unsafe { take_error_message(error) }.expect("missing FFI error");
+    assert!(
+        message.contains("null ArrowDeviceArrayStream output"),
+        "{message}"
+    );
 }
 
-fn stream_error(stream: &mut ArrowDeviceArrayStream) -> String {
-    // SAFETY: The callback and returned C string belong to this live stream.
-    unsafe {
-        stream
-            .get_last_error
-            .and_then(|callback| callback(stream).as_ref())
-            .map(|message| CStr::from_ptr(message).to_string_lossy().into_owned())
-            .unwrap_or_default()
+/// # Safety
+/// `error` must be null or an owned FFI error, consumed by this call.
+unsafe fn take_error_message(error: *mut vx_error) -> Option<String> {
+    if error.is_null() {
+        return None;
     }
+    // SAFETY: The error remains live while its message is copied, then is freed exactly once.
+    let message = unsafe { vx_error_message(error).as_str() }
+        .map(str::to_owned)
+        .unwrap_or_else(|error| error.to_string());
+    unsafe { vx_error_free(error) };
+    Some(message)
 }
 
 fn open_stream(
     session: &VortexSession,
     path: &str,
     options: &vx_cuda_scan_options,
+    columns: &[&str],
 ) -> ArrowDeviceArrayStream {
     let mut output = MaybeUninit::<ArrowDeviceArrayStream>::uninit();
     let mut error = ptr::null_mut();
     let handle = test_session(session.clone());
-    let columns = [view("値.x"), view("ids")];
+    let columns: Vec<_> = columns.iter().map(|name| view(name)).collect();
     // SAFETY: All borrowed inputs and writable outputs are live for this call.
     let status = unsafe {
         vx_cuda_scan_path_arrow_device_stream_projected(
@@ -309,84 +329,181 @@ fn open_stream(
             &raw mut error,
         )
     };
-    // SAFETY: This is the sole release of the borrowed session handle.
-    unsafe { free_test_session(handle) };
-    assert_eq!(status, VX_CUDA_OK);
-    assert!(error.is_null());
+    // SAFETY: This call owns both the session handle and any returned error.
+    let message = unsafe {
+        free_test_session(handle);
+        take_error_message(error)
+    };
+    assert_eq!(
+        status,
+        VX_CUDA_OK,
+        "{}",
+        message.as_deref().unwrap_or("no FFI error")
+    );
+    assert!(message.is_none(), "unexpected FFI error: {message:?}");
     // SAFETY: A successful call initialized the stream, which owns its session state.
     unsafe { output.assume_init() }
 }
 
-pub(super) fn stream_schema(stream: &mut ArrowDeviceArrayStream) -> FFI_ArrowSchema {
-    let mut schema = FFI_ArrowSchema::empty();
-    let get_schema = stream.get_schema.expect("missing get_schema");
-    // SAFETY: This live stream owns the callback; schema is writable.
-    assert_eq!(
-        unsafe { get_schema(stream, (&raw mut schema).cast()) },
-        0,
-        "{}",
-        stream_error(stream)
-    );
-    schema
+/// # Safety
+/// `array` must be a live Arrow primitive array of `T` on the current CUDA context.
+/// Its producer's sync event must have completed before this call.
+unsafe fn read_primitive<T: NativePType>(
+    array: &ArrowArray,
+    nullability: Nullability,
+) -> VortexResult<ArrayRef> {
+    assert!(array.release.is_some());
+    assert!(array.dictionary.is_null());
+    assert_eq!(array.n_buffers, 2);
+    assert_eq!(array.n_children, 0);
+    assert!(!array.buffers.is_null());
+    let len = usize::try_from(array.length)?;
+    let offset = usize::try_from(array.offset)?;
+    // SAFETY: The live primitive array owns two buffer pointers.
+    let buffers = unsafe { std::slice::from_raw_parts(array.buffers, 2) };
+    let mut values = vec![T::default(); offset + len];
+    // SAFETY: The synchronized data buffer contains offset + len values of T and remains live.
+    unsafe { result::memcpy_dtoh_sync(&mut values, buffers[1] as u64) }
+        .map_err(|error| vortex_err!("copying Arrow values: {error}"))?;
+
+    let validity = if buffers[0].is_null() {
+        assert_eq!(array.null_count, 0);
+        match nullability {
+            Nullability::NonNullable => Validity::NonNullable,
+            Nullability::Nullable => Validity::AllValid,
+        }
+    } else {
+        let mut bytes = vec![0u8; (offset + len).div_ceil(8)];
+        // SAFETY: The synchronized bitmap covers offset + len bits and remains live.
+        unsafe { result::memcpy_dtoh_sync(&mut bytes, buffers[0] as u64) }
+            .map_err(|error| vortex_err!("copying Arrow validity: {error}"))?;
+        let bits = BitBuffer::new_with_offset(ByteBuffer::from(bytes), len, offset);
+        assert_eq!(array.null_count, i64::try_from(len - bits.true_count())?);
+        match nullability {
+            Nullability::NonNullable => {
+                assert_eq!(array.null_count, 0);
+                Validity::NonNullable
+            }
+            Nullability::Nullable => Validity::from(bits),
+        }
+    };
+    Ok(PrimitiveArray::new(Buffer::from(values).slice(offset..), validity).into_array())
 }
 
-fn batch_lengths(stream: &mut ArrowDeviceArrayStream) -> Vec<i64> {
+/// Read the fixture's projected Int64/UInt32 columns through the public Arrow Device ABI.
+///
+/// # Safety
+/// `array` must be a live batch from the fixture's projected stream, with its schema checked.
+unsafe fn read_projected_batch(array: &ArrowDeviceArray) -> VortexResult<ArrayRef> {
+    assert_eq!(array.device_type, ARROW_DEVICE_CUDA);
+    let context = CudaContext::new(usize::try_from(array.device_id)?)
+        .map_err(|error| vortex_err!("opening Arrow device context: {error}"))?;
+    context
+        .bind_to_thread()
+        .map_err(|error| vortex_err!("binding Arrow device context: {error}"))?;
+    if !array.sync_event.is_null() {
+        // SAFETY: Arrow's CUDA sync_event points to a live event handle owned by this batch.
+        unsafe { result::event::synchronize(*array.sync_event.cast::<CUevent>()) }
+            .map_err(|error| vortex_err!("waiting for Arrow device batch: {error}"))?;
+    }
+    let array = &array.array;
+    assert!(array.dictionary.is_null());
+    assert_eq!(array.offset, 0);
+    assert_eq!(array.null_count, 0);
+    assert_eq!(array.n_children, 2);
+    assert!(!array.children.is_null());
+    // SAFETY: The live struct owns two children matching the previously checked schema.
+    let fields = unsafe {
+        let values = (*array.children).as_ref().expect("missing values child");
+        let ids = (*array.children.add(1))
+            .as_ref()
+            .expect("missing ids child");
+        assert_eq!(values.length, array.length);
+        assert_eq!(ids.length, array.length);
+        vec![
+            read_primitive::<i64>(values, Nullability::Nullable)?,
+            read_primitive::<u32>(ids, Nullability::NonNullable)?,
+        ]
+    };
+    Ok(StructArray::try_new(
+        ["値.x", "ids"].into(),
+        fields,
+        usize::try_from(array.length)?,
+        Validity::NonNullable,
+    )?
+    .into_array())
+}
+
+fn read_projected_batches(stream: &mut ArrowDeviceArrayStream) -> VortexResult<Vec<ArrayRef>> {
     let get_next = stream.get_next.expect("missing get_next");
-    let mut lengths = Vec::new();
+    let mut batches = Vec::new();
     loop {
         let mut array = empty_device_array();
         // SAFETY: This live stream owns the callback; array is writable.
-        assert_eq!(
-            unsafe { get_next(stream, &raw mut array) },
-            0,
-            "{}",
-            stream_error(stream)
-        );
+        let status = unsafe { get_next(stream, &raw mut array) };
+        vortex_ensure!(status == 0, "get_next failed: {}", stream_error(stream));
         if array.array.release.is_none() {
             break;
         }
-        assert_eq!(array.device_type, ARROW_DEVICE_CUDA);
-        assert_eq!(array.array.n_children, 2);
-        lengths.push(array.array.length);
+        // SAFETY: The fixture's schema was checked, and this batch remains live during readback.
+        let batch = unsafe { read_projected_batch(&array) };
         release_device_array(&mut array);
+        batches.push(batch?);
     }
-    lengths
+    Ok(batches)
+}
+
+fn check_projected_file(block_rows: usize, batch_rows: usize) -> VortexResult<()> {
+    let session = session().with_some(CudaSession::try_default()?);
+    register_cuda_layout(&session);
+    let input = table()?;
+    let columns = ["値.x", "ids"];
+    let expected = input.project(names(&columns)?.as_ref())?.into_array();
+    let mut file = NamedTempFile::new()?;
+    file.write_all(&file_bytes(
+        &session,
+        input.into_array(),
+        cuda_write_strategy(&session, block_rows),
+    )?)?;
+    let path = file
+        .path()
+        .to_str()
+        .ok_or_else(|| vortex_err!("non-UTF-8 test path"))?;
+    let options = vx_cuda_scan_options {
+        batch_rows,
+        ..Default::default()
+    };
+    let mut stream = open_stream(&session, path, &options, &columns);
+    // The stream must retain its session state after the caller releases its session.
+    drop(session);
+    let schema = stream_schema(&mut stream);
+    let expected_fields = vec![
+        Field::new("値.x", DataType::Int64, true),
+        Field::new("ids", DataType::UInt32, false),
+    ];
+    assert_eq!(Schema::try_from(&schema)?, Schema::new(expected_fields));
+    let batches = read_projected_batches(&mut stream);
+    let release = stream.release.expect("missing release");
+    // SAFETY: The stream is live and released exactly once, including on readback errors.
+    unsafe { release(&raw mut stream) };
+    let batches = batches?;
+    let lengths: Vec<_> = batches.iter().map(|batch| batch.len()).collect();
+    assert_eq!(lengths, [2, 2, 1]);
+    let actual = ChunkedArray::try_new(batches, expected.dtype().clone())?.into_array();
+    assert_arrays_eq!(
+        actual,
+        expected,
+        &mut VortexSession::default().create_execution_ctx()
+    );
+    Ok(())
 }
 
 #[cuda_test]
-fn test_projection_gpu_local_file_schema_and_batch_boundaries() -> VortexResult<()> {
-    for (block_rows, batch_rows) in [(0, 2), (2, 3)] {
-        let session = session().with_some(CudaSession::try_default()?);
-        let mut file = NamedTempFile::new()?;
-        file.write_all(&file_bytes(
-            &session,
-            table()?.into_array(),
-            Some(block_rows),
-        )?)?;
-        let path = file
-            .path()
-            .to_str()
-            .ok_or_else(|| vortex_err!("non-UTF-8 test path"))?;
-        let options = vx_cuda_scan_options {
-            batch_rows,
-            ..Default::default()
-        };
-        let mut stream = open_stream(&session, path, &options);
-        // The stream must retain its session state after the caller releases its session.
-        drop(session);
-        let mut schema = stream_schema(&mut stream);
-        let expected_fields = vec![
-            Field::new("値.x", DataType::Int64, true),
-            Field::new("ids", DataType::UInt32, false),
-        ];
-        assert_eq!(Schema::try_from(&schema)?, Schema::new(expected_fields));
-        assert_eq!(batch_lengths(&mut stream), [2, 2, 1]);
-        let release = stream.release.expect("missing release");
-        // SAFETY: Both objects are live and released exactly once.
-        unsafe {
-            release_schema(&mut schema);
-            release(&raw mut stream);
-        }
-    }
-    Ok(())
+fn test_projection_gpu_subdivides_large_blocks() -> VortexResult<()> {
+    check_projected_file(0, 2)
+}
+
+#[cuda_test]
+fn test_projection_gpu_preserves_small_block_boundaries() -> VortexResult<()> {
+    check_projected_file(2, 3)
 }

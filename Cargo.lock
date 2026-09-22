@@ -10912,6 +10912,7 @@ version = "0.1.0"
 dependencies = [
  "arrow-schema 59.3.0",
  "cbindgen",
+ "cudarc",
  "futures",
  "tempfile",
  "vortex",

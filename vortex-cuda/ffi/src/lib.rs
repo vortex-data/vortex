@@ -521,6 +521,7 @@ pub unsafe extern "C-unwind" fn vx_cuda_partition_scan_arrow_device_stream(
 mod tests {
     mod projection;
 
+    use std::ffi::CStr;
     use std::ptr;
     use std::sync::Arc;
 
@@ -620,7 +621,7 @@ mod tests {
             );
             let get_next = stream.get_next.expect("missing get_next");
             let release = stream.release.expect("missing release");
-            let schema = projection::stream_schema(&mut stream);
+            let schema = stream_schema(&mut stream);
             let mut exported = empty_device_array();
             // SAFETY: The live stream owns the callback, and the output is writable.
             unsafe {
@@ -649,6 +650,30 @@ mod tests {
 
     fn test_array(array: impl IntoArray) -> *const vx_array {
         Box::into_raw(Box::new(array.into_array())).cast::<vx_array>()
+    }
+
+    fn stream_error(stream: &mut ArrowDeviceArrayStream) -> String {
+        // SAFETY: The callback and returned C string belong to this live stream.
+        unsafe {
+            stream
+                .get_last_error
+                .and_then(|callback| callback(stream).as_ref())
+                .map(|message| CStr::from_ptr(message).to_string_lossy().into_owned())
+                .unwrap_or_default()
+        }
+    }
+
+    fn stream_schema(stream: &mut ArrowDeviceArrayStream) -> FFI_ArrowSchema {
+        let mut schema = FFI_ArrowSchema::empty();
+        let get_schema = stream.get_schema.expect("missing get_schema");
+        // SAFETY: This live stream owns the callback; schema is writable.
+        assert_eq!(
+            unsafe { get_schema(stream, (&raw mut schema).cast()) },
+            0,
+            "{}",
+            stream_error(stream)
+        );
+        schema
     }
 
     fn empty_device_array() -> ArrowDeviceArray {
