@@ -27,8 +27,9 @@ __device__ uint64_t load_input_word(const uint8_t *const input, int64_t word_idx
     }
     // Byte-sliced inputs may be unaligned. Assemble at most one word, bounded by the
     // logical input extent, without rounding the pointer down or overreading the tail.
+    const uint64_t min_bytes = min(static_cast<uint64_t>(sizeof(uint64_t)), available_bytes);
     uint64_t word = 0;
-    for (uint64_t i = 0; i < sizeof(uint64_t) && i < available_bytes; i++) {
+    for (uint64_t i = 0; i < min_bytes; i++) {
         word |= static_cast<uint64_t>(input[byte_idx + i]) << (i * 8);
     }
     return word;
