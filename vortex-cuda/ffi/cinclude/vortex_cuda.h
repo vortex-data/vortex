@@ -71,7 +71,7 @@ typedef struct vx_cuda_scan_options {
      */
     uint32_t flags;
     /**
-     * Maximum rows in each output batch. Zero uses layout-derived splitting.
+     * Maximum rows in each output batch. Zero preserves layout boundaries without a row cap.
      * Physical layout boundaries may produce shorter batches.
      */
     size_t batch_rows;

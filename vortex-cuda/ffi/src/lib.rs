@@ -76,7 +76,7 @@ pub const VX_CUDA_SCAN_FLAG_DIRECT_IO: u32 = 1u32 << 0;
 pub struct vx_cuda_scan_options {
     /// A bitwise combination of `VX_CUDA_SCAN_FLAG_*` values. Unknown bits are ignored.
     pub flags: u32,
-    /// Maximum rows in each output batch. Zero uses layout-derived splitting.
+    /// Maximum rows in each output batch. Zero preserves layout boundaries without a row cap.
     /// Physical layout boundaries may produce shorter batches.
     pub batch_rows: usize,
 }
@@ -393,12 +393,14 @@ fn projected_scan(
         let projection = select(columns, root()).optimize(file.dtype())?;
         scan = scan.with_projection(projection.bind(file.dtype())?);
     }
-    if batch_rows != 0 {
+    let split_by = if batch_rows == 0 {
+        SplitBy::Layout
+    } else {
         let max_rows = u64::try_from(batch_rows)
             .map_err(|_| vortex_err!("CUDA scan batch row count is too large"))?;
-        scan = scan.with_split_by(SplitBy::LayoutSubSplitting { max_rows });
-    }
-    Ok(scan)
+        SplitBy::LayoutSubSplitting { max_rows }
+    };
+    Ok(scan.with_split_by(split_by))
 }
 
 struct CudaScanOptions {

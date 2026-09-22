@@ -214,6 +214,17 @@ fn test_projected_scan_rejects_nonstruct_projection() -> VortexResult<()> {
     Ok(())
 }
 
+#[test]
+fn test_projected_scan_zero_batch_rows_preserves_large_layout_span() -> VortexResult<()> {
+    let session = session();
+    let file = flat_ids_file(&session, 1_000_000)?;
+    for columns in [names(&[])?, names(&["ids"])?] {
+        let splits = projected_scan(&file, columns, 0)?.full_file_splits()?;
+        assert_eq!(splits, [0, 1_000_000]);
+    }
+    Ok(())
+}
+
 struct RejectSegments {
     inner: Arc<dyn SegmentSource>,
     forbidden: Vec<SegmentId>,
@@ -548,5 +559,5 @@ fn test_projection_gpu_subdivides_large_blocks() -> VortexResult<()> {
 
 #[cuda_test]
 fn test_projection_gpu_preserves_small_block_boundaries() -> VortexResult<()> {
-    check_projected_file(2, 3)
+    check_projected_file(2, 0)
 }
