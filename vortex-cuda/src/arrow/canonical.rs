@@ -1512,6 +1512,9 @@ mod tests {
     use crate::arrow::DeviceArrayExt;
     use crate::arrow::PrivateData;
     use crate::arrow::arrow_schema_for_array;
+    use crate::arrow::canonical::BITMAP_THREADS_PER_BLOCK;
+    use crate::arrow::canonical::MAX_BITMAP_BLOCKS;
+    use crate::arrow::canonical::count_arrow_validity_nulls;
     use crate::arrow::canonical::export_arrow_validity_buffer;
     use crate::arrow::canonical::repack_arrow_bitmap;
     use crate::arrow::dictionary_tests::upload;
@@ -3546,6 +3549,30 @@ mod tests {
         assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
         unsafe { release_exported_array(&raw mut exported.array.array) };
 
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_count_arrow_validity_nulls_capped_grid() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
+        let len = 10_001usize;
+        let arrow_offset = 13;
+        let bitmap_bits = arrow_offset + len;
+        // Dirty prefix and tail bits must not count as valid rows.
+        let source = BitBuffer::from_iter(
+            std::iter::repeat_n(true, arrow_offset)
+                .chain((0..len).map(|idx| idx % 3 != 0))
+                .chain(std::iter::repeat_n(
+                    true,
+                    bitmap_bits.next_multiple_of(8) - bitmap_bits,
+                )),
+        );
+        let input = upload_unpadded(source.inner(), &ctx)?;
+        assert!(input.len() > (BITMAP_THREADS_PER_BLOCK * MAX_BITMAP_BLOCKS) as usize);
+
+        let null_count = count_arrow_validity_nulls(&input, len, arrow_offset, &mut ctx)?;
+        let expected_nulls = (0..len).filter(|idx| idx % 3 == 0).count();
+        assert_eq!(null_count, i64::try_from(expected_nulls)?);
         Ok(())
     }
 
