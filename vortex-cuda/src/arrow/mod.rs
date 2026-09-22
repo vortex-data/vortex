@@ -414,53 +414,50 @@ impl DeviceArrayStreamPrivateData {
             array.dtype()
         );
 
-        let mut staged_schema = None;
-        let (mut device_array, ffi_schema) =
-            if self.ctx.cuda_session().dictionary_export() == DictionaryExport::Decode {
-                // Decode schemas depend only on dtype and fixed context settings. Stage before
-                // export to preserve error ordering, but cache only after device validation.
-                if self.schema.is_none() {
-                    staged_schema = Some(ArrowDeviceStreamSchema::from_dtype(
-                        &self.dtype,
-                        &mut self.ctx,
-                    )?);
-                }
-                let device_array = self
-                    .runtime
-                    .block_on(array.export_device_array(&mut self.ctx))?;
-                (device_array, None)
-            } else {
-                let exported = self
-                    .runtime
-                    .block_on(array.export_device_array_with_schema(&mut self.ctx))?;
-                (exported.array, Some(exported.schema))
-            };
-
-        // Schemas release themselves on drop; rejected device arrays need explicit release.
-        let validation = (|| {
-            self.check_device(&device_array)?;
-            if let Some(ffi_schema) = &ffi_schema {
-                let exported_schema = ArrowDeviceStreamSchema::from_ffi(ffi_schema, &self.dtype)?;
-                if let Some(stream_schema) = &self.schema {
-                    vortex_ensure!(
-                        stream_schema == &exported_schema,
-                        "stream array Arrow schema changed from {:?} to {:?}; an Arrow C device stream \
-                         requires every array to share one schema, so chunks must not vary their \
-                         encoding (for example a dictionary-encoded chunk among plain chunks)",
-                        stream_schema,
-                        exported_schema
-                    );
-                }
-                staged_schema = Some(exported_schema);
+        if self.ctx.cuda_session().dictionary_export() == DictionaryExport::Decode {
+            self.get_or_init_schema()?;
+            let mut device_array = self
+                .runtime
+                .block_on(array.export_device_array(&mut self.ctx))?;
+            if let Err(error) = self.check_device(&device_array) {
+                release_device_array(&mut device_array);
+                return Err(error);
             }
-            Ok(())
-        })();
-        if let Err(error) = validation {
+            return Ok(device_array);
+        }
+
+        let ArrowDeviceArrayWithSchema {
+            schema: ffi_schema,
+            array: mut device_array,
+        } = self
+            .runtime
+            .block_on(array.export_device_array_with_schema(&mut self.ctx))?;
+
+        // The FFI schema releases itself on drop; rejected arrays need explicit release.
+        if let Err(error) = self.check_device(&device_array) {
             release_device_array(&mut device_array);
             return Err(error);
         }
-        if self.schema.is_none() {
-            self.schema = staged_schema;
+        let exported_schema = match ArrowDeviceStreamSchema::from_ffi(&ffi_schema, &self.dtype) {
+            Ok(schema) => schema,
+            Err(error) => {
+                release_device_array(&mut device_array);
+                return Err(error);
+            }
+        };
+        if let Some(stream_schema) = &self.schema {
+            if stream_schema != &exported_schema {
+                release_device_array(&mut device_array);
+                return Err(vortex_err!(
+                    "stream array Arrow schema changed from {:?} to {:?}; an Arrow C device stream \
+                     requires every array to share one schema, so chunks must not vary their \
+                     encoding (for example a dictionary-encoded chunk among plain chunks)",
+                    stream_schema,
+                    exported_schema
+                ));
+            }
+        } else {
+            self.schema = Some(exported_schema);
         }
         Ok(device_array)
     }
