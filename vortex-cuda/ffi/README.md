@@ -30,20 +30,9 @@ cache for pooled data-plane reads. Footer and zone-map reads remain buffered on 
 
 ## Generated header
 
-`build.rs` generates `cinclude/vortex_cuda.h` with cbindgen on stable Rust, without macro
-expansion or compiling the CUDA implementation. Edit the API and docs in `src/lib.rs`, not
-the generated header; commit regenerated headers with API changes. `cbindgen.toml` supplies
-the standard Arrow Device interface compatibility preamble.
+`build.rs` generates `cinclude/vortex_cuda.h` using cbindgen on stable Rust. Edit `src/lib.rs`
+or `cbindgen.toml`, not the header, and commit regenerated output. The header keeps cbindgen's
+formatting and is excluded from clang-format through generated markers.
 
-Header generation requires `clang-format` on `PATH`, with support for the repository's
-`.clang-format` configuration. The build script generates bytes in memory, then formats
-through clang-format's stdin/stdout using `--style=file` and
-`--assume-filename=cinclude/vortex_cuda.h` from this crate's directory. A missing or failing
-formatter fails the build before changing the existing header; there is no unformatted
-fallback.
-
-Only the fully formatted bytes are compared with the committed header. Identical output
-leaves the file and its timestamp untouched. Changed output is written to a uniquely created
-temporary file in the header's directory and published by atomic rename, so concurrent
-builds do not expose a truncated header. The build script tracks changes to `src/`,
-`cbindgen.toml`, `build.rs`, and the repository configuration at `../../.clang-format`.
+Unchanged output is not rewritten; changed output is published atomically. CUDA CI checks
+for header drift after building the FFI crate.

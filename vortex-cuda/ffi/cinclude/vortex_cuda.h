@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+// clang-format off
+
 #pragma once
 
 // THIS FILE IS AUTO-GENERATED, DO NOT MAKE EDITS DIRECTLY
@@ -54,6 +57,7 @@ struct ArrowDeviceArrayStream {
 };
 #endif
 
+
 /**
  * Bypass the operating system page cache for pooled data-plane reads.
  * Footer and zone-map reads remain buffered. Supported only on Linux.
@@ -66,18 +70,18 @@ struct ArrowDeviceArrayStream {
  * Zero-initialize this struct to use buffered file I/O and layout-derived batch splitting.
  */
 typedef struct vx_cuda_scan_options {
-    /**
-     * A bitwise combination of `VX_CUDA_SCAN_FLAG_*` values. Unknown bits are rejected.
-     */
-    uint32_t flags;
-    /**
-     * Rows in each output batch, except for a possibly smaller final batch.
-     * Zero preserves layout boundaries without a row cap. Nonzero values split at exact row
-     * counts independently of layout boundaries: 1,000 rows with 300 yields 300/300/300/100.
-     * Cross-layout batches still require CUDA-supported encodings; CUDA concatenation of
-     * `Chunked` arrays is currently unsupported.
-     */
-    size_t batch_rows;
+  /**
+   * A bitwise combination of `VX_CUDA_SCAN_FLAG_*` values. Unknown bits are rejected.
+   */
+  uint32_t flags;
+  /**
+   * Rows in each output batch, except for a possibly smaller final batch.
+   * Zero preserves layout boundaries without a row cap. Nonzero values split at exact row
+   * counts independently of layout boundaries: 1,000 rows with 300 yields 300/300/300/100.
+   * Cross-layout batches still require CUDA-supported encodings; CUDA concatenation of
+   * `Chunked` arrays is currently unsupported.
+   */
+  size_t batch_rows;
 } vx_cuda_scan_options;
 
 #ifdef __cplusplus
@@ -264,5 +268,7 @@ int vx_cuda_partition_scan_arrow_device_stream(const vx_session *session,
                                                vx_error **error_out);
 
 #ifdef __cplusplus
-} // extern "C"
-#endif // __cplusplus
+}  // extern "C"
+#endif  // __cplusplus
+
+// clang-format on

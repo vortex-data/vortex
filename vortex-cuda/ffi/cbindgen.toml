@@ -11,6 +11,9 @@ no_includes = true
 header = """
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+// clang-format off
+
 #pragma once
 
 // THIS FILE IS AUTO-GENERATED, DO NOT MAKE EDITS DIRECTLY
@@ -65,6 +68,8 @@ struct ArrowDeviceArrayStream {
 };
 #endif
 """
+
+trailer = "// clang-format on"
 
 # These externally defined Arrow ABI types use struct tags, not typedef names.
 [export.rename]
