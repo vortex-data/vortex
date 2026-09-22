@@ -6,16 +6,24 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::array_session;
 use vortex_array::arrays::ChunkedArray;
+use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::extension::datetime::Date;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::session::ArraySessionExt;
+use vortex_array::stream::ArrayStreamExt;
+use vortex_array::validity::Validity;
+use vortex_btrblocks::BtrBlocksCompressorBuilder;
+use vortex_buffer::Buffer;
 use vortex_buffer::ByteBufferMut;
+use vortex_decimal_byte_parts::DecimalByteParts;
+use vortex_decimal_byte_parts::decimal_byte_parts_v2_id;
 use vortex_edition::ComponentKind;
 use vortex_edition::Edition;
 use vortex_edition::EditionDeclaration;
@@ -28,6 +36,7 @@ use vortex_edition::test_harness::validate_edition;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_file::OpenOptionsSessionExt;
+use vortex_file::VortexWriteOptions;
 use vortex_file::WriteOptionsSessionExt;
 use vortex_file::WriteStrategyBuilder;
 use vortex_io::session::RuntimeSession;
@@ -647,5 +656,110 @@ async fn serialization_context_accepts_supported_compressor_output() -> VortexRe
         )
         .await?;
 
+    Ok(())
+}
+
+/// Decimals whose values need more than one signed 64-bit part, so that byte-part compression
+/// requires the `vortex.decimal_byte_parts.v2` wire format.
+fn wide_decimals() -> ArrayRef {
+    DecimalArray::new(
+        (0..128i128)
+            .map(|i| (1i128 << 70) + i)
+            .collect::<Buffer<i128>>(),
+        DecimalDType::new(38, 2),
+        Validity::NonNullable,
+    )
+    .into_array()
+}
+
+/// Write `array` with `options`, read the file back, and return the array it contains.
+async fn round_trip(
+    session: &VortexSession,
+    options: VortexWriteOptions,
+    array: &ArrayRef,
+) -> VortexResult<ArrayRef> {
+    let mut buffer = ByteBufferMut::empty();
+    let stream = array.to_array_stream();
+    options.write(&mut buffer, stream).await?;
+    session
+        .open_options()
+        .open_buffer(buffer)?
+        .scan()?
+        .into_array_stream()?
+        .read_all()
+        .await
+}
+
+/// An explicit BtrBlocks strategy is not configured from the editions, so it may emit only the
+/// wire formats its schemes declare. The opt-in v2 decimal format is not one of them: wide
+/// decimals stay canonical and the write succeeds under the default editions.
+#[tokio::test]
+async fn explicit_default_strategy_keeps_wide_decimals_writable() -> VortexResult<()> {
+    use crate::VortexSessionDefault;
+
+    let session = VortexSession::default();
+    assert!(
+        !session
+            .enabled_component_ids(ComponentKind::Array)
+            .contains(&decimal_byte_parts_v2_id())
+    );
+    let strategy = WriteStrategyBuilder::default()
+        .with_btrblocks_builder(BtrBlocksCompressorBuilder::default())
+        .build();
+    let array = wide_decimals();
+
+    let read = round_trip(
+        &session,
+        session.write_options().with_strategy(strategy),
+        &array,
+    )
+    .await?;
+
+    assert!(
+        !read
+            .depth_first_traversal()
+            .any(|child| child.is::<DecimalByteParts>())
+    );
+    Ok(())
+}
+
+/// The writer's compressor splits wide decimals only when the v2 wire format is permitted: by an
+/// enabled edition that includes it, or by disabling editions so every registered format is
+/// allowed.
+#[tokio::test]
+async fn writer_splits_wide_decimals_when_v2_is_permitted() -> VortexResult<()> {
+    use crate::VortexSessionDefault;
+
+    const EDITION: EditionId = EditionId::new("decimal-v2-test", 2026, 9, 0);
+
+    let array = wide_decimals();
+    for (enable_v2, disable_editions) in [(false, false), (true, false), (false, true)] {
+        let session = VortexSession::default();
+        if enable_v2 {
+            let editions = session.editions();
+            editions.declare_edition(Edition {
+                id: EDITION,
+                min_library_version: None,
+            })?;
+            editions.declare_inclusion(EditionInclusion::array(
+                &decimal_byte_parts_v2_id(),
+                EDITION,
+            ))?;
+            session.enable_edition(EDITION)?;
+        }
+        let mut options = session.write_options();
+        if disable_editions {
+            options = options.disable_editions();
+        }
+
+        let read = round_trip(&session, options, &array).await?;
+
+        assert_eq!(
+            read.depth_first_traversal()
+                .any(|child| child.is::<DecimalByteParts>()),
+            enable_v2 || disable_editions,
+            "enable_v2={enable_v2} disable_editions={disable_editions}"
+        );
+    }
     Ok(())
 }

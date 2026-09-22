@@ -4,8 +4,11 @@
 //! Compression context for recursive compression.
 
 use std::fmt;
+use std::sync::Arc;
 
+use vortex_array::ArrayId;
 use vortex_error::VortexExpect;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::compressor::ROOT_SCHEME_ID;
 use crate::scheme::SchemeId;
@@ -38,6 +41,9 @@ pub struct CompressorContext {
     /// [`descendant_exclusions`]: crate::scheme::Scheme::descendant_exclusions
     /// [`ancestor_exclusions`]: crate::scheme::Scheme::ancestor_exclusions
     cascade_history: Vec<(SchemeId, usize)>,
+
+    /// The serialized IDs the compressor may emit, shared by every context in the cascade.
+    allowed_serialized_ids: Arc<HashSet<ArrayId>>,
 }
 
 impl CompressorContext {
@@ -50,7 +56,14 @@ impl CompressorContext {
             allowed_cascading: MAX_CASCADE,
             merged_stats_options: GenerateStatsOptions::default(),
             cascade_history: Vec::new(),
+            allowed_serialized_ids: Arc::default(),
         }
+    }
+
+    /// Returns a context that permits the given serialized IDs.
+    pub(crate) fn with_allowed_serialized_ids(mut self, allowed: Arc<HashSet<ArrayId>>) -> Self {
+        self.allowed_serialized_ids = allowed;
+        self
     }
 }
 
@@ -65,6 +78,18 @@ impl CompressorContext {
     /// Whether this context is for sample compression (ratio estimation).
     pub fn is_sample(&self) -> bool {
         self.is_sample
+    }
+
+    /// Whether the compressor may emit arrays serialized under `id`.
+    ///
+    /// A scheme declares the serialized IDs it always needs in
+    /// [`produced_encodings`](crate::scheme::Scheme::produced_encodings) and is only registered
+    /// when all of them are permitted. A scheme with an optional wire format, such as a newer
+    /// version that only some values need, checks that format here before producing it and
+    /// otherwise falls back to a format it declared. The estimate and compression paths receive
+    /// the same context, so both can make the same decision.
+    pub fn allows_serialized_id(&self, id: &ArrayId) -> bool {
+        self.allowed_serialized_ids.contains(id)
     }
 
     /// Returns the merged stats generation options for this compression site.

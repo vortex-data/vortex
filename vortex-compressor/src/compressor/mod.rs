@@ -9,6 +9,11 @@ mod sample;
 mod select;
 mod structural;
 
+use std::sync::Arc;
+
+use vortex_array::ArrayId;
+use vortex_utils::aliases::hash_set::HashSet;
+
 use crate::builtins::IntDictScheme;
 use crate::scheme::ChildSelection;
 use crate::scheme::DescendantExclusion;
@@ -46,12 +51,18 @@ pub struct CascadingCompressor {
     /// Descendant exclusion rules for the compressor's own cascading (e.g. excluding Dict from
     /// list offsets).
     root_exclusions: Vec<DescendantExclusion>,
+
+    /// The serialized IDs the compressor may emit. See [`Self::with_allowed_serialized_ids`].
+    allowed_serialized_ids: Arc<HashSet<ArrayId>>,
 }
 
 impl CascadingCompressor {
     /// Creates a new compressor with the given schemes.
     ///
     /// Root-level exclusion rules (e.g. excluding Dict from list offsets) are built automatically.
+    /// The compressor may emit every serialized ID its schemes declare in
+    /// [`Scheme::produced_encodings`], and nothing else, until
+    /// [`with_allowed_serialized_ids`](Self::with_allowed_serialized_ids) says otherwise.
     pub fn new(schemes: Vec<&'static dyn Scheme>) -> Self {
         // Root exclusion: exclude IntDict from list/listview offsets (monotonically
         // increasing data where dictionary encoding is wasteful).
@@ -59,11 +70,43 @@ impl CascadingCompressor {
             excluded: IntDictScheme.id(),
             children: ChildSelection::One(structural::root_list_children::OFFSETS),
         }];
+        let allowed_serialized_ids = schemes
+            .iter()
+            .flat_map(|scheme| scheme.produced_encodings())
+            .collect();
 
         Self {
             schemes,
             root_exclusions,
+            allowed_serialized_ids: Arc::new(allowed_serialized_ids),
         }
+    }
+
+    /// Restricts the compressor to the serialized IDs in `allowed`.
+    ///
+    /// Schemes declaring an ID outside `allowed` are removed. The remaining schemes see `allowed`
+    /// through [`allows_serialized_id`](crate::scheme::CompressorContext::allows_serialized_id),
+    /// which lets a scheme emit an optional wire format only when the writer permits it. The file
+    /// writer passes the serialized IDs its enabled editions permit.
+    pub fn with_allowed_serialized_ids(mut self, allowed: HashSet<ArrayId>) -> Self {
+        self.schemes.retain(|scheme| {
+            scheme
+                .produced_encodings()
+                .iter()
+                .all(|id| allowed.contains(id))
+        });
+        self.allowed_serialized_ids = Arc::new(allowed);
+        self
+    }
+
+    /// The serialized IDs this compressor may emit.
+    pub fn allowed_serialized_ids(&self) -> &HashSet<ArrayId> {
+        &self.allowed_serialized_ids
+    }
+
+    /// Whether a scheme with the given ID is registered.
+    pub fn has_scheme(&self, id: SchemeId) -> bool {
+        self.schemes.iter().any(|scheme| scheme.id() == id)
     }
 }
 

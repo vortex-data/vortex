@@ -3,6 +3,8 @@
 
 //! Core cascading compression flow.
 
+use std::sync::Arc;
+
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::CanonicalValidity;
@@ -59,7 +61,9 @@ impl CascadingCompressor {
 
         let canonical = array.clone().execute::<CanonicalValidity>(exec_ctx)?.0;
         let compact = canonical.compact(exec_ctx)?;
-        let compressed = self.compress_canonical(compact, CompressorContext::new(), exec_ctx)?;
+        let root_ctx = CompressorContext::new()
+            .with_allowed_serialized_ids(Arc::clone(&self.allowed_serialized_ids));
+        let compressed = self.compress_canonical(compact, root_ctx, exec_ctx)?;
 
         trace::record_compress_outcome(&span, before_nbytes, compressed.nbytes());
 

@@ -9,13 +9,14 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::DecimalArray;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::decimal::narrowed_decimal;
 use vortex_array::dtype::DecimalType;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_decimal_byte_parts::DecimalByteParts;
 use vortex_decimal_byte_parts::decimal_byte_parts_v1_id;
+use vortex_decimal_byte_parts::decimal_byte_parts_v2_id;
+use vortex_decimal_byte_parts::split_decimal;
 use vortex_error::VortexResult;
 
 use crate::ArrayAndStats;
@@ -26,8 +27,11 @@ use crate::SchemeExt;
 
 /// Compression scheme for decimal arrays via byte-part decomposition.
 ///
-/// Narrows the decimal to the smallest integer type, compresses the underlying primitive, and wraps
-/// the result in a `DecimalBytePartsArray`.
+/// Narrows the decimal to the smallest integer type and splits it into a signed most significant
+/// part plus up to three unsigned 64-bit lower parts, each compressed as its own child. Values that
+/// fit one signed part serialize under the frozen `vortex.decimal_byte_parts` format. Wider values
+/// need lower parts and therefore the `vortex.decimal_byte_parts.v2` format, so they are only
+/// split when the compressor may emit that format; otherwise they stay canonical.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct DecimalScheme;
 
@@ -41,14 +45,14 @@ impl Scheme for DecimalScheme {
     }
 
     fn produced_encodings(&self) -> Vec<ArrayId> {
-        // This scheme only builds single-part arrays, which serialize under the frozen v1 ID.
-        // The in-memory ID is the v2 wire ID, which no edition permits yet.
+        // Single-part arrays serialize under the frozen v1 ID. Multi-part arrays need the v2 ID,
+        // which `compress` checks against the context before splitting wide values.
         vec![decimal_byte_parts_v1_id()]
     }
 
-    /// Children: primitive=0.
+    /// Children: msp=0, then up to three lower parts.
     fn num_children(&self) -> usize {
-        1
+        4
     }
 
     fn expected_compression_ratio(
@@ -68,22 +72,28 @@ impl Scheme for DecimalScheme {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        // TODO(joe): add support splitting i128/256 buffers into chunks of primitive values
-        // for compression. 2 for i128 and 4 for i256.
         let decimal = data.array().clone().execute::<DecimalArray>(exec_ctx)?;
         let decimal = narrowed_decimal(decimal);
-        let validity = decimal.validity()?;
-        let prim = match decimal.values_type() {
-            DecimalType::I8 => PrimitiveArray::new(decimal.buffer::<i8>(), validity),
-            DecimalType::I16 => PrimitiveArray::new(decimal.buffer::<i16>(), validity),
-            DecimalType::I32 => PrimitiveArray::new(decimal.buffer::<i32>(), validity),
-            DecimalType::I64 => PrimitiveArray::new(decimal.buffer::<i64>(), validity),
-            _ => return Ok(decimal.into_array()),
-        };
 
-        let compressed =
-            compressor.compress_child(&prim.into_array(), &compress_ctx, self.id(), 0, exec_ctx)?;
+        let values_type = decimal.values_type();
+        let wide = matches!(values_type, DecimalType::I128 | DecimalType::I256);
+        if wide && !compress_ctx.allows_serialized_id(&decimal_byte_parts_v2_id()) {
+            // Only the v2 wire format carries lower parts.
+            return Ok(decimal.into_array());
+        }
 
-        DecimalByteParts::try_new(compressed, decimal.decimal_dtype()).map(|d| d.into_array())
+        let parts = split_decimal(&decimal, exec_ctx)?;
+        let msp = compressor.compress_child(&parts.msp, &compress_ctx, self.id(), 0, exec_ctx)?;
+        let lower_parts = parts
+            .lower_parts
+            .iter()
+            .enumerate()
+            .map(|(idx, part)| {
+                compressor.compress_child(part, &compress_ctx, self.id(), 1 + idx, exec_ctx)
+            })
+            .collect::<VortexResult<Vec<_>>>()?;
+
+        DecimalByteParts::try_new_with_lower_parts(msp, lower_parts, decimal.decimal_dtype())
+            .map(IntoArray::into_array)
     }
 }

@@ -9,9 +9,11 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::VTable;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::Constant;
+use vortex_array::arrays::Dict;
 use vortex_array::arrays::Map;
 use vortex_array::arrays::NullArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -26,6 +28,7 @@ use vortex_array::validity::Validity;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use super::CascadingCompressor;
 use super::ROOT_SCHEME_ID;
@@ -843,5 +846,93 @@ fn map_compression_preserves_repeated_entry_children() -> VortexResult<()> {
     assert!(compressed.is::<Map>());
     assert_eq!(compressed.dtype(), array.dtype());
     assert_arrays_eq!(&compressed, &array, &mut exec_ctx);
+    Ok(())
+}
+
+static OPTIONAL_WIRE_FORMAT_PERMITTED: Mutex<Option<bool>> = Mutex::new(None);
+
+fn required_wire_id() -> ArrayId {
+    ArrayId::new_static("test.wire.required")
+}
+
+fn optional_wire_id() -> ArrayId {
+    ArrayId::new_static("test.wire.optional")
+}
+
+/// Declares one required wire format and records whether the context permits an optional one.
+#[derive(Debug)]
+struct OptionalWireFormatScheme;
+
+impl Scheme for OptionalWireFormatScheme {
+    fn scheme_name(&self) -> &'static str {
+        "test.optional_wire_format"
+    }
+
+    fn matches(&self, canonical: &Canonical) -> bool {
+        matches_integer_primitive(canonical)
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        vec![required_wire_id()]
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> CompressionEstimate {
+        CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
+    }
+
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        data: &ArrayAndStats,
+        compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        *OPTIONAL_WIRE_FORMAT_PERMITTED.lock() =
+            Some(compress_ctx.allows_serialized_id(&optional_wire_id()));
+        Ok(data.array().clone())
+    }
+}
+
+#[test]
+fn compressor_permits_declared_ids_by_default() {
+    let compressor = CascadingCompressor::new(vec![&IntDictScheme, &OptionalWireFormatScheme]);
+    assert_eq!(
+        *compressor.allowed_serialized_ids(),
+        HashSet::from([Dict.id(), required_wire_id()])
+    );
+    assert!(compressor.has_scheme(IntDictScheme.id()));
+    assert!(compressor.has_scheme(OptionalWireFormatScheme.id()));
+}
+
+#[test]
+fn allowed_serialized_ids_drop_schemes_declaring_other_ids() {
+    let compressor = CascadingCompressor::new(vec![&IntDictScheme, &OptionalWireFormatScheme])
+        .with_allowed_serialized_ids(HashSet::from([Dict.id()]));
+    assert!(compressor.has_scheme(IntDictScheme.id()));
+    assert!(!compressor.has_scheme(OptionalWireFormatScheme.id()));
+
+    let none = CascadingCompressor::new(vec![&IntDictScheme])
+        .with_allowed_serialized_ids(HashSet::new());
+    assert!(!none.has_scheme(IntDictScheme.id()));
+}
+
+#[test]
+fn context_reports_optional_serialized_ids() -> VortexResult<()> {
+    let array = PrimitiveArray::new(buffer![1i32, 2, 3, 4], Validity::NonNullable).into_array();
+    let mut exec_ctx = SESSION.create_execution_ctx();
+
+    let compressor = CascadingCompressor::new(vec![&OptionalWireFormatScheme]);
+    compressor.compress(&array, &mut exec_ctx)?;
+    assert_eq!(*OPTIONAL_WIRE_FORMAT_PERMITTED.lock(), Some(false));
+
+    let compressor = compressor
+        .with_allowed_serialized_ids(HashSet::from([required_wire_id(), optional_wire_id()]));
+    compressor.compress(&array, &mut exec_ctx)?;
+    assert_eq!(*OPTIONAL_WIRE_FORMAT_PERMITTED.lock(), Some(true));
     Ok(())
 }
