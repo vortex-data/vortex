@@ -7142,7 +7142,7 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 [[package]]
 name = "onpair"
 version = "0.2.1"
-source = "git+https://github.com/spiraldb/onpair.git?rev=78f53c696475eb2c67ad1c3737791a714feb06c8#78f53c696475eb2c67ad1c3737791a714feb06c8"
+source = "git+https://github.com/spiraldb/onpair.git?rev=c27d39782e63cb521ec4f62ad42016fc7c77dfb4#c27d39782e63cb521ec4f62ad42016fc7c77dfb4"
 dependencies = [
  "hashbrown 0.16.1",
  "memchr",
@@ -7727,7 +7727,7 @@ version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "044b1fa4f259f4df9ad5078e587b208f5d288a25407575fcddb9face30c7c692"
 dependencies = [
- "rand 0.9.5",
+ "rand 0.8.8",
  "socket2",
  "thiserror 1.0.69",
 ]
@@ -9801,7 +9801,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
  "windows-sys 0.59.0",
