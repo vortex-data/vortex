@@ -22,7 +22,7 @@ static GLOBAL: MiMalloc = MiMalloc;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
-const SIZES: &[usize] = &[1, 64, 16_384];
+const SIZES: &[usize] = &[8_192];
 const CASES: &[(StringLayout, ValidityPattern)] = &[
     (StringLayout::Inline, ValidityPattern::AllValid),
     (StringLayout::External, ValidityPattern::AllValid),
@@ -71,8 +71,7 @@ fn decode<const ROWS: usize>(
         .counter(ItemsCount::new(ROWS))
         .with_inputs(|| (&array, SESSION.create_execution_ctx()))
         .bench_refs(|(array, ctx)| {
-            let decoded = Utf8Column::decode((*array).clone(), ctx)
-                .vortex_expect("benchmark strings must decode as UTF-8");
-            drop(divan::black_box(decoded));
+            Utf8Column::decode((*array).clone(), ctx)
+                .vortex_expect("benchmark strings must decode as UTF-8")
         });
 }
