@@ -3,6 +3,7 @@
 
 //! Sparse integer encoding for single-value-dominated arrays.
 
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
@@ -14,7 +15,6 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::scalar::Scalar;
 use vortex_compressor::builtins::IntDictScheme;
-use vortex_compressor::scheme::AllowedSerializedIds;
 use vortex_compressor::scheme::ChildSelection;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DescendantExclusion;
@@ -46,13 +46,8 @@ impl Scheme for SparseScheme {
         canonical.dtype().is_int()
     }
 
-    fn configure(
-        &self,
-        allowed_serialized_ids: &AllowedSerializedIds,
-    ) -> Option<&dyn Scheme> {
-        (allowed_serialized_ids.contains(&Sparse.id())
-            && allowed_serialized_ids.contains(&Constant.id()))
-        .then_some(self)
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        vec![Sparse.id(), Constant.id()]
     }
 
     fn stats_options(&self) -> GenerateStatsOptions {

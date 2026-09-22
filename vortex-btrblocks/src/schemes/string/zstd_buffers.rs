@@ -3,12 +3,12 @@
 
 //! Zstd buffer-level string compression preserving array layout for GPU decompression.
 
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
-use vortex_compressor::scheme::AllowedSerializedIds;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
 use vortex_error::VortexResult;
@@ -31,13 +31,8 @@ impl Scheme for ZstdBuffersScheme {
         canonical.dtype().is_utf8()
     }
 
-    fn configure(
-        &self,
-        allowed_serialized_ids: &AllowedSerializedIds,
-    ) -> Option<&dyn Scheme> {
-        allowed_serialized_ids
-            .contains(&vortex_zstd::ZstdBuffers.id())
-            .then_some(self)
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        vec![vortex_zstd::ZstdBuffers.id()]
     }
 
     fn expected_compression_ratio(

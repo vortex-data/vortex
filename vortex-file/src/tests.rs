@@ -38,6 +38,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::PType::I32;
 use vortex_array::dtype::StructFields;
+use vortex_array::dtype::i256;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::Expression;
 use vortex_array::expr::and;
@@ -72,7 +73,10 @@ use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
+use vortex_edition::EDITION_DECLARATIONS;
 use vortex_edition::EditionSession;
+use vortex_edition::EditionSessionExt;
+use vortex_edition::declarations::core::CORE_2026_08_3;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_io::session::RuntimeSession;
@@ -99,6 +103,7 @@ use crate::V1_FOOTER_FBS_SIZE;
 use crate::VERSION;
 use crate::VortexFile;
 use crate::WriteOptionsSessionExt;
+use crate::WriteStrategyBuilder;
 use crate::flatbuffers::footer as fb;
 use crate::footer::SegmentSpec;
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
@@ -171,6 +176,74 @@ async fn test_read_simple() {
     }
 
     assert_eq!(row_count, 8);
+}
+
+#[rstest]
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn default_strategy_keeps_wide_decimals_compatible(
+    #[values(false, true)] use_i256: bool,
+    #[values(false, true)] explicit_compressor: bool,
+) -> VortexResult<()> {
+    let session = array_session()
+        .with::<EditionSession>()
+        .with::<LayoutSession>()
+        .with::<RuntimeSession>();
+    crate::register_default_encodings(&session);
+    for declaration in EDITION_DECLARATIONS {
+        session.register_edition(declaration)?;
+    }
+    session.enable_edition(CORE_2026_08_3)?;
+
+    let array = if use_i256 {
+        DecimalArray::new(
+            (0..1024u128)
+                .map(|i| i256::from_parts(i * 17, 1i128 << 70))
+                .collect::<Buffer<i256>>(),
+            DecimalDType::new(76, 2),
+            Validity::NonNullable,
+        )
+    } else {
+        DecimalArray::new(
+            (0..1024i128)
+                .map(|i| (1i128 << 70) + i * 17)
+                .collect::<Buffer<i128>>(),
+            DecimalDType::new(38, 2),
+            Validity::NonNullable,
+        )
+    }
+    .into_array();
+    let strategy = WriteStrategyBuilder::default()
+        .with_row_block_size(256)
+        .with_data_block_target_bytes(None);
+    let strategy = if explicit_compressor {
+        strategy.with_btrblocks_builder(BtrBlocksCompressorBuilder::default())
+    } else {
+        strategy
+    }
+    .build();
+
+    for disable_editions in [false, true] {
+        let options = session.write_options().with_strategy(Arc::clone(&strategy));
+        let options = if disable_editions {
+            options.disable_editions()
+        } else {
+            options
+        };
+        let mut buffer = ByteBufferMut::empty();
+        options
+            .write(&mut buffer, array.clone().to_array_stream())
+            .await?;
+        let actual = session
+            .open_options()
+            .open_buffer(buffer)?
+            .scan()?
+            .into_array_stream()?
+            .read_all()
+            .await?;
+        assert_arrays_eq!(array, actual, &mut session.create_execution_ctx());
+    }
+    Ok(())
 }
 
 #[tokio::test]

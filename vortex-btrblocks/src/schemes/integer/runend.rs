@@ -3,6 +3,7 @@
 
 //! Run-end integer encoding.
 
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
@@ -13,7 +14,6 @@ use vortex_compressor::builtins::BinaryDictScheme;
 use vortex_compressor::builtins::FloatDictScheme;
 use vortex_compressor::builtins::IntDictScheme;
 use vortex_compressor::builtins::StringDictScheme;
-use vortex_compressor::scheme::AllowedSerializedIds;
 use vortex_compressor::scheme::AncestorExclusion;
 use vortex_compressor::scheme::ChildSelection;
 use vortex_compressor::scheme::CompressionEstimate;
@@ -48,13 +48,8 @@ impl Scheme for RunEndScheme {
         canonical.dtype().is_int()
     }
 
-    fn configure(
-        &self,
-        allowed_serialized_ids: &AllowedSerializedIds,
-    ) -> Option<&dyn Scheme> {
-        allowed_serialized_ids
-            .contains(&RunEnd.id())
-            .then_some(self)
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        vec![RunEnd.id()]
     }
 
     /// Children: values=0, ends=1.

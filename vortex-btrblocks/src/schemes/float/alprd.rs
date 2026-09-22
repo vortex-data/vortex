@@ -7,6 +7,7 @@ use vortex_alp::ALPRDArrayExt;
 use vortex_alp::ALPRDArrayOwnedExt;
 use vortex_alp::RDEncoder;
 use vortex_alp::RDEncoderExt;
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
@@ -14,7 +15,6 @@ use vortex_array::IntoArray;
 use vortex_array::VTable;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::PType;
-use vortex_compressor::scheme::AllowedSerializedIds;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
 use vortex_compressor::scheme::EstimateVerdict;
@@ -40,13 +40,8 @@ impl Scheme for ALPRDScheme {
         canonical.dtype().is_float()
     }
 
-    fn configure(
-        &self,
-        allowed_serialized_ids: &AllowedSerializedIds,
-    ) -> Option<&dyn Scheme> {
-        allowed_serialized_ids
-            .contains(&vortex_alp::ALPRD.id())
-            .then_some(self)
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        vec![vortex_alp::ALPRD.id()]
     }
 
     fn expected_compression_ratio(

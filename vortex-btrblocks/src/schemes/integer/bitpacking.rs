@@ -3,6 +3,7 @@
 
 //! BitPacking integer encoding.
 
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
@@ -11,7 +12,6 @@ use vortex_array::VTable;
 use vortex_array::arrays::Patched;
 use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
-use vortex_compressor::scheme::AllowedSerializedIds;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
 use vortex_compressor::scheme::EstimateVerdict;
@@ -40,14 +40,12 @@ impl Scheme for BitPackingScheme {
         canonical.dtype().is_int()
     }
 
-    fn configure(
-        &self,
-        allowed_serialized_ids: &AllowedSerializedIds,
-    ) -> Option<&dyn Scheme> {
-        (allowed_serialized_ids.contains(&BitPacked.id())
-            && (!use_experimental_patches()
-                || allowed_serialized_ids.contains(&Patched.id())))
-        .then_some(self)
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        let mut encodings = vec![BitPacked.id()];
+        if use_experimental_patches() {
+            encodings.push(Patched.id());
+        }
+        encodings
     }
 
     fn expected_compression_ratio(

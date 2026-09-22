@@ -3,6 +3,7 @@
 
 //! Decimal compression scheme using byte-part decomposition.
 
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
@@ -32,6 +33,8 @@ enum DecimalSchemeMode {
     V2,
 }
 
+static DECIMAL_V2: DecimalScheme = DecimalScheme::v2();
+
 /// Compression scheme for decimal arrays via byte-part decomposition.
 ///
 /// Narrows the decimal to the smallest integer type and compresses its byte parts independently.
@@ -39,8 +42,9 @@ enum DecimalSchemeMode {
 /// significant part and up to three unsigned lower parts. Single-part arrays serialize as v1
 /// in either mode, while arrays with lower parts serialize as v2.
 ///
-/// The default uses v2. The builder always selects the latest permitted mode,
-/// including for explicitly registered Decimal schemes. The CUDA preset restricts the mode to v1.
+/// The default uses v1. An explicit allowlist permitting both decimal IDs lets the builder
+/// upgrade v1 to v2. Without an allowlist, the registered mode is preserved. A v2 scheme is
+/// filtered out if either ID is forbidden, including under the CUDA preset.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct DecimalScheme {
     mode: DecimalSchemeMode,
@@ -50,6 +54,7 @@ impl DecimalScheme {
     /// Creates a decimal scheme configured for v1, disallowing splitting of wide decimals.
     ///
     /// Values that remain wider than `i64` after narrowing stay canonical.
+    /// The builder may upgrade to v2 if an explicit allowlist permits both serialized IDs.
     pub const fn v1() -> Self {
         Self {
             mode: DecimalSchemeMode::V1,
@@ -57,6 +62,7 @@ impl DecimalScheme {
     }
 
     /// Creates a decimal scheme configured for v2, allowing splitting of wide decimals.
+    /// The builder filters this scheme out if either decimal serialized ID is forbidden.
     pub const fn v2() -> Self {
         Self {
             mode: DecimalSchemeMode::V2,
@@ -66,7 +72,7 @@ impl DecimalScheme {
 
 impl Default for DecimalScheme {
     fn default() -> Self {
-        Self::v2()
+        Self::v1()
     }
 }
 
@@ -79,14 +85,24 @@ impl Scheme for DecimalScheme {
         matches!(canonical, Canonical::Decimal(_))
     }
 
-    fn configure(&self, allowed_serialized_ids: &AllowedSerializedIds) -> Option<&dyn Scheme> {
-        if !allowed_serialized_ids.contains(&decimal_byte_parts_v1_id()) {
-            return None;
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        match self.mode {
+            DecimalSchemeMode::V1 => vec![decimal_byte_parts_v1_id()],
+            DecimalSchemeMode::V2 => {
+                vec![decimal_byte_parts_v1_id(), decimal_byte_parts_v2_id()]
+            }
         }
-        if !allowed_serialized_ids.contains(&decimal_byte_parts_v2_id()) {
-            return Some(&Self::v1());
+    }
+
+    fn try_upgrade(&self, allowed_serialized_ids: &AllowedSerializedIds) -> Option<&dyn Scheme> {
+        if self.mode == DecimalSchemeMode::V1
+            && allowed_serialized_ids.contains(&decimal_byte_parts_v1_id())
+            && allowed_serialized_ids.contains(&decimal_byte_parts_v2_id())
+        {
+            Some(&DECIMAL_V2)
+        } else {
+            None
         }
-        Some(&Self::v2())
     }
 
     /// Children: msp=0, then up to three lower parts in v2 mode.

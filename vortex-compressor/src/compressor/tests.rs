@@ -4,6 +4,7 @@
 use std::sync::LazyLock;
 
 use parking_lot::Mutex;
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
@@ -34,7 +35,6 @@ use super::structural;
 use crate::builtins::FloatDictScheme;
 use crate::builtins::IntDictScheme;
 use crate::builtins::StringDictScheme;
-use crate::scheme::AllowedSerializedIds;
 use crate::scheme::CompressionEstimate;
 use crate::scheme::CompressorContext;
 use crate::scheme::DeferredEstimate;
@@ -72,11 +72,8 @@ impl Scheme for DirectRatioScheme {
         matches_integer_primitive(canonical)
     }
 
-    fn configure(
-        &self,
-        _allowed_serialized_ids: &AllowedSerializedIds,
-    ) -> Option<&dyn Scheme> {
-        Some(self)
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
     }
 
     fn expected_compression_ratio(
@@ -111,11 +108,8 @@ impl Scheme for ImmediateAlwaysUseScheme {
         matches_integer_primitive(canonical)
     }
 
-    fn configure(
-        &self,
-        _allowed_serialized_ids: &AllowedSerializedIds,
-    ) -> Option<&dyn Scheme> {
-        Some(self)
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
     }
 
     fn expected_compression_ratio(
@@ -150,11 +144,8 @@ impl Scheme for CallbackAlwaysUseScheme {
         matches_integer_primitive(canonical)
     }
 
-    fn configure(
-        &self,
-        _allowed_serialized_ids: &AllowedSerializedIds,
-    ) -> Option<&dyn Scheme> {
-        Some(self)
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
     }
 
     fn expected_compression_ratio(
@@ -191,11 +182,8 @@ impl Scheme for CallbackSkipScheme {
         matches_integer_primitive(canonical)
     }
 
-    fn configure(
-        &self,
-        _allowed_serialized_ids: &AllowedSerializedIds,
-    ) -> Option<&dyn Scheme> {
-        Some(self)
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
     }
 
     fn expected_compression_ratio(
@@ -232,11 +220,8 @@ impl Scheme for CallbackRatioScheme {
         matches_integer_primitive(canonical)
     }
 
-    fn configure(
-        &self,
-        _allowed_serialized_ids: &AllowedSerializedIds,
-    ) -> Option<&dyn Scheme> {
-        Some(self)
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
     }
 
     fn expected_compression_ratio(
@@ -273,11 +258,8 @@ impl Scheme for HugeRatioScheme {
         matches_integer_primitive(canonical)
     }
 
-    fn configure(
-        &self,
-        _allowed_serialized_ids: &AllowedSerializedIds,
-    ) -> Option<&dyn Scheme> {
-        Some(self)
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
     }
 
     fn expected_compression_ratio(
@@ -312,11 +294,8 @@ impl Scheme for ZeroBytesSamplingScheme {
         matches_integer_primitive(canonical)
     }
 
-    fn configure(
-        &self,
-        _allowed_serialized_ids: &AllowedSerializedIds,
-    ) -> Option<&dyn Scheme> {
-        Some(self)
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
     }
 
     fn expected_compression_ratio(
@@ -528,11 +507,8 @@ impl Scheme for ThresholdObservingScheme {
         matches_integer_primitive(canonical)
     }
 
-    fn configure(
-        &self,
-        _allowed_serialized_ids: &AllowedSerializedIds,
-    ) -> Option<&dyn Scheme> {
-        Some(self)
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
     }
 
     fn expected_compression_ratio(
@@ -572,11 +548,8 @@ impl Scheme for CallbackMatchingRatioScheme {
         matches_integer_primitive(canonical)
     }
 
-    fn configure(
-        &self,
-        _allowed_serialized_ids: &AllowedSerializedIds,
-    ) -> Option<&dyn Scheme> {
-        Some(self)
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
     }
 
     fn expected_compression_ratio(

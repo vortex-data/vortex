@@ -3,6 +3,7 @@
 
 //! Run-length integer encoding and shared RLE compression helpers.
 
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
@@ -10,7 +11,6 @@ use vortex_array::IntoArray;
 use vortex_array::VTable;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
-use vortex_compressor::scheme::AllowedSerializedIds;
 use vortex_compressor::scheme::AncestorExclusion;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
@@ -106,13 +106,8 @@ impl Scheme for IntRLEScheme {
         canonical.dtype().is_int()
     }
 
-    fn configure(
-        &self,
-        allowed_serialized_ids: &AllowedSerializedIds,
-    ) -> Option<&dyn Scheme> {
-        allowed_serialized_ids
-            .contains(&RLE.id())
-            .then_some(self)
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        vec![RLE.id()]
     }
 
     /// Children: values=0, indices=1, offsets=2.

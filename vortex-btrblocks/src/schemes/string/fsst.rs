@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
@@ -15,7 +16,6 @@ use vortex_array::arrays::VarBin;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::arrays::varbin::VarBinArraySlotsExt;
-use vortex_compressor::scheme::AllowedSerializedIds;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
 use vortex_error::VortexResult;
@@ -50,13 +50,8 @@ impl Scheme for FSSTScheme {
         canonical.dtype().is_utf8() || canonical.dtype().is_binary()
     }
 
-    fn configure(
-        &self,
-        allowed_serialized_ids: &AllowedSerializedIds,
-    ) -> Option<&dyn Scheme> {
-        (allowed_serialized_ids.contains(&FSST.id())
-            && allowed_serialized_ids.contains(&VarBin.id()))
-        .then_some(self)
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        vec![FSST.id(), VarBin.id()]
     }
 
     /// Children: lengths=0, code_offsets=1.
