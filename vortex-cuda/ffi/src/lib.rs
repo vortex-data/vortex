@@ -150,6 +150,7 @@ pub unsafe extern "C-unwind" fn vx_cuda_array_sink_open_file(
     dtype: *const vx_dtype,
     error_out: *mut *mut vx_error,
 ) -> *mut vx_array_sink {
+    // SAFETY: The forwarded pointers satisfy the same requirements as this wrapper.
     unsafe { vx_cuda_array_sink_open_file_block_rows(session, path, dtype, 0, error_out) }
 }
 
@@ -174,7 +175,9 @@ pub unsafe extern "C-unwind" fn vx_cuda_array_sink_open_file_block_rows(
     error_out: *mut *mut vx_error,
 ) -> *mut vx_array_sink {
     try_or(error_out, ptr::null_mut(), || {
+        // SAFETY: The caller supplies a live borrowed session handle.
         let vortex_session = session_with_cuda(unsafe { vx_session_ref(session) }?);
+        // SAFETY: All borrowed inputs satisfy the underlying sink's requirements.
         unsafe {
             vx_array_sink_open_file_with_strategy(
                 session,
@@ -211,6 +214,7 @@ pub unsafe extern "C-unwind" fn vx_cuda_scan_path_arrow_device_stream(
     out_stream: *mut ArrowDeviceArrayStream,
     error_out: *mut *mut vx_error,
 ) -> c_int {
+    // SAFETY: The forwarded pointers satisfy this wrapper's requirements; null options is valid.
     unsafe {
         vx_cuda_scan_path_arrow_device_stream_with_options(
             session,
@@ -243,6 +247,7 @@ pub unsafe extern "C-unwind" fn vx_cuda_scan_path_arrow_device_stream_batch_rows
         batch_rows,
         ..Default::default()
     };
+    // SAFETY: The caller supplies valid pointers; the local options remain live during the call.
     unsafe {
         vx_cuda_scan_path_arrow_device_stream_with_options(
             session,
@@ -310,11 +315,17 @@ pub unsafe extern "C-unwind" fn vx_cuda_scan_path_arrow_device_stream_projected(
     try_or(error_out, VX_CUDA_ERR, || {
         vortex_ensure!(!out_stream.is_null(), "null ArrowDeviceArrayStream output");
 
-        // SAFETY: The caller keeps the borrowed options and column views alive for this call.
-        let options = unsafe { scan_options(options) }?;
-        let columns = unsafe { scan_columns(columns, ncolumns) }?;
-        let path = unsafe { path.as_str() }?;
-        let session = session_with_cuda(unsafe { vx_session_ref(session) }?);
+        // SAFETY: The caller keeps options, column views and their bytes, path bytes, and the
+        // borrowed session handle valid for this call.
+        let (options, columns, path, session) = unsafe {
+            (
+                scan_options(options)?,
+                scan_columns(columns, ncolumns)?,
+                path.as_str()?,
+                vx_session_ref(session)?,
+            )
+        };
+        let session = session_with_cuda(session);
         let file = ffi_runtime().block_on(
             session
                 .open_options()
@@ -327,6 +338,7 @@ pub unsafe extern "C-unwind" fn vx_cuda_scan_path_arrow_device_stream_projected(
         let ctx = scan_export_ctx(session)?;
         let device_stream = ArrowDeviceArrayStream::new(array_stream, ctx, ffi_runtime());
 
+        // SAFETY: The output is non-null and the caller guarantees writable storage.
         unsafe { ptr::write(out_stream, device_stream) };
         Ok(VX_CUDA_OK)
     })
@@ -469,12 +481,15 @@ pub unsafe extern "C-unwind" fn vx_cuda_array_export_arrow_device(
         vortex_ensure!(!out_schema.is_null(), "null ArrowSchema output");
         vortex_ensure!(!out_array.is_null(), "null ArrowDeviceArray output");
 
+        // SAFETY: The caller supplies a live borrowed session handle.
         let session = session_with_cuda(unsafe { vx_session_ref(session) }?);
+        // SAFETY: The caller supplies a live borrowed array handle.
         let array = unsafe { vx_array_ref(array) }?.clone();
         let mut ctx = CudaSession::create_execution_ctx(session)?;
         let exported =
             futures::executor::block_on(array.export_device_array_with_schema(&mut ctx))?;
 
+        // SAFETY: Both outputs are non-null and the caller guarantees writable storage.
         unsafe {
             ptr::write(out_schema, exported.schema);
             ptr::write(out_array, exported.array);
@@ -505,13 +520,16 @@ pub unsafe extern "C-unwind" fn vx_cuda_partition_scan_arrow_device_stream(
     try_or(error_out, VX_CUDA_ERR, || {
         vortex_ensure!(!partition.is_null(), "null vx_partition");
 
+        // SAFETY: The caller transfers ownership of this non-null partition handle.
         let array_stream = unsafe { vx_partition_into_array_stream(partition) }?;
         vortex_ensure!(!out_stream.is_null(), "null ArrowDeviceArrayStream output");
 
+        // SAFETY: The caller supplies a live borrowed session handle.
         let session = session_with_cuda(unsafe { vx_session_ref(session) }?);
         // Drive the stream on the same runtime the partition's scan spawned its work onto.
         let device_stream = array_stream.export_device_array_stream(session, ffi_runtime())?;
 
+        // SAFETY: The output is non-null and the caller guarantees writable storage.
         unsafe { ptr::write(out_stream, device_stream) };
         Ok(VX_CUDA_OK)
     })
