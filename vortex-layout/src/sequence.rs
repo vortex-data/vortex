@@ -146,9 +146,12 @@ impl SequenceId {
 
 impl Drop for SequenceId {
     fn drop(&mut self) {
-        let waker = self.universe.lock().remove(self);
+        let (waker, callbacks) = self.universe.lock().remove(self);
         if let Some(w) = waker {
             w.wake();
+        }
+        for callback in callbacks {
+            callback();
         }
     }
 }
@@ -199,12 +202,39 @@ impl SequencePointer {
     pub fn downgrade(self) -> SequenceId {
         self.0
     }
+
+    /// Runs `callback` once every [`SequenceId`] that sorts before this pointer's current
+    /// position has been dropped.
+    ///
+    /// Every ID previously advanced from this pointer sorts before it, as do their descendants,
+    /// so this observes when the work attached to those IDs has finished. If no such ID is
+    /// active, `callback` runs immediately. Otherwise it runs from the `Drop` of whichever ID
+    /// retires last, so it must be cheap and must not block.
+    pub fn on_prior_dropped(&self, callback: impl FnOnce() + Send + 'static) {
+        let mut universe = self.0.universe.lock();
+        let prior_active = universe
+            .active
+            .first()
+            .is_some_and(|first| *first < self.0.id);
+        if prior_active {
+            universe
+                .prior_dropped
+                .push((self.0.id.clone(), Box::new(callback)));
+            return;
+        }
+        drop(universe);
+        callback();
+    }
 }
+
+type PriorDroppedCallback = Box<dyn FnOnce() + Send + 'static>;
 
 #[derive(Default)]
 struct SequenceUniverse {
     active: BTreeSet<Vec<usize>>,
     wakers: HashMap<Vec<usize>, Waker>,
+    // Callbacks keyed by an exclusive upper bound, run once no active ID sorts before the bound.
+    prior_dropped: Vec<(Vec<usize>, PriorDroppedCallback)>,
 }
 
 impl SequenceUniverse {
@@ -212,14 +242,31 @@ impl SequenceUniverse {
         self.active.insert(sequence_id.id.clone());
     }
 
-    fn remove(&mut self, sequence_id: &SequenceId) -> Option<Waker> {
+    /// Removes `sequence_id`, returning the waker and callbacks that its removal unblocks. The
+    /// caller invokes them outside the universe lock.
+    fn remove(&mut self, sequence_id: &SequenceId) -> (Option<Waker>, Vec<PriorDroppedCallback>) {
         self.active.remove(&sequence_id.id);
         let Some(first) = self.active.first() else {
             // last sequence finished, we must have no pending futures
             assert!(self.wakers.is_empty(), "all wakers must have been removed");
-            return None;
+            let callbacks = std::mem::take(&mut self.prior_dropped)
+                .into_iter()
+                .map(|(_, callback)| callback)
+                .collect();
+            return (None, callbacks);
         };
-        self.wakers.remove(first)
+        let waker = self.wakers.remove(first);
+        if self.prior_dropped.is_empty() {
+            return (waker, Vec::new());
+        }
+        let (ready, pending) = std::mem::take(&mut self.prior_dropped)
+            .into_iter()
+            .partition::<Vec<_>, _>(|(bound, _)| *bound <= *first);
+        self.prior_dropped = pending;
+        (
+            waker,
+            ready.into_iter().map(|(_, callback)| callback).collect(),
+        )
     }
 }
 
@@ -342,3 +389,61 @@ pub trait SequentialArrayStreamExt: ArrayStream {
 }
 
 impl<S: ArrayStream> SequentialArrayStreamExt for S {}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
+    use super::SequenceId;
+
+    #[test]
+    fn on_prior_dropped_waits_for_prior_ids_and_their_descendants() {
+        let mut pointer = SequenceId::root();
+        let first = pointer.advance();
+        let second = pointer.advance().descend();
+        let second_child = second.downgrade();
+
+        let fired = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&fired);
+        pointer.on_prior_dropped(move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+        });
+
+        drop(first);
+        assert_eq!(fired.load(Ordering::SeqCst), 0);
+        drop(second_child);
+        assert_eq!(fired.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn on_prior_dropped_runs_immediately_without_prior_ids() {
+        let mut pointer = SequenceId::root();
+        drop(pointer.advance());
+
+        let fired = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&fired);
+        pointer.on_prior_dropped(move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+        });
+        assert_eq!(fired.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn on_prior_dropped_runs_when_the_universe_empties() {
+        let mut pointer = SequenceId::root();
+        let first = pointer.advance();
+
+        let fired = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&fired);
+        pointer.on_prior_dropped(move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+        });
+
+        drop(pointer);
+        assert_eq!(fired.load(Ordering::SeqCst), 0);
+        drop(first);
+        assert_eq!(fired.load(Ordering::SeqCst), 1);
+    }
+}

@@ -2,9 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #![expect(clippy::cast_possible_truncation)]
+use std::io;
 use std::iter;
 use std::sync::Arc;
 use std::sync::LazyLock;
+use std::time::Duration;
 
 use bytes::Bytes;
 use flatbuffers::FlatBufferBuilder;
@@ -12,6 +14,8 @@ use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::pin_mut;
 use rstest::rstest;
+use tokio::sync::watch;
+use tokio::time::timeout;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
@@ -75,6 +79,8 @@ use vortex_buffer::buffer;
 use vortex_edition::EditionSession;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_io::IoBuf;
+use vortex_io::VortexWrite;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::DynLayout;
 use vortex_layout::LayoutStrategy;
@@ -99,6 +105,7 @@ use crate::V1_FOOTER_FBS_SIZE;
 use crate::VERSION;
 use crate::VortexFile;
 use crate::WriteOptionsSessionExt;
+use crate::Writer;
 use crate::flatbuffers::footer as fb;
 use crate::footer::SegmentSpec;
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
@@ -1689,6 +1696,108 @@ async fn test_buffered_bytes_are_writer_scoped() -> VortexResult<()> {
 
     first.finish().await?;
     second.finish().await?;
+
+    Ok(())
+}
+
+/// A sink that passes the file header through and then holds every later write until the gate
+/// opens, so the write pipeline fills up behind it.
+struct GatedWrite {
+    inner: Vec<u8>,
+    gate: watch::Receiver<bool>,
+    writes: usize,
+}
+
+impl VortexWrite for GatedWrite {
+    async fn write_all<B: IoBuf>(&mut self, buffer: B) -> io::Result<B> {
+        self.writes += 1;
+        if self.writes > 1 {
+            self.gate
+                .wait_for(|open| *open)
+                .await
+                .map_err(|e| io::Error::other(e.to_string()))?;
+        }
+        self.inner.write_all(buffer).await
+    }
+
+    async fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+
+    async fn shutdown(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+fn gated_writer(
+    max_in_flight_bytes: Option<u64>,
+    dtype: DType,
+) -> (Writer<'static>, watch::Sender<bool>) {
+    let (open, gate) = watch::channel(false);
+    let write = GatedWrite {
+        inner: Vec::new(),
+        gate,
+        writes: 0,
+    };
+    let strategy: Arc<dyn LayoutStrategy> =
+        Arc::new(ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()));
+    let mut options = SESSION.write_options().with_strategy(strategy);
+    if let Some(max) = max_in_flight_bytes {
+        options = options.with_max_in_flight_bytes(max);
+    }
+    (options.writer(write, dtype), open)
+}
+
+#[tokio::test]
+async fn test_in_flight_budget_bounds_admitted_bytes() -> VortexResult<()> {
+    let chunk = buffer![1u32, 2, 3, 4].into_array();
+    let chunk_bytes = chunk.nbytes();
+    let max = 2 * chunk_bytes;
+    let (mut writer, open) = gated_writer(Some(max), chunk.dtype().clone());
+    assert_eq!(writer.in_flight_bytes(), 0);
+
+    // With the sink held, pushes beyond the budget queue up in front of the budget rather than
+    // being admitted: two chunks fit, so four pushes still return with the budget honoured.
+    for _ in 0..4 {
+        writer.push(chunk.clone()).await?;
+        assert!(writer.in_flight_bytes() <= max);
+    }
+    assert!(writer.in_flight_bytes() > 0);
+
+    open.send_replace(true);
+    let summary = writer.finish().await?;
+    assert_eq!(summary.row_count(), 16);
+
+    Ok(())
+}
+
+#[rstest]
+#[case::unbounded(None, false)]
+#[case::bounded(Some(1), true)]
+#[tokio::test]
+async fn test_in_flight_budget_blocks_push(
+    #[case] max_in_flight_chunks: Option<u64>,
+    #[case] expect_blocked: bool,
+) -> VortexResult<()> {
+    let chunk = buffer![1u32, 2, 3, 4].into_array();
+    let max_in_flight_bytes = max_in_flight_chunks.map(|chunks| chunks * chunk.nbytes());
+    let (mut writer, _open) = gated_writer(max_in_flight_bytes, chunk.dtype().clone());
+
+    // Without a budget every chunk is admitted and fanned out even though nothing drains the
+    // sink. With a budget of a single chunk the pushes stop once the pipeline is full.
+    let mut blocked = false;
+    for _ in 0..16 {
+        let push = timeout(Duration::from_millis(500), writer.push(chunk.clone()));
+        match push.await {
+            Ok(result) => result?,
+            Err(_) => {
+                blocked = true;
+                break;
+            }
+        }
+        assert!(writer.in_flight_bytes() <= max_in_flight_bytes.unwrap_or(u64::MAX));
+    }
+    assert_eq!(blocked, expect_blocked);
 
     Ok(())
 }

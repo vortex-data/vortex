@@ -62,6 +62,7 @@ use vortex_utils::aliases::hash_set::HashSet;
 use crate::Footer;
 use crate::MAGIC_BYTES;
 use crate::WriteStrategyBuilder;
+use crate::budget::InFlightBudget;
 use crate::counting::CountingVortexWrite;
 use crate::footer::FileStatistics;
 use crate::footer::MAX_METADATA_KEY_BYTES;
@@ -82,6 +83,7 @@ pub struct VortexWriteOptions {
     strategy: Option<Arc<dyn LayoutStrategy>>,
     disable_editions: bool,
     buffered_bytes: BufferedBytesTracker,
+    in_flight: Option<Arc<InFlightBudget>>,
     exclude_dtype: bool,
     max_variable_length_statistics_size: usize,
     file_statistics: Vec<Stat>,
@@ -104,6 +106,7 @@ impl VortexWriteOptions {
             strategy: None,
             disable_editions: false,
             buffered_bytes: BufferedBytesTracker::new(),
+            in_flight: None,
             session,
             exclude_dtype: false,
             file_statistics: PRUNING_STATS.to_vec(),
@@ -144,6 +147,27 @@ impl VortexWriteOptions {
     /// the same counter for the push-based API.
     pub fn buffered_bytes_tracker(&self) -> BufferedBytesTracker {
         self.buffered_bytes.clone()
+    }
+
+    /// Bound the uncompressed bytes admitted into the layout pipeline and not yet written out.
+    ///
+    /// Without a budget the layout strategies consume input as fast as it is pushed and fan the
+    /// chunks out to concurrent compression tasks, so a producer that outpaces the compressor
+    /// or the output sink grows memory without bound. With a budget, a chunk is only admitted
+    /// once enough earlier chunks have been fully written, and until then [`Writer::push`],
+    /// [`Writer::push_stream`], and the stream consumed by [`Self::write`] wait.
+    ///
+    /// Chunks are admitted in push order. A chunk larger than the whole budget is admitted once
+    /// nothing else is in flight. The budget counts each chunk at its in-memory size on entry;
+    /// intermediate allocations made while it is canonicalized and compressed are not counted.
+    pub fn with_max_in_flight_bytes(mut self, max_bytes: u64) -> Self {
+        self.in_flight = Some(InFlightBudget::new(max_bytes));
+        self
+    }
+
+    /// Returns the in-flight byte budget, if one was configured.
+    pub fn max_in_flight_bytes(&self) -> Option<u64> {
+        self.in_flight.as_ref().map(|budget| budget.max_bytes())
     }
 
     /// Exclude the DType from the Vortex file. You must provide the DType to the reader.
@@ -265,11 +289,36 @@ impl VortexWriteOptions {
 
         let (mut ptr, eof) = SequenceId::root().split();
 
+        // Each chunk is admitted against the in-flight budget before it receives a sequence ID,
+        // in stream order. Its permit is released once every sequence ID derived from the chunk
+        // has been dropped, which is when the layout strategies have finished with it and its
+        // segments have been handed to the output stream. Admission and release both happen in
+        // stream order, so waiting on the budget cannot deadlock.
+        let budget = self.in_flight.clone();
         let stream = SequentialStreamAdapter::new(
             dtype.clone(),
             stream
                 .try_filter(|chunk| ready(!chunk.is_empty()))
-                .map(move |result| result.map(|chunk| (ptr.advance(), chunk))),
+                .then(move |result| {
+                    let budget = budget.clone();
+                    async move {
+                        let chunk = result?;
+                        let permit = match budget {
+                            Some(budget) => Some(budget.acquire(chunk.nbytes()).await),
+                            None => None,
+                        };
+                        Ok((chunk, permit))
+                    }
+                })
+                .map(move |result| {
+                    result.map(|(chunk, permit)| {
+                        let sequence_id = ptr.advance();
+                        if let Some(permit) = permit {
+                            ptr.on_prior_dropped(move || drop(permit));
+                        }
+                        (sequence_id, chunk)
+                    })
+                }),
         )
         .sendable();
         let (file_stats, stream) = accumulate_stats(
@@ -374,6 +423,7 @@ impl VortexWriteOptions {
         let write = CountingVortexWrite::new(write);
         let bytes_written = write.counter();
         let buffered_bytes = self.buffered_bytes.clone();
+        let in_flight = self.in_flight.clone();
         let future = self.write(write, arrays).boxed_local().fuse();
 
         Writer {
@@ -381,6 +431,7 @@ impl VortexWriteOptions {
             future,
             bytes_written,
             buffered_bytes,
+            in_flight,
         }
     }
 }
@@ -524,6 +575,8 @@ pub struct Writer<'w> {
     bytes_written: Arc<AtomicU64>,
     // The buffered bytes accounting shared with the layout strategies for this write.
     buffered_bytes: BufferedBytesTracker,
+    // The in-flight byte budget, if configured with `with_max_in_flight_bytes`.
+    in_flight: Option<Arc<InFlightBudget>>,
 }
 
 impl Writer<'_> {
@@ -605,6 +658,14 @@ impl Writer<'_> {
         self.buffered_bytes.buffered_bytes()
     }
 
+    /// Returns the uncompressed bytes of chunks admitted into the layout pipeline and not yet
+    /// written out, or zero when no in-flight budget is configured.
+    pub fn in_flight_bytes(&self) -> u64 {
+        self.in_flight
+            .as_ref()
+            .map_or(0, |budget| budget.used_bytes())
+    }
+
     /// Finish writing the Vortex file, flushing any remaining buffers and returning the
     /// new file's footer.
     pub async fn finish(mut self) -> VortexResult<WriteSummary> {
@@ -682,6 +743,12 @@ impl<B: BlockingRuntime> BlockingWriter<'_, '_, B> {
     /// Returns the number of bytes currently buffered by layout strategies.
     pub fn buffered_bytes(&self) -> u64 {
         self.writer.buffered_bytes()
+    }
+
+    /// Returns the uncompressed bytes of chunks admitted into the layout pipeline and not yet
+    /// written out, or zero when no in-flight budget is configured.
+    pub fn in_flight_bytes(&self) -> u64 {
+        self.writer.in_flight_bytes()
     }
 
     /// Finish writing and return the written file summary.

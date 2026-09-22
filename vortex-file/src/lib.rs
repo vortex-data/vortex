@@ -103,6 +103,7 @@
 //! when it needs more bytes or a file size, and returns [`Footer`] once all required footer segments
 //! are available. [`VortexOpenOptions`] drives this state machine for ordinary file opens.
 
+mod budget;
 mod counting;
 mod file;
 pub mod flatbuffers;
