@@ -5,6 +5,9 @@
 
 [Overview](../README.md)
 
+The [September 22 follow-up](follow-up.md) records local fixes, reverted experiments, and new native
+ARM measurements. The measurements below are the original research results.
+
 RowFn adds batch work, and some execution paths also change the per-row algorithm. The evidence
 supports several specific improvements. It does not establish one framework overhead percentage.
 

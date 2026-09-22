@@ -1,0 +1,122 @@
+diff --git i/vortex-tensor/src/scalar_fns/cosine_similarity.rs w/vortex-tensor/src/scalar_fns/cosine_similarity.rs
+index 6434f47b1a..7c910567b1 100644
+--- i/vortex-tensor/src/scalar_fns/cosine_similarity.rs
++++ w/vortex-tensor/src/scalar_fns/cosine_similarity.rs
+@@ -32,6 +32,7 @@ use crate::scalar_fns::arithmetic::l2_norm_row;
+ use crate::scalar_fns::row::TensorRow;
+ use crate::scalar_fns::row::tensor_element_ptype;
+ use crate::utils::BinaryTensorOpMetadata;
++use crate::utils::validate_tensor_float_input;
+ 
+ /// Cosine similarity between two columns.
+ ///
+@@ -86,12 +87,39 @@ impl RowFn for CosineSimilarity {
+         args: &[DType],
+         visitor: V,
+     ) -> VortexResult<V::VisitResult> {
+-        match_each_float_ptype!(tensor_element_ptype(args)?, |T| {
+-            visitor.visit_into::<(TensorRow<T>, TensorRow<T>), UninitElementSink<T>, _>(
++        let ptype = tensor_element_ptype(args)?;
++        let width = validate_tensor_float_input(&args[0])?.list_size();
++        match_each_float_ptype!(ptype, |T| {
++            if width <= 2 {
++                return visitor
++                    .visit_into::<(TensorRow<T>, TensorRow<T>), UninitElementSink<T>, _>(
++                        (),
++                        |(lhs, rhs), output| {
++                            let norms = ConstantNorms {
++                                lhs: None,
++                                rhs: None,
++                            };
++                            // SAFETY: `output` is the sink row supplied for this callback.
++                            unsafe {
++                                InitializedElement::write(
++                                    output,
++                                    cosine_similarity_row(lhs, rhs, &norms),
++                                )
++                            }
++                        },
++                    );
++            }
++            visitor.visit_prepared_into::<(TensorRow<T>, TensorRow<T>), UninitElementSink<T>, _, _>(
+                 (),
+-                |(lhs, rhs), output| {
++                |(lhs, rhs)| ConstantNorms {
++                    lhs: lhs.map(l2_norm_row),
++                    rhs: rhs.map(l2_norm_row),
++                },
++                |norms, (lhs, rhs), output| {
+                     // SAFETY: `output` is the `UninitElementSink` row supplied for this callback.
+-                    unsafe { InitializedElement::write(output, cosine_similarity_row(lhs, rhs)) }
++                    unsafe {
++                        InitializedElement::write(output, cosine_similarity_row(lhs, rhs, norms))
++                    }
+                 },
+             )
+         })
+@@ -124,11 +152,23 @@ impl ScalarFnArrayVTable for CosineSimilarity {
+     }
+ }
+ 
++/// Norms of batch-constant operands, computed with the same arithmetic as per-row norms.
++struct ConstantNorms<T> {
++    lhs: Option<T>,
++    rhs: Option<T>,
++}
++
+ /// Computes `dot(lhs, rhs) / (||lhs|| * ||rhs||)` using the scalar functions' established
+ /// arithmetic order. A zero denominator produces `0.0`.
+-fn cosine_similarity_row<T: Float + NativePType>(lhs: &[T], rhs: &[T]) -> T {
++fn cosine_similarity_row<T: Float + NativePType>(
++    lhs: &[T],
++    rhs: &[T],
++    norms: &ConstantNorms<T>,
++) -> T {
+     let dot = inner_product_row(lhs, rhs);
+-    let denominator = l2_norm_row(lhs) * l2_norm_row(rhs);
++    let lhs_norm = norms.lhs.unwrap_or_else(|| l2_norm_row(lhs));
++    let rhs_norm = norms.rhs.unwrap_or_else(|| l2_norm_row(rhs));
++    let denominator = lhs_norm * rhs_norm;
+ 
+     if denominator == T::zero() {
+         T::zero()
+@@ -199,6 +239,39 @@ mod tests {
+         Ok(())
+     }
+ 
++    #[rstest]
++    #[case::finite([1.0e20, 1.0, -1.0e20])]
++    #[case::zero([0.0, -0.0, 0.0])]
++    #[case::underflow([f64::MIN_POSITIVE, 0.0, 0.0])]
++    #[case::overflow([f64::MAX, 1.0, 0.0])]
++    #[case::infinite([f64::INFINITY, 1.0, 0.0])]
++    #[case::nan([f64::NAN, 1.0, 0.0])]
++    fn test_prepared_constants_preserve_arithmetic(#[case] row: [f64; 3]) -> VortexResult<()> {
++        let materialized = vector_array(3, &[row, row, row].concat())?;
++        let constant = Vector::constant_array(&row, 3)?;
++        let other = vector_array(3, &[1.0f64, 2.0, 3.0, -2.0, 1.0, 0.0, 0.0, -0.0, 0.0])?;
++        for (lhs, rhs, expected_lhs, expected_rhs) in [
++            (
++                constant.clone(),
++                other.clone(),
++                materialized.clone(),
++                other.clone(),
++            ),
++            (other.clone(), constant, other, materialized),
++        ] {
++            let actual = evaluate_cosine_similarity::<f64>(lhs, rhs)?;
++            let expected = evaluate_cosine_similarity::<f64>(expected_lhs, expected_rhs)?;
++            for (actual, expected) in actual.into_iter().zip(expected) {
++                if expected.is_nan() {
++                    assert!(actual.is_nan());
++                } else {
++                    assert_eq!(actual.to_bits(), expected.to_bits());
++                }
++            }
++        }
++        Ok(())
++    }
++
+     #[test]
+     fn test_encoded_constants_match_materialized_rows_bitwise() -> VortexResult<()> {
+         let lhs_row = [1.0e10f32, 1.0, -1.0e10];

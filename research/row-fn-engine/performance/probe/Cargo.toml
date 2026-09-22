@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+[package]
+name = "row-fn-performance-probe"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+vortex-array = { path = "../../../../vortex-array", features = ["unstable_row_fns"] }
+vortex-buffer = { path = "../../../../vortex-buffer" }
+vortex-error = { path = "../../../../vortex-error" }
+vortex-session = { path = "../../../../vortex-session" }
+vortex-tensor = { path = "../../../../vortex-tensor" }
+mimalloc = "=0.1.52"
+
+[profile.release]
+codegen-units = 16
+lto = false

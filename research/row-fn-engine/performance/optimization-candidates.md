@@ -5,8 +5,8 @@
 
 [Performance overview](README.md)
 
-These candidates follow from source inspection and the recorded experiments. None was implemented
-or benchmarked as a fix. The proposal must preserve each path's current contract before claiming
+These candidates follow from source inspection and the recorded experiments. The original research did not implement
+or benchmark a fix. The [follow-up](follow-up.md) records the subsequent investigation and decisions. The proposal must preserve each path's current contract before claiming
 a lower cost.
 
 ## UTF-8 validation and sanitation

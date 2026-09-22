@@ -1,0 +1,98 @@
+[
+  {
+    "label": "baseline",
+    "kind": "cosine",
+    "artifact": "/tmp/row-fn-performance-baseline/release/deps/row_fn_performance_probe-4a8e58ef2d37100f.row_fn_performance_probe.7ca0a6670eb83b55-cgu.03.rcgu.ll",
+    "sha256": "305f88188ff747d965053d8abd115ab76e1b97ec46465578053b4d39718007cf",
+    "line": 551,
+    "symbol": "_RINvNtNtNtNtNtCs5mvLrSLkDP1_12vortex_array9scalar_fn8unstable3row7execute4sink12execute_sinkTINtNtNtCs2rdgasfnGJ9_13vortex_tensor10scalar_fns3row9TensorRowdEB1t_EuINtNtNtNtB6_5types4sink14uninit_element17UninitElementSinkdENtB2E_18InitializedElementNCINvYINtNtNtB6_7visitor5retry21ExecuteDenseWithRetryNtNtB1y_17cosine_similarity16CosineSimilarityENtNtB4a_11row_visitor10RowVisitor10visit_intoB1s_B2B_B3z_NCINvXs_B4S_B4Q_NtNtB6_6row_fn5RowFn8dispatchB45_Es0_0E0NCB41_s_0ECsaHo96IcALPt_24row_fn_performance_probe",
+    "name": "vortex_array::scalar_fn::unstable::row::execute::sink::execute_sink::<(vortex_tensor::scalar_fns::row::TensorRow<f64>, vortex_tensor::scalar_fns::row::TensorRow<f64>), (), vortex_array::scalar_fn::unstable::row::types::sink::uninit_element::UninitElementSink<f64>, vortex_array::scalar_fn::unstable::row::types::sink::uninit_element::InitializedElement, <vortex_array::scalar_fn::unstable::row::visitor::retry::ExecuteDenseWithRetry<vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity> as vortex_array::scalar_fn::unstable::row::visitor::row_visitor::RowVisitor>::visit_into<(vortex_tensor::scalar_fns::row::TensorRow<f64>, vortex_tensor::scalar_fns::row::TensorRow<f64>), vortex_array::scalar_fn::unstable::row::types::sink::uninit_element::UninitElementSink<f64>, vortex_array::scalar_fn::unstable::row::types::sink::uninit_element::InitializedElement, <vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity as vortex_array::scalar_fn::unstable::row::row_fn::RowFn>::dispatch<vortex_array::scalar_fn::unstable::row::visitor::retry::ExecuteDenseWithRetry<vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity>>::{closure#2}>::{closure#0}, <vortex_array::scalar_fn::unstable::row::visitor::retry::ExecuteDenseWithRetry<vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity> as vortex_array::scalar_fn::unstable::row::visitor::row_visitor::RowVisitor>::visit_into<(vortex_tensor::scalar_fns::row::TensorRow<f64>, vortex_tensor::scalar_fns::row::TensorRow<f64>), vortex_array::scalar_fn::unstable::row::types::sink::uninit_element::UninitElementSink<f64>, vortex_array::scalar_fn::unstable::row::types::sink::uninit_element::InitializedElement, <vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity as vortex_array::scalar_fn::unstable::row::row_fn::RowFn>::dispatch<vortex_array::scalar_fn::unstable::row::visitor::retry::ExecuteDenseWithRetry<vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity>>::{closure#2}>::{closure#1}>",
+    "excerpt": "baseline-cosine.ll",
+    "assembly": "/tmp/row-fn-performance-baseline/release/deps/row_fn_performance_probe-4a8e58ef2d37100f.row_fn_performance_probe.7ca0a6670eb83b55-cgu.03.rcgu.s",
+    "assembly_sha256": "3d4507d97ea4cc71cd55edc59f9f6afe0cc8fd62dfcff1b88c24822bb61bef37",
+    "assembly_line": 532
+  },
+  {
+    "label": "baseline",
+    "kind": "bool",
+    "artifact": "/tmp/row-fn-performance-baseline/release/deps/row_fn_performance_probe-4a8e58ef2d37100f.row_fn_performance_probe.7ca0a6670eb83b55-cgu.13.rcgu.ll",
+    "sha256": "b054313509d60e3d421b300e62aa1489e76b92c636d9761a55693a18c3f6fbae",
+    "line": 1787,
+    "symbol": "_RINvNtNtNtNtNtCs5mvLrSLkDP1_12vortex_array9scalar_fn8unstable3row7execute5retry27execute_owned_dense_attemptTxxEbubNCINvYINtNtNtB6_7visitor5retry21ExecuteDenseWithRetryINtCsaHo96IcALPt_24row_fn_performance_probe9PredicateKb0_EENtNtB20_11row_visitor10RowVisitor19visit_deferred_boolB1I_bKB3y_NCINvXs_B2J_B2G_NtNtB6_6row_fn5RowFn8dispatchB1V_E0NCB4H_s_0E0NCB1R_s_0B5u_EB2J_",
+    "name": "vortex_array::scalar_fn::unstable::row::execute::retry::execute_owned_dense_attempt::<(i64, i64), bool, (), bool, <vortex_array::scalar_fn::unstable::row::visitor::retry::ExecuteDenseWithRetry<row_fn_performance_probe::Predicate<false>> as vortex_array::scalar_fn::unstable::row::visitor::row_visitor::RowVisitor>::visit_deferred_bool<(i64, i64), bool, false, <row_fn_performance_probe::Predicate<false> as vortex_array::scalar_fn::unstable::row::row_fn::RowFn>::dispatch<vortex_array::scalar_fn::unstable::row::visitor::retry::ExecuteDenseWithRetry<row_fn_performance_probe::Predicate<false>>>::{closure#0}, <row_fn_performance_probe::Predicate<false> as vortex_array::scalar_fn::unstable::row::row_fn::RowFn>::dispatch<vortex_array::scalar_fn::unstable::row::visitor::retry::ExecuteDenseWithRetry<row_fn_performance_probe::Predicate<false>>>::{closure#1}>::{closure#0}, <vortex_array::scalar_fn::unstable::row::visitor::retry::ExecuteDenseWithRetry<row_fn_performance_probe::Predicate<false>> as vortex_array::scalar_fn::unstable::row::visitor::row_visitor::RowVisitor>::visit_deferred_bool<(i64, i64), bool, false, <row_fn_performance_probe::Predicate<false> as vortex_array::scalar_fn::unstable::row::row_fn::RowFn>::dispatch<vortex_array::scalar_fn::unstable::row::visitor::retry::ExecuteDenseWithRetry<row_fn_performance_probe::Predicate<false>>>::{closure#0}, <row_fn_performance_probe::Predicate<false> as vortex_array::scalar_fn::unstable::row::row_fn::RowFn>::dispatch<vortex_array::scalar_fn::unstable::row::visitor::retry::ExecuteDenseWithRetry<row_fn_performance_probe::Predicate<false>>>::{closure#1}>::{closure#1}, <row_fn_performance_probe::Predicate<false> as vortex_array::scalar_fn::unstable::row::row_fn::RowFn>::dispatch<vortex_array::scalar_fn::unstable::row::visitor::retry::ExecuteDenseWithRetry<row_fn_performance_probe::Predicate<false>>>::{closure#1}>",
+    "excerpt": "baseline-bool.ll",
+    "assembly": "/tmp/row-fn-performance-baseline/release/deps/row_fn_performance_probe-4a8e58ef2d37100f.row_fn_performance_probe.7ca0a6670eb83b55-cgu.13.rcgu.s",
+    "assembly_sha256": "5af5fdecc6991eeb73dec4ee14bf7918a2ef37dda173702387cacde761265e96",
+    "assembly_line": 2069
+  },
+  {
+    "label": "cosine",
+    "kind": "cosine",
+    "artifact": "/tmp/row-fn-performance-cosine/release/deps/row_fn_performance_probe-4a8e58ef2d37100f.row_fn_performance_probe.7ca0a6670eb83b55-cgu.03.rcgu.ll",
+    "sha256": "0353e17f3eb58a7e1ff8c7a3fb1bd6addf8e931bdb3c41dc564dc4b43274e3f3",
+    "line": 623,
+    "symbol": "_RINvNtNtNtNtNtCs5mvLrSLkDP1_12vortex_array9scalar_fn8unstable3row7execute4sink12execute_sinkTINtNtNtCs2rdgasfnGJ9_13vortex_tensor10scalar_fns3row9TensorRowdEB1t_EINtNtB1y_17cosine_similarity13ConstantNormsdEINtNtNtNtB6_5types4sink14uninit_element17UninitElementSinkdENtB3m_18InitializedElementNCINvXs_B2D_NtB2D_16CosineSimilarityNtNtB6_6row_fn5RowFn8dispatchINtNtNtB6_7visitor5retry21ExecuteDenseWithRetryB4T_EEs2_0NCB4J_s3_0ECsaHo96IcALPt_24row_fn_performance_probe",
+    "name": "vortex_array::scalar_fn::unstable::row::execute::sink::execute_sink::<(vortex_tensor::scalar_fns::row::TensorRow<f64>, vortex_tensor::scalar_fns::row::TensorRow<f64>), vortex_tensor::scalar_fns::cosine_similarity::ConstantNorms<f64>, vortex_array::scalar_fn::unstable::row::types::sink::uninit_element::UninitElementSink<f64>, vortex_array::scalar_fn::unstable::row::types::sink::uninit_element::InitializedElement, <vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity as vortex_array::scalar_fn::unstable::row::row_fn::RowFn>::dispatch<vortex_array::scalar_fn::unstable::row::visitor::retry::ExecuteDenseWithRetry<vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity>>::{closure#4}, <vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity as vortex_array::scalar_fn::unstable::row::row_fn::RowFn>::dispatch<vortex_array::scalar_fn::unstable::row::visitor::retry::ExecuteDenseWithRetry<vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity>>::{closure#5}>",
+    "excerpt": "cosine-cosine.ll",
+    "assembly": "/tmp/row-fn-performance-cosine/release/deps/row_fn_performance_probe-4a8e58ef2d37100f.row_fn_performance_probe.7ca0a6670eb83b55-cgu.03.rcgu.s",
+    "assembly_sha256": "e8a48a79bf867dff6360e543353c6dc9436390c9cf387f4dcb910527d5818115",
+    "assembly_line": 619
+  },
+  {
+    "label": "cosine",
+    "kind": "bool",
+    "artifact": "/tmp/row-fn-performance-cosine/release/deps/row_fn_performance_probe-4a8e58ef2d37100f.row_fn_performance_probe.7ca0a6670eb83b55-cgu.11.rcgu.ll",
+    "sha256": "6822fe4a46c08b187f6a1e5b7138df48067ec6ff47a58c55b01ba65a2f83a845",
+    "line": 1796,
+    "symbol": "_RINvNtNtNtNtNtCs5mvLrSLkDP1_12vortex_array9scalar_fn8unstable3row7execute5retry27execute_owned_dense_attemptTxxEbubNCINvYINtNtNtB6_7visitor5retry21ExecuteDenseWithRetryINtCsaHo96IcALPt_24row_fn_performance_probe9PredicateKb0_EENtNtB20_11row_visitor10RowVisitor19visit_deferred_boolB1I_bKB3y_NCINvXs_B2J_B2G_NtNtB6_6row_fn5RowFn8dispatchB1V_E0NCB4H_s_0E0NCB1R_s_0B5u_EB2J_",
+    "name": "vortex_array::scalar_fn::unstable::row::execute::retry::execute_owned_dense_attempt::<(i64, i64), bool, (), bool, <vortex_array::scalar_fn::unstable::row::visitor::retry::ExecuteDenseWithRetry<row_fn_performance_probe::Predicate<false>> as vortex_array::scalar_fn::unstable::row::visitor::row_visitor::RowVisitor>::visit_deferred_bool<(i64, i64), bool, false, <row_fn_performance_probe::Predicate<false> as vortex_array::scalar_fn::unstable::row::row_fn::RowFn>::dispatch<vortex_array::scalar_fn::unstable::row::visitor::retry::ExecuteDenseWithRetry<row_fn_performance_probe::Predicate<false>>>::{closure#0}, <row_fn_performance_probe::Predicate<false> as vortex_array::scalar_fn::unstable::row::row_fn::RowFn>::dispatch<vortex_array::scalar_fn::unstable::row::visitor::retry::ExecuteDenseWithRetry<row_fn_performance_probe::Predicate<false>>>::{closure#1}>::{closure#0}, <vortex_array::scalar_fn::unstable::row::visitor::retry::ExecuteDenseWithRetry<row_fn_performance_probe::Predicate<false>> as vortex_array::scalar_fn::unstable::row::visitor::row_visitor::RowVisitor>::visit_deferred_bool<(i64, i64), bool, false, <row_fn_performance_probe::Predicate<false> as vortex_array::scalar_fn::unstable::row::row_fn::RowFn>::dispatch<vortex_array::scalar_fn::unstable::row::visitor::retry::ExecuteDenseWithRetry<row_fn_performance_probe::Predicate<false>>>::{closure#0}, <row_fn_performance_probe::Predicate<false> as vortex_array::scalar_fn::unstable::row::row_fn::RowFn>::dispatch<vortex_array::scalar_fn::unstable::row::visitor::retry::ExecuteDenseWithRetry<row_fn_performance_probe::Predicate<false>>>::{closure#1}>::{closure#1}, <row_fn_performance_probe::Predicate<false> as vortex_array::scalar_fn::unstable::row::row_fn::RowFn>::dispatch<vortex_array::scalar_fn::unstable::row::visitor::retry::ExecuteDenseWithRetry<row_fn_performance_probe::Predicate<false>>>::{closure#1}>",
+    "excerpt": "cosine-bool.ll",
+    "assembly": "/tmp/row-fn-performance-cosine/release/deps/row_fn_performance_probe-4a8e58ef2d37100f.row_fn_performance_probe.7ca0a6670eb83b55-cgu.11.rcgu.s",
+    "assembly_sha256": "436b51213acece8a5514a60e41b22535c3833b75739753fc8fc755e5812365f3",
+    "assembly_line": 2092
+  },
+  {
+    "label": "bool",
+    "kind": "bool",
+    "artifact": "/tmp/row-fn-performance-bool/release/deps/row_fn_performance_probe-4a8e58ef2d37100f.row_fn_performance_probe.7ca0a6670eb83b55-cgu.03.rcgu.ll",
+    "sha256": "96efafe2756bcc81ce495fd859087342bbcf06339b4586bc918084aa00e8f204",
+    "line": 12375,
+    "symbol": "_RINvNtNtNtNtNtCs5mvLrSLkDP1_12vortex_array9scalar_fn8unstable3row7execute11packed_bool26execute_bool_dense_attemptTxxEubKb0_NCINvYINtNtNtB6_7visitor5retry21ExecuteDenseWithRetryINtCsaHo96IcALPt_24row_fn_performance_probe9PredicateKB1V_EENtNtB29_11row_visitor10RowVisitor19visit_deferred_boolB1O_bKB1V_NCINvXs_B2S_B2P_NtNtB6_6row_fn5RowFn8dispatchB24_E0NCB4R_s_0E0NCB20_s_0B5E_EB2S_",
+    "name": "vortex_array::scalar_fn::unstable::row::execute::packed_bool::execute_bool_dense_attempt::<(i64, i64), (), bool, false, <vortex_array::scalar_fn::unstable::row::visitor::retry::ExecuteDenseWithRetry<row_fn_performance_probe::Predicate<false>> as vortex_array::scalar_fn::unstable::row::visitor::row_visitor::RowVisitor>::visit_deferred_bool<(i64, i64), bool, false, <row_fn_performance_probe::Predicate<false> as vortex_array::scalar_fn::unstable::row::row_fn::RowFn>::dispatch<vortex_array::scalar_fn::unstable::row::visitor::retry::ExecuteDenseWithRetry<row_fn_performance_probe::Predicate<false>>>::{closure#0}, <row_fn_performance_probe::Predicate<false> as vortex_array::scalar_fn::unstable::row::row_fn::RowFn>::dispatch<vortex_array::scalar_fn::unstable::row::visitor::retry::ExecuteDenseWithRetry<row_fn_performance_probe::Predicate<false>>>::{closure#1}>::{closure#0}, <vortex_array::scalar_fn::unstable::row::visitor::retry::ExecuteDenseWithRetry<row_fn_performance_probe::Predicate<false>> as vortex_array::scalar_fn::unstable::row::visitor::row_visitor::RowVisitor>::visit_deferred_bool<(i64, i64), bool, false, <row_fn_performance_probe::Predicate<false> as vortex_array::scalar_fn::unstable::row::row_fn::RowFn>::dispatch<vortex_array::scalar_fn::unstable::row::visitor::retry::ExecuteDenseWithRetry<row_fn_performance_probe::Predicate<false>>>::{closure#0}, <row_fn_performance_probe::Predicate<false> as vortex_array::scalar_fn::unstable::row::row_fn::RowFn>::dispatch<vortex_array::scalar_fn::unstable::row::visitor::retry::ExecuteDenseWithRetry<row_fn_performance_probe::Predicate<false>>>::{closure#1}>::{closure#1}, <row_fn_performance_probe::Predicate<false> as vortex_array::scalar_fn::unstable::row::row_fn::RowFn>::dispatch<vortex_array::scalar_fn::unstable::row::visitor::retry::ExecuteDenseWithRetry<row_fn_performance_probe::Predicate<false>>>::{closure#1}>",
+    "excerpt": "bool-bool.ll",
+    "assembly": "/tmp/row-fn-performance-bool/release/deps/row_fn_performance_probe-4a8e58ef2d37100f.row_fn_performance_probe.7ca0a6670eb83b55-cgu.03.rcgu.s",
+    "assembly_sha256": "8e4e908e60e08c34c4330a4a3ef806b5f78e529c75ffef1058699f0b8d405fd8",
+    "assembly_line": 18096
+  },
+  {
+    "label": "bool",
+    "kind": "cosine",
+    "artifact": "/tmp/row-fn-performance-bool/release/deps/row_fn_performance_probe-4a8e58ef2d37100f.row_fn_performance_probe.7ca0a6670eb83b55-cgu.04.rcgu.ll",
+    "sha256": "d998e01dfc9649b8f2c4c37aab09f5ed118cb5b25226faf8749d0895dbdb4e8d",
+    "line": 623,
+    "symbol": "_RINvNtNtNtNtNtCs5mvLrSLkDP1_12vortex_array9scalar_fn8unstable3row7execute4sink12execute_sinkTINtNtNtCs2rdgasfnGJ9_13vortex_tensor10scalar_fns3row9TensorRowdEB1t_EINtNtB1y_17cosine_similarity13ConstantNormsdEINtNtNtNtB6_5types4sink14uninit_element17UninitElementSinkdENtB3m_18InitializedElementNCINvXs_B2D_NtB2D_16CosineSimilarityNtNtB6_6row_fn5RowFn8dispatchINtNtNtB6_7visitor5retry21ExecuteDenseWithRetryB4T_EEs2_0NCB4J_s3_0ECsaHo96IcALPt_24row_fn_performance_probe",
+    "name": "vortex_array::scalar_fn::unstable::row::execute::sink::execute_sink::<(vortex_tensor::scalar_fns::row::TensorRow<f64>, vortex_tensor::scalar_fns::row::TensorRow<f64>), vortex_tensor::scalar_fns::cosine_similarity::ConstantNorms<f64>, vortex_array::scalar_fn::unstable::row::types::sink::uninit_element::UninitElementSink<f64>, vortex_array::scalar_fn::unstable::row::types::sink::uninit_element::InitializedElement, <vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity as vortex_array::scalar_fn::unstable::row::row_fn::RowFn>::dispatch<vortex_array::scalar_fn::unstable::row::visitor::retry::ExecuteDenseWithRetry<vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity>>::{closure#4}, <vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity as vortex_array::scalar_fn::unstable::row::row_fn::RowFn>::dispatch<vortex_array::scalar_fn::unstable::row::visitor::retry::ExecuteDenseWithRetry<vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity>>::{closure#5}>",
+    "excerpt": "bool-cosine.ll",
+    "assembly": "/tmp/row-fn-performance-bool/release/deps/row_fn_performance_probe-4a8e58ef2d37100f.row_fn_performance_probe.7ca0a6670eb83b55-cgu.04.rcgu.s",
+    "assembly_sha256": "1cc253ff04ee242383d7b8e8f102edff1545d39bc769a351f310bda94ee8ec2b",
+    "assembly_line": 619
+  },
+  {
+    "label": "final",
+    "kind": "direct",
+    "artifact": "/tmp/row-fn-performance-final/release/deps/row_fn_performance_probe-4a8e58ef2d37100f.row_fn_performance_probe.7ca0a6670eb83b55-cgu.02.rcgu.ll",
+    "sha256": "f882385dfa48464a26fe041016503390815cd110ee03e288631824a700965623",
+    "line": 11908,
+    "symbol": "_RNvCsaHo96IcALPt_24row_fn_performance_probe6direct",
+    "excerpt": "final-direct.ll"
+  },
+  {
+    "label": "final",
+    "kind": "collector",
+    "artifact": "/tmp/row-fn-performance-final/release/deps/row_fn_performance_probe-4a8e58ef2d37100f.row_fn_performance_probe.7ca0a6670eb83b55-cgu.06.rcgu.ll",
+    "sha256": "babb7ff3e088de77a33efc653bef736eeb255696575d306748f1eaf985c9e9af",
+    "line": 2313,
+    "symbol": "_RINvYxNtNtNtNtNtNtNtCs5mvLrSLkDP1_12vortex_array9scalar_fn8unstable3row5types7element6output13OutputElement10build_fromRSxNCNvCsaHo96IcALPt_24row_fn_performance_probe6direct0EB20_",
+    "excerpt": "final-collector.ll"
+  }
+]

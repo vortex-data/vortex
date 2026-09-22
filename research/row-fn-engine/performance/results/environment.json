@@ -1,0 +1,74 @@
+{
+  "base_commit": "9314964c7ab9f14ef323629cc73c47120dfd2de4",
+  "branch": "ct/row-fn-performance",
+  "date": "2026-09-22",
+  "cpu": "Apple M4 Max",
+  "memory_bytes": 137438953472,
+  "os": "Darwin Mac.localdomain 27.0.0 Darwin Kernel Version 27.0.0: Tue Aug 11 21:05:48 PDT 2026; root:xnu-13432.1.9~1/RELEASE_ARM64_T6041 arm64",
+  "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)\nbinary: rustc\ncommit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea\ncommit-date: 2026-08-18\nhost: aarch64-apple-darwin\nrelease: 1.98.0\nLLVM version: 22.1.8",
+  "cargo": "cargo 1.98.0 (797e8a9bc 2026-08-05)",
+  "target": "aarch64-apple-darwin",
+  "profile": "release",
+  "opt_level": 3,
+  "codegen_units": 16,
+  "lto": false,
+  "rustflags": [
+    "-C",
+    "force-frame-pointers=yes"
+  ],
+  "target_cpu_override": null,
+  "rustc_wrapper": "kache",
+  "allocator": "mimalloc 0.1.52",
+  "libmimalloc_sys": "0.1.49",
+  "affinity": null,
+  "frequency_lock": false,
+  "thermal_control": false,
+  "binaries": {
+    "baseline": {
+      "path": "/tmp/row-fn-performance-baseline/release/row-fn-performance-probe",
+      "sha256": "316f4ea7bdd75ca35c3f68dbaa44cc04eca8a525e54e961e24400a2ce868b386"
+    },
+    "cosine": {
+      "path": "/tmp/row-fn-performance-cosine/release/row-fn-performance-probe",
+      "sha256": "9b071235fcbf1ddcd79c4a0174475722f80356d7f902b82a411b123edde519fc"
+    },
+    "cosine-fast": {
+      "path": "/tmp/row-fn-performance-cosine-fast/release/row-fn-performance-probe",
+      "sha256": "a01c5318114f1adbd95258c6669428b8f03a6714f230fd52c5e79d4fd8b908e8"
+    },
+    "bool": {
+      "path": "/tmp/row-fn-performance-bool/release/row-fn-performance-probe",
+      "sha256": "ebd9d60c12eff319bfff64b2e12e82daa791c4ec5969caa198b86102b418ef4b"
+    },
+    "selected": {
+      "path": "/tmp/row-fn-performance-selected/release/row-fn-performance-probe",
+      "sha256": "69e2f459cc4dc437da2fc152073bc31435ebf3096e02c9a7e1661e68cd948d46"
+    },
+    "control": {
+      "path": "/tmp/row-fn-performance-control/release/row-fn-performance-probe",
+      "sha256": "43604d24523813729b08c851742ccd435ad7fb512a4ac17c878faa752c7a3090"
+    },
+    "narrow": {
+      "path": "/tmp/row-fn-performance-narrow/release/row-fn-performance-probe",
+      "sha256": "4174c314eb1f4e47bd02a43c4b06e63fffa46ad04331c3dae0b4e5f97ea75d04"
+    },
+    "utf8-before": {
+      "path": "/tmp/row-fn-performance-utf8-before/release/row-fn-performance-probe",
+      "sha256": "1bdd1eb889ace85a3272ca90454e39272c4f4aebaa5fb11cd050256ed4a09da9"
+    },
+    "utf8": {
+      "path": "/tmp/row-fn-performance-utf8/release/row-fn-performance-probe",
+      "sha256": "2250ea4a56fa66f6036307b50076f1ff81c0a49afad361ecbc0949b85c899a2c"
+    },
+    "diagnostic": {
+      "path": "/tmp/row-fn-performance-diagnostic/release/row-fn-performance-probe",
+      "sha256": "217c1868d1c24f2e6d681c8afe7ce31f1b31ca69ac794452bcccb68a654f69c8"
+    },
+    "final": {
+      "path": "/tmp/row-fn-performance-final/release/row-fn-performance-probe",
+      "sha256": "ea2c3e53f49a9b5ac71c5158f1ce0b9453254c5d05e858b9a4c02d3e4a5ca538"
+    }
+  },
+  "kache": "0.14.2",
+  "environment_flag_overrides": {}
+}

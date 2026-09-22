@@ -1,0 +1,13 @@
+case,rows,sample,iterations,ns
+error_construct_drop,0,0,512,7450.846
+error_construct_drop,0,1,512,7437.338
+error_construct_drop,0,2,512,7456.867
+error_construct_drop,0,3,512,7638.996
+error_construct_drop,0,4,512,7427.652
+error_construct_drop,0,5,512,7407.227
+error_construct_drop,0,6,512,7482.178
+error_construct_drop,0,7,512,7421.875
+error_construct_drop,0,8,512,7417.807
+error_construct_drop,0,9,512,7469.891
+error_construct_drop,0,10,512,7469.482
+error_construct_drop,0,11,512,7407.553

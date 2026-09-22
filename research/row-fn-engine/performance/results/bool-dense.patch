@@ -1,0 +1,259 @@
+diff --git i/vortex-array/src/scalar_fn/unstable/row/batch/tests.rs w/vortex-array/src/scalar_fn/unstable/row/batch/tests.rs
+index 4d09a20979..808adc64b4 100644
+--- i/vortex-array/src/scalar_fn/unstable/row/batch/tests.rs
++++ w/vortex-array/src/scalar_fn/unstable/row/batch/tests.rs
+@@ -25,7 +25,10 @@ use crate::arrays::ConstantArray;
+ use crate::arrays::ExtensionArray;
+ use crate::arrays::FixedSizeListArray;
+ use crate::arrays::PrimitiveArray;
++use crate::arrays::VarBinViewArray;
++use crate::arrays::varbinview::BinaryView;
+ use crate::assert_arrays_eq;
++use crate::buffer::BufferHandle;
+ use crate::dtype::DType;
+ use crate::dtype::NativePType;
+ use crate::dtype::Nullability;
+@@ -43,6 +46,8 @@ use crate::scalar_fn::unstable::row::OutputElement;
+ use crate::scalar_fn::unstable::row::OutputSink;
+ use crate::scalar_fn::unstable::row::RowFn;
+ use crate::scalar_fn::unstable::row::RowVisitor;
++use crate::scalar_fn::unstable::row::Utf8Column;
++use crate::scalar_fn::unstable::row::execute::execute_bool_dense_attempt;
+ use crate::scalar_fn::unstable::row::execute_rows;
+ use crate::scalar_fn::unstable::row::row_fn_return_dtype;
+ use crate::validity::Validity;
+@@ -83,6 +88,20 @@ struct PackedGreaterThan<const MULTIVERSIONED: bool>;
+ #[derive(Clone)]
+ struct DeferredGreaterThan<const MULTIVERSIONED: bool>;
+ 
++#[derive(Clone, Copy)]
++enum BooleanInputShape {
++    Columns,
++    ConstantLhs,
++    ConstantRhs,
++}
++
++#[derive(Clone, Copy)]
++enum BooleanValidity {
++    AllValid,
++    AllNull,
++    Partial,
++}
++
+ #[derive(Clone)]
+ struct ValidOnlyPositive;
+ 
+@@ -866,6 +885,100 @@ fn test_deferred_bool_output_handles_partial_constants() -> VortexResult<()> {
+     Ok(())
+ }
+ 
++#[rstest]
++#[case::empty(0)]
++#[case::one(1)]
++#[case::word_tail(63)]
++#[case::word(64)]
++#[case::word_remainder(65)]
++#[case::multiword(130)]
++fn test_deferred_bool_sliced_validity_and_constants(
++    #[case] len: usize,
++    #[values(false, true)] multiversioned: bool,
++    #[values(
++        BooleanInputShape::Columns,
++        BooleanInputShape::ConstantLhs,
++        BooleanInputShape::ConstantRhs
++    )]
++    input_shape: BooleanInputShape,
++    #[values(
++        BooleanValidity::AllValid,
++        BooleanValidity::AllNull,
++        BooleanValidity::Partial
++    )]
++    validity_pattern: BooleanValidity,
++) -> VortexResult<()> {
++    let valid = |index: usize| match validity_pattern {
++        BooleanValidity::AllValid => true,
++        BooleanValidity::AllNull => false,
++        BooleanValidity::Partial => index % 3 != 0,
++    };
++    let validity = Validity::Array(BoolArray::from_iter((0..len + 2).map(valid)).into_array());
++    let varying = PrimitiveArray::new(
++        (0..len + 2)
++            .map(|index| if valid(index) { index as i64 } else { i64::MIN })
++            .collect::<Vec<_>>(),
++        validity,
++    )
++    .into_array()
++    .slice(1..len + 1)?;
++    let constant = ConstantArray::new(32_i64, len).into_array();
++    let other = PrimitiveArray::from_iter(std::iter::repeat_n(32_i64, len)).into_array();
++    let (lhs, rhs) = match input_shape {
++        BooleanInputShape::Columns => (varying, other),
++        BooleanInputShape::ConstantLhs => (constant, varying),
++        BooleanInputShape::ConstantRhs => (varying, constant),
++    };
++    let args = VecExecutionArgs::new(vec![lhs, rhs], len);
++    let mut ctx = array_session().create_execution_ctx();
++    let actual = if multiversioned {
++        execute_rows(&DeferredGreaterThan::<true>, &EmptyOptions, &args, &mut ctx)?
++    } else {
++        execute_rows(
++            &DeferredGreaterThan::<false>,
++            &EmptyOptions,
++            &args,
++            &mut ctx,
++        )?
++    };
++    let expected = BoolArray::from_iter((1..len + 1).map(|index| {
++        valid(index).then_some(if matches!(input_shape, BooleanInputShape::ConstantLhs) {
++            32 > index as i64
++        } else {
++            index as i64 > 32
++        })
++    }))
++    .into_array();
++    assert_arrays_eq!(&actual, &expected, &mut ctx);
++    Ok(())
++}
++
++#[test]
++fn test_deferred_bool_decode_error_is_terminal() {
++    let views = Buffer::from(vec![BinaryView::make_view(&[0xff], 0, 0)]);
++    let input = VarBinViewArray::new_handle(
++        BufferHandle::new_host(views.into_byte_buffer()),
++        Default::default(),
++        DType::Utf8(Nullability::NonNullable),
++        Validity::NonNullable,
++    )
++    .into_array();
++    let args = VecExecutionArgs::new(vec![input], 1);
++    let mut ctx = array_session().create_execution_ctx();
++
++    let result = execute_bool_dense_attempt::<(Utf8Column,), (), bool, true>(
++        &args,
++        &mut ctx,
++        |_| (),
++        |&(), (value,)| (!value.is_empty(), false),
++        |_| Ok(()),
++    );
++    assert!(
++        result.is_err(),
++        "a decode error must not become a deferred row error"
++    );
++}
++
+ #[test]
+ fn test_deferred_bool_output_reports_valid_row_failure() -> VortexResult<()> {
+     let lhs = PrimitiveArray::from_iter([1_i64, i64::MIN, -1]).into_array();
+diff --git i/vortex-array/src/scalar_fn/unstable/row/execute/mod.rs w/vortex-array/src/scalar_fn/unstable/row/execute/mod.rs
+index 5861e984cd..3c1fa4fef5 100644
+--- i/vortex-array/src/scalar_fn/unstable/row/execute/mod.rs
++++ w/vortex-array/src/scalar_fn/unstable/row/execute/mod.rs
+@@ -15,6 +15,7 @@ pub(super) use owned::execute_owned_infallible_valid_rows;
+ pub(super) use owned::execute_owned_valid_rows;
+ 
+ mod packed_bool;
++pub(super) use packed_bool::execute_bool_dense_attempt;
+ pub(super) use packed_bool::execute_owned_bool;
+ pub(super) use packed_bool::execute_owned_infallible_bool;
+ 
+diff --git i/vortex-array/src/scalar_fn/unstable/row/execute/packed_bool.rs w/vortex-array/src/scalar_fn/unstable/row/execute/packed_bool.rs
+index cdacef3b5e..5f9d5e3cd0 100644
+--- i/vortex-array/src/scalar_fn/unstable/row/execute/packed_bool.rs
++++ w/vortex-array/src/scalar_fn/unstable/row/execute/packed_bool.rs
+@@ -13,6 +13,7 @@ use vortex_compute::lane_kernels::IndexedSource;
+ use vortex_error::VortexResult;
+ use vortex_error::vortex_bail;
+ 
++use super::DenseAttempt;
+ use crate::ArrayRef;
+ use crate::ExecutionCtx;
+ use crate::IntoArray;
+@@ -61,6 +62,30 @@ pub(crate) fn execute_owned_bool<Args, Prepared, Fail, const MULTIVERSIONED: boo
+     apply: impl Fn(&Prepared, Args::Elems<'_>) -> (bool, Fail),
+     finish_failure: impl FnOnce(Fail) -> VortexResult<()>,
+ ) -> VortexResult<ArrayRef>
++where
++    Args: IndexedElementTuple,
++    Fail: FailureEvidence,
++{
++    match execute_bool_dense_attempt::<Args, Prepared, Fail, MULTIVERSIONED>(
++        args,
++        ctx,
++        prepare,
++        apply,
++        finish_failure,
++    )? {
++        DenseAttempt::Values(values) => Ok(values),
++        DenseAttempt::DeferredError(error) => Err(error),
++    }
++}
++
++/// Pack a dense attempt, keeping row failure separate from terminal decoding errors.
++pub(crate) fn execute_bool_dense_attempt<Args, Prepared, Fail, const MULTIVERSIONED: bool>(
++    args: &dyn ExecutionArgs,
++    ctx: &mut ExecutionCtx,
++    prepare: impl FnOnce(Args::ConstElems<'_>) -> Prepared,
++    apply: impl Fn(&Prepared, Args::Elems<'_>) -> (bool, Fail),
++    finish_failure: impl FnOnce(Fail) -> VortexResult<()>,
++) -> VortexResult<DenseAttempt>
+ where
+     Args: IndexedElementTuple,
+     Fail: FailureEvidence,
+@@ -96,7 +121,10 @@ where
+         BitBuffer::collect_bool(row_count, collect)
+     };
+ 
+-    finish_failure(failure)?;
+-
+-    Ok(BoolArray::new(values, Validity::NonNullable).into_array())
++    match finish_failure(failure) {
++        Ok(()) => Ok(DenseAttempt::Values(
++            BoolArray::new(values, Validity::NonNullable).into_array(),
++        )),
++        Err(error) => Ok(DenseAttempt::DeferredError(error)),
++    }
+ }
+diff --git i/vortex-array/src/scalar_fn/unstable/row/visitor/retry.rs w/vortex-array/src/scalar_fn/unstable/row/visitor/retry.rs
+index 93313904b4..1f045a97f4 100644
+--- i/vortex-array/src/scalar_fn/unstable/row/visitor/retry.rs
++++ w/vortex-array/src/scalar_fn/unstable/row/visitor/retry.rs
+@@ -31,6 +31,7 @@ use crate::scalar_fn::unstable::row::RowFn;
+ use crate::scalar_fn::unstable::row::SinkResult;
+ use crate::scalar_fn::unstable::row::batch::BorrowedRowFnArgs;
+ use crate::scalar_fn::unstable::row::execute::DenseAttempt;
++use crate::scalar_fn::unstable::row::execute::execute_bool_dense_attempt;
+ use crate::scalar_fn::unstable::row::execute::execute_owned_dense_attempt;
+ use crate::scalar_fn::unstable::row::execute::execute_owned_infallible;
+ use crate::scalar_fn::unstable::row::execute::execute_sink;
+@@ -152,4 +153,31 @@ impl<F: RowFn> RowVisitor for ExecuteDenseWithRetry<'_, '_, '_, F> {
+             finish_failure,
+         )
+     }
++
++    fn visit_prepared_deferred_bool<Args, Prepared, Fail, const MULTIVERSIONED: bool>(
++        self,
++        prepare: impl FnOnce(Args::ConstElems<'_>) -> Prepared,
++        apply: impl Fn(&Prepared, Args::Elems<'_>) -> (bool, Fail),
++        finish_failure: impl FnOnce(Fail) -> VortexResult<()>,
++    ) -> VortexResult<Self::VisitResult>
++    where
++        Args: IndexedElementTuple,
++        Fail: FailureEvidence,
++    {
++        const { assert_deferred_visit_contract::<F, Args, bool, Fail>() };
++        let visited = BatchPlan::new(
++            validate_owned_visit::<Args, bool>(self.args.dtypes())?,
++            self.output_dtype,
++            RowPolicy::for_deferred_output::<Args>(),
++        )?;
++        self.args.plan().ensure_reproduced_by(&visited)?;
++
++        execute_bool_dense_attempt::<Args, Prepared, Fail, MULTIVERSIONED>(
++            self.args,
++            self.ctx,
++            prepare,
++            apply,
++            finish_failure,
++        )
++    }
+ }

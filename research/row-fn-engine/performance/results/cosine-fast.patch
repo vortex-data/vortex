@@ -1,0 +1,14 @@
+--- i/vortex-tensor/src/scalar_fns/cosine_similarity.rs
++++ w/vortex-tensor/src/scalar_fns/cosine_similarity.rs
+@@ -137,6 +137,11 @@
+ /// Computes `dot(lhs, rhs) / (||lhs|| * ||rhs||)` using the scalar functions' established
+ /// arithmetic order. A zero denominator produces `0.0`.
+ fn cosine_similarity_row<T: Float + NativePType>(lhs: &[T], rhs: &[T], norms: &ConstantNorms<T>) -> T {
++    if norms.lhs.is_none() && norms.rhs.is_none() {
++        let dot = inner_product_row(lhs, rhs);
++        let denominator = l2_norm_row(lhs) * l2_norm_row(rhs);
++        return if denominator == T::zero() { T::zero() } else { dot / denominator };
++    }
+     let dot = inner_product_row(lhs, rhs);
+     let lhs_norm = norms.lhs.unwrap_or_else(|| l2_norm_row(lhs));
+     let rhs_norm = norms.rhs.unwrap_or_else(|| l2_norm_row(rhs));
