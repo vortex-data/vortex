@@ -14,7 +14,6 @@ use std::fmt;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::hash::Hasher;
-use std::sync::Arc;
 
 pub use estimate::CompressionEstimate;
 pub use estimate::DeferredEstimate;
@@ -33,9 +32,6 @@ use vortex_error::VortexResult;
 use crate::CascadingCompressor;
 use crate::stats::ArrayAndStats;
 use crate::stats::GenerateStatsOptions;
-
-/// Shared reference to a configured compression scheme.
-pub type SchemeRef = Arc<dyn Scheme>;
 
 /// Unique identifier for a compression scheme.
 ///
@@ -128,12 +124,15 @@ pub trait Scheme: Debug + Send + Sync {
     /// Whether this scheme can compress the given canonical array.
     fn matches(&self, canonical: &Canonical) -> bool;
 
-    /// Serialized IDs this configured instance may directly produce.
+    /// The serialized IDs this scheme itself may write into its compressed output.
     ///
-    /// List the serialized IDs of arrays constructed directly by [`compress`](Scheme::compress),
-    /// including optional formats enabled on this instance. These may differ from in-memory IDs.
-    /// Cascaded children are checked through their own schemes. Canonical arrays the scheme
-    /// merely rearranges do not need to be listed.
+    /// Every declared ID must be permitted for the scheme to be used. Cascaded children are
+    /// compressed by other schemes, which declare their own IDs, so only arrays constructed
+    /// directly by [`compress`](Scheme::compress) belong here. Canonical arrays the scheme
+    /// merely rearranges do not need to be declared.
+    ///
+    /// For most encodings this is the in-memory encoding ID. An encoding with several wire
+    /// formats declares the wire IDs the scheme writes, which may differ from its in-memory ID.
     fn produced_encodings(&self) -> Vec<ArrayId>;
 
     /// Returns the stats generation options this scheme requires. The compressor merges all

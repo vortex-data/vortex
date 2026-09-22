@@ -367,7 +367,6 @@ mod tests {
         let canonical = Canonical::VarBinView(VarBinViewArray::from_iter_str(["value"]));
         let mut actual = ALL_SCHEMES
             .iter()
-            .map(|(_, constructor)| constructor(None))
             .filter(|scheme| scheme.matches(&canonical))
             .map(|scheme| scheme.id())
             .collect::<Vec<_>>();

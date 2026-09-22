@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::iter;
-use std::sync::Arc;
 use std::sync::LazyLock;
 
 use vortex_array::IntoArray;
@@ -67,7 +66,7 @@ fn test_rle_compression() -> VortexResult<()> {
 
     let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
 
-    let compressor = CascadingCompressor::new(vec![Arc::new(FloatRLEScheme)]);
+    let compressor = CascadingCompressor::new(vec![&FloatRLEScheme]);
     let compressed =
         compressor.compress(&array.into_array(), &mut SESSION.create_execution_ctx())?;
     assert!(compressed.is::<RLE>());

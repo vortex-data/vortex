@@ -384,7 +384,7 @@ impl PyVortexWriteOptions {
                 .enabled_component_ids(ComponentKind::Array)
                 .into_iter()
                 .collect();
-            let mut compressor = BtrBlocksCompressorBuilder::default();
+            let mut compressor = BtrBlocksCompressorBuilder::new(&allowed_encodings);
             if self.use_compact_encodings {
                 compressor = compressor.with_compact();
             }

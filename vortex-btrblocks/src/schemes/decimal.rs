@@ -31,20 +31,23 @@ use crate::SchemeExt;
 /// Narrows the decimal to the smallest integer type and splits it into a signed most significant
 /// part plus up to three unsigned 64-bit lower parts, each compressed as its own child. Values that
 /// fit one signed part produce a single-part array under the frozen `vortex.decimal_byte_parts`
-/// format. Wider values need lower parts, and so the `vortex.decimal_byte_parts.v2` format. They
-/// are split only when the writer may emit that format, and stay canonical otherwise.
+/// format. Wider values need lower parts, and so the `vortex.decimal_byte_parts.v2` format. The
+/// v2 scheme splits these values; the v1 scheme leaves them canonical.
+///
+/// The default uses v1. [`crate::BtrBlocksCompressorBuilder::new`] selects v2 when its permitted
+/// serialized IDs include that format. This choice is fixed at construction.
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub struct DecimalScheme {
-    /// Whether the permitted serialized IDs include the format for lower parts.
-    allow_v2: bool,
+    v2: bool,
 }
 
 impl DecimalScheme {
-    /// Creates a decimal scheme that may use v2 for wide values when `allow_v2` is true.
+    /// Creates a decimal scheme with a fixed choice of v1 or v2.
     ///
-    /// The default uses only v1. Availability is gated separately by the compressor builder.
-    pub fn new(allow_v2: bool) -> Self {
-        Self { allow_v2 }
+    /// With `v2` set, wide values are split into multiple parts. Otherwise, they stay canonical.
+    /// Single-part values serialize as v1 in either case.
+    pub const fn new(v2: bool) -> Self {
+        Self { v2 }
     }
 }
 
@@ -58,9 +61,9 @@ impl Scheme for DecimalScheme {
     }
 
     fn produced_encodings(&self) -> Vec<ArrayId> {
-        // Single-part arrays always serialize as v1, even when v2 is enabled.
+        // Single-part arrays always serialize as v1, including those produced by the v2 scheme.
         let mut ids = vec![decimal_byte_parts_v1_id()];
-        if self.allow_v2 {
+        if self.v2 {
             ids.push(decimal_byte_parts_v2_id());
         }
         ids
@@ -90,10 +93,8 @@ impl Scheme for DecimalScheme {
     ) -> VortexResult<ArrayRef> {
         let decimal = data.array().clone().execute::<DecimalArray>(exec_ctx)?;
         let decimal = narrowed_decimal(decimal);
-        // Lower parts need the v2 format. Leave wide values canonical when the writer may not
-        // emit it, so a frozen-format file never carries an array it cannot serialize.
-        if !self.allow_v2 && matches!(decimal.values_type(), DecimalType::I128 | DecimalType::I256)
-        {
+        // The v1 format cannot represent the lower parts of wide values.
+        if !self.v2 && matches!(decimal.values_type(), DecimalType::I128 | DecimalType::I256) {
             return Ok(decimal.into_array());
         }
 

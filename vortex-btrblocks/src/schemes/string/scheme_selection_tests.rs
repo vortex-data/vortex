@@ -3,7 +3,6 @@
 
 //! Tests to verify that each string compression scheme produces the expected encoding.
 
-use std::sync::Arc;
 use std::sync::LazyLock;
 
 use vortex_array::IntoArray;
@@ -52,7 +51,7 @@ fn test_all_schemes_includes_onpair() {
     use crate::SchemeExt;
     use crate::schemes::string::onpair::OnPairScheme;
 
-    let ids: Vec<_> = crate::ALL_SCHEMES.iter().map(|(id, _)| *id).collect();
+    let ids: Vec<_> = crate::ALL_SCHEMES.iter().map(|s| s.id()).collect();
     assert!(
         ids.contains(&OnPairScheme.id()),
         "OnPairScheme not registered in ALL_SCHEMES"
@@ -92,9 +91,7 @@ fn test_fsst_in_default_scheme_list() -> VortexResult<()> {
 
     // FSST is registered by default.
     assert!(
-        crate::ALL_SCHEMES
-            .iter()
-            .any(|(id, _)| *id == FSSTScheme.id()),
+        crate::ALL_SCHEMES.iter().any(|s| s.id() == FSSTScheme.id()),
         "FSSTScheme should be in ALL_SCHEMES",
     );
 
@@ -110,7 +107,7 @@ fn test_fsst_in_default_scheme_list() -> VortexResult<()> {
     let array_ref = array.into_array();
 
     let compressor = BtrBlocksCompressorBuilder::empty()
-        .with_new_scheme(FSSTScheme.id(), |_| Arc::new(FSSTScheme))
+        .with_new_scheme(&FSSTScheme)
         .build();
     let compressed = compressor.compress(&array_ref, &mut SESSION.create_execution_ctx())?;
     assert!(
