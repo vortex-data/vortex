@@ -307,12 +307,23 @@ unsafe fn take_error_message(error: *mut vx_error) -> Option<String> {
     Some(message)
 }
 
+struct OwnedDeviceStream(ArrowDeviceArrayStream);
+
+impl Drop for OwnedDeviceStream {
+    fn drop(&mut self) {
+        if let Some(release) = self.0.release {
+            // SAFETY: This owner holds the live stream and releases it exactly once.
+            unsafe { release(&raw mut self.0) };
+        }
+    }
+}
+
 fn open_stream(
     session: &VortexSession,
     path: &str,
     options: &vx_cuda_scan_options,
     columns: &[&str],
-) -> ArrowDeviceArrayStream {
+) -> OwnedDeviceStream {
     let mut output = MaybeUninit::<ArrowDeviceArrayStream>::uninit();
     let mut error = ptr::null_mut();
     let handle = test_session(session.clone());
@@ -340,9 +351,11 @@ fn open_stream(
         "{}",
         message.as_deref().unwrap_or("no FFI error")
     );
-    assert!(message.is_none(), "unexpected FFI error: {message:?}");
     // SAFETY: A successful call initialized the stream, which owns its session state.
-    unsafe { output.assume_init() }
+    let stream = OwnedDeviceStream(unsafe { output.assume_init() });
+    assert!(message.is_none(), "unexpected FFI error: {message:?}");
+    assert!(stream.0.release.is_some(), "missing release");
+    stream
 }
 
 /// # Safety
@@ -476,17 +489,13 @@ fn check_projected_file(block_rows: usize, batch_rows: usize) -> VortexResult<()
     let mut stream = open_stream(&session, path, &options, &columns);
     // The stream must retain its session state after the caller releases its session.
     drop(session);
-    let schema = stream_schema(&mut stream);
+    let schema = stream_schema(&mut stream.0);
     let expected_fields = vec![
         Field::new("値.x", DataType::Int64, true),
         Field::new("ids", DataType::UInt32, false),
     ];
     assert_eq!(Schema::try_from(&schema)?, Schema::new(expected_fields));
-    let batches = read_projected_batches(&mut stream);
-    let release = stream.release.expect("missing release");
-    // SAFETY: The stream is live and released exactly once, including on readback errors.
-    unsafe { release(&raw mut stream) };
-    let batches = batches?;
+    let batches = read_projected_batches(&mut stream.0)?;
     let lengths: Vec<_> = batches.iter().map(|batch| batch.len()).collect();
     assert_eq!(lengths, [2, 2, 1]);
     let actual = ChunkedArray::try_new(batches, expected.dtype().clone())?.into_array();
