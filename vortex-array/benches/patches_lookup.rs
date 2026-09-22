@@ -9,6 +9,8 @@ use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
+use vortex_array::array_session;
 use vortex_array::patches::PATCH_CHUNK_SIZE;
 use vortex_array::patches::Patches;
 use vortex_buffer::Buffer;
@@ -100,10 +102,10 @@ fn queries_full_range() -> Vec<usize> {
 
 fn bench_search_index(bencher: Bencher, patches: Patches, queries: Vec<usize>) {
     bencher
-        .with_inputs(|| (&patches, &queries))
-        .bench_refs(|(patches, queries)| {
+        .with_inputs(|| (&patches, &queries, array_session().create_execution_ctx()))
+        .bench_refs(|(patches, queries, ctx)| {
             for &q in queries.iter() {
-                divan::black_box(patches.search_index(q).unwrap());
+                divan::black_box(patches.search_index(q, ctx).unwrap());
             }
         });
 }
