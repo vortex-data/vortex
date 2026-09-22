@@ -190,7 +190,7 @@ impl DictReader {
                             }
 
                             let input = source.clone().apply_bound(expr.child(0))?;
-                            let pattern = source.clone().apply_bound(expr.child(1))?;
+                            let pattern = source.apply_bound(expr.child(1))?;
                             let mut ctx = session.create_execution_ctx();
                             match try_execute_like_without_fallback(
                                 &input,

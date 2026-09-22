@@ -117,7 +117,7 @@ fn varbin_scheme_shrinks_binary() -> VortexResult<()> {
 #[test]
 fn fsst_versus_varbin_on_identical_bytes() -> VortexResult<()> {
     let builder = BtrBlocksCompressorBuilder::default();
-    let builder = builder.exclude_schemes([OnPairScheme.id()]);
+    let builder = builder.exclude_schemes([OnPairScheme::new().id()]);
     let compressor = builder.build();
     let mut seed = 99u64;
 
