@@ -148,7 +148,7 @@ fn benchmark_arrow_validity_repack(c: &mut Criterion) {
 
     for &(len, len_label) in bench_config::BENCH_SIZES {
         group.throughput(Throughput::Bytes(
-            arrow_bitmap_byte_len(len, INPUT_OFFSET) as u64,
+            arrow_bitmap_byte_len(len, INPUT_OFFSET) as u64
         ));
         group.bench_with_input(
             BenchmarkId::new("cuda/arrow_validity/repack", len_label),
@@ -190,7 +190,7 @@ fn benchmark_arrow_validity_count_nulls(c: &mut Criterion) {
 
     for &(len, len_label) in bench_config::BENCH_SIZES {
         group.throughput(Throughput::Bytes(
-            arrow_bitmap_byte_len(len, ARROW_OFFSET) as u64,
+            arrow_bitmap_byte_len(len, ARROW_OFFSET) as u64
         ));
         group.bench_with_input(
             BenchmarkId::new("cuda/arrow_validity/count_nulls", len_label),
