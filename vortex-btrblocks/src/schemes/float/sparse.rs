@@ -3,7 +3,6 @@
 
 //! Sparse encoding for null-dominated float arrays.
 
-use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
@@ -11,6 +10,7 @@ use vortex_array::IntoArray;
 use vortex_array::VTable;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
+use vortex_compressor::scheme::AllowedSerializedIds;
 use vortex_compressor::scheme::ChildSelection;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DescendantExclusion;
@@ -41,8 +41,13 @@ impl Scheme for NullDominatedSparseScheme {
         canonical.dtype().is_float()
     }
 
-    fn produced_encodings(&self) -> Vec<ArrayId> {
-        vec![Sparse.id()]
+    fn configure(
+        &self,
+        allowed_serialized_ids: &AllowedSerializedIds,
+    ) -> Option<&dyn Scheme> {
+        allowed_serialized_ids
+            .contains(&Sparse.id())
+            .then_some(self)
     }
 
     /// Children: indices=0.

@@ -7,7 +7,6 @@ use vortex_alp::ALP;
 use vortex_alp::ALPArrayExt;
 use vortex_alp::ALPArraySlotsExt;
 use vortex_alp::alp_encode;
-use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
@@ -17,6 +16,7 @@ use vortex_array::arrays::Patched;
 use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::PType;
+use vortex_compressor::scheme::AllowedSerializedIds;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
 use vortex_compressor::scheme::EstimateVerdict;
@@ -42,12 +42,14 @@ impl Scheme for ALPScheme {
         canonical.dtype().is_float()
     }
 
-    fn produced_encodings(&self) -> Vec<ArrayId> {
-        let mut encodings = vec![ALP.id()];
-        if use_experimental_patches() {
-            encodings.push(Patched.id());
-        }
-        encodings
+    fn configure(
+        &self,
+        allowed_serialized_ids: &AllowedSerializedIds,
+    ) -> Option<&dyn Scheme> {
+        (allowed_serialized_ids.contains(&ALP.id())
+            && (!use_experimental_patches()
+                || allowed_serialized_ids.contains(&Patched.id())))
+        .then_some(self)
     }
 
     /// Children: encoded_ints=0.

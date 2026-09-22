@@ -7,6 +7,7 @@ use vortex_array::ArrayId;
 use vortex_decimal_byte_parts::decimal_byte_parts_v2_id;
 use vortex_utils::aliases::hash_set::HashSet;
 
+use crate::AllowedSerializedIds;
 use crate::BtrBlocksCompressor;
 use crate::CascadingCompressor;
 use crate::Scheme;
@@ -81,8 +82,8 @@ pub static DELTA_SCHEME: integer::DeltaScheme = integer::DeltaScheme::new(1.25);
 /// `zstd` feature is enabled.
 ///
 /// [`Self::retain_allowed_encodings`] restricts serialized IDs. During [`Self::build`], these
-/// restrictions select the compatible Decimal mode and filter all registered schemes. Without
-/// an allowlist, registered modes are preserved, including Decimal v2 in the defaults.
+/// restrictions select the latest compatible Decimal mode and filter all registered schemes.
+/// Decimal uses v2 whenever both serialized IDs are permitted, including without an allowlist.
 ///
 /// # Examples
 ///
@@ -101,16 +102,14 @@ pub static DELTA_SCHEME: integer::DeltaScheme = integer::DeltaScheme::new(1.25);
 #[derive(Debug, Clone)]
 pub struct BtrBlocksCompressorBuilder {
     schemes: Vec<&'static dyn Scheme>,
-    allowed_serialized_ids: Option<HashSet<ArrayId>>,
-    forbidden_serialized_ids: HashSet<ArrayId>,
+    allowed_serialized_ids: AllowedSerializedIds,
 }
 
 impl Default for BtrBlocksCompressorBuilder {
     fn default() -> Self {
         Self {
             schemes: ALL_SCHEMES.to_vec(),
-            allowed_serialized_ids: None,
-            forbidden_serialized_ids: HashSet::new(),
+            allowed_serialized_ids: AllowedSerializedIds::default(),
         }
     }
 }
@@ -122,8 +121,7 @@ impl BtrBlocksCompressorBuilder {
     pub fn empty() -> Self {
         Self {
             schemes: Vec::new(),
-            allowed_serialized_ids: None,
-            forbidden_serialized_ids: HashSet::new(),
+            allowed_serialized_ids: AllowedSerializedIds::default(),
         }
     }
 
@@ -204,8 +202,8 @@ impl BtrBlocksCompressorBuilder {
         excluded.extend([integer::PcoScheme.id(), float::PcoScheme.id()]);
         let mut builder = self.exclude_schemes(excluded);
         builder
-            .forbidden_serialized_ids
-            .insert(decimal_byte_parts_v2_id());
+            .allowed_serialized_ids
+            .exclude(decimal_byte_parts_v2_id());
 
         #[cfg(feature = "zstd")]
         let builder = builder
@@ -232,10 +230,7 @@ impl BtrBlocksCompressorBuilder {
     /// allowed, or v1 when only v1 is allowed. If v1 is not allowed, Decimal is removed, since
     /// single-part arrays always serialize as v1. The CUDA preset restricts Decimal to v1.
     pub fn retain_allowed_encodings(mut self, allowed: &HashSet<ArrayId>) -> Self {
-        match &mut self.allowed_serialized_ids {
-            Some(current) => current.retain(|id| allowed.contains(id)),
-            None => self.allowed_serialized_ids = Some(allowed.clone()),
-        }
+        self.allowed_serialized_ids.restrict_to(allowed);
         self
     }
 
@@ -244,29 +239,14 @@ impl BtrBlocksCompressorBuilder {
         BtrBlocksCompressor(CascadingCompressor::new(self.configured_schemes()))
     }
 
-    fn configured_schemes(mut self) -> Vec<&'static dyn Scheme> {
-        let allowed = self.allowed_serialized_ids.as_ref();
-        let forbidden = &self.forbidden_serialized_ids;
-        let is_allowed = |id: &ArrayId| {
-            !forbidden.contains(id) && allowed.is_none_or(|allowed| allowed.contains(id))
-        };
-        if allowed.is_some() || forbidden.contains(&decimal_byte_parts_v2_id()) {
-            let use_v2 = is_allowed(&decimal_byte_parts_v2_id());
-            for scheme in &mut self.schemes {
-                if scheme.id() == decimal::DecimalScheme::v2().id() {
-                    *scheme = if use_v2 {
-                        &decimal::DecimalScheme::v2()
-                    } else {
-                        &decimal::DecimalScheme::v1()
-                    };
-                }
+    fn configured_schemes(self) -> Vec<&'static dyn Scheme> {
+        let mut final_schemes = Vec::with_capacity(self.schemes.len());
+        for scheme in self.schemes {
+            if let Some(scheme) = scheme.configure(&self.allowed_serialized_ids) {
+                final_schemes.push(scheme);
             }
         }
-        if allowed.is_some() || !forbidden.is_empty() {
-            self.schemes
-                .retain(|scheme| scheme.produced_encodings().iter().all(&is_allowed));
-        }
-        self.schemes
+        final_schemes
     }
 }
 
@@ -306,14 +286,8 @@ mod tests {
     }
 
     #[test]
-    fn retaining_all_declared_outputs_keeps_every_scheme() {
-        let allowed: HashSet<ArrayId> = ALL_SCHEMES
-            .iter()
-            .flat_map(|scheme| scheme.produced_encodings())
-            .collect();
-        let schemes = BtrBlocksCompressorBuilder::default()
-            .retain_allowed_encodings(&allowed)
-            .configured_schemes();
+    fn unrestricted_configuration_preserves_scheme_order() {
+        let schemes = BtrBlocksCompressorBuilder::default().configured_schemes();
         assert_eq!(schemes, ALL_SCHEMES);
     }
 
@@ -327,7 +301,7 @@ mod tests {
         if register_later {
             builder = builder.with_new_scheme(&integer::FoRScheme);
         }
-        let allowed = integer::FoRScheme.produced_encodings().into_iter().collect();
+        let allowed = HashSet::from([FoR.id()]);
         assert!(
             builder
                 .retain_allowed_encodings(&allowed)
@@ -345,7 +319,7 @@ mod tests {
         if !register_later {
             builder = builder.with_new_scheme(&integer::FoRScheme);
         }
-        builder.forbidden_serialized_ids.insert(FoR.id());
+        builder.allowed_serialized_ids.exclude(FoR.id());
         if with_allowlist {
             builder = builder.retain_allowed_encodings(&HashSet::from([FoR.id()]));
         }
@@ -356,15 +330,15 @@ mod tests {
     }
 
     #[test]
-    fn unrelated_forbidden_ids_preserve_explicit_decimal_mode() {
-        let mut builder = BtrBlocksCompressorBuilder::empty()
-            .with_new_scheme(&decimal::DecimalScheme::v1());
-        builder.forbidden_serialized_ids.insert(FoR.id());
+    fn unrelated_forbidden_ids_allow_decimal_v2() {
+        let mut builder =
+            BtrBlocksCompressorBuilder::empty().with_new_scheme(&decimal::DecimalScheme::v1());
+        builder.allowed_serialized_ids.exclude(FoR.id());
         let schemes = builder.configured_schemes();
         assert_eq!(schemes.len(), 1);
         assert_eq!(
-            schemes[0].produced_encodings(),
-            decimal::DecimalScheme::v1().produced_encodings()
+            schemes[0].num_children(),
+            decimal::DecimalScheme::v2().num_children()
         );
     }
 

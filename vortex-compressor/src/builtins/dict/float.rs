@@ -6,7 +6,6 @@
 //! Vortex encoders must always produce unsigned integer codes; signed codes are only accepted for
 //! external compatibility.
 
-use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::Canonical;
@@ -28,6 +27,7 @@ use vortex_error::VortexResult;
 
 use crate::CascadingCompressor;
 use crate::builtins::IntDictScheme;
+use crate::scheme::AllowedSerializedIds;
 use crate::scheme::ChildSelection;
 use crate::scheme::CompressionEstimate;
 use crate::scheme::CompressorContext;
@@ -54,8 +54,13 @@ impl Scheme for FloatDictScheme {
         canonical.dtype().is_float()
     }
 
-    fn produced_encodings(&self) -> Vec<ArrayId> {
-        vec![Dict.id()]
+    fn configure(
+        &self,
+        allowed_serialized_ids: &AllowedSerializedIds,
+    ) -> Option<&dyn Scheme> {
+        allowed_serialized_ids
+            .contains(&Dict.id())
+            .then_some(self)
     }
 
     fn stats_options(&self) -> GenerateStatsOptions {

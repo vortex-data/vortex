@@ -12,9 +12,11 @@ use vortex_array::ArrayContext;
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::VTable;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Decimal;
 use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::Patched;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::i256;
@@ -36,6 +38,8 @@ use vortex_decimal_byte_parts::decimal_byte_parts_v1_id;
 use vortex_decimal_byte_parts::decimal_byte_parts_v2_id;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_fastlanes::BitPacked;
+use vortex_fastlanes::FoR;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 use vortex_utils::aliases::hash_set::HashSet;
@@ -105,7 +109,7 @@ fn decimal_mode_follows_permissions(
 #[case::unrestricted(None)]
 #[case::v1(Some(false))]
 #[case::both(Some(true))]
-fn explicit_decimal_modes(
+fn explicit_decimal_modes_follow_permissions(
     #[case] allowed_v2: Option<bool>,
     #[values(false, true)] initial_v2: bool,
     #[values(false, true)] register_later: bool,
@@ -132,9 +136,7 @@ fn explicit_decimal_modes(
     assert_decimal_output(
         builder,
         true,
-        allowed_v2
-            .unwrap_or(initial_v2)
-            .then(decimal_byte_parts_v2_id),
+        allowed_v2.unwrap_or(true).then(decimal_byte_parts_v2_id),
     )
 }
 
@@ -232,8 +234,7 @@ fn wide_decimal_parts_roundtrip(
     .into_array();
     let mut allowed = HashSet::from([decimal_byte_parts_v1_id(), decimal_byte_parts_v2_id()]);
     if compress_children {
-        allowed.extend(FoRScheme.produced_encodings());
-        allowed.extend(BitPackingScheme.produced_encodings());
+        allowed.extend([FoR.id(), BitPacked.id(), Patched.id()]);
     }
     let compressor = BtrBlocksCompressorBuilder::empty()
         .with_new_scheme(&DecimalScheme::v2())

@@ -3,7 +3,6 @@
 
 //! Temporal compression scheme using datetime-part decomposition.
 
-use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
@@ -17,6 +16,7 @@ use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::extension::Matcher;
 use vortex_array::extension::datetime::AnyTemporal;
 use vortex_array::extension::datetime::TemporalMetadata;
+use vortex_compressor::scheme::AllowedSerializedIds;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_datetime_parts::DateTimeParts;
@@ -55,8 +55,13 @@ impl Scheme for TemporalScheme {
         )
     }
 
-    fn produced_encodings(&self) -> Vec<ArrayId> {
-        vec![DateTimeParts.id()]
+    fn configure(
+        &self,
+        allowed_serialized_ids: &AllowedSerializedIds,
+    ) -> Option<&dyn Scheme> {
+        allowed_serialized_ids
+            .contains(&DateTimeParts.id())
+            .then_some(self)
     }
 
     /// Children: days=0, seconds=1, subseconds=2.

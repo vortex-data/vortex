@@ -3,7 +3,6 @@
 
 //! Decimal compression scheme using byte-part decomposition.
 
-use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
@@ -11,6 +10,7 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::decimal::narrowed_decimal;
 use vortex_array::dtype::DecimalType;
+use vortex_compressor::scheme::AllowedSerializedIds;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_decimal_byte_parts::DecimalByteParts;
@@ -39,7 +39,7 @@ enum DecimalSchemeMode {
 /// significant part and up to three unsigned lower parts. Single-part arrays serialize as v1
 /// in either mode, while arrays with lower parts serialize as v2.
 ///
-/// The default uses v2. A builder with allowed serialized IDs selects the latest permitted mode,
+/// The default uses v2. The builder always selects the latest permitted mode,
 /// including for explicitly registered Decimal schemes. The CUDA preset restricts the mode to v1.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct DecimalScheme {
@@ -79,14 +79,14 @@ impl Scheme for DecimalScheme {
         matches!(canonical, Canonical::Decimal(_))
     }
 
-    fn produced_encodings(&self) -> Vec<ArrayId> {
-        let mut ids = vec![decimal_byte_parts_v1_id()];
-
-        if matches!(self.mode, DecimalSchemeMode::V2) {
-            ids.push(decimal_byte_parts_v2_id());
+    fn configure(&self, allowed_serialized_ids: &AllowedSerializedIds) -> Option<&dyn Scheme> {
+        if !allowed_serialized_ids.contains(&decimal_byte_parts_v1_id()) {
+            return None;
         }
-
-        ids
+        if !allowed_serialized_ids.contains(&decimal_byte_parts_v2_id()) {
+            return Some(&Self::v1());
+        }
+        Some(&Self::v2())
     }
 
     /// Children: msp=0, then up to three lower parts in v2 mode.

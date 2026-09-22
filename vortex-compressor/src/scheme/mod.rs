@@ -4,6 +4,9 @@
 //! Everything a scheme author implements or receives: the [`Scheme`] trait, exclusion rules,
 //! compression estimates, and the compression context.
 
+mod allowed_serialized_ids;
+pub use allowed_serialized_ids::AllowedSerializedIds;
+
 mod ctx;
 pub use ctx::CompressorContext;
 pub use ctx::MAX_CASCADE;
@@ -23,7 +26,6 @@ pub use estimate::EstimateVerdict;
 pub use exclusion::AncestorExclusion;
 pub use exclusion::ChildSelection;
 pub use exclusion::DescendantExclusion;
-use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
@@ -124,16 +126,12 @@ pub trait Scheme: Debug + Send + Sync {
     /// Whether this scheme can compress the given canonical array.
     fn matches(&self, canonical: &Canonical) -> bool;
 
-    /// The serialized IDs this scheme itself may write into its compressed output.
+    /// Returns a compatible scheme, or `None` if this scheme can produce encodings that serialize
+    /// with unpermitted IDs.
     ///
-    /// Every declared ID must be permitted for the scheme to be used. Cascaded children are
-    /// compressed by other schemes, which declare their own IDs, so only arrays constructed
-    /// directly by [`compress`](Scheme::compress) belong here. Canonical arrays the scheme
-    /// merely rearranges do not need to be declared.
-    ///
-    /// For most encodings this is the in-memory encoding ID. An encoding with several wire
-    /// formats declares the wire IDs the scheme writes, which may differ from its in-memory ID.
-    fn produced_encodings(&self) -> Vec<ArrayId>;
+    /// A scheme may return itself or a configuration with different serialized outputs. The
+    /// returned scheme must keep the same [`SchemeId`].
+    fn configure(&self, allowed_serialized_ids: &AllowedSerializedIds) -> Option<&dyn Scheme>;
 
     /// Returns the stats generation options this scheme requires. The compressor merges all
     /// eligible schemes' options before generating stats so that a single stats pass satisfies

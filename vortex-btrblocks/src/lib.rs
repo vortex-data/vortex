@@ -82,6 +82,7 @@ pub use builder::DELTA_SCHEME;
 pub use canonical_compressor::BtrBlocksCompressor;
 pub use schemes::patches::compress_patches;
 pub use vortex_compressor::CascadingCompressor;
+pub use vortex_compressor::scheme::AllowedSerializedIds;
 pub use vortex_compressor::scheme::CompressorContext;
 pub use vortex_compressor::scheme::MAX_CASCADE;
 pub use vortex_compressor::scheme::Scheme;
