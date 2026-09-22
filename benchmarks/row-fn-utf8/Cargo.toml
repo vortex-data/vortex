@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+[package]
+name = "row-fn-utf8-probe"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+vortex-array = { path = "../../vortex-array", features = ["unstable_row_fns"] }
+vortex-error = { path = "../../vortex-error" }
+vortex-session = { path = "../../vortex-session" }
+mimalloc = "=0.1.52"
+
+[profile.release]
+codegen-units = 16
+lto = false

@@ -63,3 +63,8 @@ SPDX-License-Identifier = "Apache-2.0"
 path = "vortex-duckdb/patches/**"
 SPDX-FileCopyrightText = "Copyright the Vortex contributors"
 SPDX-License-Identifier = "CC-BY-4.0"
+
+[[annotations]]
+path = "benchmarks/row-fn-utf8/results/**"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "Apache-2.0"
