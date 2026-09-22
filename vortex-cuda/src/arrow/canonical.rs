@@ -1518,6 +1518,7 @@ mod tests {
     use crate::arrow::canonical::export_arrow_validity_buffer;
     use crate::arrow::canonical::repack_arrow_validity_buffer;
     use crate::arrow::dictionary_tests::upload;
+    use crate::arrow::tests::private_data_buffer_bytes;
     use crate::device_buffer::CUDF_VALIDITY_BUFFER_PADDING;
     use crate::device_buffer::cuda_backing_allocation;
     use crate::executor::CudaArrayExt;
@@ -1775,17 +1776,6 @@ mod tests {
         buffer_idx: usize,
     ) -> VortexResult<Vec<i16>> {
         Ok(Buffer::<i16>::from_byte_buffer(private_data_buffer_bytes(array, buffer_idx)?).to_vec())
-    }
-
-    fn private_data_buffer_bytes(
-        array: &ArrowArray,
-        buffer_idx: usize,
-    ) -> VortexResult<ByteBuffer> {
-        let private_data = unsafe { &*array.private_data.cast::<PrivateData>() };
-        let buffer = private_data.buffers[buffer_idx]
-            .as_ref()
-            .vortex_expect("buffer should be present");
-        Ok(buffer.to_host_sync())
     }
 
     // Assert Arrow Binary export uses the standard null bitmap, i32 offsets, and values layout.

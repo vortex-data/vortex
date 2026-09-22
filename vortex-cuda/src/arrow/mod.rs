@@ -929,6 +929,7 @@ mod tests {
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::stream::ArrayStreamAdapter;
     use vortex::array::stream::ArrayStreamExt;
+    use vortex::buffer::ByteBuffer;
     use vortex::dtype::DType;
     use vortex::dtype::Nullability;
     use vortex::dtype::PType;
@@ -938,15 +939,32 @@ mod tests {
     use vortex::session::VortexSession;
     use vortex_cuda_macros::test as cuda_test;
 
+    use crate::CudaBufferExt;
     use crate::CudaSession;
     use crate::arrow::ARROW_DEVICE_CUDA;
+    use crate::arrow::ArrowArray;
     use crate::arrow::ArrowDeviceArray;
     use crate::arrow::ArrowDeviceArrayStream;
     use crate::arrow::ArrowSchema;
     use crate::arrow::DeviceArrayStreamExt;
     use crate::arrow::LIBC_EINVAL;
+    use crate::arrow::PrivateData;
     use crate::arrow::release_device_array;
     use crate::arrow::release_schema;
+
+    /// Copy a CUDA buffer from a live, unreleased array produced by this exporter to the host.
+    pub(super) fn private_data_buffer_bytes(
+        array: &ArrowArray,
+        index: usize,
+    ) -> VortexResult<ByteBuffer> {
+        // SAFETY: Only called on live arrays produced by our exporter, before their release.
+        let private = unsafe { &*array.private_data.cast::<PrivateData>() };
+        let buffer = private.buffers[index]
+            .as_ref()
+            .ok_or_else(|| vortex_err!("missing exported buffer {index}"))?;
+        buffer.cuda_device_ptr()?;
+        buffer.try_to_host_sync()
+    }
 
     pub(super) fn last_error(stream: &mut ArrowDeviceArrayStream) -> VortexResult<String> {
         let get_last_error = stream

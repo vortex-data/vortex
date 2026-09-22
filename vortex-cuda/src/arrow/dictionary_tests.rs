@@ -21,10 +21,10 @@ use vortex::array::stream::ArrayStreamExt;
 use vortex::array::validity::Validity;
 use vortex::buffer::BitBuffer;
 use vortex::buffer::Buffer;
-use vortex::buffer::ByteBuffer;
 use vortex::error::vortex_bail;
 
 use super::tests::last_error;
+use super::tests::private_data_buffer_bytes as buffer;
 use super::*;
 use crate::CudaSession;
 
@@ -48,17 +48,6 @@ pub(super) fn upload(array: ArrayRef, ctx: &mut CudaExecutionCtx) -> VortexResul
     }
     // SAFETY: Slots and buffers are byte-for-byte copies; only their placement changes.
     unsafe { array.with_slots(slots.into())?.with_buffers(buffers) }
-}
-
-/// Copy a device buffer from a live, unreleased array produced by this exporter to the host.
-fn buffer(array: &ArrowArray, index: usize) -> VortexResult<ByteBuffer> {
-    // SAFETY: Only called on live arrays produced by our exporter, before their release.
-    let private = unsafe { &*array.private_data.cast::<PrivateData>() };
-    let buffer = private.buffers[index]
-        .as_ref()
-        .ok_or_else(|| vortex_err!("missing exported buffer {index}"))?;
-    buffer.cuda_device_ptr()?;
-    buffer.try_to_host_sync()
 }
 
 /// Rebuild supported zero-offset, dictionary-free exports as host arrays for comparison.
