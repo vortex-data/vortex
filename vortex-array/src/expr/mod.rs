@@ -83,6 +83,7 @@ pub use exprs::case_when_no_else;
 pub use exprs::cast;
 pub use exprs::checked_add;
 pub use exprs::col;
+pub use exprs::date_trunc;
 pub use exprs::dynamic;
 pub use exprs::dynamic_with_options;
 pub use exprs::eq;

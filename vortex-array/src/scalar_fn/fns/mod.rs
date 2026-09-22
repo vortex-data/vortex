@@ -6,6 +6,7 @@ pub mod binary;
 pub mod byte_length;
 pub mod case_when;
 pub mod cast;
+pub mod date_trunc;
 pub mod dynamic;
 pub mod ext_storage;
 pub mod fill_null;

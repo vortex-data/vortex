@@ -13,6 +13,7 @@ use datafusion_common::tree_node::TreeNode;
 use datafusion_common::tree_node::TreeNodeRecursion;
 use datafusion_expr::Operator as DFOperator;
 use datafusion_functions::core::getfield::GetFieldFunc;
+use datafusion_functions::datetime::date_trunc::DateTruncFunc;
 use datafusion_functions::string::octet_length::OctetLengthFunc;
 use datafusion_functions_nested::length::ArrayLength;
 use datafusion_physical_expr::DynamicFilterTracking;
@@ -29,6 +30,7 @@ use vortex::expr::Expression;
 use vortex::expr::and_collect;
 use vortex::expr::byte_length;
 use vortex::expr::cast;
+use vortex::expr::date_trunc;
 use vortex::expr::get_item;
 use vortex::expr::is_not_null;
 use vortex::expr::is_null;
@@ -42,6 +44,8 @@ use vortex::expr::root;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::binary::Binary;
+use vortex::scalar_fn::fns::date_trunc::DateTruncUnit;
+use vortex::scalar_fn::fns::date_trunc::is_utc_timezone;
 use vortex::scalar_fn::fns::like::Like;
 use vortex::scalar_fn::fns::like::LikeOptions;
 use vortex::scalar_fn::fns::operators::Operator;
@@ -227,8 +231,25 @@ impl DefaultExpressionConvertor {
         Ok(cast(list_length(input), return_dtype))
     }
 
+    /// Attempts to convert DataFusion's `date_trunc` function to Vortex `date_trunc`.
+    fn try_convert_date_trunc(&self, scalar_fn: &ScalarFunctionExpr) -> DFResult<Expression> {
+        let Some((unit, input)) = date_trunc_args(scalar_fn) else {
+            return Err(exec_datafusion_err!(
+                "date_trunc pushdown requires a literal, supported precision and one input"
+            ));
+        };
+        let input = self.convert(input.as_ref())?;
+        Ok(date_trunc(unit, input))
+    }
+
     /// Attempts to convert a DataFusion ScalarFunctionExpr to a Vortex expression.
     fn try_convert_scalar_function(&self, scalar_fn: &ScalarFunctionExpr) -> DFResult<Expression> {
+        if let Some(date_trunc_fn) =
+            ScalarFunctionExpr::try_downcast_func::<DateTruncFunc>(scalar_fn)
+        {
+            return self.try_convert_date_trunc(date_trunc_fn);
+        }
+
         if let Some(octet_length_fn) =
             ScalarFunctionExpr::try_downcast_func::<OctetLengthFunc>(scalar_fn)
         {
@@ -589,6 +610,7 @@ fn is_convertible_expr(expr: &Arc<dyn PhysicalExpr>) -> bool {
             ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(sf).is_some()
                 || ScalarFunctionExpr::try_downcast_func::<OctetLengthFunc>(sf).is_some()
                 || ScalarFunctionExpr::try_downcast_func::<ArrayLength>(sf).is_some()
+                || ScalarFunctionExpr::try_downcast_func::<DateTruncFunc>(sf).is_some()
         })
 }
 
@@ -650,9 +672,15 @@ fn supported_data_types(dt: &DataType) -> bool {
 }
 
 /// Checks if a scalar function can be pushed down.
-/// Currently GetFieldFunc, OctetLengthFunc, and ArrayLength are supported.
+/// Currently GetFieldFunc, OctetLengthFunc, ArrayLength, and DateTruncFunc are supported.
 fn can_scalar_fn_be_pushed_down(scalar_fn: &ScalarFunctionExpr, schema: &Schema) -> bool {
     if ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(scalar_fn).is_some() {
+        return true;
+    }
+
+    if ScalarFunctionExpr::try_downcast_func::<DateTruncFunc>(scalar_fn)
+        .is_some_and(|date_trunc| can_date_trunc_be_pushed_down(date_trunc, schema))
+    {
         return true;
     }
 
@@ -696,6 +724,51 @@ fn can_array_length_be_pushed_down(scalar_fn: &ScalarFunctionExpr, schema: &Sche
             DataType::List(_) | DataType::LargeList(_) | DataType::FixedSizeList(_, _)
         )
     }) && is_convertible_expr(input)
+}
+
+/// Vortex truncates on the UTC calendar, so only timezone-naive and UTC timestamps can be pushed
+/// down. DataFusion coerces date inputs through a cast to timestamp, which Vortex cannot execute,
+/// so those stay in DataFusion too.
+fn can_date_trunc_be_pushed_down(scalar_fn: &ScalarFunctionExpr, schema: &Schema) -> bool {
+    let Some((_, input)) = date_trunc_args(scalar_fn) else {
+        return false;
+    };
+
+    input.data_type(schema).as_ref().is_ok_and(|data_type| {
+        matches!(
+            data_type,
+            DataType::Timestamp(_, tz) if tz.as_ref().is_none_or(|tz| is_utc_timezone(tz))
+        )
+    }) && !is_cast_from_non_timestamp(input, schema)
+        && can_be_pushed_down_impl(input, schema)
+}
+
+fn is_cast_from_non_timestamp(expr: &Arc<dyn PhysicalExpr>, schema: &Schema) -> bool {
+    expr.downcast_ref::<df_expr::CastExpr>()
+        .is_some_and(|cast| {
+            !cast
+                .expr()
+                .data_type(schema)
+                .is_ok_and(|data_type| matches!(data_type, DataType::Timestamp(_, _)))
+        })
+}
+
+/// Returns the precision and input of a `date_trunc` call if the precision is a string literal
+/// naming a unit Vortex supports. A computed precision is not pushed down.
+fn date_trunc_args(
+    scalar_fn: &ScalarFunctionExpr,
+) -> Option<(DateTruncUnit, &Arc<dyn PhysicalExpr>)> {
+    let [precision, input] = scalar_fn.args() else {
+        return None;
+    };
+    let unit = precision
+        .downcast_ref::<df_expr::Literal>()?
+        .value()
+        .try_as_str()
+        .flatten()?
+        .parse::<DateTruncUnit>()
+        .ok()?;
+    Some((unit, input))
 }
 
 /// Returns the list argument of an `array_length` call if the call is a form we can rewrite to
@@ -770,6 +843,28 @@ mod tests {
             )
             .unwrap(),
         )
+    }
+
+    fn date_trunc_expr(
+        precision: Arc<dyn PhysicalExpr>,
+        input: Arc<dyn PhysicalExpr>,
+        schema: &Schema,
+    ) -> Arc<dyn PhysicalExpr> {
+        Arc::new(
+            ScalarFunctionExpr::try_new(
+                Arc::new(ScalarUDF::from(DateTruncFunc::new())),
+                vec![precision, input],
+                schema,
+                Arc::new(ConfigOptions::new()),
+            )
+            .unwrap(),
+        )
+    }
+
+    fn utf8_lit(value: &str) -> Arc<dyn PhysicalExpr> {
+        Arc::new(df_expr::Literal::new(ScalarValue::Utf8(Some(
+            value.to_string(),
+        ))))
     }
 
     fn array_length_expr(
@@ -1123,6 +1218,79 @@ mod tests {
         )) as Arc<dyn PhysicalExpr>;
 
         assert!(!can_be_pushed_down_impl(&octet_length, &test_schema));
+    }
+
+    #[rstest]
+    #[case("month")]
+    #[case("MINUTE")]
+    fn test_can_be_pushed_down_date_trunc_supported(test_schema: Schema, #[case] precision: &str) {
+        let ts = Arc::new(df_expr::Column::new("created_at", 4)) as Arc<dyn PhysicalExpr>;
+        let date_trunc = date_trunc_expr(utf8_lit(precision), ts, &test_schema);
+
+        assert!(can_be_pushed_down_impl(&date_trunc, &test_schema));
+
+        let converted = DefaultExpressionConvertor::default()
+            .convert(date_trunc.as_ref())
+            .unwrap();
+        assert_eq!(
+            converted.to_string(),
+            format!(
+                "vortex.date_trunc($.created_at, opts={})",
+                precision.to_ascii_lowercase()
+            )
+        );
+    }
+
+    #[rstest]
+    fn test_can_be_pushed_down_date_trunc_unknown_precision(test_schema: Schema) {
+        let ts = Arc::new(df_expr::Column::new("created_at", 4)) as Arc<dyn PhysicalExpr>;
+        let date_trunc = date_trunc_expr(utf8_lit("fortnight"), ts, &test_schema);
+
+        assert!(!can_be_pushed_down_impl(&date_trunc, &test_schema));
+    }
+
+    #[rstest]
+    fn test_can_be_pushed_down_date_trunc_non_literal_precision(test_schema: Schema) {
+        let precision = Arc::new(df_expr::Column::new("name", 1)) as Arc<dyn PhysicalExpr>;
+        let ts = Arc::new(df_expr::Column::new("created_at", 4)) as Arc<dyn PhysicalExpr>;
+        let date_trunc = date_trunc_expr(precision, ts, &test_schema);
+
+        assert!(!can_be_pushed_down_impl(&date_trunc, &test_schema));
+    }
+
+    #[rstest]
+    fn test_can_be_pushed_down_date_trunc_over_date_cast_not_supported() {
+        // DataFusion coerces a date input by casting it to a timestamp, which Vortex cannot do.
+        let schema = Schema::new(vec![Field::new("d", DataType::Date32, false)]);
+        let date = Arc::new(df_expr::Column::new("d", 0)) as Arc<dyn PhysicalExpr>;
+        let cast = Arc::new(df_expr::CastExpr::new(
+            date,
+            DataType::Timestamp(ArrowTimeUnit::Nanosecond, None),
+            None,
+        )) as Arc<dyn PhysicalExpr>;
+        let date_trunc = date_trunc_expr(utf8_lit("month"), cast, &schema);
+
+        assert!(!can_be_pushed_down_impl(&date_trunc, &schema));
+    }
+
+    #[rstest]
+    #[case(Some("UTC"), true)]
+    #[case(Some("+00:00"), true)]
+    #[case(Some("America/New_York"), false)]
+    fn test_can_be_pushed_down_date_trunc_timezone(
+        #[case] tz: Option<&str>,
+        #[case] expected: bool,
+    ) {
+        // Vortex truncates on the UTC calendar, so zoned timestamps stay in DataFusion.
+        let schema = Schema::new(vec![Field::new(
+            "ts",
+            DataType::Timestamp(ArrowTimeUnit::Microsecond, tz.map(Arc::from)),
+            true,
+        )]);
+        let ts = Arc::new(df_expr::Column::new("ts", 0)) as Arc<dyn PhysicalExpr>;
+        let date_trunc = date_trunc_expr(utf8_lit("day"), ts, &schema);
+
+        assert_eq!(can_be_pushed_down_impl(&date_trunc, &schema), expected);
     }
 
     #[rstest]

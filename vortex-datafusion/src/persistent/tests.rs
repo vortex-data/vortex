@@ -7,6 +7,7 @@ use anyhow::anyhow;
 use datafusion::arrow::array::Int32Array;
 use datafusion::arrow::array::RecordBatch;
 use datafusion::arrow::datatypes::DataType;
+use datafusion::arrow::datatypes::TimeUnit;
 use datafusion::arrow::util::pretty::pretty_format_batches;
 use datafusion::datasource::provider::DefaultTableFactory;
 use datafusion::execution::SessionStateBuilder;
@@ -230,6 +231,142 @@ async fn test_octet_length_pushdown() -> anyhow::Result<()> {
         | abcd | 4   |
         | é    | 2   |
         +------+-----+
+        ");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_date_trunc_pushdown() -> anyhow::Result<()> {
+    let ctx = TestSessionContext::new(true);
+
+    // A single partition keeps DataFusion from inserting a RepartitionExec between the
+    // projection and the scan, which only lets bare column projections through.
+    ctx.session
+        .sql("SET datafusion.execution.target_partitions = 1")
+        .await?
+        .collect()
+        .await?;
+
+    ctx.session
+        .sql(
+            "CREATE EXTERNAL TABLE events \
+                    (id INT NOT NULL, ts TIMESTAMP NOT NULL) \
+                STORED AS vortex \
+                LOCATION '/events/'",
+        )
+        .await?;
+
+    ctx.session
+        .sql(
+            "INSERT INTO events VALUES \
+                (1, '2013-07-14T12:34:56.789'), \
+                (2, '2013-07-14T23:59:59.999'), \
+                (3, '2013-07-15T00:00:00'), \
+                (4, '1968-02-29T06:00:00')",
+        )
+        .await?
+        .collect()
+        .await?;
+
+    let sql = "SELECT id, \
+                date_trunc('minute', ts) AS minute, \
+                date_trunc('month', ts) AS month, \
+                date_trunc('week', ts) AS week \
+             FROM events \
+             WHERE date_trunc('day', ts) = '2013-07-14T00:00:00' OR date_trunc('year', ts) < '1970-01-01' \
+             ORDER BY id";
+
+    let explain = ctx
+        .session
+        .sql(&format!("EXPLAIN {sql}"))
+        .await?
+        .collect()
+        .await?;
+    let plan = pretty_format_batches(&explain)?.to_string();
+    let scan = plan
+        .lines()
+        .find(|line| line.contains("DataSourceExec"))
+        .ok_or_else(|| anyhow!("EXPLAIN plan did not contain a DataSourceExec"))?;
+    assert!(
+        scan.contains("projection=[id, date_trunc(minute, ts@1) as minute")
+            && scan.contains("predicate: date_trunc(day, ts@1) ="),
+        "date_trunc was not pushed into the scan:\n{plan}"
+    );
+
+    let result = ctx.session.sql(sql).await?.collect().await?;
+    assert_eq!(
+        result[0].schema().field_with_name("month")?.data_type(),
+        &DataType::Timestamp(TimeUnit::Nanosecond, None)
+    );
+    assert_snapshot!(pretty_format_batches(&result)?, @r"
+        +----+---------------------+---------------------+---------------------+
+        | id | minute              | month               | week                |
+        +----+---------------------+---------------------+---------------------+
+        | 1  | 2013-07-14T12:34:00 | 2013-07-01T00:00:00 | 2013-07-08T00:00:00 |
+        | 2  | 2013-07-14T23:59:00 | 2013-07-01T00:00:00 | 2013-07-08T00:00:00 |
+        | 4  | 1968-02-29T06:00:00 | 1968-02-01T00:00:00 | 1968-02-26T00:00:00 |
+        +----+---------------------+---------------------+---------------------+
+        ");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_date_trunc_on_date_stays_in_datafusion() -> anyhow::Result<()> {
+    let ctx = TestSessionContext::new(true);
+
+    ctx.session
+        .sql("SET datafusion.execution.target_partitions = 1")
+        .await?
+        .collect()
+        .await?;
+
+    ctx.session
+        .sql(
+            "CREATE EXTERNAL TABLE dates \
+                    (id INT NOT NULL, d DATE NOT NULL) \
+                STORED AS vortex \
+                LOCATION '/dates/'",
+        )
+        .await?;
+
+    ctx.session
+        .sql("INSERT INTO dates VALUES (1, '2013-07-14'), (2, '1968-02-29')")
+        .await?
+        .collect()
+        .await?;
+
+    // DataFusion casts the date to a timestamp first, and Vortex has no such cast, so neither
+    // the projection nor the filter may be pushed into the scan.
+    let sql = "SELECT id, date_trunc('month', d) AS m \
+             FROM dates \
+             WHERE date_trunc('year', d) < '1970-01-01' \
+             ORDER BY id";
+
+    let explain = ctx
+        .session
+        .sql(&format!("EXPLAIN {sql}"))
+        .await?
+        .collect()
+        .await?;
+    let plan = pretty_format_batches(&explain)?.to_string();
+    let scan = plan
+        .lines()
+        .find(|line| line.contains("DataSourceExec"))
+        .ok_or_else(|| anyhow!("EXPLAIN plan did not contain a DataSourceExec"))?;
+    assert!(
+        !scan.contains("date_trunc"),
+        "date_trunc over a date must not be pushed into the scan:\n{plan}"
+    );
+
+    let result = ctx.session.sql(sql).await?.collect().await?;
+    assert_snapshot!(pretty_format_batches(&result)?, @r"
+        +----+---------------------+
+        | id | m                   |
+        +----+---------------------+
+        | 2  | 1968-02-01T00:00:00 |
+        +----+---------------------+
         ");
 
     Ok(())

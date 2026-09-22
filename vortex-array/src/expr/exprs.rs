@@ -28,6 +28,8 @@ use crate::scalar_fn::fns::byte_length::ByteLength;
 use crate::scalar_fn::fns::case_when::CaseWhen;
 use crate::scalar_fn::fns::case_when::CaseWhenOptions;
 use crate::scalar_fn::fns::cast::Cast;
+use crate::scalar_fn::fns::date_trunc::DateTrunc;
+use crate::scalar_fn::fns::date_trunc::DateTruncUnit;
 use crate::scalar_fn::fns::dynamic::DynamicComparison;
 use crate::scalar_fn::fns::dynamic::DynamicComparisonExpr;
 use crate::scalar_fn::fns::dynamic::Rhs;
@@ -1134,6 +1136,20 @@ pub fn bound_byte_length(input: BoundExpression) -> BoundExpression {
     ByteLength
         .try_new_bound_expr(EmptyOptions, [input])
         .vortex_expect("byte-length expressions require a variable-length binary child")
+}
+
+// ---- DateTrunc ----
+
+/// Creates an expression that truncates each timestamp down to the start of `unit`.
+/// This is akin to ANSI SQL `DATE_TRUNC()`.
+///
+/// ```rust
+/// # use vortex_array::expr::{date_trunc, root};
+/// # use vortex_array::scalar_fn::fns::date_trunc::DateTruncUnit;
+/// let expr = date_trunc(DateTruncUnit::Month, root());
+/// ```
+pub fn date_trunc(unit: DateTruncUnit, input: Expression) -> Expression {
+    DateTrunc.new_expr(unit, [input])
 }
 
 // ---- ExtStorage ----
