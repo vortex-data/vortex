@@ -547,28 +547,34 @@ fn extract_constant_buffers(chunk: &ArrayRef) -> Vec<InlinedBuffer> {
     result
 }
 
-/// Build a CUDA-flat writer using only session-enabled encodings.
+/// Build a CUDA-flat writer using only CUDA-compatible, session-enabled array encodings.
+///
+/// Register CUDA layout support with [`register_cuda_layout`] before writing. A zero `block_rows`
+/// uses the default writer's row sizing and dictionary policy. A nonzero value sets explicit row
+/// blocks, disables outer layout dictionaries and byte-size coalescing, and retains per-block
+/// dictionary compression.
 pub fn cuda_write_strategy(session: &VortexSession, block_rows: usize) -> Arc<dyn LayoutStrategy> {
     let allowed_encodings = session
         .enabled_component_ids(ComponentKind::Array)
         .into_iter()
         .collect();
-    let mut strategy = WriteStrategyBuilder::default()
-        .with_btrblocks_builder(
-            BtrBlocksCompressorBuilder::default()
-                .only_cuda_compatible()
-                .retain_allowed_encodings(&allowed_encodings),
-        )
+    let builder = BtrBlocksCompressorBuilder::default()
+        .only_cuda_compatible()
+        .retain_allowed_encodings(&allowed_encodings);
+    let strategy = WriteStrategyBuilder::default()
         .with_flat_strategy(Arc::new(CudaFlatLayoutStrategy::default()));
-    if block_rows > 0 {
-        // Preserve explicit row blocks: outer layout dictionaries can split a high-cardinality
-        // block into u16-sized dictionary runs, while a byte target can coalesce adjacent blocks.
-        strategy = strategy
+    if block_rows == 0 {
+        strategy.with_btrblocks_builder(builder).build()
+    } else {
+        // Outer dictionaries can split blocks into u16-sized runs. Disable their probe, but pass
+        // an opaque compressor so the writer does not also exclude per-block IntDict compression.
+        strategy
+            .with_compressor(builder.build())
             .with_probe_compressor(BtrBlocksCompressorBuilder::empty().build())
             .with_row_block_size(block_rows)
-            .with_data_block_target_bytes(None);
+            .with_data_block_target_bytes(None)
+            .build()
     }
-    strategy.build()
 }
 
 #[derive(Clone, Debug, Default)]
@@ -641,19 +647,176 @@ pub fn register_cuda_layout(session: &VortexSession) {
 
 #[cfg(test)]
 mod tests {
+    use futures::TryStreamExt;
     use rstest::rstest;
     use vortex::VortexSessionDefault;
     use vortex::array::IntoArray;
+    use vortex::array::arrays::Dict;
+    use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::StructArray;
+    use vortex::array::arrays::struct_::StructArrayExt;
+    use vortex::array::assert_arrays_eq;
     use vortex::buffer::ByteBufferMut;
     use vortex::buffer::buffer;
     use vortex::editions::CORE_2025_05_0;
     use vortex::editions::DEFAULT_CORE_EDITION;
+    use vortex::file::OpenOptionsSessionExt;
+    use vortex::file::VortexFile;
     use vortex::file::WriteOptionsSessionExt;
     use vortex::io::runtime::BlockingRuntime;
     use vortex::io::runtime::current::CurrentThreadRuntime;
     use vortex::io::session::RuntimeSessionExt;
+    use vortex::layout::layouts::dict::Dict as DictLayout;
+    use vortex::layout::scan::split_by::SplitBy;
 
     use super::*;
+
+    fn repeated_ids(unique: i64, rows: usize) -> VortexResult<ArrayRef> {
+        // Wide, irregularly ordered values favor dictionaries over bitpacking and FoR.
+        let ids = PrimitiveArray::from_iter(
+            (0..unique)
+                .cycle()
+                .take(rows)
+                .map(|id| (id * 7_919 % unique).wrapping_mul(0x5851_f42d_4c95_7f2d)),
+        );
+        Ok(StructArray::from_fields(&[("ids", ids.into_array())])?.into_array())
+    }
+
+    async fn write_file(
+        session: &VortexSession,
+        array: ArrayRef,
+        strategy: Arc<dyn LayoutStrategy>,
+    ) -> VortexResult<VortexFile> {
+        let mut buffer = ByteBufferMut::empty();
+        session
+            .write_options()
+            .with_strategy(strategy)
+            .write(&mut buffer, array.to_array_stream())
+            .await?;
+        session.open_options().open_buffer(buffer.freeze())
+    }
+
+    fn data_layouts(layout: &LayoutRef) -> VortexResult<Vec<LayoutRef>> {
+        let mut layouts = vec![layout.clone()];
+        for (kind, child) in layout.child_types().zip(layout.children()?) {
+            // Zone maps and dictionary values do not describe physical data row blocks.
+            if !matches!(kind, LayoutChildType::Auxiliary(_)) {
+                layouts.extend(data_layouts(&child)?);
+            }
+        }
+        Ok(layouts)
+    }
+
+    #[rstest]
+    fn test_cuda_write_strategy_preserves_integer_dictionary_compression(
+        #[values(1024, 4096)] block_rows: usize,
+    ) -> VortexResult<()> {
+        let runtime = CurrentThreadRuntime::new();
+        let session = VortexSession::default().with_handle(runtime.handle());
+        register_cuda_layout(&session);
+        runtime.block_on(async {
+            let input = repeated_ids(8, 2 * block_rows + 137)?;
+            let file = write_file(
+                &session,
+                input.clone(),
+                cuda_write_strategy(&session, block_rows),
+            )
+            .await?;
+            let layouts = data_layouts(file.footer().layout())?;
+            assert!(!layouts.iter().any(|layout| layout.is::<DictLayout>()));
+            let physical_rows: Vec<_> = layouts
+                .iter()
+                .filter(|layout| layout.is::<CudaFlat>())
+                .map(|layout| layout.row_count())
+                .collect();
+            assert_eq!(physical_rows, [block_rows as u64, block_rows as u64, 137]);
+
+            let batches: Vec<_> = file
+                .scan()?
+                .with_split_by(SplitBy::Layout)
+                .into_array_stream()?
+                .try_collect()
+                .await?;
+            assert_eq!(batches.len(), 3);
+            let mut ctx = session.create_execution_ctx();
+            let mut offset = 0;
+            for batch in batches {
+                // Execute only the struct wrapper, leaving its encoded child intact.
+                let batch = batch.execute::<StructArray>(&mut ctx)?;
+                assert!(batch.unmasked_field(0).is::<Dict>());
+                let end = offset + batch.len();
+                assert_arrays_eq!(batch.into_array(), input.slice(offset..end)?, &mut ctx);
+                offset = end;
+            }
+            assert_eq!(offset, input.len());
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn test_cuda_write_strategy_preserves_high_cardinality_row_blocks() -> VortexResult<()> {
+        let runtime = CurrentThreadRuntime::new();
+        let session = VortexSession::default().with_handle(runtime.handle());
+        register_cuda_layout(&session);
+        runtime.block_on(async {
+            // Exceed the outer dictionary's u16 limit, with enough repetitions to be eligible.
+            let block_rows = 70_000 * 8;
+            let input = repeated_ids(70_000, block_rows)?;
+            let allowed_encodings = session
+                .enabled_component_ids(ComponentKind::Array)
+                .into_iter()
+                .collect();
+            let compressor = BtrBlocksCompressorBuilder::default()
+                .only_cuda_compatible()
+                .retain_allowed_encodings(&allowed_encodings)
+                .build();
+            // Positive control: identical row sizing and compression, but with the probe enabled.
+            let control = WriteStrategyBuilder::default()
+                .with_flat_strategy(Arc::new(CudaFlatLayoutStrategy::default()))
+                .with_compressor(compressor)
+                .with_row_block_size(block_rows)
+                .with_data_block_target_bytes(None)
+                .build();
+            let control = write_file(&session, input.clone(), control).await?;
+            let layouts = data_layouts(control.footer().layout())?;
+            assert!(layouts.iter().any(|layout| layout.is::<DictLayout>()));
+            let control_rows: Vec<_> = layouts
+                .iter()
+                .filter(|layout| layout.is::<CudaFlat>())
+                .map(|layout| layout.row_count())
+                .collect();
+            assert!(control_rows.len() > 1);
+            assert_eq!(control_rows.iter().sum::<u64>(), block_rows as u64);
+
+            let file = write_file(
+                &session,
+                input.clone(),
+                cuda_write_strategy(&session, block_rows),
+            )
+            .await?;
+            let layouts = data_layouts(file.footer().layout())?;
+            assert!(!layouts.iter().any(|layout| layout.is::<DictLayout>()));
+            let physical_rows: Vec<_> = layouts
+                .iter()
+                .filter(|layout| layout.is::<CudaFlat>())
+                .map(|layout| layout.row_count())
+                .collect();
+            assert_eq!(physical_rows, [block_rows as u64]);
+
+            let mut batches: Vec<_> = file
+                .scan()?
+                .with_split_by(SplitBy::Layout)
+                .into_array_stream()?
+                .try_collect()
+                .await?;
+            assert_eq!(batches.len(), 1);
+            let mut ctx = session.create_execution_ctx();
+            let batch = batches.remove(0).execute::<StructArray>(&mut ctx)?;
+            assert!(batch.unmasked_field(0).is::<Dict>());
+            assert_arrays_eq!(batch.into_array(), input, &mut ctx);
+            Ok(())
+        })
+    }
 
     #[rstest]
     fn test_cuda_registration_preserves_edition_policy(

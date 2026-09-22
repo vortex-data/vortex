@@ -117,8 +117,8 @@ vx_array_sink *vx_cuda_array_sink_open_file(const vx_session *session,
  *
  * `block_rows` controls the row granularity of CUDA-flat data blocks. Passing zero uses the default
  * writer strategy: 8,192-row blocks may be coalesced into data blocks targeting 1 MiB. Any nonzero
- * value disables byte-size coalescing and outer layout dictionaries, so passing 8,192 is not
- * equivalent to passing zero.
+ * value disables byte-size coalescing and outer layout dictionaries, but retains per-block
+ * dictionary compression. Passing 8,192 is therefore not equivalent to passing zero.
  *
  * Write and scan sizing are independent. Zero scan `batch_rows` preserves on-disk layout
  * boundaries; nonzero values request exact row counts with a possibly smaller final batch.
