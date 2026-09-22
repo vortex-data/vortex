@@ -157,20 +157,20 @@ fn padded_device_allocation_len<T>(byte_count: usize) -> VortexResult<usize> {
     Ok(min_allocation_bytes.div_ceil(element_size))
 }
 
-/// Zeroes the allocation tail after `initialized_len` elements, not bytes.
+/// Zeroes the allocation tail after `initialized_count` elements.
 ///
 /// Copies or kernels must initialize the preceding elements on the same stream.
 /// The trailing padding lets consumers safely read beyond the logical buffer extent.
 pub(crate) fn zero_padding<T: DeviceRepr + ValidAsZeroBits>(
     stream: &VortexCudaStream,
     cuda_slice: &mut CudaSlice<T>,
-    initialized_len: usize,
+    initialized_count: usize,
 ) -> VortexResult<()> {
-    if initialized_len >= cuda_slice.len() {
+    if initialized_count >= cuda_slice.len() {
         return Ok(());
     }
 
-    let mut padding = cuda_slice.slice_mut(initialized_len..);
+    let mut padding = cuda_slice.slice_mut(initialized_count..);
     stream
         .memset_zeros(&mut padding)
         .map_err(|e| vortex_err!("Failed to zero device buffer padding: {}", e))

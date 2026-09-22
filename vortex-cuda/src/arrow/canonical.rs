@@ -1108,8 +1108,7 @@ pub fn repack_arrow_validity_buffer(
             .arg(&input_bytes);
     })?;
 
-    // The kernel writes every output word and masks its unused bits; only unwritten words
-    // need zeroing. The padding helper takes elements (u64 words), not bytes.
+    // The kernel masks unused bits in its last word; only unwritten words need zeroing.
     zero_padding(ctx.stream(), &mut output, output_words)?;
     Ok(BufferHandle::new_device(
         CudaDeviceBuffer::new_with_zeroed_tail(output, output_bytes)?.slice(0..output_bytes),
