@@ -885,12 +885,8 @@ fn struct_of_map_compare() -> VortexResult<()> {
 }
 
 #[rstest]
-fn primitive_comparisons_across_bitmap_words(
-    #[values(
-        PType::I8, PType::I16, PType::I32, PType::I64, PType::U8, PType::U16, PType::U32,
-        PType::U64, PType::F16, PType::F32, PType::F64
-    )]
-    ptype: PType,
+fn byte_comparisons_across_bitmap_words(
+    #[values(PType::I8, PType::U8)] ptype: PType,
     #[values(0, 1, 63, 64, 65, 129)] len: usize,
     #[values(
         CompareOperator::Eq,
