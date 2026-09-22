@@ -157,23 +157,14 @@ pub unsafe extern "C-unwind" fn vx_cuda_array_sink_open_file_block_rows(
     })
 }
 
-/// Scan a local Vortex file with buffered I/O and export an Arrow C Device stream.
-///
-/// Requires CUDA-supported encodings/layouts, such as files from `vx_cuda_array_sink_open_file`.
-/// Footer/zone-map reads stay on the host; data reaches the GPU through pinned staging buffers
-/// reused across scans with the same CUDA session.
-///
-/// Dictionaries, including nested children, decode on CUDA to a stable plain Arrow schema without
-/// changing session policy. Decoding requires CUDA support and may increase device memory use.
-///
-/// Returns `0` with an owned `out_stream`; release it and each batch via their Arrow callbacks.
-/// Returns `1` on error, writing a `vx_error` if `error_out` is non-null; free it with `vx_error_free`.
+/// Scan a local CUDA-readable file with buffered I/O into an Arrow C Device stream.
+/// Dictionaries export as plain values. Returns `0` on success, `1` on error.
+/// Release the stream and batches via Arrow callbacks; free errors with `vx_error_free`.
 ///
 /// # Safety
 ///
-/// `session` must be a valid borrowed handle created by `vortex-ffi`. `path` must be valid for the
-/// duration of this call and contain UTF-8. `out_stream` must be a valid writable pointer. If
-/// `error_out` is non-null, it must be valid for writing one error pointer.
+/// `session` must be a live borrowed `vortex-ffi` handle; `path` must contain readable UTF-8
+/// for this call. `out_stream` and non-null `error_out` must point to writable output storage.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_cuda_scan_path_arrow_device_stream(
     session: *const vx_session,
@@ -193,11 +184,7 @@ pub unsafe extern "C-unwind" fn vx_cuda_scan_path_arrow_device_stream(
     }
 }
 
-/// Scan a local Vortex file with exact row batches and a possibly smaller final batch.
-///
-/// Uses `vx_cuda_scan_path_arrow_device_stream`'s export and ownership rules.
-/// `batch_rows` follows `vx_cuda_scan_options`: zero preserves layout boundaries; nonzero counts
-/// ignore them and may require unsupported CUDA `Chunked` concatenation.
+/// Like `vx_cuda_scan_path_arrow_device_stream`, with `batch_rows` as in `vx_cuda_scan_options`.
 ///
 /// # Safety
 ///
@@ -258,18 +245,16 @@ pub unsafe extern "C-unwind" fn vx_cuda_scan_path_arrow_device_stream_with_optio
 
 /// Scan a local Vortex file with ordered top-level column projection.
 ///
-/// Same options, ownership, and file requirements as
-/// `vx_cuda_scan_path_arrow_device_stream_with_options`. Projection precedes decoding and skips
-/// unselected column I/O when the file layout stores columns separately.
-/// Names are literal and case-sensitive; a nonempty projection rejects unknown/duplicate names
-/// and non-struct files. `ncolumns == 0` ignores `columns` and selects all. Names are copied;
-/// empty files retain the projected schema. Errors leave `out_stream` unchanged.
+/// Otherwise follows `vx_cuda_scan_path_arrow_device_stream_with_options`.
+/// Names are literal, case-sensitive, and unique; nonempty projections require a struct file.
+/// Zero `ncolumns` ignores `columns` and selects all. Unknown names fail.
+/// Skips unselected column I/O where the layout allows. Errors leave `out_stream` unchanged.
 ///
 /// # Safety
 ///
-/// In addition to `vx_cuda_scan_path_arrow_device_stream_with_options`'s requirements,
-/// nonzero `ncolumns` requires that many initialized, aligned `vx_view` values at `columns`.
-/// Each name borrows `len` readable UTF-8 bytes for this call; null is allowed only for zero length.
+/// Same requirements as `vx_cuda_scan_path_arrow_device_stream_with_options`.
+/// For nonzero `ncolumns`, `columns` must reference that many valid, aligned `vx_view` values.
+/// Name bytes must be readable UTF-8 for this call; null is allowed only for zero length.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_cuda_scan_path_arrow_device_stream_projected(
     session: *const vx_session,
@@ -349,7 +334,6 @@ unsafe fn scan_columns(columns: *const vx_view, ncolumns: usize) -> VortexResult
     Ok(names.into())
 }
 
-/// Apply projection before column reads.
 fn projected_scan(
     file: &VortexFile,
     columns: FieldNames,
@@ -462,12 +446,10 @@ pub unsafe extern "C-unwind" fn vx_cuda_array_export_arrow_device(
     })
 }
 
-/// Consume a Vortex partition and scan it as an Arrow C Device stream.
+/// Scan a Vortex partition as an Arrow C Device stream.
 ///
-/// Consumes `partition` on success or failure; never free or reuse it afterward.
-/// Returns `0` with an owned `out_stream` retaining the scan iterator. Release the stream and
-/// each produced batch via their Arrow release callbacks.
-/// Returns `1` on error, writing a `vx_error` if `error_out` is non-null; free it with `vx_error_free`.
+/// Consumes `partition`, even on error. Return codes and output ownership follow
+/// `vx_cuda_scan_path_arrow_device_stream`.
 ///
 /// # Safety
 ///

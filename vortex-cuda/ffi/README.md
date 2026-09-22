@@ -30,9 +30,5 @@ cache for pooled data-plane reads. Footer and zone-map reads remain buffered on 
 
 ## Generated header
 
-`build.rs` generates `cinclude/vortex_cuda.h` using cbindgen on stable Rust. Edit `src/lib.rs`
-or `cbindgen.toml`, not the header, and commit regenerated output. The header keeps cbindgen's
-formatting and is excluded from clang-format through generated markers.
-
-Unchanged output is not rewritten; changed output is published atomically. CUDA CI checks
-for header drift after building the FFI crate.
+`build.rs` generates `cinclude/vortex_cuda.h` with cbindgen. Edit `src/lib.rs` or `cbindgen.toml`
+and commit the regenerated header. It skips clang-format; CUDA CI checks for header drift.

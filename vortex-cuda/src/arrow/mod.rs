@@ -114,8 +114,7 @@ impl ArrowArray {
 }
 
 impl ArrowDeviceArray {
-    /// Create a released array with zeroed device metadata and a null sync event.
-    /// Use as callback output storage or an end-of-stream marker base; no device is selected.
+    /// Create a released array with zeroed device metadata for callback output storage.
     pub fn empty() -> Self {
         Self {
             array: ArrowArray::empty(),
@@ -490,15 +489,11 @@ impl Drop for DeviceArrayStreamPrivateData {
 pub trait DeviceArrayStreamExt {
     /// Export this stream as an [`ArrowDeviceArrayStream`].
     ///
-    /// Arrays are exported by reusing one [`CudaExecutionCtx`], and every produced
-    /// [`ArrowDeviceArray`] must remain on the CUDA device captured at stream construction. The
-    /// returned [`ArrowDeviceArrayStream`] owns the Vortex stream and must be released through its
-    /// embedded `release` callback.
+    /// Reuses one [`CudaExecutionCtx`] and rejects changes of device or Arrow schema.
+    /// The returned stream owns the input; release it through its `release` callback.
     ///
-    /// All arrays must share the `get_schema` schema. By default, it comes from the first array
-    /// (the logical dtype for empty streams); chunks exporting different Arrow types are rejected.
-    /// With [`DictionaryExport::Decode`], the dtype determines a plain schema independent of chunk
-    /// encoding or dictionary index width. `get_schema` does not pull or export a batch;
+    /// By default, the schema comes from the first batch, or the dtype for empty streams.
+    /// With [`DictionaryExport::Decode`], it comes from the dtype without polling a batch;
     /// read/decode errors surface in `get_next`.
     ///
     /// Drive the returned stream from one thread. `runtime` must be the runtime that owns the
@@ -523,10 +518,7 @@ impl DeviceArrayStreamExt for SendableArrayStream {
 }
 
 impl ArrowDeviceArrayStream {
-    /// Export a stream using an owned context, retaining its session and per-context configuration.
-    ///
-    /// The schema, runtime, and release requirements of
-    /// [`DeviceArrayStreamExt::export_device_array_stream`] also apply here.
+    /// Like [`DeviceArrayStreamExt::export_device_array_stream`], using an owned execution context.
     pub fn new(
         array_stream: SendableArrayStream,
         ctx: CudaExecutionCtx,
