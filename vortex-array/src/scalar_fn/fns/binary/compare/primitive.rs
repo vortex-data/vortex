@@ -22,6 +22,8 @@ use crate::dtype::PType;
 use crate::match_each_native_ptype;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::binary::compare::bit_buffer_from_words;
+use crate::scalar_fn::fns::binary::compare::collect_bits;
+use crate::scalar_fn::fns::binary::compare::collect_zip_bits;
 use crate::scalar_fn::fns::binary::compare::compare_validity;
 use crate::scalar_fn::fns::binary::primitive_operand::PrimitiveOperand;
 use crate::scalar_fn::fns::operators::CompareOperator;
@@ -117,12 +119,16 @@ fn compare_slices<T: NativePType>(
     // Dispatch the operator outside the lane loop so each instantiation vectorizes a single
     // branch-free predicate.
     match op {
-        CompareOperator::Eq => collect_zip_bits(lhs, rhs, |a: T, b: T| a.is_eq(b), allocator),
-        CompareOperator::NotEq => collect_zip_bits(lhs, rhs, |a: T, b: T| !a.is_eq(b), allocator),
-        CompareOperator::Gt => collect_zip_bits(lhs, rhs, T::is_gt, allocator),
-        CompareOperator::Gte => collect_zip_bits(lhs, rhs, T::is_ge, allocator),
-        CompareOperator::Lt => collect_zip_bits(lhs, rhs, T::is_lt, allocator),
-        CompareOperator::Lte => collect_zip_bits(lhs, rhs, T::is_le, allocator),
+        CompareOperator::Eq => {
+            collect_zip_bits_dispatch(lhs, rhs, |a: T, b: T| a.is_eq(b), allocator)
+        }
+        CompareOperator::NotEq => {
+            collect_zip_bits_dispatch(lhs, rhs, |a: T, b: T| !a.is_eq(b), allocator)
+        }
+        CompareOperator::Gt => collect_zip_bits_dispatch(lhs, rhs, T::is_gt, allocator),
+        CompareOperator::Gte => collect_zip_bits_dispatch(lhs, rhs, T::is_ge, allocator),
+        CompareOperator::Lt => collect_zip_bits_dispatch(lhs, rhs, T::is_lt, allocator),
+        CompareOperator::Lte => collect_zip_bits_dispatch(lhs, rhs, T::is_le, allocator),
     }
 }
 
@@ -133,25 +139,47 @@ fn compare_slice_constant<T: NativePType>(
     allocator: &BufferAllocatorRef,
 ) -> BitBuffer {
     match op {
-        CompareOperator::Eq => collect_bits(lhs, |a: T| a.is_eq(rhs), allocator),
-        CompareOperator::NotEq => collect_bits(lhs, |a: T| !a.is_eq(rhs), allocator),
-        CompareOperator::Gt => collect_bits(lhs, |a: T| a.is_gt(rhs), allocator),
-        CompareOperator::Gte => collect_bits(lhs, |a: T| a.is_ge(rhs), allocator),
-        CompareOperator::Lt => collect_bits(lhs, |a: T| a.is_lt(rhs), allocator),
-        CompareOperator::Lte => collect_bits(lhs, |a: T| a.is_le(rhs), allocator),
+        CompareOperator::Eq => collect_bits_dispatch(lhs, |a: T| a.is_eq(rhs), allocator),
+        CompareOperator::NotEq => collect_bits_dispatch(lhs, |a: T| !a.is_eq(rhs), allocator),
+        CompareOperator::Gt => collect_bits_dispatch(lhs, |a: T| a.is_gt(rhs), allocator),
+        CompareOperator::Gte => collect_bits_dispatch(lhs, |a: T| a.is_ge(rhs), allocator),
+        CompareOperator::Lt => collect_bits_dispatch(lhs, |a: T| a.is_lt(rhs), allocator),
+        CompareOperator::Lte => collect_bits_dispatch(lhs, |a: T| a.is_le(rhs), allocator),
     }
 }
 
-fn collect_bits<T: NativePType>(
+fn collect_bits_dispatch<T: NativePType>(
     values: &[T],
     f: impl Fn(T) -> bool,
     allocator: &BufferAllocatorRef,
 ) -> BitBuffer {
     // This type check folds away during monomorphization. Wider masks keep the lane kernel:
     // byte packing regresses 64-bit comparisons on AVX2.
-    if !matches!(T::PTYPE, PType::I8 | PType::U8) {
-        return super::collect_bits(values, f, allocator);
+    if matches!(T::PTYPE, PType::I8 | PType::U8) {
+        collect_bits_narrow(values, f, allocator)
+    } else {
+        collect_bits(values, f, allocator)
     }
+}
+
+fn collect_zip_bits_dispatch<T: NativePType>(
+    lhs: &[T],
+    rhs: &[T],
+    f: impl Fn(T, T) -> bool,
+    allocator: &BufferAllocatorRef,
+) -> BitBuffer {
+    if matches!(T::PTYPE, PType::I8 | PType::U8) {
+        collect_zip_bits_narrow(lhs, rhs, f, allocator)
+    } else {
+        collect_zip_bits(lhs, rhs, f, allocator)
+    }
+}
+
+fn collect_bits_narrow<T: Copy>(
+    values: &[T],
+    f: impl Fn(T) -> bool,
+    allocator: &BufferAllocatorRef,
+) -> BitBuffer {
     let (chunks, tail) = values.as_chunks::<64>();
     let mut words = BufferMut::<u64>::zeroed_in(values.len().div_ceil(64), allocator.clone());
     // Fixed-size chunks let the compiler prove the predicate's indexing stays in bounds.
@@ -164,15 +192,12 @@ fn collect_bits<T: NativePType>(
     bit_buffer_from_words(words, values.len())
 }
 
-fn collect_zip_bits<T: NativePType>(
+fn collect_zip_bits_narrow<T: Copy>(
     lhs: &[T],
     rhs: &[T],
     f: impl Fn(T, T) -> bool,
     allocator: &BufferAllocatorRef,
 ) -> BitBuffer {
-    if !matches!(T::PTYPE, PType::I8 | PType::U8) {
-        return super::collect_zip_bits(lhs, rhs, f, allocator);
-    }
     assert_eq!(lhs.len(), rhs.len());
     let (left_chunks, left_tail) = lhs.as_chunks::<64>();
     let (right_chunks, right_tail) = rhs.as_chunks::<64>();
