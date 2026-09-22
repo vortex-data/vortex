@@ -85,7 +85,6 @@ BENCHMARKS = (
         id="clickbench-nvme",
         benchmark=Benchmark.CLICKBENCH,
         name="Clickbench on NVME",
-        iterations=30,
         runs={
             "pr": DEFAULT,
             "pr-compact": COMPACT,
@@ -98,7 +97,6 @@ BENCHMARKS = (
         id="clickbench-sorted-nvme",
         benchmark=Benchmark.CLICKBENCH_SORTED,
         name="Clickbench Sorted on NVME",
-        iterations=30,
         runs={
             "pr": DEFAULT,
             "pr-compact": COMPACT,
@@ -217,7 +215,6 @@ BENCHMARKS = (
         benchmark=Benchmark.FINEWEB,
         name="FineWeb NVMe",
         scale_factor=100,
-        iterations=30,
         runs={
             "pr": DEFAULT,
             "pr-compact": COMPACT,
@@ -232,7 +229,6 @@ BENCHMARKS = (
         name="FineWeb S3",
         storage=Storage.S3,
         scale_factor=100,
-        iterations=30,
         local_dir="vortex-bench/data/fineweb",
         remote_key="fineweb",
         runs={
