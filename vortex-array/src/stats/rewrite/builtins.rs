@@ -345,17 +345,17 @@ impl StatsRewriteRule for IsNanNaNCountStatsRewrite {
     fn falsify(
         &self,
         expr: &BoundExpression,
-        ctx: &StatsRewriteCtx<'_>,
+        _session: &VortexSession,
     ) -> VortexResult<Option<BoundExpression>> {
-        Ok(nan_count(expr.child(0), ctx).map(|nan_count| eq(nan_count, lit(0u64))))
+        Ok(nan_count(expr.child(0)).map(|nan_count| eq(nan_count, lit(0u64))))
     }
 
     fn satisfy(
         &self,
         expr: &BoundExpression,
-        ctx: &StatsRewriteCtx<'_>,
+        _session: &VortexSession,
     ) -> VortexResult<Option<BoundExpression>> {
-        Ok(nan_count(expr.child(0), ctx).map(|nan_count| eq(nan_count, row_count())))
+        Ok(nan_count(expr.child(0)).map(|nan_count| eq(nan_count, row_count())))
     }
 }
 
@@ -372,7 +372,7 @@ impl StatsRewriteRule for IsNanAllNonNanStatsRewrite {
     fn falsify(
         &self,
         expr: &BoundExpression,
-        _ctx: &StatsRewriteCtx<'_>,
+        _session: &VortexSession,
     ) -> VortexResult<Option<BoundExpression>> {
         Ok(Some(all_non_nan(expr.child(0))))
     }
@@ -391,7 +391,7 @@ impl StatsRewriteRule for IsNanAllNanStatsRewrite {
     fn satisfy(
         &self,
         expr: &BoundExpression,
-        _ctx: &StatsRewriteCtx<'_>,
+        _session: &VortexSession,
     ) -> VortexResult<Option<BoundExpression>> {
         Ok(Some(all_nan(expr.child(0))))
     }
@@ -598,8 +598,8 @@ fn null_count(expr: &BoundExpression) -> Option<BoundExpression> {
     stat_expr(expr, Stat::NullCount)
 }
 
-fn nan_count(expr: &BoundExpression, ctx: &StatsRewriteCtx<'_>) -> Option<BoundExpression> {
-    stat_expr(expr, Stat::NaNCount, ctx)
+fn nan_count(expr: &BoundExpression) -> Option<BoundExpression> {
+    stat_expr(expr, Stat::NaNCount)
 }
 
 fn all_null(expr: &BoundExpression) -> BoundExpression {
