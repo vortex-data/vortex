@@ -13,7 +13,6 @@ use std::fmt::Result as FmtResult;
 use std::sync::Arc;
 
 use divan::Bencher;
-use divan::black_box;
 use mimalloc::MiMalloc;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -209,5 +208,7 @@ fn optimize_lookup_predicate(bencher: Bencher, predicate_case: &PredicateCase) {
     let scope = scope();
     let predicate = lookup_predicate(*predicate_case);
 
-    bencher.bench(|| black_box(predicate.optimize_recursive(&scope)));
+    bencher
+        .with_inputs(|| (&predicate, &scope))
+        .bench_refs(|(predicate, scope)| predicate.optimize_recursive(scope));
 }

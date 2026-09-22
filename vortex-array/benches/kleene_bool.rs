@@ -200,15 +200,15 @@ fn or_null_constant_shifted(bencher: Bencher) {
 }
 
 fn bench_kleene(bencher: Bencher, lhs: ArrayRef, rhs: ArrayRef, operator: Operator) {
-    let mut ctx = SESSION.create_execution_ctx();
-
-    bencher.counter(ItemsCount::new(LEN)).bench_local(|| {
-        lhs.clone()
-            .binary(rhs.clone(), operator)
-            .unwrap()
-            .execute::<Columnar>(&mut ctx)
-            .unwrap()
-    });
+    bencher
+        .counter(ItemsCount::new(LEN))
+        .with_inputs(|| (&lhs, &rhs, SESSION.create_execution_ctx()))
+        .bench_local_refs(|(lhs, rhs, ctx)| {
+            lhs.binary(rhs.clone(), operator)
+                .unwrap()
+                .execute::<Columnar>(ctx)
+                .unwrap()
+        });
 }
 
 fn bool_nonnull(true_every: usize) -> BoolArray {

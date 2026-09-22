@@ -72,19 +72,19 @@ fn lengths(lines: &ArrayRef, ctx: &mut ExecutionCtx) -> ArrayRef {
 #[divan::bench]
 fn two_vertex_lines(bencher: Bencher) {
     let lines = linestrings(2);
-    let mut ctx = SESSION.create_execution_ctx();
     bencher
         .counter(ItemsCount::new(ROWS))
-        .bench_local(|| lengths(&lines, &mut ctx));
+        .with_inputs(|| (&lines, SESSION.create_execution_ctx()))
+        .bench_local_refs(|(lines, ctx)| lengths(lines, ctx));
 }
 
 #[divan::bench]
 fn sixteen_vertex_lines(bencher: Bencher) {
     let lines = linestrings(16);
-    let mut ctx = SESSION.create_execution_ctx();
     bencher
         .counter(ItemsCount::new(ROWS))
-        .bench_local(|| lengths(&lines, &mut ctx));
+        .with_inputs(|| (&lines, SESSION.create_execution_ctx()))
+        .bench_local_refs(|(lines, ctx)| lengths(lines, ctx));
 }
 
 #[divan::bench]
@@ -95,8 +95,8 @@ fn nullable_two_vertex_lines(bencher: Bencher) {
     )
     .unwrap()
     .into_array();
-    let mut ctx = SESSION.create_execution_ctx();
     bencher
         .counter(ItemsCount::new(ROWS))
-        .bench_local(|| lengths(&lines, &mut ctx));
+        .with_inputs(|| (&lines, SESSION.create_execution_ctx()))
+        .bench_local_refs(|(lines, ctx)| lengths(lines, ctx));
 }

@@ -7,7 +7,6 @@
 mod common;
 
 use divan::Bencher;
-use divan::black_box;
 use mimalloc::MiMalloc;
 use vortex_array::dtype::DecimalType;
 use vortex_array::dtype::i256;
@@ -38,27 +37,32 @@ fn dbp_assemble_kernel(bencher: Bencher, (values_type, len): (DecimalType, usize
         DecimalType::I128 => {
             let values = i128_values(len);
             let (msp, [lower]) = split_wide(values.as_slice(), &validity, i128_to_parts);
-            bencher.bench(|| {
-                assemble_wide_decimal::<i128, i64, 1>(
-                    black_box(msp.as_slice()),
-                    black_box(lower.as_slice()).iter().map(|&word| [word]),
-                )
-            });
+            bencher
+                .with_inputs(|| (&msp, &lower))
+                .bench_refs(|(msp, lower)| {
+                    assemble_wide_decimal::<i128, i64, 1>(
+                        msp.as_slice(),
+                        lower.as_slice().iter().map(|&word| [word]),
+                    )
+                });
         }
         DecimalType::I256 => {
             let values = i256_values(len);
             let (msp, [first, second, third]) =
                 split_wide(values.as_slice(), &validity, i256_to_parts);
-            bencher.bench(|| {
-                assemble_wide_decimal::<i256, i64, 3>(
-                    black_box(msp.as_slice()),
-                    black_box(first.as_slice())
-                        .iter()
-                        .zip(black_box(second.as_slice()))
-                        .zip(black_box(third.as_slice()))
-                        .map(|((&a, &b), &c)| [a, b, c]),
-                )
-            });
+            bencher
+                .with_inputs(|| (&msp, &first, &second, &third))
+                .bench_refs(|(msp, first, second, third)| {
+                    assemble_wide_decimal::<i256, i64, 3>(
+                        msp.as_slice(),
+                        first
+                            .as_slice()
+                            .iter()
+                            .zip(second.as_slice())
+                            .zip(third.as_slice())
+                            .map(|((&a, &b), &c)| [a, b, c]),
+                    )
+                });
         }
         _ => vortex_panic!("unsupported benchmark storage type: {values_type}"),
     }
@@ -72,27 +76,32 @@ fn dbp_assemble_kernel_narrow_msp(bencher: Bencher, (values_type, len): (Decimal
     match values_type {
         DecimalType::I128 => {
             let lower = buffer![u64::from(u8::MAX); len];
-            bencher.bench(|| {
-                assemble_wide_decimal::<i128, i8, 1>(
-                    black_box(msp.as_slice()),
-                    black_box(lower.as_slice()).iter().map(|&word| [word]),
-                )
-            });
+            bencher
+                .with_inputs(|| (&msp, &lower))
+                .bench_refs(|(msp, lower)| {
+                    assemble_wide_decimal::<i128, i8, 1>(
+                        msp.as_slice(),
+                        lower.as_slice().iter().map(|&word| [word]),
+                    )
+                });
         }
         DecimalType::I256 => {
             let first = buffer![u64::from(u8::MAX); len];
             let second = buffer![u64::from(u16::MAX); len];
             let third = buffer![u64::from(u32::MAX); len];
-            bencher.bench(|| {
-                assemble_wide_decimal::<i256, i8, 3>(
-                    black_box(msp.as_slice()),
-                    black_box(first.as_slice())
-                        .iter()
-                        .zip(black_box(second.as_slice()))
-                        .zip(black_box(third.as_slice()))
-                        .map(|((&a, &b), &c)| [a, b, c]),
-                )
-            });
+            bencher
+                .with_inputs(|| (&msp, &first, &second, &third))
+                .bench_refs(|(msp, first, second, third)| {
+                    assemble_wide_decimal::<i256, i8, 3>(
+                        msp.as_slice(),
+                        first
+                            .as_slice()
+                            .iter()
+                            .zip(second.as_slice())
+                            .zip(third.as_slice())
+                            .map(|((&a, &b), &c)| [a, b, c]),
+                    )
+                });
         }
         _ => vortex_panic!("unsupported benchmark storage type: {values_type}"),
     }
@@ -103,7 +112,6 @@ fn dbp_assemble_kernel_narrow_msp(bencher: Bencher, (values_type, len): (Decimal
 #[cfg(not(codspeed))]
 mod arrays {
     use divan::Bencher;
-    use divan::black_box;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
@@ -164,9 +172,9 @@ mod arrays {
     ) {
         let session = array_session();
         bencher
-            .with_inputs(|| session.create_execution_ctx())
-            .bench_refs(|ctx| {
-                assemble_decimal(black_box(&msp), black_box(&lower_parts), decimal_dtype, ctx)
+            .with_inputs(|| (&msp, &lower_parts, session.create_execution_ctx()))
+            .bench_refs(|(msp, lower_parts, ctx)| {
+                assemble_decimal(msp, lower_parts, decimal_dtype, ctx)
                     .vortex_expect("assemble decimal byte parts")
             });
     }

@@ -104,10 +104,10 @@ fn queries_full_range() -> Vec<usize> {
 
 fn bench_search_index(bencher: Bencher, patches: Patches, queries: Vec<usize>) {
     bencher
-        .with_inputs(|| (&patches, &queries))
-        .bench_refs(|(patches, queries)| {
+        .with_inputs(|| (&patches, &queries, Vec::with_capacity(NUM_QUERIES)))
+        .bench_refs(|(patches, queries, out)| {
             for &q in queries.iter() {
-                divan::black_box(patches.search_index(q).unwrap());
+                out.push(patches.search_index(q).unwrap());
             }
         });
 }

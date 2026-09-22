@@ -53,12 +53,12 @@ fn primitive_take_u32(bencher: Bencher) {
 
     bencher
         .counter(ItemsCount::new(NUM_INDICES))
-        .with_inputs(|| (indices.clone(), SESSION.create_execution_ctx()))
-        .bench_values(|(indices, mut ctx)| {
+        .with_inputs(|| (&values, indices.clone(), SESSION.create_execution_ctx()))
+        .bench_refs(|(values, indices, ctx)| {
             values
-                .take(indices)
+                .take(indices.clone())
                 .unwrap()
-                .execute::<PrimitiveArray>(&mut ctx)
+                .execute::<PrimitiveArray>(ctx)
                 .unwrap()
         });
 }

@@ -99,14 +99,12 @@ fn bench_filter(
             (array.clone(), mask, SESSION.create_execution_ctx())
         })
         .bench_refs(|(array, mask, ctx)| {
-            divan::black_box(
-                array
-                    .clone()
-                    .filter(mask.clone())
-                    .unwrap()
-                    .execute::<Canonical>(ctx)
-                    .unwrap(),
-            );
+            array
+                .clone()
+                .filter(mask.clone())
+                .unwrap()
+                .execute::<Canonical>(ctx)
+                .unwrap()
         });
 }
 

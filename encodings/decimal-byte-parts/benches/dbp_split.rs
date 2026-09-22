@@ -7,7 +7,6 @@
 mod common;
 
 use divan::Bencher;
-use divan::black_box;
 use mimalloc::MiMalloc;
 use rand::RngExt;
 use rand::SeedableRng;
@@ -48,23 +47,19 @@ fn bench_split(bencher: Bencher, values_type: DecimalType, len: usize, validity:
     match values_type {
         DecimalType::I128 => {
             let values = i128_values(len);
-            bencher.bench(|| {
-                split_wide(
-                    black_box(values.as_slice()),
-                    black_box(&validity),
-                    i128_to_parts,
-                )
-            });
+            bencher
+                .with_inputs(|| (&values, &validity))
+                .bench_refs(|(values, validity)| {
+                    split_wide(values.as_slice(), validity, i128_to_parts)
+                });
         }
         DecimalType::I256 => {
             let values = i256_values(len);
-            bencher.bench(|| {
-                split_wide(
-                    black_box(values.as_slice()),
-                    black_box(&validity),
-                    i256_to_parts,
-                )
-            });
+            bencher
+                .with_inputs(|| (&values, &validity))
+                .bench_refs(|(values, validity)| {
+                    split_wide(values.as_slice(), validity, i256_to_parts)
+                });
         }
         _ => vortex_panic!("unsupported benchmark storage type: {values_type}"),
     }
@@ -75,7 +70,6 @@ fn bench_split(bencher: Bencher, values_type: DecimalType, len: usize, validity:
 #[cfg(not(codspeed))]
 mod arrays {
     use divan::Bencher;
-    use divan::black_box;
     use rand::RngExt;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
@@ -110,9 +104,9 @@ mod arrays {
         let decimal = decimal_array(values_type, len, validity);
         let session = array_session();
         bencher
-            .with_inputs(|| session.create_execution_ctx())
-            .bench_refs(|ctx| {
-                split_decimal(black_box(&decimal), ctx).vortex_expect("split decimal array")
+            .with_inputs(|| (&decimal, session.create_execution_ctx()))
+            .bench_refs(|(decimal, ctx)| {
+                split_decimal(decimal, ctx).vortex_expect("split decimal array")
             });
     }
 }

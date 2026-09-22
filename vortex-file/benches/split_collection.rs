@@ -198,7 +198,9 @@ fn cold(bencher: Bencher, config: &(usize, usize)) {
         config.1
     );
 
-    bencher.bench(|| collect_splits(file));
+    bencher
+        .with_inputs(|| file)
+        .bench_refs(|file| collect_splits(file));
 }
 
 /// Reuses the reader tree across iterations, so lazily constructed child readers are cached
@@ -209,11 +211,13 @@ fn warm(bencher: Bencher, config: &(usize, usize)) {
     let reader = file.layout_reader().unwrap();
     let row_count = file.row_count();
 
-    bencher.bench(|| {
-        SplitBy::Layout
-            .splits(reader.as_ref(), &(0..row_count), &[FieldMask::All])
-            .unwrap()
-    });
+    bencher
+        .with_inputs(|| (&reader, row_count))
+        .bench_refs(|(reader, row_count)| {
+            SplitBy::Layout
+                .splits((*reader).as_ref(), &(0..*row_count), &[FieldMask::All])
+                .unwrap()
+        });
 }
 
 /// Like `cold`, but over a file whose columns share no interior chunk boundaries, so the split
@@ -231,5 +235,7 @@ fn cold_misaligned(bencher: Bencher, config: &(usize, usize)) {
         config.1,
     );
 
-    bencher.bench(|| collect_splits(file));
+    bencher
+        .with_inputs(|| file)
+        .bench_refs(|file| collect_splits(file));
 }

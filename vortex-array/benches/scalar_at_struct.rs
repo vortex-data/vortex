@@ -60,10 +60,17 @@ fn execute_scalar_struct_simple(bencher: Bencher) {
         .collect();
 
     bencher
-        .with_inputs(|| (&struct_array, &indices, SESSION.create_execution_ctx()))
-        .bench_refs(|(array, indices, ctx)| {
+        .with_inputs(|| {
+            (
+                &struct_array,
+                &indices,
+                SESSION.create_execution_ctx(),
+                Vec::with_capacity(NUM_ACCESSES),
+            )
+        })
+        .bench_refs(|(array, indices, ctx, out)| {
             for &idx in indices.iter() {
-                divan::black_box(array.execute_scalar(idx, ctx).unwrap());
+                out.push(array.execute_scalar(idx, ctx).unwrap());
             }
         });
 }
@@ -97,10 +104,17 @@ fn execute_scalar_struct_wide(bencher: Bencher) {
         .collect();
 
     bencher
-        .with_inputs(|| (&struct_array, &indices, SESSION.create_execution_ctx()))
-        .bench_refs(|(array, indices, ctx)| {
+        .with_inputs(|| {
+            (
+                &struct_array,
+                &indices,
+                SESSION.create_execution_ctx(),
+                Vec::with_capacity(NUM_ACCESSES),
+            )
+        })
+        .bench_refs(|(array, indices, ctx, out)| {
             for &idx in indices.iter() {
-                divan::black_box(array.execute_scalar(idx, ctx).unwrap());
+                out.push(array.execute_scalar(idx, ctx).unwrap());
             }
         });
 }

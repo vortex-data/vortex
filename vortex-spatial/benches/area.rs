@@ -105,10 +105,10 @@ fn areas(geometry: &ArrayRef, ctx: &mut ExecutionCtx) -> ArrayRef {
 }
 
 fn bench_area(bencher: Bencher, geometry: ArrayRef) {
-    let mut ctx = SESSION.create_execution_ctx();
     bencher
         .counter(ItemsCount::new(ROWS))
-        .bench_local(|| areas(&geometry, &mut ctx));
+        .with_inputs(|| (&geometry, SESSION.create_execution_ctx()))
+        .bench_local_refs(|(geometry, ctx)| areas(geometry, ctx));
 }
 
 #[divan::bench]

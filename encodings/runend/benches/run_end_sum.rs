@@ -52,6 +52,6 @@ fn runend_with_null_runs() -> ArrayRef {
 fn whole_array_sum_partially_valid(bencher: Bencher) {
     let array = runend_with_null_runs();
     bencher
-        .with_inputs(|| SESSION.create_execution_ctx())
-        .bench_refs(|ctx| sum_v2(&array, ctx).unwrap());
+        .with_inputs(|| (&array, SESSION.create_execution_ctx()))
+        .bench_refs(|(array, ctx)| sum_v2(array, ctx).unwrap());
 }

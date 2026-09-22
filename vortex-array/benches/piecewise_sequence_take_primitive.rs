@@ -53,14 +53,12 @@ fn optimized_constant_lengths(bencher: Bencher, run_length: usize) {
         .counter(BytesCount::of_many::<i64>(OUTPUT_LEN))
         .with_inputs(|| (&values, indices.clone(), SESSION.create_execution_ctx()))
         .bench_refs(|(values, indices, ctx)| {
-            divan::black_box(
-                values
-                    .clone()
-                    .take(indices.clone())
-                    .unwrap()
-                    .execute::<PrimitiveArray>(ctx)
-                    .unwrap(),
-            );
+            values
+                .clone()
+                .take(indices.clone())
+                .unwrap()
+                .execute::<PrimitiveArray>(ctx)
+                .unwrap()
         });
 }
 
@@ -73,14 +71,12 @@ fn prebuilt_dense_lengths(bencher: Bencher, run_length: usize) {
         .counter(BytesCount::of_many::<i64>(OUTPUT_LEN))
         .with_inputs(|| (&values, indices.clone(), SESSION.create_execution_ctx()))
         .bench_refs(|(values, indices, ctx)| {
-            divan::black_box(
-                values
-                    .clone()
-                    .take(indices.clone())
-                    .unwrap()
-                    .execute::<PrimitiveArray>(ctx)
-                    .unwrap(),
-            );
+            values
+                .clone()
+                .take(indices.clone())
+                .unwrap()
+                .execute::<PrimitiveArray>(ctx)
+                .unwrap()
         });
 }
 
@@ -122,14 +118,13 @@ fn reify_constant_lengths_then_take(bencher: Bencher, run_length: usize) {
             }
             .into_array();
 
-            divan::black_box(
-                values
-                    .clone()
-                    .take(indices)
-                    .unwrap()
-                    .execute::<PrimitiveArray>(ctx)
-                    .unwrap(),
-            );
+            let taken = values
+                .clone()
+                .take(indices.clone())
+                .unwrap()
+                .execute::<PrimitiveArray>(ctx)
+                .unwrap();
+            (indices, taken)
         });
 }
 

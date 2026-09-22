@@ -399,12 +399,12 @@ fn string_export(bencher: Bencher, case: StringExportCase) {
         array.dtype().is_nullable(),
     );
     bencher
-        .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
-        .input_counter(|(array, _)| ItemsCount::new(array.len()))
-        .bench_values(|(array, mut ctx)| {
+        .with_inputs(|| (array.clone(), &field, SESSION.create_execution_ctx()))
+        .input_counter(|(array, ..)| ItemsCount::new(array.len()))
+        .bench_values(|(array, field, mut ctx)| {
             SESSION
                 .arrow()
-                .execute_arrow(array, Some(&field), &mut ctx)
+                .execute_arrow(array, Some(field), &mut ctx)
                 .unwrap()
         });
 }

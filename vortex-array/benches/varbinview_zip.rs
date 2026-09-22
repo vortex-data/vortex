@@ -50,7 +50,7 @@ fn varbinview_zip_fragmented_mask(bencher: Bencher) {
             m.zip(t.clone(), f.clone())
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
-                .unwrap();
+                .unwrap()
         });
 }
 
@@ -76,7 +76,7 @@ fn varbinview_zip_block_mask(bencher: Bencher) {
             m.zip(t.clone(), f.clone())
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
-                .unwrap();
+                .unwrap()
         });
 }
 

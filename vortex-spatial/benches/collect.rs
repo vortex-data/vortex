@@ -124,10 +124,10 @@ fn collect_list_rows(geometry_lists: &ArrayRef, ctx: &mut ExecutionCtx) -> Array
 }
 
 fn bench_collect(bencher: Bencher, geometry_lists: ArrayRef) {
-    let mut ctx = SESSION.create_execution_ctx();
     bencher
         .counter(ItemsCount::new(ROWS))
-        .bench_local(|| collect_list_rows(&geometry_lists, &mut ctx));
+        .with_inputs(|| (&geometry_lists, SESSION.create_execution_ctx()))
+        .bench_local_refs(|(geometry_lists, ctx)| collect_list_rows(geometry_lists, ctx));
 }
 
 #[divan::bench]
@@ -168,8 +168,8 @@ fn envelope_of_collect(input: &ArrayRef, ctx: &mut ExecutionCtx) -> ArrayRef {
 #[divan::bench]
 fn envelope_of_collected_points(bencher: Bencher) {
     let input = point_lists(false);
-    let mut ctx = SESSION.create_execution_ctx();
     bencher
         .counter(ItemsCount::new(ROWS))
-        .bench_local(|| envelope_of_collect(&input, &mut ctx));
+        .with_inputs(|| (&input, SESSION.create_execution_ctx()))
+        .bench_local_refs(|(input, ctx)| envelope_of_collect(input, ctx));
 }

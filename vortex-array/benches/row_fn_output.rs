@@ -385,9 +385,9 @@ fn bench_row_fn<F: RowFn<Options = EmptyOptions>>(
 ) {
     bencher
         .counter(ItemsCount::new(ROWS))
-        .with_inputs(|| (&args, SESSION.create_execution_ctx()))
-        .bench_refs(|(args, ctx)| {
-            execute_rows(function, &EmptyOptions, *args, ctx)
+        .with_inputs(|| (&args, function, SESSION.create_execution_ctx()))
+        .bench_refs(|(args, function, ctx)| {
+            execute_rows(*function, &EmptyOptions, *args, ctx)
                 .vortex_expect("row execution should succeed in benchmark")
         });
 }

@@ -70,18 +70,19 @@ fn extend_from_array_zctl(bencher: Bencher, (num_lists, list_size): (usize, usiz
     };
     let source = source.into_array();
 
-    bencher.with_inputs(|| &source).bench_refs(|source| {
-        let mut ctx = array_session().create_execution_ctx();
-        let mut builder = ListViewBuilder::<u64, u64>::with_capacity_in(
-            Arc::new(DType::Primitive(I32, NonNullable)),
-            NonNullable,
-            num_lists * list_size,
-            num_lists,
-            ctx.allocator(),
-        );
-        source.append_to_builder(&mut builder, &mut ctx).unwrap();
-        divan::black_box(builder.finish_into_listview())
-    });
+    bencher
+        .with_inputs(|| (&source, array_session().create_execution_ctx()))
+        .bench_refs(|(source, ctx)| {
+            let mut builder = ListViewBuilder::<u64, u64>::with_capacity_in(
+                Arc::new(DType::Primitive(I32, NonNullable)),
+                NonNullable,
+                num_lists * list_size,
+                num_lists,
+                ctx.allocator(),
+            );
+            source.append_to_builder(&mut builder, ctx).unwrap();
+            builder.finish_into_listview()
+        });
 }
 
 #[divan::bench(args = NON_ZCTL_ARGS)]
@@ -94,16 +95,17 @@ fn extend_from_array_non_zctl_overlapping(
     debug_assert!(!source.is_zero_copy_to_list());
     let source = source.into_array();
 
-    bencher.with_inputs(|| &source).bench_refs(|source| {
-        let mut ctx = array_session().create_execution_ctx();
-        let mut builder = ListViewBuilder::<u64, u64>::with_capacity_in(
-            Arc::new(DType::Primitive(I32, NonNullable)),
-            Nullable,
-            num_lists * list_size,
-            num_lists,
-            ctx.allocator(),
-        );
-        source.append_to_builder(&mut builder, &mut ctx).unwrap();
-        divan::black_box(builder.finish_into_listview())
-    });
+    bencher
+        .with_inputs(|| (&source, array_session().create_execution_ctx()))
+        .bench_refs(|(source, ctx)| {
+            let mut builder = ListViewBuilder::<u64, u64>::with_capacity_in(
+                Arc::new(DType::Primitive(I32, NonNullable)),
+                Nullable,
+                num_lists * list_size,
+                num_lists,
+                ctx.allocator(),
+            );
+            source.append_to_builder(&mut builder, ctx).unwrap();
+            builder.finish_into_listview()
+        });
 }

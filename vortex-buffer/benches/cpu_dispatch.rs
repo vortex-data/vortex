@@ -18,7 +18,6 @@
 use std::sync::LazyLock;
 
 use divan::Bencher;
-use divan::black_box;
 use divan::counter::ItemsCount;
 use mimalloc::MiMalloc;
 use vortex_buffer::CpuKernel;
@@ -29,7 +28,7 @@ static GLOBAL: MiMalloc = MiMalloc;
 fn main() {
     // Resolve every dispatcher and warm the std feature-detection cache so no
     // benchmark iteration pays a one-time probe.
-    let seed = black_box(7);
+    let seed = 7;
     let _ = via_direct(1, seed)
         + via_cpu_kernel(1, seed)
         + via_cpu_kernel_unconditional(1, seed)
@@ -122,13 +121,16 @@ fn via_cpu_kernel_unconditional(x: u64, seed: u64) -> u64 {
 const CALLS: u64 = 1024;
 
 fn bench_via(bencher: Bencher, via: fn(u64, u64) -> u64) {
-    bencher.counter(ItemsCount::new(CALLS)).bench(|| {
-        let mut acc = 0u64;
-        for i in 0..CALLS {
-            acc = acc.wrapping_add(via(black_box(i), black_box(7)));
-        }
-        acc
-    })
+    bencher
+        .counter(ItemsCount::new(CALLS))
+        .with_inputs(|| (via, 7u64))
+        .bench_refs(|(via, seed)| {
+            let mut acc = 0u64;
+            for i in 0..CALLS {
+                acc = acc.wrapping_add(via(i, *seed));
+            }
+            acc
+        })
 }
 
 #[divan::bench]

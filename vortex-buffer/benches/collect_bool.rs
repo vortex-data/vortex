@@ -85,8 +85,8 @@ fn make_u32s(len: usize) -> Vec<u32> {
 fn bench_pack_words(bencher: Bencher, len: usize, pack: impl Fn(&[bool; 64]) -> u64 + Sync) {
     let bools = make_bools(len);
     bencher
-        .with_inputs(|| vec![0u64; len / 64])
-        .bench_refs(|out| {
+        .with_inputs(|| (&bools, &pack, vec![0u64; len / 64]))
+        .bench_refs(|(bools, pack, out)| {
             let (chunks, _) = bools.as_chunks::<64>();
             for (word, chunk) in out.iter_mut().zip(chunks) {
                 *word = pack(chunk);
@@ -117,8 +117,8 @@ fn bench_words_gather(
 ) {
     let bools = make_bools(len);
     bencher
-        .with_inputs(|| vec![0u64; len.div_ceil(64)])
-        .bench_refs(|words| collect(words, len, &bools));
+        .with_inputs(|| (&bools, &collect, vec![0u64; len.div_ceil(64)]))
+        .bench_refs(|(bools, collect, words)| collect(words, len, bools));
 }
 
 #[vortex_bench_support::cpu_features]
@@ -206,14 +206,16 @@ fn collect_bool_words_old(words: &mut [u64], len: usize, mut f: impl FnMut(usize
 fn from_bool_slice_old_scalar(bencher: Bencher, len: usize) {
     let bools = make_bools(len);
     bencher
-        .with_inputs(|| vec![0u64; len.div_ceil(64)])
-        .bench_refs(|words| collect_bool_words_old(words, len, |i| bools[i]));
+        .with_inputs(|| (&bools, vec![0u64; len.div_ceil(64)]))
+        .bench_refs(|(bools, words)| collect_bool_words_old(words, len, |i| bools[i]));
 }
 
 #[divan::bench(args = INPUT_SIZE)]
 fn from_bool_slice(bencher: Bencher, len: usize) {
     let bools = make_bools(len);
-    bencher.bench(|| vortex_buffer::BitBufferMut::from(bools.as_slice()));
+    bencher
+        .with_inputs(|| &bools)
+        .bench_refs(|bools| vortex_buffer::BitBufferMut::from(bools.as_slice()));
 }
 
 #[cfg(not(codspeed))]
@@ -221,12 +223,16 @@ fn from_bool_slice(bencher: Bencher, len: usize) {
 fn collect_bool_u32_gt_old_scalar(bencher: Bencher, len: usize) {
     let values = make_u32s(len);
     bencher
-        .with_inputs(|| vec![0u64; len.div_ceil(64)])
-        .bench_refs(|words| collect_bool_words_old(words, len, |i| values[i] > u32::MAX / 2));
+        .with_inputs(|| (&values, vec![0u64; len.div_ceil(64)]))
+        .bench_refs(|(values, words)| {
+            collect_bool_words_old(words, len, |i| values[i] > u32::MAX / 2)
+        });
 }
 
 #[divan::bench(args = INPUT_SIZE)]
 fn collect_bool_u32_gt(bencher: Bencher, len: usize) {
     let values = make_u32s(len);
-    bencher.bench(|| BitBuffer::collect_bool(len, |i| values[i] > u32::MAX / 2));
+    bencher
+        .with_inputs(|| &values)
+        .bench_refs(|values| BitBuffer::collect_bool(len, |i| values[i] > u32::MAX / 2));
 }

@@ -77,10 +77,10 @@ fn point_non_nullable(bencher: Bencher) {
     let xs = (0..ROWS).map(ordinate).collect();
     let ys = (0..ROWS).map(|i| ordinate(i + 1)).collect();
     let column = point_column(xs, ys).unwrap();
-    let mut ctx = SESSION.create_execution_ctx();
     bencher
         .counter(ItemsCount::new(ROWS))
-        .bench_local(|| envelope(&column, &mut ctx));
+        .with_inputs(|| (&column, SESSION.create_execution_ctx()))
+        .bench_local_refs(|(column, ctx)| envelope(column, ctx));
 }
 
 #[divan::bench]
@@ -89,10 +89,10 @@ fn point_mixed_validity(bencher: Bencher) {
         .map(|i| (!i.is_multiple_of(10)).then(|| (ordinate(i), ordinate(i + 1))))
         .collect();
     let column = nullable_point_column(points).unwrap();
-    let mut ctx = SESSION.create_execution_ctx();
     bencher
         .counter(ItemsCount::new(ROWS))
-        .bench_local(|| envelope(&column, &mut ctx));
+        .with_inputs(|| (&column, SESSION.create_execution_ctx()))
+        .bench_local_refs(|(column, ctx)| envelope(column, ctx));
 }
 
 #[divan::bench]
@@ -101,10 +101,10 @@ fn point_random_nulls(bencher: Bencher) {
         .map(|i| (!coin(i)).then(|| (ordinate(i), ordinate(i + 1))))
         .collect();
     let column = nullable_point_column(points).unwrap();
-    let mut ctx = SESSION.create_execution_ctx();
     bencher
         .counter(ItemsCount::new(ROWS))
-        .bench_local(|| envelope(&column, &mut ctx));
+        .with_inputs(|| (&column, SESSION.create_execution_ctx()))
+        .bench_local_refs(|(column, ctx)| envelope(column, ctx));
 }
 
 const POINTS_PER_ROW: usize = 32;
@@ -119,10 +119,10 @@ fn multipoint_non_nullable(bencher: Bencher) {
         })
         .collect();
     let column = multipoint_column(rows).unwrap();
-    let mut ctx = SESSION.create_execution_ctx();
     bencher
         .counter(ItemsCount::new(ROWS))
-        .bench_local(|| envelope(&column, &mut ctx));
+        .with_inputs(|| (&column, SESSION.create_execution_ctx()))
+        .bench_local_refs(|(column, ctx)| envelope(column, ctx));
 }
 
 const VERTICES_PER_RING: usize = 8;
@@ -142,10 +142,10 @@ fn multipolygon_row(r: usize) -> MultiPolygonRings {
 fn multipolygon_non_nullable(bencher: Bencher) {
     let rows = (0..ROWS).map(multipolygon_row).collect();
     let column = multipolygon_column(rows).unwrap();
-    let mut ctx = SESSION.create_execution_ctx();
     bencher
         .counter(ItemsCount::new(ROWS))
-        .bench_local(|| envelope(&column, &mut ctx));
+        .with_inputs(|| (&column, SESSION.create_execution_ctx()))
+        .bench_local_refs(|(column, ctx)| envelope(column, ctx));
 }
 
 #[divan::bench]
@@ -154,10 +154,10 @@ fn multipolygon_mixed_validity(bencher: Bencher) {
         .map(|r| (!r.is_multiple_of(10)).then(|| multipolygon_row(r)))
         .collect();
     let column = nullable_multipolygon_column(rows).unwrap();
-    let mut ctx = SESSION.create_execution_ctx();
     bencher
         .counter(ItemsCount::new(ROWS))
-        .bench_local(|| envelope(&column, &mut ctx));
+        .with_inputs(|| (&column, SESSION.create_execution_ctx()))
+        .bench_local_refs(|(column, ctx)| envelope(column, ctx));
 }
 
 #[divan::bench]
@@ -166,8 +166,8 @@ fn multipolygon_random_nulls(bencher: Bencher) {
         .map(|r| (!coin(r)).then(|| multipolygon_row(r)))
         .collect();
     let column = nullable_multipolygon_column(rows).unwrap();
-    let mut ctx = SESSION.create_execution_ctx();
     bencher
         .counter(ItemsCount::new(ROWS))
-        .bench_local(|| envelope(&column, &mut ctx));
+        .with_inputs(|| (&column, SESSION.create_execution_ctx()))
+        .bench_local_refs(|(column, ctx)| envelope(column, ctx));
 }

@@ -349,8 +349,8 @@ fn take(bencher: Bencher, case: Case) {
 
     bencher
         .counter(ItemsCount::new(case.indices))
-        .with_inputs(|| (indices.clone(), session.create_execution_ctx()))
-        .bench_refs(|(indices, ctx)| {
+        .with_inputs(|| (&values, indices.clone(), session.create_execution_ctx()))
+        .bench_refs(|(values, indices, ctx)| {
             values
                 .take(indices.clone())
                 .unwrap()

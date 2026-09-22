@@ -212,12 +212,13 @@ fn decode_into_bench(bencher: Bencher, case: (Shape, usize)) {
     let (shape, n) = case;
     let arr = compress(n, shape, &mut ctx);
     let (inputs, total) = materialise(&arr, &mut ctx);
-    bencher.bench_local(|| {
-        let mut out: Vec<u8> = Vec::with_capacity(total + onpair::DECODE_PADDING);
-        let written = inputs.decode_into(out.spare_capacity_mut());
-        unsafe { out.set_len(written) };
-        divan::black_box(out);
-    });
+    bencher
+        .with_inputs(|| (&inputs, Vec::with_capacity(total + onpair::DECODE_PADDING)))
+        .bench_local_refs(|(inputs, out)| {
+            let written = inputs.decode_into(out.spare_capacity_mut());
+            unsafe { out.set_len(written) };
+            written
+        });
 }
 
 /// Full Vortex canonicalisation, including `execute<>` on every child,
@@ -230,10 +231,8 @@ fn canonicalize_to_varbinview(bencher: Bencher, case: (Shape, usize)) {
     bencher
         .with_inputs(|| (arr.clone().into_array(), SESSION.create_execution_ctx()))
         .bench_local_values(|(arr, mut ctx)| {
-            divan::black_box(
-                arr.execute::<VarBinViewArray>(&mut ctx)
-                    .unwrap_or_else(|e| panic!("canonicalize failed: {e}")),
-            )
+            arr.execute::<VarBinViewArray>(&mut ctx)
+                .unwrap_or_else(|e| panic!("canonicalize failed: {e}"))
         });
 }
 
@@ -250,12 +249,11 @@ fn filter_share_dict(bencher: Bencher, case: (Shape, usize)) {
     let arr = compress(n, shape, &mut ctx);
     let mask = Mask::from_iter((0..n).map(|i| i % 7 == 0));
     bencher
-        .with_inputs(|| SESSION.create_execution_ctx())
-        .bench_local_values(|mut ctx| {
-            let result = <OnPair as FilterKernel>::filter(arr.as_view(), &mask, &mut ctx)
+        .with_inputs(|| (&arr, &mask, SESSION.create_execution_ctx()))
+        .bench_local_refs(|(arr, mask, ctx)| {
+            <OnPair as FilterKernel>::filter(arr.as_view(), mask, ctx)
                 .unwrap()
-                .unwrap();
-            divan::black_box(result);
+                .unwrap()
         });
 }
 

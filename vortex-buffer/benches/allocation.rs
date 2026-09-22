@@ -31,10 +31,10 @@ fn main() {
     divan::main();
 }
 
-/// Allocates and drops [`BATCH`] values, black-boxing each one so the pair cannot be elided.
-fn allocate_drop_batch<T>(mut allocate: impl FnMut() -> T) {
+/// Allocates [`BATCH`] values into `out`, which is dropped outside the timed region.
+fn allocate_batch<T>(out: &mut Vec<T>, mut allocate: impl FnMut() -> T) {
     for _ in 0..BATCH {
-        drop(divan::black_box(allocate()));
+        out.push(allocate());
     }
 }
 
@@ -49,78 +49,96 @@ fn vec_batch(size: usize) -> Vec<Vec<u8>> {
 
 #[divan::bench(args = SIZES)]
 fn allocate_drop_vortex(bencher: Bencher, size: usize) {
-    bencher.bench(|| allocate_drop_batch(|| BufferMut::<u8>::with_capacity(size)));
+    bencher
+        .with_inputs(|| Vec::with_capacity(BATCH))
+        .bench_refs(|out| allocate_batch(out, || BufferMut::<u8>::with_capacity(size)));
 }
 
 #[divan::bench(args = SIZES)]
 fn allocate_drop_vortex_custom(bencher: Bencher, size: usize) {
     bencher
-        .with_inputs(|| BufferAllocatorRef::new(Global))
-        .bench_refs(|allocator| allocate_drop_batch(|| allocator.with_capacity::<u8>(size)));
+        .with_inputs(|| (BufferAllocatorRef::new(Global), Vec::with_capacity(BATCH)))
+        .bench_refs(|(allocator, out)| allocate_batch(out, || allocator.with_capacity::<u8>(size)));
 }
 
 #[divan::bench(args = SIZES)]
 fn allocate_drop_vortex_minimal_alignment(bencher: Bencher, size: usize) {
-    bencher.bench(|| {
-        allocate_drop_batch(|| {
-            BufferMut::<u8>::with_capacity_preferred_aligned(size, Alignment::of::<u8>(), None)
-        })
-    });
+    bencher
+        .with_inputs(|| Vec::with_capacity(BATCH))
+        .bench_refs(|out| {
+            allocate_batch(out, || {
+                BufferMut::<u8>::with_capacity_preferred_aligned(size, Alignment::of::<u8>(), None)
+            })
+        });
 }
 
 #[divan::bench(args = SIZES)]
 fn allocate_drop_bytes(bencher: Bencher, size: usize) {
-    bencher.bench(|| allocate_drop_batch(|| BytesMut::with_capacity(size)));
+    bencher
+        .with_inputs(|| Vec::with_capacity(BATCH))
+        .bench_refs(|out| allocate_batch(out, || BytesMut::with_capacity(size)));
 }
 
 #[divan::bench(args = SIZES)]
 fn allocate_drop_arrow(bencher: Bencher, size: usize) {
-    bencher.bench(|| allocate_drop_batch(|| MutableBuffer::with_capacity(size)));
+    bencher
+        .with_inputs(|| Vec::with_capacity(BATCH))
+        .bench_refs(|out| allocate_batch(out, || MutableBuffer::with_capacity(size)));
 }
 
 #[divan::bench(args = SIZES)]
 fn allocate_freeze_drop_vortex(bencher: Bencher, size: usize) {
-    bencher.bench(|| allocate_drop_batch(|| BufferMut::<u8>::with_capacity(size).freeze()));
+    bencher
+        .with_inputs(|| Vec::with_capacity(BATCH))
+        .bench_refs(|out| allocate_batch(out, || BufferMut::<u8>::with_capacity(size).freeze()));
 }
 
 #[divan::bench(args = SIZES)]
 fn allocate_freeze_drop_vortex_custom(bencher: Bencher, size: usize) {
     bencher
-        .with_inputs(|| BufferAllocatorRef::new(Global))
-        .bench_refs(|allocator| {
-            allocate_drop_batch(|| allocator.with_capacity::<u8>(size).freeze())
+        .with_inputs(|| (BufferAllocatorRef::new(Global), Vec::with_capacity(BATCH)))
+        .bench_refs(|(allocator, out)| {
+            allocate_batch(out, || allocator.with_capacity::<u8>(size).freeze())
         });
 }
 
 #[divan::bench(args = SIZES)]
 fn allocate_freeze_drop_vortex_minimal_alignment(bencher: Bencher, size: usize) {
-    bencher.bench(|| {
-        allocate_drop_batch(|| {
-            BufferMut::<u8>::with_capacity_preferred_aligned(size, Alignment::of::<u8>(), None)
-                .freeze()
-        })
-    });
+    bencher
+        .with_inputs(|| Vec::with_capacity(BATCH))
+        .bench_refs(|out| {
+            allocate_batch(out, || {
+                BufferMut::<u8>::with_capacity_preferred_aligned(size, Alignment::of::<u8>(), None)
+                    .freeze()
+            })
+        });
 }
 
 #[divan::bench(args = SIZES)]
 fn allocate_freeze_drop_bytes(bencher: Bencher, size: usize) {
-    bencher.bench(|| allocate_drop_batch(|| BytesMut::with_capacity(size).freeze()));
+    bencher
+        .with_inputs(|| Vec::with_capacity(BATCH))
+        .bench_refs(|out| allocate_batch(out, || BytesMut::with_capacity(size).freeze()));
 }
 
 #[divan::bench(args = SIZES)]
 fn allocate_freeze_drop_arrow(bencher: Bencher, size: usize) {
-    bencher.bench(|| {
-        allocate_drop_batch(|| arrow_buffer::Buffer::from(MutableBuffer::with_capacity(size)))
-    });
+    bencher
+        .with_inputs(|| Vec::with_capacity(BATCH))
+        .bench_refs(|out| {
+            allocate_batch(out, || {
+                arrow_buffer::Buffer::from(MutableBuffer::with_capacity(size))
+            })
+        });
 }
 
 #[divan::bench(args = SIZES)]
 fn from_vec_drop_vortex(bencher: Bencher, size: usize) {
     bencher
-        .with_inputs(|| vec_batch(size))
-        .bench_values(|vecs| {
-            for values in vecs {
-                drop(divan::black_box(Buffer::from(values)));
+        .with_inputs(|| (vec_batch(size), Vec::with_capacity(BATCH)))
+        .bench_refs(|(vecs, out)| {
+            for values in vecs.drain(..) {
+                out.push(Buffer::from(values));
             }
         });
 }
@@ -128,10 +146,10 @@ fn from_vec_drop_vortex(bencher: Bencher, size: usize) {
 #[divan::bench(args = SIZES)]
 fn from_vec_drop_bytes(bencher: Bencher, size: usize) {
     bencher
-        .with_inputs(|| vec_batch(size))
-        .bench_values(|vecs| {
-            for values in vecs {
-                drop(divan::black_box(bytes::Bytes::from(values)));
+        .with_inputs(|| (vec_batch(size), Vec::with_capacity(BATCH)))
+        .bench_refs(|(vecs, out)| {
+            for values in vecs.drain(..) {
+                out.push(bytes::Bytes::from(values));
             }
         });
 }
@@ -139,10 +157,10 @@ fn from_vec_drop_bytes(bencher: Bencher, size: usize) {
 #[divan::bench(args = SIZES)]
 fn from_vec_drop_arrow(bencher: Bencher, size: usize) {
     bencher
-        .with_inputs(|| vec_batch(size))
-        .bench_values(|vecs| {
-            for values in vecs {
-                drop(divan::black_box(arrow_buffer::Buffer::from_vec(values)));
+        .with_inputs(|| (vec_batch(size), Vec::with_capacity(BATCH)))
+        .bench_refs(|(vecs, out)| {
+            for values in vecs.drain(..) {
+                out.push(arrow_buffer::Buffer::from_vec(values));
             }
         });
 }

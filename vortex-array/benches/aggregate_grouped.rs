@@ -170,7 +170,7 @@ where
     .unwrap();
     acc.accumulate_list(list_view, &mut SESSION.create_execution_ctx())
         .unwrap();
-    divan::black_box(acc.finish().unwrap())
+    acc.finish().unwrap()
 }
 
 #[divan::bench]
@@ -251,13 +251,11 @@ where
     .unwrap();
     let mut ctx = SESSION.create_execution_ctx();
     acc.accumulate_list(list_view, &mut ctx).unwrap();
-    let result = acc
-        .finish()
+    acc.finish()
         .unwrap()
         .execute::<Canonical>(&mut ctx)
         .unwrap()
-        .into_array();
-    divan::black_box(result)
+        .into_array()
 }
 
 #[divan::bench]

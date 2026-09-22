@@ -101,9 +101,17 @@ fn fixed_16_advancing_ptr_safe(bencher: Bencher, slice_count: usize) {
 fn bench_case(bencher: Bencher, case: Case, f: TakeSlicesFn) {
     bencher
         .counter(BytesCount::of_many::<u16>(case.output_len))
-        .with_inputs(|| (&case.values, &case.starts, &case.lengths, case.output_len))
-        .bench_refs(|(values, starts, lengths, output_len)| {
-            divan::black_box(f(values, starts, lengths, *output_len));
+        .with_inputs(|| {
+            (
+                &case.values,
+                &case.starts,
+                &case.lengths,
+                case.output_len,
+                f,
+            )
+        })
+        .bench_refs(|(values, starts, lengths, output_len, f)| {
+            f(values, starts, lengths, *output_len)
         });
 }
 

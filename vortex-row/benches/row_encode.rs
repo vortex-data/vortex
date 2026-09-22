@@ -4,7 +4,6 @@
 #![expect(
     clippy::unwrap_used,
     clippy::clone_on_ref_ptr,
-    clippy::cloned_ref_to_slice_refs,
     clippy::redundant_clone
 )]
 
@@ -80,7 +79,8 @@ fn primitive_i64_arrow_row(bencher: divan::Bencher) {
     let bytes = (N * (1 + 8)) as u64;
     bencher
         .counter(BytesCount::new(bytes))
-        .bench_local(|| conv.convert_columns(&[arr.clone()]).unwrap())
+        .with_inputs(|| (&conv, &arr))
+        .bench_local_refs(|(conv, arr)| conv.convert_columns(&[(*arr).clone()]).unwrap())
 }
 
 #[divan::bench]
@@ -91,8 +91,8 @@ fn primitive_i64_vortex(bencher: divan::Bencher) {
     let encoder = RowEncoder::default();
     bencher
         .counter(BytesCount::new(bytes))
-        .with_inputs(|| SESSION.create_execution_ctx())
-        .bench_local_values(|mut ctx| encoder.encode(&[col.clone()], &mut ctx).unwrap())
+        .with_inputs(|| (&encoder, &col, SESSION.create_execution_ctx()))
+        .bench_local_refs(|(encoder, col, ctx)| encoder.encode(&[(*col).clone()], ctx).unwrap())
 }
 
 // ---------- utf8 ----------
@@ -108,7 +108,8 @@ fn utf8_arrow_row(bencher: divan::Bencher) {
     let conv = RowConverter::new(vec![ArrowSortField::new(DataType::Utf8)]).unwrap();
     bencher
         .counter(BytesCount::new(total))
-        .bench_local(|| conv.convert_columns(&[arr.clone()]).unwrap())
+        .with_inputs(|| (&conv, &arr))
+        .bench_local_refs(|(conv, arr)| conv.convert_columns(&[(*arr).clone()]).unwrap())
 }
 
 #[divan::bench]
@@ -122,8 +123,8 @@ fn utf8_vortex(bencher: divan::Bencher) {
     let encoder = RowEncoder::default();
     bencher
         .counter(BytesCount::new(total))
-        .with_inputs(|| SESSION.create_execution_ctx())
-        .bench_local_values(|mut ctx| encoder.encode(&[col.clone()], &mut ctx).unwrap())
+        .with_inputs(|| (&encoder, &col, SESSION.create_execution_ctx()))
+        .bench_local_refs(|(encoder, col, ctx)| encoder.encode(&[(*col).clone()], ctx).unwrap())
 }
 
 // ---------- struct_mixed ----------
@@ -163,7 +164,10 @@ fn struct_mixed_arrow_row(bencher: divan::Bencher) {
     .unwrap();
     bencher
         .counter(BytesCount::new(total))
-        .bench_local(|| conv.convert_columns(&[arrow_struct.clone()]).unwrap())
+        .with_inputs(|| (&conv, &arrow_struct))
+        .bench_local_refs(|(conv, arrow_struct)| {
+            conv.convert_columns(&[(*arrow_struct).clone()]).unwrap()
+        })
 }
 
 #[divan::bench]
@@ -177,6 +181,8 @@ fn struct_mixed_vortex(bencher: divan::Bencher) {
     let encoder = RowEncoder::default();
     bencher
         .counter(BytesCount::new(total))
-        .with_inputs(|| SESSION.create_execution_ctx())
-        .bench_local_values(|mut ctx| encoder.encode(&[struct_arr.clone()], &mut ctx).unwrap())
+        .with_inputs(|| (&encoder, &struct_arr, SESSION.create_execution_ctx()))
+        .bench_local_refs(|(encoder, struct_arr, ctx)| {
+            encoder.encode(&[(*struct_arr).clone()], ctx).unwrap()
+        })
 }

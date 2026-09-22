@@ -261,13 +261,9 @@ fn falsify(expr: Expression, column_dtype: &DType) -> BoundExpression {
 }
 
 fn run(bencher: Bencher, zone_map: ZoneMap, predicate: BoundExpression) {
-    bencher.bench(|| {
-        divan::black_box(
-            zone_map
-                .prune(divan::black_box(&predicate), &SESSION)
-                .unwrap(),
-        )
-    });
+    bencher
+        .with_inputs(|| (&zone_map, &predicate))
+        .bench_refs(|(zone_map, predicate)| zone_map.prune(predicate, &SESSION).unwrap());
 }
 
 /// Integer range predicate: binds to `max` only, no row count, no NaN guard.

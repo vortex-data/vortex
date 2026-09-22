@@ -66,7 +66,7 @@ fn run(bencher: Bencher, if_true: ArrayRef, if_false: ArrayRef) {
             m.zip(t.clone(), f.clone())
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
-                .unwrap();
+                .unwrap()
         });
 }
 

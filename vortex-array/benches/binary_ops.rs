@@ -351,16 +351,17 @@ fn bench_binary<T: Executable + 'static>(
     rhs: ArrayRef,
     operator: Operator,
 ) {
-    let mut ctx = SESSION.create_execution_ctx();
     let len = lhs.len();
 
-    bencher.counter(ItemsCount::new(len)).bench_local(|| {
-        lhs.clone()
-            .binary(rhs.clone(), operator)
-            .unwrap()
-            .execute::<T>(&mut ctx)
-            .unwrap()
-    });
+    bencher
+        .counter(ItemsCount::new(len))
+        .with_inputs(|| (&lhs, &rhs, SESSION.create_execution_ctx()))
+        .bench_local_refs(|(lhs, rhs, ctx)| {
+            lhs.binary(rhs.clone(), operator)
+                .unwrap()
+                .execute::<T>(ctx)
+                .unwrap()
+        });
 }
 
 const fn primitive_len<T>() -> usize {

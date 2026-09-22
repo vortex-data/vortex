@@ -122,9 +122,9 @@ fn bench_like(bencher: Bencher, fsst: &FSSTArray, pattern: &str) {
     let arr = fsst.clone().into_array();
     let pattern = ConstantArray::new(pattern, len).into_array();
     bencher
-        .with_inputs(|| SESSION.create_execution_ctx())
-        .bench_refs(|ctx| {
-            Like::try_new(arr.clone(), pattern.clone(), LikeOptions::default())
+        .with_inputs(|| (&arr, &pattern, SESSION.create_execution_ctx()))
+        .bench_refs(|(arr, pattern, ctx)| {
+            Like::try_new((*arr).clone(), (*pattern).clone(), LikeOptions::default())
                 .unwrap()
                 .into_array()
                 .execute::<Canonical>(ctx)

@@ -83,13 +83,11 @@ fn run(bencher: Bencher, array: ArrayRef, mask: Mask) {
     bencher
         .with_inputs(|| (array.clone(), mask.clone(), SESSION.create_execution_ctx()))
         .bench_values(|(array, mask, mut ctx)| {
-            divan::black_box(
-                array
-                    .filter(mask)
-                    .unwrap()
-                    .execute::<RecursiveCanonical>(&mut ctx)
-                    .unwrap(),
-            );
+            array
+                .filter(mask)
+                .unwrap()
+                .execute::<RecursiveCanonical>(&mut ctx)
+                .unwrap()
         });
 }
 

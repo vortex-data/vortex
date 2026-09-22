@@ -74,10 +74,10 @@ fn hulls(input: &ArrayRef, ctx: &mut ExecutionCtx) -> ArrayRef {
 }
 
 fn bench_hulls(bencher: Bencher, input: ArrayRef) {
-    let mut ctx = SESSION.create_execution_ctx();
     bencher
         .counter(ItemsCount::new(input.len()))
-        .bench_local(|| hulls(&input, &mut ctx));
+        .with_inputs(|| (&input, SESSION.create_execution_ctx()))
+        .bench_local_refs(|(input, ctx)| hulls(input, ctx));
 }
 
 #[divan::bench]

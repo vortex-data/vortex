@@ -43,8 +43,10 @@ const INPUT_SIZE_USIZE: &[usize] = &[128, 1024, 2048, 16_384, 65_536];
     types = [Arrow<ScalarBuffer<i32>>,Buffer<i32>],
     args = INPUT_SIZE,
 )]
-fn from_iter<B: FromIterator<i32>>(n: i32) {
-    B::from_iter((0..n).map(|i| i % i32::MAX));
+fn from_iter<B: FromIterator<i32>>(bencher: Bencher, n: i32) {
+    bencher
+        .with_inputs(|| n)
+        .bench_values(|n| B::from_iter((0..n).map(|i| i % i32::MAX)));
 }
 
 trait MapEach<T, R> {
@@ -117,7 +119,7 @@ fn push_vortex_buffer(bencher: Bencher, length: i32) {
         .with_inputs(|| BufferMut::<i32>::with_capacity(length as usize))
         .bench_refs(|buffer| {
             for idx in 0..length {
-                buffer.push(divan::black_box(idx));
+                buffer.push(idx);
             }
         });
 }
@@ -132,7 +134,7 @@ fn push_arrow_buffer(bencher: Bencher, length: i32) {
         })
         .bench_refs(|buffer| {
             for idx in 0..length {
-                buffer.0.push(divan::black_box(idx));
+                buffer.0.push(idx);
             }
         });
 }
@@ -155,13 +157,15 @@ fn slice_tight_loop_vortex(bencher: Bencher, len: usize) {
     let buf = Buffer::<i32>::from_iter(
         (0..i32::try_from(len).vortex_expect("len fits into i32")).map(|i| i % i32::MAX),
     );
-    bencher.bench(|| {
-        let mut offset = 0;
-        while offset + SLICE_WINDOW <= len {
-            divan::black_box(buf.slice(offset..offset + SLICE_WINDOW));
-            offset += SLICE_WINDOW;
-        }
-    });
+    bencher
+        .with_inputs(|| (&buf, Vec::with_capacity(len / SLICE_WINDOW)))
+        .bench_refs(|(buf, slices)| {
+            let mut offset = 0;
+            while offset + SLICE_WINDOW <= len {
+                slices.push(buf.slice(offset..offset + SLICE_WINDOW));
+                offset += SLICE_WINDOW;
+            }
+        });
 }
 
 #[divan::bench(args = &[65_536usize])]
@@ -169,13 +173,15 @@ fn slice_tight_loop_arrow(bencher: Bencher, len: usize) {
     let buf = ScalarBuffer::<i32>::from_iter(
         (0..i32::try_from(len).vortex_expect("len fits into i32")).map(|i| i % i32::MAX),
     );
-    bencher.bench(|| {
-        let mut offset = 0;
-        while offset + SLICE_WINDOW <= len {
-            divan::black_box(buf.slice(offset, SLICE_WINDOW));
-            offset += SLICE_WINDOW;
-        }
-    });
+    bencher
+        .with_inputs(|| (&buf, Vec::with_capacity(len / SLICE_WINDOW)))
+        .bench_refs(|(buf, slices)| {
+            let mut offset = 0;
+            while offset + SLICE_WINDOW <= len {
+                slices.push(buf.slice(offset, SLICE_WINDOW));
+                offset += SLICE_WINDOW;
+            }
+        });
 }
 
 /// Loops like `slice_tight_loop_vortex` above: a single empty slice is a few nanoseconds, far
@@ -184,11 +190,13 @@ fn slice_tight_loop_arrow(bencher: Bencher, len: usize) {
 #[divan::bench]
 fn slice_empty_tight_loop_vortex(bencher: Bencher) {
     let buf = Buffer::<i32>::from_iter((0..1024).map(|i| i % i32::MAX));
-    bencher.bench(|| {
-        for _ in 0..1024 {
-            divan::black_box(buf.slice(8..8));
-        }
-    });
+    bencher
+        .with_inputs(|| (&buf, Vec::with_capacity(1024)))
+        .bench_refs(|(buf, slices)| {
+            for _ in 0..1024 {
+                slices.push(buf.slice(8..8));
+            }
+        });
 }
 
 #[divan::bench(args = INPUT_SIZE)]

@@ -95,10 +95,10 @@ fn make_lines(starts: &ArrayRef, ends: &ArrayRef, ctx: &mut ExecutionCtx) -> Arr
 fn column_x_column(bencher: Bencher) {
     let starts = points(0);
     let ends = points(97);
-    let mut ctx = SESSION.create_execution_ctx();
     bencher
         .counter(ItemsCount::new(ROWS))
-        .bench_local(|| make_lines(&starts, &ends, &mut ctx));
+        .with_inputs(|| (&starts, &ends, SESSION.create_execution_ctx()))
+        .bench_local_refs(|(starts, ends, ctx)| make_lines(starts, ends, ctx));
 }
 
 #[divan::bench]
@@ -108,15 +108,16 @@ fn column_x_constant(bencher: Bencher) {
     let end = point_constant(&mut ctx);
     bencher
         .counter(ItemsCount::new(ROWS))
-        .bench_local(|| make_lines(&starts, &end, &mut ctx));
+        .with_inputs(|| (&starts, &end, SESSION.create_execution_ctx()))
+        .bench_local_refs(|(starts, end, ctx)| make_lines(starts, end, ctx));
 }
 
 #[divan::bench]
 fn nullable_columns(bencher: Bencher) {
     let starts = nullable_points(0, 8);
     let ends = nullable_points(97, 11);
-    let mut ctx = SESSION.create_execution_ctx();
     bencher
         .counter(ItemsCount::new(ROWS))
-        .bench_local(|| make_lines(&starts, &ends, &mut ctx));
+        .with_inputs(|| (&starts, &ends, SESSION.create_execution_ctx()))
+        .bench_local_refs(|(starts, ends, ctx)| make_lines(starts, ends, ctx));
 }

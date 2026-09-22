@@ -106,11 +106,9 @@ fn canonicalize_sparse_list(
     bencher
         .with_inputs(|| (sparse.clone(), SESSION.create_execution_ctx()))
         .bench_values(|(array, mut ctx)| {
-            divan::black_box(
-                array
-                    .execute::<Canonical>(&mut ctx)
-                    .vortex_expect("sparse list canonicalization"),
-            )
+            array
+                .execute::<Canonical>(&mut ctx)
+                .vortex_expect("sparse list canonicalization")
         });
 }
 
@@ -124,10 +122,8 @@ fn canonicalize_sparse_fixed_size_list(
     bencher
         .with_inputs(|| (sparse.clone(), SESSION.create_execution_ctx()))
         .bench_values(|(array, mut ctx)| {
-            divan::black_box(
-                array
-                    .execute::<Canonical>(&mut ctx)
-                    .vortex_expect("sparse fixed-size-list canonicalization"),
-            )
+            array
+                .execute::<Canonical>(&mut ctx)
+                .vortex_expect("sparse fixed-size-list canonicalization")
         });
 }

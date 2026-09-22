@@ -127,11 +127,12 @@ fn i32_small(bencher: Bencher) {
             let rebuilt = lv
                 .rebuild(ListViewRebuildMode::MakeZeroCopyToList, ctx)
                 .unwrap();
-            rebuilt
+            let canonical_elements = rebuilt
                 .elements()
                 .clone()
                 .execute::<Canonical>(ctx)
-                .unwrap()
+                .unwrap();
+            (rebuilt, canonical_elements)
         });
 }
 
@@ -144,11 +145,12 @@ fn i32_small_overlapping(bencher: Bencher) {
             let rebuilt = lv
                 .rebuild(ListViewRebuildMode::MakeZeroCopyToList, ctx)
                 .unwrap();
-            rebuilt
+            let canonical_elements = rebuilt
                 .elements()
                 .clone()
                 .execute::<Canonical>(ctx)
-                .unwrap()
+                .unwrap();
+            (rebuilt, canonical_elements)
         });
 }
 
@@ -161,11 +163,12 @@ fn varbinview_small(bencher: Bencher) {
             let rebuilt = lv
                 .rebuild(ListViewRebuildMode::MakeZeroCopyToList, ctx)
                 .unwrap();
-            rebuilt
+            let canonical_elements = rebuilt
                 .elements()
                 .clone()
                 .execute::<Canonical>(ctx)
-                .unwrap()
+                .unwrap();
+            (rebuilt, canonical_elements)
         });
 }
 
@@ -178,11 +181,12 @@ fn struct_small(bencher: Bencher) {
             let rebuilt = lv
                 .rebuild(ListViewRebuildMode::MakeZeroCopyToList, ctx)
                 .unwrap();
-            rebuilt
+            let canonical_elements = rebuilt
                 .elements()
                 .clone()
                 .execute::<Canonical>(ctx)
-                .unwrap()
+                .unwrap();
+            (rebuilt, canonical_elements)
         });
 }
 
@@ -195,11 +199,12 @@ fn i32_large(bencher: Bencher) {
             let rebuilt = lv
                 .rebuild(ListViewRebuildMode::MakeZeroCopyToList, ctx)
                 .unwrap();
-            rebuilt
+            let canonical_elements = rebuilt
                 .elements()
                 .clone()
                 .execute::<Canonical>(ctx)
-                .unwrap()
+                .unwrap();
+            (rebuilt, canonical_elements)
         });
 }
 
@@ -212,11 +217,12 @@ fn varbinview_large(bencher: Bencher) {
             let rebuilt = lv
                 .rebuild(ListViewRebuildMode::MakeZeroCopyToList, ctx)
                 .unwrap();
-            rebuilt
+            let canonical_elements = rebuilt
                 .elements()
                 .clone()
                 .execute::<Canonical>(ctx)
-                .unwrap()
+                .unwrap();
+            (rebuilt, canonical_elements)
         });
 }
 
@@ -229,11 +235,12 @@ fn struct_large(bencher: Bencher) {
             let rebuilt = lv
                 .rebuild(ListViewRebuildMode::MakeZeroCopyToList, ctx)
                 .unwrap();
-            rebuilt
+            let canonical_elements = rebuilt
                 .elements()
                 .clone()
                 .execute::<Canonical>(ctx)
-                .unwrap()
+                .unwrap();
+            (rebuilt, canonical_elements)
         });
 }
 
@@ -259,11 +266,12 @@ fn fsl_large(bencher: Bencher) {
             let rebuilt = lv
                 .rebuild(ListViewRebuildMode::MakeZeroCopyToList, ctx)
                 .unwrap();
-            rebuilt
+            let canonical_elements = rebuilt
                 .elements()
                 .clone()
                 .execute::<Canonical>(ctx)
-                .unwrap()
+                .unwrap();
+            (rebuilt, canonical_elements)
         });
 }
 
@@ -276,10 +284,11 @@ fn list_i32_large(bencher: Bencher) {
             let rebuilt = lv
                 .rebuild(ListViewRebuildMode::MakeZeroCopyToList, ctx)
                 .unwrap();
-            rebuilt
+            let canonical_elements = rebuilt
                 .elements()
                 .clone()
                 .execute::<Canonical>(ctx)
-                .unwrap()
+                .unwrap();
+            (rebuilt, canonical_elements)
         });
 }

@@ -241,11 +241,11 @@ fn like_substr_high_match(bencher: Bencher) {
     let expr = like(root(), lit(pattern.as_str()));
 
     bencher
-        .with_inputs(|| (&fsst_array, SESSION.create_execution_ctx()))
-        .bench_refs(|(fsst_array, ctx)| {
+        .with_inputs(|| (&fsst_array, &expr, SESSION.create_execution_ctx()))
+        .bench_refs(|(fsst_array, expr, ctx)| {
             fsst_array
                 .clone()
-                .apply(&expr)
+                .apply(expr)
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap()
@@ -265,11 +265,11 @@ fn like_substr_low_match(bencher: Bencher) {
     let expr = like(root(), lit(pattern.as_str()));
 
     bencher
-        .with_inputs(|| (&fsst_array, SESSION.create_execution_ctx()))
-        .bench_refs(|(fsst_array, ctx)| {
+        .with_inputs(|| (&fsst_array, &expr, SESSION.create_execution_ctx()))
+        .bench_refs(|(fsst_array, expr, ctx)| {
             fsst_array
                 .clone()
-                .apply(&expr)
+                .apply(expr)
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap()

@@ -35,11 +35,10 @@ fn make_buffer(len: usize, density: (usize, usize)) -> BitBuffer {
 fn old_collect_copy<const DENSITY_IDX: usize>(bencher: Bencher, len: usize) {
     let buffer = make_buffer(len, DENSITIES[DENSITY_IDX]);
     bencher
-        .with_inputs(|| vec![false; len])
-        .bench_refs(|dst: &mut Vec<bool>| {
+        .with_inputs(|| (&buffer, vec![false; len]))
+        .bench_refs(|(buffer, dst)| {
             // Offset by 1 to exercise a non-byte-aligned slice like the export hot path.
             dst.copy_from_slice(&buffer.slice(1..(1 + len)).iter().collect::<Vec<bool>>());
-            divan::black_box(&dst);
         });
 }
 
@@ -48,11 +47,10 @@ fn old_collect_copy<const DENSITY_IDX: usize>(bencher: Bencher, len: usize) {
 fn new_zip_write<const DENSITY_IDX: usize>(bencher: Bencher, len: usize) {
     let buffer = make_buffer(len, DENSITIES[DENSITY_IDX]);
     bencher
-        .with_inputs(|| vec![false; len])
-        .bench_refs(|dst: &mut Vec<bool>| {
+        .with_inputs(|| (&buffer, vec![false; len]))
+        .bench_refs(|(buffer, dst)| {
             for (slot, bit) in dst.iter_mut().zip(buffer.slice(1..(1 + len)).iter()) {
                 *slot = bit;
             }
-            divan::black_box(&dst);
         });
 }

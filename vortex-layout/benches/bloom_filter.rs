@@ -86,7 +86,7 @@ fn contains_present(bencher: Bencher, block_count: u32) {
             for value in *values {
                 matches += usize::from(filter.contains(value));
             }
-            divan::black_box(matches);
+            matches
         });
 }
 
@@ -105,6 +105,6 @@ fn contains_absent(bencher: Bencher, block_count: u32) {
             for query in *queries {
                 matches += usize::from(filter.contains(query));
             }
-            divan::black_box(matches);
+            matches
         });
 }

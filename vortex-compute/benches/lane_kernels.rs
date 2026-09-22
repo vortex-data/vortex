@@ -160,8 +160,8 @@ fn arrow_narrow_u64_u32(bencher: Bencher, n: usize) {
     };
 
     bencher
-        .with_inputs(|| arr.clone())
-        .bench_values(|arr| cast_with_options(&arr, &DataType::UInt32, &opts).unwrap());
+        .with_inputs(|| (arr.clone(), &opts))
+        .bench_values(|(arr, opts)| cast_with_options(&arr, &DataType::UInt32, opts).unwrap());
 }
 
 #[divan::bench(args = SIZES)]
@@ -202,6 +202,7 @@ fn map_with_mask_widen_u16_u32(bencher: Bencher, n: usize) {
         .with_inputs(|| (f.values_u16.clone(), uninit_out::<u32>(n)))
         .bench_values(|(values, mut out)| {
             values.as_slice().map_into(out.as_mut_slice(), |v| v.as_());
+            (values, out)
         });
 }
 
@@ -272,8 +273,8 @@ fn arrow_narrow_i32_u32(bencher: Bencher, n: usize) {
     };
 
     bencher
-        .with_inputs(|| arr.clone())
-        .bench_values(|arr| cast_with_options(&arr, &DataType::UInt32, &opts).unwrap());
+        .with_inputs(|| (arr.clone(), &opts))
+        .bench_values(|(arr, opts)| cast_with_options(&arr, &DataType::UInt32, opts).unwrap());
 }
 
 // -----------------------------------------------------------------------------
@@ -362,15 +363,15 @@ fn lanezip_checked_add_u32(bencher: Bencher, n: usize) {
                 f.rhs.clone(),
                 f.lhs_mask.clone(),
                 f.rhs_mask.clone(),
+                uninit_out::<u32>(n),
             )
         })
-        .bench_refs(|(lhs, rhs, lm, rm)| {
+        .bench_refs(|(lhs, rhs, lm, rm, out)| {
             let combined = lm as &BitBuffer & rm as &BitBuffer;
-            let mut out = uninit_out::<u32>(n);
             LaneZip::new(lhs.as_slice(), rhs.as_slice())
                 .try_map_masked_into(&combined, out.as_mut_slice(), |(a, b)| a.checked_add(b))
                 .unwrap();
-            (combined, out)
+            combined
         });
 }
 

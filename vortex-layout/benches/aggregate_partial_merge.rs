@@ -119,8 +119,8 @@ fn bloom(bencher: Bencher, block_count: u32) {
 
     bencher
         .counter(ItemsCount::new(ZONE_COUNT))
-        .with_inputs(|| bloom_accumulator(block_count))
-        .bench_local_refs(|merged| merge_all(merged, &scalars));
+        .with_inputs(|| (bloom_accumulator(block_count), &scalars))
+        .bench_local_refs(|(merged, scalars)| merge_all(merged, scalars));
 }
 
 #[divan::bench]
@@ -129,6 +129,6 @@ fn sum_v2(bencher: Bencher) {
 
     bencher
         .counter(ItemsCount::new(ZONE_COUNT))
-        .with_inputs(sum_v2_accumulator)
-        .bench_local_refs(|merged| merge_all(merged, &scalars));
+        .with_inputs(|| (sum_v2_accumulator(), &scalars))
+        .bench_local_refs(|(merged, scalars)| merge_all(merged, scalars));
 }

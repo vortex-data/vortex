@@ -64,7 +64,7 @@ mod benchmarks {
         bencher
             .with_inputs(|| (&values, SESSION.create_execution_ctx()))
             .bench_refs(|(values, ctx)| {
-                IntegerStats::generate_opts(values, GenerateStatsOptions::default(), ctx);
+                IntegerStats::generate_opts(values, GenerateStatsOptions::default(), ctx)
             });
     }
 
@@ -85,7 +85,7 @@ mod benchmarks {
                         count_distinct_values: false,
                     },
                     ctx,
-                );
+                )
             });
     }
 }

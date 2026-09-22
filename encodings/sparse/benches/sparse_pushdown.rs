@@ -93,7 +93,7 @@ fn sparse_is_constant(bencher: Bencher) {
     bencher
         .with_inputs(|| (make_sparse(100_000, true), SESSION.create_execution_ctx()))
         .bench_values(|(array, mut ctx)| {
-            divan::black_box(is_constant(&array, &mut ctx).vortex_expect("is_constant"))
+            is_constant(&array, &mut ctx).vortex_expect("is_constant")
         });
 }
 
@@ -101,9 +101,7 @@ fn sparse_is_constant(bencher: Bencher) {
 fn sparse_sum(bencher: Bencher) {
     bencher
         .with_inputs(|| (make_sparse(100_000, false), SESSION.create_execution_ctx()))
-        .bench_values(|(array, mut ctx)| {
-            divan::black_box(sum(&array, &mut ctx).vortex_expect("sum"))
-        });
+        .bench_values(|(array, mut ctx)| sum(&array, &mut ctx).vortex_expect("sum"));
 }
 
 #[divan::bench]
@@ -111,10 +109,7 @@ fn sparse_min_max(bencher: Bencher) {
     bencher
         .with_inputs(|| (make_sparse(40_000, false), SESSION.create_execution_ctx()))
         .bench_values(|(array, mut ctx)| {
-            divan::black_box(
-                min_max(&array, &mut ctx, NumericalAggregateOpts::default())
-                    .vortex_expect("min_max"),
-            )
+            min_max(&array, &mut ctx, NumericalAggregateOpts::default()).vortex_expect("min_max")
         });
 }
 
@@ -127,9 +122,7 @@ fn sparse_null_count(bencher: Bencher) {
                 SESSION.create_execution_ctx(),
             )
         })
-        .bench_values(|(array, mut ctx)| {
-            divan::black_box(null_count(&array, &mut ctx).vortex_expect("null_count"))
-        });
+        .bench_values(|(array, mut ctx)| null_count(&array, &mut ctx).vortex_expect("null_count"));
 }
 
 #[divan::bench]
@@ -139,7 +132,7 @@ fn sparse_compare(bencher: Bencher) {
         .bench_values(|(array, mut ctx)| {
             let rhs = ConstantArray::new(Scalar::from(1i32), array.len()).into_array();
             let result = array.binary(rhs, Operator::Eq).vortex_expect("binary");
-            divan::black_box(materialize(result, &mut ctx))
+            materialize(result, &mut ctx)
         });
 }
 

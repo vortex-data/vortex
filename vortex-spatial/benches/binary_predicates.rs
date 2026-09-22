@@ -171,26 +171,30 @@ mod contains {
     /// Control: no constant operand, direct point-in-polygon per row.
     #[divan::bench]
     fn column_x_column_points(bencher: Bencher) {
-        let mut ctx = SESSION.create_execution_ctx();
         let polygons = squares_mostly_overlapping(ROWS);
         let points = points(ROWS);
-        bencher.counter(ItemsCount::new(ROWS)).bench_local(|| {
-            execute(
-                SpatialContains::try_new(polygons.clone(), points.clone()),
-                &mut ctx,
-            )
-        });
+        bencher
+            .counter(ItemsCount::new(ROWS))
+            .with_inputs(|| (&polygons, &points, SESSION.create_execution_ctx()))
+            .bench_local_refs(|(polygons, points, ctx)| {
+                execute(
+                    SpatialContains::try_new((*polygons).clone(), (*points).clone()),
+                    ctx,
+                )
+            });
     }
 
     /// Control: no constant operand, relate-routed polygon pairs per row.
     #[divan::bench]
     fn column_x_column_polygons(bencher: Bencher) {
-        let mut ctx = SESSION.create_execution_ctx();
         let a = squares_mostly_overlapping(ROWS);
         let b = squares_mostly_disjoint(ROWS);
         bencher
             .counter(ItemsCount::new(ROWS))
-            .bench_local(|| execute(SpatialContains::try_new(a.clone(), b.clone()), &mut ctx));
+            .with_inputs(|| (&a, &b, SESSION.create_execution_ctx()))
+            .bench_local_refs(|(a, b, ctx)| {
+                execute(SpatialContains::try_new((*a).clone(), (*b).clone()), ctx)
+            });
     }
 
     /// Constant container against a point column: the `geo` crate's direct point-in-polygon pairing.
@@ -199,12 +203,15 @@ mod contains {
         let mut ctx = SESSION.create_execution_ctx();
         let query = query_constant(&mut ctx, ROWS);
         let points = points(ROWS);
-        bencher.counter(ItemsCount::new(ROWS)).bench_local(|| {
-            execute(
-                SpatialContains::try_new(query.clone(), points.clone()),
-                &mut ctx,
-            )
-        });
+        bencher
+            .counter(ItemsCount::new(ROWS))
+            .with_inputs(|| (&query, &points, SESSION.create_execution_ctx()))
+            .bench_local_refs(|(query, points, ctx)| {
+                execute(
+                    SpatialContains::try_new((*query).clone(), (*points).clone()),
+                    ctx,
+                )
+            });
     }
 
     /// Constant container against mostly-disjoint polygons: relate-routed, and almost every row
@@ -214,12 +221,15 @@ mod contains {
         let mut ctx = SESSION.create_execution_ctx();
         let query = query_constant(&mut ctx, ROWS);
         let polygons = squares_mostly_disjoint(ROWS);
-        bencher.counter(ItemsCount::new(ROWS)).bench_local(|| {
-            execute(
-                SpatialContains::try_new(query.clone(), polygons.clone()),
-                &mut ctx,
-            )
-        });
+        bencher
+            .counter(ItemsCount::new(ROWS))
+            .with_inputs(|| (&query, &polygons, SESSION.create_execution_ctx()))
+            .bench_local_refs(|(query, polygons, ctx)| {
+                execute(
+                    SpatialContains::try_new((*query).clone(), (*polygons).clone()),
+                    ctx,
+                )
+            });
     }
 
     /// Constant container against a point column with one null row in eight.
@@ -228,12 +238,15 @@ mod contains {
         let mut ctx = SESSION.create_execution_ctx();
         let query = query_constant(&mut ctx, ROWS);
         let points = nullable_every(points(ROWS), 8);
-        bencher.counter(ItemsCount::new(ROWS)).bench_local(|| {
-            execute(
-                SpatialContains::try_new(query.clone(), points.clone()),
-                &mut ctx,
-            )
-        });
+        bencher
+            .counter(ItemsCount::new(ROWS))
+            .with_inputs(|| (&query, &points, SESSION.create_execution_ctx()))
+            .bench_local_refs(|(query, points, ctx)| {
+                execute(
+                    SpatialContains::try_new((*query).clone(), (*points).clone()),
+                    ctx,
+                )
+            });
     }
 
     /// Constant container against mostly-disjoint polygons with one null row in eight.
@@ -242,12 +255,15 @@ mod contains {
         let mut ctx = SESSION.create_execution_ctx();
         let query = query_constant(&mut ctx, ROWS);
         let polygons = nullable_every(squares_mostly_disjoint(ROWS), 8);
-        bencher.counter(ItemsCount::new(ROWS)).bench_local(|| {
-            execute(
-                SpatialContains::try_new(query.clone(), polygons.clone()),
-                &mut ctx,
-            )
-        });
+        bencher
+            .counter(ItemsCount::new(ROWS))
+            .with_inputs(|| (&query, &polygons, SESSION.create_execution_ctx()))
+            .bench_local_refs(|(query, polygons, ctx)| {
+                execute(
+                    SpatialContains::try_new((*query).clone(), (*polygons).clone()),
+                    ctx,
+                )
+            });
     }
 
     /// Polygon columns against a constant point exercise the direct geometry pairing without a
@@ -257,12 +273,15 @@ mod contains {
         let mut ctx = SESSION.create_execution_ctx();
         let polygons = squares_mostly_overlapping(ROWS);
         let point = point_constant(&mut ctx, ROWS);
-        bencher.counter(ItemsCount::new(ROWS)).bench_local(|| {
-            execute(
-                SpatialContains::try_new(polygons.clone(), point.clone()),
-                &mut ctx,
-            )
-        });
+        bencher
+            .counter(ItemsCount::new(ROWS))
+            .with_inputs(|| (&polygons, &point, SESSION.create_execution_ctx()))
+            .bench_local_refs(|(polygons, point, ctx)| {
+                execute(
+                    SpatialContains::try_new((*polygons).clone(), (*point).clone()),
+                    ctx,
+                )
+            });
     }
 
     /// The same polygon-x-constant-point pairing with a deterministic 90% null polygon column.
@@ -271,27 +290,32 @@ mod contains {
         let mut ctx = SESSION.create_execution_ctx();
         let polygons = ninety_percent_null(squares_mostly_overlapping(ROWS));
         let point = point_constant(&mut ctx, ROWS);
-        bencher.counter(ItemsCount::new(ROWS)).bench_local(|| {
-            execute(
-                SpatialContains::try_new(polygons.clone(), point.clone()),
-                &mut ctx,
-            )
-        });
+        bencher
+            .counter(ItemsCount::new(ROWS))
+            .with_inputs(|| (&polygons, &point, SESSION.create_execution_ctx()))
+            .bench_local_refs(|(polygons, point, ctx)| {
+                execute(
+                    SpatialContains::try_new((*polygons).clone(), (*point).clone()),
+                    ctx,
+                )
+            });
     }
 
     /// Independently 50%-valid polygon and point columns cover mixed validity without test-only
     /// execution controls.
     #[divan::bench]
     fn nullable_polygons_x_nullable_points(bencher: Bencher) {
-        let mut ctx = SESSION.create_execution_ctx();
         let polygons = half_valid(squares_mostly_overlapping(ROWS), 0);
         let points = half_valid(points(ROWS), 1);
-        bencher.counter(ItemsCount::new(ROWS)).bench_local(|| {
-            execute(
-                SpatialContains::try_new(polygons.clone(), points.clone()),
-                &mut ctx,
-            )
-        });
+        bencher
+            .counter(ItemsCount::new(ROWS))
+            .with_inputs(|| (&polygons, &points, SESSION.create_execution_ctx()))
+            .bench_local_refs(|(polygons, points, ctx)| {
+                execute(
+                    SpatialContains::try_new((*polygons).clone(), (*points).clone()),
+                    ctx,
+                )
+            });
     }
 }
 
@@ -301,12 +325,14 @@ mod intersects {
     /// Control: no constant operand, polygon pairs per row.
     #[divan::bench]
     fn column_x_column_polygons(bencher: Bencher) {
-        let mut ctx = SESSION.create_execution_ctx();
         let a = squares_mostly_overlapping(ROWS);
         let b = squares_mostly_disjoint(ROWS);
         bencher
             .counter(ItemsCount::new(ROWS))
-            .bench_local(|| execute(SpatialIntersects::try_new(a.clone(), b.clone()), &mut ctx));
+            .with_inputs(|| (&a, &b, SESSION.create_execution_ctx()))
+            .bench_local_refs(|(a, b, ctx)| {
+                execute(SpatialIntersects::try_new((*a).clone(), (*b).clone()), ctx)
+            });
     }
 
     /// Point column against the constant query: the `geo` crate answers point-x-polygon directly, with no
@@ -316,12 +342,15 @@ mod intersects {
         let mut ctx = SESSION.create_execution_ctx();
         let points = points(ROWS);
         let query = query_constant(&mut ctx, ROWS);
-        bencher.counter(ItemsCount::new(ROWS)).bench_local(|| {
-            execute(
-                SpatialIntersects::try_new(points.clone(), query.clone()),
-                &mut ctx,
-            )
-        });
+        bencher
+            .counter(ItemsCount::new(ROWS))
+            .with_inputs(|| (&points, &query, SESSION.create_execution_ctx()))
+            .bench_local_refs(|(points, query, ctx)| {
+                execute(
+                    SpatialIntersects::try_new((*points).clone(), (*query).clone()),
+                    ctx,
+                )
+            });
     }
 
     /// Mostly-disjoint polygons against the constant query: the bbox precheck rejects nearly
@@ -331,12 +360,15 @@ mod intersects {
         let mut ctx = SESSION.create_execution_ctx();
         let polygons = squares_mostly_disjoint(ROWS);
         let query = query_constant(&mut ctx, ROWS);
-        bencher.counter(ItemsCount::new(ROWS)).bench_local(|| {
-            execute(
-                SpatialIntersects::try_new(polygons.clone(), query.clone()),
-                &mut ctx,
-            )
-        });
+        bencher
+            .counter(ItemsCount::new(ROWS))
+            .with_inputs(|| (&polygons, &query, SESSION.create_execution_ctx()))
+            .bench_local_refs(|(polygons, query, ctx)| {
+                execute(
+                    SpatialIntersects::try_new((*polygons).clone(), (*query).clone()),
+                    ctx,
+                )
+            });
     }
 
     /// Mostly-overlapping polygons against the constant query: the bbox precheck never rejects, so
@@ -349,10 +381,11 @@ mod intersects {
         let query = query_constant(&mut ctx, OVERLAPPING_POLYGON_ROWS);
         bencher
             .counter(ItemsCount::new(OVERLAPPING_POLYGON_ROWS))
-            .bench_local(|| {
+            .with_inputs(|| (&polygons, &query, SESSION.create_execution_ctx()))
+            .bench_local_refs(|(polygons, query, ctx)| {
                 execute(
-                    SpatialIntersects::try_new(polygons.clone(), query.clone()),
-                    &mut ctx,
+                    SpatialIntersects::try_new((*polygons).clone(), (*query).clone()),
+                    ctx,
                 )
             });
     }
@@ -363,12 +396,15 @@ mod intersects {
         let mut ctx = SESSION.create_execution_ctx();
         let points = nullable_every(points(ROWS), 8);
         let query = query_constant(&mut ctx, ROWS);
-        bencher.counter(ItemsCount::new(ROWS)).bench_local(|| {
-            execute(
-                SpatialIntersects::try_new(points.clone(), query.clone()),
-                &mut ctx,
-            )
-        });
+        bencher
+            .counter(ItemsCount::new(ROWS))
+            .with_inputs(|| (&points, &query, SESSION.create_execution_ctx()))
+            .bench_local_refs(|(points, query, ctx)| {
+                execute(
+                    SpatialIntersects::try_new((*points).clone(), (*query).clone()),
+                    ctx,
+                )
+            });
     }
 
     /// Mostly-disjoint nullable polygons against the constant query.
@@ -377,11 +413,14 @@ mod intersects {
         let mut ctx = SESSION.create_execution_ctx();
         let polygons = nullable_every(squares_mostly_disjoint(ROWS), 8);
         let query = query_constant(&mut ctx, ROWS);
-        bencher.counter(ItemsCount::new(ROWS)).bench_local(|| {
-            execute(
-                SpatialIntersects::try_new(polygons.clone(), query.clone()),
-                &mut ctx,
-            )
-        });
+        bencher
+            .counter(ItemsCount::new(ROWS))
+            .with_inputs(|| (&polygons, &query, SESSION.create_execution_ctx()))
+            .bench_local_refs(|(polygons, query, ctx)| {
+                execute(
+                    SpatialIntersects::try_new((*polygons).clone(), (*query).clone()),
+                    ctx,
+                )
+            });
     }
 }

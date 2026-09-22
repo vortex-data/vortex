@@ -69,9 +69,16 @@ fn scalar_access(bencher: Bencher, (count, nullable, scattered): (usize, bool, b
     let array = pco(nullable);
     let indices = indices(count, scattered);
     bencher
-        .with_inputs(|| (SESSION.create_execution_ctx(), Vec::with_capacity(count)))
-        .bench_refs(|(ctx, scalars)| {
-            for &index in &indices {
+        .with_inputs(|| {
+            (
+                &array,
+                &indices,
+                SESSION.create_execution_ctx(),
+                Vec::with_capacity(count),
+            )
+        })
+        .bench_refs(|(array, indices, ctx, scalars)| {
+            for &index in indices.iter() {
                 scalars.push(
                     array
                         .execute_scalar(index, ctx)

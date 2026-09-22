@@ -109,11 +109,11 @@ fn make_listview(num_lists: usize) -> ArrayRef {
 fn run(bencher: Bencher, array: ArrayRef) {
     let expr = list_length(root());
     bencher
-        .with_inputs(|| (&array, SESSION.create_execution_ctx()))
-        .bench_refs(|(array, ctx)| {
+        .with_inputs(|| (&array, &expr, SESSION.create_execution_ctx()))
+        .bench_refs(|(array, expr, ctx)| {
             array
                 .clone()
-                .apply(&expr)
+                .apply(expr)
                 .unwrap()
                 .execute::<Canonical>(ctx)
                 .unwrap()
