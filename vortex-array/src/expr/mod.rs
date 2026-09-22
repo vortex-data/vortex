@@ -31,26 +31,13 @@
 //! relaxation is nullability—for example, equality may compare a `u32` against a `u32?`, but never
 //! a `u32` against an `i32`.
 //!
-//! Filter expressions are decomposed into independent conjuncts with [`split_conjunction`] so that
-//! scans can evaluate and reorder the most selective predicates first.
+//! Scans decompose bound filter expressions into independent conjuncts so that they can evaluate
+//! and reorder the most selective predicates first.
 //!
 //! The implementation takes inspiration from [Postgres] and [Apache Datafusion].
 //!
 //! [Postgres]: https://www.postgresql.org/docs/current/sql-expressions.html
 //! [Apache Datafusion]: https://github.com/apache/datafusion/tree/5fac581efbaffd0e6a9edf931182517524526afd/datafusion/expr
-
-use std::hash::Hash;
-use std::hash::Hasher;
-use std::sync::Arc;
-
-use vortex_error::VortexExpect;
-use vortex_utils::aliases::hash_set::HashSet;
-
-use crate::dtype::FieldName;
-use crate::expr::traversal::NodeExt;
-use crate::expr::traversal::ReferenceCollector;
-use crate::scalar_fn::fns::binary::Binary;
-use crate::scalar_fn::fns::operators::Operator;
 
 pub mod aliases;
 pub mod analysis;
@@ -123,79 +110,6 @@ pub use exprs::variant_get;
 pub use exprs::zip_expr;
 pub use scope::*;
 
-pub trait VortexExprExt {
-    /// Accumulate all field references from this expression and its children in a set
-    fn field_references(&self) -> HashSet<FieldName>;
-}
-
-impl VortexExprExt for Expression {
-    fn field_references(&self) -> HashSet<FieldName> {
-        let mut collector = ReferenceCollector::new();
-        // The collector is infallible, so we can unwrap the result
-        self.accept(&mut collector)
-            .vortex_expect("reference collector should never fail");
-        collector.into_fields()
-    }
-}
-
-/// Splits top level and operations into separate expressions.
-pub fn split_conjunction(expr: &Expression) -> Vec<Expression> {
-    let mut conjunctions = vec![];
-    split_inner(expr, &mut conjunctions);
-    conjunctions
-}
-
-fn split_inner(expr: &Expression, exprs: &mut Vec<Expression>) {
-    match expr.as_opt::<Binary>() {
-        Some(operator) if *operator == Operator::And => {
-            split_inner(expr.child(0), exprs);
-            split_inner(expr.child(1), exprs);
-        }
-        Some(_) | None => {
-            exprs.push(expr.clone());
-        }
-    }
-}
-
-/// An expression wrapper that performs pointer equality on child expressions.
-#[derive(Clone, Debug)]
-pub struct ExactExpr(pub Expression);
-impl PartialEq for ExactExpr {
-    fn eq(&self, other: &Self) -> bool {
-        match (&self.0, &other.0) {
-            (Expression::Root, Expression::Root) => true,
-            (
-                Expression::Scalar {
-                    scalar_fn: lhs_fn,
-                    children: lhs_children,
-                },
-                Expression::Scalar {
-                    scalar_fn: rhs_fn,
-                    children: rhs_children,
-                },
-            ) => lhs_fn == rhs_fn && Arc::ptr_eq(lhs_children, rhs_children),
-            _ => false,
-        }
-    }
-}
-impl Eq for ExactExpr {}
-
-impl Hash for ExactExpr {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        match &self.0 {
-            Expression::Root => state.write_u8(0),
-            Expression::Scalar {
-                scalar_fn,
-                children,
-            } => {
-                state.write_u8(1);
-                scalar_fn.hash(state);
-                Arc::as_ptr(children).hash(state);
-            }
-        }
-    }
-}
-
 #[cfg(feature = "_test-harness")]
 pub mod test_harness {
     use crate::dtype::DType;
@@ -222,15 +136,13 @@ pub mod test_harness {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::hash_map::RandomState;
-    use std::hash::BuildHasher;
-
     use vortex_array::expr::eq;
     use vortex_array::expr::lit;
     use vortex_array::expr::root;
 
     use super::*;
     use crate::dtype::DType;
+    use crate::dtype::FieldName;
     use crate::dtype::FieldNames;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
@@ -251,40 +163,6 @@ mod tests {
     use crate::expr::select_exclude;
     use crate::scalar::Scalar;
     use crate::scalar_fn::fns::literal::Literal;
-
-    #[test]
-    fn basic_expr_split_test() {
-        let lhs = get_item("col1", root());
-        let rhs = lit(1);
-        let expr = eq(lhs, rhs);
-        let conjunction = split_conjunction(&expr);
-        assert_eq!(conjunction.len(), 1);
-    }
-
-    #[test]
-    fn basic_conjunction_split_test() {
-        let lhs = get_item("col1", root());
-        let rhs = lit(1);
-        let expr = and(lhs, rhs);
-        let conjunction = split_conjunction(&expr);
-        assert_eq!(conjunction.len(), 2, "Conjunction is {conjunction:?}");
-    }
-
-    #[test]
-    fn exact_expr_hash_consistent_with_eq() {
-        let state = RandomState::new();
-        let expr = eq(get_item("col1", root()), lit(1));
-
-        // Clones share the children Arc, so they are equal and must hash equally.
-        let a = ExactExpr(expr.clone());
-        let b = ExactExpr(expr);
-        assert_eq!(a, b);
-        assert_eq!(state.hash_one(&a), state.hash_one(&b));
-
-        // Structurally identical expressions built separately are distinct keys.
-        let rebuilt = ExactExpr(eq(get_item("col1", root()), lit(1)));
-        assert_ne!(a, rebuilt);
-    }
 
     #[test]
     fn bound_constructors_preserve_order_and_types() -> vortex_error::VortexResult<()> {

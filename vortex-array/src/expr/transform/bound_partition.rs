@@ -319,7 +319,6 @@ mod tests {
     use crate::expr::merge;
     use crate::expr::pack;
     use crate::expr::root;
-    use crate::expr::transform::replace::replace_root_fields;
 
     #[fixture]
     fn dtype() -> DType {
@@ -359,7 +358,13 @@ mod tests {
         assert_eq!(partitioned.root, root().bind(&dtype).unwrap());
 
         // Instead, callers must expand the root expression themselves.
-        let expr = replace_root_fields(expr, fields);
+        let expr = pack(
+            fields
+                .names()
+                .iter()
+                .map(|name| (name.clone(), col(name.clone()))),
+            NonNullable,
+        );
         let partitioned = partition_by_field(expr.bind(&dtype).unwrap(), &dtype).unwrap();
 
         assert_eq!(partitioned.partitions.len(), fields.names().len());

@@ -3,12 +3,7 @@
 
 use vortex_error::VortexExpect;
 
-use crate::dtype::Nullability;
-use crate::dtype::StructFields;
 use crate::expr::Expression;
-use crate::expr::col;
-use crate::expr::pack;
-use crate::expr::root;
 use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::Transformed;
 use crate::expr::traversal::TraversalOrder;
@@ -29,21 +24,6 @@ pub fn replace(expr: Expression, needle: &Expression, replacement: Expression) -
     })
     .vortex_expect("ReplaceVisitor should not fail")
     .into_inner()
-}
-
-/// Expand the `root` expression with a pack of the given struct fields.
-pub fn replace_root_fields(expr: Expression, fields: &StructFields) -> Expression {
-    replace(
-        expr,
-        &root(),
-        pack(
-            fields
-                .names()
-                .iter()
-                .map(|name| (name.clone(), col(name.clone()))),
-            Nullability::NonNullable,
-        ),
-    )
 }
 
 #[cfg(test)]
