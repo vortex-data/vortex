@@ -170,7 +170,8 @@ fn padded_device_allocation_len<T>(byte_count: usize) -> VortexResult<usize> {
 /// Zeroes the allocation tail after `initialized_count` elements.
 ///
 /// Copies or kernels must initialize the preceding elements on the same stream.
-/// The trailing padding lets consumers safely read beyond the logical buffer extent.
+/// cuDF reads bitmaps in whole mask words, which can extend past the final logical byte.
+/// Allocations include tail padding for those reads; this zeroes that padding.
 pub(crate) fn zero_padding<T: DeviceRepr + ValidAsZeroBits>(
     stream: &VortexCudaStream,
     cuda_slice: &mut CudaSlice<T>,
