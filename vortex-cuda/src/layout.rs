@@ -575,8 +575,14 @@ pub fn cuda_write_strategy(session: &VortexSession, block_rows: usize) -> Arc<dy
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 struct CudaLayoutRegistration(Arc<Once>);
+
+impl Default for CudaLayoutRegistration {
+    fn default() -> Self {
+        Self(Arc::new(Once::new()))
+    }
+}
 
 impl SessionVar for CudaLayoutRegistration {
     fn as_any(&self) -> &dyn Any {
