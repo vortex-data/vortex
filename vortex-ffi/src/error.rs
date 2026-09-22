@@ -159,8 +159,11 @@ pub fn try_or<T>(
     }
 }
 
-/// Return error message for this error.
-/// Returned view is valid while "error" is valid.
+/// Return a message view borrowed from `error`.
+///
+/// # Safety
+///
+/// `error` must be a non-null, live `vx_error` handle and remain live while the view is used.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_error_message(error: *const vx_error) -> vx_view {
     vx_view::from_str(&vx_error::as_ref(error).message)
