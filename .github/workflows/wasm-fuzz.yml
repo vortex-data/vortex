@@ -17,7 +17,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  NIGHTLY_TOOLCHAIN: nightly-2026-02-05
+  NIGHTLY_TOOLCHAIN: nightly-2026-09-10
 
 jobs:
   wasm-fuzz:

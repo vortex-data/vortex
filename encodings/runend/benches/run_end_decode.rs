@@ -7,6 +7,7 @@ use std::fmt;
 use std::sync::LazyLock;
 
 use divan::Bencher;
+use mimalloc::MiMalloc;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -15,6 +16,9 @@ use vortex_buffer::BitBuffer;
 use vortex_buffer::BufferMut;
 use vortex_runend::decompress_bool::runend_decode_bools;
 use vortex_session::VortexSession;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     divan::main();

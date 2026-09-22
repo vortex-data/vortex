@@ -20,7 +20,6 @@ workspace = true
 [features]
 default = []
 _test-harness = []
-unstable_encodings = ["vortex/unstable_encodings"]
 
 [dependencies]
 arc-swap = { workspace = true }

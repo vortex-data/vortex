@@ -13,6 +13,8 @@ use super::FoR;
 use crate::r#for::array::FoRArrayExt;
 use crate::r#for::array::FoRArraySlotsExt;
 impl OperationsVTable<FoR> for FoR {
+    type ProbeState = ();
+
     fn scalar_at(
         array: ArrayView<'_, FoR>,
         index: usize,

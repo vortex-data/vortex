@@ -5,15 +5,25 @@ import json
 import re
 import subprocess
 import sys
+from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
+from typing import TypedDict
 
 REPO = "vortex-data/vortex"
 NUM_RELEASES = 5
 CHANGELOG_DIR = Path(__file__).parent / "project" / "changelog"
 
 
-def fetch_releases():
+class Release(TypedDict):
+    tagName: str
+    isDraft: bool
+    isPrerelease: bool
+    publishedAt: str
+    body: str
+
+
+def fetch_releases() -> list[Release]:
     # List releases (body is not available in list output).
     result = subprocess.run(
         [
@@ -50,7 +60,7 @@ def fetch_releases():
     return releases
 
 
-def linkify(body):
+def linkify(body: str) -> str:
     """Convert PR/issue numbers and GitHub usernames to markdown links."""
     # (#1234) -> ([#1234](https://github.com/REPO/pull/1234))
     body = re.sub(
@@ -68,7 +78,7 @@ def linkify(body):
     return body
 
 
-def write_release_page(release):
+def write_release_page(release: Release) -> str:
     tag = release["tagName"]
     body = linkify(release["body"].replace("\r\n", "\n").strip())
 
@@ -92,7 +102,7 @@ def write_release_page(release):
     return filename
 
 
-def write_index(filenames):
+def write_index(filenames: Iterable[str]) -> None:
     toctree_entries = "\n".join(filenames)
 
     content = f"""# Changelog
@@ -111,7 +121,7 @@ maxdepth: 1
     (CHANGELOG_DIR / "index.md").write_text(content)
 
 
-def main():
+def main() -> None:
     releases = fetch_releases()
     if not releases:
         print("warning: no releases found, skipping changelog generation", file=sys.stderr)

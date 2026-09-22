@@ -82,12 +82,11 @@ physical_plan
 10)----------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(n_nationkey@0, s_nationkey@0)], projection=[l_extendedprice@3, l_discount@4, l_shipdate@5, c_nationkey@6, n_name@1]
 11)------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/nation.vortex]]}, projection=[n_nationkey, n_name], file_type=vortex, predicate: n_name@1 = FRANCE OR n_name@1 = GERMANY
 12)------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(c_custkey@0, o_custkey@4)], projection=[s_nationkey@2, l_extendedprice@3, l_discount@4, l_shipdate@5, c_nationkey@1]
-13)--------------------CoalescePartitionsExec
-14)----------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/customer.vortex:<slt:ignore>], [${WORK_DIR}/customer.vortex:<slt:ignore>], [${WORK_DIR}/customer.vortex:<slt:ignore>], [${WORK_DIR}/customer.vortex:<slt:ignore>]]}, projection=[c_custkey, c_nationkey], file_type=vortex
-15)--------------------HashJoinExec: mode=Partitioned, join_type=Inner, on=[(o_orderkey@0, l_orderkey@1)], projection=[s_nationkey@2, l_extendedprice@4, l_discount@5, l_shipdate@6, o_custkey@1]
-16)----------------------RepartitionExec: partitioning=Hash([o_orderkey@0], 4), input_partitions=4
-17)------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/orders.vortex:<slt:ignore>], [${WORK_DIR}/orders.vortex:<slt:ignore>], [${WORK_DIR}/orders.vortex:<slt:ignore>], [${WORK_DIR}/orders.vortex:<slt:ignore>]]}, projection=[o_orderkey, o_custkey], file_type=vortex
-18)----------------------RepartitionExec: partitioning=Hash([l_orderkey@1], 4), input_partitions=4
-19)------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_suppkey@0, l_suppkey@1)], projection=[s_nationkey@1, l_orderkey@2, l_extendedprice@4, l_discount@5, l_shipdate@6]
-20)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/supplier.vortex]]}, projection=[s_suppkey, s_nationkey], file_type=vortex
-21)--------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/lineitem.vortex:<slt:ignore>], [${WORK_DIR}/lineitem.vortex:<slt:ignore>], [${WORK_DIR}/lineitem.vortex:<slt:ignore>], [${WORK_DIR}/lineitem.vortex:<slt:ignore>]]}, projection=[l_orderkey, l_suppkey, l_extendedprice, l_discount, l_shipdate], file_type=vortex, predicate: l_shipdate@10 >= 1995-01-01 AND l_shipdate@10 <= 1996-12-31
+13)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer.vortex]]}, projection=[c_custkey, c_nationkey], file_type=vortex
+14)--------------------HashJoinExec: mode=Partitioned, join_type=Inner, on=[(o_orderkey@0, l_orderkey@1)], projection=[s_nationkey@2, l_extendedprice@4, l_discount@5, l_shipdate@6, o_custkey@1]
+15)----------------------RepartitionExec: partitioning=Hash([o_orderkey@0], 4), input_partitions=4
+16)------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/orders.vortex:<slt:ignore>], [${WORK_DIR}/orders.vortex:<slt:ignore>], [${WORK_DIR}/orders.vortex:<slt:ignore>], [${WORK_DIR}/orders.vortex:<slt:ignore>]]}, projection=[o_orderkey, o_custkey], file_type=vortex
+17)----------------------RepartitionExec: partitioning=Hash([l_orderkey@1], 4), input_partitions=4
+18)------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_suppkey@0, l_suppkey@1)], projection=[s_nationkey@1, l_orderkey@2, l_extendedprice@4, l_discount@5, l_shipdate@6]
+19)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/supplier.vortex]]}, projection=[s_suppkey, s_nationkey], file_type=vortex
+20)--------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/lineitem.vortex:<slt:ignore>], [${WORK_DIR}/lineitem.vortex:<slt:ignore>], [${WORK_DIR}/lineitem.vortex:<slt:ignore>], [${WORK_DIR}/lineitem.vortex:<slt:ignore>]]}, projection=[l_orderkey, l_suppkey, l_extendedprice, l_discount, l_shipdate], file_type=vortex, predicate: l_shipdate@10 >= 1995-01-01 AND l_shipdate@10 <= 1996-12-31

@@ -1,0 +1,194 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+WITH ss AS
+  (SELECT i_item_id,
+          sum(ss_ext_sales_price) total_sales
+   FROM store_sales,
+        date_dim,
+        customer_address,
+        item
+   WHERE i_item_id IN
+       (SELECT i_item_id
+        FROM item
+        WHERE i_category ='Music')
+     AND ss_item_sk = i_item_sk
+     AND ss_sold_date_sk = d_date_sk
+     AND d_year = 1998
+     AND d_moy = 9
+     AND ss_addr_sk = ca_address_sk
+     AND ca_gmt_offset = -5
+   GROUP BY i_item_id),
+     cs AS
+  (SELECT i_item_id,
+          sum(cs_ext_sales_price) total_sales
+   FROM catalog_sales,
+        date_dim,
+        customer_address,
+        item
+   WHERE i_item_id IN
+       (SELECT i_item_id
+        FROM item
+        WHERE i_category ='Music')
+     AND cs_item_sk = i_item_sk
+     AND cs_sold_date_sk = d_date_sk
+     AND d_year = 1998
+     AND d_moy = 9
+     AND cs_bill_addr_sk = ca_address_sk
+     AND ca_gmt_offset = -5
+   GROUP BY i_item_id),
+     ws AS
+  (SELECT i_item_id,
+          sum(ws_ext_sales_price) total_sales
+   FROM web_sales,
+        date_dim,
+        customer_address,
+        item
+   WHERE i_item_id IN
+       (SELECT i_item_id
+        FROM item
+        WHERE i_category = 'Music')
+     AND ws_item_sk = i_item_sk
+     AND ws_sold_date_sk = d_date_sk
+     AND d_year = 1998
+     AND d_moy = 9
+     AND ws_bill_addr_sk = ca_address_sk
+     AND ca_gmt_offset = -5
+   GROUP BY i_item_id)
+SELECT i_item_id,
+       sum(total_sales) total_sales
+FROM
+  (SELECT *
+   FROM ss
+   UNION ALL SELECT *
+   FROM cs
+   UNION ALL SELECT *
+   FROM ws) tmp1
+GROUP BY i_item_id
+ORDER BY i_item_id,
+         total_sales
+LIMIT 100;
+----
+logical_plan
+01)Sort: tmp1.i_item_id ASC NULLS LAST, fetch=100
+02)--Projection: tmp1.i_item_id, sum(tmp1.total_sales) AS total_sales
+03)----Aggregate: groupBy=[[tmp1.i_item_id]], aggr=[[sum(tmp1.total_sales)]]
+04)------SubqueryAlias: tmp1
+05)--------Union
+06)----------SubqueryAlias: ss
+07)------------Projection: item.i_item_id, sum(store_sales.ss_ext_sales_price) AS total_sales
+08)--------------Aggregate: groupBy=[[item.i_item_id]], aggr=[[sum(store_sales.ss_ext_sales_price)]]
+09)----------------LeftSemi Join: item.i_item_id = __correlated_sq_1.i_item_id
+10)------------------Projection: store_sales.ss_ext_sales_price, item.i_item_id
+11)--------------------Inner Join: store_sales.ss_item_sk = item.i_item_sk
+12)----------------------Projection: store_sales.ss_item_sk, store_sales.ss_ext_sales_price
+13)------------------------Inner Join: store_sales.ss_addr_sk = customer_address.ca_address_sk
+14)--------------------------Projection: store_sales.ss_item_sk, store_sales.ss_addr_sk, store_sales.ss_ext_sales_price
+15)----------------------------Inner Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
+16)------------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_item_sk, ss_addr_sk, ss_ext_sales_price]
+17)------------------------------Projection: date_dim.d_date_sk
+18)--------------------------------Filter: date_dim.d_year = Int64(1998) AND date_dim.d_moy = Int64(9)
+19)----------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_year = Int64(1998), date_dim.d_moy = Int64(9)]
+20)--------------------------Projection: customer_address.ca_address_sk
+21)----------------------------Filter: customer_address.ca_gmt_offset = Decimal128(-5.00,5,2)
+22)------------------------------TableScan: customer_address projection=[ca_address_sk, ca_gmt_offset], partial_filters=[customer_address.ca_gmt_offset = Decimal128(-5.00,5,2)]
+23)----------------------TableScan: item projection=[i_item_sk, i_item_id]
+24)------------------SubqueryAlias: __correlated_sq_1
+25)--------------------Projection: item.i_item_id
+26)----------------------Filter: item.i_category = Utf8View("Music")
+27)------------------------TableScan: item projection=[i_item_id, i_category], partial_filters=[item.i_category = Utf8View("Music")]
+28)----------SubqueryAlias: cs
+29)------------Projection: item.i_item_id, sum(catalog_sales.cs_ext_sales_price) AS total_sales
+30)--------------Aggregate: groupBy=[[item.i_item_id]], aggr=[[sum(catalog_sales.cs_ext_sales_price)]]
+31)----------------LeftSemi Join: item.i_item_id = __correlated_sq_2.i_item_id
+32)------------------Projection: catalog_sales.cs_ext_sales_price, item.i_item_id
+33)--------------------Inner Join: catalog_sales.cs_item_sk = item.i_item_sk
+34)----------------------Projection: catalog_sales.cs_item_sk, catalog_sales.cs_ext_sales_price
+35)------------------------Inner Join: catalog_sales.cs_bill_addr_sk = customer_address.ca_address_sk
+36)--------------------------Projection: catalog_sales.cs_bill_addr_sk, catalog_sales.cs_item_sk, catalog_sales.cs_ext_sales_price
+37)----------------------------Inner Join: catalog_sales.cs_sold_date_sk = date_dim.d_date_sk
+38)------------------------------TableScan: catalog_sales projection=[cs_sold_date_sk, cs_bill_addr_sk, cs_item_sk, cs_ext_sales_price]
+39)------------------------------Projection: date_dim.d_date_sk
+40)--------------------------------Filter: date_dim.d_year = Int64(1998) AND date_dim.d_moy = Int64(9)
+41)----------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_year = Int64(1998), date_dim.d_moy = Int64(9)]
+42)--------------------------Projection: customer_address.ca_address_sk
+43)----------------------------Filter: customer_address.ca_gmt_offset = Decimal128(-5.00,5,2)
+44)------------------------------TableScan: customer_address projection=[ca_address_sk, ca_gmt_offset], partial_filters=[customer_address.ca_gmt_offset = Decimal128(-5.00,5,2)]
+45)----------------------TableScan: item projection=[i_item_sk, i_item_id]
+46)------------------SubqueryAlias: __correlated_sq_2
+47)--------------------Projection: item.i_item_id
+48)----------------------Filter: item.i_category = Utf8View("Music")
+49)------------------------TableScan: item projection=[i_item_id, i_category], partial_filters=[item.i_category = Utf8View("Music")]
+50)----------SubqueryAlias: ws
+51)------------Projection: item.i_item_id, sum(web_sales.ws_ext_sales_price) AS total_sales
+52)--------------Aggregate: groupBy=[[item.i_item_id]], aggr=[[sum(web_sales.ws_ext_sales_price)]]
+53)----------------LeftSemi Join: item.i_item_id = __correlated_sq_3.i_item_id
+54)------------------Projection: web_sales.ws_ext_sales_price, item.i_item_id
+55)--------------------Inner Join: web_sales.ws_item_sk = item.i_item_sk
+56)----------------------Projection: web_sales.ws_item_sk, web_sales.ws_ext_sales_price
+57)------------------------Inner Join: web_sales.ws_bill_addr_sk = customer_address.ca_address_sk
+58)--------------------------Projection: web_sales.ws_item_sk, web_sales.ws_bill_addr_sk, web_sales.ws_ext_sales_price
+59)----------------------------Inner Join: web_sales.ws_sold_date_sk = date_dim.d_date_sk
+60)------------------------------TableScan: web_sales projection=[ws_sold_date_sk, ws_item_sk, ws_bill_addr_sk, ws_ext_sales_price]
+61)------------------------------Projection: date_dim.d_date_sk
+62)--------------------------------Filter: date_dim.d_year = Int64(1998) AND date_dim.d_moy = Int64(9)
+63)----------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_year = Int64(1998), date_dim.d_moy = Int64(9)]
+64)--------------------------Projection: customer_address.ca_address_sk
+65)----------------------------Filter: customer_address.ca_gmt_offset = Decimal128(-5.00,5,2)
+66)------------------------------TableScan: customer_address projection=[ca_address_sk, ca_gmt_offset], partial_filters=[customer_address.ca_gmt_offset = Decimal128(-5.00,5,2)]
+67)----------------------TableScan: item projection=[i_item_sk, i_item_id]
+68)------------------SubqueryAlias: __correlated_sq_3
+69)--------------------Projection: item.i_item_id
+70)----------------------Filter: item.i_category = Utf8View("Music")
+71)------------------------TableScan: item projection=[i_item_id, i_category], partial_filters=[item.i_category = Utf8View("Music")]
+physical_plan
+01)SortPreservingMergeExec: [i_item_id@0 ASC NULLS LAST], fetch=100
+02)--ProjectionExec: expr=[i_item_id@0 as i_item_id, sum(tmp1.total_sales)@1 as total_sales]
+03)----SortExec: TopK(fetch=100), expr=[i_item_id@0 ASC NULLS LAST], preserve_partitioning=[true]
+04)------AggregateExec: mode=SinglePartitioned, gby=[i_item_id@0 as i_item_id], aggr=[sum(tmp1.total_sales)]
+05)--------InterleaveExec
+06)----------ProjectionExec: expr=[i_item_id@0 as i_item_id, sum(store_sales.ss_ext_sales_price)@1 as total_sales]
+07)------------AggregateExec: mode=FinalPartitioned, gby=[i_item_id@0 as i_item_id], aggr=[sum(store_sales.ss_ext_sales_price)]
+08)--------------RepartitionExec: partitioning=Hash([i_item_id@0], 4), input_partitions=4
+09)----------------AggregateExec: mode=Partial, gby=[i_item_id@1 as i_item_id], aggr=[sum(store_sales.ss_ext_sales_price)]
+10)------------------HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(i_item_id@0, i_item_id@1)]
+11)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_id], file_type=vortex, predicate: i_category@12 = Music
+12)--------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, ss_item_sk@0)], projection=[ss_ext_sales_price@3, i_item_id@1]
+13)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_item_id], file_type=vortex
+14)----------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(ca_address_sk@0, ss_addr_sk@1)], projection=[ss_item_sk@1, ss_ext_sales_price@3]
+15)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk], file_type=vortex, predicate: ca_gmt_offset@11 = -5.00
+16)------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@0)], projection=[ss_item_sk@2, ss_addr_sk@3, ss_ext_sales_price@4]
+17)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_year@6 = 1998 AND d_moy@8 = 9
+18)--------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_item_sk, ss_addr_sk, ss_ext_sales_price], file_type=vortex
+19)----------ProjectionExec: expr=[i_item_id@0 as i_item_id, sum(catalog_sales.cs_ext_sales_price)@1 as total_sales]
+20)------------AggregateExec: mode=FinalPartitioned, gby=[i_item_id@0 as i_item_id], aggr=[sum(catalog_sales.cs_ext_sales_price)]
+21)--------------RepartitionExec: partitioning=Hash([i_item_id@0], 4), input_partitions=4
+22)----------------AggregateExec: mode=Partial, gby=[i_item_id@1 as i_item_id], aggr=[sum(catalog_sales.cs_ext_sales_price)]
+23)------------------HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(i_item_id@0, i_item_id@1)]
+24)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_id], file_type=vortex, predicate: i_category@12 = Music
+25)--------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+26)----------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(cs_item_sk@0, i_item_sk@0)], projection=[cs_ext_sales_price@1, i_item_id@3]
+27)------------------------CoalescePartitionsExec
+28)--------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(ca_address_sk@0, cs_bill_addr_sk@0)], projection=[cs_item_sk@2, cs_ext_sales_price@3]
+29)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk], file_type=vortex, predicate: ca_gmt_offset@11 = -5.00
+30)----------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, cs_sold_date_sk@0)], projection=[cs_bill_addr_sk@2, cs_item_sk@3, cs_ext_sales_price@4]
+31)------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_year@6 = 1998 AND d_moy@8 = 9
+32)------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>]]}, projection=[cs_sold_date_sk, cs_bill_addr_sk, cs_item_sk, cs_ext_sales_price], file_type=vortex
+33)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_item_id], file_type=vortex
+34)----------ProjectionExec: expr=[i_item_id@0 as i_item_id, sum(web_sales.ws_ext_sales_price)@1 as total_sales]
+35)------------AggregateExec: mode=FinalPartitioned, gby=[i_item_id@0 as i_item_id], aggr=[sum(web_sales.ws_ext_sales_price)]
+36)--------------RepartitionExec: partitioning=Hash([i_item_id@0], 4), input_partitions=4
+37)----------------AggregateExec: mode=Partial, gby=[i_item_id@1 as i_item_id], aggr=[sum(web_sales.ws_ext_sales_price)]
+38)------------------HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(i_item_id@0, i_item_id@1)]
+39)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_id], file_type=vortex, predicate: i_category@12 = Music
+40)--------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+41)----------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(ws_item_sk@0, i_item_sk@0)], projection=[ws_ext_sales_price@1, i_item_id@3]
+42)------------------------CoalescePartitionsExec
+43)--------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(ca_address_sk@0, ws_bill_addr_sk@1)], projection=[ws_item_sk@1, ws_ext_sales_price@3]
+44)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk], file_type=vortex, predicate: ca_gmt_offset@11 = -5.00
+45)----------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ws_sold_date_sk@0)], projection=[ws_item_sk@2, ws_bill_addr_sk@3, ws_ext_sales_price@4]
+46)------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_year@6 = 1998 AND d_moy@8 = 9
+47)------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>]]}, projection=[ws_sold_date_sk, ws_item_sk, ws_bill_addr_sk, ws_ext_sales_price], file_type=vortex
+48)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_item_id], file_type=vortex

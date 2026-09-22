@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ptr;
-
 use itertools::Itertools as _;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
@@ -19,12 +18,20 @@ pub(super) fn take_slices<S: UnsignedPType, L: UnsignedPType>(
     starts: &[S],
     lengths: &[L],
     output_len: usize,
+    allocator: &BufferAllocatorRef,
 ) -> VortexResult<ByteBuffer> {
     let slices = starts
         .iter()
         .zip_eq(lengths)
         .map(|(&start, &length)| (start.as_(), length.as_()));
-    copy_slices(values, byte_width, record_count, slices, output_len)
+    copy_slices(
+        values,
+        byte_width,
+        record_count,
+        slices,
+        output_len,
+        allocator,
+    )
 }
 
 pub(super) fn take_slices_constant_length<S: UnsignedPType>(
@@ -34,6 +41,7 @@ pub(super) fn take_slices_constant_length<S: UnsignedPType>(
     starts: &[S],
     length: usize,
     output_len: usize,
+    allocator: &BufferAllocatorRef,
 ) -> VortexResult<ByteBuffer> {
     let computed_len = starts
         .len()
@@ -49,6 +57,7 @@ pub(super) fn take_slices_constant_length<S: UnsignedPType>(
         record_count,
         starts.iter().map(|start| (start.as_(), length)),
         output_len,
+        allocator,
     )
 }
 
@@ -58,6 +67,7 @@ fn copy_slices(
     record_count: usize,
     slices: impl IntoIterator<Item = (usize, usize)>,
     output_len: usize,
+    allocator: &BufferAllocatorRef,
 ) -> VortexResult<ByteBuffer> {
     let input_byte_len = record_count
         .checked_mul(byte_width)
@@ -70,7 +80,11 @@ fn copy_slices(
     let output_byte_len = output_len
         .checked_mul(byte_width)
         .ok_or_else(|| vortex_err!("PiecewiseSequenceArray output length overflows usize"))?;
-    let mut result = BufferMut::<u8>::with_capacity_aligned(output_byte_len, values.alignment());
+    let mut result = BufferMut::<u8>::with_capacity_aligned_in(
+        output_byte_len,
+        values.alignment(),
+        allocator.clone(),
+    );
     let spare = &mut result.spare_capacity_mut()[..output_byte_len];
     let mut cursor = 0usize;
 
@@ -87,15 +101,7 @@ fn copy_slices(
         let byte_start = start * byte_width;
         let byte_length = length * byte_width;
         let source = &values[byte_start..][..byte_length];
-        // SAFETY: `source` and the checked spare-capacity range have equal lengths and do not
-        // overlap.
-        unsafe {
-            ptr::copy_nonoverlapping(
-                source.as_ptr(),
-                spare[cursor..][..source.len()].as_mut_ptr().cast::<u8>(),
-                source.len(),
-            );
-        }
+        spare[cursor..][..source.len()].write_copy_of_slice(source);
         cursor += source.len();
     }
 

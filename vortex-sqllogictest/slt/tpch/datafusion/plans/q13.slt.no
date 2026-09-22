@@ -49,6 +49,5 @@ physical_plan
 09)----------------RepartitionExec: partitioning=Hash([c_custkey@0], 4), input_partitions=4
 10)------------------AggregateExec: mode=Partial, gby=[c_custkey@0 as c_custkey], aggr=[count(orders.o_orderkey)]
 11)--------------------HashJoinExec: mode=CollectLeft, join_type=Left, on=[(c_custkey@0, o_custkey@1)], projection=[c_custkey@0, o_orderkey@1]
-12)----------------------CoalescePartitionsExec
-13)------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/customer.vortex:<slt:ignore>], [${WORK_DIR}/customer.vortex:<slt:ignore>], [${WORK_DIR}/customer.vortex:<slt:ignore>], [${WORK_DIR}/customer.vortex:<slt:ignore>]]}, projection=[c_custkey], file_type=vortex
-14)----------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/orders.vortex:<slt:ignore>], [${WORK_DIR}/orders.vortex:<slt:ignore>], [${WORK_DIR}/orders.vortex:<slt:ignore>], [${WORK_DIR}/orders.vortex:<slt:ignore>]]}, projection=[o_orderkey, o_custkey], file_type=vortex, predicate: o_comment@8 NOT LIKE %special%requests%
+12)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer.vortex]]}, projection=[c_custkey], file_type=vortex
+13)----------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/orders.vortex:<slt:ignore>], [${WORK_DIR}/orders.vortex:<slt:ignore>], [${WORK_DIR}/orders.vortex:<slt:ignore>], [${WORK_DIR}/orders.vortex:<slt:ignore>]]}, projection=[o_orderkey, o_custkey], file_type=vortex, predicate: o_comment@8 NOT LIKE %special%requests%

@@ -27,15 +27,15 @@ def vxf(
         length = 100_000
 
         columns: dict[str, list[int] | list[float] | list[str]] = {}
-        assert "x" in request.param  # pyright: ignore[reportAny]
+        assert "x" in request.param
         columns["x"] = list(range(length))
 
-        if "y" in request.param:  # pyright: ignore[reportAny]
+        if "y" in request.param:
             columns["y"] = [hashlib.md5(x.to_bytes(length=4), usedforsecurity=False).hexdigest() for x in range(length)]
-        if "z" in request.param:  # pyright: ignore[reportAny]
+        if "z" in request.param:
             columns["z"] = [math.sqrt(x) for x in range(length)]
 
-        a = vx.array(pa.table(columns))  # pyright: ignore[reportCallIssue, reportUnknownArgumentType, reportArgumentType]
+        a = vx.array(pa.table(columns))  # ty: ignore[no-matching-overload]
         vx.io.write(a, str(fname))
     return vx.open(str(fname))
 

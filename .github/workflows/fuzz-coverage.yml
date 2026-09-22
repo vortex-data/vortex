@@ -6,7 +6,7 @@ on:
   workflow_dispatch: { }
 
 env:
-  NIGHTLY_TOOLCHAIN: nightly-2026-02-05
+  NIGHTLY_TOOLCHAIN: nightly-2026-09-10
 
 jobs:
   coverage:

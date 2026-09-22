@@ -7,6 +7,7 @@ import hashlib
 import json
 import shlex
 import shutil
+import subprocess
 import tomllib
 import unittest
 from pathlib import Path
@@ -14,12 +15,12 @@ from pathlib import Path
 from support import CMakeTest, rust_toolchain_environment
 
 
-def snapshot(*paths):
+def snapshot(*paths: Path) -> dict[Path, tuple[int, bytes]]:
     return {path: (path.stat().st_mtime_ns, hashlib.sha256(path.read_bytes()).digest()) for path in paths}
 
 
 class CompilerCommandTests(CMakeTest):
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         packages = tomllib.loads((self.repo / "Cargo.lock").read_text())["package"]
         [cc] = [package for package in packages if package["name"] == "cc"]
@@ -50,10 +51,21 @@ class CompilerCommandTests(CMakeTest):
         self.env.update(CARGO_NET_OFFLINE="true", CARGO_BUILD_JOBS="2")
         self.command("cargo", "generate-lockfile", "--offline", cwd=self.source)
 
-    def configure(self, value=7, argument=7, policy=True, instrumentation=False, generator="Ninja", build_name=None):
+    def configure(
+        self,
+        value=7,
+        argument=7,
+        policy=True,
+        instrumentation=False,
+        generator="Ninja",
+        build_name=None,
+        debug_info=None,
+    ) -> None:
         self.build_dir = self.work / (build_name or f"{generator} build directory's")
         self.target_dir = self.build_dir / "ffi/cargo-target"
         options = []
+        if debug_info is not None:
+            options.append(f"-DVORTEX_DEBUG_INFO={debug_info}")
         include = self.source / "native-helper/include directory's"
         errors = ["-Werror", "-Werror=unused-variable", "-pedantic-errors"] if policy else []
         for language, compiler in (("C", "clang"), ("CXX", "clang++")):
@@ -70,15 +82,15 @@ class CompilerCommandTests(CMakeTest):
             ]
         self.cmake_configure(self.source, self.build_dir, "-DCMAKE_BUILD_TYPE=Debug", *options, generator=generator)
 
-    def build(self, target="vortex_ffi_cargo_build", success=True):
+    def build(self, target: str = "vortex_ffi_cargo_build", success: bool = True) -> subprocess.CompletedProcess[str]:
         return self.cmake_build(self.build_dir, "--target", target, success=success)
 
-    def archives(self):
+    def archives(self) -> dict[Path, tuple[int, bytes]]:
         archives = sorted(self.target_dir.rglob("libnative_*.a"))
         self.assertEqual(len(archives), 4, archives)
         return snapshot(*archives)
 
-    def test_compiler_arguments_warning_policy_and_freshness(self):
+    def test_compiler_arguments_warning_policy_and_freshness(self) -> None:
         self.configure()
         rejected = self.build("parent_native", success=False)
         self.assertIn("error: unused variable 'vendored_unused'", rejected.stdout + rejected.stderr)
@@ -103,7 +115,7 @@ class CompilerCommandTests(CMakeTest):
                     self.assertNotEqual(changed[path][1], original[path][1], path)
                 original = changed
 
-    def test_header_lifecycle(self):
+    def test_header_lifecycle(self) -> None:
         # Incremental rustc changes archive member names even when the object bytes are identical.
         self.env["CARGO_INCREMENTAL"] = "0"
         for generator in ("Ninja", "Unix Makefiles"):
@@ -135,7 +147,7 @@ class CompilerCommandTests(CMakeTest):
                 self.assertEqual(self.command(consumer).stdout.strip(), "2")
                 self.assertEqual(staged.read_bytes(), source_header.read_bytes())
 
-    def test_host_target_instrumentation_and_cache_boundary(self):
+    def test_host_target_instrumentation_and_cache_boundary(self) -> None:
         log = self.work / "cache calls.jsonl"
         # Record the cache boundary, not cache behavior; every call still runs the real compiler.
         self.env["RUSTC_WRAPPER"] = self.executable(
@@ -148,12 +160,13 @@ class CompilerCommandTests(CMakeTest):
             os.execv(sys.argv[1], sys.argv[1:])
             """,
         )
-        self.configure(instrumentation=True)
+        self.configure(instrumentation=True, debug_info=0)
         self.build()
         calls = [json.loads(line) for line in log.read_text().splitlines()]
         self.assertEqual(sorted(target for target, _ in calls), [False, False, True, True])
         for target, args in calls:
             self.assertIn(Path(args[0]).name, ("clang", "clang++"))
+            self.assertEqual([arg for arg in args if arg.startswith("-g")][-1:], ["-g0"], args)
             for flag in ("--coverage", "-fsanitize=undefined"):
                 self.assertEqual(flag in args, target, args)
         objects = sorted(self.target_dir.rglob("out/*-native.o"))

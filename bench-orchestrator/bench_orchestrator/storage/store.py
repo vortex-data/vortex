@@ -9,7 +9,8 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from types import TracebackType
+from typing import TextIO
 
 import pandas as pd
 
@@ -63,10 +64,10 @@ def _get_env_triple() -> EnvTriple:
 class RunContext:
     """Context manager for writing results to a run."""
 
-    def __init__(self, run_dir: Path, metadata: RunMetadata):
+    def __init__(self, run_dir: Path, metadata: RunMetadata) -> None:
         self.run_dir = run_dir
         self.metadata = metadata
-        self._results_file: Any | None = None
+        self._results_file: TextIO | None = None
         self._result_count = 0
 
     def __enter__(self) -> "RunContext":
@@ -74,7 +75,12 @@ class RunContext:
         self._results_file = open(self.run_dir / "results.jsonl", "w")
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         if self._results_file:
             self._results_file.close()
 
@@ -114,7 +120,7 @@ class RunContext:
 class ResultStore:
     """Manages benchmark result storage and retrieval."""
 
-    def __init__(self, base_dir: Path | None = None):
+    def __init__(self, base_dir: Path | None = None) -> None:
         self.base_dir = base_dir or get_results_dir()
 
     def _generate_run_id(self, config: RunConfig) -> str:

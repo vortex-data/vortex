@@ -112,6 +112,7 @@
 
 use divan::Bencher;
 use fastlanes::BitPacking;
+use mimalloc::MiMalloc;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -157,6 +158,9 @@ const SAMPLE_SIZE: u32 = 4096;
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Main
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     divan::main();

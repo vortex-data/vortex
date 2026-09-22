@@ -4,6 +4,8 @@
 #![expect(clippy::unwrap_used)]
 #![expect(clippy::cast_possible_truncation)]
 
+use mimalloc::MiMalloc;
+
 #[cfg(not(codspeed))]
 mod benchmarks {
     use std::sync::LazyLock;
@@ -189,6 +191,9 @@ mod benchmarks {
             .bench_refs(|(array, ctx)| compressor.compress(array, ctx).unwrap());
     }
 }
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     divan::main()

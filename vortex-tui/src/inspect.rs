@@ -27,7 +27,7 @@ use vortex::file::MAGIC_BYTES;
 use vortex::file::MAX_POSTSCRIPT_SIZE;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VERSION;
-use vortex::flatbuffers::footer as fb;
+use vortex::file::flatbuffers::footer as fb;
 use vortex::layout::LayoutRef;
 use vortex::session::VortexSession;
 

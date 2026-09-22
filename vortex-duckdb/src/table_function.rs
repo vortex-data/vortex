@@ -19,11 +19,8 @@ use vortex::aggregate_fn::DynAccumulator;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
-use vortex::array::arrays::ScalarFn;
 use vortex::array::arrays::Struct;
 use vortex::array::arrays::StructArray;
-use vortex::array::arrays::scalar_fn::ScalarFnArrayExt;
-use vortex::array::optimizer::ArrayOptimizer;
 use vortex::dtype::DType;
 use vortex::dtype::PType;
 use vortex::error::VortexExpect;
@@ -36,7 +33,6 @@ use vortex::metrics::tracing::get_global_labels;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::operators::Operator;
-use vortex::scalar_fn::fns::pack::Pack;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::convert::PushedAggregate;
@@ -56,10 +52,9 @@ use crate::duckdb::TableInitInput;
 use crate::duckdb::Value;
 use crate::exporter::ArrayExporter;
 use crate::projection::DuckdbField;
-use crate::projection::FILE_ROW_NUMBER_COLUMN_IDX;
 use crate::projection::Filter;
 use crate::projection::Projection;
-use crate::projection::is_virtual_column;
+use crate::projection::ProjectionInput;
 
 // Duckdb has two state machines for an extension. The outer one is the table
 // function state machine which calls the file reader state machine.
@@ -213,7 +208,7 @@ pub fn finalize_scan(global: &GlobalState, chunk: &mut DataChunkRef) -> VortexRe
         .vortex_expect("no local state");
     for other in rest.iter_mut() {
         for ((_, acc), (_, part)) in base.iter_mut().zip(other.iter_mut()) {
-            acc.combine_partials(part.flush()?)?;
+            acc.merge_from(part.as_mut())?;
         }
     }
 
@@ -255,20 +250,19 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
         .iter()
         .any(|a| matches!(a, ColumnAggregate::CountStar));
 
-    let mut file_row_number_column_pos = None;
     let column_ids = init_input.column_ids();
-    let mut pos = 0;
-    for id in column_ids {
-        if *id == FILE_ROW_NUMBER_COLUMN_IDX {
-            file_row_number_column_pos = Some(pos);
-            pos += 1;
-        } else if !is_virtual_column(*id) {
-            pos += 1;
-        }
-    }
+    let projection_ids = init_input.projection_ids();
 
-    let Projection(projection) = if bind_data.aggregates.is_empty() {
-        Projection::new(column_ids, &bind_data.columns)
+    let Projection {
+        projection,
+        file_row_number_column_pos,
+    } = if bind_data.aggregates.is_empty() {
+        let input = ProjectionInput {
+            column_ids,
+            projection_ids,
+            column_fields: &bind_data.columns,
+        };
+        Projection::new(input)
     } else {
         Projection::new_aggregate(&bind_data.aggregates, &bind_data.columns)
     };
@@ -378,20 +372,12 @@ pub(crate) fn optimize_and_bind(expr: Expression, dtype: &DType) -> VortexResult
 }
 
 pub(crate) fn convert_result(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<StructArray> {
-    let array_result = array.optimize_recursive(ctx.session())?;
-    Ok(if let Some(array) = array_result.as_opt::<Struct>() {
+    // By the time we got here, array is fully optimized, don't call
+    // optimize_recursive or similar functions here.
+    Ok(if let Some(array) = array.as_opt::<Struct>() {
         array.into_owned()
-    } else if let Some(array) = array_result.as_opt::<ScalarFn>()
-        && let Some(pack_options) = array.scalar_fn().as_opt::<Pack>()
-    {
-        StructArray::new(
-            pack_options.names.clone(),
-            array.children(),
-            array.len(),
-            pack_options.nullability.into(),
-        )
     } else {
-        array_result.execute::<Canonical>(ctx)?.into_struct()
+        array.execute::<Canonical>(ctx)?.into_struct()
     })
 }
 

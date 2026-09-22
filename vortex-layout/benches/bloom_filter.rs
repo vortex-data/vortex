@@ -12,12 +12,16 @@ use std::num::NonZeroU32;
 
 use divan::Bencher;
 use divan::counter::ItemsCount;
+use mimalloc::MiMalloc;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use vortex_layout::layouts::zoned::aggregates::bloom_filter::BloomOptions;
 use vortex_layout::layouts::zoned::aggregates::bloom_filter::BloomPartial;
 use vortex_layout::layouts::zoned::aggregates::bloom_filter::HashFn;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     divan::main();

@@ -53,7 +53,8 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
-use crate::BtrBlocksCompressor;
+use crate::BtrBlocksCompressorBuilder;
+use crate::DELTA_SCHEME;
 
 /// A session with the default Vortex encodings registered.
 ///
@@ -70,18 +71,15 @@ fn trace_session() -> VortexSession {
     let session = VortexSession::empty().with::<ArraySession>();
 
     vortex_fsst::initialize(&session);
-    #[cfg(feature = "unstable_encodings")]
     vortex_onpair::initialize(&session);
     vortex_zigzag::initialize(&session);
+    #[cfg(feature = "zstd")]
+    vortex_zstd::initialize(&session);
 
     {
         let arrays = session.arrays();
         #[cfg(feature = "pco")]
         arrays.register(vortex_pco::Pco);
-        #[cfg(feature = "zstd")]
-        arrays.register(vortex_zstd::Zstd);
-        #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
-        arrays.register(vortex_zstd::ZstdBuffers);
         if use_experimental_patches() {
             arrays.register(Patched);
         }
@@ -127,8 +125,12 @@ fn lineitem() -> VortexResult<ArrayRef> {
         .from_arrow_record_batch(batch, &schema)
 }
 
+/// Delta is opt-in, and these traces cover the delta-encoded FSST offsets, so enable it here.
 fn compressed_lineitem() -> VortexResult<ArrayRef> {
-    BtrBlocksCompressor::default().compress(&lineitem()?, &mut execution_ctx())
+    BtrBlocksCompressorBuilder::default()
+        .with_new_scheme(&DELTA_SCHEME)
+        .build()
+        .compress(&lineitem()?, &mut execution_ctx())
 }
 
 fn field(array: &ArrayRef, name: &str) -> VortexResult<ArrayRef> {
@@ -253,7 +255,7 @@ fn trace_scan_compare_on_compressed_quantity() -> VortexResult<()> {
     optimize root=vortex.binary(bool, len=4096) session=false
       reduce_parent static:DictionaryScalarFnValuesPushDownRule slot=0 parent=vortex.binary(bool, len=4096) child=vortex.dict(i16, len=4096) -> vortex.dict(bool, len=4096)
       done output=vortex.dict(bool, len=4096)
-        child_execute_parent session[0]:execute_parent_fn slot=0 parent=vortex.binary(bool, len=4096) child=vortex.decimal_byte_parts(decimal(15,2), len=4096) -> vortex.dict(bool, len=4096)
+        child_execute_parent session[0]:execute_parent_fn slot=0 parent=vortex.binary(bool, len=4096) child=vortex.decimal_byte_parts.v2(decimal(15,2), len=4096) -> vortex.dict(bool, len=4096)
       iter 1 current=vortex.dict(bool, len=4096) builder_active=false
         ExecuteSlot slot=0 parent=vortex.dict(bool, len=4096) child=fastlanes.bitpacked(u8, len=4096)
       iter 2 current=fastlanes.bitpacked(u8, len=4096) stack_parent=vortex.dict(bool, len=4096) slot=0 builder_active=false
@@ -333,8 +335,7 @@ fn trace_scan_compare_on_compressed_shipmode() -> VortexResult<()> {
 
 /// Q13-style predicate over the comment column: `l_comment LIKE '%special%'`.
 ///
-/// The column compresses to `fsst -> bitpacked lengths/offsets`, or to `fsst -> delta offsets`
-/// (with bitpacked residuals) when `unstable_encodings` makes Delta available.
+/// The column compresses to `fsst -> delta offsets` with bitpacked residuals.
 fn comment_predicate(column: ArrayRef, len: usize) -> VortexResult<ArrayRef> {
     Like::try_new(
         column,
@@ -359,17 +360,6 @@ fn trace_scan_like_on_compressed_comment() -> VortexResult<()> {
     // No reduce rule rewrites a like over FSST; the FSST like kernel compiles the pattern and
     // matches in compressed space at execution time.
     insta::assert_snapshot!(optimized.trace.to_string(), @"");
-    // Delta is only registered under `unstable_encodings`. Without it the offsets stay bitpacked
-    // and canonicalize inside the FSST kernel, so the scan has no extra children to execute.
-    #[cfg(not(feature = "unstable_encodings"))]
-    insta::assert_snapshot!(executed.trace.to_string(), @"
-    execute_until target=AnyCanonical root=vortex.like(bool, len=4096)
-      iter 0 current=vortex.like(bool, len=4096) builder_active=false
-        child_execute_parent session[0]:execute_parent_fn slot=0 parent=vortex.like(bool, len=4096) child=vortex.fsst(utf8, len=4096) -> vortex.bool(bool, len=4096)
-      iter 1 current=vortex.bool(bool, len=4096) builder_active=false
-      return output=vortex.bool(bool, len=4096)
-    ");
-    #[cfg(feature = "unstable_encodings")]
     insta::assert_snapshot!(executed.trace.to_string(), @"
     execute_until target=AnyCanonical root=vortex.like(bool, len=4096)
       iter 0 current=vortex.like(bool, len=4096) builder_active=false
@@ -418,8 +408,8 @@ fn trace_scan_filter_on_compressed_table() -> VortexResult<()> {
         optimize root=vortex.filter(i16, len=43) session=false
           reduce_parent static:FilterReduceAdaptor(Dict) slot=0 parent=vortex.filter(i16, len=43) child=vortex.dict(i16, len=4096) -> vortex.dict(i16, len=43)
           done output=vortex.dict(i16, len=43)
-        reduce_parent static:DecimalBytePartsFilterPushDownRule slot=0 parent=vortex.filter(decimal(15,2), len=43) child=vortex.decimal_byte_parts(decimal(15,2), len=4096) -> vortex.decimal_byte_parts(decimal(15,2), len=43)
-        done output=vortex.decimal_byte_parts(decimal(15,2), len=43)
+        reduce_parent static:FilterReduceAdaptor(DecimalByteParts) slot=0 parent=vortex.filter(decimal(15,2), len=43) child=vortex.decimal_byte_parts.v2(decimal(15,2), len=4096) -> vortex.decimal_byte_parts.v2(decimal(15,2), len=43)
+        done output=vortex.decimal_byte_parts.v2(decimal(15,2), len=43)
       optimize root=vortex.filter(vortex.date[days](i32), len=43) session=false
         optimize root=vortex.filter(i32, len=43) session=false
           reduce_parent static:FoRFilterPushDownRule slot=0 parent=vortex.filter(i32, len=43) child=fastlanes.for(i32, len=4096) -> fastlanes.for(i32, len=43)
@@ -454,6 +444,9 @@ fn trace_scan_take_on_compressed_table() -> VortexResult<()> {
 
     insta::assert_snapshot!(optimized.trace.to_string(), @"
     optimize root=vortex.dict({l_quantity=decimal(15,2), l_shipdate=vortex.date[days](i32), l_shipmode=utf8}, len=64) session=false
+      optimize root=vortex.dict(decimal(15,2), len=64) session=false
+        reduce_parent static:TakeReduceAdaptor(DecimalByteParts) slot=1 parent=vortex.dict(decimal(15,2), len=64) child=vortex.decimal_byte_parts.v2(decimal(15,2), len=4096) -> vortex.decimal_byte_parts.v2(decimal(15,2), len=64)
+        done output=vortex.decimal_byte_parts.v2(decimal(15,2), len=64)
       optimize root=vortex.dict(vortex.date[days](i32), len=64) session=false
         reduce_parent static:TakeReduceAdaptor(Extension) slot=1 parent=vortex.dict(vortex.date[days](i32), len=64) child=vortex.ext(vortex.date[days](i32), len=4096) -> vortex.ext(vortex.date[days](i32), len=64)
         done output=vortex.ext(vortex.date[days](i32), len=64)

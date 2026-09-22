@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
 use rstest::rstest;
 use vortex_buffer::BitBuffer;
@@ -37,6 +38,8 @@ use crate::dtype::PType;
 use crate::extension::datetime::TimeUnit;
 use crate::extension::datetime::Timestamp;
 use crate::extension::datetime::TimestampOptions;
+use crate::memory::MemorySessionExt;
+use crate::memory::test_allocator::counting_allocator;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::binary::scalar_cmp;
@@ -357,6 +360,21 @@ fn test_empty_list() {
 
 fn execute_compare_test(lhs: ArrayRef, rhs: ArrayRef, op: Operator) -> ArrayRef {
     lhs.binary(rhs, op).unwrap()
+}
+
+#[test]
+fn comparison_uses_execution_allocator() -> VortexResult<()> {
+    let (allocator, allocations) = counting_allocator();
+    let mut ctx = array_session()
+        .with_allocator(allocator)
+        .create_execution_ctx();
+    let result = buffer![1i32, 2, 3]
+        .into_array()
+        .binary(buffer![1i32, 0, 3].into_array(), Operator::Eq)?
+        .execute::<BoolArray>(&mut ctx)?;
+    drop(result);
+    assert_ne!(allocations.load(Ordering::Relaxed), 0);
+    Ok(())
 }
 
 #[rstest]

@@ -32,16 +32,8 @@ vortex-btrblocks = { workspace = true }
 vortex-fsst = { workspace = true }
 vortex-onpair = { workspace = true }
 
-[features]
-unstable_encodings = [
-    "vortex/unstable_encodings",
-    "vortex-bench/unstable_encodings",
-    "vortex-btrblocks/unstable_encodings",
-]
-
 [[bin]]
 name = "string-bench"
-required-features = ["unstable_encodings"]
 
 [lints]
 workspace = true

@@ -1,0 +1,1183 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN (FORMAT json)
+WITH wscs AS
+  (SELECT sold_date_sk,
+          sales_price
+   FROM
+     (SELECT ws_sold_date_sk sold_date_sk,
+             ws_ext_sales_price sales_price
+      FROM web_sales
+      UNION ALL SELECT cs_sold_date_sk sold_date_sk,
+                       cs_ext_sales_price sales_price
+      FROM catalog_sales) sq1),
+     wswscs AS
+  (SELECT d_week_seq,
+          sum(CASE
+                  WHEN (d_day_name='Sunday') THEN sales_price
+                  ELSE NULL
+              END) sun_sales,
+          sum(CASE
+                  WHEN (d_day_name='Monday') THEN sales_price
+                  ELSE NULL
+              END) mon_sales,
+          sum(CASE
+                  WHEN (d_day_name='Tuesday') THEN sales_price
+                  ELSE NULL
+              END) tue_sales,
+          sum(CASE
+                  WHEN (d_day_name='Wednesday') THEN sales_price
+                  ELSE NULL
+              END) wed_sales,
+          sum(CASE
+                  WHEN (d_day_name='Thursday') THEN sales_price
+                  ELSE NULL
+              END) thu_sales,
+          sum(CASE
+                  WHEN (d_day_name='Friday') THEN sales_price
+                  ELSE NULL
+              END) fri_sales,
+          sum(CASE
+                  WHEN (d_day_name='Saturday') THEN sales_price
+                  ELSE NULL
+              END) sat_sales
+   FROM wscs,
+        date_dim
+   WHERE d_date_sk = sold_date_sk
+   GROUP BY d_week_seq)
+SELECT d_week_seq1,
+       round(sun_sales1/sun_sales2, 2) r1,
+       round(mon_sales1/mon_sales2, 2) r2,
+       round(tue_sales1/tue_sales2, 2) r3,
+       round(wed_sales1/wed_sales2, 2) r4,
+       round(thu_sales1/thu_sales2, 2) r5,
+       round(fri_sales1/fri_sales2, 2) r6,
+       round(sat_sales1/sat_sales2, 2)
+FROM
+  (SELECT wswscs.d_week_seq d_week_seq1,
+          sun_sales sun_sales1,
+          mon_sales mon_sales1,
+          tue_sales tue_sales1,
+          wed_sales wed_sales1,
+          thu_sales thu_sales1,
+          fri_sales fri_sales1,
+          sat_sales sat_sales1
+   FROM wswscs,
+        date_dim
+   WHERE date_dim.d_week_seq = wswscs.d_week_seq
+     AND d_year = 2001) y,
+  (SELECT wswscs.d_week_seq d_week_seq2,
+          sun_sales sun_sales2,
+          mon_sales mon_sales2,
+          tue_sales tue_sales2,
+          wed_sales wed_sales2,
+          thu_sales thu_sales2,
+          fri_sales fri_sales2,
+          sat_sales sat_sales2
+   FROM wswscs,
+        date_dim
+   WHERE date_dim.d_week_seq = wswscs.d_week_seq
+     AND d_year = 2001+1) z
+WHERE d_week_seq1 = d_week_seq2-53
+ORDER BY d_week_seq1 NULLS FIRST;
+----
+logical_plan [
+    {
+        "name": "CTE",
+        "children": [
+            {
+                "name": "PROJECTION",
+                "children": [
+                    {
+                        "name": "UNION",
+                        "children": [
+                            {
+                                "name": "PROJECTION",
+                                "children": [
+                                    {
+                                        "name": "PROJECTION",
+                                        "children": [
+                                            {
+                                                "name": "READ_VORTEX",
+                                                "children": [],
+                                                "extra_info": {
+                                                    "Filters": "",
+                                                    "Function": "Vortex Scan"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Expressions": [
+                                                "ws_sold_date_sk",
+                                                "ws_sold_time_sk",
+                                                "ws_ship_date_sk",
+                                                "ws_item_sk",
+                                                "ws_bill_customer_sk",
+                                                "ws_bill_cdemo_sk",
+                                                "ws_bill_hdemo_sk",
+                                                "ws_bill_addr_sk",
+                                                "ws_ship_customer_sk",
+                                                "ws_ship_cdemo_sk",
+                                                "ws_ship_hdemo_sk",
+                                                "ws_ship_addr_sk",
+                                                "ws_web_page_sk",
+                                                "ws_web_site_sk",
+                                                "ws_ship_mode_sk",
+                                                "ws_warehouse_sk",
+                                                "ws_promo_sk",
+                                                "ws_order_number",
+                                                "ws_quantity",
+                                                "ws_wholesale_cost",
+                                                "ws_list_price",
+                                                "ws_sales_price",
+                                                "ws_ext_discount_amt",
+                                                "ws_ext_sales_price",
+                                                "ws_ext_wholesale_cost",
+                                                "ws_ext_list_price",
+                                                "ws_ext_tax",
+                                                "ws_coupon_amt",
+                                                "ws_ext_ship_cost",
+                                                "ws_net_paid",
+                                                "ws_net_paid_inc_tax",
+                                                "ws_net_paid_inc_ship",
+                                                "ws_net_paid_inc_ship_tax",
+                                                "ws_net_profit"
+                                            ]
+                                        }
+                                    }
+                                ],
+                                "extra_info": {
+                                    "Expressions": [
+                                        "sold_date_sk",
+                                        "sales_price"
+                                    ]
+                                }
+                            },
+                            {
+                                "name": "PROJECTION",
+                                "children": [
+                                    {
+                                        "name": "PROJECTION",
+                                        "children": [
+                                            {
+                                                "name": "READ_VORTEX",
+                                                "children": [],
+                                                "extra_info": {
+                                                    "Filters": "",
+                                                    "Function": "Vortex Scan"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Expressions": [
+                                                "cs_sold_date_sk",
+                                                "cs_sold_time_sk",
+                                                "cs_ship_date_sk",
+                                                "cs_bill_customer_sk",
+                                                "cs_bill_cdemo_sk",
+                                                "cs_bill_hdemo_sk",
+                                                "cs_bill_addr_sk",
+                                                "cs_ship_customer_sk",
+                                                "cs_ship_cdemo_sk",
+                                                "cs_ship_hdemo_sk",
+                                                "cs_ship_addr_sk",
+                                                "cs_call_center_sk",
+                                                "cs_catalog_page_sk",
+                                                "cs_ship_mode_sk",
+                                                "cs_warehouse_sk",
+                                                "cs_item_sk",
+                                                "cs_promo_sk",
+                                                "cs_order_number",
+                                                "cs_quantity",
+                                                "cs_wholesale_cost",
+                                                "cs_list_price",
+                                                "cs_sales_price",
+                                                "cs_ext_discount_amt",
+                                                "cs_ext_sales_price",
+                                                "cs_ext_wholesale_cost",
+                                                "cs_ext_list_price",
+                                                "cs_ext_tax",
+                                                "cs_coupon_amt",
+                                                "cs_ext_ship_cost",
+                                                "cs_net_paid",
+                                                "cs_net_paid_inc_tax",
+                                                "cs_net_paid_inc_ship",
+                                                "cs_net_paid_inc_ship_tax",
+                                                "cs_net_profit"
+                                            ]
+                                        }
+                                    }
+                                ],
+                                "extra_info": {
+                                    "Expressions": [
+                                        "sold_date_sk",
+                                        "sales_price"
+                                    ]
+                                }
+                            }
+                        ],
+                        "extra_info": {
+                            "Expressions": ""
+                        }
+                    }
+                ],
+                "extra_info": {
+                    "Expressions": [
+                        "sold_date_sk",
+                        "sales_price"
+                    ]
+                }
+            },
+            {
+                "name": "CTE",
+                "children": [
+                    {
+                        "name": "PROJECTION",
+                        "children": [
+                            {
+                                "name": "AGGREGATE",
+                                "children": [
+                                    {
+                                        "name": "FILTER",
+                                        "children": [
+                                            {
+                                                "name": "CROSS_PRODUCT",
+                                                "children": [
+                                                    {
+                                                        "name": "CTE_SCAN",
+                                                        "children": [],
+                                                        "extra_info": {
+                                                            "CTE Index": "0"
+                                                        }
+                                                    },
+                                                    {
+                                                        "name": "PROJECTION",
+                                                        "children": [
+                                                            {
+                                                                "name": "READ_VORTEX",
+                                                                "children": [],
+                                                                "extra_info": {
+                                                                    "Filters": "",
+                                                                    "Function": "Vortex Scan"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Expressions": [
+                                                                "d_date_sk",
+                                                                "d_date_id",
+                                                                "d_date",
+                                                                "d_month_seq",
+                                                                "d_week_seq",
+                                                                "d_quarter_seq",
+                                                                "d_year",
+                                                                "d_dow",
+                                                                "d_moy",
+                                                                "d_dom",
+                                                                "d_qoy",
+                                                                "d_fy_year",
+                                                                "d_fy_quarter_seq",
+                                                                "d_fy_week_seq",
+                                                                "d_day_name",
+                                                                "d_quarter_name",
+                                                                "d_holiday",
+                                                                "d_weekend",
+                                                                "d_following_holiday",
+                                                                "d_first_dom",
+                                                                "d_last_dom",
+                                                                "d_same_day_ly",
+                                                                "d_same_day_lq",
+                                                                "d_current_day",
+                                                                "d_current_week",
+                                                                "d_current_month",
+                                                                "d_current_quarter",
+                                                                "d_current_year"
+                                                            ]
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Expressions": ""
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Expressions": "(d_date_sk = sold_date_sk)"
+                                        }
+                                    }
+                                ],
+                                "extra_info": {
+                                    "Groups": "d_week_seq",
+                                    "Expressions": [
+                                        "sum(CASE  WHEN ((d_day_name = CAST('Sunday' AS VARCHAR))) THEN (sales_price) ELSE CAST(NULL AS DECIMAL(7,2)) END)",
+                                        "sum(CASE  WHEN ((d_day_name = CAST('Monday' AS VARCHAR))) THEN (sales_price) ELSE CAST(NULL AS DECIMAL(7,2)) END)",
+                                        "sum(CASE  WHEN ((d_day_name = CAST('Tuesday' AS VARCHAR))) THEN (sales_price) ELSE CAST(NULL AS DECIMAL(7,2)) END)",
+                                        "sum(CASE  WHEN ((d_day_name = CAST('Wednesday' AS VARCHAR))) THEN (sales_price) ELSE CAST(NULL AS DECIMAL(7,2)) END)",
+                                        "sum(CASE  WHEN ((d_day_name = CAST('Thursday' AS VARCHAR))) THEN (sales_price) ELSE CAST(NULL AS DECIMAL(7,2)) END)",
+                                        "sum(CASE  WHEN ((d_day_name = CAST('Friday' AS VARCHAR))) THEN (sales_price) ELSE CAST(NULL AS DECIMAL(7,2)) END)",
+                                        "sum(CASE  WHEN ((d_day_name = CAST('Saturday' AS VARCHAR))) THEN (sales_price) ELSE CAST(NULL AS DECIMAL(7,2)) END)"
+                                    ]
+                                }
+                            }
+                        ],
+                        "extra_info": {
+                            "Expressions": [
+                                "d_week_seq",
+                                "sun_sales",
+                                "mon_sales",
+                                "tue_sales",
+                                "wed_sales",
+                                "thu_sales",
+                                "fri_sales",
+                                "sat_sales"
+                            ]
+                        }
+                    },
+                    {
+                        "name": "ORDER_BY",
+                        "children": [
+                            {
+                                "name": "PROJECTION",
+                                "children": [
+                                    {
+                                        "name": "FILTER",
+                                        "children": [
+                                            {
+                                                "name": "CROSS_PRODUCT",
+                                                "children": [
+                                                    {
+                                                        "name": "PROJECTION",
+                                                        "children": [
+                                                            {
+                                                                "name": "FILTER",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "CROSS_PRODUCT",
+                                                                        "children": [
+                                                                            {
+                                                                                "name": "CTE_SCAN",
+                                                                                "children": [],
+                                                                                "extra_info": {
+                                                                                    "CTE Index": "1"
+                                                                                }
+                                                                            },
+                                                                            {
+                                                                                "name": "PROJECTION",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "READ_VORTEX",
+                                                                                        "children": [],
+                                                                                        "extra_info": {
+                                                                                            "Filters": "",
+                                                                                            "Function": "Vortex Scan"
+                                                                                        }
+                                                                                    }
+                                                                                ],
+                                                                                "extra_info": {
+                                                                                    "Expressions": [
+                                                                                        "d_date_sk",
+                                                                                        "d_date_id",
+                                                                                        "d_date",
+                                                                                        "d_month_seq",
+                                                                                        "d_week_seq",
+                                                                                        "d_quarter_seq",
+                                                                                        "d_year",
+                                                                                        "d_dow",
+                                                                                        "d_moy",
+                                                                                        "d_dom",
+                                                                                        "d_qoy",
+                                                                                        "d_fy_year",
+                                                                                        "d_fy_quarter_seq",
+                                                                                        "d_fy_week_seq",
+                                                                                        "d_day_name",
+                                                                                        "d_quarter_name",
+                                                                                        "d_holiday",
+                                                                                        "d_weekend",
+                                                                                        "d_following_holiday",
+                                                                                        "d_first_dom",
+                                                                                        "d_last_dom",
+                                                                                        "d_same_day_ly",
+                                                                                        "d_same_day_lq",
+                                                                                        "d_current_day",
+                                                                                        "d_current_week",
+                                                                                        "d_current_month",
+                                                                                        "d_current_quarter",
+                                                                                        "d_current_year"
+                                                                                    ]
+                                                                                }
+                                                                            }
+                                                                        ],
+                                                                        "extra_info": {
+                                                                            "Expressions": ""
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Expressions": [
+                                                                        "(d_week_seq = d_week_seq)",
+                                                                        "(d_year = CAST(2001 AS BIGINT))"
+                                                                    ]
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Expressions": [
+                                                                "d_week_seq1",
+                                                                "sun_sales1",
+                                                                "mon_sales1",
+                                                                "tue_sales1",
+                                                                "wed_sales1",
+                                                                "thu_sales1",
+                                                                "fri_sales1",
+                                                                "sat_sales1"
+                                                            ]
+                                                        }
+                                                    },
+                                                    {
+                                                        "name": "PROJECTION",
+                                                        "children": [
+                                                            {
+                                                                "name": "FILTER",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "CROSS_PRODUCT",
+                                                                        "children": [
+                                                                            {
+                                                                                "name": "CTE_SCAN",
+                                                                                "children": [],
+                                                                                "extra_info": {
+                                                                                    "CTE Index": "1"
+                                                                                }
+                                                                            },
+                                                                            {
+                                                                                "name": "PROJECTION",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "READ_VORTEX",
+                                                                                        "children": [],
+                                                                                        "extra_info": {
+                                                                                            "Filters": "",
+                                                                                            "Function": "Vortex Scan"
+                                                                                        }
+                                                                                    }
+                                                                                ],
+                                                                                "extra_info": {
+                                                                                    "Expressions": [
+                                                                                        "d_date_sk",
+                                                                                        "d_date_id",
+                                                                                        "d_date",
+                                                                                        "d_month_seq",
+                                                                                        "d_week_seq",
+                                                                                        "d_quarter_seq",
+                                                                                        "d_year",
+                                                                                        "d_dow",
+                                                                                        "d_moy",
+                                                                                        "d_dom",
+                                                                                        "d_qoy",
+                                                                                        "d_fy_year",
+                                                                                        "d_fy_quarter_seq",
+                                                                                        "d_fy_week_seq",
+                                                                                        "d_day_name",
+                                                                                        "d_quarter_name",
+                                                                                        "d_holiday",
+                                                                                        "d_weekend",
+                                                                                        "d_following_holiday",
+                                                                                        "d_first_dom",
+                                                                                        "d_last_dom",
+                                                                                        "d_same_day_ly",
+                                                                                        "d_same_day_lq",
+                                                                                        "d_current_day",
+                                                                                        "d_current_week",
+                                                                                        "d_current_month",
+                                                                                        "d_current_quarter",
+                                                                                        "d_current_year"
+                                                                                    ]
+                                                                                }
+                                                                            }
+                                                                        ],
+                                                                        "extra_info": {
+                                                                            "Expressions": ""
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Expressions": [
+                                                                        "(d_week_seq = d_week_seq)",
+                                                                        "(d_year = CAST((2001 + 1) AS BIGINT))"
+                                                                    ]
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Expressions": [
+                                                                "d_week_seq2",
+                                                                "sun_sales2",
+                                                                "mon_sales2",
+                                                                "tue_sales2",
+                                                                "wed_sales2",
+                                                                "thu_sales2",
+                                                                "fri_sales2",
+                                                                "sat_sales2"
+                                                            ]
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Expressions": ""
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Expressions": "(d_week_seq1 = (d_week_seq2 - CAST(53 AS BIGINT)))"
+                                        }
+                                    }
+                                ],
+                                "extra_info": {
+                                    "Expressions": [
+                                        "d_week_seq1",
+                                        "r1",
+                                        "r2",
+                                        "r3",
+                                        "r4",
+                                        "r5",
+                                        "r6",
+                                        "round((CAST(sat_sales1 AS DOUBLE) / CAST(sat_sales2 AS DOUBLE)), 2)"
+                                    ]
+                                }
+                            }
+                        ],
+                        "extra_info": {
+                            "Order By": "y.d_week_seq1"
+                        }
+                    }
+                ],
+                "extra_info": {
+                    "CTE Name": "wswscs",
+                    "Table Index": "1"
+                }
+            }
+        ],
+        "extra_info": {
+            "CTE Name": "wscs",
+            "Table Index": "0"
+        }
+    }
+]
+logical_opt [
+    {
+        "name": "CTE",
+        "children": [
+            {
+                "name": "PROJECTION",
+                "children": [
+                    {
+                        "name": "PROJECTION",
+                        "children": [
+                            {
+                                "name": "AGGREGATE",
+                                "children": [
+                                    {
+                                        "name": "PROJECTION",
+                                        "children": [
+                                            {
+                                                "name": "COMPARISON_JOIN",
+                                                "children": [
+                                                    {
+                                                        "name": "PROJECTION",
+                                                        "children": [
+                                                            {
+                                                                "name": "PROJECTION",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "UNION",
+                                                                        "children": [
+                                                                            {
+                                                                                "name": "PROJECTION",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "PROJECTION",
+                                                                                        "children": [
+                                                                                            {
+                                                                                                "name": "READ_VORTEX",
+                                                                                                "children": [],
+                                                                                                "extra_info": {
+                                                                                                    "Filters": "",
+                                                                                                    "Function": "Vortex Scan",
+                                                                                                    "Estimated Cardinality": "71632"
+                                                                                                }
+                                                                                            }
+                                                                                        ],
+                                                                                        "extra_info": {
+                                                                                            "Expressions": [
+                                                                                                "ws_sold_date_sk",
+                                                                                                "ws_ext_sales_price"
+                                                                                            ],
+                                                                                            "Estimated Cardinality": "71632"
+                                                                                        }
+                                                                                    }
+                                                                                ],
+                                                                                "extra_info": {
+                                                                                    "Expressions": [
+                                                                                        "sold_date_sk",
+                                                                                        "sales_price"
+                                                                                    ],
+                                                                                    "Estimated Cardinality": "71632"
+                                                                                }
+                                                                            },
+                                                                            {
+                                                                                "name": "PROJECTION",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "PROJECTION",
+                                                                                        "children": [
+                                                                                            {
+                                                                                                "name": "READ_VORTEX",
+                                                                                                "children": [],
+                                                                                                "extra_info": {
+                                                                                                    "Filters": "",
+                                                                                                    "Function": "Vortex Scan",
+                                                                                                    "Estimated Cardinality": "143657"
+                                                                                                }
+                                                                                            }
+                                                                                        ],
+                                                                                        "extra_info": {
+                                                                                            "Expressions": [
+                                                                                                "cs_sold_date_sk",
+                                                                                                "cs_ext_sales_price"
+                                                                                            ],
+                                                                                            "Estimated Cardinality": "143657"
+                                                                                        }
+                                                                                    }
+                                                                                ],
+                                                                                "extra_info": {
+                                                                                    "Expressions": [
+                                                                                        "sold_date_sk",
+                                                                                        "sales_price"
+                                                                                    ],
+                                                                                    "Estimated Cardinality": "143657"
+                                                                                }
+                                                                            }
+                                                                        ],
+                                                                        "extra_info": {
+                                                                            "Expressions": "",
+                                                                            "Estimated Cardinality": "215289"
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Expressions": [
+                                                                        "sold_date_sk",
+                                                                        "sales_price"
+                                                                    ],
+                                                                    "Estimated Cardinality": "215289"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Expressions": [
+                                                                "#0",
+                                                                "#1"
+                                                            ],
+                                                            "Estimated Cardinality": "215289"
+                                                        }
+                                                    },
+                                                    {
+                                                        "name": "PROJECTION",
+                                                        "children": [
+                                                            {
+                                                                "name": "READ_VORTEX",
+                                                                "children": [],
+                                                                "extra_info": {
+                                                                    "Filters": "(2450815i64 <= $.d_date_sk <= 2452652i64)",
+                                                                    "Function": "Vortex Scan",
+                                                                    "Estimated Cardinality": "73049"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Expressions": [
+                                                                "d_date_sk",
+                                                                "d_week_seq",
+                                                                "d_day_name"
+                                                            ],
+                                                            "Estimated Cardinality": "73049"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Join Type": "INNER",
+                                                    "Conditions": "(sold_date_sk = d_date_sk)",
+                                                    "Estimated Cardinality": "219547"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Expressions": [
+                                                "#0",
+                                                "__internal_compress_integral_usmallint(#1, 1)",
+                                                "#2"
+                                            ],
+                                            "Estimated Cardinality": "219547"
+                                        }
+                                    }
+                                ],
+                                "extra_info": {
+                                    "Groups": "d_week_seq",
+                                    "Expressions": [
+                                        "sum(CASE  WHEN ((d_day_name = 'Sunday')) THEN (sales_price) ELSE NULL END)",
+                                        "sum(CASE  WHEN ((d_day_name = 'Monday')) THEN (sales_price) ELSE NULL END)",
+                                        "sum(CASE  WHEN ((d_day_name = 'Tuesday')) THEN (sales_price) ELSE NULL END)",
+                                        "sum(CASE  WHEN ((d_day_name = 'Wednesday')) THEN (sales_price) ELSE NULL END)",
+                                        "sum(CASE  WHEN ((d_day_name = 'Thursday')) THEN (sales_price) ELSE NULL END)",
+                                        "sum(CASE  WHEN ((d_day_name = 'Friday')) THEN (sales_price) ELSE NULL END)",
+                                        "sum(CASE  WHEN ((d_day_name = 'Saturday')) THEN (sales_price) ELSE NULL END)"
+                                    ],
+                                    "Estimated Cardinality": "69431"
+                                }
+                            }
+                        ],
+                        "extra_info": {
+                            "Expressions": [
+                                "__internal_decompress_integral_bigint(#0, 1)",
+                                "#1",
+                                "#2",
+                                "#3",
+                                "#4",
+                                "#5",
+                                "#6",
+                                "#7"
+                            ],
+                            "Estimated Cardinality": "69431"
+                        }
+                    }
+                ],
+                "extra_info": {
+                    "Expressions": [
+                        "d_week_seq",
+                        "sun_sales",
+                        "mon_sales",
+                        "tue_sales",
+                        "wed_sales",
+                        "thu_sales",
+                        "fri_sales",
+                        "sat_sales"
+                    ],
+                    "Estimated Cardinality": "69431"
+                }
+            },
+            {
+                "name": "ORDER_BY",
+                "children": [
+                    {
+                        "name": "PROJECTION",
+                        "children": [
+                            {
+                                "name": "COMPARISON_JOIN",
+                                "children": [
+                                    {
+                                        "name": "PROJECTION",
+                                        "children": [
+                                            {
+                                                "name": "COMPARISON_JOIN",
+                                                "children": [
+                                                    {
+                                                        "name": "CTE_SCAN",
+                                                        "children": [],
+                                                        "extra_info": {
+                                                            "CTE Index": "1",
+                                                            "Estimated Cardinality": "69431"
+                                                        }
+                                                    },
+                                                    {
+                                                        "name": "PROJECTION",
+                                                        "children": [
+                                                            {
+                                                                "name": "READ_VORTEX",
+                                                                "children": [],
+                                                                "extra_info": {
+                                                                    "Filters": "($.d_year = 2001i64)",
+                                                                    "Function": "Vortex Scan",
+                                                                    "Estimated Cardinality": "2921"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Expressions": "d_week_seq",
+                                                            "Estimated Cardinality": "2921"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Join Type": "INNER",
+                                                    "Conditions": "(d_week_seq = d_week_seq)",
+                                                    "Estimated Cardinality": "13882"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Expressions": [
+                                                "d_week_seq1",
+                                                "sun_sales1",
+                                                "mon_sales1",
+                                                "tue_sales1",
+                                                "wed_sales1",
+                                                "thu_sales1",
+                                                "fri_sales1",
+                                                "sat_sales1"
+                                            ],
+                                            "Estimated Cardinality": "13882"
+                                        }
+                                    },
+                                    {
+                                        "name": "PROJECTION",
+                                        "children": [
+                                            {
+                                                "name": "COMPARISON_JOIN",
+                                                "children": [
+                                                    {
+                                                        "name": "CTE_SCAN",
+                                                        "children": [],
+                                                        "extra_info": {
+                                                            "CTE Index": "1",
+                                                            "Estimated Cardinality": "69431"
+                                                        }
+                                                    },
+                                                    {
+                                                        "name": "PROJECTION",
+                                                        "children": [
+                                                            {
+                                                                "name": "READ_VORTEX",
+                                                                "children": [],
+                                                                "extra_info": {
+                                                                    "Filters": "($.d_year = 2002i64)",
+                                                                    "Function": "Vortex Scan",
+                                                                    "Estimated Cardinality": "2921"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Expressions": "d_week_seq",
+                                                            "Estimated Cardinality": "2921"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Join Type": "INNER",
+                                                    "Conditions": "(d_week_seq = d_week_seq)",
+                                                    "Estimated Cardinality": "13882"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Expressions": [
+                                                "d_week_seq2",
+                                                "sun_sales2",
+                                                "mon_sales2",
+                                                "tue_sales2",
+                                                "wed_sales2",
+                                                "thu_sales2",
+                                                "fri_sales2",
+                                                "sat_sales2"
+                                            ],
+                                            "Estimated Cardinality": "13882"
+                                        }
+                                    }
+                                ],
+                                "extra_info": {
+                                    "Join Type": "INNER",
+                                    "Conditions": "(d_week_seq1 = (d_week_seq2 - 53))",
+                                    "Estimated Cardinality": "2690"
+                                }
+                            }
+                        ],
+                        "extra_info": {
+                            "Expressions": [
+                                "d_week_seq1",
+                                "r1",
+                                "r2",
+                                "r3",
+                                "r4",
+                                "r5",
+                                "r6",
+                                "round((CAST(sat_sales1 AS DOUBLE) / CAST(sat_sales2 AS DOUBLE)), 2)"
+                            ],
+                            "Estimated Cardinality": "2690"
+                        }
+                    }
+                ],
+                "extra_info": {
+                    "Order By": "y.d_week_seq1",
+                    "Estimated Cardinality": "2690"
+                }
+            }
+        ],
+        "extra_info": {
+            "CTE Name": "wswscs",
+            "Table Index": "1",
+            "Estimated Cardinality": "2690"
+        }
+    }
+]
+physical_plan [
+    {
+        "name": "CTE",
+        "children": [
+            {
+                "name": "PROJECTION",
+                "children": [
+                    {
+                        "name": "HASH_GROUP_BY",
+                        "children": [
+                            {
+                                "name": "PROJECTION",
+                                "children": [
+                                    {
+                                        "name": "PROJECTION",
+                                        "children": [
+                                            {
+                                                "name": "HASH_JOIN",
+                                                "children": [
+                                                    {
+                                                        "name": "UNION",
+                                                        "children": [
+                                                            {
+                                                                "name": "READ_VORTEX",
+                                                                "children": [],
+                                                                "extra_info": {
+                                                                    "Function": "Vortex Scan",
+                                                                    "Projections": [
+                                                                        "ws_sold_date_sk",
+                                                                        "ws_ext_sales_price"
+                                                                    ],
+                                                                    "Estimated Cardinality": "71632"
+                                                                }
+                                                            },
+                                                            {
+                                                                "name": "READ_VORTEX",
+                                                                "children": [],
+                                                                "extra_info": {
+                                                                    "Function": "Vortex Scan",
+                                                                    "Projections": [
+                                                                        "cs_sold_date_sk",
+                                                                        "cs_ext_sales_price"
+                                                                    ],
+                                                                    "Estimated Cardinality": "143657"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {}
+                                                    },
+                                                    {
+                                                        "name": "READ_VORTEX",
+                                                        "children": [],
+                                                        "extra_info": {
+                                                            "Function": "Vortex Scan",
+                                                            "Filters": "(2450815i64 <= $.d_date_sk <= 2452652i64)",
+                                                            "Projections": [
+                                                                "d_date_sk",
+                                                                "d_week_seq",
+                                                                "d_day_name"
+                                                            ],
+                                                            "Estimated Cardinality": "73049"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Join Type": "INNER",
+                                                    "Conditions": "sold_date_sk = d_date_sk",
+                                                    "Estimated Cardinality": "219547"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Projections": [
+                                                "#0",
+                                                "__internal_compress_integral_usmallint(#1, 1)",
+                                                "#2"
+                                            ],
+                                            "Estimated Cardinality": "219547"
+                                        }
+                                    }
+                                ],
+                                "extra_info": {
+                                    "Projections": [
+                                        "d_week_seq",
+                                        "CASE  WHEN ((d_day_name = 'Sunday')) THEN (sales_price) ELSE NULL END",
+                                        "CASE  WHEN ((d_day_name = 'Monday')) THEN (sales_price) ELSE NULL END",
+                                        "CASE  WHEN ((d_day_name = 'Tuesday')) THEN (sales_price) ELSE NULL END",
+                                        "CASE  WHEN ((d_day_name = 'Wednesday')) THEN (sales_price) ELSE NULL END",
+                                        "CASE  WHEN ((d_day_name = 'Thursday')) THEN (sales_price) ELSE NULL END",
+                                        "CASE  WHEN ((d_day_name = 'Friday')) THEN (sales_price) ELSE NULL END",
+                                        "CASE  WHEN ((d_day_name = 'Saturday')) THEN (sales_price) ELSE NULL END"
+                                    ],
+                                    "Estimated Cardinality": "219547"
+                                }
+                            }
+                        ],
+                        "extra_info": {
+                            "Groups": "#0",
+                            "Aggregates": [
+                                "sum(#1)",
+                                "sum(#2)",
+                                "sum(#3)",
+                                "sum(#4)",
+                                "sum(#5)",
+                                "sum(#6)",
+                                "sum(#7)"
+                            ],
+                            "Estimated Cardinality": "69431"
+                        }
+                    }
+                ],
+                "extra_info": {
+                    "Projections": [
+                        "__internal_decompress_integral_bigint(#0, 1)",
+                        "#1",
+                        "#2",
+                        "#3",
+                        "#4",
+                        "#5",
+                        "#6",
+                        "#7"
+                    ],
+                    "Estimated Cardinality": "69431"
+                }
+            },
+            {
+                "name": "ORDER_BY",
+                "children": [
+                    {
+                        "name": "PROJECTION",
+                        "children": [
+                            {
+                                "name": "HASH_JOIN",
+                                "children": [
+                                    {
+                                        "name": "PROJECTION",
+                                        "children": [
+                                            {
+                                                "name": "HASH_JOIN",
+                                                "children": [
+                                                    {
+                                                        "name": "CTE_SCAN",
+                                                        "children": [],
+                                                        "extra_info": {
+                                                            "CTE Index": "1",
+                                                            "Estimated Cardinality": "69431"
+                                                        }
+                                                    },
+                                                    {
+                                                        "name": "READ_VORTEX",
+                                                        "children": [],
+                                                        "extra_info": {
+                                                            "Function": "Vortex Scan",
+                                                            "Filters": "d_year=2001",
+                                                            "Projections": "d_week_seq",
+                                                            "Estimated Cardinality": "2921"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Join Type": "INNER",
+                                                    "Conditions": "d_week_seq = d_week_seq",
+                                                    "Estimated Cardinality": "13882"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Projections": [
+                                                "d_week_seq1",
+                                                "sun_sales1",
+                                                "mon_sales1",
+                                                "tue_sales1",
+                                                "wed_sales1",
+                                                "thu_sales1",
+                                                "fri_sales1",
+                                                "sat_sales1"
+                                            ],
+                                            "Estimated Cardinality": "13882"
+                                        }
+                                    },
+                                    {
+                                        "name": "PROJECTION",
+                                        "children": [
+                                            {
+                                                "name": "HASH_JOIN",
+                                                "children": [
+                                                    {
+                                                        "name": "CTE_SCAN",
+                                                        "children": [],
+                                                        "extra_info": {
+                                                            "CTE Index": "1",
+                                                            "Estimated Cardinality": "69431"
+                                                        }
+                                                    },
+                                                    {
+                                                        "name": "READ_VORTEX",
+                                                        "children": [],
+                                                        "extra_info": {
+                                                            "Function": "Vortex Scan",
+                                                            "Filters": "d_year=2002",
+                                                            "Projections": "d_week_seq",
+                                                            "Estimated Cardinality": "2921"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Join Type": "INNER",
+                                                    "Conditions": "d_week_seq = d_week_seq",
+                                                    "Estimated Cardinality": "13882"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Projections": [
+                                                "d_week_seq2",
+                                                "sun_sales2",
+                                                "mon_sales2",
+                                                "tue_sales2",
+                                                "wed_sales2",
+                                                "thu_sales2",
+                                                "fri_sales2",
+                                                "sat_sales2"
+                                            ],
+                                            "Estimated Cardinality": "13882"
+                                        }
+                                    }
+                                ],
+                                "extra_info": {
+                                    "Join Type": "INNER",
+                                    "Conditions": "d_week_seq1 = (d_week_seq2 - 53)",
+                                    "Estimated Cardinality": "2690"
+                                }
+                            }
+                        ],
+                        "extra_info": {
+                            "Projections": [
+                                "d_week_seq1",
+                                "r1",
+                                "r2",
+                                "r3",
+                                "r4",
+                                "r5",
+                                "r6",
+                                "round((CAST(sat_sales1 AS DOUBLE) / CAST(sat_sales2 AS DOUBLE)), 2)"
+                            ],
+                            "Estimated Cardinality": "2690"
+                        }
+                    }
+                ],
+                "extra_info": {
+                    "Order By": "y.d_week_seq1 ASC"
+                }
+            }
+        ],
+        "extra_info": {
+            "CTE Name": "wswscs",
+            "Table Index": "1",
+            "Estimated Cardinality": "2690"
+        }
+    }
+]

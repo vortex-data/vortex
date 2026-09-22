@@ -7,6 +7,6 @@ origin = "vortex-zstd"
 
 doc = """
 Optional Zstd-backed serialized array representations. A reader built without `vortex-zstd`
-cannot resolve these members, so they are versioned independently of `core` and enabled only
-when the crate is initialized with the corresponding feature.
+cannot resolve these members, so they are versioned independently of `core` and must be
+enabled explicitly by the caller.
 """

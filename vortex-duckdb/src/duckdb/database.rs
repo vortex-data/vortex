@@ -62,6 +62,16 @@ impl DatabaseRef {
         Ok(())
     }
 
+    pub fn register_version_function(&self, version: &str) -> VortexResult<()> {
+        let version = CString::new(version)
+            .map_err(|_| vortex_err!("Invalid version: string contains null bytes"))?;
+        duckdb_try!(
+            unsafe { cpp::duckdb_vx_register_version_function(self.as_ptr(), version.as_ptr()) },
+            "Failed to register vortex_version function"
+        );
+        Ok(())
+    }
+
     pub fn register_optimizer_extension(&self) -> VortexResult<()> {
         duckdb_try!(
             unsafe { cpp::duckdb_vx_optimizer_extension_register(self.as_ptr()) },

@@ -30,7 +30,6 @@ native = [
     "vortex/tokio",
     "vortex/zstd",
 ]
-unstable_encodings = ["vortex/unstable_encodings"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]

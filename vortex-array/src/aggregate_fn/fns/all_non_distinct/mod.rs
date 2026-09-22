@@ -38,6 +38,7 @@ use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::aggregate_fn::Accumulator;
+use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
@@ -149,43 +150,57 @@ impl AggregateFnVTable for AllNonDistinct {
 
     fn empty_partial(
         &self,
-        _options: &Self::Options,
-        _input_dtype: &DType,
+        _args: AggregateArgs<'_, Self::Options>,
     ) -> VortexResult<Self::Partial> {
         Ok(AllNonDistinctPartial {
             all_non_distinct: true,
         })
     }
 
-    fn combine_partials(&self, partial: &mut Self::Partial, other: Scalar) -> VortexResult<()> {
-        if !partial.all_non_distinct {
-            return Ok(());
-        }
-
-        if !other.as_bool().value().unwrap_or(false) {
-            partial.all_non_distinct = false;
-        }
-        Ok(())
+    fn partial_from_scalar(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        scalar: Scalar,
+    ) -> VortexResult<Self::Partial> {
+        Ok(AllNonDistinctPartial {
+            all_non_distinct: scalar.as_bool().value().unwrap_or(false),
+        })
     }
 
-    fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
+    fn merge_partials(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        first: Self::Partial,
+        second: Self::Partial,
+    ) -> VortexResult<Self::Partial> {
+        Ok(AllNonDistinctPartial {
+            all_non_distinct: first.all_non_distinct && second.all_non_distinct,
+        })
+    }
+
+    fn to_scalar(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        partial: &Self::Partial,
+    ) -> VortexResult<Scalar> {
         Ok(Scalar::bool(
             partial.all_non_distinct,
             Nullability::NonNullable,
         ))
     }
 
-    fn reset(&self, partial: &mut Self::Partial) {
-        partial.all_non_distinct = true;
-    }
-
     #[inline]
-    fn is_saturated(&self, partial: &Self::Partial) -> bool {
+    fn is_saturated(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        partial: &Self::Partial,
+    ) -> bool {
         !partial.all_non_distinct
     }
 
     fn accumulate(
         &self,
+        _args: AggregateArgs<'_, Self::Options>,
         partial: &mut Self::Partial,
         batch: &Columnar,
         ctx: &mut ExecutionCtx,
@@ -235,11 +250,19 @@ impl AggregateFnVTable for AllNonDistinct {
         }
     }
 
-    fn finalize(&self, _partials: ArrayRef) -> VortexResult<ArrayRef> {
+    fn finalize(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        _partials: ArrayRef,
+    ) -> VortexResult<ArrayRef> {
         vortex_bail!("AllNonDistinct does not support array finalization");
     }
 
-    fn finalize_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
+    fn finalize_scalar(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        partial: &Self::Partial,
+    ) -> VortexResult<Scalar> {
         Ok(Scalar::bool(
             partial.all_non_distinct,
             Nullability::NonNullable,

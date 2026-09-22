@@ -12,6 +12,7 @@
 #include <vortex.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <initializer_list>
 #include <memory>
 #include <span>
@@ -30,6 +31,45 @@ class PrimitiveView;
 class Array;
 class StringView;
 class BytesView;
+
+/**
+ * Readonly view over bitpacked booleans.
+ *
+ * Bits are laid out LSB-first.
+ * "bit_offset" is in [0; 8) and lets a view start at a non-byte-aligned bit.
+ *
+ * Example:
+ * "view" holds 6 boolean elements starting at bit 2, first 5 set to "true",
+ * last is "false".
+ *
+ * uint8_t word = 0b01111100;
+ * BoolView view = {&word, 6, 2};
+ */
+struct BoolView {
+    const uint8_t *ptr = nullptr;
+
+    /*
+     * Number of elements (bits) in the view. This is not the number of uint8_t
+     * words in "ptr", use words() for that.
+     */
+    size_t elements = 0;
+
+    /*
+     * Bit offset of first element in "bytes".
+     * Example: if bit_offset is 2, first bit is at bytes[0] & (1 << 2).
+     */
+    size_t bit_offset = 0;
+
+    // Get bit at "index". Index is in [0; elements()).
+    inline bool operator[](size_t index) const {
+        return vx_bool_view_nth(*this, index);
+    }
+
+    // Number of uint8_t words storing elements.
+    inline size_t words() const {
+        return vx_bool_view_words(*this);
+    }
+};
 
 /*
  * Validity type tells us whether there are null/invalid values in an Array.
@@ -102,8 +142,7 @@ private:
     ValidityBits(const Session &session, const vx_array *canonical);
 
     const vx_array *owner_ = nullptr;
-    const uint8_t *bits_ = nullptr;
-    size_t bit_offset_ = 0;
+    BoolView view_;
     bool all_invalid_ = false;
 };
 } // namespace detail
@@ -131,6 +170,17 @@ public:
     static Array primitive(std::span<const T> data, const Validity &validity = ValidityType::NonNullable) {
         return primitive_raw(detail::to_ptype<T>(), data.data(), data.size(), validity);
     }
+
+    /**
+     * A Bool array copied from bitpacked storage.
+     *
+     * Example:
+     *
+     * std::vector<uint8_t> bits(2, 1);
+     * BoolView view = {bits, 0};
+     * auto array = Array::bool_array(view);
+     */
+    static Array bool_array(const BoolView &view, const Validity &validity = ValidityType::NonNullable);
 
     /**
      * Import an Arrow array. Consumes both "array" and "schema", do not use
@@ -296,17 +346,17 @@ private:
 };
 
 /**
- * Read-only view over a Bool array. As Bool values are bit-packed, there's no
- * span. Read individual values with value(i).
+ * Read-only view over a Bool array.
  */
 template <>
 class PrimitiveView<bool> {
 public:
     /*
-     * Get raw value from this view. Values at null/invalid positions are
-     * unspecified.
+     * Get bitpacked storage for this view's values. Values at null/invalid
+     * positions are unspecified
      */
-    bool value(size_t index) const;
+    BoolView values() const;
+
     bool is_null(size_t index) const {
         return validity_.is_null(index);
     }

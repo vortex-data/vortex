@@ -90,13 +90,12 @@ physical_plan
 12)------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(n_nationkey@0, c_nationkey@4)], projection=[l_extendedprice@2, l_discount@3, s_nationkey@4, o_orderdate@5, n_regionkey@1]
 13)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/nation.vortex]]}, projection=[n_nationkey, n_regionkey], file_type=vortex
 14)--------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(c_custkey@0, o_custkey@3)], projection=[l_extendedprice@2, l_discount@3, s_nationkey@4, o_orderdate@6, c_nationkey@1]
-15)----------------------CoalescePartitionsExec
-16)------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/customer.vortex:<slt:ignore>], [${WORK_DIR}/customer.vortex:<slt:ignore>], [${WORK_DIR}/customer.vortex:<slt:ignore>], [${WORK_DIR}/customer.vortex:<slt:ignore>]]}, projection=[c_custkey, c_nationkey], file_type=vortex
-17)----------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(o_orderkey@0, l_orderkey@0)], projection=[l_extendedprice@4, l_discount@5, s_nationkey@6, o_custkey@1, o_orderdate@2]
-18)------------------------CoalescePartitionsExec
-19)--------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/orders.vortex:<slt:ignore>], [${WORK_DIR}/orders.vortex:<slt:ignore>], [${WORK_DIR}/orders.vortex:<slt:ignore>], [${WORK_DIR}/orders.vortex:<slt:ignore>]]}, projection=[o_orderkey, o_custkey, o_orderdate], file_type=vortex, predicate: o_orderdate@4 >= 1995-01-01 AND o_orderdate@4 <= 1996-12-31
-20)------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_suppkey@0, l_suppkey@1)], projection=[l_orderkey@2, l_extendedprice@4, l_discount@5, s_nationkey@1]
-21)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/supplier.vortex]]}, projection=[s_suppkey, s_nationkey], file_type=vortex
-22)--------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(p_partkey@0, l_partkey@1)], projection=[l_orderkey@1, l_suppkey@3, l_extendedprice@4, l_discount@5]
-23)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/part.vortex]]}, projection=[p_partkey], file_type=vortex, predicate: p_type@4 = ECONOMY ANODIZED STEEL
-24)----------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/lineitem.vortex:<slt:ignore>], [${WORK_DIR}/lineitem.vortex:<slt:ignore>], [${WORK_DIR}/lineitem.vortex:<slt:ignore>], [${WORK_DIR}/lineitem.vortex:<slt:ignore>]]}, projection=[l_orderkey, l_partkey, l_suppkey, l_extendedprice, l_discount], file_type=vortex
+15)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer.vortex]]}, projection=[c_custkey, c_nationkey], file_type=vortex
+16)----------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(o_orderkey@0, l_orderkey@0)], projection=[l_extendedprice@4, l_discount@5, s_nationkey@6, o_custkey@1, o_orderdate@2]
+17)------------------------CoalescePartitionsExec
+18)--------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/orders.vortex:<slt:ignore>], [${WORK_DIR}/orders.vortex:<slt:ignore>], [${WORK_DIR}/orders.vortex:<slt:ignore>], [${WORK_DIR}/orders.vortex:<slt:ignore>]]}, projection=[o_orderkey, o_custkey, o_orderdate], file_type=vortex, predicate: o_orderdate@4 >= 1995-01-01 AND o_orderdate@4 <= 1996-12-31
+19)------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_suppkey@0, l_suppkey@1)], projection=[l_orderkey@2, l_extendedprice@4, l_discount@5, s_nationkey@1]
+20)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/supplier.vortex]]}, projection=[s_suppkey, s_nationkey], file_type=vortex
+21)--------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(p_partkey@0, l_partkey@1)], projection=[l_orderkey@1, l_suppkey@3, l_extendedprice@4, l_discount@5]
+22)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/part.vortex]]}, projection=[p_partkey], file_type=vortex, predicate: p_type@4 = ECONOMY ANODIZED STEEL
+23)----------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/lineitem.vortex:<slt:ignore>], [${WORK_DIR}/lineitem.vortex:<slt:ignore>], [${WORK_DIR}/lineitem.vortex:<slt:ignore>], [${WORK_DIR}/lineitem.vortex:<slt:ignore>]]}, projection=[l_orderkey, l_partkey, l_suppkey, l_extendedprice, l_discount], file_type=vortex

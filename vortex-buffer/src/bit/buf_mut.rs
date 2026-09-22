@@ -95,20 +95,23 @@ pub(crate) fn fill_bits(slice: &mut [u8], start_bit: usize, end_bit: usize, valu
 #[derive(Debug, Clone)]
 pub struct BitBufferMut {
     buffer: ByteBufferMut,
-    /// Represents the offset of the bit buffer into the first byte.
+    /// Represents the offset in bits at which the bit buffer starts.
     ///
-    /// This is always less than 8 (for when the bit buffer is not aligned to a byte).
+    /// Unlike [`BitBuffer`], this is not normalised into the first byte: [`Self::from_buffer`]
+    /// stores what the caller passed, and `BitPackedArray` passes a whole-chunk offset.
     offset: usize,
     len: usize,
 }
 
 impl BitBufferMut {
     /// Create new bit buffer from given byte buffer and logical bit length
+    ///
+    /// Panics if the buffer is not large enough to hold `len` bits after the offset.
     #[inline]
     pub fn from_buffer(buffer: ByteBufferMut, offset: usize, len: usize) -> Self {
         assert!(
-            len <= buffer.len() * 8,
-            "Buffer len {} is too short for the given length {len}",
+            len.saturating_add(offset) <= buffer.len().saturating_mul(8),
+            "Buffer len {} is too short for offset {offset} and length {len}",
             buffer.len()
         );
         Self {
@@ -180,9 +183,18 @@ impl BitBufferMut {
         Self::with_capacity_in(0, allocator)
     }
 
-    /// Returns the allocator that owns this buffer.
-    pub fn allocator(&self) -> &BufferAllocatorRef {
+    #[cfg(test)]
+    pub(crate) fn allocator(&self) -> &BufferAllocatorRef {
         self.buffer.allocator()
+    }
+
+    /// Takes the buffer, leaving an empty buffer with the same allocator.
+    pub fn take(&mut self) -> Self {
+        Self {
+            buffer: self.buffer.take(),
+            offset: std::mem::take(&mut self.offset),
+            len: std::mem::take(&mut self.len),
+        }
     }
 
     /// Create a new mutable buffer with requested `len` and all bits set to `value`.
@@ -218,7 +230,17 @@ impl BitBufferMut {
     /// Calls `f` in the same order and uses the same packing path.
     #[inline]
     pub fn collect_bool<F: FnMut(usize) -> bool>(len: usize, f: F) -> Self {
-        Self::collect_words(len, |words| collect_bool_words(words, len, f))
+        Self::collect_bool_in(len, f, BufferAllocatorRef::statically_allocated())
+    }
+
+    /// Collects predicate results with the provided allocator.
+    #[inline]
+    pub fn collect_bool_in<F: FnMut(usize) -> bool>(
+        len: usize,
+        f: F,
+        allocator: BufferAllocatorRef,
+    ) -> Self {
+        Self::collect_words_in(len, allocator, |words| collect_bool_words(words, len, f))
     }
 
     /// Mutable-buffer form of [`BitBuffer::collect_bool_multiversioned`].
@@ -226,17 +248,29 @@ impl BitBufferMut {
     /// Calls `f` in the same order and uses the same packing path.
     #[inline]
     pub fn collect_bool_multiversioned<F: FnMut(usize) -> bool>(len: usize, f: F) -> Self {
-        Self::collect_words(len, |words| {
+        Self::collect_bool_multiversioned_in(len, f, BufferAllocatorRef::statically_allocated())
+    }
+
+    /// Collects multiversioned predicate results with the provided allocator.
+    #[inline]
+    pub fn collect_bool_multiversioned_in<F: FnMut(usize) -> bool>(
+        len: usize,
+        f: F,
+        allocator: BufferAllocatorRef,
+    ) -> Self {
+        Self::collect_words_in(len, allocator, |words| {
             collect_bool_words_multiversioned(words, len, f)
         })
     }
 
-    /// Allocate a zero-copy word buffer for `len` bits, let `fill` populate it, and wrap it as a
-    /// `BitBufferMut`.
     #[inline]
-    fn collect_words(len: usize, fill: impl FnOnce(&mut [u64])) -> Self {
+    fn collect_words_in(
+        len: usize,
+        allocator: BufferAllocatorRef,
+        fill: impl FnOnce(&mut [u64]),
+    ) -> Self {
         let num_words = len.div_ceil(64);
-        let mut buffer: BufferMut<u64> = BufferMut::with_capacity(num_words);
+        let mut buffer = BufferMut::<u64>::with_capacity_in(num_words, allocator);
         // SAFETY: `fill` (a `collect_bool_words` variant) writes every word in `0..num_words`
         // below before any read; `u64` has no invalid bit patterns and the assignments inside
         // `collect_bool_words` are pure writes.
@@ -718,8 +752,10 @@ impl FromIterator<bool> for BitBufferMut {
 
 #[cfg(test)]
 mod tests {
+    use allocator_api2::alloc::Global;
     use rstest::rstest;
 
+    use crate::BufferAllocatorRef;
     use crate::BufferMut;
     use crate::bit::buf_mut::BitBufferMut;
     use crate::bitbuffer;
@@ -738,6 +774,27 @@ mod tests {
             assert!(!bools.value(i));
         }
         assert!(bools.value(9));
+    }
+
+    #[test]
+    fn take_preserves_allocator() {
+        let allocator = BufferAllocatorRef::new(Global);
+        let mut buffer = BitBufferMut::with_capacity_in(4, allocator.clone());
+        buffer.append(true);
+        buffer.append(false);
+        buffer.append(true);
+
+        let taken = buffer.take();
+
+        assert_eq!(
+            (0..taken.len())
+                .map(|index| taken.value(index))
+                .collect::<Vec<_>>(),
+            [true, false, true]
+        );
+        assert!(taken.allocator().ptr_eq(&allocator));
+        assert!(buffer.is_empty());
+        assert!(buffer.allocator().ptr_eq(&allocator));
     }
 
     #[test]
@@ -1264,5 +1321,48 @@ mod tests {
         for i in 0..10 {
             assert_eq!(bit_buf.value(i), i % 2 == 0);
         }
+    }
+
+    /// The bound has to cover the offset as well as the length, matching
+    /// `BitBuffer::new_with_offset`. One byte backs eight bits, so an offset of one leaves room
+    /// for seven.
+    #[rstest]
+    #[case(0, 8)]
+    #[case(1, 7)]
+    #[case(7, 1)]
+    #[case(8, 0)]
+    fn from_buffer_accepts_offset_plus_len_within_the_buffer(
+        #[case] offset: usize,
+        #[case] len: usize,
+    ) {
+        let bits = BitBufferMut::from_buffer(buffer_mut![0u8; 1], offset, len);
+        assert_eq!(bits.len(), len);
+    }
+
+    #[rstest]
+    #[case::offset_pushes_past_the_end(1, 8)]
+    #[case::offset_alone_past_the_end(9, 0)]
+    #[case::len_alone_past_the_end(0, 9)]
+    #[should_panic(expected = "is too short for offset")]
+    fn from_buffer_rejects_offset_plus_len_past_the_buffer(
+        #[case] offset: usize,
+        #[case] len: usize,
+    ) {
+        BitBufferMut::from_buffer(buffer_mut![0u8; 1], offset, len);
+    }
+
+    /// `BitPackedArray` passes a whole-chunk offset, so an offset far above eight is legitimate
+    /// as long as the buffer backs it.
+    #[test]
+    fn from_buffer_allows_offsets_beyond_one_byte() {
+        let bits = BitBufferMut::from_buffer(buffer_mut![0u8; 128], 1000, 24);
+        assert_eq!(bits.len(), 24);
+    }
+
+    /// Saturating arithmetic keeps a huge offset from wrapping into an accepted bound.
+    #[test]
+    #[should_panic(expected = "is too short for offset")]
+    fn from_buffer_does_not_wrap_on_a_huge_offset() {
+        BitBufferMut::from_buffer(buffer_mut![0u8; 1], usize::MAX, 8);
     }
 }

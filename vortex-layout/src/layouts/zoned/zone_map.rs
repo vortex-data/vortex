@@ -307,12 +307,22 @@ fn row_count_expr() -> Expression {
 /// `zone_len` is the nominal zone size; only the final zone may be shorter. The
 /// result is a [`ConstantArray`] for uniform zone sizes, otherwise a two-run
 /// run-end encoded array whose trailing run carries the final zone length.
+///
+/// All three arguments come from the file — `zone_len` from the zoned layout's metadata,
+/// `row_count` from the layout node, `num_zones` from the zone map's own length — and nothing ties
+/// them together, so a file may declare more zone coverage than the layout has rows.
 fn row_count_array(zone_len: u64, row_count: u64, num_zones: usize) -> VortexResult<ArrayRef> {
     if num_zones == 0 {
         return Ok(ConstantArray::new(0u64, 0).into_array());
     }
 
-    let last_zone_len = row_count - zone_len.saturating_mul((num_zones as u64) - 1);
+    let leading_rows = zone_len.saturating_mul((num_zones as u64) - 1);
+    let Some(last_zone_len) = row_count.checked_sub(leading_rows) else {
+        vortex_bail!(
+            "Zone map declares {num_zones} zones of {zone_len} rows, which is more than the \
+             {row_count} rows of the layout"
+        );
+    };
     if num_zones == 1 || last_zone_len == zone_len {
         return Ok(ConstantArray::new(last_zone_len, num_zones).into_array());
     }
@@ -339,6 +349,7 @@ mod tests {
     use std::num::NonZeroUsize;
     use std::sync::Arc;
 
+    use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::aggregate_fn::AggregateFnVTableExt;
@@ -382,6 +393,7 @@ mod tests {
     use vortex_array::stats::all_non_null;
     use vortex_array::stats::all_null;
     use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
@@ -556,6 +568,49 @@ mod tests {
             mask.into_array(),
             BoolArray::from_iter([false, false, true]),
             &mut SESSION.create_execution_ctx()
+        );
+    }
+
+    /// `zone_len`, `row_count` and the zone-map length all come from the file and nothing ties them
+    /// together, so a file can claim more zone coverage than the layout has rows. Pruning must
+    /// report that rather than underflowing the per-zone row-count arithmetic.
+    #[rstest]
+    // 4 zones of 4 rows claims 12 rows of leading coverage for a 10-row layout. (3 zones of 4 is
+    // legal — 4 + 4 + 2 — and is what `row_count_prunes_short_trailing_zone` covers.)
+    #[case::zones_overrun_row_count(4, 4, 10)]
+    // The leading zones alone already exceed the row count.
+    #[case::leading_zones_overrun(8, 3, 10)]
+    // A zero row count with a non-empty zone map.
+    #[case::no_rows_but_zones_present(4, 2, 0)]
+    fn row_count_rejects_zones_overrunning_the_layout(
+        #[case] zone_len: u64,
+        #[case] num_zones: usize,
+        #[case] row_count: u64,
+    ) {
+        let null_counts = PrimitiveArray::new(
+            Buffer::<u64>::from_iter(std::iter::repeat_n(0u64, num_zones)),
+            Validity::AllValid,
+        )
+        .into_array();
+        let zone_map = ZoneMap::try_new_legacy(
+            PType::U64.into(),
+            StructArray::from_fields(&[("null_count", null_counts)]).unwrap(),
+            Arc::new([Stat::NullCount]),
+            zone_len,
+            row_count,
+        )
+        .unwrap();
+
+        let pruning_expr = falsify(&is_not_null(root()), PType::U64.into());
+        let message = zone_map
+            .prune(&pruning_expr, &SESSION)
+            .err()
+            .map(|err| err.to_string())
+            .unwrap_or_default();
+        assert!(
+            message.contains("more than the"),
+            "zone_len {zone_len} x {num_zones} zones over {row_count} rows should have been \
+             rejected, got: {message}"
         );
     }
 

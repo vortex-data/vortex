@@ -39,7 +39,7 @@ def format_pct_change(pct: float) -> str:
     return f"{sign}{pct:.1f}%"
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Compare file sizes between base and HEAD")
     parser.add_argument("base_file", help="Base JSONL file")
     parser.add_argument("head_file", help="HEAD JSONL file")

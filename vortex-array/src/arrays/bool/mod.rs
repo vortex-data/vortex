@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod array;
+mod compact;
 mod patch;
 
 pub use array::BoolArrayExt;

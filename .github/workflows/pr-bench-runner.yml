@@ -53,7 +53,7 @@ jobs:
           RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
         run: |
           cargo build --package ${{ inputs.benchmark_id }} --profile release_debug \
-            --features ${{ inputs.with_lance && 'lance,' || '' }}unstable_encodings
+            ${{ inputs.with_lance && '--features lance' || '' }}
       - name: Pre-upload benchmark debuginfo to Polar Signals
         if: github.event.pull_request.head.repo.fork == false
         uses: ./.github/actions/upload-parca-debuginfo
@@ -130,7 +130,6 @@ jobs:
         shell: bash
         env:
           RUST_BACKTRACE: full
-          VORTEX_EXPERIMENTAL_PATCHED_ARRAY: "1"
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
         run: |
           python3 scripts/random-access-split.py
@@ -140,7 +139,6 @@ jobs:
         shell: bash
         env:
           RUST_BACKTRACE: full
-          VORTEX_EXPERIMENTAL_PATCHED_ARRAY: "1"
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
         run: |
           python3 scripts/compress-split.py
@@ -150,14 +148,13 @@ jobs:
         shell: bash
         env:
           RUST_BACKTRACE: full
-          VORTEX_EXPERIMENTAL_PATCHED_ARRAY: "1"
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
         run: |
           python3 scripts/string-split.py
 
       - name: Setup AWS CLI
         if: github.event.pull_request.head.repo.fork == false
-        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c  # v6
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
         with:
           role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
           aws-region: us-east-1

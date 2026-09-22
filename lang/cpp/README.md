@@ -17,7 +17,7 @@ cmake --build build/cpp --parallel
 CMake runs Cargo for you. Configuration and builds download uncached dependencies.
 
 **Native builds only:** GNU/Linux x86_64 and aarch64, plus macOS arm64 for standalone development.
-Cross-compilation, universal binaries, Windows, musl, and shared Vortex targets are unsupported.
+Cross-compilation, universal binaries, Windows, and musl are unsupported.
 
 ## Embed in a CMake project
 
@@ -25,11 +25,16 @@ Vendor or fetch a pinned, complete checkout:
 
 ```cmake
 add_subdirectory(path/to/vortex vortex)
-target_link_libraries(my_cpp_target PRIVATE Vortex::cpp_static)
-target_link_libraries(my_c_target PRIVATE Vortex::ffi_static)
+target_link_libraries(my_cpp_target PRIVATE Vortex::cpp)
+target_link_libraries(my_c_target PRIVATE Vortex::ffi)
 ```
 
 Vortex leaves parent build settings unchanged. Its archives are position-independent.
+
+`Vortex::cpp` and `Vortex::ffi` follow `BUILD_SHARED_LIBS` when Vortex is configured:
+`OFF` selects static linkage; `ON` selects shared linkage. Set it before adding Vortex.
+The explicit `Vortex::cpp_static`, `Vortex::cpp_shared`, `Vortex::ffi_static`, and
+`Vortex::ffi_shared` targets remain available regardless of the option.
 
 ## Build options
 
@@ -38,6 +43,7 @@ options. Defaults below are for standalone builds.
 
 | Option                      | Default  | Purpose                                                     |
 | --------------------------- | -------- | ----------------------------------------------------------- |
+| `BUILD_SHARED_LIBS`         | `OFF`    | Select shared linkage for default targets.                  |
 | `VORTEX_BUILD_TESTS`        | `OFF`    | C API and C++23 wrapper tests.                              |
 | `VORTEX_BUILD_EXAMPLES`     | `OFF`    | C/C++ examples.                                             |
 | `VORTEX_WARNINGS_AS_ERRORS` | `ON`     | Warnings as errors for Vortex targets only.                 |
@@ -45,7 +51,17 @@ options. Defaults below are for standalone builds.
 | `VORTEX_RUSTUP_TOOLCHAIN`   | Inferred | [Rust toolchain override](#toolchain-and-build-behavior).   |
 | `VORTEX_SANITIZER`          | Empty    | [Sanitizers](#sanitizers): `asan`, `lsan`, `ubsan`, `tsan`. |
 | `VORTEX_SANITIZE_RUST_STD`  | `OFF`    | Also instrument Rust's standard library.                    |
+| `VORTEX_DEBUG_INFO`         | `2`      | C/C++ and Rust debug info: `0` none, `1` limited, `2` full. |
 | `VORTEX_ENABLE_CUDA`        | `OFF`    | Linux-only [CUDA build](#cuda).                             |
+
+Tests and examples use the selected Vortex linkage and Nanoarrow's corresponding
+`nanoarrow::nanoarrow` target. Catch2 also follows `BUILD_SHARED_LIBS`; header-only
+dependencies have no linkage choice. Dependencies already configured by a parent keep
+their existing configuration, so set the option consistently before fetching dependencies.
+
+The Rust implementation is always built as a position-independent static archive,
+embedded into the shared FFI library when shared linkage is selected. `BUILD_SHARED_LIBS=OFF`
+does not request a fully static executable or change system/CUDA runtime linkage.
 
 Embedded builds default `VORTEX_WARNINGS_AS_ERRORS` to `OFF`. Parents must call
 `enable_testing()` to register tests.
@@ -171,7 +187,7 @@ This does not retarget the prebuilt nvCOMP SDK.
 
 - Kernel sources are generated in the checkout. Compiled kernels live in Cargo's build directory
   and are embedded in the archive as fat binaries.
-- CMake does not stage shared libraries. `libvortex_cub.so` must remain at its Cargo build path
+- CMake does not stage CUDA dependency libraries. `libvortex_cub.so` must remain at its Cargo build path
   or beside the executable. `libnvcomp.so` is loaded from its original Cargo build path.
 - CUDA operations require a compatible NVIDIA driver and an accessible GPU.
 

@@ -204,6 +204,26 @@ where
     properties.get(key).cloned().or_else(|| env_lookup(env_var))
 }
 
+/// Take `key` from `properties` as a boolean, accepting the spellings `object_store` accepts in
+/// its own configuration: `1`/`true`/`on`/`yes`/`y` and their negatives, case-insensitively.
+///
+/// An absent key is `false`. A value that is not a boolean is warned about and read as `false`,
+/// which is how [`warn_on_unknown_properties`] already treats a key the service cannot use.
+#[cfg(any(feature = "cos", feature = "oss"))]
+pub(crate) fn property_as_bool(properties: &HashMap<String, String>, key: &str) -> bool {
+    let Some(value) = properties.get(key) else {
+        return false;
+    };
+    match value.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "on" | "yes" | "y" => true,
+        "0" | "false" | "off" | "no" | "n" => false,
+        _ => {
+            warn!("ignoring OpenDAL store property {key}: `{value}` is not a boolean");
+            false
+        }
+    }
+}
+
 /// Log a warning for every property key the service does not recognize.
 #[cfg(any(feature = "cos", feature = "goosefs", feature = "oss"))]
 pub(crate) fn warn_on_unknown_properties(properties: &HashMap<String, String>, known: &[&str]) {
@@ -264,5 +284,39 @@ mod tests {
                 "{scheme} is advertised but not dispatched"
             );
         }
+    }
+
+    /// The spellings `object_store` accepts for its own boolean configuration, so that the same
+    /// property means the same thing whether a URL resolves to a native store or an OpenDAL one.
+    /// Values reach us verbatim from the caller's property map, hence the case and whitespace
+    /// cases; anything that is not a boolean stays `false` rather than becoming an error.
+    #[cfg(any(feature = "cos", feature = "oss"))]
+    #[rstest::rstest]
+    #[case("true", true)]
+    #[case("True", true)]
+    #[case("TRUE", true)]
+    #[case(" true ", true)]
+    #[case("1", true)]
+    #[case("on", true)]
+    #[case("yes", true)]
+    #[case("y", true)]
+    #[case("false", false)]
+    #[case("False", false)]
+    #[case("0", false)]
+    #[case("off", false)]
+    #[case("no", false)]
+    #[case("n", false)]
+    #[case("maybe", false)]
+    #[case("", false)]
+    fn property_as_bool_matches_object_store(#[case] value: &str, #[case] expected: bool) {
+        let mut props = HashMap::new();
+        props.insert("skip_signature".to_string(), value.to_string());
+        assert_eq!(property_as_bool(&props, "skip_signature"), expected);
+    }
+
+    #[cfg(any(feature = "cos", feature = "oss"))]
+    #[test]
+    fn property_as_bool_is_false_when_absent() {
+        assert!(!property_as_bool(&HashMap::new(), "skip_signature"));
     }
 }

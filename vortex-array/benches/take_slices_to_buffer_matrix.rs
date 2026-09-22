@@ -14,12 +14,16 @@
 
 use divan::Bencher;
 use divan::counter::BytesCount;
+use mimalloc::MiMalloc;
 use rand::SeedableRng;
 use rand::prelude::*;
 use rand_distr::Distribution;
 use rand_distr::Normal;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     divan::main();
@@ -290,8 +294,7 @@ fn preverify(source_len: usize, starts: &[usize], lengths: &[usize], output_len:
 
 fn copy_to_spare(result: &mut BufferMut<u16>, cursor: usize, source: &[u16]) {
     let dst = &mut result.spare_capacity_mut()[cursor..][..source.len()];
-    // SAFETY: `dst` has exactly `source.len()` spare slots and does not overlap with source.
-    unsafe { copy_to_uninit(dst.as_mut_ptr().cast(), source) };
+    dst.write_copy_of_slice(source);
 }
 
 unsafe fn copy_to_spare_unchecked(result: &mut BufferMut<u16>, cursor: usize, source: &[u16]) {
@@ -301,8 +304,7 @@ unsafe fn copy_to_spare_unchecked(result: &mut BufferMut<u16>, cursor: usize, so
             .spare_capacity_mut()
             .get_unchecked_mut(cursor..cursor + source.len())
     };
-    // SAFETY: `dst` has exactly `source.len()` spare slots and does not overlap with source.
-    unsafe { copy_to_uninit(dst.as_mut_ptr().cast(), source) };
+    dst.write_copy_of_slice(source);
 }
 
 unsafe fn copy_to_uninit(dst: *mut u16, source: &[u16]) {

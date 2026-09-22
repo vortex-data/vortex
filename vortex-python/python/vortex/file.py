@@ -8,11 +8,11 @@ from typing import TYPE_CHECKING, final
 
 import pyarrow as pa
 
-from ._lib import file as _file  # pyright: ignore[reportMissingModuleSource]
-from ._lib.arrays import Array  # pyright: ignore[reportMissingModuleSource]
-from ._lib.dtype import DType  # pyright: ignore[reportMissingModuleSource]
-from ._lib.expr import Expr  # pyright: ignore[reportMissingModuleSource]
-from ._lib.iter import ArrayIterator  # pyright: ignore[reportMissingModuleSource]
+from ._lib import file as _file
+from ._lib.arrays import Array
+from ._lib.dtype import DType
+from ._lib.expr import Expr
+from ._lib.iter import ArrayIterator
 from .dataset import VortexDataset
 from .scan import RepeatedScan
 from .store import (
@@ -66,7 +66,7 @@ def open(
 
 @final
 class VortexFile:
-    def __init__(self, file: _file.VortexFile):
+    def __init__(self, file: _file.VortexFile) -> None:
         self._file = file
 
     def __len__(self) -> int:
@@ -253,17 +253,17 @@ class VortexFile:
             reader = self.to_arrow(projection=with_columns, expr=vx_predicate, limit=n_rows)
 
             for batch in reader:
-                batch = pl.DataFrame._from_arrow(batch, rechunk=False)  # pyright: ignore[reportPrivateUsage]
+                batch = pl.DataFrame._from_arrow(batch, rechunk=False)
                 # TODO(ngates): set sortedness on DataFrame based on stats?
                 yield batch
 
             # Make sure we always yield at least one empty DataFrame
-            yield pl.DataFrame._from_arrow(  # pyright: ignore[reportPrivateUsage]
-                data=pa.RecordBatch.from_arrays(  # pyright: ignore[reportUnknownMemberType]
-                    [pa.array([], type=field.type) for field in reader.schema],  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType, reportUnknownVariableType]
+            yield pl.DataFrame._from_arrow(
+                data=pa.RecordBatch.from_arrays(
+                    [pa.array([], type=field.type) for field in reader.schema],
                     schema=reader.schema,
                 ),
             )
 
         # https://github.com/pola-rs/polars/pull/24125
-        return register_io_source(_io_source, schema=schema)  # pyright: ignore[reportArgumentType]
+        return register_io_source(_io_source, schema=schema)  # ty: ignore[invalid-argument-type]

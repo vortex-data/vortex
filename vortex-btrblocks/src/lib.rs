@@ -78,6 +78,7 @@ mod trace_tests;
 // Btrblocks-specific exports.
 pub use builder::ALL_SCHEMES;
 pub use builder::BtrBlocksCompressorBuilder;
+pub use builder::DELTA_SCHEME;
 pub use canonical_compressor::BtrBlocksCompressor;
 pub use schemes::patches::compress_patches;
 pub use vortex_compressor::CascadingCompressor;

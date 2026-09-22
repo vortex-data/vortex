@@ -7,7 +7,7 @@ from typing import Any, Protocol, Self, TypedDict, Unpack
 
 from typing_extensions import override
 
-from .._lib import store as _store  # pyright: ignore[reportMissingModuleSource]
+from .._lib import store as _store
 from ._client import ClientConfig
 from ._retry import RetryConfig
 
@@ -92,7 +92,7 @@ class GCSCredentialProvider(Protocol):
 
     """
 
-    def __call__(self) -> GCSCredential | Coroutine[Any, Any, GCSCredential]:  # pyright: ignore[reportExplicitAny]
+    def __call__(self) -> GCSCredential | Coroutine[Any, Any, GCSCredential]:
         """Return a ``GCSCredential``."""
         ...
 
@@ -117,7 +117,7 @@ class GCSStore(_store.GCSStore):
         client_options: ClientConfig | None = None,
         retry_config: RetryConfig | None = None,
         credential_provider: GCSCredentialProvider | None = None,
-        **kwargs: Unpack[GCSConfig],  # pyright: ignore[reportGeneralTypeIssues]
+        **kwargs: Unpack[GCSConfig],  # ty: ignore[invalid-type-form]
     ) -> Self:
         """Construct a new GCSStore.
 
@@ -138,7 +138,7 @@ class GCSStore(_store.GCSStore):
             GCSStore
 
         """
-        return super().__new__(  # pyright: ignore[reportUnknownVariableType]
+        return super().__new__(
             cls,
             bucket,
             prefix=prefix,
@@ -146,7 +146,8 @@ class GCSStore(_store.GCSStore):
             client_options=client_options,
             retry_config=retry_config,
             credential_provider=credential_provider,
-            **kwargs,  # pyright: ignore[reportCallIssue]
+            # bucket appears in both GCSConfig and explicitly above
+            **kwargs,  # ty: ignore[parameter-already-assigned]
         )
 
     @override
@@ -205,8 +206,8 @@ class GCSStore(_store.GCSStore):
         return super().__eq__(value)
 
     @override
-    def __getnewargs_ex__(self):  # pyright: ignore[reportUnknownParameterType]
-        return super().__getnewargs_ex__()  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
+    def __getnewargs_ex__(self) -> tuple[tuple[()], dict[str, object]]:
+        return super().__getnewargs_ex__()
 
     @property
     @override

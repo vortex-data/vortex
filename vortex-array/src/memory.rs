@@ -75,6 +75,44 @@ pub trait MemorySessionExt: SessionExt {
 impl<S: SessionExt> MemorySessionExt for S {}
 
 #[cfg(test)]
+pub(crate) mod test_allocator {
+    use std::alloc::Layout;
+    use std::ptr::NonNull;
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
+    use allocator_api2::alloc::AllocError;
+    use allocator_api2::alloc::Allocator;
+    use allocator_api2::alloc::Global;
+
+    use super::BufferAllocatorRef;
+
+    #[derive(Debug)]
+    struct CountingAllocator(Arc<AtomicUsize>);
+
+    unsafe impl Allocator for CountingAllocator {
+        fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            Global.allocate(layout)
+        }
+
+        unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
+            // SAFETY: the allocation came from Global with this layout.
+            unsafe { Global.deallocate(ptr, layout) }
+        }
+    }
+
+    pub(crate) fn counting_allocator() -> (BufferAllocatorRef, Arc<AtomicUsize>) {
+        let allocations = Arc::new(AtomicUsize::new(0));
+        (
+            BufferAllocatorRef::new(CountingAllocator(Arc::clone(&allocations))),
+            allocations,
+        )
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use vortex_buffer::BufferAllocatorRef;
 

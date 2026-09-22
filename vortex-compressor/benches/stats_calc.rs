@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use mimalloc::MiMalloc;
+
 #[cfg(not(codspeed))]
 #[divan::bench_group(items_count = 64_000u32, bytes_count = 256_000u32)]
 mod benchmarks {
@@ -87,6 +89,9 @@ mod benchmarks {
             });
     }
 }
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     divan::main();

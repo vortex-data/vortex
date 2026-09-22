@@ -37,7 +37,6 @@ pub mod test_harness;
 #[cfg(test)]
 mod tests;
 
-use std::error::Error;
 use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Display;
@@ -48,6 +47,8 @@ pub use declarations::EDITION_FAMILIES;
 pub use session::EditionSession;
 pub use session::EditionSessionExt;
 pub use session::EnabledEditions;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_session::registry::Id;
 
 /// The identifier of an edition, e.g. `core2026.07.0`.
@@ -92,21 +93,15 @@ impl EditionId {
     /// and a month in 01-12. Checked for every declared edition by
     /// [`EditionSession::validate`] and per edition by
     /// [`test_harness::validate_edition`].
-    pub fn validate(&self) -> Result<(), EditionError> {
+    pub fn validate(&self) -> VortexResult<()> {
         if self.family.is_empty() || !self.family.chars().all(|c| c.is_ascii_lowercase()) {
-            return Err(EditionError::new(format!(
-                "edition {self} must have a non-empty lowercase family, e.g. `core`"
-            )));
+            vortex_bail!("edition {self} must have a non-empty lowercase family, e.g. `core`");
         }
         if !(1000..=9999).contains(&self.year) {
-            return Err(EditionError::new(format!(
-                "edition {self} must have a four-digit year"
-            )));
+            vortex_bail!("edition {self} must have a four-digit year");
         }
         if !(1..=12).contains(&self.month) {
-            return Err(EditionError::new(format!(
-                "edition {self} must have a month in 01-12"
-            )));
+            vortex_bail!("edition {self} must have a month in 01-12");
         }
         Ok(())
     }
@@ -143,24 +138,21 @@ pub struct EditionFamily {
 impl EditionFamily {
     /// Validate the family's form: a non-empty lowercase name, origin, and doc. Checked for every
     /// declared family by [`EditionSession::validate`].
-    pub fn validate(&self) -> Result<(), EditionError> {
+    pub fn validate(&self) -> VortexResult<()> {
         if self.name.is_empty() || !self.name.chars().all(|c| c.is_ascii_lowercase()) {
-            return Err(EditionError::new(format!(
+            vortex_bail!(
                 "edition family {:?} must have a non-empty lowercase name, e.g. `core`",
                 self.name
-            )));
+            );
         }
         if self.origin.trim().is_empty() {
-            return Err(EditionError::new(format!(
+            vortex_bail!(
                 "edition family {} must name its origin library or project",
                 self.name
-            )));
+            );
         }
         if self.doc.trim().is_empty() {
-            return Err(EditionError::new(format!(
-                "edition family {} must document what it is for",
-                self.name
-            )));
+            vortex_bail!("edition family {} must document what it is for", self.name);
         }
         Ok(())
     }
@@ -367,7 +359,7 @@ impl EditionInclusion {
     /// Validate the declaration's form: a lowercase `namespace.name` component id and, if
     /// recorded, a well-formed `major.minor.patch` release. Checked for every declared
     /// inclusion by [`EditionSession::validate`].
-    pub fn validate(&self) -> Result<(), EditionError> {
+    pub fn validate(&self) -> VortexResult<()> {
         let id = self.component_id.as_str();
         let well_formed = !id.starts_with('.')
             && !id.ends_with('.')
@@ -376,18 +368,18 @@ impl EditionInclusion {
                 .chars()
                 .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || "._-".contains(c));
         if !well_formed {
-            return Err(EditionError::new(format!(
+            vortex_bail!(
                 "invalid {} id {id:?}: expected lowercase `namespace.name`, e.g. `vortex.alp`",
                 self.kind
-            )));
+            );
         }
         if let Some(release) = self.required_vortex_release
             && parse_release(release).is_none()
         {
-            return Err(EditionError::new(format!(
+            vortex_bail!(
                 "{} {id} declares malformed required_vortex_release {release:?}",
                 self.kind
-            )));
+            );
         }
         Ok(())
     }
@@ -401,22 +393,3 @@ pub(crate) fn parse_release(release: &str) -> Option<Vec<u64>> {
         .collect::<Option<_>>()?;
     (parts.len() == 3).then_some(parts)
 }
-
-/// Error raised when edition declarations are inconsistent.
-#[derive(Debug)]
-pub struct EditionError(String);
-
-impl EditionError {
-    /// Create an error with the given message.
-    pub fn new(msg: impl Into<String>) -> Self {
-        Self(msg.into())
-    }
-}
-
-impl Display for EditionError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl Error for EditionError {}

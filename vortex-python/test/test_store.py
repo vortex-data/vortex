@@ -3,9 +3,23 @@
 
 from pathlib import Path
 
-from vortex.store import LocalStore
+import pytest
+from vortex.store import HTTPStore, LocalStore, S3Store
 
 import vortex as vx
+
+
+@pytest.mark.parametrize(
+    "store_type, url, options",
+    [
+        (LocalStore, "file:///", {}),
+        (HTTPStore, "https://example.com/data", {}),
+        (S3Store, "s3://test-bucket/data", {"region": "us-east-1", "skip_signature": True}),
+    ],
+)
+def test_store_from_url(store_type, url, options):
+    store = store_type.from_url(url, **options)
+    assert isinstance(store, store_type)
 
 
 def test_store_roundtrip(tmp_path: Path) -> None:

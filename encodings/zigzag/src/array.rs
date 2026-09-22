@@ -231,6 +231,8 @@ impl Default for ZigZagData {
 }
 
 impl OperationsVTable<ZigZag> for ZigZag {
+    type ProbeState = ();
+
     fn scalar_at(
         array: ArrayView<'_, ZigZag>,
         index: usize,

@@ -1,6 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
-# pyright: reportAny=false, reportExplicitAny=false
 
 import gc
 import sys
@@ -20,25 +19,25 @@ def workspace_version() -> str:
     return cast(str, workspace_pyproject["workspace"]["package"]["version"])
 
 
-def test_extension_is_detected_by_base():
+def test_extension_is_detected_by_base() -> None:
     assert vortex.cuda_extension_installed() is True
 
 
-def test_cuda_available_returns_bool():
+def test_cuda_available_returns_bool() -> None:
     assert isinstance(vortex_cuda.cuda_available(), bool)
 
 
-def test_extension_exact_pins_base_package():
+def test_extension_exact_pins_base_package() -> None:
     pyproject = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())
 
     assert pyproject["project"]["dependencies"] == [f"vortex-data=={workspace_version()}"]
 
 
-def test_to_cudf_is_exported():
+def test_to_cudf_is_exported() -> None:
     assert "to_cudf" in vortex_cuda.__all__
 
 
-def test_import_installs_array_to_cudf(monkeypatch: pytest.MonkeyPatch):
+def test_import_installs_array_to_cudf(monkeypatch: pytest.MonkeyPatch) -> None:
     array = vortex.Array.from_range(range(0, 3))
     calls: list[tuple[object, str]] = []
 
@@ -52,7 +51,7 @@ def test_import_installs_array_to_cudf(monkeypatch: pytest.MonkeyPatch):
     assert calls == [(array, "error")]
 
 
-def test_import_installs_array_arrow_c_device_array_on_cuda(monkeypatch: pytest.MonkeyPatch):
+def test_import_installs_array_arrow_c_device_array_on_cuda(monkeypatch: pytest.MonkeyPatch) -> None:
     array = vortex.Array.from_range(range(0, 3))
 
     if not vortex_cuda.cuda_available():
@@ -75,17 +74,17 @@ def test_import_installs_array_arrow_c_device_array_on_cuda(monkeypatch: pytest.
     assert calls == [(array, "requested", {"future": None})]
 
 
-def test_to_cudf_rejects_unsupported_fallback():
+def test_to_cudf_rejects_unsupported_fallback() -> None:
     with pytest.raises(NotImplementedError, match="fallback='error'"):
         _ = vortex_cuda.to_cudf(vortex.Array.from_range(range(0, 3)), fallback="host")
 
 
-def test_to_cudf_rejects_non_vortex_array():
+def test_to_cudf_rejects_non_vortex_array() -> None:
     with pytest.raises(TypeError, match="vortex.Array"):
         _ = vortex_cuda.to_cudf(object())
 
 
-def test_to_cudf_cuda_unavailable_rejects_without_importing_cudf(monkeypatch: pytest.MonkeyPatch):
+def test_to_cudf_cuda_unavailable_rejects_without_importing_cudf(monkeypatch: pytest.MonkeyPatch) -> None:
     def fail_import_cudf_modules() -> tuple[object, object]:
         raise AssertionError("unexpected import of cuDF modules")
 
@@ -96,7 +95,7 @@ def test_to_cudf_cuda_unavailable_rejects_without_importing_cudf(monkeypatch: py
         _ = vortex_cuda.to_cudf(vortex.Array.from_range(range(0, 3)))
 
 
-def test_to_cudf_non_struct_uses_pylibcudf_column_from_arrow(monkeypatch: pytest.MonkeyPatch):
+def test_to_cudf_non_struct_uses_pylibcudf_column_from_arrow(monkeypatch: pytest.MonkeyPatch) -> None:
     array = vortex.Array.from_range(range(0, 3))
     fake_column = object()
 
@@ -133,7 +132,7 @@ def test_to_cudf_non_struct_uses_pylibcudf_column_from_arrow(monkeypatch: pytest
     assert vortex_cuda.to_cudf(array) is fake_series
 
 
-def test_to_cudf_struct_uses_pylibcudf_table_from_arrow(monkeypatch: pytest.MonkeyPatch):
+def test_to_cudf_struct_uses_pylibcudf_table_from_arrow(monkeypatch: pytest.MonkeyPatch) -> None:
     import pyarrow as pa
 
     array = vortex.Array.from_arrow(pa.table({"x": [1, None, 3], "y": [4.0, 5.0, 6.0]}))
@@ -173,7 +172,7 @@ def test_to_cudf_struct_uses_pylibcudf_table_from_arrow(monkeypatch: pytest.Monk
     assert fake_dataframe.columns == ["x", "y"]
 
 
-def test_to_cudf_nullable_struct_rejects_without_importing_cudf(monkeypatch: pytest.MonkeyPatch):
+def test_to_cudf_nullable_struct_rejects_without_importing_cudf(monkeypatch: pytest.MonkeyPatch) -> None:
     import pyarrow as pa
 
     array = vortex.Array.from_arrow(pa.array([{"x": 1}, None], type=pa.struct([("x", pa.int64())])))
@@ -188,7 +187,7 @@ def test_to_cudf_nullable_struct_rejects_without_importing_cudf(monkeypatch: pyt
         _ = vortex_cuda.to_cudf(array)
 
 
-def test_to_cudf_real_cudf_smoke():
+def test_to_cudf_real_cudf_smoke() -> None:
     cudf_module = cast(object, pytest.importorskip("cudf"))
     pylibcudf_module = cast(object, pytest.importorskip("pylibcudf"))
     assert cudf_module is not None

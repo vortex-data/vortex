@@ -15,6 +15,8 @@ use std::sync::Arc;
 use arrow_schema::ffi::FFI_ArrowSchema;
 use vortex::array::stream::ArrayStreamExt;
 use vortex::compressor::BtrBlocksCompressorBuilder;
+use vortex::editions::ComponentKind;
+use vortex::editions::EditionSessionExt;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 use vortex::file::OpenOptionsSessionExt;
@@ -142,9 +144,18 @@ pub unsafe extern "C-unwind" fn vx_cuda_array_sink_open_file_block_rows(
     error_out: *mut *mut vx_error,
 ) -> *mut vx_array_sink {
     try_or(error_out, ptr::null_mut(), || {
-        session_with_cuda(unsafe { vx_session_ref(session) }?)?;
+        let vortex_session = unsafe { vx_session_ref(session) }?;
+        session_with_cuda(vortex_session)?;
+        let allowed_encodings = vortex_session
+            .enabled_component_ids(ComponentKind::Array)
+            .into_iter()
+            .collect();
         let mut strategy = WriteStrategyBuilder::default()
-            .with_btrblocks_builder(BtrBlocksCompressorBuilder::default().only_cuda_compatible())
+            .with_btrblocks_builder(
+                BtrBlocksCompressorBuilder::default()
+                    .only_cuda_compatible()
+                    .retain_allowed_encodings(&allowed_encodings),
+            )
             .with_flat_strategy(Arc::new(CudaFlatLayoutStrategy::default()));
         if block_rows > 0 {
             // The default byte-size target can coalesce several row blocks into one data block.

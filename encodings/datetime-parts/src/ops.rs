@@ -17,6 +17,8 @@ use crate::timestamp;
 use crate::timestamp::TimestampParts;
 
 impl OperationsVTable<DateTimeParts> for DateTimeParts {
+    type ProbeState = ();
+
     fn scalar_at(
         array: ArrayView<'_, DateTimeParts>,
         index: usize,
@@ -37,24 +39,24 @@ impl OperationsVTable<DateTimeParts> for DateTimeParts {
             return Ok(Scalar::null(DType::Extension(ext)));
         }
 
-        let days: i64 = array
+        let days: i32 = array
             .days()
             .execute_scalar(index, ctx)?
             .as_primitive()
-            .as_::<i64>()
-            .vortex_expect("days fits in i64");
-        let seconds: i64 = array
+            .as_::<i32>()
+            .vortex_expect("days fits in i32");
+        let seconds: i32 = array
             .seconds()
             .execute_scalar(index, ctx)?
             .as_primitive()
-            .as_::<i64>()
-            .vortex_expect("seconds fits in i64");
-        let subseconds: i64 = array
+            .as_::<i32>()
+            .vortex_expect("seconds fits in i32");
+        let subseconds: i32 = array
             .subseconds()
             .execute_scalar(index, ctx)?
             .as_primitive()
-            .as_::<i64>()
-            .vortex_expect("subseconds fits in i64");
+            .as_::<i32>()
+            .vortex_expect("subseconds fits in i32");
 
         let ts = timestamp::combine(
             TimestampParts {

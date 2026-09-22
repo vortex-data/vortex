@@ -47,7 +47,7 @@ def _css(app: Sphinx) -> None:
         out.write_text(css)
 
 
-def _filter_assets(app: Sphinx, pagename: str, templatename: str, context: dict[str, Any], doctree: Any) -> None:
+def _filter_assets(app: Sphinx, pagename: str, templatename: str, context: dict[str, Any], doctree: object) -> None:
     allowed_js = _SEARCH_JS if pagename == "search" else _PAGE_JS
     context["script_files"] = [
         js for js in context.get("script_files", ()) if str(getattr(js, "filename", js)) in allowed_js
@@ -65,7 +65,7 @@ _TOC_CURRENT_PARENT = re.compile(r'(<a aria-current="page" (?:(?!</a>).)*</a>)<d
 _TOC_CURRENT_LINK = re.compile(r'<a class="([^"]*\bcurrent\b[^"]*)"')
 
 
-def _toc(app: Sphinx, pagename: str, templatename: str, context: dict[str, Any], doctree: Any) -> None:
+def _toc(app: Sphinx, pagename: str, templatename: str, context: dict[str, Any], doctree: object) -> None:
     toctree = context.get("toctree")
     if toctree is None:
         context["vortex_globaltoc"] = ""

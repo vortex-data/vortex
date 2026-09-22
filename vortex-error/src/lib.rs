@@ -342,8 +342,10 @@ where
     #[allow(clippy::inline_always)]
     #[inline(always)]
     fn vortex_expect(self, msg: &'static str) -> Self::Output {
-        self.map_err(|err| err.into())
-            .unwrap_or_else(|e| vortex_panic!(e.with_context(msg.to_string())))
+        match self {
+            Ok(value) => value,
+            Err(err) => __private::result_expect_failed(err, msg),
+        }
     }
 }
 
@@ -353,80 +355,46 @@ impl<T> VortexExpect for Option<T> {
     #[allow(clippy::inline_always)]
     #[inline(always)]
     fn vortex_expect(self, msg: &'static str) -> Self::Output {
-        self.unwrap_or_else(|| {
-            let err = VortexError::AssertionFailed(
-                msg.to_string().into(),
-                Box::new(Backtrace::capture()),
-            );
-            vortex_panic!(err)
-        })
+        match self {
+            Some(value) => value,
+            None => __private::option_expect_failed(msg),
+        }
     }
 }
 
 /// A convenient macro for creating a VortexError.
 #[macro_export]
 macro_rules! vortex_err {
-    (Other: $($tts:tt)*) => {{
-        use std::backtrace::Backtrace;
-        let err_string = format!($($tts)*);
-        $crate::__private::must_use(
-            $crate::VortexError::Other(err_string.into(), Box::new(Backtrace::capture()))
-        )
-    }};
-    (AssertionFailed: $($tts:tt)*) => {{
-        use std::backtrace::Backtrace;
-        let err_string = format!($($tts)*);
-        $crate::__private::must_use(
-            $crate::VortexError::AssertionFailed(err_string.into(), Box::new(Backtrace::capture()))
-        )
-    }};
+    (Other: $($tts:tt)*) => {
+        $crate::__private::fmt_err($crate::VortexError::Other, &format_args!($($tts)*))
+    };
+    (AssertionFailed: $($tts:tt)*) => {
+        $crate::__private::fmt_err($crate::VortexError::AssertionFailed, &format_args!($($tts)*))
+    };
     (IOError: $($tts:tt)*) => {{
         use std::backtrace::Backtrace;
         $crate::__private::must_use(
             $crate::VortexError::IOError(err_string.into(), Box::new(Backtrace::capture()))
         )
     }};
-    (OutOfBounds: $idx:expr, $start:expr, $stop:expr) => {{
-        use std::backtrace::Backtrace;
-        $crate::__private::must_use(
-            $crate::VortexError::OutOfBounds($idx, $start, $stop, Box::new(Backtrace::capture()))
-        )
-    }};
-    (NotImplemented: $func:expr, $by_whom:expr) => {{
-        use std::backtrace::Backtrace;
-        $crate::__private::must_use(
-            $crate::VortexError::NotImplemented($func.into(), format!("{}", $by_whom).into(), Box::new(Backtrace::capture()))
-        )
-    }};
-    (MismatchedTypes: $expected:literal, $actual:expr) => {{
-        use std::backtrace::Backtrace;
-        $crate::__private::must_use(
-            $crate::VortexError::MismatchedTypes($expected.into(), $actual.to_string().into(), Box::new(Backtrace::capture()))
-        )
-    }};
-    (MismatchedTypes: $expected:expr, $actual:expr) => {{
-        use std::backtrace::Backtrace;
-        $crate::__private::must_use(
-            $crate::VortexError::MismatchedTypes($expected.to_string().into(), $actual.to_string().into(), Box::new(Backtrace::capture()))
-        )
-    }};
-    (Context: $msg:literal, $err:expr) => {{
-        $crate::__private::must_use(
-            $crate::VortexError::Context($msg.into(), Box::new($err))
-        )
-    }};
-    (External: $err:expr) => {{
-        use std::backtrace::Backtrace;
-        $crate::__private::must_use(
-            $crate::VortexError::External($err.into(), Box::new(Backtrace::capture()))
-        )
-    }};
-    ($variant:ident: $fmt:literal $(, $arg:expr)* $(,)?) => {{
-        use std::backtrace::Backtrace;
-        $crate::__private::must_use(
-            $crate::VortexError::$variant(format!($fmt, $($arg),*).into(), Box::new(Backtrace::capture()))
-        )
-    }};
+    (OutOfBounds: $idx:expr, $start:expr, $stop:expr) => {
+        $crate::__private::out_of_bounds($idx, $start, $stop)
+    };
+    (NotImplemented: $func:expr, $by_whom:expr) => {
+        $crate::__private::not_implemented($func, &format_args!("{}", $by_whom))
+    };
+    (MismatchedTypes: $expected:expr, $actual:expr) => {
+        $crate::__private::mismatched_types(&$expected, &$actual)
+    };
+    (Context: $msg:literal, $err:expr) => {
+        $crate::__private::context($msg, $err)
+    };
+    (External: $err:expr) => {
+        $crate::__private::external($err)
+    };
+    ($variant:ident: $fmt:literal $(, $arg:expr)* $(,)?) => {
+        $crate::__private::fmt_err($crate::VortexError::$variant, &format_args!($fmt $(, $arg)*))
+    };
     ($variant:ident: $err:expr $(,)?) => {
         $crate::__private::must_use(
             $crate::VortexError::$variant($err)
@@ -495,17 +463,15 @@ macro_rules! vortex_panic {
     ($variant:ident: $fmt:literal $(, $arg:expr)* $(,)?) => {
         $crate::vortex_panic!($crate::vortex_err!($variant: $fmt, $($arg),*))
     };
-    ($err:expr, $fmt:literal $(, $arg:expr)* $(,)?) => {{
-        let err: $crate::VortexError = $err;
-        panic!("{}", err.with_context(format!($fmt, $($arg),*)))
-    }};
-    ($fmt:literal $(, $arg:expr)* $(,)?) => {
-        $crate::vortex_panic!($crate::vortex_err!($fmt, $($arg),*))
+    ($err:expr, $fmt:literal $(, $arg:expr)* $(,)?) => {
+        $crate::__private::panic_err_ctx($err, &format_args!($fmt $(, $arg)*))
     };
-    ($err:expr) => {{
-        let err: $crate::VortexError = $err;
-        panic!("{}", err)
-    }};
+    ($fmt:literal $(, $arg:expr)* $(,)?) => {
+        $crate::__private::panic_fmt(&format_args!($fmt $(, $arg)*))
+    };
+    ($err:expr) => {
+        $crate::__private::panic_err($err)
+    };
 }
 
 impl From<arrow_schema::ArrowError> for VortexError {
@@ -575,14 +541,131 @@ impl From<prost::UnknownEnumValue> for VortexError {
     }
 }
 
-// Not public, referenced by macros only.
+/// We want our error handlers to be fast in the happy path, so we inline them.
+/// However, if we inline them as is, the call site gets the cold branch with
+/// panic! macros which gets expanded into backtrace collection and throwing.
+/// LLVM inliner/vectoriser in turn doesn't vectorize some code.
+/// So we inline only the happy path, the error path gets to a cold handler which
+/// is never inlined and thus doesn't prevent vectorization.
 #[doc(hidden)]
+#[expect(
+    clippy::panic,
+    reason = "cold handlers for vortex_panic!/vortex_expect intentionally panic"
+)]
 pub mod __private {
+    use std::backtrace::Backtrace;
+    use std::error::Error;
+    use std::fmt;
+    use std::fmt::Arguments;
+
+    use crate::ErrString;
+    use crate::VortexError;
+
     #[doc(hidden)]
     #[inline]
     #[cold]
     #[must_use]
-    pub const fn must_use(error: crate::VortexError) -> crate::VortexError {
+    pub const fn must_use(error: VortexError) -> VortexError {
         error
+    }
+
+    #[doc(hidden)]
+    #[cold]
+    #[inline(never)]
+    #[must_use]
+    pub fn fmt_err(
+        variant: fn(ErrString, Box<Backtrace>) -> VortexError,
+        args: &Arguments<'_>,
+    ) -> VortexError {
+        variant(args.to_string().into(), Box::new(Backtrace::capture()))
+    }
+
+    #[doc(hidden)]
+    #[cold]
+    #[inline(never)]
+    #[must_use]
+    pub fn out_of_bounds(idx: usize, start: usize, stop: usize) -> VortexError {
+        VortexError::OutOfBounds(idx, start, stop, Box::new(Backtrace::capture()))
+    }
+
+    #[doc(hidden)]
+    #[cold]
+    #[inline(never)]
+    #[must_use]
+    pub fn not_implemented(func: impl Into<ErrString>, by_whom: &Arguments<'_>) -> VortexError {
+        VortexError::NotImplemented(
+            func.into(),
+            by_whom.to_string().into(),
+            Box::new(Backtrace::capture()),
+        )
+    }
+
+    #[doc(hidden)]
+    #[cold]
+    #[inline(never)]
+    #[must_use]
+    pub fn mismatched_types(expected: &dyn fmt::Display, actual: &dyn fmt::Display) -> VortexError {
+        VortexError::MismatchedTypes(
+            expected.to_string().into(),
+            actual.to_string().into(),
+            Box::new(Backtrace::capture()),
+        )
+    }
+
+    #[doc(hidden)]
+    #[cold]
+    #[inline(never)]
+    #[must_use]
+    pub fn context(msg: &'static str, err: VortexError) -> VortexError {
+        VortexError::Context(msg.into(), Box::new(err))
+    }
+
+    #[doc(hidden)]
+    #[cold]
+    #[inline(never)]
+    #[must_use]
+    pub fn external(err: impl Into<Box<dyn Error + Send + Sync + 'static>>) -> VortexError {
+        VortexError::External(err.into(), Box::new(Backtrace::capture()))
+    }
+
+    #[doc(hidden)]
+    #[cold]
+    #[inline(never)]
+    pub fn panic_err(err: VortexError) -> ! {
+        panic!("{err}")
+    }
+
+    #[doc(hidden)]
+    #[cold]
+    #[inline(never)]
+    pub fn panic_fmt(args: &Arguments<'_>) -> ! {
+        panic!(
+            "{}",
+            VortexError::Other(args.to_string().into(), Box::new(Backtrace::capture()))
+        )
+    }
+
+    #[doc(hidden)]
+    #[cold]
+    #[inline(never)]
+    pub fn panic_err_ctx(err: VortexError, args: &Arguments<'_>) -> ! {
+        panic!("{}", err.with_context(args.to_string()))
+    }
+
+    #[doc(hidden)]
+    #[cold]
+    #[inline(never)]
+    pub fn result_expect_failed(err: impl Into<VortexError>, msg: &'static str) -> ! {
+        panic!("{}", err.into().with_context(msg))
+    }
+
+    #[doc(hidden)]
+    #[cold]
+    #[inline(never)]
+    pub fn option_expect_failed(msg: &'static str) -> ! {
+        panic!(
+            "{}",
+            VortexError::AssertionFailed(msg.into(), Box::new(Backtrace::capture()))
+        )
     }
 }

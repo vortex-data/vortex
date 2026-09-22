@@ -14,6 +14,8 @@ use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
 
 impl OperationsVTable<Patched> for Patched {
+    type ProbeState = ();
+
     fn scalar_at(
         array: ArrayView<'_, Patched>,
         index: usize,

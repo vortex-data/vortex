@@ -1,0 +1,142 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+name: Vortex Docs Preview
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, labeled, unlabeled, edited]
+
+permissions: { }
+
+jobs:
+  changes:
+    name: Check preview eligibility
+    if: >-
+      github.repository == 'vortex-data/vortex' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      ((github.event.action != 'labeled' && github.event.action != 'unlabeled' && github.event.action != 'edited') ||
+       github.event.label.name == 'action/preview-docs' ||
+       (github.event.action == 'edited' && github.event.changes.base.ref))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: read
+    outputs:
+      eligible: ${{ steps.state.outputs.eligible }}
+    steps:
+      - name: Read current PR state
+        id: state
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        with:
+          # Apply the same policy before building and immediately before uploading.
+          script: &preview-state |
+            const original = context.payload.pull_request;
+            const {data: pr} = await github.rest.pulls.get({
+              ...context.repo, pull_number: original.number,
+            });
+            if (pr.state !== 'open' || pr.head.sha !== original.head.sha || pr.base.ref !== original.base.ref) {
+              core.setOutput('eligible', false);
+              return;
+            }
+            let eligible = pr.labels.some(label => label.name === 'action/preview-docs');
+            if (!eligible) {
+              const files = await github.paginate(github.rest.pulls.listFiles, {
+                ...context.repo, pull_number: pr.number, per_page: 100,
+              });
+              if (files.length !== pr.changed_files) {
+                throw new Error('Incomplete PR file list. Retry, or add action/preview-docs to opt in.');
+              }
+              const workflows = new Set([
+                '.github/workflows/docs.yml',
+                '.github/workflows/docs-build.yml',
+                '.github/workflows/docs-preview.yml',
+              ]);
+              eligible = files.some(file => [file.filename, file.previous_filename].some(
+                path => path && (path.startsWith('docs/') || workflows.has(path)),
+              ));
+            }
+            core.setOutput('eligible', eligible);
+
+  build:
+    name: Build preview
+    needs: changes
+    if: needs.changes.outputs.eligible == 'true'
+    permissions:
+      contents: read
+    concurrency:
+      group: docs-preview-build-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    uses: ./.github/workflows/docs-build.yml
+
+  publish:
+    name: Publish preview
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pull-requests: read
+      deployments: write
+    environment:
+      # Reuse the Cloudflare credentials, but track each PR independently.
+      name: github-pages
+      deployment: false
+    # Let uploads finish. Cancelling a job can leave its upload running on Cloudflare.
+    concurrency:
+      group: docs-preview-publish-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    steps:
+      - name: Download HTML
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact-id }}
+          path: ${{ runner.temp }}/docs-preview/assets
+          merge-multiple: true
+      - name: Recheck PR before publishing
+        id: state
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        with:
+          script: *preview-state
+      # No checkout: Wrangler runs outside the downloaded assets.
+      - name: Publish to Cloudflare Pages
+        id: upload
+        if: steps.state.outputs.eligible == 'true'
+        uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0  # v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: ${{ runner.temp }}/docs-preview
+          packageManager: npm
+          command: >-
+            pages deploy assets --project-name=vortex-docs
+            --branch=pr-${{ github.event.pull_request.number }}
+            --commit-hash=${{ github.event.pull_request.head.sha }}
+      - name: Link preview to PR
+        if: steps.upload.outcome == 'success'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        env:
+          PREVIEW_URL: ${{ steps.upload.outputs.pages-deployment-alias-url }}
+          DEPLOYMENT_URL: ${{ steps.upload.outputs.deployment-url }}
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const url = process.env.PREVIEW_URL;
+            if (!url) throw new Error('Cloudflare did not return a preview URL.');
+            const {data: deployment} = await github.rest.repos.createDeployment({
+              ...context.repo,
+              ref: pr.head.sha,
+              environment: `docs-preview/pr-${pr.number}`,
+              auto_merge: false,
+              required_contexts: [],
+              production_environment: false,
+            });
+            await github.rest.repos.createDeploymentStatus({
+              ...context.repo, deployment_id: deployment.id, state: 'success',
+              environment_url: url,
+              log_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+            });
+            await core.summary
+              .addLink('Docs preview', url)
+              .addRaw(`\n\nCommit: \`${pr.head.sha}\`\n\n`)
+              .addLink('Immutable deployment', process.env.DEPLOYMENT_URL)
+              .write();

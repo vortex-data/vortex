@@ -50,14 +50,14 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
 #[cfg(test)]
 mod tests {
     use vortex_edition::ComponentKind;
-    use vortex_edition::EditionError;
     use vortex_edition::EditionSessionExt;
     use vortex_edition::test_harness::validate_edition;
+    use vortex_error::VortexResult;
 
     use super::*;
 
     #[test]
-    fn spatial_edition_is_valid() -> Result<(), EditionError> {
+    fn spatial_edition_is_valid() -> VortexResult<()> {
         let session = crate::test_harness::spatial_session();
         validate_edition(&session.editions(), &SPATIAL_2026_08)
     }

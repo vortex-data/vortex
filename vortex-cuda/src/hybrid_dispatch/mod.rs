@@ -297,7 +297,6 @@ mod tests {
     /// Dict(values=ZstdBuffers(FoR(BP)), codes=FoR(BP)) — ZstdBuffers is
     /// executed separately, then Dict+FoR+BP fuses with its output as a LOAD.
     /// 3 launches: nvcomp + fused FoR+BP + fused LOAD+FoR+BP+DICT.
-    #[cfg(feature = "unstable_encodings")]
     #[crate::test]
     async fn test_partial_fusion() -> VortexResult<()> {
         let mut cpu_ctx = array_session().create_execution_ctx();

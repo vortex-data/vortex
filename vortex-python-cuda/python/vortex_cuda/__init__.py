@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
-# pyright: reportAttributeAccessIssue=false, reportMissingModuleSource=false, reportPrivateUsage=false, reportUnknownMemberType=false, reportUnknownVariableType=false
 
 import importlib
+from types import ModuleType
 
 from . import _lib
 
@@ -39,7 +39,7 @@ def _install_vortex_array_methods() -> None:
         setattr(vortex.Array, "__arrow_c_device_array__", _Array___arrow_c_device_array__)
 
 
-def _import_cudf_modules() -> tuple[object, object]:
+def _import_cudf_modules() -> tuple[ModuleType, ModuleType]:
     try:
         cudf = importlib.import_module("cudf")
         pylibcudf = importlib.import_module("pylibcudf")

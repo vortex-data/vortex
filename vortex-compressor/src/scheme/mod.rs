@@ -124,11 +124,15 @@ pub trait Scheme: Debug + Send + Sync {
     /// Whether this scheme can compress the given canonical array.
     fn matches(&self, canonical: &Canonical) -> bool;
 
-    /// The array encodings this scheme itself may introduce into its compressed output.
+    /// The serialized IDs this scheme itself may write into its compressed output.
     ///
-    /// Cascaded children are compressed by other schemes, which declare their own encodings,
-    /// so only encodings constructed directly by [`compress`](Scheme::compress) belong here.
-    /// Canonical arrays the scheme merely rearranges do not need to be declared.
+    /// Every declared ID must be permitted for the scheme to be used. Cascaded children are
+    /// compressed by other schemes, which declare their own IDs, so only arrays constructed
+    /// directly by [`compress`](Scheme::compress) belong here. Canonical arrays the scheme
+    /// merely rearranges do not need to be declared.
+    ///
+    /// For most encodings this is the in-memory encoding ID. An encoding with several wire
+    /// formats declares the wire IDs the scheme writes, which may differ from its in-memory ID.
     fn produced_encodings(&self) -> Vec<ArrayId>;
 
     /// Returns the stats generation options this scheme requires. The compressor merges all

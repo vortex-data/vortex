@@ -65,3 +65,6 @@ vortex-tui = { workspace = true, optional = true }
 [dev-dependencies]
 rstest = { workspace = true }
 vortex-array = { path = "../vortex-array", features = ["_test-harness"] }
+# Maturin 1.15 only packages resolved dependencies, but Cargo also needs the manifest
+# of vortex-file's disabled optional tensor dependency when loading an sdist.
+vortex-tensor = { workspace = true }

@@ -1,9 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
-# pyright: reportMissingTypeStubs=false
-# pyright: reportUnknownMemberType=false
-# pyright: reportUnknownArgumentType=false
-# pyright: reportUnknownVariableType=false
 
 import re
 import threading
@@ -23,7 +19,7 @@ import vortex as vx
 import vortex.expr as ve
 
 
-def test_datasets_module_is_lazy_exported():
+def test_datasets_module_is_lazy_exported() -> None:
     assert vx.datasets is vx_datasets
 
 
@@ -92,7 +88,7 @@ def http_file_server(tmp_path: Path) -> Iterator[str]:
     server.shutdown()
 
 
-def test_load_dataset_streaming_local_splits(tmp_path: Path):
+def test_load_dataset_streaming_local_splits(tmp_path: Path) -> None:
     write_vortex(
         tmp_path / "train-0000.vortex",
         [
@@ -124,7 +120,7 @@ def test_load_dataset_streaming_local_splits(tmp_path: Path):
     assert list(dataset["validation"]) == [{"label": 1, "text": "valid", "tokens": 20}]
 
 
-def test_streaming_select_columns_pushes_projection(tmp_path: Path):
+def test_streaming_select_columns_pushes_projection(tmp_path: Path) -> None:
     write_vortex(tmp_path / "train.vortex", [{"text": "zero", "label": 0}, {"text": "one", "label": 1}])
 
     dataset = cast(
@@ -134,11 +130,11 @@ def test_streaming_select_columns_pushes_projection(tmp_path: Path):
     selected = dataset.select_columns(["text"])
 
     assert isinstance(selected, vx_datasets.VortexIterableDataset)
-    assert selected._vortex_columns == ("text",)  # pyright: ignore[reportPrivateUsage]
+    assert selected._vortex_columns == ("text",)
     assert list(selected) == [{"text": "zero"}, {"text": "one"}]
 
 
-def test_streaming_filter_accepts_vortex_expression(tmp_path: Path):
+def test_streaming_filter_accepts_vortex_expression(tmp_path: Path) -> None:
     write_vortex(
         tmp_path / "train.vortex",
         [
@@ -158,7 +154,7 @@ def test_streaming_filter_accepts_vortex_expression(tmp_path: Path):
     assert list(filtered) == [{"label": 1, "text": "one"}]
 
 
-def test_load_dataset_materializes_to_hf_dataset(tmp_path: Path):
+def test_load_dataset_materializes_to_hf_dataset(tmp_path: Path) -> None:
     write_vortex(tmp_path / "train.vortex", [{"text": "zero", "label": 0}, {"text": "one", "label": 1}])
 
     dataset = vx_datasets.load_dataset(
@@ -173,7 +169,7 @@ def test_load_dataset_materializes_to_hf_dataset(tmp_path: Path):
     assert dataset.to_list() == [{"text": "zero", "label": 0}, {"text": "one", "label": 1}]
 
 
-def test_streaming_resume_with_limit_reads_full_limit(tmp_path: Path):
+def test_streaming_resume_with_limit_reads_full_limit(tmp_path: Path) -> None:
     rows: list[dict[str, object]] = [{"idx": i} for i in range(10)]
     write_vortex(tmp_path / "train.vortex", rows)
 
@@ -182,24 +178,24 @@ def test_streaming_resume_with_limit_reads_full_limit(tmp_path: Path):
         vx_datasets.load_dataset(tmp_path / "train.vortex", split="train", limit=8, batch_size=2),
     )
     examples = cast(
-        vx_datasets._VortexExamplesIterable,  # pyright: ignore[reportPrivateUsage]
-        dataset._ex_iterable,  # pyright: ignore[reportPrivateUsage]
+        vx_datasets._VortexExamplesIterable,
+        dataset._ex_iterable,
     )
     # Simulate resuming after the first two rows of the file were already yielded.
-    examples._state_dict = {  # pyright: ignore[reportPrivateUsage]
+    examples._state_dict = {
         "file_idx": 0,
         "file_row_idx": 2,
         "num_yielded": 2,
         "type": type(examples).__name__,
     }
 
-    produced = [row for _key, table in examples._iter_arrow() for row in table.to_pylist()]  # pyright: ignore[reportPrivateUsage]
+    produced = [row for _key, table in examples._iter_arrow() for row in table.to_pylist()]
 
     # The limit of 8 must still be honored: six rows remain after the two already yielded.
     assert produced == rows[2:8]
 
 
-def test_streaming_state_dict_resume_mid_batch_is_exact(tmp_path: Path):
+def test_streaming_state_dict_resume_mid_batch_is_exact(tmp_path: Path) -> None:
     rows: list[dict[str, object]] = [{"idx": i} for i in range(10)]
     write_vortex(tmp_path / "train.vortex", rows)
 
@@ -228,7 +224,7 @@ def write_sharded_dataset(tmp_path: Path, num_files: int = 4, rows_per_file: int
     return list(range(num_files * rows_per_file))
 
 
-def test_streaming_shuffle_multiple_files(tmp_path: Path):
+def test_streaming_shuffle_multiple_files(tmp_path: Path) -> None:
     # Regression test: shuffle() interleaves shards through iterables that read
     # sleep_on_threads_shutdown on every leaf; this used to raise AttributeError.
     indices = write_sharded_dataset(tmp_path)
@@ -242,7 +238,7 @@ def test_streaming_shuffle_multiple_files(tmp_path: Path):
     assert sorted(row["idx"] for row in shuffled) == indices
 
 
-def test_interleave_vortex_datasets(tmp_path: Path):
+def test_interleave_vortex_datasets(tmp_path: Path) -> None:
     write_vortex(tmp_path / "a.vortex", [{"idx": 0}, {"idx": 1}])
     write_vortex(tmp_path / "b.vortex", [{"idx": 10}, {"idx": 11}])
 
@@ -253,7 +249,7 @@ def test_interleave_vortex_datasets(tmp_path: Path):
     assert sorted(row["idx"] for row in interleaved) == [0, 1, 10, 11]
 
 
-def test_streaming_take_splits_limit_across_shards(tmp_path: Path):
+def test_streaming_take_splits_limit_across_shards(tmp_path: Path) -> None:
     _ = write_sharded_dataset(tmp_path)
 
     dataset = cast(
@@ -262,7 +258,7 @@ def test_streaming_take_splits_limit_across_shards(tmp_path: Path):
     )
     limited = dataset.take(4)
     assert isinstance(limited, vx_datasets.VortexIterableDataset)
-    examples = limited._ex_iterable  # pyright: ignore[reportPrivateUsage]
+    examples = limited._ex_iterable
 
     # DataLoader worker / distributed sharding must split the pushed-down limit so the shards
     # together yield exactly take(n) rows, mirroring TakeExamplesIterable.split_number.
@@ -272,7 +268,7 @@ def test_streaming_take_splits_limit_across_shards(tmp_path: Path):
     assert rows == [0, 1, 6, 7]
 
 
-def test_streaming_take_then_shuffle_keeps_row_set(tmp_path: Path):
+def test_streaming_take_then_shuffle_keeps_row_set(tmp_path: Path) -> None:
     _ = write_sharded_dataset(tmp_path)
 
     dataset = cast(
@@ -291,7 +287,7 @@ def test_streaming_take_then_shuffle_keeps_row_set(tmp_path: Path):
 @pytest.mark.skipif(
     not hasattr(hf_datasets.IterableDataset, "reshard"), reason="IterableDataset.reshard requires datasets>=5"
 )
-def test_streaming_reshard_keeps_all_rows(tmp_path: Path):
+def test_streaming_reshard_keeps_all_rows(tmp_path: Path) -> None:
     rows: list[dict[str, object]] = [{"idx": i} for i in range(4)]
     write_vortex(tmp_path / "train.vortex", rows)
 
@@ -303,7 +299,7 @@ def test_streaming_reshard_keeps_all_rows(tmp_path: Path):
     assert list(dataset.reshard()) == rows
 
 
-def test_streaming_filter_expr_with_kwargs_is_rejected(tmp_path: Path):
+def test_streaming_filter_expr_with_kwargs_is_rejected(tmp_path: Path) -> None:
     write_vortex(tmp_path / "train.vortex", [{"text": "zero", "label": 0}])
 
     dataset = cast(
@@ -314,7 +310,7 @@ def test_streaming_filter_expr_with_kwargs_is_rejected(tmp_path: Path):
         _ = dataset.filter(ve.column("label") == 1, with_indices=True)
 
 
-def test_streaming_filter_after_take_is_rejected(tmp_path: Path):
+def test_streaming_filter_after_take_is_rejected(tmp_path: Path) -> None:
     write_vortex(tmp_path / "train.vortex", [{"text": "zero", "label": 0}, {"text": "one", "label": 1}])
 
     dataset = cast(
@@ -327,7 +323,7 @@ def test_streaming_filter_after_take_is_rejected(tmp_path: Path):
         _ = limited.filter(ve.column("label") == 1)
 
 
-def test_streaming_filter_then_take_pushes_down(tmp_path: Path):
+def test_streaming_filter_then_take_pushes_down(tmp_path: Path) -> None:
     write_vortex(
         tmp_path / "train.vortex",
         [{"text": "a", "label": 0}, {"text": "b", "label": 1}, {"text": "c", "label": 1}],
@@ -343,7 +339,7 @@ def test_streaming_filter_then_take_pushes_down(tmp_path: Path):
     assert list(result) == [{"text": "b", "label": 1}]
 
 
-def test_streaming_filter_and_limit_combined(tmp_path: Path):
+def test_streaming_filter_and_limit_combined(tmp_path: Path) -> None:
     write_vortex(
         tmp_path / "train.vortex",
         [{"text": "a", "label": 0}, {"text": "b", "label": 1}, {"text": "c", "label": 1}],
@@ -358,7 +354,7 @@ def test_streaming_filter_and_limit_combined(tmp_path: Path):
     assert list(dataset) == [{"text": "b", "label": 1}]
 
 
-def test_materialize_filter_and_limit_combined(tmp_path: Path):
+def test_materialize_filter_and_limit_combined(tmp_path: Path) -> None:
     write_vortex(
         tmp_path / "train.vortex",
         [{"text": "a", "label": 0}, {"text": "b", "label": 1}, {"text": "c", "label": 1}],
@@ -377,7 +373,7 @@ def test_materialize_filter_and_limit_combined(tmp_path: Path):
     assert dataset.to_list() == [{"text": "b", "label": 1}]
 
 
-def test_materialize_filter_with_num_proc(tmp_path: Path):
+def test_materialize_filter_with_num_proc(tmp_path: Path) -> None:
     """`num_proc` forks worker processes and pickles the filter into each one."""
     for shard in range(2):
         write_vortex(
@@ -401,14 +397,16 @@ def test_materialize_filter_with_num_proc(tmp_path: Path):
     assert {cast(int, row["label"]) for row in rows} == {1}
 
 
-def test_load_dataset_multi_split_without_mapping_raises(tmp_path: Path):
+def test_load_dataset_multi_split_without_mapping_raises(tmp_path: Path) -> None:
     write_vortex(tmp_path / "train.vortex", [{"text": "zero"}])
 
     with pytest.raises(ValueError, match="data_files"):
         _ = vx_datasets.load_dataset(tmp_path, split=["train", "validation"])
 
 
-def test_load_dataset_streams_from_http_url(tmp_path: Path, http_file_server: str, monkeypatch: pytest.MonkeyPatch):
+def test_load_dataset_streams_from_http_url(
+    tmp_path: Path, http_file_server: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
     # The test server is plain http; object_store only allows https unless ALLOW_HTTP is set.
     monkeypatch.setenv("ALLOW_HTTP", "true")
     rows: list[dict[str, object]] = [{"idx": i, "text": f"row {i}"} for i in range(20)]
@@ -421,7 +419,7 @@ def test_load_dataset_streams_from_http_url(tmp_path: Path, http_file_server: st
     assert list(dataset) == rows
 
 
-def test_load_dataset_url_in_data_files(tmp_path: Path, http_file_server: str, monkeypatch: pytest.MonkeyPatch):
+def test_load_dataset_url_in_data_files(tmp_path: Path, http_file_server: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ALLOW_HTTP", "true")
     write_vortex(tmp_path / "remote.vortex", [{"idx": 0}])
 
@@ -435,7 +433,7 @@ def test_load_dataset_url_in_data_files(tmp_path: Path, http_file_server: str, m
 class _FakeHfApi:
     repo_files: ClassVar[list[str]] = ["README.md", "train.vortex", "data/validation.vortex", "notes/readme.txt"]
 
-    def __init__(self, token: bool | str | None = None):
+    def __init__(self, token: bool | str | None = None) -> None:
         self.token: bool | str | None = token
 
     def list_repo_files(self, repo_id: str, *, repo_type: str | None = None, revision: str | None = None) -> list[str]:
@@ -446,10 +444,12 @@ class _FakeHfApi:
 
 
 @pytest.mark.parametrize("token", [None, True])
-def test_hub_streaming_resolves_to_hf_uris_without_download(token: bool | None, monkeypatch: pytest.MonkeyPatch):
+def test_hub_streaming_resolves_to_hf_uris_without_download(
+    token: bool | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(vx_datasets, "HfApi", _FakeHfApi)
 
-    files, store = vx_datasets._resolve_data_files(  # pyright: ignore[reportPrivateUsage]
+    files, store = vx_datasets._resolve_data_files(
         "org/name",
         data_files=None,
         split="train",
@@ -471,10 +471,10 @@ def test_hub_streaming_resolves_to_hf_uris_without_download(token: bool | None, 
     }
 
 
-def test_hub_streaming_with_token_false_forces_anonymous_store(monkeypatch: pytest.MonkeyPatch):
+def test_hub_streaming_with_token_false_forces_anonymous_store(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(vx_datasets, "HfApi", _FakeHfApi)
 
-    files, store = vx_datasets._resolve_data_files(  # pyright: ignore[reportPrivateUsage]
+    files, store = vx_datasets._resolve_data_files(
         "org/name",
         data_files=None,
         split="train",
@@ -491,10 +491,10 @@ def test_hub_streaming_with_token_false_forces_anonymous_store(monkeypatch: pyte
     assert files == {"train": ["data/validation.vortex", "train.vortex"]}
 
 
-def test_hub_streaming_with_token_uses_authenticated_store(monkeypatch: pytest.MonkeyPatch):
+def test_hub_streaming_with_token_uses_authenticated_store(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(vx_datasets, "HfApi", _FakeHfApi)
 
-    files, store = vx_datasets._resolve_data_files(  # pyright: ignore[reportPrivateUsage]
+    files, store = vx_datasets._resolve_data_files(
         "org/name",
         data_files=None,
         split="train",
@@ -524,21 +524,21 @@ def test_hub_streaming_with_token_uses_authenticated_store(monkeypatch: pytest.M
         ),
     ],
 )
-def test_parse_hf_uri(uri: str, expected: tuple[str, str | None, str | None]):
-    assert vx_datasets._parse_hf_uri(uri) == expected  # pyright: ignore[reportPrivateUsage]
+def test_parse_hf_uri(uri: str, expected: tuple[str, str | None, str | None]) -> None:
+    assert vx_datasets._parse_hf_uri(uri) == expected
 
 
 @pytest.mark.parametrize("uri", ["hf://org/name/file.vortex", "hf://datasets/name-only", "hf://datasets/org/@main"])
-def test_parse_hf_uri_invalid(uri: str):
+def test_parse_hf_uri_invalid(uri: str) -> None:
     with pytest.raises(ValueError, match="hf://"):
-        _ = vx_datasets._parse_hf_uri(uri)  # pyright: ignore[reportPrivateUsage]
+        _ = vx_datasets._parse_hf_uri(uri)
 
 
-def test_hf_uri_streaming_resolves_file_and_directory(monkeypatch: pytest.MonkeyPatch):
+def test_hf_uri_streaming_resolves_file_and_directory(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(vx_datasets, "HfApi", _FakeHfApi)
 
-    def resolve(path: str):
-        return vx_datasets._resolve_data_files(  # pyright: ignore[reportPrivateUsage]
+    def resolve(path: str) -> tuple[dict[str, list[str]], object | None]:
+        return vx_datasets._resolve_data_files(
             path,
             data_files=None,
             split="train",
@@ -558,10 +558,10 @@ def test_hf_uri_streaming_resolves_file_and_directory(monkeypatch: pytest.Monkey
     assert files == {"train": ["hf://datasets/org/name/data/validation.vortex"]}
 
 
-def test_hf_uri_slash_revision_stays_percent_encoded(monkeypatch: pytest.MonkeyPatch):
+def test_hf_uri_slash_revision_stays_percent_encoded(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(vx_datasets, "HfApi", _FakeHfApi)
 
-    files, store = vx_datasets._resolve_data_files(  # pyright: ignore[reportPrivateUsage]
+    files, store = vx_datasets._resolve_data_files(
         "hf://datasets/org/name@refs%2Fconvert%2Fparquet",
         data_files=None,
         split="train",
@@ -583,22 +583,22 @@ def test_hf_uri_slash_revision_stays_percent_encoded(monkeypatch: pytest.MonkeyP
     }
 
 
-def test_hf_uri_revision_conflict_raises():
+def test_hf_uri_revision_conflict_raises() -> None:
     with pytest.raises(ValueError, match="Conflicting revisions"):
         _ = vx_datasets.load_dataset("hf://datasets/org/name@main", revision="other")
 
 
-def test_hf_uri_with_path_and_data_files_raises():
+def test_hf_uri_with_path_and_data_files_raises() -> None:
     with pytest.raises(ValueError, match="data_files"):
         _ = vx_datasets.load_dataset("hf://datasets/org/name/train.vortex", data_files="x.vortex")
 
 
-def test_hf_url_in_data_files_rejected(tmp_path: Path):
+def test_hf_url_in_data_files_rejected(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="data_files"):
         _ = vx_datasets.load_dataset(tmp_path, data_files={"train": "hf://datasets/org/name/train.vortex"})
 
 
-def test_local_directory_in_data_files(tmp_path: Path):
+def test_local_directory_in_data_files(tmp_path: Path) -> None:
     (tmp_path / "sub").mkdir()
     write_vortex(tmp_path / "sub" / "train.vortex", [{"idx": 0}])
 
@@ -622,33 +622,33 @@ def test_local_directory_in_data_files(tmp_path: Path):
         ("train-[01].vortex", "train-2.vortex", False),
     ],
 )
-def test_glob_match(pattern: str, path: str, expected: bool):
-    assert vx_datasets._glob_match(path, pattern) is expected  # pyright: ignore[reportPrivateUsage]
+def test_glob_match(pattern: str, path: str, expected: bool) -> None:
+    assert vx_datasets._glob_match(path, pattern) is expected
 
 
 @pytest.mark.parametrize("repo_type", ["dataset", "datasets", "model", "space"])
-def test_hf_store_accepts_each_repo_type(repo_type: str):
+def test_hf_store_accepts_each_repo_type(repo_type: str) -> None:
     assert isinstance(HfStore("org/name", repo_type=repo_type), HfStore)
 
 
-def test_hf_store_rejects_unknown_repo_type():
+def test_hf_store_rejects_unknown_repo_type() -> None:
     with pytest.raises(ValueError, match="repository type"):
         _ = HfStore("org/name", repo_type="notarepo")
 
 
 @pytest.mark.parametrize("token", [None, True, False, "hf_explicit_token"])
-def test_hf_store_accepts_each_token_spelling(token: bool | str | None):
+def test_hf_store_accepts_each_token_spelling(token: bool | str | None) -> None:
     # `token` follows huggingface_hub's convention: None/True use the environment, False forces an
     # anonymous read, and a string is used directly.
     assert isinstance(HfStore("org/name", token=token), HfStore)
 
 
-def test_hf_store_rejects_unusable_token():
+def test_hf_store_rejects_unusable_token() -> None:
     with pytest.raises(ValueError, match="token"):
         _ = HfStore("org/name", token="bad\nvalue")
 
 
-def test_hf_store_reads_a_repository_relative_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_hf_store_reads_a_repository_relative_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # Point the store at a local server standing in for the Hub, so this exercises the real read
     # path: HfStore is rooted at the repository revision and the path is relative to it.
     monkeypatch.setenv("ALLOW_HTTP", "true")

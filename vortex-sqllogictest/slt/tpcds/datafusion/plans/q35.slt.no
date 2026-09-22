@@ -1,0 +1,137 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT ca_state,
+       cd_gender,
+       cd_marital_status,
+       cd_dep_count,
+       count(*) cnt1,
+       min(cd_dep_count) min1,
+       max(cd_dep_count) max1,
+       avg(cd_dep_count) avg1,
+       cd_dep_employed_count,
+       count(*) cnt2,
+       min(cd_dep_employed_count) min2,
+       max(cd_dep_employed_count) max2,
+       avg(cd_dep_employed_count) avg2,
+       cd_dep_college_count,
+       count(*) cnt3,
+       min(cd_dep_college_count),
+       max(cd_dep_college_count),
+       avg(cd_dep_college_count)
+FROM customer c,
+     customer_address ca,
+     customer_demographics
+WHERE c.c_current_addr_sk = ca.ca_address_sk
+  AND cd_demo_sk = c.c_current_cdemo_sk
+  AND EXISTS
+    (SELECT *
+     FROM store_sales,
+          date_dim
+     WHERE c.c_customer_sk = ss_customer_sk
+       AND ss_sold_date_sk = d_date_sk
+       AND d_year = 2002
+       AND d_qoy < 4)
+  AND (EXISTS
+         (SELECT *
+          FROM web_sales,
+               date_dim
+          WHERE c.c_customer_sk = ws_bill_customer_sk
+            AND ws_sold_date_sk = d_date_sk
+            AND d_year = 2002
+            AND d_qoy < 4)
+       OR EXISTS
+         (SELECT *
+          FROM catalog_sales,
+               date_dim
+          WHERE c.c_customer_sk = cs_ship_customer_sk
+            AND cs_sold_date_sk = d_date_sk
+            AND d_year = 2002
+            AND d_qoy < 4))
+GROUP BY ca_state,
+         cd_gender,
+         cd_marital_status,
+         cd_dep_count,
+         cd_dep_employed_count,
+         cd_dep_college_count
+ORDER BY ca_state NULLS FIRST,
+         cd_gender NULLS FIRST,
+         cd_marital_status NULLS FIRST,
+         cd_dep_count NULLS FIRST,
+         cd_dep_employed_count NULLS FIRST,
+         cd_dep_college_count NULLS FIRST
+LIMIT 100;
+----
+logical_plan
+01)Sort: ca.ca_state ASC NULLS FIRST, customer_demographics.cd_gender ASC NULLS FIRST, customer_demographics.cd_marital_status ASC NULLS FIRST, customer_demographics.cd_dep_count ASC NULLS FIRST, customer_demographics.cd_dep_employed_count ASC NULLS FIRST, customer_demographics.cd_dep_college_count ASC NULLS FIRST, fetch=100
+02)--Projection: ca.ca_state, customer_demographics.cd_gender, customer_demographics.cd_marital_status, customer_demographics.cd_dep_count, count(Int64(1)) AS count(*) AS cnt1, min(customer_demographics.cd_dep_count) AS min1, max(customer_demographics.cd_dep_count) AS max1, avg(customer_demographics.cd_dep_count) AS avg1, customer_demographics.cd_dep_employed_count, count(Int64(1)) AS count(*) AS cnt2, min(customer_demographics.cd_dep_employed_count) AS min2, max(customer_demographics.cd_dep_employed_count) AS max2, avg(customer_demographics.cd_dep_employed_count) AS avg2, customer_demographics.cd_dep_college_count, count(Int64(1)) AS count(*) AS cnt3, min(customer_demographics.cd_dep_college_count), max(customer_demographics.cd_dep_college_count), avg(customer_demographics.cd_dep_college_count)
+03)----Aggregate: groupBy=[[ca.ca_state, customer_demographics.cd_gender, customer_demographics.cd_marital_status, customer_demographics.cd_dep_count, customer_demographics.cd_dep_employed_count, customer_demographics.cd_dep_college_count]], aggr=[[count(Int64(1)), min(customer_demographics.cd_dep_count), max(customer_demographics.cd_dep_count), avg(CAST(customer_demographics.cd_dep_count AS Float64)), min(customer_demographics.cd_dep_employed_count), max(customer_demographics.cd_dep_employed_count), avg(CAST(customer_demographics.cd_dep_employed_count AS Float64)), min(customer_demographics.cd_dep_college_count), max(customer_demographics.cd_dep_college_count), avg(CAST(customer_demographics.cd_dep_college_count AS Float64))]]
+04)------Projection: ca.ca_state, customer_demographics.cd_gender, customer_demographics.cd_marital_status, customer_demographics.cd_dep_count, customer_demographics.cd_dep_employed_count, customer_demographics.cd_dep_college_count
+05)--------Filter: __correlated_sq_2.mark OR __correlated_sq_3.mark
+06)----------Projection: ca.ca_state, customer_demographics.cd_gender, customer_demographics.cd_marital_status, customer_demographics.cd_dep_count, customer_demographics.cd_dep_employed_count, customer_demographics.cd_dep_college_count, __correlated_sq_2.mark, __correlated_sq_3.mark
+07)------------LeftMark Join: c.c_customer_sk = __correlated_sq_3.cs_ship_customer_sk
+08)--------------LeftMark Join: c.c_customer_sk = __correlated_sq_2.ws_bill_customer_sk
+09)----------------LeftSemi Join: c.c_customer_sk = __correlated_sq_1.ss_customer_sk
+10)------------------Projection: c.c_customer_sk, ca.ca_state, customer_demographics.cd_gender, customer_demographics.cd_marital_status, customer_demographics.cd_dep_count, customer_demographics.cd_dep_employed_count, customer_demographics.cd_dep_college_count
+11)--------------------Inner Join: c.c_current_cdemo_sk = customer_demographics.cd_demo_sk
+12)----------------------Projection: c.c_customer_sk, c.c_current_cdemo_sk, ca.ca_state
+13)------------------------Inner Join: c.c_current_addr_sk = ca.ca_address_sk
+14)--------------------------SubqueryAlias: c
+15)----------------------------TableScan: customer projection=[c_customer_sk, c_current_cdemo_sk, c_current_addr_sk]
+16)--------------------------SubqueryAlias: ca
+17)----------------------------TableScan: customer_address projection=[ca_address_sk, ca_state]
+18)----------------------TableScan: customer_demographics projection=[cd_demo_sk, cd_gender, cd_marital_status, cd_dep_count, cd_dep_employed_count, cd_dep_college_count]
+19)------------------SubqueryAlias: __correlated_sq_1
+20)--------------------Projection: store_sales.ss_customer_sk
+21)----------------------LeftSemi Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
+22)------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_customer_sk]
+23)------------------------Projection: date_dim.d_date_sk
+24)--------------------------Filter: date_dim.d_year = Int64(2002) AND date_dim.d_qoy < Int64(4)
+25)----------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_qoy], partial_filters=[date_dim.d_year = Int64(2002), date_dim.d_qoy < Int64(4)]
+26)----------------SubqueryAlias: __correlated_sq_2
+27)------------------Projection: web_sales.ws_bill_customer_sk
+28)--------------------LeftSemi Join: web_sales.ws_sold_date_sk = date_dim.d_date_sk
+29)----------------------TableScan: web_sales projection=[ws_sold_date_sk, ws_bill_customer_sk]
+30)----------------------Projection: date_dim.d_date_sk
+31)------------------------Filter: date_dim.d_year = Int64(2002) AND date_dim.d_qoy < Int64(4)
+32)--------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_qoy], partial_filters=[date_dim.d_year = Int64(2002), date_dim.d_qoy < Int64(4)]
+33)--------------SubqueryAlias: __correlated_sq_3
+34)----------------Projection: catalog_sales.cs_ship_customer_sk
+35)------------------LeftSemi Join: catalog_sales.cs_sold_date_sk = date_dim.d_date_sk
+36)--------------------TableScan: catalog_sales projection=[cs_sold_date_sk, cs_ship_customer_sk]
+37)--------------------Projection: date_dim.d_date_sk
+38)----------------------Filter: date_dim.d_year = Int64(2002) AND date_dim.d_qoy < Int64(4)
+39)------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_qoy], partial_filters=[date_dim.d_year = Int64(2002), date_dim.d_qoy < Int64(4)]
+physical_plan
+01)SortPreservingMergeExec: [ca_state@0 ASC, cd_gender@1 ASC, cd_marital_status@2 ASC, cd_dep_count@3 ASC, cd_dep_employed_count@8 ASC, cd_dep_college_count@13 ASC], fetch=100
+02)--ProjectionExec: expr=[ca_state@0 as ca_state, cd_gender@1 as cd_gender, cd_marital_status@2 as cd_marital_status, cd_dep_count@3 as cd_dep_count, count(Int64(1))@6 as cnt1, min(customer_demographics.cd_dep_count)@7 as min1, max(customer_demographics.cd_dep_count)@8 as max1, avg(customer_demographics.cd_dep_count)@9 as avg1, cd_dep_employed_count@4 as cd_dep_employed_count, count(Int64(1))@6 as cnt2, min(customer_demographics.cd_dep_employed_count)@10 as min2, max(customer_demographics.cd_dep_employed_count)@11 as max2, avg(customer_demographics.cd_dep_employed_count)@12 as avg2, cd_dep_college_count@5 as cd_dep_college_count, count(Int64(1))@6 as cnt3, min(customer_demographics.cd_dep_college_count)@13 as min(customer_demographics.cd_dep_college_count), max(customer_demographics.cd_dep_college_count)@14 as max(customer_demographics.cd_dep_college_count), avg(customer_demographics.cd_dep_college_count)@15 as avg(customer_demographics.cd_dep_college_count)]
+03)----SortExec: TopK(fetch=100), expr=[ca_state@0 ASC, cd_gender@1 ASC, cd_marital_status@2 ASC, cd_dep_count@3 ASC, cd_dep_employed_count@4 ASC, cd_dep_college_count@5 ASC], preserve_partitioning=[true]
+04)------AggregateExec: mode=FinalPartitioned, gby=[ca_state@0 as ca_state, cd_gender@1 as cd_gender, cd_marital_status@2 as cd_marital_status, cd_dep_count@3 as cd_dep_count, cd_dep_employed_count@4 as cd_dep_employed_count, cd_dep_college_count@5 as cd_dep_college_count], aggr=[count(Int64(1)), min(customer_demographics.cd_dep_count), max(customer_demographics.cd_dep_count), avg(customer_demographics.cd_dep_count), min(customer_demographics.cd_dep_employed_count), max(customer_demographics.cd_dep_employed_count), avg(customer_demographics.cd_dep_employed_count), min(customer_demographics.cd_dep_college_count), max(customer_demographics.cd_dep_college_count), avg(customer_demographics.cd_dep_college_count)]
+05)--------RepartitionExec: partitioning=Hash([ca_state@0, cd_gender@1, cd_marital_status@2, cd_dep_count@3, cd_dep_employed_count@4, cd_dep_college_count@5], 4), input_partitions=4
+06)----------AggregateExec: mode=Partial, gby=[ca_state@0 as ca_state, cd_gender@1 as cd_gender, cd_marital_status@2 as cd_marital_status, cd_dep_count@3 as cd_dep_count, cd_dep_employed_count@4 as cd_dep_employed_count, cd_dep_college_count@5 as cd_dep_college_count], aggr=[count(Int64(1)), min(customer_demographics.cd_dep_count), max(customer_demographics.cd_dep_count), avg(customer_demographics.cd_dep_count), min(customer_demographics.cd_dep_employed_count), max(customer_demographics.cd_dep_employed_count), avg(customer_demographics.cd_dep_employed_count), min(customer_demographics.cd_dep_college_count), max(customer_demographics.cd_dep_college_count), avg(customer_demographics.cd_dep_college_count)]
+07)------------FilterExec: mark@6 OR mark@7, projection=[ca_state@0, cd_gender@1, cd_marital_status@2, cd_dep_count@3, cd_dep_employed_count@4, cd_dep_college_count@5]
+08)--------------HashJoinExec: mode=CollectLeft, join_type=LeftMark, on=[(c_customer_sk@0, cs_ship_customer_sk@0)], projection=[ca_state@1, cd_gender@2, cd_marital_status@3, cd_dep_count@4, cd_dep_employed_count@5, cd_dep_college_count@6, mark@7, mark@8]
+09)----------------CoalescePartitionsExec
+10)------------------HashJoinExec: mode=CollectLeft, join_type=LeftMark, on=[(c_customer_sk@0, ws_bill_customer_sk@0)]
+11)--------------------CoalescePartitionsExec
+12)----------------------HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(c_customer_sk@0, ss_customer_sk@0)]
+13)------------------------CoalescePartitionsExec
+14)--------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(c_current_cdemo_sk@1, cd_demo_sk@0)], projection=[c_customer_sk@0, ca_state@2, cd_gender@4, cd_marital_status@5, cd_dep_count@6, cd_dep_employed_count@7, cd_dep_college_count@8]
+15)----------------------------CoalescePartitionsExec
+16)------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(ca_address_sk@0, c_current_addr_sk@2)], projection=[c_customer_sk@2, c_current_cdemo_sk@3, ca_state@1]
+17)--------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk, ca_state], file_type=vortex
+18)--------------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+19)----------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer.vortex]]}, projection=[c_customer_sk, c_current_cdemo_sk, c_current_addr_sk], file_type=vortex
+20)----------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+21)------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_demographics.vortex]]}, projection=[cd_demo_sk, cd_gender, cd_marital_status, cd_dep_count, cd_dep_employed_count, cd_dep_college_count], file_type=vortex
+22)------------------------HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(d_date_sk@0, ss_sold_date_sk@0)], projection=[ss_customer_sk@1]
+23)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_year@6 = 2002 AND d_qoy@10 < 4
+24)--------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_customer_sk], file_type=vortex
+25)--------------------HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(d_date_sk@0, ws_sold_date_sk@0)], projection=[ws_bill_customer_sk@1]
+26)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_year@6 = 2002 AND d_qoy@10 < 4
+27)----------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>]]}, projection=[ws_sold_date_sk, ws_bill_customer_sk], file_type=vortex
+28)----------------HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(d_date_sk@0, cs_sold_date_sk@0)], projection=[cs_ship_customer_sk@1]
+29)------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_year@6 = 2002 AND d_qoy@10 < 4
+30)------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>]]}, projection=[cs_sold_date_sk, cs_ship_customer_sk], file_type=vortex

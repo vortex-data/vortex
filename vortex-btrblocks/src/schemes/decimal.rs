@@ -8,7 +8,6 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::VTable;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::decimal::narrowed_decimal;
@@ -16,6 +15,7 @@ use vortex_array::dtype::DecimalType;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_decimal_byte_parts::DecimalByteParts;
+use vortex_decimal_byte_parts::decimal_byte_parts_v1_id;
 use vortex_error::VortexResult;
 
 use crate::ArrayAndStats;
@@ -41,7 +41,9 @@ impl Scheme for DecimalScheme {
     }
 
     fn produced_encodings(&self) -> Vec<ArrayId> {
-        vec![DecimalByteParts.id()]
+        // This scheme only builds single-part arrays, which serialize under the frozen v1 ID.
+        // The in-memory ID is the v2 wire ID, which no edition permits yet.
+        vec![decimal_byte_parts_v1_id()]
     }
 
     /// Children: primitive=0.

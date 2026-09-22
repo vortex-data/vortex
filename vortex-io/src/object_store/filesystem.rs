@@ -46,6 +46,7 @@ impl ObjectStoreFileSystem {
 
     /// Create a new filesystem backed by a local file system object store and the given runtime
     /// handle.
+    #[deprecated = "use StdFileSystem::new"]
     pub fn local(handle: Handle) -> Self {
         Self::new(
             Arc::new(object_store::local::LocalFileSystem::new()),

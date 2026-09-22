@@ -11,7 +11,9 @@ use crate::lifetime_wrapper;
 lifetime_wrapper!(
     /// Aggregates we want to push at Vortex at once
     AggregatePushdownInput,
-    cpp::duckdb_vx_agg_input, |_| {});
+    cpp::duckdb_vx_agg_input,
+    |_| {}
+);
 
 pub struct AggregateExpression<'a> {
     pub expr: &'a ExpressionRef,

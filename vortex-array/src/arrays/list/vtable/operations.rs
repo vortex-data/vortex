@@ -13,6 +13,8 @@ use crate::arrays::list::ListArrayExt;
 use crate::scalar::Scalar;
 
 impl OperationsVTable<List> for List {
+    type ProbeState = ();
+
     fn scalar_at(
         array: ArrayView<'_, List>,
         index: usize,

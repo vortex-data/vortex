@@ -1,18 +1,26 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::mem::MaybeUninit;
+
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
+use vortex_array::extension::datetime::TimeUnit;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
 use crate::timestamp;
+/// All parts are stored as i32. seconds and subseconds always fit in i32.
+/// For days we have a upper day limitation due to "jiff" validation so days
+/// also fit in i32.
 pub struct TemporalParts {
     pub days: ArrayRef,
     pub seconds: ArrayRef,
@@ -24,6 +32,11 @@ pub struct TemporalParts {
 /// Splitting the components by granularity creates more small values, which enables better
 /// cascading compression.
 pub fn split_temporal(array: TemporalArray, ctx: &mut ExecutionCtx) -> VortexResult<TemporalParts> {
+    let time_unit = array.temporal_metadata().time_unit();
+    if matches!(time_unit, TimeUnit::Days) {
+        vortex_bail!("Cannot handle day-level data");
+    }
+
     let temporal_values = array
         .temporal_values()
         .clone()
@@ -40,22 +53,119 @@ pub fn split_temporal(array: TemporalArray, ctx: &mut ExecutionCtx) -> VortexRes
         .execute::<PrimitiveArray>(ctx)?;
 
     let length = timestamps.len();
-    let mut days = BufferMut::with_capacity(length);
-    let mut seconds = BufferMut::with_capacity(length);
-    let mut subseconds = BufferMut::with_capacity(length);
 
-    for &ts in timestamps.as_slice::<i64>() {
-        let ts_parts = timestamp::split(ts, array.temporal_metadata().time_unit())?;
-        days.push(ts_parts.days);
-        seconds.push(ts_parts.seconds);
-        subseconds.push(ts_parts.subseconds);
+    // If we don't [..length], compiler can't infer all 3 or 4 slices are the
+    // same length, and zip() in split_slice_* checks iterator boundaries.
+    let timestamps = &timestamps.as_slice::<i64>()[..length];
+
+    let mut days: BufferMut<i32> = BufferMut::with_capacity(timestamps.len());
+    let mut seconds: BufferMut<i32> = BufferMut::with_capacity(timestamps.len());
+    let days_ptr = &mut days.spare_capacity_mut()[..length];
+    let seconds_ptr = &mut seconds.spare_capacity_mut()[..length];
+
+    if matches!(time_unit, TimeUnit::Seconds) {
+        split_slice_seconds(days_ptr, seconds_ptr, timestamps);
+
+        // SAFETY: all items in [0; length) are filled in split_slice_seconds
+        unsafe {
+            days.set_len(length);
+            seconds.set_len(length);
+        }
+
+        return Ok(TemporalParts {
+            days: PrimitiveArray::new(days.freeze(), temporal_values.validity()?).into_array(),
+            seconds: seconds.into_array(),
+            subseconds: ConstantArray::new(0, length).into_array(),
+        });
+    }
+
+    let mut subseconds: BufferMut<i32> = BufferMut::with_capacity(timestamps.len());
+    let subseconds_ptr = &mut subseconds.spare_capacity_mut()[..length];
+
+    match time_unit {
+        TimeUnit::Nanoseconds => {
+            split_slice::<1_000_000_000>(days_ptr, seconds_ptr, subseconds_ptr, timestamps)
+        }
+        TimeUnit::Microseconds => {
+            split_slice::<1_000_000>(days_ptr, seconds_ptr, subseconds_ptr, timestamps)
+        }
+        TimeUnit::Milliseconds => {
+            split_slice::<1_000>(days_ptr, seconds_ptr, subseconds_ptr, timestamps)
+        }
+        _ => unreachable!("Handled before"),
+    };
+
+    // SAFETY: all items in [0; length) are filled in split_slice
+    unsafe {
+        days.set_len(length);
+        seconds.set_len(length);
+        subseconds.set_len(length);
     }
 
     Ok(TemporalParts {
-        days: PrimitiveArray::new(days, temporal_values.validity()?).into_array(),
+        days: PrimitiveArray::new(days.freeze(), temporal_values.validity()?).into_array(),
         seconds: seconds.into_array(),
         subseconds: subseconds.into_array(),
     })
+}
+
+#[inline]
+fn split_slice<const DIVISOR: i64>(
+    days: &mut [MaybeUninit<i32>],
+    seconds: &mut [MaybeUninit<i32>],
+    subseconds: &mut [MaybeUninit<i32>],
+    timestamps: &[i64],
+) {
+    // Computing chunks of 4 elements lets LLVM optimize stores into
+    // a 16-byte vector store per chunk.
+    let length = timestamps.len();
+    let (timestamps, timestamps_rem) = timestamps.as_chunks::<4>();
+    let (days, days_rem) = days[..length].as_chunks_mut::<4>();
+    let (seconds, seconds_rem) = seconds[..length].as_chunks_mut::<4>();
+    let (subseconds, subseconds_rem) = subseconds[..length].as_chunks_mut::<4>();
+
+    let chunks = timestamps.iter().zip(days).zip(seconds).zip(subseconds);
+    for (((timestamp, day), second), subsecond) in chunks {
+        let mut day_buf = [0i32; 4];
+        let mut second_buf = [0i32; 4];
+        let mut subsecond_buf = [0i32; 4];
+        for k in 0..4 {
+            let parts = timestamp::split_with_divisor::<DIVISOR>(timestamp[k]);
+            day_buf[k] = parts.days;
+            second_buf[k] = parts.seconds;
+            subsecond_buf[k] = parts.subseconds;
+        }
+        for k in 0..4 {
+            day[k].write(day_buf[k]);
+            second[k].write(second_buf[k]);
+            subsecond[k].write(subsecond_buf[k]);
+        }
+    }
+
+    let remainder = timestamps_rem
+        .iter()
+        .zip(days_rem)
+        .zip(seconds_rem)
+        .zip(subseconds_rem);
+    for (((&ts, day), second), subsecond) in remainder {
+        let parts = timestamp::split_with_divisor::<DIVISOR>(ts);
+        day.write(parts.days);
+        second.write(parts.seconds);
+        subsecond.write(parts.subseconds);
+    }
+}
+
+#[inline]
+fn split_slice_seconds(
+    days: &mut [MaybeUninit<i32>],
+    seconds: &mut [MaybeUninit<i32>],
+    timestamps: &[i64],
+) {
+    for ((day, second), ts) in days.iter_mut().zip(seconds).zip(timestamps) {
+        let parts = timestamp::split_with_divisor::<1>(*ts);
+        day.write(parts.days);
+        second.write(parts.seconds);
+    }
 }
 
 #[cfg(test)]

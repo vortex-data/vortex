@@ -2,6 +2,7 @@
 
 import json
 import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -43,7 +44,7 @@ EXISTING_ISSUES = [
 
 
 @pytest.fixture
-def issues_file():
+def issues_file() -> Iterator[str]:
     """Create a temporary issues JSON file."""
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
         json.dump(EXISTING_ISSUES, f)
@@ -52,7 +53,7 @@ def issues_file():
     Path(f.name).unlink()
 
 
-def _make_crash_info(**overrides) -> CrashInfo:
+def _make_crash_info(**overrides: object) -> CrashInfo:
     """Helper to create a CrashInfo with defaults."""
     defaults = {
         "panic_location": "brand/new/file.rs:999",
@@ -73,7 +74,7 @@ def _make_crash_info(**overrides) -> CrashInfo:
 
 
 class TestCheckSeedHash:
-    def test_match_found(self):
+    def test_match_found(self) -> None:
         result = check_seed_hash(
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             EXISTING_ISSUES,
@@ -83,7 +84,7 @@ class TestCheckSeedHash:
         assert result.confidence == "exact"
         assert result.issue_number == 100
 
-    def test_no_match(self):
+    def test_no_match(self) -> None:
         result = check_seed_hash(
             "0000000000000000000000000000000000000000000000000000000000000000",
             EXISTING_ISSUES,
@@ -91,13 +92,13 @@ class TestCheckSeedHash:
         assert result.duplicate is False
         assert result.check == "seed_hash"
 
-    def test_unknown_hash(self):
+    def test_unknown_hash(self) -> None:
         result = check_seed_hash("unknown", EXISTING_ISSUES)
         assert result.duplicate is False
 
 
 class TestCheckPanicLocation:
-    def test_match_found(self):
+    def test_match_found(self) -> None:
         result = check_panic_location(
             "vortex-array/src/compute/slice.rs:142",
             EXISTING_ISSUES,
@@ -107,17 +108,17 @@ class TestCheckPanicLocation:
         assert result.confidence == "high"
         assert result.issue_number == 100
 
-    def test_partial_match(self):
+    def test_partial_match(self) -> None:
         result = check_panic_location("slice.rs:142", EXISTING_ISSUES)
         assert result.duplicate is True
 
-    def test_no_match(self):
+    def test_no_match(self) -> None:
         result = check_panic_location("other/file.rs:999", EXISTING_ISSUES)
         assert result.duplicate is False
 
 
 class TestCheckStackTrace:
-    def test_match_found(self):
+    def test_match_found(self) -> None:
         result = check_stack_trace(
             "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             EXISTING_ISSUES,
@@ -126,7 +127,7 @@ class TestCheckStackTrace:
         assert result.check == "stack_trace"
         assert result.confidence == "high"
 
-    def test_no_match(self):
+    def test_no_match(self) -> None:
         result = check_stack_trace(
             "0000000000000000000000000000000000000000000000000000000000000000",
             EXISTING_ISSUES,
@@ -135,7 +136,7 @@ class TestCheckStackTrace:
 
 
 class TestCheckErrorPattern:
-    def test_message_hash_match(self):
+    def test_message_hash_match(self) -> None:
         result = check_error_pattern(
             "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
             "IndexOutOfBounds",
@@ -144,7 +145,7 @@ class TestCheckErrorPattern:
         assert result.duplicate is True
         assert result.confidence == "high"
 
-    def test_variant_only_does_not_match(self):
+    def test_variant_only_does_not_match(self) -> None:
         result = check_error_pattern(
             "nomatchhash",
             "ScalarMismatch",
@@ -152,13 +153,13 @@ class TestCheckErrorPattern:
         )
         assert result.duplicate is False
 
-    def test_no_match(self):
+    def test_no_match(self) -> None:
         result = check_error_pattern("nomatch", "UnknownVariant", EXISTING_ISSUES)
         assert result.duplicate is False
 
 
 class TestCheckDuplicate:
-    def test_seed_hash_match_first(self, issues_file):
+    def test_seed_hash_match_first(self, issues_file) -> None:
         """Seed hash match should return immediately with check_order=1."""
         crash_info = _make_crash_info(
             seed_hash="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -168,7 +169,7 @@ class TestCheckDuplicate:
         assert result.check == "seed_hash"
         assert result.check_order == 1
 
-    def test_panic_location_match_second(self, issues_file):
+    def test_panic_location_match_second(self, issues_file) -> None:
         """Panic location should be checked after seed hash."""
         crash_info = _make_crash_info(
             panic_location="vortex-array/src/compute/slice.rs:142",
@@ -178,7 +179,7 @@ class TestCheckDuplicate:
         assert result.check == "panic_location"
         assert result.check_order == 2
 
-    def test_stack_trace_match_third(self, issues_file):
+    def test_stack_trace_match_third(self, issues_file) -> None:
         """Stack trace should be checked after panic location."""
         crash_info = _make_crash_info(
             stack_trace_hash="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -188,7 +189,7 @@ class TestCheckDuplicate:
         assert result.check == "stack_trace"
         assert result.check_order == 3
 
-    def test_error_pattern_match_fourth(self, issues_file):
+    def test_error_pattern_match_fourth(self, issues_file) -> None:
         """Error pattern should be checked last."""
         crash_info = _make_crash_info(
             message_hash="cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
@@ -198,13 +199,13 @@ class TestCheckDuplicate:
         assert result.check == "error_pattern"
         assert result.check_order == 4
 
-    def test_no_match(self, issues_file):
+    def test_no_match(self, issues_file) -> None:
         """Should return no duplicate when nothing matches."""
         crash_info = _make_crash_info()
         result = check_duplicate(crash_info, issues_file)
         assert result.duplicate is False
 
-    def test_empty_issues(self, temp_dir):
+    def test_empty_issues(self, temp_dir) -> None:
         """Empty issues file should return no duplicate."""
         empty_file = temp_dir / "empty.json"
         empty_file.write_text("[]")
@@ -212,7 +213,7 @@ class TestCheckDuplicate:
         result = check_duplicate(crash_info, str(empty_file))
         assert result.duplicate is False
 
-    def test_missing_issues_file(self, temp_dir):
+    def test_missing_issues_file(self, temp_dir) -> None:
         """Missing issues file should return no duplicate."""
         crash_info = _make_crash_info()
         result = check_duplicate(crash_info, str(temp_dir / "nonexistent.json"))
@@ -318,18 +319,18 @@ class TestEndToEndDedup:
     """
 
     @pytest.fixture
-    def crash1_info(self, temp_dir):
+    def crash1_info(self, temp_dir) -> CrashInfo:
         log_path = temp_dir / "mask_crash.log"
         log_path.write_text(MASK_STRUCT_CAST_LOG)
         return extract_crash_info(str(log_path))
 
     @pytest.fixture
-    def crash2_info(self, temp_dir):
+    def crash2_info(self, temp_dir) -> CrashInfo:
         log_path = temp_dir / "decimal_crash.log"
         log_path.write_text(DECIMAL_SUM_LOG)
         return extract_crash_info(str(log_path))
 
-    def test_extraction_skips_boilerplate(self, crash1_info, crash2_info):
+    def test_extraction_skips_boilerplate(self, crash1_info, crash2_info) -> None:
         """Both crashes should extract real locations, not vortex-error."""
         # Crash 1: mask/struct cast
         assert "vortex-error" not in crash1_info.panic_location
@@ -343,16 +344,16 @@ class TestEndToEndDedup:
         assert "constructor.rs:61" in crash2_info.panic_location
         assert "decimal" in crash2_info.crash_location
 
-    def test_stack_frames_are_different(self, crash1_info, crash2_info):
+    def test_stack_frames_are_different(self, crash1_info, crash2_info) -> None:
         """The two crashes should produce entirely different stack frames."""
         assert crash1_info.stack_frames != crash2_info.stack_frames
         assert crash1_info.stack_trace_hash != crash2_info.stack_trace_hash
 
-    def test_panic_locations_are_different(self, crash1_info, crash2_info):
+    def test_panic_locations_are_different(self, crash1_info, crash2_info) -> None:
         """The two crashes should have different panic locations."""
         assert crash1_info.panic_location != crash2_info.panic_location
 
-    def test_no_high_confidence_match(self, crash1_info, crash2_info, temp_dir):
+    def test_no_high_confidence_match(self, crash1_info, crash2_info, temp_dir) -> None:
         """Crash 2 must NOT match an issue created from crash 1 at
         high or exact confidence. The old bug would match on
         'lib.rs:310' (panic_location check, high confidence).
@@ -382,7 +383,7 @@ class TestEndToEndDedup:
             assert result.check != "stack_trace", f"False stack_trace match! debug={result.debug}"
             assert result.confidence != "exact", f"False exact match! debug={result.debug}"
 
-    def test_same_crash_does_match(self, crash1_info, temp_dir):
+    def test_same_crash_does_match(self, crash1_info, temp_dir) -> None:
         """A second occurrence of the SAME crash should still be detected."""
         issue_body = _build_issue_body(crash1_info)
         issues_path = temp_dir / "issues.json"
@@ -405,7 +406,7 @@ class TestEndToEndDedup:
         assert result.check in ("panic_location", "stack_trace")
         assert result.confidence == "high"
 
-    def test_debug_info_is_present(self, crash1_info, crash2_info, temp_dir):
+    def test_debug_info_is_present(self, crash1_info, crash2_info, temp_dir) -> None:
         """Dedup results should include debug details for diagnosis."""
         issue_body = _build_issue_body(crash1_info)
         issues_path = temp_dir / "issues.json"
@@ -534,18 +535,18 @@ class TestIssue6429:
     """
 
     @pytest.fixture
-    def file_io_info(self, temp_dir):
+    def file_io_info(self, temp_dir) -> CrashInfo:
         p = temp_dir / "file_io.log"
         p.write_text(ISSUE_6429_FILE_IO_LOG)
         return extract_crash_info(str(p))
 
     @pytest.fixture
-    def array_ops_info(self, temp_dir):
+    def array_ops_info(self, temp_dir) -> CrashInfo:
         p = temp_dir / "array_ops.log"
         p.write_text(ISSUE_6429_ARRAY_OPS_LOG)
         return extract_crash_info(str(p))
 
-    def test_extraction_skips_vortex_error(self, file_io_info, array_ops_info):
+    def test_extraction_skips_vortex_error(self, file_io_info, array_ops_info) -> None:
         """Neither crash should reference vortex-error in extracted fields."""
         for info in (file_io_info, array_ops_info):
             assert "vortex-error" not in info.panic_location
@@ -554,14 +555,14 @@ class TestIssue6429:
             assert "constructor.rs:61" in info.panic_location
             assert "decimal" in info.crash_location
 
-    def test_no_noise_in_stack_frames(self, file_io_info, array_ops_info):
+    def test_no_noise_in_stack_frames(self, file_io_info, array_ops_info) -> None:
         """Stack frames should not contain any noise."""
         for info in (file_io_info, array_ops_info):
             assert all("vortex_expect" not in f for f in info.stack_frames)
             assert all("{closure" not in f for f in info.stack_frames)
             assert "decimal" in info.stack_frames
 
-    def test_same_bug_matches_correctly(self, file_io_info, array_ops_info, temp_dir):
+    def test_same_bug_matches_correctly(self, file_io_info, array_ops_info, temp_dir) -> None:
         """array_ops crash should match the file_io issue — same bug."""
         issue_body = _build_issue_body(file_io_info)
         issues_path = temp_dir / "issues.json"
@@ -582,7 +583,9 @@ class TestIssue6429:
         assert result.duplicate is True
         assert result.confidence == "high"
 
-    def test_match_reason_references_real_site(self, file_io_info, array_ops_info, temp_dir):
+    def test_match_reason_references_real_site(
+        self, file_io_info, array_ops_info, temp_dir
+    ) -> None:
         """The match reason must reference the real crash, not boilerplate."""
         issue_body = _build_issue_body(file_io_info)
         issues_path = temp_dir / "issues.json"

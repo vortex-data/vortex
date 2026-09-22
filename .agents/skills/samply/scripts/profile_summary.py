@@ -22,14 +22,14 @@ def load_profile(path: Path) -> dict[str, Any]:
         return json.load(f)
 
 
-def value_at(table: dict[str, Any], key: str, index: int, default: Any = None) -> Any:
+def value_at(table: dict[str, Any], key: str, index: int, default: object = None) -> object:
     values = table.get(key)
     if not isinstance(values, list) or index < 0 or index >= len(values):
         return default
     return values[index]
 
 
-def decode_string(thread: dict[str, Any], value: Any) -> str:
+def decode_string(thread: dict[str, Any], value: object) -> str:
     strings = thread.get("stringArray") or []
     if isinstance(value, int) and 0 <= value < len(strings):
         return str(strings[value])
@@ -38,7 +38,7 @@ def decode_string(thread: dict[str, Any], value: Any) -> str:
     return str(value)
 
 
-def resource_name(thread: dict[str, Any], resource_index: Any) -> str:
+def resource_name(thread: dict[str, Any], resource_index: object) -> str:
     if not isinstance(resource_index, int):
         return ""
     resource_table = thread.get("resourceTable") or {}
@@ -72,7 +72,7 @@ def frame_label(thread: dict[str, Any], frame_index: int, symbols: dict[str, str
     return label
 
 
-def expand_stack(thread: dict[str, Any], stack_index: Any) -> list[int]:
+def expand_stack(thread: dict[str, Any], stack_index: object) -> list[int]:
     if not isinstance(stack_index, int):
         return []
 

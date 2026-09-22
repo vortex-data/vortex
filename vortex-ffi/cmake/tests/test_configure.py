@@ -5,14 +5,16 @@
 
 import json
 import os
+import subprocess
 import tomllib
 import unittest
+from pathlib import Path
 
 from support import CMakeTest
 
 
 class ConfigureTests(CMakeTest):
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         for name in ("CMAKE_BUILD_TYPE", "RUSTUP_TOOLCHAIN"):
             self.env.pop(name, None)
@@ -27,7 +29,7 @@ class ConfigureTests(CMakeTest):
                 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/defaults.txt"
                     "${CMAKE_BUILD_TYPE}\n${VORTEX_WARNINGS_AS_ERRORS}\n")
                 if(PROJECT_NAME STREQUAL "VortexCXX")
-                    get_target_property(options vortex_cxx COMPILE_OPTIONS)
+                    get_target_property(options vortex_cxx_static COMPILE_OPTIONS)
                     file(APPEND "${CMAKE_CURRENT_BINARY_DIR}/defaults.txt" "${options}\n")
                 endif()
             endfunction()
@@ -35,7 +37,9 @@ class ConfigureTests(CMakeTest):
             """,
         )
 
-    def configure(self, name, *options, source=None, success=True):
+    def configure(
+        self, name: str, *options: str, source: Path | None = None, success: bool = True
+    ) -> subprocess.CompletedProcess[str]:
         return self.cmake_configure(
             source or self.repo / "vortex-ffi",
             self.work / name,
@@ -49,7 +53,7 @@ class ConfigureTests(CMakeTest):
             success=success,
         )
 
-    def test_standalone_defaults_and_ffi_default_build(self):
+    def test_standalone_defaults_and_ffi_default_build(self) -> None:
         for name, source, directories in (
             ("root", ".", ("ffi", "cpp")),
             ("ffi", "vortex-ffi", (".",)),
@@ -64,6 +68,7 @@ class ConfigureTests(CMakeTest):
                     self.assertEqual(settings[:2], ["Debug", "ON"])
                     if len(settings) == 3:
                         self.assertIn("-Werror", settings[2].split(";"))
+                        self.assertIn("$<$<COMPILE_LANGUAGE:C,CXX>:-g2>", settings[2].split(";"))
 
         build = self.work / "ffi"
         self.cmake_build(build)
@@ -72,9 +77,15 @@ class ConfigureTests(CMakeTest):
         self.assertEqual(recorded["args"][recorded["args"].index("--profile") + 1], "dev")
         config = tomllib.loads((self.repo / ".cargo/config.toml").read_text())
         expected = config["target"]['cfg(target_family="unix")']["rustflags"] + ["-C", "relocation-model=pic"]
+        expected += ["-C", "debuginfo=2"]
         self.assertEqual(recorded["env"]["CARGO_ENCODED_RUSTFLAGS"].split("\x1f"), expected)
 
-    def test_embedded_root_preserves_parent_variables(self):
+        self.configure("ffi", "-DVORTEX_DEBUG_INFO=0")
+        self.cmake_build(build)
+        recorded = self.cargo_recording(build / "cargo-target")
+        self.assertEqual(recorded["env"]["CARGO_ENCODED_RUSTFLAGS"].split("\x1f"), expected[:-1] + ["debuginfo=0"])
+
+    def test_embedded_root_preserves_parent_variables(self) -> None:
         source = self.write(
             "parent/CMakeLists.txt",
             f"""\
@@ -98,7 +109,7 @@ class ConfigureTests(CMakeTest):
         self.cmake_build(build)
         self.assertFalse(list(build.rglob("libvortex_ffi.a")))
 
-    def test_unused_embedded_ffi_keeps_cargo_lazy(self):
+    def test_unused_embedded_ffi_keeps_cargo_lazy(self) -> None:
         source = self.write(
             "parent/CMakeLists.txt",
             f"""\
@@ -114,7 +125,7 @@ class ConfigureTests(CMakeTest):
         self.cmake_build(build, "--target", "vortex_ffi_cargo_build")
         self.assertEqual((build / "ffi/vortex-artifacts/libvortex_ffi.a").read_bytes(), b"recorded archive")
 
-    def test_profile_mapping_and_override(self):
+    def test_profile_mapping_and_override(self) -> None:
         for config, override, expected in (
             ("Release", "", "release"),
             ("RelWithDebInfo", "", "release_debug"),
@@ -128,7 +139,7 @@ class ConfigureTests(CMakeTest):
                 self.assertEqual(args[args.index("--profile") + 1], expected)
                 self.assertEqual((build / "vortex-artifacts/libvortex_ffi.a").read_bytes(), b"recorded archive")
 
-    def test_sanitizer_rejections(self):
+    def test_sanitizer_rejections(self) -> None:
         result = self.configure("unknown", "-DVORTEX_SANITIZER=typo", success=False)
         self.assertIn("got 'typo'", result.stdout + result.stderr)
         for compiler, message in (
@@ -149,11 +160,11 @@ class ConfigureTests(CMakeTest):
                 )
                 self.assertIn(message, result.stdout + result.stderr)
 
-    def test_toolchain_selection_survives_reconfigure_and_explicit_updates(self):
+    def test_toolchain_selection_survives_reconfigure_and_explicit_updates(self) -> None:
         rustc_log = self.work / "rustc.json"
         build = self.work / "toolchain"
 
-        def assert_selection(selected):
+        def assert_selection(selected: str | None) -> None:
             self.assertEqual(json.loads(rustc_log.read_text()), [selected, str(self.repo)])
             recorded = self.cargo_recording(build / "cargo-target")
             self.assertEqual(recorded["env"].get("RUSTUP_TOOLCHAIN"), selected)

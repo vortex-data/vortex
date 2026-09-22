@@ -27,7 +27,6 @@ vortex-bench = { workspace = true }
 
 [features]
 lance = ["dep:lance-bench"]
-unstable_encodings = ["vortex-bench/unstable_encodings"]
 
 [[bin]]
 name = "random-access-bench"

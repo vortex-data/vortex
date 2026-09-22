@@ -6,7 +6,9 @@
 //! Each edition definition should call [`validate_edition`] once from its `#[cfg(test)]`
 //! module, so every declared edition has a test proving its constraints hold.
 
-use crate::EditionError;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+
 use crate::EditionId;
 use crate::EditionSession;
 
@@ -18,20 +20,15 @@ use crate::EditionSession;
 /// #[cfg(test)]
 /// mod tests {
 ///     #[test]
-///     fn edition_is_valid() -> Result<(), vortex_edition::EditionError> {
+///     fn edition_is_valid() -> vortex_error::VortexResult<()> {
 ///         vortex_edition::test_harness::validate_edition(&edition_session(), &CORE_2026_01_0)
 ///     }
 /// }
 /// ```
-pub fn validate_edition(
-    editions: &EditionSession,
-    edition: &EditionId,
-) -> Result<(), EditionError> {
+pub fn validate_edition(editions: &EditionSession, edition: &EditionId) -> VortexResult<()> {
     edition.validate()?;
     if editions.find(edition).is_none() {
-        return Err(EditionError::new(format!(
-            "{edition} is not declared in the session"
-        )));
+        vortex_bail!("{edition} is not declared in the session");
     }
     editions.validate()
 }

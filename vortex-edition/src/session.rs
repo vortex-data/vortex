@@ -8,6 +8,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_session::ArcSwapMap;
 use vortex_session::SessionExt;
 use vortex_session::SessionGuard;
@@ -17,7 +19,6 @@ use vortex_session::registry::Id;
 use crate::ComponentKind;
 use crate::Edition;
 use crate::EditionDeclaration;
-use crate::EditionError;
 use crate::EditionFamily;
 use crate::EditionId;
 use crate::EditionInclusion;
@@ -87,7 +88,7 @@ impl EditionSession {
 
     /// Declare an edition together with the members added at it. Each entry's membership
     /// (`since`) is the declared edition; earlier entries are inherited and must not be restated.
-    pub fn declare(&self, declaration: &EditionDeclaration) -> Result<(), EditionError> {
+    pub fn declare(&self, declaration: &EditionDeclaration) -> VortexResult<()> {
         self.declare_edition(declaration.edition)?;
         for member in declaration.added {
             self.declare_inclusion(EditionInclusion::new(
@@ -102,13 +103,10 @@ impl EditionSession {
     /// Declare an edition family. Errors if a family with the same name is already
     /// declared. Every family must be declared before [`EditionSession::validate`] will
     /// accept editions belonging to it.
-    pub fn declare_family(&self, family: &EditionFamily) -> Result<(), EditionError> {
+    pub fn declare_family(&self, family: &EditionFamily) -> VortexResult<()> {
         let mut inner = self.inner.write();
         if inner.families.contains_key(family.name) {
-            return Err(EditionError::new(format!(
-                "duplicate edition family {}",
-                family.name
-            )));
+            vortex_bail!("duplicate edition family {}", family.name);
         }
         inner.families.insert(family.name.to_string(), *family);
         Ok(())
@@ -125,11 +123,11 @@ impl EditionSession {
     }
 
     /// Declare an edition. Errors if an edition with the same id is already declared.
-    pub fn declare_edition(&self, edition: Edition) -> Result<(), EditionError> {
+    pub fn declare_edition(&self, edition: Edition) -> VortexResult<()> {
         let mut inner = self.inner.write();
         let key = edition.id.to_string();
         if inner.editions.contains_key(&key) {
-            return Err(EditionError::new(format!("duplicate edition {key}")));
+            vortex_bail!("duplicate edition {key}");
         }
         inner.editions.insert(key, edition);
         Ok(())
@@ -138,7 +136,7 @@ impl EditionSession {
     /// Declare an edition inclusion. A component may belong to multiple families but joins each
     /// family only once. A newer wire representation uses a new component ID. Kind is part of the
     /// key, so an array encoding and a layout may share an id.
-    pub fn declare_inclusion(&self, inclusion: EditionInclusion) -> Result<(), EditionError> {
+    pub fn declare_inclusion(&self, inclusion: EditionInclusion) -> VortexResult<()> {
         let mut inner = self.inner.write();
         let by_id = inner.inclusions.entry(inclusion.kind).or_default();
         let history = by_id.entry(inclusion.component_id).or_default();
@@ -154,10 +152,13 @@ impl EditionSession {
             });
 
         if let Some(previous) = previous {
-            return Err(EditionError::new(format!(
+            vortex_bail!(
                 "{} {} already joined family {} in edition {}",
-                inclusion.kind, inclusion.component_id, inclusion.since.family, previous.since,
-            )));
+                inclusion.kind,
+                inclusion.component_id,
+                inclusion.since.family,
+                previous.since,
+            );
         }
         history.push(inclusion);
         history.sort_by_key(|entry| {
@@ -222,7 +223,7 @@ impl EditionSession {
     /// inclusions referencing undeclared editions, editions out of chronological order within
     /// a family (unversioned drafts must be newest), malformed version strings, and members
     /// requiring a release newer than their edition declares.
-    pub fn validate(&self) -> Result<(), EditionError> {
+    pub fn validate(&self) -> VortexResult<()> {
         let editions = self.editions();
 
         for family in self.families() {
@@ -232,19 +233,20 @@ impl EditionSession {
         for edition in &editions {
             edition.id.validate()?;
             if self.find_family(edition.id.family).is_none() {
-                return Err(EditionError::new(format!(
+                vortex_bail!(
                     "edition {} belongs to undeclared family {}; declare the family before \
                      its editions",
-                    edition.id, edition.id.family,
-                )));
+                    edition.id,
+                    edition.id.family,
+                );
             }
             if let Some(version) = edition.min_library_version
                 && parse_release(version).is_none()
             {
-                return Err(EditionError::new(format!(
+                vortex_bail!(
                     "edition {} declares malformed min_library_version {version:?}",
                     edition.id
-                )));
+                );
             }
         }
 
@@ -253,10 +255,11 @@ impl EditionSession {
         for pair in editions.windows(2) {
             let (prev, next) = (&pair[0], &pair[1]);
             if prev.id.family == next.id.family && prev.is_draft() && !next.is_draft() {
-                return Err(EditionError::new(format!(
+                vortex_bail!(
                     "frozen edition {} follows draft {}; drafts must be newest in a family",
-                    next.id, prev.id,
-                )));
+                    next.id,
+                    prev.id,
+                );
             }
         }
 
@@ -270,24 +273,26 @@ impl EditionSession {
             inclusion.validate()?;
 
             let Some(edition) = inner.editions.get(&inclusion.since.to_string()) else {
-                return Err(EditionError::new(format!(
+                vortex_bail!(
                     "{} {} is included in undeclared edition {}",
-                    inclusion.kind, inclusion.component_id, inclusion.since
-                )));
+                    inclusion.kind,
+                    inclusion.component_id,
+                    inclusion.since
+                );
             };
 
             if let Some(required) = inclusion.required_vortex_release.and_then(parse_release)
                 && let Some(declared) = edition.min_library_version.and_then(parse_release)
                 && required > declared
             {
-                return Err(EditionError::new(format!(
+                vortex_bail!(
                     "{} {} requires release {}, newer than edition {}'s declared \
                      min_library_version",
                     inclusion.kind,
                     inclusion.component_id,
                     inclusion.required_vortex_release.unwrap_or_default(),
                     edition.id,
-                )));
+                );
             }
         }
 
@@ -331,7 +336,7 @@ pub trait EditionSessionExt: SessionExt {
     }
 
     /// Register an edition declaration with this session.
-    fn register_edition(&self, declaration: &EditionDeclaration) -> Result<(), EditionError> {
+    fn register_edition(&self, declaration: &EditionDeclaration) -> VortexResult<()> {
         self.editions().declare(declaration)
     }
 
@@ -340,11 +345,9 @@ pub trait EditionSessionExt: SessionExt {
     /// Enabling an edition replaces the enabled edition from the same family. An edition
     /// must be registered first so a typo or unavailable third-party declaration cannot
     /// silently produce an empty writable set.
-    fn enable_edition(&self, edition: EditionId) -> Result<(), EditionError> {
+    fn enable_edition(&self, edition: EditionId) -> VortexResult<()> {
         if self.editions().find(&edition).is_none() {
-            return Err(EditionError::new(format!(
-                "cannot enable unregistered edition {edition}"
-            )));
+            vortex_bail!("cannot enable unregistered edition {edition}");
         }
         self.enabled_editions().enable(edition);
         Ok(())

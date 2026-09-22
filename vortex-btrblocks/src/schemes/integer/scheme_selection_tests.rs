@@ -28,6 +28,8 @@ use vortex_session::VortexSession;
 use vortex_sparse::Sparse;
 
 use crate::BtrBlocksCompressor;
+use crate::BtrBlocksCompressorBuilder;
+use crate::DELTA_SCHEME;
 static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 #[test]
@@ -158,7 +160,6 @@ fn test_rle_compressed() -> VortexResult<()> {
 /// (so Sequence skips), all-unique with no runs (so RunEnd/Dict skip), and a wide absolute range.
 /// Delta's residuals are far smaller than the FoR span, so Delta should win and round-trip, and
 /// it must appear at most once in the tree.
-#[cfg(feature = "unstable_encodings")]
 #[test]
 fn test_delta_compressed() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
@@ -175,7 +176,9 @@ fn test_delta_compressed() -> VortexResult<()> {
         .collect();
     let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
 
-    let btr = BtrBlocksCompressor::default();
+    let btr = BtrBlocksCompressorBuilder::default()
+        .with_new_scheme(&DELTA_SCHEME)
+        .build();
     let compressed = btr.compress(
         &array.clone().into_array(),
         &mut SESSION.create_execution_ctx(),
@@ -197,7 +200,6 @@ fn test_delta_compressed() -> VortexResult<()> {
 
 /// Same as [`test_delta_compressed`], but with a length that is not a multiple of 1024.
 /// Zero-padding the trailing chunk used to inflate the delta span and cause DeltaScheme to skip.
-#[cfg(feature = "unstable_encodings")]
 #[test]
 fn test_delta_compressed_unaligned_length() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
@@ -214,7 +216,9 @@ fn test_delta_compressed_unaligned_length() -> VortexResult<()> {
         .collect();
     let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
 
-    let btr = BtrBlocksCompressor::default();
+    let btr = BtrBlocksCompressorBuilder::default()
+        .with_new_scheme(&DELTA_SCHEME)
+        .build();
     let compressed = btr.compress(
         &array.clone().into_array(),
         &mut SESSION.create_execution_ctx(),
@@ -231,7 +235,6 @@ fn test_delta_compressed_unaligned_length() -> VortexResult<()> {
 /// Nullable unaligned monotone must round-trip through Delta (and a cascaded residual).
 ///
 /// Mirrors `duckdb/aggregate_pushdown.slt`: `NULL` then `1..=100000` (length 100001).
-#[cfg(feature = "unstable_encodings")]
 #[test]
 fn test_delta_nullable_unaligned_sum() -> VortexResult<()> {
     use vortex_array::aggregate_fn::fns::sum::sum;
@@ -242,7 +245,9 @@ fn test_delta_nullable_unaligned_sum() -> VortexResult<()> {
     let array =
         PrimitiveArray::from_option_iter(iter::once(None).chain((1i32..=100_000).map(Some)));
 
-    let btr = BtrBlocksCompressor::default();
+    let btr = BtrBlocksCompressorBuilder::default()
+        .with_new_scheme(&DELTA_SCHEME)
+        .build();
     let compressed = btr.compress(&array.clone().into_array(), &mut ctx)?;
     assert!(
         compressed.is::<Delta>(),
@@ -260,7 +265,6 @@ fn test_delta_nullable_unaligned_sum() -> VortexResult<()> {
 }
 
 /// Returns true if any `Delta` array appears below an ancestor `Delta` in the tree.
-#[cfg(feature = "unstable_encodings")]
 fn has_nested_delta(array: &vortex_array::ArrayRef, under_delta: bool) -> bool {
     use vortex_fastlanes::Delta;
 

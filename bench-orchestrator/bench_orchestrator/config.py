@@ -282,7 +282,7 @@ class BuildConfig:
 
     profile: str = "release_debug"
     rustflags: str = "-C target-cpu=native -C force-frame-pointers=yes"
-    features: tuple[str, ...] = ("unstable_encodings",)
+    features: tuple[str, ...] = ()
 
 
 def get_workspace_root() -> Path:

@@ -31,7 +31,7 @@ impl DynAggregateKernel for ChunkedArrayAggregate {
             acc.accumulate(chunk, ctx)?;
         }
         // Return the partial (not finalized) result, since the outer accumulator
-        // will call combine_partials() on this value.
+        // will merge this partial scalar into its own state.
         Ok(Some(acc.flush()?))
     }
 }

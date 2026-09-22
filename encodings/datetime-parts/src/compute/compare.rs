@@ -176,7 +176,7 @@ fn compare_gt(
 
 fn compare_dtp(
     lhs: &ArrayRef,
-    rhs: i64,
+    rhs: i32,
     operator: CompareOperator,
     nullability: Nullability,
 ) -> VortexResult<ArrayRef> {

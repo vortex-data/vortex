@@ -143,7 +143,7 @@ impl ArrayParentReduceRule<DateTimeParts> for DTPComparisonPushDownRule {
 
 /// Try to extract the days value from a constant timestamp.
 /// Returns None if the constant is not a timestamp or has non-zero seconds/subseconds.
-fn try_extract_days_constant(array: &ArrayRef) -> Option<i64> {
+fn try_extract_days_constant(array: &ArrayRef) -> Option<i32> {
     let constant = array.as_constant()?;
 
     // Extract the timestamp value

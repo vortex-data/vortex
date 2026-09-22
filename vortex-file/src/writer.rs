@@ -239,8 +239,7 @@ impl VortexWriteOptions {
         let enforce_editions = !self.disable_editions;
         // The array context is built here, rather than when the options were constructed, so that
         // encodings registered on the session in between are still eligible for the file.
-        let (array_ctx, allowed_array_encodings) =
-            new_array_context(&self.session, enforce_editions);
+        let array_ctx = new_array_context(&self.session, enforce_editions);
         let ctx = LayoutWriterContext::new(array_ctx)
             .with_buffered_bytes_tracker(self.buffered_bytes.clone());
         let ctx = if enforce_editions {
@@ -248,12 +247,14 @@ impl VortexWriteOptions {
         } else {
             ctx
         };
+        let allowed_serialized_ids: HashSet<ArrayId> =
+            ctx.array_ctx().to_ids().into_iter().collect();
         let strategy = match self.strategy {
             Some(strategy) => strategy,
             None => WriteStrategyBuilder::default()
                 .with_btrblocks_builder(
                     BtrBlocksCompressorBuilder::default()
-                        .retain_allowed_encodings(&allowed_array_encodings),
+                        .retain_allowed_encodings(&allowed_serialized_ids),
                 )
                 .build(),
         };
@@ -384,36 +385,39 @@ impl VortexWriteOptions {
     }
 }
 
-fn new_array_context(
-    session: &VortexSession,
-    enforce_editions: bool,
-) -> (ArrayContext, HashSet<ArrayId>) {
+fn new_array_context(session: &VortexSession, enforce_editions: bool) -> ArrayContext {
     // NOTE(os): Set up an array context with all eligible serialized IDs pre-populated.
     // This is preferred for now over having an empty context here, because only the
     // serialised array order is deterministic. The serialisation of arrays are done
     // parallel and with an empty context they can register their encodings to the context
     // in different order, changing the written bytes from run to run.
-    let arrays = session.arrays();
-    let serialized_ids = if enforce_editions {
-        session.enabled_component_ids(ComponentKind::Array)
+
+    // The registry keys are exactly the serialized IDs that can be produced by the plugins
+    // registered in the session. Intersected with the serialized IDs the enabled editions permit,
+    // this is the set of IDs that can be written. Only seed the array context with these IDs, and
+    // only allow compressor schemes that produce arrays with serialized IDs within this set.
+    let registered: HashSet<ArrayId> = session
+        .arrays()
+        .registry()
+        .read(|registry| registry.keys().copied().collect());
+    let serialized_ids: Vec<ArrayId> = if enforce_editions {
+        // Must filter by the set of serialized IDs supported by registered plugins. Otherwise,
+        // we could enable an ID that will never be written.
+        session
+            .enabled_component_ids(ComponentKind::Array)
+            .into_iter()
+            .filter(|id| registered.contains(id))
+            .collect()
     } else {
-        arrays
-            .registry()
-            .read(|registry| registry.keys().copied().collect())
+        registered.into_iter().collect()
     };
-    let allowed_array_encodings = serialized_ids
-        .iter()
-        .filter_map(|serialized_id| arrays.registry().get(serialized_id))
-        .map(|plugin| plugin.id())
-        .collect();
     let array_ctx = ArrayContext::new(serialized_ids.iter().copied().sorted().collect());
-    let array_ctx = if enforce_editions {
+    if enforce_editions {
         // Only permit serialized IDs in the enabled editions.
         array_ctx.with_allowed_ids(serialized_ids.into_iter().collect())
     } else {
         array_ctx
-    };
-    (array_ctx, allowed_array_encodings)
+    }
 }
 
 /// The ids of `kind` the enabled editions permit.
@@ -769,11 +773,12 @@ mod tests {
     use vortex_edition::EditionMember;
     use vortex_edition::EditionSession;
     use vortex_edition::EditionSessionExt;
+    use vortex_session::registry::CachedId;
 
     use super::*;
 
     #[test]
-    fn array_context_only_permits_enabled_encodings() -> Result<(), vortex_edition::EditionError> {
+    fn array_context_only_permits_enabled_encodings() -> VortexResult<()> {
         const EDITION: EditionId = EditionId::new("test", 2026, 7, 0);
         static DECLARATION: EditionDeclaration = EditionDeclaration {
             edition: Edition {
@@ -787,35 +792,55 @@ mod tests {
         session.register_edition(&DECLARATION)?;
         session.enable_edition(EDITION)?;
 
-        let (ctx, allowed_array_encodings) = new_array_context(&session, true);
+        let ctx = new_array_context(&session, true);
         assert_eq!(ctx.to_ids(), [Primitive.id()]);
         assert!(ctx.intern(&Bool.id()).is_none());
-        assert_eq!(allowed_array_encodings, HashSet::from([Primitive.id()]));
+        Ok(())
+    }
+
+    /// An edition may enable an encoding whose plugin is not registered on the session. Nothing
+    /// could serialize it, so it is neither seeded into the table nor offered to the compressor.
+    #[test]
+    fn array_context_skips_enabled_but_unregistered_encodings() -> VortexResult<()> {
+        const EDITION: EditionId = EditionId::new("test", 2026, 9, 0);
+        static DECLARATION: EditionDeclaration = EditionDeclaration {
+            edition: Edition {
+                id: EDITION,
+                min_library_version: None,
+            },
+            added: &[
+                EditionMember::array(&"vortex.primitive"),
+                EditionMember::array(&"vortex.alp"),
+            ],
+        };
+
+        let session = array_session().with::<EditionSession>();
+        session.register_edition(&DECLARATION)?;
+        session.enable_edition(EDITION)?;
+
+        let ctx = new_array_context(&session, true);
+        assert_eq!(ctx.to_ids(), [Primitive.id()]);
+        static ALP: CachedId = CachedId::new("vortex.alp");
+        assert!(ctx.intern(&ALP).is_none());
         Ok(())
     }
 
     #[test]
     fn disabling_editions_allows_all_registered_array_ids() {
         let session = array_session();
-        let (registered_ids, registered_encodings) = session.arrays().registry().read(|registry| {
-            (
-                registry.keys().copied().sorted().collect::<Vec<_>>(),
-                registry
-                    .values()
-                    .map(|plugin| plugin.id())
-                    .collect::<HashSet<_>>(),
-            )
-        });
+        let registered_ids = session
+            .arrays()
+            .registry()
+            .read(|registry| registry.keys().copied().sorted().collect::<Vec<_>>());
 
-        let (ctx, allowed_array_encodings) = new_array_context(&session, false);
+        let ctx = new_array_context(&session, false);
         assert_eq!(ctx.to_ids(), registered_ids);
-        assert_eq!(allowed_array_encodings, registered_encodings);
         assert!(ctx.intern(&Bool.id()).is_some());
     }
 
     /// This test edition declares only arrays, so every other kind must forbid all components.
     #[test]
-    fn kind_filters_are_active_when_empty() -> Result<(), vortex_edition::EditionError> {
+    fn kind_filters_are_active_when_empty() -> VortexResult<()> {
         const EDITION: EditionId = EditionId::new("test", 2026, 8, 0);
         static ARRAYS_ONLY: EditionDeclaration = EditionDeclaration {
             edition: Edition {
@@ -870,12 +895,8 @@ mod tests {
         };
 
         let session = array_session().with::<EditionSession>();
-        session
-            .register_edition(&DECLARATION)
-            .map_err(|error| vortex_err!("{error}"))?;
-        session
-            .enable_edition(EDITION)
-            .map_err(|error| vortex_err!("{error}"))?;
+        session.register_edition(&DECLARATION)?;
+        session.enable_edition(EDITION)?;
 
         let date = DType::Extension(Date::new(TimeUnit::Days, Nullability::NonNullable).erased());
         let nested = DType::struct_([("date", date)], Nullability::NonNullable);

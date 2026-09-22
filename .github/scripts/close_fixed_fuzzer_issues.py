@@ -30,7 +30,7 @@ class FuzzerIssue:
     body: str
 
 
-def run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
+def run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess:
     """Run a command, printing it for visibility."""
     print(f"  $ {' '.join(cmd)}", flush=True)
     return subprocess.run(cmd, **kwargs)

@@ -78,6 +78,7 @@ fn init_tracing() {
 /// separately (e.g., before creating connections), call `register_extension_options` first.
 pub fn initialize(db: &DatabaseRef) -> VortexResult<()> {
     db.register_table_functions()?;
+    db.register_version_function(env!("VORTEX_VERSION"))?;
     db.register_optimizer_extension()?;
     db.register_copy_function()
 }

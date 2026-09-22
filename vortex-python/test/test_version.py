@@ -8,7 +8,7 @@ import pytest
 import vortex
 
 
-def test_version_matches_metadata():
+def test_version_matches_metadata() -> None:
     """
     Tests that we see the correct __version__
     value exported by the package.

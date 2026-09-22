@@ -22,7 +22,7 @@ console = Console()
 class BenchmarkExecutor:
     """Executes benchmark binaries and captures output."""
 
-    def __init__(self, binary_path: Path, backend: Engine, verbose: bool = False):
+    def __init__(self, binary_path: Path, backend: Engine, verbose: bool = False) -> None:
         self.binary_path = binary_path
         self.backend = backend
         self.verbose = verbose

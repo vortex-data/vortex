@@ -13,11 +13,13 @@
 //! - `collect_bool_*` / `from_bool_slice`: the public entry points end to end, with a
 //!   boolean-gather predicate and a `u32` comparison predicate.
 //!
-//! `words_gather_dispatch` and `words_gather_scalar` carry `#[cpu_features]`, so they are
-//! measured on every walltime CPU-feature leg rather than in simulation. Both are written
-//! once and compiled differently per leg: the shipped entry point picks its pack kernel
-//! through `cfg(target_feature)`, and how well the scalar loop auto-vectorizes depends on
-//! the build. Comparing them across legs is the point.
+//! `words_gather_dispatch` carries `#[cpu_features]`, so it is measured on every walltime
+//! CPU-feature leg rather than in simulation: the shipped entry point is written once and
+//! picks its pack kernel through `cfg(target_feature)`, so each leg measures a different
+//! build of it. `words_gather_scalar`, the frozen copy of the previous scalar loop, is
+//! compiled only outside CodSpeed: its code never changes, so a change in its walltime is
+//! never actionable, and it flipped by up to 15% between runs of identical code. Run
+//! `cargo bench` locally to compare the two under one set of build flags.
 //!
 //! The hand-written per-kernel benchmarks are not tagged. Each one needs an instruction set
 //! extension the other legs do not build for, so they stay out of CodSpeed entirely and
@@ -26,10 +28,15 @@
 //! A plain `cargo bench` ignores all of it and runs everything on the host.
 
 use divan::Bencher;
+use mimalloc::MiMalloc;
 use vortex_buffer::BitBuffer;
+#[cfg(not(codspeed))]
 use vortex_buffer::collect_bool_word_scalar;
 #[cfg(not(codspeed))]
 use vortex_buffer::pack_bool_word_swar;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     // Pre-warm CPUID feature detection so the one-time probe cost is never
@@ -45,6 +52,14 @@ fn main() {
 }
 
 const INPUT_SIZE: &[usize] = &[1024, 65_536];
+
+/// Sizes for the `words_gather_*` benchmarks.
+///
+/// The tagged pair is measured on the walltime legs, where a 1024-bool gather ran in tens of
+/// nanoseconds, within timer resolution, and its reported time moved by 2x between runs of
+/// identical code. A million bools keeps each iteration in the tens to hundreds of microseconds
+/// and the scalar loop still well under the 1 ms budget.
+const GATHER_INPUT_SIZE: &[usize] = &[65_536, 1_048_576];
 
 /// Deterministic pseudo-random words (LCG), the source for all benchmark inputs.
 fn make_words(len: usize) -> impl Iterator<Item = u64> {
@@ -107,7 +122,7 @@ fn bench_words_gather(
 }
 
 #[vortex_bench_support::cpu_features]
-#[divan::bench(args = INPUT_SIZE)]
+#[divan::bench(args = GATHER_INPUT_SIZE)]
 fn words_gather_dispatch(bencher: Bencher, len: usize) {
     bench_words_gather(bencher, len, |words, len, bools| {
         // SAFETY: `collect_bool_words` invokes the predicate with indices `0..len` only.
@@ -115,8 +130,8 @@ fn words_gather_dispatch(bencher: Bencher, len: usize) {
     });
 }
 
-#[vortex_bench_support::cpu_features]
-#[divan::bench(args = INPUT_SIZE)]
+#[cfg(not(codspeed))]
+#[divan::bench(args = GATHER_INPUT_SIZE)]
 fn words_gather_scalar(bencher: Bencher, len: usize) {
     bench_words_gather(bencher, len, |words, len, bools| {
         // SAFETY: `collect_bool_words_old` invokes the predicate with indices `0..len` only.
@@ -126,7 +141,7 @@ fn words_gather_scalar(bencher: Bencher, len: usize) {
 
 #[cfg(target_arch = "x86_64")]
 #[cfg(not(codspeed))]
-#[divan::bench(args = INPUT_SIZE)]
+#[divan::bench(args = GATHER_INPUT_SIZE)]
 fn words_gather_sse2(bencher: Bencher, len: usize) {
     bench_words_gather(bencher, len, |words, len, bools| {
         // SAFETY: SSE2 is part of the x86-64 baseline; indices passed are `0..len`.
@@ -136,7 +151,7 @@ fn words_gather_sse2(bencher: Bencher, len: usize) {
 
 #[cfg(target_arch = "x86_64")]
 #[cfg(not(codspeed))]
-#[divan::bench(args = INPUT_SIZE)]
+#[divan::bench(args = GATHER_INPUT_SIZE)]
 fn words_gather_avx2(bencher: Bencher, len: usize) {
     if !is_x86_feature_detected!("avx2") {
         return;
@@ -149,7 +164,7 @@ fn words_gather_avx2(bencher: Bencher, len: usize) {
 
 #[cfg(target_arch = "x86_64")]
 #[cfg(not(codspeed))]
-#[divan::bench(args = INPUT_SIZE)]
+#[divan::bench(args = GATHER_INPUT_SIZE)]
 fn words_gather_avx512(bencher: Bencher, len: usize) {
     if !(is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("avx512bw")) {
         return;
@@ -162,7 +177,7 @@ fn words_gather_avx512(bencher: Bencher, len: usize) {
 
 #[cfg(target_arch = "aarch64")]
 #[cfg(not(codspeed))]
-#[divan::bench(args = INPUT_SIZE)]
+#[divan::bench(args = GATHER_INPUT_SIZE)]
 fn words_gather_neon(bencher: Bencher, len: usize) {
     bench_words_gather(bencher, len, |words, len, bools| {
         // SAFETY: NEON is part of the aarch64 baseline; indices passed are `0..len`.
@@ -172,6 +187,7 @@ fn words_gather_neon(bencher: Bencher, len: usize) {
 
 /// Faithful copy of the previous scalar-only `collect_bool_words` word loop, used as the
 /// baseline for the end-to-end comparison.
+#[cfg(not(codspeed))]
 fn collect_bool_words_old(words: &mut [u64], len: usize, mut f: impl FnMut(usize) -> bool) {
     let full = len / 64;
     let remainder = len % 64;

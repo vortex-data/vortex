@@ -1,0 +1,67 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT w_state,
+       i_item_id,
+       sum(CASE
+               WHEN (cast(d_date AS date) < CAST ('2000-03-11' AS date)) THEN cs_sales_price - coalesce(cr_refunded_cash,0)
+               ELSE 0
+           END) AS sales_before,
+       sum(CASE
+               WHEN (cast(d_date AS date) >= CAST ('2000-03-11' AS date)) THEN cs_sales_price - coalesce(cr_refunded_cash,0)
+               ELSE 0
+           END) AS sales_after
+FROM catalog_sales
+LEFT OUTER JOIN catalog_returns ON (cs_order_number = cr_order_number
+                                    AND cs_item_sk = cr_item_sk) ,warehouse,
+                                                                  item,
+                                                                  date_dim
+WHERE i_current_price BETWEEN 0.99 AND 1.49
+  AND i_item_sk = cs_item_sk
+  AND cs_warehouse_sk = w_warehouse_sk
+  AND cs_sold_date_sk = d_date_sk
+  AND d_date BETWEEN CAST ('2000-02-10' AS date) AND CAST ('2000-04-10' AS date)
+GROUP BY w_state,
+         i_item_id
+ORDER BY w_state,
+         i_item_id
+LIMIT 100;
+----
+logical_plan
+01)Sort: warehouse.w_state ASC NULLS LAST, item.i_item_id ASC NULLS LAST, fetch=100
+02)--Projection: warehouse.w_state, item.i_item_id, sum(CASE WHEN date_dim.d_date < Utf8("2000-03-11") THEN catalog_sales.cs_sales_price - coalesce(catalog_returns.cr_refunded_cash,Int64(0)) ELSE Int64(0) END) AS sales_before, sum(CASE WHEN date_dim.d_date >= Utf8("2000-03-11") THEN catalog_sales.cs_sales_price - coalesce(catalog_returns.cr_refunded_cash,Int64(0)) ELSE Int64(0) END) AS sales_after
+03)----Aggregate: groupBy=[[warehouse.w_state, item.i_item_id]], aggr=[[sum(CASE WHEN date_dim.d_date < Date32("2000-03-11") THEN catalog_sales.cs_sales_price - CASE WHEN CAST(catalog_returns.cr_refunded_cash AS Decimal128(22, 2)) IS NOT NULL THEN CAST(catalog_returns.cr_refunded_cash AS Decimal128(22, 2)) ELSE Decimal128(0.00,22,2) END ELSE Decimal128(0.00,23,2) END) AS sum(CASE WHEN date_dim.d_date < Utf8("2000-03-11") THEN catalog_sales.cs_sales_price - coalesce(catalog_returns.cr_refunded_cash,Int64(0)) ELSE Int64(0) END), sum(CASE WHEN date_dim.d_date >= Date32("2000-03-11") THEN catalog_sales.cs_sales_price - CASE WHEN CAST(catalog_returns.cr_refunded_cash AS Decimal128(22, 2)) IS NOT NULL THEN CAST(catalog_returns.cr_refunded_cash AS Decimal128(22, 2)) ELSE Decimal128(0.00,22,2) END ELSE Decimal128(0.00,23,2) END) AS sum(CASE WHEN date_dim.d_date >= Utf8("2000-03-11") THEN catalog_sales.cs_sales_price - coalesce(catalog_returns.cr_refunded_cash,Int64(0)) ELSE Int64(0) END)]]
+04)------Projection: catalog_sales.cs_sales_price, catalog_returns.cr_refunded_cash, warehouse.w_state, item.i_item_id, date_dim.d_date
+05)--------Inner Join: catalog_sales.cs_sold_date_sk = date_dim.d_date_sk
+06)----------Projection: catalog_sales.cs_sold_date_sk, catalog_sales.cs_sales_price, catalog_returns.cr_refunded_cash, warehouse.w_state, item.i_item_id
+07)------------Inner Join: catalog_sales.cs_item_sk = item.i_item_sk
+08)--------------Projection: catalog_sales.cs_sold_date_sk, catalog_sales.cs_item_sk, catalog_sales.cs_sales_price, catalog_returns.cr_refunded_cash, warehouse.w_state
+09)----------------Inner Join: catalog_sales.cs_warehouse_sk = warehouse.w_warehouse_sk
+10)------------------Projection: catalog_sales.cs_sold_date_sk, catalog_sales.cs_warehouse_sk, catalog_sales.cs_item_sk, catalog_sales.cs_sales_price, catalog_returns.cr_refunded_cash
+11)--------------------Left Join: catalog_sales.cs_order_number = catalog_returns.cr_order_number, catalog_sales.cs_item_sk = catalog_returns.cr_item_sk
+12)----------------------TableScan: catalog_sales projection=[cs_sold_date_sk, cs_warehouse_sk, cs_item_sk, cs_order_number, cs_sales_price]
+13)----------------------TableScan: catalog_returns projection=[cr_item_sk, cr_order_number, cr_refunded_cash]
+14)------------------TableScan: warehouse projection=[w_warehouse_sk, w_state]
+15)--------------Projection: item.i_item_sk, item.i_item_id
+16)----------------Filter: item.i_current_price >= Decimal128(0.99,7,2) AND item.i_current_price <= Decimal128(1.49,7,2)
+17)------------------TableScan: item projection=[i_item_sk, i_item_id, i_current_price], partial_filters=[item.i_current_price >= Decimal128(0.99,7,2), item.i_current_price <= Decimal128(1.49,7,2)]
+18)----------Filter: date_dim.d_date >= Date32("2000-02-10") AND date_dim.d_date <= Date32("2000-04-10")
+19)------------TableScan: date_dim projection=[d_date_sk, d_date], partial_filters=[date_dim.d_date >= Date32("2000-02-10"), date_dim.d_date <= Date32("2000-04-10")]
+physical_plan
+01)SortPreservingMergeExec: [w_state@0 ASC NULLS LAST, i_item_id@1 ASC NULLS LAST], fetch=100
+02)--ProjectionExec: expr=[w_state@0 as w_state, i_item_id@1 as i_item_id, sum(CASE WHEN date_dim.d_date < Utf8("2000-03-11") THEN catalog_sales.cs_sales_price - coalesce(catalog_returns.cr_refunded_cash,Int64(0)) ELSE Int64(0) END)@2 as sales_before, sum(CASE WHEN date_dim.d_date >= Utf8("2000-03-11") THEN catalog_sales.cs_sales_price - coalesce(catalog_returns.cr_refunded_cash,Int64(0)) ELSE Int64(0) END)@3 as sales_after]
+03)----SortExec: TopK(fetch=100), expr=[w_state@0 ASC NULLS LAST, i_item_id@1 ASC NULLS LAST], preserve_partitioning=[true]
+04)------AggregateExec: mode=FinalPartitioned, gby=[w_state@0 as w_state, i_item_id@1 as i_item_id], aggr=[sum(CASE WHEN date_dim.d_date < 2000-03-11 THEN catalog_sales.cs_sales_price - CASE WHEN catalog_returns.cr_refunded_cash IS NOT NULL THEN catalog_returns.cr_refunded_cash ELSE 0.00 END ELSE 0.00 END) as sum(CASE WHEN date_dim.d_date < Utf8("2000-03-11") THEN catalog_sales.cs_sales_price - coalesce(catalog_returns.cr_refunded_cash,Int64(0)) ELSE Int64(0) END), sum(CASE WHEN date_dim.d_date >= 2000-03-11 THEN catalog_sales.cs_sales_price - CASE WHEN catalog_returns.cr_refunded_cash IS NOT NULL THEN catalog_returns.cr_refunded_cash ELSE 0.00 END ELSE 0.00 END) as sum(CASE WHEN date_dim.d_date >= Utf8("2000-03-11") THEN catalog_sales.cs_sales_price - coalesce(catalog_returns.cr_refunded_cash,Int64(0)) ELSE Int64(0) END)]
+05)--------RepartitionExec: partitioning=Hash([w_state@0, i_item_id@1], 4), input_partitions=4
+06)----------AggregateExec: mode=Partial, gby=[w_state@2 as w_state, i_item_id@3 as i_item_id], aggr=[sum(CASE WHEN date_dim.d_date < 2000-03-11 THEN catalog_sales.cs_sales_price - CASE WHEN catalog_returns.cr_refunded_cash IS NOT NULL THEN catalog_returns.cr_refunded_cash ELSE 0.00 END ELSE 0.00 END) as sum(CASE WHEN date_dim.d_date < Utf8("2000-03-11") THEN catalog_sales.cs_sales_price - coalesce(catalog_returns.cr_refunded_cash,Int64(0)) ELSE Int64(0) END), sum(CASE WHEN date_dim.d_date >= 2000-03-11 THEN catalog_sales.cs_sales_price - CASE WHEN catalog_returns.cr_refunded_cash IS NOT NULL THEN catalog_returns.cr_refunded_cash ELSE 0.00 END ELSE 0.00 END) as sum(CASE WHEN date_dim.d_date >= Utf8("2000-03-11") THEN catalog_sales.cs_sales_price - coalesce(catalog_returns.cr_refunded_cash,Int64(0)) ELSE Int64(0) END)]
+07)------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, cs_sold_date_sk@0)], projection=[cs_sales_price@3, cr_refunded_cash@4, w_state@5, i_item_id@6, d_date@1]
+08)--------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_date], file_type=vortex, predicate: d_date@2 >= 2000-02-10 AND d_date@2 <= 2000-04-10
+09)--------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, cs_item_sk@1)], projection=[cs_sold_date_sk@2, cs_sales_price@4, cr_refunded_cash@5, w_state@6, i_item_id@1]
+10)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_item_id], file_type=vortex, predicate: i_current_price@5 >= 0.99 AND i_current_price@5 <= 1.49
+11)----------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(w_warehouse_sk@0, cs_warehouse_sk@1)], projection=[cs_sold_date_sk@2, cs_item_sk@4, cs_sales_price@5, cr_refunded_cash@6, w_state@1]
+12)------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/warehouse.vortex]]}, projection=[w_warehouse_sk, w_state], file_type=vortex
+13)------------------HashJoinExec: mode=CollectLeft, join_type=Right, on=[(cr_order_number@1, cs_order_number@3), (cr_item_sk@0, cs_item_sk@2)], projection=[cs_sold_date_sk@3, cs_warehouse_sk@4, cs_item_sk@5, cs_sales_price@7, cr_refunded_cash@2]
+14)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/catalog_returns.vortex]]}, projection=[cr_item_sk, cr_order_number, cr_refunded_cash], file_type=vortex
+15)--------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>]]}, projection=[cs_sold_date_sk, cs_warehouse_sk, cs_item_sk, cs_order_number, cs_sales_price], file_type=vortex

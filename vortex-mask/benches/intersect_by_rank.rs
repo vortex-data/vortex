@@ -4,8 +4,12 @@
 //! Benchmarks for `intersect_by_rank`.
 
 use divan::Bencher;
+use mimalloc::MiMalloc;
 use vortex_buffer::BitBuffer;
 use vortex_mask::Mask;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     divan::main();

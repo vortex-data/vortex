@@ -11,7 +11,7 @@ from ray.data.block import BlockMetadata
 from ray.data.context import DataContext
 from ray.data.datasource import BaseFileMetadataProvider, DefaultFileMetadataProvider
 from ray.data.datasource.path_util import (
-    _resolve_paths_and_filesystem,  # pyright: ignore[reportPrivateUsage, reportUnknownVariableType]
+    _resolve_paths_and_filesystem,
 )
 from typing_extensions import override
 
@@ -54,17 +54,17 @@ class VortexDatasource(Datasource):
         columns: IntoProjection = None,
         filter: pc.Expression | VortexExpr | None = None,
         batch_size: int | None = None,
-        meta_provider: BaseFileMetadataProvider = DefaultFileMetadataProvider(),  # pyright: ignore[reportCallInDefaultInitializer]
-    ):
+        meta_provider: BaseFileMetadataProvider = DefaultFileMetadataProvider(),
+    ) -> None:
         super().__init__()
         self._columns = columns
         self._filter = filter
 
-        urls, fs = _resolve_paths_and_filesystem(url, None)  # pyright: ignore[reportUnknownVariableType]
+        urls, fs = _resolve_paths_and_filesystem(url, None)
         paths_and_sizes = list(
             meta_provider.expand_paths(
                 urls,
-                fs,  # pyright: ignore[reportUnknownArgumentType]
+                fs,
                 None,
                 ignore_missing_paths=False,
             )
@@ -147,6 +147,6 @@ def _read_task(
                 #
                 # yield pa.Table.from_batches([rb])
                 #
-                yield rb.to_pandas()  # pyright: ignore[reportUnknownMemberType]
+                yield rb.to_pandas()
 
     return ReadTask(read, metadata, schema)

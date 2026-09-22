@@ -413,19 +413,11 @@ impl<O: OffsetBuilderPType> VarBinBuilder<O> {
             "The offset count must be one more than the validity length"
         );
 
-        let allocator = self.offsets.allocator().clone();
-        let mut fresh_offsets = BufferMut::with_capacity_in(1, allocator.clone());
-        fresh_offsets.push(O::zero());
-        let offsets = PrimitiveArray::new(
-            std::mem::replace(&mut self.offsets, fresh_offsets).freeze(),
-            Validity::NonNullable,
-        );
-        let data = std::mem::replace(
-            &mut self.data,
-            BufferMut::empty_aligned_in(Alignment::of::<u8>(), allocator.clone()),
-        );
-        let nulls =
-            std::mem::replace(&mut self.validity, BitBufferMut::empty_in(allocator)).freeze();
+        let offsets = self.offsets.take();
+        self.offsets.push(O::zero());
+        let offsets = PrimitiveArray::new(offsets.freeze(), Validity::NonNullable);
+        let data = self.data.take();
+        let nulls = self.validity.take().freeze();
 
         let validity = Validity::from_bit_buffer(nulls, self.dtype.nullability());
 
@@ -468,12 +460,7 @@ impl<O: OffsetBuilderPType> VarBinBuilder<O> {
     fn push_value(&mut self, value: &[u8]) {
         self.offsets
             .push(O::from(self.data.len() + value.len()).unwrap_or_else(|| {
-                vortex_panic!(
-                    "Failed to convert sum of {} and {} to offset of type {}",
-                    self.data.len(),
-                    value.len(),
-                    std::any::type_name::<O>()
-                )
+                offset_overflow(self.data.len(), value.len(), std::any::type_name::<O>())
             }));
         self.data.extend_from_slice(value);
     }
@@ -714,6 +701,14 @@ macro_rules! __match_varbin_builder_arms {
             $crate::__match_varbin_builder_arms!($builder, |$typed| $body, [$($tail),*])
         }
     };
+}
+
+#[cold]
+#[inline(never)]
+fn offset_overflow(data_len: usize, value_len: usize, offset_type: &'static str) -> ! {
+    vortex_panic!(
+        "Failed to convert sum of {data_len} and {value_len} to offset of type {offset_type}"
+    )
 }
 
 /// Running totals of `lengths`, wrapping so a corrupt lengths child is rejected rather than

@@ -13,6 +13,7 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::opendal::OpenDALStoreError;
 use crate::opendal::build_operator;
+use crate::opendal::property_as_bool;
 use crate::opendal::property_or_env;
 use crate::opendal::warn_on_unknown_properties;
 
@@ -140,7 +141,7 @@ where
             &env_lookup,
         ),
         root: properties.get("root").cloned(),
-        skip_signature: properties.get("skip_signature").map(String::as_str) == Some("true"),
+        skip_signature: property_as_bool(properties, "skip_signature"),
     })
 }
 

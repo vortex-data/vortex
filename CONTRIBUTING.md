@@ -36,6 +36,18 @@ The contribution process is outlined below:
 
 ## Development Workflows
 
+### Build prerequisites
+
+Bindings for the `.fbs` and `.proto` schemas are generated at build time into `OUT_DIR` by the
+`build.rs` of the crate that owns each schema, and are never checked in.
+
+FlatBuffers generation shells out to the [`flatc`](https://github.com/google/flatbuffers/releases)
+compiler, so building any Vortex crate requires it on `PATH`, or its location in the `FLATC`
+environment variable. CI pins version `25.12.19`; other recent versions work, but may produce
+cosmetically different generated code.
+
+Protocol Buffers generation parses schemas in pure Rust, so `protoc` is not required.
+
 The repository uses [`uv`](https://docs.astral.sh/uv/) to manage its Python workspace. From the
 repository root, create or update the development environment with:
 
@@ -116,6 +128,24 @@ make -C docs serve
 ```
 
 Use `make -C docs help` to list focused targets, and finish documentation changes with `check`.
+
+#### PR previews
+
+PRs with branches in `vortex-data/vortex` get a docs preview when they change `docs/` or a docs
+workflow. This includes draft PRs and PRs targeting another feature branch. Fork PRs do not get
+hosted previews. Resolve merge conflicts before building a preview.
+
+Add the `action/preview-docs` label to preview other changes, such as API documentation generated from
+source code. The label stays on the PR and enables previews for later pushes. Removing it stops
+updates only if the PR no longer changes docs or a docs workflow.
+
+The deployment status links to the latest preview for the PR. The workflow summary also records
+the built commit and an immutable deployment URL. Previews build the PR head commit. Eligibility
+uses the complete PR diff, so rebasing over upstream docs changes does not enable a preview for
+an unrelated PR.
+
+Closing a PR or removing its last reason for a preview stops new preview builds. The last hosted
+build and its deployment record remain available. Preview checks are not required for merging.
 
 ## Governance
 

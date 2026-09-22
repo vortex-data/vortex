@@ -10,4 +10,3 @@ Applies to files under `docs/`.
   contributor guide.
   Keep that contributor guide as the source of truth for Sphinx commands shared by humans and
   agents, and do not invoke `sphinx-build` directly.
-- Do not run Rust checks for changes confined to RST, Markdown, or Sphinx configuration.

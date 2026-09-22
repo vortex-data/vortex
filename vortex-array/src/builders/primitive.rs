@@ -138,8 +138,7 @@ impl<T: NativePType> PrimitiveBuilder<T> {
             .nulls
             .finish_with_nullability(self.dtype().nullability());
 
-        let allocator = self.values.allocator().clone();
-        let values = std::mem::replace(&mut self.values, allocator.with_capacity(0)).freeze();
+        let values = self.values.take().freeze();
         PrimitiveArray::new(values, validity)
     }
 
@@ -321,14 +320,11 @@ impl<T> UninitRange<'_, T> {
             "tried to copy a slice into a `UninitRange` past its boundary"
         );
 
-        // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout.
-        let uninit_src: &[MaybeUninit<T>] = unsafe { std::mem::transmute(src) };
-
         // Note: spare_capacity_mut() returns the spare capacity starting from the current length,
         // so we just use local_offset directly.
         let dst =
             &mut self.builder.values.spare_capacity_mut()[local_offset..local_offset + src.len()];
-        dst.copy_from_slice(uninit_src);
+        dst.write_copy_of_slice(src);
     }
 
     /// Get a mutable slice of uninitialized memory at the specified offset within this range.

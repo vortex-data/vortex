@@ -202,6 +202,19 @@ fn test_scan_function_registration() {
 }
 
 #[test]
+fn test_vortex_version() -> Result<()> {
+    let conn = database_connection();
+    let query = format!(
+        "SELECT (vortex_version() = '{}')::INT",
+        env!("VORTEX_VERSION")
+    );
+    let result = conn.query(&query)?;
+    let chunk = result.into_iter().next().unwrap();
+    assert_eq!(chunk.get_vector(0).as_slice_with_len::<i32>(1), [1]);
+    Ok(())
+}
+
+#[test]
 fn test_vortex_scan_strings() {
     let file = RUNTIME.block_on(async {
         let strings = VarBinArray::from(vec!["Hello", "Hi", "Hey"]);

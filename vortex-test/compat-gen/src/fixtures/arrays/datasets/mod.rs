@@ -24,7 +24,6 @@ mod tests {
     use vortex::session::VortexSession;
     use vortex_arrow::ArrowSessionExt;
     use vortex_error::VortexResult;
-    use vortex_error::vortex_err;
 
     use super::fixtures;
     use crate::adapter;
@@ -36,9 +35,7 @@ mod tests {
     #[test]
     fn roundtrip_non_clickbench_fixtures_to_bytes() -> VortexResult<()> {
         let session = VortexSession::default();
-        session
-            .enable_edition(CORE_2026_08_3)
-            .map_err(|error| vortex_err!("{error}"))?;
+        session.enable_edition(CORE_2026_08_3)?;
         for dataset in fixtures()
             .into_iter()
             .filter(|fixture| !is_clickbench_fixture(fixture.name()))

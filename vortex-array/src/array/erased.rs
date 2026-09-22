@@ -34,6 +34,8 @@ use crate::array::ArrayId;
 use crate::array::ArrayInner;
 use crate::array::ArraySlots;
 use crate::array::DynArrayData;
+use crate::array::probe::ArrayProbe;
+use crate::array::probe::RepeatedArrayProbe;
 use crate::arrays::Constant;
 use crate::arrays::DictArray;
 use crate::arrays::FilterArray;
@@ -273,31 +275,61 @@ impl ArrayRef {
     }
 
     /// Execute the array to extract a scalar at the given index.
+    ///
+    /// A one-off read; the same as `self.probe().execute_scalar(index, ctx)`.
+    // TODO(joe): deprecate this in favour of `probe()`.
+    #[inline]
     pub fn execute_scalar(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
-        vortex_ensure!(index < self.len(), OutOfBounds: index, 0, self.len());
-        if self.dtype().is_nullable() && self.is_invalid(index, ctx)? {
-            return Ok(Scalar::null(self.dtype().clone()));
-        }
-        let scalar = self.0.data.execute_scalar(self, index, ctx)?;
-        debug_assert_eq!(self.dtype(), scalar.dtype(), "Scalar dtype mismatch");
-        Ok(scalar)
+        self.probe().execute_scalar(index, ctx)
+    }
+
+    /// A one-off row accessor over this array. It borrows the handle and retains nothing; for
+    /// many reads of the same array use [`Self::repeated_probe`].
+    ///
+    /// ```
+    /// use vortex_array::{IntoArray, VortexSessionExecute};
+    /// use vortex_array::arrays::PrimitiveArray;
+    ///
+    /// let array = PrimitiveArray::from_iter([10i32, 20, 30]).into_array();
+    /// let mut ctx = vortex_array::array_session().create_execution_ctx();
+    /// assert_eq!(array.probe().execute_scalar(2, &mut ctx)?, 30i32.into());
+    /// # Ok::<(), vortex_error::VortexError>(())
+    /// ```
+    #[inline]
+    pub fn probe(&self) -> ArrayProbe<'_> {
+        ArrayProbe::Once(self)
+    }
+
+    /// A row accessor that owns a handle to this array and keeps encoding state, its validity
+    /// probe and child probes between reads.
+    ///
+    /// ```
+    /// use vortex_array::{IntoArray, VortexSessionExecute};
+    /// use vortex_array::arrays::PrimitiveArray;
+    ///
+    /// let array = PrimitiveArray::from_iter([10i32, 20, 30]).into_array();
+    /// let mut ctx = vortex_array::array_session().create_execution_ctx();
+    /// let mut probe = array.repeated_probe();
+    /// assert_eq!(probe.execute_scalar(2, &mut ctx)?, 30i32.into());
+    /// assert_eq!(probe.execute_scalar(0, &mut ctx)?, 10i32.into());
+    /// # Ok::<(), vortex_error::VortexError>(())
+    /// ```
+    pub fn repeated_probe(&self) -> RepeatedArrayProbe {
+        RepeatedArrayProbe::new(self.clone())
     }
 
     /// Returns whether the item at `index` is valid.
+    ///
+    /// A one-off read; the same as `self.probe().execute_is_valid(index, ctx)`.
+    // TODO(joe): deprecate this in favour of `probe/repeated_probe()`.
+    #[inline]
     pub fn is_valid(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
-        vortex_ensure!(index < self.len(), OutOfBounds: index, 0, self.len());
-        match self.validity()? {
-            Validity::NonNullable | Validity::AllValid => Ok(true),
-            Validity::AllInvalid => Ok(false),
-            Validity::Array(a) => a
-                .execute_scalar(index, ctx)?
-                .as_bool()
-                .value()
-                .ok_or_else(|| vortex_err!("validity value at index {} is null", index)),
-        }
+        self.probe().execute_is_valid(index, ctx)
     }
 
     /// Returns whether the item at `index` is invalid.
+    // TODO(joe): deprecate this.
+    #[inline]
     pub fn is_invalid(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
         Ok(!self.is_valid(index, ctx)?)
     }

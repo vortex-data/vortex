@@ -18,6 +18,8 @@ use crate::decode::code_boundary_at;
 use crate::decode::collect_widened;
 
 impl OperationsVTable<OnPair> for OnPair {
+    type ProbeState = ();
+
     fn scalar_at(
         array: ArrayView<'_, OnPair>,
         index: usize,

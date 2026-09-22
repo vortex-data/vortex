@@ -17,7 +17,7 @@ pushd $ROOT/vortex-python
 maturin develop
 ruff format --check
 ruff check
-basedpyright
+uvx ty check .
 popd
 
 pushd $ROOT/docs

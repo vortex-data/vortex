@@ -1,0 +1,161 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT *
+FROM
+  (SELECT avg(ss_list_price) B1_LP,
+          count(ss_list_price) B1_CNT,
+          count(DISTINCT ss_list_price) B1_CNTD
+   FROM store_sales
+   WHERE ss_quantity BETWEEN 0 AND 5
+     AND (ss_list_price BETWEEN 8 AND 8+10
+          OR ss_coupon_amt BETWEEN 459 AND 459+1000
+          OR ss_wholesale_cost BETWEEN 57 AND 57+20)) B1,
+  (SELECT avg(ss_list_price) B2_LP,
+          count(ss_list_price) B2_CNT,
+          count(DISTINCT ss_list_price) B2_CNTD
+   FROM store_sales
+   WHERE ss_quantity BETWEEN 6 AND 10
+     AND (ss_list_price BETWEEN 90 AND 90+10
+          OR ss_coupon_amt BETWEEN 2323 AND 2323+1000
+          OR ss_wholesale_cost BETWEEN 31 AND 31+20)) B2,
+  (SELECT avg(ss_list_price) B3_LP,
+          count(ss_list_price) B3_CNT,
+          count(DISTINCT ss_list_price) B3_CNTD
+   FROM store_sales
+   WHERE ss_quantity BETWEEN 11 AND 15
+     AND (ss_list_price BETWEEN 142 AND 142+10
+          OR ss_coupon_amt BETWEEN 12214 AND 12214+1000
+          OR ss_wholesale_cost BETWEEN 79 AND 79+20)) B3,
+  (SELECT avg(ss_list_price) B4_LP,
+          count(ss_list_price) B4_CNT,
+          count(DISTINCT ss_list_price) B4_CNTD
+   FROM store_sales
+   WHERE ss_quantity BETWEEN 16 AND 20
+     AND (ss_list_price BETWEEN 135 AND 135+10
+          OR ss_coupon_amt BETWEEN 6071 AND 6071+1000
+          OR ss_wholesale_cost BETWEEN 38 AND 38+20)) B4,
+  (SELECT avg(ss_list_price) B5_LP,
+          count(ss_list_price) B5_CNT,
+          count(DISTINCT ss_list_price) B5_CNTD
+   FROM store_sales
+   WHERE ss_quantity BETWEEN 21 AND 25
+     AND (ss_list_price BETWEEN 122 AND 122+10
+          OR ss_coupon_amt BETWEEN 836 AND 836+1000
+          OR ss_wholesale_cost BETWEEN 17 AND 17+20)) B5,
+  (SELECT avg(ss_list_price) B6_LP,
+          count(ss_list_price) B6_CNT,
+          count(DISTINCT ss_list_price) B6_CNTD
+   FROM store_sales
+   WHERE ss_quantity BETWEEN 26 AND 30
+     AND (ss_list_price BETWEEN 154 AND 154+10
+          OR ss_coupon_amt BETWEEN 7326 AND 7326+1000
+          OR ss_wholesale_cost BETWEEN 7 AND 7+20)) B6
+LIMIT 100;
+----
+logical_plan
+01)Limit: skip=0, fetch=100
+02)--Cross Join:
+03)----Limit: skip=0, fetch=100
+04)------Cross Join:
+05)--------Limit: skip=0, fetch=100
+06)----------Cross Join:
+07)------------Limit: skip=0, fetch=100
+08)--------------Cross Join:
+09)----------------Limit: skip=0, fetch=100
+10)------------------Cross Join:
+11)--------------------SubqueryAlias: b1
+12)----------------------Projection: avg(store_sales.ss_list_price) AS b1_lp, count(store_sales.ss_list_price) AS b1_cnt, count(DISTINCT store_sales.ss_list_price) AS b1_cntd
+13)------------------------Limit: skip=0, fetch=100
+14)--------------------------Aggregate: groupBy=[[]], aggr=[[avg(store_sales.ss_list_price), count(store_sales.ss_list_price), count(DISTINCT store_sales.ss_list_price)]]
+15)----------------------------Projection: store_sales.ss_list_price
+16)------------------------------Filter: store_sales.ss_quantity >= Int64(0) AND store_sales.ss_quantity <= Int64(5) AND (store_sales.ss_list_price >= Decimal128(8.00,7,2) AND store_sales.ss_list_price <= Decimal128(18.00,7,2) OR store_sales.ss_coupon_amt >= Decimal128(459.00,7,2) AND store_sales.ss_coupon_amt <= Decimal128(1459.00,7,2) OR store_sales.ss_wholesale_cost >= Decimal128(57.00,7,2) AND store_sales.ss_wholesale_cost <= Decimal128(77.00,7,2))
+17)--------------------------------TableScan: store_sales projection=[ss_quantity, ss_wholesale_cost, ss_list_price, ss_coupon_amt], partial_filters=[store_sales.ss_quantity >= Int64(0), store_sales.ss_quantity <= Int64(5), store_sales.ss_list_price >= Decimal128(8.00,7,2) AND store_sales.ss_list_price <= Decimal128(18.00,7,2) OR store_sales.ss_coupon_amt >= Decimal128(459.00,7,2) AND store_sales.ss_coupon_amt <= Decimal128(1459.00,7,2) OR store_sales.ss_wholesale_cost >= Decimal128(57.00,7,2) AND store_sales.ss_wholesale_cost <= Decimal128(77.00,7,2)]
+18)--------------------SubqueryAlias: b2
+19)----------------------Projection: avg(store_sales.ss_list_price) AS b2_lp, count(store_sales.ss_list_price) AS b2_cnt, count(DISTINCT store_sales.ss_list_price) AS b2_cntd
+20)------------------------Limit: skip=0, fetch=100
+21)--------------------------Aggregate: groupBy=[[]], aggr=[[avg(store_sales.ss_list_price), count(store_sales.ss_list_price), count(DISTINCT store_sales.ss_list_price)]]
+22)----------------------------Projection: store_sales.ss_list_price
+23)------------------------------Filter: store_sales.ss_quantity >= Int64(6) AND store_sales.ss_quantity <= Int64(10) AND (store_sales.ss_list_price >= Decimal128(90.00,7,2) AND store_sales.ss_list_price <= Decimal128(100.00,7,2) OR store_sales.ss_coupon_amt >= Decimal128(2323.00,7,2) AND store_sales.ss_coupon_amt <= Decimal128(3323.00,7,2) OR store_sales.ss_wholesale_cost >= Decimal128(31.00,7,2) AND store_sales.ss_wholesale_cost <= Decimal128(51.00,7,2))
+24)--------------------------------TableScan: store_sales projection=[ss_quantity, ss_wholesale_cost, ss_list_price, ss_coupon_amt], partial_filters=[store_sales.ss_quantity >= Int64(6), store_sales.ss_quantity <= Int64(10), store_sales.ss_list_price >= Decimal128(90.00,7,2) AND store_sales.ss_list_price <= Decimal128(100.00,7,2) OR store_sales.ss_coupon_amt >= Decimal128(2323.00,7,2) AND store_sales.ss_coupon_amt <= Decimal128(3323.00,7,2) OR store_sales.ss_wholesale_cost >= Decimal128(31.00,7,2) AND store_sales.ss_wholesale_cost <= Decimal128(51.00,7,2)]
+25)----------------SubqueryAlias: b3
+26)------------------Projection: avg(store_sales.ss_list_price) AS b3_lp, count(store_sales.ss_list_price) AS b3_cnt, count(DISTINCT store_sales.ss_list_price) AS b3_cntd
+27)--------------------Limit: skip=0, fetch=100
+28)----------------------Aggregate: groupBy=[[]], aggr=[[avg(store_sales.ss_list_price), count(store_sales.ss_list_price), count(DISTINCT store_sales.ss_list_price)]]
+29)------------------------Projection: store_sales.ss_list_price
+30)--------------------------Filter: store_sales.ss_quantity >= Int64(11) AND store_sales.ss_quantity <= Int64(15) AND (store_sales.ss_list_price >= Decimal128(142.00,7,2) AND store_sales.ss_list_price <= Decimal128(152.00,7,2) OR store_sales.ss_coupon_amt >= Decimal128(12214.00,7,2) AND store_sales.ss_coupon_amt <= Decimal128(13214.00,7,2) OR store_sales.ss_wholesale_cost >= Decimal128(79.00,7,2) AND store_sales.ss_wholesale_cost <= Decimal128(99.00,7,2))
+31)----------------------------TableScan: store_sales projection=[ss_quantity, ss_wholesale_cost, ss_list_price, ss_coupon_amt], partial_filters=[store_sales.ss_quantity >= Int64(11), store_sales.ss_quantity <= Int64(15), store_sales.ss_list_price >= Decimal128(142.00,7,2) AND store_sales.ss_list_price <= Decimal128(152.00,7,2) OR store_sales.ss_coupon_amt >= Decimal128(12214.00,7,2) AND store_sales.ss_coupon_amt <= Decimal128(13214.00,7,2) OR store_sales.ss_wholesale_cost >= Decimal128(79.00,7,2) AND store_sales.ss_wholesale_cost <= Decimal128(99.00,7,2)]
+32)------------SubqueryAlias: b4
+33)--------------Projection: avg(store_sales.ss_list_price) AS b4_lp, count(store_sales.ss_list_price) AS b4_cnt, count(DISTINCT store_sales.ss_list_price) AS b4_cntd
+34)----------------Limit: skip=0, fetch=100
+35)------------------Aggregate: groupBy=[[]], aggr=[[avg(store_sales.ss_list_price), count(store_sales.ss_list_price), count(DISTINCT store_sales.ss_list_price)]]
+36)--------------------Projection: store_sales.ss_list_price
+37)----------------------Filter: store_sales.ss_quantity >= Int64(16) AND store_sales.ss_quantity <= Int64(20) AND (store_sales.ss_list_price >= Decimal128(135.00,7,2) AND store_sales.ss_list_price <= Decimal128(145.00,7,2) OR store_sales.ss_coupon_amt >= Decimal128(6071.00,7,2) AND store_sales.ss_coupon_amt <= Decimal128(7071.00,7,2) OR store_sales.ss_wholesale_cost >= Decimal128(38.00,7,2) AND store_sales.ss_wholesale_cost <= Decimal128(58.00,7,2))
+38)------------------------TableScan: store_sales projection=[ss_quantity, ss_wholesale_cost, ss_list_price, ss_coupon_amt], partial_filters=[store_sales.ss_quantity >= Int64(16), store_sales.ss_quantity <= Int64(20), store_sales.ss_list_price >= Decimal128(135.00,7,2) AND store_sales.ss_list_price <= Decimal128(145.00,7,2) OR store_sales.ss_coupon_amt >= Decimal128(6071.00,7,2) AND store_sales.ss_coupon_amt <= Decimal128(7071.00,7,2) OR store_sales.ss_wholesale_cost >= Decimal128(38.00,7,2) AND store_sales.ss_wholesale_cost <= Decimal128(58.00,7,2)]
+39)--------SubqueryAlias: b5
+40)----------Projection: avg(store_sales.ss_list_price) AS b5_lp, count(store_sales.ss_list_price) AS b5_cnt, count(DISTINCT store_sales.ss_list_price) AS b5_cntd
+41)------------Limit: skip=0, fetch=100
+42)--------------Aggregate: groupBy=[[]], aggr=[[avg(store_sales.ss_list_price), count(store_sales.ss_list_price), count(DISTINCT store_sales.ss_list_price)]]
+43)----------------Projection: store_sales.ss_list_price
+44)------------------Filter: store_sales.ss_quantity >= Int64(21) AND store_sales.ss_quantity <= Int64(25) AND (store_sales.ss_list_price >= Decimal128(122.00,7,2) AND store_sales.ss_list_price <= Decimal128(132.00,7,2) OR store_sales.ss_coupon_amt >= Decimal128(836.00,7,2) AND store_sales.ss_coupon_amt <= Decimal128(1836.00,7,2) OR store_sales.ss_wholesale_cost >= Decimal128(17.00,7,2) AND store_sales.ss_wholesale_cost <= Decimal128(37.00,7,2))
+45)--------------------TableScan: store_sales projection=[ss_quantity, ss_wholesale_cost, ss_list_price, ss_coupon_amt], partial_filters=[store_sales.ss_quantity >= Int64(21), store_sales.ss_quantity <= Int64(25), store_sales.ss_list_price >= Decimal128(122.00,7,2) AND store_sales.ss_list_price <= Decimal128(132.00,7,2) OR store_sales.ss_coupon_amt >= Decimal128(836.00,7,2) AND store_sales.ss_coupon_amt <= Decimal128(1836.00,7,2) OR store_sales.ss_wholesale_cost >= Decimal128(17.00,7,2) AND store_sales.ss_wholesale_cost <= Decimal128(37.00,7,2)]
+46)----SubqueryAlias: b6
+47)------Projection: avg(store_sales.ss_list_price) AS b6_lp, count(store_sales.ss_list_price) AS b6_cnt, count(DISTINCT store_sales.ss_list_price) AS b6_cntd
+48)--------Limit: skip=0, fetch=100
+49)----------Aggregate: groupBy=[[]], aggr=[[avg(store_sales.ss_list_price), count(store_sales.ss_list_price), count(DISTINCT store_sales.ss_list_price)]]
+50)------------Projection: store_sales.ss_list_price
+51)--------------Filter: store_sales.ss_quantity >= Int64(26) AND store_sales.ss_quantity <= Int64(30) AND (store_sales.ss_list_price >= Decimal128(154.00,7,2) AND store_sales.ss_list_price <= Decimal128(164.00,7,2) OR store_sales.ss_coupon_amt >= Decimal128(7326.00,7,2) AND store_sales.ss_coupon_amt <= Decimal128(8326.00,7,2) OR store_sales.ss_wholesale_cost >= Decimal128(7.00,7,2) AND store_sales.ss_wholesale_cost <= Decimal128(27.00,7,2))
+52)----------------TableScan: store_sales projection=[ss_quantity, ss_wholesale_cost, ss_list_price, ss_coupon_amt], partial_filters=[store_sales.ss_quantity >= Int64(26), store_sales.ss_quantity <= Int64(30), store_sales.ss_list_price >= Decimal128(154.00,7,2) AND store_sales.ss_list_price <= Decimal128(164.00,7,2) OR store_sales.ss_coupon_amt >= Decimal128(7326.00,7,2) AND store_sales.ss_coupon_amt <= Decimal128(8326.00,7,2) OR store_sales.ss_wholesale_cost >= Decimal128(7.00,7,2) AND store_sales.ss_wholesale_cost <= Decimal128(27.00,7,2)]
+physical_plan
+01)ProjectionExec: expr=[b1_lp@3 as b1_lp, b1_cnt@4 as b1_cnt, b1_cntd@5 as b1_cntd, b2_lp@6 as b2_lp, b2_cnt@7 as b2_cnt, b2_cntd@8 as b2_cntd, b3_lp@9 as b3_lp, b3_cnt@10 as b3_cnt, b3_cntd@11 as b3_cntd, b4_lp@12 as b4_lp, b4_cnt@13 as b4_cnt, b4_cntd@14 as b4_cntd, b5_lp@15 as b5_lp, b5_cnt@16 as b5_cnt, b5_cntd@17 as b5_cntd, b6_lp@0 as b6_lp, b6_cnt@1 as b6_cnt, b6_cntd@2 as b6_cntd]
+02)--GlobalLimitExec: skip=0, fetch=100
+03)----CrossJoinExec
+04)------ProjectionExec: expr=[avg(store_sales.ss_list_price)@0 as b6_lp, count(store_sales.ss_list_price)@1 as b6_cnt, count(DISTINCT store_sales.ss_list_price)@2 as b6_cntd]
+05)--------GlobalLimitExec: skip=0, fetch=100
+06)----------AggregateExec: mode=Final, gby=[], aggr=[avg(store_sales.ss_list_price), count(store_sales.ss_list_price), count(DISTINCT store_sales.ss_list_price)]
+07)------------CoalescePartitionsExec
+08)--------------AggregateExec: mode=Partial, gby=[], aggr=[avg(store_sales.ss_list_price), count(store_sales.ss_list_price), count(DISTINCT store_sales.ss_list_price)]
+09)----------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_list_price], file_type=vortex, predicate: ss_quantity@10 >= 26 AND ss_quantity@10 <= 30 AND (ss_list_price@12 >= 154.00 AND ss_list_price@12 <= 164.00 OR ss_coupon_amt@19 >= 7326.00 AND ss_coupon_amt@19 <= 8326.00 OR ss_wholesale_cost@11 >= 7.00 AND ss_wholesale_cost@11 <= 27.00)
+10)------ProjectionExec: expr=[b1_lp@3 as b1_lp, b1_cnt@4 as b1_cnt, b1_cntd@5 as b1_cntd, b2_lp@6 as b2_lp, b2_cnt@7 as b2_cnt, b2_cntd@8 as b2_cntd, b3_lp@9 as b3_lp, b3_cnt@10 as b3_cnt, b3_cntd@11 as b3_cntd, b4_lp@12 as b4_lp, b4_cnt@13 as b4_cnt, b4_cntd@14 as b4_cntd, b5_lp@0 as b5_lp, b5_cnt@1 as b5_cnt, b5_cntd@2 as b5_cntd]
+11)--------GlobalLimitExec: skip=0, fetch=100
+12)----------CrossJoinExec
+13)------------ProjectionExec: expr=[avg(store_sales.ss_list_price)@0 as b5_lp, count(store_sales.ss_list_price)@1 as b5_cnt, count(DISTINCT store_sales.ss_list_price)@2 as b5_cntd]
+14)--------------GlobalLimitExec: skip=0, fetch=100
+15)----------------AggregateExec: mode=Final, gby=[], aggr=[avg(store_sales.ss_list_price), count(store_sales.ss_list_price), count(DISTINCT store_sales.ss_list_price)]
+16)------------------CoalescePartitionsExec
+17)--------------------AggregateExec: mode=Partial, gby=[], aggr=[avg(store_sales.ss_list_price), count(store_sales.ss_list_price), count(DISTINCT store_sales.ss_list_price)]
+18)----------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_list_price], file_type=vortex, predicate: ss_quantity@10 >= 21 AND ss_quantity@10 <= 25 AND (ss_list_price@12 >= 122.00 AND ss_list_price@12 <= 132.00 OR ss_coupon_amt@19 >= 836.00 AND ss_coupon_amt@19 <= 1836.00 OR ss_wholesale_cost@11 >= 17.00 AND ss_wholesale_cost@11 <= 37.00)
+19)------------ProjectionExec: expr=[b1_lp@3 as b1_lp, b1_cnt@4 as b1_cnt, b1_cntd@5 as b1_cntd, b2_lp@6 as b2_lp, b2_cnt@7 as b2_cnt, b2_cntd@8 as b2_cntd, b3_lp@9 as b3_lp, b3_cnt@10 as b3_cnt, b3_cntd@11 as b3_cntd, b4_lp@0 as b4_lp, b4_cnt@1 as b4_cnt, b4_cntd@2 as b4_cntd]
+20)--------------GlobalLimitExec: skip=0, fetch=100
+21)----------------CrossJoinExec
+22)------------------ProjectionExec: expr=[avg(store_sales.ss_list_price)@0 as b4_lp, count(store_sales.ss_list_price)@1 as b4_cnt, count(DISTINCT store_sales.ss_list_price)@2 as b4_cntd]
+23)--------------------GlobalLimitExec: skip=0, fetch=100
+24)----------------------AggregateExec: mode=Final, gby=[], aggr=[avg(store_sales.ss_list_price), count(store_sales.ss_list_price), count(DISTINCT store_sales.ss_list_price)]
+25)------------------------CoalescePartitionsExec
+26)--------------------------AggregateExec: mode=Partial, gby=[], aggr=[avg(store_sales.ss_list_price), count(store_sales.ss_list_price), count(DISTINCT store_sales.ss_list_price)]
+27)----------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_list_price], file_type=vortex, predicate: ss_quantity@10 >= 16 AND ss_quantity@10 <= 20 AND (ss_list_price@12 >= 135.00 AND ss_list_price@12 <= 145.00 OR ss_coupon_amt@19 >= 6071.00 AND ss_coupon_amt@19 <= 7071.00 OR ss_wholesale_cost@11 >= 38.00 AND ss_wholesale_cost@11 <= 58.00)
+28)------------------ProjectionExec: expr=[b1_lp@3 as b1_lp, b1_cnt@4 as b1_cnt, b1_cntd@5 as b1_cntd, b2_lp@6 as b2_lp, b2_cnt@7 as b2_cnt, b2_cntd@8 as b2_cntd, b3_lp@0 as b3_lp, b3_cnt@1 as b3_cnt, b3_cntd@2 as b3_cntd]
+29)--------------------GlobalLimitExec: skip=0, fetch=100
+30)----------------------CrossJoinExec
+31)------------------------ProjectionExec: expr=[avg(store_sales.ss_list_price)@0 as b3_lp, count(store_sales.ss_list_price)@1 as b3_cnt, count(DISTINCT store_sales.ss_list_price)@2 as b3_cntd]
+32)--------------------------GlobalLimitExec: skip=0, fetch=100
+33)----------------------------AggregateExec: mode=Final, gby=[], aggr=[avg(store_sales.ss_list_price), count(store_sales.ss_list_price), count(DISTINCT store_sales.ss_list_price)]
+34)------------------------------CoalescePartitionsExec
+35)--------------------------------AggregateExec: mode=Partial, gby=[], aggr=[avg(store_sales.ss_list_price), count(store_sales.ss_list_price), count(DISTINCT store_sales.ss_list_price)]
+36)----------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_list_price], file_type=vortex, predicate: ss_quantity@10 >= 11 AND ss_quantity@10 <= 15 AND (ss_list_price@12 >= 142.00 AND ss_list_price@12 <= 152.00 OR ss_coupon_amt@19 >= 12214.00 AND ss_coupon_amt@19 <= 13214.00 OR ss_wholesale_cost@11 >= 79.00 AND ss_wholesale_cost@11 <= 99.00)
+37)------------------------GlobalLimitExec: skip=0, fetch=100
+38)--------------------------CrossJoinExec
+39)----------------------------ProjectionExec: expr=[avg(store_sales.ss_list_price)@0 as b1_lp, count(store_sales.ss_list_price)@1 as b1_cnt, count(DISTINCT store_sales.ss_list_price)@2 as b1_cntd]
+40)------------------------------GlobalLimitExec: skip=0, fetch=100
+41)--------------------------------AggregateExec: mode=Final, gby=[], aggr=[avg(store_sales.ss_list_price), count(store_sales.ss_list_price), count(DISTINCT store_sales.ss_list_price)]
+42)----------------------------------CoalescePartitionsExec
+43)------------------------------------AggregateExec: mode=Partial, gby=[], aggr=[avg(store_sales.ss_list_price), count(store_sales.ss_list_price), count(DISTINCT store_sales.ss_list_price)]
+44)--------------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_list_price], file_type=vortex, predicate: ss_quantity@10 >= 0 AND ss_quantity@10 <= 5 AND (ss_list_price@12 >= 8.00 AND ss_list_price@12 <= 18.00 OR ss_coupon_amt@19 >= 459.00 AND ss_coupon_amt@19 <= 1459.00 OR ss_wholesale_cost@11 >= 57.00 AND ss_wholesale_cost@11 <= 77.00)
+45)----------------------------ProjectionExec: expr=[avg(store_sales.ss_list_price)@0 as b2_lp, count(store_sales.ss_list_price)@1 as b2_cnt, count(DISTINCT store_sales.ss_list_price)@2 as b2_cntd]
+46)------------------------------GlobalLimitExec: skip=0, fetch=100
+47)--------------------------------AggregateExec: mode=Final, gby=[], aggr=[avg(store_sales.ss_list_price), count(store_sales.ss_list_price), count(DISTINCT store_sales.ss_list_price)]
+48)----------------------------------CoalescePartitionsExec
+49)------------------------------------AggregateExec: mode=Partial, gby=[], aggr=[avg(store_sales.ss_list_price), count(store_sales.ss_list_price), count(DISTINCT store_sales.ss_list_price)]
+50)--------------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_list_price], file_type=vortex, predicate: ss_quantity@10 >= 6 AND ss_quantity@10 <= 10 AND (ss_list_price@12 >= 90.00 AND ss_list_price@12 <= 100.00 OR ss_coupon_amt@19 >= 2323.00 AND ss_coupon_amt@19 <= 3323.00 OR ss_wholesale_cost@11 >= 31.00 AND ss_wholesale_cost@11 <= 51.00)

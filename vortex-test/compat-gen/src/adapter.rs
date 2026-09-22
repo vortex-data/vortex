@@ -15,8 +15,6 @@ use vortex::VortexSessionDefault;
 use vortex::array::ArrayRef;
 use vortex::array::MaskFuture;
 use vortex::array::expr::root;
-use vortex::editions::CORE_2026_08_2;
-use vortex::editions::EditionSessionExt;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::io::session::RuntimeSessionExt;
@@ -34,18 +32,6 @@ use vortex_session::VortexSession;
 
 fn runtime() -> VortexResult<Runtime> {
     Runtime::new().map_err(|e| vortex_err!("failed to create tokio runtime: {e}"))
-}
-
-/// Session used to write fixtures.
-///
-/// Enables the draft `core2026.08.2` edition on top of the defaults so fixtures may pin
-/// `vortex.map` before it is frozen into a core edition.
-fn fixture_session() -> VortexResult<VortexSession> {
-    let session = VortexSession::default();
-    session
-        .enable_edition(CORE_2026_08_2)
-        .map_err(|e| vortex_err!("{e}"))?;
-    Ok(session)
 }
 
 /// Compute all statistics on every node in the array tree.
@@ -83,10 +69,9 @@ pub fn write_compressed(
     strategy: Arc<dyn LayoutStrategy>,
 ) -> VortexResult<()> {
     let stream = ArrayStreamAdapter::new(chunk.dtype().clone(), stream::iter([Ok(chunk)]));
-    let session = fixture_session()?;
 
-    runtime()?.block_on(async move {
-        let session = session.with_tokio();
+    runtime()?.block_on(async {
+        let session = VortexSession::default().with_tokio();
         let mut file = tokio::fs::File::create(path)
             .await
             .map_err(|e| vortex_err!("failed to create {}: {e}", path.display()))?;
@@ -105,7 +90,7 @@ pub fn write_compressed_to_bytes(
     chunk: ArrayRef,
     strategy: Arc<dyn LayoutStrategy>,
 ) -> VortexResult<ByteBuffer> {
-    write_compressed_to_bytes_with_session(&fixture_session()?, chunk, strategy)
+    write_compressed_to_bytes_with_session(&VortexSession::default(), chunk, strategy)
 }
 
 /// Write a `.vortex` file into memory using a caller-provided session and layout strategy,

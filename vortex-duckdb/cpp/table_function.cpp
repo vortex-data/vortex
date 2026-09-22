@@ -12,7 +12,9 @@
 
 #include "duckdb.h"
 #include "duckdb/catalog/catalog.hpp"
+#include "duckdb/catalog/default/default_functions.hpp"
 #include "duckdb/common/insertion_order_preserving_map.hpp"
+#include "duckdb/parser/keyword_helper.hpp"
 #include "duckdb/common/multi_file/multi_file_reader.hpp"
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/main/capi/capi_internal.hpp"
@@ -186,6 +188,11 @@ duckdb_state register_table_function(DatabaseInstance &db, LogicalType parameter
 
     fn.filter_pushdown = true;
     fn.filter_prune = true;
+    // Pushed-down filters, projections and aggregates live in the FFI bind data, which has no
+    // serializer. DuckDB's common-subplan optimizer keys scans on their serialized form, so
+    // without this two scans of the same file with different pushed-down filters look identical
+    // and are merged into one shared CTE, returning the wrong rows for one of them.
+    fn.verify_serialization = false;
 
     fn.pushdown_expression = [](auto &, const auto &, Expression &expression) {
         return duckdb_table_function_pushdown_expression(reinterpret_cast<duckdb_vx_expr>(&expression));
@@ -206,6 +213,28 @@ duckdb_state register_table_function(DatabaseInstance &db, LogicalType parameter
     fn.get_partition_stats = get_partition_stats;
     fn.get_multi_file_reader = get_multi_file_reader;
 
+    /**
+     * duckdb's serialization is broken. If you don't set serialize/deserialize
+     * callbacks, duckdb serializes only the internal state which doesn't work
+     * for Vortex if you have filters pushed down. Worse, duckdb uses this
+     * information for CommonSubplanOptimizer which then merges different
+     * Vortex scans (with different filters pushed down) into one scan in tpcds.
+     *
+     * However, this is a regression on q15 and such where we do have
+     * completely equal scans which can't be merged. This is a reasonable price
+     * for correctness.
+     *
+     * Very unexpectedly verify_serialization doesn't do any verification but
+     * disables serialization at all.
+     */
+    fn.verify_serialization = false;
+    fn.serialize = [](auto &, auto, auto &) {
+        throw NotImplementedException("Can't serialize Vortex state");
+    };
+    fn.deserialize = [](auto &, auto &) -> unique_ptr<FunctionData> {
+        throw NotImplementedException("Can't deserialize Vortex state");
+    };
+
     try {
         auto &system_catalog = Catalog::GetSystemCatalog(db);
         auto data = CatalogTransaction::GetSystemTransaction(db);
@@ -215,6 +244,32 @@ duckdb_state register_table_function(DatabaseInstance &db, LogicalType parameter
     } catch (const std::exception &e) {
         ErrorData data(e);
         DUCKDB_LOG_ERROR(db, "Failed to create Vortex table function:\t" + data.Message());
+        return DuckDBError;
+    }
+    return DuckDBSuccess;
+}
+
+extern "C" duckdb_state duckdb_vx_register_version_function(duckdb_database ffi_db, const char *version) {
+    D_ASSERT(ffi_db);
+    D_ASSERT(version);
+    const DatabaseWrapper &wrapper = *reinterpret_cast<DatabaseWrapper *>(ffi_db);
+    DatabaseInstance &db = *wrapper.database->instance;
+
+    const string quoted = KeywordHelper::WriteQuoted(version);
+
+    const DefaultMacro macro {DEFAULT_SCHEMA,
+                              "vortex_version",
+                              {nullptr},
+                              {{nullptr, nullptr}},
+                              quoted.c_str()};
+    try {
+        auto info = DefaultFunctionGenerator::CreateInternalMacroInfo(macro);
+        auto &system_catalog = Catalog::GetSystemCatalog(db);
+        auto data = CatalogTransaction::GetSystemTransaction(db);
+        system_catalog.CreateFunction(data, *info);
+    } catch (const std::exception &e) {
+        ErrorData data(e);
+        DUCKDB_LOG_ERROR(db, "Failed to create the vortex_version macro:\t" + data.Message());
         return DuckDBError;
     }
     return DuckDBSuccess;

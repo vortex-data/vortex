@@ -1,0 +1,84 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT count(DISTINCT cs_order_number) AS "order count",
+       sum(cs_ext_ship_cost) AS "total shipping cost",
+       sum(cs_net_profit) AS "total net profit"
+FROM catalog_sales cs1,
+     date_dim,
+     customer_address,
+     call_center
+WHERE d_date BETWEEN '2002-02-01' AND cast('2002-04-02' AS date)
+  AND cs1.cs_ship_date_sk = d_date_sk
+  AND cs1.cs_ship_addr_sk = ca_address_sk
+  AND ca_state = 'GA'
+  AND cs1.cs_call_center_sk = cc_call_center_sk
+  AND cc_county = 'Williamson County'
+  AND EXISTS
+    (SELECT *
+     FROM catalog_sales cs2
+     WHERE cs1.cs_order_number = cs2.cs_order_number
+       AND cs1.cs_warehouse_sk <> cs2.cs_warehouse_sk)
+  AND NOT EXISTS
+    (SELECT *
+     FROM catalog_returns cr1
+     WHERE cs1.cs_order_number = cr1.cr_order_number)
+ORDER BY count(DISTINCT cs_order_number)
+LIMIT 100;
+----
+logical_plan
+01)Sort: order count ASC NULLS LAST, fetch=100
+02)--Projection: count(alias1) AS order count, sum(alias2) AS total shipping cost, sum(alias3) AS total net profit
+03)----Aggregate: groupBy=[[]], aggr=[[count(alias1), sum(alias2), sum(alias3)]]
+04)------Aggregate: groupBy=[[cs1.cs_order_number AS alias1]], aggr=[[sum(cs1.cs_ext_ship_cost) AS alias2, sum(cs1.cs_net_profit) AS alias3]]
+05)--------LeftAnti Join: cs1.cs_order_number = __correlated_sq_2.cr_order_number
+06)----------Projection: cs1.cs_order_number, cs1.cs_ext_ship_cost, cs1.cs_net_profit
+07)------------LeftSemi Join: cs1.cs_order_number = __correlated_sq_1.cs_order_number Filter: cs1.cs_warehouse_sk != __correlated_sq_1.cs_warehouse_sk
+08)--------------Projection: cs1.cs_warehouse_sk, cs1.cs_order_number, cs1.cs_ext_ship_cost, cs1.cs_net_profit
+09)----------------Inner Join: cs1.cs_call_center_sk = call_center.cc_call_center_sk
+10)------------------Projection: cs1.cs_call_center_sk, cs1.cs_warehouse_sk, cs1.cs_order_number, cs1.cs_ext_ship_cost, cs1.cs_net_profit
+11)--------------------Inner Join: cs1.cs_ship_addr_sk = customer_address.ca_address_sk
+12)----------------------Projection: cs1.cs_ship_addr_sk, cs1.cs_call_center_sk, cs1.cs_warehouse_sk, cs1.cs_order_number, cs1.cs_ext_ship_cost, cs1.cs_net_profit
+13)------------------------Inner Join: cs1.cs_ship_date_sk = date_dim.d_date_sk
+14)--------------------------SubqueryAlias: cs1
+15)----------------------------TableScan: catalog_sales projection=[cs_ship_date_sk, cs_ship_addr_sk, cs_call_center_sk, cs_warehouse_sk, cs_order_number, cs_ext_ship_cost, cs_net_profit]
+16)--------------------------Projection: date_dim.d_date_sk
+17)----------------------------Filter: date_dim.d_date >= Date32("2002-02-01") AND date_dim.d_date <= Date32("2002-04-02")
+18)------------------------------TableScan: date_dim projection=[d_date_sk, d_date], partial_filters=[date_dim.d_date >= Date32("2002-02-01"), date_dim.d_date <= Date32("2002-04-02")]
+19)----------------------Projection: customer_address.ca_address_sk
+20)------------------------Filter: customer_address.ca_state = Utf8View("GA")
+21)--------------------------TableScan: customer_address projection=[ca_address_sk, ca_state], partial_filters=[customer_address.ca_state = Utf8View("GA")]
+22)------------------Projection: call_center.cc_call_center_sk
+23)--------------------Filter: call_center.cc_county = Utf8View("Williamson County")
+24)----------------------TableScan: call_center projection=[cc_call_center_sk, cc_county], partial_filters=[call_center.cc_county = Utf8View("Williamson County")]
+25)--------------SubqueryAlias: __correlated_sq_1
+26)----------------SubqueryAlias: cs2
+27)------------------TableScan: catalog_sales projection=[cs_warehouse_sk, cs_order_number]
+28)----------SubqueryAlias: __correlated_sq_2
+29)------------SubqueryAlias: cr1
+30)--------------TableScan: catalog_returns projection=[cr_order_number]
+physical_plan
+01)ProjectionExec: expr=[count(alias1)@0 as order count, sum(alias2)@1 as total shipping cost, sum(alias3)@2 as total net profit]
+02)--GlobalLimitExec: skip=0, fetch=100
+03)----AggregateExec: mode=Final, gby=[], aggr=[count(alias1), sum(alias2), sum(alias3)]
+04)------CoalescePartitionsExec
+05)--------AggregateExec: mode=Partial, gby=[], aggr=[count(alias1), sum(alias2), sum(alias3)]
+06)----------AggregateExec: mode=FinalPartitioned, gby=[alias1@0 as alias1], aggr=[sum(cs1.cs_ext_ship_cost) as alias2, sum(cs1.cs_net_profit) as alias3]
+07)------------RepartitionExec: partitioning=Hash([alias1@0], 4), input_partitions=4
+08)--------------AggregateExec: mode=Partial, gby=[cs_order_number@0 as alias1], aggr=[sum(cs1.cs_ext_ship_cost) as alias2, sum(cs1.cs_net_profit) as alias3]
+09)----------------HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(cs_order_number@0, cr_order_number@0)]
+10)------------------CoalescePartitionsExec
+11)--------------------HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(cs_order_number@1, cs_order_number@1)], filter=cs_warehouse_sk@0 != cs_warehouse_sk@1, projection=[cs_order_number@1, cs_ext_ship_cost@2, cs_net_profit@3]
+12)----------------------CoalescePartitionsExec
+13)------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(cc_call_center_sk@0, cs_call_center_sk@0)], projection=[cs_warehouse_sk@2, cs_order_number@3, cs_ext_ship_cost@4, cs_net_profit@5]
+14)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/call_center.vortex]]}, projection=[cc_call_center_sk], file_type=vortex, predicate: cc_county@25 = Williamson County
+15)--------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(ca_address_sk@0, cs_ship_addr_sk@0)], projection=[cs_call_center_sk@2, cs_warehouse_sk@3, cs_order_number@4, cs_ext_ship_cost@5, cs_net_profit@6]
+16)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk], file_type=vortex, predicate: ca_state@8 = GA
+17)----------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, cs_ship_date_sk@0)], projection=[cs_ship_addr_sk@2, cs_call_center_sk@3, cs_warehouse_sk@4, cs_order_number@5, cs_ext_ship_cost@6, cs_net_profit@7]
+18)------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_date@2 >= 2002-02-01 AND d_date@2 <= 2002-04-02
+19)------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>]]}, projection=[cs_ship_date_sk, cs_ship_addr_sk, cs_call_center_sk, cs_warehouse_sk, cs_order_number, cs_ext_ship_cost, cs_net_profit], file_type=vortex
+20)----------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>]]}, projection=[cs_warehouse_sk, cs_order_number], file_type=vortex
+21)------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+22)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/catalog_returns.vortex]]}, projection=[cr_order_number], file_type=vortex

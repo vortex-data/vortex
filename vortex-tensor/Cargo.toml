@@ -17,7 +17,7 @@ version = { workspace = true }
 workspace = true
 
 [dependencies]
-vortex-array = { workspace = true }
+vortex-array = { workspace = true, features = ["unstable_row_fns"] }
 vortex-arrow = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-compressor = { workspace = true }

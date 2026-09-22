@@ -63,7 +63,7 @@ jobs:
       - name: Build GPU compression benchmark
         shell: bash
         run: |
-          cargo build --locked --package compress-bench --profile release_debug --features cuda,unstable_encodings
+          cargo build --locked --package compress-bench --profile release_debug --features cuda
       - name: Setup benchmark environment
         run: sudo bash scripts/setup-benchmark.sh
       - name: Run GPU compression benchmark

@@ -289,14 +289,15 @@ impl VTable for Zstd {
         {
             return result;
         }
-        // The two arms here are every builder a `Utf8`/`Binary` dtype has: all four
-        // `VarBinBuilder` widths above, and `VarBinViewBuilder` below. There is deliberately no
-        // canonicalize-then-append fallback — it would decompress to a `VarBinView` only for
-        // `VarBinView::append_to_builder` to reject the same remainder.
-        let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() else {
-            vortex_bail!("append_to_builder for Zstd requires a variable-binary builder")
-        };
-        append_to_varbinview(array, builder, ctx)
+        if let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() {
+            return append_to_varbinview(array, builder, ctx);
+        }
+        array
+            .array()
+            .clone()
+            .execute::<Canonical>(ctx)?
+            .into_array()
+            .append_to_builder(builder, ctx)
     }
 
     fn reduce_parent(
@@ -1588,6 +1589,8 @@ impl ValidityVTable<Zstd> for Zstd {
 }
 
 impl OperationsVTable<Zstd> for Zstd {
+    type ProbeState = ();
+
     fn scalar_at(
         array: ArrayView<'_, Zstd>,
         index: usize,

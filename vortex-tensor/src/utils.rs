@@ -16,9 +16,9 @@ use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayView;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
-use vortex_array::dtype::PType;
 use vortex_array::dtype::proto::dtype as pb;
 use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -59,7 +59,8 @@ pub fn validate_binary_tensor_float_inputs<'a>(
     validate_tensor_float_input(lhs)
 }
 
-/// The flat primitive elements of a tensor storage array, with typed row access.
+/// The flat primitive elements of a tensor storage array, with typed row access and its physical
+/// row layout.
 ///
 /// This struct hides the stride detail that arises from the [`ConstantArray`] optimization: a
 /// constant-backed input materializes only a single row that every index reads (`is_constant =
@@ -71,12 +72,6 @@ pub struct FlatElements {
 }
 
 impl FlatElements {
-    /// Returns the [`PType`] of the underlying elements.
-    #[must_use]
-    pub fn ptype(&self) -> PType {
-        self.elems.ptype()
-    }
-
     /// Returns the `i`-th row as a typed slice of length `list_size`.
     ///
     /// When the source was a constant-backed storage, all indices resolve to the single stored
@@ -86,6 +81,23 @@ impl FlatElements {
         let row_idx = if self.is_constant { 0 } else { i };
         let slice = self.elems.as_slice::<T>();
         &slice[row_idx * self.list_size..][..self.list_size]
+    }
+
+    /// Returns the number of elements in each row.
+    #[must_use]
+    pub fn list_size(&self) -> usize {
+        self.list_size
+    }
+
+    /// Returns the physical distance between rows, or zero when every row uses one stored value.
+    #[must_use]
+    pub fn row_stride(&self) -> usize {
+        if self.is_constant { 0 } else { self.list_size }
+    }
+
+    /// Returns the elements as a typed buffer, performing the ptype check once for the batch.
+    pub fn into_buffer<T: NativePType>(self) -> Buffer<T> {
+        self.elems.into_buffer::<T>()
     }
 }
 
@@ -235,6 +247,18 @@ pub mod test_helpers {
     /// Builds a [`Vector`] extension array from flat `elements` and a vector dimension size.
     pub fn vector_array<T: NativePType>(dim: u32, elements: &[T]) -> VortexResult<ArrayRef> {
         Vector::try_new_vector_array(flat_fsl(elements, dim))
+    }
+
+    /// Builds `row_count` zero-width vectors over an empty typed element buffer.
+    pub fn zero_width_vector_array<T: NativePType>(row_count: usize) -> VortexResult<ArrayRef> {
+        let storage = FixedSizeListArray::new(
+            Buffer::<T>::empty().into_array(),
+            0,
+            Validity::NonNullable,
+            row_count,
+        )
+        .into_array();
+        Vector::try_new_vector_array(storage)
     }
 
     /// Builds a [`FixedShapeTensor`] extension array whose storage is a [`ConstantArray`],

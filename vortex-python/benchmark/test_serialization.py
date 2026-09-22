@@ -5,12 +5,12 @@ import pickle
 from typing import cast
 
 import pytest
-from pytest_benchmark.fixture import BenchmarkFixture  # pyright: ignore[reportMissingTypeStubs]
+from pytest_benchmark.fixture import BenchmarkFixture
 
 import vortex as vx
 
 
-@pytest.mark.parametrize("protocol", [4, 5], ids=lambda p: f"p{p}")  # pyright: ignore[reportAny]
+@pytest.mark.parametrize("protocol", [4, 5], ids=lambda p: f"p{p}")
 @pytest.mark.parametrize("operation", ["dumps", "loads", "roundtrip"])
 @pytest.mark.benchmark(disable_gc=True)
 def test_pickle(
@@ -18,7 +18,7 @@ def test_pickle(
     array_fixture: vx.Array,
     protocol: int,
     operation: str,
-):
+) -> None:
     benchmark.group = f"pickle_p{protocol}"
 
     if operation == "dumps":

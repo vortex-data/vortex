@@ -1,0 +1,115 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT i_item_id,
+       i_item_desc,
+       s_state,
+       count(ss_quantity) AS store_sales_quantitycount,
+       avg(ss_quantity) AS store_sales_quantityave,
+       stddev_samp(ss_quantity) AS store_sales_quantitystdev,
+       stddev_samp(ss_quantity)/avg(ss_quantity) AS store_sales_quantitycov,
+       count(sr_return_quantity) AS store_returns_quantitycount,
+       avg(sr_return_quantity) AS store_returns_quantityave,
+       stddev_samp(sr_return_quantity) AS store_returns_quantitystdev,
+       stddev_samp(sr_return_quantity)/avg(sr_return_quantity) AS store_returns_quantitycov,
+       count(cs_quantity) AS catalog_sales_quantitycount,
+       avg(cs_quantity) AS catalog_sales_quantityave,
+       stddev_samp(cs_quantity) AS catalog_sales_quantitystdev,
+       stddev_samp(cs_quantity)/avg(cs_quantity) AS catalog_sales_quantitycov
+FROM store_sales,
+     store_returns,
+     catalog_sales,
+     date_dim d1,
+     date_dim d2,
+     date_dim d3,
+     store,
+     item
+WHERE d1.d_quarter_name = '2001Q1'
+  AND d1.d_date_sk = ss_sold_date_sk
+  AND i_item_sk = ss_item_sk
+  AND s_store_sk = ss_store_sk
+  AND ss_customer_sk = sr_customer_sk
+  AND ss_item_sk = sr_item_sk
+  AND ss_ticket_number = sr_ticket_number
+  AND sr_returned_date_sk = d2.d_date_sk
+  AND d2.d_quarter_name IN ('2001Q1',
+                            '2001Q2',
+                            '2001Q3')
+  AND sr_customer_sk = cs_bill_customer_sk
+  AND sr_item_sk = cs_item_sk
+  AND cs_sold_date_sk = d3.d_date_sk
+  AND d3.d_quarter_name IN ('2001Q1',
+                            '2001Q2',
+                            '2001Q3')
+GROUP BY i_item_id,
+         i_item_desc,
+         s_state
+ORDER BY i_item_id NULLS FIRST,
+         i_item_desc NULLS FIRST,
+         s_state NULLS FIRST
+LIMIT 100;
+----
+logical_plan
+01)Sort: item.i_item_id ASC NULLS FIRST, item.i_item_desc ASC NULLS FIRST, store.s_state ASC NULLS FIRST, fetch=100
+02)--Projection: item.i_item_id, item.i_item_desc, store.s_state, count(store_sales.ss_quantity) AS store_sales_quantitycount, avg(store_sales.ss_quantity) AS store_sales_quantityave, stddev(store_sales.ss_quantity) AS stddev_samp(store_sales.ss_quantity) AS store_sales_quantitystdev, stddev(store_sales.ss_quantity) AS stddev_samp(store_sales.ss_quantity) / avg(store_sales.ss_quantity) AS store_sales_quantitycov, count(store_returns.sr_return_quantity) AS store_returns_quantitycount, avg(store_returns.sr_return_quantity) AS store_returns_quantityave, stddev(store_returns.sr_return_quantity) AS stddev_samp(store_returns.sr_return_quantity) AS store_returns_quantitystdev, stddev(store_returns.sr_return_quantity) AS stddev_samp(store_returns.sr_return_quantity) / avg(store_returns.sr_return_quantity) AS store_returns_quantitycov, count(catalog_sales.cs_quantity) AS catalog_sales_quantitycount, avg(catalog_sales.cs_quantity) AS catalog_sales_quantityave, stddev(catalog_sales.cs_quantity) AS stddev_samp(catalog_sales.cs_quantity) AS catalog_sales_quantitystdev, stddev(catalog_sales.cs_quantity) AS stddev_samp(catalog_sales.cs_quantity) / avg(catalog_sales.cs_quantity) AS catalog_sales_quantitycov
+03)----Aggregate: groupBy=[[item.i_item_id, item.i_item_desc, store.s_state]], aggr=[[count(store_sales.ss_quantity), avg(__common_expr_1 AS store_sales.ss_quantity), stddev(__common_expr_1 AS store_sales.ss_quantity), count(store_returns.sr_return_quantity), avg(__common_expr_2 AS store_returns.sr_return_quantity), stddev(__common_expr_2 AS store_returns.sr_return_quantity), count(catalog_sales.cs_quantity), avg(__common_expr_3 AS catalog_sales.cs_quantity), stddev(__common_expr_3 AS catalog_sales.cs_quantity)]]
+04)------Projection: CAST(store_sales.ss_quantity AS Float64) AS __common_expr_1, CAST(store_returns.sr_return_quantity AS Float64) AS __common_expr_2, CAST(catalog_sales.cs_quantity AS Float64) AS __common_expr_3, store_sales.ss_quantity, store_returns.sr_return_quantity, catalog_sales.cs_quantity, store.s_state, item.i_item_id, item.i_item_desc
+05)--------Inner Join: store_sales.ss_item_sk = item.i_item_sk
+06)----------Projection: store_sales.ss_item_sk, store_sales.ss_quantity, store_returns.sr_return_quantity, catalog_sales.cs_quantity, store.s_state
+07)------------Inner Join: store_sales.ss_store_sk = store.s_store_sk
+08)--------------Projection: store_sales.ss_item_sk, store_sales.ss_store_sk, store_sales.ss_quantity, store_returns.sr_return_quantity, catalog_sales.cs_quantity
+09)----------------Inner Join: catalog_sales.cs_sold_date_sk = d3.d_date_sk
+10)------------------Projection: store_sales.ss_item_sk, store_sales.ss_store_sk, store_sales.ss_quantity, store_returns.sr_return_quantity, catalog_sales.cs_sold_date_sk, catalog_sales.cs_quantity
+11)--------------------Inner Join: store_returns.sr_returned_date_sk = d2.d_date_sk
+12)----------------------Projection: store_sales.ss_item_sk, store_sales.ss_store_sk, store_sales.ss_quantity, store_returns.sr_returned_date_sk, store_returns.sr_return_quantity, catalog_sales.cs_sold_date_sk, catalog_sales.cs_quantity
+13)------------------------Inner Join: store_sales.ss_sold_date_sk = d1.d_date_sk
+14)--------------------------Projection: store_sales.ss_sold_date_sk, store_sales.ss_item_sk, store_sales.ss_store_sk, store_sales.ss_quantity, store_returns.sr_returned_date_sk, store_returns.sr_return_quantity, catalog_sales.cs_sold_date_sk, catalog_sales.cs_quantity
+15)----------------------------Inner Join: store_returns.sr_customer_sk = catalog_sales.cs_bill_customer_sk, store_returns.sr_item_sk = catalog_sales.cs_item_sk
+16)------------------------------Projection: store_sales.ss_sold_date_sk, store_sales.ss_item_sk, store_sales.ss_store_sk, store_sales.ss_quantity, store_returns.sr_returned_date_sk, store_returns.sr_item_sk, store_returns.sr_customer_sk, store_returns.sr_return_quantity
+17)--------------------------------Inner Join: store_sales.ss_customer_sk = store_returns.sr_customer_sk, store_sales.ss_item_sk = store_returns.sr_item_sk, store_sales.ss_ticket_number = store_returns.sr_ticket_number
+18)----------------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_item_sk, ss_customer_sk, ss_store_sk, ss_ticket_number, ss_quantity]
+19)----------------------------------TableScan: store_returns projection=[sr_returned_date_sk, sr_item_sk, sr_customer_sk, sr_ticket_number, sr_return_quantity]
+20)------------------------------TableScan: catalog_sales projection=[cs_sold_date_sk, cs_bill_customer_sk, cs_item_sk, cs_quantity]
+21)--------------------------SubqueryAlias: d1
+22)----------------------------Projection: date_dim.d_date_sk
+23)------------------------------Filter: date_dim.d_quarter_name = Utf8View("2001Q1")
+24)--------------------------------TableScan: date_dim projection=[d_date_sk, d_quarter_name], partial_filters=[date_dim.d_quarter_name = Utf8View("2001Q1")]
+25)----------------------SubqueryAlias: d2
+26)------------------------Projection: date_dim.d_date_sk
+27)--------------------------Filter: date_dim.d_quarter_name = Utf8View("2001Q1") OR date_dim.d_quarter_name = Utf8View("2001Q2") OR date_dim.d_quarter_name = Utf8View("2001Q3")
+28)----------------------------TableScan: date_dim projection=[d_date_sk, d_quarter_name], partial_filters=[date_dim.d_quarter_name = Utf8View("2001Q1") OR date_dim.d_quarter_name = Utf8View("2001Q2") OR date_dim.d_quarter_name = Utf8View("2001Q3")]
+29)------------------SubqueryAlias: d3
+30)--------------------Projection: date_dim.d_date_sk
+31)----------------------Filter: date_dim.d_quarter_name = Utf8View("2001Q1") OR date_dim.d_quarter_name = Utf8View("2001Q2") OR date_dim.d_quarter_name = Utf8View("2001Q3")
+32)------------------------TableScan: date_dim projection=[d_date_sk, d_quarter_name], partial_filters=[date_dim.d_quarter_name = Utf8View("2001Q1") OR date_dim.d_quarter_name = Utf8View("2001Q2") OR date_dim.d_quarter_name = Utf8View("2001Q3")]
+33)--------------TableScan: store projection=[s_store_sk, s_state]
+34)----------TableScan: item projection=[i_item_sk, i_item_id, i_item_desc]
+physical_plan
+01)SortPreservingMergeExec: [i_item_id@0 ASC, i_item_desc@1 ASC, s_state@2 ASC], fetch=100
+02)--SortExec: TopK(fetch=100), expr=[i_item_id@0 ASC, i_item_desc@1 ASC, s_state@2 ASC], preserve_partitioning=[true]
+03)----ProjectionExec: expr=[i_item_id@0 as i_item_id, i_item_desc@1 as i_item_desc, s_state@2 as s_state, count(store_sales.ss_quantity)@3 as store_sales_quantitycount, avg(store_sales.ss_quantity)@4 as store_sales_quantityave, stddev(store_sales.ss_quantity)@5 as store_sales_quantitystdev, stddev(store_sales.ss_quantity)@5 / avg(store_sales.ss_quantity)@4 as store_sales_quantitycov, count(store_returns.sr_return_quantity)@6 as store_returns_quantitycount, avg(store_returns.sr_return_quantity)@7 as store_returns_quantityave, stddev(store_returns.sr_return_quantity)@8 as store_returns_quantitystdev, stddev(store_returns.sr_return_quantity)@8 / avg(store_returns.sr_return_quantity)@7 as store_returns_quantitycov, count(catalog_sales.cs_quantity)@9 as catalog_sales_quantitycount, avg(catalog_sales.cs_quantity)@10 as catalog_sales_quantityave, stddev(catalog_sales.cs_quantity)@11 as catalog_sales_quantitystdev, stddev(catalog_sales.cs_quantity)@11 / avg(catalog_sales.cs_quantity)@10 as catalog_sales_quantitycov]
+04)------AggregateExec: mode=FinalPartitioned, gby=[i_item_id@0 as i_item_id, i_item_desc@1 as i_item_desc, s_state@2 as s_state], aggr=[count(store_sales.ss_quantity), avg(store_sales.ss_quantity), stddev(store_sales.ss_quantity), count(store_returns.sr_return_quantity), avg(store_returns.sr_return_quantity), stddev(store_returns.sr_return_quantity), count(catalog_sales.cs_quantity), avg(catalog_sales.cs_quantity), stddev(catalog_sales.cs_quantity)]
+05)--------RepartitionExec: partitioning=Hash([i_item_id@0, i_item_desc@1, s_state@2], 4), input_partitions=4
+06)----------AggregateExec: mode=Partial, gby=[i_item_id@7 as i_item_id, i_item_desc@8 as i_item_desc, s_state@6 as s_state], aggr=[count(store_sales.ss_quantity), avg(store_sales.ss_quantity), stddev(store_sales.ss_quantity), count(store_returns.sr_return_quantity), avg(store_returns.sr_return_quantity), stddev(store_returns.sr_return_quantity), count(catalog_sales.cs_quantity), avg(catalog_sales.cs_quantity), stddev(catalog_sales.cs_quantity)]
+07)------------ProjectionExec: expr=[CAST(ss_quantity@0 AS Float64) as __common_expr_1, CAST(sr_return_quantity@1 AS Float64) as __common_expr_2, CAST(cs_quantity@2 AS Float64) as __common_expr_3, ss_quantity@0 as ss_quantity, sr_return_quantity@1 as sr_return_quantity, cs_quantity@2 as cs_quantity, s_state@3 as s_state, i_item_id@4 as i_item_id, i_item_desc@5 as i_item_desc]
+08)--------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, ss_item_sk@0)], projection=[ss_quantity@4, sr_return_quantity@5, cs_quantity@6, s_state@7, i_item_id@1, i_item_desc@2]
+09)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_item_id, i_item_desc], file_type=vortex
+10)----------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_store_sk@0, ss_store_sk@1)], projection=[ss_item_sk@2, ss_quantity@4, sr_return_quantity@5, cs_quantity@6, s_state@1]
+11)------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store.vortex]]}, projection=[s_store_sk, s_state], file_type=vortex
+12)------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, cs_sold_date_sk@4)], projection=[ss_item_sk@1, ss_store_sk@2, ss_quantity@3, sr_return_quantity@4, cs_quantity@6]
+13)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_quarter_name@15 = 2001Q1 OR d_quarter_name@15 = 2001Q2 OR d_quarter_name@15 = 2001Q3
+14)--------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, sr_returned_date_sk@3)], projection=[ss_item_sk@1, ss_store_sk@2, ss_quantity@3, sr_return_quantity@5, cs_sold_date_sk@6, cs_quantity@7]
+15)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_quarter_name@15 = 2001Q1 OR d_quarter_name@15 = 2001Q2 OR d_quarter_name@15 = 2001Q3
+16)----------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@0)], projection=[ss_item_sk@2, ss_store_sk@3, ss_quantity@4, sr_returned_date_sk@5, sr_return_quantity@6, cs_sold_date_sk@7, cs_quantity@8]
+17)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_quarter_name@15 = 2001Q1
+18)------------------------HashJoinExec: mode=Partitioned, join_type=Inner, on=[(cs_bill_customer_sk@1, sr_customer_sk@6), (cs_item_sk@2, sr_item_sk@5)], projection=[ss_sold_date_sk@4, ss_item_sk@5, ss_store_sk@6, ss_quantity@7, sr_returned_date_sk@8, sr_return_quantity@11, cs_sold_date_sk@0, cs_quantity@3]
+19)--------------------------RepartitionExec: partitioning=Hash([cs_bill_customer_sk@1, cs_item_sk@2], 4), input_partitions=4
+20)----------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>]]}, projection=[cs_sold_date_sk, cs_bill_customer_sk, cs_item_sk, cs_quantity], file_type=vortex
+21)--------------------------RepartitionExec: partitioning=Hash([sr_customer_sk@6, sr_item_sk@5], 4), input_partitions=4
+22)----------------------------HashJoinExec: mode=Partitioned, join_type=Inner, on=[(sr_customer_sk@2, ss_customer_sk@2), (sr_item_sk@1, ss_item_sk@1), (sr_ticket_number@3, ss_ticket_number@4)], projection=[ss_sold_date_sk@5, ss_item_sk@6, ss_store_sk@8, ss_quantity@10, sr_returned_date_sk@0, sr_item_sk@1, sr_customer_sk@2, sr_return_quantity@4]
+23)------------------------------RepartitionExec: partitioning=Hash([sr_customer_sk@2, sr_item_sk@1, sr_ticket_number@3], 4), input_partitions=4
+24)--------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>]]}, projection=[sr_returned_date_sk, sr_item_sk, sr_customer_sk, sr_ticket_number, sr_return_quantity], file_type=vortex
+25)------------------------------RepartitionExec: partitioning=Hash([ss_customer_sk@2, ss_item_sk@1, ss_ticket_number@4], 4), input_partitions=4
+26)--------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_item_sk, ss_customer_sk, ss_store_sk, ss_ticket_number, ss_quantity], file_type=vortex

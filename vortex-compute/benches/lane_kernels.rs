@@ -13,10 +13,13 @@
 //! equivalent arrow-rs kernel over the same data shape, so the divan report
 //! lines up side-by-side.
 //!
-//! The checked-add pair carries `#[cpu_features]`, so both are measured on every
-//! walltime CPU-feature leg rather than in simulation: they are one lane loop
-//! compiled differently per leg, and comparing them against arrow-rs is only
-//! meaningful under the same build flags. The cast benches stay in simulation.
+//! `lanezip_checked_add_u32` carries `#[cpu_features]`, so it is measured on every
+//! walltime CPU-feature leg rather than in simulation: it is one lane loop compiled
+//! differently per leg. Its arrow-rs sibling is compiled only outside CodSpeed. The
+//! arrow kernel is not Vortex code, so a change in its walltime is never actionable,
+//! and it flipped by up to 67% between runs of identical code. Run `cargo bench`
+//! locally to compare the pair under the same build flags. The cast benches stay in
+//! simulation.
 
 #![expect(clippy::unwrap_used)]
 #![expect(clippy::clone_on_ref_ptr)]
@@ -24,10 +27,12 @@
 use std::mem::MaybeUninit;
 use std::sync::Arc;
 
+#[cfg(not(codspeed))]
 use arrow_arith::numeric::add;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::Int32Array;
 use arrow_array::UInt16Array;
+#[cfg(not(codspeed))]
 use arrow_array::UInt32Array;
 use arrow_array::UInt64Array;
 use arrow_buffer::NullBuffer;
@@ -35,6 +40,7 @@ use arrow_cast::CastOptions;
 use arrow_cast::cast_with_options;
 use arrow_schema::DataType;
 use divan::Bencher;
+use mimalloc::MiMalloc;
 use num_traits::AsPrimitive;
 use num_traits::NumCast;
 use rand::SeedableRng;
@@ -48,13 +54,25 @@ use vortex_compute::lane_kernels::IndexedSourceExt;
 use vortex_compute::lane_kernels::LaneZip;
 use vortex_compute::lane_kernels::ReinterpretSink;
 
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
+
 fn main() {
     assert_overflow_parity();
     assert_null_overflow_suppressed();
     divan::main();
 }
 
+/// Lanes per cast input; the casts run in simulation.
 const SIZES: &[usize] = &[16_384];
+
+/// Lanes per checked-add input; the checked adds run on the walltime legs.
+///
+/// Walltime needs longer iterations than simulation: at 16_384 lanes an iteration took a few
+/// microseconds and its reported time flipped by up to 25% between runs of identical code.
+/// 65_536 lanes make each iteration several times longer while two inputs, two masks, and the
+/// output still fit in a 1 MiB L2 cache.
+const ADD_SIZES: &[usize] = &[65_536];
 
 // -----------------------------------------------------------------------------
 // Cast fixture (u64/u16/i32 lanes + a single validity mask).
@@ -280,7 +298,9 @@ struct AddFixture {
     rhs_mask: BitBuffer,
     /// Plain `Vec<bool>` mirrors of the validity masks — used to build the arrow
     /// `NullBuffer`s for the baseline bench.
+    #[cfg(not(codspeed))]
     lhs_valid: Vec<bool>,
+    #[cfg(not(codspeed))]
     rhs_valid: Vec<bool>,
 }
 
@@ -324,13 +344,15 @@ fn add_fixture(n: usize) -> AddFixture {
         rhs,
         lhs_mask,
         rhs_mask,
+        #[cfg(not(codspeed))]
         lhs_valid,
+        #[cfg(not(codspeed))]
         rhs_valid,
     }
 }
 
 #[vortex_bench_support::cpu_features]
-#[divan::bench(args = SIZES)]
+#[divan::bench(args = ADD_SIZES)]
 fn lanezip_checked_add_u32(bencher: Bencher, n: usize) {
     let f = add_fixture(n);
     bencher
@@ -352,8 +374,8 @@ fn lanezip_checked_add_u32(bencher: Bencher, n: usize) {
         });
 }
 
-#[vortex_bench_support::cpu_features]
-#[divan::bench(args = SIZES)]
+#[cfg(not(codspeed))]
+#[divan::bench(args = ADD_SIZES)]
 fn arrow_checked_add_u32(bencher: Bencher, n: usize) {
     let f = add_fixture(n);
     let lhs_arr: ArrowArrayRef = Arc::new(UInt32Array::new(

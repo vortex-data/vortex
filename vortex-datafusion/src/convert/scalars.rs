@@ -314,6 +314,7 @@ pub fn scalar_from_df(value: &ScalarValue, session: &VortexSession) -> Scalar {
         }
         ScalarValue::Dictionary(_, v) => scalar_from_df(v.as_ref(), session),
         ScalarValue::Struct(array) => struct_from_df(array, session),
+        ScalarValue::RunEndEncoded(_, _, v) => scalar_from_df(v.as_ref(), session),
         _ => unimplemented!("Can't convert {value:?} value to a Vortex scalar"),
     }
 }
@@ -393,6 +394,7 @@ fn struct_from_df(array: &StructArray, session: &VortexSession) -> Scalar {
 
 #[cfg(test)]
 mod tests {
+    use arrow_schema::DataType;
     use datafusion_common::ScalarValue;
     use datafusion_common::arrow::datatypes::i256 as arrow_i256;
     use rstest::rstest;
@@ -805,7 +807,6 @@ mod tests {
     #[test]
     fn struct_from_df_preserves_extension_child() -> VortexResult<()> {
         use arrow_array::FixedSizeBinaryArray;
-        use arrow_schema::DataType;
         use arrow_schema::extension::Uuid as ArrowUuid;
         use vortex::extension::uuid::Uuid;
 
@@ -897,5 +898,74 @@ mod tests {
         let err = scalar.try_to_df().unwrap_err();
 
         assert!(err.to_string().contains("unsupported scalar type"), "{err}");
+    }
+
+    /// Wraps `value` in a `ScalarValue::RunEndEncoded`, as DataFusion represents a scalar taken
+    /// from a run-end-encoded array.
+    fn run_end_encoded(value: ScalarValue) -> ScalarValue {
+        let run_ends_field = Arc::new(Field::new("run_ends", DataType::Int32, false));
+        let values_field = Arc::new(Field::new("values", value.data_type(), true));
+        ScalarValue::RunEndEncoded(run_ends_field, values_field, Box::new(value))
+    }
+
+    #[rstest]
+    #[case::null(ScalarValue::Null, Scalar::null(DType::Null))]
+    #[case::bool_some(ScalarValue::Boolean(Some(true)), Scalar::from(true))]
+    #[case::bool_null(
+        ScalarValue::Boolean(None),
+        Scalar::null(DType::Bool(Nullability::Nullable))
+    )]
+    #[case::i32_some(ScalarValue::Int32(Some(42)), Scalar::from(42i32))]
+    #[case::i32_null(
+        ScalarValue::Int32(None),
+        Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable))
+    )]
+    #[case::utf8_some(
+        ScalarValue::Utf8(Some("test".to_string())),
+        Scalar::from("test")
+    )]
+    #[case::utf8_null(
+        ScalarValue::Utf8(None),
+        Scalar::null(DType::Utf8(Nullability::Nullable))
+    )]
+    #[case::binary_some(
+        ScalarValue::Binary(Some(vec![1, 2, 3])),
+        Scalar::binary(ByteBuffer::from(vec![1u8, 2, 3]), Nullability::Nullable)
+    )]
+    #[case::decimal128_some(
+        ScalarValue::Decimal128(Some(12345), 10, 2),
+        Scalar::decimal(
+            DecimalValue::I128(12345),
+            DecimalDType::new(10, 2),
+            Nullability::Nullable
+        )
+    )]
+    fn test_run_end_encoded_from_datafusion(
+        #[case] inner: ScalarValue,
+        #[case] expected_vortex: Scalar,
+    ) {
+        let result = from_df(&run_end_encoded(inner));
+        assert_eq!(result.dtype(), expected_vortex.dtype());
+        assert_eq!(result.is_null(), expected_vortex.is_null());
+
+        if !result.is_null() {
+            let result_df = result.try_to_df().unwrap();
+            let expected_df = expected_vortex.try_to_df().unwrap();
+            assert_eq!(result_df, expected_df);
+        }
+    }
+
+    /// A run-end-encoded scalar whose values are themselves dictionary-encoded, mirroring the
+    /// physical layout DataFusion uses for run-end-encoded string columns.
+    #[test]
+    fn run_end_encoded_over_dictionary_unwraps_to_the_inner_value() {
+        let dictionary = ScalarValue::Dictionary(
+            Box::new(DataType::UInt32),
+            Box::new(ScalarValue::Utf8(Some("hello".to_string()))),
+        );
+
+        let result = from_df(&run_end_encoded(dictionary));
+
+        assert_eq!(result.as_utf8().value().unwrap().as_str(), "hello");
     }
 }

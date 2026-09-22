@@ -22,7 +22,6 @@ use vortex::file::WriteOptionsSessionExt;
 use vortex_arrow::ArrowSessionExt;
 use vortex_bench::Format;
 use vortex_bench::SESSION;
-use vortex_bench::benchmark_write_options;
 use vortex_bench::compress::Compressed;
 use vortex_bench::compress::CompressedData;
 use vortex_bench::compress::Compressor;
@@ -50,7 +49,8 @@ impl Compressor for VortexCompressor {
         let mut buf = Vec::new();
         let start = Instant::now();
         let mut cursor = Cursor::new(&mut buf);
-        benchmark_write_options(SESSION.write_options())
+        SESSION
+            .write_options()
             .write(&mut cursor, array.to_array_stream())
             .await?;
         let elapsed = start.elapsed();

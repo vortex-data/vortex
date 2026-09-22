@@ -11,6 +11,8 @@ use crate::Sparse;
 use crate::SparseExt as _;
 
 impl OperationsVTable<Sparse> for Sparse {
+    type ProbeState = ();
+
     fn scalar_at(
         array: ArrayView<'_, Sparse>,
         index: usize,

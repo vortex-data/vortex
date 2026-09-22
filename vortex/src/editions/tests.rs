@@ -19,7 +19,6 @@ use vortex_buffer::ByteBufferMut;
 use vortex_edition::ComponentKind;
 use vortex_edition::Edition;
 use vortex_edition::EditionDeclaration;
-use vortex_edition::EditionError;
 use vortex_edition::EditionId;
 use vortex_edition::EditionInclusion;
 use vortex_edition::EditionMember;
@@ -47,7 +46,7 @@ use super::DEFAULT_PREVIEW_EDITION;
 use super::EDITION_DECLARATIONS;
 use super::PREVIEW_2026_08_0;
 
-fn session() -> Result<EditionSession, EditionError> {
+fn session() -> VortexResult<EditionSession> {
     let session = EditionSession::empty();
     for family in super::EDITION_FAMILIES {
         session.declare_family(family)?;
@@ -59,7 +58,7 @@ fn session() -> Result<EditionSession, EditionError> {
 }
 
 #[test]
-fn every_declared_edition_validates() -> Result<(), EditionError> {
+fn every_declared_edition_validates() -> VortexResult<()> {
     let session = session()?;
     for declaration in EDITION_DECLARATIONS {
         validate_edition(&session, &declaration.edition.id)?;
@@ -217,9 +216,6 @@ fn default_session_enables_the_write_editions() {
             .contains(&Id::from("vortex.pco"))
     );
 
-    #[cfg(feature = "unstable_encodings")]
-    assert!(enabled.contains(&DEFAULT_PREVIEW_EDITION));
-    #[cfg(not(feature = "unstable_encodings"))]
     assert!(!enabled.contains(&DEFAULT_PREVIEW_EDITION));
 }
 
@@ -382,12 +378,8 @@ fn writer_test_session() -> VortexResult<VortexSession> {
         .with::<LayoutSession>()
         .with::<RuntimeSession>();
     vortex_file::register_default_encodings(&session);
-    session
-        .register_edition(&WRITER_TEST_DECLARATION)
-        .map_err(|error| vortex_err!("{error}"))?;
-    session
-        .enable_edition(WRITER_TEST_EDITION)
-        .map_err(|error| vortex_err!("{error}"))?;
+    session.register_edition(&WRITER_TEST_DECLARATION)?;
+    session.enable_edition(WRITER_TEST_EDITION)?;
     Ok(session)
 }
 
@@ -477,12 +469,10 @@ fn session_declaring(members: &[(ComponentKind, Id)]) -> VortexResult<VortexSess
         .with::<RuntimeSession>();
     vortex_file::register_default_encodings(&session);
     let editions = session.editions();
-    editions
-        .declare_edition(Edition {
-            id: EDITION,
-            min_library_version: None,
-        })
-        .map_err(|error| vortex_err!("{error}"))?;
+    editions.declare_edition(Edition {
+        id: EDITION,
+        min_library_version: None,
+    })?;
     for inclusion in session
         .arrays()
         .registry()
@@ -500,13 +490,9 @@ fn session_declaring(members: &[(ComponentKind, Id)]) -> VortexResult<VortexSess
                 .map(|(kind, id)| EditionInclusion::new(*kind, id, EDITION)),
         )
     {
-        editions
-            .declare_inclusion(inclusion)
-            .map_err(|error| vortex_err!("{error}"))?;
+        editions.declare_inclusion(inclusion)?;
     }
-    session
-        .enable_edition(EDITION)
-        .map_err(|error| vortex_err!("{error}"))?;
+    session.enable_edition(EDITION)?;
     Ok(session)
 }
 

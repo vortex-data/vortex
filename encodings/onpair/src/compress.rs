@@ -4,6 +4,7 @@
 //! Train + compress entry points for the OnPair encoding.
 
 use onpair::Config;
+use onpair::Rows;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -19,7 +20,6 @@ use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_err;
 use vortex_mask::AllOr;
 
 use crate::OnPair;
@@ -43,14 +43,7 @@ pub fn onpair_compress(
     }
 
     let views = array.views();
-    let flat_bytes: usize = views.iter().map(|v| v.len() as usize).sum();
-
-    // TODO(francesco): we flatten because onpair training needs a contiguous `(bytes, offsets)`
-    // pair. Allowing onpair to train on a slice-of-slices would let us skip this copy.
-    let mut flat: Vec<u8> = Vec::with_capacity(flat_bytes);
-    let mut offsets: Vec<u64> = Vec::with_capacity(len + 1);
-    let mut uncompressed_lengths: BufferMut<i32> = BufferMut::with_capacity(len);
-    offsets.push(0);
+    let mut uncompressed_lengths: BufferMut<u32> = BufferMut::zeroed(len);
     let buffers = array
         .data_buffers()
         .as_ref()
@@ -58,35 +51,37 @@ pub fn onpair_compress(
         .map(|b| b.as_host())
         .collect::<Vec<_>>();
 
-    match mask.bit_buffer() {
+    // Keep sums local to each arm: a shared callback accumulator can prevent
+    // vectorization of the all-valid loop.
+    let total_bytes = match mask.bit_buffer() {
         AllOr::All => {
-            for view in views {
-                let bytes = view_bytes(view, &buffers);
-                flat.extend_from_slice(bytes);
-                offsets.push(u64::try_from(flat.len()).vortex_expect("offset must fit in u64"));
-                uncompressed_lengths
-                    .push(i32::try_from(view.len()).vortex_expect("must fit in i32"));
+            let mut total = 0;
+            for (view, length) in views.iter().zip(uncompressed_lengths.iter_mut()) {
+                *length = view.len();
+                total += *length as usize;
             }
+            total
         }
         AllOr::None => unreachable!("all-null input handled above"),
         AllOr::Some(validity) => {
-            for (view, valid) in views.iter().zip(validity.iter()) {
-                if valid {
-                    let bytes = view_bytes(view, &buffers);
-                    flat.extend_from_slice(bytes);
-                    offsets.push(u64::try_from(flat.len()).vortex_expect("offset must fit in u64"));
-                    uncompressed_lengths
-                        .push(i32::try_from(view.len()).vortex_expect("must fit in i32"));
-                } else {
-                    offsets.push(u64::try_from(flat.len()).vortex_expect("offset must fit in u64"));
-                    uncompressed_lengths.push(0);
-                }
-            }
+            let lengths = uncompressed_lengths.as_mut_slice();
+            let mut total = 0;
+            validity.for_each_set_index(|i| {
+                let length = views[i].len();
+                lengths[i] = length;
+                total += length as usize;
+            });
+            total
         }
-    }
+    };
 
-    let column = onpair::compress(&flat, &offsets, config)
-        .map_err(|e| vortex_err!("OnPair compress failed: {e}"))?;
+    let rows = ViewRows {
+        views,
+        buffers: &buffers,
+        lengths: uncompressed_lengths.as_slice(),
+        total_bytes,
+    };
+    let column = onpair::compress_rows::<_, u64>(&rows, config);
     let (dict, codes, row_offsets) = column.into_raw();
     let (dict_bytes, dict_offsets) = dict.into_raw();
     let codes_offsets = codes_offsets_array(&row_offsets);
@@ -113,12 +108,34 @@ pub fn onpair_compress(
     Ok(encoded.into_array())
 }
 
-fn view_bytes<'a>(view: &'a BinaryView, buffers: &'a [&ByteBuffer]) -> &'a [u8] {
-    if view.is_inlined() {
-        view.as_inlined().value()
-    } else {
-        let view_ref = view.as_view();
-        &buffers[view_ref.buffer_index as usize][view_ref.as_range()]
+/// Reads inline and external values in place, treating null rows as empty.
+struct ViewRows<'a> {
+    views: &'a [BinaryView],
+    buffers: &'a [&'a ByteBuffer],
+    lengths: &'a [u32],
+    total_bytes: usize,
+}
+
+impl Rows for ViewRows<'_> {
+    fn num_rows(&self) -> usize {
+        self.views.len()
+    }
+
+    fn total_bytes(&self) -> usize {
+        self.total_bytes
+    }
+
+    #[inline]
+    fn row(&self, i: usize) -> &[u8] {
+        let view = &self.views[i];
+        if self.lengths[i] == 0 {
+            &[]
+        } else if view.is_inlined() {
+            view.as_inlined().value()
+        } else {
+            let view_ref = view.as_view();
+            &self.buffers[view_ref.buffer_index as usize][view_ref.as_range()]
+        }
     }
 }
 
