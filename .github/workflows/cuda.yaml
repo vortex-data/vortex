@@ -45,6 +45,9 @@ jobs:
               - "vortex-test/**"
               - "pyproject.toml"
               - "uv.lock"
+              - "Cargo.toml"
+              - "Cargo.lock"
+              - ".clang-format"
               - ".github/workflows/**"
 
   cuda-build-lint:
@@ -65,12 +68,20 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           enable-sccache: "true"
+      - name: Install clang-format
+        run: |
+          # Match the Ubuntu 24.04 formatter used by the C/C++ lint job.
+          sudo apt-get update
+          sudo apt-get install -y clang-format-18
+          echo "/usr/lib/llvm-18/bin" >> "$GITHUB_PATH"
       - uses: ./.github/actions/check-rebuild
         with:
           command: >-
             cargo build --profile ci --locked --all-features --all-targets
             -p vortex-cuda -p vortex-cuda-ffi -p vortex-cub -p vortex-nvcomp
             -p gpu-scan-cli -p vortex-test-e2e-cuda -p vortex-python-cuda
+      - name: Verify generated CUDA FFI header is up to date
+        run: git --no-pager diff --exit-code -- vortex-cuda/ffi/cinclude/vortex_cuda.h
       - name: Clippy CUDA crates
         run: |
           cargo clippy --profile ci --locked --all-features --all-targets \
@@ -111,6 +122,11 @@ jobs:
             uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
             with:
               sync: false
+      - name: Install clang-format
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-format-18
+          echo "/usr/lib/llvm-18/bin" >> "$GITHUB_PATH"
       - name: Install nextest
         uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375  # v2
         with:
