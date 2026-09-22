@@ -141,7 +141,11 @@ struct OnPairDictionaryStorage {
     offsets: Buffer<u32>,
 }
 
-impl DictionaryStorage<u32> for OnPairDictionaryStorage {
+// SAFETY: These private buffers expose immutable u8/u32 slices. Moving or cloning
+// preserves their lengths and contents, including read-padding, and clones retain
+// the backing allocations. Mutation requires unique ownership or copies the data,
+// so aliases cannot change the stored dictionary.
+unsafe impl DictionaryStorage<u32> for OnPairDictionaryStorage {
     #[inline]
     fn bytes(&self) -> &[u8] {
         self.bytes.as_slice()
