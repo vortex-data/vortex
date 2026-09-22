@@ -1087,7 +1087,13 @@ pub fn repack_arrow_validity_buffer(
 
     let kernel = ctx.load_function_with_suffixes("arrow_validity", &["repack"])?;
     const REPACK_THREADS_PER_BLOCK: u32 = 256;
-    let num_blocks = u32::try_from(output_words.div_ceil(REPACK_THREADS_PER_BLOCK as usize))?;
+    const MAX_REPACK_BLOCKS: usize = 4096;
+    // The kernel's grid-stride loop covers words beyond the capped grid.
+    let num_blocks = u32::try_from(
+        output_words
+            .div_ceil(REPACK_THREADS_PER_BLOCK as usize)
+            .min(MAX_REPACK_BLOCKS),
+    )?;
     let config = LaunchConfig {
         grid_dim: (num_blocks, 1, 1),
         block_dim: (REPACK_THREADS_PER_BLOCK, 1, 1),
