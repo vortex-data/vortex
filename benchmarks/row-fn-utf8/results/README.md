@@ -34,7 +34,9 @@ The isolated branch passes 78 UTF-8 and VarBinView tests. Coverage includes empt
 arrays, inline and external strings, arbitrary null payloads, invalid UTF-8, constants, and
 repeated sanitation. The new parameterized test checks sanitized views across repeated decodes.
 
-`cargo clippy -p vortex-array --lib --features unstable_row_fns -- -D warnings` passes.
+`cargo clippy -p vortex-array --all-targets --all-features -- -D warnings` passes.
+The earlier library-only check also passes.
 Formatting uses `nightly-2026-09-10`. Test, lint, and build logs are retained here.
-No workspace-wide tests, doctests, all-feature linting, x86 runtime measurements, or end-to-end
-queries ran for this split. The measurements do not establish cold-buffer behavior.
+No workspace-wide tests, doctests, x86 runtime measurements, or end-to-end queries ran for this
+split. The pre-push workspace lint attempt also found an existing macOS `single_element_loop`
+lint in `vortex-cuda/ffi/src/lib.rs:1092`, which is unchanged from the PR base. The measurements do not establish cold-buffer behavior.
