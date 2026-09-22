@@ -75,8 +75,8 @@ function(_vortex_build_tool_path output)
     set(${output} "${_path}" PARENT_SCOPE)
 endfunction()
 
-# Wrap the compiler for host-only flag filtering without hiding arguments from cc-rs
-# probes. The Rust linker variant also appends CMake's linker selection.
+# Wrap the compiler for host-only flag filtering without hiding arguments from cc-rs probes.
+# The Rust linker variant also appends CMake's linker selection.
 function(_vortex_compiler_launcher compiler arg1 rust_linker output)
     _vortex_reject_semicolon("compiler ARG1" "${arg1}")
     _vortex_encode_shell_arguments(_compiler "${compiler}")
@@ -93,7 +93,7 @@ function(_vortex_compiler_launcher compiler arg1 rust_linker output)
     set(_linker_flags "")
     list(LENGTH _command _command_length)
     if(rust_linker)
-        # Do not apply the native RUSTC_WRAPPER fallback to Rust links.
+        # Rust links bypass the native RUSTC_WRAPPER fallback.
         set(_use_rustc_wrapper false)
         _vortex_encode_shell_arguments(_linker_flags "${VORTEX_RUST_LINKER_FLAGS}")
     elseif(_command_length GREATER 1 AND _compiler_name IN_LIST _known_wrappers)
@@ -109,10 +109,9 @@ function(_vortex_compiler_launcher compiler arg1 rust_linker output)
     set(_directory "${VORTEX_CARGO_TARGET_DIR}/cmake-native-tools")
     set(_launcher "${_directory}/cc-${_key}")
     if(rust_linker)
-        # rustc infers a compiler driver from the -gcc suffix and then adds no linker
-        # selection of its own, leaving the choice to the mapping.
+        # The -gcc stem makes rustc treat this as a plain driver and add no -fuse-ld of its own.
         string(APPEND _launcher "-gcc")
-        # Cargo accepts a single executable path, not a shell command.
+        # Cargo takes an executable path, not a shell command.
         set(${output} "${_launcher}" PARENT_SCOPE)
     else()
         # An explicit cc-rs wrapper suppresses its outer RUSTC_WRAPPER fallback.
@@ -150,8 +149,7 @@ function(_vortex_make_cargo_environment output)
         "CARGO_ENCODED_RUSTFLAGS=${_rustflags}")
 
     if(VORTEX_RUST_LINKER_FLAGS)
-        # Cargo links only build scripts and proc macros; CMake links the archive itself.
-        # Those host links must not inherit the C/C++ instrumentation.
+        # Cargo links only build scripts and proc macros, which must stay uninstrumented.
         _vortex_compiler_launcher("${VORTEX_C_COMPILER}" "${VORTEX_C_COMPILER_ARG1}"
             true _rust_linker)
         string(TOUPPER "${_target_key}" _cargo_target_key)

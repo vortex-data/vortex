@@ -199,7 +199,7 @@ class CompilerCommandTests(CMakeTest):
         hook = self.write(
             "linker.cmake",
             f"""\
-            # Probe Threads before installing the Cargo-only linker fixture.
+            # Probe Threads before the fixture linker exists.
             set(THREADS_PREFER_PTHREAD_FLAG TRUE)
             find_package(Threads REQUIRED)
             set(CMAKE_LINKER_TYPE VortexFixture)
@@ -210,7 +210,7 @@ class CompilerCommandTests(CMakeTest):
         self.build()
         calls = [json.loads(line) for line in log.read_text().splitlines()]
         self.assertTrue(any("build_script_build" in arg for args in calls for arg in args), calls)
-        # Coverage on the host link would pull in the profile runtime.
+        # An instrumented host link would pull in the profile runtime.
         self.assertFalse(any("clang_rt.profile" in arg for args in calls for arg in args), calls)
 
 

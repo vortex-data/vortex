@@ -252,25 +252,12 @@ endfunction()
 # the public Vortex C++ target.
 block(SCOPE_FOR VARIABLES)
     _vortex_resolve_cargo_profile(_configuration _cargo_profile _cargo_artifact_directory)
-    # One Cargo build serves all consumers; follow the directory/toolchain selection.
-    # rustc links its build scripts and proc macros through the C driver.
-    set(_rust_linker_flags "")
-    if(CMAKE_LINKER_TYPE AND NOT CMAKE_LINKER_TYPE STREQUAL "DEFAULT")
-        # CMake 4.0 reads CMAKE_C_LINK_MODE instead of CMAKE_C_USING_LINKER_MODE.
-        # Outside driver mode the mapping is a linker tool path, not driver flags.
-        if(CMAKE_C_LINK_MODE STREQUAL "LINKER" OR CMAKE_C_USING_LINKER_MODE STREQUAL "TOOL")
-            message(FATAL_ERROR "Vortex forwards CMAKE_LINKER_TYPE to Cargo only through the "
-                "C compiler driver, not in TOOL/LINKER mode")
-        endif()
-        set(_mapping "CMAKE_C_USING_LINKER_${CMAKE_LINKER_TYPE}")
-        # CMake expands LINKER: and SHELL: prefixes at generate time; the launcher does not.
-        if("${${_mapping}}" STREQUAL "" OR "${${_mapping}}" MATCHES "(^|;)(LINKER|SHELL):")
-            message(FATAL_ERROR
-                "Cannot forward CMAKE_LINKER_TYPE=${CMAKE_LINKER_TYPE} to Cargo: ${_mapping} "
-                "must hold plain driver flags, but is '${${_mapping}}'. CMake 3.29+ defines "
-                "the built-in types; use DEFAULT to leave the Rust linker unchanged.")
-        endif()
-        set(_rust_linker_flags "${${_mapping}}")
+    # rustc links build scripts and proc macros through the C driver; forward CMake's C linker
+    # selection verbatim. The launcher does not expand LINKER: and SHELL: prefixes.
+    set(_rust_linker_flags "${CMAKE_C_USING_LINKER_${CMAKE_LINKER_TYPE}}")
+    if(_rust_linker_flags MATCHES "(^|;)(LINKER|SHELL):")
+        message(FATAL_ERROR "CMAKE_LINKER_TYPE=${CMAKE_LINKER_TYPE} needs plain driver flags, "
+            "but CMAKE_C_USING_LINKER_${CMAKE_LINKER_TYPE} is '${_rust_linker_flags}'")
     endif()
 
     set(_cuda_arch_flags "")

@@ -205,7 +205,7 @@ class ConfigureTests(CMakeTest):
         hook = self.write(
             "linker.cmake",
             """\
-            # Probe Threads before installing the Cargo-only linker fixture.
+            # Probe Threads before the fixture linker exists.
             set(THREADS_PREFER_PTHREAD_FLAG TRUE)
             find_package(Threads REQUIRED)
             set(CMAKE_LINKER_TYPE VortexFixture)
@@ -235,11 +235,8 @@ class ConfigureTests(CMakeTest):
 
     def test_invalid_linker_selections(self) -> None:
         for setting, diagnostic in (
-            ("", "CMAKE_C_USING_LINKER_VortexFixture"),
             ('set(CMAKE_C_USING_LINKER_VortexFixture "LINKER:-ld_classic")', "LINKER:-ld_classic"),
             ('set(CMAKE_C_USING_LINKER_VortexFixture "SHELL:-fuse-ld=lld")', "SHELL:-fuse-ld=lld"),
-            ("set(CMAKE_C_USING_LINKER_MODE TOOL)", "TOOL"),
-            ("set(CMAKE_C_LINK_MODE LINKER)", "LINKER"),
         ):
             with self.subTest(setting=setting):
                 hook = self.write("invalid.cmake", f"set(CMAKE_LINKER_TYPE VortexFixture)\n{setting}\n")
