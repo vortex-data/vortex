@@ -1,0 +1,33 @@
+diff --git i/vortex-array/src/scalar_fn/unstable/row/execute/packed_bool.rs w/vortex-array/src/scalar_fn/unstable/row/execute/packed_bool.rs
+index 5f9d5e3cd0..ca2fcd0e4b 100644
+--- i/vortex-array/src/scalar_fn/unstable/row/execute/packed_bool.rs
++++ w/vortex-array/src/scalar_fn/unstable/row/execute/packed_bool.rs
+@@ -105,13 +105,15 @@ where
+         vortex_bail!("a decoded row input does not address exactly {row_count} rows");
+     };
+ 
+-    let mut failure = Fail::default();
+-    let collect = |index| {
++    let mut state = (source, prepared, Fail::default(), apply);
++    let state_ref = &mut state;
++    let collect = move |index| {
++        let (source, prepared, failure, apply) = &mut *state_ref;
+         // SAFETY: Both collectors only invoke this closure with `index < row_count`, and the decoded
+         // source was constructed with exactly `row_count` rows.
+         let elements = unsafe { source.get_unchecked(index) };
+-        let (value, row_failure) = apply(&prepared, elements);
+-        failure |= row_failure;
++        let (value, row_failure) = apply(prepared, elements);
++        *failure |= row_failure;
+ 
+         value
+     };
+@@ -121,7 +123,7 @@ where
+         BitBuffer::collect_bool(row_count, collect)
+     };
+ 
+-    match finish_failure(failure) {
++    match finish_failure(state.2) {
+         Ok(()) => Ok(DenseAttempt::Values(
+             BoolArray::new(values, Validity::NonNullable).into_array(),
+         )),

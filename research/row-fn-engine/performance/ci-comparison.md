@@ -1,5 +1,8 @@
 # Native CI comparison for the RowFn performance stacks
 
+The Boolean measurements below are historical. The [capture investigation](ci-bool-capture.md)
+identifies the x86 compiler cause and compares a correction with a revised benchmark protocol.
+
 The UTF-8 measurements below are historical. The [revised UTF-8 comparison](ci-utf8-guide.md)
 uses cases above the wall-time floor and excludes output destruction, as the benchmark guide
 requires. Do not use the old tiny-case results as CI proof for the revised PR.

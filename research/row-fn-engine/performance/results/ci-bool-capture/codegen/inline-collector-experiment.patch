@@ -1,0 +1,12 @@
+diff --git i/vortex-buffer/src/bit/pack.rs w/vortex-buffer/src/bit/pack.rs
+index 128e27eb00..c90ef34fe4 100644
+--- i/vortex-buffer/src/bit/pack.rs
++++ w/vortex-buffer/src/bit/pack.rs
+@@ -220,6 +220,7 @@ pub unsafe fn collect_bool_words_avx2<F: FnMut(usize) -> bool>(
+ ///
+ /// The caller must ensure the CPU supports AVX-512F and AVX-512BW.
+ #[cfg(target_arch = "x86_64")]
++#[inline]
+ #[target_feature(enable = "avx512f,avx512bw")]
+ pub unsafe fn collect_bool_words_avx512<F: FnMut(usize) -> bool>(
+     words: &mut [u64],

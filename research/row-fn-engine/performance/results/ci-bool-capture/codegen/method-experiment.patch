@@ -1,0 +1,36 @@
+diff --git i/vortex-array/src/scalar_fn/unstable/row/execute/packed_bool.rs w/vortex-array/src/scalar_fn/unstable/row/execute/packed_bool.rs
+index 8e64462147..3417d460e5 100644
+--- i/vortex-array/src/scalar_fn/unstable/row/execute/packed_bool.rs
++++ w/vortex-array/src/scalar_fn/unstable/row/execute/packed_bool.rs
+@@ -122,11 +122,7 @@ where
+ 
+         // SAFETY: Both collectors only invoke this closure with `index < row_count`, and the decoded
+         // source was constructed with exactly `row_count` rows.
+-        let elements = unsafe { state.source.get_unchecked(index) };
+-        let (value, row_failure) = (state.apply)(&state.prepared, elements);
+-        state.failure |= row_failure;
+-
+-        value
++        unsafe { state.apply_unchecked(index) }
+     };
+     let values = if MULTIVERSIONED {
+         BitBuffer::collect_bool_multiversioned(row_count, collect)
+@@ -148,3 +144,18 @@ struct DeferredBoolState<Source, Prepared, Apply, Fail> {
+     apply: Apply,
+     failure: Fail,
+ }
++
++impl<Source, Prepared, Apply, Fail> DeferredBoolState<Source, Prepared, Apply, Fail>
++where
++    Source: IndexedSource,
++    Apply: Fn(&Prepared, Source::Item) -> (bool, Fail),
++    Fail: FailureEvidence,
++{
++    #[inline(always)]
++    unsafe fn apply_unchecked(&mut self, index: usize) -> bool {
++        let elements = unsafe { self.source.get_unchecked(index) };
++        let (value, row_failure) = (self.apply)(&self.prepared, elements);
++        self.failure |= row_failure;
++        value
++    }
++}

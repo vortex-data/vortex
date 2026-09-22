@@ -1,0 +1,42 @@
+/tmp/row-fn-bool-linux-state-avx512-target/x86_64-unknown-linux-gnu/release/deps/row_fn_bool_retry-4282a15eb71e334d  :
+section                    size       addr
+.interp                      28        736
+.note.ABI-tag                32        764
+.dynsym                    2448        800
+.gnu.version                204       3248
+.gnu.version_r              336       3452
+.gnu.hash                    28       3792
+.hash                       824       3820
+.dynstr                    1308       4644
+.rela.dyn                538728       5952
+.rela.plt                  1200     544680
+.rodata                  960108     545920
+.gcc_except_table        981060    1506028
+.debug_gdb_scripts           34    2487088
+.eh_frame_hdr            132548    2487124
+.eh_frame                759680    2619672
+.text                  16283606    3383456
+.plt                        816   19667072
+.tdata                      192   19671984
+.tbss                       296   19672176
+.data.rel.ro             382216   19672192
+.init_array                  32   20054408
+.fini_array                   8   20054440
+.dynamic                    480   20054448
+.got                      25720   20054928
+.got.plt                    424   20080648
+.relro_padding             1616   20081072
+.data                     16464   20085184
+.bss                      32176   20101696
+.debug_info            25241461          0
+.debug_abbrev             63684          0
+.debug_aranges           331280          0
+.debug_line            11392601          0
+.debug_str             35196843          0
+.comment                    253          0
+.debug_ranges          12078144          0
+.debug_loc              1344940          0
+.debug_frame                368          0
+Total                 105772186
+
+

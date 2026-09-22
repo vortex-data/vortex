@@ -1,0 +1,2571 @@
+{
+  "total_count": 18,
+  "jobs": [
+    {
+      "id": 106914273739,
+      "run_id": 35777490085,
+      "workflow_name": "Codspeed Benchmarking",
+      "head_branch": "ct/row-fn-bool-retry",
+      "run_url": "https://api.github.com/repos/vortex-data/vortex/actions/runs/35777490085",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOLYoI6c8AAAAY5JZZyw",
+      "head_sha": "2ed0398caf41241ea4ca65fe41780195f823a033",
+      "url": "https://api.github.com/repos/vortex-data/vortex/actions/jobs/106914273739",
+      "html_url": "https://github.com/vortex-data/vortex/actions/runs/35777490085/job/106914273739",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-09-22T20:00:54Z",
+      "started_at": "2026-09-22T20:01:24Z",
+      "completed_at": "2026-09-22T20:04:38Z",
+      "name": "Build Codspeed CPU benchmarks (avx512)",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-09-22T20:01:23Z",
+          "completed_at": "2026-09-22T20:01:25Z"
+        },
+        {
+          "name": "Set up runner",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-09-22T20:01:25Z",
+          "completed_at": "2026-09-22T20:01:25Z"
+        },
+        {
+          "name": "Run runs-on/action@v2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-09-22T20:01:25Z",
+          "completed_at": "2026-09-22T20:01:26Z"
+        },
+        {
+          "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-09-22T20:01:26Z",
+          "completed_at": "2026-09-22T20:01:27Z"
+        },
+        {
+          "name": "Run ./.github/actions/setup-prebuild",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-09-22T20:01:27Z",
+          "completed_at": "2026-09-22T20:01:41Z"
+        },
+        {
+          "name": "Run ./.github/actions/system-info",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-09-22T20:01:41Z",
+          "completed_at": "2026-09-22T20:01:41Z"
+        },
+        {
+          "name": "Install Codspeed",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-09-22T20:01:41Z",
+          "completed_at": "2026-09-22T20:01:41Z"
+        },
+        {
+          "name": "Select tagged benchmark targets",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8,
+          "started_at": "2026-09-22T20:01:41Z",
+          "completed_at": "2026-09-22T20:01:41Z"
+        },
+        {
+          "name": "Build benchmarks",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 9,
+          "started_at": "2026-09-22T20:01:41Z",
+          "completed_at": "2026-09-22T20:03:25Z"
+        },
+        {
+          "name": "Package benchmark executables",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 10,
+          "started_at": "2026-09-22T20:03:25Z",
+          "completed_at": "2026-09-22T20:03:30Z"
+        },
+        {
+          "name": "Upload benchmark executables",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 11,
+          "started_at": "2026-09-22T20:03:30Z",
+          "completed_at": "2026-09-22T20:04:35Z"
+        },
+        {
+          "name": "Post Install Codspeed",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 18,
+          "started_at": "2026-09-22T20:04:35Z",
+          "completed_at": "2026-09-22T20:04:35Z"
+        },
+        {
+          "name": "Post Run ./.github/actions/setup-prebuild",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 19,
+          "started_at": "2026-09-22T20:04:35Z",
+          "completed_at": "2026-09-22T20:04:35Z"
+        },
+        {
+          "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 20,
+          "started_at": "2026-09-22T20:04:35Z",
+          "completed_at": "2026-09-22T20:04:35Z"
+        },
+        {
+          "name": "Post Run runs-on/action@v2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 21,
+          "started_at": "2026-09-22T20:04:35Z",
+          "completed_at": "2026-09-22T20:04:36Z"
+        },
+        {
+          "name": "Complete runner",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 22,
+          "started_at": "2026-09-22T20:04:36Z",
+          "completed_at": "2026-09-22T20:04:37Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 23,
+          "started_at": "2026-09-22T20:04:37Z",
+          "completed_at": "2026-09-22T20:04:37Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/vortex-data/vortex/check-runs/106914273739",
+      "labels": [
+        "runs-on=35777490085/runner=bench-dedicated/family=c7i.4xlarge/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=bench-codspeed-cpu-features-build-avx512"
+      ],
+      "runner_id": 945969,
+      "runner_name": "runs-on--i-0b6c1faeac5b94b19--00d47cae-8",
+      "runner_group_id": 1,
+      "runner_group_name": "Default"
+    },
+    {
+      "id": 106914273997,
+      "run_id": 35777490085,
+      "workflow_name": "Codspeed Benchmarking",
+      "head_branch": "ct/row-fn-bool-retry",
+      "run_url": "https://api.github.com/repos/vortex-data/vortex/actions/runs/35777490085",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOLYoI6c8AAAAY5JZazQ",
+      "head_sha": "2ed0398caf41241ea4ca65fe41780195f823a033",
+      "url": "https://api.github.com/repos/vortex-data/vortex/actions/jobs/106914273997",
+      "html_url": "https://github.com/vortex-data/vortex/actions/runs/35777490085/job/106914273997",
+      "status": "completed",
+      "conclusion": "cancelled",
+      "created_at": "2026-09-22T20:00:54Z",
+      "started_at": "2026-09-22T20:01:17Z",
+      "completed_at": "2026-09-22T20:03:33Z",
+      "name": "Benchmark with Codspeed (Shard #7 - FastLanes & decimals)",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-09-22T20:01:17Z",
+          "completed_at": "2026-09-22T20:01:19Z"
+        },
+        {
+          "name": "Set up runner",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-09-22T20:01:19Z",
+          "completed_at": "2026-09-22T20:01:19Z"
+        },
+        {
+          "name": "Run runs-on/action@v2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-09-22T20:01:19Z",
+          "completed_at": "2026-09-22T20:01:20Z"
+        },
+        {
+          "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-09-22T20:01:20Z",
+          "completed_at": "2026-09-22T20:01:22Z"
+        },
+        {
+          "name": "Run ./.github/actions/setup-prebuild",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-09-22T20:01:22Z",
+          "completed_at": "2026-09-22T20:01:33Z"
+        },
+        {
+          "name": "Run ./.github/actions/system-info",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-09-22T20:01:33Z",
+          "completed_at": "2026-09-22T20:01:33Z"
+        },
+        {
+          "name": "Install Codspeed",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-09-22T20:01:33Z",
+          "completed_at": "2026-09-22T20:01:33Z"
+        },
+        {
+          "name": "Select array benchmarks",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 8,
+          "started_at": "2026-09-22T20:01:33Z",
+          "completed_at": "2026-09-22T20:01:33Z"
+        },
+        {
+          "name": "Build benchmarks",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "number": 9,
+          "started_at": "2026-09-22T20:01:33Z",
+          "completed_at": "2026-09-22T20:03:30Z"
+        },
+        {
+          "name": "Run benchmarks",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 10,
+          "started_at": "2026-09-22T20:03:30Z",
+          "completed_at": "2026-09-22T20:03:30Z"
+        },
+        {
+          "name": "Post Install Codspeed",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 16,
+          "started_at": "2026-09-22T20:03:30Z",
+          "completed_at": "2026-09-22T20:03:30Z"
+        },
+        {
+          "name": "Post Run ./.github/actions/setup-prebuild",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 17,
+          "started_at": "2026-09-22T20:03:30Z",
+          "completed_at": "2026-09-22T20:03:30Z"
+        },
+        {
+          "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 18,
+          "started_at": "2026-09-22T20:03:30Z",
+          "completed_at": "2026-09-22T20:03:30Z"
+        },
+        {
+          "name": "Post Run runs-on/action@v2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 19,
+          "started_at": "2026-09-22T20:03:30Z",
+          "completed_at": "2026-09-22T20:03:31Z"
+        },
+        {
+          "name": "Complete runner",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 20,
+          "started_at": "2026-09-22T20:03:31Z",
+          "completed_at": "2026-09-22T20:03:32Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 21,
+          "started_at": "2026-09-22T20:03:32Z",
+          "completed_at": "2026-09-22T20:03:32Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/vortex-data/vortex/check-runs/106914273997",
+      "labels": [
+        "runs-on=35777490085/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=bench-codspeed-7"
+      ],
+      "runner_id": 945964,
+      "runner_name": "runs-on--i-06d5d9a653a9a46a7--ed49f7d0-0",
+      "runner_group_id": 1,
+      "runner_group_name": "Default"
+    },
+    {
+      "id": 106914274107,
+      "run_id": 35777490085,
+      "workflow_name": "Codspeed Benchmarking",
+      "head_branch": "ct/row-fn-bool-retry",
+      "run_url": "https://api.github.com/repos/vortex-data/vortex/actions/runs/35777490085",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOLYoI6c8AAAAY5JZbOw",
+      "head_sha": "2ed0398caf41241ea4ca65fe41780195f823a033",
+      "url": "https://api.github.com/repos/vortex-data/vortex/actions/jobs/106914274107",
+      "html_url": "https://github.com/vortex-data/vortex/actions/runs/35777490085/job/106914274107",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-09-22T20:00:54Z",
+      "started_at": "2026-09-22T20:01:18Z",
+      "completed_at": "2026-09-22T20:04:31Z",
+      "name": "Build Codspeed CPU benchmarks (neon)",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-09-22T20:01:22Z",
+          "completed_at": "2026-09-22T20:01:24Z"
+        },
+        {
+          "name": "Set up runner",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-09-22T20:01:24Z",
+          "completed_at": "2026-09-22T20:01:24Z"
+        },
+        {
+          "name": "Run runs-on/action@v2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-09-22T20:01:24Z",
+          "completed_at": "2026-09-22T20:01:25Z"
+        },
+        {
+          "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-09-22T20:01:25Z",
+          "completed_at": "2026-09-22T20:01:27Z"
+        },
+        {
+          "name": "Run ./.github/actions/setup-prebuild",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-09-22T20:01:27Z",
+          "completed_at": "2026-09-22T20:01:39Z"
+        },
+        {
+          "name": "Run ./.github/actions/system-info",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-09-22T20:01:39Z",
+          "completed_at": "2026-09-22T20:01:39Z"
+        },
+        {
+          "name": "Install Codspeed",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-09-22T20:01:39Z",
+          "completed_at": "2026-09-22T20:01:40Z"
+        },
+        {
+          "name": "Select tagged benchmark targets",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8,
+          "started_at": "2026-09-22T20:01:40Z",
+          "completed_at": "2026-09-22T20:01:40Z"
+        },
+        {
+          "name": "Build benchmarks",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 9,
+          "started_at": "2026-09-22T20:01:40Z",
+          "completed_at": "2026-09-22T20:03:38Z"
+        },
+        {
+          "name": "Package benchmark executables",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 10,
+          "started_at": "2026-09-22T20:03:38Z",
+          "completed_at": "2026-09-22T20:03:43Z"
+        },
+        {
+          "name": "Upload benchmark executables",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 11,
+          "started_at": "2026-09-22T20:03:43Z",
+          "completed_at": "2026-09-22T20:04:28Z"
+        },
+        {
+          "name": "Post Install Codspeed",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 18,
+          "started_at": "2026-09-22T20:04:28Z",
+          "completed_at": "2026-09-22T20:04:28Z"
+        },
+        {
+          "name": "Post Run ./.github/actions/setup-prebuild",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 19,
+          "started_at": "2026-09-22T20:04:28Z",
+          "completed_at": "2026-09-22T20:04:28Z"
+        },
+        {
+          "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 20,
+          "started_at": "2026-09-22T20:04:28Z",
+          "completed_at": "2026-09-22T20:04:28Z"
+        },
+        {
+          "name": "Post Run runs-on/action@v2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 21,
+          "started_at": "2026-09-22T20:04:28Z",
+          "completed_at": "2026-09-22T20:04:29Z"
+        },
+        {
+          "name": "Complete runner",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 22,
+          "started_at": "2026-09-22T20:04:29Z",
+          "completed_at": "2026-09-22T20:04:30Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 23,
+          "started_at": "2026-09-22T20:04:30Z",
+          "completed_at": "2026-09-22T20:04:30Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/vortex-data/vortex/check-runs/106914274107",
+      "labels": [
+        "runs-on=35777490085/runner=bench-dedicated/family=c7g.4xlarge/image=ubuntu24-full-arm64-pre-v2/extras=s3-cache/tag=bench-codspeed-cpu-features-build-neon"
+      ],
+      "runner_id": 945961,
+      "runner_name": "runs-on--i-01265f953a96cd6bd--5a811ddc-8",
+      "runner_group_id": 1,
+      "runner_group_name": "Default"
+    },
+    {
+      "id": 106914274119,
+      "run_id": 35777490085,
+      "workflow_name": "Codspeed Benchmarking",
+      "head_branch": "ct/row-fn-bool-retry",
+      "run_url": "https://api.github.com/repos/vortex-data/vortex/actions/runs/35777490085",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOLYoI6c8AAAAY5JZbRw",
+      "head_sha": "2ed0398caf41241ea4ca65fe41780195f823a033",
+      "url": "https://api.github.com/repos/vortex-data/vortex/actions/jobs/106914274119",
+      "html_url": "https://github.com/vortex-data/vortex/actions/runs/35777490085/job/106914274119",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-09-22T20:00:54Z",
+      "started_at": "2026-09-22T20:00:56Z",
+      "completed_at": "2026-09-22T20:01:04Z",
+      "name": "Detect CUDA changes",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-09-22T20:00:58Z",
+          "completed_at": "2026-09-22T20:00:58Z"
+        },
+        {
+          "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-09-22T20:00:58Z",
+          "completed_at": "2026-09-22T20:01:01Z"
+        },
+        {
+          "name": "Run dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-09-22T20:01:01Z",
+          "completed_at": "2026-09-22T20:01:01Z"
+        },
+        {
+          "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-09-22T20:01:01Z",
+          "completed_at": "2026-09-22T20:01:02Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-09-22T20:01:02Z",
+          "completed_at": "2026-09-22T20:01:02Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/vortex-data/vortex/check-runs/106914274119",
+      "labels": [
+        "ubuntu-latest"
+      ],
+      "runner_id": 1000170162,
+      "runner_name": "GitHub Actions 1000170162",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 106914274163,
+      "run_id": 35777490085,
+      "workflow_name": "Codspeed Benchmarking",
+      "head_branch": "ct/row-fn-bool-retry",
+      "run_url": "https://api.github.com/repos/vortex-data/vortex/actions/runs/35777490085",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOLYoI6c8AAAAY5JZbcw",
+      "head_sha": "2ed0398caf41241ea4ca65fe41780195f823a033",
+      "url": "https://api.github.com/repos/vortex-data/vortex/actions/jobs/106914274163",
+      "html_url": "https://github.com/vortex-data/vortex/actions/runs/35777490085/job/106914274163",
+      "status": "completed",
+      "conclusion": "cancelled",
+      "created_at": "2026-09-22T20:00:54Z",
+      "started_at": "2026-09-22T20:01:22Z",
+      "completed_at": "2026-09-22T20:03:38Z",
+      "name": "Benchmark with Codspeed (Shard #3 - Array dictionaries)",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-09-22T20:01:22Z",
+          "completed_at": "2026-09-22T20:01:24Z"
+        },
+        {
+          "name": "Set up runner",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-09-22T20:01:24Z",
+          "completed_at": "2026-09-22T20:01:24Z"
+        },
+        {
+          "name": "Run runs-on/action@v2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-09-22T20:01:24Z",
+          "completed_at": "2026-09-22T20:01:25Z"
+        },
+        {
+          "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-09-22T20:01:25Z",
+          "completed_at": "2026-09-22T20:01:28Z"
+        },
+        {
+          "name": "Run ./.github/actions/setup-prebuild",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-09-22T20:01:28Z",
+          "completed_at": "2026-09-22T20:01:38Z"
+        },
+        {
+          "name": "Run ./.github/actions/system-info",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-09-22T20:01:38Z",
+          "completed_at": "2026-09-22T20:01:38Z"
+        },
+        {
+          "name": "Install Codspeed",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-09-22T20:01:38Z",
+          "completed_at": "2026-09-22T20:01:39Z"
+        },
+        {
+          "name": "Select array benchmarks",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8,
+          "started_at": "2026-09-22T20:01:39Z",
+          "completed_at": "2026-09-22T20:01:39Z"
+        },
+        {
+          "name": "Build benchmarks",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 9,
+          "started_at": "2026-09-22T20:01:39Z",
+          "completed_at": "2026-09-22T20:03:05Z"
+        },
+        {
+          "name": "Run benchmarks",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "number": 10,
+          "started_at": "2026-09-22T20:03:05Z",
+          "completed_at": "2026-09-22T20:03:35Z"
+        },
+        {
+          "name": "Post Run benchmarks",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 15,
+          "started_at": "2026-09-22T20:03:35Z",
+          "completed_at": "2026-09-22T20:03:35Z"
+        },
+        {
+          "name": "Post Install Codspeed",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 16,
+          "started_at": "2026-09-22T20:03:35Z",
+          "completed_at": "2026-09-22T20:03:35Z"
+        },
+        {
+          "name": "Post Run ./.github/actions/setup-prebuild",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 17,
+          "started_at": "2026-09-22T20:03:35Z",
+          "completed_at": "2026-09-22T20:03:35Z"
+        },
+        {
+          "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 18,
+          "started_at": "2026-09-22T20:03:35Z",
+          "completed_at": "2026-09-22T20:03:35Z"
+        },
+        {
+          "name": "Post Run runs-on/action@v2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 19,
+          "started_at": "2026-09-22T20:03:35Z",
+          "completed_at": "2026-09-22T20:03:35Z"
+        },
+        {
+          "name": "Complete runner",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 20,
+          "started_at": "2026-09-22T20:03:35Z",
+          "completed_at": "2026-09-22T20:03:36Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 21,
+          "started_at": "2026-09-22T20:03:36Z",
+          "completed_at": "2026-09-22T20:03:37Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/vortex-data/vortex/check-runs/106914274163",
+      "labels": [
+        "runs-on=35777490085/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=bench-codspeed-3"
+      ],
+      "runner_id": 945966,
+      "runner_name": "runs-on--i-0fdddcff9312e91cd--66669f06-9",
+      "runner_group_id": 1,
+      "runner_group_name": "Default"
+    },
+    {
+      "id": 106914274183,
+      "run_id": 35777490085,
+      "workflow_name": "Codspeed Benchmarking",
+      "head_branch": "ct/row-fn-bool-retry",
+      "run_url": "https://api.github.com/repos/vortex-data/vortex/actions/runs/35777490085",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOLYoI6c8AAAAY5JZbhw",
+      "head_sha": "2ed0398caf41241ea4ca65fe41780195f823a033",
+      "url": "https://api.github.com/repos/vortex-data/vortex/actions/jobs/106914274183",
+      "html_url": "https://github.com/vortex-data/vortex/actions/runs/35777490085/job/106914274183",
+      "status": "completed",
+      "conclusion": "cancelled",
+      "created_at": "2026-09-22T20:00:54Z",
+      "started_at": "2026-09-22T20:01:25Z",
+      "completed_at": "2026-09-22T20:03:41Z",
+      "name": "Benchmark with Codspeed (Shard #2 - Array selection)",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-09-22T20:01:24Z",
+          "completed_at": "2026-09-22T20:01:26Z"
+        },
+        {
+          "name": "Set up runner",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-09-22T20:01:26Z",
+          "completed_at": "2026-09-22T20:01:26Z"
+        },
+        {
+          "name": "Run runs-on/action@v2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-09-22T20:01:26Z",
+          "completed_at": "2026-09-22T20:01:27Z"
+        },
+        {
+          "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-09-22T20:01:27Z",
+          "completed_at": "2026-09-22T20:01:29Z"
+        },
+        {
+          "name": "Run ./.github/actions/setup-prebuild",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-09-22T20:01:29Z",
+          "completed_at": "2026-09-22T20:01:39Z"
+        },
+        {
+          "name": "Run ./.github/actions/system-info",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-09-22T20:01:39Z",
+          "completed_at": "2026-09-22T20:01:39Z"
+        },
+        {
+          "name": "Install Codspeed",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-09-22T20:01:39Z",
+          "completed_at": "2026-09-22T20:01:40Z"
+        },
+        {
+          "name": "Select array benchmarks",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8,
+          "started_at": "2026-09-22T20:01:40Z",
+          "completed_at": "2026-09-22T20:01:40Z"
+        },
+        {
+          "name": "Build benchmarks",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 9,
+          "started_at": "2026-09-22T20:01:40Z",
+          "completed_at": "2026-09-22T20:03:08Z"
+        },
+        {
+          "name": "Run benchmarks",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "number": 10,
+          "started_at": "2026-09-22T20:03:08Z",
+          "completed_at": "2026-09-22T20:03:38Z"
+        },
+        {
+          "name": "Post Run benchmarks",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 15,
+          "started_at": "2026-09-22T20:03:38Z",
+          "completed_at": "2026-09-22T20:03:38Z"
+        },
+        {
+          "name": "Post Install Codspeed",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 16,
+          "started_at": "2026-09-22T20:03:38Z",
+          "completed_at": "2026-09-22T20:03:38Z"
+        },
+        {
+          "name": "Post Run ./.github/actions/setup-prebuild",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 17,
+          "started_at": "2026-09-22T20:03:38Z",
+          "completed_at": "2026-09-22T20:03:38Z"
+        },
+        {
+          "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 18,
+          "started_at": "2026-09-22T20:03:38Z",
+          "completed_at": "2026-09-22T20:03:38Z"
+        },
+        {
+          "name": "Post Run runs-on/action@v2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 19,
+          "started_at": "2026-09-22T20:03:38Z",
+          "completed_at": "2026-09-22T20:03:38Z"
+        },
+        {
+          "name": "Complete runner",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 20,
+          "started_at": "2026-09-22T20:03:38Z",
+          "completed_at": "2026-09-22T20:03:39Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 21,
+          "started_at": "2026-09-22T20:03:39Z",
+          "completed_at": "2026-09-22T20:03:39Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/vortex-data/vortex/check-runs/106914274183",
+      "labels": [
+        "runs-on=35777490085/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=bench-codspeed-2"
+      ],
+      "runner_id": 945970,
+      "runner_name": "runs-on--i-035602925580296fe--2f9ff078-b",
+      "runner_group_id": 1,
+      "runner_group_name": "Default"
+    },
+    {
+      "id": 106914274252,
+      "run_id": 35777490085,
+      "workflow_name": "Codspeed Benchmarking",
+      "head_branch": "ct/row-fn-bool-retry",
+      "run_url": "https://api.github.com/repos/vortex-data/vortex/actions/runs/35777490085",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOLYoI6c8AAAAY5JZbzA",
+      "head_sha": "2ed0398caf41241ea4ca65fe41780195f823a033",
+      "url": "https://api.github.com/repos/vortex-data/vortex/actions/jobs/106914274252",
+      "html_url": "https://github.com/vortex-data/vortex/actions/runs/35777490085/job/106914274252",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-09-22T20:00:54Z",
+      "started_at": "2026-09-22T20:01:20Z",
+      "completed_at": "2026-09-22T20:04:33Z",
+      "name": "Build Codspeed CPU benchmarks (avx2)",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-09-22T20:01:22Z",
+          "completed_at": "2026-09-22T20:01:23Z"
+        },
+        {
+          "name": "Set up runner",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-09-22T20:01:23Z",
+          "completed_at": "2026-09-22T20:01:24Z"
+        },
+        {
+          "name": "Run runs-on/action@v2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-09-22T20:01:24Z",
+          "completed_at": "2026-09-22T20:01:25Z"
+        },
+        {
+          "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-09-22T20:01:25Z",
+          "completed_at": "2026-09-22T20:01:28Z"
+        },
+        {
+          "name": "Run ./.github/actions/setup-prebuild",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-09-22T20:01:28Z",
+          "completed_at": "2026-09-22T20:01:40Z"
+        },
+        {
+          "name": "Run ./.github/actions/system-info",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-09-22T20:01:40Z",
+          "completed_at": "2026-09-22T20:01:40Z"
+        },
+        {
+          "name": "Install Codspeed",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-09-22T20:01:40Z",
+          "completed_at": "2026-09-22T20:01:40Z"
+        },
+        {
+          "name": "Select tagged benchmark targets",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8,
+          "started_at": "2026-09-22T20:01:40Z",
+          "completed_at": "2026-09-22T20:01:40Z"
+        },
+        {
+          "name": "Build benchmarks",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 9,
+          "started_at": "2026-09-22T20:01:40Z",
+          "completed_at": "2026-09-22T20:03:20Z"
+        },
+        {
+          "name": "Package benchmark executables",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 10,
+          "started_at": "2026-09-22T20:03:20Z",
+          "completed_at": "2026-09-22T20:03:24Z"
+        },
+        {
+          "name": "Upload benchmark executables",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 11,
+          "started_at": "2026-09-22T20:03:24Z",
+          "completed_at": "2026-09-22T20:04:29Z"
+        },
+        {
+          "name": "Post Install Codspeed",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 18,
+          "started_at": "2026-09-22T20:04:29Z",
+          "completed_at": "2026-09-22T20:04:29Z"
+        },
+        {
+          "name": "Post Run ./.github/actions/setup-prebuild",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 19,
+          "started_at": "2026-09-22T20:04:29Z",
+          "completed_at": "2026-09-22T20:04:29Z"
+        },
+        {
+          "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 20,
+          "started_at": "2026-09-22T20:04:29Z",
+          "completed_at": "2026-09-22T20:04:30Z"
+        },
+        {
+          "name": "Post Run runs-on/action@v2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 21,
+          "started_at": "2026-09-22T20:04:30Z",
+          "completed_at": "2026-09-22T20:04:30Z"
+        },
+        {
+          "name": "Complete runner",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 22,
+          "started_at": "2026-09-22T20:04:30Z",
+          "completed_at": "2026-09-22T20:04:31Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 23,
+          "started_at": "2026-09-22T20:04:31Z",
+          "completed_at": "2026-09-22T20:04:31Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/vortex-data/vortex/check-runs/106914274252",
+      "labels": [
+        "runs-on=35777490085/runner=bench-dedicated/family=c7i.4xlarge/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=bench-codspeed-cpu-features-build-avx2"
+      ],
+      "runner_id": 945962,
+      "runner_name": "runs-on--i-0737cebec8c92e69a--04deb9f6-0",
+      "runner_group_id": 1,
+      "runner_group_name": "Default"
+    },
+    {
+      "id": 106914274394,
+      "run_id": 35777490085,
+      "workflow_name": "Codspeed Benchmarking",
+      "head_branch": "ct/row-fn-bool-retry",
+      "run_url": "https://api.github.com/repos/vortex-data/vortex/actions/runs/35777490085",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOLYoI6c8AAAAY5JZcWg",
+      "head_sha": "2ed0398caf41241ea4ca65fe41780195f823a033",
+      "url": "https://api.github.com/repos/vortex-data/vortex/actions/jobs/106914274394",
+      "html_url": "https://github.com/vortex-data/vortex/actions/runs/35777490085/job/106914274394",
+      "status": "completed",
+      "conclusion": "cancelled",
+      "created_at": "2026-09-22T20:00:54Z",
+      "started_at": "2026-09-22T20:01:26Z",
+      "completed_at": "2026-09-22T20:03:42Z",
+      "name": "Benchmark with Codspeed (Shard #6 - Main library & storage)",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-09-22T20:01:26Z",
+          "completed_at": "2026-09-22T20:01:28Z"
+        },
+        {
+          "name": "Set up runner",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-09-22T20:01:28Z",
+          "completed_at": "2026-09-22T20:01:28Z"
+        },
+        {
+          "name": "Run runs-on/action@v2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-09-22T20:01:28Z",
+          "completed_at": "2026-09-22T20:01:29Z"
+        },
+        {
+          "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-09-22T20:01:29Z",
+          "completed_at": "2026-09-22T20:01:30Z"
+        },
+        {
+          "name": "Run ./.github/actions/setup-prebuild",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-09-22T20:01:30Z",
+          "completed_at": "2026-09-22T20:01:40Z"
+        },
+        {
+          "name": "Run ./.github/actions/system-info",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-09-22T20:01:40Z",
+          "completed_at": "2026-09-22T20:01:40Z"
+        },
+        {
+          "name": "Install Codspeed",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-09-22T20:01:40Z",
+          "completed_at": "2026-09-22T20:01:40Z"
+        },
+        {
+          "name": "Select array benchmarks",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 8,
+          "started_at": "2026-09-22T20:01:40Z",
+          "completed_at": "2026-09-22T20:01:40Z"
+        },
+        {
+          "name": "Build benchmarks",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "number": 9,
+          "started_at": "2026-09-22T20:01:40Z",
+          "completed_at": "2026-09-22T20:03:39Z"
+        },
+        {
+          "name": "Run benchmarks",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 10,
+          "started_at": "2026-09-22T20:03:39Z",
+          "completed_at": "2026-09-22T20:03:39Z"
+        },
+        {
+          "name": "Post Install Codspeed",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 16,
+          "started_at": "2026-09-22T20:03:39Z",
+          "completed_at": "2026-09-22T20:03:39Z"
+        },
+        {
+          "name": "Post Run ./.github/actions/setup-prebuild",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 17,
+          "started_at": "2026-09-22T20:03:39Z",
+          "completed_at": "2026-09-22T20:03:39Z"
+        },
+        {
+          "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 18,
+          "started_at": "2026-09-22T20:03:39Z",
+          "completed_at": "2026-09-22T20:03:39Z"
+        },
+        {
+          "name": "Post Run runs-on/action@v2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 19,
+          "started_at": "2026-09-22T20:03:39Z",
+          "completed_at": "2026-09-22T20:03:40Z"
+        },
+        {
+          "name": "Complete runner",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 20,
+          "started_at": "2026-09-22T20:03:40Z",
+          "completed_at": "2026-09-22T20:03:41Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 21,
+          "started_at": "2026-09-22T20:03:41Z",
+          "completed_at": "2026-09-22T20:03:41Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/vortex-data/vortex/check-runs/106914274394",
+      "labels": [
+        "runs-on=35777490085/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=bench-codspeed-6"
+      ],
+      "runner_id": 945972,
+      "runner_name": "runs-on--i-0dd9eb178bdbca846--7fc969d6-2",
+      "runner_group_id": 1,
+      "runner_group_name": "Default"
+    },
+    {
+      "id": 106914274411,
+      "run_id": 35777490085,
+      "workflow_name": "Codspeed Benchmarking",
+      "head_branch": "ct/row-fn-bool-retry",
+      "run_url": "https://api.github.com/repos/vortex-data/vortex/actions/runs/35777490085",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOLYoI6c8AAAAY5JZcaw",
+      "head_sha": "2ed0398caf41241ea4ca65fe41780195f823a033",
+      "url": "https://api.github.com/repos/vortex-data/vortex/actions/jobs/106914274411",
+      "html_url": "https://github.com/vortex-data/vortex/actions/runs/35777490085/job/106914274411",
+      "status": "completed",
+      "conclusion": "cancelled",
+      "created_at": "2026-09-22T20:00:54Z",
+      "started_at": "2026-09-22T20:01:24Z",
+      "completed_at": "2026-09-22T20:03:40Z",
+      "name": "Benchmark with Codspeed (Shard #5 - Core & encodings)",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-09-22T20:01:23Z",
+          "completed_at": "2026-09-22T20:01:25Z"
+        },
+        {
+          "name": "Set up runner",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-09-22T20:01:25Z",
+          "completed_at": "2026-09-22T20:01:25Z"
+        },
+        {
+          "name": "Run runs-on/action@v2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-09-22T20:01:25Z",
+          "completed_at": "2026-09-22T20:01:26Z"
+        },
+        {
+          "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-09-22T20:01:26Z",
+          "completed_at": "2026-09-22T20:01:28Z"
+        },
+        {
+          "name": "Run ./.github/actions/setup-prebuild",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-09-22T20:01:28Z",
+          "completed_at": "2026-09-22T20:01:39Z"
+        },
+        {
+          "name": "Run ./.github/actions/system-info",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-09-22T20:01:39Z",
+          "completed_at": "2026-09-22T20:01:40Z"
+        },
+        {
+          "name": "Install Codspeed",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-09-22T20:01:40Z",
+          "completed_at": "2026-09-22T20:01:40Z"
+        },
+        {
+          "name": "Select array benchmarks",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 8,
+          "started_at": "2026-09-22T20:01:40Z",
+          "completed_at": "2026-09-22T20:01:40Z"
+        },
+        {
+          "name": "Build benchmarks",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "number": 9,
+          "started_at": "2026-09-22T20:01:40Z",
+          "completed_at": "2026-09-22T20:03:36Z"
+        },
+        {
+          "name": "Run benchmarks",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 10,
+          "started_at": "2026-09-22T20:03:36Z",
+          "completed_at": "2026-09-22T20:03:36Z"
+        },
+        {
+          "name": "Post Install Codspeed",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 16,
+          "started_at": "2026-09-22T20:03:36Z",
+          "completed_at": "2026-09-22T20:03:36Z"
+        },
+        {
+          "name": "Post Run ./.github/actions/setup-prebuild",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 17,
+          "started_at": "2026-09-22T20:03:36Z",
+          "completed_at": "2026-09-22T20:03:37Z"
+        },
+        {
+          "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 18,
+          "started_at": "2026-09-22T20:03:37Z",
+          "completed_at": "2026-09-22T20:03:37Z"
+        },
+        {
+          "name": "Post Run runs-on/action@v2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 19,
+          "started_at": "2026-09-22T20:03:37Z",
+          "completed_at": "2026-09-22T20:03:37Z"
+        },
+        {
+          "name": "Complete runner",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 20,
+          "started_at": "2026-09-22T20:03:37Z",
+          "completed_at": "2026-09-22T20:03:38Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 21,
+          "started_at": "2026-09-22T20:03:38Z",
+          "completed_at": "2026-09-22T20:03:38Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/vortex-data/vortex/check-runs/106914274411",
+      "labels": [
+        "runs-on=35777490085/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=bench-codspeed-5"
+      ],
+      "runner_id": 945968,
+      "runner_name": "runs-on--i-0906557c3fdac1d60--3e6b01b5-f",
+      "runner_group_id": 1,
+      "runner_group_name": "Default"
+    },
+    {
+      "id": 106914274431,
+      "run_id": 35777490085,
+      "workflow_name": "Codspeed Benchmarking",
+      "head_branch": "ct/row-fn-bool-retry",
+      "run_url": "https://api.github.com/repos/vortex-data/vortex/actions/runs/35777490085",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOLYoI6c8AAAAY5JZcfw",
+      "head_sha": "2ed0398caf41241ea4ca65fe41780195f823a033",
+      "url": "https://api.github.com/repos/vortex-data/vortex/actions/jobs/106914274431",
+      "html_url": "https://github.com/vortex-data/vortex/actions/runs/35777490085/job/106914274431",
+      "status": "completed",
+      "conclusion": "failure",
+      "created_at": "2026-09-22T20:00:54Z",
+      "started_at": "2026-09-22T20:01:18Z",
+      "completed_at": "2026-09-22T20:02:48Z",
+      "name": "Benchmark with Codspeed (Shard #9 - Strings, tensor & spatial)",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-09-22T20:01:18Z",
+          "completed_at": "2026-09-22T20:01:20Z"
+        },
+        {
+          "name": "Set up runner",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-09-22T20:01:20Z",
+          "completed_at": "2026-09-22T20:01:20Z"
+        },
+        {
+          "name": "Run runs-on/action@v2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-09-22T20:01:20Z",
+          "completed_at": "2026-09-22T20:01:22Z"
+        },
+        {
+          "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-09-22T20:01:22Z",
+          "completed_at": "2026-09-22T20:01:24Z"
+        },
+        {
+          "name": "Run ./.github/actions/setup-prebuild",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-09-22T20:01:24Z",
+          "completed_at": "2026-09-22T20:01:36Z"
+        },
+        {
+          "name": "Run ./.github/actions/system-info",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-09-22T20:01:36Z",
+          "completed_at": "2026-09-22T20:01:36Z"
+        },
+        {
+          "name": "Install Codspeed",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-09-22T20:01:36Z",
+          "completed_at": "2026-09-22T20:01:37Z"
+        },
+        {
+          "name": "Select array benchmarks",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 8,
+          "started_at": "2026-09-22T20:01:37Z",
+          "completed_at": "2026-09-22T20:01:37Z"
+        },
+        {
+          "name": "Build benchmarks",
+          "status": "completed",
+          "conclusion": "failure",
+          "number": 9,
+          "started_at": "2026-09-22T20:01:37Z",
+          "completed_at": "2026-09-22T20:02:45Z"
+        },
+        {
+          "name": "Run benchmarks",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 10,
+          "started_at": "2026-09-22T20:02:45Z",
+          "completed_at": "2026-09-22T20:02:45Z"
+        },
+        {
+          "name": "Post Install Codspeed",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 16,
+          "started_at": "2026-09-22T20:02:45Z",
+          "completed_at": "2026-09-22T20:02:45Z"
+        },
+        {
+          "name": "Post Run ./.github/actions/setup-prebuild",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 17,
+          "started_at": "2026-09-22T20:02:45Z",
+          "completed_at": "2026-09-22T20:02:45Z"
+        },
+        {
+          "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 18,
+          "started_at": "2026-09-22T20:02:45Z",
+          "completed_at": "2026-09-22T20:02:45Z"
+        },
+        {
+          "name": "Post Run runs-on/action@v2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 19,
+          "started_at": "2026-09-22T20:02:45Z",
+          "completed_at": "2026-09-22T20:02:45Z"
+        },
+        {
+          "name": "Complete runner",
+          "status": "completed",
+          "conclusion": "failure",
+          "number": 20,
+          "started_at": "2026-09-22T20:02:45Z",
+          "completed_at": "2026-09-22T20:02:46Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 21,
+          "started_at": "2026-09-22T20:02:46Z",
+          "completed_at": "2026-09-22T20:02:46Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/vortex-data/vortex/check-runs/106914274431",
+      "labels": [
+        "runs-on=35777490085/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=bench-codspeed-9"
+      ],
+      "runner_id": 945963,
+      "runner_name": "runs-on--i-0cc92c6124b250c39--2d1a9e91-7",
+      "runner_group_id": 1,
+      "runner_group_name": "Default"
+    },
+    {
+      "id": 106914274507,
+      "run_id": 35777490085,
+      "workflow_name": "Codspeed Benchmarking",
+      "head_branch": "ct/row-fn-bool-retry",
+      "run_url": "https://api.github.com/repos/vortex-data/vortex/actions/runs/35777490085",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOLYoI6c8AAAAY5JZcyw",
+      "head_sha": "2ed0398caf41241ea4ca65fe41780195f823a033",
+      "url": "https://api.github.com/repos/vortex-data/vortex/actions/jobs/106914274507",
+      "html_url": "https://github.com/vortex-data/vortex/actions/runs/35777490085/job/106914274507",
+      "status": "completed",
+      "conclusion": "cancelled",
+      "created_at": "2026-09-22T20:00:54Z",
+      "started_at": "2026-09-22T20:01:22Z",
+      "completed_at": "2026-09-22T20:03:38Z",
+      "name": "Benchmark with Codspeed (Shard #1 - Array compute)",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-09-22T20:01:22Z",
+          "completed_at": "2026-09-22T20:01:24Z"
+        },
+        {
+          "name": "Set up runner",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-09-22T20:01:24Z",
+          "completed_at": "2026-09-22T20:01:24Z"
+        },
+        {
+          "name": "Run runs-on/action@v2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-09-22T20:01:24Z",
+          "completed_at": "2026-09-22T20:01:25Z"
+        },
+        {
+          "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-09-22T20:01:25Z",
+          "completed_at": "2026-09-22T20:01:28Z"
+        },
+        {
+          "name": "Run ./.github/actions/setup-prebuild",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-09-22T20:01:28Z",
+          "completed_at": "2026-09-22T20:01:39Z"
+        },
+        {
+          "name": "Run ./.github/actions/system-info",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-09-22T20:01:39Z",
+          "completed_at": "2026-09-22T20:01:39Z"
+        },
+        {
+          "name": "Install Codspeed",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-09-22T20:01:39Z",
+          "completed_at": "2026-09-22T20:01:39Z"
+        },
+        {
+          "name": "Select array benchmarks",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8,
+          "started_at": "2026-09-22T20:01:39Z",
+          "completed_at": "2026-09-22T20:01:39Z"
+        },
+        {
+          "name": "Build benchmarks",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 9,
+          "started_at": "2026-09-22T20:01:39Z",
+          "completed_at": "2026-09-22T20:03:11Z"
+        },
+        {
+          "name": "Run benchmarks",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "number": 10,
+          "started_at": "2026-09-22T20:03:11Z",
+          "completed_at": "2026-09-22T20:03:35Z"
+        },
+        {
+          "name": "Post Run benchmarks",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 15,
+          "started_at": "2026-09-22T20:03:35Z",
+          "completed_at": "2026-09-22T20:03:35Z"
+        },
+        {
+          "name": "Post Install Codspeed",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 16,
+          "started_at": "2026-09-22T20:03:35Z",
+          "completed_at": "2026-09-22T20:03:35Z"
+        },
+        {
+          "name": "Post Run ./.github/actions/setup-prebuild",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 17,
+          "started_at": "2026-09-22T20:03:35Z",
+          "completed_at": "2026-09-22T20:03:35Z"
+        },
+        {
+          "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 18,
+          "started_at": "2026-09-22T20:03:35Z",
+          "completed_at": "2026-09-22T20:03:36Z"
+        },
+        {
+          "name": "Post Run runs-on/action@v2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 19,
+          "started_at": "2026-09-22T20:03:36Z",
+          "completed_at": "2026-09-22T20:03:36Z"
+        },
+        {
+          "name": "Complete runner",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 20,
+          "started_at": "2026-09-22T20:03:36Z",
+          "completed_at": "2026-09-22T20:03:37Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 21,
+          "started_at": "2026-09-22T20:03:37Z",
+          "completed_at": "2026-09-22T20:03:37Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/vortex-data/vortex/check-runs/106914274507",
+      "labels": [
+        "runs-on=35777490085/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=bench-codspeed-1"
+      ],
+      "runner_id": 945967,
+      "runner_name": "runs-on--i-0dfecec05f11e7af9--1c901ce9-1",
+      "runner_group_id": 1,
+      "runner_group_name": "Default"
+    },
+    {
+      "id": 106914274586,
+      "run_id": 35777490085,
+      "workflow_name": "Codspeed Benchmarking",
+      "head_branch": "ct/row-fn-bool-retry",
+      "run_url": "https://api.github.com/repos/vortex-data/vortex/actions/runs/35777490085",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOLYoI6c8AAAAY5JZdGg",
+      "head_sha": "2ed0398caf41241ea4ca65fe41780195f823a033",
+      "url": "https://api.github.com/repos/vortex-data/vortex/actions/jobs/106914274586",
+      "html_url": "https://github.com/vortex-data/vortex/actions/runs/35777490085/job/106914274586",
+      "status": "completed",
+      "conclusion": "cancelled",
+      "created_at": "2026-09-22T20:00:54Z",
+      "started_at": "2026-09-22T20:01:27Z",
+      "completed_at": "2026-09-22T20:03:43Z",
+      "name": "Benchmark with Codspeed (Shard #8 - Encodings & layout)",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-09-22T20:01:26Z",
+          "completed_at": "2026-09-22T20:01:28Z"
+        },
+        {
+          "name": "Set up runner",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-09-22T20:01:28Z",
+          "completed_at": "2026-09-22T20:01:28Z"
+        },
+        {
+          "name": "Run runs-on/action@v2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-09-22T20:01:28Z",
+          "completed_at": "2026-09-22T20:01:30Z"
+        },
+        {
+          "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-09-22T20:01:30Z",
+          "completed_at": "2026-09-22T20:01:31Z"
+        },
+        {
+          "name": "Run ./.github/actions/setup-prebuild",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-09-22T20:01:31Z",
+          "completed_at": "2026-09-22T20:01:42Z"
+        },
+        {
+          "name": "Run ./.github/actions/system-info",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-09-22T20:01:42Z",
+          "completed_at": "2026-09-22T20:01:42Z"
+        },
+        {
+          "name": "Install Codspeed",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-09-22T20:01:42Z",
+          "completed_at": "2026-09-22T20:01:42Z"
+        },
+        {
+          "name": "Select array benchmarks",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 8,
+          "started_at": "2026-09-22T20:01:42Z",
+          "completed_at": "2026-09-22T20:01:42Z"
+        },
+        {
+          "name": "Build benchmarks",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "number": 9,
+          "started_at": "2026-09-22T20:01:42Z",
+          "completed_at": "2026-09-22T20:03:40Z"
+        },
+        {
+          "name": "Run benchmarks",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 10,
+          "started_at": "2026-09-22T20:03:40Z",
+          "completed_at": "2026-09-22T20:03:40Z"
+        },
+        {
+          "name": "Post Install Codspeed",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 16,
+          "started_at": "2026-09-22T20:03:40Z",
+          "completed_at": "2026-09-22T20:03:40Z"
+        },
+        {
+          "name": "Post Run ./.github/actions/setup-prebuild",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 17,
+          "started_at": "2026-09-22T20:03:40Z",
+          "completed_at": "2026-09-22T20:03:40Z"
+        },
+        {
+          "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 18,
+          "started_at": "2026-09-22T20:03:40Z",
+          "completed_at": "2026-09-22T20:03:40Z"
+        },
+        {
+          "name": "Post Run runs-on/action@v2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 19,
+          "started_at": "2026-09-22T20:03:40Z",
+          "completed_at": "2026-09-22T20:03:41Z"
+        },
+        {
+          "name": "Complete runner",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 20,
+          "started_at": "2026-09-22T20:03:41Z",
+          "completed_at": "2026-09-22T20:03:41Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 21,
+          "started_at": "2026-09-22T20:03:41Z",
+          "completed_at": "2026-09-22T20:03:42Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/vortex-data/vortex/check-runs/106914274586",
+      "labels": [
+        "runs-on=35777490085/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=bench-codspeed-8"
+      ],
+      "runner_id": 945971,
+      "runner_name": "runs-on--i-07583f8f4beed047a--ae05871b-4",
+      "runner_group_id": 1,
+      "runner_group_name": "Default"
+    },
+    {
+      "id": 106914274659,
+      "run_id": 35777490085,
+      "workflow_name": "Codspeed Benchmarking",
+      "head_branch": "ct/row-fn-bool-retry",
+      "run_url": "https://api.github.com/repos/vortex-data/vortex/actions/runs/35777490085",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOLYoI6c8AAAAY5JZdYw",
+      "head_sha": "2ed0398caf41241ea4ca65fe41780195f823a033",
+      "url": "https://api.github.com/repos/vortex-data/vortex/actions/jobs/106914274659",
+      "html_url": "https://github.com/vortex-data/vortex/actions/runs/35777490085/job/106914274659",
+      "status": "completed",
+      "conclusion": "cancelled",
+      "created_at": "2026-09-22T20:00:54Z",
+      "started_at": "2026-09-22T20:01:19Z",
+      "completed_at": "2026-09-22T20:03:36Z",
+      "name": "Benchmark with Codspeed (Shard #4 - Array builders & views)",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-09-22T20:01:22Z",
+          "completed_at": "2026-09-22T20:01:24Z"
+        },
+        {
+          "name": "Set up runner",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-09-22T20:01:24Z",
+          "completed_at": "2026-09-22T20:01:24Z"
+        },
+        {
+          "name": "Run runs-on/action@v2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-09-22T20:01:24Z",
+          "completed_at": "2026-09-22T20:01:25Z"
+        },
+        {
+          "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-09-22T20:01:25Z",
+          "completed_at": "2026-09-22T20:01:27Z"
+        },
+        {
+          "name": "Run ./.github/actions/setup-prebuild",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-09-22T20:01:27Z",
+          "completed_at": "2026-09-22T20:01:38Z"
+        },
+        {
+          "name": "Run ./.github/actions/system-info",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-09-22T20:01:38Z",
+          "completed_at": "2026-09-22T20:01:38Z"
+        },
+        {
+          "name": "Install Codspeed",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-09-22T20:01:38Z",
+          "completed_at": "2026-09-22T20:01:38Z"
+        },
+        {
+          "name": "Select array benchmarks",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8,
+          "started_at": "2026-09-22T20:01:38Z",
+          "completed_at": "2026-09-22T20:01:38Z"
+        },
+        {
+          "name": "Build benchmarks",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 9,
+          "started_at": "2026-09-22T20:01:38Z",
+          "completed_at": "2026-09-22T20:03:13Z"
+        },
+        {
+          "name": "Run benchmarks",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "number": 10,
+          "started_at": "2026-09-22T20:03:13Z",
+          "completed_at": "2026-09-22T20:03:32Z"
+        },
+        {
+          "name": "Post Run benchmarks",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 15,
+          "started_at": "2026-09-22T20:03:32Z",
+          "completed_at": "2026-09-22T20:03:32Z"
+        },
+        {
+          "name": "Post Install Codspeed",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 16,
+          "started_at": "2026-09-22T20:03:32Z",
+          "completed_at": "2026-09-22T20:03:32Z"
+        },
+        {
+          "name": "Post Run ./.github/actions/setup-prebuild",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 17,
+          "started_at": "2026-09-22T20:03:32Z",
+          "completed_at": "2026-09-22T20:03:33Z"
+        },
+        {
+          "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 18,
+          "started_at": "2026-09-22T20:03:33Z",
+          "completed_at": "2026-09-22T20:03:33Z"
+        },
+        {
+          "name": "Post Run runs-on/action@v2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 19,
+          "started_at": "2026-09-22T20:03:33Z",
+          "completed_at": "2026-09-22T20:03:34Z"
+        },
+        {
+          "name": "Complete runner",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 20,
+          "started_at": "2026-09-22T20:03:34Z",
+          "completed_at": "2026-09-22T20:03:35Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 21,
+          "started_at": "2026-09-22T20:03:35Z",
+          "completed_at": "2026-09-22T20:03:35Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/vortex-data/vortex/check-runs/106914274659",
+      "labels": [
+        "runs-on=35777490085/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=bench-codspeed-4"
+      ],
+      "runner_id": 945965,
+      "runner_name": "runs-on--i-0717aece7318cfc71--b051a20f-8",
+      "runner_group_id": 1,
+      "runner_group_name": "Default"
+    },
+    {
+      "id": 106914341323,
+      "run_id": 35777490085,
+      "workflow_name": "Codspeed Benchmarking",
+      "head_branch": "ct/row-fn-bool-retry",
+      "run_url": "https://api.github.com/repos/vortex-data/vortex/actions/runs/35777490085",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOLYoI6c8AAAAY5Jdhyw",
+      "head_sha": "2ed0398caf41241ea4ca65fe41780195f823a033",
+      "url": "https://api.github.com/repos/vortex-data/vortex/actions/jobs/106914341323",
+      "html_url": "https://github.com/vortex-data/vortex/actions/runs/35777490085/job/106914341323",
+      "status": "completed",
+      "conclusion": "skipped",
+      "created_at": "2026-09-22T20:01:05Z",
+      "started_at": "2026-09-22T20:01:05Z",
+      "completed_at": "2026-09-22T20:01:04Z",
+      "name": "Build Codspeed CUDA benchmarks",
+      "steps": [],
+      "check_run_url": "https://api.github.com/repos/vortex-data/vortex/check-runs/106914341323",
+      "labels": [
+        "runs-on=35777490085/family=g5/cpu=8/image=ubuntu24-gpu-x64/extras=s3-cache/tag=bench-codspeed-cuda-build"
+      ],
+      "runner_id": null,
+      "runner_name": null,
+      "runner_group_id": null,
+      "runner_group_name": null
+    },
+    {
+      "id": 106914341370,
+      "run_id": 35777490085,
+      "workflow_name": "Codspeed Benchmarking",
+      "head_branch": "ct/row-fn-bool-retry",
+      "run_url": "https://api.github.com/repos/vortex-data/vortex/actions/runs/35777490085",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOLYoI6c8AAAAY5Jdh-g",
+      "head_sha": "2ed0398caf41241ea4ca65fe41780195f823a033",
+      "url": "https://api.github.com/repos/vortex-data/vortex/actions/jobs/106914341370",
+      "html_url": "https://github.com/vortex-data/vortex/actions/runs/35777490085/job/106914341370",
+      "status": "completed",
+      "conclusion": "skipped",
+      "created_at": "2026-09-22T20:01:05Z",
+      "started_at": "2026-09-22T20:01:05Z",
+      "completed_at": "2026-09-22T20:01:05Z",
+      "name": "Benchmark with Codspeed (CUDA Shard #${{ matrix.shard }} - ${{ matrix.name }})",
+      "steps": [],
+      "check_run_url": "https://api.github.com/repos/vortex-data/vortex/check-runs/106914341370",
+      "labels": [
+        "runs-on=35777490085/family=g5/cpu=8/image=ubuntu24-gpu-x64/extras=s3-cache/tag=bench-codspeed-cuda-"
+      ],
+      "runner_id": null,
+      "runner_name": null,
+      "runner_group_id": null,
+      "runner_group_name": null
+    },
+    {
+      "id": 106915665822,
+      "run_id": 35777490085,
+      "workflow_name": "Codspeed Benchmarking",
+      "head_branch": "ct/row-fn-bool-retry",
+      "run_url": "https://api.github.com/repos/vortex-data/vortex/actions/runs/35777490085",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOLYoI6c8AAAAY5KuXng",
+      "head_sha": "2ed0398caf41241ea4ca65fe41780195f823a033",
+      "url": "https://api.github.com/repos/vortex-data/vortex/actions/jobs/106915665822",
+      "html_url": "https://github.com/vortex-data/vortex/actions/runs/35777490085/job/106915665822",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-09-22T20:04:38Z",
+      "started_at": "2026-09-22T20:05:06Z",
+      "completed_at": "2026-09-22T20:06:20Z",
+      "name": "Benchmark with Codspeed (neon)",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-09-22T20:05:07Z",
+          "completed_at": "2026-09-22T20:05:09Z"
+        },
+        {
+          "name": "Set up runner",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-09-22T20:05:09Z",
+          "completed_at": "2026-09-22T20:05:09Z"
+        },
+        {
+          "name": "Run runs-on/action@v2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-09-22T20:05:09Z",
+          "completed_at": "2026-09-22T20:05:10Z"
+        },
+        {
+          "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-09-22T20:05:10Z",
+          "completed_at": "2026-09-22T20:05:11Z"
+        },
+        {
+          "name": "Run ./.github/actions/setup-prebuild",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-09-22T20:05:11Z",
+          "completed_at": "2026-09-22T20:05:34Z"
+        },
+        {
+          "name": "Run ./.github/actions/system-info",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-09-22T20:05:34Z",
+          "completed_at": "2026-09-22T20:05:34Z"
+        },
+        {
+          "name": "Install Codspeed",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-09-22T20:05:34Z",
+          "completed_at": "2026-09-22T20:05:35Z"
+        },
+        {
+          "name": "Download benchmark executables",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8,
+          "started_at": "2026-09-22T20:05:35Z",
+          "completed_at": "2026-09-22T20:05:43Z"
+        },
+        {
+          "name": "Unpack benchmark executables",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 9,
+          "started_at": "2026-09-22T20:05:43Z",
+          "completed_at": "2026-09-22T20:05:44Z"
+        },
+        {
+          "name": "Setup benchmark environment",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 10,
+          "started_at": "2026-09-22T20:05:44Z",
+          "completed_at": "2026-09-22T20:05:50Z"
+        },
+        {
+          "name": "Run benchmarks",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 11,
+          "started_at": "2026-09-22T20:05:50Z",
+          "completed_at": "2026-09-22T20:06:17Z"
+        },
+        {
+          "name": "Post Run benchmarks",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 17,
+          "started_at": "2026-09-22T20:06:17Z",
+          "completed_at": "2026-09-22T20:06:17Z"
+        },
+        {
+          "name": "Post Install Codspeed",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 18,
+          "started_at": "2026-09-22T20:06:17Z",
+          "completed_at": "2026-09-22T20:06:17Z"
+        },
+        {
+          "name": "Post Run ./.github/actions/setup-prebuild",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 19,
+          "started_at": "2026-09-22T20:06:17Z",
+          "completed_at": "2026-09-22T20:06:17Z"
+        },
+        {
+          "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 20,
+          "started_at": "2026-09-22T20:06:17Z",
+          "completed_at": "2026-09-22T20:06:18Z"
+        },
+        {
+          "name": "Post Run runs-on/action@v2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 21,
+          "started_at": "2026-09-22T20:06:18Z",
+          "completed_at": "2026-09-22T20:06:18Z"
+        },
+        {
+          "name": "Complete runner",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 22,
+          "started_at": "2026-09-22T20:06:18Z",
+          "completed_at": "2026-09-22T20:06:19Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 23,
+          "started_at": "2026-09-22T20:06:19Z",
+          "completed_at": "2026-09-22T20:06:19Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/vortex-data/vortex/check-runs/106915665822",
+      "labels": [
+        "runs-on=35777490085/runner=bench-dedicated/family=c7g.metal/image=ubuntu24-full-arm64-pre-v2/extras=s3-cache/tag=bench-codspeed-cpu-features-neon"
+      ],
+      "runner_id": 946010,
+      "runner_name": "runs-on--i-01b1323620da51c47--38fe5866-5",
+      "runner_group_id": 1,
+      "runner_group_name": "Default"
+    },
+    {
+      "id": 106915665848,
+      "run_id": 35777490085,
+      "workflow_name": "Codspeed Benchmarking",
+      "head_branch": "ct/row-fn-bool-retry",
+      "run_url": "https://api.github.com/repos/vortex-data/vortex/actions/runs/35777490085",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOLYoI6c8AAAAY5KuXuA",
+      "head_sha": "2ed0398caf41241ea4ca65fe41780195f823a033",
+      "url": "https://api.github.com/repos/vortex-data/vortex/actions/jobs/106915665848",
+      "html_url": "https://github.com/vortex-data/vortex/actions/runs/35777490085/job/106915665848",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-09-22T20:04:38Z",
+      "started_at": "2026-09-22T20:05:28Z",
+      "completed_at": "2026-09-22T20:06:30Z",
+      "name": "Benchmark with Codspeed (avx512)",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-09-22T20:05:29Z",
+          "completed_at": "2026-09-22T20:05:30Z"
+        },
+        {
+          "name": "Set up runner",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-09-22T20:05:30Z",
+          "completed_at": "2026-09-22T20:05:30Z"
+        },
+        {
+          "name": "Run runs-on/action@v2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-09-22T20:05:30Z",
+          "completed_at": "2026-09-22T20:05:32Z"
+        },
+        {
+          "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-09-22T20:05:32Z",
+          "completed_at": "2026-09-22T20:05:33Z"
+        },
+        {
+          "name": "Run ./.github/actions/setup-prebuild",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-09-22T20:05:33Z",
+          "completed_at": "2026-09-22T20:05:42Z"
+        },
+        {
+          "name": "Run ./.github/actions/system-info",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-09-22T20:05:42Z",
+          "completed_at": "2026-09-22T20:05:42Z"
+        },
+        {
+          "name": "Install Codspeed",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-09-22T20:05:42Z",
+          "completed_at": "2026-09-22T20:05:42Z"
+        },
+        {
+          "name": "Download benchmark executables",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8,
+          "started_at": "2026-09-22T20:05:42Z",
+          "completed_at": "2026-09-22T20:05:52Z"
+        },
+        {
+          "name": "Unpack benchmark executables",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 9,
+          "started_at": "2026-09-22T20:05:52Z",
+          "completed_at": "2026-09-22T20:05:54Z"
+        },
+        {
+          "name": "Setup benchmark environment",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 10,
+          "started_at": "2026-09-22T20:05:54Z",
+          "completed_at": "2026-09-22T20:05:59Z"
+        },
+        {
+          "name": "Run benchmarks",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 11,
+          "started_at": "2026-09-22T20:05:59Z",
+          "completed_at": "2026-09-22T20:06:27Z"
+        },
+        {
+          "name": "Post Run benchmarks",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 17,
+          "started_at": "2026-09-22T20:06:27Z",
+          "completed_at": "2026-09-22T20:06:27Z"
+        },
+        {
+          "name": "Post Install Codspeed",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 18,
+          "started_at": "2026-09-22T20:06:27Z",
+          "completed_at": "2026-09-22T20:06:27Z"
+        },
+        {
+          "name": "Post Run ./.github/actions/setup-prebuild",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 19,
+          "started_at": "2026-09-22T20:06:27Z",
+          "completed_at": "2026-09-22T20:06:27Z"
+        },
+        {
+          "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 20,
+          "started_at": "2026-09-22T20:06:27Z",
+          "completed_at": "2026-09-22T20:06:28Z"
+        },
+        {
+          "name": "Post Run runs-on/action@v2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 21,
+          "started_at": "2026-09-22T20:06:28Z",
+          "completed_at": "2026-09-22T20:06:28Z"
+        },
+        {
+          "name": "Complete runner",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 22,
+          "started_at": "2026-09-22T20:06:28Z",
+          "completed_at": "2026-09-22T20:06:29Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 23,
+          "started_at": "2026-09-22T20:06:29Z",
+          "completed_at": "2026-09-22T20:06:29Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/vortex-data/vortex/check-runs/106915665848",
+      "labels": [
+        "runs-on=35777490085/runner=bench-dedicated/family=c7i.metal-24xl/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=bench-codspeed-cpu-features-avx512"
+      ],
+      "runner_id": 946009,
+      "runner_name": "runs-on--i-0d248d3ad4a7d9b93--08023f40-c",
+      "runner_group_id": 1,
+      "runner_group_name": "Default"
+    },
+    {
+      "id": 106915665856,
+      "run_id": 35777490085,
+      "workflow_name": "Codspeed Benchmarking",
+      "head_branch": "ct/row-fn-bool-retry",
+      "run_url": "https://api.github.com/repos/vortex-data/vortex/actions/runs/35777490085",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOLYoI6c8AAAAY5KuXwA",
+      "head_sha": "2ed0398caf41241ea4ca65fe41780195f823a033",
+      "url": "https://api.github.com/repos/vortex-data/vortex/actions/jobs/106915665856",
+      "html_url": "https://github.com/vortex-data/vortex/actions/runs/35777490085/job/106915665856",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-09-22T20:04:38Z",
+      "started_at": "2026-09-22T20:05:27Z",
+      "completed_at": "2026-09-22T20:06:36Z",
+      "name": "Benchmark with Codspeed (avx2)",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-09-22T20:05:28Z",
+          "completed_at": "2026-09-22T20:05:30Z"
+        },
+        {
+          "name": "Set up runner",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-09-22T20:05:30Z",
+          "completed_at": "2026-09-22T20:05:30Z"
+        },
+        {
+          "name": "Run runs-on/action@v2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-09-22T20:05:30Z",
+          "completed_at": "2026-09-22T20:05:31Z"
+        },
+        {
+          "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-09-22T20:05:31Z",
+          "completed_at": "2026-09-22T20:05:32Z"
+        },
+        {
+          "name": "Run ./.github/actions/setup-prebuild",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-09-22T20:05:32Z",
+          "completed_at": "2026-09-22T20:05:40Z"
+        },
+        {
+          "name": "Run ./.github/actions/system-info",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-09-22T20:05:40Z",
+          "completed_at": "2026-09-22T20:05:40Z"
+        },
+        {
+          "name": "Install Codspeed",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-09-22T20:05:40Z",
+          "completed_at": "2026-09-22T20:05:41Z"
+        },
+        {
+          "name": "Download benchmark executables",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8,
+          "started_at": "2026-09-22T20:05:41Z",
+          "completed_at": "2026-09-22T20:05:51Z"
+        },
+        {
+          "name": "Unpack benchmark executables",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 9,
+          "started_at": "2026-09-22T20:05:51Z",
+          "completed_at": "2026-09-22T20:05:52Z"
+        },
+        {
+          "name": "Setup benchmark environment",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 10,
+          "started_at": "2026-09-22T20:05:52Z",
+          "completed_at": "2026-09-22T20:05:58Z"
+        },
+        {
+          "name": "Run benchmarks",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 11,
+          "started_at": "2026-09-22T20:05:58Z",
+          "completed_at": "2026-09-22T20:06:32Z"
+        },
+        {
+          "name": "Post Run benchmarks",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 17,
+          "started_at": "2026-09-22T20:06:32Z",
+          "completed_at": "2026-09-22T20:06:32Z"
+        },
+        {
+          "name": "Post Install Codspeed",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 18,
+          "started_at": "2026-09-22T20:06:32Z",
+          "completed_at": "2026-09-22T20:06:32Z"
+        },
+        {
+          "name": "Post Run ./.github/actions/setup-prebuild",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 19,
+          "started_at": "2026-09-22T20:06:32Z",
+          "completed_at": "2026-09-22T20:06:32Z"
+        },
+        {
+          "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 20,
+          "started_at": "2026-09-22T20:06:32Z",
+          "completed_at": "2026-09-22T20:06:33Z"
+        },
+        {
+          "name": "Post Run runs-on/action@v2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 21,
+          "started_at": "2026-09-22T20:06:33Z",
+          "completed_at": "2026-09-22T20:06:33Z"
+        },
+        {
+          "name": "Complete runner",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 22,
+          "started_at": "2026-09-22T20:06:33Z",
+          "completed_at": "2026-09-22T20:06:34Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 23,
+          "started_at": "2026-09-22T20:06:34Z",
+          "completed_at": "2026-09-22T20:06:34Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/vortex-data/vortex/check-runs/106915665856",
+      "labels": [
+        "runs-on=35777490085/runner=bench-dedicated/family=c7i.metal-24xl/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=bench-codspeed-cpu-features-avx2"
+      ],
+      "runner_id": 946008,
+      "runner_name": "runs-on--i-091d3f8202e5226ad--1857c8c2-3",
+      "runner_group_id": 1,
+      "runner_group_name": "Default"
+    }
+  ]
+}

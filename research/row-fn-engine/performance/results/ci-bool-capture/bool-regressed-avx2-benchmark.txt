@@ -1,0 +1,57 @@
+2026-09-22T19:59:26.3015991Z Running vortex-array row_fn_bool_retry
+2026-09-22T19:59:26.3062899Z Timer precision: 21 ns
+2026-09-22T19:59:26.3063467Z row_fn_bool_retry                          fastest       │ slowest       │ median        │ mean          │ samples │ iters
+2026-09-22T19:59:26.3064301Z ├─ avx2::multiversioned_avx2                             │               │               │               │         │
+2026-09-22T19:59:26.3064895Z │  ╰─ 16384                                              │               │               │               │         │
+2026-09-22T19:59:26.7758892Z │     ├─ (Columns, AllValid)               371.3 µs      │ 470.9 µs      │ 388.3 µs      │ 388.6 µs      │ 1000    │ 1000
+2026-09-22T19:59:26.7759749Z │     │                                    352.9 Mitem/s │ 278.3 Mitem/s │ 337.4 Mitem/s │ 337.2 Mitem/s │         │
+2026-09-22T19:59:27.4937279Z │     ├─ (Columns, NullOnlyFailure)        617.6 µs      │ 843 µs        │ 639.3 µs      │ 639.6 µs      │ 1000    │ 1000
+2026-09-22T19:59:27.4937976Z │     │                                    212.2 Mitem/s │ 155.4 Mitem/s │ 204.9 Mitem/s │ 204.9 Mitem/s │         │
+2026-09-22T19:59:28.0185931Z │     ├─ (Columns, ObservableFailure)      425.5 µs      │ 511.3 µs      │ 448.5 µs      │ 448.8 µs      │ 1000    │ 1000
+2026-09-22T19:59:28.0186698Z │     │                                    308 Mitem/s   │ 256.3 Mitem/s │ 292.2 Mitem/s │ 291.9 Mitem/s │         │
+2026-09-22T19:59:28.4941251Z │     ├─ (Columns, PartialAccepted)        377.7 µs      │ 444.1 µs      │ 398.7 µs      │ 398.8 µs      │ 1000    │ 1000
+2026-09-22T19:59:28.4942057Z │     │                                    346.9 Mitem/s │ 295 Mitem/s   │ 328.7 Mitem/s │ 328.6 Mitem/s │         │
+2026-09-22T19:59:28.9487346Z │     ├─ (ConstantLhs, AllValid)           351.6 µs      │ 418.2 µs      │ 374.2 µs      │ 374.6 µs      │ 1000    │ 1000
+2026-09-22T19:59:28.9488157Z │     │                                    372.7 Mitem/s │ 313.3 Mitem/s │ 350.2 Mitem/s │ 349.8 Mitem/s │         │
+2026-09-22T19:59:29.6838651Z │     ├─ (ConstantLhs, NullOnlyFailure)    626.5 µs      │ 710.5 µs      │ 657.5 µs      │ 657.4 µs      │ 1000    │ 1000
+2026-09-22T19:59:29.6839401Z │     │                                    209.1 Mitem/s │ 184.4 Mitem/s │ 199.3 Mitem/s │ 199.3 Mitem/s │         │
+2026-09-22T19:59:30.1952404Z │     ├─ (ConstantLhs, ObservableFailure)  408.5 µs      │ 467.5 µs      │ 432.8 µs      │ 433.5 µs      │ 1000    │ 1000
+2026-09-22T19:59:30.1953442Z │     │                                    320.8 Mitem/s │ 280.3 Mitem/s │ 302.8 Mitem/s │ 302.3 Mitem/s │         │
+2026-09-22T19:59:30.6725076Z │     ├─ (ConstantLhs, PartialAccepted)    375.4 µs      │ 431 µs        │ 399.3 µs      │ 399 µs        │ 1000    │ 1000
+2026-09-22T19:59:30.6725889Z │     │                                    349.1 Mitem/s │ 304 Mitem/s   │ 328.1 Mitem/s │ 328.4 Mitem/s │         │
+2026-09-22T19:59:31.1588186Z │     ├─ (ConstantRhs, AllValid)           389.8 µs      │ 603.1 µs      │ 408.2 µs      │ 408.3 µs      │ 1000    │ 1000
+2026-09-22T19:59:31.1588932Z │     │                                    336.2 Mitem/s │ 217.2 Mitem/s │ 321 Mitem/s   │ 320.9 Mitem/s │         │
+2026-09-22T19:59:31.9131378Z │     ├─ (ConstantRhs, NullOnlyFailure)    658 µs        │ 848 µs        │ 673.4 µs      │ 673.6 µs      │ 1000    │ 1000
+2026-09-22T19:59:31.9132887Z │     │                                    199.1 Mitem/s │ 154.5 Mitem/s │ 194.6 Mitem/s │ 194.5 Mitem/s │         │
+2026-09-22T19:59:32.4599159Z │     ├─ (ConstantRhs, ObservableFailure)  448.7 µs      │ 484.9 µs      │ 468.9 µs      │ 468.7 µs      │ 1000    │ 1000
+2026-09-22T19:59:32.4599955Z │     │                                    292 Mitem/s   │ 270.2 Mitem/s │ 279.5 Mitem/s │ 279.6 Mitem/s │         │
+2026-09-22T19:59:32.9530627Z │     ╰─ (ConstantRhs, PartialAccepted)    400.6 µs      │ 620.2 µs      │ 416 µs        │ 416 µs        │ 1000    │ 1000
+2026-09-22T19:59:32.9531454Z │                                          327.1 Mitem/s │ 211.3 Mitem/s │ 315 Mitem/s   │ 315 Mitem/s   │         │
+2026-09-22T19:59:32.9532083Z ╰─ avx2::plain_avx2                                      │               │               │               │         │
+2026-09-22T19:59:32.9532811Z    ╰─ 16384                                              │               │               │               │         │
+2026-09-22T19:59:33.1301885Z       ├─ (Columns, AllValid)               97.15 µs      │ 118 µs        │ 97.43 µs      │ 98.64 µs      │ 1000    │ 1000
+2026-09-22T19:59:33.1302694Z       │                                    1.349 Gitem/s │ 1.11 Gitem/s  │ 1.345 Gitem/s │ 1.328 Gitem/s │         │
+2026-09-22T19:59:33.5519490Z       ├─ (Columns, NullOnlyFailure)        338.6 µs      │ 397 µs        │ 343.4 µs      │ 344.2 µs      │ 1000    │ 1000
+2026-09-22T19:59:33.5520311Z       │                                    387 Mitem/s   │ 330.1 Mitem/s │ 381.5 Mitem/s │ 380.7 Mitem/s │         │
+2026-09-22T19:59:33.7845804Z       ├─ (Columns, ObservableFailure)      153.5 µs      │ 166.9 µs      │ 154.5 µs      │ 156.1 µs      │ 1000    │ 1000
+2026-09-22T19:59:33.7846522Z       │                                    853.5 Mitem/s │ 784.9 Mitem/s │ 848 Mitem/s   │ 839.5 Mitem/s │         │
+2026-09-22T19:59:33.9677269Z       ├─ (Columns, PartialAccepted)        103.6 µs      │ 245.3 µs      │ 104.2 µs      │ 105.6 µs      │ 1000    │ 1000
+2026-09-22T19:59:33.9678190Z       │                                    1.264 Gitem/s │ 534.1 Mitem/s │ 1.257 Gitem/s │ 1.24 Gitem/s  │         │
+2026-09-22T19:59:34.1452035Z       ├─ (ConstantLhs, AllValid)           97.89 µs      │ 108.5 µs      │ 98.21 µs      │ 99.41 µs      │ 1000    │ 1000
+2026-09-22T19:59:34.1453014Z       │                                    1.338 Gitem/s │ 1.207 Gitem/s │ 1.334 Gitem/s │ 1.318 Gitem/s │         │
+2026-09-22T19:59:34.5847463Z       ├─ (ConstantLhs, NullOnlyFailure)    353.6 µs      │ 459 µs        │ 361.3 µs      │ 361.7 µs      │ 1000    │ 1000
+2026-09-22T19:59:34.5848305Z       │                                    370.6 Mitem/s │ 285.5 Mitem/s │ 362.7 Mitem/s │ 362.3 Mitem/s │         │
+2026-09-22T19:59:34.8180556Z       ├─ (ConstantLhs, ObservableFailure)  154.2 µs      │ 175.4 µs      │ 155.2 µs      │ 156.8 µs      │ 1000    │ 1000
+2026-09-22T19:59:34.8181247Z       │                                    849.8 Mitem/s │ 746.9 Mitem/s │ 844.1 Mitem/s │ 835.7 Mitem/s │         │
+2026-09-22T19:59:35.0018032Z       ├─ (ConstantLhs, PartialAccepted)    104.1 µs      │ 115.2 µs      │ 104.6 µs      │ 105.8 µs      │ 1000    │ 1000
+2026-09-22T19:59:35.0018879Z       │                                    1.258 Gitem/s │ 1.137 Gitem/s │ 1.252 Gitem/s │ 1.238 Gitem/s │         │
+2026-09-22T19:59:35.1787104Z       ├─ (ConstantRhs, AllValid)           97.66 µs      │ 108.4 µs      │ 97.98 µs      │ 99.09 µs      │ 1000    │ 1000
+2026-09-22T19:59:35.1787932Z       │                                    1.342 Gitem/s │ 1.208 Gitem/s │ 1.337 Gitem/s │ 1.322 Gitem/s │         │
+2026-09-22T19:59:35.6175094Z       ├─ (ConstantRhs, NullOnlyFailure)    353.9 µs      │ 994.3 µs      │ 360 µs        │ 361.1 µs      │ 1000    │ 1000
+2026-09-22T19:59:35.6175836Z       │                                    370.2 Mitem/s │ 131.8 Mitem/s │ 364 Mitem/s   │ 362.9 Mitem/s │         │
+2026-09-22T19:59:35.8504930Z       ├─ (ConstantRhs, ObservableFailure)  154 µs        │ 177.2 µs      │ 155.1 µs      │ 156.7 µs      │ 1000    │ 1000
+2026-09-22T19:59:35.8505817Z       │                                    850.8 Mitem/s │ 739.3 Mitem/s │ 844.7 Mitem/s │ 836.1 Mitem/s │         │
+2026-09-22T19:59:36.0337484Z       ╰─ (ConstantRhs, PartialAccepted)    104 µs        │ 116.7 µs      │ 104.5 µs      │ 105.6 µs      │ 1000    │ 1000
+2026-09-22T19:59:36.0338310Z                                            1.259 Gitem/s │ 1.122 Gitem/s │ 1.253 Gitem/s │ 1.24 Gitem/s  │         │
+2026-09-22T19:59:36.0338671Z 
+2026-09-22T19:59:36.0344387Z Done running row_fn_bool_retry

@@ -1,0 +1,42 @@
+[
+  {
+    "variant": "before",
+    "run": 35767877888,
+    "artifact": "codspeed-cpu-benchmarks-avx512",
+    "path": "codspeed/walltime/vortex-array/row_fn_bool_retry",
+    "sha256": "e0f62ee64743767cc2ac51b45b33151b692928be2373a50a1ac61760afc23d51",
+    "bytes": 291167056
+  },
+  {
+    "variant": "after",
+    "run": 35768386889,
+    "artifact": "codspeed-cpu-benchmarks-avx512",
+    "path": "codspeed/walltime/vortex-array/row_fn_bool_retry",
+    "sha256": "70dcdf888de522b0c4cc2aaa33b2d6469aa546c6b37c25b894e385623ec9b581",
+    "bytes": 291265328
+  },
+  {
+    "variant": "fixed",
+    "run": 35777490085,
+    "artifact": "codspeed-cpu-benchmarks-avx512",
+    "path": "codspeed/walltime/vortex-array/row_fn_bool_retry",
+    "sha256": "d9002a31a0ea8cd7892706eaeaac300e8a8c6470810c21e172654a815ee0051d",
+    "bytes": 291362080
+  },
+  {
+    "variant": "fixed-avx2",
+    "run": 35777490085,
+    "artifact": "codspeed-cpu-benchmarks-avx2",
+    "path": "codspeed/walltime/vortex-array/row_fn_bool_retry",
+    "sha256": "2f6667b610f2f205c89cd3e7ffcdbbee015fabaa3d71b48f011057631997fffa",
+    "bytes": 292732432
+  },
+  {
+    "variant": "final-avx2",
+    "run": 35778932351,
+    "artifact": "codspeed-cpu-benchmarks-avx2",
+    "path": "codspeed/walltime/vortex-array/row_fn_bool_retry",
+    "sha256": "eeaf291fbbbc37974d598353f0d4a3c0c3ea39fac946604f7f0ba4fc2da61c1e",
+    "bytes": 292718480
+  }
+]

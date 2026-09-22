@@ -5,8 +5,9 @@ verification logs. It is an evidence archive and is not intended to merge into `
 The two fix PRs contain only production changes and correctness tests. Each is stacked on a
 benchmark-only PR so CI can compare the same cases before and after the change.
 
-The [native CI comparison](ci-comparison.md) records the stacked PR results, including the
-x86 Boolean multiversioned regressions that block merging that fix.
+The [original native CI comparison](ci-comparison.md) records the first stacked PR results.
+The [Boolean capture investigation](ci-bool-capture.md) explains the x86 multiversioned
+regression and compares its correction with the benchmark parent and original production patch.
 The [revised UTF-8 comparison](ci-utf8-guide.md) applies the repository's timing floor and ceiling
 and excludes output destruction. It supersedes the original UTF-8 benchmark protocol.
 

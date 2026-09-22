@@ -1,0 +1,20 @@
+diff --git i/vortex-array/src/scalar_fn/unstable/row/execute/packed_bool.rs w/vortex-array/src/scalar_fn/unstable/row/execute/packed_bool.rs
+index 5f9d5e3cd0..252b60bae4 100644
+--- i/vortex-array/src/scalar_fn/unstable/row/execute/packed_bool.rs
++++ w/vortex-array/src/scalar_fn/unstable/row/execute/packed_bool.rs
+@@ -106,12 +106,13 @@ where
+     };
+ 
+     let mut failure = Fail::default();
+-    let collect = |index| {
++    let failure_ref = &mut failure;
++    let collect = move |index| {
+         // SAFETY: Both collectors only invoke this closure with `index < row_count`, and the decoded
+         // source was constructed with exactly `row_count` rows.
+         let elements = unsafe { source.get_unchecked(index) };
+         let (value, row_failure) = apply(&prepared, elements);
+-        failure |= row_failure;
++        *failure_ref |= row_failure;
+ 
+         value
+     };

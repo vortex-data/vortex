@@ -1,0 +1,17 @@
+diff --git i/vortex-buffer/src/bit/pack.rs w/vortex-buffer/src/bit/pack.rs
+index 128e27eb00..6701c86a67 100644
+--- i/vortex-buffer/src/bit/pack.rs
++++ w/vortex-buffer/src/bit/pack.rs
+@@ -29,7 +29,11 @@
+ /// This is the scalar reference implementation behind
+ /// [`collect_bool_word`](crate::bit::collect_bool_word); prefer calling that entry point, which
+ /// takes the SIMD fast path for full 64-bit words.
+-#[inline]
++// Keep the borrowed callback inside the word collector. With rustc 1.98 / LLVM 22, an
++// out-of-line tail lets callback state escape and prevents vectorization of the full words.
++// Recheck row_fn_bool_retry and its optimized IR before changing this annotation.
++#[allow(clippy::inline_always)]
++#[inline(always)]
+ pub fn collect_bool_word_scalar<F>(len: usize, mut f: F) -> u64
+ where
+     F: FnMut(usize) -> bool,
