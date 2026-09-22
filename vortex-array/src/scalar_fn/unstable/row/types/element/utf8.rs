@@ -23,6 +23,7 @@ use crate::arrays::Constant;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::BinaryView;
 use crate::arrays::varbinview::VarBinViewArrayExt as _;
+use crate::arrays::varbinview::VarBinViewData;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::scalar::ScalarValue;
@@ -136,10 +137,9 @@ impl AsRef<str> for Utf8View<'_> {
 
 /// Decodes `array` into views and data buffers whose every view addresses valid UTF-8.
 ///
-/// The second [`VarBinViewArray::try_new`] is the sanitization step, not a round trip: it
-/// validates each valid view and replaces every null row's view with an empty one. The
-/// [`InputElement`] implementation relies on that, so a dense callback can read a null row's
-/// payload and [`Utf8View::as_str`] can skip the UTF-8 check. Removing it makes those unsafe.
+/// Validation also replaces each null view with an empty one. Canonical arrays built from
+/// buffer handles do not carry host-content validation evidence, so this step remains necessary
+/// before unchecked string access, even when an earlier decode validated the same input.
 fn decode_utf8(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Utf8Values> {
     let array = array.execute::<VarBinViewArray>(ctx)?;
     let views = Buffer::<BinaryView>::from_byte_buffer(array.views_handle().try_to_host_sync()?);
@@ -152,14 +152,7 @@ fn decode_utf8(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Utf8Valu
     );
 
     let validity = array.varbinview_validity();
-    let array = VarBinViewArray::try_new(
-        views,
-        Arc::clone(&buffers),
-        array.dtype().clone(),
-        validity,
-        ctx,
-    )?;
-    let views = Buffer::<BinaryView>::from_byte_buffer(array.views_handle().try_to_host_sync()?);
+    let views = VarBinViewData::validate_and_fix(views, &buffers, array.dtype(), &validity, ctx)?;
 
     Ok(Utf8Values { views, buffers })
 }
@@ -327,6 +320,42 @@ mod tests {
 
         assert_eq!(&*Utf8Column::get(&column, 0), "");
 
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::empty(0)]
+    #[case::one(1)]
+    #[case::word_remainder(65)]
+    fn input_sanitizes_sliced_null_views_repeatedly(#[case] len: usize) -> VortexResult<()> {
+        let views: Buffer<BinaryView> = (0..len + 2)
+            .map(|index| {
+                if index % 2 == 0 {
+                    BinaryView::from(u128::MAX)
+                } else {
+                    BinaryView::make_view(b"valid", 0, 0)
+                }
+            })
+            .collect();
+        let validity = BoolArray::from_iter((0..len + 2).map(|index| index % 2 != 0)).into_array();
+        let array = VarBinViewArray::new_handle(
+            BufferHandle::new_host(views.into_byte_buffer()),
+            Default::default(),
+            DType::Utf8(Nullability::Nullable),
+            Validity::Array(validity),
+        )
+        .into_array()
+        .slice(1..len + 1)?;
+        let mut ctx = VortexSession::empty().create_execution_ctx();
+        for _ in 0..2 {
+            let column = Utf8Column::decode(array.clone(), &mut ctx)?;
+            for index in 0..len {
+                assert_eq!(
+                    Utf8Column::get(&column, index).as_str(),
+                    if index % 2 == 0 { "valid" } else { "" }
+                );
+            }
+        }
         Ok(())
     }
 
