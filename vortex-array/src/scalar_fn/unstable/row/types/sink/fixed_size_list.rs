@@ -9,6 +9,8 @@
 use std::mem::MaybeUninit;
 use std::sync::Arc;
 
+use vortex_buffer::BufferAllocatorRef;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -87,11 +89,11 @@ impl<T: Copy + Default> FillDefault for FixedSizeRows<'_, T> {
 /// [`RowVisitor::visit_into`]: crate::scalar_fn::unstable::row::RowVisitor::visit_into
 pub struct FixedSizeListSink<T> {
     /// Spare flat storage written one fixed-size row at a time.
-    values: Vec<T>,
-
+    values: BufferMut<T>,
+    /// Allocator for any physical conversion when the sink finishes.
+    allocator: BufferAllocatorRef,
     /// The number of elements in each output row.
     width: usize,
-
     /// The number of output rows.
     row_count: usize,
 }
@@ -115,7 +117,11 @@ unsafe impl<T: OutputElement + Copy + Default> OutputSink for FixedSizeListSink<
         )
     }
 
-    fn with_capacity(rows: usize, params: &Self::Params) -> VortexResult<Self> {
+    fn with_capacity(
+        rows: usize,
+        params: &Self::Params,
+        allocator: &BufferAllocatorRef,
+    ) -> VortexResult<Self> {
         let width = *params;
         let element_capacity = rows.checked_mul(width).ok_or_else(|| {
             vortex_err!(
@@ -125,7 +131,8 @@ unsafe impl<T: OutputElement + Copy + Default> OutputSink for FixedSizeListSink<
         })?;
 
         Ok(Self {
-            values: Vec::with_capacity(element_capacity),
+            values: allocator.with_capacity(element_capacity),
+            allocator: allocator.clone(),
             width,
             row_count: rows,
         })
@@ -155,7 +162,7 @@ unsafe impl<T: OutputElement + Copy + Default> OutputSink for FixedSizeListSink<
         // `row_count * width` elements.
         unsafe { self.values.set_len(element_count) };
 
-        let elements = T::build(self.values);
+        let elements = T::build(self.values, &self.allocator);
         let lists = FixedSizeListArray::new(
             elements,
             fixed_size_list_size(self.width),

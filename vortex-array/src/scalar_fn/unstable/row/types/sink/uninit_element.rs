@@ -8,6 +8,8 @@
 
 use std::mem::MaybeUninit;
 
+use vortex_buffer::BufferAllocatorRef;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 
 use super::OutputSink;
@@ -60,8 +62,9 @@ impl InitializedElement {
 /// initialized spare-capacity elements require no destruction.
 pub struct UninitElementSink<T> {
     /// Spare storage written in increasing row order.
-    values: Vec<T>,
-
+    values: BufferMut<T>,
+    /// Allocator for any physical conversion when the sink finishes.
+    allocator: BufferAllocatorRef,
     /// The number of slots exposed to the row loop and initialized before finishing.
     row_count: usize,
 }
@@ -102,9 +105,14 @@ unsafe impl<T: OutputElement + Copy + Default> OutputSink for UninitElementSink<
         T::element_dtype()
     }
 
-    fn with_capacity(rows: usize, _params: &Self::Params) -> VortexResult<Self> {
+    fn with_capacity(
+        rows: usize,
+        _params: &Self::Params,
+        allocator: &BufferAllocatorRef,
+    ) -> VortexResult<Self> {
         Ok(Self {
-            values: Vec::with_capacity(rows),
+            values: allocator.with_capacity(rows),
+            allocator: allocator.clone(),
             row_count: rows,
         })
     }
@@ -123,6 +131,6 @@ unsafe impl<T: OutputElement + Copy + Default> OutputSink for UninitElementSink<
         // `with_capacity` reserved every slot in that range.
         unsafe { self.values.set_len(self.row_count) };
 
-        Ok(T::build(self.values))
+        Ok(T::build(self.values, &self.allocator))
     }
 }

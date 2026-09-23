@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferAllocatorRef;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
@@ -102,7 +104,7 @@ impl<T: NativePType> OutputElement for T {
         DType::Primitive(T::PTYPE, Nullability::NonNullable)
     }
 
-    fn build(values: Vec<Self>) -> ArrayRef {
-        PrimitiveArray::new(values, Validity::NonNullable).into_array()
+    fn build(values: BufferMut<Self>, _allocator: &BufferAllocatorRef) -> ArrayRef {
+        PrimitiveArray::new(values.freeze(), Validity::NonNullable).into_array()
     }
 }

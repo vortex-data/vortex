@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::BitBuffer;
+use vortex_buffer::BufferAllocatorRef;
+use vortex_buffer::BufferMut;
 use vortex_compute::lane_kernels::IndexedSource;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -94,22 +96,34 @@ impl OutputElement for bool {
         DType::Bool(Nullability::NonNullable)
     }
 
-    fn build(values: Vec<Self>) -> ArrayRef {
-        // `From<Vec<bool>>` uses the bulk bit-packing path.
-        BoolArray::new(BitBuffer::from(values), Validity::NonNullable).into_array()
+    fn build(values: BufferMut<Self>, allocator: &BufferAllocatorRef) -> ArrayRef {
+        let values = values.as_slice();
+        let packed = BitBuffer::collect_bool_multiversioned_in(
+            values.len(),
+            |index| {
+                // SAFETY: the collector only requests indices below `values.len()`.
+                unsafe { *values.get_unchecked(index) }
+            },
+            allocator.clone(),
+        );
+        BoolArray::new(packed, Validity::NonNullable).into_array()
     }
 
-    fn build_from<S, F>(source: S, apply: F) -> ArrayRef
+    fn build_from<S, F>(source: S, apply: F, allocator: &BufferAllocatorRef) -> ArrayRef
     where
         S: IndexedSource,
         F: Fn(S::Item) -> Self,
     {
         let len = source.len();
-        let values = BitBuffer::collect_bool(len, |index| {
-            // SAFETY: `collect_bool` only invokes this closure with `index < len`, and
-            // `len` is `source.len()`.
-            apply(unsafe { source.get_unchecked(index) })
-        });
+        let values = BitBuffer::collect_bool_in(
+            len,
+            |index| {
+                // SAFETY: `collect_bool_in` only invokes this closure with `index < len`, and
+                // `len` is `source.len()`.
+                apply(unsafe { source.get_unchecked(index) })
+            },
+            allocator.clone(),
+        );
 
         BoolArray::new(values, Validity::NonNullable).into_array()
     }

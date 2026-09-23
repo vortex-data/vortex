@@ -27,3 +27,6 @@ mod sink;
 pub(super) use sink::execute_sink;
 pub(super) use sink::execute_sink_filtered;
 pub(super) use sink::execute_sink_valid_rows;
+
+#[cfg(test)]
+mod tests;

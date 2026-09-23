@@ -45,7 +45,7 @@ where
     let const_values = Args::const_values(&columns);
     let prepared = prepare(const_values);
 
-    let mut sink = Sink::with_capacity(row_count, params)?;
+    let mut sink = Sink::with_capacity(row_count, params, ctx.allocator())?;
 
     // Keep `rows` scoped so its borrow ends before `finish`, which consumes the sink.
     {
@@ -209,7 +209,7 @@ where
     );
 
     let original_len = valid.len();
-    let mut sink = Sink::with_capacity(original_len, params)?;
+    let mut sink = Sink::with_capacity(original_len, params, ctx.allocator())?;
 
     let valid_rows = valid.bit_buffer();
     let views = Args::views_if_no_consts(&columns);
@@ -318,7 +318,7 @@ where
     // Keep allocation before the validity and length checks. With multiple CGUs and no LTO,
     // moving it later inlines `Args::get` into every sparse callback, duplicating its bounds
     // checks.
-    let sink = Sink::with_capacity(row_count, params)?;
+    let sink = Sink::with_capacity(row_count, params, ctx.allocator())?;
 
     let valid_rows = valid.bit_buffer();
     vortex_ensure_eq!(
@@ -338,6 +338,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    use vortex_buffer::BufferAllocatorRef;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
     use vortex_mask::Mask;
@@ -372,7 +373,11 @@ mod tests {
             DType::from(i64::PTYPE)
         }
 
-        fn with_capacity(rows: usize, _params: &Self::Params) -> VortexResult<Self> {
+        fn with_capacity(
+            rows: usize,
+            _params: &Self::Params,
+            _allocator: &BufferAllocatorRef,
+        ) -> VortexResult<Self> {
             Ok(Self(vec![0; rows]))
         }
 

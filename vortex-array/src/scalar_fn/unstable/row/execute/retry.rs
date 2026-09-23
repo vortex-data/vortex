@@ -51,7 +51,7 @@ where
     Out: OutputElement,
     Fail: FailureEvidence,
 {
-    // The output vector stays at length zero until every slot is initialized so that an unwind
+    // The output buffer stays at length zero until every slot is initialized so that an unwind
     // abandons partially initialized spare capacity. This no-drop assertion proves that no
     // initialized value requires a destructor to run.
     const { assert_owned_output_needs_no_drop::<Out>() };
@@ -62,7 +62,7 @@ where
     let prepared = prepare(Args::const_values(&columns));
 
     let row_count = args.row_count();
-    let mut values = Vec::<Out>::with_capacity(row_count);
+    let mut values = ctx.allocator().with_capacity::<Out>(row_count);
     let output = &mut values.spare_capacity_mut()[..row_count];
 
     let failure_evidence = if let Some(views) = Args::views_if_no_consts(&columns) {
@@ -106,7 +106,7 @@ where
     unsafe { values.set_len(row_count) };
 
     match finish_failure(failure_evidence) {
-        Ok(()) => Ok(DenseAttempt::Values(Out::build(values))),
+        Ok(()) => Ok(DenseAttempt::Values(Out::build(values, ctx.allocator()))),
         Err(error) => Ok(DenseAttempt::DeferredError(error)),
     }
 }

@@ -3,7 +3,7 @@
 
 //! Executes row kernels that return one independent owned value per row.
 //!
-//! [`execute_owned`] writes fallible row results into spare vector capacity and reduces compact
+//! [`execute_owned`] writes fallible row results into spare buffer capacity and reduces compact
 //! failure evidence outside the hot loop. [`execute_owned_infallible`] lets the output type map a
 //! validated row source directly into its physical representation. The `_valid_rows` variants skip
 //! invalid rows over the original inputs, and the `_filtered` variants read inputs filtered to the
@@ -56,9 +56,11 @@ where
         vortex_bail!("a decoded row input does not address exactly {row_count} rows");
     };
 
-    Ok(Out::build_from(source, |elements| {
-        apply(&prepared, elements)
-    }))
+    Ok(Out::build_from(
+        source,
+        |elements| apply(&prepared, elements),
+        ctx.allocator(),
+    ))
 }
 
 /// Decode nullable inputs, then store one output for each valid row from an infallible kernel.
@@ -139,9 +141,8 @@ where
 
     let prepared = prepare(Args::const_values(&columns));
     let valid_rows = valid.bit_buffer();
-    let mut values: Vec<Out> = std::iter::repeat_with(Out::default)
-        .take(valid_rows.len())
-        .collect();
+    let mut values = ctx.allocator().with_capacity::<Out>(valid_rows.len());
+    values.extend(std::iter::repeat_with(Out::default).take(valid_rows.len()));
     let mut failure = Fail::default();
     let mut filtered_index = 0;
 
@@ -180,7 +181,7 @@ where
 
     finish_failure(failure)?;
 
-    Ok(Out::build(values))
+    Ok(Out::build(values, ctx.allocator()))
 }
 
 /// Decode nullable inputs, then store outputs and combine failure evidence for valid rows.
@@ -213,9 +214,8 @@ where
     );
 
     let prepared = prepare(Args::const_values(&columns));
-    let mut values: Vec<Out> = std::iter::repeat_with(Out::default)
-        .take(row_count)
-        .collect();
+    let mut values = ctx.allocator().with_capacity::<Out>(row_count);
+    values.extend(std::iter::repeat_with(Out::default).take(row_count));
     let mut failure = Fail::default();
 
     if let Some(views) = Args::views_if_no_consts(&columns) {
@@ -251,7 +251,7 @@ where
 
     finish_failure(failure)?;
 
-    Ok(Some(Out::build(values)))
+    Ok(Some(Out::build(values, ctx.allocator())))
 }
 
 /// Decode every input column, then store outputs and combine per-row failure evidence.
@@ -267,7 +267,7 @@ where
     Out: OutputElement,
     Fail: FailureEvidence,
 {
-    // The output vector stays at length zero until every slot is initialized so that an unwind
+    // The output buffer stays at length zero until every slot is initialized so that an unwind
     // abandons partially initialized spare capacity. This no-drop assertion proves that no
     // initialized value requires a destructor to run.
     const { assert_owned_output_needs_no_drop::<Out>() };
@@ -276,7 +276,7 @@ where
     let prepared = prepare(Args::const_values(&columns));
 
     let row_count = args.row_count();
-    let mut values = Vec::<Out>::with_capacity(row_count);
+    let mut values = ctx.allocator().with_capacity::<Out>(row_count);
     let output = &mut values.spare_capacity_mut()[..row_count];
 
     let Some(source) = decoded_source::<Args>(&columns, row_count) else {
@@ -291,5 +291,5 @@ where
     // Defer rich error construction until after the row loop.
     finish_failure(failure)?;
 
-    Ok(Out::build(values))
+    Ok(Out::build(values, ctx.allocator()))
 }
