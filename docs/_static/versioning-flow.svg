@@ -1,21 +1,18 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="500" viewBox="0 0 1040 500"
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="530" viewBox="0 0 1040 530"
      role="img" aria-labelledby="title description">
   <!-- SPDX-License-Identifier: CC-BY-4.0 -->
   <!-- SPDX-FileCopyrightText: Copyright the Vortex contributors -->
-  <title id="title">One decimal encoding, two wire contracts</title>
+  <title id="title">Decimal encoding changes retain support for the v1 wire format</title>
   <desc id="description">
-    DecimalBytePartsArray holds either one signed integer child or a signed most-significant child
-    followed by up to three unsigned lower-part children. The plugin serializes the single-child
-    shape using vortex.decimal_byte_parts, called v1 here, and the multi-child shape using
-    vortex.decimal_byte_parts.v2. Both wire contracts deserialize into DecimalBytePartsArray.
-    v1 metadata records the signed child&#x27;s type and a lower-part count of zero. v2 metadata records
-    the signed child&#x27;s type and the ordered types of zero to three lower parts. Thus v2 also accepts
-    one child, although the serializer selects v1 for that shape. Both contracts require a decimal
-    data type and have no buffers of their own. Each child has the same length as the parent, and the
-    signed child carries the parent's nullability, while lower parts are non-nullable. The arrows show serialization
-    choices and the corresponding reads, not every valid v2 input. Values, data types, and nulls
-    are preserved. Frozen wire contracts are immutable. Edition permissions are checked separately,
-    and no declared edition currently permits v2.
+    The rows compare the decimal-byte-parts implementation before and after multi-child support.
+    Before the change, the array held one signed integer child and values had to fit in 64 bits.
+    It read and wrote vortex.decimal_byte_parts, called v1 here. After the change, the array holds
+    one signed child and up to three unsigned children, adding support for 128-bit and 256-bit
+    values. Its plugin still writes v1 for a single child, but writes vortex.decimal_byte_parts.v2
+    for two to four children. Both wire formats deserialize into the updated array type. The v1
+    contract still requires exactly one signed child. The v2 contract permits one to four children,
+    so it can be read with one child even though the serializer chooses v1 for that shape.
+    The vertical arrow marks a change to the implementation, not a conversion of stored data.
   </desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6"
@@ -23,50 +20,65 @@
       <path d="M 0 0 L 10 5 L 0 10 Z" fill="#475569"/>
     </marker>
   </defs>
-  <rect width="1040" height="500" rx="12" fill="#ffffff"/>
+  <rect width="1040" height="530" rx="12" fill="#ffffff"/>
   <g font-family="Arial, Helvetica, sans-serif" fill="#172033">
-    <text x="24" y="32" font-size="24" font-weight="bold">One decimal encoding, two wire contracts</text>
-    <text x="24" y="59" font-size="17" fill="#475569">The plugin converts between an array in memory and its serialized metadata and children.</text>
-    <text x="24" y="99" font-size="17" font-weight="bold">IN MEMORY</text>
-    <text x="570" y="99" font-size="17" font-weight="bold">ON WIRE</text>
-    <rect x="24" y="113" width="372" height="259" rx="8" fill="#f6f7f9" stroke="#94a3b8"/>
-    <text x="42" y="140" font-size="18" font-weight="bold">DecimalBytePartsArray</text>
-    <path d="M 168 187 H 220" fill="none" stroke="#94a3b8" stroke-width="2"/>
-    <path d="M 168 299 H 194 V 277 H 220 M 194 299 V 325 H 220" fill="none" stroke="#94a3b8" stroke-width="2"/>
-    <rect x="42" y="168" width="126" height="38" rx="5" fill="#ffffff" stroke="#94a3b8"/>
-    <rect x="220" y="168" width="156" height="38" rx="5" fill="#ffffff" stroke="#94a3b8"/>
-    <rect x="42" y="280" width="126" height="38" rx="5" fill="#ffffff" stroke="#94a3b8"/>
-    <rect x="220" y="258" width="156" height="38" rx="5" fill="#ffffff" stroke="#94a3b8"/>
-    <rect x="220" y="306" width="156" height="38" rx="5" fill="#ffffff" stroke="#94a3b8"/>
-    <text x="105" y="193" font-size="17" text-anchor="middle">Decimals</text>
-    <text x="298" y="193" font-size="17" text-anchor="middle">Signed child</text>
-    <text x="105" y="305" font-size="17" text-anchor="middle">Decimals</text>
-    <text x="298" y="283" font-size="17" text-anchor="middle">Signed child</text>
-    <text x="298" y="331" font-size="17" text-anchor="middle">Unsigned child</text>
-    <text x="42" y="230" font-size="16" fill="#475569">One child</text>
-    <text x="42" y="358" font-size="16" fill="#475569">Multiple children (two shown)</text>
-    <path d="M 410 180 H 554" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
-    <path d="M 554 210 H 410" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
-    <path d="M 410 291 H 554" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
-    <path d="M 554 321 H 410" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
-    <text x="482" y="170" font-size="16" fill="#475569" text-anchor="middle">serialize</text>
-    <text x="482" y="233" font-size="16" fill="#475569" text-anchor="middle">deserialize</text>
-    <text x="482" y="281" font-size="16" fill="#475569" text-anchor="middle">serialize</text>
-    <text x="482" y="344" font-size="16" fill="#475569" text-anchor="middle">deserialize</text>
-    <rect x="570" y="113" width="446" height="126" rx="8" fill="#eaf3fc" stroke="#2563a6"/>
-    <text x="588" y="140" font-size="18" font-weight="bold">v1: exactly one signed child</text>
-    <text x="588" y="166" font-size="17" font-family="monospace">vortex.decimal_byte_parts</text>
-    <text x="588" y="197" font-size="17">Metadata: child type, lower-part count = 0</text>
-    <text x="588" y="223" font-size="17">Children: [signed]</text>
-    <rect x="570" y="253" width="446" height="119" rx="8" fill="#eaf3fc" stroke="#2563a6"/>
-    <text x="588" y="280" font-size="18" font-weight="bold">v2: signed child + 0 to 3 unsigned children</text>
-    <text x="588" y="306" font-size="17" font-family="monospace">vortex.decimal_byte_parts.v2</text>
-    <text x="588" y="334" font-size="17">Metadata: signed type, ordered lower-part types</text>
-    <text x="588" y="359" font-size="16">Children: [signed, lower parts, most significant first]</text>
-    <text x="24" y="397" font-size="17">Although v2 accepts one child, the serializer chooses v1 when there are no lower parts.</text>
-    <text x="24" y="419" font-size="16" fill="#475569">Both contracts require a decimal dtype and have no own buffers. Each child has the same length as the parent.</text>
-    <text x="24" y="441" font-size="16" fill="#475569">The signed child carries the parent's nullability, whereas lower parts are non-nullable.</text>
-    <text x="24" y="463" font-size="16" fill="#475569">Conversions preserve values, types, and nulls. Frozen wire contracts remain fixed.</text>
-    <text x="24" y="485" font-size="16" fill="#475569">Edition permissions are checked separately, and no declared edition currently permits v2.</text>
+    <text x="24" y="34" font-size="24" font-weight="bold">Decimal encoding changes retain support for the v1 wire format</text>
+    <text x="24" y="78" font-size="17" font-weight="bold">IN-MEMORY IMPLEMENTATION</text>
+    <text x="636" y="78" font-size="17" font-weight="bold">SERIALIZED DATA</text>
+
+    <rect x="24" y="102" width="368" height="126" rx="8" fill="#f6f7f9" stroke="#94a3b8"/>
+    <text x="44" y="131" font-size="20" font-weight="bold">Before multi-child support</text>
+    <text x="44" y="158" font-size="18">DecimalBytePartsArray</text>
+    <text x="44" y="188" font-size="18">One signed integer child</text>
+    <text x="44" y="214" font-size="18">Values must fit in 64 bits.</text>
+
+    <rect x="636" y="102" width="380" height="126" rx="8" fill="#eaf3fc" stroke="#2563a6"/>
+    <text x="654" y="135" font-size="20" font-weight="bold">v1</text>
+    <text x="654" y="170" font-size="18" font-family="monospace">vortex.decimal_byte_parts</text>
+    <text x="654" y="206" font-size="18">Exactly one signed child</text>
+    <g fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)">
+      <path d="M 408 148 H 620"/>
+      <path d="M 620 190 H 408"/>
+    </g>
+    <g font-size="17" fill="#475569" text-anchor="middle">
+      <text x="514" y="137">write</text>
+      <text x="514" y="216">read</text>
+    </g>
+
+    <path d="M 24 267 H 1016" stroke="#cbd5e1" stroke-dasharray="5 5"/>
+    <rect x="40" y="246" width="336" height="40" fill="#ffffff"/>
+    <path d="M 55 238 V 296" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+    <text x="76" y="272" font-size="17" fill="#475569">Add support for multiple children</text>
+
+    <rect x="24" y="306" width="368" height="200" rx="8" fill="#f0f7f6" stroke="#52867f"/>
+    <text x="44" y="336" font-size="20" font-weight="bold">After multi-child support</text>
+    <text x="44" y="364" font-size="18">DecimalBytePartsArray</text>
+    <text x="44" y="398" font-size="18">One signed child and up to three</text>
+    <text x="44" y="423" font-size="18">unsigned children</text>
+    <text x="44" y="458" font-size="18">Adds 128-bit and 256-bit values.</text>
+    <text x="44" y="488" font-size="18">The plugin reads both v1 and v2.</text>
+
+    <rect x="636" y="306" width="380" height="88" rx="8" fill="#eaf3fc" stroke="#2563a6"/>
+    <text x="654" y="333" font-size="19" font-weight="bold">v1: the wire contract is unchanged</text>
+    <text x="654" y="359" font-size="18" font-family="monospace">vortex.decimal_byte_parts</text>
+    <text x="654" y="384" font-size="17">Exactly one signed child</text>
+
+    <rect x="636" y="418" width="380" height="88" rx="8" fill="#eaf3fc" stroke="#2563a6"/>
+    <text x="654" y="445" font-size="19" font-weight="bold">v2: an additional wire contract</text>
+    <text x="654" y="471" font-size="18" font-family="monospace">vortex.decimal_byte_parts.v2</text>
+    <text x="654" y="496" font-size="17">One signed + 0 to 3 unsigned children</text>
+
+    <g fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)">
+      <path d="M 408 341 H 620"/>
+      <path d="M 620 367 H 408"/>
+      <path d="M 408 453 H 620"/>
+      <path d="M 620 479 H 408"/>
+    </g>
+    <g font-size="17" fill="#475569" text-anchor="middle">
+      <text x="514" y="329">write: 1 child</text>
+      <text x="514" y="390">read: 1 child</text>
+      <text x="514" y="441">write: 2 to 4 children</text>
+      <text x="514" y="502">read: 1 to 4 children</text>
+    </g>
   </g>
 </svg>

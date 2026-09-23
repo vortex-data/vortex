@@ -95,19 +95,21 @@ to the array structure, while still reading the same stored data under the same 
 
 ## Example: decimal children
 
-The decimal-byte-parts plugin can serialize the same in-memory array type using two wire formats.
-Its encoding stores decimal values in integer child arrays, either in one child or split across
-several children. The v1 wire contract permits only one child, while v2 adds support for multiple
-children under a distinct wire ID.[^decimal-availability]
+The decimal-byte-parts encoding initially stored each value in one signed integer child, so values
+had to fit in 64 bits. Adding up to three unsigned children extended the encoding to values that
+require 128 or 256 bits. The updated array type supports both single-child and multi-child arrays,
+while its plugin continues to read and write the v1 wire format. Arrays with multiple children use
+the additional v2 wire format.[^decimal-availability]
 
 ```{figure} ../../_static/versioning-flow.svg
-:alt: One decimal encoding holds either one signed child or a signed child with unsigned lower parts. The serializer chooses v1 for one child and v2 for multiple children. Both wire formats deserialize into the same array type.
+:alt: Before multi-child support, the decimal array held one signed child and read and wrote v1. After the change, the array supports one to four children and 128-bit and 256-bit values. Its plugin writes v1 for one child and v2 for multiple children, and reads both wire formats into the updated array type.
 :target: ../../_static/versioning-flow.svg
 :figclass: versioning-diagram
 
-The arrows show the serializer's choices and the corresponding reads. Although v2 also accepts a
-single child, the serializer chooses v1 for that shape. Each child has its own wire ID because it is
-itself a serialized array.
+The rows compare the implementations before and after multi-child support was added. The vertical
+arrow marks that implementation change, while the horizontal arrows show writing and reading.
+Although v2 also accepts a single child, the serializer chooses v1 for that shape. Each child is
+itself a serialized array with its own wire ID.
 ```
 
 For a single-child array, the serializer reuses the child and writes v1 metadata without
