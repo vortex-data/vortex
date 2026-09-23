@@ -79,13 +79,13 @@ pub(crate) mod test_allocator {
     use std::alloc::Layout;
     use std::ptr::NonNull;
     use std::sync::Arc;
-    use std::sync::Mutex;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
 
     use allocator_api2::alloc::AllocError;
     use allocator_api2::alloc::Allocator;
     use allocator_api2::alloc::Global;
+    use parking_lot::Mutex;
 
     use super::BufferAllocatorRef;
 
@@ -118,11 +118,10 @@ pub(crate) mod test_allocator {
                 "allocation ownership needs a nonempty payload",
             );
             let start = values.as_ptr() as usize;
-            let end = start + std::mem::size_of_val(values);
+            let end = start + size_of_val(values);
             assert!(
                 self.allocations
                     .lock()
-                    .unwrap()
                     .iter()
                     .any(|&(base, size)| base <= start && end <= base + size),
                 "the returned payload must be backed by the configured allocator",
@@ -130,7 +129,7 @@ pub(crate) mod test_allocator {
         }
 
         pub(crate) fn live_allocations(&self) -> usize {
-            self.allocations.lock().unwrap().len()
+            self.allocations.lock().len()
         }
     }
 
@@ -145,7 +144,6 @@ pub(crate) mod test_allocator {
             self.0
                 .allocations
                 .lock()
-                .unwrap()
                 .push((allocation.cast::<u8>().as_ptr() as usize, allocation.len()));
             Ok(allocation)
         }
@@ -154,7 +152,6 @@ pub(crate) mod test_allocator {
             self.0
                 .allocations
                 .lock()
-                .unwrap()
                 .retain(|&(base, _)| base != ptr.as_ptr() as usize);
             // SAFETY: this allocation came from Global with the supplied layout.
             unsafe { Global.deallocate(ptr, layout) }
