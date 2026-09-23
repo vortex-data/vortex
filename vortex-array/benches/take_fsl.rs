@@ -54,15 +54,6 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 /// Number of lists in the source array.
 const NUM_LISTS: usize = 500;
 
-/// Number of indices to take.
-///
-/// Together with [`LIST_SIZES`] these are sized so the widest type at the largest list size stays
-/// under 1ms per iteration under codspeed simulation.
-const NUM_INDICES: &[usize] = &[10, 100];
-
-/// Fixed size list lengths (elements per list). See [`NUM_INDICES`].
-const LIST_SIZES: &[usize] = &[16, 64, 128, 256];
-
 /// F16 list lengths for isolating the per-index, piecewise, and manual range-copy strategies.
 const F16_STRATEGY_LIST_SIZES: &[usize] = &[1, 2, 4, 8, 16, 64, 128, 256, 512, 1024, 2048];
 
@@ -89,16 +80,6 @@ where
     let elements: Buffer<T> = (0..total_elements)
         .map(|idx| T::from_u16((idx % 251) as u16).unwrap())
         .collect();
-    FixedSizeListArray::new(elements.into_array(), list_size as u32, validity, num_lists)
-}
-
-fn create_i64_fsl_with_validity(
-    list_size: usize,
-    num_lists: usize,
-    validity: Validity,
-) -> FixedSizeListArray {
-    let total_elements = list_size * num_lists;
-    let elements: Buffer<i64> = (0..total_elements as i64).collect();
     FixedSizeListArray::new(elements.into_array(), list_size as u32, validity, num_lists)
 }
 
@@ -213,63 +194,6 @@ fn take_chunked_fsl_random<const LIST_SIZE: usize>(bencher: Bencher, num_indices
 fn take_chunked_fsl_sorted<const LIST_SIZE: usize>(bencher: Bencher, num_indices: usize) {
     let array = create_chunked_fsl(LIST_SIZE, NUM_LISTS);
     bench_take_array::<LIST_SIZE>(bencher, num_indices, array, true);
-}
-
-#[divan::bench(args = NUM_INDICES, consts = LIST_SIZES)]
-fn take_fsl_random<const LIST_SIZE: usize>(bencher: Bencher, num_indices: usize) {
-    let fsl = create_i64_fsl_with_validity(LIST_SIZE, NUM_LISTS, Validity::NonNullable);
-    bench_take_fsl_random::<i64, LIST_SIZE>(bencher, num_indices, fsl);
-}
-
-#[divan::bench(args = NUM_INDICES, consts = LIST_SIZES)]
-fn take_fsl_f16_random<const LIST_SIZE: usize>(bencher: Bencher, num_indices: usize) {
-    take_fsl_random_typed::<f16, LIST_SIZE>(bencher, num_indices);
-}
-
-#[divan::bench(args = NUM_INDICES, consts = LIST_SIZES)]
-fn take_fsl_u8_random<const LIST_SIZE: usize>(bencher: Bencher, num_indices: usize) {
-    take_fsl_random_typed::<u8, LIST_SIZE>(bencher, num_indices);
-}
-
-#[divan::bench(args = NUM_INDICES, consts = LIST_SIZES)]
-fn take_fsl_u32_random<const LIST_SIZE: usize>(bencher: Bencher, num_indices: usize) {
-    take_fsl_random_typed::<u32, LIST_SIZE>(bencher, num_indices);
-}
-
-#[divan::bench(args = NUM_INDICES, consts = LIST_SIZES)]
-fn take_fsl_u64_random<const LIST_SIZE: usize>(bencher: Bencher, num_indices: usize) {
-    take_fsl_random_typed::<u64, LIST_SIZE>(bencher, num_indices);
-}
-
-fn take_fsl_random_typed<T, const LIST_SIZE: usize>(bencher: Bencher, num_indices: usize)
-where
-    T: NativePType + FromPrimitive,
-{
-    let fsl = create_fsl::<T>(LIST_SIZE, NUM_LISTS);
-    bench_take_fsl_random::<T, LIST_SIZE>(bencher, num_indices, fsl);
-}
-
-fn bench_take_fsl_random<T, const LIST_SIZE: usize>(
-    bencher: Bencher,
-    num_indices: usize,
-    fsl: FixedSizeListArray,
-) where
-    T: NativePType,
-{
-    let indices = create_random_indices(num_indices, NUM_LISTS);
-    let indices_array = indices.into_array();
-
-    bencher
-        .counter(BytesCount::of_many::<T>(num_indices * LIST_SIZE))
-        .with_inputs(|| (&fsl, &indices_array, SESSION.create_execution_ctx()))
-        .bench_refs(|(array, indices, execution_ctx)| {
-            array
-                .clone()
-                .take(indices.clone())
-                .unwrap()
-                .execute::<RecursiveCanonical>(execution_ctx)
-                .unwrap()
-        });
 }
 
 #[divan::bench(args = F16_STRATEGY_NUM_INDICES, consts = F16_STRATEGY_LIST_SIZES)]
@@ -426,31 +350,4 @@ fn take_fsl_f16_manual_range_copy_strategy<const LIST_SIZE: usize>(
             indices.len(),
         )
     }
-}
-
-#[divan::bench(args = NUM_INDICES, consts = LIST_SIZES)]
-fn take_fsl_nullable_random<const LIST_SIZE: usize>(bencher: Bencher, num_indices: usize) {
-    // Create validity with ~10% nulls
-    let mut rng = StdRng::seed_from_u64(123);
-    let validity = Validity::from_iter((0..NUM_LISTS).map(|_| rng.random_ratio(9, 10)));
-
-    let fsl = create_i64_fsl_with_validity(LIST_SIZE, NUM_LISTS, validity);
-    bench_take_fsl_random::<i64, LIST_SIZE>(bencher, num_indices, fsl);
-}
-
-#[divan::bench(args = NUM_INDICES, consts = LIST_SIZES)]
-fn take_fsl_f16_nullable_random<const LIST_SIZE: usize>(bencher: Bencher, num_indices: usize) {
-    take_fsl_nullable_random_typed::<f16, LIST_SIZE>(bencher, num_indices);
-}
-
-fn take_fsl_nullable_random_typed<T, const LIST_SIZE: usize>(bencher: Bencher, num_indices: usize)
-where
-    T: NativePType + FromPrimitive,
-{
-    // Create validity with ~10% nulls
-    let mut rng = StdRng::seed_from_u64(123);
-    let validity = Validity::from_iter((0..NUM_LISTS).map(|_| rng.random_ratio(9, 10)));
-
-    let fsl = create_fsl_with_validity::<T>(LIST_SIZE, NUM_LISTS, validity);
-    bench_take_fsl_random::<T, LIST_SIZE>(bencher, num_indices, fsl);
 }
