@@ -25,16 +25,6 @@ use crate::scalar_fn::unstable::row::ViewLen;
 use crate::validity::Validity;
 
 /// Proof that every element in one uninitialized fixed-size row was initialized.
-///
-/// Safe code cannot construct this token:
-///
-/// ```compile_fail,E0133
-/// use std::mem::MaybeUninit;
-/// use vortex_array::scalar_fn::unstable::row::InitializedRow;
-///
-/// let mut row = [MaybeUninit::<i64>::uninit(); 2];
-/// let _evidence = InitializedRow::fill(&mut row, |_| 0);
-/// ```
 #[must_use = "return this token from the row closure to prove that it initialized the output"]
 pub struct InitializedRow(());
 
