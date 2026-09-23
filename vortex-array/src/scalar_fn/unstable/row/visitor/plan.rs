@@ -123,6 +123,19 @@ impl<F: RowFn> RowVisitor for BatchPlanner<'_, F> {
             RowPolicy::for_deferred_output::<Args>(),
         )
     }
+
+    fn visit_prepared_deferred_bool<Args, Prepared, Fail, const MULTIVERSIONED: bool>(
+        self,
+        prepare: impl FnOnce(Args::ConstElems<'_>) -> Prepared,
+        apply: impl Fn(&Prepared, Args::Elems<'_>) -> (bool, Fail),
+        finish_failure: impl FnOnce(Fail) -> VortexResult<()>,
+    ) -> VortexResult<Self::VisitResult>
+    where
+        Args: IndexedElementTuple,
+        Fail: FailureEvidence,
+    {
+        self.visit_prepared_deferred::<Args, bool, Prepared, Fail>(prepare, apply, finish_failure)
+    }
 }
 
 /// The output dtypes and execution policy selected by one planning visit.
