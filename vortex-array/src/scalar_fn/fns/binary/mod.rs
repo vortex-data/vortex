@@ -27,6 +27,7 @@ use crate::proto::expr as pb;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
+use crate::scalar_fn::ReduceNode;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
@@ -254,18 +255,33 @@ impl ScalarFnVTable for Binary {
         operator: &Operator,
         expression: &Expression,
     ) -> VortexResult<Option<Expression>> {
+        if matches!(operator, Operator::And | Operator::Or) {
+            return Ok(None); // AND and OR are kleene logic
+        }
         let lhs = expression.child(0).validity()?;
         let rhs = expression.child(1).validity()?;
+        Ok(Some(and(lhs, rhs)))
+    }
 
-        Ok(match operator {
-            // AND and OR are kleene logic.
-            Operator::And => None,
-            Operator::Or => None,
-            _ => {
-                // All other binary operators are null if either side is null.
-                Some(and(lhs, rhs))
+    fn reduce<T: ReduceNode>(&self, operator: &Operator, node: &T) -> VortexResult<Option<T>> {
+        if !matches!(operator, Operator::And | Operator::Or) {
+            return Ok(None);
+        }
+        let lhs = node.child(0);
+        let rhs = node.child(1);
+        if let Some(lhs_const) = lhs.as_constant() {
+            let lhs_const = lhs_const.as_bool();
+            if let Some(rhs_const) = rhs.as_constant() {
+                let rhs_const = rhs_const.as_bool();
+                // TODO replace this scalar function node with ConstantArray
+                // TODO lit() as an alternative
             }
-        })
+
+        } else if let Some(rhs_const) = rhs.as_constant() {
+            let rhs_const = rhs_const.as_bool();
+
+        }
+        Ok(None)
     }
 
     fn is_strict(&self, operator: &Operator) -> bool {

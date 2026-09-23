@@ -24,6 +24,7 @@ use crate::dtype::DType;
 use crate::expr::BoundExpression;
 use crate::expr::Expression;
 use crate::expr::display::ExprDisplay;
+use crate::scalar::ScalarValue;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::TypedScalarFnInstance;
@@ -245,6 +246,11 @@ pub trait ReduceNode: Clone {
     /// Create a new node from the given scalar function and children, inheriting this node's
     /// reduction context (e.g. the expression scope, or the array row count).
     fn new_node(&self, scalar_fn: ScalarFnRef, children: &[Self]) -> VortexResult<Self>;
+
+    /// Return a scalar if this node is constant
+    fn as_constant(&self) -> Option<&ScalarValue> {
+        None
+    }
 }
 
 /// A [`ReduceNode`] over an expression tree, typed within a scope.
