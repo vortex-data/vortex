@@ -311,7 +311,7 @@ mod tests {
     fn test_expr_top_level_ref_get_item_add(dtype: DType) {
         let fields = dtype.as_struct_fields_opt().unwrap();
 
-        let expr = and(get_item("y", get_item("a", root())), lit(1));
+        let expr = and(get_item("y", get_item("a", root())), lit(true));
         let partitioned = partition(expr, &dtype, make_free_field_annotator(fields)).unwrap();
 
         // Whole expr is a single split

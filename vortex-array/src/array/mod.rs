@@ -16,6 +16,7 @@ use vortex_error::vortex_panic;
 use vortex_session::registry::Id;
 
 use crate::ExecutionCtx;
+use crate::arrays::Constant;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
@@ -427,12 +428,15 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
             this.encoding_id(),
             reduced.encoding_id()
         );
-        vortex_ensure!(
-            reduced.dtype() == this.dtype(),
-            "Reduced array dtype mismatch from {} to {}",
-            this.encoding_id(),
-            reduced.encoding_id()
-        );
+        // Array can be reduced to constant during optimize()
+        if reduced.encoding_id() != VTable::id(&Constant) {
+            vortex_ensure!(
+                reduced.dtype() == this.dtype(),
+                "Reduced array dtype mismatch from {} to {}",
+                this.encoding_id(),
+                reduced.encoding_id()
+            );
+        }
         Ok(Some(reduced))
     }
 
