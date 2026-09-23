@@ -17,7 +17,6 @@ use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::kernel::ExecuteParentKernel;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::scalar_fn::fns::mask::Mask as MaskExpr;
-use crate::validity::Validity;
 
 /// Mask an array without reading buffers.
 ///
@@ -86,11 +85,8 @@ where
             .ok_or_else(|| vortex_err!("Mask expression must have 2 children"))?;
 
         if mask_child.as_opt::<Bool>().is_none() && mask_child.as_opt::<Constant>().is_none() {
-            let can_attach_mask = V::VALIDITY_IS_METADATA_ONLY
-                && matches!(
-                    array.validity()?,
-                    Validity::AllValid | Validity::NonNullable
-                );
+            let can_attach_mask =
+                V::VALIDITY_IS_METADATA_ONLY && array.validity()?.definitely_no_nulls();
 
             if !can_attach_mask {
                 return Ok(None);
