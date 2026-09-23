@@ -18,8 +18,11 @@ use crate::dtype::DType;
 use crate::expr::display::DisplayTreeExpr;
 use crate::expr::traversal::TraversalOrder;
 use crate::expr::traversal::pre_order_visit_down;
+use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::fns::is_not_null::IsNotNull;
 
 /// An empty child slice, returned by [`Expression::children`] for childless variants.
 const NO_CHILDREN: &[Expression] = &[];
@@ -164,7 +167,9 @@ impl Expression {
         match self {
             // The scope is exactly as valid as itself.
             Self::Root => Ok(Self::Root),
-            Self::Scalar { scalar_fn, .. } => scalar_fn.validity(self),
+            Self::Scalar { scalar_fn, .. } => Ok(scalar_fn
+                .validity(self)?
+                .unwrap_or_else(|| IsNotNull.new_expr(EmptyOptions, [self.clone()]))),
         }
     }
 

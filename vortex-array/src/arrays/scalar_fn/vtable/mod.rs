@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 mod operations;
-mod validity;
-use std::fmt::Display;
-use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::marker::PhantomData;
@@ -15,37 +12,40 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
-use vortex_session::registry::CachedId;
 
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::EqMode;
+use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayParts;
 use crate::array::ArrayView;
 use crate::array::VTable;
+use crate::array::ValidityVTable;
 use crate::array::with_empty_buffers;
+use crate::arrays::StructArray;
 use crate::arrays::scalar_fn::array::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::array::ScalarFnData;
 use crate::arrays::scalar_fn::rules::PARENT_RULES;
 use crate::arrays::scalar_fn::rules::RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
+use crate::dtype::FieldName;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
 use crate::expr::Expression;
-use crate::expr::display::ExprDisplay;
+use crate::expr::get_item;
+use crate::expr::is_not_null;
+use crate::expr::lit;
+use crate::expr::root;
 use crate::matcher::Matcher;
 use crate::scalar_fn;
-use crate::scalar_fn::Arity;
-use crate::scalar_fn::ChildName;
-use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
-use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::VecExecutionArgs;
 use crate::serde::ArrayChildren;
+use crate::validity::Validity;
 
 /// A [`ScalarFn`]-encoded Vortex array.
 pub type ScalarFnArray = Array<ScalarFn>;
@@ -244,79 +244,55 @@ impl<F: scalar_fn::ScalarFnVTable> Deref for ScalarFnArrayView<'_, F> {
     }
 }
 
-// Used only in this method to allow constrained using of Expression evaluate.
-#[derive(Clone)]
-struct ArrayExpr;
+impl ValidityVTable<ScalarFn> for ScalarFn {
+    fn validity(view: ArrayView<'_, ScalarFn>) -> VortexResult<Validity> {
+        // We want to defer execution of the underlying array. The naïve
+        // solution for this is to build an all true array and then .apply() an
+        // Expression referencing parts of root(). This doesn't work because
+        // in this Expression's evaluation root() is replaced by the original
+        // array which leads to non-terminating recursion, a stack overflow. So
+        // we build a Struct array and give the caller (which overrides
+        // ScalarFn valididy) the ability to reference children with get_item.
+        // In ScalarFn's overriden validity "expr.child(i)" then translates to
+        // "view.get_item(i)" which doesn't produce recursion since get_item
+        // references part of the original array as opposed to root().
+        let child_count = view.child_count();
+        let names = (0..child_count)
+            .map(|i| FieldName::from(i.to_string().as_str()))
+            .collect();
+        let fields = view.children();
 
-#[derive(Clone, Debug)]
-struct FakeEq<T>(T);
+        let getters: Vec<_> = view
+            .children()
+            .into_iter()
+            .enumerate()
+            .map(|(i, child)| {
+                if let Some(scalar) = child.as_constant() {
+                    lit(scalar)
+                } else {
+                    get_item(i.to_string(), root())
+                }
+            })
+            .collect();
 
-impl<T> PartialEq<Self> for FakeEq<T> {
-    fn eq(&self, _other: &Self) -> bool {
-        false
-    }
-}
+        let struct_array = StructArray::new(names, fields, view.len(), Validity::NonNullable);
 
-impl<T> Eq for FakeEq<T> {}
+        let scalar_fn = view.scalar_fn();
+        let expr = Expression::try_new(scalar_fn.clone(), getters)?;
+        let expr = scalar_fn
+            .validity(&expr)?
+            // However, there is another possible stack overflow if validity()
+            // isn't overriden. The naïve solution is to do is_not_null(expr)
+            // which is is_not_null(ScalarFn(get_item(...))).
+            // Inner ScalarFn(get_item)'s row request will call validity() back
+            // which will instantiate is_not_null(F( original is_not_null )).
+            //
+            // So, to break this recursion, we need to tweak array probing for
+            // ScalarFn, see execute_scalar in probe/array.rs and in
+            // probe/repeated.rs
+            .unwrap_or_else(|| is_not_null(expr.clone()));
 
-impl<T> Hash for FakeEq<T> {
-    fn hash<H: Hasher>(&self, _state: &mut H) {}
-}
-
-impl Display for FakeEq<ArrayRef> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0.encoding_id())
-    }
-}
-
-impl scalar_fn::ScalarFnVTable for ArrayExpr {
-    type Options = FakeEq<ArrayRef>;
-
-    fn id(&self) -> ScalarFnId {
-        static ID: CachedId = CachedId::new("vortex.array");
-        *ID
-    }
-
-    fn arity(&self, _options: &Self::Options) -> Arity {
-        Arity::Exact(0)
-    }
-
-    fn child_name(&self, _options: &Self::Options, _child_idx: usize) -> ChildName {
-        todo!()
-    }
-
-    fn fmt_sql(
-        &self,
-        options: &Self::Options,
-        _expr: &dyn ExprDisplay,
-        f: &mut Formatter<'_>,
-    ) -> std::fmt::Result {
-        write!(f, "{}", options.0.encoding_id())
-    }
-
-    fn return_dtype(&self, options: &Self::Options, _arg_dtypes: &[DType]) -> VortexResult<DType> {
-        Ok(options.0.dtype().clone())
-    }
-
-    fn execute(
-        &self,
-        options: &Self::Options,
-        _args: &dyn ExecutionArgs,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        crate::Executable::execute(options.0.clone(), ctx)
-    }
-
-    fn validity(
-        &self,
-        options: &Self::Options,
-        _expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
-        let validity_array = options.0.validity()?.to_array(options.0.len());
-        Ok(Some(ArrayExpr.new_expr(FakeEq(validity_array), [])))
-    }
-
-    fn is_strict(&self, _options: &Self::Options) -> bool {
-        true
+        let array = struct_array.into_array().apply(&expr)?;
+        Ok(Validity::Array(array))
     }
 }

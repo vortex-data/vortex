@@ -23,13 +23,10 @@ use crate::expr::BoundExpression;
 use crate::expr::Expression;
 use crate::expr::display::ExprDisplay;
 use crate::scalar_fn::ArrayReduceNode;
-use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ExpressionReduceNode;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::ScalarFnVTableExt;
-use crate::scalar_fn::fns::is_not_null::IsNotNull;
 use crate::scalar_fn::options::ScalarFnOptions;
 use crate::scalar_fn::signature::ScalarFnSignature;
 use crate::scalar_fn::typed::DynScalarFn;
@@ -125,12 +122,10 @@ impl ScalarFnRef {
         self.0.return_dtype(arg_types)
     }
 
-    /// Transforms the expression into one representing the validity of this expression.
-    pub fn validity(&self, expr: &Expression) -> VortexResult<Expression> {
-        Ok(self.0.validity(expr)?.unwrap_or_else(|| {
-            // TODO(ngates): make validity a mandatory method on VTable to avoid this fallback.
-            IsNotNull.new_expr(EmptyOptions, [expr.clone()])
-        }))
+    /// Some(E) if evaluating validity for this function is faster than
+    /// evaluating the function itself, None otherwise.
+    pub fn validity(&self, expr: &Expression) -> VortexResult<Option<Expression>> {
+        self.0.validity(expr)
     }
 
     /// Execute the expression given the input arguments.

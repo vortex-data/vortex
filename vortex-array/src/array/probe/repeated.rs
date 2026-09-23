@@ -12,6 +12,7 @@ use crate::array::probe::ArrayProbe;
 use crate::array::probe::array::check_bounds;
 use crate::array::probe::array::check_dtype;
 use crate::array::probe::array::child_of;
+use crate::arrays::ScalarFn;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
 
@@ -55,7 +56,18 @@ impl RepeatedArrayProbe {
 
     /// Read the scalar at `index`, including its nullness, reusing retained preparation.
     pub fn execute_scalar(&mut self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
-        if !self.execute_is_valid(index, ctx)? {
+        // ScalarFn's validity is lazy, and for some functions evaluating
+        // validity is equal to evaluating the function. For such functions
+        // validity() is is_not_null(original array). So we get the chain:
+        // execute_scalar -> array.validity() ->
+        // execute_is_valid -> execute_scalar (mask) ->
+        // mask.probe_scalar_once -> scalar_at -> array.execute_scalar, and as
+        // "array" is the original array, we get infinite recursion.
+        //
+        // For these functions probe_scalar_once gets the nullable scalar anyway.
+        //
+        // See also execute_scala_once in probe/array.rs
+        if !self.array.is::<ScalarFn>() && !self.execute_is_valid(index, ctx)? {
             return Ok(Scalar::null(self.array.dtype().clone()));
         }
         let result =

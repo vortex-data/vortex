@@ -6,7 +6,6 @@
 use std::sync::Arc;
 
 use vortex_error::VortexExpect;
-use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_utils::iter::ReduceBalancedIterExt;
 
@@ -596,22 +595,6 @@ where
     I: IntoIterator<Item = BoundExpression>,
 {
     iter.into_iter().reduce_balanced(bound_and)
-}
-
-/// The conjunction of an expression's child validities — i.e. the validity of a scalar function
-/// whose result is null exactly when any operand is null.
-///
-/// This is the `ScalarFnVTable::validity` for kernels that propagate nulls and never produce a
-/// null from non-null inputs (comparisons, arithmetic, most spatial and tensor operations). Returning it lets
-/// the planner derive the output's null mask without executing the kernel. Yields `None` when the
-/// expression has no children.
-pub fn union_child_validities(expression: &Expression) -> VortexResult<Option<Expression>> {
-    let child_validities = expression
-        .children()
-        .iter()
-        .map(Expression::validity)
-        .collect::<VortexResult<Vec<_>>>()?;
-    Ok(and_collect(child_validities))
 }
 
 /// Create a new [`Binary`] using the [`Add`](Operator::Add) operator.

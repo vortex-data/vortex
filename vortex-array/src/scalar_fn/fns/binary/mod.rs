@@ -341,6 +341,9 @@ mod tests {
     use crate::arrays::BoolArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::ScalarFn;
+    use crate::arrays::scalar_fn::ExactScalarFn;
+    use crate::arrays::scalar_fn::ScalarFnArrayExt;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
@@ -729,5 +732,53 @@ mod tests {
         let lhs = ConstantArray::new(7i32, 3).into_array();
         let rhs = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
         assert!(Binary::try_new(lhs, rhs, Operator::And).is_err());
+    }
+
+    #[test]
+    fn test_isnull_and_reduce() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let left = BoolArray::from_iter([Some(true), Some(true), None]).into_array();
+        let right = BoolArray::from_iter([true, false, true]).into_array();
+
+        // IsNull(and(x, y)) -> and(IsNull(x), y) -> and(not(x.validity), y)
+        //            ^ nullable
+        for (lhs, rhs) in [(left.clone(), right.clone()), (right.clone(), left)] {
+            let array = lhs
+                .binary(rhs.clone(), Operator::And)?
+                .is_null()?
+                .optimize()?;
+            assert_eq!(*array.as_::<ExactScalarFn<Binary>>().options, Operator::And);
+            assert_arrays_eq!(
+                array.as_::<ScalarFn>().get_child(0), // not(left.validity())
+                BoolArray::from_iter([false, false, true]),
+                &mut ctx
+            );
+            assert_arrays_eq!(array.as_::<ScalarFn>().get_child(1), right, &mut ctx);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_isnotnull_or_reduce() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let left = BoolArray::from_iter([Some(true), Some(true), None]).into_array();
+        let right = BoolArray::from_iter([true, false, true]).into_array();
+
+        // IsNotNull(or(x, y)) -> or(IsNotNull(x), y) -> or(x.validity, y)
+        //              ^ nullable
+        for (lhs, rhs) in [(left.clone(), right.clone()), (right.clone(), left)] {
+            let array = lhs
+                .binary(rhs.clone(), Operator::Or)?
+                .is_not_null()?
+                .optimize()?;
+            assert_eq!(*array.as_::<ExactScalarFn<Binary>>().options, Operator::Or);
+            assert_arrays_eq!(
+                array.as_::<ScalarFn>().get_child(0), // left.validity()
+                BoolArray::from_iter([true, true, false]),
+                &mut ctx
+            );
+            assert_arrays_eq!(array.as_::<ScalarFn>().get_child(1), right, &mut ctx);
+        }
+        Ok(())
     }
 }
