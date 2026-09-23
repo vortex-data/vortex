@@ -304,8 +304,12 @@ final class VortexDecimalAccessorTest {
         assertEquals(expectedCopy.toJavaBigDecimal(), actualCopy.toJavaBigDecimal());
         UnsafeRowWriter expectedWriter = new UnsafeRowWriter(1);
         UnsafeRowWriter actualWriter = new UnsafeRowWriter(1);
+        expectedWriter.resetRowWriter();
+        actualWriter.resetRowWriter();
         expectedWriter.write(0, expected, precision, scale);
         actualWriter.write(0, actual, precision, scale);
+        assertEquals(expected, expectedWriter.getRow().getDecimal(0, precision, scale));
+        assertEquals(actual, actualWriter.getRow().getDecimal(0, precision, scale));
         assertEquals(expectedWriter.getRow(), actualWriter.getRow());
     }
 }

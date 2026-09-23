@@ -579,7 +579,9 @@ public class VortexArrowColumnVector extends ColumnVector {
 
         @Override
         final Decimal getDecimal(int rowId, int precision, int scale) {
-            if (isNullAt(rowId)) return null;
+            if (isNullAt(rowId)) {
+                return null;
+            }
             long offset = (long) rowId * DecimalVector.TYPE_WIDTH;
             long unscaled = accessor.getDataBuffer().getLong(offset + lowWordOffset);
             long high = accessor.getDataBuffer().getLong(offset + highWordOffset);
