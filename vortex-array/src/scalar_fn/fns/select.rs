@@ -21,13 +21,10 @@ use crate::arrays::ConstantArray;
 use crate::arrays::StructArray;
 use crate::arrays::struct_::StructArrayExt;
 use crate::dtype::DType;
-use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
+use crate::expr::BoundExpression;
 use crate::expr::display::ExprDisplay;
-use crate::expr::expression::Expression;
 use crate::expr::field::DisplayFieldNames;
-use crate::expr::get_item;
-use crate::expr::pack;
 use crate::proto::expr::FieldNames as ProtoFieldNames;
 use crate::proto::expr::SelectOpts;
 use crate::proto::expr::select_opts::Opts;
@@ -36,8 +33,10 @@ use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::SimplifyCtx;
+use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::fns::get_item::GetItem;
 use crate::scalar_fn::fns::pack::Pack;
+use crate::scalar_fn::fns::pack::PackOptions;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum FieldSelection {
@@ -184,11 +183,10 @@ impl ScalarFnVTable for Select {
     fn simplify(
         &self,
         selection: &FieldSelection,
-        expr: &Expression,
-        ctx: &dyn SimplifyCtx,
-    ) -> VortexResult<Option<Expression>> {
+        expr: &BoundExpression,
+    ) -> VortexResult<Option<BoundExpression>> {
         let child_struct = expr.child(0);
-        let struct_dtype = ctx.return_dtype(child_struct)?;
+        let struct_dtype = child_struct.dtype();
         let struct_nullability = struct_dtype.nullability();
 
         let struct_fields = struct_dtype.as_struct_fields_opt().ok_or_else(|| {
@@ -215,8 +213,13 @@ impl ScalarFnVTable for Select {
         //  special-casing for pack, but not for select. We will fix this up when we revisit the
         //  layout APIs.
         if included_fields.is_empty() {
-            let empty: Vec<(FieldName, Expression)> = vec![];
-            return Ok(Some(pack(empty, struct_nullability)));
+            return Ok(Some(Pack.try_new_bound_expr(
+                PackOptions {
+                    names: FieldNames::empty(),
+                    nullability: struct_nullability,
+                },
+                [],
+            )?));
         }
 
         // We cannot always convert a `select` into a `pack(get_item(f1), get_item(f2), ...)`.
@@ -234,12 +237,17 @@ impl ScalarFnVTable for Select {
             struct_nullability.is_nullable() && !all_included_fields_are_nullable;
 
         if child_is_pack && !would_intersect_validity {
-            let pack_expr = pack(
-                included_fields
-                    .into_iter()
-                    .map(|name| (name.clone(), get_item(name, child_struct.clone()))),
-                struct_nullability,
-            );
+            let fields = included_fields
+                .iter()
+                .map(|name| GetItem.try_new_bound_expr(name.clone(), [child_struct.clone()]))
+                .collect::<VortexResult<Vec<_>>>()?;
+            let pack_expr = Pack.try_new_bound_expr(
+                PackOptions {
+                    names: included_fields,
+                    nullability: struct_nullability,
+                },
+                fields,
+            )?;
 
             return Ok(Some(pack_expr));
         }
@@ -498,9 +506,9 @@ mod tests {
         );
         let e = select(["a", "b"], root());
 
-        let result = e.optimize_recursive(&dtype).unwrap();
+        let result = e.bind(&dtype).unwrap().optimize_recursive().unwrap();
 
-        assert!(result.return_dtype(&dtype).unwrap().is_nullable());
+        assert!(result.dtype().is_nullable());
     }
 
     #[test]
@@ -516,10 +524,10 @@ mod tests {
         );
         let e = select_exclude(["c"], root());
 
-        let result = e.optimize_recursive(&dtype).unwrap();
+        let result = e.bind(&dtype).unwrap().optimize_recursive().unwrap();
 
         // Should exclude "c" and include "a" and "b"
-        let result_dtype = result.return_dtype(&dtype).unwrap();
+        let result_dtype = result.dtype();
         assert!(result_dtype.is_nullable());
         let fields = result_dtype.as_struct_fields_opt().unwrap();
         assert_eq!(fields.names().as_ref(), &["a", "b"]);

@@ -574,12 +574,12 @@ mod tests {
             DuplicateHandling::RightMost,
         );
 
-        let result = e.optimize(&dtype).unwrap();
+        let result = e.bind(&dtype).unwrap().optimize().unwrap();
 
         assert!(result.is::<Pack>());
         assert_eq!(
-            result.return_dtype(&dtype).unwrap(),
-            DType::struct_([("a", I32), ("b", U32), ("c", U64)], NonNullable)
+            result.dtype(),
+            &DType::struct_([("a", I32), ("b", U32), ("c", U64)], NonNullable)
         );
     }
 }

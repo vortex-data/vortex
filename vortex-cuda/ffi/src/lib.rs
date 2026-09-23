@@ -341,8 +341,8 @@ fn projected_scan(
 ) -> VortexResult<ScanBuilder<ArrayRef>> {
     let mut scan = file.scan()?;
     if !columns.is_empty() {
-        let projection = select(columns, root()).optimize(file.dtype())?;
-        scan = scan.with_projection(projection.bind(file.dtype())?);
+        let projection = select(columns, root()).bind(file.dtype())?.optimize()?;
+        scan = scan.with_projection(projection);
     }
     let split_by = if batch_rows == 0 {
         SplitBy::Layout

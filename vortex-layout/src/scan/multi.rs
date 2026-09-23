@@ -348,9 +348,9 @@ impl BoundScanRequest {
         } = request;
 
         Ok(Self {
-            projection: projection.optimize_recursive(dtype)?.bind(dtype)?,
+            projection: projection.bind(dtype)?.optimize_recursive()?,
             filter: filter
-                .map(|expr| expr.optimize_recursive(dtype)?.bind(dtype))
+                .map(|expr| expr.bind(dtype)?.optimize_recursive())
                 .transpose()
                 .map_err(Arc::new),
             row_range,
