@@ -120,9 +120,6 @@ jobs:
           run: cargo codspeed run
           token: ${{ secrets.CODSPEED_TOKEN }}
           mode: "simulation"
-          # Exclude deferred allocator cleanup from the affected array shards.
-          # Allocation-focused benchmarks in the core shard still measure allocator time.
-          exclude-allocations: ${{ matrix.array-group == 'dictionary' || matrix.array-group == 'selection' }}
           # Cached package restoration fails on dangling libc6-dbg documentation symlinks.
           cache-instruments: "false"
 
