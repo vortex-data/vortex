@@ -332,11 +332,7 @@ mod tests {
         let buffer = buffer![1, 2, 3];
         let nullable = PrimitiveArray::new(buffer, Validity::Array(validity.clone())).into_array();
 
-        assert_arrays_eq!(
-            nullable.clone().apply(&is_not_null(root()))?,
-            validity.clone(),
-            ctx
-        );
+        assert_arrays_eq!(nullable.clone().apply(&is_not_null(root()))?, validity, ctx);
         assert_arrays_eq!(nullable.apply(&is_null(root()))?, validity.not()?, ctx);
 
         Ok(())
