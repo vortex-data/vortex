@@ -2,6 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Measures packed Boolean dense attempts and nullable retry through public RowFn execution.
+//!
+//! Every case uses the multiversioned collector over partially valid input. An accepted attempt
+//! keeps the dense result, and a null-only failure retries the valid rows.
 
 use std::array;
 use std::sync::LazyLock;
@@ -37,14 +40,10 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 const SIZES: &[usize] = &[16_384];
 const BATCHES_PER_ITER: usize = 8;
 const CASES: &[(InputShape, Scenario)] = &[
-    (InputShape::Columns, Scenario::AllValid),
-    (InputShape::ConstantLhs, Scenario::AllValid),
     (InputShape::Columns, Scenario::PartialAccepted),
     (InputShape::ConstantLhs, Scenario::PartialAccepted),
     (InputShape::Columns, Scenario::NullOnlyFailure),
     (InputShape::ConstantLhs, Scenario::NullOnlyFailure),
-    (InputShape::Columns, Scenario::ObservableFailure),
-    (InputShape::ConstantLhs, Scenario::ObservableFailure),
 ];
 
 #[derive(Clone, Copy, Debug)]
@@ -55,16 +54,14 @@ enum InputShape {
 
 #[derive(Clone, Copy, Debug)]
 enum Scenario {
-    AllValid,
     PartialAccepted,
     NullOnlyFailure,
-    ObservableFailure,
 }
 
 #[derive(Clone)]
-struct Predicate<const MULTIVERSIONED: bool>;
+struct Predicate;
 
-impl<const MULTIVERSIONED: bool> RowFn for Predicate<MULTIVERSIONED> {
+impl RowFn for Predicate {
     type Options = EmptyOptions;
 
     const ARG_NAMES: &'static [&'static str] = &["lhs", "rhs"];
@@ -81,7 +78,7 @@ impl<const MULTIVERSIONED: bool> RowFn for Predicate<MULTIVERSIONED> {
         _args: &[DType],
         visitor: V,
     ) -> VortexResult<V::VisitResult> {
-        visitor.visit_deferred_bool::<(i64, i64), bool, MULTIVERSIONED>(
+        visitor.visit_deferred_bool::<(i64, i64), bool, true>(
             |(lhs, rhs)| (lhs < rhs, lhs == i64::MAX || rhs == i64::MAX),
             |failed| {
                 vortex_ensure!(!failed, "predicate rejected sentinel");
@@ -98,37 +95,16 @@ fn main() {
 
 #[vortex_bench_support::cpu_features]
 #[divan::bench(args = CASES, consts = SIZES)]
-fn plain<const ROWS: usize>(bencher: Bencher, &(shape, scenario): &(InputShape, Scenario)) {
-    bench_predicate::<false>(bencher, ROWS, shape, scenario);
-}
-
-#[vortex_bench_support::cpu_features]
-#[divan::bench(args = CASES, consts = SIZES)]
-fn multiversioned<const ROWS: usize>(
+fn deferred_bool<const ROWS: usize>(
     bencher: Bencher,
     &(shape, scenario): &(InputShape, Scenario),
 ) {
-    bench_predicate::<true>(bencher, ROWS, shape, scenario);
-}
-
-fn bench_predicate<const MULTIVERSIONED: bool>(
-    bencher: Bencher,
-    rows: usize,
-    shape: InputShape,
-    scenario: Scenario,
-) {
-    let validity = match scenario {
-        Scenario::AllValid | Scenario::ObservableFailure => Validity::NonNullable,
-        Scenario::PartialAccepted | Scenario::NullOnlyFailure => Validity::Array(
-            BoolArray::from_iter((0..rows).map(|index| !index.is_multiple_of(8))).into_array(),
-        ),
-    };
-    let rejected = matches!(
-        scenario,
-        Scenario::NullOnlyFailure | Scenario::ObservableFailure
+    let validity = Validity::Array(
+        BoolArray::from_iter((0..ROWS).map(|index| !index.is_multiple_of(8))).into_array(),
     );
+    let rejected = matches!(scenario, Scenario::NullOnlyFailure);
     let column = PrimitiveArray::new(
-        (0..rows)
+        (0..ROWS)
             .map(|index| {
                 if rejected && index.is_multiple_of(8) {
                     i64::MAX
@@ -143,29 +119,27 @@ fn bench_predicate<const MULTIVERSIONED: bool>(
     let (lhs, rhs) = match shape {
         InputShape::Columns => (
             column,
-            PrimitiveArray::from_iter((0..rows).map(|index| {
+            PrimitiveArray::from_iter((0..ROWS).map(|index| {
                 i64::try_from(index % 512 + 1).vortex_expect("fixture value is at most 512")
             }))
             .into_array(),
         ),
-        InputShape::ConstantLhs => (ConstantArray::new(512_i64, rows).into_array(), column),
+        InputShape::ConstantLhs => (ConstantArray::new(512_i64, ROWS).into_array(), column),
     };
-    let args = VecExecutionArgs::new(vec![lhs, rhs], rows);
-    let function = Predicate::<MULTIVERSIONED>;
-    let result = execute_rows(
-        &function,
-        &EmptyOptions,
-        &args,
-        &mut SESSION.create_execution_ctx(),
+    let args = VecExecutionArgs::new(vec![lhs, rhs], ROWS);
+    let function = Predicate;
+    drop(
+        execute_rows(
+            &function,
+            &EmptyOptions,
+            &args,
+            &mut SESSION.create_execution_ctx(),
+        )
+        .vortex_expect("every rejected row is null"),
     );
-    assert_eq!(
-        result.is_err(),
-        matches!(scenario, Scenario::ObservableFailure)
-    );
-    drop(result);
 
     bencher
-        .counter(ItemsCount::new(rows * BATCHES_PER_ITER))
+        .counter(ItemsCount::new(ROWS * BATCHES_PER_ITER))
         .with_inputs(|| {
             (
                 &args,
