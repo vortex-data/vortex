@@ -302,7 +302,7 @@ impl RowFn for RepeatValue {
         );
 
         visitor.visit_into::<(i64,), FixedSizeListSink<i64>, _>(*width, |(value,), row| {
-            // SAFETY: fills the entire supplied row and returns its token without modifying it.
+            // SAFETY: fills the entire supplied row and returns its token without further writes.
             unsafe { InitializedRow::fill(row, |_| value) }
         })
     }
@@ -444,7 +444,7 @@ impl RowFn for FilteredRepeat {
         visitor.visit_into::<(FilterOnlyI64,), FixedSizeListSink<i64>, _>(
             *width,
             |(value,), row| {
-                // SAFETY: fills the entire supplied row and returns its token without modifying it.
+                // SAFETY: fills the entire supplied row and returns its token without further writes.
                 unsafe { InitializedRow::fill(row, |_| value) }
             },
         )

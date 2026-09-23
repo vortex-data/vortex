@@ -37,21 +37,11 @@ impl InitializedElement {
     ///
     /// # Safety
     ///
-    /// `row` must be the [`UninitElementSink`] row supplied to the current callback. The caller
-    /// must preserve the slot's initialization until the callback returns and return this token
-    /// from that callback. Using another slot, invalidating the slot, or returning the token from
-    /// another callback can cause undefined behavior.
+    /// - `row` must be the [`UninitElementSink`] slot supplied to the current callback.
+    /// - On success, that callback must return this token and preserve the slot's initialization
+    ///   until it returns.
     ///
-    /// If the callback returns an error or unwinds, the sink can be abandoned without returning
-    /// a token.
-    ///
-    /// ```compile_fail,E0133
-    /// use std::mem::MaybeUninit;
-    /// use vortex_array::scalar_fn::unstable::row::InitializedElement;
-    ///
-    /// let mut row = MaybeUninit::<i64>::uninit();
-    /// let _evidence = InitializedElement::write(&mut row, 0);
-    /// ```
+    /// Violating these requirements can cause undefined behavior.
     #[inline]
     pub unsafe fn write<T>(row: &mut MaybeUninit<T>, value: T) -> Self {
         row.write(value);

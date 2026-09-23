@@ -26,7 +26,7 @@ use crate::validity::Validity;
 
 /// Proof that every element in one uninitialized fixed-size row was initialized.
 ///
-/// Construction requires an unsafe operation that binds the token to the current callback's row:
+/// Safe code cannot construct this token:
 ///
 /// ```compile_fail,E0133
 /// use std::mem::MaybeUninit;
@@ -43,13 +43,12 @@ impl InitializedRow {
     ///
     /// # Safety
     ///
-    /// `row` must be the entire [`FixedSizeListSink`] row supplied to the current callback,
-    /// including when its width is zero. A subslice or another row is insufficient. The caller
-    /// must preserve the initialization of every element until the callback returns and return
-    /// this token from that callback. Violating these requirements can cause undefined behavior.
+    /// - `row` must be the entire [`FixedSizeListSink`] row supplied to the current callback,
+    ///   including when its width is zero.
+    /// - On success, that callback must return this token and preserve every element's
+    ///   initialization until it returns.
     ///
-    /// If filling unwinds or the callback fails, the sink can be abandoned without returning a
-    /// token.
+    /// Violating these requirements can cause undefined behavior.
     #[inline]
     pub unsafe fn fill<T>(
         row: &mut [MaybeUninit<T>],
