@@ -90,7 +90,8 @@ where
         }
     }
 
-    // SAFETY: every row callback completed successfully, so each returned the required write token.
+    // SAFETY: every callback returned its token, which proves that its entire output row remains
+    // initialized under the `OutputSink` contract.
     unsafe { Sink::finish(sink) }
 }
 
@@ -174,7 +175,7 @@ where
     }
 
     // SAFETY: the initializer completed before traversal, and every visited callback completed
-    // successfully and returned the required write token.
+    // successfully with a token proving its entire output row remains initialized.
     unsafe { Sink::finish(sink) }.map(Some)
 }
 
@@ -267,7 +268,7 @@ where
     }
 
     // SAFETY: the initializer completed before traversal, and every visited callback completed
-    // successfully and returned the required write token.
+    // successfully with a token proving its entire output row remains initialized.
     unsafe { Sink::finish(sink) }
 }
 

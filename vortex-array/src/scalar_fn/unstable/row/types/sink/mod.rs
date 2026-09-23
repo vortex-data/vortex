@@ -58,7 +58,9 @@ pub use utf8::Utf8Writer;
 ///   checks the length again after the initializer. The initializer **must** initialize every row.
 /// - A row must either be initialized before the callback or require a
 ///   [`WriteToken`] that safe code cannot produce without initializing that exact row. Evidence for
-///   an uninitialized row **must not** be safely forgeable, reusable, or substitutable.
+///   an uninitialized row **must not** be safely forgeable, reusable, or substitutable. An unsafe
+///   token constructor must require the entire current callback's row to remain initialized
+///   until that callback returns the token.
 /// - `Self` and every borrowed [`Rows`] view **must** remain safe to drop if decoding,
 ///   preparation, skipped-row initialization, or a row callback returns an error or unwinds. The
 ///   executor can abandon a sink after any prefix of rows.
