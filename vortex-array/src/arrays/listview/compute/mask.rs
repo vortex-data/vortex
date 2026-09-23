@@ -36,6 +36,8 @@ impl MaskReduce for ListView {
 
         // SAFETY: elements, offsets, sizes, and their metadata are unchanged. Masking only removes
         // valid rows, so the existing zero-copy-to-list guarantee still holds.
-        Ok(Some(unsafe { ListViewArray::from_parts_unchecked(parts) }.into_array()))
+        Ok(Some(
+            unsafe { ListViewArray::from_parts_unchecked(parts) }.into_array(),
+        ))
     }
 }

@@ -87,7 +87,10 @@ where
 
         if mask_child.as_opt::<Bool>().is_none() && mask_child.as_opt::<Constant>().is_none() {
             let can_attach_mask = V::VALIDITY_IS_METADATA_ONLY
-                && matches!(array.validity()?, Validity::AllValid | Validity::NonNullable);
+                && matches!(
+                    array.validity()?,
+                    Validity::AllValid | Validity::NonNullable
+                );
 
             if !can_attach_mask {
                 return Ok(None);
@@ -191,7 +194,8 @@ mod tests {
     #[case::all_true_bitmap(true)]
     fn array_backed_validity_keeps_lazy_mask(#[case] all_true: bool) -> VortexResult<()> {
         let validity = BoolArray::from_iter([true, all_true, true]).into_array();
-        let input = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::Array(validity)).into_array();
+        let input =
+            PrimitiveArray::new(buffer![1i32, 2, 3], Validity::Array(validity)).into_array();
         let output = input.mask(lazy_mask()?)?;
         assert!(output.is::<ExactScalarFn<MaskExpr>>());
 
