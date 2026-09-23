@@ -693,7 +693,7 @@ mod tests {
             .optimize()?;
         assert_eq!(array.as_constant(), Some(true.into())); // or(left, const) -> true
 
-        let array = Binary::try_new(right.clone(), left.clone(), Operator::Or)?
+        let array = Binary::try_new(right.clone(), left, Operator::Or)?
             .into_array()
             .optimize()?;
         assert_eq!(array.as_constant(), Some(true.into())); // or(const, left) -> true
