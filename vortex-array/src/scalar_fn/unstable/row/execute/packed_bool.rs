@@ -162,9 +162,9 @@ where
     };
 
     let values = if MULTIVERSIONED {
-        BitBuffer::collect_bool_multiversioned(row_count, collect)
+        BitBuffer::collect_bool_multiversioned_in(row_count, collect, ctx.allocator().clone())
     } else {
-        BitBuffer::collect_bool(row_count, collect)
+        BitBuffer::collect_bool_in(row_count, collect, ctx.allocator().clone())
     };
 
     match finish_failure(state.failure) {

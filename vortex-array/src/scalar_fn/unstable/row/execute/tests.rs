@@ -15,6 +15,7 @@ use vortex_mask::Mask;
 use vortex_mask::MaskValuesRef;
 
 use super::DenseAttempt;
+use super::execute_bool_dense_attempt;
 use super::execute_owned;
 use super::execute_owned_bool;
 use super::execute_owned_dense_attempt;
@@ -175,9 +176,12 @@ fn owned_payload_uses_context_allocator(
 }
 
 #[rstest]
+#[case::infallible(Traversal::Infallible)]
+#[case::fallible(Traversal::Fallible)]
+#[case::dense_attempt(Traversal::DenseAttempt)]
 fn packed_boolean_payload_uses_allocator(
+    #[case] traversal: Traversal,
     #[values(false, true)] multiversioned: bool,
-    #[values(false, true)] deferred: bool,
 ) -> VortexResult<()> {
     let args = canonical_args(Traversal::Infallible, false);
     let (allocator, tracker) = tracking_allocator();
@@ -185,27 +189,51 @@ fn packed_boolean_payload_uses_allocator(
         .create_execution_ctx()
         .with_allocator(allocator);
 
-    let output = match (multiversioned, deferred) {
-        (false, false) => {
+    let output = match (multiversioned, traversal) {
+        (false, Traversal::Infallible) => {
             execute_owned_infallible_bool::<(i64,), false>(&args, &mut ctx, |(value,)| value > 2)?
         }
-        (true, false) => {
+        (true, Traversal::Infallible) => {
             execute_owned_infallible_bool::<(i64,), true>(&args, &mut ctx, |(value,)| value > 2)?
         }
-        (false, true) => execute_owned_bool::<(i64,), (), bool, false>(
+        (false, Traversal::Fallible) => execute_owned_bool::<(i64,), (), bool, false>(
             &args,
             &mut ctx,
             |_| (),
             |_, (value,)| (value > 2, false),
             |_| Ok(()),
         )?,
-        (true, true) => execute_owned_bool::<(i64,), (), bool, true>(
+        (true, Traversal::Fallible) => execute_owned_bool::<(i64,), (), bool, true>(
             &args,
             &mut ctx,
             |_| (),
             |_, (value,)| (value > 2, false),
             |_| Ok(()),
         )?,
+        (multiversioned, Traversal::DenseAttempt) => {
+            let attempt = if multiversioned {
+                execute_bool_dense_attempt::<(i64,), (), bool, true>(
+                    &args,
+                    &mut ctx,
+                    |_| (),
+                    |_, (value,)| (value > 2, false),
+                    |_| Ok(()),
+                )?
+            } else {
+                execute_bool_dense_attempt::<(i64,), (), bool, false>(
+                    &args,
+                    &mut ctx,
+                    |_| (),
+                    |_, (value,)| (value > 2, false),
+                    |_| Ok(()),
+                )?
+            };
+            match attempt {
+                DenseAttempt::Values(values) => values,
+                DenseAttempt::DeferredError(error) => return Err(error),
+            }
+        }
+        _ => vortex_bail!("this test traversal requires packed Boolean output"),
     };
     tracker.assert_owns(output.as_::<Bool>().to_bit_buffer().inner().as_slice());
     assert_eq!(tracker.live_allocations(), 1);
