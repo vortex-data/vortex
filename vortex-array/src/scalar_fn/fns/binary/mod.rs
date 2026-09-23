@@ -287,11 +287,11 @@ impl ScalarFnVTable for Binary {
             }
             (Some(left_const), None) => match (is_and, left_const.as_bool()) {
                 (true, true) | (false, false) => right,
-                (is_and, left_const) => left.new_constant((left_const > is_and).into()),
+                (is_and, left_const) => left.new_constant((left_const && !is_and).into()),
             },
             (None, Some(right_const)) => match (is_and, right_const.as_bool()) {
                 (true, true) | (false, false) => left,
-                (is_and, right_const) => right.new_constant((right_const > is_and).into()),
+                (is_and, right_const) => right.new_constant((right_const && !is_and).into()),
             },
         }))
     }
