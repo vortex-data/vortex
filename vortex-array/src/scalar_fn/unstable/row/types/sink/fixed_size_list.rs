@@ -10,7 +10,6 @@ use std::mem::MaybeUninit;
 use std::sync::Arc;
 
 use vortex_buffer::BufferAllocatorRef;
-use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -22,6 +21,7 @@ use crate::arrays::FixedSizeListArray;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::scalar_fn::unstable::row::FillDefault;
+use crate::scalar_fn::unstable::row::OutputBuffer;
 use crate::scalar_fn::unstable::row::OutputElement;
 use crate::scalar_fn::unstable::row::ViewLen;
 use crate::validity::Validity;
@@ -87,9 +87,9 @@ impl<T: Copy + Default> FillDefault for FixedSizeRows<'_, T> {
 /// and validates that physical parameter before calling [`RowVisitor::visit_into`].
 ///
 /// [`RowVisitor::visit_into`]: crate::scalar_fn::unstable::row::RowVisitor::visit_into
-pub struct FixedSizeListSink<T> {
+pub struct FixedSizeListSink<T: OutputElement> {
     /// Spare flat storage written one fixed-size row at a time.
-    values: BufferMut<T>,
+    values: T::Buffer,
     /// Allocator for any physical conversion when the sink finishes.
     allocator: BufferAllocatorRef,
     /// The number of elements in each output row.
@@ -102,7 +102,8 @@ pub struct FixedSizeListSink<T> {
 // shape for its lifetime. Each row is one disjoint `width`-element slice. `InitializedRow::fill`
 // requires the entire current row and preservation of its initialization until the callback
 // returns its private token. `FixedSizeRows::fill_default` writes every flat element before masked
-// traversal. `values` retains length zero until every row is safe to publish in `finish`.
+// traversal. `OutputBuffer` preserves initialized slots across row views and permits abandoning
+// partially initialized storage.
 unsafe impl<T: OutputElement + Copy + Default> OutputSink for FixedSizeListSink<T> {
     type Params = usize;
     type Rows<'a> = FixedSizeRows<'a, T>;
@@ -131,7 +132,7 @@ unsafe impl<T: OutputElement + Copy + Default> OutputSink for FixedSizeListSink<
         })?;
 
         Ok(Self {
-            values: allocator.with_capacity(element_capacity),
+            values: T::allocate(element_capacity, allocator),
             allocator: allocator.clone(),
             width,
             row_count: rows,
@@ -140,7 +141,7 @@ unsafe impl<T: OutputElement + Copy + Default> OutputSink for FixedSizeListSink<
 
     fn rows(&mut self) -> Self::Rows<'_> {
         FixedSizeRows {
-            elements: &mut self.values.spare_capacity_mut()[..self.row_count * self.width],
+            elements: &mut self.values.slots()[..self.row_count * self.width],
             width: self.width,
             row_count: self.row_count,
         }
@@ -155,14 +156,11 @@ unsafe impl<T: OutputElement + Copy + Default> OutputSink for FixedSizeListSink<
         unsafe { rows.elements.get_unchecked_mut(start..end) }
     }
 
-    unsafe fn finish(mut self) -> VortexResult<ArrayRef> {
+    unsafe fn finish(self) -> VortexResult<ArrayRef> {
         let element_count = self.row_count * self.width;
 
-        // SAFETY: the caller guarantees every row was initialized, and `with_capacity` reserved
-        // `row_count * width` elements.
-        unsafe { self.values.set_len(element_count) };
-
-        let elements = T::build(self.values, &self.allocator);
+        // SAFETY: the caller guarantees every row's `width` elements were initialized.
+        let elements = unsafe { self.values.finish(element_count, &self.allocator) };
         let lists = FixedSizeListArray::new(
             elements,
             fixed_size_list_size(self.width),

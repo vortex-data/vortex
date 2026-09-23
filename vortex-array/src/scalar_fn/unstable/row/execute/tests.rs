@@ -3,7 +3,10 @@
 
 //! Verifies ownership of RowFn output allocations independently of input decoding.
 
+use std::mem::MaybeUninit;
+
 use rstest::rstest;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -34,16 +37,20 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBinView;
 use crate::arrays::bool::BoolArrayExt;
 use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
+use crate::assert_arrays_eq;
+use crate::dtype::DType;
 use crate::memory::MemorySessionExt;
 use crate::memory::test_allocator::tracking_allocator;
 use crate::scalar_fn::VecExecutionArgs;
 use crate::scalar_fn::unstable::row::FixedSizeListSink;
 use crate::scalar_fn::unstable::row::InitializedElement;
+use crate::scalar_fn::unstable::row::OutputBuffer;
 use crate::scalar_fn::unstable::row::OutputElement;
 use crate::scalar_fn::unstable::row::OutputSink;
 use crate::scalar_fn::unstable::row::SinkResult;
 use crate::scalar_fn::unstable::row::UninitElementSink;
 use crate::scalar_fn::unstable::row::Utf8Sink;
+use crate::validity::Validity;
 
 #[derive(Clone, Copy)]
 enum Traversal {
@@ -282,11 +289,18 @@ fn sink_payloads_use_allocator(#[case] traversal: Traversal) -> VortexResult<()>
 }
 
 #[test]
-fn primitive_build_reuses_allocation() {
+fn primitive_finish_reuses_allocation() {
     let (allocator, tracker) = tracking_allocator();
-    let values = allocator.copy_from([1_i64, 2, 3]);
-    let ptr = values.as_ptr();
-    let output = i64::build(values, &allocator);
+    let mut values = i64::allocate(3, &allocator);
+    let slots = &mut values.slots()[..3];
+    let ptr = slots.as_ptr().cast::<i64>();
+
+    for (slot, value) in slots.iter_mut().zip([1, 2, 3]) {
+        slot.write(value);
+    }
+
+    // SAFETY: all three slots were initialized above.
+    let output = unsafe { values.finish(3, &allocator) };
     assert_eq!(output.as_::<Primitive>().as_slice::<i64>().as_ptr(), ptr);
     tracker.assert_owns(output.as_::<Primitive>().as_slice::<i64>());
 }
@@ -389,5 +403,56 @@ fn fixed_size_list_payload_uses_allocator() -> VortexResult<()> {
             .as_slice::<i64>(),
     );
     assert_eq!(tracker.live_allocations(), 1);
+    Ok(())
+}
+
+/// A zero-sized element whose collection storage does not depend on Vortex buffers.
+#[derive(Clone, Copy, Default)]
+struct One;
+
+impl OutputElement for One {
+    type Buffer = Vec<MaybeUninit<Self>>;
+
+    fn element_dtype() -> DType {
+        i64::element_dtype()
+    }
+
+    fn allocate(rows: usize, _allocator: &BufferAllocatorRef) -> Self::Buffer {
+        vec![MaybeUninit::uninit(); rows]
+    }
+}
+
+// SAFETY: the vector retains the same slots, and MaybeUninit permits partial initialization.
+unsafe impl OutputBuffer<One> for Vec<MaybeUninit<One>> {
+    fn slots(&mut self) -> &mut [MaybeUninit<One>] {
+        self.as_mut_slice()
+    }
+
+    unsafe fn finish(self, len: usize, allocator: &BufferAllocatorRef) -> ArrayRef {
+        let mut values = allocator.with_capacity(len);
+        values.extend(std::iter::repeat_n(1_i64, len));
+        PrimitiveArray::new(values.freeze(), Validity::NonNullable).into_array()
+    }
+}
+
+#[rstest]
+#[case::infallible(Traversal::Infallible)]
+#[case::fallible(Traversal::Fallible)]
+#[case::dense_attempt(Traversal::DenseAttempt)]
+#[case::selected(Traversal::Selected)]
+#[case::filtered(Traversal::Filtered)]
+fn zero_sized_output_uses_its_own_storage(#[case] traversal: Traversal) -> VortexResult<()> {
+    let args = canonical_args(traversal, false);
+    let valid = selected_rows();
+    let expected = PrimitiveArray::from_iter([1_i64; 3]).into_array();
+    let (allocator, tracker) = tracking_allocator();
+    let mut ctx = array_session()
+        .create_execution_ctx()
+        .with_allocator(allocator);
+
+    let output = collect_owned::<One>(traversal, &args, &valid, &mut ctx, |_| One)?;
+    assert_arrays_eq!(&output, &expected, &mut ctx);
+    tracker.assert_owns(output.as_::<Primitive>().as_slice::<i64>());
+
     Ok(())
 }

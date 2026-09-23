@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::mem::MaybeUninit;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
@@ -45,6 +46,7 @@ use crate::scalar_fn::VecExecutionArgs;
 use crate::scalar_fn::unstable::row::FixedSizeListSink;
 use crate::scalar_fn::unstable::row::InitializedRow;
 use crate::scalar_fn::unstable::row::InputElement;
+use crate::scalar_fn::unstable::row::OutputBuffer;
 use crate::scalar_fn::unstable::row::OutputElement;
 use crate::scalar_fn::unstable::row::OutputSink;
 use crate::scalar_fn::unstable::row::RowFn;
@@ -253,14 +255,31 @@ unsafe impl InputElement for DenseRetryI64 {
 struct NullProducingI64(i64);
 
 impl OutputElement for NullProducingI64 {
+    type Buffer = BufferMut<Self>;
+
     fn element_dtype() -> DType {
         DType::from(i64::PTYPE)
     }
 
-    fn build(values: BufferMut<Self>, allocator: &BufferAllocatorRef) -> ArrayRef {
-        let mut output = allocator.with_capacity(values.len());
-        output.extend(values.iter().map(|value| value.0));
-        let validity = Validity::from_iter((0..values.len()).map(|index| index != 0));
+    fn allocate(rows: usize, allocator: &BufferAllocatorRef) -> Self::Buffer {
+        allocator.with_capacity(rows)
+    }
+}
+
+// SAFETY: clearing the length preserves the slots, and these values require no destruction.
+unsafe impl OutputBuffer<NullProducingI64> for BufferMut<NullProducingI64> {
+    fn slots(&mut self) -> &mut [MaybeUninit<NullProducingI64>] {
+        self.clear();
+        self.spare_capacity_mut()
+    }
+
+    unsafe fn finish(mut self, len: usize, allocator: &BufferAllocatorRef) -> ArrayRef {
+        // SAFETY: the caller initialized the first `len` slots.
+        unsafe { self.set_len(len) };
+
+        let mut output = allocator.with_capacity(len);
+        output.extend(self.iter().map(|value| value.0));
+        let validity = Validity::from_iter((0..len).map(|index| index != 0));
 
         PrimitiveArray::new(output.freeze(), validity).into_array()
     }

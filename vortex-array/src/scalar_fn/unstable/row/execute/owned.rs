@@ -23,6 +23,7 @@ use crate::ExecutionCtx;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::unstable::row::FailureEvidence;
 use crate::scalar_fn::unstable::row::IndexedElementTuple;
+use crate::scalar_fn::unstable::row::OutputBuffer;
 use crate::scalar_fn::unstable::row::OutputElement;
 use crate::scalar_fn::unstable::row::types::decoded_source;
 use crate::scalar_fn::unstable::row::visitor::assert_owned_output_needs_no_drop;
@@ -141,8 +142,13 @@ where
 
     let prepared = prepare(Args::const_values(&columns));
     let valid_rows = valid.bit_buffer();
-    let mut values = ctx.allocator().with_capacity::<Out>(valid_rows.len());
-    values.extend(std::iter::repeat_with(Out::default).take(valid_rows.len()));
+    let mut values = Out::allocate(valid_rows.len(), ctx.allocator());
+    let output = &mut values.slots()[..valid_rows.len()];
+
+    for slot in output.iter_mut() {
+        slot.write(Out::default());
+    }
+
     let mut failure = Fail::default();
     let mut filtered_index = 0;
 
@@ -158,8 +164,8 @@ where
             let elements = unsafe { Args::get_from_views_unchecked(&views, filtered_index) };
             let (value, row_failure) = apply(&prepared, elements);
 
-            // SAFETY: every set index is below the mask length, which sized `values`.
-            unsafe { *values.get_unchecked_mut(index) = value };
+            // SAFETY: every set index is below the mask length, which sized `output`.
+            unsafe { output.get_unchecked_mut(index) }.write(value);
             failure |= row_failure;
             filtered_index += 1;
         });
@@ -172,8 +178,8 @@ where
         valid_rows.for_each_set_index(|index| {
             let (value, row_failure) = apply(&prepared, Args::get(&columns, filtered_index));
 
-            // SAFETY: every set index is below the mask length, which sized `values`.
-            unsafe { *values.get_unchecked_mut(index) = value };
+            // SAFETY: every set index is below the mask length, which sized `output`.
+            unsafe { output.get_unchecked_mut(index) }.write(value);
             failure |= row_failure;
             filtered_index += 1;
         });
@@ -181,7 +187,8 @@ where
 
     finish_failure(failure)?;
 
-    Ok(Out::build(values, ctx.allocator()))
+    // SAFETY: every output slot contains either its placeholder or the row result.
+    Ok(unsafe { values.finish(valid_rows.len(), ctx.allocator()) })
 }
 
 /// Decode nullable inputs, then store outputs and combine failure evidence for valid rows.
@@ -214,8 +221,13 @@ where
     );
 
     let prepared = prepare(Args::const_values(&columns));
-    let mut values = ctx.allocator().with_capacity::<Out>(row_count);
-    values.extend(std::iter::repeat_with(Out::default).take(row_count));
+    let mut values = Out::allocate(row_count, ctx.allocator());
+    let output = &mut values.slots()[..row_count];
+
+    for slot in output.iter_mut() {
+        slot.write(Out::default());
+    }
+
     let mut failure = Fail::default();
 
     if let Some(views) = Args::views_if_no_consts(&columns) {
@@ -231,7 +243,7 @@ where
             let (value, row_failure) = apply(&prepared, elements);
 
             // SAFETY: the mask length check proved that every set index is below `row_count`.
-            unsafe { *values.get_unchecked_mut(index) = value };
+            unsafe { output.get_unchecked_mut(index) }.write(value);
             failure |= row_failure;
         });
     } else {
@@ -244,14 +256,15 @@ where
             let (value, row_failure) = apply(&prepared, Args::get(&columns, index));
 
             // SAFETY: the mask length check proved that every set index is below `row_count`.
-            unsafe { *values.get_unchecked_mut(index) = value };
+            unsafe { output.get_unchecked_mut(index) }.write(value);
             failure |= row_failure;
         });
     }
 
     finish_failure(failure)?;
 
-    Ok(Some(Out::build(values, ctx.allocator())))
+    // SAFETY: every output slot contains either its placeholder or the row result.
+    Ok(Some(unsafe { values.finish(row_count, ctx.allocator()) }))
 }
 
 /// Decode every input column, then store outputs and combine per-row failure evidence.
@@ -267,8 +280,7 @@ where
     Out: OutputElement,
     Fail: FailureEvidence,
 {
-    // The output buffer stays at length zero until every slot is initialized so that an unwind
-    // abandons partially initialized spare capacity. This no-drop assertion proves that no
+    // Errors and unwinds abandon partially initialized slots. The assertion ensures that no
     // initialized value requires a destructor to run.
     const { assert_owned_output_needs_no_drop::<Out>() };
 
@@ -276,20 +288,17 @@ where
     let prepared = prepare(Args::const_values(&columns));
 
     let row_count = args.row_count();
-    let mut values = ctx.allocator().with_capacity::<Out>(row_count);
-    let output = &mut values.spare_capacity_mut()[..row_count];
+    let mut values = Out::allocate(row_count, ctx.allocator());
+    let output = &mut values.slots()[..row_count];
 
     let Some(source) = decoded_source::<Args>(&columns, row_count) else {
         vortex_bail!("a decoded row input does not address exactly {row_count} rows");
     };
     let failure = source.map_checked_into(output, |elements| apply(&prepared, elements));
 
-    // SAFETY: normal completion initializes `0..row_count` exactly once, and `values` was
-    // allocated with at least `row_count` capacity.
-    unsafe { values.set_len(row_count) };
-
     // Defer rich error construction until after the row loop.
     finish_failure(failure)?;
 
-    Ok(Out::build(values, ctx.allocator()))
+    // SAFETY: normal completion of `map_checked_into` initializes every output slot.
+    Ok(unsafe { values.finish(row_count, ctx.allocator()) })
 }

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::mem::MaybeUninit;
+
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
@@ -18,6 +20,7 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::scalar::ScalarValue;
 use crate::scalar_fn::unstable::row::InputElement;
+use crate::scalar_fn::unstable::row::OutputBuffer;
 use crate::scalar_fn::unstable::row::OutputElement;
 use crate::validity::Validity;
 
@@ -92,21 +95,14 @@ unsafe impl InputElement for bool {
 }
 
 impl OutputElement for bool {
+    type Buffer = BufferMut<Self>;
+
     fn element_dtype() -> DType {
         DType::Bool(Nullability::NonNullable)
     }
 
-    fn build(values: BufferMut<Self>, allocator: &BufferAllocatorRef) -> ArrayRef {
-        let values = values.as_slice();
-        let packed = BitBuffer::collect_bool_multiversioned_in(
-            values.len(),
-            |index| {
-                // SAFETY: the collector only requests indices below `values.len()`.
-                unsafe { *values.get_unchecked(index) }
-            },
-            allocator.clone(),
-        );
-        BoolArray::new(packed, Validity::NonNullable).into_array()
+    fn allocate(rows: usize, allocator: &BufferAllocatorRef) -> Self::Buffer {
+        allocator.with_capacity(rows)
     }
 
     fn build_from<S, F>(source: S, apply: F, allocator: &BufferAllocatorRef) -> ArrayRef
@@ -126,5 +122,30 @@ impl OutputElement for bool {
         );
 
         BoolArray::new(values, Validity::NonNullable).into_array()
+    }
+}
+
+// SAFETY: clearing the length preserves the contents and exposes the same allocation each time.
+// Booleans require no destruction when a partially initialized buffer is abandoned.
+unsafe impl OutputBuffer<bool> for BufferMut<bool> {
+    fn slots(&mut self) -> &mut [MaybeUninit<bool>] {
+        self.clear();
+        self.spare_capacity_mut()
+    }
+
+    unsafe fn finish(mut self, len: usize, allocator: &BufferAllocatorRef) -> ArrayRef {
+        // SAFETY: the caller initialized the first `len` slots of this buffer's spare capacity.
+        unsafe { self.set_len(len) };
+
+        let values = self.as_slice();
+        let packed = BitBuffer::collect_bool_multiversioned_in(
+            values.len(),
+            |index| {
+                // SAFETY: the collector only requests indices below `values.len()`.
+                unsafe { *values.get_unchecked(index) }
+            },
+            allocator.clone(),
+        );
+        BoolArray::new(packed, Validity::NonNullable).into_array()
     }
 }
