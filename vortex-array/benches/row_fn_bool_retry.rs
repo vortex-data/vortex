@@ -95,10 +95,7 @@ fn main() {
 
 #[vortex_bench_support::cpu_features]
 #[divan::bench(args = CASES, consts = SIZES)]
-fn deferred_bool<const ROWS: usize>(
-    bencher: Bencher,
-    &(shape, scenario): &(InputShape, Scenario),
-) {
+fn deferred_bool<const ROWS: usize>(bencher: Bencher, &(shape, scenario): &(InputShape, Scenario)) {
     let validity = Validity::Array(
         BoolArray::from_iter((0..ROWS).map(|index| !index.is_multiple_of(8))).into_array(),
     );
