@@ -255,7 +255,7 @@ mod test {
                 )
                 .unwrap(),
             ),
-            1,
+            buffer![0u64, 128].into_array(),
             8,
             0,
         )

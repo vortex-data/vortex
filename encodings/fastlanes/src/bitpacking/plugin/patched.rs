@@ -18,6 +18,7 @@ use vortex_session::VortexSession;
 use super::BitPackedPlugin;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
+use crate::BitPackedArraySlotsExt;
 
 /// Custom deserialization plugin that converts a BitPacked array with interior
 /// Patches into a PatchedArray holding a BitPacked array.
@@ -57,12 +58,12 @@ impl ArrayPlugin for BitPackedPatchedPlugin {
         let packed = bitpacked.packed().clone();
         let ptype = bitpacked.dtype().as_ptype();
         let validity = bitpacked.validity()?;
-        let bw = bitpacked.bit_width;
+        let offsets = bitpacked.chunk_offsets().clone();
         let len = bitpacked.len();
         let offset = bitpacked.offset();
 
         let bitpacked_without_patches =
-            BitPacked::try_new(packed, ptype, validity, None, bw, len, offset)?.into_array();
+            BitPacked::try_new(packed, ptype, validity, None, offsets, len, offset)?.into_array();
 
         let patched = Patched::from_array_and_patches(
             bitpacked_without_patches,
@@ -125,7 +126,7 @@ mod tests {
         let array = bitpacked.as_array();
 
         let serialization = SESSION.array_serialize(array)?.unwrap();
-        let children = serialization.children;
+        let children = serialization.children.clone();
         let buffers = array
             .buffers()
             .into_iter()
@@ -178,7 +179,7 @@ mod tests {
         let array = bitpacked.as_array();
 
         let serialization = SESSION.array_serialize(array)?.unwrap();
-        let children = serialization.children;
+        let children = serialization.children.clone();
         let buffers = array
             .buffers()
             .into_iter()
@@ -211,7 +212,7 @@ mod tests {
         let array = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
 
         let serialization = SESSION.array_serialize(&array)?.unwrap();
-        let children = serialization.children;
+        let children = serialization.children.clone();
         let buffers = array
             .buffers()
             .into_iter()

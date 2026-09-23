@@ -34,20 +34,22 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::BitPackedArrayExt;
+use crate::BitPackedArraySlotsExt;
 use crate::BitPackedData;
 use crate::BitPackedDataParts;
-use crate::FL_CHUNK_SIZE;
-use crate::bitpack_decompress::unpack_array;
-use crate::bitpack_decompress::unpack_into_primitive_builder;
 use crate::bitpacking::array::BitPackedSlots;
 use crate::bitpacking::array::BitPackedSlotsView;
+use crate::bitpacking::array::CHUNK_OFFSETS_DTYPE;
 use crate::bitpacking::array::PATCH_SLOTS;
-use crate::bitpacking::array::uniform_chunk_offsets;
+use crate::bitpacking::array::materialized_layout;
+use crate::bitpacking::bitpack_decompress::unpack_array;
+use crate::bitpacking::bitpack_decompress::unpack_into_primitive_builder;
 use crate::bitpacking::vtable::rules::RULES;
 mod kernels;
 mod operations;
@@ -112,16 +114,13 @@ impl VTable for BitPacked {
         let validity = child_to_validity(bp_slots.validity_child, dtype.nullability());
         let patches =
             PatchesData::patches_from_slots(data.patches_data.as_ref(), len, slots, PATCH_SLOTS);
-        BitPackedData::validate(
-            &data.packed,
+        data.validate(
             dtype.as_ptype(),
             &validity,
             patches.as_ref(),
-            data.bit_width,
+            bp_slots.chunk_offsets,
             len,
-            data.offset,
-        )?;
-        data.validate_chunk_offsets(bp_slots.chunk_offsets, len)
+        )
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -227,35 +226,45 @@ impl VTable for BitPacked {
 pub struct BitPacked;
 
 impl BitPacked {
+    /// Build a bit-packed array with one byte boundary per chunk and a trailing boundary.
+    /// Offsets may have a nonzero origin, which is subtracted when indexing the packed buffer.
     pub fn try_new(
         packed: BufferHandle,
         ptype: PType,
         validity: Validity,
         patches: Option<Patches>,
-        bit_width: u8,
+        chunk_offsets: ArrayRef,
         len: usize,
         offset: u16,
     ) -> VortexResult<BitPackedArray> {
+        vortex_ensure!(
+            chunk_offsets.dtype() == &CHUNK_OFFSETS_DTYPE,
+            "Expected non-nullable u64 offsets"
+        );
+        let layout = materialized_layout(&chunk_offsets)?.ok_or_else(|| {
+            vortex_err!("Chunk offsets must be materialized while kernels use bit_width")
+        })?;
+        let bit_width = layout.uniform_width().unwrap_or(0);
         let dtype = DType::Primitive(ptype, validity.nullability());
         let slots = {
             let mut s = ArraySlots::with_capacity(BitPackedSlots::COUNT);
             PatchesData::push_slots(&mut s, patches.as_ref());
             s.push(validity_to_child(&validity, len));
-            let num_chunks = (len + offset as usize).div_ceil(FL_CHUNK_SIZE);
-            s.push(Some(uniform_chunk_offsets(bit_width, num_chunks)));
+            s.push(Some(chunk_offsets));
             s
         };
         let data = BitPackedData::try_new(packed, patches, bit_width, offset)?;
         Array::try_from_parts(ArrayParts::new(BitPacked, dtype, len, data).with_slots(slots))
     }
 
-    /// Replace the byte boundaries. Every chunk must still imply the scalar `bit_width`.
+    /// Replace the non-nullable `u64` chunk boundaries, including the trailing boundary.
+    /// Boundaries must remain materialized and imply the scalar `bit_width`.
     pub fn with_chunk_offsets(
         array: BitPackedArray,
-        table: ArrayRef,
+        offsets: ArrayRef,
     ) -> VortexResult<BitPackedArray> {
         let mut slots: ArraySlots = array.slots().iter().cloned().collect();
-        slots[BitPackedSlots::CHUNK_OFFSETS] = Some(table);
+        slots[BitPackedSlots::CHUNK_OFFSETS] = Some(offsets);
         let dtype = array.dtype().clone();
         let len = array.len();
         Array::try_from_parts(
@@ -267,10 +276,12 @@ impl BitPacked {
         let len = array.len();
         let patches = array.patches();
         let validity = array.validity().vortex_expect("BitPacked validity");
+        let chunk_offsets = array.chunk_offsets().clone();
         let data = array.into_data();
         BitPackedDataParts {
             offset: data.offset,
             bit_width: data.bit_width,
+            chunk_offsets,
             len,
             packed: data.packed,
             patches,
