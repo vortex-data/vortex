@@ -8,6 +8,6 @@ root: vortex.ext(vortex.timestamp[µs, tz=UTC](i64), len=16384) nbytes=67720
   storage: fastlanes.for(i64, len=16384) nbytes=67720
     metadata: reference: 1700000000891673i64
     encoded: fastlanes.bitpacked(i64, len=16384) nbytes=67720
-      metadata: bit_width: 33, offset: 0
+      metadata: offset: 0
       chunk_offsets: vortex.primitive(u64, len=17) nbytes=136
         metadata: ptype: u64

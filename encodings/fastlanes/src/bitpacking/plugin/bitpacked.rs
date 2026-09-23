@@ -181,7 +181,7 @@ impl ArrayPlugin for BitPackedPlugin {
             s.push(Some(offsets));
             s
         };
-        let data = BitPackedData::try_new(packed, patches, bit_width, offset)?;
+        let data = BitPackedData::try_new(packed, patches, offset)?;
         Ok(Array::<BitPacked>::try_from_parts(
             ArrayParts::new(BitPacked, dtype.clone(), len, data).with_slots(slots),
         )?

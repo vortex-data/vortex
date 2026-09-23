@@ -6,7 +6,7 @@ input: utf8, len=16384, nbytes=262144
 root: vortex.dict(utf8, len=16384) nbytes=8509
   metadata: all_values_referenced: true
   codes: fastlanes.bitpacked(u8, len=16384) nbytes=8328
-    metadata: bit_width: 4, offset: 0
+    metadata: offset: 0
     chunk_offsets: vortex.primitive(u64, len=17) nbytes=136
       metadata: ptype: u64
   values: vortex.fsst(utf8, len=12) nbytes=181

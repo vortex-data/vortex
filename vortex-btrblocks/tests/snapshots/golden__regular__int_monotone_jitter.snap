@@ -6,6 +6,6 @@ input: u64, len=16384, nbytes=131072
 root: fastlanes.for(u64, len=16384) nbytes=49288
   metadata: reference: 1700000001036u64
   encoded: fastlanes.bitpacked(u64, len=16384) nbytes=49288
-    metadata: bit_width: 24, offset: 0
+    metadata: offset: 0
     chunk_offsets: vortex.primitive(u64, len=17) nbytes=136
       metadata: ptype: u64

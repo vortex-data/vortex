@@ -12,6 +12,6 @@ root: vortex.fsst(utf8, len=16384) nbytes=151526
     patch_values: vortex.constant(u8, len=1575) nbytes=2
       metadata: scalar: 23u8
   codes_offsets: fastlanes.bitpacked(u32, len=16385) nbytes=37136
-    metadata: bit_width: 17, offset: 0
+    metadata: offset: 0
     chunk_offsets: vortex.primitive(u64, len=18) nbytes=144
       metadata: ptype: u64
