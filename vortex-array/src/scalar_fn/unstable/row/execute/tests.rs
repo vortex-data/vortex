@@ -4,6 +4,7 @@
 //! Verifies ownership of RowFn output allocations independently of input decoding.
 
 use std::mem::MaybeUninit;
+use std::ops::BitOrAssign;
 
 use rstest::rstest;
 use vortex_buffer::BufferAllocatorRef;
@@ -42,6 +43,7 @@ use crate::dtype::DType;
 use crate::memory::MemorySessionExt;
 use crate::memory::test_allocator::tracking_allocator;
 use crate::scalar_fn::VecExecutionArgs;
+use crate::scalar_fn::unstable::row::FailureEvidence;
 use crate::scalar_fn::unstable::row::FixedSizeListSink;
 use crate::scalar_fn::unstable::row::InitializedElement;
 use crate::scalar_fn::unstable::row::OutputBuffer;
@@ -61,7 +63,7 @@ enum Traversal {
     Filtered,
 }
 
-fn collect_owned<Out: OutputElement>(
+fn collect_owned<Out: OutputElement, Fail: FailureEvidence>(
     traversal: Traversal,
     args: &VecExecutionArgs,
     valid: &MaskValuesRef,
@@ -75,19 +77,19 @@ fn collect_owned<Out: OutputElement>(
             |_| (),
             |_, (value,)| apply(value),
         ),
-        Traversal::Fallible => execute_owned::<(i64,), Out, (), bool>(
+        Traversal::Fallible => execute_owned::<(i64,), Out, (), Fail>(
             args,
             ctx,
             |_| (),
-            |_, (value,)| (apply(value), false),
+            |_, (value,)| (apply(value), Fail::default()),
             |_| Ok(()),
         ),
         Traversal::DenseAttempt => {
-            match execute_owned_dense_attempt::<(i64,), Out, (), bool>(
+            match execute_owned_dense_attempt::<(i64,), Out, (), Fail>(
                 args,
                 ctx,
                 |_| (),
-                |_, (value,)| (apply(value), false),
+                |_, (value,)| (apply(value), Fail::default()),
                 |_| Ok(()),
             )? {
                 DenseAttempt::Values(values) => Ok(values),
@@ -156,9 +158,9 @@ fn owned_payload_uses_context_allocator(
         .with_allocator(allocator);
 
     let output = if boolean {
-        collect_owned(traversal, &args, &valid, &mut ctx, |value| value % 2 == 0)?
+        collect_owned::<_, bool>(traversal, &args, &valid, &mut ctx, |value| value % 2 == 0)?
     } else {
-        collect_owned(traversal, &args, &valid, &mut ctx, |value| value)?
+        collect_owned::<_, bool>(traversal, &args, &valid, &mut ctx, |value| value)?
     };
     if boolean {
         tracker.assert_owns(output.as_::<Bool>().to_bit_buffer().inner().as_slice());
@@ -406,6 +408,14 @@ fn fixed_size_list_payload_uses_allocator() -> VortexResult<()> {
     Ok(())
 }
 
+// Zero-sized outputs require failure evidence that is also zero-sized.
+#[derive(Clone, Copy, Default)]
+struct NoFailure;
+
+impl BitOrAssign for NoFailure {
+    fn bitor_assign(&mut self, _rhs: Self) {}
+}
+
 /// A zero-sized element whose collection storage does not depend on Vortex buffers.
 #[derive(Clone, Copy, Default)]
 struct One;
@@ -450,7 +460,7 @@ fn zero_sized_output_uses_its_own_storage(#[case] traversal: Traversal) -> Vorte
         .create_execution_ctx()
         .with_allocator(allocator);
 
-    let output = collect_owned::<One>(traversal, &args, &valid, &mut ctx, |_| One)?;
+    let output = collect_owned::<One, NoFailure>(traversal, &args, &valid, &mut ctx, |_| One)?;
     assert_arrays_eq!(&output, &expected, &mut ctx);
     tracker.assert_owns(output.as_::<Primitive>().as_slice::<i64>());
 
