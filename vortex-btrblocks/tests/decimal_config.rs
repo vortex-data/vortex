@@ -104,6 +104,40 @@ fn decimal_mode_follows_permissions(
 }
 
 #[rstest]
+fn decimal_mode_uses_final_permissions(#[values(false, true)] wide: bool) -> VortexResult<()> {
+    let builder =
+        BtrBlocksCompressorBuilder::default().allow_encodings([decimal_byte_parts_v2_id()]);
+    assert_decimal_output(
+        builder.clone(),
+        wide,
+        Some(if wide {
+            decimal_byte_parts_v2_id()
+        } else {
+            decimal_byte_parts_v1_id()
+        }),
+    )?;
+
+    assert_decimal_output(
+        builder.set_allowed_encodings([decimal_byte_parts_v1_id()]),
+        wide,
+        (!wide).then(decimal_byte_parts_v1_id),
+    )
+}
+
+#[rstest]
+fn permissions_can_reenable_decimal_v2_after_cuda(
+    #[values(false, true)] replace: bool,
+) -> VortexResult<()> {
+    let builder = BtrBlocksCompressorBuilder::default().only_cuda_compatible();
+    let builder = if replace {
+        builder.set_allowed_encodings([decimal_byte_parts_v1_id(), decimal_byte_parts_v2_id()])
+    } else {
+        builder.allow_encodings([decimal_byte_parts_v2_id()])
+    };
+    assert_decimal_output(builder, true, Some(decimal_byte_parts_v2_id()))
+}
+
+#[rstest]
 fn explicit_decimal_modes_only_upgrade(
     #[values(false, true)] allowed_v2: bool,
     #[values(false, true)] initial_v2: bool,
@@ -114,7 +148,9 @@ fn explicit_decimal_modes_only_upgrade(
     if allowed_v2 {
         allowed.insert(decimal_byte_parts_v2_id());
     }
-    let builder = BtrBlocksCompressorBuilder::empty(allowed).with_new_scheme(scheme);
+    let builder = BtrBlocksCompressorBuilder::empty()
+        .allow_encodings(allowed)
+        .with_new_scheme(scheme);
     let mode = (!initial_v2 || allowed_v2).then_some(allowed_v2);
     let expected = match mode {
         Some(true) if wide => Some(decimal_byte_parts_v2_id()),
@@ -140,7 +176,7 @@ fn cuda_never_uses_decimal_v2(
 ) -> VortexResult<()> {
     let allowed = HashSet::from([decimal_byte_parts_v1_id(), decimal_byte_parts_v2_id()]);
     let scheme: &'static dyn Scheme = if initial_v2 { &DECIMAL_V2 } else { &DECIMAL_V1 };
-    let mut builder = BtrBlocksCompressorBuilder::empty(allowed);
+    let mut builder = BtrBlocksCompressorBuilder::empty().allow_encodings(allowed);
     if !register_later {
         builder = builder.with_new_scheme(scheme);
     }
@@ -200,7 +236,8 @@ fn wide_decimal_parts_roundtrip(
         allowed.extend(FoRScheme.produced_encodings());
         allowed.extend(BitPackingScheme.produced_encodings());
     }
-    let compressor = BtrBlocksCompressorBuilder::empty(allowed)
+    let compressor = BtrBlocksCompressorBuilder::empty()
+        .allow_encodings(allowed)
         .with_new_scheme(&DECIMAL_V2)
         .with_new_scheme(&FoRScheme)
         .with_new_scheme(&BitPackingScheme)

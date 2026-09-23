@@ -566,7 +566,7 @@ pub fn cuda_write_strategy(session: &VortexSession, block_rows: usize) -> Arc<dy
         // An opaque compressor keeps IntDict; disabling the probe avoids u16-sized outer blocks.
         strategy
             .with_compressor(builder.build())
-            .with_probe_compressor(BtrBlocksCompressorBuilder::empty(Default::default()).build())
+            .with_probe_compressor(BtrBlocksCompressorBuilder::empty().build())
             .with_row_block_size(block_rows)
             .with_data_block_target_bytes(None)
             .build()
