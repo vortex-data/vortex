@@ -74,40 +74,6 @@ impl<'a> ResolvedViews<'a> {
     pub fn view_bytes(&self, view: &'a BinaryView) -> &'a [u8] {
         view.bytes(&self.buffers)
     }
-
-    /// Whether every value is ASCII. Validity is not consulted.
-    pub fn is_ascii(&self) -> bool {
-        self.views
-            .iter()
-            .all(|view| self.view_bytes(view).is_ascii())
-    }
-
-    /// The last `suffix_len` bytes of `view`, which must belong to this array.
-    ///
-    /// # Safety
-    ///
-    /// `suffix_len` must be at most `view.len()`.
-    #[inline]
-    pub unsafe fn suffix_bytes_unchecked(
-        &self,
-        view: &'a BinaryView,
-        suffix_len: usize,
-    ) -> &'a [u8] {
-        let len = view.len() as usize;
-        if view.is_inlined() {
-            // SAFETY: caller guarantees suffix_len <= len.
-            unsafe { view.as_inlined().value().get_unchecked(len - suffix_len..) }
-        } else {
-            let view = view.as_view();
-            let end = view.offset as usize + len;
-            // SAFETY: the array validated this view's buffer index and range on construction.
-            unsafe {
-                self.buffers
-                    .get_unchecked(view.buffer_index as usize)
-                    .get_unchecked(end - suffix_len..end)
-            }
-        }
-    }
 }
 
 #[cfg(test)]

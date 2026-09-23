@@ -109,29 +109,3 @@ fn resolves_through_a_slice() -> VortexResult<()> {
     assert_eq!(resolved.bytes(1), BETA);
     Ok(())
 }
-
-#[test]
-fn suffix_bytes_are_value_suffixes() -> VortexResult<()> {
-    let array = two_buffer_array()?;
-    let resolved = ResolvedViews::new(&array);
-
-    for (index, view) in resolved.views().iter().enumerate() {
-        let value = resolved.bytes(index);
-        for suffix_len in 0..=value.len() {
-            // SAFETY: suffix_len <= value.len(), which is view.len().
-            let suffix = unsafe { resolved.suffix_bytes_unchecked(view, suffix_len) };
-            assert_eq!(suffix, &value[value.len() - suffix_len..]);
-        }
-    }
-    Ok(())
-}
-
-#[rstest]
-#[case::inlined(["short", "tiny"], true)]
-#[case::referenced([LONG, "another long value here"], true)]
-#[case::inlined_non_ascii(["short", "é"], false)]
-#[case::referenced_non_ascii([LONG, "a long value ending in é"], false)]
-fn is_ascii(#[case] values: [&str; 2], #[case] expected: bool) {
-    let array = VarBinViewArray::from_iter_str(values);
-    assert_eq!(ResolvedViews::new(&array).is_ascii(), expected);
-}

@@ -231,7 +231,7 @@ pub(crate) fn execute_like(
         // The ASCII case-insensitive fast paths are only sound when the haystack is pure
         // ASCII; see `LikePattern::compile`.
         let ascii_haystack =
-            options.case_insensitive && pattern_str.as_str().is_ascii() && haystack.is_ascii();
+            options.case_insensitive && pattern_str.as_str().is_ascii() && is_ascii(&haystack);
         let compiled = LikePattern::compile(
             pattern_str.as_str(),
             options.case_insensitive,
@@ -247,7 +247,7 @@ pub(crate) fn execute_like(
     let patterns = pattern.clone().execute::<VarBinViewArray>(ctx)?;
     let haystack = ResolvedViews::new(&values);
     let pattern_views = ResolvedViews::new(&patterns);
-    let ascii_haystack = options.case_insensitive && haystack.is_ascii();
+    let ascii_haystack = options.case_insensitive && is_ascii(&haystack);
 
     // Reuse the previous row's compiled pattern while the pattern bytes repeat, so runs of
     // identical patterns (the common case for non-constant pattern children) compile once.
@@ -352,7 +352,7 @@ fn eval_pattern(
                     let matched = unsafe {
                         let view = haystack.views().get_unchecked(i);
                         view.len() as usize >= needle_len
-                            && bytes_eq(haystack.suffix_bytes_unchecked(view, needle_len), needle)
+                            && bytes_eq(suffix_bytes_unchecked(haystack, view, needle_len), needle)
                     };
                     matched != negated
                 },
@@ -384,6 +384,42 @@ fn eval_pattern(
             |i| pattern.matches(haystack.bytes(i)) != negated,
             allocator.clone(),
         ),
+    }
+}
+
+/// Whether every value in `haystack` is ASCII. Validity is not consulted.
+fn is_ascii(haystack: &ResolvedViews<'_>) -> bool {
+    haystack
+        .views()
+        .iter()
+        .all(|view| haystack.view_bytes(view).is_ascii())
+}
+
+/// The last `suffix_len` bytes of `view`, which must belong to `haystack`.
+///
+/// # Safety
+///
+/// `suffix_len` must be at most `view.len()`.
+#[inline]
+unsafe fn suffix_bytes_unchecked<'a>(
+    haystack: &ResolvedViews<'a>,
+    view: &'a BinaryView,
+    suffix_len: usize,
+) -> &'a [u8] {
+    let len = view.len() as usize;
+    if view.is_inlined() {
+        // SAFETY: caller guarantees suffix_len <= len.
+        unsafe { view.as_inlined().value().get_unchecked(len - suffix_len..) }
+    } else {
+        let view = view.as_view();
+        let end = view.offset as usize + len;
+        // SAFETY: the array validated this view's buffer index and range on construction.
+        unsafe {
+            haystack
+                .buffers()
+                .get_unchecked(view.buffer_index as usize)
+                .get_unchecked(end - suffix_len..end)
+        }
     }
 }
 
@@ -455,6 +491,7 @@ mod tests {
     use crate::arrays::ConstantArray;
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
+    use crate::arrays::varbinview::ResolvedViews;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -468,6 +505,10 @@ mod tests {
     use crate::scalar_fn::fns::like::Like;
     use crate::scalar_fn::fns::like::LikeOptions;
     use crate::scalar_fn::fns::like::LikeVariant;
+    use crate::scalar_fn::fns::like::is_ascii;
+    use crate::scalar_fn::fns::like::suffix_bytes_unchecked;
+
+    const LONG: &str = "a value far too long to live inside its own view";
 
     fn run_like(
         array: crate::ArrayRef,
@@ -761,5 +802,29 @@ mod tests {
         assert_eq!(LikeVariant::from_str("%suffix"), None);
         assert_eq!(LikeVariant::from_str(r"%\%%"), None);
         assert_eq!(LikeVariant::from_str("_pattern"), None);
+    }
+
+    #[test]
+    fn suffix_bytes_are_value_suffixes() {
+        let array = VarBinViewArray::from_iter_str(["short", LONG, "another long value here"]);
+        let haystack = ResolvedViews::new(&array);
+        for (index, view) in haystack.views().iter().enumerate() {
+            let value = haystack.bytes(index);
+            for suffix_len in 0..=value.len() {
+                // SAFETY: suffix_len <= value.len(), which is view.len().
+                let suffix = unsafe { suffix_bytes_unchecked(&haystack, view, suffix_len) };
+                assert_eq!(suffix, &value[value.len() - suffix_len..]);
+            }
+        }
+    }
+
+    #[rstest]
+    #[case::inlined(["short", "tiny"], true)]
+    #[case::referenced([LONG, "another long value here"], true)]
+    #[case::inlined_non_ascii(["short", "é"], false)]
+    #[case::referenced_non_ascii([LONG, "a long value ending in é"], false)]
+    fn detects_ascii(#[case] values: [&str; 2], #[case] expected: bool) {
+        let array = VarBinViewArray::from_iter_str(values);
+        assert_eq!(is_ascii(&ResolvedViews::new(&array)), expected);
     }
 }
