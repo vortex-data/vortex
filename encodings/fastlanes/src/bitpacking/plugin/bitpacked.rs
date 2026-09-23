@@ -14,6 +14,7 @@ use vortex_array::ArraySerialization;
 use vortex_array::ArraySlots;
 use vortex_array::ArrayVTable;
 use vortex_array::IntoArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesData;
 use vortex_array::patches::PatchesMetadata;
@@ -28,6 +29,8 @@ use vortex_session::VortexSession;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::BitPackedData;
+use crate::FL_CHUNK_SIZE;
+use crate::bitpacking::array::BitPackedSlots;
 
 /// Metadata of the frozen `fastlanes.bitpacked` wire format.
 #[derive(Clone, prost::Message)]
@@ -70,10 +73,16 @@ impl ArrayPlugin for BitPackedPlugin {
                 .transpose()?,
         }
         .encode_to_vec();
-        Ok(Some(ArraySerialization::from_array(
+        let children = array.slots()[..BitPackedSlots::WIDTH_TABLE]
+            .iter()
+            .flatten()
+            .cloned()
+            .collect();
+        Ok(Some(ArraySerialization::new(
             self.id(),
-            array,
             metadata,
+            array.buffers(),
+            children,
         )))
     }
 
@@ -141,15 +150,9 @@ impl ArrayPlugin for BitPackedPlugin {
             })
             .transpose()?;
 
-        let slots = {
-            let mut s = ArraySlots::with_capacity(4);
-            PatchesData::push_slots(&mut s, patches.as_ref());
-            s.push(validity_to_child(&validity, len));
-            s
-        };
         let data = BitPackedData::try_new(
             packed,
-            patches,
+            patches.clone(),
             u8::try_from(metadata.bit_width).map_err(|_| {
                 vortex_err!(
                     "BitPackedMetadata bit_width {} does not fit in u8",
@@ -163,6 +166,16 @@ impl ArrayPlugin for BitPackedPlugin {
                 )
             })?,
         )?;
+        let slots = {
+            let mut s = ArraySlots::with_capacity(BitPackedSlots::COUNT);
+            PatchesData::push_slots(&mut s, patches.as_ref());
+            s.push(validity_to_child(&validity, len));
+            let num_chunks = (len + data.offset() as usize).div_ceil(FL_CHUNK_SIZE);
+            s.push(Some(
+                ConstantArray::new(data.bit_width(), num_chunks).into_array(),
+            ));
+            s
+        };
         Ok(Array::<BitPacked>::try_from_parts(
             ArrayParts::new(BitPacked, dtype.clone(), len, data).with_slots(slots),
         )?

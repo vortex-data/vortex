@@ -16,6 +16,7 @@ use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::dtype::DType;
@@ -41,6 +42,7 @@ use vortex_session::registry::CachedId;
 use crate::BitPackedArrayExt;
 use crate::BitPackedData;
 use crate::BitPackedDataParts;
+use crate::FL_CHUNK_SIZE;
 use crate::bitpack_decompress::unpack_array;
 use crate::bitpack_decompress::unpack_into_primitive_builder;
 use crate::bitpacking::array::BitPackedSlots;
@@ -95,6 +97,16 @@ impl VTable for BitPacked {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.len() == BitPackedSlots::COUNT,
+            "Expected {} slots, got {}",
+            BitPackedSlots::COUNT,
+            slots.len()
+        );
+        vortex_ensure!(
+            slots[BitPackedSlots::WIDTH_TABLE].is_some(),
+            "Missing width table"
+        );
         let bp_slots = BitPackedSlotsView::from_slots(slots);
 
         let validity = child_to_validity(bp_slots.validity_child, dtype.nullability());
@@ -108,7 +120,8 @@ impl VTable for BitPacked {
             data.bit_width,
             len,
             data.offset,
-        )
+        )?;
+        data.validate_width_table(bp_slots.width_table, len)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -225,13 +238,29 @@ impl BitPacked {
     ) -> VortexResult<BitPackedArray> {
         let dtype = DType::Primitive(ptype, validity.nullability());
         let slots = {
-            let mut s = ArraySlots::with_capacity(4);
+            let mut s = ArraySlots::with_capacity(BitPackedSlots::COUNT);
             PatchesData::push_slots(&mut s, patches.as_ref());
             s.push(validity_to_child(&validity, len));
+            let num_chunks = (len + offset as usize).div_ceil(FL_CHUNK_SIZE);
+            s.push(Some(ConstantArray::new(bit_width, num_chunks).into_array()));
             s
         };
         let data = BitPackedData::try_new(packed, patches, bit_width, offset)?;
         Array::try_from_parts(ArrayParts::new(BitPacked, dtype, len, data).with_slots(slots))
+    }
+
+    /// Replace the width child. Every width must still equal the scalar `bit_width`.
+    pub fn with_width_table(
+        array: BitPackedArray,
+        table: ArrayRef,
+    ) -> VortexResult<BitPackedArray> {
+        let mut slots: ArraySlots = array.slots().iter().cloned().collect();
+        slots[BitPackedSlots::WIDTH_TABLE] = Some(table);
+        let dtype = array.dtype().clone();
+        let len = array.len();
+        Array::try_from_parts(
+            ArrayParts::new(BitPacked, dtype, len, array.into_data()).with_slots(slots),
+        )
     }
 
     pub fn into_parts(array: BitPackedArray) -> BitPackedDataParts {

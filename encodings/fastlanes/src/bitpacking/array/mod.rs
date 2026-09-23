@@ -10,11 +10,13 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::TypedArrayRef;
 use vortex_array::array_slots;
+use vortex_array::arrays::Constant;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
+use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::patches::PatchSlotIndices;
 use vortex_array::patches::Patches;
@@ -22,6 +24,7 @@ use vortex_array::patches::PatchesData;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::child_to_validity;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
@@ -49,6 +52,9 @@ pub struct BitPackedSlots {
     /// The validity bitmap indicating which elements are non-null.
     #[slot(3)]
     pub validity_child: Option<ArrayRef>,
+    /// One non-nullable `u8` width per 1024-element chunk. Uniform widths use a constant array.
+    #[slot(4)]
+    pub width_table: ArrayRef,
 }
 
 pub(crate) const PATCH_SLOTS: PatchSlotIndices = PatchSlotIndices {
@@ -56,6 +62,9 @@ pub(crate) const PATCH_SLOTS: PatchSlotIndices = PatchSlotIndices {
     values: BitPackedSlots::PATCH_VALUES,
     chunk_offsets: BitPackedSlots::PATCH_CHUNK_OFFSETS,
 };
+
+/// The dtype of the width table child: one byte per chunk.
+pub(crate) const WIDTH_TABLE_DTYPE: DType = DType::Primitive(PType::U8, Nullability::NonNullable);
 
 pub struct BitPackedDataParts {
     pub offset: u16,
@@ -179,6 +188,40 @@ impl BitPackedData {
             packed.len()
         );
 
+        Ok(())
+    }
+
+    pub(crate) fn validate_width_table(&self, table: &ArrayRef, length: usize) -> VortexResult<()> {
+        let num_chunks = (length + self.offset as usize).div_ceil(FL_CHUNK_SIZE);
+        vortex_ensure!(
+            table.dtype() == &WIDTH_TABLE_DTYPE,
+            "BitPacked width table must be {WIDTH_TABLE_DTYPE}, got {}",
+            table.dtype()
+        );
+        vortex_ensure!(
+            table.len() == num_chunks,
+            "Expected {num_chunks} chunk widths, got {}",
+            table.len()
+        );
+        // Kernels still read the scalar width until they are migrated to the child layout.
+        let matches = if let Some(constant) = table.as_opt::<Constant>() {
+            u8::try_from(constant.scalar())? == self.bit_width
+        } else if let Some(primitive) = table
+            .as_opt::<Primitive>()
+            .filter(|array| array.buffer_handle().is_on_host())
+        {
+            primitive
+                .as_slice::<u8>()
+                .iter()
+                .all(|&width| width == self.bit_width)
+        } else {
+            vortex_bail!("BitPacked width table must be materialized while kernels use bit_width")
+        };
+        vortex_ensure!(
+            matches,
+            "Chunk widths must match bit_width {}",
+            self.bit_width
+        );
         Ok(())
     }
 
