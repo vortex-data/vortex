@@ -153,6 +153,12 @@ impl ScalarFnVTable for Binary {
             vortex_bail!("Cannot compare different DTypes {} and {}", lhs, rhs);
         }
 
+        if matches!(operator, Operator::And | Operator::Or)
+            && !(lhs.is_boolean() && rhs.is_boolean())
+        {
+            vortex_bail!("'{operator}' requires bool operands, got {lhs} and {rhs}",);
+        }
+
         Ok(DType::Bool((lhs.is_nullable() || rhs.is_nullable()).into()))
     }
 
@@ -330,6 +336,7 @@ mod tests {
     use crate::arrays::Bool;
     use crate::arrays::BoolArray;
     use crate::arrays::ConstantArray;
+    use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
@@ -506,40 +513,22 @@ mod tests {
 
         // Create a struct array with one element for testing.
         let lhs_struct = StructArray::from_fields(&[
-            (
-                "a",
-                crate::arrays::PrimitiveArray::from_iter([1i32]).into_array(),
-            ),
-            (
-                "b",
-                crate::arrays::PrimitiveArray::from_iter([3i32]).into_array(),
-            ),
+            ("a", PrimitiveArray::from_iter([1i32]).into_array()),
+            ("b", PrimitiveArray::from_iter([3i32]).into_array()),
         ])
         .unwrap()
         .into_array();
 
         let rhs_struct_equal = StructArray::from_fields(&[
-            (
-                "a",
-                crate::arrays::PrimitiveArray::from_iter([1i32]).into_array(),
-            ),
-            (
-                "b",
-                crate::arrays::PrimitiveArray::from_iter([3i32]).into_array(),
-            ),
+            ("a", PrimitiveArray::from_iter([1i32]).into_array()),
+            ("b", PrimitiveArray::from_iter([3i32]).into_array()),
         ])
         .unwrap()
         .into_array();
 
         let rhs_struct_different = StructArray::from_fields(&[
-            (
-                "a",
-                crate::arrays::PrimitiveArray::from_iter([1i32]).into_array(),
-            ),
-            (
-                "b",
-                crate::arrays::PrimitiveArray::from_iter([4i32]).into_array(),
-            ),
+            ("a", PrimitiveArray::from_iter([1i32]).into_array()),
+            ("b", PrimitiveArray::from_iter([4i32]).into_array()),
         ])
         .unwrap()
         .into_array();
@@ -715,5 +704,26 @@ mod tests {
         assert_eq!(array.as_constant(), Some(false.into()));
 
         Ok(())
+    }
+
+    #[test]
+    fn test_and_reduce_nullable() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let nullable_true =
+            ConstantArray::new(Scalar::bool(true, Nullability::Nullable), 3).into_array();
+        let right = BoolArray::from_iter([true, false, true]).into_array();
+
+        let array = Binary::try_new(nullable_true, right.clone(), Operator::And)?
+            .into_array()
+            .optimize()?;
+        assert_arrays_eq!(array, right, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_and_reject_non_bool() {
+        let lhs = ConstantArray::new(7i32, 3).into_array();
+        let rhs = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
+        assert!(Binary::try_new(lhs, rhs, Operator::And).is_err());
     }
 }
