@@ -447,6 +447,7 @@ fn golden_compact() -> VortexResult<()> {
     let session = edition_session(&[CORE_2026_08_3])?;
     vortex_zstd::initialize(&session);
     session.enable_edition(vortex_zstd::editions::ZSTD_2026_02)?;
-    let compressor = without_onpair(compressor_builder_for_session(&session).with_compact()).build();
+    let compressor =
+        without_onpair(compressor_builder_for_session(&session).with_compact()).build();
     golden_corpus_snapshots("compact", &compressor)
 }

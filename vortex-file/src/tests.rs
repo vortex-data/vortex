@@ -1962,9 +1962,7 @@ async fn write_read_roundtrip_with_layout(
     array: ArrayRef,
     use_list_layout: bool,
 ) -> VortexResult<ArrayRef> {
-    let strategy = crate::strategy::WriteStrategyBuilder::default()
-        .with_list_layout()
-        .build();
+    let strategy = WriteStrategyBuilder::default().with_list_layout().build();
     let mut buf = ByteBufferMut::empty();
     if use_list_layout {
         SESSION
@@ -2348,7 +2346,7 @@ async fn timestamp_unit_mismatch_errors_with_constant_children()
         .into_array();
     let temporal = TemporalArray::new_timestamp(ts_array, TimeUnit::Milliseconds, None);
 
-    let strategy = crate::strategy::WriteStrategyBuilder::default()
+    let strategy = WriteStrategyBuilder::default()
         .with_compressor(compressor)
         .build();
 
@@ -2666,7 +2664,7 @@ async fn dict_probe_honours_configured_compressor() -> VortexResult<()> {
     let mut buf = ByteBufferMut::empty();
     let summary = SESSION
         .write_options()
-        .with_strategy(crate::strategy::WriteStrategyBuilder::default().build())
+        .with_strategy(WriteStrategyBuilder::default().build())
         .write(&mut buf, strings.clone().to_array_stream())
         .await?;
     assert!(
@@ -2680,7 +2678,7 @@ async fn dict_probe_honours_configured_compressor() -> VortexResult<()> {
     let summary = SESSION
         .write_options()
         .with_strategy(
-            crate::strategy::WriteStrategyBuilder::default()
+            WriteStrategyBuilder::default()
                 .with_btrblocks_builder(no_string_dict)
                 .build(),
         )
@@ -2710,7 +2708,7 @@ async fn probe_compressor_override_is_independent() -> VortexResult<()> {
     let summary = SESSION
         .write_options()
         .with_strategy(
-            crate::strategy::WriteStrategyBuilder::default()
+            WriteStrategyBuilder::default()
                 .with_probe_compressor(probe_without_dict)
                 .build(),
         )

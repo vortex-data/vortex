@@ -4,9 +4,8 @@
 //! Builder for configuring `BtrBlocksCompressor` instances.
 
 use vortex_decimal_byte_parts::decimal_byte_parts_v2_id;
-use vortex_edition::ComponentKind;
 use vortex_edition::DEFAULT_CORE_EDITION;
-use vortex_edition::EDITION_DECLARATIONS;
+use vortex_edition::array_ids_for_edition;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::AllowedSerializedIds;
@@ -71,7 +70,8 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
 
 /// Delta, kept out of [`ALL_SCHEMES`] because it is slower to decompress than the schemes that
 /// would otherwise win. Callers that want it opt in with
-/// [`with_new_scheme`](BtrBlocksCompressorBuilder::with_new_scheme).
+/// [`with_new_scheme`](BtrBlocksCompressorBuilder::with_new_scheme) and permit `fastlanes.delta`
+/// in [`BtrBlocksCompressorBuilder::new`].
 ///
 /// TODO(robert): Return it to [`ALL_SCHEMES`] once we have scheme filtering.
 pub static DELTA_SCHEME: integer::DeltaScheme = integer::DeltaScheme::new(1.25);
@@ -109,15 +109,10 @@ pub struct BtrBlocksCompressorBuilder {
 }
 
 impl Default for BtrBlocksCompressorBuilder {
+    /// Uses the default core edition's serialized array IDs. Use [`Self::new`] to permit
+    /// encodings outside that edition; otherwise, schemes requiring them are omitted at build.
     fn default() -> Self {
-        let allowed_serialized_ids = EDITION_DECLARATIONS
-            .iter()
-            .filter(|declaration| declaration.edition.id.is_at_or_before(&DEFAULT_CORE_EDITION))
-            .flat_map(|declaration| declaration.added)
-            .filter(|member| member.kind == ComponentKind::Array)
-            .map(|member| member.component.component_id())
-            .collect();
-        Self::new(allowed_serialized_ids)
+        Self::new(array_ids_for_edition(&DEFAULT_CORE_EDITION).collect())
     }
 }
 
@@ -148,6 +143,8 @@ impl BtrBlocksCompressorBuilder {
     ///
     /// This allows encoding crates outside of `vortex-btrblocks` to register their own schemes
     /// with the compressor.
+    /// Schemes with unpermitted outputs are silently omitted during [`Self::build`]; use
+    /// [`Self::new`] with appropriate IDs to keep encodings outside the default core edition.
     ///
     /// # Panics
     ///
@@ -265,9 +262,6 @@ impl BtrBlocksCompressorBuilder {
 #[cfg(test)]
 mod tests {
     use vortex_array::VTable;
-    use vortex_decimal_byte_parts::decimal_byte_parts_v1_id;
-    use vortex_edition::EditionSession;
-    use vortex_error::VortexResult;
     use vortex_fastlanes::FoR;
 
     use super::*;
@@ -299,24 +293,6 @@ mod tests {
     fn default_configuration_preserves_scheme_order() {
         let schemes = BtrBlocksCompressorBuilder::default().configured_schemes();
         assert_eq!(schemes, ALL_SCHEMES);
-    }
-
-    #[test]
-    fn default_permissions_match_default_edition() -> VortexResult<()> {
-        let editions = EditionSession::empty();
-        for declaration in EDITION_DECLARATIONS {
-            editions.declare(declaration)?;
-        }
-        let allowed: HashSet<_> = editions
-            .components_in(&DEFAULT_CORE_EDITION, ComponentKind::Array)
-            .into_iter()
-            .map(|inclusion| inclusion.component_id)
-            .collect();
-        let builder = BtrBlocksCompressorBuilder::default();
-        assert_eq!(builder.allowed_serialized_ids, allowed);
-        assert!(allowed.contains(&decimal_byte_parts_v1_id()));
-        assert!(!allowed.contains(&decimal_byte_parts_v2_id()));
-        Ok(())
     }
 
     #[test]

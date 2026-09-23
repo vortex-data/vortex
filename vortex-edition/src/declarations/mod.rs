@@ -14,6 +14,9 @@
 pub mod core;
 pub mod preview;
 
+use vortex_session::registry::Id;
+
+use crate::ComponentKind;
 use crate::EditionDeclaration;
 use crate::EditionFamily;
 use crate::EditionId;
@@ -35,3 +38,16 @@ pub static EDITION_DECLARATIONS: &[&EditionDeclaration] = &[
     &core::v2026_08_3::DECLARATION,
     &preview::v2026_08::DECLARATION,
 ];
+
+/// Returns the serialized array IDs declared in `edition` or earlier editions of its family.
+///
+/// Resolves the static first-party [`EDITION_DECLARATIONS`]. Components registered separately
+/// on a session are not included; use [`crate::EditionSession::components_in`] for those.
+pub fn array_ids_for_edition(edition: &EditionId) -> impl Iterator<Item = Id> + '_ {
+    EDITION_DECLARATIONS
+        .iter()
+        .filter(move |declaration| declaration.edition.id.is_at_or_before(edition))
+        .flat_map(|declaration| declaration.added)
+        .filter(|member| member.kind == ComponentKind::Array)
+        .map(|member| member.component.component_id())
+}

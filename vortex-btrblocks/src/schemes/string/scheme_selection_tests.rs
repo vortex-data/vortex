@@ -104,11 +104,10 @@ fn test_fsst_in_default_scheme_list() -> VortexResult<()> {
     let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
     let array_ref = array.into_array();
 
-    let compressor = BtrBlocksCompressorBuilder::empty(
-        FSSTScheme.produced_encodings().into_iter().collect(),
-    )
-    .with_new_scheme(&FSSTScheme)
-    .build();
+    let compressor =
+        BtrBlocksCompressorBuilder::empty(FSSTScheme.produced_encodings().into_iter().collect())
+            .with_new_scheme(&FSSTScheme)
+            .build();
     let compressed = compressor.compress(&array_ref, &mut SESSION.create_execution_ctx())?;
     assert!(
         compressed.is::<FSST>(),

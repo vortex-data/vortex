@@ -4,6 +4,7 @@
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
+use vortex_session::registry::Id;
 
 use crate::ComponentKind;
 use crate::Edition;
@@ -15,6 +16,29 @@ use crate::EditionMember;
 use crate::EditionSession;
 use crate::EditionSessionExt;
 use crate::EnabledEditions;
+use crate::array_ids_for_edition;
+use crate::declarations::core::CORE_2025_05_0;
+use crate::declarations::core::CORE_2025_06_0;
+
+#[test]
+fn static_array_ids_inherit_only_within_the_edition_family() {
+    let first_ids: Vec<_> = array_ids_for_edition(&CORE_2025_05_0).collect();
+    let second_ids: Vec<_> = array_ids_for_edition(&CORE_2025_06_0).collect();
+    let first: Vec<_> = first_ids.iter().map(Id::as_str).collect();
+    let second: Vec<_> = second_ids.iter().map(Id::as_str).collect();
+
+    assert!(first.contains(&"vortex.primitive"));
+    assert!(!first.contains(&"vortex.sequence"));
+    assert!(first.iter().all(|id| second.contains(id)));
+    assert!(second.contains(&"vortex.sequence"));
+    assert!(!second.contains(&"vortex.flat"));
+    assert!(!second.contains(&"vortex.date"));
+    assert!(
+        array_ids_for_edition(&EditionId::new("other", 2025, 6, 0))
+            .next()
+            .is_none()
+    );
+}
 
 static TEST_FAMILY: EditionFamily = EditionFamily {
     name: "test",

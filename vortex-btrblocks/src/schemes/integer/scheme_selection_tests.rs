@@ -10,6 +10,7 @@ use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use vortex_array::IntoArray;
+use vortex_array::VTable;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::Dict;
@@ -19,8 +20,11 @@ use vortex_array::expr::stats::Stat;
 use vortex_array::expr::stats::StatsProviderExt;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
+use vortex_edition::DEFAULT_CORE_EDITION;
+use vortex_edition::array_ids_for_edition;
 use vortex_error::VortexResult;
 use vortex_fastlanes::BitPacked;
+use vortex_fastlanes::Delta;
 use vortex_fastlanes::FoR;
 use vortex_runend::RunEnd;
 use vortex_sequence::Sequence;
@@ -31,6 +35,16 @@ use crate::BtrBlocksCompressor;
 use crate::BtrBlocksCompressorBuilder;
 use crate::DELTA_SCHEME;
 static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+
+fn delta_compressor() -> BtrBlocksCompressor {
+    // Delta is outside the default core edition, so it needs an explicit permission too.
+    let allowed = array_ids_for_edition(&DEFAULT_CORE_EDITION)
+        .chain(iter::once(Delta.id()))
+        .collect();
+    BtrBlocksCompressorBuilder::new(allowed)
+        .with_new_scheme(&DELTA_SCHEME)
+        .build()
+}
 
 #[test]
 fn test_constant_compressed() -> VortexResult<()> {
@@ -164,7 +178,6 @@ fn test_rle_compressed() -> VortexResult<()> {
 fn test_delta_compressed() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     use vortex_array::assert_arrays_eq;
-    use vortex_fastlanes::Delta;
 
     let mut rng = StdRng::seed_from_u64(7u64);
     let mut value = 500_000i32;
@@ -176,9 +189,7 @@ fn test_delta_compressed() -> VortexResult<()> {
         .collect();
     let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
 
-    let btr = BtrBlocksCompressorBuilder::default()
-        .with_new_scheme(&DELTA_SCHEME)
-        .build();
+    let btr = delta_compressor();
     let compressed = btr.compress(
         &array.clone().into_array(),
         &mut SESSION.create_execution_ctx(),
@@ -204,7 +215,6 @@ fn test_delta_compressed() -> VortexResult<()> {
 fn test_delta_compressed_unaligned_length() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     use vortex_array::assert_arrays_eq;
-    use vortex_fastlanes::Delta;
 
     let mut rng = StdRng::seed_from_u64(7u64);
     let mut value = 500_000i32;
@@ -216,9 +226,7 @@ fn test_delta_compressed_unaligned_length() -> VortexResult<()> {
         .collect();
     let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
 
-    let btr = BtrBlocksCompressorBuilder::default()
-        .with_new_scheme(&DELTA_SCHEME)
-        .build();
+    let btr = delta_compressor();
     let compressed = btr.compress(
         &array.clone().into_array(),
         &mut SESSION.create_execution_ctx(),
@@ -239,15 +247,12 @@ fn test_delta_compressed_unaligned_length() -> VortexResult<()> {
 fn test_delta_nullable_unaligned_sum() -> VortexResult<()> {
     use vortex_array::aggregate_fn::fns::sum::sum;
     use vortex_array::assert_arrays_eq;
-    use vortex_fastlanes::Delta;
 
     let mut ctx = SESSION.create_execution_ctx();
     let array =
         PrimitiveArray::from_option_iter(iter::once(None).chain((1i32..=100_000).map(Some)));
 
-    let btr = BtrBlocksCompressorBuilder::default()
-        .with_new_scheme(&DELTA_SCHEME)
-        .build();
+    let btr = delta_compressor();
     let compressed = btr.compress(&array.clone().into_array(), &mut ctx)?;
     assert!(
         compressed.is::<Delta>(),
@@ -266,8 +271,6 @@ fn test_delta_nullable_unaligned_sum() -> VortexResult<()> {
 
 /// Returns true if any `Delta` array appears below an ancestor `Delta` in the tree.
 fn has_nested_delta(array: &vortex_array::ArrayRef, under_delta: bool) -> bool {
-    use vortex_fastlanes::Delta;
-
     let is_delta = array.is::<Delta>();
     if is_delta && under_delta {
         return true;

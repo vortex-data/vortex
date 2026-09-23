@@ -247,8 +247,8 @@ fn write_options_for(
 
     let mut builder = WriteStrategyBuilder::default();
     if matches!(compaction, CompactionStrategy::Compact) {
-        builder = builder
-            .with_btrblocks_builder(compressor_builder_for_session(&SESSION).with_compact());
+        builder =
+            builder.with_btrblocks_builder(compressor_builder_for_session(&SESSION).with_compact());
     }
     for name in binary_fields {
         builder = builder.with_field_writer(FieldPath::from_name(name), no_dict_layout());

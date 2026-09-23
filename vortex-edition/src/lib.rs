@@ -45,6 +45,7 @@ use std::fmt::Formatter;
 pub use declarations::DEFAULT_CORE_EDITION;
 pub use declarations::EDITION_DECLARATIONS;
 pub use declarations::EDITION_FAMILIES;
+pub use declarations::array_ids_for_edition;
 pub use session::EditionSession;
 pub use session::EditionSessionExt;
 pub use session::EnabledEditions;

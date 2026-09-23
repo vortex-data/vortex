@@ -115,11 +115,7 @@ fn explicit_decimal_modes_only_upgrade(
         allowed.insert(decimal_byte_parts_v2_id());
     }
     let builder = BtrBlocksCompressorBuilder::empty(allowed).with_new_scheme(scheme);
-    let mode = if initial_v2 && !allowed_v2 {
-        None
-    } else {
-        Some(allowed_v2)
-    };
+    let mode = (!initial_v2 || allowed_v2).then_some(allowed_v2);
     let expected = match mode {
         Some(true) if wide => Some(decimal_byte_parts_v2_id()),
         Some(_) if !wide => Some(decimal_byte_parts_v1_id()),

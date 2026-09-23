@@ -11,6 +11,7 @@
 //! rules and execute kernels fire for the scan operations TPC-H queries perform over those
 //! encodings.
 
+use std::iter;
 use std::sync::LazyLock;
 
 use arrow_array::RecordBatch;
@@ -22,6 +23,7 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::VTable;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::FilterArray;
@@ -49,7 +51,10 @@ use vortex_array::session::ArraySessionExt;
 use vortex_array::test_harness::trace::Traced;
 use vortex_array::test_harness::trace::trace_op;
 use vortex_arrow::ArrowSessionExt;
+use vortex_edition::DEFAULT_CORE_EDITION;
+use vortex_edition::array_ids_for_edition;
 use vortex_error::VortexResult;
+use vortex_fastlanes::Delta;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
@@ -125,9 +130,12 @@ fn lineitem() -> VortexResult<ArrayRef> {
         .from_arrow_record_batch(batch, &schema)
 }
 
-/// Delta is opt-in, and these traces cover the delta-encoded FSST offsets, so enable it here.
+/// These traces cover delta-encoded FSST offsets, so permit and register the opt-in Delta scheme.
 fn compressed_lineitem() -> VortexResult<ArrayRef> {
-    BtrBlocksCompressorBuilder::default()
+    let allowed = array_ids_for_edition(&DEFAULT_CORE_EDITION)
+        .chain(iter::once(Delta.id()))
+        .collect();
+    BtrBlocksCompressorBuilder::new(allowed)
         .with_new_scheme(&DELTA_SCHEME)
         .build()
         .compress(&lineitem()?, &mut execution_ctx())

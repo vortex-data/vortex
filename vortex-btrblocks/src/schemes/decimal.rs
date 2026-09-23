@@ -94,14 +94,10 @@ impl Scheme for DecimalScheme {
     }
 
     fn try_upgrade(&self, allowed_serialized_ids: &AllowedSerializedIds) -> Option<&dyn Scheme> {
-        if self.mode == DecimalSchemeMode::V1
+        (self.mode == DecimalSchemeMode::V1
             && allowed_serialized_ids.contains(&decimal_byte_parts_v1_id())
-            && allowed_serialized_ids.contains(&decimal_byte_parts_v2_id())
-        {
-            Some(&DECIMAL_V2)
-        } else {
-            None
-        }
+            && allowed_serialized_ids.contains(&decimal_byte_parts_v2_id()))
+        .then_some(&DECIMAL_V2 as &dyn Scheme)
     }
 
     /// Children: msp=0, then up to three lower parts in v2 mode.
