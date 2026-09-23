@@ -82,7 +82,7 @@ fn assert_decimal_output(
 }
 
 #[rstest]
-#[case::unrestricted(None, Some(false))]
+#[case::default_edition(None, Some(false))]
 #[case::neither(Some(vec![]), None)]
 #[case::v1(Some(vec![decimal_byte_parts_v1_id()]), Some(false))]
 #[case::v2_only(Some(vec![decimal_byte_parts_v2_id()]), None)]
@@ -92,10 +92,9 @@ fn decimal_mode_follows_permissions(
     #[case] v2: Option<bool>,
     #[values(false, true)] wide: bool,
 ) -> VortexResult<()> {
-    let mut builder = BtrBlocksCompressorBuilder::default();
-    if let Some(ids) = ids {
-        builder = builder.retain_allowed_encodings(&ids.into_iter().collect());
-    }
+    let builder = ids
+        .map(|ids| BtrBlocksCompressorBuilder::new(ids.into_iter().collect()))
+        .unwrap_or_default();
     let expected = match v2 {
         Some(true) if wide => Some(decimal_byte_parts_v2_id()),
         Some(_) if !wide => Some(decimal_byte_parts_v1_id()),
@@ -105,34 +104,21 @@ fn decimal_mode_follows_permissions(
 }
 
 #[rstest]
-#[case::unrestricted(None)]
-#[case::v1(Some(false))]
-#[case::both(Some(true))]
 fn explicit_decimal_modes_only_upgrade(
-    #[case] allowed_v2: Option<bool>,
+    #[values(false, true)] allowed_v2: bool,
     #[values(false, true)] initial_v2: bool,
-    #[values(false, true)] register_later: bool,
     #[values(false, true)] wide: bool,
 ) -> VortexResult<()> {
     let scheme: &'static dyn Scheme = if initial_v2 { &DECIMAL_V2 } else { &DECIMAL_V1 };
-    let mut builder = BtrBlocksCompressorBuilder::empty();
-    if !register_later {
-        builder = builder.with_new_scheme(scheme);
+    let mut allowed = HashSet::from([decimal_byte_parts_v1_id()]);
+    if allowed_v2 {
+        allowed.insert(decimal_byte_parts_v2_id());
     }
-    if let Some(v2) = allowed_v2 {
-        let mut allowed = HashSet::from([decimal_byte_parts_v1_id()]);
-        if v2 {
-            allowed.insert(decimal_byte_parts_v2_id());
-        }
-        builder = builder.retain_allowed_encodings(&allowed);
-    }
-    if register_later {
-        builder = builder.with_new_scheme(scheme);
-    }
-    let mode = if initial_v2 && allowed_v2 == Some(false) {
+    let builder = BtrBlocksCompressorBuilder::empty(allowed).with_new_scheme(scheme);
+    let mode = if initial_v2 && !allowed_v2 {
         None
     } else {
-        Some(allowed_v2.unwrap_or(initial_v2))
+        Some(allowed_v2)
     };
     let expected = match mode {
         Some(true) if wide => Some(decimal_byte_parts_v2_id()),
@@ -142,58 +128,29 @@ fn explicit_decimal_modes_only_upgrade(
     assert_decimal_output(builder, wide, expected)
 }
 
-#[rstest]
-fn decimal_permissions_intersect(
-    #[values(false, true)] restrictive_first: bool,
-) -> VortexResult<()> {
-    let v1 = HashSet::from([decimal_byte_parts_v1_id()]);
-    let both = HashSet::from([decimal_byte_parts_v1_id(), decimal_byte_parts_v2_id()]);
-    let (first, second) = if restrictive_first {
-        (&v1, &both)
-    } else {
-        (&both, &v1)
-    };
-    let builder = BtrBlocksCompressorBuilder::default()
-        .retain_allowed_encodings(first)
-        .retain_allowed_encodings(second);
-    assert_decimal_output(builder.clone(), false, Some(decimal_byte_parts_v1_id()))?;
-    assert_decimal_output(builder, true, None)
-}
-
 #[test]
-fn permissions_do_not_restore_excluded_decimal() -> VortexResult<()> {
+fn upgrades_do_not_restore_excluded_decimal() -> VortexResult<()> {
     let allowed = HashSet::from([decimal_byte_parts_v1_id(), decimal_byte_parts_v2_id()]);
-    let builder = BtrBlocksCompressorBuilder::default()
-        .exclude_schemes([DecimalScheme::default().id()])
-        .retain_allowed_encodings(&allowed);
+    let builder =
+        BtrBlocksCompressorBuilder::new(allowed).exclude_schemes([DecimalScheme::default().id()]);
     assert_decimal_output(builder, false, None)
 }
 
 #[rstest]
-#[case::unrestricted(None)]
-#[case::permissions_first(Some(true))]
-#[case::permissions_last(Some(false))]
 fn cuda_never_uses_decimal_v2(
-    #[case] permissions_first: Option<bool>,
     #[values(false, true)] initial_v2: bool,
     #[values(false, true)] register_later: bool,
     #[values(false, true)] wide: bool,
 ) -> VortexResult<()> {
     let allowed = HashSet::from([decimal_byte_parts_v1_id(), decimal_byte_parts_v2_id()]);
     let scheme: &'static dyn Scheme = if initial_v2 { &DECIMAL_V2 } else { &DECIMAL_V1 };
-    let mut builder = BtrBlocksCompressorBuilder::empty();
+    let mut builder = BtrBlocksCompressorBuilder::empty(allowed);
     if !register_later {
         builder = builder.with_new_scheme(scheme);
-    }
-    if permissions_first == Some(true) {
-        builder = builder.retain_allowed_encodings(&allowed);
     }
     builder = builder.only_cuda_compatible();
     if register_later {
         builder = builder.with_new_scheme(scheme);
-    }
-    if permissions_first.is_some() {
-        builder = builder.retain_allowed_encodings(&allowed);
     }
     assert_decimal_output(
         builder,
@@ -247,11 +204,10 @@ fn wide_decimal_parts_roundtrip(
         allowed.extend(FoRScheme.produced_encodings());
         allowed.extend(BitPackingScheme.produced_encodings());
     }
-    let compressor = BtrBlocksCompressorBuilder::empty()
+    let compressor = BtrBlocksCompressorBuilder::empty(allowed)
         .with_new_scheme(&DECIMAL_V2)
         .with_new_scheme(&FoRScheme)
         .with_new_scheme(&BitPackingScheme)
-        .retain_allowed_encodings(&allowed)
         .build();
     let mut ctx = SESSION.create_execution_ctx();
     let compressed = compressor.compress(&array, &mut ctx)?;

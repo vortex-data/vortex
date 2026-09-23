@@ -42,9 +42,8 @@ static DECIMAL_V2: DecimalScheme = DecimalScheme::v2();
 /// significant part and up to three unsigned lower parts. Single-part arrays serialize as v1
 /// in either mode, while arrays with lower parts serialize as v2.
 ///
-/// The default uses v1. An explicit allowlist permitting both decimal IDs lets the builder
-/// upgrade v1 to v2. Without an allowlist, the registered mode is preserved. A v2 scheme is
-/// filtered out if either ID is forbidden, including under the CUDA preset.
+/// The default uses v1. Permitting both decimal IDs lets the builder upgrade v1 to v2.
+/// A v2 scheme is filtered out if either ID is forbidden, including under the CUDA preset.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct DecimalScheme {
     mode: DecimalSchemeMode,
@@ -54,7 +53,7 @@ impl DecimalScheme {
     /// Creates a decimal scheme configured for v1, disallowing splitting of wide decimals.
     ///
     /// Values that remain wider than `i64` after narrowing stay canonical.
-    /// The builder may upgrade to v2 if an explicit allowlist permits both serialized IDs.
+    /// The builder may upgrade to v2 if its permissions include both serialized IDs.
     pub const fn v1() -> Self {
         Self {
             mode: DecimalSchemeMode::V1,

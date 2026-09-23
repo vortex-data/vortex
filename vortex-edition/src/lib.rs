@@ -42,6 +42,7 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
 
+pub use declarations::DEFAULT_CORE_EDITION;
 pub use declarations::EDITION_DECLARATIONS;
 pub use declarations::EDITION_FAMILIES;
 pub use session::EditionSession;

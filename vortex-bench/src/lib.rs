@@ -255,10 +255,7 @@ impl CompactionStrategy {
         match self {
             CompactionStrategy::Compact => options.with_strategy(
                 WriteStrategyBuilder::default()
-                    .with_btrblocks_builder(retain_edition_encodings(
-                        &SESSION,
-                        BtrBlocksCompressorBuilder::default().with_compact(),
-                    ))
+                    .with_btrblocks_builder(compressor_builder_for_session(&SESSION).with_compact())
                     .build(),
             ),
             CompactionStrategy::Default => options,
@@ -266,19 +263,16 @@ impl CompactionStrategy {
     }
 }
 
-/// Restrict `builder` to the encodings permitted by the session's enabled editions.
+/// Create a compressor builder permitting the session's enabled array encodings.
 ///
-/// The default writer applies this filter itself. An explicit strategy bypasses it, so a
-/// benchmark that builds its own compressor applies it here to stay within editions.
-pub fn retain_edition_encodings(
-    session: &VortexSession,
-    builder: BtrBlocksCompressorBuilder,
-) -> BtrBlocksCompressorBuilder {
+/// Benchmarks supplying an explicit strategy use the session's permissions, including opt-in
+/// editions, instead of the compressor builder's default core edition.
+pub fn compressor_builder_for_session(session: &VortexSession) -> BtrBlocksCompressorBuilder {
     let allowed = session
         .enabled_component_ids(ComponentKind::Array)
         .into_iter()
         .collect();
-    builder.retain_allowed_encodings(&allowed)
+    BtrBlocksCompressorBuilder::new(allowed)
 }
 
 /// Verify that local data has already been prepared for the requested benchmark formats.

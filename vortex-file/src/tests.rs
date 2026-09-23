@@ -73,10 +73,12 @@ use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
+use vortex_decimal_byte_parts::DecimalByteParts;
+use vortex_decimal_byte_parts::DecimalBytePartsArraySlotsExt;
+use vortex_edition::DEFAULT_CORE_EDITION;
 use vortex_edition::EDITION_DECLARATIONS;
 use vortex_edition::EditionSession;
 use vortex_edition::EditionSessionExt;
-use vortex_edition::declarations::core::CORE_2026_08_3;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_io::session::RuntimeSession;
@@ -179,11 +181,15 @@ async fn test_read_simple() {
 }
 
 #[rstest]
+#[case::default_writer(false, false)]
+#[case::custom_layout(true, false)]
+#[case::explicit_compressor(true, true)]
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
-async fn default_strategy_keeps_wide_decimals_compatible(
+async fn decimal_writer_uses_default_or_session_permissions(
     #[values(false, true)] use_i256: bool,
-    #[values(false, true)] explicit_compressor: bool,
+    #[case] custom_strategy: bool,
+    #[case] explicit_compressor: bool,
 ) -> VortexResult<()> {
     let session = array_session()
         .with::<EditionSession>()
@@ -193,7 +199,7 @@ async fn default_strategy_keeps_wide_decimals_compatible(
     for declaration in EDITION_DECLARATIONS {
         session.register_edition(declaration)?;
     }
-    session.enable_edition(CORE_2026_08_3)?;
+    session.enable_edition(DEFAULT_CORE_EDITION)?;
 
     let array = if use_i256 {
         DecimalArray::new(
@@ -224,7 +230,10 @@ async fn default_strategy_keeps_wide_decimals_compatible(
     .build();
 
     for disable_editions in [false, true] {
-        let options = session.write_options().with_strategy(Arc::clone(&strategy));
+        let mut options = session.write_options();
+        if custom_strategy {
+            options = options.with_strategy(Arc::clone(&strategy));
+        }
         let options = if disable_editions {
             options.disable_editions()
         } else {
@@ -241,6 +250,12 @@ async fn default_strategy_keeps_wide_decimals_compatible(
             .into_array_stream()?
             .read_all()
             .await?;
+        let uses_v2 = actual.depth_first_traversal().any(|array| {
+            array
+                .as_opt::<DecimalByteParts>()
+                .is_some_and(|parts| !parts.lower_parts().is_empty())
+        });
+        assert_eq!(uses_v2, disable_editions && !custom_strategy);
         assert_arrays_eq!(array, actual, &mut session.create_execution_ctx());
     }
     Ok(())

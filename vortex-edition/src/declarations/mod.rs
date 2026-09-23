@@ -16,6 +16,10 @@ pub mod preview;
 
 use crate::EditionDeclaration;
 use crate::EditionFamily;
+use crate::EditionId;
+
+/// The `core` edition used by default for writing and compression.
+pub const DEFAULT_CORE_EDITION: EditionId = core::CORE_2026_08_3;
 
 /// The first-party edition families. Every family must be declared before its editions.
 pub static EDITION_FAMILIES: &[&EditionFamily] = &[&core::FAMILY, &preview::FAMILY];

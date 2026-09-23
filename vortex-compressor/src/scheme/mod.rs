@@ -4,9 +4,6 @@
 //! Everything a scheme author implements or receives: the [`Scheme`] trait, exclusion rules,
 //! compression estimates, and the compression context.
 
-mod allowed_serialized_ids;
-pub use allowed_serialized_ids::AllowedSerializedIds;
-
 mod ctx;
 pub use ctx::CompressorContext;
 pub use ctx::MAX_CASCADE;
@@ -31,10 +28,14 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_error::VortexResult;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::CascadingCompressor;
 use crate::stats::ArrayAndStats;
 use crate::stats::GenerateStatsOptions;
+
+/// The serialized IDs permitted for compression schemes.
+pub type AllowedSerializedIds = HashSet<ArrayId>;
 
 /// Unique identifier for a compression scheme.
 ///
@@ -143,8 +144,6 @@ pub trait Scheme: Debug + Send + Sync {
     /// `None` keeps the original scheme. An upgrade must preserve the [`SchemeId`] and must not
     /// downgrade the registered configuration. The caller checks the selected scheme's
     /// [`produced_encodings`](Self::produced_encodings) before using it.
-    ///
-    /// The builder only attempts upgrades when an explicit allowlist is supplied.
     fn try_upgrade(&self, _allowed_serialized_ids: &AllowedSerializedIds) -> Option<&dyn Scheme> {
         None
     }

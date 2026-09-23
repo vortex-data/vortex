@@ -17,6 +17,11 @@ use vortex_fsst::FSST;
 use vortex_session::VortexSession;
 
 use crate::BtrBlocksCompressor;
+use crate::BtrBlocksCompressorBuilder;
+use crate::Scheme;
+use crate::SchemeExt;
+use crate::schemes::string::FSSTScheme;
+use crate::schemes::string::onpair::OnPairScheme;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
@@ -48,9 +53,6 @@ fn test_dict_compressed() -> VortexResult<()> {
 
 #[test]
 fn test_all_schemes_includes_onpair() {
-    use crate::SchemeExt;
-    use crate::schemes::string::onpair::OnPairScheme;
-
     let ids: Vec<_> = crate::ALL_SCHEMES.iter().map(|s| s.id()).collect();
     assert!(
         ids.contains(&OnPairScheme.id()),
@@ -85,10 +87,6 @@ fn test_default_btrblocks_compressor_selects_onpair() -> VortexResult<()> {
 /// still produces an FSST array.
 #[test]
 fn test_fsst_in_default_scheme_list() -> VortexResult<()> {
-    use crate::BtrBlocksCompressorBuilder;
-    use crate::SchemeExt;
-    use crate::schemes::string::FSSTScheme;
-
     // FSST is registered by default.
     assert!(
         crate::ALL_SCHEMES.iter().any(|s| s.id() == FSSTScheme.id()),
@@ -106,9 +104,11 @@ fn test_fsst_in_default_scheme_list() -> VortexResult<()> {
     let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
     let array_ref = array.into_array();
 
-    let compressor = BtrBlocksCompressorBuilder::empty()
-        .with_new_scheme(&FSSTScheme)
-        .build();
+    let compressor = BtrBlocksCompressorBuilder::empty(
+        FSSTScheme.produced_encodings().into_iter().collect(),
+    )
+    .with_new_scheme(&FSSTScheme)
+    .build();
     let compressed = compressor.compress(&array_ref, &mut SESSION.create_execution_ctx())?;
     assert!(
         compressed.is::<FSST>(),

@@ -22,6 +22,7 @@
 mod tests;
 
 pub use vortex_edition::ComponentKind;
+pub use vortex_edition::DEFAULT_CORE_EDITION;
 pub use vortex_edition::EDITION_DECLARATIONS;
 pub use vortex_edition::EDITION_FAMILIES;
 pub use vortex_edition::Edition;
@@ -46,9 +47,6 @@ pub use vortex_edition::declarations::preview::PREVIEW_2026_08_0;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
-
-/// The `core` edition enabled for writing by the default Vortex session.
-pub const DEFAULT_CORE_EDITION: EditionId = CORE_2026_08_3;
 
 /// The newest `preview` edition. The default Vortex session registers it but does not enable it.
 pub const DEFAULT_PREVIEW_EDITION: EditionId = PREVIEW_2026_08_0;
