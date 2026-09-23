@@ -16,8 +16,7 @@ use crate::arrays::Slice;
 use crate::arrays::StructArray;
 use crate::arrays::filter::prepare_mask_for_reuse;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
-use crate::expr::not;
-use crate::expr::root;
+use crate::builtins::ArrayBuiltins;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
@@ -87,7 +86,7 @@ impl ArrayReduceRule<ScalarFn> for IsNullReduceRule {
             Validity::AllInvalid => ConstantArray::new(is_null, view.len()).into_array(),
             Validity::Array(array) => {
                 if is_null {
-                    array.apply(&not(root()))?
+                    array.not()?
                 } else {
                     array
                 }
@@ -197,13 +196,13 @@ mod tests {
     use crate::arrays::scalar_fn::ScalarFnArrayExt;
     use crate::arrays::scalar_fn::rules::ConstantArray;
     use crate::assert_arrays_eq;
+    use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::expr::cast;
     use crate::expr::is_not_null;
     use crate::expr::is_null;
-    use crate::expr::not;
     use crate::expr::root;
     use crate::optimizer::rules::ArrayParentReduceRule;
     use crate::scalar::Scalar;
@@ -338,11 +337,7 @@ mod tests {
             validity.clone(),
             ctx
         );
-        assert_arrays_eq!(
-            nullable.apply(&is_null(root()))?,
-            validity.apply(&not(root()))?,
-            ctx
-        );
+        assert_arrays_eq!(nullable.apply(&is_null(root()))?, validity.not()?, ctx);
 
         Ok(())
     }
