@@ -12,6 +12,8 @@ use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
 
 impl MaskReduce for Bool {
+    const VALIDITY_IS_METADATA_ONLY: bool = true;
+
     fn mask(array: ArrayView<'_, Bool>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
             BoolArray::try_new_from_handle(

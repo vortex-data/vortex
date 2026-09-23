@@ -15,6 +15,8 @@ use crate::scalar_fn::fns::mask::MaskKernel;
 use crate::scalar_fn::fns::mask::MaskReduce;
 
 impl MaskReduce for Map {
+    const VALIDITY_IS_METADATA_ONLY: bool = true;
+
     fn mask(array: ArrayView<'_, Self>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         let Some(entries) =
             <ListView as MaskReduce>::mask(array.entries().as_::<ListView>(), mask)?

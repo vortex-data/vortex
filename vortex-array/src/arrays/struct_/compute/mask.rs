@@ -13,6 +13,8 @@ use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
 
 impl MaskReduce for Struct {
+    const VALIDITY_IS_METADATA_ONLY: bool = true;
+
     fn mask(array: ArrayView<'_, Struct>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         StructArray::try_new_with_dtype(
             array.iter_unmasked_fields().cloned(),

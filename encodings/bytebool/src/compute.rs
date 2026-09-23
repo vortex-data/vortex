@@ -73,6 +73,8 @@ impl CastKernel for ByteBool {
 }
 
 impl MaskReduce for ByteBool {
+    const VALIDITY_IS_METADATA_ONLY: bool = true;
+
     fn mask(array: ArrayView<'_, Self>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
             ByteBool::new(

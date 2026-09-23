@@ -14,6 +14,8 @@ use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
 
 impl MaskReduce for FixedSizeList {
+    const VALIDITY_IS_METADATA_ONLY: bool = true;
+
     fn mask(
         array: ArrayView<'_, FixedSizeList>,
         mask: &ArrayRef,

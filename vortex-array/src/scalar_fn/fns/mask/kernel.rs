@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Encoding-specific mask reduction and execution adapters.
+
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -15,6 +17,7 @@ use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::kernel::ExecuteParentKernel;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::scalar_fn::fns::mask::Mask as MaskExpr;
+use crate::validity::Validity;
 
 /// Mask an array without reading buffers.
 ///
@@ -26,9 +29,14 @@ use crate::scalar_fn::fns::mask::Mask as MaskExpr;
 ///
 /// # Preconditions
 ///
-/// The mask is guaranteed to have the same length as the array. Trivial cases
-/// (`AllValid`, `AllInvalid`, `NonNullable`) are handled by the caller before dispatch.
+/// The mask has non-nullable Boolean dtype and the same length as the array. It may be lazy.
 pub trait MaskReduce: VTable {
+    /// Whether reading this encoding's validity requires only metadata access.
+    ///
+    /// Enables lazy masks on all-valid inputs. Only opt in when `array.validity()` cannot read
+    /// buffers or execute children, including for nullable inputs.
+    const VALIDITY_IS_METADATA_ONLY: bool = false;
+
     fn mask(array: ArrayView<'_, Self>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>>;
 }
 
@@ -71,17 +79,21 @@ where
         if child_idx != 0 {
             return Ok(None);
         }
-        // Reduce only when the mask (child 1) is readable from metadata: a concrete `Bool` or a
-        // `Constant`. `Mask::return_dtype` guarantees the mask is `Bool(NonNullable)`, so a
-        // `Constant` here is a non-nullable Boolean. Other encodings may need execution, so leave
-        // them to the kernel.
+
         let parent_ref: ArrayRef = (*parent).clone();
         let mask_child = parent_ref
             .nth_child(1)
             .ok_or_else(|| vortex_err!("Mask expression must have 2 children"))?;
+
         if mask_child.as_opt::<Bool>().is_none() && mask_child.as_opt::<Constant>().is_none() {
-            return Ok(None);
+            let can_attach_mask = V::VALIDITY_IS_METADATA_ONLY
+                && matches!(array.validity()?, Validity::AllValid | Validity::NonNullable);
+
+            if !can_attach_mask {
+                return Ok(None);
+            }
         }
+
         <V as MaskReduce>::mask(array, &mask_child)
     }
 }
@@ -120,17 +132,71 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
 
+    use crate::ArrayEq;
+    use crate::ArrayRef;
+    use crate::EqMode;
     use crate::IntoArray;
+    use crate::arrays::BoolArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::Primitive;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::ScalarFn;
+    use crate::arrays::scalar_fn::ExactScalarFn;
     use crate::assert_arrays_eq;
+    use crate::builtins::ArrayBuiltins;
     use crate::dtype::Nullability;
     use crate::executor::VortexSessionExecute;
     use crate::optimizer::ArrayOptimizer;
     use crate::scalar::Scalar;
+    use crate::scalar_fn::fns::binary::Binary;
     use crate::scalar_fn::fns::mask::Mask as MaskExpr;
+    use crate::scalar_fn::fns::operators::Operator;
+    use crate::validity::Validity;
+
+    fn lazy_mask() -> VortexResult<ArrayRef> {
+        Binary::try_new(
+            BoolArray::from_iter([true, true, false]).into_array(),
+            BoolArray::from_iter([true, false, true]).into_array(),
+            Operator::And,
+        )
+        .map(IntoArray::into_array)
+    }
+
+    #[rstest]
+    #[case::non_nullable(Validity::NonNullable)]
+    #[case::all_valid(Validity::AllValid)]
+    fn all_valid_input_attaches_lazy_mask(#[case] validity: Validity) -> VortexResult<()> {
+        let input = PrimitiveArray::new(buffer![1i32, 2, 3], validity);
+        let mask = lazy_mask()?;
+        let output = input.clone().into_array().mask(mask.clone())?;
+        let primitive = output.as_::<Primitive>();
+
+        assert!(
+            primitive
+                .buffer_handle()
+                .array_eq(input.buffer_handle(), EqMode::Ptr)
+        );
+        assert_eq!(output.dtype(), &input.dtype().as_nullable());
+        assert_eq!(output.len(), input.len());
+        let Validity::Array(validity) = output.validity()? else {
+            panic!("mask must remain array-backed");
+        };
+        assert!(ArrayRef::ptr_eq(&validity, &mask));
+
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::partially_valid(false)]
+    #[case::all_true_bitmap(true)]
+    fn array_backed_validity_keeps_lazy_mask(#[case] all_true: bool) -> VortexResult<()> {
+        let validity = BoolArray::from_iter([true, all_true, true]).into_array();
+        let input = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::Array(validity)).into_array();
+        let output = input.mask(lazy_mask()?)?;
+        assert!(output.is::<ExactScalarFn<MaskExpr>>());
+
+        Ok(())
+    }
 
     /// A constant Boolean mask child must take the metadata-only reduction path (pushing into the
     /// input encoding) rather than surviving as a `ScalarFn` wrapper that falls through to
