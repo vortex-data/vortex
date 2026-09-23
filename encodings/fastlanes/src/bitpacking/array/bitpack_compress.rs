@@ -29,6 +29,8 @@ use vortex_mask::Mask;
 
 use crate::BitPacked;
 use crate::BitPackedArray;
+use crate::ChunkWidths;
+use crate::FL_CHUNK_SIZE;
 use crate::bitpack_decompress;
 
 pub fn bitpack_to_best_bit_width(
@@ -79,12 +81,15 @@ pub fn bitpack_encode(
         .transpose()?
         .flatten();
 
+    let widths = ChunkWidths::uniform(bit_width, array.len().div_ceil(FL_CHUNK_SIZE));
+    let offsets = widths.offsets_array();
     let bitpacked = BitPacked::try_new(
         BufferHandle::new_host(packed),
         array.ptype(),
         array.validity()?,
         patches,
-        bit_width,
+        widths.into_array(),
+        offsets,
         array.len(),
         0,
     )?;
@@ -108,12 +113,15 @@ pub unsafe fn bitpack_encode_unchecked(
     let packed = unsafe { bitpack_unchecked(&array, bit_width) };
 
     let arr_ref = array.clone().into_array();
+    let widths = ChunkWidths::uniform(bit_width, array.len().div_ceil(FL_CHUNK_SIZE));
+    let offsets = widths.offsets_array();
     let bitpacked = BitPacked::try_new(
         BufferHandle::new_host(packed),
         array.ptype(),
         array.validity()?,
         None,
-        bit_width,
+        widths.into_array(),
+        offsets,
         array.len(),
         0,
     )

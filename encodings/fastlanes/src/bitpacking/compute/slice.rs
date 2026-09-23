@@ -14,6 +14,7 @@ use vortex_array::patches::Patches;
 use vortex_error::VortexResult;
 
 use crate::BitPacked;
+use crate::BitPackedArraySlotsExt;
 use crate::bitpacking::array::BitPackedArrayExt;
 
 impl SliceReduce for BitPacked {
@@ -62,7 +63,12 @@ fn slice_bitpacked(
         array.dtype().as_ptype(),
         array.validity()?.slice(range.clone())?,
         patches,
-        array.bit_width(),
+        array
+            .width_table()
+            .slice(block_start / 1024..block_stop / 1024)?,
+        array
+            .chunk_offsets()
+            .slice(block_start / 1024..block_stop / 1024 + 1)?,
         range.len(),
         offset as u16,
     )?

@@ -56,6 +56,7 @@ mod test {
     use crate::BitPacked;
     use crate::BitPackedArray;
     use crate::BitPackedData;
+    use crate::ChunkWidths;
     use crate::bitpacking::array::BitPackedArrayExt;
     use crate::test::SESSION;
 
@@ -255,7 +256,8 @@ mod test {
                 )
                 .unwrap(),
             ),
-            1,
+            ChunkWidths::uniform(1, 1).into_array(),
+            buffer![0u64, 128].into_array(),
             8,
             0,
         )

@@ -360,9 +360,14 @@ fn trace_scan_like_on_compressed_comment() -> VortexResult<()> {
       iter 0 current=vortex.like(bool, len=4096) builder_active=false
     execute_until target=AnyCanonical root=fastlanes.delta(u16, len=4097)
       iter 0 current=fastlanes.delta(u16, len=4097) builder_active=false
-    execute_until target=AnyCanonical root=fastlanes.bitpacked(u16, len=5120)
-      iter 0 current=fastlanes.bitpacked(u16, len=5120) builder_active=false
-        Done array=vortex.primitive(u16, len=5120)
+    execute_until target=AnyCanonical root=vortex.dict(u16, len=5120)
+      iter 0 current=vortex.dict(u16, len=5120) builder_active=false
+    execute_until target=AnyCanonical root=fastlanes.bitpacked(u8, len=5120)
+      iter 0 current=fastlanes.bitpacked(u8, len=5120) builder_active=false
+        Done array=vortex.primitive(u8, len=5120)
+      iter 1 current=vortex.primitive(u8, len=5120) builder_active=false
+      return output=vortex.primitive(u8, len=5120)
+        child_execute_parent session[0]:execute_parent_fn slot=1 parent=vortex.dict(u16, len=5120) child=vortex.primitive(u16, len=24) -> vortex.primitive(u16, len=5120)
       iter 1 current=vortex.primitive(u16, len=5120) builder_active=false
       return output=vortex.primitive(u16, len=5120)
         Done array=vortex.primitive(u16, len=4097)

@@ -25,6 +25,7 @@ use vortex::dtype::NativePType;
 use vortex::encodings::fastlanes::BitPacked;
 use vortex::encodings::fastlanes::BitPackedArray;
 use vortex::encodings::fastlanes::BitPackedArrayExt;
+use vortex::encodings::fastlanes::BitPackedArraySlotsExt;
 use vortex::encodings::fastlanes::BitPackedDataParts;
 use vortex::encodings::fastlanes::unpack_iter::BitPacked as BitPackedUnpack;
 use vortex::error::VortexResult;
@@ -91,12 +92,15 @@ impl BitPackedExecutor {
         let offset = slice.data().slice_range().start;
         let len = array.len();
         let (packed, bitpacked_offset, patch_range) = bitpacked_slice_view(bp, offset, len)?;
+        let chunk_start = (offset + bp.offset() as usize) / PATCH_CHUNK_SIZE;
+        let chunk_stop = chunk_start + (len + bitpacked_offset as usize).div_ceil(PATCH_CHUNK_SIZE);
         let sliced = BitPacked::try_new(
             packed,
             bp.ptype(bp.dtype()),
             child.validity()?.slice(patch_range.clone())?,
             bp.patches(),
-            bp.bit_width(),
+            bp.width_table().slice(chunk_start..chunk_stop)?,
+            bp.chunk_offsets().slice(chunk_start..chunk_stop + 1)?,
             len,
             bitpacked_offset,
         )?;
@@ -163,6 +167,8 @@ where
     let BitPackedDataParts {
         offset,
         bit_width,
+        widths: _,
+        chunk_offsets: _,
         len,
         packed,
         patches,

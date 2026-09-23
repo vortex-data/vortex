@@ -97,7 +97,8 @@ impl Scheme for BitPackingScheme {
                 ptype,
                 parts.validity,
                 None,
-                parts.bit_width,
+                parts.widths,
+                parts.chunk_offsets,
                 parts.len,
                 parts.offset,
             )?
@@ -122,7 +123,8 @@ impl Scheme for BitPackingScheme {
                 ptype,
                 parts.validity,
                 parts.patches,
-                parts.bit_width,
+                parts.widths,
+                parts.chunk_offsets,
                 parts.len,
                 parts.offset,
             )?

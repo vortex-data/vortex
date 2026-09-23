@@ -16,7 +16,8 @@ use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
-use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::Constant;
+use vortex_array::arrays::Primitive;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::dtype::DType;
@@ -40,14 +41,15 @@ use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::BitPackedArrayExt;
+use crate::BitPackedArraySlotsExt;
 use crate::BitPackedData;
 use crate::BitPackedDataParts;
-use crate::FL_CHUNK_SIZE;
-use crate::bitpack_decompress::unpack_array;
-use crate::bitpack_decompress::unpack_into_primitive_builder;
 use crate::bitpacking::array::BitPackedSlots;
 use crate::bitpacking::array::BitPackedSlotsView;
 use crate::bitpacking::array::PATCH_SLOTS;
+use crate::bitpacking::array::WIDTH_TABLE_DTYPE;
+use crate::bitpacking::bitpack_decompress::unpack_array;
+use crate::bitpacking::bitpack_decompress::unpack_into_primitive_builder;
 use crate::bitpacking::vtable::rules::RULES;
 mod kernels;
 mod operations;
@@ -104,24 +106,23 @@ impl VTable for BitPacked {
             slots.len()
         );
         vortex_ensure!(
-            slots[BitPackedSlots::WIDTH_TABLE].is_some(),
-            "Missing width table"
+            slots[BitPackedSlots::WIDTH_TABLE].is_some()
+                && slots[BitPackedSlots::CHUNK_OFFSETS].is_some(),
+            "Missing width table or chunk offsets"
         );
         let bp_slots = BitPackedSlotsView::from_slots(slots);
 
         let validity = child_to_validity(bp_slots.validity_child, dtype.nullability());
         let patches =
             PatchesData::patches_from_slots(data.patches_data.as_ref(), len, slots, PATCH_SLOTS);
-        BitPackedData::validate(
-            &data.packed,
+        data.validate(
             dtype.as_ptype(),
             &validity,
             patches.as_ref(),
-            data.bit_width,
+            bp_slots.width_table,
+            bp_slots.chunk_offsets,
             len,
-            data.offset,
-        )?;
-        data.validate_width_table(bp_slots.width_table, len)
+        )
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -227,35 +228,69 @@ impl VTable for BitPacked {
 pub struct BitPacked;
 
 impl BitPacked {
+    /// Build a bit-packed array with one width per chunk and a trailing byte-offset boundary.
+    /// Offsets may have a nonzero origin, which is subtracted when indexing the packed buffer.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Each physical component of the encoding is explicit"
+    )]
     pub fn try_new(
         packed: BufferHandle,
         ptype: PType,
         validity: Validity,
         patches: Option<Patches>,
-        bit_width: u8,
+        widths: ArrayRef,
+        chunk_offsets: ArrayRef,
         len: usize,
         offset: u16,
     ) -> VortexResult<BitPackedArray> {
+        vortex_ensure!(
+            widths.dtype() == &WIDTH_TABLE_DTYPE,
+            "Expected a non-nullable u8 width table"
+        );
+        let bit_width = if let Some(constant) = widths.as_opt::<Constant>() {
+            u8::try_from(constant.scalar())?
+        } else if let Some(primitive) = widths
+            .as_opt::<Primitive>()
+            .filter(|array| array.buffer_handle().is_on_host())
+        {
+            primitive.as_slice::<u8>().first().copied().unwrap_or(0)
+        } else {
+            vortex_bail!("BitPacked width table must be materialized while kernels use bit_width")
+        };
         let dtype = DType::Primitive(ptype, validity.nullability());
         let slots = {
             let mut s = ArraySlots::with_capacity(BitPackedSlots::COUNT);
             PatchesData::push_slots(&mut s, patches.as_ref());
             s.push(validity_to_child(&validity, len));
-            let num_chunks = (len + offset as usize).div_ceil(FL_CHUNK_SIZE);
-            s.push(Some(ConstantArray::new(bit_width, num_chunks).into_array()));
+            s.push(Some(widths));
+            s.push(Some(chunk_offsets));
             s
         };
         let data = BitPackedData::try_new(packed, patches, bit_width, offset)?;
         Array::try_from_parts(ArrayParts::new(BitPacked, dtype, len, data).with_slots(slots))
     }
 
-    /// Replace the width child. Every width must still equal the scalar `bit_width`.
+    /// Replace the width table, preserving the offsets. Values must agree with the offsets.
+    /// Both children must remain materialized, with widths matching the scalar `bit_width`.
     pub fn with_width_table(
         array: BitPackedArray,
         table: ArrayRef,
     ) -> VortexResult<BitPackedArray> {
+        let offsets = array.chunk_offsets().clone();
+        Self::with_chunk_layout(array, table, offsets)
+    }
+
+    /// Replace both chunk-layout children. Widths must be non-nullable `u8`, and offsets
+    /// non-nullable `u64`, with adjacent differences equal to `128 * width`.
+    pub fn with_chunk_layout(
+        array: BitPackedArray,
+        widths: ArrayRef,
+        offsets: ArrayRef,
+    ) -> VortexResult<BitPackedArray> {
         let mut slots: ArraySlots = array.slots().iter().cloned().collect();
-        slots[BitPackedSlots::WIDTH_TABLE] = Some(table);
+        slots[BitPackedSlots::WIDTH_TABLE] = Some(widths);
+        slots[BitPackedSlots::CHUNK_OFFSETS] = Some(offsets);
         let dtype = array.dtype().clone();
         let len = array.len();
         Array::try_from_parts(
@@ -267,10 +302,14 @@ impl BitPacked {
         let len = array.len();
         let patches = array.patches();
         let validity = array.validity().vortex_expect("BitPacked validity");
+        let widths = array.width_table().clone();
+        let chunk_offsets = array.chunk_offsets().clone();
         let data = array.into_data();
         BitPackedDataParts {
             offset: data.offset,
             bit_width: data.bit_width,
+            widths,
+            chunk_offsets,
             len,
             packed: data.packed,
             patches,

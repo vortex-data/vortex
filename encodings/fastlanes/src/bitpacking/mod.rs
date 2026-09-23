@@ -7,8 +7,10 @@ pub use array::BitPackedArraySlotsExt;
 pub use array::BitPackedData;
 pub use array::BitPackedDataParts;
 pub use array::BitPackedSlots;
+pub use array::ChunkWidths;
 pub use array::bitpack_compress;
 pub use array::bitpack_decompress;
+pub use array::chunk_packed_bytes;
 pub use array::unpack_iter;
 
 pub(crate) mod compute;
