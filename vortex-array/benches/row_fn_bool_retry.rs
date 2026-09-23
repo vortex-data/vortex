@@ -39,23 +39,18 @@ const BATCHES_PER_ITER: usize = 8;
 const CASES: &[(InputShape, Scenario)] = &[
     (InputShape::Columns, Scenario::AllValid),
     (InputShape::ConstantLhs, Scenario::AllValid),
-    (InputShape::ConstantRhs, Scenario::AllValid),
     (InputShape::Columns, Scenario::PartialAccepted),
     (InputShape::ConstantLhs, Scenario::PartialAccepted),
-    (InputShape::ConstantRhs, Scenario::PartialAccepted),
     (InputShape::Columns, Scenario::NullOnlyFailure),
     (InputShape::ConstantLhs, Scenario::NullOnlyFailure),
-    (InputShape::ConstantRhs, Scenario::NullOnlyFailure),
     (InputShape::Columns, Scenario::ObservableFailure),
     (InputShape::ConstantLhs, Scenario::ObservableFailure),
-    (InputShape::ConstantRhs, Scenario::ObservableFailure),
 ];
 
 #[derive(Clone, Copy, Debug)]
 enum InputShape {
     Columns,
     ConstantLhs,
-    ConstantRhs,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -154,7 +149,6 @@ fn bench_predicate<const MULTIVERSIONED: bool>(
             .into_array(),
         ),
         InputShape::ConstantLhs => (ConstantArray::new(512_i64, rows).into_array(), column),
-        InputShape::ConstantRhs => (column, ConstantArray::new(512_i64, rows).into_array()),
     };
     let args = VecExecutionArgs::new(vec![lhs, rhs], rows);
     let function = Predicate::<MULTIVERSIONED>;
