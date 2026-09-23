@@ -267,21 +267,33 @@ impl ScalarFnVTable for Binary {
         if !matches!(operator, Operator::And | Operator::Or) {
             return Ok(None);
         }
-        let lhs = node.child(0);
-        let rhs = node.child(1);
-        if let Some(lhs_const) = lhs.as_constant() {
-            let lhs_const = lhs_const.as_bool();
-            if let Some(rhs_const) = rhs.as_constant() {
-                let rhs_const = rhs_const.as_bool();
-                // TODO replace this scalar function node with ConstantArray
-                // TODO lit() as an alternative
+        let is_and = *operator == Operator::And;
+        let left = node.child(0);
+        let right = node.child(1);
+        // We don't handle Kleene NULL reduction here. This will be reduced in
+        // the boolean kernel during execution. Not handling the case keeps the
+        // code much simpler.
+        Ok(Some(match (left.as_constant(), right.as_constant()) {
+            (None, None) => return Ok(None),
+            (Some(left_const), Some(right_const)) => {
+                let left_const = left_const.as_bool();
+                let right_const = right_const.as_bool();
+                let res = if is_and {
+                    left_const && right_const
+                } else {
+                    left_const || right_const
+                };
+                left.new_constant(res.into())
             }
-
-        } else if let Some(rhs_const) = rhs.as_constant() {
-            let rhs_const = rhs_const.as_bool();
-
-        }
-        Ok(None)
+            (Some(left_const), None) => match (is_and, left_const.as_bool()) {
+                (true, true) | (false, false) => right,
+                (is_and, left_const) => left.new_constant((left_const > is_and).into()),
+            },
+            (None, Some(right_const)) => match (is_and, right_const.as_bool()) {
+                (true, true) | (false, false) => left,
+                (is_and, right_const) => right.new_constant((right_const > is_and).into()),
+            },
+        }))
     }
 
     fn is_strict(&self, operator: &Operator) -> bool {
@@ -312,8 +324,12 @@ mod tests {
     use vortex_error::VortexResult;
 
     use super::*;
+    use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::array_session;
+    use crate::arrays::Bool;
+    use crate::arrays::BoolArray;
+    use crate::arrays::ConstantArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
@@ -332,7 +348,9 @@ mod tests {
     use crate::expr::or;
     use crate::expr::or_collect;
     use crate::expr::test_harness;
+    use crate::optimizer::ArrayOptimizer;
     use crate::scalar::Scalar;
+
     #[test]
     fn and_collect_balanced() {
         let values = vec![lit(1), lit(2), lit(3), lit(4), lit(5)];
@@ -551,8 +569,6 @@ mod tests {
     #[test]
     fn test_or_kleene_validity() {
         let mut ctx = array_session().create_execution_ctx();
-        use crate::IntoArray;
-        use crate::arrays::BoolArray;
         use crate::arrays::StructArray;
         use crate::expr::col;
 
@@ -646,14 +662,58 @@ mod tests {
     fn test_scalar_subtract_float_underflow_is_ok() {
         use vortex_buffer::buffer;
 
-        use crate::IntoArray;
-        use crate::arrays::ConstantArray;
-
         let values = buffer![f32::MIN, 2.0, 3.0].into_array();
         let rhs1 = ConstantArray::new(Scalar::from(1.0f32), 3).into_array();
         let _results = values.binary(rhs1, Operator::Sub).unwrap();
         let values = buffer![f32::MIN, 2.0, 3.0].into_array();
         let rhs2 = ConstantArray::new(Scalar::from(f32::MAX), 3).into_array();
         let _results = values.binary(rhs2, Operator::Sub).unwrap();
+    }
+
+    #[test]
+    fn test_and_reduce() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let left = BoolArray::from_iter([true, true, false]).into_array();
+        let right = ConstantArray::new(true, 3).into_array();
+
+        let array = Binary::try_new(left.clone(), right.clone(), Operator::And)?
+            .into_array()
+            .optimize()?; // calls reduce()
+        assert!(array.is::<Bool>()); // and(left, const) -> left
+        assert_arrays_eq!(array, left, &mut ctx);
+
+        let array = Binary::try_new(right.clone(), left.clone(), Operator::And)?
+            .into_array()
+            .optimize()?;
+        assert!(array.is::<Bool>()); // and(const, left) -> left
+        assert_arrays_eq!(array, left, &mut ctx);
+
+        let array = Binary::try_new(left.clone(), right.clone(), Operator::Or)?
+            .into_array()
+            .optimize()?;
+        assert_eq!(array.as_constant(), Some(true.into())); // or(left, const) -> true
+
+        let array = Binary::try_new(right.clone(), left.clone(), Operator::Or)?
+            .into_array()
+            .optimize()?;
+        assert_eq!(array.as_constant(), Some(true.into())); // or(const, left) -> true
+
+        let array = Binary::try_new(right.clone(), right.clone(), Operator::Or)?
+            .into_array()
+            .optimize()?;
+        assert_eq!(array.as_constant(), Some(true.into())); // or(const, const) -> const
+
+        let left_false = ConstantArray::new(false, 3).into_array();
+
+        let array = Binary::try_new(right.clone(), left_false.clone(), Operator::Or)?
+            .into_array()
+            .optimize()?;
+        assert_eq!(array.as_constant(), Some(true.into()));
+        let array = Binary::try_new(left_false, right, Operator::And)?
+            .into_array()
+            .optimize()?;
+        assert_eq!(array.as_constant(), Some(false.into()));
+
+        Ok(())
     }
 }
