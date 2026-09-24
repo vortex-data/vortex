@@ -66,7 +66,6 @@ use wkb::writer::write_geometry;
 use crate::CompactionStrategy;
 use crate::Format;
 use crate::SESSION;
-use crate::compact_schemes;
 use crate::utils::file::idempotent_async;
 
 /// Memory budget per concurrent conversion stream in GB. This is somewhat arbitary.
@@ -243,17 +242,15 @@ fn write_options_for(
         _ => Vec::new(),
     };
     if binary_fields.is_empty() {
-        return compaction.apply_options(SESSION.write_options());
+        return compaction.session().write_options();
     }
 
-    let mut builder = WriteStrategyBuilder::from_session(&SESSION);
-    if matches!(compaction, CompactionStrategy::Compact) {
-        builder = builder.with_schemes(compact_schemes());
-    }
+    let session = compaction.session();
+    let mut builder = WriteStrategyBuilder::from_session(session);
     for name in binary_fields {
         builder = builder.with_field_writer(FieldPath::from_name(name), no_dict_layout());
     }
-    SESSION.write_options().with_strategy(builder.build())
+    session.write_options().with_strategy(builder.build())
 }
 
 /// A chunked + compressed layout that skips dictionary encoding for opaque `Binary` blobs.
@@ -340,7 +337,7 @@ pub async fn write_parquet_as_vortex(
     idempotent_async(vortex_path, |output_fname| async move {
         let mut output_file = File::create(&output_fname).await?;
         let data = parquet_to_vortex_chunks(parquet_path).await?;
-        let write_options = compaction.apply_options(SESSION.write_options());
+        let write_options = compaction.session().write_options();
         write_options
             .write(&mut output_file, data.into_array().to_array_stream())
             .await?;

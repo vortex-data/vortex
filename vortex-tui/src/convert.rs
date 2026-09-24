@@ -12,13 +12,14 @@ use indicatif::ProgressBar;
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
+use vortex::VortexSessionDefault;
 use vortex::array::stream::ArrayStreamAdapter;
 use vortex::compressor::COMPACT_SCHEMES;
 use vortex::compressor::CompressionSessionExt;
 use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
 use vortex::file::WriteOptionsSessionExt;
-use vortex::file::WriteStrategyBuilder;
+use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
@@ -97,23 +98,21 @@ pub async fn exec_convert(session: &VortexSession, flags: ConvertArgs) -> anyhow
             .boxed();
     }
 
-    let mut strategy = WriteStrategyBuilder::from_session(session);
-    if matches!(flags.strategy, Strategy::Compact) {
-        strategy = strategy.with_schemes(
-            session.permit(
-                session
-                    .registered_schemes()
-                    .into_iter()
-                    .chain(COMPACT_SCHEMES.iter().copied())
-                    .collect(),
-            ),
-        );
-    }
+    // Compact files come from a session like `session` that also registers the compact schemes.
+    let compact_session;
+    let session = if matches!(flags.strategy, Strategy::Compact) {
+        compact_session = VortexSession::default().with_handle(session.handle());
+        for scheme in COMPACT_SCHEMES {
+            compact_session.register_scheme(*scheme);
+        }
+        &compact_session
+    } else {
+        session
+    };
 
     let mut file = File::create(output_path).await?;
     session
         .write_options()
-        .with_strategy(strategy.build())
         .write(&mut file, ArrayStreamAdapter::new(dtype, vortex_stream))
         .await?;
     file.shutdown().await?;

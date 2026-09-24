@@ -30,7 +30,6 @@ use vortex_array::stream::ArrayStream;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::stream::SendableArrayStream;
-use vortex_btrblocks::CompressionSessionExt;
 use vortex_buffer::ByteBuffer;
 use vortex_edition::ComponentKind;
 use vortex_edition::EditionSessionExt;
@@ -251,9 +250,7 @@ impl VortexWriteOptions {
             Some(strategy) => strategy,
             None if enforce_editions => WriteStrategyBuilder::from_session(&self.session).build(),
             // With editions disabled every registered encoding may be written.
-            None => WriteStrategyBuilder::from_session(&self.session)
-                .with_schemes(self.session.registered_schemes())
-                .build(),
+            None => WriteStrategyBuilder::from_session_no_editions(&self.session).build(),
         };
         let dtype = stream.dtype().clone();
         if enforce_editions {

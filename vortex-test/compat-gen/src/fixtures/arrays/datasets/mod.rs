@@ -37,6 +37,11 @@ mod tests {
     fn roundtrip_non_clickbench_fixtures_to_bytes() -> VortexResult<()> {
         let session = VortexSession::default();
         session.enable_edition(CORE_2026_08_3)?;
+        let compact_session = VortexSession::default();
+        compact_session.enable_edition(CORE_2026_08_3)?;
+        for scheme in COMPACT_SCHEMES {
+            compact_session.register_scheme(*scheme);
+        }
         for dataset in fixtures()
             .into_iter()
             .filter(|fixture| !is_clickbench_fixture(fixture.name()))
@@ -45,24 +50,14 @@ mod tests {
             let regular_bytes = adapter::write_compressed_to_bytes_with_session(
                 &session,
                 array.clone(),
-                WriteStrategyBuilder::from_session(&session)
-                    .with_schemes(session.registered_schemes())
-                    .build(),
+                WriteStrategyBuilder::from_session_no_editions(&session).build(),
             )?;
             let _regular = adapter::read_file(regular_bytes)?;
 
             let compact_bytes = adapter::write_compressed_to_bytes_with_session(
-                &session,
+                &compact_session,
                 array,
-                WriteStrategyBuilder::from_session(&session)
-                    .with_schemes(
-                        session
-                            .registered_schemes()
-                            .into_iter()
-                            .chain(COMPACT_SCHEMES.iter().copied())
-                            .collect(),
-                    )
-                    .build(),
+                WriteStrategyBuilder::from_session_no_editions(&compact_session).build(),
             )?;
             let _compact = adapter::read_file(compact_bytes)?;
         }

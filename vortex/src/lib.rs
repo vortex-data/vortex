@@ -381,7 +381,6 @@ mod test {
     use vortex_error::VortexResult;
     use vortex_file::OpenOptionsSessionExt;
     use vortex_file::WriteOptionsSessionExt;
-    use vortex_file::WriteStrategyBuilder;
     use vortex_session::VortexSession;
 
     use crate as vortex;
@@ -496,21 +495,11 @@ mod test {
 
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("example_compact.vortex");
 
+        for scheme in COMPACT_SCHEMES {
+            session.register_scheme(*scheme);
+        }
         session
             .write_options()
-            .with_strategy(
-                WriteStrategyBuilder::from_session(&session)
-                    .with_schemes(
-                        session.permit(
-                            session
-                                .registered_schemes()
-                                .into_iter()
-                                .chain(COMPACT_SCHEMES.iter().copied())
-                                .collect(),
-                        ),
-                    )
-                    .build(),
-            )
             .write(
                 &mut tokio::fs::File::create(&path).await?,
                 array.clone().into_array().to_array_stream(),

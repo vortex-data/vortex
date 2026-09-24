@@ -115,7 +115,7 @@ pub async fn taxi_data_vortex_compact() -> Result<PathBuf> {
         let mut output_file = TokioFile::create(output_fname).await?;
 
         // This is the only difference to `taxi_data_vortex`.
-        let write_options = CompactionStrategy::Compact.apply_options(SESSION.write_options());
+        let write_options = CompactionStrategy::Compact.session().write_options();
 
         let data = parquet_to_vortex_chunks(taxi_data_parquet().await?).await?;
 

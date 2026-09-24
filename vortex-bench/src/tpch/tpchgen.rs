@@ -343,7 +343,8 @@ impl VortexWriter {
 
             let mut file = TokioFile::create(&file_path).await?;
             compaction_strategy
-                .apply_options(SESSION.write_options())
+                .session()
+                .write_options()
                 .write(&mut file, stream)
                 .await
                 .map_err(|e| anyhow!("Vortex write failed: {}", e))?;

@@ -83,6 +83,15 @@ impl WriteStrategyBuilder {
             use_list_layout: use_experimental_list_layout(),
         }
     }
+
+    /// Create a new builder whose compressor uses every scheme registered on `session`, ignoring
+    /// its editions. The writer defaults to this when editions are disabled.
+    pub fn from_session_no_editions(session: &VortexSession) -> Self {
+        Self {
+            compressor: CompressorConfig::Schemes(session.registered_schemes()),
+            ..Self::from_session(session)
+        }
+    }
 }
 
 impl WriteStrategyBuilder {
@@ -134,15 +143,6 @@ impl WriteStrategyBuilder {
     /// layout strategy, e.g. one that inlines constant array buffers for GPU reads.
     pub fn with_flat_strategy(mut self, flat: Arc<dyn LayoutStrategy>) -> Self {
         self.flat_strategy = Some(flat);
-        self
-    }
-
-    /// Override the compression schemes.
-    ///
-    /// The strategy builds two compressors from them: one for data, without `IntDictScheme`, and
-    /// one for stats. The list is used as given; it is not filtered by the session's editions.
-    pub fn with_schemes(mut self, schemes: Vec<&'static dyn Scheme>) -> Self {
-        self.compressor = CompressorConfig::Schemes(schemes);
         self
     }
 

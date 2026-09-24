@@ -25,17 +25,19 @@ use anyhow::Result;
 use anyhow::bail;
 use bytes::Bytes;
 use futures::TryStreamExt;
+use vortex::VortexSessionDefault;
 use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::ChunkedArray;
 use vortex::array::arrays::VarBinViewArray;
+use vortex::compressor::CompressionSession;
 use vortex::compressor::CompressionSessionExt;
-use vortex::compressor::Scheme;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
+use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::LayoutStrategy;
 use vortex::session::VortexSession;
 use vortex_bench::Format;
@@ -181,14 +183,19 @@ fn serialized_write_strategy(
         .filter(|&id| id != forced)
         .chain([DeltaScheme::default().id()])
         .collect();
-    let schemes: Vec<&'static dyn Scheme> = session
-        .permitted_schemes()
+    // A session like `session` registering only the remaining schemes; its editions still decide
+    // which of them may write.
+    let mut registry = CompressionSession::empty();
+    for scheme in session
+        .registered_schemes()
         .into_iter()
         .filter(|scheme| !excluded.contains(&scheme.id()))
-        .collect();
-    WriteStrategyBuilder::from_session(session)
-        .with_schemes(schemes)
-        .build()
+    {
+        registry.register(scheme);
+    }
+    let forced_session = VortexSession::default().with_handle(session.handle());
+    forced_session.register(registry);
+    WriteStrategyBuilder::from_session(&forced_session).build()
 }
 
 /// Write one canonical string column to an in-memory Vortex file, forcing the

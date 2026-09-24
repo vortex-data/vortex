@@ -30,11 +30,8 @@ pub use utils::file::*;
 pub use utils::logging::*;
 use vortex::compressor::COMPACT_SCHEMES;
 use vortex::compressor::CompressionSessionExt;
-use vortex::compressor::Scheme;
 use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
-use vortex::file::VortexWriteOptions;
-use vortex::file::WriteStrategyBuilder;
 use vortex::utils::aliases::hash_map::HashMap;
 
 use crate::spatialbench::SpatialBenchBenchmark;
@@ -80,11 +77,22 @@ use vortex::session::VortexSession;
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+pub static SESSION: LazyLock<VortexSession> = LazyLock::new(new_session);
+
+/// [`SESSION`] plus the compact (Zstd and Pco) schemes, for [`CompactionStrategy::Compact`].
+pub static COMPACT_SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = new_session();
+    for scheme in COMPACT_SCHEMES {
+        session.register_scheme(*scheme);
+    }
+    session
+});
+
+fn new_session() -> VortexSession {
     let session = VortexSession::default().with_tokio();
     vortex_spatial::initialize(&session);
     session
-});
+}
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Target {
@@ -251,27 +259,13 @@ pub enum CompactionStrategy {
 }
 
 impl CompactionStrategy {
-    pub fn apply_options(&self, options: VortexWriteOptions) -> VortexWriteOptions {
+    /// The session to write with: [`COMPACT_SESSION`] for compact files, else [`SESSION`].
+    pub fn session(&self) -> &'static VortexSession {
         match self {
-            CompactionStrategy::Compact => options.with_strategy(
-                WriteStrategyBuilder::from_session(&SESSION)
-                    .with_schemes(compact_schemes())
-                    .build(),
-            ),
-            CompactionStrategy::Default => options,
+            CompactionStrategy::Compact => &COMPACT_SESSION,
+            CompactionStrategy::Default => &SESSION,
         }
     }
-}
-
-/// The schemes [`SESSION`] permits plus the compact ones, for [`CompactionStrategy::Compact`].
-pub fn compact_schemes() -> Vec<&'static dyn Scheme> {
-    SESSION.permit(
-        SESSION
-            .registered_schemes()
-            .into_iter()
-            .chain(COMPACT_SCHEMES.iter().copied())
-            .collect(),
-    )
 }
 
 /// Verify that local data has already been prepared for the requested benchmark formats.

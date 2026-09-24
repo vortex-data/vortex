@@ -16,12 +16,9 @@ use vortex::array::IntoArray;
 use vortex::array::iter::ArrayIterator;
 use vortex::array::iter::ArrayIteratorAdapter;
 use vortex::array::iter::ArrayIteratorExt;
-use vortex::compressor::COMPACT_SCHEMES;
-use vortex::compressor::CompressionSessionExt;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::file::WriteOptionsSessionExt;
-use vortex::file::WriteStrategyBuilder;
 use vortex::io::VortexWrite;
 use vortex::io::object_store::ObjectStoreWrite;
 use vortex::io::runtime::BlockingRuntime;
@@ -45,6 +42,7 @@ use crate::object_store::resolve::ResolvedStore;
 use crate::object_store::resolve::resolve_store;
 use crate::opendal_store::CosStore;
 use crate::opendal_store::GoosefsStore;
+use crate::session::compact_session;
 use crate::session::session;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
@@ -377,28 +375,18 @@ impl PyVortexWriteOptions {
         path: &str,
         store: Option<AnyVortexStore>,
     ) -> PyVortexResult<()> {
-        let session = session();
+        let session = if self.use_compact_encodings {
+            compact_session()
+        } else {
+            session()
+        };
         py.detach(|| {
-            let mut strategy = WriteStrategyBuilder::from_session(session);
-            if self.use_compact_encodings {
-                strategy = strategy.with_schemes(
-                    session.permit(
-                        session
-                            .registered_schemes()
-                            .into_iter()
-                            .chain(COMPACT_SCHEMES.iter().copied())
-                            .collect(),
-                    ),
-                );
-            }
-            let strategy = strategy.build();
             current_runtime().block_on(async move {
                 match resolve_store(path, store.map(|x| x.into_inner()))? {
                     ResolvedStore::ObjectStore(store, path) => {
                         let mut store = ObjectStoreWrite::new(store, &path).await?;
                         session
                             .write_options()
-                            .with_strategy(strategy)
                             .write(&mut store, iter.into_inner().into_array_stream())
                             .await?;
                         store.shutdown().await?;
@@ -408,7 +396,6 @@ impl PyVortexWriteOptions {
                         let mut w = FileWrite::create(path, current_runtime().handle()).await?;
                         session
                             .write_options()
-                            .with_strategy(strategy)
                             .write(&mut w, iter.into_inner().into_array_stream())
                             .await?;
                         w.shutdown().await?;

@@ -140,26 +140,16 @@ impl Fixture for DatasetFixtureAdapter {
     fn write(&self, dir: &Path, ctx: &mut ExecutionCtx) -> VortexResult<Vec<FixtureEntry>> {
         let array = self.inner.build(&ctx.session().arrow())?;
         let path = dir.join(self.name());
-        // The execution context's session registers no compression schemes, so build the
-        // strategy from the same default session the adapter writes with.
+        // The adapter writes with editions disabled, so every scheme registered on this default
+        // session may be used.
         let session = VortexSession::default();
         if self.compact {
-            let strategy = WriteStrategyBuilder::from_session(&session)
-                .with_schemes(
-                    session
-                        .registered_schemes()
-                        .into_iter()
-                        .chain(COMPACT_SCHEMES.iter().copied())
-                        .collect(),
-                )
-                .build();
-            adapter::write_compressed(&path, array, strategy)?;
-        } else {
-            let strategy = WriteStrategyBuilder::from_session(&session)
-                .with_schemes(session.registered_schemes())
-                .build();
-            adapter::write_compressed(&path, array, strategy)?;
+            for scheme in COMPACT_SCHEMES {
+                session.register_scheme(*scheme);
+            }
         }
+        let strategy = WriteStrategyBuilder::from_session_no_editions(&session).build();
+        adapter::write_compressed(&path, array, strategy)?;
         Ok(vec![FixtureEntry {
             name: self.name().to_string(),
             description: self.description().to_string(),
