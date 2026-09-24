@@ -4,6 +4,8 @@
 //! File stages: footer open, file-statistics pruning, and filter-and-project over natural
 //! splits, plus the types they pass between each other.
 
+pub mod footer_open;
+
 use std::sync::Arc;
 
 use vortex_array::expr::Expression;
