@@ -493,7 +493,10 @@ where
     #[allow(clippy::inline_always)]
     #[inline(always)]
     fn flush(&mut self) {
-        *self.distinct_values.entry(NativeValue(self.prev)).or_insert(0) += self.pending;
+        *self
+            .distinct_values
+            .entry(NativeValue(self.prev))
+            .or_insert(0) += self.pending;
         self.pending = 0;
     }
 
@@ -531,6 +534,7 @@ fn inner_loop_nonnull<T: IntegerPType>(
     }
 }
 
+/// Processes one non-null chunk, monomorphized on whether distinct values are counted.
 #[allow(clippy::inline_always)]
 #[inline(always)]
 fn inner_loop_nonnull_impl<T: IntegerPType, const COUNT_DISTINCT_VALUES: bool>(
@@ -602,6 +606,7 @@ fn inner_loop_naive<T: IntegerPType>(
     }
 }
 
+/// Processes values with a validity mask, skipping nulls without breaking runs.
 #[allow(clippy::inline_always)]
 #[inline(always)]
 fn inner_loop_masked<T: IntegerPType, const COUNT_DISTINCT_VALUES: bool>(
@@ -620,7 +625,6 @@ fn inner_loop_masked<T: IntegerPType, const COUNT_DISTINCT_VALUES: bool>(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
     use std::iter;
 
     use vortex_array::VortexSessionExecute;
@@ -631,6 +635,7 @@ mod tests {
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_utils::aliases::hash_map::HashMap;
 
     use super::ErasedStats;
     use super::IntegerStats;
@@ -729,7 +734,7 @@ mod tests {
                         .map(|_| null_every == 0 || next() % null_every != 0)
                         .collect();
 
-                    let mut expected: HashMap<u32, u32> = HashMap::new();
+                    let mut expected: HashMap<u32, u32> = HashMap::default();
                     let (mut runs, mut prev) = (0u32, None);
                     for (&v, _) in values.iter().zip(&valid).filter(|(_, ok)| **ok) {
                         *expected.entry(v).or_insert(0) += 1;
