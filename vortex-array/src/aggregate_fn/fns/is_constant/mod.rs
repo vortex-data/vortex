@@ -481,6 +481,7 @@ mod tests {
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
     use crate::arrays::DecimalArray;
+    use crate::arrays::FixedSizeListArray;
     use crate::arrays::ListArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
@@ -757,6 +758,30 @@ mod tests {
 
         let mut ctx = array_session().create_execution_ctx();
         assert_eq!(is_constant(&list_array.into_array(), &mut ctx)?, expected);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(0, 3, vec![], true)]
+    #[case(0, 100_000, vec![], true)]
+    #[case(2, 3, vec![7i32, 7, 7, 7, 7, 7], true)]
+    #[case(2, 3, vec![1i32, 2, 1, 2, 1, 2], true)]
+    #[case(2, 3, vec![1i32, 2, 1, 2, 2, 1], false)]
+    fn test_fixed_size_list_is_constant(
+        #[case] list_size: u32,
+        #[case] len: usize,
+        #[case] elements: Vec<i32>,
+        #[case] expected: bool,
+    ) -> VortexResult<()> {
+        let fsl = FixedSizeListArray::try_new(
+            PrimitiveArray::from_iter(elements).into_array(),
+            list_size,
+            Validity::NonNullable,
+            len,
+        )?;
+
+        let mut ctx = array_session().create_execution_ctx();
+        assert_eq!(is_constant(&fsl.into_array(), &mut ctx)?, expected);
         Ok(())
     }
 
