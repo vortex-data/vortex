@@ -6,6 +6,7 @@
 
 pub mod footer_open;
 pub mod footer_prune;
+pub mod range_morsel;
 
 use std::sync::Arc;
 
