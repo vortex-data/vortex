@@ -48,7 +48,7 @@
 //! # fn example() -> vortex::error::VortexResult<()> {
 //! let session = VortexSession::default();
 //! let array = PrimitiveArray::new(buffer![42u64; 1024], Validity::NonNullable).into_array();
-//! let compressed = BtrBlocksCompressor::default()
+//! let compressed = BtrBlocksCompressor::from_session(&session)
 //!     .compress(&array, &mut session.create_execution_ctx())?;
 //!
 //! assert_eq!(compressed.dtype(), array.dtype());
@@ -144,9 +144,16 @@ pub mod buffer {
 /// Default adaptive compression APIs based on the maintained BtrBlocks-style compressor.
 pub mod compressor {
     pub use vortex_btrblocks::BtrBlocksCompressor;
-    pub use vortex_btrblocks::BtrBlocksCompressorBuilder;
+    #[cfg(feature = "zstd")]
+    pub use vortex_btrblocks::COMPACT_SCHEMES;
+    pub use vortex_btrblocks::CascadingCompressor;
+    pub use vortex_btrblocks::CompressionSession;
+    pub use vortex_btrblocks::CompressionSessionExt;
+    pub use vortex_btrblocks::DEFAULT_SCHEMES;
     pub use vortex_btrblocks::Scheme;
+    pub use vortex_btrblocks::SchemeExt;
     pub use vortex_btrblocks::SchemeId;
+    pub use vortex_btrblocks::schemes;
 }
 
 /// Vortex editions: versioned sets of serialized components.
@@ -366,7 +373,8 @@ mod test {
     use vortex_array::expr::select;
     use vortex_array::stream::ArrayStreamExt;
     use vortex_array::validity::Validity;
-    use vortex_btrblocks::BtrBlocksCompressorBuilder;
+    use vortex_btrblocks::COMPACT_SCHEMES;
+    use vortex_btrblocks::CompressionSessionExt;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_file::OpenOptionsSessionExt;
@@ -422,7 +430,7 @@ mod test {
 
         // You can compress an array in-memory with the BtrBlocks compressor
         let session = VortexSession::default();
-        let compressed = BtrBlocksCompressor::default().compress(
+        let compressed = BtrBlocksCompressor::from_session(&session).compress(
             &array.clone().into_array(),
             &mut session.create_execution_ctx(),
         )?;
@@ -489,8 +497,16 @@ mod test {
         session
             .write_options()
             .with_strategy(
-                WriteStrategyBuilder::default()
-                    .with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact())
+                WriteStrategyBuilder::from_session(&session)
+                    .with_schemes(
+                        session.permit(
+                            session
+                                .registered_schemes()
+                                .into_iter()
+                                .chain(COMPACT_SCHEMES.iter().copied())
+                                .collect(),
+                        ),
+                    )
                     .build(),
             )
             .write(

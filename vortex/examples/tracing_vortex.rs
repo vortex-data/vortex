@@ -39,7 +39,8 @@ use vortex::array::arrays::StructArray;
 use vortex::array::arrays::VarBinArray;
 use vortex::array::stream::ArrayStreamExt;
 use vortex::array::validity::Validity;
-use vortex::compressor::BtrBlocksCompressorBuilder;
+use vortex::compressor::COMPACT_SCHEMES;
+use vortex::compressor::CompressionSessionExt;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::file::WriteStrategyBuilder;
@@ -391,8 +392,16 @@ async fn write_batch_to_vortex(
 
     // Use compact encodings (Pco + Zstd) for the telemetry files.
     let write_opts = session.write_options().with_strategy(
-        WriteStrategyBuilder::default()
-            .with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact())
+        WriteStrategyBuilder::from_session(&session)
+            .with_schemes(
+                session.permit(
+                    session
+                        .registered_schemes()
+                        .into_iter()
+                        .chain(COMPACT_SCHEMES.iter().copied())
+                        .collect(),
+                ),
+            )
             .build(),
     );
 

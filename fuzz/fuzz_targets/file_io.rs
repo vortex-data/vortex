@@ -18,7 +18,8 @@ use vortex_array::dtype::StructFields;
 use vortex_array::expr::lit;
 use vortex_array::expr::root;
 use vortex_array::scalar_fn::fns::operators::Operator;
-use vortex_btrblocks::BtrBlocksCompressorBuilder;
+use vortex_btrblocks::COMPACT_SCHEMES;
+use vortex_btrblocks::CompressionSessionExt;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 use vortex_file::OpenOptionsSessionExt;
@@ -65,8 +66,16 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
     let write_options = match compressor_strategy {
         CompressorStrategy::Default => SESSION.write_options(),
         CompressorStrategy::Compact => SESSION.write_options().with_strategy(
-            WriteStrategyBuilder::default()
-                .with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact())
+            WriteStrategyBuilder::from_session(&SESSION)
+                .with_schemes(
+                    SESSION.permit(
+                        SESSION
+                            .registered_schemes()
+                            .into_iter()
+                            .chain(COMPACT_SCHEMES.iter().copied())
+                            .collect(),
+                    ),
+                )
                 .build(),
         ),
     };

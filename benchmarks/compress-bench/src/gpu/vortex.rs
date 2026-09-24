@@ -22,7 +22,7 @@ use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::struct_::StructArrayExt;
-use vortex::compressor::BtrBlocksCompressorBuilder;
+use vortex::compressor::BtrBlocksCompressor;
 use vortex::error::VortexResult;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
@@ -37,7 +37,6 @@ use vortex_bench::compress::CompressedData;
 use vortex_bench::compress::Compressor;
 use vortex_bench::compress::Uncompressed;
 use vortex_bench::conversions::parquet_to_vortex_chunks_with_batch_size;
-use vortex_bench::retain_edition_encodings;
 use vortex_cuda::CanonicalCudaExt;
 use vortex_cuda::CudaExecutionCtx;
 use vortex_cuda::CudaOpenOptionsExt;
@@ -46,6 +45,7 @@ use vortex_cuda::CudaSession;
 use vortex_cuda::PooledFileReadAtOptions;
 use vortex_cuda::executor::CudaArrayExt;
 use vortex_cuda::layout::CudaFlatLayoutStrategy;
+use vortex_cuda::layout::cuda_compatible_schemes;
 use vortex_cuda::layout::register_cuda_layout;
 
 use crate::gpu::writer::GPU_ROW_GROUP_SIZE;
@@ -100,11 +100,7 @@ impl Compressor for GpuVortexCompressor {
         // partition rather than whatever the default strategy would regroup them into.
         let strategy = Arc::new(ChunkedLayoutStrategy::new(CompressingStrategy::new(
             CudaFlatLayoutStrategy::default(),
-            retain_edition_encodings(
-                &SESSION,
-                BtrBlocksCompressorBuilder::default().only_cuda_compatible(),
-            )
-            .build(),
+            BtrBlocksCompressor::new(cuda_compatible_schemes(&SESSION)),
         )));
         let start = Instant::now();
         SESSION

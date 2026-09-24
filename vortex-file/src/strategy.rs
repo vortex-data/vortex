@@ -7,7 +7,9 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use vortex_array::dtype::FieldPath;
-use vortex_btrblocks::BtrBlocksCompressorBuilder;
+use vortex_btrblocks::BtrBlocksCompressor;
+use vortex_btrblocks::CompressionSessionExt;
+use vortex_btrblocks::Scheme;
 use vortex_btrblocks::SchemeExt;
 use vortex_btrblocks::schemes::integer::IntDictScheme;
 use vortex_error::VortexExpect;
@@ -26,16 +28,17 @@ use vortex_layout::layouts::table::TableStrategy;
 use vortex_layout::layouts::table::use_experimental_list_layout;
 use vortex_layout::layouts::zoned::writer::ZonedLayoutOptions;
 use vortex_layout::layouts::zoned::writer::ZonedStrategy;
+use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
 const ONE_MEG: u64 = 1 << 20;
 
 /// How the compressor was configured on [`WriteStrategyBuilder`].
 enum CompressorConfig {
-    /// A [`BtrBlocksCompressorBuilder`] that [`WriteStrategyBuilder::build`] will finalize.
+    /// Schemes for the [`BtrBlocksCompressor`]s that [`WriteStrategyBuilder::build`] creates.
     /// `IntDictScheme` is automatically excluded from the data compressor to prevent recursive
     /// dictionary encoding.
-    BtrBlocks(BtrBlocksCompressorBuilder),
+    Schemes(Vec<&'static dyn Scheme>),
     /// An opaque compressor used as-is for both data and stats compression.
     Opaque(Arc<dyn CompressorPlugin>),
 }
@@ -64,12 +67,13 @@ pub struct WriteStrategyBuilder {
     use_list_layout: bool,
 }
 
-impl Default for WriteStrategyBuilder {
-    /// Create a new empty builder. It can be further configured,
-    /// and then finally built yielding the [`LayoutStrategy`].
-    fn default() -> Self {
+impl WriteStrategyBuilder {
+    /// Create a new builder whose compressor uses the schemes registered on `session` that its
+    /// enabled editions permit. It can be further configured, and then finally built yielding the
+    /// [`LayoutStrategy`].
+    pub fn from_session(session: &VortexSession) -> Self {
         Self {
-            compressor: CompressorConfig::BtrBlocks(BtrBlocksCompressorBuilder::default()),
+            compressor: CompressorConfig::Schemes(session.permitted_schemes()),
             row_block_size: 8192,
             data_block_target_bytes: Some(ONE_MEG),
             field_writers: HashMap::new(),
@@ -132,12 +136,12 @@ impl WriteStrategyBuilder {
         self
     }
 
-    /// Override the default [`BtrBlocksCompressorBuilder`] used for compression.
+    /// Override the compression schemes.
     ///
-    /// The builder produces two compressors: one for data and one for stats.
-    /// An explicitly built compressor is used as configured.
-    pub fn with_btrblocks_builder(mut self, builder: BtrBlocksCompressorBuilder) -> Self {
-        self.compressor = CompressorConfig::BtrBlocks(builder);
+    /// The strategy builds two compressors from them: one for data, without `IntDictScheme`, and
+    /// one for stats. The list is used as given; it is not filtered by the session's editions.
+    pub fn with_schemes(mut self, schemes: Vec<&'static dyn Scheme>) -> Self {
+        self.compressor = CompressorConfig::Schemes(schemes);
         self
     }
 
@@ -177,12 +181,13 @@ impl WriteStrategyBuilder {
         // dictionary-encodes columns. Allowing IntDictScheme here would redundantly
         // dictionary-encode the integer codes produced by that earlier step.
         let data_compressor: Arc<dyn CompressorPlugin> = match &compressor {
-            CompressorConfig::BtrBlocks(builder) => Arc::new(
-                builder
-                    .clone()
-                    .exclude_schemes([IntDictScheme.id()])
-                    .build(),
-            ),
+            CompressorConfig::Schemes(schemes) => Arc::new(BtrBlocksCompressor::new(
+                schemes
+                    .iter()
+                    .copied()
+                    .filter(|scheme| scheme.id() != IntDictScheme.id())
+                    .collect(),
+            )),
             CompressorConfig::Opaque(compressor) => Arc::clone(compressor),
         };
         let compressing = CompressingStrategy::new(buffered, data_compressor);
@@ -206,7 +211,7 @@ impl WriteStrategyBuilder {
 
         // 2.1. | 3.1. compress stats tables and dict values.
         let stats_compressor: Arc<dyn CompressorPlugin> = match compressor {
-            CompressorConfig::BtrBlocks(builder) => Arc::new(builder.build()),
+            CompressorConfig::Schemes(schemes) => Arc::new(BtrBlocksCompressor::new(schemes)),
             CompressorConfig::Opaque(compressor) => compressor,
         };
         let compress_then_flat = CompressingStrategy::new(flat, Arc::clone(&stats_compressor));

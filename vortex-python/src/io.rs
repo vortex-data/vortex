@@ -16,9 +16,8 @@ use vortex::array::IntoArray;
 use vortex::array::iter::ArrayIterator;
 use vortex::array::iter::ArrayIteratorAdapter;
 use vortex::array::iter::ArrayIteratorExt;
-use vortex::compressor::BtrBlocksCompressorBuilder;
-use vortex::editions::ComponentKind;
-use vortex::editions::EditionSessionExt;
+use vortex::compressor::COMPACT_SCHEMES;
+use vortex::compressor::CompressionSessionExt;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::file::WriteOptionsSessionExt;
@@ -380,16 +379,18 @@ impl PyVortexWriteOptions {
     ) -> PyVortexResult<()> {
         let session = session();
         py.detach(|| {
-            let allowed_encodings = session
-                .enabled_component_ids(ComponentKind::Array)
-                .into_iter()
-                .collect();
-            let mut compressor = BtrBlocksCompressorBuilder::default();
+            let mut strategy = WriteStrategyBuilder::from_session(session);
             if self.use_compact_encodings {
-                compressor = compressor.with_compact();
+                strategy = strategy.with_schemes(
+                    session.permit(
+                        session
+                            .registered_schemes()
+                            .into_iter()
+                            .chain(COMPACT_SCHEMES.iter().copied())
+                            .collect(),
+                    ),
+                );
             }
-            let strategy = WriteStrategyBuilder::default()
-                .with_btrblocks_builder(compressor.retain_allowed_encodings(&allowed_encodings));
             let strategy = strategy.build();
             current_runtime().block_on(async move {
                 match resolve_store(path, store.map(|x| x.into_inner()))? {

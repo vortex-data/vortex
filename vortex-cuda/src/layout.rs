@@ -29,10 +29,14 @@ use vortex::array::serde::SerializedArray;
 use vortex::array::stats::StatsSetRef;
 use vortex::buffer::BufferString;
 use vortex::buffer::ByteBuffer;
-use vortex::compressor::BtrBlocksCompressorBuilder;
+use vortex::compressor::BtrBlocksCompressor;
+use vortex::compressor::CompressionSessionExt;
+use vortex::compressor::Scheme;
+use vortex::compressor::SchemeExt;
+use vortex::compressor::SchemeId;
+use vortex::compressor::schemes;
 use vortex::dtype::DType;
 use vortex::dtype::FieldMask;
-use vortex::editions::ComponentKind;
 use vortex::editions::Edition;
 use vortex::editions::EditionDeclaration;
 use vortex::editions::EditionFamily;
@@ -553,26 +557,57 @@ fn extract_constant_buffers(chunk: &ArrayRef) -> Vec<InlinedBuffer> {
 /// nonzero sets row blocks without outer dictionaries or byte coalescing, retaining per-block
 /// dictionary compression.
 pub fn cuda_write_strategy(session: &VortexSession, block_rows: usize) -> Arc<dyn LayoutStrategy> {
-    let allowed_encodings = session
-        .enabled_component_ids(ComponentKind::Array)
-        .into_iter()
-        .collect();
-    let builder = BtrBlocksCompressorBuilder::default()
-        .only_cuda_compatible()
-        .retain_allowed_encodings(&allowed_encodings);
-    let strategy = WriteStrategyBuilder::default()
+    let schemes = cuda_compatible_schemes(session);
+    let strategy = WriteStrategyBuilder::from_session(session)
         .with_flat_strategy(Arc::new(CudaFlatLayoutStrategy::default()));
     if block_rows == 0 {
-        strategy.with_btrblocks_builder(builder).build()
+        strategy.with_schemes(schemes).build()
     } else {
         // An opaque compressor keeps IntDict; disabling the probe avoids u16-sized outer blocks.
         strategy
-            .with_compressor(builder.build())
-            .with_probe_compressor(BtrBlocksCompressorBuilder::empty().build())
+            .with_compressor(BtrBlocksCompressor::new(schemes))
+            .with_probe_compressor(BtrBlocksCompressor::new(Vec::new()))
             .with_row_block_size(block_rows)
             .with_data_block_target_bytes(None)
             .build()
     }
+}
+
+/// The schemes registered on `session` that CUDA kernels can decode, keeping FSST for string
+/// compression and adding Zstd for binary compression.
+///
+/// Both the array-level and the buffer-level Zstd schemes are added. Buffer-level compression
+/// preserves binary arrays' buffer layout for zero-conversion GPU decompression, but belongs to the
+/// opt-in `zstd` edition, so the session's enabled editions decide which of the two survives.
+///
+/// Files written with these schemes may be larger than with the default compressor: the list
+/// picks encodings the GPU decodes, not the smallest ones.
+pub fn cuda_compatible_schemes(session: &VortexSession) -> Vec<&'static dyn Scheme> {
+    // Keep FSST, which has a CUDA decoder and direct Arrow offset-based export. Other string
+    // fragmentation and dictionary schemes still require unsupported decode paths.
+    let excluded: Vec<SchemeId> = vec![
+        schemes::integer::SparseScheme.id(),
+        schemes::integer::IntRLEScheme.id(),
+        schemes::float::ALPRDScheme.id(),
+        schemes::float::FloatRLEScheme.id(),
+        schemes::float::NullDominatedSparseScheme.id(),
+        schemes::string::NullDominatedSparseScheme.id(),
+        schemes::string::StringDictScheme.id(),
+        schemes::binary::BinaryDictScheme.id(),
+        // Delta now has a CUDA decode kernel, so arrays that reach the GPU already encoded with
+        // it — the Delta children OnPair emits, for instance — decode there. It stays excluded
+        // until GPU delta decode is benchmarked against the schemes it would displace, since this
+        // list picks encodings rather than merely decoding them.
+        schemes::integer::DeltaScheme::default().id(),
+    ];
+    let mut cuda: Vec<&'static dyn Scheme> = session
+        .registered_schemes()
+        .into_iter()
+        .filter(|scheme| !excluded.contains(&scheme.id()))
+        .collect();
+    cuda.push(&schemes::binary::ZstdScheme);
+    cuda.push(&schemes::binary::ZstdBuffersScheme);
+    session.permit(cuda)
 }
 
 #[derive(Clone, Debug)]
@@ -659,6 +694,7 @@ mod tests {
     use vortex::array::assert_arrays_eq;
     use vortex::buffer::ByteBufferMut;
     use vortex::editions::CORE_2025_05_0;
+    use vortex::editions::ComponentKind;
     use vortex::file::OpenOptionsSessionExt;
     use vortex::file::VortexFile;
     use vortex::file::WriteOptionsSessionExt;

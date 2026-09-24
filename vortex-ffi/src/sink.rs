@@ -106,7 +106,7 @@ pub unsafe extern "C-unwind" fn vx_array_sink_open_file(
     error_out: *mut *mut vx_error,
 ) -> *mut vx_array_sink {
     try_or_default(error_out, || {
-        let strategy = WriteStrategyBuilder::default().build();
+        let strategy = WriteStrategyBuilder::from_session(vx_session::as_ref(session)).build();
         unsafe { vx_array_sink_open_file_with_strategy(session, path, dtype, strategy) }
     })
 }

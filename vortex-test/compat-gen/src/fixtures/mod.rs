@@ -6,10 +6,13 @@ mod arrays;
 use std::path::Path;
 use std::sync::Arc;
 
+use vortex::VortexSessionDefault;
 use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
-use vortex::compressor::BtrBlocksCompressorBuilder;
+use vortex::compressor::COMPACT_SCHEMES;
+use vortex::compressor::DEFAULT_SCHEMES;
 use vortex::file::WriteStrategyBuilder;
+use vortex::session::VortexSession;
 use vortex_array::ExecutionCtx;
 use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
@@ -137,13 +140,24 @@ impl Fixture for DatasetFixtureAdapter {
     fn write(&self, dir: &Path, ctx: &mut ExecutionCtx) -> VortexResult<Vec<FixtureEntry>> {
         let array = self.inner.build(&ctx.session().arrow())?;
         let path = dir.join(self.name());
+        // The execution context's session registers no compression schemes, so build the
+        // strategy from the same default session the adapter writes with.
+        let session = VortexSession::default();
         if self.compact {
-            let strategy = WriteStrategyBuilder::default()
-                .with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact())
+            let strategy = WriteStrategyBuilder::from_session(&session)
+                .with_schemes(
+                    DEFAULT_SCHEMES
+                        .iter()
+                        .copied()
+                        .chain(COMPACT_SCHEMES.iter().copied())
+                        .collect(),
+                )
                 .build();
             adapter::write_compressed(&path, array, strategy)?;
         } else {
-            let strategy = WriteStrategyBuilder::default().build();
+            let strategy = WriteStrategyBuilder::from_session(&session)
+                .with_schemes(DEFAULT_SCHEMES.to_vec())
+                .build();
             adapter::write_compressed(&path, array, strategy)?;
         }
         Ok(vec![FixtureEntry {

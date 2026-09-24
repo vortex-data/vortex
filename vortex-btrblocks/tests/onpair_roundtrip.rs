@@ -19,6 +19,7 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_btrblocks::BtrBlocksCompressor;
+use vortex_btrblocks::DEFAULT_SCHEMES;
 use vortex_session::VortexSession;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
@@ -58,7 +59,7 @@ fn nonnullable_roundtrip_via_default_compressor() {
     )
     .into_array();
 
-    let compressed = BtrBlocksCompressor::default()
+    let compressed = BtrBlocksCompressor::new(DEFAULT_SCHEMES.to_vec())
         .compress(&array, &mut SESSION.create_execution_ctx())
         .expect("compress");
     // Don't assert a specific scheme — both OnPair and FSST are registered and
@@ -101,7 +102,7 @@ fn nullable_roundtrip_via_default_compressor() {
     )
     .into_array();
 
-    let compressed = BtrBlocksCompressor::default()
+    let compressed = BtrBlocksCompressor::new(DEFAULT_SCHEMES.to_vec())
         .compress(&array, &mut SESSION.create_execution_ctx())
         .expect("compress");
     // Don't assert OnPair specifically here — the sample-based selector may
@@ -137,7 +138,7 @@ fn large_unique_short_strings_roundtrip() {
     )
     .into_array();
 
-    let compressed = BtrBlocksCompressor::default()
+    let compressed = BtrBlocksCompressor::new(DEFAULT_SCHEMES.to_vec())
         .compress(&array, &mut SESSION.create_execution_ctx())
         .expect("compress");
 
@@ -166,7 +167,7 @@ fn empty_and_short_string_roundtrip() {
     )
     .into_array();
 
-    let compressed = BtrBlocksCompressor::default()
+    let compressed = BtrBlocksCompressor::new(DEFAULT_SCHEMES.to_vec())
         .compress(&array, &mut SESSION.create_execution_ctx())
         .expect("compress");
     let decoded = compressed
@@ -211,7 +212,7 @@ fn delta_dict_offsets_roundtrip() {
         DType::Utf8(Nullability::NonNullable),
     )
     .into_array();
-    let compressed = BtrBlocksCompressor::default()
+    let compressed = BtrBlocksCompressor::new(DEFAULT_SCHEMES.to_vec())
         .compress(&array, &mut SESSION.create_execution_ctx())
         .expect("compress");
     let decoded = compressed

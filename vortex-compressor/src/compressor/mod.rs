@@ -9,12 +9,15 @@ mod sample;
 mod select;
 mod structural;
 
+use vortex_session::VortexSession;
+
 use crate::builtins::IntDictScheme;
 use crate::scheme::ChildSelection;
 use crate::scheme::DescendantExclusion;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
 use crate::scheme::SchemeId;
+use crate::session::CompressionSessionExt;
 
 /// Synthetic scheme ID used for the compressor's own root-level cascading.
 pub(crate) const ROOT_SCHEME_ID: SchemeId = SchemeId {
@@ -64,6 +67,14 @@ impl CascadingCompressor {
             schemes,
             root_exclusions,
         }
+    }
+
+    /// Creates a compressor over the schemes registered on `session` whose serialized IDs the
+    /// session's enabled editions permit.
+    ///
+    /// See [`CompressionSessionExt::permitted_schemes`](crate::session::CompressionSessionExt).
+    pub fn from_session(session: &VortexSession) -> Self {
+        Self::new(session.permitted_schemes())
     }
 }
 

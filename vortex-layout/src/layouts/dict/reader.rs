@@ -385,6 +385,7 @@ mod tests {
     use vortex_array::expr::root;
     use vortex_array::validity::Validity;
     use vortex_btrblocks::BtrBlocksCompressor;
+    use vortex_btrblocks::DEFAULT_SCHEMES;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_io::runtime::Handle;
@@ -426,7 +427,7 @@ mod tests {
             FlatLayoutStrategy::default(),
             FlatLayoutStrategy::default(),
             DictLayoutOptions::default(),
-            Arc::new(BtrBlocksCompressor::default()),
+            Arc::new(BtrBlocksCompressor::new(DEFAULT_SCHEMES.to_vec())),
         );
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
@@ -456,7 +457,7 @@ mod tests {
                 FlatLayoutStrategy::default(),
                 FlatLayoutStrategy::default(),
                 DictLayoutOptions::default(),
-                Arc::new(BtrBlocksCompressor::default()),
+                Arc::new(BtrBlocksCompressor::new(DEFAULT_SCHEMES.to_vec())),
             );
 
             let array = VarBinArray::from_iter(
@@ -559,7 +560,7 @@ mod tests {
                 FlatLayoutStrategy::default(),
                 FlatLayoutStrategy::default(),
                 DictLayoutOptions::default(),
-                Arc::new(BtrBlocksCompressor::default()),
+                Arc::new(BtrBlocksCompressor::new(DEFAULT_SCHEMES.to_vec())),
             );
 
             let array =
@@ -614,7 +615,7 @@ mod tests {
                 FlatLayoutStrategy::default(),
                 FlatLayoutStrategy::default(),
                 DictLayoutOptions::default(),
-                Arc::new(BtrBlocksCompressor::default()),
+                Arc::new(BtrBlocksCompressor::new(DEFAULT_SCHEMES.to_vec())),
             );
 
             let array = VarBinArray::from_iter(
