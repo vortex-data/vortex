@@ -149,6 +149,103 @@ fn encode(bencher: Bencher, case: (Shape, usize)) {
         });
 }
 
+/// Row counts for the scaling benches below. Each measures an operation whose work should not
+/// depend on the row count, so a figure that grows along this axis is the regression being shown.
+const SCALING: &[usize] = &[1 << 16, 1 << 20, 1 << 24];
+
+/// Rows in the fixed-size window [`slice_window`] cuts out and the fixed number of indices
+/// [`take_few`] gathers.
+const WINDOW: usize = 16;
+
+/// Row count per chunk in [`slice_into_chunks`], roughly what a writer cuts a column into.
+const CHUNK: usize = 1 << 16;
+
+/// Slice a fixed 16-row window out of the middle of an `n`-row array.
+///
+/// A slice only records `first_rank`, so this should cost the same at every `n`. It does not:
+/// `SliceReduce` rebuilds the array through `try_new`, which re-runs `VTable::validate`, and that
+/// walks every entry of both sample tables, about `n / 256 + zeros / 512` of them.
+#[divan::bench(args = SCALING)]
+fn slice_window(bencher: Bencher, n: usize) {
+    let array: ArrayRef = encoded(n, Shape::Sparse).into_array();
+    let start = n / 2;
+    bencher.bench_local(|| divan::black_box(array.slice(start..start + WINDOW).unwrap()));
+}
+
+/// Baseline for [`slice_window`]: the same slice of the same values, uncompressed.
+#[divan::bench(args = SCALING)]
+fn slice_window_primitive(bencher: Bencher, n: usize) {
+    let array = PrimitiveArray::from_iter(values(n, Shape::Sparse)).into_array();
+    let start = n / 2;
+    bencher.bench_local(|| divan::black_box(array.slice(start..start + WINDOW).unwrap()));
+}
+
+/// Cut an `n`-row array into `CHUNK`-row slices, as a writer repartitioning a column does.
+///
+/// There are `n / CHUNK` slices and each re-validates the whole layout, so the total grows with
+/// `n^2` rather than `n`.
+#[divan::bench(args = SCALING)]
+fn slice_into_chunks(bencher: Bencher, n: usize) {
+    let array: ArrayRef = encoded(n, Shape::Sparse).into_array();
+    bencher.bench_local(|| {
+        for start in (0..n).step_by(CHUNK) {
+            divan::black_box(array.slice(start..(start + CHUNK).min(n)).unwrap());
+        }
+    });
+}
+
+/// Baseline for [`slice_into_chunks`]: the same chunking of the same values, uncompressed.
+#[divan::bench(args = SCALING)]
+fn slice_into_chunks_primitive(bencher: Bencher, n: usize) {
+    let array = PrimitiveArray::from_iter(values(n, Shape::Sparse)).into_array();
+    bencher.bench_local(|| {
+        for start in (0..n).step_by(CHUNK) {
+            divan::black_box(array.slice(start..(start + CHUNK).min(n)).unwrap());
+        }
+    });
+}
+
+fn few_indices(n: usize) -> ArrayRef {
+    let mut rng = Rng(0x7A4E_0000_0000_0001);
+    PrimitiveArray::from_iter((0..WINDOW).map(|_| rng.below(n as u64))).into_array()
+}
+
+/// Gather 16 random rows from an `n`-row array and execute the result.
+///
+/// With no take kernel this decodes all `n` rows to keep 16, so it grows with `n` although the
+/// point reads it needs are `O(1)` each; compare [`take_few_scalar_at`].
+#[divan::bench(args = SCALING)]
+fn take_few(bencher: Bencher, n: usize) {
+    let array: ArrayRef = encoded(n, Shape::Sparse).into_array();
+    let indices = few_indices(n);
+    bencher
+        .with_inputs(|| SESSION.create_execution_ctx())
+        .bench_local_values(|mut ctx| {
+            divan::black_box(
+                array
+                    .take(indices.clone())
+                    .unwrap()
+                    .execute::<PrimitiveArray>(&mut ctx)
+                    .unwrap(),
+            );
+        });
+}
+
+/// What [`take_few`] could cost: the same 16 rows read one at a time through `scalar_at`.
+#[divan::bench(args = SCALING)]
+fn take_few_scalar_at(bencher: Bencher, n: usize) {
+    let array: ArrayRef = encoded(n, Shape::Sparse).into_array();
+    let mut rng = Rng(0x7A4E_0000_0000_0001);
+    let indices: Vec<usize> = (0..WINDOW).map(|_| rng.below(n as u64) as usize).collect();
+    bencher
+        .with_inputs(|| SESSION.create_execution_ctx())
+        .bench_local_values(|mut ctx| {
+            for &index in &indices {
+                divan::black_box(array.execute_scalar(index, &mut ctx).unwrap());
+            }
+        });
+}
+
 fn main() {
     divan::main();
 }
