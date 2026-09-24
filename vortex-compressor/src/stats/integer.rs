@@ -377,6 +377,7 @@ where
             HashMap::with_hasher(FxBuildHasher)
         },
         prev: head,
+        pending: 0,
         runs: 1,
     };
 
@@ -426,6 +427,10 @@ where
         }
     }
 
+    if count_distinct_values {
+        loop_state.flush();
+    }
+
     let runs = loop_state.runs;
 
     let array_ref = array.as_ref();
@@ -472,10 +477,41 @@ where
 struct LoopState<T> {
     /// The previous value seen.
     prev: T,
+    /// Occurrences of `prev` in the current run not yet added to `distinct_values`.
+    pending: u32,
     /// The run count.
     runs: u32,
     /// The distinct values map.
     distinct_values: HashMap<NativeValue<T>, u32, FxBuildHasher>,
+}
+
+impl<T: IntegerPType> LoopState<T>
+where
+    NativeValue<T>: Eq + Hash,
+{
+    /// Adds the pending occurrences of `prev` to the distinct values map.
+    #[allow(clippy::inline_always)]
+    #[inline(always)]
+    fn flush(&mut self) {
+        *self.distinct_values.entry(NativeValue(self.prev)).or_insert(0) += self.pending;
+        self.pending = 0;
+    }
+
+    /// Records one value, hashing only when the value differs from `prev`.
+    #[allow(clippy::inline_always)]
+    #[inline(always)]
+    fn push<const COUNT_DISTINCT_VALUES: bool>(&mut self, value: T) {
+        if value != self.prev {
+            if COUNT_DISTINCT_VALUES {
+                self.flush();
+            }
+            self.prev = value;
+            self.runs += 1;
+        }
+        if COUNT_DISTINCT_VALUES {
+            self.pending += 1;
+        }
+    }
 }
 
 /// Inner loop for non-null chunks of 64 values.
@@ -488,16 +524,46 @@ fn inner_loop_nonnull<T: IntegerPType>(
 ) where
     NativeValue<T>: Eq + Hash,
 {
-    for &value in values {
-        if count_distinct_values {
-            *state.distinct_values.entry(NativeValue(value)).or_insert(0) += 1;
-        }
+    if count_distinct_values {
+        inner_loop_nonnull_impl::<T, true>(values, state);
+    } else {
+        inner_loop_nonnull_impl::<T, false>(values, state);
+    }
+}
 
-        if value != state.prev {
-            state.prev = value;
-            state.runs += 1;
+#[allow(clippy::inline_always)]
+#[inline(always)]
+fn inner_loop_nonnull_impl<T: IntegerPType, const COUNT_DISTINCT_VALUES: bool>(
+    values: &[T; 64],
+    state: &mut LoopState<T>,
+) where
+    NativeValue<T>: Eq + Hash,
+{
+    // Branch-free count of value changes, including the change from the previous chunk. At
+    // most 64, so a `u8` accumulator lets the comparison use full-width byte lanes.
+    let transitions = u8::from(values[0] != state.prev)
+        + values
+            .iter()
+            .zip(&values[1..])
+            .map(|(a, b)| u8::from(a != b))
+            .sum::<u8>();
+
+    if COUNT_DISTINCT_VALUES {
+        if transitions == 0 {
+            state.pending += 64;
+            return;
+        }
+        for &value in values {
+            if value != state.prev {
+                state.flush();
+                state.prev = value;
+            }
+            state.pending += 1;
         }
     }
+
+    state.runs += u32::from(transitions);
+    state.prev = values[63];
 }
 
 /// Inner loop for nullable chunks of 64 values.
@@ -511,17 +577,10 @@ fn inner_loop_nullable<T: IntegerPType>(
 ) where
     NativeValue<T>: Eq + Hash,
 {
-    for (idx, &value) in values.iter().enumerate() {
-        if is_valid.value(idx) {
-            if count_distinct_values {
-                *state.distinct_values.entry(NativeValue(value)).or_insert(0) += 1;
-            }
-
-            if value != state.prev {
-                state.prev = value;
-                state.runs += 1;
-            }
-        }
+    if count_distinct_values {
+        inner_loop_masked::<T, true>(values, is_valid, state);
+    } else {
+        inner_loop_masked::<T, false>(values, is_valid, state);
     }
 }
 
@@ -536,22 +595,32 @@ fn inner_loop_naive<T: IntegerPType>(
 ) where
     NativeValue<T>: Eq + Hash,
 {
+    if count_distinct_values {
+        inner_loop_masked::<T, true>(values, is_valid, state);
+    } else {
+        inner_loop_masked::<T, false>(values, is_valid, state);
+    }
+}
+
+#[allow(clippy::inline_always)]
+#[inline(always)]
+fn inner_loop_masked<T: IntegerPType, const COUNT_DISTINCT_VALUES: bool>(
+    values: &[T],
+    is_valid: &BitBuffer,
+    state: &mut LoopState<T>,
+) where
+    NativeValue<T>: Eq + Hash,
+{
     for (idx, &value) in values.iter().enumerate() {
         if is_valid.value(idx) {
-            if count_distinct_values {
-                *state.distinct_values.entry(NativeValue(value)).or_insert(0) += 1;
-            }
-
-            if value != state.prev {
-                state.prev = value;
-                state.runs += 1;
-            }
+            state.push::<COUNT_DISTINCT_VALUES>(value);
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use std::iter;
 
     use vortex_array::VortexSessionExecute;
@@ -563,6 +632,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
 
+    use super::ErasedStats;
     use super::IntegerStats;
     use super::typed_int_stats;
 
@@ -627,5 +697,73 @@ mod tests {
         assert_eq!(stats.null_count, 1);
         assert_eq!(stats.average_run_length, 1);
         assert_eq!(stats.distinct_count().unwrap(), 2);
+    }
+
+    /// Checks the chunked loops against a naive per-value reference, over run shapes that
+    /// cover constant chunks, runs that cross chunk boundaries, nulls, and remainders.
+    #[test]
+    fn test_matches_naive_reference() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let mut seed = 0x9E37_79B9_7F4A_7C15u64;
+        let mut next = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+
+        for len in [1usize, 63, 64, 65, 1000, 64 * 20 + 17] {
+            for max_run in [1u64, 4, 64, 100, 512] {
+                for null_every in [0u64, 97, 3] {
+                    let mut values = Vec::with_capacity(len);
+                    let (mut run, mut value) = (0, 0u32);
+                    for _ in 0..len {
+                        if run == 0 {
+                            value = u32::try_from(next() % 16)?;
+                            run = 1 + next() % max_run;
+                        }
+                        values.push(value);
+                        run -= 1;
+                    }
+                    let valid: Vec<bool> = (0..len)
+                        .map(|_| null_every == 0 || next() % null_every != 0)
+                        .collect();
+
+                    let mut expected: HashMap<u32, u32> = HashMap::new();
+                    let (mut runs, mut prev) = (0u32, None);
+                    for (&v, _) in values.iter().zip(&valid).filter(|(_, ok)| **ok) {
+                        *expected.entry(v).or_insert(0) += 1;
+                        if prev != Some(v) {
+                            runs += 1;
+                            prev = Some(v);
+                        }
+                    }
+
+                    let validity = if null_every == 0 {
+                        Validity::NonNullable
+                    } else {
+                        Validity::from(BitBuffer::from(valid.clone()))
+                    };
+                    let array = PrimitiveArray::new(Buffer::from(values), validity);
+                    let stats = typed_int_stats::<u32>(&array, true, &mut ctx)?;
+
+                    let ErasedStats::U32(typed) = stats.erased() else {
+                        unreachable!()
+                    };
+                    let actual: HashMap<u32, u32> = typed
+                        .distinct()
+                        .map(|d| d.distinct_values().iter().map(|(k, &c)| (k.0, c)).collect())
+                        .unwrap_or_default();
+                    let case = format!("len={len} max_run={max_run} null_every={null_every}");
+                    assert_eq!(actual, expected, "{case}");
+                    let value_count: u32 = expected.values().sum();
+                    assert_eq!(stats.value_count, value_count, "{case}");
+                    if value_count > 0 {
+                        assert_eq!(stats.average_run_length, value_count / runs, "{case}");
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 }
