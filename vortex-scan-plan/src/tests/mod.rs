@@ -3,4 +3,5 @@
 
 //! Test doubles, fixtures, and integration tests for the prototype.
 
+pub mod fixtures;
 pub mod scripted;
