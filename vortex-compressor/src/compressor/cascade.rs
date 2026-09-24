@@ -259,6 +259,15 @@ impl CascadingCompressor {
             );
         }
 
+        // Constant detection is built into the compressor: a constant leaf always short-circuits
+        // scheme selection. Samples are exempt because a constant sample does not imply that the
+        // full array is constant.
+        //
+        // Compare valid values directly so even nullable constants avoid distinct-value counting.
+        if !compress_ctx.is_sample() && constant::is_constant_for_compression(&array, exec_ctx)? {
+            return constant::compress_as_constant(array, exec_ctx);
+        }
+
         let before_nbytes = array.nbytes();
 
         let merged_opts = eligible_schemes
@@ -269,27 +278,6 @@ impl CascadingCompressor {
         let compress_ctx = compress_ctx.with_merged_stats_options(merged_opts);
 
         let data = ArrayAndStats::new(array, merged_opts);
-
-        // Constant detection is built into the compressor: a constant leaf always short-circuits
-        // scheme selection. Samples are exempt because a constant sample does not imply that the
-        // full array is constant.
-        if !compress_ctx.is_sample() && constant::is_constant_for_compression(&data, exec_ctx)? {
-            let _winner_span =
-                trace::winner_compress_span(constant::CONSTANT_SCHEME_ID, before_nbytes).entered();
-            let compressed = constant::compress_constant(data.array(), exec_ctx)?;
-
-            let after_nbytes = compressed.nbytes();
-            let actual_ratio =
-                (after_nbytes != 0).then(|| before_nbytes as f64 / after_nbytes as f64);
-            let accepted = after_nbytes < before_nbytes;
-            trace::record_winner_compress_result(after_nbytes, None, actual_ratio, accepted);
-
-            return if accepted {
-                Ok(compressed)
-            } else {
-                Ok(data.into_array())
-            };
-        }
 
         if eligible_schemes.is_empty() {
             return Ok(data.into_array());
