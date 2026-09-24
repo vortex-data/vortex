@@ -23,7 +23,7 @@ pub struct IoRequestId(pub u32);
 ///
 /// Prototype deviation: `TRAITS.md` keys requests by segment source and segment id; this slice
 /// only needs sizes and byte ranges.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum IoTarget {
     /// Total length of the source in bytes.
     Size,
@@ -37,7 +37,7 @@ pub enum IoTarget {
 }
 
 /// One request: a consumer-chosen id and the target it names.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct IoRequest {
     /// Identifies the request within the issuing object.
     pub request: IoRequestId,

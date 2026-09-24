@@ -30,7 +30,9 @@ vortex-session = { workspace = true }
 futures = { workspace = true }
 
 [dev-dependencies]
+parking_lot = { workspace = true }
 rstest = { workspace = true }
+vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-edition = { workspace = true }
 vortex-utils = { workspace = true }
 

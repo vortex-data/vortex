@@ -11628,6 +11628,7 @@ name = "vortex-scan-plan"
 version = "0.1.0"
 dependencies = [
  "futures",
+ "parking_lot",
  "rstest",
  "vortex-array",
  "vortex-buffer",
