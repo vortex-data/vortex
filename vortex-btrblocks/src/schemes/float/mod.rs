@@ -3,23 +3,15 @@
 
 //! Float compression schemes.
 
-mod alp;
-mod alprd;
-mod rle;
-mod sparse;
-
-#[cfg(feature = "pco")]
-mod pco;
-
-pub use alp::ALPScheme;
-pub use alprd::ALPRDScheme;
-#[cfg(feature = "pco")]
-pub use pco::PcoScheme;
-pub use rle::FloatRLEScheme;
-pub use sparse::NullDominatedSparseScheme;
+pub use vortex_alp::schemes::alp::ALPScheme;
+pub use vortex_alp::schemes::alprd::ALPRDScheme;
 // Re-export builtin schemes from vortex-compressor.
 pub use vortex_compressor::builtins::FloatDictScheme;
 pub use vortex_compressor::stats::FloatStats;
+pub use vortex_fastlanes::schemes::float_rle::FloatRLEScheme;
+#[cfg(feature = "pco")]
+pub use vortex_pco::schemes::float::PcoScheme;
+pub use vortex_sparse::schemes::float::NullDominatedSparseScheme;
 
 #[cfg(test)]
 mod scheme_selection_tests;

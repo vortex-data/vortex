@@ -41,15 +41,14 @@
 //! use vortex::array::{IntoArray, VortexSessionExecute};
 //! use vortex::array::arrays::PrimitiveArray;
 //! use vortex::buffer::buffer;
-//! use vortex::compressor::BtrBlocksCompressorBuilder;
+//! use vortex::compressor::BtrBlocksCompressor;
 //! use vortex::session::VortexSession;
 //! use vortex::array::validity::Validity;
 //!
 //! # fn example() -> vortex::error::VortexResult<()> {
 //! let session = VortexSession::default();
 //! let array = PrimitiveArray::new(buffer![42u64; 1024], Validity::NonNullable).into_array();
-//! let compressed = BtrBlocksCompressorBuilder::from_session(&session)
-//!     .build()
+//! let compressed = BtrBlocksCompressor::from_session(&session)
 //!     .compress(&array, &mut session.create_execution_ctx())?;
 //!
 //! assert_eq!(compressed.dtype(), array.dtype());
@@ -146,9 +145,14 @@ pub mod buffer {
 /// Default adaptive compression APIs based on the maintained BtrBlocks-style compressor.
 pub mod compressor {
     pub use vortex_btrblocks::BtrBlocksCompressor;
-    pub use vortex_btrblocks::BtrBlocksCompressorBuilder;
+    pub use vortex_btrblocks::CascadingCompressor;
+    pub use vortex_btrblocks::CompressionSession;
+    pub use vortex_btrblocks::CompressionSessionExt;
     pub use vortex_btrblocks::Scheme;
+    pub use vortex_btrblocks::SchemeExt;
     pub use vortex_btrblocks::SchemeId;
+    pub use vortex_btrblocks::initialize;
+    pub use vortex_btrblocks::initialize_compact;
 }
 
 /// Vortex editions: versioned sets of serialized components.
@@ -328,6 +332,7 @@ impl VortexSessionDefault for VortexSession {
             .with::<AggregateFnSession>()
             .with::<MemorySession>()
             .with::<RuntimeSession>();
+        vortex_btrblocks::initialize(&session);
         vortex_arrow::initialize(&session);
         vortex_parquet_variant::initialize(&session);
         editions::register_default_editions(&session);
@@ -369,7 +374,7 @@ mod test {
     use vortex_array::expr::select;
     use vortex_array::stream::ArrayStreamExt;
     use vortex_array::validity::Validity;
-    use vortex_btrblocks::BtrBlocksCompressorBuilder;
+    use vortex_btrblocks::BtrBlocksCompressor;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_file::OpenOptionsSessionExt;
@@ -419,18 +424,16 @@ mod test {
     #[test]
     fn compress() -> VortexResult<()> {
         // [compress]
-        use vortex::compressor::BtrBlocksCompressorBuilder;
+        use vortex::compressor::BtrBlocksCompressor;
 
         let array = PrimitiveArray::new(buffer![42u64; 100_000], Validity::NonNullable);
 
         // You can compress an array in-memory with the BtrBlocks compressor
         let session = VortexSession::default();
-        let compressed = BtrBlocksCompressorBuilder::from_session(&session)
-            .build()
-            .compress(
-                &array.clone().into_array(),
-                &mut session.create_execution_ctx(),
-            )?;
+        let compressed = BtrBlocksCompressor::from_session(&session).compress(
+            &array.clone().into_array(),
+            &mut session.create_execution_ctx(),
+        )?;
         println!(
             "BtrBlocks size: {} / {}",
             compressed.nbytes(),
@@ -495,9 +498,12 @@ mod test {
             .write_options()
             .with_strategy(
                 WriteStrategyBuilder::from_session(&session)
-                    .with_btrblocks_builder(
-                        BtrBlocksCompressorBuilder::from_session(&session).with_compact(),
-                    )
+                    .with_btrblocks_compressor({
+                        let compression_session =
+                            vortex_btrblocks::CompressionSessionExt::fork_compression(&session);
+                        vortex_btrblocks::initialize_compact(&compression_session);
+                        BtrBlocksCompressor::from_session(&compression_session)
+                    })
                     .build(),
             )
             .write(

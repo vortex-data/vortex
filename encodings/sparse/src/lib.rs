@@ -1053,3 +1053,6 @@ mod test {
         assert_eq!(actual, expected);
     }
 }
+
+/// Compression schemes and their session registration.
+pub mod schemes;

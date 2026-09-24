@@ -3,26 +3,16 @@
 
 //! String compression schemes.
 
-mod fsst;
-mod sparse;
-
-#[cfg(feature = "zstd")]
-mod zstd;
-#[cfg(feature = "zstd")]
-mod zstd_buffers;
-
-mod onpair;
-
-pub use fsst::FSSTScheme;
-pub use onpair::OnPairScheme;
-pub use sparse::NullDominatedSparseScheme;
 // Re-export builtin schemes from vortex-compressor.
 pub use vortex_compressor::builtins::StringDictScheme;
 pub use vortex_compressor::stats::StringStats;
+pub use vortex_fsst::schemes::fsst::FSSTScheme;
+pub use vortex_onpair::schemes::onpair::OnPairScheme;
+pub use vortex_sparse::schemes::string::NullDominatedSparseScheme;
 #[cfg(feature = "zstd")]
-pub use zstd::ZstdScheme;
+pub use vortex_zstd::schemes::string::ZstdScheme;
 #[cfg(feature = "zstd")]
-pub use zstd_buffers::ZstdBuffersScheme;
+pub use vortex_zstd::schemes::string_buffers::ZstdBuffersScheme;
 
 #[cfg(test)]
 mod scheme_selection_tests;

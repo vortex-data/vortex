@@ -12,13 +12,14 @@
 //! the declarations and selecting which of them the default writer may emit.
 
 pub mod core;
+pub mod cuda;
 pub mod preview;
 
 use crate::EditionDeclaration;
 use crate::EditionFamily;
 
 /// The first-party edition families. Every family must be declared before its editions.
-pub static EDITION_FAMILIES: &[&EditionFamily] = &[&core::FAMILY, &preview::FAMILY];
+pub static EDITION_FAMILIES: &[&EditionFamily] = &[&core::FAMILY, &preview::FAMILY, &cuda::FAMILY];
 
 /// The first-party Vortex edition declarations.
 pub static EDITION_DECLARATIONS: &[&EditionDeclaration] = &[
@@ -30,4 +31,5 @@ pub static EDITION_DECLARATIONS: &[&EditionDeclaration] = &[
     &core::v2026_08_2::DECLARATION,
     &core::v2026_08_3::DECLARATION,
     &preview::v2026_08::DECLARATION,
+    &cuda::DECLARATION,
 ];

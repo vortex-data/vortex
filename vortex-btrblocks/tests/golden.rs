@@ -15,7 +15,7 @@
 //! - `onpair`: the structured-string entry with OnPair enabled — pins OnPair selection.
 //! - `compact`: the schemes permitted by the default `core` and opt-in `zstd` editions, with
 //!   the `zstd` + `pco` features and
-//!   [`BtrBlocksCompressorBuilder::with_compact`] — pins Zstd / Pco selection.
+//!   [`vortex_btrblocks::initialize_compact`] — pins Zstd / Pco selection.
 //!
 //! Every corpus entry is longer than 1024 values so the sampling-based estimation path is
 //! exercised, and each entry is compressed twice per run to assert determinism directly.
@@ -49,7 +49,6 @@ use vortex_array::dtype::Nullability;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::validity::Validity;
 use vortex_btrblocks::BtrBlocksCompressor;
-use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_buffer::Buffer;
 use vortex_edition::EDITION_DECLARATIONS;
 use vortex_edition::EDITION_FAMILIES;
@@ -60,7 +59,11 @@ use vortex_edition::declarations::core::CORE_2026_08_3;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = vortex_array::array_session();
+    vortex_btrblocks::initialize(&session);
+    session
+});
 
 /// Number of values in each numeric corpus entry: comfortably above the 1024-value sampling
 /// threshold so scheme selection runs on sampled estimates, as it does for real file chunks.
@@ -392,15 +395,17 @@ fn list_of_int_runs() -> VortexResult<ArrayRef> {
 /// Excludes OnPair from the `regular` and `compact` variants: it beats FSST on
 /// `string_fsst_structured`, and those variants pin the FSST selection. OnPair's own decisions
 /// are pinned by [`golden_onpair`].
-fn without_onpair(builder: BtrBlocksCompressorBuilder) -> BtrBlocksCompressorBuilder {
-    use vortex_btrblocks::SchemeExt;
-    use vortex_btrblocks::schemes::string::OnPairScheme;
-
-    builder.exclude_schemes([OnPairScheme.id()])
+fn without_onpair(session: &VortexSession) -> VortexSession {
+    let session = vortex_btrblocks::CompressionSessionExt::fork_compression(session);
+    vortex_btrblocks::CompressionSessionExt::compression(&session).unregister(
+        vortex_btrblocks::SchemeExt::id(&vortex_btrblocks::schemes::string::OnPairScheme),
+    );
+    session
 }
 
 fn edition_session(editions: &[EditionId]) -> VortexResult<VortexSession> {
     let session = vortex_array::array_session().with::<EditionSession>();
+    vortex_btrblocks::initialize(&session);
     for family in EDITION_FAMILIES {
         session.editions().declare_family(family)?;
     }
@@ -416,7 +421,7 @@ fn edition_session(editions: &[EditionId]) -> VortexResult<VortexSession> {
 #[test]
 fn golden_regular() -> VortexResult<()> {
     let session = edition_session(&[CORE_2026_08_3])?;
-    let compressor = without_onpair(BtrBlocksCompressorBuilder::from_session(&session)).build();
+    let compressor = BtrBlocksCompressor::from_session(&without_onpair(&session));
     golden_corpus_snapshots("regular", &compressor)
 }
 
@@ -424,7 +429,7 @@ fn golden_regular() -> VortexResult<()> {
 #[test]
 fn golden_onpair() -> VortexResult<()> {
     let session = edition_session(&[CORE_2026_08_3])?;
-    let compressor = BtrBlocksCompressorBuilder::from_session(&session).build();
+    let compressor = BtrBlocksCompressor::from_session(&session);
     golden_snapshots(
         "onpair",
         &compressor,
@@ -438,7 +443,8 @@ fn golden_compact() -> VortexResult<()> {
     let session = edition_session(&[CORE_2026_08_3])?;
     vortex_zstd::initialize(&session);
     session.enable_edition(vortex_zstd::editions::ZSTD_2026_02)?;
-    let compressor =
-        without_onpair(BtrBlocksCompressorBuilder::from_session(&session).with_compact()).build();
+    let session = without_onpair(&session);
+    vortex_btrblocks::initialize_compact(&session);
+    let compressor = BtrBlocksCompressor::from_session(&session);
     golden_corpus_snapshots("compact", &compressor)
 }

@@ -50,3 +50,6 @@ pub fn initialize(session: &VortexSession) {
         &compute::nan_count::ALPNanCountKernel,
     );
 }
+
+/// Compression schemes and their session registration.
+pub mod schemes;

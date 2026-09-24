@@ -19,12 +19,16 @@ mod benchmarks {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_btrblocks::BtrBlocksCompressorBuilder;
+    use vortex_btrblocks::BtrBlocksCompressor;
     use vortex_buffer::buffer_mut;
     use vortex_session::VortexSession;
     use vortex_utils::aliases::hash_set::HashSet;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        vortex_btrblocks::initialize(&session);
+        session
+    });
 
     fn make_clickbench_window_name() -> ArrayRef {
         // A test that's meant to mirror the WindowName column from ClickBench.
@@ -51,9 +55,7 @@ mod benchmarks {
         let array = make_clickbench_window_name()
             .execute::<PrimitiveArray>(&mut ctx)
             .unwrap();
-        let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
-            .allow_all_encodings()
-            .build();
+        let compressor = BtrBlocksCompressor::for_memory(&SESSION);
         bencher
             .with_inputs(|| (&array, SESSION.create_execution_ctx()))
             .input_counter(|(array, _)| ItemsCount::new(array.len()))

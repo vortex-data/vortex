@@ -46,6 +46,10 @@ use crate::stats::GenerateStatsOptions;
 pub struct FloatDictScheme;
 
 impl Scheme for FloatDictScheme {
+    fn selection_priority(&self) -> u16 {
+        30
+    }
+
     fn scheme_name(&self) -> &'static str {
         "vortex.float.dict"
     }

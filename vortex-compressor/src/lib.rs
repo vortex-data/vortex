@@ -19,9 +19,8 @@
 //! # Example
 //!
 //! A [`CascadingCompressor`] can be created directly with a fixed scheme list. With no schemes it
-//! still canonicalizes supported inputs, recursively handles nested structure, and encodes
-//! constant leaves (constant detection is built into the compressor), but no other leaf
-//! compression is selected.
+//! still canonicalizes supported inputs and recursively handles nested structure. Leaf compression,
+//! including constants, requires explicitly registered schemes.
 //!
 //! ```rust
 //! use vortex_array::{IntoArray, VortexSessionExecute, array_session};
@@ -70,3 +69,8 @@ mod compressor;
 pub use compressor::CascadingCompressor;
 
 mod trace;
+
+mod patches;
+pub use patches::compress_patches;
+
+pub mod session;

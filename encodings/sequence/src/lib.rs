@@ -48,3 +48,6 @@ pub fn initialize(session: &VortexSession) {
 // TODO(joe): hook up to the compressor
 // TODO(joe): support comparisons with other operators
 // TODO(joe): support list in expr pushdown
+
+/// Compression schemes and their session registration.
+pub mod schemes;

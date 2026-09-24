@@ -64,7 +64,7 @@ use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::search_sorted::SearchResult;
 use vortex_array::search_sorted::SearchSorted;
 use vortex_array::search_sorted::SearchSortedSide;
-use vortex_btrblocks::BtrBlocksCompressorBuilder;
+use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
@@ -247,8 +247,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                         .into_array()
                     };
 
-                    let compressed = BtrBlocksCompressorBuilder::from_session(&SESSION)
-                        .build()
+                    let compressed = BtrBlocksCompressor::from_session(&SESSION)
                         .compress(&indices_array, &mut ctx)
                         .vortex_expect("BtrBlocksCompressor compress should succeed in fuzz test");
                     (
@@ -560,15 +559,17 @@ pub fn compress_array(
     ctx: &mut ExecutionCtx,
 ) -> ArrayRef {
     match strategy {
-        CompressorStrategy::Default => BtrBlocksCompressorBuilder::from_session(&SESSION)
-            .build()
+        CompressorStrategy::Default => BtrBlocksCompressor::from_session(&SESSION)
             .compress(array, ctx)
             .vortex_expect("BtrBlocksCompressor compress should succeed in fuzz test"),
-        CompressorStrategy::Compact => BtrBlocksCompressorBuilder::from_session(&SESSION)
-            .with_compact()
-            .build()
-            .compress(array, ctx)
-            .vortex_expect("Compact compress should succeed in fuzz test"),
+        CompressorStrategy::Compact => {
+            let compression_session =
+                vortex_btrblocks::CompressionSessionExt::fork_compression(&*SESSION);
+            vortex_btrblocks::initialize_compact(&compression_session);
+            BtrBlocksCompressor::from_session(&compression_session)
+        }
+        .compress(array, ctx)
+        .vortex_expect("Compact compress should succeed in fuzz test"),
     }
 }
 
@@ -579,8 +580,7 @@ pub fn compress_array(
     _strategy: CompressorStrategy,
     ctx: &mut ExecutionCtx,
 ) -> ArrayRef {
-    BtrBlocksCompressorBuilder::from_session(&SESSION)
-        .build()
+    BtrBlocksCompressor::from_session(&SESSION)
         .compress(array, ctx)
         .vortex_expect("BtrBlocksCompressor compress should succeed in fuzz test")
 }

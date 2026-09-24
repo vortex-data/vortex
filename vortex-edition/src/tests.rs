@@ -444,3 +444,38 @@ fn kinds_are_resolved_independently() -> VortexResult<()> {
     );
     Ok(())
 }
+
+#[test]
+fn selecting_cuda_replaces_core_and_preserves_additive_composition() -> VortexResult<()> {
+    let session = VortexSession::empty();
+    for family in crate::EDITION_FAMILIES {
+        session.editions().declare_family(family)?;
+    }
+    for declaration in crate::EDITION_DECLARATIONS {
+        session.register_edition(declaration)?;
+    }
+    let core = crate::declarations::core::CORE_2026_08_3;
+    let cuda = crate::declarations::cuda::CUDA_2026_09_0;
+    session.enable_edition(core)?;
+    session.set_enabled_editions([cuda])?;
+    assert_eq!(session.enabled_editions().editions(), vec![cuda]);
+    assert!(
+        !session
+            .enabled_component_ids(ComponentKind::Array)
+            .iter()
+            .any(|id| id.as_str() == "vortex.sparse")
+    );
+
+    let unknown = EditionId::new("missing", 2026, 9, 0);
+    assert!(session.set_enabled_editions([core, unknown]).is_err());
+    assert_eq!(session.enabled_editions().editions(), vec![cuda]);
+
+    session.enable_edition(core)?;
+    assert!(
+        session
+            .enabled_component_ids(ComponentKind::Array)
+            .iter()
+            .any(|id| id.as_str() == "vortex.sparse")
+    );
+    Ok(())
+}

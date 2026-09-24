@@ -3,35 +3,19 @@
 
 //! Integer compression schemes.
 
-mod bitpacking;
-mod delta;
-mod for_;
-mod rle;
-mod runend;
-mod sequence;
-mod sparse;
-mod zigzag;
-
-#[cfg(feature = "pco")]
-mod pco;
-
-pub use bitpacking::BitPackingScheme;
-pub use delta::DeltaScheme;
-pub use for_::FoRScheme;
-#[cfg(feature = "pco")]
-pub use pco::PcoScheme;
-pub use rle::IntRLEScheme;
-pub(crate) use rle::rle_compress;
-pub use runend::RunEndScheme;
-pub use sequence::SequenceScheme;
-pub use sparse::SparseScheme;
 // Re-export builtin schemes from vortex-compressor.
 pub use vortex_compressor::builtins::IntDictScheme;
 pub use vortex_compressor::stats::IntegerStats;
-pub use zigzag::ZigZagScheme;
-
-/// Threshold for the average run length in an array before we consider run-length encoding.
-pub(crate) const RUN_LENGTH_THRESHOLD: u32 = 4;
+pub use vortex_fastlanes::schemes::bitpacking::BitPackingScheme;
+pub use vortex_fastlanes::schemes::delta::DeltaScheme;
+pub use vortex_fastlanes::schemes::for_::FoRScheme;
+pub use vortex_fastlanes::schemes::integer_rle::IntRLEScheme;
+#[cfg(feature = "pco")]
+pub use vortex_pco::schemes::integer::PcoScheme;
+pub use vortex_runend::schemes::runend::RunEndScheme;
+pub use vortex_sequence::schemes::sequence::SequenceScheme;
+pub use vortex_sparse::schemes::integer::SparseScheme;
+pub use vortex_zigzag::schemes::zigzag::ZigZagScheme;
 
 #[cfg(test)]
 mod scheme_selection_tests;

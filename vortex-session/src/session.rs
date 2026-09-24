@@ -159,7 +159,8 @@ impl<V: VortexSessionVar> Debug for SessionMut<'_, V> {
 ///
 /// Cloning a session is cheap and shares the backing store: a variable registered through one
 /// clone (via [`VortexSession::with_some`] or one of the `with_*` helpers) is observed by all
-/// clones. To build an *independent* session, start from [`VortexSession::empty`].
+/// clones. [`VortexSession::fork`] copies the variable map so selected variables can be replaced
+/// independently. For independent services as well, start from [`VortexSession::empty`].
 #[derive(Clone)]
 pub struct VortexSession(SharedSessionVars);
 
@@ -174,6 +175,12 @@ impl VortexSession {
     /// Create a new [`VortexSession`] with no session state.
     pub fn empty() -> Self {
         Self(SharedSessionVars::default())
+    }
+
+    /// Snapshot the variable map into an independent session.
+    /// Existing variables remain shared until explicitly replaced in the fork.
+    pub fn fork(&self) -> Self {
+        Self(self.0.fork())
     }
 
     /// Inserts `V::default()` if no variable of type `V` is present yet, copy-on-write.

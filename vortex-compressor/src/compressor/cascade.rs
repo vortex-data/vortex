@@ -9,7 +9,6 @@ use vortex_array::CanonicalValidity;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Constant;
-use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::Masked;
@@ -27,11 +26,9 @@ use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::arrays::union::UnionArrayExt;
 use vortex_array::arrays::union::UnionArraySlotsExt;
 use vortex_array::arrays::variant::VariantArraySlotsExt;
-use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
 use super::CascadingCompressor;
-use super::constant;
 use crate::scheme::CompressorContext;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
@@ -53,17 +50,48 @@ impl CascadingCompressor {
         array: &ArrayRef,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
+        self.compress_with_context(array, CompressorContext::new(), exec_ctx)
+    }
+
+    /// Compress dictionary codes with the existing dictionary cascade exclusions.
+    pub fn compress_dictionary_codes(
+        &self,
+        array: &ArrayRef,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let ctx = CompressorContext::new().excluding_at_site(crate::builtins::IntDictScheme.id());
+        self.compress_with_context(array, ctx, exec_ctx)
+    }
+
+    pub(super) fn compress_with_context(
+        &self,
+        array: &ArrayRef,
+        context: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
         let before_nbytes = array.nbytes();
         let span = trace::compress_span(array.len(), array.dtype(), before_nbytes);
         let _enter = span.enter();
 
         let canonical = array.clone().execute::<CanonicalValidity>(exec_ctx)?.0;
         let compact = canonical.compact(exec_ctx)?;
-        let compressed = self.compress_canonical(compact, CompressorContext::new(), exec_ctx)?;
+        let compressed = self.compress_canonical(compact, context, exec_ctx)?;
 
         trace::record_compress_outcome(&span, before_nbytes, compressed.nbytes());
 
         Ok(compressed)
+    }
+
+    /// Reject a canonical fallback before estimating or compressing its descendants.
+    pub(super) fn validate_canonical_encoding(&self, array: &ArrayRef) -> VortexResult<()> {
+        if let Some(allowed) = &self.canonical_encodings {
+            vortex_error::vortex_ensure!(
+                allowed.contains(&array.encoding_id()),
+                "canonical encoding {} is not permitted for this compressor",
+                array.encoding_id()
+            );
+        }
+        Ok(())
     }
 
     /// Compresses a child array produced by a cascading scheme.
@@ -84,6 +112,7 @@ impl CascadingCompressor {
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         if parent_ctx.finished_cascading() {
+            self.validate_canonical_encoding(child)?;
             trace::cascade_exhausted(parent_id, child_index);
             return Ok(child.clone());
         }
@@ -108,6 +137,9 @@ impl CascadingCompressor {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
+        if !matches!(&array, Canonical::List(_)) {
+            self.validate_canonical_encoding(&array.clone().into_array())?;
+        }
         match array {
             Canonical::Null(null_array) => Ok(null_array.into_array()),
             Canonical::Bool(bool_array) => {
@@ -122,7 +154,9 @@ impl CascadingCompressor {
             Canonical::Struct(struct_array) => {
                 let fields = struct_array
                     .iter_unmasked_fields()
-                    .map(|field| self.compress(field, exec_ctx))
+                    .map(|field| {
+                        self.compress_with_context(field, compress_ctx.for_structure(), exec_ctx)
+                    })
                     .collect::<Result<Vec<_>, _>>()?;
 
                 Ok(StructArray::try_new(
@@ -134,10 +168,16 @@ impl CascadingCompressor {
                 .into_array())
             }
             Canonical::Union(union_array) => {
-                let type_ids = self.compress(union_array.type_ids(), exec_ctx)?;
+                let type_ids = self.compress_with_context(
+                    union_array.type_ids(),
+                    compress_ctx.for_structure(),
+                    exec_ctx,
+                )?;
                 let children = union_array
                     .iter_children()
-                    .map(|child| self.compress(child, exec_ctx))
+                    .map(|child| {
+                        self.compress_with_context(child, compress_ctx.for_structure(), exec_ctx)
+                    })
                     .collect::<Result<Vec<_>, _>>()?;
 
                 Ok(
@@ -146,7 +186,10 @@ impl CascadingCompressor {
                 )
             }
             Canonical::List(list_view_array) => {
-                if list_view_array.is_zero_copy_to_list() || list_view_array.elements().is_empty() {
+                if self.convert_lists
+                    && (list_view_array.is_zero_copy_to_list()
+                        || list_view_array.elements().is_empty())
+                {
                     let list_array = list_from_list_view(list_view_array, exec_ctx)?;
                     self.compress_list_array(list_array, compress_ctx, exec_ctx)
                 } else {
@@ -155,7 +198,11 @@ impl CascadingCompressor {
             }
             Canonical::Map(map_array) => self.compress_map_array(map_array, compress_ctx, exec_ctx),
             Canonical::FixedSizeList(fsl_array) => {
-                let compressed_elems = self.compress(fsl_array.elements(), exec_ctx)?;
+                let compressed_elems = self.compress_with_context(
+                    fsl_array.elements(),
+                    compress_ctx.for_structure(),
+                    exec_ctx,
+                )?;
 
                 Ok(FixedSizeListArray::try_new(
                     compressed_elems,
@@ -172,7 +219,7 @@ impl CascadingCompressor {
                 // Try scheme-based compression first.
                 let scheme_compressed = self.choose_and_compress(
                     Canonical::Extension(ext_array.clone()),
-                    compress_ctx,
+                    compress_ctx.clone(),
                     exec_ctx,
                 )?;
 
@@ -189,7 +236,11 @@ impl CascadingCompressor {
 
                 // Also compress the underlying storage array. Some extension schemes can beat the
                 // extension storage but still lose to ordinary storage compression.
-                let compressed_storage = self.compress(ext_array.storage_array(), exec_ctx)?;
+                let compressed_storage = self.compress_with_context(
+                    ext_array.storage_array(),
+                    compress_ctx.for_structure(),
+                    exec_ctx,
+                )?;
                 let storage_compressed =
                     ExtensionArray::new(ext_array.ext_dtype().clone(), compressed_storage)
                         .into_array();
@@ -201,16 +252,19 @@ impl CascadingCompressor {
                 }
             }
             Canonical::Variant(variant_array) => {
-                let core_storage =
-                    self.compress_physical_slots(variant_array.core_storage(), exec_ctx)?;
+                let core_storage = self.compress_physical_slots(
+                    variant_array.core_storage(),
+                    &compress_ctx,
+                    exec_ctx,
+                )?;
                 let shredded = variant_array
                     .shredded()
                     .map(|arr| {
                         // Avoid stack-overflow for variant shredded values
                         if arr.is::<Variant>() {
-                            self.compress_physical_slots(arr, exec_ctx)
+                            self.compress_physical_slots(arr, &compress_ctx, exec_ctx)
                         } else {
-                            self.compress(arr, exec_ctx)
+                            self.compress_with_context(arr, compress_ctx.for_structure(), exec_ctx)
                         }
                     })
                     .transpose()?;
@@ -229,8 +283,8 @@ impl CascadingCompressor {
     /// If a winner is found and its compressed output is actually smaller, that output is
     /// returned. Otherwise, the original array is returned unchanged.
     ///
-    /// Empty, all-null, and constant arrays are handled by the compressor itself before any
-    /// scheme evaluation (constant detection is skipped while compressing samples).
+    /// Empty arrays remain canonical. All-null arrays only evaluate the registered constant
+    /// scheme. Other constant arrays use ordinary scheme selection.
     ///
     /// [`matches`]: Scheme::matches
     /// [`stats_options`]: Scheme::stats_options
@@ -240,7 +294,7 @@ impl CascadingCompressor {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let eligible_schemes: Vec<&'static dyn Scheme> = self
+        let mut eligible_schemes: Vec<&'static dyn Scheme> = self
             .schemes
             .iter()
             .copied()
@@ -248,17 +302,15 @@ impl CascadingCompressor {
             .collect();
 
         let array: ArrayRef = canonical.into();
+        self.validate_canonical_encoding(&array)?;
 
         if array.is_empty() {
             return Ok(array);
         }
 
         if array.all_invalid(exec_ctx)? {
-            return Ok(
-                ConstantArray::new(Scalar::null(array.dtype().clone()), array.len()).into_array(),
-            );
+            eligible_schemes.retain(|s| s.id() == crate::builtins::ConstantScheme.id());
         }
-
         let before_nbytes = array.nbytes();
 
         let merged_opts = eligible_schemes
@@ -269,27 +321,6 @@ impl CascadingCompressor {
         let compress_ctx = compress_ctx.with_merged_stats_options(merged_opts);
 
         let data = ArrayAndStats::new(array, merged_opts);
-
-        // Constant detection is built into the compressor: a constant leaf always short-circuits
-        // scheme selection. Samples are exempt because a constant sample does not imply that the
-        // full array is constant.
-        if !compress_ctx.is_sample() && constant::is_constant_for_compression(&data, exec_ctx)? {
-            let _winner_span =
-                trace::winner_compress_span(constant::CONSTANT_SCHEME_ID, before_nbytes).entered();
-            let compressed = constant::compress_constant(data.array(), exec_ctx)?;
-
-            let after_nbytes = compressed.nbytes();
-            let actual_ratio =
-                (after_nbytes != 0).then(|| before_nbytes as f64 / after_nbytes as f64);
-            let accepted = after_nbytes < before_nbytes;
-            trace::record_winner_compress_result(after_nbytes, None, actual_ratio, accepted);
-
-            return if accepted {
-                Ok(compressed)
-            } else {
-                Ok(data.into_array())
-            };
-        }
 
         if eligible_schemes.is_empty() {
             return Ok(data.into_array());

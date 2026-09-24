@@ -41,6 +41,10 @@ use crate::stats::IntegerStats;
 pub struct IntDictScheme;
 
 impl Scheme for IntDictScheme {
+    fn selection_priority(&self) -> u16 {
+        50
+    }
+
     fn scheme_name(&self) -> &'static str {
         "vortex.int.dict"
     }

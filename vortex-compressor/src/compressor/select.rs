@@ -59,7 +59,7 @@ impl CascadingCompressor {
     /// current best [`EstimateScore`] as an early-exit hint so the callback can return
     /// [`EstimateVerdict::Skip`] without doing expensive work when it cannot beat the threshold.
     ///
-    /// Ties are broken by registration order within each pass.
+    /// Ties follow scheme priority, then registration order, within each pass.
     ///
     /// [`expected_compression_ratio`]: Scheme::expected_compression_ratio
     pub(super) fn choose_best_scheme(
@@ -140,6 +140,9 @@ impl CascadingCompressor {
     /// exclusion rules.
     pub(super) fn is_excluded(&self, candidate: &dyn Scheme, ctx: &CompressorContext) -> bool {
         let id = candidate.id();
+        if ctx.excludes_at_site(id) {
+            return true;
+        }
         let history = ctx.cascade_history();
 
         // Self-exclusion: no scheme appears twice in any chain.

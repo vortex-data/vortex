@@ -37,7 +37,7 @@ use vortex::array::arrays::struct_::StructArrayExt;
 use vortex::array::builders::builder_with_capacity_in;
 use vortex::array::stream::ArrayStreamAdapter;
 use vortex::array::stream::ArrayStreamExt;
-use vortex::compressor::BtrBlocksCompressorBuilder;
+use vortex::compressor::BtrBlocksCompressor;
 use vortex::dtype::DType;
 use vortex::dtype::FieldPath;
 use vortex::dtype::StructFields;
@@ -247,9 +247,12 @@ fn write_options_for(
 
     let mut builder = WriteStrategyBuilder::from_session(&SESSION);
     if matches!(compaction, CompactionStrategy::Compact) {
-        builder = builder.with_btrblocks_builder(
-            BtrBlocksCompressorBuilder::from_session(&SESSION).with_compact(),
-        );
+        builder = builder.with_btrblocks_compressor({
+            let compression_session =
+                vortex::compressor::CompressionSessionExt::fork_compression(&*SESSION);
+            vortex::compressor::initialize_compact(&compression_session);
+            BtrBlocksCompressor::from_session(&compression_session)
+        });
     }
     for name in binary_fields {
         builder = builder.with_field_writer(FieldPath::from_name(name), no_dict_layout());
@@ -261,7 +264,7 @@ fn write_options_for(
 fn no_dict_layout() -> Arc<dyn LayoutStrategy> {
     Arc::new(CompressingStrategy::new(
         ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
-        BtrBlocksCompressorBuilder::from_session(&SESSION).build(),
+        BtrBlocksCompressor::from_session(&SESSION),
     ))
 }
 

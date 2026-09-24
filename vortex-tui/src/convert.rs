@@ -13,7 +13,7 @@ use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use vortex::array::stream::ArrayStreamAdapter;
-use vortex::compressor::BtrBlocksCompressorBuilder;
+use vortex::compressor::BtrBlocksCompressor;
 use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
 use vortex::file::WriteOptionsSessionExt;
@@ -96,11 +96,12 @@ pub async fn exec_convert(session: &VortexSession, flags: ConvertArgs) -> anyhow
             .boxed();
     }
 
-    let mut compressor = BtrBlocksCompressorBuilder::from_session(session);
+    let compression_session = vortex::compressor::CompressionSessionExt::fork_compression(session);
     if matches!(flags.strategy, Strategy::Compact) {
-        compressor = compressor.with_compact();
+        vortex::compressor::initialize_compact(&compression_session);
     }
-    let strategy = WriteStrategyBuilder::from_session(session).with_btrblocks_builder(compressor);
+    let strategy = WriteStrategyBuilder::from_session(session)
+        .with_btrblocks_compressor(BtrBlocksCompressor::from_session(&compression_session));
 
     let mut file = File::create(output_path).await?;
     session

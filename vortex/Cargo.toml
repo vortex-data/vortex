@@ -83,7 +83,12 @@ tokio = [
     "vortex-io/tokio",
     "vortex-layout/tokio",
 ]
-zstd = ["dep:vortex-zstd", "vortex-file?/zstd"]
+zstd = [
+    "dep:vortex-zstd",
+    "vortex-file?/zstd",
+    "vortex-btrblocks/zstd",
+    "vortex-btrblocks/pco",
+]
 tensor = ["dep:vortex-tensor", "vortex-file?/tensor"]
 wasm-bindgen = [
     "vortex-file?/wasm-bindgen",

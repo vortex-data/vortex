@@ -16,7 +16,7 @@ use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::VarBinArray;
 use vortex::array::validity::Validity;
-use vortex::compressor::BtrBlocksCompressorBuilder;
+use vortex::compressor::BtrBlocksCompressor;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::session::VortexSession;
@@ -67,7 +67,7 @@ fn compress_sequential_data(session: &VortexSession) -> Result<(), Box<dyn std::
     println!("    Uncompressed size: ~{} bytes", uncompressed_size);
 
     // Compress using default strategy
-    let compressor = BtrBlocksCompressorBuilder::from_session(session).build();
+    let compressor = BtrBlocksCompressor::from_session(session);
     let compressed = compressor.compress(
         &sequential.into_array(),
         &mut session.create_execution_ctx(),
@@ -98,7 +98,7 @@ fn compress_repetitive_data(session: &VortexSession) -> Result<(), Box<dyn std::
     println!("  Repetitive data (100 values, each repeated 100 times):");
     println!("    Uncompressed size: ~{} bytes", uncompressed_size);
 
-    let compressor = BtrBlocksCompressorBuilder::from_session(session).build();
+    let compressor = BtrBlocksCompressor::from_session(session);
     let compressed =
         compressor.compress(&array.into_array(), &mut session.create_execution_ctx())?;
 
@@ -131,7 +131,7 @@ fn compress_string_data(session: &VortexSession) -> Result<(), Box<dyn std::erro
     println!("  Categorical string data (10,000 strings, 4 categories):");
     println!("    Uncompressed size: ~{} bytes", uncompressed_size);
 
-    let compressor = BtrBlocksCompressorBuilder::from_session(session).build();
+    let compressor = BtrBlocksCompressor::from_session(session);
     let compressed =
         compressor.compress(&array.into_array(), &mut session.create_execution_ctx())?;
 
@@ -155,7 +155,7 @@ fn compress_float_data(session: &VortexSession) -> Result<(), Box<dyn std::error
     println!("  Floating-point data (10,000 values):");
     println!("    Uncompressed size: ~{} bytes", uncompressed_size);
 
-    let compressor = BtrBlocksCompressorBuilder::from_session(session).build();
+    let compressor = BtrBlocksCompressor::from_session(session);
     let compressed = compressor.compress(&array, &mut session.create_execution_ctx())?;
 
     let compressed_size = compressed.nbytes();
@@ -181,7 +181,7 @@ fn compress_sparse_data(session: &VortexSession) -> Result<(), Box<dyn std::erro
     println!("  Sparse data (10,000 values, 99% zeros):");
     println!("    Uncompressed size: ~{} bytes", uncompressed_size);
 
-    let compressor = BtrBlocksCompressorBuilder::from_session(session).build();
+    let compressor = BtrBlocksCompressor::from_session(session);
     let compressed =
         compressor.compress(&array.into_array(), &mut session.create_execution_ctx())?;
 
@@ -232,7 +232,7 @@ fn compress_structured_data(session: &VortexSession) -> Result<(), Box<dyn std::
     println!("  Structured data (5,000 records, 3 columns):");
     println!("    Uncompressed size: ~{} bytes", uncompressed_size);
 
-    let compressor = BtrBlocksCompressorBuilder::from_session(session).build();
+    let compressor = BtrBlocksCompressor::from_session(session);
     let compressed = compressor.compress(
         &struct_array.into_array(),
         &mut session.create_execution_ctx(),

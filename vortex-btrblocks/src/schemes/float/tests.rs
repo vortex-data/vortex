@@ -20,15 +20,17 @@ use vortex_error::VortexResult;
 use vortex_fastlanes::RLE;
 use vortex_session::VortexSession;
 
-use crate::BtrBlocksCompressorBuilder;
+use crate::BtrBlocksCompressor;
 use crate::schemes::float::FloatRLEScheme;
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = vortex_array::array_session();
+    crate::initialize(&session);
+    session
+});
 
 #[test]
 fn test_empty() -> VortexResult<()> {
-    let btr = BtrBlocksCompressorBuilder::from_session(&SESSION)
-        .allow_all_encodings()
-        .build();
+    let btr = BtrBlocksCompressor::for_memory(&SESSION);
     let array = PrimitiveArray::new(Buffer::<f32>::empty(), Validity::NonNullable).into_array();
     let result = btr.compress(&array, &mut SESSION.create_execution_ctx())?;
 
@@ -44,9 +46,7 @@ fn test_compress() -> VortexResult<()> {
     }
 
     let array = values.into_array();
-    let btr = BtrBlocksCompressorBuilder::from_session(&SESSION)
-        .allow_all_encodings()
-        .build();
+    let btr = BtrBlocksCompressor::for_memory(&SESSION);
     let compressed = btr.compress(&array, &mut SESSION.create_execution_ctx())?;
     assert_eq!(compressed.len(), 1024);
 
@@ -96,9 +96,7 @@ fn test_sparse_compression() -> VortexResult<()> {
     array.append_nulls(90);
 
     let array = array.finish_into_primitive().into_array();
-    let btr = BtrBlocksCompressorBuilder::from_session(&SESSION)
-        .allow_all_encodings()
-        .build();
+    let btr = BtrBlocksCompressor::for_memory(&SESSION);
     let compressed = btr.compress(&array, &mut SESSION.create_execution_ctx())?;
     assert_eq!(compressed.len(), 96);
 

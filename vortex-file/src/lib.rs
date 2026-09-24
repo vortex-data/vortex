@@ -198,6 +198,7 @@ pub fn register_default_encodings(session: &VortexSession) {
 
 #[cfg(test)]
 pub(crate) fn enable_all_registered_array_encodings(session: &VortexSession) {
+    vortex_btrblocks::initialize(session);
     use vortex_array::dtype::session::DTypeSessionExt;
     use vortex_edition::ComponentKind;
     use vortex_edition::Edition;

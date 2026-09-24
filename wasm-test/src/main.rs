@@ -1,26 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex::VortexSessionDefault;
 use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::validity::Validity;
-use vortex::buffer::buffer;
-use vortex::compressor::BtrBlocksCompressorBuilder;
+use vortex::buffer::Buffer;
+use vortex::compressor::BtrBlocksCompressor;
 use vortex::session::VortexSession;
-use vortex::VortexSessionDefault;
 
-//use wasm_bindgen::prelude::*;
+// use wasm_bindgen::prelude::*;
 
 pub fn main() {
     // Extremely simple test of compression/decompression and a few compute functions.
-    let array = PrimitiveArray::new(buffer![1i32; 1024], Validity::AllValid).into_array();
+    let array =
+        PrimitiveArray::new((0..1024i32).collect::<Buffer<_>>(), Validity::AllValid).into_array();
 
     let session = VortexSession::default();
-    let compressed = BtrBlocksCompressorBuilder::from_session(&session)
-        .build()
+    let compressed = BtrBlocksCompressor::from_session(&session)
         .compress(&array, &mut session.create_execution_ctx())
         .unwrap();
+    assert_ne!(compressed.encoding_id(), array.encoding_id());
     println!("Compressed size: {}", compressed.len());
     println!("Tree view: {}", compressed.display_tree());
 }

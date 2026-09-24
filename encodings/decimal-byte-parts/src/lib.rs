@@ -33,3 +33,6 @@ pub fn initialize(session: &VortexSession) {
         &DecimalBytePartsIsConstantKernel,
     );
 }
+
+/// Compression schemes and their session registration.
+pub mod schemes;

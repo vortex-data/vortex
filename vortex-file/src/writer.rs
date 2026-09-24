@@ -30,7 +30,7 @@ use vortex_array::stream::ArrayStream;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::stream::SendableArrayStream;
-use vortex_btrblocks::BtrBlocksCompressorBuilder;
+use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_buffer::ByteBuffer;
 use vortex_edition::ComponentKind;
 use vortex_edition::EditionSessionExt;
@@ -251,13 +251,11 @@ impl VortexWriteOptions {
             ctx.array_ctx().to_ids().into_iter().collect();
         let strategy = match self.strategy {
             Some(strategy) => strategy,
-            // With editions disabled the permitted IDs exceed the enabled editions, so widen the
-            // compressor's permissions to everything this write may serialize.
             None => WriteStrategyBuilder::from_session(&self.session)
-                .with_btrblocks_builder(
-                    BtrBlocksCompressorBuilder::from_session(&self.session)
-                        .allow_encodings(allowed_serialized_ids),
-                )
+                .with_btrblocks_compressor(BtrBlocksCompressor::from_session_with_encodings(
+                    &self.session,
+                    allowed_serialized_ids,
+                ))
                 .build(),
         };
         let dtype = stream.dtype().clone();

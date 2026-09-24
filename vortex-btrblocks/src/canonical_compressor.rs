@@ -5,36 +5,21 @@
 
 use std::ops::Deref;
 
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
+use vortex_array::session::ArraySessionExt;
+use vortex_compressor::session::CompressionSessionExt;
+use vortex_edition::ComponentKind;
+use vortex_edition::EditionSessionExt;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::CascadingCompressor;
 
-/// The BtrBlocks-style compressor over the schemes registered on a session.
-///
-/// This is a thin wrapper around [`CascadingCompressor`] configured through
-/// [`BtrBlocksCompressorBuilder`](crate::BtrBlocksCompressorBuilder).
-///
-/// # Examples
-///
-/// ```rust
-/// use vortex_btrblocks::{BtrBlocksCompressorBuilder, Scheme, SchemeExt};
-/// use vortex_btrblocks::schemes::integer::IntDictScheme;
-///
-/// let session = vortex_array::array_session();
-///
-/// // Every registered scheme; this session enables no editions, so permit everything.
-/// let compressor = BtrBlocksCompressorBuilder::from_session(&session)
-///     .allow_all_encodings()
-///     .build();
-///
-/// // Remove specific schemes using the builder.
-/// let compressor = BtrBlocksCompressorBuilder::from_session(&session)
-///     .allow_all_encodings()
-///     .exclude_schemes([IntDictScheme.id()])
-///     .build();
-/// ```
+/// A fully resolved compressor over schemes registered on a session.
+/// Construct with [`Self::from_session`] after registration and edition selection.
 #[derive(Clone)]
 pub struct BtrBlocksCompressor(
     /// The underlying cascading compressor.
@@ -42,6 +27,43 @@ pub struct BtrBlocksCompressor(
 );
 
 impl BtrBlocksCompressor {
+    /// Resolve registered schemes against the selected editions and registered serializers.
+    pub fn from_session(session: &VortexSession) -> Self {
+        Self::from_session_with_encodings(session, Self::permitted_encodings(session))
+    }
+
+    /// Intersect selected edition permissions with the registered serialized IDs.
+    pub fn permitted_encodings(session: &VortexSession) -> HashSet<ArrayId> {
+        let registered = session
+            .arrays()
+            .registry()
+            .read(|r| r.keys().copied().collect::<HashSet<_>>());
+        session
+            .enabled_component_ids(ComponentKind::Array)
+            .into_iter()
+            .filter(|id| registered.contains(id))
+            .collect()
+    }
+
+    /// Resolve against the exact IDs used by the writer's serialization context.
+    pub fn from_session_with_encodings(
+        session: &VortexSession,
+        ids: impl IntoIterator<Item = ArrayId>,
+    ) -> Self {
+        let allowed: HashSet<_> = ids.into_iter().collect();
+        let schemes = session
+            .registered_schemes()
+            .into_iter()
+            .filter(|s| s.produced_encodings().iter().all(|id| allowed.contains(id)))
+            .collect();
+        Self(CascadingCompressor::new_with_encodings(schemes, allowed))
+    }
+
+    /// Resolve registered schemes for in-memory compression without a wire-format restriction.
+    pub fn for_memory(session: &VortexSession) -> Self {
+        Self(CascadingCompressor::new(session.registered_schemes()))
+    }
+
     /// Compresses an array using BtrBlocks-inspired compression.
     pub fn compress(&self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         self.0.compress(array, ctx)
@@ -63,9 +85,8 @@ mod tests {
     use rstest::rstest;
     #[cfg(feature = "zstd")]
     use vortex_array::ArrayId;
-    #[cfg(feature = "zstd")]
-    use vortex_array::ArrayPlugin;
     use vortex_array::IntoArray;
+    use vortex_array::VTable;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::Constant;
@@ -83,9 +104,13 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
-    use crate::BtrBlocksCompressorBuilder;
+    use crate::BtrBlocksCompressor;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
 
     #[rstest]
     #[case::zctl(
@@ -114,9 +139,7 @@ mod tests {
     ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let array_ref = input.clone().into_array();
-        let result = BtrBlocksCompressorBuilder::from_session(&SESSION)
-            .allow_all_encodings()
-            .build()
+        let result = BtrBlocksCompressor::for_memory(&SESSION)
             .compress(&array_ref, &mut SESSION.create_execution_ctx())?;
         if expect_list {
             assert!(result.as_opt::<List>().is_some());
@@ -131,9 +154,7 @@ mod tests {
     fn test_constant_all_true() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let array = BoolArray::new(BitBuffer::from(vec![true; 100]), Validity::NonNullable);
-        let btr = BtrBlocksCompressorBuilder::from_session(&SESSION)
-            .allow_all_encodings()
-            .build();
+        let btr = BtrBlocksCompressor::for_memory(&SESSION);
         let compressed = btr.compress(
             &array.clone().into_array(),
             &mut SESSION.create_execution_ctx(),
@@ -147,9 +168,7 @@ mod tests {
     fn test_constant_all_false() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let array = BoolArray::new(BitBuffer::from(vec![false; 100]), Validity::NonNullable);
-        let btr = BtrBlocksCompressorBuilder::from_session(&SESSION)
-            .allow_all_encodings()
-            .build();
+        let btr = BtrBlocksCompressor::for_memory(&SESSION);
         let compressed = btr.compress(
             &array.clone().into_array(),
             &mut SESSION.create_execution_ctx(),
@@ -166,9 +185,7 @@ mod tests {
             BitBuffer::from(vec![true; 100]),
             Validity::from(BitBuffer::from(vec![true; 100])),
         );
-        let btr = BtrBlocksCompressorBuilder::from_session(&SESSION)
-            .allow_all_encodings()
-            .build();
+        let btr = BtrBlocksCompressor::for_memory(&SESSION);
         let compressed = btr.compress(
             &array.clone().into_array(),
             &mut SESSION.create_execution_ctx(),
@@ -183,9 +200,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let validity = Validity::from(BitBuffer::from_iter((0..100).map(|i| i % 3 != 0)));
         let array = BoolArray::new(BitBuffer::from(vec![true; 100]), validity);
-        let btr = BtrBlocksCompressorBuilder::from_session(&SESSION)
-            .allow_all_encodings()
-            .build();
+        let btr = BtrBlocksCompressor::for_memory(&SESSION);
         let compressed = btr.compress(
             &array.clone().into_array(),
             &mut SESSION.create_execution_ctx(),
@@ -202,9 +217,7 @@ mod tests {
             BitBuffer::from(vec![true, false, true, false, true]),
             Validity::NonNullable,
         );
-        let btr = BtrBlocksCompressorBuilder::from_session(&SESSION)
-            .allow_all_encodings()
-            .build();
+        let btr = BtrBlocksCompressor::for_memory(&SESSION);
         let compressed = btr.compress(
             &array.clone().into_array(),
             &mut SESSION.create_execution_ctx(),
@@ -219,9 +232,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let values = vec![Some(b"constant-bytes".as_slice()); 100];
         let array = VarBinViewArray::from_iter(values, DType::Binary(Nullability::NonNullable));
-        let btr = BtrBlocksCompressorBuilder::from_session(&SESSION)
-            .allow_all_encodings()
-            .build();
+        let btr = BtrBlocksCompressor::for_memory(&SESSION);
         let compressed = btr.compress(
             &array.clone().into_array(),
             &mut SESSION.create_execution_ctx(),
@@ -239,9 +250,7 @@ mod tests {
             .map(|idx| Some(distinct_values[idx % distinct_values.len()]))
             .collect::<Vec<_>>();
         let array = VarBinViewArray::from_iter(values, DType::Binary(Nullability::NonNullable));
-        let btr = BtrBlocksCompressorBuilder::from_session(&SESSION)
-            .allow_all_encodings()
-            .build();
+        let btr = BtrBlocksCompressor::for_memory(&SESSION);
         let compressed = btr.compress(
             &array.clone().into_array(),
             &mut SESSION.create_execution_ctx(),
@@ -267,10 +276,11 @@ mod tests {
             DType::Binary(Nullability::NonNullable),
         );
 
-        let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
-            .allow_all_encodings()
-            .with_compact()
-            .build();
+        let compressor = {
+            let compression_session = crate::CompressionSessionExt::fork_compression(&*SESSION);
+            crate::initialize_compact(&compression_session);
+            BtrBlocksCompressor::for_memory(&compression_session)
+        };
         let mut ctx = SESSION.create_execution_ctx();
         let compressed = compressor.compress(&array.clone().into_array(), &mut ctx)?;
 
@@ -303,17 +313,110 @@ mod tests {
             DType::Binary(Nullability::NonNullable),
         );
 
-        // The CUDA preset carries both Zstd schemes; the edition filter decides which one
-        // survives.
-        let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
-            .only_cuda_compatible()
-            .allow_encodings([allowed])
-            .build();
+        let session = vortex_array::array_session();
+        vortex_zstd::initialize(&session);
+        crate::CompressionSessionExt::register_scheme(
+            &session,
+            &vortex_zstd::schemes::binary::ZstdScheme,
+        );
+        crate::CompressionSessionExt::register_scheme(
+            &session,
+            &vortex_zstd::schemes::binary_buffers::ZstdBuffersScheme,
+        );
+        let permitted = [
+            allowed,
+            vortex_array::arrays::VarBinView.id(),
+            vortex_array::arrays::Primitive.id(),
+        ];
+        let compressor = BtrBlocksCompressor::from_session_with_encodings(&session, permitted);
         let mut ctx = SESSION.create_execution_ctx();
         let compressed = compressor.compress(&array.clone().into_array(), &mut ctx)?;
 
         assert_eq!(compressed.encoding_id(), allowed);
         assert_arrays_eq!(compressed, array, &mut ctx);
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod permission_tests {
+    use vortex_array::IntoArray;
+    use vortex_array::VTable;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::Constant;
+    use vortex_array::arrays::Primitive;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::session::ArraySessionExt;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::buffer;
+    use vortex_compressor::builtins::ConstantScheme;
+    use vortex_edition::EDITION_DECLARATIONS;
+    use vortex_edition::EDITION_FAMILIES;
+    use vortex_edition::EditionSessionExt;
+    use vortex_error::VortexResult;
+    use vortex_fastlanes::BitPacked;
+    use vortex_fastlanes::schemes::for_::FoRScheme;
+    use vortex_sequence::schemes::sequence::SequenceScheme;
+
+    use crate::BtrBlocksCompressor;
+    use crate::CompressionSessionExt;
+
+    #[test]
+    fn registered_encoding_does_not_enable_a_scheme() -> VortexResult<()> {
+        let session = vortex_array::array_session();
+        let input = buffer![7i32; 128].into_array();
+        let output = BtrBlocksCompressor::for_memory(&session)
+            .compress(&input, &mut session.create_execution_ctx())?;
+        assert!(output.is::<Primitive>());
+        session.register_scheme(&ConstantScheme);
+        let output = BtrBlocksCompressor::for_memory(&session)
+            .compress(&input, &mut session.create_execution_ctx())?;
+        assert!(output.is::<Constant>());
+        Ok(())
+    }
+
+    #[test]
+    fn denied_constant_and_direct_bitpacking_are_not_produced() -> VortexResult<()> {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        let allowed = session.arrays().registry().read(|r| {
+            r.keys()
+                .copied()
+                .filter(|id| *id != Constant.id() && *id != BitPacked.id())
+                .collect::<Vec<_>>()
+        });
+        let compressor = BtrBlocksCompressor::from_session_with_encodings(&session, allowed);
+        let array = PrimitiveArray::new(buffer![42i32; 128], Validity::NonNullable).into_array();
+        let result = compressor.compress(&array, &mut session.create_execution_ctx())?;
+        assert!(!result.is::<Constant>());
+
+        let session = vortex_array::array_session();
+        session.register_scheme(&FoRScheme);
+        let compressor = BtrBlocksCompressor::from_session_with_encodings(
+            &session,
+            [Primitive.id(), Constant.id(), vortex_fastlanes::FoR.id()],
+        );
+        let array = buffer![100i32, 101, 102, 103].into_array();
+        let result = compressor.compress(&array, &mut session.create_execution_ctx())?;
+        assert!(result.is::<Primitive>());
+        Ok(())
+    }
+
+    #[test]
+    fn editions_do_not_enable_missing_serializers() -> VortexResult<()> {
+        let session = vortex_array::array_session();
+        session.register_scheme(&SequenceScheme);
+        for family in EDITION_FAMILIES {
+            session.editions().declare_family(family)?;
+        }
+        for edition in EDITION_DECLARATIONS {
+            session.register_edition(edition)?;
+        }
+        session.enable_edition(vortex_edition::declarations::core::CORE_2026_08_3)?;
+        let input = buffer![1i32, 2, 3, 4, 5, 6, 7, 8].into_array();
+        let output = BtrBlocksCompressor::from_session(&session)
+            .compress(&input, &mut session.create_execution_ctx())?;
+        assert!(output.is::<Primitive>());
         Ok(())
     }
 }

@@ -9,7 +9,7 @@ use std::sync::Arc;
 use vortex::VortexSessionDefault;
 use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
-use vortex::compressor::BtrBlocksCompressorBuilder;
+use vortex::compressor::BtrBlocksCompressor;
 use vortex::file::WriteStrategyBuilder;
 use vortex::session::VortexSession;
 use vortex_array::ExecutionCtx;
@@ -144,18 +144,17 @@ impl Fixture for DatasetFixtureAdapter {
         let session = VortexSession::default();
         if self.compact {
             let strategy = WriteStrategyBuilder::from_session(&session)
-                .with_btrblocks_builder(
-                    BtrBlocksCompressorBuilder::from_session(&session)
-                        .allow_all_encodings()
-                        .with_compact(),
-                )
+                .with_btrblocks_compressor({
+                    let compression_session =
+                        vortex::compressor::CompressionSessionExt::fork_compression(&session);
+                    vortex::compressor::initialize_compact(&compression_session);
+                    BtrBlocksCompressor::for_memory(&compression_session)
+                })
                 .build();
             adapter::write_compressed(&path, array, strategy)?;
         } else {
             let strategy = WriteStrategyBuilder::from_session(&session)
-                .with_btrblocks_builder(
-                    BtrBlocksCompressorBuilder::from_session(&session).allow_all_encodings(),
-                )
+                .with_btrblocks_compressor(BtrBlocksCompressor::for_memory(&session))
                 .build();
             adapter::write_compressed(&path, array, strategy)?;
         }

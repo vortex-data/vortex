@@ -31,7 +31,7 @@ use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::ChunkedArray;
 use vortex::array::arrays::VarBinViewArray;
-use vortex::compressor::BtrBlocksCompressorBuilder;
+use vortex::compressor::BtrBlocksCompressor;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
@@ -57,7 +57,7 @@ use crate::prepare_column;
 use crate::throughput;
 use crate::verify_canonicalized;
 
-/// The btrblocks string schemes that `BtrBlocksCompressorBuilder::from_session` can
+/// The btrblocks string schemes that `BtrBlocksCompressor::from_session` can
 /// choose between. Forcing one encoder excludes every entry except its own
 /// scheme, so this list must track the default scheme set: add a row whenever a
 /// new string encoder becomes selectable by default (e.g. Zstd).
@@ -175,14 +175,21 @@ fn serialized_write_strategy(
     encoder: StringEncoder,
 ) -> Arc<dyn LayoutStrategy> {
     let forced = encoder.scheme_id();
-    let compressor = BtrBlocksCompressorBuilder::from_session(session).exclude_schemes(
-        default_string_scheme_ids()
+    let compressor = {
+        let compression_session =
+            vortex_btrblocks::CompressionSessionExt::fork_compression(session);
+        for id in default_string_scheme_ids()
             .into_iter()
             .filter(|&id| id != forced)
-            .chain([DeltaScheme::default().id()]),
-    );
+            .chain([DeltaScheme::default().id()])
+        {
+            vortex_btrblocks::CompressionSessionExt::compression(&compression_session)
+                .unregister(id);
+        }
+        BtrBlocksCompressor::from_session(&compression_session)
+    };
     WriteStrategyBuilder::from_session(session)
-        .with_btrblocks_builder(compressor)
+        .with_btrblocks_compressor(compressor)
         .build()
 }
 
@@ -358,7 +365,7 @@ mod tests {
     use vortex::io::runtime::BlockingRuntime;
     use vortex::io::runtime::current::CurrentThreadRuntime;
     use vortex::io::session::RuntimeSessionExt;
-    use vortex_btrblocks::DEFAULT_SCHEMES;
+    use vortex_btrblocks::CompressionSessionExt;
     use vortex_btrblocks::SchemeExt;
 
     use super::*;
@@ -368,8 +375,11 @@ mod tests {
         // Every default scheme whose dtype gate accepts canonical Utf8 must be
         // excluded when another root string encoding is forced.
         let canonical = Canonical::VarBinView(VarBinViewArray::from_iter_str(["value"]));
-        let mut actual = DEFAULT_SCHEMES
+        let session = VortexSession::default();
+        let mut actual = session
+            .registered_schemes()
             .iter()
+            .filter(|scheme| !scheme.id().to_string().starts_with("vortex.compressor."))
             .filter(|scheme| scheme.matches(&canonical))
             .map(|scheme| scheme.id())
             .collect::<Vec<_>>();

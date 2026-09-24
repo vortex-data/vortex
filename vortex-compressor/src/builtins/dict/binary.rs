@@ -40,6 +40,10 @@ use crate::stats::GenerateStatsOptions;
 pub struct BinaryDictScheme;
 
 impl Scheme for BinaryDictScheme {
+    fn selection_priority(&self) -> u16 {
+        10
+    }
+
     fn scheme_name(&self) -> &'static str {
         "vortex.binary.dict"
     }

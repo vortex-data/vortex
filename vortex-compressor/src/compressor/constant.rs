@@ -1,14 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Built-in constant detection and encoding.
-//!
-//! Constant arrays are not compressed through a pluggable [`Scheme`]: the compressor always
-//! detects constant leaf arrays itself, before evaluating any registered scheme. Detection is
-//! skipped while compressing samples, since a constant sample does not imply that the full array
-//! is constant.
-//!
-//! [`Scheme`]: crate::scheme::Scheme
+//! Shared detection and encoding for the registered constant compression schemes.
 
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
@@ -20,13 +13,7 @@ use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
-use crate::scheme::SchemeId;
 use crate::stats::ArrayAndStats;
-
-/// Synthetic scheme ID reported in traces when the compressor's built-in constant encoding wins.
-pub(crate) const CONSTANT_SCHEME_ID: SchemeId = SchemeId {
-    name: "vortex.compressor.constant",
-};
 
 /// Returns `true` if all valid values of the canonical array are equal, meaning the array can be
 /// encoded by [`compress_constant`].
@@ -144,17 +131,19 @@ mod tests {
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
-    /// Constant detection is built into the compressor, so it must work with no schemes at all.
-    fn empty_compressor() -> CascadingCompressor {
-        CascadingCompressor::new(Vec::new())
+    fn constant_compressor() -> CascadingCompressor {
+        CascadingCompressor::new(vec![
+            &crate::builtins::ConstantScheme,
+            &crate::builtins::MaskedConstantScheme,
+        ])
     }
 
     #[test]
-    fn constant_int_compresses_without_schemes() -> VortexResult<()> {
+    fn constant_int_compresses_with_constant_scheme() -> VortexResult<()> {
         let array = PrimitiveArray::new(buffer![7i64; 100], Validity::NonNullable).into_array();
         let mut ctx = SESSION.create_execution_ctx();
 
-        let compressed = empty_compressor().compress(&array, &mut ctx)?;
+        let compressed = constant_compressor().compress(&array, &mut ctx)?;
         assert!(compressed.is::<Constant>());
         Ok(())
     }
@@ -166,33 +155,33 @@ mod tests {
         let array = PrimitiveArray::new(buffer![7i64; 100], validity).into_array();
         let mut ctx = SESSION.create_execution_ctx();
 
-        let compressed = empty_compressor().compress(&array, &mut ctx)?;
+        let compressed = constant_compressor().compress(&array, &mut ctx)?;
         assert!(compressed.is::<Masked>());
         Ok(())
     }
 
     #[test]
-    fn constant_string_compresses_without_schemes() -> VortexResult<()> {
+    fn constant_string_compresses_with_constant_scheme() -> VortexResult<()> {
         let array = VarBinViewArray::from_iter_str(std::iter::repeat_n("hello", 100)).into_array();
         let mut ctx = SESSION.create_execution_ctx();
 
-        let compressed = empty_compressor().compress(&array, &mut ctx)?;
+        let compressed = constant_compressor().compress(&array, &mut ctx)?;
         assert!(compressed.is::<Constant>());
         Ok(())
     }
 
     #[test]
-    fn constant_bool_compresses_without_schemes() -> VortexResult<()> {
+    fn constant_bool_compresses_with_constant_scheme() -> VortexResult<()> {
         let array = BoolArray::from_iter(std::iter::repeat_n(true, 100)).into_array();
         let mut ctx = SESSION.create_execution_ctx();
 
-        let compressed = empty_compressor().compress(&array, &mut ctx)?;
+        let compressed = constant_compressor().compress(&array, &mut ctx)?;
         assert!(compressed.is::<Constant>());
         Ok(())
     }
 
     #[test]
-    fn constant_decimal_compresses_without_schemes() -> VortexResult<()> {
+    fn constant_decimal_compresses_with_constant_scheme() -> VortexResult<()> {
         let array = DecimalArray::new(
             buffer![123_456i128; 100],
             DecimalDType::new(20, 2),
@@ -201,29 +190,29 @@ mod tests {
         .into_array();
         let mut ctx = SESSION.create_execution_ctx();
 
-        let compressed = empty_compressor().compress(&array, &mut ctx)?;
+        let compressed = constant_compressor().compress(&array, &mut ctx)?;
         assert!(compressed.is::<Constant>());
         Ok(())
     }
 
     #[test]
-    fn constant_timestamp_compresses_without_schemes() -> VortexResult<()> {
+    fn constant_timestamp_compresses_with_constant_scheme() -> VortexResult<()> {
         let ts = PrimitiveArray::from_iter(std::iter::repeat_n(1_704_067_200_000i64, 100));
         let array = TemporalArray::new_timestamp(ts.into_array(), TimeUnit::Milliseconds, None)
             .into_array();
         let mut ctx = SESSION.create_execution_ctx();
 
-        let compressed = empty_compressor().compress(&array, &mut ctx)?;
+        let compressed = constant_compressor().compress(&array, &mut ctx)?;
         assert!(compressed.is::<Constant>());
         Ok(())
     }
 
     #[test]
-    fn non_constant_int_is_left_canonical_without_schemes() -> VortexResult<()> {
+    fn non_constant_int_is_left_canonical() -> VortexResult<()> {
         let array = PrimitiveArray::from_iter(0..100i64).into_array();
         let mut ctx = SESSION.create_execution_ctx();
 
-        let compressed = empty_compressor().compress(&array, &mut ctx)?;
+        let compressed = constant_compressor().compress(&array, &mut ctx)?;
         assert!(!compressed.is::<Constant>());
         assert_eq!(compressed.dtype(), array.dtype());
         Ok(())

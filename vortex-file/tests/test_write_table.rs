@@ -19,7 +19,7 @@ use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::FieldNames;
 use vortex_array::field_path;
 use vortex_array::validity::Validity;
-use vortex_btrblocks::BtrBlocksCompressorBuilder;
+use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_buffer::ByteBuffer;
 use vortex_file::OpenOptionsSessionExt;
 use vortex_file::WriteOptionsSessionExt;
@@ -73,7 +73,7 @@ async fn test_file_roundtrip() {
     // the b and the a.raw columns uncompressed.
     let default_strategy = Arc::new(CompressingStrategy::new(
         FlatLayoutStrategy::default(),
-        BtrBlocksCompressorBuilder::from_session(&SESSION).build(),
+        BtrBlocksCompressor::from_session(&SESSION),
     ));
 
     let writer = Arc::new(

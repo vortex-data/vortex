@@ -38,3 +38,6 @@ pub fn initialize(session: &VortexSession) {
     session.arrays().register(OnPair);
     kernel::initialize(session);
 }
+
+/// Compression schemes and their session registration.
+pub mod schemes;

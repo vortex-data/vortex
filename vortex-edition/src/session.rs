@@ -353,6 +353,31 @@ pub trait EditionSessionExt: SessionExt {
         Ok(())
     }
 
+    /// Replace the selected editions atomically, with at most one edition per family.
+    /// All editions must be registered. An invalid selection leaves the previous set intact.
+    fn set_enabled_editions(
+        &self,
+        editions: impl IntoIterator<Item = EditionId>,
+    ) -> VortexResult<()> {
+        let enabled = self.enabled_editions();
+        let mut selected = enabled.inner.snapshot().as_ref().clone();
+        selected.clear();
+        let registry = self.editions();
+        for edition in editions {
+            if registry.find(&edition).is_none() {
+                vortex_bail!("cannot enable unregistered edition {edition}");
+            }
+            if selected.insert(Id::from(edition.family), edition).is_some() {
+                vortex_bail!(
+                    "only one edition per family may be selected, got {}",
+                    edition.family
+                );
+            }
+        }
+        enabled.inner.replace(selected);
+        Ok(())
+    }
+
     /// Resolve the ids of one [`ComponentKind`] across all enabled editions: what a writer may
     /// emit for that kind.
     ///

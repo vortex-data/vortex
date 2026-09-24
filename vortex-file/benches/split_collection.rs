@@ -22,7 +22,7 @@ use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::dtype::Field;
 use vortex_array::dtype::FieldMask;
-use vortex_btrblocks::BtrBlocksCompressorBuilder;
+use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_file::OpenOptionsSessionExt;
@@ -87,9 +87,7 @@ fn make_file(columns: usize, chunks: usize) -> VortexFile {
     let array = ChunkedArray::from_iter(struct_chunks).into_array();
 
     let strategy = vortex_file::WriteStrategyBuilder::from_session(&SESSION)
-        .with_btrblocks_builder(
-            BtrBlocksCompressorBuilder::from_session(&SESSION).allow_all_encodings(),
-        )
+        .with_btrblocks_compressor(BtrBlocksCompressor::for_memory(&SESSION))
         .with_row_block_size(ROWS_PER_CHUNK)
         .with_data_block_target_bytes(None)
         .build();
@@ -148,9 +146,7 @@ fn make_misaligned_file(columns: usize, chunks: usize) -> VortexFile {
     .into_array();
 
     let mut strategy = vortex_file::WriteStrategyBuilder::from_session(&SESSION)
-        .with_btrblocks_builder(
-            BtrBlocksCompressorBuilder::from_session(&SESSION).allow_all_encodings(),
-        );
+        .with_btrblocks_compressor(BtrBlocksCompressor::for_memory(&SESSION));
     for (c, (name, _)) in fields.iter().enumerate() {
         let field_strategy = RepartitionStrategy::new(
             ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),

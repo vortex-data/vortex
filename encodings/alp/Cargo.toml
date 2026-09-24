@@ -23,6 +23,7 @@ num-traits = { workspace = true }
 prost = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
+vortex-compressor = { workspace = true }
 vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
 vortex-mask = { workspace = true }

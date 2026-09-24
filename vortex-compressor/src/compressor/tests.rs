@@ -32,8 +32,10 @@ use super::ROOT_SCHEME_ID;
 use super::sample::estimate_compression_ratio_with_sampling;
 use super::select::WinnerEstimate;
 use super::structural;
+use crate::builtins::ConstantScheme;
 use crate::builtins::FloatDictScheme;
 use crate::builtins::IntDictScheme;
+use crate::builtins::MaskedConstantScheme;
 use crate::builtins::StringDictScheme;
 use crate::scheme::CompressionEstimate;
 use crate::scheme::CompressorContext;
@@ -48,7 +50,13 @@ use crate::stats::GenerateStatsOptions;
 static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 fn compressor() -> CascadingCompressor {
-    CascadingCompressor::new(vec![&IntDictScheme, &FloatDictScheme, &StringDictScheme])
+    CascadingCompressor::new(vec![
+        &ConstantScheme,
+        &MaskedConstantScheme,
+        &IntDictScheme,
+        &FloatDictScheme,
+        &StringDictScheme,
+    ])
 }
 
 fn estimate_test_data() -> ArrayAndStats {
@@ -705,9 +713,8 @@ fn all_null_array_compresses_to_constant() -> VortexResult<()> {
     )
     .into_array();
 
-    // The compressor should produce a `ConstantArray` for an all-null array regardless of
-    // which schemes are registered.
-    let compressor = CascadingCompressor::new(vec![&IntDictScheme]);
+    // Constant production requires the constant scheme to be registered.
+    let compressor = CascadingCompressor::new(vec![&ConstantScheme, &IntDictScheme]);
     let mut exec_ctx = SESSION.create_execution_ctx();
     let compressed = compressor.compress(&array, &mut exec_ctx)?;
     assert!(compressed.is::<Constant>());

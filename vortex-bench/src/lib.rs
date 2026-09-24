@@ -28,7 +28,7 @@ use tpcds::TpcDsBenchmark;
 use tpch::benchmark::TpcHBenchmark;
 pub use utils::file::*;
 pub use utils::logging::*;
-use vortex::compressor::BtrBlocksCompressorBuilder;
+use vortex::compressor::BtrBlocksCompressor;
 use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
 use vortex::file::VortexWriteOptions;
@@ -253,9 +253,12 @@ impl CompactionStrategy {
         match self {
             CompactionStrategy::Compact => options.with_strategy(
                 WriteStrategyBuilder::from_session(&SESSION)
-                    .with_btrblocks_builder(
-                        BtrBlocksCompressorBuilder::from_session(&SESSION).with_compact(),
-                    )
+                    .with_btrblocks_compressor({
+                        let compression_session =
+                            vortex::compressor::CompressionSessionExt::fork_compression(&*SESSION);
+                        vortex::compressor::initialize_compact(&compression_session);
+                        BtrBlocksCompressor::from_session(&compression_session)
+                    })
                     .build(),
             ),
             CompactionStrategy::Default => options,

@@ -3,7 +3,7 @@
 
 use pyo3::prelude::*;
 use vortex::array::VortexSessionExecute;
-use vortex::compressor::BtrBlocksCompressorBuilder;
+use vortex::compressor::BtrBlocksCompressor;
 
 use crate::arrays::PyArrayRef;
 use crate::error::PyVortexResult;
@@ -56,8 +56,7 @@ pub fn compress(py: Python, array: PyArrayRef) -> PyVortexResult<PyArrayRef> {
     let session = session();
     let array = array.into_inner();
     let compressed = py.detach(move || {
-        BtrBlocksCompressorBuilder::from_session(session)
-            .build()
+        BtrBlocksCompressor::from_session(session)
             .compress(&array, &mut session.create_execution_ctx())
     })?;
     Ok(PyArrayRef::from(compressed))

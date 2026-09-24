@@ -35,16 +35,19 @@ use crate::stats::GenerateStatsOptions;
 
 /// Unique identifier for a compression scheme.
 ///
-/// The only way to obtain a [`SchemeId`] is through [`SchemeExt::id()`], which is auto-implemented
-/// for all [`Scheme`] types. There is no public constructor.
-///
-/// The only exception to this is for the compressor's synthetic `ROOT_SCHEME_ID`.
+/// Use [`SchemeExt::id()`] for a known implementation, or [`SchemeId::new`] for an exclusion
+/// referring to a scheme in another package.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SchemeId {
-    /// Only constructable within `vortex-compressor`.
-    ///
-    /// The only public way to obtain a [`SchemeId`] is through [`SchemeExt::id()`].
+    /// The globally unique scheme name.
     pub(super) name: &'static str,
+}
+
+impl SchemeId {
+    /// Name a scheme in an exclusion rule without depending on its implementation crate.
+    pub const fn new(name: &'static str) -> Self {
+        Self { name }
+    }
 }
 
 impl fmt::Display for SchemeId {
@@ -118,6 +121,11 @@ impl fmt::Display for SchemeId {
 /// [`descendant_exclusions`]: Scheme::descendant_exclusions
 /// [`ancestor_exclusions`]: Scheme::ancestor_exclusions
 pub trait Scheme: Debug + Send + Sync {
+    /// Tie-break priority. Lower values are evaluated first, then registration order.
+    fn selection_priority(&self) -> u16 {
+        1000
+    }
+
     /// The globally unique name for this scheme (e.g. `"vortex.int.bitpacking"`).
     fn scheme_name(&self) -> &'static str;
 
@@ -127,9 +135,9 @@ pub trait Scheme: Debug + Send + Sync {
     /// The serialized IDs this scheme itself may write into its compressed output.
     ///
     /// Every declared ID must be permitted for the scheme to be used. Cascaded children are
-    /// compressed by other schemes, which declare their own IDs, so only arrays constructed
-    /// directly by [`compress`](Scheme::compress) belong here. Canonical arrays the scheme
-    /// merely rearranges do not need to be declared.
+    /// compressed by other schemes, which declare their own IDs, so arrays constructed
+    /// by [`compress`](Scheme::compress), its direct helpers, and its wrappers belong here.
+    /// Canonical arrays the scheme merely rearranges do not need to be declared.
     ///
     /// For most encodings this is the in-memory encoding ID. An encoding with several wire
     /// formats declares the wire IDs the scheme writes, which may differ from its in-memory ID.
@@ -186,10 +194,9 @@ pub trait Scheme: Debug + Send + Sync {
     /// constancy). Implementations should check `ctx.is_sample` to make sure that they are
     /// returning the correct information.
     ///
-    /// The compressor guarantees that empty and all-null arrays are handled before this method is
-    /// called, so implementations may assume the array has at least one valid element. Outside of
-    /// sample compression, the compressor also encodes constant arrays itself before evaluating
-    /// schemes, so implementations only see constant arrays when `ctx.is_sample()` is `true`.
+    /// Empty arrays skip scheme evaluation. All-null arrays only use the registered constant
+    /// scheme, so other schemes may assume at least one valid element. Constant values can reach
+    /// any scheme when constant compression is not registered or permitted.
     fn expected_compression_ratio(
         &self,
         _data: &ArrayAndStats,

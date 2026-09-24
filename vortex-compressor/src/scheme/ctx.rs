@@ -38,6 +38,8 @@ pub struct CompressorContext {
     /// [`descendant_exclusions`]: crate::scheme::Scheme::descendant_exclusions
     /// [`ancestor_exclusions`]: crate::scheme::Scheme::ancestor_exclusions
     cascade_history: Vec<(SchemeId, usize)>,
+    /// Site-level exclusions supplied by the enclosing file layout.
+    site_exclusions: Vec<SchemeId>,
 }
 
 impl CompressorContext {
@@ -50,6 +52,7 @@ impl CompressorContext {
             allowed_cascading: MAX_CASCADE,
             merged_stats_options: GenerateStatsOptions::default(),
             cascade_history: Vec::new(),
+            site_exclusions: Vec::new(),
         }
     }
 }
@@ -62,6 +65,25 @@ impl Default for CompressorContext {
 }
 
 impl CompressorContext {
+    /// Reset structural ancestry while preserving the enclosing layout's exclusions.
+    pub(crate) fn for_structure(&self) -> Self {
+        Self {
+            site_exclusions: self.site_exclusions.clone(),
+            ..Self::new()
+        }
+    }
+
+    /// Exclude a redundant transformation already handled by the enclosing layout.
+    pub(crate) fn excluding_at_site(mut self, scheme: SchemeId) -> Self {
+        self.site_exclusions.push(scheme);
+        self
+    }
+
+    /// Whether the layout excludes this scheme at this compression site.
+    pub(crate) fn excludes_at_site(&self, scheme: SchemeId) -> bool {
+        self.site_exclusions.contains(&scheme)
+    }
+
     /// Whether this context is for sample compression (ratio estimation).
     pub fn is_sample(&self) -> bool {
         self.is_sample

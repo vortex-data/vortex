@@ -4,10 +4,12 @@
 //! Cascading array compression implementation.
 
 mod cascade;
-mod constant;
+pub(crate) mod constant;
 mod sample;
 mod select;
 mod structural;
+
+use vortex_array::VTable;
 
 use crate::builtins::IntDictScheme;
 use crate::scheme::ChildSelection;
@@ -42,17 +44,22 @@ pub(crate) const ROOT_SCHEME_ID: SchemeId = SchemeId {
 pub struct CascadingCompressor {
     /// The enabled compression schemes.
     schemes: Vec<&'static dyn Scheme>,
+    /// Canonical forms admitted at construction, before any compression work.
+    canonical_encodings: Option<vortex_utils::aliases::hash_set::HashSet<vortex_array::ArrayId>>,
 
     /// Descendant exclusion rules for the compressor's own cascading (e.g. excluding Dict from
     /// list offsets).
     root_exclusions: Vec<DescendantExclusion>,
+    /// Whether construction permits replacing a list view with List storage.
+    convert_lists: bool,
 }
 
 impl CascadingCompressor {
     /// Creates a new compressor with the given schemes.
     ///
     /// Root-level exclusion rules (e.g. excluding Dict from list offsets) are built automatically.
-    pub fn new(schemes: Vec<&'static dyn Scheme>) -> Self {
+    pub fn new(mut schemes: Vec<&'static dyn Scheme>) -> Self {
+        schemes.sort_by_key(|s| s.selection_priority());
         // Root exclusion: exclude IntDict from list/listview offsets (monotonically
         // increasing data where dictionary encoding is wasteful).
         let root_exclusions = vec![DescendantExclusion {
@@ -62,8 +69,22 @@ impl CascadingCompressor {
 
         Self {
             schemes,
+            canonical_encodings: None,
             root_exclusions,
+            convert_lists: true,
         }
+    }
+
+    /// Construct with an exact set of serializable output IDs.
+    /// Schemes must already have been resolved against these IDs.
+    pub fn new_with_encodings(
+        schemes: Vec<&'static dyn Scheme>,
+        encodings: vortex_utils::aliases::hash_set::HashSet<vortex_array::ArrayId>,
+    ) -> Self {
+        let mut compressor = Self::new(schemes);
+        compressor.convert_lists = encodings.contains(&vortex_array::arrays::List.id());
+        compressor.canonical_encodings = Some(encodings);
+        compressor
     }
 }
 

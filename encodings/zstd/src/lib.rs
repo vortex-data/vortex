@@ -122,3 +122,6 @@ pub struct ZstdBuffersMetadata {
     #[prost(uint64, repeated, tag = "6")]
     pub child_lens: Vec<u64>,
 }
+
+/// Compression schemes and their session registration.
+pub mod schemes;

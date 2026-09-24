@@ -18,3 +18,6 @@ pub fn initialize(session: &VortexSession) {
     session.arrays().register(ZigZag);
     kernel::initialize(session);
 }
+
+/// Compression schemes and their session registration.
+pub mod schemes;

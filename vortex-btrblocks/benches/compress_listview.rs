@@ -24,14 +24,18 @@ mod benchmarks {
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::dtype::FieldNames;
     use vortex_array::validity::Validity;
-    use vortex_btrblocks::BtrBlocksCompressorBuilder;
+    use vortex_btrblocks::BtrBlocksCompressor;
     use vortex_buffer::buffer_mut;
     use vortex_session::VortexSession;
 
     const NUM_ROWS: usize = 8192;
     const SEED: u64 = 42;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        vortex_btrblocks::initialize(&session);
+        session
+    });
 
     const SHORT_STRINGS: &[&str] = &[
         "alpha_one",
@@ -183,9 +187,7 @@ mod benchmarks {
     fn compress_listview(bencher: Bencher, layout: OffsetLayout) {
         let array = build_nested_listview(NUM_ROWS, layout);
         let nbytes = array.nbytes();
-        let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
-            .allow_all_encodings()
-            .build();
+        let compressor = BtrBlocksCompressor::for_memory(&SESSION);
         bencher
             .with_inputs(|| (&array, SESSION.create_execution_ctx()))
             .input_counter(|_| ItemsCount::new(NUM_ROWS))

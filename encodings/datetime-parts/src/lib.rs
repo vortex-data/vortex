@@ -52,3 +52,6 @@ mod test {
         );
     }
 }
+
+/// Compression schemes and their session registration.
+pub mod schemes;

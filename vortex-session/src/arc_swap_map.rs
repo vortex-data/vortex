@@ -60,6 +60,18 @@ impl<K: Debug, V: Debug, S> Debug for ArcSwapMap<K, V, S> {
 }
 
 impl<K, V, S> ArcSwapMap<K, V, S> {
+    /// Create an independent map initially containing this snapshot's values.
+    pub fn fork(&self) -> Self {
+        Self {
+            inner: Arc::new(ArcSwap::from(self.snapshot())),
+        }
+    }
+
+    /// Atomically replace the map contents.
+    pub fn replace(&self, values: HashMap<K, V, S>) {
+        self.inner.store(Arc::new(values));
+    }
+
     /// Return the currently published map snapshot.
     pub fn snapshot(&self) -> Arc<HashMap<K, V, S>> {
         self.inner.load_full()

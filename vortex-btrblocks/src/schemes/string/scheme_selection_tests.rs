@@ -16,18 +16,22 @@ use vortex_error::VortexResult;
 use vortex_fsst::FSST;
 use vortex_session::VortexSession;
 
-use crate::BtrBlocksCompressorBuilder;
+use crate::BtrBlocksCompressor;
+use crate::SchemeExt;
+use crate::schemes::string::OnPairScheme;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = vortex_array::array_session();
+    crate::initialize(&session);
+    session
+});
 
 #[test]
 fn test_constant_compressed() -> VortexResult<()> {
     let strings: Vec<Option<&str>> = vec![Some("constant_value"); 100];
     let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
     let array_ref = array.into_array();
-    let compressed = BtrBlocksCompressorBuilder::from_session(&SESSION)
-        .allow_all_encodings()
-        .build()
+    let compressed = BtrBlocksCompressor::for_memory(&SESSION)
         .compress(&array_ref, &mut SESSION.create_execution_ctx())?;
     assert!(compressed.is::<Constant>());
     Ok(())
@@ -42,23 +46,21 @@ fn test_dict_compressed() -> VortexResult<()> {
     }
     let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
     let array_ref = array.into_array();
-    let compressed = BtrBlocksCompressorBuilder::from_session(&SESSION)
-        .allow_all_encodings()
-        .build()
+    let compressed = BtrBlocksCompressor::for_memory(&SESSION)
         .compress(&array_ref, &mut SESSION.create_execution_ctx())?;
     assert!(compressed.is::<Dict>());
     Ok(())
 }
 
 #[test]
-fn test_all_schemes_includes_onpair() {
-    use crate::SchemeExt;
-    use crate::schemes::string::onpair::OnPairScheme;
-
-    let ids: Vec<_> = crate::DEFAULT_SCHEMES.iter().map(|s| s.id()).collect();
+fn test_default_registration_includes_onpair() {
+    let ids: Vec<_> = crate::CompressionSessionExt::registered_schemes(&*SESSION)
+        .iter()
+        .map(|s| s.id())
+        .collect();
     assert!(
         ids.contains(&OnPairScheme.id()),
-        "OnPairScheme not registered in DEFAULT_SCHEMES"
+        "OnPairScheme not registered on the default session"
     );
 }
 
@@ -75,9 +77,7 @@ fn test_default_btrblocks_compressor_selects_onpair() -> VortexResult<()> {
     }
     let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
     let array_ref = array.into_array();
-    let compressed = BtrBlocksCompressorBuilder::from_session(&SESSION)
-        .allow_all_encodings()
-        .build()
+    let compressed = BtrBlocksCompressor::for_memory(&SESSION)
         .compress(&array_ref, &mut SESSION.create_execution_ctx())?;
     assert!(
         compressed.is::<vortex_onpair::OnPair>(),
@@ -87,22 +87,21 @@ fn test_default_btrblocks_compressor_selects_onpair() -> VortexResult<()> {
     Ok(())
 }
 
-/// FSST is registered in the default scheme list, and an FSST-only builder
-/// still produces an FSST array.
+/// FSST is registered by default, and an FSST-only session still produces an FSST array.
 #[test]
-fn test_fsst_in_default_scheme_list() -> VortexResult<()> {
+fn test_fsst_registration() -> VortexResult<()> {
     use crate::SchemeExt;
     use crate::schemes::string::FSSTScheme;
 
     // FSST is registered by default.
     assert!(
-        crate::DEFAULT_SCHEMES
+        crate::CompressionSessionExt::registered_schemes(&*SESSION)
             .iter()
             .any(|s| s.id() == FSSTScheme.id()),
-        "FSSTScheme should be in DEFAULT_SCHEMES",
+        "FSSTScheme should be on the default session",
     );
 
-    // An FSST-only builder still produces an FSST array for FSST-favourable
+    // An FSST-only session still produces an FSST array for FSST-favourable
     // input.
     let mut strings = Vec::with_capacity(1000);
     for i in 0..1000 {
@@ -113,10 +112,11 @@ fn test_fsst_in_default_scheme_list() -> VortexResult<()> {
     let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
     let array_ref = array.into_array();
 
-    let compressor = BtrBlocksCompressorBuilder::empty()
-        .with_new_scheme(&FSSTScheme)
-        .allow_all_encodings()
-        .build();
+    let compressor = {
+        let compression_session = vortex_array::array_session();
+        crate::CompressionSessionExt::register_scheme(&compression_session, &FSSTScheme);
+        BtrBlocksCompressor::for_memory(&compression_session)
+    };
     let compressed = compressor.compress(&array_ref, &mut SESSION.create_execution_ctx())?;
     assert!(
         compressed.is::<FSST>(),

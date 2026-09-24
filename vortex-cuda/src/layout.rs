@@ -29,15 +29,19 @@ use vortex::array::serde::SerializedArray;
 use vortex::array::stats::StatsSetRef;
 use vortex::buffer::BufferString;
 use vortex::buffer::ByteBuffer;
-use vortex::compressor::BtrBlocksCompressorBuilder;
+use vortex::compressor::BtrBlocksCompressor;
 use vortex::dtype::DType;
 use vortex::dtype::FieldMask;
+#[cfg(test)]
 use vortex::editions::Edition;
+#[cfg(test)]
 use vortex::editions::EditionDeclaration;
-use vortex::editions::EditionFamily;
+#[cfg(test)]
 use vortex::editions::EditionId;
-use vortex::editions::EditionMember;
 use vortex::editions::EditionSessionExt;
+use vortex::editions::cuda::CUDA_2026_09_0 as CUDA_EDITION;
+use vortex::editions::cuda::DECLARATION as CUDA_EDITION_DECLARATION;
+use vortex::editions::cuda::FAMILY as CUDA_EDITION_FAMILY;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
@@ -548,20 +552,36 @@ fn extract_constant_buffers(chunk: &ArrayRef) -> Vec<InlinedBuffer> {
 
 /// Build a CUDA-flat writer using only CUDA-compatible, session-enabled array encodings.
 ///
-/// Requires [`register_cuda_layout`]. Zero `block_rows` uses default sizing and dictionary policy;
+/// Selects the complete CUDA edition on the shared session and registers the CUDA layout.
+/// Zero `block_rows` uses default sizing and dictionary policy;
 /// nonzero sets row blocks without outer dictionaries or byte coalescing, retaining per-block
 /// dictionary compression.
 pub fn cuda_write_strategy(session: &VortexSession, block_rows: usize) -> Arc<dyn LayoutStrategy> {
-    let builder = BtrBlocksCompressorBuilder::from_session(session).only_cuda_compatible();
+    register_cuda_layout(session);
+    session
+        .set_enabled_editions([CUDA_EDITION])
+        .vortex_expect("CUDA edition is registered");
+    let compression_session = vortex::compressor::CompressionSessionExt::fork_compression(session);
+    vortex::compressor::CompressionSessionExt::register_scheme(
+        &compression_session,
+        &vortex::encodings::zstd::schemes::binary::ZstdScheme,
+    );
+    vortex::compressor::CompressionSessionExt::register_scheme(
+        &compression_session,
+        &vortex::encodings::zstd::schemes::binary_buffers::ZstdBuffersScheme,
+    );
+    let compressor = BtrBlocksCompressor::from_session(&compression_session);
     let strategy = WriteStrategyBuilder::from_session(session)
         .with_flat_strategy(Arc::new(CudaFlatLayoutStrategy::default()));
     if block_rows == 0 {
-        strategy.with_btrblocks_builder(builder).build()
+        strategy.with_btrblocks_compressor(compressor).build()
     } else {
         // An opaque compressor keeps IntDict; disabling the probe avoids u16-sized outer blocks.
         strategy
-            .with_compressor(builder.build())
-            .with_probe_compressor(BtrBlocksCompressorBuilder::empty().build())
+            .with_compressor(compressor)
+            .with_probe_compressor(BtrBlocksCompressor(
+                vortex::compressor::CascadingCompressor::new(Vec::new()),
+            ))
             .with_row_block_size(block_rows)
             .with_data_block_target_bytes(None)
             .build()
@@ -587,25 +607,10 @@ impl SessionVar for CudaLayoutRegistration {
     }
 }
 
-const CUDA_EDITION_FAMILY: EditionFamily = EditionFamily {
-    name: "cuda",
-    origin: "vortex-cuda",
-    doc: "CUDA-readable layouts, enabled only when CUDA layout support is registered.",
-};
-const CUDA_EDITION: EditionId = EditionId::new("cuda", 2026, 9, 0);
-static CUDA_EDITION_DECLARATION: EditionDeclaration = EditionDeclaration {
-    edition: Edition {
-        id: CUDA_EDITION,
-        min_library_version: None,
-    },
-    added: &[EditionMember::layout(&"vortex.cuda_flat")],
-};
-
 /// Register [`CudaFlat`] and its draft `cuda` edition once per session.
 ///
-/// Enables a newly registered edition only if no `cuda` edition is selected; otherwise preserves
-/// writer policy, including on repeated calls. The draft has no cross-version compatibility
-/// guarantee. Readers must also register the layout.
+/// Registration preserves the selected output editions. CUDA writers explicitly select
+/// the complete CUDA edition. This draft has no cross-version compatibility guarantee.
 ///
 /// Call alongside [`crate::initialize_cuda`]; registration itself needs no GPU.
 pub fn register_cuda_layout(session: &VortexSession) {
@@ -626,16 +631,6 @@ pub fn register_cuda_layout(session: &VortexSession) {
         session
             .register_edition(&CUDA_EDITION_DECLARATION)
             .vortex_expect("CUDA edition declaration is valid");
-        if !session
-            .enabled_editions()
-            .editions()
-            .iter()
-            .any(|edition| edition.family == CUDA_EDITION.family)
-        {
-            session
-                .enable_edition(CUDA_EDITION)
-                .vortex_expect("CUDA edition is registered");
-        }
     });
 }
 
@@ -760,7 +755,6 @@ mod tests {
         let session = VortexSession::default();
         session.enable_edition(CORE_2025_05_0)?;
         let mut expected_editions = session.enabled_editions().editions();
-        expected_editions.push(CUDA_EDITION);
         expected_editions.sort_unstable();
         let expected_arrays = session.enabled_component_ids(ComponentKind::Array);
         let barrier = std::sync::Barrier::new(4);
@@ -772,11 +766,7 @@ mod tests {
                 scope.spawn(move || {
                     barrier.wait();
                     register_cuda_layout(&session);
-                    assert!(
-                        session
-                            .enabled_component_ids(ComponentKind::Layout)
-                            .contains(&CudaFlat.id())
-                    );
+                    assert!(session.editions().find(&CUDA_EDITION).is_some());
                 });
             }
         });
@@ -799,8 +789,6 @@ mod tests {
         let session = VortexSession::default();
         if register_first {
             register_cuda_layout(&session);
-        } else {
-            session.editions().declare_family(&CUDA_EDITION_FAMILY)?;
         }
         session.register_edition(&EditionDeclaration {
             edition: Edition {
@@ -829,8 +817,6 @@ mod tests {
     #[test]
     fn test_cuda_registration_preserves_disabled_pre_registered_edition() -> VortexResult<()> {
         let session = VortexSession::default();
-        session.editions().declare_family(&CUDA_EDITION_FAMILY)?;
-        session.register_edition(&CUDA_EDITION_DECLARATION)?;
         let mut expected_editions = session.enabled_editions().editions();
         expected_editions.sort_unstable();
         let expected_layouts = session.enabled_component_ids(ComponentKind::Layout);

@@ -22,7 +22,7 @@ use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::struct_::StructArrayExt;
-use vortex::compressor::BtrBlocksCompressorBuilder;
+use vortex::compressor::BtrBlocksCompressor;
 use vortex::error::VortexResult;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
@@ -99,9 +99,17 @@ impl Compressor for GpuVortexCompressor {
         // partition rather than whatever the default strategy would regroup them into.
         let strategy = Arc::new(ChunkedLayoutStrategy::new(CompressingStrategy::new(
             CudaFlatLayoutStrategy::default(),
-            BtrBlocksCompressorBuilder::from_session(&SESSION)
-                .only_cuda_compatible()
-                .build(),
+            {
+                let compression_session =
+                    vortex::compressor::CompressionSessionExt::fork_compression(&*SESSION);
+                compression_session.register(vortex::editions::EnabledEditions::default());
+                vortex::editions::EditionSessionExt::set_enabled_editions(
+                    &compression_session,
+                    [vortex::editions::cuda::CUDA_2026_09_0],
+                )
+                .expect("CUDA edition must be registered");
+                BtrBlocksCompressor::from_session(&compression_session)
+            },
         )));
         let start = Instant::now();
         SESSION

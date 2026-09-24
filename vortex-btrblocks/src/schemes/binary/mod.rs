@@ -4,15 +4,11 @@
 //! Binary compression schemes.
 
 mod varbin;
-#[cfg(feature = "zstd")]
-mod zstd;
-#[cfg(feature = "zstd")]
-mod zstd_buffers;
 
 // Re-export builtin schemes from vortex-compressor.
 pub use varbin::VarBinScheme;
 pub use vortex_compressor::builtins::BinaryDictScheme;
 #[cfg(feature = "zstd")]
-pub use zstd::ZstdScheme;
+pub use vortex_zstd::schemes::binary::ZstdScheme;
 #[cfg(feature = "zstd")]
-pub use zstd_buffers::ZstdBuffersScheme;
+pub use vortex_zstd::schemes::binary_buffers::ZstdBuffersScheme;

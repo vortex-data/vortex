@@ -384,7 +384,7 @@ mod tests {
     use vortex_array::expr::pack;
     use vortex_array::expr::root;
     use vortex_array::validity::Validity;
-    use vortex_btrblocks::BtrBlocksCompressorBuilder;
+    use vortex_btrblocks::BtrBlocksCompressor;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_io::runtime::Handle;
@@ -411,10 +411,12 @@ mod tests {
     // FIXME(ngates): Deprecate the global `runtime::single::block_on` helper and require tests
     // to call `block_on` on an explicit runtime instance.
     fn session_with_handle(handle: Handle) -> VortexSession {
-        array_session()
+        let session = array_session()
             .with::<LayoutSession>()
             .with::<RuntimeSession>()
-            .with_handle(handle)
+            .with_handle(handle);
+        vortex_btrblocks::initialize(&session);
+        session
     }
 
     async fn write_dict_layout(
@@ -426,11 +428,7 @@ mod tests {
             FlatLayoutStrategy::default(),
             FlatLayoutStrategy::default(),
             DictLayoutOptions::default(),
-            Arc::new(
-                BtrBlocksCompressorBuilder::from_session(session)
-                    .allow_all_encodings()
-                    .build(),
-            ),
+            Arc::new(BtrBlocksCompressor::for_memory(session)),
         );
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
@@ -460,11 +458,7 @@ mod tests {
                 FlatLayoutStrategy::default(),
                 FlatLayoutStrategy::default(),
                 DictLayoutOptions::default(),
-                Arc::new(
-                    BtrBlocksCompressorBuilder::from_session(&session)
-                        .allow_all_encodings()
-                        .build(),
-                ),
+                Arc::new(BtrBlocksCompressor::for_memory(&session)),
             );
 
             let array = VarBinArray::from_iter(
@@ -567,11 +561,7 @@ mod tests {
                 FlatLayoutStrategy::default(),
                 FlatLayoutStrategy::default(),
                 DictLayoutOptions::default(),
-                Arc::new(
-                    BtrBlocksCompressorBuilder::from_session(&session)
-                        .allow_all_encodings()
-                        .build(),
-                ),
+                Arc::new(BtrBlocksCompressor::for_memory(&session)),
             );
 
             let array =
@@ -626,11 +616,7 @@ mod tests {
                 FlatLayoutStrategy::default(),
                 FlatLayoutStrategy::default(),
                 DictLayoutOptions::default(),
-                Arc::new(
-                    BtrBlocksCompressorBuilder::from_session(&session)
-                        .allow_all_encodings()
-                        .build(),
-                ),
+                Arc::new(BtrBlocksCompressor::for_memory(&session)),
             );
 
             let array = VarBinArray::from_iter(
