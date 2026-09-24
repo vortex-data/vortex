@@ -4,6 +4,7 @@
 //! File stages: footer open, file-statistics pruning, and filter-and-project over natural
 //! splits, plus the types they pass between each other.
 
+pub mod filter_project;
 pub mod footer_open;
 pub mod footer_prune;
 pub mod range_morsel;

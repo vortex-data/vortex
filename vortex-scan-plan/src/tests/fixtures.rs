@@ -15,12 +15,16 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use parking_lot::Mutex;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
 use vortex_array::array_session;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::dtype::DType;
 use vortex_array::dtype::session::DTypeSessionExt;
+use vortex_array::expr::Expression;
 use vortex_array::session::ArraySessionExt;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
@@ -227,6 +231,31 @@ pub fn write_large_footer_file() -> VortexResult<ByteBuffer> {
 /// Opens a written buffer through the existing reader.
 pub fn open_buffer(buffer: &ByteBuffer) -> VortexResult<VortexFile> {
     SESSION.open_options().open_buffer(buffer.clone())
+}
+
+/// Runs the existing scan over `buffer` with the same query, the reference for parity tests.
+pub fn reference_scan(
+    buffer: &ByteBuffer,
+    filter: Option<Expression>,
+    projection: Expression,
+) -> VortexResult<Vec<ArrayRef>> {
+    let file = open_buffer(buffer)?;
+    let filter = filter.map(|f| f.bind(file.dtype())).transpose()?;
+    let projection = projection.bind(file.dtype())?;
+    file.scan()?
+        .with_some_filter(filter)
+        .with_projection(projection)
+        .into_array_iter(&*RUNTIME)?
+        .collect()
+}
+
+/// Concatenates batches into one canonical array of `dtype`, so chunking does not affect
+/// comparison.
+pub fn concat(batches: Vec<ArrayRef>, dtype: &DType) -> VortexResult<ArrayRef> {
+    Ok(ChunkedArray::try_new(batches, dtype.clone())?
+        .into_array()
+        .execute::<Canonical>(&mut SESSION.create_execution_ctx())?
+        .into_array())
 }
 
 /// Every method panics with "unexpected IO".
