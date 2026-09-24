@@ -11,9 +11,11 @@ use std::sync::Arc;
 use rstest::rstest;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::expr::Expression;
+use vortex_array::expr::checked_add;
 use vortex_array::expr::col;
 use vortex_array::expr::gt;
 use vortex_array::expr::lit;
@@ -37,6 +39,7 @@ use crate::tests::fixtures::RecordingReadAt;
 use crate::tests::fixtures::SESSION;
 use crate::tests::fixtures::concat;
 use crate::tests::fixtures::open_buffer;
+use crate::tests::fixtures::reference_scan;
 use crate::tests::fixtures::write_chunked_test_file;
 use crate::tests::fixtures::write_test_file;
 use crate::tests::scripted::ctx;
@@ -235,5 +238,119 @@ fn filter_batches_match_non_empty_splits(
     for batch in &batches {
         assert!(!batch.array.is_empty());
     }
+    Ok(())
+}
+
+/// One parity query: the filter and projection, and how many natural splits keep rows.
+#[derive(Clone, Copy, Debug)]
+enum Query {
+    NoFilter,
+    FilterSome,
+    FilterNone,
+    ExpressionProjection,
+}
+
+impl Query {
+    fn filter(self) -> Option<Expression> {
+        match self {
+            Self::NoFilter => None,
+            Self::FilterSome => Some(gt(col("numbers"), lit(4u32))),
+            Self::FilterNone => Some(gt(col("numbers"), lit(100u32))),
+            Self::ExpressionProjection => Some(gt(col("numbers"), lit(2u32))),
+        }
+    }
+
+    fn projection(self) -> Expression {
+        match self {
+            Self::ExpressionProjection => checked_add(col("numbers"), lit(1u32)),
+            _ => root(),
+        }
+    }
+
+    /// Number of chunks of `1..=9` split `chunks` ways that keep at least one row.
+    fn non_empty_splits(self, chunks: usize) -> usize {
+        match (self, chunks) {
+            (Self::FilterNone, _) => 0,
+            (Self::NoFilter | Self::ExpressionProjection, n) => n,
+            (Self::FilterSome, 1) => 1,
+            (Self::FilterSome, 3) => 2,
+            (query, n) => unreachable!("no expectation for {query:?} over {n} chunks"),
+        }
+    }
+}
+
+fn parity_file(chunks: usize) -> VortexResult<ByteBuffer> {
+    let per = u32::try_from(9 / chunks)?;
+    let numbers: Vec<ArrayRef> = (0..u32::try_from(chunks)?)
+        .map(|i| {
+            let start = i * per + 1;
+            PrimitiveArray::from_iter(start..start + per).into_array()
+        })
+        .collect();
+    if chunks == 1 {
+        write_test_file(&[("numbers", numbers[0].clone())])
+    } else {
+        write_chunked_test_file(&[("numbers", numbers)])
+    }
+}
+
+#[rstest]
+fn parity_with_the_existing_scan(
+    #[values(
+        Query::NoFilter,
+        Query::FilterSome,
+        Query::FilterNone,
+        Query::ExpressionProjection
+    )]
+    query: Query,
+    #[values(1, 3)] chunks: usize,
+) -> VortexResult<()> {
+    let buffer = parity_file(chunks)?;
+    let size = buffer.len() as u64;
+    let batches = run(
+        Arc::new(buffer.clone()),
+        Some(size),
+        None,
+        ScanQuery {
+            filter: query.filter(),
+            projection: Some(query.projection()),
+        },
+    )?;
+    assert_eq!(batches.len(), query.non_empty_splits(chunks));
+    let expected = reference_scan(&buffer, query.filter(), query.projection())?;
+    let dtype = query
+        .projection()
+        .bind(open_buffer(&buffer)?.dtype())?
+        .dtype()
+        .clone();
+    let actual = batches.into_iter().map(|batch| batch.array).collect();
+    assert_arrays_eq!(
+        concat(actual, &dtype)?,
+        concat(expected, &dtype)?,
+        &mut ctx()
+    );
+    Ok(())
+}
+
+#[rstest]
+#[case::known_size(true, 0)]
+#[case::unknown_size(false, 1)]
+fn footer_reads_come_first(#[case] known: bool, #[case] size_calls: usize) -> VortexResult<()> {
+    let buffer = numbers_file()?;
+    let len = buffer.len();
+    let recording = Arc::new(RecordingReadAt::new(buffer));
+    let batches = run(
+        Arc::clone(&recording) as Arc<dyn VortexReadAt>,
+        known.then_some(len as u64),
+        None,
+        ScanQuery {
+            filter: None,
+            projection: Some(root()),
+        },
+    )?;
+    assert_eq!(batches.len(), 1);
+    assert_eq!(recording.size_calls(), size_calls);
+    let reads = recording.reads();
+    assert_eq!(reads.first(), Some(&(0, len)), "{reads:?}");
     Ok(())
 }
