@@ -14,6 +14,7 @@ use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use vortex::array::stream::ArrayStreamAdapter;
 use vortex::compressor::BtrBlocksCompressor;
+use vortex::compressor::CompressionSessionExt;
 use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
 use vortex::file::WriteOptionsSessionExt;
@@ -96,7 +97,7 @@ pub async fn exec_convert(session: &VortexSession, flags: ConvertArgs) -> anyhow
             .boxed();
     }
 
-    let compression_session = vortex::compressor::CompressionSessionExt::fork_compression(session);
+    let compression_session = CompressionSessionExt::fork_compression(session);
     if matches!(flags.strategy, Strategy::Compact) {
         vortex::compressor::initialize_compact(&compression_session);
     }

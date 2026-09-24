@@ -78,10 +78,8 @@ fn varbin_scheme_shrinks_binary() -> VortexResult<()> {
     let without = {
         let compression_session =
             vortex_btrblocks::CompressionSessionExt::fork_compression(&*SESSION);
-        for id in [VarBinScheme.id()] {
-            vortex_btrblocks::CompressionSessionExt::compression(&compression_session)
-                .unregister(id);
-        }
+        vortex_btrblocks::CompressionSessionExt::compression(&compression_session)
+            .unregister(VarBinScheme.id());
         BtrBlocksCompressor::for_memory(&compression_session)
     };
 

@@ -24,6 +24,7 @@ use vortex_compressor::scheme::DescendantExclusion;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_compressor::scheme::Scheme;
 use vortex_compressor::scheme::SchemeExt;
+use vortex_compressor::scheme::SchemeId;
 use vortex_compressor::stats::ArrayAndStats;
 use vortex_error::VortexResult;
 
@@ -72,11 +73,11 @@ impl Scheme for RunEndScheme {
                 children: ChildSelection::One(1),
             },
             DescendantExclusion {
-                excluded: vortex_compressor::scheme::SchemeId::new("vortex.int.rle"),
+                excluded: SchemeId::new("vortex.int.rle"),
                 children: ChildSelection::One(1),
             },
             DescendantExclusion {
-                excluded: vortex_compressor::scheme::SchemeId::new("vortex.int.sparse"),
+                excluded: SchemeId::new("vortex.int.sparse"),
                 children: ChildSelection::One(1),
             },
         ]

@@ -86,6 +86,7 @@ mod tests {
     #[cfg(feature = "zstd")]
     use vortex_array::ArrayId;
     use vortex_array::IntoArray;
+    #[cfg(feature = "zstd")]
     use vortex_array::VTable;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
@@ -94,6 +95,10 @@ mod tests {
     use vortex_array::arrays::List;
     use vortex_array::arrays::ListView;
     use vortex_array::arrays::ListViewArray;
+    #[cfg(feature = "zstd")]
+    use vortex_array::arrays::Primitive;
+    #[cfg(feature = "zstd")]
+    use vortex_array::arrays::VarBinView;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
@@ -103,6 +108,10 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
+    #[cfg(feature = "zstd")]
+    use vortex_zstd::schemes::binary::ZstdScheme;
+    #[cfg(feature = "zstd")]
+    use vortex_zstd::schemes::binary_buffers::ZstdBuffersScheme;
 
     use crate::BtrBlocksCompressor;
 
@@ -315,19 +324,9 @@ mod tests {
 
         let session = vortex_array::array_session();
         vortex_zstd::initialize(&session);
-        crate::CompressionSessionExt::register_scheme(
-            &session,
-            &vortex_zstd::schemes::binary::ZstdScheme,
-        );
-        crate::CompressionSessionExt::register_scheme(
-            &session,
-            &vortex_zstd::schemes::binary_buffers::ZstdBuffersScheme,
-        );
-        let permitted = [
-            allowed,
-            vortex_array::arrays::VarBinView.id(),
-            vortex_array::arrays::Primitive.id(),
-        ];
+        crate::CompressionSessionExt::register_scheme(&session, &ZstdScheme);
+        crate::CompressionSessionExt::register_scheme(&session, &ZstdBuffersScheme);
+        let permitted = [allowed, VarBinView.id(), Primitive.id()];
         let compressor = BtrBlocksCompressor::from_session_with_encodings(&session, permitted);
         let mut ctx = SESSION.create_execution_ctx();
         let compressed = compressor.compress(&array.clone().into_array(), &mut ctx)?;
@@ -353,6 +352,7 @@ mod permission_tests {
     use vortex_edition::EDITION_DECLARATIONS;
     use vortex_edition::EDITION_FAMILIES;
     use vortex_edition::EditionSessionExt;
+    use vortex_edition::declarations::core::CORE_2026_08_3;
     use vortex_error::VortexResult;
     use vortex_fastlanes::BitPacked;
     use vortex_fastlanes::schemes::for_::FoRScheme;
@@ -412,7 +412,7 @@ mod permission_tests {
         for edition in EDITION_DECLARATIONS {
             session.register_edition(edition)?;
         }
-        session.enable_edition(vortex_edition::declarations::core::CORE_2026_08_3)?;
+        session.enable_edition(CORE_2026_08_3)?;
         let input = buffer![1i32, 2, 3, 4, 5, 6, 7, 8].into_array();
         let output = BtrBlocksCompressor::from_session(&session)
             .compress(&input, &mut session.create_execution_ctx())?;

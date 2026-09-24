@@ -29,6 +29,8 @@ use vortex_array::arrays::variant::VariantArraySlotsExt;
 use vortex_error::VortexResult;
 
 use super::CascadingCompressor;
+use crate::builtins::ConstantScheme;
+use crate::builtins::IntDictScheme;
 use crate::scheme::CompressorContext;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
@@ -54,15 +56,20 @@ impl CascadingCompressor {
     }
 
     /// Compress dictionary codes with the existing dictionary cascade exclusions.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if canonicalization or compression fails.
     pub fn compress_dictionary_codes(
         &self,
         array: &ArrayRef,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let ctx = CompressorContext::new().excluding_at_site(crate::builtins::IntDictScheme.id());
+        let ctx = CompressorContext::new().excluding_at_site(IntDictScheme.id());
         self.compress_with_context(array, ctx, exec_ctx)
     }
 
+    /// Canonicalize and compress an input while preserving its call-site context.
     pub(super) fn compress_with_context(
         &self,
         array: &ArrayRef,
@@ -309,7 +316,7 @@ impl CascadingCompressor {
         }
 
         if array.all_invalid(exec_ctx)? {
-            eligible_schemes.retain(|s| s.id() == crate::builtins::ConstantScheme.id());
+            eligible_schemes.retain(|s| s.id() == ConstantScheme.id());
         }
         let before_nbytes = array.nbytes();
 

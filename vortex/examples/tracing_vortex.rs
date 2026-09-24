@@ -40,6 +40,7 @@ use vortex::array::arrays::VarBinArray;
 use vortex::array::stream::ArrayStreamExt;
 use vortex::array::validity::Validity;
 use vortex::compressor::BtrBlocksCompressor;
+use vortex::compressor::CompressionSessionExt;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::file::WriteStrategyBuilder;
@@ -393,8 +394,7 @@ async fn write_batch_to_vortex(
     let write_opts = session.write_options().with_strategy(
         WriteStrategyBuilder::from_session(&session)
             .with_btrblocks_compressor({
-                let compression_session =
-                    vortex::compressor::CompressionSessionExt::fork_compression(&session);
+                let compression_session = CompressionSessionExt::fork_compression(&session);
                 vortex::compressor::initialize_compact(&compression_session);
                 BtrBlocksCompressor::from_session(&compression_session)
             })

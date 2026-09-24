@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Shared patch compression for encoding-owned schemes.
+
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -12,6 +14,10 @@ use vortex_error::VortexError;
 use vortex_error::VortexResult;
 
 /// Compresses the given patches by downscaling integers and checking for constant values.
+///
+/// # Errors
+///
+/// Returns an error if patch arrays cannot be evaluated or rebuilt.
 pub fn compress_patches(patches: Patches, ctx: &mut ExecutionCtx) -> VortexResult<Patches> {
     // Downscale the patch indices.
     let indices = patches

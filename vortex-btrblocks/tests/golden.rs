@@ -49,6 +49,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::validity::Validity;
 use vortex_btrblocks::BtrBlocksCompressor;
+use vortex_btrblocks::schemes::string::OnPairScheme;
 use vortex_buffer::Buffer;
 use vortex_edition::EDITION_DECLARATIONS;
 use vortex_edition::EDITION_FAMILIES;
@@ -58,6 +59,8 @@ use vortex_edition::EditionSessionExt;
 use vortex_edition::declarations::core::CORE_2026_08_3;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
+#[cfg(all(feature = "zstd", feature = "pco"))]
+use vortex_zstd::editions::ZSTD_2026_02;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = vortex_array::array_session();
@@ -397,9 +400,8 @@ fn list_of_int_runs() -> VortexResult<ArrayRef> {
 /// are pinned by [`golden_onpair`].
 fn without_onpair(session: &VortexSession) -> VortexSession {
     let session = vortex_btrblocks::CompressionSessionExt::fork_compression(session);
-    vortex_btrblocks::CompressionSessionExt::compression(&session).unregister(
-        vortex_btrblocks::SchemeExt::id(&vortex_btrblocks::schemes::string::OnPairScheme),
-    );
+    vortex_btrblocks::CompressionSessionExt::compression(&session)
+        .unregister(vortex_btrblocks::SchemeExt::id(&OnPairScheme));
     session
 }
 
@@ -442,7 +444,7 @@ fn golden_onpair() -> VortexResult<()> {
 fn golden_compact() -> VortexResult<()> {
     let session = edition_session(&[CORE_2026_08_3])?;
     vortex_zstd::initialize(&session);
-    session.enable_edition(vortex_zstd::editions::ZSTD_2026_02)?;
+    session.enable_edition(ZSTD_2026_02)?;
     let session = without_onpair(&session);
     vortex_btrblocks::initialize_compact(&session);
     let compressor = BtrBlocksCompressor::from_session(&session);

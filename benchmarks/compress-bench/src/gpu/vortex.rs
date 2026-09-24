@@ -23,8 +23,13 @@ use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::struct_::StructArrayExt;
 use vortex::compressor::BtrBlocksCompressor;
+use vortex::compressor::CompressionSessionExt;
+use vortex::editions::EditionSessionExt;
+use vortex::editions::EnabledEditions;
+use vortex::editions::cuda::CUDA_2026_09_0;
 use vortex::error::VortexResult;
 use vortex::file::OpenOptionsSessionExt;
+use vortex::file::VortexFile;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex::layout::layouts::compressed::CompressingStrategy;
@@ -100,14 +105,10 @@ impl Compressor for GpuVortexCompressor {
         let strategy = Arc::new(ChunkedLayoutStrategy::new(CompressingStrategy::new(
             CudaFlatLayoutStrategy::default(),
             {
-                let compression_session =
-                    vortex::compressor::CompressionSessionExt::fork_compression(&*SESSION);
-                compression_session.register(vortex::editions::EnabledEditions::default());
-                vortex::editions::EditionSessionExt::set_enabled_editions(
-                    &compression_session,
-                    [vortex::editions::cuda::CUDA_2026_09_0],
-                )
-                .expect("CUDA edition must be registered");
+                let compression_session = CompressionSessionExt::fork_compression(&*SESSION);
+                compression_session.register(EnabledEditions::default());
+                EditionSessionExt::set_enabled_editions(&compression_session, [CUDA_2026_09_0])
+                    .expect("CUDA edition must be registered");
                 BtrBlocksCompressor::from_session(&compression_session)
             },
         )));
@@ -174,7 +175,7 @@ impl Compressor for GpuVortexCompressor {
 /// Windows too, and the whole crate still has to compile on a developer's macOS machine. Asking
 /// for `--gpu-direct-io` where it cannot be honoured is an error rather than a silent no-op,
 /// because the flag changes what the resulting number means.
-async fn open_gpu(path: &Path, direct_io: bool) -> Result<vortex::file::VortexFile> {
+async fn open_gpu(path: &Path, direct_io: bool) -> Result<VortexFile> {
     let open_options = SESSION.open_options().with_cuda();
 
     #[cfg(target_os = "linux")]

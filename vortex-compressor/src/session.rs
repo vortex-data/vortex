@@ -18,6 +18,7 @@ use crate::scheme::SchemeId;
 /// An ordered registry. Clones share registrations and registration is atomic.
 #[derive(Clone, Debug, Default)]
 pub struct CompressionSession {
+    /// Shared registration order, protected across deduplication and insertion.
     schemes: Arc<RwLock<Vec<&'static dyn Scheme>>>,
 }
 

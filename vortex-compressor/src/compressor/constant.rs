@@ -128,14 +128,13 @@ mod tests {
     use vortex_session::VortexSession;
 
     use crate::CascadingCompressor;
+    use crate::builtins::ConstantScheme;
+    use crate::builtins::MaskedConstantScheme;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
     fn constant_compressor() -> CascadingCompressor {
-        CascadingCompressor::new(vec![
-            &crate::builtins::ConstantScheme,
-            &crate::builtins::MaskedConstantScheme,
-        ])
+        CascadingCompressor::new(vec![&ConstantScheme, &MaskedConstantScheme])
     }
 
     #[test]

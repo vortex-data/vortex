@@ -30,6 +30,8 @@ use vortex::array::stats::StatsSetRef;
 use vortex::buffer::BufferString;
 use vortex::buffer::ByteBuffer;
 use vortex::compressor::BtrBlocksCompressor;
+use vortex::compressor::CascadingCompressor;
+use vortex::compressor::CompressionSessionExt;
 use vortex::dtype::DType;
 use vortex::dtype::FieldMask;
 #[cfg(test)]
@@ -42,6 +44,8 @@ use vortex::editions::EditionSessionExt;
 use vortex::editions::cuda::CUDA_2026_09_0 as CUDA_EDITION;
 use vortex::editions::cuda::DECLARATION as CUDA_EDITION_DECLARATION;
 use vortex::editions::cuda::FAMILY as CUDA_EDITION_FAMILY;
+use vortex::encodings::zstd::schemes::binary::ZstdScheme;
+use vortex::encodings::zstd::schemes::binary_buffers::ZstdBuffersScheme;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
@@ -54,6 +58,7 @@ use vortex::layout::LayoutEncodingRef;
 use vortex::layout::LayoutId;
 use vortex::layout::LayoutParts;
 use vortex::layout::LayoutReader;
+use vortex::layout::LayoutReaderContext;
 use vortex::layout::LayoutReaderRef;
 use vortex::layout::LayoutRef;
 use vortex::layout::LayoutStrategy;
@@ -201,7 +206,7 @@ impl VTable for CudaFlat {
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: &VortexSession,
-        _ctx: &vortex::layout::LayoutReaderContext,
+        _ctx: &LayoutReaderContext,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(CudaFlatReader {
             layout: layout.clone(),
@@ -561,15 +566,9 @@ pub fn cuda_write_strategy(session: &VortexSession, block_rows: usize) -> Arc<dy
     session
         .set_enabled_editions([CUDA_EDITION])
         .vortex_expect("CUDA edition is registered");
-    let compression_session = vortex::compressor::CompressionSessionExt::fork_compression(session);
-    vortex::compressor::CompressionSessionExt::register_scheme(
-        &compression_session,
-        &vortex::encodings::zstd::schemes::binary::ZstdScheme,
-    );
-    vortex::compressor::CompressionSessionExt::register_scheme(
-        &compression_session,
-        &vortex::encodings::zstd::schemes::binary_buffers::ZstdBuffersScheme,
-    );
+    let compression_session = CompressionSessionExt::fork_compression(session);
+    CompressionSessionExt::register_scheme(&compression_session, &ZstdScheme);
+    CompressionSessionExt::register_scheme(&compression_session, &ZstdBuffersScheme);
     let compressor = BtrBlocksCompressor::from_session(&compression_session);
     let strategy = WriteStrategyBuilder::from_session(session)
         .with_flat_strategy(Arc::new(CudaFlatLayoutStrategy::default()));
@@ -579,9 +578,7 @@ pub fn cuda_write_strategy(session: &VortexSession, block_rows: usize) -> Arc<dy
         // An opaque compressor keeps IntDict; disabling the probe avoids u16-sized outer blocks.
         strategy
             .with_compressor(compressor)
-            .with_probe_compressor(BtrBlocksCompressor(
-                vortex::compressor::CascadingCompressor::new(Vec::new()),
-            ))
+            .with_probe_compressor(BtrBlocksCompressor(CascadingCompressor::new(Vec::new())))
             .with_row_block_size(block_rows)
             .with_data_block_target_bytes(None)
             .build()

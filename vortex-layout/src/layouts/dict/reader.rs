@@ -383,6 +383,7 @@ mod tests {
     use vortex_array::expr::lit;
     use vortex_array::expr::pack;
     use vortex_array::expr::root;
+    use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_btrblocks::BtrBlocksCompressor;
     use vortex_error::VortexExpect;
@@ -586,10 +587,7 @@ mod tests {
 
             let filter = eq(
                 root(),
-                lit(vortex_array::scalar::Scalar::utf8(
-                    filter_value,
-                    Nullability::Nullable,
-                )),
+                lit(Scalar::utf8(filter_value, Nullability::Nullable)),
             );
             let reader = layout
                 .new_reader("".into(), segments, &session, &Default::default())

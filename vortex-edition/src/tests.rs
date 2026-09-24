@@ -15,6 +15,8 @@ use crate::EditionMember;
 use crate::EditionSession;
 use crate::EditionSessionExt;
 use crate::EnabledEditions;
+use crate::declarations::core::CORE_2026_08_3;
+use crate::declarations::cuda::CUDA_2026_09_0;
 
 static TEST_FAMILY: EditionFamily = EditionFamily {
     name: "test",
@@ -454,8 +456,8 @@ fn selecting_cuda_replaces_core_and_preserves_additive_composition() -> VortexRe
     for declaration in crate::EDITION_DECLARATIONS {
         session.register_edition(declaration)?;
     }
-    let core = crate::declarations::core::CORE_2026_08_3;
-    let cuda = crate::declarations::cuda::CUDA_2026_09_0;
+    let core = CORE_2026_08_3;
+    let cuda = CUDA_2026_09_0;
     session.enable_edition(core)?;
     session.set_enabled_editions([cuda])?;
     assert_eq!(session.enabled_editions().editions(), vec![cuda]);

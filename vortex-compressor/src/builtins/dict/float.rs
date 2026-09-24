@@ -25,6 +25,7 @@ use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::CascadingCompressor;
 use crate::builtins::IntDictScheme;
@@ -232,7 +233,7 @@ macro_rules! impl_encode {
             #[expect(clippy::cast_possible_truncation)]
             fn encode(distinct: &[$typ], values: &[$typ]) -> Buffer<$ityp> {
                 let mut codes =
-                    vortex_utils::aliases::hash_map::HashMap::<$utyp, $ityp>::with_capacity(
+                    HashMap::<$utyp, $ityp>::with_capacity(
                         distinct.len(),
                     );
                 for (code, &value) in distinct.iter().enumerate() {

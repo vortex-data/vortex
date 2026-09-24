@@ -101,6 +101,7 @@ use crate::VortexFile;
 use crate::WriteOptionsSessionExt;
 use crate::flatbuffers::footer as fb;
 use crate::footer::SegmentSpec;
+use crate::strategy::WriteStrategyBuilder;
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = array_session()
         .with::<LayoutSession>()
@@ -1874,7 +1875,7 @@ async fn write_read_roundtrip_with_layout(
     array: ArrayRef,
     use_list_layout: bool,
 ) -> VortexResult<ArrayRef> {
-    let strategy = crate::strategy::WriteStrategyBuilder::from_session(&SESSION)
+    let strategy = WriteStrategyBuilder::from_session(&SESSION)
         .with_list_layout()
         .build();
     let mut buf = ByteBufferMut::empty();
@@ -2260,7 +2261,7 @@ async fn timestamp_unit_mismatch_errors_with_constant_children()
         .into_array();
     let temporal = TemporalArray::new_timestamp(ts_array, TimeUnit::Milliseconds, None);
 
-    let strategy = crate::strategy::WriteStrategyBuilder::from_session(&SESSION)
+    let strategy = WriteStrategyBuilder::from_session(&SESSION)
         .with_compressor(compressor)
         .build();
 
@@ -2578,7 +2579,7 @@ async fn dict_probe_honours_configured_compressor() -> VortexResult<()> {
     let mut buf = ByteBufferMut::empty();
     let summary = SESSION
         .write_options()
-        .with_strategy(crate::strategy::WriteStrategyBuilder::from_session(&SESSION).build())
+        .with_strategy(WriteStrategyBuilder::from_session(&SESSION).build())
         .write(&mut buf, strings.clone().to_array_stream())
         .await?;
     assert!(
@@ -2589,17 +2590,15 @@ async fn dict_probe_honours_configured_compressor() -> VortexResult<()> {
     let no_string_dict = {
         let compression_session =
             vortex_btrblocks::CompressionSessionExt::fork_compression(&*SESSION);
-        for id in [StringDictScheme.id()] {
-            vortex_btrblocks::CompressionSessionExt::compression(&compression_session)
-                .unregister(id);
-        }
+        vortex_btrblocks::CompressionSessionExt::compression(&compression_session)
+            .unregister(StringDictScheme.id());
         BtrBlocksCompressor::from_session(&compression_session)
     };
     let mut buf = ByteBufferMut::empty();
     let summary = SESSION
         .write_options()
         .with_strategy(
-            crate::strategy::WriteStrategyBuilder::from_session(&SESSION)
+            WriteStrategyBuilder::from_session(&SESSION)
                 .with_btrblocks_compressor(no_string_dict)
                 .build(),
         )
@@ -2624,10 +2623,8 @@ async fn probe_compressor_override_is_independent() -> VortexResult<()> {
     let probe_without_dict = {
         let compression_session =
             vortex_btrblocks::CompressionSessionExt::fork_compression(&*SESSION);
-        for id in [StringDictScheme.id()] {
-            vortex_btrblocks::CompressionSessionExt::compression(&compression_session)
-                .unregister(id);
-        }
+        vortex_btrblocks::CompressionSessionExt::compression(&compression_session)
+            .unregister(StringDictScheme.id());
         BtrBlocksCompressor::from_session(&compression_session)
     };
 
@@ -2635,7 +2632,7 @@ async fn probe_compressor_override_is_independent() -> VortexResult<()> {
     let summary = SESSION
         .write_options()
         .with_strategy(
-            crate::strategy::WriteStrategyBuilder::from_session(&SESSION)
+            WriteStrategyBuilder::from_session(&SESSION)
                 .with_probe_compressor(probe_without_dict)
                 .build(),
         )

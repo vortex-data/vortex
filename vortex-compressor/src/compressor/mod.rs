@@ -10,6 +10,8 @@ mod select;
 mod structural;
 
 use vortex_array::VTable;
+use vortex_array::arrays::List;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::builtins::IntDictScheme;
 use crate::scheme::ChildSelection;
@@ -45,7 +47,7 @@ pub struct CascadingCompressor {
     /// The enabled compression schemes.
     schemes: Vec<&'static dyn Scheme>,
     /// Canonical forms admitted at construction, before any compression work.
-    canonical_encodings: Option<vortex_utils::aliases::hash_set::HashSet<vortex_array::ArrayId>>,
+    canonical_encodings: Option<HashSet<vortex_array::ArrayId>>,
 
     /// Descendant exclusion rules for the compressor's own cascading (e.g. excluding Dict from
     /// list offsets).
@@ -79,10 +81,10 @@ impl CascadingCompressor {
     /// Schemes must already have been resolved against these IDs.
     pub fn new_with_encodings(
         schemes: Vec<&'static dyn Scheme>,
-        encodings: vortex_utils::aliases::hash_set::HashSet<vortex_array::ArrayId>,
+        encodings: HashSet<vortex_array::ArrayId>,
     ) -> Self {
         let mut compressor = Self::new(schemes);
-        compressor.convert_lists = encodings.contains(&vortex_array::arrays::List.id());
+        compressor.convert_lists = encodings.contains(&List.id());
         compressor.canonical_encodings = Some(encodings);
         compressor
     }

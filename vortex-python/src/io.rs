@@ -17,6 +17,7 @@ use vortex::array::iter::ArrayIterator;
 use vortex::array::iter::ArrayIteratorAdapter;
 use vortex::array::iter::ArrayIteratorExt;
 use vortex::compressor::BtrBlocksCompressor;
+use vortex::compressor::CompressionSessionExt;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::file::WriteOptionsSessionExt;
@@ -378,8 +379,7 @@ impl PyVortexWriteOptions {
     ) -> PyVortexResult<()> {
         let session = session();
         py.detach(|| {
-            let compression_session =
-                vortex::compressor::CompressionSessionExt::fork_compression(session);
+            let compression_session = CompressionSessionExt::fork_compression(session);
             if self.use_compact_encodings {
                 vortex::compressor::initialize_compact(&compression_session);
             }

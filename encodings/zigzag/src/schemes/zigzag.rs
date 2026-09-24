@@ -24,6 +24,7 @@ use vortex_compressor::scheme::DescendantExclusion;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_compressor::scheme::Scheme;
 use vortex_compressor::scheme::SchemeExt;
+use vortex_compressor::scheme::SchemeId;
 use vortex_compressor::stats::ArrayAndStats;
 use vortex_error::VortexResult;
 
@@ -67,11 +68,11 @@ impl Scheme for ZigZagScheme {
                 children: ChildSelection::All,
             },
             DescendantExclusion {
-                excluded: vortex_compressor::scheme::SchemeId::new("vortex.int.runend"),
+                excluded: SchemeId::new("vortex.int.runend"),
                 children: ChildSelection::All,
             },
             DescendantExclusion {
-                excluded: vortex_compressor::scheme::SchemeId::new("vortex.int.sparse"),
+                excluded: SchemeId::new("vortex.int.sparse"),
                 children: ChildSelection::All,
             },
         ]

@@ -19,6 +19,7 @@ use vortex_compressor::scheme::AncestorExclusion;
 use vortex_compressor::scheme::ChildSelection;
 use vortex_compressor::scheme::DescendantExclusion;
 use vortex_compressor::scheme::SchemeExt;
+use vortex_compressor::scheme::SchemeId;
 use vortex_compressor::session::CompressionSessionExt;
 
 /// Shared descendant exclusion rules for RLE schemes.
@@ -38,7 +39,7 @@ fn rle_descendant_exclusions() -> Vec<DescendantExclusion> {
         //     children: ChildSelection::Many(&[1, 2]),
         // },
         DescendantExclusion {
-            excluded: vortex_compressor::scheme::SchemeId::new("vortex.int.sparse"),
+            excluded: SchemeId::new("vortex.int.sparse"),
             children: ChildSelection::Many(&[1, 2]),
         },
     ]

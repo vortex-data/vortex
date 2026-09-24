@@ -10,6 +10,7 @@ use vortex::VortexSessionDefault;
 use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
 use vortex::compressor::BtrBlocksCompressor;
+use vortex::compressor::CompressionSessionExt;
 use vortex::file::WriteStrategyBuilder;
 use vortex::session::VortexSession;
 use vortex_array::ExecutionCtx;
@@ -145,8 +146,7 @@ impl Fixture for DatasetFixtureAdapter {
         if self.compact {
             let strategy = WriteStrategyBuilder::from_session(&session)
                 .with_btrblocks_compressor({
-                    let compression_session =
-                        vortex::compressor::CompressionSessionExt::fork_compression(&session);
+                    let compression_session = CompressionSessionExt::fork_compression(&session);
                     vortex::compressor::initialize_compact(&compression_session);
                     BtrBlocksCompressor::for_memory(&compression_session)
                 })

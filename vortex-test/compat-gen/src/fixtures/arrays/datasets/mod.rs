@@ -18,6 +18,7 @@ pub fn fixtures() -> Vec<Box<dyn DatasetFixture>> {
 mod tests {
     use vortex::VortexSessionDefault;
     use vortex::compressor::BtrBlocksCompressor;
+    use vortex::compressor::CompressionSessionExt;
     use vortex::editions::CORE_2026_08_3;
     use vortex::editions::EditionSessionExt;
     use vortex::file::WriteStrategyBuilder;
@@ -55,8 +56,7 @@ mod tests {
                 array,
                 WriteStrategyBuilder::from_session(&session)
                     .with_btrblocks_compressor({
-                        let compression_session =
-                            vortex::compressor::CompressionSessionExt::fork_compression(&session);
+                        let compression_session = CompressionSessionExt::fork_compression(&session);
                         vortex::compressor::initialize_compact(&compression_session);
                         BtrBlocksCompressor::for_memory(&compression_session)
                     })
