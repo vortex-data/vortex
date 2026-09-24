@@ -363,6 +363,17 @@ where
     let null_count = validity.false_count();
     let value_count = validity.true_count();
 
+    let array_ref = array.as_ref();
+    let min = array_ref
+        .statistics()
+        .compute_as::<T>(Stat::Min, ctx)
+        .vortex_expect("min should be computed");
+
+    let max = array_ref
+        .statistics()
+        .compute_as::<T>(Stat::Max, ctx)
+        .vortex_expect("max should be computed");
+
     // Initialize loop state.
     let head_idx = validity
         .first()
@@ -371,10 +382,10 @@ where
     let head = buffer[head_idx];
 
     let mut loop_state = LoopState {
-        distinct_values: if count_distinct_values {
-            HashMap::with_capacity_and_hasher(array.len() / 2, FxBuildHasher)
+        distinct: if count_distinct_values {
+            DistinctCounter::new(min, max, array.len())
         } else {
-            HashMap::with_hasher(FxBuildHasher)
+            DistinctCounter::Off
         },
         prev: head,
         pending: 0,
@@ -432,33 +443,7 @@ where
     }
 
     let runs = loop_state.runs;
-
-    let array_ref = array.as_ref();
-    let min = array_ref
-        .statistics()
-        .compute_as::<T>(Stat::Min, ctx)
-        .vortex_expect("min should be computed");
-
-    let max = array_ref
-        .statistics()
-        .compute_as::<T>(Stat::Max, ctx)
-        .vortex_expect("max should be computed");
-
-    let distinct = count_distinct_values.then(|| {
-        let (&top_value, &top_count) = loop_state
-            .distinct_values
-            .iter()
-            .max_by_key(|&(_, &count)| count)
-            .vortex_expect("we know this is non-empty");
-
-        DistinctInfo {
-            distinct_count: u32::try_from(loop_state.distinct_values.len())
-                .vortex_expect("there are more than `u32::MAX` distinct values"),
-            most_frequent_value: top_value.0,
-            top_frequency: top_count,
-            distinct_values: loop_state.distinct_values,
-        }
-    });
+    let distinct = loop_state.distinct.finish();
 
     let typed = TypedStats { min, max, distinct };
 
@@ -473,30 +458,128 @@ where
     })
 }
 
+/// Value ranges up to this many values may be counted in a dense array instead of a hash map.
+const DENSE_DISTINCT_MAX_RANGE: usize = 1 << 16;
+
+/// Value ranges up to this many values are always counted in a dense array, regardless of the array
+/// length. This covers every `u8` and `i8` array.
+const DENSE_DISTINCT_ALWAYS_RANGE: usize = 1 << 8;
+
+/// Accumulates the occurrences of each distinct valid value.
+enum DistinctCounter<T> {
+    /// Distinct values are not being counted.
+    Off,
+    /// Counts indexed by `value - min`, used when the value range is narrow. This avoids hashing
+    /// entirely.
+    Dense {
+        /// The minimum valid value.
+        min: T,
+        /// `min` cast to `usize`. Casting preserves values modulo `2^usize::BITS`, so the wrapping
+        /// difference of two cast values is the exact difference of any two values in the range.
+        min_index: usize,
+        /// The number of occurrences of `min + index`.
+        counts: Vec<u32>,
+    },
+    /// Counts keyed by value.
+    Hashed(HashMap<NativeValue<T>, u32, FxBuildHasher>),
+}
+
+impl<T: IntegerPType> DistinctCounter<T>
+where
+    NativeValue<T>: Eq + Hash,
+{
+    /// Chooses a dense counter when the valid values span a narrow range, otherwise a hash map.
+    fn new(min: T, max: T, len: usize) -> Self {
+        let range_len = match (min.to_i128(), max.to_i128()) {
+            (Some(min), Some(max)) => usize::try_from(max - min + 1).unwrap_or(usize::MAX),
+            _ => usize::MAX,
+        };
+
+        // A dense counter is only worthwhile when it is not much larger than the array itself.
+        if range_len <= DENSE_DISTINCT_ALWAYS_RANGE
+            || (range_len <= DENSE_DISTINCT_MAX_RANGE && range_len <= len)
+        {
+            Self::Dense {
+                min,
+                min_index: min.as_(),
+                counts: vec![0; range_len],
+            }
+        } else {
+            Self::Hashed(HashMap::with_capacity_and_hasher(len / 2, FxBuildHasher))
+        }
+    }
+
+    /// Records `count` occurrences of a valid value.
+    #[allow(clippy::inline_always)]
+    #[inline(always)]
+    fn add(&mut self, value: T, count: u32) {
+        match self {
+            Self::Off => {}
+            Self::Dense {
+                min_index, counts, ..
+            } => counts[value.as_().wrapping_sub(*min_index)] += count,
+            Self::Hashed(distinct_values) => {
+                *distinct_values.entry(NativeValue(value)).or_insert(0) += count
+            }
+        }
+    }
+
+    /// Returns the distinct value information, or `None` if counting was off.
+    fn finish(self) -> Option<DistinctInfo<T>> {
+        let distinct_values: HashMap<NativeValue<T>, u32, FxBuildHasher> = match self {
+            Self::Off => return None,
+            Self::Dense { min, counts, .. } => {
+                let min = min.to_i128().vortex_expect("integers fit in i128");
+                counts
+                    .iter()
+                    .enumerate()
+                    .filter(|&(_, &count)| count > 0)
+                    .map(|(index, &count)| {
+                        let value = <T as num_traits::NumCast>::from(min + index as i128)
+                            .vortex_expect("values between min and max fit in the type");
+                        (NativeValue(value), count)
+                    })
+                    .collect()
+            }
+            Self::Hashed(distinct_values) => distinct_values,
+        };
+
+        let (&top_value, &top_count) = distinct_values
+            .iter()
+            .max_by_key(|&(_, &count)| count)
+            .vortex_expect("we know this is non-empty");
+
+        Some(DistinctInfo {
+            distinct_count: u32::try_from(distinct_values.len())
+                .vortex_expect("there are more than `u32::MAX` distinct values"),
+            most_frequent_value: top_value.0,
+            top_frequency: top_count,
+            distinct_values,
+        })
+    }
+}
+
 /// Internal loop state for integer stats computation.
 struct LoopState<T> {
     /// The previous value seen.
     prev: T,
-    /// Occurrences of `prev` in the current run not yet added to `distinct_values`.
+    /// Occurrences of `prev` in the current run not yet added to `distinct`.
     pending: u32,
     /// The run count.
     runs: u32,
-    /// The distinct values map.
-    distinct_values: HashMap<NativeValue<T>, u32, FxBuildHasher>,
+    /// The distinct values counter.
+    distinct: DistinctCounter<T>,
 }
 
 impl<T: IntegerPType> LoopState<T>
 where
     NativeValue<T>: Eq + Hash,
 {
-    /// Adds the pending occurrences of `prev` to the distinct values map.
+    /// Adds the pending occurrences of `prev` to the distinct values counter.
     #[allow(clippy::inline_always)]
     #[inline(always)]
     fn flush(&mut self) {
-        *self
-            .distinct_values
-            .entry(NativeValue(self.prev))
-            .or_insert(0) += self.pending;
+        self.distinct.add(self.prev, self.pending);
         self.pending = 0;
     }
 
@@ -683,6 +766,55 @@ mod tests {
         );
         let stats = typed_int_stats::<u8>(&array, true, &mut ctx)?;
         assert_eq!(stats.distinct_count().unwrap(), 64);
+        Ok(())
+    }
+
+    #[test]
+    fn dense_distinct_signed_full_range() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let values: Buffer<i8> = (i8::MIN..=i8::MAX)
+            .chain(i8::MIN..=i8::MAX)
+            .chain(iter::once(i8::MAX))
+            .collect();
+        let array = PrimitiveArray::new(values, Validity::NonNullable);
+
+        let stats = typed_int_stats::<i8>(&array, true, &mut ctx)?;
+        assert_eq!(stats.distinct_count(), Some(256));
+        assert_eq!(
+            stats.most_frequent_value_and_count(),
+            Some((i8::MAX.into(), 3))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn dense_distinct_ignores_values_under_nulls() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let array = PrimitiveArray::new(
+            buffer![1000i32, 1001, 1000, 5_000_000, 1003],
+            Validity::from_iter([true, true, true, false, true]),
+        );
+
+        let stats = typed_int_stats::<i32>(&array, true, &mut ctx)?;
+        assert_eq!(stats.distinct_count(), Some(3));
+        assert_eq!(
+            stats.most_frequent_value_and_count(),
+            Some((1000i32.into(), 2))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn wide_range_distinct() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let array = PrimitiveArray::new(buffer![0u64, u64::MAX, 0], Validity::NonNullable);
+
+        let stats = typed_int_stats::<u64>(&array, true, &mut ctx)?;
+        assert_eq!(stats.distinct_count(), Some(2));
+        assert_eq!(
+            stats.most_frequent_value_and_count(),
+            Some((0u64.into(), 2))
+        );
         Ok(())
     }
 
