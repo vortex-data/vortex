@@ -35,30 +35,10 @@ the current implementation.
 
 ## IPC Format
 
-The IPC format wraps serialized arrays in a message-oriented protocol for streaming between
-processes. Each message consists of:
-
-```
-[u32 flatbuffer length] [flatbuffer Message] [body bytes]
-```
-
-Three message types are defined:
-
-- **ArrayMessage** -- a serialized array with its row count and an encoding context that maps
-  dictionary indices to encoding IDs.
-- **BufferMessage** -- a raw buffer with an alignment exponent, used for transferring individual
-  segments.
-- **DTypeMessage** -- a serialized dtype, used to communicate the schema before data transfer
-  begins.
-
-The IPC format is used both for inter-process communication and as the wire protocol for remote
-source execution in the [Scan API](/concepts/scanning).
-
-:::{note}
-The IPC format is unstable and subject to change. It does not yet support shared arrays (e.g.
-a dictionary shared across multiple chunked arrays), which limits its efficiency for certain
-workloads. This is an area of active development.
-:::
+The IPC format streams serialized arrays between processes: a dtype message, then one array
+message per chunk, each carrying a serialized array as its body. IPC writes buffers without
+padding, so unlike file reads, IPC reads copy buffers into aligned memory. The
+[IPC format specification](../../specs/ipc-format.md) defines the framing and message types.
 
 ## Segment Storage
 

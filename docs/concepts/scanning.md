@@ -55,11 +55,10 @@ Splits can also be serialized for distributed execution across remote workers.
 ### Remote Sources
 
 A source may front remote storage rather than local files. In this case, the split's execution
-issues a remote call and receives the result over the network. The
-[Vortex IPC format](../specs/ipc-format.md) can be used as the wire protocol for these calls, allowing
-compressed arrays to be transferred without decompression. This gives remote sources the same
-zero-decompression benefits as local scans -- the data stays in its compressed encoding end-to-end,
-from remote storage through the network and into the query engine.
+issues a remote call and receives the result over the network. Vortex does not ship such a source,
+but the [Vortex IPC format](../specs/ipc-format.md) is suited to be its wire protocol: arrays cross
+the network in their compressed encodings, so the data is not decompressed between remote storage
+and the query engine.
 
 ## Filter Pushdown
 
