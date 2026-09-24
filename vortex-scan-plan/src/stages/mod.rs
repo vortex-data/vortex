@@ -5,6 +5,7 @@
 //! splits, plus the types they pass between each other.
 
 pub mod footer_open;
+pub mod footer_prune;
 
 use std::sync::Arc;
 

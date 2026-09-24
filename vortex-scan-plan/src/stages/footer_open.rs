@@ -400,10 +400,7 @@ mod tests {
             "{output:?}"
         );
         assert_eq!(stage.state(), State::Done);
-        assert!(
-            !invoked.load(Ordering::SeqCst),
-            "child is pending, not started"
-        );
+        assert!(invoked.load(Ordering::SeqCst));
         Ok(())
     }
 

@@ -54,7 +54,7 @@ use crate::io::IoConsumer;
 use crate::io::IoRequestId;
 use crate::io::IoResult;
 use crate::next::Next;
-use crate::next::next_fn;
+use crate::next::pending;
 use crate::planner::Planner;
 use crate::planner::PlannerOutput;
 use crate::planner::State;
@@ -341,14 +341,14 @@ impl Planner for DonePlanner {
     }
 }
 
-/// A `Next<OpenedFile>` that flips the returned flag when invoked and hands back a planner
-/// whose `compute()` is `Done`.
+/// A `Next<OpenedFile>` that flips the returned flag when invoked, before `start()`, and hands
+/// back a planner whose `compute()` is `Done`.
 pub fn recording_child() -> (Next<OpenedFile>, Arc<AtomicBool>) {
     let invoked = Arc::new(AtomicBool::new(false));
     let flag = Arc::clone(&invoked);
-    let next = next_fn(move |_opened: OpenedFile| {
+    let next: Next<OpenedFile> = Arc::new(move |_opened: OpenedFile| {
         flag.store(true, Ordering::SeqCst);
-        Ok(DonePlanner)
+        Ok(pending(|| Ok(Box::new(DonePlanner) as Box<dyn Planner>)))
     });
     (next, invoked)
 }
@@ -419,18 +419,18 @@ mod tests {
     }
 
     #[test]
-    fn recording_child_flips_on_start() -> VortexResult<()> {
+    fn recording_child_flips_on_invocation() -> VortexResult<()> {
         let buffer = write_test_file(&[("numbers", buffer![1u32].into_array())])?;
         let footer = open_buffer(&buffer)?.footer().clone();
         let (next, invoked) = recording_child();
+        assert!(!invoked.load(Ordering::SeqCst));
         let pending = next(OpenedFile {
             read: Arc::new(buffer.clone()),
             size: buffer.len() as u64,
             footer,
         })?;
-        assert!(!invoked.load(Ordering::SeqCst));
-        let planner = pending.start()?;
         assert!(invoked.load(Ordering::SeqCst));
+        let planner = pending.start()?;
         assert_eq!(planner.state(), State::Done);
         Ok(())
     }
