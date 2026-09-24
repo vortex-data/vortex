@@ -47,6 +47,7 @@ use object_store::ObjectStore;
 use vortex::VortexSessionDefault;
 use vortex::array::memory::MemorySessionExt;
 use vortex::dtype::DType;
+use vortex::dtype::FieldPath;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::error::VortexExpect;
@@ -598,7 +599,7 @@ impl FileFormat for VortexFormat {
                         })
                 });
 
-            let (dtype, file_stats, row_count) = match cached_metadata {
+            let (_dtype, file_stats, row_count) = match cached_metadata {
                 Some(metadata) => metadata,
                 None => {
                     // Not entry - open the file
@@ -635,10 +636,6 @@ impl FileFormat for VortexFormat {
                 }
             };
 
-            let struct_dtype = dtype
-                .as_struct_fields_opt()
-                .vortex_expect("dtype is not a struct");
-
             // Evaluate the statistics for each column that we are able to return to DataFusion.
             let Some(file_stats) = file_stats else {
                 // If the file has no column stats, the best we can do is return a row count.
@@ -661,12 +658,13 @@ impl FileFormat for VortexFormat {
             for field in table_schema.fields().iter() {
                 // If the column does not exist, continue. This can happen if the schema has evolved
                 // but we have not yet updated the Vortex file.
-                let Some(col_idx) = struct_dtype.find(field.name()) else {
+                let Some((stats_set, stats_dtype)) =
+                    file_stats.get_by_path(&FieldPath::from_name(field.name().as_str()))
+                else {
                     // The default sets all statistics to `Precision<Absent>`.
                     column_statistics.push(ColumnStatistics::default());
                     continue;
                 };
-                let (stats_set, stats_dtype) = file_stats.get(col_idx);
 
                 // Update the total size in bytes.
                 let column_size =

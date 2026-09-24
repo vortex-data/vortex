@@ -19,13 +19,12 @@ use itertools::Itertools;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
+use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
-use vortex_array::expr::stats::Stat;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::iter::ArrayIteratorExt;
 use vortex_array::session::ArraySessionExt;
-use vortex_array::stats::PRUNING_STATS;
 use vortex_array::stream::ArrayStream;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
@@ -84,7 +83,11 @@ pub struct VortexWriteOptions {
     buffered_bytes: BufferedBytesTracker,
     exclude_dtype: bool,
     max_variable_length_statistics_size: usize,
-    file_statistics: Vec<Stat>,
+    /// The aggregates to compute for file-level statistics.
+    ///
+    /// If unset, the writer chooses pruning aggregates from the file dtype.
+    file_statistics: Option<Vec<AggregateFnRef>>,
+    write_legacy_statistics: bool,
     metadata: HashMap<String, ByteBuffer>,
 }
 
@@ -106,7 +109,8 @@ impl VortexWriteOptions {
             buffered_bytes: BufferedBytesTracker::new(),
             session,
             exclude_dtype: false,
-            file_statistics: PRUNING_STATS.to_vec(),
+            file_statistics: None,
+            write_legacy_statistics: true,
             max_variable_length_statistics_size: 64,
             metadata: HashMap::default(),
         }
@@ -156,9 +160,22 @@ impl VortexWriteOptions {
 
     /// Configure which statistics to compute at the file level.
     ///
-    /// Pass an empty vector to omit file-level statistics.
-    pub fn with_file_statistics(mut self, file_statistics: Vec<Stat>) -> Self {
-        self.file_statistics = file_statistics;
+    /// Pass an empty vector to omit file-level statistics. If left unset, the writer chooses
+    /// pruning aggregates from the file dtype.
+    pub fn with_file_statistics(mut self, file_statistics: Vec<AggregateFnRef>) -> Self {
+        self.file_statistics = Some(file_statistics);
+        self
+    }
+
+    /// Exclude legacy top-level-only statistics (`field_stats`) from the file, computing and
+    /// writing only the full nested post-order statistics (`nested_field_stats`).
+    ///
+    /// Readers built before nested file stats existed only look at `field_stats` and validate its
+    /// length against the number of top-level struct fields; omitting it means those readers find
+    /// no usable statistics in this file (though they can still read the data). Only use this if
+    /// you control every reader of the resulting files and don't need that compatibility.
+    pub fn exclude_legacy_statistics(mut self) -> Self {
+        self.write_legacy_statistics = false;
         self
     }
 
@@ -272,11 +289,15 @@ impl VortexWriteOptions {
                 .map(move |result| result.map(|chunk| (ptr.advance(), chunk))),
         )
         .sendable();
+        // When unset, `accumulate_stats` resolves each leaf's own default from its dtype, the way
+        // `default_zoned_aggregate_fns` does for zoned layouts (e.g. bounded min/max for
+        // variable-length columns), rather than a single dtype-blind default applied uniformly.
         let (file_stats, stream) = accumulate_stats(
             stream,
-            self.file_statistics.clone().into(),
+            self.file_statistics.clone().map(Arc::from),
             self.max_variable_length_statistics_size,
             &self.session,
+            self.write_legacy_statistics,
         );
 
         // First, write the magic bytes.
@@ -319,11 +340,12 @@ impl VortexWriteOptions {
         let (layout, segment_specs) = layout_fut.await?;
 
         // Assemble the Footer object now that we have all the segments.
-        let statistics = if self.file_statistics.is_empty() {
+        let statistics = if matches!(&self.file_statistics, Some(stats) if stats.is_empty()) {
             None
         } else {
             Some(FileStatistics::new_with_dtype(
                 file_stats.stats_sets().into(),
+                file_stats.legacy_stats_sets().into(),
                 &dtype,
             ))
         };

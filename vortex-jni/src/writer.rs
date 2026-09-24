@@ -40,6 +40,7 @@ use vortex::array::scalar::ScalarValue;
 use vortex::array::stats::StatsSet;
 use vortex::array::stream::ArrayStreamAdapter;
 use vortex::dtype::DType;
+use vortex::dtype::FieldPath;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
@@ -285,6 +286,7 @@ fn write_summary_to_java<'local>(
 ) -> Result<JObject<'local>, JNIError> {
     let column_sizes = summary.compressed_column_sizes()?;
     let file_stats = summary.footer().statistics();
+    let struct_fields = summary.footer().dtype().as_struct_fields_opt();
     let columns = env.new_object_array(
         i32::try_from(column_sizes.len())
             .map_err(|_| vortex_err!("column count exceeds Java array range"))?,
@@ -293,12 +295,11 @@ fn write_summary_to_java<'local>(
     )?;
 
     for (column_index, compressed_size) in column_sizes.into_iter().enumerate() {
-        let (stats, dtype) = file_stats
-            .and_then(|all_stats| {
-                all_stats
-                    .stats_sets()
-                    .get(column_index)
-                    .zip(all_stats.dtypes().get(column_index))
+        let (stats, dtype) = struct_fields
+            .and_then(|fields| fields.names().get(column_index))
+            .zip(file_stats)
+            .and_then(|(name, all_stats)| {
+                all_stats.get_by_path(&FieldPath::from_name(name.clone()))
             })
             .map_or((None, None), |(stats, dtype)| (Some(stats), Some(dtype)));
         let null_count = exact_count_jlong(stats, dtype, Stat::NullCount)?;
