@@ -4,6 +4,7 @@
 use std::hint::black_box;
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::LazyLock;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -16,21 +17,24 @@ use async_trait::async_trait;
 use futures::Stream;
 use futures::StreamExt;
 use tempfile::NamedTempFile;
+use vortex::VortexSessionDefault;
 use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::struct_::StructArrayExt;
+use vortex::compressor::BtrBlocksCompressor;
 use vortex::error::VortexResult;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
+use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex::layout::layouts::compressed::CompressingStrategy;
 use vortex::layout::scan::split_by::SplitBy;
+use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_bench::Format;
-use vortex_bench::SESSION;
 use vortex_bench::compress::Compressed;
 use vortex_bench::compress::CompressedData;
 use vortex_bench::compress::Compressor;
@@ -44,10 +48,20 @@ use vortex_cuda::CudaSession;
 use vortex_cuda::PooledFileReadAtOptions;
 use vortex_cuda::executor::CudaArrayExt;
 use vortex_cuda::layout::CudaFlatLayoutStrategy;
-use vortex_cuda::layout::cuda_compressor;
 use vortex_cuda::layout::register_cuda_layout;
+use vortex_cuda::layout::use_cuda_schemes;
 
 use crate::gpu::writer::GPU_ROW_GROUP_SIZE;
+
+/// The session that writes and reads the CUDA-compatible files: the CUDA flat layout plus only
+/// the compression schemes the GPU decodes. Separate from vortex-bench's `SESSION`, so the host
+/// backends keep the default schemes.
+static GPU_SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = VortexSession::default().with_tokio();
+    register_cuda_layout(&session);
+    use_cuda_schemes(&session);
+    session
+});
 
 /// Vortex compressor whose decompression measurement executes CUDA-compatible files on the GPU.
 pub struct GpuVortexCompressor {
@@ -90,8 +104,6 @@ impl Compressor for GpuVortexCompressor {
     /// GPU mode never publishes this timing: `--gpu-decompress` restricts the suite to
     /// decompression, and the write runs on the host anyway.
     async fn compress(&self, input: &Uncompressed) -> Result<Compressed> {
-        register_cuda_layout(&SESSION);
-
         let array = input.vortex()?;
         let gpu_file = NamedTempFile::new()?;
         let mut output = tokio::fs::File::create(gpu_file.path()).await?;
@@ -99,10 +111,10 @@ impl Compressor for GpuVortexCompressor {
         // partition rather than whatever the default strategy would regroup them into.
         let strategy = Arc::new(ChunkedLayoutStrategy::new(CompressingStrategy::new(
             CudaFlatLayoutStrategy::default(),
-            cuda_compressor(&SESSION),
+            BtrBlocksCompressor::from_session(&GPU_SESSION),
         )));
         let start = Instant::now();
-        SESSION
+        GPU_SESSION
             .write_options()
             .with_strategy(strategy)
             .write(&mut output, array.to_array_stream())
@@ -130,7 +142,7 @@ impl Compressor for GpuVortexCompressor {
             verify_against_host_scan(gpu_file.path(), self.direct_io).await?;
         }
 
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&SESSION)?;
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&GPU_SESSION)?;
         let start = Instant::now();
         let file = open_gpu(gpu_file.path(), self.direct_io).await?;
         // Split reads on the same boundary the file was written with, so a scan batch is one
@@ -165,7 +177,7 @@ impl Compressor for GpuVortexCompressor {
 /// for `--gpu-direct-io` where it cannot be honoured is an error rather than a silent no-op,
 /// because the flag changes what the resulting number means.
 async fn open_gpu(path: &Path, direct_io: bool) -> Result<vortex::file::VortexFile> {
-    let open_options = SESSION.open_options().with_cuda();
+    let open_options = GPU_SESSION.open_options().with_cuda();
 
     #[cfg(target_os = "linux")]
     let open_options = if direct_io {
@@ -192,11 +204,11 @@ async fn open_gpu(path: &Path, direct_io: bool) -> Result<vortex::file::VortexFi
 /// This times nothing and reports no measurement: the caller runs its own timed scan afterwards,
 /// so a verifying run publishes the same kind of number as a plain one.
 async fn verify_against_host_scan(path: &Path, direct_io: bool) -> Result<()> {
-    let mut cuda_ctx = CudaSession::create_execution_ctx(&SESSION)?;
+    let mut cuda_ctx = CudaSession::create_execution_ctx(&GPU_SESSION)?;
     // Everything on the reference side — the host scan and both Arrow conversions — has to run
     // through a plain host context. A CUDA context allocates its outputs in device memory, and
     // the Arrow conversion then reads those buffers on the host.
-    let mut host_ctx = SESSION.create_execution_ctx();
+    let mut host_ctx = GPU_SESSION.create_execution_ctx();
 
     // The host scan reads a copy rather than the same path. The session's segment cache is
     // keyed by URI, and the CUDA reader deliberately bypasses it because its buffers are
@@ -209,7 +221,10 @@ async fn verify_against_host_scan(path: &Path, direct_io: bool) -> Result<()> {
         .scan()?
         .with_split_by(SplitBy::RowCount(GPU_ROW_GROUP_SIZE))
         .into_array_stream()?;
-    let host_file = SESSION.open_options().open_path(host_path.path()).await?;
+    let host_file = GPU_SESSION
+        .open_options()
+        .open_path(host_path.path())
+        .await?;
     let mut host_batches = host_file
         .scan()?
         .with_split_by(SplitBy::RowCount(GPU_ROW_GROUP_SIZE))
@@ -298,11 +313,11 @@ fn verify_field(
     batch_index: usize,
     field_index: usize,
 ) -> Result<()> {
-    let expected = SESSION.arrow().execute_arrow(host.clone(), None, ctx)?;
+    let expected = GPU_SESSION.arrow().execute_arrow(host.clone(), None, ctx)?;
     // Pin the Arrow target type so the two sides cannot land on different but equivalent
     // encodings of the same logical values.
     let target = Field::new("", expected.data_type().clone(), gpu.dtype().is_nullable());
-    let actual = SESSION.arrow().execute_arrow(gpu, Some(&target), ctx)?;
+    let actual = GPU_SESSION.arrow().execute_arrow(gpu, Some(&target), ctx)?;
 
     if expected.to_data() == actual.to_data() {
         return Ok(());

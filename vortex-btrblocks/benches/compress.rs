@@ -24,11 +24,7 @@ mod benchmarks {
     use vortex_session::VortexSession;
     use vortex_utils::aliases::hash_set::HashSet;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
-        vortex_btrblocks::initialize(&session);
-        session
-    });
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
     fn make_clickbench_window_name() -> ArrayRef {
         // A test that's meant to mirror the WindowName column from ClickBench.

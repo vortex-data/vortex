@@ -30,10 +30,10 @@
 //!
 //! Each `Scheme` implementation declares whether it [`matches`](Scheme::matches) a given
 //! canonical form and, if so, estimates the compression ratio (often by compressing a ~1%
-//! sample). Schemes are registered on a session: [`initialize`] registers [`DEFAULT_SCHEMES`],
-//! and [`BtrBlocksCompressor::from_session`] compresses with the registered schemes whose
-//! serialized IDs the session's enabled editions permit ([`from_session_no_editions`] ignores
-//! them).
+//! sample). The schemes available to a compressor are those registered on its session's
+//! [`CompressionSession`], which starts with [`DEFAULT_SCHEMES`].
+//! [`BtrBlocksCompressor::from_session`] keeps the registered schemes whose serialized IDs the
+//! session's enabled editions permit; [`from_session_no_editions`] keeps them all.
 //!
 //! [`from_session_no_editions`]: BtrBlocksCompressor::from_session_no_editions
 //!
@@ -52,7 +52,6 @@
 //!
 //! # fn example() -> vortex_error::VortexResult<()> {
 //! let session = array_session();
-//! vortex_btrblocks::initialize(&session);
 //! let array = PrimitiveArray::new(buffer![42u64; 1024], Validity::NonNullable).into_array();
 //!
 //! // In memory, with no editions to respect, compress with every registered scheme.
@@ -68,6 +67,8 @@
 mod canonical_compressor;
 /// Compression scheme implementations.
 pub mod schemes;
+/// Session registry of compression schemes.
+pub mod session;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
@@ -78,102 +79,21 @@ mod trace_tests;
 // Btrblocks-specific exports.
 pub use canonical_compressor::BtrBlocksCompressor;
 pub use schemes::patches::compress_patches;
+#[cfg(feature = "zstd")]
+pub use session::COMPACT_SCHEMES;
+pub use session::CompressionSession;
+pub use session::CompressionSessionExt;
+pub use session::DEFAULT_SCHEMES;
+pub use session::DELTA_SCHEME;
 pub use vortex_compressor::CascadingCompressor;
 pub use vortex_compressor::scheme::CompressorContext;
 pub use vortex_compressor::scheme::MAX_CASCADE;
 pub use vortex_compressor::scheme::Scheme;
 pub use vortex_compressor::scheme::SchemeExt;
 pub use vortex_compressor::scheme::SchemeId;
-pub use vortex_compressor::session::CompressionSession;
-pub use vortex_compressor::session::CompressionSessionExt;
 pub use vortex_compressor::stats::ArrayAndStats;
 pub use vortex_compressor::stats::BoolStats;
 pub use vortex_compressor::stats::FloatStats;
 pub use vortex_compressor::stats::GenerateStatsOptions;
 pub use vortex_compressor::stats::IntegerStats;
 pub use vortex_compressor::stats::StringStats;
-use vortex_session::VortexSession;
-
-use crate::schemes::binary;
-use crate::schemes::decimal;
-use crate::schemes::float;
-use crate::schemes::integer;
-use crate::schemes::string;
-use crate::schemes::temporal;
-
-/// The default compression schemes.
-///
-/// This list is order-sensitive: [`initialize`] registers it in this order and the compressor
-/// preserves registration order, so that tie-breaking is deterministic.
-pub const DEFAULT_SCHEMES: &[&dyn Scheme] = &[
-    ////////////////////////////////////////////////////////////////////////////////////////////////
-    // Integer schemes.
-    ////////////////////////////////////////////////////////////////////////////////////////////////
-    // NOTE: FoR must precede BitPacking to avoid unnecessary patches.
-    &integer::FoRScheme,
-    // NOTE: ZigZag should precede BitPacking because we don't want negative numbers.
-    &integer::ZigZagScheme,
-    &integer::BitPackingScheme,
-    &integer::SparseScheme,
-    &integer::IntDictScheme,
-    &integer::RunEndScheme,
-    &integer::SequenceScheme,
-    &integer::IntRLEScheme,
-    // Delta is omitted here: see [`DELTA_SCHEME`].
-    ////////////////////////////////////////////////////////////////////////////////////////////////
-    // Float schemes.
-    ////////////////////////////////////////////////////////////////////////////////////////////////
-    &float::ALPScheme,
-    &float::ALPRDScheme,
-    &float::FloatDictScheme,
-    &float::NullDominatedSparseScheme,
-    &float::FloatRLEScheme,
-    ////////////////////////////////////////////////////////////////////////////////////////////////
-    // String schemes.
-    ////////////////////////////////////////////////////////////////////////////////////////////////
-    &string::StringDictScheme,
-    // Both string-fragmentation schemes are registered; the sample-based
-    // selector keeps whichever is smaller per column.
-    &string::FSSTScheme,
-    &string::OnPairScheme,
-    &string::NullDominatedSparseScheme,
-    ////////////////////////////////////////////////////////////////////////////////////////////////
-    // Binary schemes.
-    ////////////////////////////////////////////////////////////////////////////////////////////////
-    &binary::BinaryDictScheme,
-    &binary::VarBinScheme,
-    // Decimal schemes.
-    &decimal::DecimalScheme,
-    // Temporal schemes.
-    &temporal::TemporalScheme,
-];
-
-/// Compact schemes (Zstd for strings and binary, Pco for numerics when the `pco` feature is on).
-///
-/// Not part of [`DEFAULT_SCHEMES`]: they trade decode speed for compression ratio, so callers add
-/// them to a compressor's scheme list explicitly.
-#[cfg(feature = "zstd")]
-pub const COMPACT_SCHEMES: &[&dyn Scheme] = &[
-    &string::ZstdScheme,
-    &binary::ZstdScheme,
-    #[cfg(feature = "pco")]
-    &integer::PcoScheme,
-    #[cfg(feature = "pco")]
-    &float::PcoScheme,
-];
-
-/// Delta, kept out of [`DEFAULT_SCHEMES`] because it is slower to decompress than the schemes that
-/// would otherwise win. Callers that want it add it to their scheme list and permit
-/// `fastlanes.delta`.
-///
-/// TODO(robert): Return it to [`DEFAULT_SCHEMES`] once we have scheme filtering.
-pub static DELTA_SCHEME: integer::DeltaScheme = integer::DeltaScheme::new(1.25);
-
-/// Registers [`DEFAULT_SCHEMES`] on `session`, in order.
-///
-/// Registration is idempotent, so this may run more than once.
-pub fn initialize(session: &VortexSession) {
-    for scheme in DEFAULT_SCHEMES {
-        session.register_scheme(*scheme);
-    }
-}

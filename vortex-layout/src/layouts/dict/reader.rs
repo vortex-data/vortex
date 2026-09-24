@@ -411,12 +411,10 @@ mod tests {
     // FIXME(ngates): Deprecate the global `runtime::single::block_on` helper and require tests
     // to call `block_on` on an explicit runtime instance.
     fn session_with_handle(handle: Handle) -> VortexSession {
-        let session = array_session()
+        array_session()
             .with::<LayoutSession>()
             .with::<RuntimeSession>()
-            .with_handle(handle);
-        vortex_btrblocks::initialize(&session);
-        session
+            .with_handle(handle)
     }
 
     async fn write_dict_layout(

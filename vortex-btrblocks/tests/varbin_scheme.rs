@@ -15,6 +15,7 @@ use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_btrblocks::BtrBlocksCompressor;
+use vortex_btrblocks::CompressionSession;
 use vortex_btrblocks::CompressionSessionExt;
 use vortex_btrblocks::DEFAULT_SCHEMES;
 use vortex_btrblocks::SchemeExt;
@@ -24,17 +25,13 @@ use vortex_btrblocks::schemes::string::OnPairScheme;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
-    vortex_btrblocks::initialize(&session);
-    session
-});
+static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 const N: usize = 100_000;
 
 /// The default schemes minus `excluded`.
 fn default_without(excluded: SchemeId) -> BtrBlocksCompressor {
-    let session = vortex_array::array_session();
+    let session = vortex_array::array_session().with_some(CompressionSession::empty());
     for scheme in DEFAULT_SCHEMES
         .iter()
         .filter(|scheme| scheme.id() != excluded)

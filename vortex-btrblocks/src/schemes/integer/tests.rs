@@ -27,11 +27,7 @@ use vortex_session::VortexSession;
 
 use crate::BtrBlocksCompressor;
 use crate::schemes::integer::IntRLEScheme;
-static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
-    crate::initialize(&session);
-    session
-});
+static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 #[test]
 fn test_empty() -> VortexResult<()> {

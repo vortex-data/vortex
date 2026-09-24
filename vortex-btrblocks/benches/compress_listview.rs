@@ -31,11 +31,7 @@ mod benchmarks {
     const NUM_ROWS: usize = 8192;
     const SEED: u64 = 42;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
-        vortex_btrblocks::initialize(&session);
-        session
-    });
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
     const SHORT_STRINGS: &[&str] = &[
         "alpha_one",

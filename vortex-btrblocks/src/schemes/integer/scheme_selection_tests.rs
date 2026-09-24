@@ -30,16 +30,11 @@ use vortex_sparse::Sparse;
 use crate::BtrBlocksCompressor;
 use crate::CompressionSessionExt;
 use crate::DELTA_SCHEME;
-static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
-    crate::initialize(&session);
-    session
-});
+static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 /// The default schemes plus opt-in Delta.
 fn with_delta() -> BtrBlocksCompressor {
     let session = vortex_array::array_session();
-    crate::initialize(&session);
     session.register_scheme(&DELTA_SCHEME);
     BtrBlocksCompressor::from_session_no_editions(&session)
 }

@@ -101,7 +101,8 @@ vx_session *vx_cuda_session_new(vx_error **error_out);
  * Open a Vortex file sink configured to produce CUDA-readable files.
  *
  * Push host arrays and close/abort with `vx_array_sink_*`. Only on-disk encodings and layouts
- * change; writing does not move arrays to the GPU.
+ * change; writing does not move arrays to the GPU. Opening a sink restricts the session's
+ * compression schemes to those the GPU decodes, as `vx_cuda_session_new` already does.
  *
  * # Safety
  *

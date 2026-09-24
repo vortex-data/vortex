@@ -31,10 +31,9 @@ use vortex::buffer::BufferString;
 use vortex::buffer::ByteBuffer;
 use vortex::compressor::BtrBlocksCompressor;
 use vortex::compressor::CascadingCompressor;
-use vortex::compressor::CompressionSessionExt;
-use vortex::compressor::Scheme;
+use vortex::compressor::CompressionSession;
+use vortex::compressor::DEFAULT_SCHEMES;
 use vortex::compressor::SchemeExt;
-use vortex::compressor::SchemeId;
 use vortex::compressor::schemes;
 use vortex::dtype::DType;
 use vortex::dtype::FieldMask;
@@ -552,21 +551,21 @@ fn extract_constant_buffers(chunk: &ArrayRef) -> Vec<InlinedBuffer> {
     result
 }
 
-/// Build a CUDA-flat writer using only CUDA-compatible, session-enabled array encodings.
+/// Build a CUDA-flat writer from the schemes registered on `session` that its editions permit.
 ///
-/// Requires [`register_cuda_layout`]. Zero `block_rows` uses default sizing and dictionary policy;
+/// Requires [`register_cuda_layout`], and [`use_cuda_schemes`] for the file to use only
+/// encodings the GPU decodes. Zero `block_rows` uses default sizing and dictionary policy;
 /// nonzero sets row blocks without outer dictionaries or byte coalescing, retaining per-block
 /// dictionary compression.
 pub fn cuda_write_strategy(session: &VortexSession, block_rows: usize) -> Arc<dyn LayoutStrategy> {
-    let schemes = cuda_compatible_schemes(session);
     let strategy = WriteStrategyBuilder::from_session(session)
         .with_flat_strategy(Arc::new(CudaFlatLayoutStrategy::default()));
     if block_rows == 0 {
-        strategy.with_schemes(schemes).build()
+        strategy.build()
     } else {
         // An opaque compressor keeps IntDict; disabling the probe avoids u16-sized outer blocks.
         strategy
-            .with_compressor(BtrBlocksCompressor(CascadingCompressor::new(schemes)))
+            .with_compressor(BtrBlocksCompressor::from_session(session))
             .with_probe_compressor(BtrBlocksCompressor(CascadingCompressor::new(Vec::new())))
             .with_row_block_size(block_rows)
             .with_data_block_target_bytes(None)
@@ -574,24 +573,21 @@ pub fn cuda_write_strategy(session: &VortexSession, block_rows: usize) -> Arc<dy
     }
 }
 
-/// A compressor over [`cuda_compatible_schemes`].
-pub fn cuda_compressor(session: &VortexSession) -> BtrBlocksCompressor {
-    BtrBlocksCompressor(CascadingCompressor::new(cuda_compatible_schemes(session)))
-}
-
-/// The schemes registered on `session` that CUDA kernels can decode, keeping FSST for string
-/// compression and adding Zstd for binary compression.
+/// Replace the compression schemes registered on `session` with those CUDA kernels decode: the
+/// defaults minus the schemes the GPU cannot decode, keeping FSST for string compression, plus
+/// Zstd for binary compression.
 ///
 /// Both the array-level and the buffer-level Zstd schemes are added. Buffer-level compression
 /// preserves binary arrays' buffer layout for zero-conversion GPU decompression, but belongs to the
-/// opt-in `zstd` edition, so the session's enabled editions decide which of the two survives.
+/// opt-in `zstd` edition, so the session's enabled editions decide which of the two a writer uses.
 ///
-/// Files written with these schemes may be larger than with the default compressor: the list
-/// picks encodings the GPU decodes, not the smallest ones.
-pub fn cuda_compatible_schemes(session: &VortexSession) -> Vec<&'static dyn Scheme> {
+/// Call it, alongside [`register_cuda_layout`], on sessions that write CUDA-readable files;
+/// sessions that only read them need not. Files written from such a session may be larger than
+/// with the default schemes: the set picks encodings the GPU decodes, not the smallest ones.
+pub fn use_cuda_schemes(session: &VortexSession) {
     // Keep FSST, which has a CUDA decoder and direct Arrow offset-based export. Other string
     // fragmentation and dictionary schemes still require unsupported decode paths.
-    let excluded: Vec<SchemeId> = vec![
+    let excluded = [
         schemes::integer::SparseScheme.id(),
         schemes::integer::IntRLEScheme.id(),
         schemes::float::ALPRDScheme.id(),
@@ -603,17 +599,19 @@ pub fn cuda_compatible_schemes(session: &VortexSession) -> Vec<&'static dyn Sche
         // Delta now has a CUDA decode kernel, so arrays that reach the GPU already encoded with
         // it — the Delta children OnPair emits, for instance — decode there. It stays excluded
         // until GPU delta decode is benchmarked against the schemes it would displace, since this
-        // list picks encodings rather than merely decoding them.
+        // set picks encodings rather than merely decoding them.
         schemes::integer::DeltaScheme::default().id(),
     ];
-    let mut cuda: Vec<&'static dyn Scheme> = session
-        .registered_schemes()
-        .into_iter()
+    let mut registry = CompressionSession::empty();
+    for scheme in DEFAULT_SCHEMES
+        .iter()
         .filter(|scheme| !excluded.contains(&scheme.id()))
-        .collect();
-    cuda.push(&schemes::binary::ZstdScheme);
-    cuda.push(&schemes::binary::ZstdBuffersScheme);
-    session.permit(cuda)
+    {
+        registry.register(*scheme);
+    }
+    registry.register(&schemes::binary::ZstdScheme);
+    registry.register(&schemes::binary::ZstdBuffersScheme);
+    session.register(registry);
 }
 
 #[derive(Clone, Debug)]
@@ -756,6 +754,7 @@ mod tests {
         let runtime = CurrentThreadRuntime::new();
         let session = VortexSession::default().with_handle(runtime.handle());
         register_cuda_layout(&session);
+        use_cuda_schemes(&session);
         runtime.block_on(async {
             let input = repeated_ids(8, 2 * block_rows + 137)?;
             let file = write_file(&session, input.clone(), block_rows).await?;
@@ -790,6 +789,7 @@ mod tests {
         let runtime = CurrentThreadRuntime::new();
         let session = VortexSession::default().with_handle(runtime.handle());
         register_cuda_layout(&session);
+        use_cuda_schemes(&session);
         runtime.block_on(async {
             // Exceed u16 cardinality while remaining eligible for outer dictionaries.
             let block_rows = 70_000 * 8;

@@ -114,6 +114,7 @@ pub use vortex_array::scalar_fn;
 use vortex_array::scalar_fn::session::ScalarFnSession;
 use vortex_array::session::ArraySession;
 use vortex_array::stats::session::StatsSession;
+use vortex_btrblocks::CompressionSession;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::session::LayoutSession;
 use vortex_session::VortexSession;
@@ -153,7 +154,6 @@ pub mod compressor {
     pub use vortex_btrblocks::Scheme;
     pub use vortex_btrblocks::SchemeExt;
     pub use vortex_btrblocks::SchemeId;
-    pub use vortex_btrblocks::initialize;
     pub use vortex_btrblocks::schemes;
 }
 
@@ -328,6 +328,7 @@ impl VortexSessionDefault for VortexSession {
             .with::<ArraySession>()
             .with::<KernelSession>()
             .with::<LayoutSession>()
+            .with::<CompressionSession>()
             .with::<ScalarFnSession>()
             .with::<StatsSession>()
             .with::<AggregateFnSession>()

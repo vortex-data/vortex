@@ -17,14 +17,11 @@ use vortex_fsst::FSST;
 use vortex_session::VortexSession;
 
 use crate::BtrBlocksCompressor;
+use crate::CompressionSession;
 use crate::CompressionSessionExt;
 use crate::DEFAULT_SCHEMES;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
-    crate::initialize(&session);
-    session
-});
+static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 #[test]
 fn test_constant_compressed() -> VortexResult<()> {
@@ -111,7 +108,7 @@ fn test_fsst_in_default_scheme_list() -> VortexResult<()> {
     let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
     let array_ref = array.into_array();
 
-    let session = vortex_array::array_session();
+    let session = vortex_array::array_session().with_some(CompressionSession::empty());
     session.register_scheme(&FSSTScheme);
     let compressor = BtrBlocksCompressor::from_session_no_editions(&session);
     let compressed = compressor.compress(&array_ref, &mut SESSION.create_execution_ctx())?;

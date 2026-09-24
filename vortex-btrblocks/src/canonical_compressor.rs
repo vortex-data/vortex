@@ -26,7 +26,6 @@ use crate::CompressionSessionExt;
 /// use vortex_btrblocks::BtrBlocksCompressor;
 ///
 /// let session = vortex_array::array_session();
-/// vortex_btrblocks::initialize(&session);
 ///
 /// // Every registered scheme; this session enables no editions.
 /// let compressor = BtrBlocksCompressor::from_session_no_editions(&session);

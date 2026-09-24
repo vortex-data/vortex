@@ -51,6 +51,7 @@ use vortex_array::validity::Validity;
 use vortex_btrblocks::BtrBlocksCompressor;
 #[cfg(all(feature = "zstd", feature = "pco"))]
 use vortex_btrblocks::COMPACT_SCHEMES;
+use vortex_btrblocks::CompressionSession;
 use vortex_btrblocks::CompressionSessionExt;
 use vortex_btrblocks::DEFAULT_SCHEMES;
 use vortex_btrblocks::Scheme;
@@ -410,7 +411,9 @@ fn edition_session(
     editions: &[EditionId],
     schemes: Vec<&'static dyn Scheme>,
 ) -> VortexResult<VortexSession> {
-    let session = vortex_array::array_session().with::<EditionSession>();
+    let session = vortex_array::array_session()
+        .with_some(CompressionSession::empty())
+        .with::<EditionSession>();
     for scheme in schemes {
         session.register_scheme(scheme);
     }

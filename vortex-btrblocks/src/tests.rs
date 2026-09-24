@@ -31,17 +31,15 @@ use vortex_session::VortexSession;
 use crate::BtrBlocksCompressor;
 #[cfg(feature = "zstd")]
 use crate::COMPACT_SCHEMES;
+#[cfg(feature = "zstd")]
+use crate::CompressionSession;
 use crate::CompressionSessionExt;
 #[cfg(feature = "zstd")]
 use crate::Scheme;
 #[cfg(feature = "zstd")]
 use crate::schemes::binary;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
-    crate::initialize(&session);
-    session
-});
+static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 #[rstest]
 #[case::zctl(
@@ -208,7 +206,6 @@ fn test_compact_binary_zstd_compressed() -> VortexResult<()> {
     );
 
     let session = vortex_array::array_session();
-    crate::initialize(&session);
     for scheme in COMPACT_SCHEMES {
         session.register_scheme(*scheme);
     }
@@ -248,7 +245,7 @@ fn test_binary_zstd_scheme_encoding(
         DType::Binary(Nullability::NonNullable),
     );
 
-    let session = vortex_array::array_session();
+    let session = vortex_array::array_session().with_some(CompressionSession::empty());
     session.register_scheme(scheme);
     let compressor = BtrBlocksCompressor::from_session_no_editions(&session);
     let mut ctx = SESSION.create_execution_ctx();

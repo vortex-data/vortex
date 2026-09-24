@@ -64,7 +64,6 @@
 
 pub mod builtins;
 pub mod scheme;
-pub mod session;
 pub mod stats;
 
 mod compressor;
