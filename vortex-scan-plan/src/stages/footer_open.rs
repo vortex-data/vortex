@@ -5,11 +5,9 @@
 
 use std::sync::Arc;
 
-use vortex_array::buffer::BufferHandle;
-use vortex_error::VortexError;
+use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 use vortex_file::DeserializeStep;
 use vortex_file::EOF_SIZE;
 use vortex_file::Footer;
@@ -18,10 +16,11 @@ use vortex_file::MAX_POSTSCRIPT_SIZE;
 use vortex_io::VortexReadAt;
 use vortex_session::VortexSession;
 
+use crate::io::IoBatch;
 use crate::io::IoConsumer;
-use crate::io::IoRequest;
 use crate::io::IoRequestId;
 use crate::io::IoResult;
+use crate::io::IoSlot;
 use crate::io::IoTarget;
 use crate::next::Next;
 use crate::planner::Planner;
@@ -37,54 +36,28 @@ pub const DEFAULT_INITIAL_READ_SIZE: usize = MAX_POSTSCRIPT_SIZE as usize + EOF_
 /// Opens a file: discovers its size if unknown, reads and parses the footer unless one was
 /// supplied, validates the footer against the size, and hands an [`OpenedFile`] to `next`.
 ///
-/// Request ids increase from zero per instance and stay stable across repeated `state()` calls
-/// until delivered. A delivery with an unknown id or the wrong result variant is reported from
-/// the next `compute()`.
+/// One request is outstanding at a time and its id stays stable across repeated `state()`
+/// calls until delivered. A delivery the stage did not ask for is a driver bug and panics.
 pub struct FooterOpen {
     read: Arc<dyn VortexReadAt>,
     initial_read_size: usize,
     session: VortexSession,
     next: Next<OpenedFile>,
     phase: Phase,
-    next_id: u32,
-    error: Option<VortexError>,
-}
-
-/// One outstanding range request and, once delivered, its bytes.
-struct RangeRead {
-    id: IoRequestId,
-    offset: u64,
-    len: usize,
-    received: Option<BufferHandle>,
-}
-
-impl RangeRead {
-    fn request(&self) -> IoRequest {
-        IoRequest {
-            request: self.id,
-            target: IoTarget::Range {
-                offset: self.offset,
-                len: self.len,
-            },
-        }
-    }
+    io: IoSlot,
 }
 
 enum Phase {
     /// Footer and size are both known; the next compute emits the child.
     Cached { size: u64, footer: Footer },
-    /// Waiting for the source length.
-    NeedSize {
-        id: IoRequestId,
-        footer: Option<Footer>,
-    },
-    /// Waiting for, or holding, the initial tail read.
-    NeedTail { size: u64, tail: RangeRead },
-    /// Parsing, possibly waiting for one more range the deserializer asked for.
+    /// The source length is in flight.
+    NeedSize { footer: Option<Footer> },
+    /// The initial tail read is in flight.
+    NeedTail { size: u64 },
+    /// Parsing; a further range the deserializer asked for may be in flight.
     Deserialising {
         size: u64,
         deserializer: FooterDeserializer,
-        pending: Option<RangeRead>,
     },
     /// The child was emitted; nothing remains.
     Emitted,
@@ -105,39 +78,30 @@ impl FooterOpen {
             session,
             next,
             phase: Phase::Emitted,
-            next_id: 0,
-            error: None,
+            io: IoSlot::default(),
         };
         stage.phase = match (source.footer, source.size) {
             (Some(footer), Some(size)) => Phase::Cached { size, footer },
-            (footer, None) => Phase::NeedSize {
-                id: stage.fresh_id(),
-                footer,
-            },
-            (None, Some(size)) => stage.tail_phase(size),
+            (footer, None) => {
+                stage.io.issue(IoTarget::Size);
+                Phase::NeedSize { footer }
+            }
+            (None, Some(size)) => {
+                stage.issue_tail(size);
+                Phase::NeedTail { size }
+            }
         };
         stage
     }
 
-    fn fresh_id(&mut self) -> IoRequestId {
-        let id = IoRequestId(self.next_id);
-        self.next_id += 1;
-        id
-    }
-
     /// Mirrors `VortexOpenOptions::read_footer`: at least the minimum tail, at most the file.
-    fn tail_phase(&mut self, size: u64) -> Phase {
+    fn issue_tail(&mut self, size: u64) -> IoBatch {
         let len = self.initial_read_size.max(DEFAULT_INITIAL_READ_SIZE);
         let len = usize::try_from(size).map_or(len, |size| len.min(size));
-        Phase::NeedTail {
-            size,
-            tail: RangeRead {
-                id: self.fresh_id(),
-                offset: size - len as u64,
-                len,
-                received: None,
-            },
-        }
+        self.io.issue(IoTarget::Range {
+            offset: size - len as u64,
+            len,
+        })
     }
 
     fn emit(&mut self, size: u64, footer: Footer) -> VortexResult<PlannerOutput> {
@@ -156,146 +120,89 @@ impl FooterOpen {
     }
 
     fn deserialize(&mut self) -> VortexResult<PlannerOutput> {
-        let Phase::Deserialising {
-            size,
-            deserializer,
-            pending,
-        } = &mut self.phase
-        else {
+        let Phase::Deserialising { size, deserializer } = &mut self.phase else {
             vortex_bail!("FooterOpen: deserialize called outside the deserialising phase");
         };
-        if let Some(read) = pending.take() {
-            let Some(handle) = read.received else {
-                vortex_bail!(
-                    "FooterOpen: compute called while request {:?} is outstanding",
-                    read.id
-                );
-            };
-            deserializer.prefix_data(handle.try_into_host_sync()?);
-        }
+        let size = *size;
         match deserializer.deserialize()? {
-            DeserializeStep::NeedMoreData { offset, len } => {
-                let id = IoRequestId(self.next_id);
-                self.next_id += 1;
-                let read = RangeRead {
-                    id,
-                    offset,
-                    len,
-                    received: None,
-                };
-                let request = read.request();
-                let Phase::Deserialising { pending, .. } = &mut self.phase else {
-                    vortex_bail!("FooterOpen: phase changed during deserialisation");
-                };
-                *pending = Some(read);
-                Ok(PlannerOutput::NeedsIO(vec![request]))
-            }
+            DeserializeStep::NeedMoreData { offset, len } => Ok(PlannerOutput::NeedsIO(
+                self.io.issue(IoTarget::Range { offset, len }),
+            )),
             DeserializeStep::NeedFileSize => {
                 vortex_bail!(
                     "FooterOpen: deserializer asked for the file size after it was supplied"
                 )
             }
-            DeserializeStep::Done(footer) => {
-                let size = *size;
-                self.emit(size, footer)
-            }
+            DeserializeStep::Done(footer) => self.emit(size, footer),
+        }
+    }
+
+    fn take_size(&mut self) -> VortexResult<u64> {
+        match self.io.take() {
+            Some(IoResult::Size(size)) => Ok(size),
+            _ => vortex_bail!("FooterOpen: compute called before the size was delivered"),
+        }
+    }
+
+    fn take_bytes(&mut self) -> VortexResult<Option<ByteBuffer>> {
+        match self.io.take() {
+            Some(IoResult::Bytes(handle)) => Ok(Some(handle.try_into_host_sync()?)),
+            Some(IoResult::Size(_)) => vortex_bail!("FooterOpen: expected bytes, found a size"),
+            None => Ok(None),
         }
     }
 }
 
 impl IoConsumer for FooterOpen {
     fn set_io_result(&mut self, request: IoRequestId, result: IoResult) {
-        let outcome = match (&mut self.phase, result) {
-            (Phase::NeedSize { id, footer }, IoResult::Size(size)) if *id == request => {
-                let footer = footer.take();
-                self.phase = match footer {
-                    Some(footer) => Phase::Cached { size, footer },
-                    None => self.tail_phase(size),
-                };
-                Ok(())
-            }
-            (Phase::NeedTail { tail, .. }, IoResult::Bytes(handle))
-                if tail.id == request && tail.received.is_none() =>
-            {
-                tail.received = Some(handle);
-                Ok(())
-            }
-            (
-                Phase::Deserialising {
-                    pending: Some(read),
-                    ..
-                },
-                IoResult::Bytes(handle),
-            ) if read.id == request && read.received.is_none() => {
-                read.received = Some(handle);
-                Ok(())
-            }
-            (_, result) => Err(vortex_err!(
-                "FooterOpen: unexpected delivery of {request:?} ({})",
-                match result {
-                    IoResult::Size(_) => "size",
-                    IoResult::Bytes(_) => "bytes",
-                }
-            )),
-        };
-        if let Err(error) = outcome {
-            self.error.get_or_insert(error);
-        }
+        self.io.deliver(request, result);
     }
 }
 
 impl Planner for FooterOpen {
     fn state(&self) -> State {
-        if self.error.is_some() {
-            return State::NeedsCompute;
+        if matches!(self.phase, Phase::Emitted) {
+            return State::Done;
         }
-        match &self.phase {
-            Phase::Cached { .. } => State::NeedsCompute,
-            Phase::NeedSize { id, .. } => State::NeedsIO(vec![IoRequest {
-                request: *id,
-                target: IoTarget::Size,
-            }]),
-            Phase::NeedTail { tail, .. } => match tail.received {
-                None => State::NeedsIO(vec![tail.request()]),
-                Some(_) => State::NeedsCompute,
-            },
-            Phase::Deserialising { pending, .. } => match pending {
-                Some(read) if read.received.is_none() => State::NeedsIO(vec![read.request()]),
-                _ => State::NeedsCompute,
-            },
-            Phase::Emitted => State::Done,
+        match self.io.batch() {
+            Some(batch) => State::NeedsIO(batch),
+            None => State::NeedsCompute,
         }
     }
 
     fn compute(&mut self) -> VortexResult<PlannerOutput> {
-        if let Some(error) = self.error.take() {
-            return Err(error);
-        }
         match std::mem::replace(&mut self.phase, Phase::Emitted) {
             Phase::Cached { size, footer } => self.emit(size, footer),
-            Phase::NeedTail {
-                size,
-                tail:
-                    RangeRead {
-                        received: Some(handle),
-                        ..
-                    },
-            } => {
-                let tail = handle.try_into_host_sync()?;
+            Phase::NeedSize { footer } => {
+                let size = self.take_size()?;
+                match footer {
+                    Some(footer) => self.emit(size, footer),
+                    None => {
+                        let batch = self.issue_tail(size);
+                        self.phase = Phase::NeedTail { size };
+                        Ok(PlannerOutput::NeedsIO(batch))
+                    }
+                }
+            }
+            Phase::NeedTail { size } => {
+                let Some(tail) = self.take_bytes()? else {
+                    vortex_bail!("FooterOpen: compute called before the tail was delivered");
+                };
                 self.phase = Phase::Deserialising {
                     size,
                     deserializer: Footer::deserializer(tail, self.session.clone()).with_size(size),
-                    pending: None,
                 };
                 self.deserialize()
             }
-            phase @ Phase::Deserialising { .. } => {
-                self.phase = phase;
+            Phase::Deserialising {
+                size,
+                mut deserializer,
+            } => {
+                if let Some(more) = self.take_bytes()? {
+                    deserializer.prefix_data(more);
+                }
+                self.phase = Phase::Deserialising { size, deserializer };
                 self.deserialize()
-            }
-            phase @ (Phase::NeedSize { .. } | Phase::NeedTail { .. }) => {
-                self.phase = phase;
-                vortex_bail!("FooterOpen: compute called while IO is outstanding")
             }
             Phase::Emitted => vortex_bail!("FooterOpen: compute called after Done"),
         }
@@ -308,12 +215,13 @@ mod tests {
 
     use rstest::rstest;
     use vortex_array::IntoArray;
-    use vortex_buffer::ByteBuffer;
+    use vortex_array::buffer::BufferHandle;
     use vortex_buffer::buffer;
     use vortex_io::runtime::current::CurrentThreadRuntime;
 
     use super::*;
     use crate::driver::Driver;
+    use crate::io::IoRequest;
     use crate::io::IoSource;
     use crate::io::ReadAtIoSource;
     use crate::next::next_fn;
@@ -442,9 +350,14 @@ mod tests {
             }]
         );
         serve(&mut stage, &read)?;
+        assert_eq!(stage.state(), State::NeedsCompute);
+        let PlannerOutput::NeedsIO(published) = stage.compute()? else {
+            vortex_bail!("expected the tail request to be published");
+        };
         let State::NeedsIO(batch) = stage.state() else {
             vortex_bail!("expected a tail request");
         };
+        assert_eq!(batch, published);
         assert_eq!(
             batch,
             vec![IoRequest {
@@ -505,21 +418,12 @@ mod tests {
         IoRequestId(0),
         IoResult::Bytes(BufferHandle::new_host(ByteBuffer::empty()))
     )]
-    fn bad_delivery_surfaces_from_compute(
-        #[case] id: IoRequestId,
-        #[case] result: IoResult,
-    ) -> VortexResult<()> {
+    #[should_panic(expected = "IoSlot")]
+    fn bad_delivery_is_a_driver_bug(#[case] id: IoRequestId, #[case] result: IoResult) {
         let (next, _) = recording_child();
-        let mut stage = open(Arc::new(small_file()?), None, None, next);
+        let buffer = small_file().expect("fixture file");
+        let mut stage = open(Arc::new(buffer), None, None, next);
         stage.set_io_result(id, result);
-        assert_eq!(stage.state(), State::NeedsCompute);
-        let err = stage.compute().err().map(|e| e.to_string());
-        assert!(
-            err.as_deref()
-                .is_some_and(|m| m.contains("unexpected delivery")),
-            "{err:?}"
-        );
-        Ok(())
     }
 
     #[test]

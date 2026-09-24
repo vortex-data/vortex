@@ -3,15 +3,17 @@
 
 //! IO requests, results, and the source that fulfils them.
 //!
-//! Prototype deviation from `TRAITS.md`: requests are keyed by [`IoTarget`] alone, with a
-//! `Size` target for source-length discovery, and results arrive as [`IoResult`] rather than a
-//! bare buffer handle so a size answer can travel the same path as bytes.
+//! The protocol moves bytes at a range. A source has exactly one other property a consumer may
+//! ask for, its length, because a Vortex file cannot be located from its start without it.
+//! Nothing else is a request: anything a stage needs that is not bytes at a range is
+//! construction-time data for that stage.
 
 use std::sync::Arc;
 
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
 use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
 use vortex_io::VortexReadAt;
 use vortex_io::runtime::BlockingRuntime;
 
@@ -19,10 +21,8 @@ use vortex_io::runtime::BlockingRuntime;
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct IoRequestId(pub u32);
 
-/// What to fetch from the source.
-///
-/// Prototype deviation: `TRAITS.md` keys requests by segment source and segment id; this slice
-/// only needs sizes and byte ranges.
+/// What to fetch from the source: its length, or bytes at a range. This enum is closed; see the
+/// module documentation.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum IoTarget {
     /// Total length of the source in bytes.
@@ -49,13 +49,31 @@ pub struct IoRequest {
 pub type IoBatch = Vec<IoRequest>;
 
 /// Result for one request. The variant matches the target: `Size` for `Size`, `Bytes` for
-/// `Range`.
+/// `Range`. The driver checks this before delivering, so a consumer never sees a mismatch.
 #[derive(Debug)]
 pub enum IoResult {
     /// Total length of the source in bytes.
     Size(u64),
     /// The bytes of a range request, possibly not yet resident on the host.
     Bytes(BufferHandle),
+}
+
+impl IoResult {
+    /// Whether this is the variant `target` must be answered with.
+    pub fn matches(&self, target: &IoTarget) -> bool {
+        matches!(
+            (self, target),
+            (Self::Size(_), IoTarget::Size) | (Self::Bytes(_), IoTarget::Range { .. })
+        )
+    }
+
+    /// The variant name, for messages.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Size(_) => "size",
+            Self::Bytes(_) => "bytes",
+        }
+    }
 }
 
 /// Fulfils one target. Blocking in this prototype.
@@ -70,10 +88,64 @@ pub trait IoSource: Send + Sync {
 pub trait IoConsumer {
     /// Stores the result for `request`.
     ///
-    /// An unknown id is a protocol error the consumer surfaces from its next `compute()`, as is
-    /// a result whose variant does not match the request's target. After delivery the id must
+    /// The driver only delivers ids the consumer listed and results that match their targets,
+    /// so anything else is a driver bug and the consumer may panic. After delivery the id must
     /// not reappear in `state()`.
     fn set_io_result(&mut self, request: IoRequestId, result: IoResult);
+}
+
+/// One outstanding request at a time, with ids that never repeat within the owner.
+///
+/// A consumer that issues requests one after another keeps its id allocation, its in-flight
+/// request, and the delivered result here, so its own state carries none of them.
+#[derive(Default)]
+pub struct IoSlot {
+    next_id: u32,
+    request: Option<IoRequest>,
+    result: Option<IoResult>,
+}
+
+impl IoSlot {
+    /// Issues a request for `target` with a fresh id. Panics if one is already outstanding or
+    /// its result has not been taken, since that is a bug in the owner.
+    pub fn issue(&mut self, target: IoTarget) -> IoBatch {
+        if self.request.is_some() || self.result.is_some() {
+            vortex_panic!("IoSlot: issue while a request is outstanding");
+        }
+        let request = IoRequest {
+            request: IoRequestId(self.next_id),
+            target,
+        };
+        self.next_id += 1;
+        self.request = Some(request.clone());
+        vec![request]
+    }
+
+    /// The in-flight request as a batch, while it is undelivered.
+    pub fn batch(&self) -> Option<IoBatch> {
+        self.request.as_ref().map(|request| vec![request.clone()])
+    }
+
+    /// Stores the result for the in-flight request. Panics on an unknown id or a result that
+    /// does not match the target, since the driver guarantees both.
+    pub fn deliver(&mut self, id: IoRequestId, result: IoResult) {
+        let Some(request) = self.request.take_if(|request| request.request == id) else {
+            vortex_panic!("IoSlot: delivery of {id:?}, which is not outstanding");
+        };
+        if !result.matches(&request.target) {
+            vortex_panic!(
+                "IoSlot: {id:?} for {:?} answered with {}",
+                request.target,
+                result.kind()
+            );
+        }
+        self.result = Some(result);
+    }
+
+    /// The delivered result, once.
+    pub fn take(&mut self) -> Option<IoResult> {
+        self.result.take()
+    }
 }
 
 /// An [`IoSource`] over a [`VortexReadAt`], blocking on the given runtime.
@@ -126,5 +198,39 @@ mod tests {
         assert_eq!(batch, batch.clone());
         assert_ne!(batch[0].target, IoTarget::Range { offset: 0, len: 5 });
         assert_eq!(format!("{:?}", IoRequestId(3)), "IoRequestId(3)");
+    }
+
+    #[test]
+    fn slot_allocates_fresh_ids_and_hands_back_one_result() {
+        let mut slot = IoSlot::default();
+        assert!(slot.batch().is_none());
+        let batch = slot.issue(IoTarget::Size);
+        assert_eq!(batch[0].request, IoRequestId(0));
+        assert_eq!(slot.batch(), Some(batch));
+        slot.deliver(IoRequestId(0), IoResult::Size(9));
+        assert!(slot.batch().is_none());
+        assert!(matches!(slot.take(), Some(IoResult::Size(9))));
+        assert!(slot.take().is_none());
+        let batch = slot.issue(IoTarget::Range { offset: 0, len: 1 });
+        assert_eq!(batch[0].request, IoRequestId(1));
+    }
+
+    #[test]
+    #[should_panic(expected = "not outstanding")]
+    fn slot_rejects_unknown_ids() {
+        let mut slot = IoSlot::default();
+        slot.issue(IoTarget::Size);
+        slot.deliver(IoRequestId(7), IoResult::Size(1));
+    }
+
+    #[test]
+    #[should_panic(expected = "answered with bytes")]
+    fn slot_rejects_mismatched_variants() {
+        let mut slot = IoSlot::default();
+        slot.issue(IoTarget::Size);
+        slot.deliver(
+            IoRequestId(0),
+            IoResult::Bytes(BufferHandle::new_host(vortex_buffer::ByteBuffer::empty())),
+        );
     }
 }

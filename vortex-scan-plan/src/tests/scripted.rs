@@ -109,7 +109,7 @@ impl IoConsumer for ScriptedPlanner {
             "deliver {} {} {}",
             self.name,
             request.0,
-            variant(&result)
+            result.kind()
         ));
         let position = self.position;
         let Some(PlannerStep::Io(batch)) = self.script.get_mut(position) else {
@@ -194,7 +194,7 @@ impl IoConsumer for ScriptedMorsel {
             "deliver {} {} {}",
             self.name,
             request.0,
-            variant(&result)
+            result.kind()
         ));
         let position = self.position;
         let Some(MorselStep::Io(batch)) = self.script.get_mut(position) else {
@@ -243,15 +243,9 @@ impl Morsel for ScriptedMorsel {
     }
 }
 
-fn variant(result: &IoResult) -> &'static str {
-    match result {
-        IoResult::Size(_) => "size",
-        IoResult::Bytes(_) => "bytes",
-    }
-}
-
 enum Canned {
     Bytes(ByteBuffer),
+    Size(u64),
     Fail(String),
 }
 
@@ -269,6 +263,11 @@ impl RecordingIoSource {
         self.canned
             .lock()
             .insert(IoTarget::Range { offset, len }, Canned::Bytes(bytes));
+    }
+
+    /// Answers `target` with a size regardless of what it asked for, to test the driver's check.
+    pub fn answer_with_size(&self, target: IoTarget, size: u64) {
+        self.canned.lock().insert(target, Canned::Size(size));
     }
 
     pub fn fail(&self, target: IoTarget, message: &str) {
@@ -289,6 +288,7 @@ impl IoSource for RecordingIoSource {
             Some(Canned::Bytes(bytes)) => {
                 Ok(IoResult::Bytes(BufferHandle::new_host(bytes.clone())))
             }
+            Some(Canned::Size(size)) => Ok(IoResult::Size(*size)),
             Some(Canned::Fail(message)) => Err(vortex_err!("{message}")),
             None => Err(vortex_err!("no canned answer for {target:?}")),
         }

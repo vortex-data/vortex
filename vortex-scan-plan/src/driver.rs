@@ -215,6 +215,13 @@ impl Driver {
         let mut delivered = Vec::with_capacity(batch.len());
         for request in batch {
             let result = self.io.perform(&request.target)?;
+            if !result.matches(&request.target) {
+                vortex_bail!(
+                    "IO source answered {:?} with {}",
+                    request.target,
+                    result.kind()
+                );
+            }
             consumer.set_io_result(request.request, result);
             delivered.push(request.request);
         }
@@ -442,6 +449,25 @@ mod tests {
             "{err:?}"
         );
         assert_eq!(source.performed().len(), 2);
+        Ok(())
+    }
+
+    #[test]
+    fn lying_source_fails_before_delivery() -> VortexResult<()> {
+        let log = Log::default();
+        let source = source();
+        source.answer_with_size(IoTarget::Range { offset: 0, len: 4 }, 4);
+        let root = ScriptedPlanner::pending(
+            "root",
+            vec![PlannerStep::Io(vec![request(0, 0)]), PlannerStep::Done],
+            &log,
+        );
+        let err = driver(&source).run(root).err().map(|e| e.to_string());
+        assert!(
+            err.as_deref().is_some_and(|m| m.contains("answered")),
+            "{err:?}"
+        );
+        assert_eq!(log.events(), vec!["start root"]);
         Ok(())
     }
 
