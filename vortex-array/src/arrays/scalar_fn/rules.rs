@@ -22,16 +22,16 @@ use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::optimizer::rules::ReduceRuleSet;
 use crate::scalar_fn::ArrayReduceNode;
+use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::is_not_null::IsNotNull;
 use crate::scalar_fn::fns::is_null::IsNull;
+use crate::scalar_fn::fns::operators::Operator;
 use crate::scalar_fn::fns::pack::Pack;
 use crate::validity::Validity;
 
 pub(super) const RULES: ReduceRuleSet<ScalarFn> = ReduceRuleSet::new(&[
     &ScalarFnPackToStructRule,
     &IsNullReduceRule,
-    // Ordering is important. ScalarFn::reduce() must be called after all other
-    // optimizations
     &ScalarFnAbstractReduceRule,
 ]);
 
@@ -66,26 +66,33 @@ impl ArrayReduceRule<ScalarFn> for ScalarFnPackToStructRule {
     }
 }
 
-/// Reduce IsNull(x) -> lit(false) if !x.nullable or x.validity().
-/// Reduce IsNotNull(x) -> lit(true) if !x.nullable or x.validity()
+/// Reduce IsNull(x) -> lit(false) if !x.nullable or not(x.validity()).
+/// Reduce IsNotNull(x) -> lit(true) if !x.nullable or x.validity().
+///
+/// For x, y where x is nullable but y is not, reduce
+/// IsNull(and(x, y)) -> and(IsNull(x), y)
+/// IsNull(or(x, y)) -> and(IsNull(x), not(y))
+/// IsNotNull(and(x, y)) -> or(IsNotNull(x), not(y))
+/// IsNotNull(or(x, y)) -> or(IsNotNull(x), y)
+///
+/// Latter optimizations make sense because calculating Is[Not]Null(x) is
+/// at most expensive as calculating x, but usually much cheaper. Although
+/// in two cases you exchange 4 computations to 4 computations, the latter
+/// four are cheaper.
 #[derive(Debug)]
 struct IsNullReduceRule;
-impl ArrayReduceRule<ScalarFn> for IsNullReduceRule {
-    fn reduce(&self, view: ArrayView<'_, ScalarFn>) -> VortexResult<Option<ArrayRef>> {
-        let mut is_null = view.scalar_fn().is::<IsNull>();
-        if !is_null {
-            if view.scalar_fn().is::<IsNotNull>() {
-                is_null = false;
-            } else {
-                return Ok(None);
-            }
-        }
 
-        let validity = match view.get_child(0).validity()? {
+impl IsNullReduceRule {
+    fn replace_with_validity(
+        is_null: bool,
+        child: &ArrayRef,
+        len: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        Ok(Some(match child.validity()? {
             Validity::NonNullable | Validity::AllValid => {
-                ConstantArray::new(!is_null, view.len()).into_array()
+                ConstantArray::new(!is_null, len).into_array()
             }
-            Validity::AllInvalid => ConstantArray::new(is_null, view.len()).into_array(),
+            Validity::AllInvalid => ConstantArray::new(is_null, len).into_array(),
             Validity::Array(array) => {
                 if is_null {
                     array.not()?
@@ -93,8 +100,50 @@ impl ArrayReduceRule<ScalarFn> for IsNullReduceRule {
                     array
                 }
             }
+        }))
+    }
+}
+
+impl ArrayReduceRule<ScalarFn> for IsNullReduceRule {
+    fn reduce(&self, view: ArrayView<'_, ScalarFn>) -> VortexResult<Option<ArrayRef>> {
+        let is_null = if view.scalar_fn().is::<IsNull>() {
+            true
+        } else if view.scalar_fn().is::<IsNotNull>() {
+            false
+        } else {
+            return Ok(None);
         };
-        Ok(Some(validity))
+
+        let child = view.get_child(0);
+        let Some(scalar_fn) = child.as_opt::<ScalarFn>() else {
+            return Self::replace_with_validity(is_null, child, view.len());
+        };
+        let Some(operator) = scalar_fn.scalar_fn().as_opt::<Binary>() else {
+            return Self::replace_with_validity(is_null, child, view.len());
+        };
+        let is_and = match operator {
+            Operator::And => true,
+            Operator::Or => false,
+            _ => return Self::replace_with_validity(is_null, child, view.len()),
+        };
+
+        let left = scalar_fn.get_child(0);
+        let right = scalar_fn.get_child(1);
+        let (left, right) = match (left.dtype().is_nullable(), right.dtype().is_nullable()) {
+            (true, false) => (left, right),
+            (false, true) => (right, left),
+            // false, false case is folded in Binary::reduce
+            _ => return Ok(None),
+        };
+
+        let res = if is_null {
+            let right = if is_and { right } else { &right.not()? };
+            left.is_null()?.binary(right.clone(), Operator::And)?
+        } else {
+            let right = if is_and { &right.not()? } else { right };
+            left.is_not_null()?.binary(right.clone(), Operator::Or)?
+        };
+        Ok(Some(res))
     }
 }
 
