@@ -658,9 +658,9 @@ fn variable_list_prefix_order_precedes_following_column() -> VortexResult<()> {
 #[test]
 fn variable_list_null_element_prefix_precedes_following_column() -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
-    // The child null sentinel and ascending list terminator are both zero. The element marker
-    // must still make [null] sort before [null, 1] without observing the following column.
-    let lists = ListViewArray::new(
+    // The child null sentinel and ascending list terminator are both zero.
+    // The element marker must decide the list prefix before the following column.
+    let mut lists = ListViewArray::new(
         PrimitiveArray::from_option_iter([None, Some(1i32)]).into_array(),
         buffer![0u32, 0].into_array(),
         buffer![1u32, 2].into_array(),
@@ -668,13 +668,28 @@ fn variable_list_null_element_prefix_precedes_following_column() -> VortexResult
     )
     .into_array();
     let suffix = PrimitiveArray::from_iter([i64::MAX, i64::MIN]).into_array();
-    let rows = collect_row_bytes(&convert_columns(
-        &[lists, suffix],
-        &[RowSortField::ascending(), RowSortField::ascending()],
-        &mut ctx,
-    )?);
-
-    assert!(rows[0] < rows[1]);
+    for _depth in 0..3 {
+        for descending in [false, true] {
+            for nulls_first in [false, true] {
+                let rows = collect_row_bytes(&convert_columns(
+                    &[lists.clone(), suffix.clone()],
+                    &[
+                        RowSortField::new(descending, nulls_first),
+                        RowSortField::ascending(),
+                    ],
+                    &mut ctx,
+                )?);
+                assert_eq!(rows[0] < rows[1], !descending);
+            }
+        }
+        lists = ListViewArray::new(
+            lists,
+            buffer![0u32, 1].into_array(),
+            buffer![1u32, 1].into_array(),
+            Validity::NonNullable,
+        )
+        .into_array();
+    }
     Ok(())
 }
 
@@ -783,31 +798,48 @@ fn decimal_value_not_fitting_key_width_errors() {
     );
 }
 
-#[rstest]
-#[case::ascending(false)]
-#[case::descending(true)]
-fn decimal256_sort_order(#[case] descending: bool) -> VortexResult<()> {
+#[test]
+fn decimal256_keys_preserve_order_and_physical_width_independence() -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
-    let large = i256::from_parts(0, 1);
-    let values = vec![
+    let dtype = DecimalDType::new(76, 4);
+    let large = i256::from_parts(0, 1 << 100);
+    let values = [
+        i256::from_i128(-1),
         large,
         -large,
-        i256::from_i128(-1),
         i256::ZERO,
         i256::from_i128(1),
     ];
-    let decimal = DecimalArray::from_iter(values.clone(), DecimalDType::new(76, 0)).into_array();
-    let field = RowSortField::new(descending, true);
-    let rows = collect_row_bytes(&convert_columns(&[decimal], &[field], &mut ctx)?);
-
-    assert!(rows.iter().all(|row| row.len() == 33));
-    let mut actual_indices: Vec<usize> = (0..rows.len()).collect();
-    actual_indices.sort_by(|&a, &b| rows[a].cmp(&rows[b]));
-    let mut expected_indices: Vec<usize> = (0..values.len()).collect();
-    expected_indices.sort_by(|&a, &b| {
-        let order = values[a].cmp(&values[b]);
-        if descending { order.reverse() } else { order }
-    });
-    assert_eq!(actual_indices, expected_indices);
+    for descending in [false, true] {
+        for nulls_first in [false, true] {
+            let field = RowSortField::new(descending, nulls_first);
+            let array = DecimalArray::new(
+                values.into_iter().chain([i256::MIN]).collect(),
+                dtype,
+                Validity::from_iter([true, true, true, true, true, false]),
+            )
+            .into_array();
+            let keys = collect_row_bytes(&convert_columns(&[array], &[field], &mut ctx)?);
+            assert!(keys.iter().all(|key| key.len() == 33));
+            for (i, left) in values.iter().enumerate() {
+                for (j, right) in values.iter().enumerate() {
+                    let expected = if descending {
+                        right.cmp(left)
+                    } else {
+                        left.cmp(right)
+                    };
+                    assert_eq!(keys[i].cmp(&keys[j]), expected);
+                }
+                assert_eq!(keys[5] < keys[i], nulls_first);
+            }
+            let narrow =
+                DecimalArray::new(buffer![-1i8, 0, 1], dtype, Validity::NonNullable).into_array();
+            let narrow_keys = collect_row_bytes(&convert_columns(&[narrow], &[field], &mut ctx)?);
+            assert_eq!(
+                narrow_keys,
+                [keys[0].clone(), keys[3].clone(), keys[4].clone()]
+            );
+        }
+    }
     Ok(())
 }
