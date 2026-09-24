@@ -11624,6 +11624,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-scan-plan"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "rstest",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-edition",
+ "vortex-error",
+ "vortex-file",
+ "vortex-io",
+ "vortex-layout",
+ "vortex-mask",
+ "vortex-metrics",
+ "vortex-session",
+]
+
+[[package]]
 name = "vortex-sequence"
 version = "0.1.0"
 dependencies = [

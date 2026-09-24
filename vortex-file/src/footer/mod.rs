@@ -190,7 +190,7 @@ impl Footer {
         self
     }
 
-    pub(crate) fn segment_specs_with_metadata(&self) -> Arc<[SegmentSpec]> {
+    pub fn segment_specs_with_metadata(&self) -> Arc<[SegmentSpec]> {
         self.segments
             .iter()
             .copied()
@@ -223,7 +223,7 @@ impl Footer {
     }
 
     /// Validate that every segment declared in the footer lies within a file of `file_size` bytes.
-    pub(crate) fn validate_file_size(&self, file_size: u64) -> VortexResult<()> {
+    pub fn validate_file_size(&self, file_size: u64) -> VortexResult<()> {
         validate_segments_within_file(&self.segments, file_size)
     }
 

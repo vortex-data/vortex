@@ -109,7 +109,8 @@ pub mod flatbuffers;
 mod footer;
 pub mod multi;
 mod open;
-mod pruning;
+#[doc(hidden)]
+pub mod pruning;
 mod read;
 /// Segment sources, caches, and sinks used by file readers and writers.
 pub mod segments;

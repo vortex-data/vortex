@@ -1,0 +1,37 @@
+[package]
+name = "vortex-scan-plan"
+authors.workspace = true
+description = "Prototype scan planner protocol"
+edition = { workspace = true }
+homepage = { workspace = true }
+categories = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = "README.md"
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[package.metadata.docs.rs]
+all-features = true
+
+[dependencies]
+vortex-array = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-error = { workspace = true }
+vortex-file = { workspace = true }
+vortex-io = { workspace = true }
+vortex-layout = { workspace = true }
+vortex-mask = { workspace = true }
+vortex-metrics = { workspace = true }
+vortex-session = { workspace = true }
+
+futures = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+vortex-edition = { workspace = true }
+
+[lints]
+workspace = true
