@@ -75,8 +75,8 @@ impl ArrayReduceRule<ScalarFn> for ScalarFnPackToStructRule {
 /// IsNotNull(and(x, y)) -> or(IsNotNull(x), not(y))
 /// IsNotNull(or(x, y)) -> or(IsNotNull(x), y)
 ///
-/// Latter optimizations make sense because calculating Is[Not]Null(x) is
-/// at most expensive as calculating x, but usually much cheaper. Although
+/// Latter optimizations make sense because calculating IsNull(x)/IsNotNull(x)
+/// is at most expensive as calculating x, but usually much cheaper. Although
 /// in two cases you exchange 4 computations to 4 computations, the latter
 /// four are cheaper.
 #[derive(Debug)]
@@ -132,7 +132,7 @@ impl ArrayReduceRule<ScalarFn> for IsNullReduceRule {
         let (left, right) = match (left.dtype().is_nullable(), right.dtype().is_nullable()) {
             (true, false) => (left, right),
             (false, true) => (right, left),
-            // false, false case is folded in Binary::reduce
+            // true, true case is folded in Binary::reduce
             _ => return Ok(None),
         };
 
