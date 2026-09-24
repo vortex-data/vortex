@@ -22,11 +22,15 @@ use vortex_session::VortexSession;
 
 use crate::BtrBlocksCompressor;
 use crate::schemes::float::FloatRLEScheme;
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = vortex_array::array_session();
+    crate::initialize(&session);
+    session
+});
 
 #[test]
 fn test_empty() -> VortexResult<()> {
-    let btr = BtrBlocksCompressor::default();
+    let btr = BtrBlocksCompressor::from_session_no_editions(&SESSION);
     let array = PrimitiveArray::new(Buffer::<f32>::empty(), Validity::NonNullable).into_array();
     let result = btr.compress(&array, &mut SESSION.create_execution_ctx())?;
 
@@ -42,7 +46,7 @@ fn test_compress() -> VortexResult<()> {
     }
 
     let array = values.into_array();
-    let btr = BtrBlocksCompressor::default();
+    let btr = BtrBlocksCompressor::from_session_no_editions(&SESSION);
     let compressed = btr.compress(&array, &mut SESSION.create_execution_ctx())?;
     assert_eq!(compressed.len(), 1024);
 
@@ -92,7 +96,7 @@ fn test_sparse_compression() -> VortexResult<()> {
     array.append_nulls(90);
 
     let array = array.finish_into_primitive().into_array();
-    let btr = BtrBlocksCompressor::default();
+    let btr = BtrBlocksCompressor::from_session_no_editions(&SESSION);
     let compressed = btr.compress(&array, &mut SESSION.create_execution_ctx())?;
     assert_eq!(compressed.len(), 96);
 

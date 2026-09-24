@@ -30,7 +30,7 @@ use vortex_array::stream::ArrayStream;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::stream::SendableArrayStream;
-use vortex_btrblocks::BtrBlocksCompressorBuilder;
+use vortex_btrblocks::CompressionSessionExt;
 use vortex_buffer::ByteBuffer;
 use vortex_edition::ComponentKind;
 use vortex_edition::EditionSessionExt;
@@ -247,15 +247,12 @@ impl VortexWriteOptions {
         } else {
             ctx
         };
-        let allowed_serialized_ids: HashSet<ArrayId> =
-            ctx.array_ctx().to_ids().into_iter().collect();
         let strategy = match self.strategy {
             Some(strategy) => strategy,
-            None => WriteStrategyBuilder::default()
-                .with_btrblocks_builder(
-                    BtrBlocksCompressorBuilder::default()
-                        .retain_allowed_encodings(&allowed_serialized_ids),
-                )
+            None if enforce_editions => WriteStrategyBuilder::from_session(&self.session).build(),
+            // With editions disabled every registered encoding may be written.
+            None => WriteStrategyBuilder::from_session(&self.session)
+                .with_schemes(self.session.registered_schemes())
                 .build(),
         };
         let dtype = stream.dtype().clone();

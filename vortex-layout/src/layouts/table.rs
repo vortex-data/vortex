@@ -117,8 +117,8 @@ impl TableStrategy {
     /// # use vortex_layout::layouts::table::TableStrategy;
     ///
     /// // A strategy for compressing data using the balanced BtrBlocks compressor.
-    /// let compress =
-    ///     CompressingStrategy::new(FlatLayoutStrategy::default(), BtrBlocksCompressor::default());
+    /// let compressor = BtrBlocksCompressor::from_session(&session);
+    /// let compress = CompressingStrategy::new(FlatLayoutStrategy::default(), compressor);
     ///
     /// // Our combined strategy uses no compression for validity buffers, BtrBlocks compression
     /// // for most columns, and stores a nested binary column uncompressed (flat) because it

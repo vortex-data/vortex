@@ -65,13 +65,13 @@ use vortex_array::search_sorted::SearchResult;
 use vortex_array::search_sorted::SearchSorted;
 use vortex_array::search_sorted::SearchSortedSide;
 use vortex_btrblocks::BtrBlocksCompressor;
-#[cfg(feature = "zstd")]
-use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_set::HashSet;
 
+#[cfg(feature = "zstd")]
+use crate::COMPACT_SESSION;
 use crate::FUZZ_ARRAY_MAX_LEN;
 use crate::SESSION;
 use crate::error::Backtrace;
@@ -249,7 +249,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                         .into_array()
                     };
 
-                    let compressed = BtrBlocksCompressor::default()
+                    let compressed = BtrBlocksCompressor::from_session(&SESSION)
                         .compress(&indices_array, &mut ctx)
                         .vortex_expect("BtrBlocksCompressor compress should succeed in fuzz test");
                     (
@@ -561,12 +561,10 @@ pub fn compress_array(
     ctx: &mut ExecutionCtx,
 ) -> ArrayRef {
     match strategy {
-        CompressorStrategy::Default => BtrBlocksCompressor::default()
+        CompressorStrategy::Default => BtrBlocksCompressor::from_session(&SESSION)
             .compress(array, ctx)
             .vortex_expect("BtrBlocksCompressor compress should succeed in fuzz test"),
-        CompressorStrategy::Compact => BtrBlocksCompressorBuilder::default()
-            .with_compact()
-            .build()
+        CompressorStrategy::Compact => BtrBlocksCompressor::from_session(&COMPACT_SESSION)
             .compress(array, ctx)
             .vortex_expect("Compact compress should succeed in fuzz test"),
     }
@@ -579,7 +577,7 @@ pub fn compress_array(
     _strategy: CompressorStrategy,
     ctx: &mut ExecutionCtx,
 ) -> ArrayRef {
-    BtrBlocksCompressor::default()
+    BtrBlocksCompressor::from_session(&SESSION)
         .compress(array, ctx)
         .vortex_expect("BtrBlocksCompressor compress should succeed in fuzz test")
 }

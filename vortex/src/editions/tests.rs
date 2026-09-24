@@ -567,30 +567,22 @@ async fn btrblocks_respects_enabled_array_encodings() -> VortexResult<()> {
     Ok(())
 }
 
-/// An explicitly supplied strategy is not reconfigured by the writer. Its unsupported output is
-/// still caught by the serialization context.
+/// An explicit default strategy is built from the session, so it only emits the encodings the
+/// enabled editions permit.
 #[tokio::test]
-async fn explicit_btrblocks_strategy_is_not_reconfigured() -> VortexResult<()> {
+async fn explicit_default_strategy_respects_enabled_editions() -> VortexResult<()> {
     let session = writer_test_session()?;
-    let strategy = WriteStrategyBuilder::default().build();
+    let strategy = WriteStrategyBuilder::from_session(&session).build();
     let mut buffer = ByteBufferMut::empty();
 
-    let error = session
+    session
         .write_options()
         .with_strategy(strategy)
         .write(
             &mut buffer,
             sequential_integers().into_array().to_array_stream(),
         )
-        .await
-        .err()
-        .ok_or_else(|| vortex_err!("explicit BtrBlocks strategy was unexpectedly reconfigured"))?;
-    assert!(
-        error
-            .to_string()
-            .contains("Serialized array ID vortex.sequence not permitted by ctx"),
-        "unexpected error: {error}"
-    );
+        .await?;
 
     Ok(())
 }
@@ -601,7 +593,7 @@ async fn explicit_btrblocks_strategy_is_not_reconfigured() -> VortexResult<()> {
 #[tokio::test]
 async fn serialization_context_rejects_unsupported_compressor_output() -> VortexResult<()> {
     let session = writer_test_session()?;
-    let strategy = WriteStrategyBuilder::default()
+    let strategy = WriteStrategyBuilder::from_session(&session)
         .with_compressor(forbidden_sequence_compressor)
         .build();
     let mut buffer = ByteBufferMut::empty();
@@ -633,7 +625,7 @@ async fn serialization_context_accepts_supported_compressor_output() -> VortexRe
     use crate::VortexSessionDefault;
 
     let session = VortexSession::default();
-    let strategy = WriteStrategyBuilder::default()
+    let strategy = WriteStrategyBuilder::from_session(&session)
         .with_compressor(forbidden_sequence_compressor)
         .build();
     let mut buffer = ByteBufferMut::empty();

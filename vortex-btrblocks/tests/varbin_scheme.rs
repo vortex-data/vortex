@@ -14,16 +14,35 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
-use vortex_btrblocks::BtrBlocksCompressorBuilder;
+use vortex_btrblocks::BtrBlocksCompressor;
+use vortex_btrblocks::CompressionSessionExt;
+use vortex_btrblocks::DEFAULT_SCHEMES;
 use vortex_btrblocks::SchemeExt;
+use vortex_btrblocks::SchemeId;
 use vortex_btrblocks::schemes::binary::VarBinScheme;
 use vortex_btrblocks::schemes::string::OnPairScheme;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = vortex_array::array_session();
+    vortex_btrblocks::initialize(&session);
+    session
+});
 
 const N: usize = 100_000;
+
+/// The default schemes minus `excluded`.
+fn default_without(excluded: SchemeId) -> BtrBlocksCompressor {
+    let session = vortex_array::array_session();
+    for scheme in DEFAULT_SCHEMES
+        .iter()
+        .filter(|scheme| scheme.id() != excluded)
+    {
+        session.register_scheme(*scheme);
+    }
+    BtrBlocksCompressor::from_session_no_editions(&session)
+}
 
 fn lcg(state: &mut u64) -> u64 {
     *state = state
@@ -70,10 +89,8 @@ fn cases() -> Vec<(&'static str, ArrayRef)> {
 
 #[test]
 fn varbin_scheme_shrinks_binary() -> VortexResult<()> {
-    let with = BtrBlocksCompressorBuilder::default().build();
-    let without = BtrBlocksCompressorBuilder::default()
-        .exclude_schemes([VarBinScheme.id()])
-        .build();
+    let with = BtrBlocksCompressor::from_session_no_editions(&SESSION);
+    let without = default_without(VarBinScheme.id());
 
     println!(
         "{:<20}{:>12}{:>14}{:>14}{:>9}",
@@ -116,9 +133,7 @@ fn varbin_scheme_shrinks_binary() -> VortexResult<()> {
 /// change the result. `OnPairScheme` only matches utf8 and would otherwise win the utf8 column.
 #[test]
 fn fsst_versus_varbin_on_identical_bytes() -> VortexResult<()> {
-    let builder = BtrBlocksCompressorBuilder::default();
-    let builder = builder.exclude_schemes([OnPairScheme.id()]);
-    let compressor = builder.build();
+    let compressor = default_without(OnPairScheme.id());
     let mut seed = 99u64;
 
     let shared_prefix: Vec<String> = (0..N).map(|i| format!("PREFIX_{i:09}")).collect();

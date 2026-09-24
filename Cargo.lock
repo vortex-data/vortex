@@ -10923,6 +10923,7 @@ dependencies = [
  "tracing",
  "vortex-array",
  "vortex-buffer",
+ "vortex-edition",
  "vortex-error",
  "vortex-mask",
  "vortex-session",

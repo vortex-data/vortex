@@ -14,8 +14,8 @@
 //! - `regular`: the schemes permitted by the default `core` edition, minus OnPair.
 //! - `onpair`: the structured-string entry with OnPair enabled — pins OnPair selection.
 //! - `compact`: the schemes permitted by the default `core` and opt-in `zstd` editions, with
-//!   the `zstd` + `pco` features and
-//!   [`BtrBlocksCompressorBuilder::with_compact`] — pins Zstd / Pco selection.
+//!   the `zstd` + `pco` features and [`COMPACT_SCHEMES`](vortex_btrblocks::COMPACT_SCHEMES)
+//!   — pins Zstd / Pco selection.
 //!
 //! Every corpus entry is longer than 1024 values so the sampling-based estimation path is
 //! exercised, and each entry is compressed twice per run to assert determinism directly.
@@ -49,9 +49,14 @@ use vortex_array::dtype::Nullability;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::validity::Validity;
 use vortex_btrblocks::BtrBlocksCompressor;
-use vortex_btrblocks::BtrBlocksCompressorBuilder;
+#[cfg(all(feature = "zstd", feature = "pco"))]
+use vortex_btrblocks::COMPACT_SCHEMES;
+use vortex_btrblocks::CompressionSessionExt;
+use vortex_btrblocks::DEFAULT_SCHEMES;
+use vortex_btrblocks::Scheme;
+use vortex_btrblocks::SchemeExt;
+use vortex_btrblocks::schemes::string::OnPairScheme;
 use vortex_buffer::Buffer;
-use vortex_edition::ComponentKind;
 use vortex_edition::EDITION_DECLARATIONS;
 use vortex_edition::EDITION_FAMILIES;
 use vortex_edition::EditionId;
@@ -393,15 +398,22 @@ fn list_of_int_runs() -> VortexResult<ArrayRef> {
 /// Excludes OnPair from the `regular` and `compact` variants: it beats FSST on
 /// `string_fsst_structured`, and those variants pin the FSST selection. OnPair's own decisions
 /// are pinned by [`golden_onpair`].
-fn without_onpair(builder: BtrBlocksCompressorBuilder) -> BtrBlocksCompressorBuilder {
-    use vortex_btrblocks::SchemeExt;
-    use vortex_btrblocks::schemes::string::OnPairScheme;
-
-    builder.exclude_schemes([OnPairScheme.id()])
+fn without_onpair(schemes: Vec<&'static dyn Scheme>) -> Vec<&'static dyn Scheme> {
+    schemes
+        .into_iter()
+        .filter(|scheme| scheme.id() != OnPairScheme.id())
+        .collect()
 }
 
-fn edition_session(editions: &[EditionId]) -> VortexResult<VortexSession> {
+/// A session registering `schemes` and enabling `editions`.
+fn edition_session(
+    editions: &[EditionId],
+    schemes: Vec<&'static dyn Scheme>,
+) -> VortexResult<VortexSession> {
     let session = vortex_array::array_session().with::<EditionSession>();
+    for scheme in schemes {
+        session.register_scheme(scheme);
+    }
     for family in EDITION_FAMILIES {
         session.editions().declare_family(family)?;
     }
@@ -414,43 +426,18 @@ fn edition_session(editions: &[EditionId]) -> VortexResult<VortexSession> {
     Ok(session)
 }
 
-fn compressor_for_session(
-    session: &VortexSession,
-    builder: BtrBlocksCompressorBuilder,
-) -> BtrBlocksCompressor {
-    let allowed = session
-        .enabled_component_ids(ComponentKind::Array)
-        .into_iter()
-        .collect();
-    without_onpair(builder)
-        .retain_allowed_encodings(&allowed)
-        .build()
-}
-
-/// Like [`compressor_for_session`] but keeps OnPair in the scheme pool.
-fn compressor_with_onpair(
-    session: &VortexSession,
-    builder: BtrBlocksCompressorBuilder,
-) -> BtrBlocksCompressor {
-    let allowed = session
-        .enabled_component_ids(ComponentKind::Array)
-        .into_iter()
-        .collect();
-    builder.retain_allowed_encodings(&allowed).build()
-}
-
 #[test]
 fn golden_regular() -> VortexResult<()> {
-    let session = edition_session(&[CORE_2026_08_3])?;
-    let compressor = compressor_for_session(&session, BtrBlocksCompressorBuilder::default());
+    let session = edition_session(&[CORE_2026_08_3], without_onpair(DEFAULT_SCHEMES.to_vec()))?;
+    let compressor = BtrBlocksCompressor::from_session(&session);
     golden_corpus_snapshots("regular", &compressor)
 }
 
 /// Pins OnPair's selection over FSST on the structured-string entry.
 #[test]
 fn golden_onpair() -> VortexResult<()> {
-    let session = edition_session(&[CORE_2026_08_3])?;
-    let compressor = compressor_with_onpair(&session, BtrBlocksCompressorBuilder::default());
+    let session = edition_session(&[CORE_2026_08_3], DEFAULT_SCHEMES.to_vec())?;
+    let compressor = BtrBlocksCompressor::from_session(&session);
     golden_snapshots(
         "onpair",
         &compressor,
@@ -461,12 +448,14 @@ fn golden_onpair() -> VortexResult<()> {
 #[cfg(all(feature = "zstd", feature = "pco"))]
 #[test]
 fn golden_compact() -> VortexResult<()> {
-    let session = edition_session(&[CORE_2026_08_3])?;
+    let schemes = DEFAULT_SCHEMES
+        .iter()
+        .chain(COMPACT_SCHEMES.iter())
+        .copied()
+        .collect();
+    let session = edition_session(&[CORE_2026_08_3], without_onpair(schemes))?;
     vortex_zstd::initialize(&session);
     session.enable_edition(vortex_zstd::editions::ZSTD_2026_02)?;
-    let compressor = compressor_for_session(
-        &session,
-        BtrBlocksCompressorBuilder::default().with_compact(),
-    );
+    let compressor = BtrBlocksCompressor::from_session(&session);
     golden_corpus_snapshots("compact", &compressor)
 }

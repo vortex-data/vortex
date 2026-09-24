@@ -16,7 +16,11 @@ use vortex_session::VortexSession;
 
 use crate::BtrBlocksCompressor;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = vortex_array::array_session();
+    crate::initialize(&session);
+    session
+});
 
 #[test]
 fn test_strings() -> VortexResult<()> {
@@ -30,7 +34,7 @@ fn test_strings() -> VortexResult<()> {
     let strings = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
 
     let array_ref = strings.into_array();
-    let btr = BtrBlocksCompressor::default();
+    let btr = BtrBlocksCompressor::from_session_no_editions(&SESSION);
     let compressed = btr.compress(&array_ref, &mut SESSION.create_execution_ctx())?;
     assert_eq!(compressed.len(), 2048);
 
@@ -57,7 +61,7 @@ fn test_sparse_nulls() -> VortexResult<()> {
     let strings = strings.finish_into_varbinview();
 
     let array_ref = strings.into_array();
-    let btr = BtrBlocksCompressor::default();
+    let btr = BtrBlocksCompressor::from_session_no_editions(&SESSION);
     let compressed = btr.compress(&array_ref, &mut SESSION.create_execution_ctx())?;
     assert_eq!(compressed.len(), 100);
 

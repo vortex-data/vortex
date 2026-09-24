@@ -53,7 +53,8 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
-use crate::BtrBlocksCompressorBuilder;
+use crate::BtrBlocksCompressor;
+use crate::CompressionSessionExt;
 use crate::DELTA_SCHEME;
 
 /// A session with the default Vortex encodings registered.
@@ -127,9 +128,10 @@ fn lineitem() -> VortexResult<ArrayRef> {
 
 /// Delta is opt-in, and these traces cover the delta-encoded FSST offsets, so enable it here.
 fn compressed_lineitem() -> VortexResult<ArrayRef> {
-    BtrBlocksCompressorBuilder::default()
-        .with_new_scheme(&DELTA_SCHEME)
-        .build()
+    let session = trace_session();
+    crate::initialize(&session);
+    session.register_scheme(&DELTA_SCHEME);
+    BtrBlocksCompressor::from_session_no_editions(&session)
         .compress(&lineitem()?, &mut execution_ctx())
 }
 

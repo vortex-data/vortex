@@ -17,7 +17,8 @@ pub fn fixtures() -> Vec<Box<dyn DatasetFixture>> {
 #[cfg(test)]
 mod tests {
     use vortex::VortexSessionDefault;
-    use vortex::compressor::BtrBlocksCompressorBuilder;
+    use vortex::compressor::COMPACT_SCHEMES;
+    use vortex::compressor::CompressionSessionExt;
     use vortex::editions::CORE_2026_08_3;
     use vortex::editions::EditionSessionExt;
     use vortex::file::WriteStrategyBuilder;
@@ -44,15 +45,23 @@ mod tests {
             let regular_bytes = adapter::write_compressed_to_bytes_with_session(
                 &session,
                 array.clone(),
-                WriteStrategyBuilder::default().build(),
+                WriteStrategyBuilder::from_session(&session)
+                    .with_schemes(session.registered_schemes())
+                    .build(),
             )?;
             let _regular = adapter::read_file(regular_bytes)?;
 
             let compact_bytes = adapter::write_compressed_to_bytes_with_session(
                 &session,
                 array,
-                WriteStrategyBuilder::default()
-                    .with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact())
+                WriteStrategyBuilder::from_session(&session)
+                    .with_schemes(
+                        session
+                            .registered_schemes()
+                            .into_iter()
+                            .chain(COMPACT_SCHEMES.iter().copied())
+                            .collect(),
+                    )
                     .build(),
             )?;
             let _compact = adapter::read_file(compact_bytes)?;

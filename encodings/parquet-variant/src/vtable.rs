@@ -466,8 +466,11 @@ mod tests {
     }
 
     #[fixture]
-    fn write_strategy() -> Arc<dyn LayoutStrategy> {
-        vortex_file::WriteStrategyBuilder::default().build()
+    fn write_strategy(
+        parquet_variant_file_session: VortexResult<VortexSession>,
+    ) -> VortexResult<Arc<dyn LayoutStrategy>> {
+        let session = parquet_variant_file_session?;
+        Ok(vortex_file::WriteStrategyBuilder::from_session(&session).build())
     }
 
     #[test]
@@ -544,7 +547,7 @@ mod tests {
     async fn test_file_roundtrip_typed_value_variant_with_zoned_strategy(
         #[from(typed_value_variant_array)] expected: VortexResult<ArrayRef>,
         parquet_variant_file_session: VortexResult<VortexSession>,
-        write_strategy: Arc<dyn LayoutStrategy>,
+        write_strategy: VortexResult<Arc<dyn LayoutStrategy>>,
     ) -> VortexResult<()> {
         let expected = expected?;
         let parquet_variant_file_session = parquet_variant_file_session?;
@@ -552,7 +555,7 @@ mod tests {
         let mut bytes = ByteBufferMut::empty();
         parquet_variant_file_session
             .write_options()
-            .with_strategy(write_strategy)
+            .with_strategy(write_strategy?)
             .write(&mut bytes, expected.to_array_stream())
             .await?;
 

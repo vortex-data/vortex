@@ -194,6 +194,8 @@ pub fn register_default_encodings(session: &VortexSession) {
 
     #[cfg(feature = "tensor")]
     vortex_tensor::initialize(session);
+
+    vortex_btrblocks::initialize(session);
 }
 
 #[cfg(test)]

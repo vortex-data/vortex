@@ -27,12 +27,16 @@ use vortex_session::VortexSession;
 
 use crate::BtrBlocksCompressor;
 use crate::schemes::integer::IntRLEScheme;
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = vortex_array::array_session();
+    crate::initialize(&session);
+    session
+});
 
 #[test]
 fn test_empty() -> VortexResult<()> {
     // Make sure empty array compression does not fail.
-    let btr = BtrBlocksCompressor::default();
+    let btr = BtrBlocksCompressor::from_session_no_editions(&SESSION);
     let array = PrimitiveArray::new(Buffer::<i32>::empty(), Validity::NonNullable);
     let result = btr.compress(&array.into_array(), &mut SESSION.create_execution_ctx())?;
 
@@ -60,7 +64,7 @@ fn test_dict_encodable() -> VortexResult<()> {
         }
     }
 
-    let btr = BtrBlocksCompressor::default();
+    let btr = BtrBlocksCompressor::from_session_no_editions(&SESSION);
     let compressed = btr.compress(
         &codes.freeze().into_array(),
         &mut SESSION.create_execution_ctx(),
@@ -80,7 +84,7 @@ fn constant_mostly_nulls() -> VortexResult<()> {
     );
     let validity = array.validity()?;
 
-    let btr = BtrBlocksCompressor::default();
+    let btr = BtrBlocksCompressor::from_session_no_editions(&SESSION);
     let compressed = btr.compress(&array.into_array(), &mut SESSION.create_execution_ctx())?;
 
     assert!(compressed.is::<Masked>());
@@ -99,7 +103,7 @@ fn nullable_sequence() -> VortexResult<()> {
     let values = (0i32..20).step_by(7).collect_vec();
     let array = PrimitiveArray::from_option_iter(values.clone().into_iter().map(Some));
 
-    let btr = BtrBlocksCompressor::default();
+    let btr = BtrBlocksCompressor::from_session_no_editions(&SESSION);
     let compressed = btr.compress(&array.into_array(), &mut SESSION.create_execution_ctx())?;
     assert!(compressed.is::<Sequence>());
 
@@ -141,7 +145,7 @@ fn compress_large_int() -> VortexResult<()> {
         .collect::<PrimitiveArray>()
         .into_array();
 
-    let btr = BtrBlocksCompressor::default();
+    let btr = BtrBlocksCompressor::from_session_no_editions(&SESSION);
     btr.compress(&prim, &mut SESSION.create_execution_ctx())?;
 
     Ok(())
