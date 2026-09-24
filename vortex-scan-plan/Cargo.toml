@@ -32,6 +32,7 @@ futures = { workspace = true }
 [dev-dependencies]
 rstest = { workspace = true }
 vortex-edition = { workspace = true }
+vortex-utils = { workspace = true }
 
 [lints]
 workspace = true

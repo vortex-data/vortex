@@ -11639,6 +11639,7 @@ dependencies = [
  "vortex-mask",
  "vortex-metrics",
  "vortex-session",
+ "vortex-utils",
 ]
 
 [[package]]
