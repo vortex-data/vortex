@@ -132,8 +132,8 @@ impl ArrayReduceRule<ScalarFn> for IsNullReduceRule {
         let (left, right) = match (left.dtype().is_nullable(), right.dtype().is_nullable()) {
             (true, false) => (left, right),
             (false, true) => (right, left),
-            // true, true case is folded in Binary::reduce
-            _ => return Ok(None),
+            (false, false) => return Self::replace_with_validity(is_null, child, view.len()),
+            (true, true) => return Ok(None), // folded in Binary::reduce
         };
 
         let res = if is_null {
