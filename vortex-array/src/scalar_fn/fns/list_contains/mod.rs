@@ -146,8 +146,7 @@ impl ScalarFnVTable for ListContains {
 fn compute_contains_scalar(list: &Scalar, needle: &Scalar) -> VortexResult<Scalar> {
     let nullability = list.dtype().nullability() | needle.dtype().nullability();
 
-    // Handle null list or null needle
-    if list.is_null() || needle.is_null() {
+    if list.is_null() {
         return Ok(Scalar::null(DType::Bool(nullability)));
     }
 
@@ -155,6 +154,14 @@ fn compute_contains_scalar(list: &Scalar, needle: &Scalar) -> VortexResult<Scala
     let elements = list_scalar
         .elements()
         .ok_or_else(|| vortex_err!("Expected non-null list"))?;
+
+    if elements.is_empty() {
+        return Ok(Scalar::bool(false, nullability));
+    }
+
+    if needle.is_null() {
+        return Ok(Scalar::null(DType::Bool(nullability)));
+    }
 
     let contains = elements.iter().any(|elem| elem == needle);
     Ok(Scalar::bool(contains, nullability))
@@ -680,7 +687,35 @@ mod tests {
         );
     }
 
-    // -- Tests migrated from compute/list_contains.rs --
+    #[test]
+    fn test_null_in_empty_list() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let array = test_array();
+        let dtype = Arc::new(DType::Primitive(I32, Nullability::NonNullable));
+
+        let list = Scalar::list(Arc::clone(&dtype), vec![], Nullability::NonNullable);
+        let needle = Scalar::null(DType::Primitive(I32, Nullability::Nullable));
+
+        let expr = list_contains(lit(list.clone()), lit(needle.clone()));
+        let result = array.clone().apply(&expr)?;
+        assert_eq!(
+            result.execute_scalar(0, &mut ctx)?,
+            Scalar::bool(false, Nullability::Nullable)
+        );
+
+        let expr = list_contains(lit(list), lit(2i32));
+        let result = array.clone().apply(&expr)?;
+        assert_eq!(
+            result.execute_scalar(0, &mut ctx)?,
+            Scalar::bool(false, Nullability::NonNullable)
+        );
+
+        let list = Scalar::null(DType::List(dtype, Nullability::Nullable));
+        let expr = list_contains(lit(list), lit(needle));
+        let result = array.apply(&expr)?;
+        assert!(result.execute_scalar(0, &mut ctx)?.is_null());
+        Ok(())
+    }
 
     fn nonnull_strings(values: Vec<Vec<&str>>) -> ArrayRef {
         let mut ctx = array_session().create_execution_ctx();
