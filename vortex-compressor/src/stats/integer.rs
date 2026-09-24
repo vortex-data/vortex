@@ -20,7 +20,6 @@ use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
-use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use super::GenerateStatsOptions;
@@ -364,8 +363,73 @@ where
     let null_count = validity.false_count();
     let value_count = validity.true_count();
 
+    // Initialize loop state.
+    let head_idx = validity
+        .first()
+        .vortex_expect("All null masks have been handled before");
     let buffer = array.to_buffer::<T>();
-    let loop_state = scan_values(buffer.as_slice(), &validity, count_distinct_values);
+    let head = buffer[head_idx];
+
+    let mut loop_state = LoopState {
+        distinct_values: if count_distinct_values {
+            HashMap::with_capacity_and_hasher(array.len() / 2, FxBuildHasher)
+        } else {
+            HashMap::with_hasher(FxBuildHasher)
+        },
+        prev: head,
+        pending: 0,
+        runs: 1,
+    };
+
+    let sliced = buffer.slice(head_idx..array.len());
+    let (chunks, remainder) = sliced.as_slice().as_chunks::<64>();
+    match validity.bit_buffer() {
+        AllOr::All => {
+            for chunk in chunks {
+                inner_loop_nonnull(chunk, count_distinct_values, &mut loop_state)
+            }
+            inner_loop_naive(
+                remainder,
+                count_distinct_values,
+                &BitBuffer::new_set(remainder.len()),
+                &mut loop_state,
+            );
+        }
+        AllOr::None => unreachable!("All invalid arrays have been handled before"),
+        AllOr::Some(v) => {
+            let mask = v.slice(head_idx..array.len());
+            let mut offset = 0;
+            for chunk in chunks {
+                let validity = mask.slice(offset..(offset + 64));
+                offset += 64;
+
+                match validity.true_count() {
+                    // All nulls -> no stats to update.
+                    0 => continue,
+                    // Inner loop for when validity check can be elided.
+                    64 => inner_loop_nonnull(chunk, count_distinct_values, &mut loop_state),
+                    // Inner loop for when we need to check validity.
+                    _ => inner_loop_nullable(
+                        chunk,
+                        count_distinct_values,
+                        &validity,
+                        &mut loop_state,
+                    ),
+                }
+            }
+            // Final iteration, run naive loop.
+            inner_loop_naive(
+                remainder,
+                count_distinct_values,
+                &mask.slice(offset..(offset + remainder.len())),
+                &mut loop_state,
+            );
+        }
+    }
+
+    if count_distinct_values {
+        loop_state.flush();
+    }
 
     let runs = loop_state.runs;
 
@@ -407,86 +471,6 @@ where
         average_run_length: value_count / runs,
         erased: typed.into(),
     })
-}
-
-/// Scans `values` once, counting runs and, if requested, distinct values.
-///
-/// `validity` must have at least one valid value.
-fn scan_values<T: IntegerPType>(
-    values: &[T],
-    validity: &Mask,
-    count_distinct_values: bool,
-) -> LoopState<T>
-where
-    NativeValue<T>: Eq + Hash,
-{
-    // Initialize loop state.
-    let head_idx = validity
-        .first()
-        .vortex_expect("scan_values requires at least one valid value");
-    let head = values[head_idx];
-
-    let mut loop_state = LoopState {
-        distinct_values: if count_distinct_values {
-            HashMap::with_capacity_and_hasher(values.len() / 2, FxBuildHasher)
-        } else {
-            HashMap::with_hasher(FxBuildHasher)
-        },
-        prev: head,
-        pending: 0,
-        runs: 1,
-    };
-
-    let (chunks, remainder) = values[head_idx..].as_chunks::<64>();
-    match validity.bit_buffer() {
-        AllOr::All => {
-            for chunk in chunks {
-                inner_loop_nonnull(chunk, count_distinct_values, &mut loop_state)
-            }
-            inner_loop_naive(
-                remainder,
-                count_distinct_values,
-                &BitBuffer::new_set(remainder.len()),
-                &mut loop_state,
-            );
-        }
-        AllOr::None => unreachable!("scan_values requires at least one valid value"),
-        AllOr::Some(v) => {
-            let mask = v.slice(head_idx..values.len());
-            let mut offset = 0;
-            for chunk in chunks {
-                let validity = mask.slice(offset..(offset + 64));
-                offset += 64;
-
-                match validity.true_count() {
-                    // All nulls -> no stats to update.
-                    0 => continue,
-                    // Inner loop for when validity check can be elided.
-                    64 => inner_loop_nonnull(chunk, count_distinct_values, &mut loop_state),
-                    // Inner loop for when we need to check validity.
-                    _ => inner_loop_nullable(
-                        chunk,
-                        count_distinct_values,
-                        &validity,
-                        &mut loop_state,
-                    ),
-                }
-            }
-            // Final iteration, run naive loop.
-            inner_loop_naive(
-                remainder,
-                count_distinct_values,
-                &mask.slice(offset..(offset + remainder.len())),
-                &mut loop_state,
-            );
-        }
-    }
-
-    if count_distinct_values {
-        loop_state.flush();
-    }
-
-    loop_state
 }
 
 /// Internal loop state for integer stats computation.
@@ -656,7 +640,6 @@ mod tests {
 
     use super::ErasedStats;
     use super::IntegerStats;
-    use super::scan_values;
     use super::typed_int_stats;
 
     #[test]
@@ -758,7 +741,6 @@ mod tests {
         let array = PrimitiveArray::new(Buffer::from(values), validity);
         let mut ctx = array_session().create_execution_ctx();
         let stats = typed_int_stats::<u32>(&array, true, &mut ctx)?;
-        let mask = array.validity()?.execute_mask(array.len(), &mut ctx)?;
 
         let ErasedStats::U32(typed) = stats.erased() else {
             unreachable!()
@@ -771,8 +753,7 @@ mod tests {
         let value_count: u32 = expected.values().sum();
         assert_eq!(stats.value_count, value_count);
         if value_count > 0 {
-            let state = scan_values(array.as_slice::<u32>(), &mask, true);
-            assert_eq!(state.runs, runs);
+            assert_eq!(stats.average_run_length, value_count / runs);
         }
         Ok(())
     }
