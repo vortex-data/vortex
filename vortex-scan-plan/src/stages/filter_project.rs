@@ -4,9 +4,12 @@
 //! Filter and project over natural splits, one morsel per split.
 //!
 //! Deliberate shortcut: data reads do not go through the protocol. The morsel evaluates through
-//! the existing `LayoutReader` and `FileSegmentSource`, blocking on their futures.
+//! the existing `LayoutReader` and `FileSegmentSource`, blocking on their futures. The runtime
+//! that drives them is created by the planner on its worker, after `start()`, so no runtime is
+//! captured by the `Send` pending work that constructs the stage.
 
 use std::ops::Range;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use vortex_array::MaskFuture;
@@ -18,7 +21,7 @@ use vortex_file::VortexFile;
 use vortex_file::segments::FileSegmentSource;
 use vortex_file::segments::RequestMetrics;
 use vortex_io::runtime::BlockingRuntime;
-use vortex_io::session::RuntimeSessionExt;
+use vortex_io::runtime::single::SingleThreadRuntime;
 use vortex_layout::LayoutReader;
 use vortex_mask::Mask;
 use vortex_metrics::DefaultMetricsRegistry;
@@ -37,38 +40,38 @@ use crate::stages::OpenedFile;
 
 /// Opens the file's layout on the first compute, then emits one [`SplitMorsel`] per natural
 /// split in file order and finishes.
-pub struct FilterProject<R: BlockingRuntime> {
+pub struct FilterProject {
     opened: Option<OpenedFile>,
     filter: Option<Expression>,
     projection: Expression,
     session: VortexSession,
-    runtime: Arc<R>,
     prepared: Option<Prepared>,
     next_split: usize,
 }
 
 struct Prepared {
+    /// Drives the segment source's read driver and the morsels' evaluation futures. Owned here
+    /// and shared with the morsels, so it lives as long as any of them.
+    runtime: Rc<SingleThreadRuntime>,
     reader: Arc<dyn LayoutReader>,
     filter: Option<BoundExpression>,
     projection: BoundExpression,
     splits: Vec<Range<u64>>,
 }
 
-impl<R: BlockingRuntime> FilterProject<R> {
+impl FilterProject {
     /// Creates the stage; the layout is opened and expressions bound on the first compute.
     pub fn new(
         opened: OpenedFile,
         filter: Option<Expression>,
         projection: Expression,
         session: VortexSession,
-        runtime: Arc<R>,
     ) -> Self {
         Self {
             opened: Some(opened),
             filter,
             projection,
             session,
-            runtime,
             prepared: None,
             next_split: 0,
         }
@@ -76,14 +79,16 @@ impl<R: BlockingRuntime> FilterProject<R> {
 
     fn prepare(&mut self, opened: OpenedFile) -> VortexResult<()> {
         let dtype = opened.footer.dtype().clone();
+        let runtime = Rc::new(SingleThreadRuntime::default());
         let source = FileSegmentSource::open(
             opened.footer.segment_specs_with_metadata(),
             opened.read,
-            self.session.handle(),
+            runtime.handle(),
             RequestMetrics::new(&DefaultMetricsRegistry::default(), vec![]),
         );
         let file = VortexFile::new(opened.footer, Arc::new(source), self.session.clone());
         self.prepared = Some(Prepared {
+            runtime,
             reader: file.layout_reader()?,
             filter: self
                 .filter
@@ -97,11 +102,11 @@ impl<R: BlockingRuntime> FilterProject<R> {
     }
 }
 
-impl<R: BlockingRuntime> IoConsumer for FilterProject<R> {
+impl IoConsumer for FilterProject {
     fn set_io_result(&mut self, _request: IoRequestId, _result: IoResult) {}
 }
 
-impl<R: BlockingRuntime + 'static> Planner for FilterProject<R> {
+impl Planner for FilterProject {
     fn state(&self) -> State {
         match &self.prepared {
             None if self.opened.is_some() => State::NeedsCompute,
@@ -134,7 +139,7 @@ impl<R: BlockingRuntime + 'static> Planner for FilterProject<R> {
                 range,
                 filter: prepared.filter.clone(),
                 projection: prepared.projection.clone(),
-                runtime: Arc::clone(&self.runtime),
+                runtime: Rc::clone(&prepared.runtime),
                 done: false,
             }),
         ))
@@ -143,20 +148,20 @@ impl<R: BlockingRuntime + 'static> Planner for FilterProject<R> {
 
 /// Evaluates the filter and projection for one split in a single compute, blocking on the
 /// layout reader's futures. A split with no matching rows finishes without a batch.
-pub struct SplitMorsel<R: BlockingRuntime> {
+pub struct SplitMorsel {
     reader: Arc<dyn LayoutReader>,
     range: Range<u64>,
     filter: Option<BoundExpression>,
     projection: BoundExpression,
-    runtime: Arc<R>,
+    runtime: Rc<SingleThreadRuntime>,
     done: bool,
 }
 
-impl<R: BlockingRuntime> IoConsumer for SplitMorsel<R> {
+impl IoConsumer for SplitMorsel {
     fn set_io_result(&mut self, _request: IoRequestId, _result: IoResult) {}
 }
 
-impl<R: BlockingRuntime> Morsel for SplitMorsel<R> {
+impl Morsel for SplitMorsel {
     fn state(&self) -> State {
         if self.done {
             State::Done
@@ -201,10 +206,8 @@ mod tests {
     use vortex_array::expr::root;
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::buffer;
-    use vortex_io::runtime::current::CurrentThreadRuntime;
 
     use super::*;
-    use crate::tests::fixtures::RUNTIME;
     use crate::tests::fixtures::SESSION;
     use crate::tests::fixtures::concat;
     use crate::tests::fixtures::open_buffer;
@@ -227,7 +230,7 @@ mod tests {
         buffer: &ByteBuffer,
         filter: Option<Expression>,
         projection: Expression,
-    ) -> VortexResult<FilterProject<CurrentThreadRuntime>> {
+    ) -> VortexResult<FilterProject> {
         let footer = open_buffer(buffer)?.footer().clone();
         Ok(FilterProject::new(
             OpenedFile {
@@ -238,14 +241,11 @@ mod tests {
             filter,
             projection,
             SESSION.clone(),
-            Arc::new(RUNTIME.clone()),
         ))
     }
 
     /// Drives the planner to `Done`, collecting every emitted morsel with its scope.
-    fn morsels(
-        planner: &mut FilterProject<CurrentThreadRuntime>,
-    ) -> VortexResult<Vec<(WorkScope, Box<dyn Morsel>)>> {
+    fn morsels(planner: &mut FilterProject) -> VortexResult<Vec<(WorkScope, Box<dyn Morsel>)>> {
         let mut out = Vec::new();
         loop {
             match planner.state() {

@@ -51,7 +51,6 @@ fn run(
     footer: Option<Footer>,
     query: ScanQuery,
 ) -> VortexResult<Vec<Batch>> {
-    let runtime = Arc::new(RUNTIME.clone());
     let root = plan_file(
         FileSource {
             read: Arc::clone(&read),
@@ -60,11 +59,13 @@ fn run(
         },
         query,
         SESSION.clone(),
-        Arc::clone(&runtime),
     );
-    Driver::new(Arc::new(ReadAtIoSource::new(read, runtime)))
-        .with_step_limit(10_000)
-        .run(root)
+    Driver::new(Arc::new(ReadAtIoSource::new(
+        read,
+        Arc::new(RUNTIME.clone()),
+    )))
+    .with_step_limit(10_000)
+    .run(root)
 }
 
 fn range_only(filter: Option<Expression>) -> ScanQuery {

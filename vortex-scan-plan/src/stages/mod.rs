@@ -14,7 +14,6 @@ use std::sync::Arc;
 use vortex_array::expr::Expression;
 use vortex_file::Footer;
 use vortex_io::VortexReadAt;
-use vortex_io::runtime::BlockingRuntime;
 use vortex_session::VortexSession;
 
 use crate::next::Next;
@@ -60,12 +59,12 @@ pub struct ScanQuery {
 /// pruning, then filter-and-project when the query has a projection or the diagnostic range
 /// morsel otherwise.
 ///
-/// The session and runtime are captured by the `Next` closures, not passed between stages.
-pub fn plan_file<R: BlockingRuntime + Send + Sync + 'static>(
+/// The session is captured by the `Next` closures, not passed between stages. The runtime that
+/// drives data reads is created by `FilterProject` on its worker.
+pub fn plan_file(
     source: FileSource,
     query: ScanQuery,
     session: VortexSession,
-    runtime: Arc<R>,
 ) -> Box<dyn PendingPlanner> {
     let ScanQuery { filter, projection } = query;
     let after_prune: Next<OpenedFile> = match projection {
@@ -78,7 +77,6 @@ pub fn plan_file<R: BlockingRuntime + Send + Sync + 'static>(
                     filter.clone(),
                     projection.clone(),
                     session.clone(),
-                    Arc::clone(&runtime),
                 ))
             })
         }
