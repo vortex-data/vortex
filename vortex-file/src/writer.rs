@@ -251,10 +251,12 @@ impl VortexWriteOptions {
             ctx.array_ctx().to_ids().into_iter().collect();
         let strategy = match self.strategy {
             Some(strategy) => strategy,
-            None => WriteStrategyBuilder::default()
+            // With editions disabled the permitted IDs exceed the enabled editions, so widen the
+            // compressor's permissions to everything this write may serialize.
+            None => WriteStrategyBuilder::from_session(&self.session)
                 .with_btrblocks_builder(
-                    BtrBlocksCompressorBuilder::default()
-                        .retain_allowed_encodings(&allowed_serialized_ids),
+                    BtrBlocksCompressorBuilder::from_session(&self.session)
+                        .allow_encodings(allowed_serialized_ids),
                 )
                 .build(),
         };

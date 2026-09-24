@@ -70,8 +70,11 @@ fn cases() -> Vec<(&'static str, ArrayRef)> {
 
 #[test]
 fn varbin_scheme_shrinks_binary() -> VortexResult<()> {
-    let with = BtrBlocksCompressorBuilder::default().build();
-    let without = BtrBlocksCompressorBuilder::default()
+    let with = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .allow_all_encodings()
+        .build();
+    let without = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .allow_all_encodings()
         .exclude_schemes([VarBinScheme.id()])
         .build();
 
@@ -116,7 +119,7 @@ fn varbin_scheme_shrinks_binary() -> VortexResult<()> {
 /// change the result. `OnPairScheme` only matches utf8 and would otherwise win the utf8 column.
 #[test]
 fn fsst_versus_varbin_on_identical_bytes() -> VortexResult<()> {
-    let builder = BtrBlocksCompressorBuilder::default();
+    let builder = BtrBlocksCompressorBuilder::from_session(&SESSION).allow_all_encodings();
     let builder = builder.exclude_schemes([OnPairScheme.id()]);
     let compressor = builder.build();
     let mut seed = 99u64;

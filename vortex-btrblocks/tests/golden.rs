@@ -51,7 +51,6 @@ use vortex_array::validity::Validity;
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_buffer::Buffer;
-use vortex_edition::ComponentKind;
 use vortex_edition::EDITION_DECLARATIONS;
 use vortex_edition::EDITION_FAMILIES;
 use vortex_edition::EditionId;
@@ -414,35 +413,10 @@ fn edition_session(editions: &[EditionId]) -> VortexResult<VortexSession> {
     Ok(session)
 }
 
-fn compressor_for_session(
-    session: &VortexSession,
-    builder: BtrBlocksCompressorBuilder,
-) -> BtrBlocksCompressor {
-    let allowed = session
-        .enabled_component_ids(ComponentKind::Array)
-        .into_iter()
-        .collect();
-    without_onpair(builder)
-        .retain_allowed_encodings(&allowed)
-        .build()
-}
-
-/// Like [`compressor_for_session`] but keeps OnPair in the scheme pool.
-fn compressor_with_onpair(
-    session: &VortexSession,
-    builder: BtrBlocksCompressorBuilder,
-) -> BtrBlocksCompressor {
-    let allowed = session
-        .enabled_component_ids(ComponentKind::Array)
-        .into_iter()
-        .collect();
-    builder.retain_allowed_encodings(&allowed).build()
-}
-
 #[test]
 fn golden_regular() -> VortexResult<()> {
     let session = edition_session(&[CORE_2026_08_3])?;
-    let compressor = compressor_for_session(&session, BtrBlocksCompressorBuilder::default());
+    let compressor = without_onpair(BtrBlocksCompressorBuilder::from_session(&session)).build();
     golden_corpus_snapshots("regular", &compressor)
 }
 
@@ -450,7 +424,7 @@ fn golden_regular() -> VortexResult<()> {
 #[test]
 fn golden_onpair() -> VortexResult<()> {
     let session = edition_session(&[CORE_2026_08_3])?;
-    let compressor = compressor_with_onpair(&session, BtrBlocksCompressorBuilder::default());
+    let compressor = BtrBlocksCompressorBuilder::from_session(&session).build();
     golden_snapshots(
         "onpair",
         &compressor,
@@ -464,9 +438,7 @@ fn golden_compact() -> VortexResult<()> {
     let session = edition_session(&[CORE_2026_08_3])?;
     vortex_zstd::initialize(&session);
     session.enable_edition(vortex_zstd::editions::ZSTD_2026_02)?;
-    let compressor = compressor_for_session(
-        &session,
-        BtrBlocksCompressorBuilder::default().with_compact(),
-    );
+    let compressor =
+        without_onpair(BtrBlocksCompressorBuilder::from_session(&session).with_compact()).build();
     golden_corpus_snapshots("compact", &compressor)
 }

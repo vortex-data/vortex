@@ -32,7 +32,6 @@ use vortex::buffer::ByteBuffer;
 use vortex::compressor::BtrBlocksCompressorBuilder;
 use vortex::dtype::DType;
 use vortex::dtype::FieldMask;
-use vortex::editions::ComponentKind;
 use vortex::editions::Edition;
 use vortex::editions::EditionDeclaration;
 use vortex::editions::EditionFamily;
@@ -553,14 +552,8 @@ fn extract_constant_buffers(chunk: &ArrayRef) -> Vec<InlinedBuffer> {
 /// nonzero sets row blocks without outer dictionaries or byte coalescing, retaining per-block
 /// dictionary compression.
 pub fn cuda_write_strategy(session: &VortexSession, block_rows: usize) -> Arc<dyn LayoutStrategy> {
-    let allowed_encodings = session
-        .enabled_component_ids(ComponentKind::Array)
-        .into_iter()
-        .collect();
-    let builder = BtrBlocksCompressorBuilder::default()
-        .only_cuda_compatible()
-        .retain_allowed_encodings(&allowed_encodings);
-    let strategy = WriteStrategyBuilder::default()
+    let builder = BtrBlocksCompressorBuilder::from_session(session).only_cuda_compatible();
+    let strategy = WriteStrategyBuilder::from_session(session)
         .with_flat_strategy(Arc::new(CudaFlatLayoutStrategy::default()));
     if block_rows == 0 {
         strategy.with_btrblocks_builder(builder).build()
@@ -659,6 +652,7 @@ mod tests {
     use vortex::array::assert_arrays_eq;
     use vortex::buffer::ByteBufferMut;
     use vortex::editions::CORE_2025_05_0;
+    use vortex::editions::ComponentKind;
     use vortex::file::OpenOptionsSessionExt;
     use vortex::file::VortexFile;
     use vortex::file::WriteOptionsSessionExt;

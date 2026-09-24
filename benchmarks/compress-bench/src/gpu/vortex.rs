@@ -37,7 +37,6 @@ use vortex_bench::compress::CompressedData;
 use vortex_bench::compress::Compressor;
 use vortex_bench::compress::Uncompressed;
 use vortex_bench::conversions::parquet_to_vortex_chunks_with_batch_size;
-use vortex_bench::retain_edition_encodings;
 use vortex_cuda::CanonicalCudaExt;
 use vortex_cuda::CudaExecutionCtx;
 use vortex_cuda::CudaOpenOptionsExt;
@@ -100,11 +99,9 @@ impl Compressor for GpuVortexCompressor {
         // partition rather than whatever the default strategy would regroup them into.
         let strategy = Arc::new(ChunkedLayoutStrategy::new(CompressingStrategy::new(
             CudaFlatLayoutStrategy::default(),
-            retain_edition_encodings(
-                &SESSION,
-                BtrBlocksCompressorBuilder::default().only_cuda_compatible(),
-            )
-            .build(),
+            BtrBlocksCompressorBuilder::from_session(&SESSION)
+                .only_cuda_compatible()
+                .build(),
         )));
         let start = Instant::now();
         SESSION

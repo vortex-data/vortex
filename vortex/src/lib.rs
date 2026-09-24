@@ -41,14 +41,15 @@
 //! use vortex::array::{IntoArray, VortexSessionExecute};
 //! use vortex::array::arrays::PrimitiveArray;
 //! use vortex::buffer::buffer;
-//! use vortex::compressor::BtrBlocksCompressor;
+//! use vortex::compressor::BtrBlocksCompressorBuilder;
 //! use vortex::session::VortexSession;
 //! use vortex::array::validity::Validity;
 //!
 //! # fn example() -> vortex::error::VortexResult<()> {
 //! let session = VortexSession::default();
 //! let array = PrimitiveArray::new(buffer![42u64; 1024], Validity::NonNullable).into_array();
-//! let compressed = BtrBlocksCompressor::default()
+//! let compressed = BtrBlocksCompressorBuilder::from_session(&session)
+//!     .build()
 //!     .compress(&array, &mut session.create_execution_ctx())?;
 //!
 //! assert_eq!(compressed.dtype(), array.dtype());
@@ -114,6 +115,7 @@ pub use vortex_array::scalar_fn;
 use vortex_array::scalar_fn::session::ScalarFnSession;
 use vortex_array::session::ArraySession;
 use vortex_array::stats::session::StatsSession;
+use vortex_btrblocks::CompressionSession;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::session::LayoutSession;
 use vortex_session::VortexSession;
@@ -318,6 +320,7 @@ impl VortexSessionDefault for VortexSession {
         let session = VortexSession::empty()
             .with::<DTypeSession>()
             .with::<ArraySession>()
+            .with::<CompressionSession>()
             .with::<KernelSession>()
             .with::<LayoutSession>()
             .with::<ScalarFnSession>()
@@ -416,16 +419,18 @@ mod test {
     #[test]
     fn compress() -> VortexResult<()> {
         // [compress]
-        use vortex::compressor::BtrBlocksCompressor;
+        use vortex::compressor::BtrBlocksCompressorBuilder;
 
         let array = PrimitiveArray::new(buffer![42u64; 100_000], Validity::NonNullable);
 
         // You can compress an array in-memory with the BtrBlocks compressor
         let session = VortexSession::default();
-        let compressed = BtrBlocksCompressor::default().compress(
-            &array.clone().into_array(),
-            &mut session.create_execution_ctx(),
-        )?;
+        let compressed = BtrBlocksCompressorBuilder::from_session(&session)
+            .build()
+            .compress(
+                &array.clone().into_array(),
+                &mut session.create_execution_ctx(),
+            )?;
         println!(
             "BtrBlocks size: {} / {}",
             compressed.nbytes(),
@@ -489,8 +494,10 @@ mod test {
         session
             .write_options()
             .with_strategy(
-                WriteStrategyBuilder::default()
-                    .with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact())
+                WriteStrategyBuilder::from_session(&session)
+                    .with_btrblocks_builder(
+                        BtrBlocksCompressorBuilder::from_session(&session).with_compact(),
+                    )
                     .build(),
             )
             .write(
