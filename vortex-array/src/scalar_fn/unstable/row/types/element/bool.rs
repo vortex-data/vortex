@@ -101,7 +101,7 @@ impl OutputElement for bool {
         DType::Bool(Nullability::NonNullable)
     }
 
-    fn allocate(rows: usize, allocator: &BufferAllocatorRef) -> Self::Buffer {
+    fn with_capacity(rows: usize, allocator: &BufferAllocatorRef) -> Self::Buffer {
         allocator.with_capacity(rows)
     }
 

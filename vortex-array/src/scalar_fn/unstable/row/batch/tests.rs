@@ -261,7 +261,7 @@ impl OutputElement for NullProducingI64 {
         DType::from(i64::PTYPE)
     }
 
-    fn allocate(rows: usize, allocator: &BufferAllocatorRef) -> Self::Buffer {
+    fn with_capacity(rows: usize, allocator: &BufferAllocatorRef) -> Self::Buffer {
         allocator.with_capacity(rows)
     }
 }

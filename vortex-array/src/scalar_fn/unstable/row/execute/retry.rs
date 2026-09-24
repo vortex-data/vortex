@@ -62,7 +62,7 @@ where
     let prepared = prepare(Args::const_values(&columns));
 
     let row_count = args.row_count();
-    let mut values = Out::allocate(row_count, ctx.allocator());
+    let mut values = Out::with_capacity(row_count, ctx.allocator());
     let output = &mut values.slots()[..row_count];
 
     let failure_evidence = if let Some(views) = Args::views_if_no_consts(&columns) {

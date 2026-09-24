@@ -132,7 +132,7 @@ unsafe impl<T: OutputElement + Copy + Default> OutputSink for FixedSizeListSink<
         })?;
 
         Ok(Self {
-            values: T::allocate(element_capacity, allocator),
+            values: T::with_capacity(element_capacity, allocator),
             allocator: allocator.clone(),
             width,
             row_count: rows,

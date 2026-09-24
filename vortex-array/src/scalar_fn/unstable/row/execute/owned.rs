@@ -142,7 +142,7 @@ where
 
     let prepared = prepare(Args::const_values(&columns));
     let valid_rows = valid.bit_buffer();
-    let mut values = Out::allocate(valid_rows.len(), ctx.allocator());
+    let mut values = Out::with_capacity(valid_rows.len(), ctx.allocator());
     let output = &mut values.slots()[..valid_rows.len()];
 
     for slot in output.iter_mut() {
@@ -221,7 +221,7 @@ where
     );
 
     let prepared = prepare(Args::const_values(&columns));
-    let mut values = Out::allocate(row_count, ctx.allocator());
+    let mut values = Out::with_capacity(row_count, ctx.allocator());
     let output = &mut values.slots()[..row_count];
 
     for slot in output.iter_mut() {
@@ -288,7 +288,7 @@ where
     let prepared = prepare(Args::const_values(&columns));
 
     let row_count = args.row_count();
-    let mut values = Out::allocate(row_count, ctx.allocator());
+    let mut values = Out::with_capacity(row_count, ctx.allocator());
     let output = &mut values.slots()[..row_count];
 
     let Some(source) = decoded_source::<Args>(&columns, row_count) else {

@@ -321,7 +321,7 @@ fn sink_payloads_use_allocator(#[case] traversal: Traversal) -> VortexResult<()>
 #[test]
 fn primitive_finish_reuses_allocation() {
     let (allocator, tracker) = tracking_allocator();
-    let mut values = i64::allocate(3, &allocator);
+    let mut values = i64::with_capacity(3, &allocator);
     let slots = &mut values.slots()[..3];
     let ptr = slots.as_ptr().cast::<i64>();
 
@@ -455,7 +455,7 @@ impl OutputElement for One {
         i64::element_dtype()
     }
 
-    fn allocate(rows: usize, _allocator: &BufferAllocatorRef) -> Self::Buffer {
+    fn with_capacity(rows: usize, _allocator: &BufferAllocatorRef) -> Self::Buffer {
         vec![MaybeUninit::uninit(); rows]
     }
 }

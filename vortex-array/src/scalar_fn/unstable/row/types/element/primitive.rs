@@ -109,7 +109,7 @@ impl<T: NativePType> OutputElement for T {
         DType::Primitive(T::PTYPE, Nullability::NonNullable)
     }
 
-    fn allocate(rows: usize, allocator: &BufferAllocatorRef) -> Self::Buffer {
+    fn with_capacity(rows: usize, allocator: &BufferAllocatorRef) -> Self::Buffer {
         allocator.with_capacity(rows)
     }
 }

@@ -112,7 +112,7 @@ unsafe impl<T: OutputElement + Copy + Default> OutputSink for UninitElementSink<
         allocator: &BufferAllocatorRef,
     ) -> VortexResult<Self> {
         Ok(Self {
-            values: T::allocate(rows, allocator),
+            values: T::with_capacity(rows, allocator),
             allocator: allocator.clone(),
             row_count: rows,
         })

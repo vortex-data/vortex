@@ -36,11 +36,12 @@ pub trait OutputElement: 'static + Sized + Default {
     ///
     /// Finishing the buffer must produce an all-valid column whose dtype matches
     /// [`element_dtype`](Self::element_dtype) except for outer nullability.
-    fn allocate(rows: usize, allocator: &BufferAllocatorRef) -> Self::Buffer;
+    fn with_capacity(rows: usize, allocator: &BufferAllocatorRef) -> Self::Buffer;
 
     /// Map a contiguous row source directly into an all-valid column.
     ///
-    /// The default writes into the storage returned by [`allocate`](Self::allocate), then finishes it.
+    /// The default writes into the storage returned by [`with_capacity`](Self::with_capacity), then
+    /// finishes it.
     /// An output type can override this method when its physical representation supports a more
     /// efficient bulk mapping. The implementation **must** call `apply` exactly once for every
     /// source row in increasing order and return the same values as the default implementation.
@@ -57,7 +58,7 @@ pub trait OutputElement: 'static + Sized + Default {
         F: Fn(S::Item) -> Self,
     {
         let row_count = source.len();
-        let mut values = Self::allocate(row_count, allocator);
+        let mut values = Self::with_capacity(row_count, allocator);
         let output = &mut values.slots()[..row_count];
 
         source.map_into(output, apply);
