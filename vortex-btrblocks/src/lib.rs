@@ -82,6 +82,7 @@ pub use vortex_compressor::scheme::SchemeExt;
 pub use vortex_compressor::scheme::SchemeId;
 pub use vortex_compressor::session::CompressionSession;
 pub use vortex_compressor::session::CompressionSessionExt;
+pub use vortex_compressor::session::permit_schemes;
 pub use vortex_compressor::stats::ArrayAndStats;
 pub use vortex_compressor::stats::BoolStats;
 pub use vortex_compressor::stats::FloatStats;
@@ -138,8 +139,8 @@ pub const DEFAULT_SCHEMES: &[&dyn Scheme] = &[
     ////////////////////////////////////////////////////////////////////////////////////////////////
     &binary::BinaryDictScheme,
     &binary::VarBinScheme,
-    // Decimal schemes.
-    &decimal::DecimalScheme,
+    // Decimal schemes. Permitting the v2 format upgrades this to the multi-part variant.
+    &decimal::DecimalScheme::v1(),
     // Temporal schemes.
     &temporal::TemporalScheme,
 ];

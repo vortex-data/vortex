@@ -28,6 +28,7 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_error::VortexResult;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::CascadingCompressor;
 use crate::stats::ArrayAndStats;
@@ -134,6 +135,15 @@ pub trait Scheme: Debug + Send + Sync {
     /// For most encodings this is the in-memory encoding ID. An encoding with several wire
     /// formats declares the wire IDs the scheme writes, which may differ from its in-memory ID.
     fn produced_encodings(&self) -> Vec<ArrayId>;
+
+    /// Returns a newer variant of this scheme that the permitted serialized IDs support.
+    ///
+    /// `None` keeps this scheme. A variant must share this scheme's [`SchemeId`] and must not
+    /// downgrade what was registered. Every ID the variant declares in
+    /// [`produced_encodings`](Self::produced_encodings) must still be permitted for it to be used.
+    fn try_upgrade(&self, _allowed: &HashSet<ArrayId>) -> Option<&'static dyn Scheme> {
+        None
+    }
 
     /// Returns the stats generation options this scheme requires. The compressor merges all
     /// eligible schemes' options before generating stats so that a single stats pass satisfies

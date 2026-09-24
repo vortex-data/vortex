@@ -153,6 +153,7 @@ pub mod compressor {
     pub use vortex_btrblocks::Scheme;
     pub use vortex_btrblocks::SchemeExt;
     pub use vortex_btrblocks::SchemeId;
+    pub use vortex_btrblocks::permit_schemes;
     pub use vortex_btrblocks::schemes;
 }
 

@@ -9,6 +9,7 @@
 
 use std::any::Any;
 
+use vortex_array::ArrayId;
 use vortex_edition::ComponentKind;
 use vortex_edition::EditionSessionExt;
 use vortex_session::SessionExt;
@@ -78,25 +79,38 @@ pub trait CompressionSessionExt: SessionExt {
         self.permit(self.registered_schemes())
     }
 
-    /// Keeps the schemes in `schemes` whose serialized IDs the enabled editions all permit.
+    /// Keeps the schemes in `schemes` whose serialized IDs the enabled editions all permit,
+    /// see [`permit_schemes`].
     fn permit(&self, schemes: Vec<&'static dyn Scheme>) -> Vec<&'static dyn Scheme> {
-        let allowed: HashSet<_> = self
+        let allowed = self
             .enabled_component_ids(ComponentKind::Array)
             .into_iter()
             .collect();
-        schemes
-            .into_iter()
-            .filter(|scheme| {
-                scheme
-                    .produced_encodings()
-                    .iter()
-                    .all(|id| allowed.contains(id))
-            })
-            .collect()
+        permit_schemes(schemes, &allowed)
     }
 }
 
 impl<S: SessionExt> CompressionSessionExt for S {}
+
+/// Keeps the schemes in `schemes` whose serialized IDs are all in `allowed`.
+///
+/// A scheme with several wire formats is first replaced by the variant it offers for `allowed`,
+/// see [`Scheme::try_upgrade`], so a newer format is used exactly when the writer permits it.
+pub fn permit_schemes(
+    schemes: Vec<&'static dyn Scheme>,
+    allowed: &HashSet<ArrayId>,
+) -> Vec<&'static dyn Scheme> {
+    schemes
+        .into_iter()
+        .map(|scheme| scheme.try_upgrade(allowed).unwrap_or(scheme))
+        .filter(|scheme| {
+            scheme
+                .produced_encodings()
+                .iter()
+                .all(|id| allowed.contains(id))
+        })
+        .collect()
+}
 
 #[cfg(test)]
 mod tests {

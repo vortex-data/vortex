@@ -607,7 +607,20 @@ pub fn cuda_compatible_schemes(session: &VortexSession) -> Vec<&'static dyn Sche
         .collect();
     cuda.push(&schemes::binary::ZstdScheme);
     cuda.push(&schemes::binary::ZstdBuffersScheme);
-    session.permit(cuda)
+    // Multi-part DecimalByteParts arrays have no CUDA decode kernel, so wide decimals stay
+    // canonical: keep the single-part variant even where the editions would permit v2.
+    static DECIMAL_V1: schemes::decimal::DecimalScheme = schemes::decimal::DecimalScheme::v1();
+    session
+        .permit(cuda)
+        .into_iter()
+        .map(|scheme| {
+            if scheme.id() == DECIMAL_V1.id() {
+                &DECIMAL_V1 as &dyn Scheme
+            } else {
+                scheme
+            }
+        })
+        .collect()
 }
 
 #[derive(Clone, Debug)]
