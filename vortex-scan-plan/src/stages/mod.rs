@@ -14,6 +14,19 @@ use std::sync::Arc;
 use vortex_array::expr::Expression;
 use vortex_file::Footer;
 use vortex_io::VortexReadAt;
+use vortex_io::runtime::BlockingRuntime;
+use vortex_session::VortexSession;
+
+use crate::next::Next;
+use crate::next::PendingPlanner;
+use crate::next::next_fn;
+use crate::next::pending;
+use crate::planner::Planner;
+use crate::stages::filter_project::FilterProject;
+use crate::stages::footer_open::DEFAULT_INITIAL_READ_SIZE;
+use crate::stages::footer_open::FooterOpen;
+use crate::stages::footer_prune::FooterPrune;
+use crate::stages::range_morsel::RangeOnly;
 
 /// A file to open: what is already known about it and how to read the rest.
 pub struct FileSource {
@@ -41,4 +54,53 @@ pub struct ScanQuery {
     pub filter: Option<Expression>,
     /// Output expression, or none to emit the diagnostic range morsel instead of data.
     pub projection: Option<Expression>,
+}
+
+/// Composes the stages for one file into pending root work: footer open, file-statistics
+/// pruning, then filter-and-project when the query has a projection or the diagnostic range
+/// morsel otherwise.
+///
+/// The session and runtime are captured by the `Next` closures, not passed between stages.
+pub fn plan_file<R: BlockingRuntime + Send + Sync + 'static>(
+    source: FileSource,
+    query: ScanQuery,
+    session: VortexSession,
+    runtime: Arc<R>,
+) -> Box<dyn PendingPlanner> {
+    let ScanQuery { filter, projection } = query;
+    let after_prune: Next<OpenedFile> = match projection {
+        Some(projection) => {
+            let filter = filter.clone();
+            let session = session.clone();
+            next_fn(move |opened: OpenedFile| {
+                Ok(FilterProject::new(
+                    opened,
+                    filter.clone(),
+                    projection.clone(),
+                    session.clone(),
+                    Arc::clone(&runtime),
+                ))
+            })
+        }
+        None => next_fn(|opened: OpenedFile| Ok(RangeOnly::new(opened))),
+    };
+    let after_open: Next<OpenedFile> = {
+        let session = session.clone();
+        next_fn(move |opened: OpenedFile| {
+            Ok(FooterPrune::new(
+                opened,
+                filter.clone(),
+                session.clone(),
+                Arc::clone(&after_prune),
+            ))
+        })
+    };
+    pending(move || {
+        Ok(Box::new(FooterOpen::new(
+            source,
+            DEFAULT_INITIAL_READ_SIZE,
+            session,
+            after_open,
+        )) as Box<dyn Planner>)
+    })
 }
