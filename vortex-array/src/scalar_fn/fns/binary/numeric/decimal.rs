@@ -3,11 +3,12 @@
 
 //! Native execution of the arithmetic operators over decimal arrays.
 //!
-//! Both operands share a logical [`DecimalDType`] (equal precision and scale). Add and Sub apply
-//! directly to the unscaled stored integers and are exact at that shared scale. Mul takes the raw
-//! product, which the doubled result scale leaves correctly scaled, and Div rescales the dividend
-//! (or the divisor, for a negative result scale) before integer division. Result precision and
-//! scale follow Arrow's rules — see [`decimal_numeric_result_dtype`].
+//! Operands are decimals of any precision and scale, or signed integers, which act as decimals of
+//! scale zero. Add and Sub align both stored integers to the finer scale; with equal scales they
+//! apply directly. Mul takes the raw product, which the summed result scale leaves correctly
+//! scaled, and Div rescales the dividend (or the divisor, for a negative exponent) before integer
+//! division. Result precision and scale follow Arrow's rules — see
+//! [`decimal_binary_result_dtype`](crate::scalar::decimal_binary_result_dtype).
 //!
 //! Lanes execute in a working width wide enough that in-precision inputs cannot spuriously
 //! overflow an intermediate, then narrow to the result's own storage width. Every lane is still
@@ -16,11 +17,12 @@
 //! overflow it. An operation that overflows the result precision on a valid lane is an error;
 //! invalid lanes never error.
 //!
-//! Storage width is independent of precision, so two arrays sharing a dtype may still be stored
-//! at different widths. A mismatched pair is widened to the wider of the two before the lane
-//! loop, zero-copy when they already match, so each working width and operator monomorphizes
-//! one array kernel per storage width rather than one per pair of storage widths.
+//! Storage width is independent of precision, so two operands may be stored at different widths.
+//! A mismatched pair is widened to the wider of the two before the lane loop, zero-copy when they
+//! already match, so each working width and operator monomorphizes one array kernel per storage
+//! width rather than one per pair of storage widths.
 
+use std::marker::PhantomData;
 use std::ops::Mul;
 
 use num_traits::CheckedAdd;
@@ -33,11 +35,14 @@ use vortex_buffer::BufferMut;
 use vortex_compute::lane_kernels::LaneZip;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
 
 use super::checked::checked_lanes;
+use super::decimal_operand_dtype;
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -52,26 +57,24 @@ use crate::dtype::DecimalDType;
 use crate::dtype::DecimalType;
 use crate::dtype::NativeDecimalType;
 use crate::match_each_decimal_value_type;
+use crate::match_each_signed_integer_ptype;
 use crate::scalar::DecimalValue;
 use crate::scalar::NumericOperator;
 use crate::scalar::Scalar;
-use crate::scalar::decimal_numeric_result_dtype;
+use crate::scalar::decimal_align_exponents;
 use crate::scalar::decimal_numeric_work_dtype;
 use crate::validity::Validity;
 
-/// Execute a numeric operation between two decimal arrays sharing a decimal dtype.
+/// Execute a numeric operation whose result is `result_decimal_dtype`.
 pub(super) fn execute_numeric_decimal(
     lhs: &ArrayRef,
     rhs: &ArrayRef,
     op: NumericOperator,
+    result_decimal_dtype: DecimalDType,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let decimal_dtype = lhs
-        .dtype()
-        .as_decimal_opt()
-        .vortex_expect("inputs are both decimals");
-
-    let result_decimal_dtype = decimal_numeric_result_dtype(*decimal_dtype, op)?;
+    let lhs_dtype = decimal_operand_dtype(lhs.dtype()).vortex_expect("lhs is a decimal operand");
+    let rhs_dtype = decimal_operand_dtype(rhs.dtype()).vortex_expect("rhs is a decimal operand");
     let result_dtype = DType::Decimal(
         result_decimal_dtype,
         lhs.dtype().nullability() | rhs.dtype().nullability(),
@@ -82,10 +85,10 @@ pub(super) fn execute_numeric_decimal(
         return Ok(null_result(&result_dtype, lhs.len()));
     }
 
-    let Some(lhs) = DecimalOperand::try_new(lhs, ctx)? else {
+    let Some(lhs) = DecimalOperand::try_new(lhs, lhs_dtype, ctx)? else {
         return Ok(null_result(&result_dtype, lhs.len()));
     };
-    let Some(rhs) = DecimalOperand::try_new(rhs, ctx)? else {
+    let Some(rhs) = DecimalOperand::try_new(rhs, rhs_dtype, ctx)? else {
         return Ok(null_result(&result_dtype, rhs.len()));
     };
     let len = lhs.len();
@@ -94,9 +97,12 @@ pub(super) fn execute_numeric_decimal(
     let validity = lhs.validity().and(rhs.validity())?;
     let valid_rows = validity.execute_mask(len, ctx)?;
 
-    let work_dtype = decimal_numeric_work_dtype(*decimal_dtype, result_decimal_dtype, op);
+    let work_dtype = decimal_numeric_work_dtype(lhs_dtype, rhs_dtype, result_decimal_dtype, op);
+    let (lhs_exp, rhs_exp) =
+        decimal_align_exponents(lhs_dtype, rhs_dtype, result_decimal_dtype, op);
+    let aligned = lhs_exp != 0 || rhs_exp != 0;
     match_each_decimal_value_type!(DecimalType::smallest_decimal_value_type(&work_dtype), |W| {
-        let constants = DecimalOpConstants::<W>::new(result_decimal_dtype, op)?;
+        let constants = DecimalOpConstants::<W>::new(result_decimal_dtype, lhs_exp, rhs_exp)?;
         macro_rules! execute_typed {
             ($Op:ty) => {
                 execute_decimal_typed::<W, $Op>(
@@ -112,11 +118,14 @@ pub(super) fn execute_numeric_decimal(
             };
         }
 
+        // Equal-scale Add and Sub skip the per-lane alignment multiply.
         match op {
+            NumericOperator::Add if aligned => execute_typed!(Aligned<CheckedDecimalAdd>),
             NumericOperator::Add => execute_typed!(CheckedDecimalAdd),
+            NumericOperator::Sub if aligned => execute_typed!(Aligned<CheckedDecimalSub>),
             NumericOperator::Sub => execute_typed!(CheckedDecimalSub),
             NumericOperator::Mul => execute_typed!(CheckedDecimalMul),
-            NumericOperator::Div => execute_typed!(CheckedDecimalDiv),
+            NumericOperator::Div => execute_typed!(Aligned<CheckedDecimalDiv>),
         }
     })
 }
@@ -132,6 +141,8 @@ fn null_result(dtype: &DType, len: usize) -> ArrayRef {
 }
 
 /// A decimal binary-operator operand: a canonical decimal array or a non-null constant.
+///
+/// Signed integer operands are viewed as decimals of scale zero over the same buffer.
 enum DecimalOperand {
     Array {
         values: DecimalArray,
@@ -145,11 +156,15 @@ enum DecimalOperand {
 }
 
 impl DecimalOperand {
-    fn try_new(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Option<Self>> {
+    fn try_new(
+        array: &ArrayRef,
+        decimal_dtype: DecimalDType,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Self>> {
         let columnar = array.clone().execute::<Columnar>(ctx)?;
 
         match columnar {
-            Columnar::Constant(array) => match array.scalar().as_decimal().decimal_value() {
+            Columnar::Constant(array) => match constant_decimal_value(array.scalar())? {
                 Some(value) => Ok(Some(Self::Constant {
                     value,
                     len: array.len(),
@@ -161,10 +176,19 @@ impl DecimalOperand {
                 })),
                 None => Ok(None),
             },
-            Columnar::Canonical(array) => {
-                let values = array.as_decimal().to_owned();
+            Columnar::Canonical(Canonical::Decimal(values)) => {
                 let validity = values.validity()?;
                 Ok(Some(Self::Array { values, validity }))
+            }
+            Columnar::Canonical(Canonical::Primitive(values)) => {
+                let validity = values.validity()?;
+                let values = match_each_signed_integer_ptype!(values.ptype(), |T| {
+                    DecimalArray::new(values.to_buffer::<T>(), decimal_dtype, validity.clone())
+                });
+                Ok(Some(Self::Array { values, validity }))
+            }
+            Columnar::Canonical(values) => {
+                vortex_bail!("unsupported decimal operand dtype {}", values.dtype())
             }
         }
     }
@@ -180,6 +204,20 @@ impl DecimalOperand {
         match self {
             Self::Array { validity, .. } | Self::Constant { validity, .. } => validity.clone(),
         }
+    }
+}
+
+/// The value of a decimal or signed integer constant, or `None` if it is null.
+fn constant_decimal_value(scalar: &Scalar) -> VortexResult<Option<DecimalValue>> {
+    match scalar.dtype() {
+        DType::Decimal(..) => Ok(scalar.as_decimal().decimal_value()),
+        DType::Primitive(ptype, _) => match_each_signed_integer_ptype!(ptype, |T| {
+            Ok(scalar
+                .as_primitive()
+                .try_typed_value::<T>()?
+                .map(DecimalValue::from))
+        }),
+        dtype => vortex_bail!("unsupported decimal operand dtype {dtype}"),
     }
 }
 
@@ -213,7 +251,8 @@ impl<W: NativeDecimalType> DecimalValueBounds<W> {
 /// lane loop.
 struct DecimalOpConstants<W> {
     bounds: DecimalValueBounds<W>,
-    /// Arrow's division rescaling factors. Both are one for every other operator.
+    /// Powers of ten that align the operands before the operator applies. See
+    /// [`decimal_align_exponents`].
     lhs_scale_factor: W,
     rhs_scale_factor: W,
 }
@@ -222,26 +261,11 @@ impl<W> DecimalOpConstants<W>
 where
     W: NativeDecimalType + CheckedMul,
 {
-    fn new(result: DecimalDType, op: NumericOperator) -> VortexResult<Self> {
-        let one = <W as BigCast>::from(1_i8).vortex_expect("one fits every decimal working width");
-        let (lhs_scale_factor, rhs_scale_factor) = if op == NumericOperator::Div {
-            // Arrow scales the quotient by 10^(result_scale - lhs_scale + rhs_scale). Both
-            // Vortex operands share a dtype, so this simplifies to 10^result_scale. A negative
-            // exponent scales the divisor instead of the dividend.
-            let exponent = <u32 as From<u8>>::from(result.scale().unsigned_abs());
-            if result.scale() >= 0 {
-                (decimal_scale_factor::<W>(exponent)?, one)
-            } else {
-                (one, decimal_scale_factor::<W>(exponent)?)
-            }
-        } else {
-            (one, one)
-        };
-
+    fn new(result: DecimalDType, lhs_exp: u32, rhs_exp: u32) -> VortexResult<Self> {
         Ok(Self {
             bounds: DecimalValueBounds::new(result),
-            lhs_scale_factor,
-            rhs_scale_factor,
+            lhs_scale_factor: decimal_scale_factor::<W>(lhs_exp)?,
+            rhs_scale_factor: decimal_scale_factor::<W>(rhs_exp)?,
         })
     }
 }
@@ -280,6 +304,9 @@ struct CheckedDecimalSub;
 struct CheckedDecimalMul;
 
 struct CheckedDecimalDiv;
+
+/// Scales both operands by their alignment factors, then applies `Op`.
+struct Aligned<Op>(PhantomData<Op>);
 
 impl CheckedDecimalOp for CheckedDecimalAdd {
     const ERROR: &'static str = "decimal overflow in checked add";
@@ -321,9 +348,20 @@ impl CheckedDecimalOp for CheckedDecimalDiv {
     where
         W: NativeDecimalType + CheckedAdd + CheckedSub + CheckedMul + CheckedDiv + Mul<Output = W>,
     {
+        constants.bounds.in_precision(lhs.checked_div(&rhs)?)
+    }
+}
+
+impl<Op: CheckedDecimalOp> CheckedDecimalOp for Aligned<Op> {
+    const ERROR: &'static str = Op::ERROR;
+
+    fn apply<W>(lhs: W, rhs: W, constants: &DecimalOpConstants<W>) -> Option<W>
+    where
+        W: NativeDecimalType + CheckedAdd + CheckedSub + CheckedMul + CheckedDiv + Mul<Output = W>,
+    {
         let lhs = lhs.checked_mul(&constants.lhs_scale_factor)?;
         let rhs = rhs.checked_mul(&constants.rhs_scale_factor)?;
-        constants.bounds.in_precision(lhs.checked_div(&rhs)?)
+        Op::apply(lhs, rhs, constants)
     }
 }
 
