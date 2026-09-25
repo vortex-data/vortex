@@ -27,7 +27,6 @@ use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
-use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
 use vortex::expr::byte_length;
