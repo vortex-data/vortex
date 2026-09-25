@@ -36,10 +36,6 @@ fn encode_byte_parts(
     )
 }
 
-#[expect(
-    dead_code,
-    reason = "Unused until `vortex.decimal_byte_parts.v2` joins an edition"
-)]
 pub struct DecimalBytePartsV2Fixture;
 
 impl FlatLayoutFixture for DecimalBytePartsV2Fixture {

@@ -12,6 +12,10 @@ mod bytebool;
 mod constant;
 mod datetimeparts;
 mod decimal_byte_parts;
+#[expect(
+    dead_code,
+    reason = "Unused until `vortex.decimal_byte_parts.v2` joins an edition"
+)]
 mod decimal_byte_parts_v2;
 mod delta;
 mod dict;
