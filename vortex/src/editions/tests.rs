@@ -15,6 +15,7 @@ use vortex_array::dtype::PType;
 use vortex_array::extension::datetime::Date;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::session::ArraySessionExt;
+use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_buffer::ByteBufferMut;
 use vortex_edition::ComponentKind;
 use vortex_edition::Edition;
@@ -572,7 +573,9 @@ async fn btrblocks_respects_enabled_array_encodings() -> VortexResult<()> {
 #[tokio::test]
 async fn explicit_btrblocks_strategy_is_not_reconfigured() -> VortexResult<()> {
     let session = writer_test_session()?;
-    let strategy = WriteStrategyBuilder::from_session(&session).build();
+    let strategy = WriteStrategyBuilder::from_session(&session)
+        .with_btrblocks_builder(BtrBlocksCompressorBuilder::from_session(&session).unrestricted())
+        .build();
     let mut buffer = ByteBufferMut::empty();
 
     let error = session
