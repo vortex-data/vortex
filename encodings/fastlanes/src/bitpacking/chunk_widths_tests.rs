@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Tests for the chunk layout children of uniformly bit-packed arrays.
+//! Behavioural tests for bit-packed arrays whose chunks are packed at different widths.
 
 use std::sync::LazyLock;
 
@@ -9,7 +9,9 @@ use rstest::rstest;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::slice::SliceKernel;
 use vortex_array::assert_arrays_eq;
+use vortex_array::scalar::Scalar;
 use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
@@ -64,7 +66,26 @@ fn invalid_offsets_rejected_before_unpacking(#[case] offsets: Buffer<u64>) -> Vo
     let values = PrimitiveArray::from_iter((0..3072u32).map(|i| i % 2));
     let packed = bitpack_to_best_bit_width(&values, &mut ctx)?;
     let offsets = offsets.into_array();
-    assert!(BitPacked::with_chunk_offsets(packed, offsets).is_err());
+    assert!(BitPacked::with_chunk_offsets(packed.clone(), offsets.clone()).is_err());
+    let offsets = offsets.execute::<PrimitiveArray>(&mut ctx)?;
+    let offsets = bitpack_to_best_bit_width(&offsets, &mut ctx)?.into_array();
+    let packed = BitPacked::with_chunk_offsets(packed, offsets)?.into_array();
+    // An isolated scalar checks only its own chunk; bulk unpacking validates the whole layout.
+    assert_eq!(packed.execute_scalar(1, &mut ctx)?, Scalar::from(1u32));
+    assert!(packed.execute_scalar(2048, &mut ctx).is_err());
+    assert!(packed.execute::<PrimitiveArray>(&mut ctx).is_err());
+    Ok(())
+}
+
+#[test]
+fn slice_rejects_unaligned_offsets() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let values = PrimitiveArray::from_iter((0..3072u32).map(|i| i % 2));
+    let packed = bitpack_to_best_bit_width(&values, &mut ctx)?;
+    let offsets = PrimitiveArray::from_iter([0u64, 127, 255, 383]);
+    let offsets = bitpack_to_best_bit_width(&offsets, &mut ctx)?.into_array();
+    let packed = BitPacked::with_chunk_offsets(packed, offsets)?;
+    assert!(<BitPacked as SliceKernel>::slice(packed.as_view(), 1024..2048, &mut ctx).is_err());
     Ok(())
 }
 

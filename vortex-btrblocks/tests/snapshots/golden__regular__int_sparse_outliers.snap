@@ -10,6 +10,6 @@ root: vortex.sparse(i64, len=16384) nbytes=5556
   patch_values: fastlanes.for(i64, len=848) nbytes=3856
     metadata: reference: 1000830099i64
     encoded: fastlanes.bitpacked(i64, len=848) nbytes=3856
-      metadata: bit_width: 30, offset: 0
+      metadata: offset: 0
       chunk_offsets: vortex.primitive(u64, len=2) nbytes=16
         metadata: ptype: u64

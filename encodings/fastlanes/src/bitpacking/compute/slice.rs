@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::cmp::max;
 use std::ops::Range;
 
 use vortex_array::ArrayRef;
@@ -12,6 +11,7 @@ use vortex_array::arrays::slice::SliceKernel;
 use vortex_array::arrays::slice::SliceReduce;
 use vortex_array::patches::Patches;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 
 use crate::BitPacked;
 use crate::BitPackedArraySlotsExt;
@@ -24,7 +24,12 @@ impl SliceReduce for BitPacked {
             return Ok(None);
         }
 
-        Ok(Some(slice_bitpacked(array, range, None)?))
+        let Some(widths) = array.materialized_chunk_layout()? else {
+            return Ok(None);
+        };
+        let (chunks, _) = slice_chunks(array.offset(), &range);
+        let encoded = widths.byte_offset(chunks.start)..widths.byte_offset(chunks.end);
+        Ok(Some(slice_bitpacked(array, encoded, range, None)?))
     }
 }
 
@@ -32,7 +37,7 @@ impl SliceKernel for BitPacked {
     fn slice(
         array: ArrayView<'_, Self>,
         range: Range<usize>,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let patches = array
             .patches()
@@ -40,36 +45,49 @@ impl SliceKernel for BitPacked {
             .transpose()?
             .flatten();
 
-        Ok(Some(slice_bitpacked(array, range, patches)?))
+        let (chunks, _) = slice_chunks(array.offset(), &range);
+        let base = array.chunk_byte_offset(0, ctx)?;
+        let start = array.chunk_byte_offset(chunks.start, ctx)?;
+        let end = array.chunk_byte_offset(chunks.end, ctx)?;
+        vortex_ensure!(
+            base <= start
+                && start <= end
+                && end - base <= array.packed().len() as u64
+                && (start - base).is_multiple_of(128)
+                && (end - base).is_multiple_of(128),
+            "Slice chunk offsets exceed the packed buffer"
+        );
+        let encoded = usize::try_from(start - base)?..usize::try_from(end - base)?;
+        Ok(Some(slice_bitpacked(array, encoded, range, patches)?))
     }
 }
 
 fn slice_bitpacked(
     array: ArrayView<'_, BitPacked>,
+    encoded: Range<usize>,
     range: Range<usize>,
     patches: Option<Patches>,
 ) -> VortexResult<ArrayRef> {
-    let offset_start = range.start + array.offset() as usize;
-    let offset_stop = range.end + array.offset() as usize;
-    let offset = offset_start % 1024;
-    let block_start = max(0, offset_start - offset);
-    let block_stop = offset_stop.div_ceil(1024) * 1024;
-
-    let encoded_start = (block_start / 8) * array.bit_width() as usize;
-    let encoded_stop = (block_stop / 8) * array.bit_width() as usize;
+    let (chunks, offset) = slice_chunks(array.offset(), &range);
+    let chunk_start = chunks.start;
+    let chunk_stop = chunks.end;
 
     Ok(BitPacked::try_new(
-        array.packed().slice(encoded_start..encoded_stop),
+        array.packed().slice(encoded),
         array.dtype().as_ptype(),
         array.validity()?.slice(range.clone())?,
         patches,
-        array
-            .chunk_offsets()
-            .slice(block_start / 1024..block_stop / 1024 + 1)?,
+        array.chunk_offsets().slice(chunk_start..chunk_stop + 1)?,
         range.len(),
         offset as u16,
     )?
     .into_array())
+}
+
+fn slice_chunks(offset: u16, range: &Range<usize>) -> (Range<usize>, usize) {
+    let start = range.start + offset as usize;
+    let stop = range.end + offset as usize;
+    (start / 1024..stop.div_ceil(1024), start % 1024)
 }
 
 #[cfg(test)]
@@ -82,7 +100,7 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::BitPacked;
-    use crate::bitpack_compress::bitpack_encode;
+    use crate::bitpacking::bitpack_compress::bitpack_encode;
 
     #[test]
     fn test_reduce_parent_returns_bitpacked_slice() -> VortexResult<()> {

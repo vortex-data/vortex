@@ -34,7 +34,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -45,9 +44,7 @@ use crate::BitPackedData;
 use crate::BitPackedDataParts;
 use crate::bitpacking::array::BitPackedSlots;
 use crate::bitpacking::array::BitPackedSlotsView;
-use crate::bitpacking::array::CHUNK_OFFSETS_DTYPE;
 use crate::bitpacking::array::PATCH_SLOTS;
-use crate::bitpacking::array::materialized_layout;
 use crate::bitpacking::bitpack_decompress::unpack_array;
 use crate::bitpacking::bitpack_decompress::unpack_into_primitive_builder;
 use crate::bitpacking::vtable::rules::RULES;
@@ -66,7 +63,6 @@ pub(crate) fn initialize(session: &VortexSession) {
 impl ArrayHash for BitPackedData {
     fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: EqMode) {
         self.offset.hash(state);
-        self.bit_width.hash(state);
         self.packed.array_hash(state, accuracy);
         self.patches_data.hash(state);
     }
@@ -75,7 +71,6 @@ impl ArrayHash for BitPackedData {
 impl ArrayEq for BitPackedData {
     fn array_eq(&self, other: &Self, accuracy: EqMode) -> bool {
         self.offset == other.offset
-            && self.bit_width == other.bit_width
             && self.packed.array_eq(&other.packed, accuracy)
             && self.patches_data == other.patches_data
     }
@@ -237,14 +232,6 @@ impl BitPacked {
         len: usize,
         offset: u16,
     ) -> VortexResult<BitPackedArray> {
-        vortex_ensure!(
-            chunk_offsets.dtype() == &CHUNK_OFFSETS_DTYPE,
-            "Expected non-nullable u64 offsets"
-        );
-        let layout = materialized_layout(&chunk_offsets)?.ok_or_else(|| {
-            vortex_err!("Chunk offsets must be materialized while kernels use bit_width")
-        })?;
-        let bit_width = layout.uniform_width().unwrap_or(0);
         let dtype = DType::Primitive(ptype, validity.nullability());
         let slots = {
             let mut s = ArraySlots::with_capacity(BitPackedSlots::COUNT);
@@ -253,12 +240,12 @@ impl BitPacked {
             s.push(Some(chunk_offsets));
             s
         };
-        let data = BitPackedData::try_new(packed, patches, bit_width, offset)?;
+        let data = BitPackedData::try_new(packed, patches, offset)?;
         Array::try_from_parts(ArrayParts::new(BitPacked, dtype, len, data).with_slots(slots))
     }
 
     /// Replace the non-nullable `u64` chunk boundaries, including the trailing boundary.
-    /// Boundaries must remain materialized and imply the scalar `bit_width`.
+    /// Compressed values are validated at execution time, before unpacking.
     pub fn with_chunk_offsets(
         array: BitPackedArray,
         offsets: ArrayRef,
@@ -280,7 +267,6 @@ impl BitPacked {
         let data = array.into_data();
         BitPackedDataParts {
             offset: data.offset,
-            bit_width: data.bit_width,
             chunk_offsets,
             len,
             packed: data.packed,

@@ -6,11 +6,11 @@ input: f64, len=16384, nbytes=131072
 root: vortex.alprd(f64, len=16384) nbytes=113152
   metadata: right_bit_width: 52, patch_offset: 0
   left_parts: fastlanes.bitpacked(u16, len=16384) nbytes=6280
-    metadata: bit_width: 3, offset: 0
+    metadata: offset: 0
     chunk_offsets: vortex.primitive(u64, len=17) nbytes=136
       metadata: ptype: u64
   right_parts: fastlanes.bitpacked(u64, len=16384) nbytes=106632
-    metadata: bit_width: 52, offset: 0
+    metadata: offset: 0
     chunk_offsets: vortex.primitive(u64, len=17) nbytes=136
       metadata: ptype: u64
   patch_indices: vortex.primitive(u16, len=60) nbytes=120
