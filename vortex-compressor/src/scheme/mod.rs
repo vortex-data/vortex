@@ -135,6 +135,15 @@ pub trait Scheme: Debug + Send + Sync {
     /// formats declares the wire IDs the scheme writes, which may differ from its in-memory ID.
     fn produced_encodings(&self) -> Vec<ArrayId>;
 
+    /// Returns the variant of this scheme to use given which serialized IDs are `allowed`.
+    ///
+    /// `None` keeps this scheme. A variant must share this scheme's [`SchemeId`]. Every ID the
+    /// variant declares in [`produced_encodings`](Self::produced_encodings) must still be allowed
+    /// for it to be used.
+    fn refine(&self, _allowed: &dyn Fn(&ArrayId) -> bool) -> Option<&'static dyn Scheme> {
+        None
+    }
+
     /// Returns the stats generation options this scheme requires. The compressor merges all
     /// eligible schemes' options before generating stats so that a single stats pass satisfies
     /// every scheme.
