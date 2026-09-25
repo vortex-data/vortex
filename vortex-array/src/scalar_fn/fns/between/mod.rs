@@ -25,7 +25,6 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::DType::Bool;
 use crate::expr::display::ExprDisplay;
-use crate::expr::expression::Expression;
 use crate::proto::expr as pb;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
@@ -327,21 +326,8 @@ impl ScalarFnVTable for Between {
         between_canonical(&arr, &lower, &upper, options, ctx)
     }
 
-    fn validity(
-        &self,
-        _options: &Self::Options,
-        _expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
-        // `Between` stands for two compares under Kleene `AND`, and `null AND false` is `false`,
-        // so a null bound does not make a row null. There is no validity expression to derive,
-        // which is also why `Binary` returns `None` for `Operator::And`.
-        Ok(None)
-    }
-
     fn is_strict(&self, _options: &Self::Options) -> bool {
-        // Not strict for the same reason `validity` returns `None` above: under Kleene `AND` a
-        // null bound does not force a null row.
-        false
+        false // NULL AND false = false
     }
 
     fn is_infallible(&self, _options: &Self::Options) -> bool {
@@ -355,6 +341,7 @@ mod tests {
 
     use rstest::rstest;
     use vortex_buffer::buffer;
+    use vortex_error::vortex_err;
 
     use super::*;
     use crate::IntoArray;
@@ -362,6 +349,7 @@ mod tests {
     use crate::arrays::BoolArray;
     use crate::arrays::DecimalArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::ScalarFn;
     use crate::arrays::StructArray;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
@@ -375,6 +363,7 @@ mod tests {
     use crate::expr::root;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
+    use crate::scalar_fn::fns::is_not_null::IsNotNull;
     use crate::test_harness::to_int_indices;
     use crate::validity::Validity;
 
@@ -389,6 +378,26 @@ mod tests {
     fn null_i32s(len: usize) -> ArrayRef {
         let null = Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable));
         ConstantArray::new(null, len).into_array()
+    }
+
+    #[test]
+    fn lazy_validity() -> VortexResult<()> {
+        let ctx = &mut SESSION.create_execution_ctx();
+
+        let x = PrimitiveArray::from_option_iter([Some(10), Some(10), Some(1)]).into_array();
+        let lo = PrimitiveArray::from_option_iter([None, None, Some(0)]).into_array();
+        let hi = PrimitiveArray::from_option_iter([Some(5), Some(50), Some(5)]).into_array();
+
+        let data = StructArray::from_fields(&[("x", x), ("lo", lo), ("hi", hi)])?.into_array();
+        let lazy = data.apply(&between(col("x"), col("lo"), col("hi"), NON_STRICT))?;
+
+        let Validity::Array(validity) = lazy.validity()? else {
+            vortex_bail!("non-lazy validity");
+        };
+        let scalar_fn = validity.as_::<ScalarFn>();
+        assert!(scalar_fn.scalar_fn().is::<IsNotNull>());
+        assert_arrays_eq!(validity, BoolArray::from_iter([true, false, true]), ctx);
+        Ok(())
     }
 
     /// A declared validity expression must agree with the mask of the executed result.
@@ -416,8 +425,9 @@ mod tests {
             .execute::<BoolArray>(ctx)?
             .opt_bool_vec(ctx);
 
+        let validity_expr = expr.validity(data.dtype())?;
         let declared = data
-            .apply(&expr.validity()?)?
+            .apply(&validity_expr)?
             .execute::<BoolArray>(ctx)?
             .bool_vec(ctx);
 
