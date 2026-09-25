@@ -12,6 +12,10 @@ use vortex_array::buffer::BufferHandle;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
+mod source;
+
+pub use source::ReadAtIoSource;
+
 /// Consumer-chosen label for one request, unique within the issuing object.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct IoRequestId(pub u32);
