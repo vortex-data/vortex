@@ -98,6 +98,12 @@ impl Array<Slice> {
         let len = range.len();
         let dtype = child.dtype().clone();
         let data = SliceData::try_new(child.len(), range)?;
-        Ok(ArrayParts::new(Slice, dtype, len, data).with_slots(SliceSlots { child }.into_slots()))
+        Ok(ArrayParts {
+            vtable: Slice,
+            dtype,
+            len,
+            data,
+            slots: SliceSlots { child }.into_slots(),
+        })
     }
 }
