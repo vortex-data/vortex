@@ -3,7 +3,10 @@
 
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::hash::Hash;
+use std::hash::Hasher;
 use std::mem::MaybeUninit;
+use std::ops::Range;
 
 use fastlanes::BitPacking;
 use vortex_array::ArrayRef;
@@ -24,6 +27,7 @@ use vortex_array::patches::PatchesData;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::child_to_validity;
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -34,9 +38,177 @@ pub mod unpack_iter;
 
 use crate::BitPackedArray;
 use crate::FL_CHUNK_SIZE;
-use crate::bitpack_compress::bitpack_encode;
-use crate::unpack_iter::BitPacked as BitPackedIter;
-use crate::unpack_iter::BitUnpackedChunks;
+use crate::bitpacking::bitpack_compress::bitpack_encode;
+use crate::bitpacking::unpack_iter::BitPacked as BitPackedIter;
+use crate::bitpacking::unpack_iter::BitUnpackedChunks;
+
+/// Bytes occupied by one packed FastLanes chunk of `bit_width`-bit values.
+#[inline]
+pub const fn chunk_packed_bytes(bit_width: u8) -> usize {
+    (FL_CHUNK_SIZE / 8) * bit_width as usize
+}
+
+/// Chunk byte boundaries used while encoding or executing bit-packed data.
+/// Each physical chunk holds 1024 values, so its bit width is its byte length divided by 128.
+#[derive(Clone, Debug)]
+pub struct ChunkLayout {
+    byte_offsets: Buffer<u64>,
+    max_width: u8,
+}
+
+impl ChunkLayout {
+    /// Build byte boundaries from a temporary encoding plan of one width per chunk.
+    pub fn from_widths(widths: Buffer<u8>) -> Self {
+        let mut byte_offsets = BufferMut::<u64>::with_capacity(widths.len() + 1);
+        let mut total = 0u64;
+        byte_offsets.push(0);
+        for &width in widths.iter() {
+            total += chunk_packed_bytes(width) as u64;
+            byte_offsets.push(total);
+        }
+        Self {
+            byte_offsets: byte_offsets.freeze(),
+            max_width: widths.iter().copied().max().unwrap_or(0),
+        }
+    }
+
+    /// `num_chunks` chunks all packed at `bit_width`.
+    pub fn uniform(bit_width: u8, num_chunks: usize) -> Self {
+        Self {
+            byte_offsets: Buffer::from_iter(
+                (0..=num_chunks).map(|i| (i * chunk_packed_bytes(bit_width)) as u64),
+            ),
+            max_width: if num_chunks == 0 { 0 } else { bit_width },
+        }
+    }
+
+    /// Validate materialized boundaries before deriving widths or indexing packed data.
+    pub fn try_from_offsets(byte_offsets: Buffer<u64>) -> VortexResult<Self> {
+        vortex_ensure!(!byte_offsets.is_empty(), "Missing trailing chunk boundary");
+        let mut max_width = 0;
+        for pair in byte_offsets.windows(2) {
+            max_width = max_width.max(width_from_offsets(pair[0], pair[1])?);
+        }
+        Ok(Self {
+            byte_offsets,
+            max_width,
+        })
+    }
+
+    /// Number of chunks, excluding the trailing boundary.
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.byte_offsets.len() - 1
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Derive the bit width of `chunk` from its two boundaries.
+    #[inline]
+    pub fn width(&self, chunk: usize) -> u8 {
+        ((self.byte_offsets[chunk + 1] - self.byte_offsets[chunk]) / (FL_CHUNK_SIZE / 8) as u64)
+            as u8
+    }
+
+    /// The widest chunk width, or zero for an empty layout.
+    #[inline]
+    pub fn max_width(&self) -> u8 {
+        self.max_width
+    }
+
+    /// The single width shared by every chunk, if they all agree.
+    pub fn uniform_width(&self) -> Option<u8> {
+        if self.is_empty() {
+            return None;
+        }
+        let first = self.width(0);
+        (1..self.len())
+            .all(|i| self.width(i) == first)
+            .then_some(first)
+    }
+
+    /// Whether every chunk shares one width. An empty array counts as uniform.
+    pub fn is_uniform(&self) -> bool {
+        self.is_empty() || self.uniform_width().is_some()
+    }
+
+    /// Materialize a temporary width buffer from the boundaries.
+    pub fn widths_buffer(&self) -> Buffer<u8> {
+        (0..self.len()).map(|i| self.width(i)).collect()
+    }
+
+    /// The offsets child, including the trailing boundary. Slices may start at a nonzero offset.
+    pub fn offsets_array(&self) -> ArrayRef {
+        self.byte_offsets.clone().into_array()
+    }
+
+    /// Byte offset relative to the packed buffer. Passing the chunk count yields the total size.
+    #[inline]
+    pub fn byte_offset(&self, chunk: usize) -> usize {
+        (self.byte_offsets[chunk] - self.byte_offsets[0]) as usize
+    }
+
+    /// Total packed bytes.
+    #[inline]
+    pub fn packed_bytes(&self) -> usize {
+        self.byte_offset(self.len())
+    }
+
+    /// Restrict to chunks without copying or rebasing the offset buffer.
+    pub fn slice(&self, chunks: Range<usize>) -> Self {
+        let max_width = chunks.clone().map(|i| self.width(i)).max().unwrap_or(0);
+        Self {
+            byte_offsets: self.byte_offsets.slice(chunks.start..chunks.end + 1),
+            max_width,
+        }
+    }
+}
+
+/// Repeated boundaries encode zero-width chunks. Check before subtracting or narrowing to u8.
+fn width_from_offsets(start: u64, end: u64) -> VortexResult<u8> {
+    let bytes = end
+        .checked_sub(start)
+        .ok_or_else(|| vortex_err!("Decreasing chunk offsets"))?;
+    vortex_ensure!(
+        bytes.is_multiple_of((FL_CHUNK_SIZE / 8) as u64) && bytes <= chunk_packed_bytes(64) as u64,
+        "Invalid packed chunk size {bytes}"
+    );
+    Ok((bytes / (FL_CHUNK_SIZE / 8) as u64) as u8)
+}
+
+impl PartialEq for ChunkLayout {
+    fn eq(&self, other: &Self) -> bool {
+        self.len() == other.len() && (0..self.len()).all(|i| self.width(i) == other.width(i))
+    }
+}
+
+impl Eq for ChunkLayout {}
+
+impl Hash for ChunkLayout {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.len().hash(state);
+        for i in 0..self.len() {
+            self.width(i).hash(state);
+        }
+    }
+}
+
+impl Display for ChunkLayout {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self.uniform_width() {
+            Some(w) => write!(f, "bit_width: {w}"),
+            None => write!(
+                f,
+                "bit_widths: {} chunks, max {}",
+                self.len(),
+                self.max_width
+            ),
+        }
+    }
+}
 
 #[array_slots(crate::BitPacked)]
 pub struct BitPackedSlots {
@@ -52,8 +224,8 @@ pub struct BitPackedSlots {
     /// The validity bitmap indicating which elements are non-null.
     #[slot(3)]
     pub validity_child: Option<ArrayRef>,
-    /// Non-nullable `u64` byte boundaries, including one trailing boundary.
-    /// Adjacent boundaries differ by `128 * bit_width` bytes.
+    /// Non-nullable `u64` byte boundaries, with one trailing entry after the last chunk.
+    /// The first offset is the origin of the packed buffer and may be nonzero after slicing.
     #[slot(4)]
     pub chunk_offsets: ArrayRef,
 }
@@ -64,18 +236,22 @@ pub(crate) const PATCH_SLOTS: PatchSlotIndices = PatchSlotIndices {
     chunk_offsets: BitPackedSlots::PATCH_CHUNK_OFFSETS,
 };
 
-/// Non-nullable byte boundaries for the packed chunks.
 pub(crate) const CHUNK_OFFSETS_DTYPE: DType =
     DType::Primitive(PType::U64, Nullability::NonNullable);
 
-pub(crate) fn uniform_chunk_offsets(bit_width: u8, num_chunks: usize) -> ArrayRef {
-    Buffer::<u64>::from_iter((0..=num_chunks).map(|i| (i * 128 * bit_width as usize) as u64))
-        .into_array()
+/// Read materialized offsets without executing the child during reduction.
+pub(crate) fn materialized_layout(offsets: &ArrayRef) -> VortexResult<Option<ChunkLayout>> {
+    offsets
+        .as_opt::<Primitive>()
+        .filter(|a| a.buffer_handle().is_on_host())
+        .map(|a| ChunkLayout::try_from_offsets(a.to_buffer::<u64>()))
+        .transpose()
 }
 
 pub struct BitPackedDataParts {
     pub offset: u16,
     pub bit_width: u8,
+    pub chunk_offsets: ArrayRef,
     pub len: usize,
     pub packed: BufferHandle,
     pub patches: Option<Patches>,
@@ -102,43 +278,32 @@ impl Display for BitPackedData {
 impl BitPackedData {
     /// Create a new bitpacked array using a buffer of packed data.
     ///
-    /// The packed data should be interpreted as a sequence of values with size `bit_width`.
-    ///
-    /// # Errors
-    ///
-    /// This method returns errors if any of the metadata is inconsistent, for example the packed
-    /// buffer provided does not have the right size according to the supplied length and target
-    /// PType.
+    /// The packed data holds one FastLanes block per 1024-element chunk, each packed at that
+    /// chunk's width derived from adjacent byte boundaries and concatenated in chunk order. The buffer is padded with
+    /// zeros to the next multiple of 1024 elements if the length is not divisible by 1024.
     ///
     /// # Safety
     ///
     /// For signed arrays, it is the caller's responsibility to ensure that there are no values
-    /// that can be interpreted once unpacked to the provided PType.
+    /// that can be interpreted as negative once unpacked to the provided PType.
     ///
     /// This invariant is upheld by the compressor, but callers must ensure this if they wish to
     /// construct a new `BitPackedArray` from parts.
     ///
     /// See also the [`encode`][Self::encode] method on this type for a safe path to create a new
     /// bit-packed array.
-    /// A safe constructor for a `BitPackedArray` from its components:
-    ///
-    /// * `packed` is ByteBuffer holding the compressed data that was packed with FastLanes
-    ///   bit-packing to a `bit_width` bits per value. `length` is the length of the original
-    ///   vector. Note that the packed is padded with zeros to the next multiple of 1024 elements
-    ///   if `length` is not divisible by 1024.
-    /// * `ptype` of the original data
-    /// * `validity` to track any nulls
-    /// * `patches` optionally provided for values that did not pack
-    ///
-    /// Any failure in validation will result in an error.
     ///
     /// # Validation
+    ///
+    /// Performed when the array is built from its parts:
     ///
     /// * The `ptype` must be an integer
     /// * `validity` must have `length` len
     /// * Any patches must have any `array_len` equal to `length`
-    /// * The `packed` buffer must be exactly sized to hold `length` values of `bit_width` rounded
-    ///   up to the next multiple of 1024.
+    /// * The offsets child must hold `num_chunks + 1` non-nullable `u64` byte boundaries.
+    ///
+    /// Offset differences must still imply the scalar `bit_width`, and the child must be
+    /// materialized until the kernels are migrated. The packed buffer must match its span.
     ///
     /// Any violation of these preconditions will result in an error.
     pub fn try_new(
@@ -149,8 +314,8 @@ impl BitPackedData {
     ) -> VortexResult<Self> {
         vortex_ensure!(bit_width <= 64, "Unsupported bit width {bit_width}");
         vortex_ensure!(
-            offset < 1024,
-            "Offset must be less than the full block i.e., 1024, got {offset}"
+            (offset as usize) < FL_CHUNK_SIZE,
+            "Offset must be less than the full block i.e., {FL_CHUNK_SIZE}, got {offset}"
         );
 
         Ok(Self {
@@ -162,17 +327,14 @@ impl BitPackedData {
     }
 
     pub(crate) fn validate(
-        packed: &BufferHandle,
+        &self,
         ptype: PType,
         validity: &Validity,
         patches: Option<&Patches>,
-        bit_width: u8,
+        offsets: &ArrayRef,
         length: usize,
-        offset: u16,
     ) -> VortexResult<()> {
         vortex_ensure!(ptype.is_int(), MismatchedTypes: "integer", ptype);
-        vortex_ensure!(bit_width <= 64, "Unsupported bit width {bit_width}");
-
         if let Some(validity_len) = validity.maybe_len() {
             vortex_ensure!(
                 validity_len == length,
@@ -185,49 +347,45 @@ impl BitPackedData {
             Self::validate_patches(patches, ptype, length)?;
         }
 
-        // Validate packed buffer
-        let expected_packed_len =
-            (length + offset as usize).div_ceil(1024) * (128 * bit_width as usize);
-        vortex_ensure!(
-            packed.len() == expected_packed_len,
-            "Expected {} packed bytes, got {}",
-            expected_packed_len,
-            packed.len()
-        );
-
-        Ok(())
-    }
-
-    pub(crate) fn validate_chunk_offsets(
-        &self,
-        offsets: &ArrayRef,
-        length: usize,
-    ) -> VortexResult<()> {
         let num_chunks = (length + self.offset as usize).div_ceil(FL_CHUNK_SIZE);
         vortex_ensure!(
             offsets.dtype() == &CHUNK_OFFSETS_DTYPE,
-            "Expected non-nullable u64 chunk offsets"
+            "BitPacked chunk offsets must be {CHUNK_OFFSETS_DTYPE}, got {}",
+            offsets.dtype()
         );
         vortex_ensure!(
             offsets.len() == num_chunks + 1,
-            "Expected {} chunk boundaries, got {}",
+            "Expected {} chunk offsets, got {}",
             num_chunks + 1,
             offsets.len()
         );
-        // Kernels still use the scalar width until they are migrated to the offsets child.
-        let offsets = offsets
-            .as_opt::<Primitive>()
-            .filter(|array| array.buffer_handle().is_on_host())
-            .ok_or_else(|| {
-                vortex_err!("Chunk offsets must be materialized while kernels use bit_width")
-            })?;
+        let widths = materialized_layout(offsets)?.ok_or_else(|| {
+            vortex_err!("BitPacked chunk layout must be materialized while kernels use bit_width")
+        })?;
         vortex_ensure!(
-            offsets
-                .as_slice::<u64>()
-                .windows(2)
-                .all(|pair| pair[1].checked_sub(pair[0]) == Some(128 * self.bit_width as u64)),
+            widths.is_empty() || widths.uniform_width() == Some(self.bit_width),
             "Chunk offsets must imply bit_width {}",
             self.bit_width
+        );
+        Self::validate_layout(&self.packed, ptype, &widths)?;
+        Ok(())
+    }
+
+    pub(crate) fn validate_layout(
+        packed: &BufferHandle,
+        ptype: PType,
+        widths: &ChunkLayout,
+    ) -> VortexResult<()> {
+        vortex_ensure!(
+            widths.max_width() as usize <= ptype.bit_width(),
+            "Unsupported bit width {} for {ptype}",
+            widths.max_width()
+        );
+        let expected = widths.byte_offsets[widths.len()] - widths.byte_offsets[0];
+        vortex_ensure!(
+            packed.len() as u64 == expected,
+            "Expected {expected} packed bytes, got {}",
+            packed.len()
         );
         Ok(())
     }
@@ -343,6 +501,21 @@ pub trait BitPackedArrayExt: BitPackedArraySlotsExt {
         BitPackedData::bit_width(self)
     }
 
+    /// Materialize and validate offsets once for bulk access, without computing prefix sums.
+    fn chunk_layout(&self, ctx: &mut ExecutionCtx) -> VortexResult<ChunkLayout> {
+        let layout = match materialized_layout(self.chunk_offsets())? {
+            Some(layout) => layout,
+            None => ChunkLayout::try_from_offsets(
+                self.chunk_offsets()
+                    .clone()
+                    .execute::<PrimitiveArray>(ctx)?
+                    .to_buffer::<u64>(),
+            )?,
+        };
+        BitPackedData::validate_layout(self.packed(), self.as_ref().dtype().as_ptype(), &layout)?;
+        Ok(layout)
+    }
+
     #[inline]
     fn offset(&self) -> u16 {
         BitPackedData::offset(self)
@@ -393,8 +566,10 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_buffer::Buffer;
+    use vortex_buffer::buffer;
     use vortex_session::VortexSession;
 
+    use super::ChunkLayout;
     use crate::BitPackedData;
     use crate::bitpacking::array::BitPackedArrayExt;
 
@@ -456,5 +631,29 @@ mod test {
             PrimitiveArray::new(values, vortex_array::validity::Validity::NonNullable),
             &mut ctx
         );
+    }
+
+    #[test]
+    fn chunk_widths_offsets() {
+        assert_eq!(ChunkLayout::uniform(3, 3).uniform_width(), Some(3));
+        assert_eq!(
+            ChunkLayout::from_widths(Buffer::<u8>::empty()).packed_bytes(),
+            0
+        );
+
+        let widths = ChunkLayout::from_widths(buffer![3u8, 0, 16]);
+        assert_eq!(widths.uniform_width(), None);
+        assert_eq!(widths.len(), 3);
+        assert_eq!(widths.max_width(), 16);
+        assert_eq!(widths.width(1), 0);
+        assert_eq!(widths.byte_offset(0), 0);
+        assert_eq!(widths.byte_offset(1), 128 * 3);
+        assert_eq!(widths.byte_offset(2), 128 * 3);
+        assert_eq!(widths.packed_bytes(), 128 * 19);
+        assert_eq!(
+            widths.slice(1..3),
+            ChunkLayout::from_widths(buffer![0u8, 16])
+        );
+        assert_eq!(widths.slice(0..1).uniform_width(), Some(3));
     }
 }

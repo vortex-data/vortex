@@ -89,7 +89,7 @@ fn page_aligned(array: BitPackedArray) -> BitPackedArray {
         ptype,
         parts.validity,
         parts.patches,
-        parts.bit_width,
+        parts.chunk_offsets,
         parts.len,
         parts.offset,
     )

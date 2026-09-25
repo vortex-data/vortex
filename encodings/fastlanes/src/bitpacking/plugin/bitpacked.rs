@@ -14,6 +14,7 @@ use vortex_array::ArraySerialization;
 use vortex_array::ArraySlots;
 use vortex_array::ArrayVTable;
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesData;
 use vortex_array::patches::PatchesMetadata;
@@ -28,9 +29,9 @@ use vortex_session::VortexSession;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::BitPackedData;
+use crate::ChunkLayout;
 use crate::FL_CHUNK_SIZE;
 use crate::bitpacking::array::BitPackedSlots;
-use crate::bitpacking::array::uniform_chunk_offsets;
 
 /// Metadata of the frozen `fastlanes.bitpacked` wire format.
 #[derive(Clone, prost::Message)]
@@ -55,7 +56,7 @@ impl ArrayPlugin for BitPackedPlugin {
     fn serialize(
         &self,
         array: &ArrayRef,
-        _session: &VortexSession,
+        session: &VortexSession,
     ) -> VortexResult<Option<ArraySerialization>> {
         vortex_ensure!(
             self.id() == array.encoding_id(),
@@ -64,26 +65,33 @@ impl ArrayPlugin for BitPackedPlugin {
             array.encoding_id(),
         );
         let view = array.as_::<BitPacked>();
-        let metadata = BitPackedMetadata {
-            bit_width: view.bit_width() as u32,
-            offset: view.offset() as u32,
-            patches: view
-                .patches()
-                .map(|p| p.to_metadata(view.len(), view.dtype()))
-                .transpose()?,
+        let widths = view.chunk_layout(&mut session.create_execution_ctx())?;
+        vortex_ensure!(
+            widths.is_uniform(),
+            "Nonuniform widths require the v2 wire format"
+        );
+        {
+            let metadata = BitPackedMetadata {
+                bit_width: widths.max_width() as u32,
+                offset: view.offset() as u32,
+                patches: view
+                    .patches()
+                    .map(|p| p.to_metadata(view.len(), view.dtype()))
+                    .transpose()?,
+            }
+            .encode_to_vec();
+            let children = array.slots()[..BitPackedSlots::CHUNK_OFFSETS]
+                .iter()
+                .flatten()
+                .cloned()
+                .collect();
+            Ok(Some(ArraySerialization::new(
+                self.id(),
+                metadata,
+                array.buffers(),
+                children,
+            )))
         }
-        .encode_to_vec();
-        let children = array.slots()[..BitPackedSlots::CHUNK_OFFSETS]
-            .iter()
-            .flatten()
-            .cloned()
-            .collect();
-        Ok(Some(ArraySerialization::new(
-            self.id(),
-            metadata,
-            array.buffers(),
-            children,
-        )))
     }
 
     fn deserialize(
@@ -150,30 +158,30 @@ impl ArrayPlugin for BitPackedPlugin {
             })
             .transpose()?;
 
-        let data = BitPackedData::try_new(
-            packed,
-            patches.clone(),
-            u8::try_from(metadata.bit_width).map_err(|_| {
-                vortex_err!(
-                    "BitPackedMetadata bit_width {} does not fit in u8",
-                    metadata.bit_width
-                )
-            })?,
-            u16::try_from(metadata.offset).map_err(|_| {
-                vortex_err!(
-                    "BitPackedMetadata offset {} does not fit in u16",
-                    metadata.offset
-                )
-            })?,
-        )?;
+        let bit_width = u8::try_from(metadata.bit_width).map_err(|_| {
+            vortex_err!(
+                "BitPackedMetadata bit_width {} does not fit in u8",
+                metadata.bit_width
+            )
+        })?;
+        vortex_ensure!(bit_width <= 64, "Unsupported bit width {bit_width}");
+        let offset = u16::try_from(metadata.offset).map_err(|_| {
+            vortex_err!(
+                "BitPackedMetadata offset {} does not fit in u16",
+                metadata.offset
+            )
+        })?;
+        let num_chunks = (len + offset as usize).div_ceil(FL_CHUNK_SIZE);
         let slots = {
             let mut s = ArraySlots::with_capacity(BitPackedSlots::COUNT);
             PatchesData::push_slots(&mut s, patches.as_ref());
             s.push(validity_to_child(&validity, len));
-            let num_chunks = (len + data.offset() as usize).div_ceil(FL_CHUNK_SIZE);
-            s.push(Some(uniform_chunk_offsets(data.bit_width(), num_chunks)));
+            let widths = ChunkLayout::uniform(bit_width, num_chunks);
+            let offsets = widths.offsets_array();
+            s.push(Some(offsets));
             s
         };
+        let data = BitPackedData::try_new(packed, patches, bit_width, offset)?;
         Ok(Array::<BitPacked>::try_from_parts(
             ArrayParts::new(BitPacked, dtype.clone(), len, data).with_slots(slots),
         )?
