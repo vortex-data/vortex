@@ -69,11 +69,11 @@ mod tests {
 
     use vortex_error::vortex_bail;
     use vortex_error::vortex_err;
-
-    use super::*;
     use vortex_io::request::IoConsumer;
     use vortex_io::request::IoRequestId;
     use vortex_io::request::IoResult;
+
+    use super::*;
     use crate::planning::planner::PlannerOutput;
     use crate::planning::planner::State;
 
@@ -157,5 +157,4 @@ mod tests {
         .join()
         .map_err(|_| vortex_err!("planner worker panicked"))?
     }
-
 }

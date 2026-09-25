@@ -7,9 +7,9 @@ use std::fmt;
 
 use vortex_array::ArrayRef;
 use vortex_error::VortexResult;
-
 use vortex_io::request::IoBatch;
 use vortex_io::request::IoConsumer;
+
 pub use crate::planning::planner::State;
 
 /// What one morsel `compute()` produced.

@@ -7,9 +7,9 @@ use std::fmt;
 use std::ops::Range;
 
 use vortex_error::VortexResult;
-
 use vortex_io::request::IoBatch;
 use vortex_io::request::IoConsumer;
+
 use crate::planning::morsel::Morsel;
 use crate::planning::next::PendingPlanner;
 
