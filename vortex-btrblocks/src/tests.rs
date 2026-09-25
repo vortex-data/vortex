@@ -29,11 +29,7 @@ use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use crate::BtrBlocksCompressor;
-use crate::BtrBlocksOptions;
-#[cfg(feature = "zstd")]
 use crate::CompressionSession;
-#[cfg(feature = "zstd")]
-use crate::CompressionSessionExt;
 #[cfg(feature = "zstd")]
 use crate::Scheme;
 #[cfg(feature = "zstd")]
@@ -41,16 +37,15 @@ use crate::schemes::binary;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
-/// A compressor over every scheme registered on `session`: these tests compress in memory, where
-/// no edition applies.
-pub(crate) fn no_editions_compressor(session: &VortexSession) -> BtrBlocksCompressor {
-    BtrBlocksCompressor::from_session_with_options(
-        session,
-        &BtrBlocksOptions {
-            enforce_editions: false,
-            ..Default::default()
-        },
-    )
+/// A compressor over `registry`'s schemes as given. These tests exercise scheme selection, so
+/// they need neither the session's array plugins nor its editions.
+pub(crate) fn compressor(registry: &CompressionSession) -> BtrBlocksCompressor {
+    BtrBlocksCompressor::new(registry.schemes().to_vec())
+}
+
+/// [`compressor`] over the default schemes.
+pub(crate) fn default_compressor() -> BtrBlocksCompressor {
+    compressor(&CompressionSession::default())
 }
 
 #[rstest]
@@ -80,8 +75,7 @@ fn listview_compress_roundtrip(
 ) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let array_ref = input.clone().into_array();
-    let result = no_editions_compressor(&SESSION)
-        .compress(&array_ref, &mut SESSION.create_execution_ctx())?;
+    let result = default_compressor().compress(&array_ref, &mut SESSION.create_execution_ctx())?;
     if expect_list {
         assert!(result.as_opt::<List>().is_some());
     } else {
@@ -95,7 +89,7 @@ fn listview_compress_roundtrip(
 fn test_constant_all_true() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let array = BoolArray::new(BitBuffer::from(vec![true; 100]), Validity::NonNullable);
-    let btr = no_editions_compressor(&SESSION);
+    let btr = default_compressor();
     let compressed = btr.compress(
         &array.clone().into_array(),
         &mut SESSION.create_execution_ctx(),
@@ -109,7 +103,7 @@ fn test_constant_all_true() -> VortexResult<()> {
 fn test_constant_all_false() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let array = BoolArray::new(BitBuffer::from(vec![false; 100]), Validity::NonNullable);
-    let btr = no_editions_compressor(&SESSION);
+    let btr = default_compressor();
     let compressed = btr.compress(
         &array.clone().into_array(),
         &mut SESSION.create_execution_ctx(),
@@ -126,7 +120,7 @@ fn test_nullable_all_valid_compressed() -> VortexResult<()> {
         BitBuffer::from(vec![true; 100]),
         Validity::from(BitBuffer::from(vec![true; 100])),
     );
-    let btr = no_editions_compressor(&SESSION);
+    let btr = default_compressor();
     let compressed = btr.compress(
         &array.clone().into_array(),
         &mut SESSION.create_execution_ctx(),
@@ -141,7 +135,7 @@ fn test_nullable_with_nulls_not_compressed() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let validity = Validity::from(BitBuffer::from_iter((0..100).map(|i| i % 3 != 0)));
     let array = BoolArray::new(BitBuffer::from(vec![true; 100]), validity);
-    let btr = no_editions_compressor(&SESSION);
+    let btr = default_compressor();
     let compressed = btr.compress(
         &array.clone().into_array(),
         &mut SESSION.create_execution_ctx(),
@@ -158,7 +152,7 @@ fn test_mixed_not_constant() -> VortexResult<()> {
         BitBuffer::from(vec![true, false, true, false, true]),
         Validity::NonNullable,
     );
-    let btr = no_editions_compressor(&SESSION);
+    let btr = default_compressor();
     let compressed = btr.compress(
         &array.clone().into_array(),
         &mut SESSION.create_execution_ctx(),
@@ -173,7 +167,7 @@ fn test_binary_constant_compressed() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let values = vec![Some(b"constant-bytes".as_slice()); 100];
     let array = VarBinViewArray::from_iter(values, DType::Binary(Nullability::NonNullable));
-    let btr = no_editions_compressor(&SESSION);
+    let btr = default_compressor();
     let compressed = btr.compress(
         &array.clone().into_array(),
         &mut SESSION.create_execution_ctx(),
@@ -191,7 +185,7 @@ fn test_binary_dict_compressed() -> VortexResult<()> {
         .map(|idx| Some(distinct_values[idx % distinct_values.len()]))
         .collect::<Vec<_>>();
     let array = VarBinViewArray::from_iter(values, DType::Binary(Nullability::NonNullable));
-    let btr = no_editions_compressor(&SESSION);
+    let btr = default_compressor();
     let compressed = btr.compress(
         &array.clone().into_array(),
         &mut SESSION.create_execution_ctx(),
@@ -217,8 +211,7 @@ fn test_compact_binary_zstd_compressed() -> VortexResult<()> {
         DType::Binary(Nullability::NonNullable),
     );
 
-    let session = vortex_array::array_session().with_some(CompressionSession::compact());
-    let compressor = no_editions_compressor(&session);
+    let compressor = compressor(&CompressionSession::compact());
     let mut ctx = SESSION.create_execution_ctx();
     let compressed = compressor.compress(&array.clone().into_array(), &mut ctx)?;
 
@@ -254,9 +247,9 @@ fn test_binary_zstd_scheme_encoding(
         DType::Binary(Nullability::NonNullable),
     );
 
-    let session = vortex_array::array_session().with_some(CompressionSession::empty());
-    session.register_scheme(scheme);
-    let compressor = no_editions_compressor(&session);
+    let mut registry = CompressionSession::empty();
+    registry.register(scheme);
+    let compressor = compressor(&registry);
     let mut ctx = SESSION.create_execution_ctx();
     let compressed = compressor.compress(&array.clone().into_array(), &mut ctx)?;
 

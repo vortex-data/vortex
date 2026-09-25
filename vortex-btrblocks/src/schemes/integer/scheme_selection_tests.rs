@@ -28,23 +28,24 @@ use vortex_session::VortexSession;
 use vortex_sparse::Sparse;
 
 use crate::BtrBlocksCompressor;
-use crate::CompressionSessionExt;
+use crate::CompressionSession;
 use crate::DELTA_SCHEME;
-use crate::tests::no_editions_compressor;
+use crate::tests::compressor;
+use crate::tests::default_compressor;
 static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 /// The default schemes plus opt-in Delta.
 fn with_delta() -> BtrBlocksCompressor {
-    let session = vortex_array::array_session();
-    session.register_scheme(&DELTA_SCHEME);
-    no_editions_compressor(&session)
+    let mut registry = CompressionSession::default();
+    registry.register(&DELTA_SCHEME);
+    compressor(&registry)
 }
 
 #[test]
 fn test_constant_compressed() -> VortexResult<()> {
     let values: Vec<i32> = iter::repeat_n(42, 100).collect();
     let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
-    let btr = no_editions_compressor(&SESSION);
+    let btr = default_compressor();
     let compressed = btr.compress(&array.into_array(), &mut SESSION.create_execution_ctx())?;
     assert!(compressed.is::<Constant>());
     Ok(())
@@ -54,7 +55,7 @@ fn test_constant_compressed() -> VortexResult<()> {
 fn test_for_compressed() -> VortexResult<()> {
     let values: Vec<i32> = (0..1000).map(|i| 1_000_000 + ((i * 37) % 100)).collect();
     let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
-    let btr = no_editions_compressor(&SESSION);
+    let btr = default_compressor();
     let compressed = btr.compress(&array.into_array(), &mut SESSION.create_execution_ctx())?;
     assert!(compressed.is::<FoR>());
     Ok(())
@@ -64,7 +65,7 @@ fn test_for_compressed() -> VortexResult<()> {
 fn test_bitpacking_compressed() -> VortexResult<()> {
     let values: Vec<u32> = (0..1000).map(|i| i % 16).collect();
     let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
-    let btr = no_editions_compressor(&SESSION);
+    let btr = default_compressor();
     let compressed = btr.compress(&array.into_array(), &mut SESSION.create_execution_ctx())?;
     assert!(compressed.is::<BitPacked>());
     assert_eq!(
@@ -93,7 +94,7 @@ fn test_sparse_compressed() -> VortexResult<()> {
         }
     }
     let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
-    let btr = no_editions_compressor(&SESSION);
+    let btr = default_compressor();
     let compressed = btr.compress(&array.into_array(), &mut SESSION.create_execution_ctx())?;
     assert!(compressed.is::<Sparse>());
     Ok(())
@@ -117,7 +118,7 @@ fn test_dict_compressed() -> VortexResult<()> {
     }
 
     let array = PrimitiveArray::new(Buffer::copy_from(&codes), Validity::NonNullable);
-    let btr = no_editions_compressor(&SESSION);
+    let btr = default_compressor();
     let compressed = btr.compress(&array.into_array(), &mut SESSION.create_execution_ctx())?;
     assert!(compressed.is::<Dict>());
     Ok(())
@@ -130,7 +131,7 @@ fn test_runend_compressed() -> VortexResult<()> {
         values.extend(iter::repeat_n((i32::MAX - 50).wrapping_add(i), 10));
     }
     let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
-    let btr = no_editions_compressor(&SESSION);
+    let btr = default_compressor();
     let compressed = btr.compress(&array.into_array(), &mut SESSION.create_execution_ctx())?;
     assert!(compressed.is::<RunEnd>());
     Ok(())
@@ -140,7 +141,7 @@ fn test_runend_compressed() -> VortexResult<()> {
 fn test_sequence_compressed() -> VortexResult<()> {
     let values: Vec<i32> = (0..1000).map(|i| i * 7).collect();
     let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
-    let btr = no_editions_compressor(&SESSION);
+    let btr = default_compressor();
     let compressed = btr.compress(&array.into_array(), &mut SESSION.create_execution_ctx())?;
     assert!(compressed.is::<Sequence>());
     Ok(())
@@ -157,7 +158,7 @@ fn test_rle_compressed() -> VortexResult<()> {
         values.extend(iter::repeat_n(v, 10));
     }
     let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
-    let btr = no_editions_compressor(&SESSION);
+    let btr = default_compressor();
     let compressed = btr.compress(&array.into_array(), &mut SESSION.create_execution_ctx())?;
     eprintln!("{}", compressed.display_tree());
     assert!(compressed.is::<RunEnd>());

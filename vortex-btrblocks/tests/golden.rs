@@ -35,10 +35,12 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::ListArray;
+use vortex_array::arrays::Patched;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::display::EncodingSummaryExtractor;
 use vortex_array::display::MetadataExtractor;
 use vortex_array::display::TreeContext;
@@ -47,6 +49,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::Nullability;
 use vortex_array::extension::datetime::TimeUnit;
+use vortex_array::session::ArraySessionExt;
 use vortex_array::validity::Validity;
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_btrblocks::BtrBlocksOptions;
@@ -410,6 +413,24 @@ fn edition_session(
     let session = vortex_array::array_session()
         .with_some(registry)
         .with::<EditionSession>();
+    // The compressor only uses schemes whose encodings this session can serialize.
+    vortex_alp::initialize(&session);
+    vortex_datetime_parts::initialize(&session);
+    vortex_decimal_byte_parts::initialize(&session);
+    vortex_fastlanes::initialize(&session);
+    vortex_fsst::initialize(&session);
+    vortex_onpair::initialize(&session);
+    vortex_runend::initialize(&session);
+    vortex_sequence::initialize(&session);
+    vortex_sparse::initialize(&session);
+    vortex_zigzag::initialize(&session);
+    #[cfg(feature = "zstd")]
+    vortex_zstd::initialize(&session);
+    #[cfg(feature = "pco")]
+    session.arrays().register(vortex_pco::Pco);
+    if use_experimental_patches() {
+        session.arrays().register(Patched);
+    }
     for family in EDITION_FAMILIES {
         session.editions().declare_family(family)?;
     }
@@ -445,7 +466,6 @@ fn golden_onpair() -> VortexResult<()> {
 #[test]
 fn golden_compact() -> VortexResult<()> {
     let session = edition_session(&[CORE_2026_08_3], CompressionSession::compact())?;
-    vortex_zstd::initialize(&session);
     session.enable_edition(vortex_zstd::editions::ZSTD_2026_02)?;
     let compressor = BtrBlocksCompressor::from_session_with_options(&session, &without_onpair());
     golden_corpus_snapshots("compact", &compressor)

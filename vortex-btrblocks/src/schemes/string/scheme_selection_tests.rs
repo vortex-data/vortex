@@ -17,8 +17,8 @@ use vortex_fsst::FSST;
 use vortex_session::VortexSession;
 
 use crate::CompressionSession;
-use crate::CompressionSessionExt;
-use crate::tests::no_editions_compressor;
+use crate::tests::compressor;
+use crate::tests::default_compressor;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
@@ -27,8 +27,8 @@ fn test_constant_compressed() -> VortexResult<()> {
     let strings: Vec<Option<&str>> = vec![Some("constant_value"); 100];
     let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
     let array_ref = array.into_array();
-    let compressed = no_editions_compressor(&SESSION)
-        .compress(&array_ref, &mut SESSION.create_execution_ctx())?;
+    let compressed =
+        default_compressor().compress(&array_ref, &mut SESSION.create_execution_ctx())?;
     assert!(compressed.is::<Constant>());
     Ok(())
 }
@@ -42,8 +42,8 @@ fn test_dict_compressed() -> VortexResult<()> {
     }
     let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
     let array_ref = array.into_array();
-    let compressed = no_editions_compressor(&SESSION)
-        .compress(&array_ref, &mut SESSION.create_execution_ctx())?;
+    let compressed =
+        default_compressor().compress(&array_ref, &mut SESSION.create_execution_ctx())?;
     assert!(compressed.is::<Dict>());
     Ok(())
 }
@@ -74,8 +74,8 @@ fn test_default_btrblocks_compressor_selects_onpair() -> VortexResult<()> {
     }
     let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
     let array_ref = array.into_array();
-    let compressed = no_editions_compressor(&SESSION)
-        .compress(&array_ref, &mut SESSION.create_execution_ctx())?;
+    let compressed =
+        default_compressor().compress(&array_ref, &mut SESSION.create_execution_ctx())?;
     assert!(
         compressed.is::<vortex_onpair::OnPair>(),
         "expected OnPair, got {}",
@@ -109,9 +109,9 @@ fn test_fsst_in_default_scheme_list() -> VortexResult<()> {
     let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
     let array_ref = array.into_array();
 
-    let session = vortex_array::array_session().with_some(CompressionSession::empty());
-    session.register_scheme(&FSSTScheme);
-    let compressor = no_editions_compressor(&session);
+    let mut registry = CompressionSession::empty();
+    registry.register(&FSSTScheme);
+    let compressor = compressor(&registry);
     let compressed = compressor.compress(&array_ref, &mut SESSION.create_execution_ctx())?;
     assert!(
         compressed.is::<FSST>(),

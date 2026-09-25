@@ -15,18 +15,18 @@ use vortex_array::dtype::Nullability;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::buffer_mut;
-use vortex_compressor::CascadingCompressor;
 use vortex_error::VortexResult;
 use vortex_fastlanes::RLE;
 use vortex_session::VortexSession;
 
+use crate::BtrBlocksCompressor;
 use crate::schemes::float::FloatRLEScheme;
-use crate::tests::no_editions_compressor;
+use crate::tests::default_compressor;
 static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 #[test]
 fn test_empty() -> VortexResult<()> {
-    let btr = no_editions_compressor(&SESSION);
+    let btr = default_compressor();
     let array = PrimitiveArray::new(Buffer::<f32>::empty(), Validity::NonNullable).into_array();
     let result = btr.compress(&array, &mut SESSION.create_execution_ctx())?;
 
@@ -42,7 +42,7 @@ fn test_compress() -> VortexResult<()> {
     }
 
     let array = values.into_array();
-    let btr = no_editions_compressor(&SESSION);
+    let btr = default_compressor();
     let compressed = btr.compress(&array, &mut SESSION.create_execution_ctx())?;
     assert_eq!(compressed.len(), 1024);
 
@@ -66,7 +66,7 @@ fn test_rle_compression() -> VortexResult<()> {
 
     let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
 
-    let compressor = CascadingCompressor::new(vec![&FloatRLEScheme]);
+    let compressor = BtrBlocksCompressor::new(vec![&FloatRLEScheme]);
     let compressed =
         compressor.compress(&array.into_array(), &mut SESSION.create_execution_ctx())?;
     assert!(compressed.is::<RLE>());
@@ -92,7 +92,7 @@ fn test_sparse_compression() -> VortexResult<()> {
     array.append_nulls(90);
 
     let array = array.finish_into_primitive().into_array();
-    let btr = no_editions_compressor(&SESSION);
+    let btr = default_compressor();
     let compressed = btr.compress(&array, &mut SESSION.create_execution_ctx())?;
     assert_eq!(compressed.len(), 96);
 

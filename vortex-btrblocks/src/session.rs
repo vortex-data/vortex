@@ -7,16 +7,14 @@
 //! with [`BtrBlocksCompressor::from_session`](crate::BtrBlocksCompressor::from_session). It
 //! starts with the default schemes; [`CompressionSession::compact`] and
 //! [`CompressionSession::cuda`] build the other standard registries. Whether a registered scheme
-//! may write its encodings is decided by the session's enabled editions.
+//! may write its encodings is decided by [`BtrBlocksCompressor::from_session`] from the array
+//! plugins registered on the session and its enabled editions.
 
 use std::any::Any;
 
-use vortex_edition::ComponentKind;
-use vortex_edition::EditionSessionExt;
 use vortex_session::SessionExt;
 use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
-use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::Scheme;
 use crate::SchemeExt;
@@ -205,33 +203,6 @@ pub trait CompressionSessionExt: SessionExt {
     fn register_scheme(&self, scheme: &'static dyn Scheme) {
         self.get_mut::<CompressionSession>().register(scheme);
     }
-
-    /// The registered compression schemes in registration order.
-    fn registered_schemes(&self) -> Vec<&'static dyn Scheme> {
-        self.compression().schemes().to_vec()
-    }
-
-    /// The registered schemes whose serialized IDs the enabled editions all permit.
-    fn permitted_schemes(&self) -> Vec<&'static dyn Scheme> {
-        self.permit(self.registered_schemes())
-    }
-
-    /// Keeps the schemes in `schemes` whose serialized IDs the enabled editions all permit.
-    fn permit(&self, schemes: Vec<&'static dyn Scheme>) -> Vec<&'static dyn Scheme> {
-        let allowed: HashSet<_> = self
-            .enabled_component_ids(ComponentKind::Array)
-            .into_iter()
-            .collect();
-        schemes
-            .into_iter()
-            .filter(|scheme| {
-                scheme
-                    .produced_encodings()
-                    .iter()
-                    .all(|id| allowed.contains(id))
-            })
-            .collect()
-    }
 }
 
 impl<S: SessionExt> CompressionSessionExt for S {}
@@ -252,7 +223,7 @@ mod tests {
     #[test]
     fn default_registers_default_schemes() {
         let session = array_session();
-        assert_eq!(ids(&session.registered_schemes()), ids(DEFAULT_SCHEMES));
+        assert_eq!(ids(session.compression().schemes()), ids(DEFAULT_SCHEMES));
     }
 
     #[test]
@@ -262,7 +233,7 @@ mod tests {
         session.register_scheme(&FloatDictScheme);
         session.register_scheme(&IntDictScheme);
         assert_eq!(
-            ids(&session.registered_schemes()),
+            ids(session.compression().schemes()),
             vec![IntDictScheme.id(), FloatDictScheme.id()]
         );
     }
@@ -280,12 +251,5 @@ mod tests {
         assert_eq!(&compact[..DEFAULT_SCHEMES.len()], &ids(DEFAULT_SCHEMES)[..]);
         #[cfg(feature = "zstd")]
         assert!(compact.contains(&string::ZstdScheme.id()));
-    }
-
-    /// Without enabled editions no serialized ID is permitted, so nothing survives.
-    #[test]
-    fn no_editions_permit_nothing() {
-        let session = array_session();
-        assert!(session.permitted_schemes().is_empty());
     }
 }

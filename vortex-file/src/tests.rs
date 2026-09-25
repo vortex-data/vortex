@@ -73,7 +73,11 @@ use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
+use vortex_edition::EDITION_DECLARATIONS;
+use vortex_edition::EDITION_FAMILIES;
 use vortex_edition::EditionSession;
+use vortex_edition::EditionSessionExt;
+use vortex_edition::declarations::core::CORE_2026_08_3;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_io::session::RuntimeSession;
@@ -1691,6 +1695,40 @@ async fn test_buffered_bytes_are_writer_scoped() -> VortexResult<()> {
     first.finish().await?;
     second.finish().await?;
 
+    Ok(())
+}
+
+/// The core edition permits encodings whose plugins this session never registers. The compressor
+/// must skip those schemes, as the writer would reject their output.
+#[tokio::test]
+async fn write_uses_only_registered_encodings() -> VortexResult<()> {
+    let session = array_session()
+        .with::<EditionSession>()
+        .with::<LayoutSession>()
+        .with::<RuntimeSession>();
+    for family in EDITION_FAMILIES {
+        session.editions().declare_family(family)?;
+    }
+    for declaration in EDITION_DECLARATIONS {
+        session.register_edition(declaration)?;
+    }
+    session.enable_edition(CORE_2026_08_3)?;
+
+    // Sorted integers, which FoR and BitPacking would otherwise compress.
+    let array = PrimitiveArray::from_iter(0..4096i64).into_array();
+    let mut buf = ByteBufferMut::empty();
+    session
+        .write_options()
+        .write(&mut buf, array.to_array_stream())
+        .await?;
+    let read = session
+        .open_options()
+        .open_buffer(buf.freeze())?
+        .scan()?
+        .into_array_stream()?
+        .read_all()
+        .await?;
+    assert_arrays_eq!(array, read, &mut session.create_execution_ctx());
     Ok(())
 }
 
