@@ -183,7 +183,9 @@ mod benchmarks {
     fn compress_listview(bencher: Bencher, layout: OffsetLayout) {
         let array = build_nested_listview(NUM_ROWS, layout);
         let nbytes = array.nbytes();
-        let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION).unrestricted().build();
+        let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+            .unrestricted()
+            .build();
         bencher
             .with_inputs(|| (&array, SESSION.create_execution_ctx()))
             .input_counter(|_| ItemsCount::new(NUM_ROWS))

@@ -70,8 +70,11 @@ fn cases() -> Vec<(&'static str, ArrayRef)> {
 
 #[test]
 fn varbin_scheme_shrinks_binary() -> VortexResult<()> {
-    let with = BtrBlocksCompressorBuilder::from_session(&SESSION).unrestricted().build();
-    let without = BtrBlocksCompressorBuilder::from_session(&SESSION).unrestricted()
+    let with = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .build();
+    let without = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
         .exclude_schemes([VarBinScheme.id()])
         .build();
 

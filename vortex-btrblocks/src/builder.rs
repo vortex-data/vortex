@@ -104,7 +104,8 @@ impl AllowedSerializedIds {
 ///
 /// let session = VortexSession::empty().with::<CompressionSession>();
 ///
-/// // Compressor with every scheme registered on the session.
+/// // Compressor with the session's schemes, restricted to the encodings it allows. This session
+/// // enables no editions, so every scheme is dropped.
 /// let compressor = BtrBlocksCompressorBuilder::from_session(&session).build();
 ///
 /// // Remove specific schemes.

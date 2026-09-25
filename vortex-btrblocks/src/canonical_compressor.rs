@@ -16,7 +16,8 @@ use crate::CascadingCompressor;
 /// The BtrBlocks-style compressor with all built-in schemes pre-registered.
 ///
 /// This is a thin wrapper around [`CascadingCompressor`]. [`from_session`](Self::from_session)
-/// uses every scheme registered in the session's [`CompressionSession`](crate::CompressionSession).
+/// uses the schemes registered in the session's [`CompressionSession`](crate::CompressionSession)
+/// whose produced encodings the session registers and its enabled editions permit.
 ///
 /// # Examples
 ///
@@ -29,7 +30,8 @@ use crate::CascadingCompressor;
 ///
 /// let session = VortexSession::empty().with::<CompressionSession>();
 ///
-/// // Compressor with every scheme registered on the session.
+/// // Compressor with the session's schemes, restricted to the encodings it allows. This session
+/// // enables no editions, so every scheme is dropped.
 /// let compressor = BtrBlocksCompressor::from_session(&session);
 ///
 /// // Remove specific schemes using the builder.
@@ -44,8 +46,9 @@ pub struct BtrBlocksCompressor(
 );
 
 impl BtrBlocksCompressor {
-    /// Creates a compressor with every scheme registered in the session's
-    /// [`CompressionSession`](crate::CompressionSession).
+    /// Creates a compressor with the schemes registered in the session's
+    /// [`CompressionSession`](crate::CompressionSession), keeping only those whose produced
+    /// encodings the session registers and its enabled editions permit.
     pub fn from_session(session: &VortexSession) -> Self {
         BtrBlocksCompressorBuilder::from_session(session).build()
     }
@@ -132,7 +135,9 @@ mod tests {
     ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let array_ref = input.clone().into_array();
-        let result = BtrBlocksCompressorBuilder::from_session(&SESSION).unrestricted().build()
+        let result = BtrBlocksCompressorBuilder::from_session(&SESSION)
+            .unrestricted()
+            .build()
             .compress(&array_ref, &mut SESSION.create_execution_ctx())?;
         if expect_list {
             assert!(result.as_opt::<List>().is_some());
@@ -147,7 +152,9 @@ mod tests {
     fn test_constant_all_true() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let array = BoolArray::new(BitBuffer::from(vec![true; 100]), Validity::NonNullable);
-        let btr = BtrBlocksCompressorBuilder::from_session(&SESSION).unrestricted().build();
+        let btr = BtrBlocksCompressorBuilder::from_session(&SESSION)
+            .unrestricted()
+            .build();
         let compressed = btr.compress(
             &array.clone().into_array(),
             &mut SESSION.create_execution_ctx(),
@@ -161,7 +168,9 @@ mod tests {
     fn test_constant_all_false() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let array = BoolArray::new(BitBuffer::from(vec![false; 100]), Validity::NonNullable);
-        let btr = BtrBlocksCompressorBuilder::from_session(&SESSION).unrestricted().build();
+        let btr = BtrBlocksCompressorBuilder::from_session(&SESSION)
+            .unrestricted()
+            .build();
         let compressed = btr.compress(
             &array.clone().into_array(),
             &mut SESSION.create_execution_ctx(),
@@ -178,7 +187,9 @@ mod tests {
             BitBuffer::from(vec![true; 100]),
             Validity::from(BitBuffer::from(vec![true; 100])),
         );
-        let btr = BtrBlocksCompressorBuilder::from_session(&SESSION).unrestricted().build();
+        let btr = BtrBlocksCompressorBuilder::from_session(&SESSION)
+            .unrestricted()
+            .build();
         let compressed = btr.compress(
             &array.clone().into_array(),
             &mut SESSION.create_execution_ctx(),
@@ -193,7 +204,9 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let validity = Validity::from(BitBuffer::from_iter((0..100).map(|i| i % 3 != 0)));
         let array = BoolArray::new(BitBuffer::from(vec![true; 100]), validity);
-        let btr = BtrBlocksCompressorBuilder::from_session(&SESSION).unrestricted().build();
+        let btr = BtrBlocksCompressorBuilder::from_session(&SESSION)
+            .unrestricted()
+            .build();
         let compressed = btr.compress(
             &array.clone().into_array(),
             &mut SESSION.create_execution_ctx(),
@@ -210,7 +223,9 @@ mod tests {
             BitBuffer::from(vec![true, false, true, false, true]),
             Validity::NonNullable,
         );
-        let btr = BtrBlocksCompressorBuilder::from_session(&SESSION).unrestricted().build();
+        let btr = BtrBlocksCompressorBuilder::from_session(&SESSION)
+            .unrestricted()
+            .build();
         let compressed = btr.compress(
             &array.clone().into_array(),
             &mut SESSION.create_execution_ctx(),
@@ -225,7 +240,9 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let values = vec![Some(b"constant-bytes".as_slice()); 100];
         let array = VarBinViewArray::from_iter(values, DType::Binary(Nullability::NonNullable));
-        let btr = BtrBlocksCompressorBuilder::from_session(&SESSION).unrestricted().build();
+        let btr = BtrBlocksCompressorBuilder::from_session(&SESSION)
+            .unrestricted()
+            .build();
         let compressed = btr.compress(
             &array.clone().into_array(),
             &mut SESSION.create_execution_ctx(),
@@ -243,7 +260,9 @@ mod tests {
             .map(|idx| Some(distinct_values[idx % distinct_values.len()]))
             .collect::<Vec<_>>();
         let array = VarBinViewArray::from_iter(values, DType::Binary(Nullability::NonNullable));
-        let btr = BtrBlocksCompressorBuilder::from_session(&SESSION).unrestricted().build();
+        let btr = BtrBlocksCompressorBuilder::from_session(&SESSION)
+            .unrestricted()
+            .build();
         let compressed = btr.compress(
             &array.clone().into_array(),
             &mut SESSION.create_execution_ctx(),
@@ -269,7 +288,8 @@ mod tests {
             DType::Binary(Nullability::NonNullable),
         );
 
-        let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION).unrestricted()
+        let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+            .unrestricted()
             .with_compact()
             .build();
         let mut ctx = SESSION.create_execution_ctx();

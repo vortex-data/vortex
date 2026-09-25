@@ -100,8 +100,7 @@ pub async fn exec_convert(session: &VortexSession, flags: ConvertArgs) -> anyhow
     if matches!(flags.strategy, Strategy::Compact) {
         compressor = compressor.with_compact();
     }
-    let strategy = WriteStrategyBuilder::from_session(session)
-        .with_btrblocks_builder(compressor);
+    let strategy = WriteStrategyBuilder::from_session(session).with_btrblocks_builder(compressor);
 
     let mut file = File::create(output_path).await?;
     session
