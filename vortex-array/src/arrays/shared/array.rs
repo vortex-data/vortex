@@ -109,10 +109,13 @@ impl Array<Shared> {
         let dtype = source.dtype().clone();
         let len = source.len();
         unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(Shared, dtype, len, SharedData::new())
-                    .with_slots(SharedSlots { source }.into_slots()),
-            )
+            Array::from_parts_unchecked(ArrayParts::new(
+                Shared,
+                dtype,
+                len,
+                SharedData::new(),
+                SharedSlots { source }.into_slots(),
+            ))
         }
     }
 }

@@ -60,7 +60,11 @@ impl Array<Extension> {
         let dtype = DType::Extension(ext_dtype);
         let len = storage_array.len();
 
-        let parts = ArrayParts::new(Extension, dtype, len, EmptyArrayData).with_slots(
+        let parts = ArrayParts::new(
+            Extension,
+            dtype,
+            len,
+            EmptyArrayData,
             ExtensionSlots {
                 storage: storage_array,
             }

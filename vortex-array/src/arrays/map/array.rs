@@ -126,7 +126,7 @@ impl Array<Map> {
         let dtype = DType::Map(map_dtype, nullability);
         let len = entries.len();
         let slots = MapData::make_slots(entries.into_array());
-        let parts = ArrayParts::new(Map, dtype, len, MapData).with_slots(slots);
+        let parts = ArrayParts::new(Map, dtype, len, MapData, slots);
         Self::try_from_parts(parts)
     }
 
@@ -142,7 +142,7 @@ impl Array<Map> {
         let dtype = DType::Map(map_dtype, nullability);
         let len = entries.len();
         let slots = MapData::make_slots(entries.into_array());
-        let parts = ArrayParts::new(Map, dtype, len, MapData).with_slots(slots);
+        let parts = ArrayParts::new(Map, dtype, len, MapData, slots);
         unsafe { Self::from_parts_unchecked(parts) }
     }
 

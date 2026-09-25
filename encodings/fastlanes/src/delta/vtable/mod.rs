@@ -175,7 +175,13 @@ impl VTable for Delta {
 
         let data = DeltaData::try_new(metadata.offset as usize)?;
         let slots = DeltaSlots { bases, deltas }.into_slots();
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
@@ -198,7 +204,7 @@ impl Delta {
         let dtype = bases.dtype().with_nullability(deltas.dtype().nullability());
         let data = DeltaData::try_new(offset)?;
         let slots = DeltaSlots { bases, deltas }.into_slots();
-        Array::try_from_parts(ArrayParts::new(Delta, dtype, len, data).with_slots(slots))
+        Array::try_from_parts(ArrayParts::new(Delta, dtype, len, data, slots))
     }
 
     /// Compress a primitive array using Delta encoding.

@@ -377,15 +377,13 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
 
     fn with_slots(&self, this: &ArrayRef, slots: ArraySlots) -> VortexResult<ArrayRef> {
         let stats = this.statistics().to_owned();
-        Ok(Array::<V>::try_from_parts(
-            ArrayParts::new(
-                self.vtable.clone(),
-                this.dtype().clone(),
-                this.len(),
-                self.data.clone(),
-            )
-            .with_slots(slots),
-        )?
+        Ok(Array::<V>::try_from_parts(ArrayParts::new(
+            self.vtable.clone(),
+            this.dtype().clone(),
+            this.len(),
+            self.data.clone(),
+            slots,
+        ))?
         .with_stats_set(stats)
         .into_array())
     }

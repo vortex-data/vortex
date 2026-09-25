@@ -685,11 +685,7 @@ impl Array<VarBinView> {
     #[inline]
     fn from_prevalidated_data(dtype: DType, data: VarBinViewData, slots: ArraySlots) -> Self {
         let len = data.len();
-        unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(VarBinView, dtype, len, data).with_slots(slots),
-            )
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(VarBinView, dtype, len, data, slots)) }
     }
 
     /// Construct a `VarBinViewArray` from an iterator of optional byte slices.

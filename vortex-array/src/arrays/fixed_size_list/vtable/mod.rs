@@ -192,7 +192,13 @@ impl VTable for FixedSizeList {
         let data =
             FixedSizeListData::try_build(elements.clone(), *list_size, validity.clone(), len)?;
         let slots = FixedSizeListData::make_slots(&elements, &validity, len);
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

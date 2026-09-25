@@ -19,6 +19,7 @@ use vortex_session::registry::CachedId;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
+use crate::ArraySlots;
 use crate::Canonical;
 use crate::EqMode;
 use crate::ExecutionCtx;
@@ -85,22 +86,24 @@ fn stack_parent_session() -> VortexSession {
 }
 
 fn stack_child() -> VortexResult<ArrayRef> {
-    Ok(
-        Array::try_from_parts(ArrayParts::new(StackChild, test_dtype(), 3, StackChildData))?
-            .into_array(),
-    )
+    Ok(Array::try_from_parts(ArrayParts::new(
+        StackChild,
+        test_dtype(),
+        3,
+        StackChildData,
+        ArraySlots::new(),
+    ))?
+    .into_array())
 }
 
 fn stack_parent(child: ArrayRef) -> VortexResult<ArrayRef> {
-    Ok(Array::try_from_parts(
-        ArrayParts::new(
-            StackParent,
-            child.dtype().clone(),
-            child.len(),
-            StackParentData,
-        )
-        .with_slots(smallvec![Some(child)]),
-    )?
+    Ok(Array::try_from_parts(ArrayParts::new(
+        StackParent,
+        child.dtype().clone(),
+        child.len(),
+        StackParentData,
+        smallvec![Some(child)],
+    ))?
     .into_array())
 }
 

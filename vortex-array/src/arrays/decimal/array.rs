@@ -426,11 +426,7 @@ impl Array<Decimal> {
         let len = buffer.len();
         let slots = DecimalData::make_slots(&validity, len);
         let data = unsafe { DecimalData::new_unchecked(buffer, decimal_dtype) };
-        unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(Decimal, dtype, len, data).with_slots(slots),
-            )
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data, slots)) }
     }
 
     /// Creates a new [`DecimalArray`] from a host-native buffer with validation.
@@ -443,7 +439,7 @@ impl Array<Decimal> {
         let len = buffer.len();
         let slots = DecimalData::make_slots(&validity, len);
         let data = DecimalData::try_new(buffer, decimal_dtype)?;
-        Array::try_from_parts(ArrayParts::new(Decimal, dtype, len, data).with_slots(slots))
+        Array::try_from_parts(ArrayParts::new(Decimal, dtype, len, data, slots))
     }
 
     /// Creates a new [`DecimalArray`] from an iterator of values.
@@ -513,7 +509,7 @@ impl Array<Decimal> {
         let len = values.len() / values_type.byte_width();
         let slots = DecimalData::make_slots(&validity, len);
         let data = DecimalData::try_new_handle(values, values_type, decimal_dtype)?;
-        Array::try_from_parts(ArrayParts::new(Decimal, dtype, len, data).with_slots(slots))
+        Array::try_from_parts(ArrayParts::new(Decimal, dtype, len, data, slots))
     }
 
     /// Creates a new [`DecimalArray`] without validation from a [`BufferHandle`].
@@ -531,11 +527,7 @@ impl Array<Decimal> {
         let len = values.len() / values_type.byte_width();
         let slots = DecimalData::make_slots(&validity, len);
         let data = unsafe { DecimalData::new_unchecked_handle(values, values_type, decimal_dtype) };
-        unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(Decimal, dtype, len, data).with_slots(slots),
-            )
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data, slots)) }
     }
 
     #[expect(
@@ -582,9 +574,7 @@ impl Array<Decimal> {
         });
         let slots = DecimalData::make_slots(&patched_validity, len);
         Ok(unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(Decimal, dtype, len, data).with_slots(slots),
-            )
+            Array::from_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data, slots))
         })
     }
 }

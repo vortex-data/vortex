@@ -130,8 +130,8 @@ impl VTable for ForeignArray {
             array.dtype().clone(),
             array.len(),
             ForeignArrayData::new(array.metadata.clone(), buffers.to_vec()),
-        )
-        .with_slots(array.slots().iter().cloned().collect()))
+            array.slots().iter().cloned().collect(),
+        ))
     }
 
     fn serialize(
@@ -159,8 +159,8 @@ impl VTable for ForeignArray {
             dtype.clone(),
             len,
             ForeignArrayData::new(metadata.to_vec(), buffers.to_vec()),
-        )
-        .with_slots(child_arrays))
+            child_arrays,
+        ))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -183,14 +183,12 @@ pub fn new_foreign_array(
     buffers: Vec<BufferHandle>,
     children: ArraySlots,
 ) -> VortexResult<ArrayRef> {
-    Ok(Array::<ForeignArray>::try_from_parts(
-        ArrayParts::new(
-            ForeignArray::new(id),
-            dtype,
-            len,
-            ForeignArrayData::new(metadata, buffers),
-        )
-        .with_slots(children),
-    )?
+    Ok(Array::<ForeignArray>::try_from_parts(ArrayParts::new(
+        ForeignArray::new(id),
+        dtype,
+        len,
+        ForeignArrayData::new(metadata, buffers),
+        children,
+    ))?
     .into_array())
 }

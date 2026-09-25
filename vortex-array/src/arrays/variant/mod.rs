@@ -59,15 +59,17 @@ impl Array<Variant> {
         );
         let len = core_storage.len();
         let stats = core_storage.statistics().to_owned();
-        Ok(Array::try_from_parts(
-            ArrayParts::new(Variant, dtype, len, EmptyArrayData).with_slots(
-                VariantSlots {
-                    core_storage,
-                    shredded,
-                }
-                .into_slots(),
-            ),
-        )?
+        Ok(Array::try_from_parts(ArrayParts::new(
+            Variant,
+            dtype,
+            len,
+            EmptyArrayData,
+            VariantSlots {
+                core_storage,
+                shredded,
+            }
+            .into_slots(),
+        ))?
         .with_stats_set(stats))
     }
 }

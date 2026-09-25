@@ -56,7 +56,13 @@ impl ZstdBuffers {
         len: usize,
         data: ZstdBuffersData,
     ) -> VortexResult<ZstdBuffersArray> {
-        Array::try_from_parts(ArrayParts::new(ZstdBuffers, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(
+            ZstdBuffers,
+            dtype,
+            len,
+            data,
+            ArraySlots::new(),
+        ))
     }
 
     /// Compress every top-level buffer of `array` independently with zstd.
@@ -93,10 +99,13 @@ impl ZstdBuffers {
             buffer_alignments,
         };
         let slots: ArraySlots = serialization.children.into_iter().map(Some).collect();
-        let compressed = Array::try_from_parts(
-            ArrayParts::new(ZstdBuffers, array.dtype().clone(), array.len(), data)
-                .with_slots(slots),
-        )?;
+        let compressed = Array::try_from_parts(ArrayParts::new(
+            ZstdBuffers,
+            array.dtype().clone(),
+            array.len(),
+            data,
+            slots,
+        ))?;
         compressed.statistics().inherit_from(array.statistics());
         Ok(compressed)
     }
@@ -435,10 +444,13 @@ impl VTable for ZstdBuffers {
     ) -> VortexResult<ArrayParts<Self>> {
         let mut data = array.data().clone();
         data.compressed_buffers = buffers.to_vec();
-        Ok(
-            ArrayParts::new(self.clone(), array.dtype().clone(), array.len(), data)
-                .with_slots(array.slots().iter().cloned().collect()),
-        )
+        Ok(ArrayParts::new(
+            self.clone(),
+            array.dtype().clone(),
+            array.len(),
+            data,
+            array.slots().iter().cloned().collect(),
+        ))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -505,7 +517,13 @@ impl VTable for ZstdBuffers {
         };
 
         data.validate()?;
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))
     }
 
     // with_slots handles child replacement via the slots mechanism

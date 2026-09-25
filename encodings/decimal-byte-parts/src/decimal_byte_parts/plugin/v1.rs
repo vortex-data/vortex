@@ -72,13 +72,11 @@ pub(super) fn deserialize(parts: ArrayDeserialization<'_>) -> VortexResult<Decim
     );
     let encoded_dtype = DType::Primitive(ptype, parts.dtype.nullability());
     let msp = parts.children.get(0, &encoded_dtype, parts.len)?;
-    Array::try_from_parts(
-        ArrayParts::new(
-            DecimalByteParts,
-            parts.dtype.clone(),
-            parts.len,
-            DecimalBytePartsData,
-        )
-        .with_slots(smallvec![Some(msp)]),
-    )
+    Array::try_from_parts(ArrayParts::new(
+        DecimalByteParts,
+        parts.dtype.clone(),
+        parts.len,
+        DecimalBytePartsData,
+        smallvec![Some(msp)],
+    ))
 }

@@ -230,8 +230,8 @@ impl VTable for Chunked {
             dtype.clone(),
             len,
             ChunkedData::new(chunk_offsets_usize),
-        )
-        .with_slots(slots))
+            slots,
+        ))
     }
 
     fn append_to_builder(

@@ -15,6 +15,7 @@ use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
+use vortex_array::ArraySlots;
 use vortex_array::ArrayView;
 use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
@@ -404,7 +405,13 @@ impl VTable for Sequence {
 
         let data =
             SequenceData::try_new(base, multiplier, *output_ptype, dtype.nullability(), len)?;
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            ArraySlots::new(),
+        ))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -490,8 +497,16 @@ impl Sequence {
             .vortex_expect("SequenceArray parts must be representable in the output ptype");
         let stats = Self::stats(multiplier);
         let data = unsafe { SequenceData::new_unchecked(base, multiplier) };
-        unsafe { Array::from_parts_unchecked(ArrayParts::new(Sequence, dtype, length, data)) }
-            .with_stats_set(stats)
+        unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(
+                Sequence,
+                dtype,
+                length,
+                data,
+                ArraySlots::new(),
+            ))
+        }
+        .with_stats_set(stats)
     }
 
     /// Construct a new [`SequenceArray`] from its components.
@@ -505,10 +520,16 @@ impl Sequence {
         let dtype = DType::Primitive(ptype, nullability);
         let data = SequenceData::try_new(base, multiplier, ptype, nullability, length)?;
         let stats = Self::stats(data.multiplier());
-        Ok(
-            unsafe { Array::from_parts_unchecked(ArrayParts::new(Sequence, dtype, length, data)) }
-                .with_stats_set(stats),
-        )
+        Ok(unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(
+                Sequence,
+                dtype,
+                length,
+                data,
+                ArraySlots::new(),
+            ))
+        }
+        .with_stats_set(stats))
     }
 
     /// Construct a new typed [`SequenceArray`] from base/multiplier values.
@@ -522,10 +543,16 @@ impl Sequence {
         let dtype = DType::Primitive(ptype, nullability);
         let data = SequenceData::try_new_typed(base, multiplier, nullability, length)?;
         let stats = Self::stats(data.multiplier());
-        Ok(
-            unsafe { Array::from_parts_unchecked(ArrayParts::new(Sequence, dtype, length, data)) }
-                .with_stats_set(stats),
-        )
+        Ok(unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(
+                Sequence,
+                dtype,
+                length,
+                data,
+                ArraySlots::new(),
+            ))
+        }
+        .with_stats_set(stats))
     }
 }
 

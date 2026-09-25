@@ -102,13 +102,11 @@ pub(super) fn deserialize(parts: ArrayDeserialization<'_>) -> VortexResult<Decim
             parts.len,
         )?));
     }
-    Array::try_from_parts(
-        ArrayParts::new(
-            DecimalByteParts,
-            parts.dtype.clone(),
-            parts.len,
-            DecimalBytePartsData,
-        )
-        .with_slots(slots),
-    )
+    Array::try_from_parts(ArrayParts::new(
+        DecimalByteParts,
+        parts.dtype.clone(),
+        parts.len,
+        DecimalBytePartsData,
+        slots,
+    ))
 }

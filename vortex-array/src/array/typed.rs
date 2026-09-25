@@ -66,25 +66,24 @@ pub struct ArrayParts<V: VTable> {
 }
 
 impl<V: VTable> ArrayParts<V> {
-    /// Construct array parts with no child slots.
+    /// Construct array parts with their child slots.
     ///
+    /// Slot count, names, and meaning are encoding-specific and validated by [`VTable::validate`].
     /// The parts are not validated until they are passed to [`Array::try_from_parts`].
-    pub fn new(vtable: V, dtype: DType, len: usize, data: V::TypedArrayData) -> Self {
+    pub fn new(
+        vtable: V,
+        dtype: DType,
+        len: usize,
+        data: V::TypedArrayData,
+        slots: ArraySlots,
+    ) -> Self {
         Self {
             vtable,
             dtype,
             len,
             data,
-            slots: ArraySlots::new(),
+            slots,
         }
-    }
-
-    /// Attach child slots to the construction parts.
-    ///
-    /// Slot count, names, and meaning are encoding-specific and validated by [`VTable::validate`].
-    pub fn with_slots(mut self, slots: ArraySlots) -> Self {
-        self.slots = slots;
-        self
     }
 }
 

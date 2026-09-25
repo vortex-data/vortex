@@ -231,10 +231,13 @@ impl Array<Dict> {
             .union_nullability(codes.dtype().nullability());
         let len = codes.len();
         let data = DictData::try_new(codes.dtype())?;
-        Array::try_from_parts(
-            ArrayParts::new(Dict, dtype, len, data)
-                .with_slots(smallvec![Some(codes), Some(values)]),
-        )
+        Array::try_from_parts(ArrayParts::new(
+            Dict,
+            dtype,
+            len,
+            data,
+            smallvec![Some(codes), Some(values)],
+        ))
     }
 
     /// Build a new `DictArray` without validating the codes or values.
@@ -249,10 +252,13 @@ impl Array<Dict> {
         let len = codes.len();
         let data = unsafe { DictData::new_unchecked() };
         unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(Dict, dtype, len, data)
-                    .with_slots(smallvec![Some(codes), Some(values)]),
-            )
+            Array::from_parts_unchecked(ArrayParts::new(
+                Dict,
+                dtype,
+                len,
+                data,
+                smallvec![Some(codes), Some(values)],
+            ))
         }
     }
 
@@ -269,9 +275,7 @@ impl Array<Dict> {
             self.into_data()
                 .set_all_values_referenced(all_values_referenced)
         };
-        unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Dict, dtype, len, data).with_slots(slots))
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Dict, dtype, len, data, slots)) }
     }
 }
 

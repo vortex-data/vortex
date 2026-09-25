@@ -147,7 +147,13 @@ impl VTable for FoR {
         let slots = smallvec![Some(encoded)];
 
         let data = FoRData::try_new(reference)?;
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))
     }
 
     fn reduce_parent(
@@ -177,7 +183,7 @@ impl FoR {
         let len = encoded.len();
         let data = FoRData::try_new(reference)?;
         let slots = smallvec![Some(encoded)];
-        Array::try_from_parts(ArrayParts::new(FoR, dtype, len, data).with_slots(slots))
+        Array::try_from_parts(ArrayParts::new(FoR, dtype, len, data, slots))
     }
 
     /// Encode a primitive array using Frame of Reference encoding.
