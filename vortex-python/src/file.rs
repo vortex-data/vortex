@@ -287,7 +287,7 @@ fn scan_builder(
     indices: Option<ArrayRef>,
     batch_size: Option<usize>,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<ScanBuilder<ArrayRef>> {
+) -> VortexResult<ScanBuilder> {
     let projection = projection
         .unwrap_or_else(root)
         .optimize_recursive(vxf.dtype())?

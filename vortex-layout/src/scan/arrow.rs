@@ -10,6 +10,7 @@ use arrow_schema::ArrowError;
 use arrow_schema::Field;
 use arrow_schema::SchemaRef;
 use futures::Stream;
+use futures::StreamExt;
 use futures::TryStreamExt;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
@@ -17,10 +18,12 @@ use vortex_array::VortexSessionExecute;
 use vortex_arrow::ArrowSessionExt;
 use vortex_error::VortexResult;
 use vortex_io::runtime::BlockingRuntime;
+use vortex_io::session::RuntimeSessionExt;
+use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::scan::scan_builder::ScanBuilder;
 
-impl ScanBuilder<ArrayRef> {
+impl ScanBuilder {
     /// Creates a new `RecordBatchReader` from the scan builder.
     ///
     /// The `schema` parameter is used to define the schema of the resulting record batches. In
@@ -35,11 +38,11 @@ impl ScanBuilder<ArrayRef> {
         let session = self.session().clone();
 
         let iter = self
+            .into_iter(runtime)?
             .map(move |chunk| {
                 let mut ctx = session.create_execution_ctx();
-                to_record_batch(chunk, &struct_field, &mut ctx)
+                chunk.and_then(|chunk| to_record_batch(chunk, &struct_field, &mut ctx))
             })
-            .into_iter(runtime)?
             .map(|result| result.map_err(|e| ArrowError::ExternalError(Box::new(e))));
 
         Ok(RecordBatchIteratorAdapter { iter, schema })
@@ -49,15 +52,29 @@ impl ScanBuilder<ArrayRef> {
         self,
         schema: SchemaRef,
     ) -> VortexResult<impl Stream<Item = Result<RecordBatch, ArrowError>> + Send + 'static> {
-        let struct_field = Field::new_struct("", schema.fields().clone(), false);
+        let struct_field = Arc::new(Field::new_struct("", schema.fields().clone(), false));
         let session = self.session().clone();
+        let handle = session.handle();
+        let concurrency = get_available_parallelism().unwrap_or(1);
 
         let stream = self
-            .map(move |chunk| {
-                let mut ctx = session.create_execution_ctx();
-                to_record_batch(chunk, &struct_field, &mut ctx)
-            })
             .into_stream()?
+            .map(move |chunk| {
+                let session = session.clone();
+                let handle = handle.clone();
+                let struct_field = Arc::clone(&struct_field);
+                async move {
+                    handle
+                        .spawn_blocking(move || {
+                            let mut ctx = session.create_execution_ctx();
+                            chunk.and_then(|chunk| {
+                                to_record_batch(chunk, struct_field.as_ref(), &mut ctx)
+                            })
+                        })
+                        .await
+                }
+            })
+            .buffered(concurrency)
             .map_err(|e| ArrowError::ExternalError(Box::new(e)));
 
         Ok(stream)
