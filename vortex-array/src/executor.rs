@@ -12,6 +12,7 @@
 //! See <https://docs.vortex.dev/developer-guide/internals/execution> for the full execution
 //! narrative, diagrams, and walkthroughs.
 
+use std::any::TypeId;
 use std::env::VarError;
 use std::fmt;
 use std::fmt::Display;
@@ -166,7 +167,13 @@ impl ArrayRef {
     /// parent rewrite would observe inconsistent state and could discard accumulated builder
     /// data.
     #[allow(clippy::cognitive_complexity)]
-    pub fn execute_until<M: Matcher>(self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    pub fn execute_until<M: Matcher + 'static>(
+        self,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        // `execute::<Canonical>` passes `AnyCanonical` as the target, making it the same predicate
+        // as the loop's universal stop condition. Folds to a constant per monomorphization.
+        let target_is_any_canonical = TypeId::of::<M>() == TypeId::of::<AnyCanonical>();
         let mut current_array = self;
         let mut current_builder: Option<Box<dyn ArrayBuilder>> = None;
         let mut stack: Vec<StackFrame> = Vec::new();
@@ -186,12 +193,22 @@ impl ArrayRef {
                 current_builder.is_some(),
             ));
 
-            let is_done = stack
-                .last()
-                .map_or(M::matches as DonePredicate, |frame| frame.done);
-
-            let done_target = is_done(&current_array);
-            let done_canonical = AnyCanonical::matches(&current_array);
+            let (done_target, done_canonical) = match stack.last() {
+                // At the root one scan can answer both, rather than scanning the encoding twice.
+                None => {
+                    let done_target = M::matches(&current_array);
+                    let done_canonical = if target_is_any_canonical {
+                        done_target
+                    } else {
+                        AnyCanonical::matches(&current_array)
+                    };
+                    (done_target, done_canonical)
+                }
+                Some(frame) => (
+                    (frame.done)(&current_array),
+                    AnyCanonical::matches(&current_array),
+                ),
+            };
             trace_op!(record_execute_until_done_check(done_target, done_canonical));
 
             if done_target || done_canonical {
@@ -267,7 +284,8 @@ impl ArrayRef {
             }
 
             let expected_len = current_array.len();
-            let expected_dtype = current_array.dtype().clone();
+            // Only `finalize_done` reads this back, and only under debug assertions.
+            let expected_dtype = cfg!(debug_assertions).then(|| current_array.dtype().clone());
             let stats = current_array.statistics().to_array_stats();
             let encoding_id = current_array.encoding_id();
             trace_op!(record_execute_encoding(&current_array));
@@ -591,7 +609,7 @@ fn finalize_done(
     result: ArrayRef,
     mut builder: Option<Box<dyn ArrayBuilder>>,
     expected_len: usize,
-    expected_dtype: DType,
+    expected_dtype: Option<DType>,
     stats: ArrayStats,
     encoding_id: ArrayId,
 ) -> VortexResult<(ArrayRef, Option<Box<dyn ArrayBuilder>>)> {
@@ -601,7 +619,7 @@ fn finalize_done(
         result
     };
 
-    if cfg!(debug_assertions) {
+    if let Some(expected_dtype) = expected_dtype {
         vortex_ensure!(
             output.len() == expected_len,
             "Result length mismatch for {:?}",
@@ -777,6 +795,21 @@ impl ExecutionResult {
     pub fn done(result: impl IntoArray) -> Self {
         Self {
             array: result.into_array(),
+            step: ExecutionStep::Done,
+        }
+    }
+
+    /// Signal that execution is complete and the result is in the executor's active builder.
+    ///
+    /// Pass the consumed parent array: the executor discards it after finishing the builder,
+    /// avoiding an allocation for a placeholder result.
+    ///
+    /// Only valid once at least one [`ExecutionStep::AppendChild`] has been returned, which
+    /// guarantees that the executor has an active builder. The parent may have empty child slots
+    /// because its children have already been appended; it must not escape the executor.
+    pub fn done_into_builder(array: impl IntoArray) -> Self {
+        Self {
+            array: array.into_array(),
             step: ExecutionStep::Done,
         }
     }
