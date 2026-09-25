@@ -44,8 +44,8 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
-    use vortex_array::expr::bound::byte_length;
-    use vortex_array::expr::bound::root;
+    use vortex_array::expr::byte_length;
+    use vortex_array::expr::root;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
     use vortex_session::VortexSession;
@@ -240,7 +240,7 @@ mod tests {
         let compressor = fsst_train_compressor(&varbin, &mut ctx)?;
         let fsst = fsst_compress(&varbin, &compressor, &mut ctx)?.into_array();
         let expr = byte_length(root(fsst.dtype().clone()));
-        let result = fsst.apply_bound(&expr)?;
+        let result = fsst.apply(&expr)?;
         let expected = PrimitiveArray::from_iter(vec![5u64, 7, 18, 0]);
         assert_arrays_eq!(result, expected, &mut ctx);
         Ok(())

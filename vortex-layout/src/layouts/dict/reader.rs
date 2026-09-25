@@ -21,7 +21,7 @@ use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::ExactBoundExpr;
-use vortex_array::expr::bound::pack as bound_pack;
+use vortex_array::expr::pack as bound_pack;
 use vortex_array::expr::direct_bound_annotations;
 use vortex_array::expr::label_bound_tree;
 use vortex_array::expr::transform::partition_bound_annotations;
@@ -158,7 +158,7 @@ impl DictReader {
             .or_insert_with(|| {
                 self.values_array_uncanonical()
                     .map(move |array| {
-                        let array = array?.apply_bound(&expr)?;
+                        let array = array?.apply(&expr)?;
                         Ok(SharedArray::new(array).into_array())
                     })
                     .boxed()
@@ -312,7 +312,7 @@ impl LayoutReader for DictReader {
                 )
                 .vortex_expect("must construct dict values array evaluation")
                 .map_err(Arc::new)
-                .map(move |array| Ok(SharedArray::new(array?.apply_bound(&inner)?).into_array()))
+                .map(move |array| Ok(SharedArray::new(array?.apply(&inner)?).into_array()))
                 .boxed()
                 .shared()
         } else {
@@ -334,7 +334,7 @@ impl LayoutReader for DictReader {
             .into_array()
             .optimize()?;
 
-            array.apply_bound(&expr_outer)
+            array.apply(&expr_outer)
         }
         .boxed())
     }
@@ -367,16 +367,16 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_array::dtype::StructFields;
     use vortex_array::expr::BoundExpression;
-    use vortex_array::expr::bound::byte_length;
-    use vortex_array::expr::bound::cast;
-    use vortex_array::expr::bound::eq;
-    use vortex_array::expr::bound::get_item;
-    use vortex_array::expr::bound::is_not_null;
-    use vortex_array::expr::bound::like;
-    use vortex_array::expr::bound::lit;
-    use vortex_array::expr::bound::pack as bound_pack;
-    use vortex_array::expr::bound::pack;
-    use vortex_array::expr::bound::root;
+    use vortex_array::expr::byte_length;
+    use vortex_array::expr::cast;
+    use vortex_array::expr::eq;
+    use vortex_array::expr::get_item;
+    use vortex_array::expr::is_not_null;
+    use vortex_array::expr::like;
+    use vortex_array::expr::lit;
+    use vortex_array::expr::pack as bound_pack;
+    use vortex_array::expr::pack;
+    use vortex_array::expr::root;
     use vortex_array::validity::Validity;
     use vortex_btrblocks::BtrBlocksCompressor;
     use vortex_error::VortexExpect;
@@ -702,7 +702,7 @@ mod tests {
 
         let expected = array
             .clone()
-            .apply_bound(&byte_length(root(array.dtype().clone())))
+            .apply(&byte_length(root(array.dtype().clone())))
             .unwrap()
             .into_array();
 
@@ -759,9 +759,9 @@ mod tests {
             [(FieldName::from(PUSHDOWN_ANNOTATION), inner)],
             Nullability::NonNullable,
         );
-        let pushed = array.clone().apply_bound(&pushed_expr)?;
-        let actual = pushed.apply_bound(&outer)?;
-        let expected = array.apply_bound(&original)?;
+        let pushed = array.clone().apply(&pushed_expr)?;
+        let actual = pushed.apply(&outer)?;
+        let expected = array.apply(&original)?;
         assert_arrays_eq!(actual, expected, &mut ctx);
         Ok(())
     }

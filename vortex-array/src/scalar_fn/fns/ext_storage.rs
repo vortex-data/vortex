@@ -118,8 +118,8 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::extension::ExtDTypeRef;
-    use crate::expr::bound::ext_storage;
-    use crate::expr::bound::root;
+    use crate::expr::ext_storage;
+    use crate::expr::root;
     use crate::extension::datetime::TimeUnit;
     use crate::extension::datetime::Timestamp;
     use crate::scalar::Scalar;
@@ -138,7 +138,7 @@ mod tests {
 
         let result = array
             .clone()
-            .apply_bound(&ext_storage(root(array.dtype().clone())))?;
+            .apply(&ext_storage(root(array.dtype().clone())))?;
 
         assert_eq!(
             result.dtype(),
@@ -160,7 +160,7 @@ mod tests {
 
         let result = array
             .clone()
-            .apply_bound(&ext_storage(root(array.dtype().clone())))?;
+            .apply(&ext_storage(root(array.dtype().clone())))?;
 
         assert_eq!(
             result.dtype(),
@@ -183,7 +183,7 @@ mod tests {
 
         let result = array
             .clone()
-            .apply_bound(&ext_storage(root(array.dtype().clone())))?;
+            .apply(&ext_storage(root(array.dtype().clone())))?;
 
         assert_eq!(
             result.dtype(),

@@ -190,7 +190,7 @@ mod tests {
     use vortex_array::dtype::FieldName;
     use vortex_array::dtype::FieldNames;
     use vortex_array::dtype::Nullability;
-    use vortex_array::expr::bound::root;
+    use vortex_array::expr::root;
     use vortex_array::expr::stats::Precision;
     use vortex_array::expr::stats::Stat;
     use vortex_array::expr::stats::StatsProviderExt;

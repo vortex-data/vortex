@@ -14,8 +14,8 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::dtype::DType;
+use crate::expr;
 use crate::expr::BoundExpression;
-use crate::expr::bound;
 use crate::expr::display::ExprDisplay;
 use crate::proto::expr as pb;
 use crate::scalar::Scalar;
@@ -95,7 +95,7 @@ impl ScalarFnVTable for Literal {
         scalar: &Scalar,
         _expression: &BoundExpression,
     ) -> VortexResult<Option<BoundExpression>> {
-        Ok(Some(bound::lit(scalar.is_valid())))
+        Ok(Some(expr::lit(scalar.is_valid())))
     }
 
     fn is_strict(&self, _instance: &Self::Options) -> bool {
@@ -113,7 +113,7 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
-    use crate::expr::bound::lit;
+    use crate::expr::lit;
     use crate::scalar::Scalar;
 
     #[test]

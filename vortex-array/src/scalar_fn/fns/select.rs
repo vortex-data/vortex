@@ -23,8 +23,8 @@ use crate::arrays::struct_::StructArrayExt;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
+use crate::expr;
 use crate::expr::BoundExpression;
-use crate::expr::bound;
 use crate::expr::display::ExprDisplay;
 use crate::expr::field::DisplayFieldNames;
 use crate::proto::expr::FieldNames as ProtoFieldNames;
@@ -215,7 +215,7 @@ impl ScalarFnVTable for Select {
         //  layout APIs.
         if included_fields.is_empty() {
             let empty: Vec<(FieldName, BoundExpression)> = vec![];
-            return Ok(Some(bound::pack(empty, struct_nullability)));
+            return Ok(Some(expr::pack(empty, struct_nullability)));
         }
 
         // We cannot always convert a `select` into a `pack(get_item(f1), get_item(f2), ...)`.
@@ -233,10 +233,10 @@ impl ScalarFnVTable for Select {
             struct_nullability.is_nullable() && !all_included_fields_are_nullable;
 
         if child_is_pack && !would_intersect_validity {
-            let pack_expr = bound::pack(
+            let pack_expr = expr::pack(
                 included_fields
                     .into_iter()
-                    .map(|name| (name.clone(), bound::get_item(name, child_struct.clone()))),
+                    .map(|name| (name.clone(), expr::get_item(name, child_struct.clone()))),
                 struct_nullability,
             );
 
@@ -338,9 +338,9 @@ mod tests {
     use crate::dtype::Nullability::Nullable;
     use crate::dtype::PType::I32;
     use crate::dtype::StructFields;
-    use crate::expr::bound::root;
-    use crate::expr::bound::select;
-    use crate::expr::bound::select_exclude;
+    use crate::expr::root;
+    use crate::expr::select;
+    use crate::expr::select_exclude;
     use crate::expr::test_harness;
     use crate::scalar::Scalar;
     use crate::scalar_fn::ScalarFnVTableExt;
@@ -362,7 +362,7 @@ mod tests {
         let st = test_array().into_array();
         let select = select(vec![FieldName::from("a")], root(st.dtype().clone()));
         let selected = st
-            .apply_bound(&select)
+            .apply(&select)
             .unwrap()
             .execute::<StructArray>(&mut ctx)
             .unwrap();
@@ -376,7 +376,7 @@ mod tests {
         let st = test_array().into_array();
         let select = select_exclude(vec![FieldName::from("a")], root(st.dtype().clone()));
         let selected = st
-            .apply_bound(&select)
+            .apply(&select)
             .unwrap()
             .execute::<StructArray>(&mut ctx)
             .unwrap();
@@ -503,7 +503,7 @@ mod tests {
 
     #[test]
     fn test_remove_select_rule_exclude_fields() {
-        use crate::expr::bound::select_exclude;
+        use crate::expr::select_exclude;
 
         let dtype = DType::Struct(
             StructFields::new(

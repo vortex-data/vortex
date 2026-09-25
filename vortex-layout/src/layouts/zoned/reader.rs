@@ -256,10 +256,10 @@ mod test {
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::expr::bound::gt;
-    use vortex_array::expr::bound::is_not_null;
-    use vortex_array::expr::bound::lit;
-    use vortex_array::expr::bound::root;
+    use vortex_array::expr::gt;
+    use vortex_array::expr::is_not_null;
+    use vortex_array::expr::lit;
+    use vortex_array::expr::root;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;

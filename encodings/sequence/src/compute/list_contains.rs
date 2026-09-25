@@ -71,9 +71,9 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType::I32;
-    use vortex_array::expr::bound::list_contains;
-    use vortex_array::expr::bound::lit;
-    use vortex_array::expr::bound::root;
+    use vortex_array::expr::list_contains;
+    use vortex_array::expr::lit;
+    use vortex_array::expr::root;
     use vortex_array::scalar::Scalar;
     use vortex_session::VortexSession;
 
@@ -102,7 +102,7 @@ mod tests {
                 .into_array();
 
             let expr = list_contains(lit(list_scalar.clone()), root(array.dtype().clone()));
-            let result = array.apply_bound(&expr).unwrap();
+            let result = array.apply(&expr).unwrap();
             let expected = BoolArray::from_iter([Some(true), Some(false), Some(true)]);
             assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
         }
@@ -116,7 +116,7 @@ mod tests {
                 .into_array();
 
             let expr = list_contains(lit(list_scalar), root(array.dtype().clone()));
-            let result = array.apply_bound(&expr).unwrap();
+            let result = array.apply(&expr).unwrap();
             let expected = BoolArray::from_iter([Some(true), Some(true), Some(false)]);
             assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
         }
@@ -135,7 +135,7 @@ mod tests {
             .into_array();
 
         let expr = list_contains(lit(list_scalar), root(array.dtype().clone()));
-        let result = array.apply_bound(&expr).unwrap();
+        let result = array.apply(&expr).unwrap();
         let expected = BoolArray::from_iter([Some(true), Some(true), Some(true)]);
         assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
     }

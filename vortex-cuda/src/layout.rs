@@ -312,13 +312,13 @@ impl LayoutReader for CudaFlatReader {
 
             let mask_density = mask.density();
             let array_mask = if mask_density < EXPR_EVAL_THRESHOLD {
-                let array = array.apply_bound(&expr)?;
+                let array = array.apply(&expr)?;
                 let array = array.filter(mask.clone())?;
                 let mut ctx = session.create_execution_ctx();
                 let array_mask = array.null_as_false().execute(&mut ctx)?;
                 mask.intersect_by_rank(&array_mask)
             } else {
-                let array = array.apply_bound(&expr)?;
+                let array = array.apply(&expr)?;
                 let mut ctx = session.create_execution_ctx();
                 let array_mask = array.null_as_false().execute(&mut ctx)?;
                 mask.bitand(&array_mask)
@@ -364,7 +364,7 @@ impl LayoutReader for CudaFlatReader {
                 array = array.filter(mask)?;
             }
 
-            array = array.apply_bound(&expr)?;
+            array = array.apply(&expr)?;
 
             Ok(array)
         }

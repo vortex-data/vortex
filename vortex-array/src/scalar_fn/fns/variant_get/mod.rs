@@ -434,8 +434,8 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
-    use crate::expr::bound::root;
-    use crate::expr::bound::variant_get;
+    use crate::expr::root;
+    use crate::expr::variant_get;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
     use crate::scalar_fn::ScalarFnVTable;
@@ -559,7 +559,7 @@ mod tests {
     ) -> VortexResult<ArrayRef> {
         let expr = variant_get(root(array.dtype().clone()), parse_path(path)?, dtype);
         array
-            .apply_bound(&expr)?
+            .apply(&expr)?
             .execute::<ArrayRef>(&mut array_session().create_execution_ctx())
     }
 

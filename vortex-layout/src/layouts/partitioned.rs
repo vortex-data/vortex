@@ -92,7 +92,7 @@ impl<P: Send + Sync + 'static> BoundPartitionedExprEval<P> for BoundPartitionedE
 
             let mut ctx = session.create_execution_ctx();
             let root_mask = root_scope
-                .apply_bound(&self.root)?
+                .apply(&self.root)?
                 .null_as_false()
                 .execute(&mut ctx)?;
 
@@ -128,7 +128,7 @@ impl<P: Send + Sync + 'static> BoundPartitionedExprEval<P> for BoundPartitionedE
             )?
             .into_array();
 
-            root_scope.apply_bound(&self.root)
+            root_scope.apply(&self.root)
         }))
     }
 }

@@ -33,8 +33,8 @@ use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity_in;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
+use crate::expr;
 use crate::expr::BoundExpression;
-use crate::expr::bound;
 use crate::expr::display::ExprDisplay;
 use crate::proto::expr as pb;
 use crate::scalar::Scalar;
@@ -299,7 +299,7 @@ impl ScalarFnVTable for CaseWhen {
             return Ok(Some(x.clone()));
         }
 
-        Ok(Some(bound::fill_null(x.clone(), fill.clone())))
+        Ok(Some(expr::fill_null(x.clone(), fill.clone())))
     }
 
     fn is_strict(&self, _options: &Self::Options) -> bool {
@@ -462,17 +462,17 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
-    use crate::expr::bound::case_when;
-    use crate::expr::bound::case_when_no_else;
-    use crate::expr::bound::col;
-    use crate::expr::bound::eq;
-    use crate::expr::bound::get_item;
-    use crate::expr::bound::gt;
-    use crate::expr::bound::is_not_null;
-    use crate::expr::bound::is_null;
-    use crate::expr::bound::lit;
-    use crate::expr::bound::nested_case_when;
-    use crate::expr::bound::root;
+    use crate::expr::case_when;
+    use crate::expr::case_when_no_else;
+    use crate::expr::col;
+    use crate::expr::eq;
+    use crate::expr::get_item;
+    use crate::expr::gt;
+    use crate::expr::is_not_null;
+    use crate::expr::is_null;
+    use crate::expr::lit;
+    use crate::expr::nested_case_when;
+    use crate::expr::root;
     use crate::expr::test_harness;
     use crate::scalar::Scalar;
     use crate::scalar_fn::ScalarFnVTableExt;
@@ -484,7 +484,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         array
             .clone()
-            .apply_bound(expr)
+            .apply(expr)
             .unwrap()
             .execute::<Canonical>(&mut ctx)
             .unwrap()

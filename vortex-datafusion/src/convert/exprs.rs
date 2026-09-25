@@ -26,8 +26,8 @@ use vortex::VortexSessionDefault;
 use vortex::dtype::DType as VortexDType;
 use vortex::dtype::Nullability;
 use vortex::error::VortexResult;
+use vortex::expr;
 use vortex::expr::BoundExpression;
-use vortex::expr::bound;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::EmptyOptions;
 use vortex::scalar_fn::ScalarFnVTableExt;
@@ -74,7 +74,7 @@ pub(crate) fn make_vortex_predicate(
         .map(|e| expr_convertor.convert(e.as_ref(), scope))
         .collect::<DFResult<Vec<_>>>()?;
 
-    bound::and_collect(exprs)
+    expr::and_collect(exprs)
         .map(|expression| df_bound(expression.optimize_recursive()))
         .transpose()
 }
@@ -159,7 +159,7 @@ pub trait ExpressionConvertor: Send + Sync {
             })
             .collect::<DFResult<Vec<_>>>()?;
         Ok(ProcessedProjection {
-            scan_projection: bound::pack(columns, Nullability::NonNullable),
+            scan_projection: expr::pack(columns, Nullability::NonNullable),
             leftover_projection: source_projection,
         })
     }
@@ -427,7 +427,7 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
         }
 
         Ok(ProcessedProjection {
-            scan_projection: bound::pack(scan_projection, Nullability::NonNullable),
+            scan_projection: expr::pack(scan_projection, Nullability::NonNullable),
             leftover_projection: leftover_projection.into(),
         })
     }
@@ -451,7 +451,7 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
             })
             .collect::<DFResult<Vec<_>>>()?;
         Ok(ProcessedProjection {
-            scan_projection: bound::pack(columns, Nullability::NonNullable),
+            scan_projection: expr::pack(columns, Nullability::NonNullable),
             leftover_projection: source_projection,
         })
     }
@@ -1338,7 +1338,7 @@ mod tests {
         // Apply Vortex expression
         let mut ctx = session.create_execution_ctx();
         let vortex_result = vortex_array
-            .apply_bound(&vortex_expr)
+            .apply(&vortex_expr)
             .unwrap()
             .execute::<Canonical>(&mut ctx)
             .unwrap();

@@ -21,8 +21,8 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
+use vortex_array::expr;
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::bound;
 use vortex_array::expr::stats::Stat;
 use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
@@ -128,7 +128,7 @@ impl ZoneMap {
     /// `true` means the zone cannot contain matching rows and can be skipped.
     ///
     /// If the predicate contains [`row_count`][vortex_array::scalar_fn::internal::row_count]
-    /// placeholders, they are replaced after [`ArrayRef::apply_bound`] with per-zone
+    /// placeholders, they are replaced after [`ArrayRef::apply`] with per-zone
     /// counts derived from `zone_len` and `row_count`. Uniform zones use a
     /// [`ConstantArray`]; a short final zone uses a run-end encoded array.
     /// `row_count` is a layout property rather than a stored stats field, and the
@@ -144,7 +144,7 @@ impl ZoneMap {
         let predicate = self.lower_stats(predicate.clone())?;
 
         let array = self.array.clone().into_array();
-        let applied = array.apply_bound(&predicate)?;
+        let applied = array.apply(&predicate)?;
 
         if !contains_row_count(&applied) {
             return applied.null_as_false().execute(&mut ctx);
@@ -190,7 +190,7 @@ impl StatBinder for ZoneMapStatsBinder<'_> {
             return self
                 .zone_map
                 .stat_field_expr(Stat::NullCount)
-                .map(|null_count| Ok(bound::eq(null_count, row_count_expr()?)))
+                .map(|null_count| Ok(expr::eq(null_count, row_count_expr()?)))
                 .transpose();
         }
 
@@ -198,14 +198,14 @@ impl StatBinder for ZoneMapStatsBinder<'_> {
             return Ok(self
                 .zone_map
                 .stat_field_expr(Stat::NullCount)
-                .map(|null_count| bound::eq(null_count, bound::lit(0u64))));
+                .map(|null_count| expr::eq(null_count, expr::lit(0u64))));
         }
 
         if aggregate_fn.is::<AllNan>() {
             return self
                 .zone_map
                 .stat_field_expr(Stat::NaNCount)
-                .map(|nan_count| Ok(bound::eq(nan_count, row_count_expr()?)))
+                .map(|nan_count| Ok(expr::eq(nan_count, row_count_expr()?)))
                 .transpose();
         }
 
@@ -213,7 +213,7 @@ impl StatBinder for ZoneMapStatsBinder<'_> {
             return Ok(self
                 .zone_map
                 .stat_field_expr(Stat::NaNCount)
-                .map(|nan_count| bound::eq(nan_count, bound::lit(0u64))));
+                .map(|nan_count| expr::eq(nan_count, expr::lit(0u64))));
         }
 
         if let Some(stat) = Stat::from_aggregate_fn(aggregate_fn) {
@@ -274,13 +274,13 @@ impl ZoneMap {
     }
 
     fn field_expr(&self, name: impl Into<vortex_array::dtype::FieldName>) -> BoundExpression {
-        bound::get_item(name, bound::root(self.array.dtype().clone()))
+        expr::get_item(name, expr::root(self.array.dtype().clone()))
     }
 }
 
 fn aggregate_result_expr(stored: &AggregateFnRef, state_expr: BoundExpression) -> BoundExpression {
     if stored.is::<BoundedMax>() {
-        bound::get_item(BOUNDED_MAX_BOUND, state_expr)
+        expr::get_item(BOUNDED_MAX_BOUND, state_expr)
     } else {
         state_expr
     }
@@ -367,15 +367,15 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::expr::BoundExpression;
-    use vortex_array::expr::bound::cast;
-    use vortex_array::expr::bound::gt;
-    use vortex_array::expr::bound::gt_eq;
-    use vortex_array::expr::bound::is_not_null;
-    use vortex_array::expr::bound::is_null;
-    use vortex_array::expr::bound::lit;
-    use vortex_array::expr::bound::lt;
-    use vortex_array::expr::bound::not_eq;
-    use vortex_array::expr::bound::root;
+    use vortex_array::expr::cast;
+    use vortex_array::expr::gt;
+    use vortex_array::expr::gt_eq;
+    use vortex_array::expr::is_not_null;
+    use vortex_array::expr::is_null;
+    use vortex_array::expr::lit;
+    use vortex_array::expr::lt;
+    use vortex_array::expr::not_eq;
+    use vortex_array::expr::root;
     use vortex_array::expr::stats::Stat;
     use vortex_array::scalar_fn::ScalarFnVTableExt;
     use vortex_array::stats::StatFn;

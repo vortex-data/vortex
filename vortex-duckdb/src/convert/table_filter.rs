@@ -13,13 +13,13 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
+use vortex::expr;
 use vortex::expr::BoundExpression;
-use vortex::expr::bound;
-use vortex::expr::bound::and_collect;
-use vortex::expr::bound::is_not_null;
-use vortex::expr::bound::is_null;
-use vortex::expr::bound::lit;
-use vortex::expr::bound::or_collect;
+use vortex::expr::and_collect;
+use vortex::expr::is_not_null;
+use vortex::expr::is_null;
+use vortex::expr::lit;
+use vortex::expr::or_collect;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::EmptyOptions;
 use vortex::scalar_fn::ScalarFnVTableExt;
@@ -113,7 +113,7 @@ pub fn try_from_table_filter(
             };
             let data = dynamic.data;
 
-            bound::dynamic(
+            expr::dynamic(
                 op,
                 move || {
                     let value = data.latest()?;

@@ -8,8 +8,8 @@ use arbitrary::Unstructured;
 
 use crate::dtype::DType;
 use crate::dtype::FieldName;
+use crate::expr;
 use crate::expr::BoundExpression;
-use crate::expr::bound;
 use crate::scalar::arbitrary::random_scalar;
 use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::binary::Binary;
@@ -30,12 +30,12 @@ pub fn projection_expr(
             let get_item = u.choose_iter(struct_dtype.names().iter())?;
             Ok((
                 get_item.clone(),
-                bound::col(get_item.clone(), dtype.clone()),
+                expr::col(get_item.clone(), dtype.clone()),
             ))
         })
         .collect::<AResult<Vec<_>>>()?;
 
-    Ok(Some(bound::pack(cols, u.arbitrary()?)))
+    Ok(Some(expr::pack(cols, u.arbitrary()?)))
 }
 
 pub fn filter_expr(u: &mut Unstructured<'_>, dtype: &DType) -> AResult<Option<BoundExpression>> {
@@ -53,7 +53,7 @@ pub fn filter_expr(u: &mut Unstructured<'_>, dtype: &DType) -> AResult<Option<Bo
         })
         .collect::<AResult<Vec<_>>>()?;
 
-    Ok(bound::and_collect(filters))
+    Ok(expr::and_collect(filters))
 }
 
 fn random_comparison(
@@ -66,7 +66,7 @@ fn random_comparison(
     Binary
         .try_new_bound_expr(
             arbitrary_comparison_operator(u)?,
-            [bound::col(name.clone(), scope.clone()), bound::lit(scalar)],
+            [expr::col(name.clone(), scope.clone()), expr::lit(scalar)],
         )
         .map_err(|_| arbitrary::Error::IncorrectFormat)
 }

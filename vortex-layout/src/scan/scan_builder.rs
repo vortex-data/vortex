@@ -520,11 +520,11 @@ mod test {
     use vortex_array::dtype::StructFields;
     use vortex_array::expr::BoundExpression;
     use vortex_array::expr::ExactBoundExpr;
-    use vortex_array::expr::bound::eq;
-    use vortex_array::expr::bound::get_item;
-    use vortex_array::expr::bound::is_not_null;
-    use vortex_array::expr::bound::lit;
-    use vortex_array::expr::bound::root;
+    use vortex_array::expr::eq;
+    use vortex_array::expr::get_item;
+    use vortex_array::expr::is_not_null;
+    use vortex_array::expr::lit;
+    use vortex_array::expr::root;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
     use vortex_io::runtime::BlockingRuntime;

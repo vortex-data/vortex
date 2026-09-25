@@ -17,8 +17,8 @@ use jni::sys::jfloat;
 use jni::sys::jint;
 use jni::sys::jlong;
 use jni::sys::jshort;
+use vortex::array::expr;
 use vortex::array::expr::BoundExpression;
-use vortex::array::expr::bound;
 use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
 use vortex::dtype::FieldName;
@@ -55,7 +55,7 @@ fn into_raw(expression: BoundExpression) -> jlong {
 }
 
 fn literal(scalar: impl Into<Scalar>) -> jlong {
-    into_raw(bound::lit(scalar))
+    into_raw(expr::lit(scalar))
 }
 
 #[unsafe(no_mangle)]

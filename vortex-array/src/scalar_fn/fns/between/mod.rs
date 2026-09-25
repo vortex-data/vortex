@@ -368,11 +368,11 @@ mod tests {
     use crate::dtype::DecimalDType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::expr::bound::between;
-    use crate::expr::bound::col;
-    use crate::expr::bound::get_item;
-    use crate::expr::bound::lit;
-    use crate::expr::bound::root;
+    use crate::expr::between;
+    use crate::expr::col;
+    use crate::expr::get_item;
+    use crate::expr::lit;
+    use crate::expr::root;
     use crate::expr::test_harness;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
@@ -418,13 +418,13 @@ mod tests {
 
         let executed = data
             .clone()
-            .apply_bound(&expr)?
+            .apply(&expr)?
             .execute::<BoolArray>(ctx)?
             .opt_bool_vec(ctx);
 
         let validity = expr.validity()?;
         let declared = data
-            .apply_bound(&validity)?
+            .apply(&validity)?
             .execute::<BoolArray>(ctx)?
             .bool_vec(ctx);
 

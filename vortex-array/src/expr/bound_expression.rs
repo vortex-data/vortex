@@ -325,13 +325,13 @@ mod tests {
     use super::*;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::expr::bound;
+    use crate::expr;
     use crate::expr::test_harness::struct_dtype;
 
     #[test]
     fn every_node_carries_its_dtype() {
         let scope = struct_dtype();
-        let expr = bound::eq(bound::col("a", scope.clone()), bound::lit(1_i32));
+        let expr = expr::eq(expr::col("a", scope.clone()), expr::lit(1_i32));
         assert_eq!(expr.dtype(), &DType::Bool(Nullability::NonNullable));
         assert_eq!(
             expr.child(0).dtype(),
@@ -342,10 +342,10 @@ mod tests {
 
     #[test]
     fn bound_expression_can_be_rebuilt() -> VortexResult<()> {
-        let expr = bound::eq(bound::lit(1_i32), bound::lit(2_i32));
+        let expr = expr::eq(expr::lit(1_i32), expr::lit(2_i32));
         let rebuilt = expr
             .clone()
-            .with_children([bound::lit(3_i32), bound::lit(4_i32)])?;
+            .with_children([expr::lit(3_i32), expr::lit(4_i32)])?;
         assert_eq!(rebuilt.dtype(), expr.dtype());
         Ok(())
     }

@@ -35,8 +35,8 @@ use crate::arrays::VarBinView;
 use crate::arrays::struct_::compute::cast::struct_cast;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
+use crate::expr;
 use crate::expr::BoundExpression;
-use crate::expr::bound;
 use crate::expr::display::ExprDisplay;
 use crate::proto::expr as pb;
 use crate::scalar_fn::Arity;
@@ -175,7 +175,7 @@ impl ScalarFnVTable for Cast {
         };
         // A failing cast (e.g. null to a non-nullable dtype) is left in place so the error
         // surfaces at execution time rather than during optimization.
-        Ok(scalar.cast(target_dtype).ok().map(bound::lit))
+        Ok(scalar.cast(target_dtype).ok().map(expr::lit))
     }
 
     fn validity(
@@ -186,7 +186,7 @@ impl ScalarFnVTable for Cast {
         Ok(Some(if dtype.is_nullable() {
             expression.child(0).validity()?
         } else {
-            bound::lit(true)
+            expr::lit(true)
         }))
     }
 
@@ -252,10 +252,10 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::expr::BoundExpression;
-    use crate::expr::bound::cast;
-    use crate::expr::bound::get_item;
-    use crate::expr::bound::lit;
-    use crate::expr::bound::root;
+    use crate::expr::cast;
+    use crate::expr::get_item;
+    use crate::expr::lit;
+    use crate::expr::root;
     use crate::expr::test_harness;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
@@ -293,7 +293,7 @@ mod tests {
             get_item("a", root(test_array.dtype().clone())),
             DType::Primitive(PType::I64, Nullability::NonNullable),
         );
-        let result = test_array.apply_bound(&expr).unwrap();
+        let result = test_array.apply(&expr).unwrap();
 
         assert_eq!(
             result.dtype(),

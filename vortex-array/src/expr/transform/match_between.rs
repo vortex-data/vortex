@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::expr;
 use crate::expr::BoundExpression;
-use crate::expr::bound;
 use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::between::Between;
 use crate::scalar_fn::fns::between::BetweenOptions;
@@ -45,7 +45,7 @@ pub fn find_between_bound(expr: BoundExpression) -> BoundExpression {
             rest.push(current);
         }
     }
-    bound::and_collect(rest).unwrap_or(expr)
+    expr::and_collect(rest).unwrap_or(expr)
 }
 
 fn split_bound_conjunction(expr: &BoundExpression, out: &mut Vec<BoundExpression>) {
@@ -137,7 +137,7 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::expr::bound;
+    use crate::expr;
     use crate::scalar::Scalar;
     use crate::scalar_fn::fns::between::BetweenOptions;
     use crate::scalar_fn::fns::between::StrictComparison;
@@ -145,15 +145,15 @@ mod tests {
     #[test]
     fn compatible_comparisons_form_between() -> VortexResult<()> {
         let data = StructArray::from_fields(&[("x", buffer![1, 2].into_array())])?.into_array();
-        let column = bound::col("x", data.dtype().clone());
-        let predicate = bound::and(
-            bound::lt(bound::lit(2i32), column.clone()),
-            bound::gt_eq(bound::lit(5i32), column.clone()),
+        let column = expr::col("x", data.dtype().clone());
+        let predicate = expr::and(
+            expr::lt(expr::lit(2i32), column.clone()),
+            expr::gt_eq(expr::lit(5i32), column.clone()),
         );
-        let expected = bound::between(
+        let expected = expr::between(
             column,
-            bound::lit(2i32),
-            bound::lit(5i32),
+            expr::lit(2i32),
+            expr::lit(5i32),
             BetweenOptions {
                 lower_strict: StrictComparison::Strict,
                 upper_strict: StrictComparison::NonStrict,
@@ -168,23 +168,23 @@ mod tests {
         let session = array_session();
         let ctx = &mut session.create_execution_ctx();
         let data = StructArray::from_fields(&[("x", buffer![10, 1].into_array())])?.into_array();
-        let column = bound::col("x", data.dtype().clone());
-        let null = bound::lit(Scalar::null(DType::Primitive(
+        let column = expr::col("x", data.dtype().clone());
+        let null = expr::lit(Scalar::null(DType::Primitive(
             PType::I32,
             Nullability::Nullable,
         )));
-        let predicate = bound::and(
-            bound::gt_eq(column.clone(), null),
-            bound::lt_eq(column, bound::lit(5i32)),
+        let predicate = expr::and(
+            expr::gt_eq(column.clone(), null),
+            expr::lt_eq(column, expr::lit(5i32)),
         );
 
         let before = data
             .clone()
-            .apply_bound(&predicate)?
+            .apply(&predicate)?
             .execute::<BoolArray>(ctx)?
             .opt_bool_vec(ctx);
         let after = data
-            .apply_bound(&find_between_bound(predicate))?
+            .apply(&find_between_bound(predicate))?
             .execute::<BoolArray>(ctx)?
             .opt_bool_vec(ctx);
 

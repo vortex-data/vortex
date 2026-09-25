@@ -104,9 +104,9 @@ use vortex::dtype::FieldPath;
 use vortex::dtype::Nullability;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex::expr;
 use vortex::expr::BoundExpression;
-use vortex::expr::bound;
-use vortex::expr::bound::and as vx_and;
+use vortex::expr::and as vx_and;
 use vortex::expr::stats::Precision;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::scalar_fn::ScalarFnVTableExt;
@@ -232,7 +232,7 @@ impl VortexDataSourceBuilder {
                 .collect::<VortexResult<Vec<_>>>()?;
 
             // Update the projection expression
-            projection = bound::pack(fields, Nullability::NonNullable);
+            projection = expr::pack(fields, Nullability::NonNullable);
 
             // Update the arrow schema
             arrow_schema = Arc::new(Schema::new(

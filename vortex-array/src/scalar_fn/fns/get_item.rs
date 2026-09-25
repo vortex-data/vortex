@@ -214,11 +214,11 @@ mod tests {
     use crate::dtype::Nullability::NonNullable;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
-    use crate::expr::bound::checked_add;
-    use crate::expr::bound::get_item;
-    use crate::expr::bound::lit;
-    use crate::expr::bound::pack;
-    use crate::expr::bound::root;
+    use crate::expr::checked_add;
+    use crate::expr::get_item;
+    use crate::expr::lit;
+    use crate::expr::pack;
+    use crate::expr::root;
     use crate::scalar::Scalar;
     use crate::scalar_fn::ScalarFnVTableExt;
     use crate::scalar_fn::fns::get_item::StructArray;
@@ -241,7 +241,7 @@ mod tests {
                 .as_scalar()
                 .is_some_and(|f| f.signature().is_strict())
         );
-        let item = st.apply_bound(&get_item).unwrap();
+        let item = st.apply(&get_item).unwrap();
         assert_eq!(item.dtype(), &DType::from(PType::I32))
     }
 
@@ -267,7 +267,7 @@ mod tests {
         .into_array();
 
         let get_item_expr = get_item("a", root(st.dtype().clone()));
-        let item = st.apply_bound(&get_item_expr).unwrap();
+        let item = st.apply(&get_item_expr).unwrap();
         // The dtype should be nullable since it inherits struct validity
         assert_eq!(
             item.dtype(),
@@ -287,7 +287,7 @@ mod tests {
 
         let item = st
             .clone()
-            .apply_bound(&get_item("a", root(st.dtype().clone())))?;
+            .apply(&get_item("a", root(st.dtype().clone())))?;
         assert_eq!(
             item.dtype(),
             &DType::Primitive(PType::I32, Nullability::Nullable)
@@ -467,7 +467,7 @@ mod tests {
 
         let st = st.into_array();
         st.clone()
-            .apply_bound(&get_item("data", root(st.dtype().clone())))
+            .apply(&get_item("data", root(st.dtype().clone())))
             .unwrap();
     }
 }

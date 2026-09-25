@@ -10,8 +10,8 @@ use vortex::dtype::PType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
+use vortex::expr;
 use vortex::expr::BoundExpression;
-use vortex::expr::bound;
 use vortex::layout::layouts::row_idx::row_idx;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::ScalarFnVTableExt;
@@ -93,7 +93,7 @@ impl Projection {
                     // filter-only column needs to be emitted only for output
                     // vector position match, it will never be read
                     let dtype = DType::Primitive(PType::U64, Nullability::Nullable);
-                    exprs.push(("file_row_number", bound::lit(Scalar::null(dtype))));
+                    exprs.push(("file_row_number", expr::lit(Scalar::null(dtype))));
                 }
                 continue;
             }
@@ -112,7 +112,7 @@ impl Projection {
                 // vector position match, it will never be read
                 exprs.push((
                     name,
-                    bound::lit(Scalar::null(column_field.dtype.as_nullable())),
+                    expr::lit(Scalar::null(column_field.dtype.as_nullable())),
                 ));
                 continue;
             }
@@ -272,10 +272,10 @@ impl Filter {
             }
         };
 
-        let table_filter = bound::and_collect(table_filter_exprs)
+        let table_filter = expr::and_collect(table_filter_exprs)
             .map(|expr| expr.optimize_recursive())
             .transpose()?;
-        let filter = bound::and_collect(
+        let filter = expr::and_collect(
             table_filter
                 .into_iter()
                 .chain(additional_filters.iter().cloned()),
@@ -354,19 +354,19 @@ mod tests {
         };
         assert_eq!(
             projection(input.clone())?.projection,
-            bound::root(scope(&fields))
+            expr::root(scope(&fields))
         );
 
         // file_row_number turns star into an explicit pack with row_idx first
         let ids = [FILE_ROW_NUMBER_COLUMN_IDX, 0, 1, 2];
         input.column_ids = &ids;
         let result = projection(input.clone())?;
-        let expected = bound::pack(
+        let expected = expr::pack(
             [
                 ("file_row_number", row_idx()),
-                ("a", bound::col("a", scope(&fields))),
-                ("b", bound::col("b", scope(&fields))),
-                ("c", bound::col("c", scope(&fields))),
+                ("a", expr::col("a", scope(&fields))),
+                ("b", expr::col("b", scope(&fields))),
+                ("c", expr::col("c", scope(&fields))),
             ],
             false.into(),
         );
@@ -376,30 +376,30 @@ mod tests {
         input.column_ids = &[0, 1];
         assert_ne!(
             projection(input.clone())?.projection,
-            bound::root(scope(&fields))
+            expr::root(scope(&fields))
         );
 
         input.column_ids = &[0, 2, 2];
         assert_ne!(
             projection(input.clone())?.projection,
-            bound::root(scope(&fields))
+            expr::root(scope(&fields))
         );
 
         input.column_ids = &[2, 1, 0];
         assert_ne!(
             projection(input.clone())?.projection,
-            bound::root(scope(&fields))
+            expr::root(scope(&fields))
         );
 
         // If any column has a projection expression, we can't use SELECT *
         let mut fields = [field("a"), field("b"), field("c")];
-        fields[0].projection_expr = Some(bound::lit(true));
+        fields[0].projection_expr = Some(expr::lit(true));
         let input = ProjectionInput {
             column_ids: &[0, 1, 2],
             projection_ids: &[],
             column_fields: &fields,
         };
-        assert_ne!(projection(input)?.projection, bound::root(scope(&fields)));
+        assert_ne!(projection(input)?.projection, expr::root(scope(&fields)));
         Ok(())
     }
 
@@ -413,11 +413,11 @@ mod tests {
             column_fields: &fields,
         };
         let projected = projection(input)?.projection;
-        let expected = bound::pack(
+        let expected = expr::pack(
             [
-                ("a", bound::col("a", scope(&fields))),
-                ("b", bound::lit(Scalar::null(DType::Null))),
-                ("c", bound::col("c", scope(&fields))),
+                ("a", expr::col("a", scope(&fields))),
+                ("b", expr::lit(Scalar::null(DType::Null))),
+                ("c", expr::col("c", scope(&fields))),
             ],
             false.into(),
         );
@@ -430,10 +430,10 @@ mod tests {
         };
         let result = projection(input)?;
         let frn_dtype = DType::Primitive(PType::U64, Nullability::Nullable);
-        let expected = bound::pack(
+        let expected = expr::pack(
             [
-                ("file_row_number", bound::lit(Scalar::null(frn_dtype))),
-                ("a", bound::col("a", scope(&fields))),
+                ("file_row_number", expr::lit(Scalar::null(frn_dtype))),
+                ("a", expr::col("a", scope(&fields))),
             ],
             false.into(),
         );
@@ -446,11 +446,11 @@ mod tests {
             column_fields: &fields,
         };
         let result = projection(input)?;
-        let expected = bound::pack(
+        let expected = expr::pack(
             [
                 ("file_row_number", row_idx()),
-                ("a", bound::col("a", scope(&fields))),
-                ("b", bound::lit(Scalar::null(DType::Null))),
+                ("a", expr::col("a", scope(&fields))),
+                ("b", expr::lit(Scalar::null(DType::Null))),
             ],
             false.into(),
         );
@@ -462,8 +462,8 @@ mod tests {
     #[test]
     fn test_push_filter_expr_preserves_order() {
         let fields = [field("first"), field("second")];
-        let first = bound::col("first", scope(&fields));
-        let second = bound::col("second", scope(&fields));
+        let first = expr::col("first", scope(&fields));
+        let second = expr::col("second", scope(&fields));
 
         let mut filter_exprs = Vec::new();
         push_filter_expr(&mut filter_exprs, &first);

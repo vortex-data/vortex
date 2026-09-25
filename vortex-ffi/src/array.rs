@@ -711,7 +711,7 @@ pub unsafe extern "C" fn vx_array_apply(
         vortex_ensure!(!expression.is_null());
         let array = vx_array::as_ref(array);
         let expression = vx_bound_expression::as_ref(expression);
-        Ok(vx_array::new(array.clone().apply_bound(expression)?))
+        Ok(vx_array::new(array.clone().apply(expression)?))
     })
 }
 
@@ -731,9 +731,9 @@ mod tests {
     use vortex::array::arrays::bool::BoolArrayExt;
     use vortex::array::validity::Validity;
     use vortex::buffer::buffer;
-    use vortex::expr::bound::eq;
-    use vortex::expr::bound::lit;
-    use vortex::expr::bound::root;
+    use vortex::expr::eq;
+    use vortex::expr::lit;
+    use vortex::expr::root;
 
     use crate::array::*;
     use crate::dtype::vx_dtype_free;

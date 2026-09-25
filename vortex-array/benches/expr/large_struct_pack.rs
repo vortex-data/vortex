@@ -8,9 +8,9 @@ use vortex_array::dtype::FieldName;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::StructFields;
-use vortex_array::expr::bound::get_item;
-use vortex_array::expr::bound::pack;
-use vortex_array::expr::bound::root;
+use vortex_array::expr::get_item;
+use vortex_array::expr::pack;
+use vortex_array::expr::root;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;

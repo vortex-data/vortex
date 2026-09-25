@@ -16,9 +16,9 @@ use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::varbin::VarBinArrayExt;
 use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::expr::bound::like;
-use vortex_array::expr::bound::lit;
-use vortex_array::expr::bound::root;
+use vortex_array::expr::like;
+use vortex_array::expr::lit;
+use vortex_array::expr::root;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_fsst::fsst_compress;
@@ -245,7 +245,7 @@ fn like_substr_high_match(bencher: Bencher) {
         .bench_refs(|(fsst_array, ctx)| {
             fsst_array
                 .clone()
-                .apply_bound(&expr)
+                .apply(&expr)
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap()
@@ -269,7 +269,7 @@ fn like_substr_low_match(bencher: Bencher) {
         .bench_refs(|(fsst_array, ctx)| {
             fsst_array
                 .clone()
-                .apply_bound(&expr)
+                .apply(&expr)
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap()

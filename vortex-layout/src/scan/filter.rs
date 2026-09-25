@@ -161,10 +161,10 @@ impl FilterExpr {
 mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
-    use vortex_array::expr::bound::and;
-    use vortex_array::expr::bound::lit;
-    use vortex_array::expr::bound::not;
-    use vortex_array::expr::bound::root;
+    use vortex_array::expr::and;
+    use vortex_array::expr::lit;
+    use vortex_array::expr::not;
+    use vortex_array::expr::root;
     use vortex_error::VortexResult;
 
     use super::FilterExpr;

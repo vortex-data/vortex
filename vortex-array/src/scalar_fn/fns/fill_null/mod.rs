@@ -200,10 +200,10 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::expr::bound::fill_null;
-    use crate::expr::bound::get_item;
-    use crate::expr::bound::lit;
-    use crate::expr::bound::root;
+    use crate::expr::fill_null;
+    use crate::expr::get_item;
+    use crate::expr::lit;
+    use crate::expr::root;
 
     #[test]
     fn dtype() {
@@ -235,7 +235,7 @@ mod tests {
                 .into_array();
 
         let expr = fill_null(root(test_array.dtype().clone()), lit(42i32));
-        let result = test_array.apply_bound(&expr).unwrap();
+        let result = test_array.apply(&expr).unwrap();
 
         assert_eq!(
             result.dtype(),
@@ -259,7 +259,7 @@ mod tests {
         .into_array();
 
         let expr = fill_null(get_item("a", root(test_array.dtype().clone())), lit(0i32));
-        let result = test_array.apply_bound(&expr).unwrap();
+        let result = test_array.apply(&expr).unwrap();
 
         assert_eq!(
             result.dtype(),
@@ -273,7 +273,7 @@ mod tests {
         let mut ctx = array_session().create_execution_ctx();
         let test_array = buffer![1i32, 2, 3].into_array();
         let expr = fill_null(root(test_array.dtype().clone()), lit(0i32));
-        let result = test_array.apply_bound(&expr).unwrap();
+        let result = test_array.apply(&expr).unwrap();
         assert_arrays_eq!(result, PrimitiveArray::from_iter([1i32, 2, 3]), &mut ctx);
     }
 

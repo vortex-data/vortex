@@ -438,7 +438,7 @@ mod test {
     use vortex_array::dtype::FieldMask;
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::bound::root;
+    use vortex_array::expr::root;
     use vortex_buffer::buffer;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;

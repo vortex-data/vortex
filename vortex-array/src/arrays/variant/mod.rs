@@ -96,8 +96,8 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::expr::bound::root;
-    use crate::expr::bound::variant_get;
+    use crate::expr::root;
+    use crate::expr::variant_get;
     use crate::scalar::Scalar;
     use crate::scalar_fn::fns::variant_get::VariantPath;
 
@@ -387,7 +387,7 @@ mod tests {
 
         let result = variant
             .into_array()
-            .apply_bound(&expr)?
+            .apply(&expr)?
             .execute::<PrimitiveArray>(&mut array_session().create_execution_ctx())?;
 
         assert_arrays_eq!(
@@ -422,7 +422,7 @@ mod tests {
         let value_result = variant
             .clone()
             .into_array()
-            .apply_bound(&value_expr)?
+            .apply(&value_expr)?
             .execute::<PrimitiveArray>(&mut array_session().create_execution_ctx())?;
         assert_arrays_eq!(
             value_result,
@@ -438,7 +438,7 @@ mod tests {
         let typed_value_result =
             variant
                 .into_array()
-                .apply_bound(&typed_value_expr)?
+                .apply(&typed_value_expr)?
                 .execute::<PrimitiveArray>(&mut array_session().create_execution_ctx())?;
         assert_arrays_eq!(
             typed_value_result,

@@ -15,15 +15,15 @@ use crate::scalar_fn::fns::literal::Literal;
 
 impl ArrayRef {
     /// Apply a bound expression to this array, producing a new array in constant time.
-    pub fn apply_bound(self, expr: &BoundExpression) -> VortexResult<ArrayRef> {
+    pub fn apply(self, expr: &BoundExpression) -> VortexResult<ArrayRef> {
         vortex_ensure!(
             expr.is_root_bound_to(self.dtype()),
             "Expression is bound against a different array dtype"
         );
-        self.apply_bound_unchecked(expr)
+        self.apply_unchecked(expr)
     }
 
-    fn apply_bound_unchecked(self, expr: &BoundExpression) -> VortexResult<ArrayRef> {
+    fn apply_unchecked(self, expr: &BoundExpression) -> VortexResult<ArrayRef> {
         let BoundExpression::Scalar {
             scalar_fn,
             children,
@@ -39,7 +39,7 @@ impl ArrayRef {
 
         let children: Vec<_> = children
             .iter()
-            .map(|child| self.clone().apply_bound_unchecked(child))
+            .map(|child| self.clone().apply_unchecked(child))
             .try_collect()?;
 
         let array =

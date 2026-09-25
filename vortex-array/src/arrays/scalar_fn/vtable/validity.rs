@@ -15,8 +15,8 @@ use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::vtable::ArrayExpr;
 use crate::arrays::scalar_fn::vtable::FakeEq;
 use crate::arrays::scalar_fn::vtable::ScalarFn;
+use crate::expr;
 use crate::expr::BoundExpression;
-use crate::expr::bound;
 use crate::legacy_session;
 use crate::scalar_fn::TypedScalarFnInstance;
 use crate::scalar_fn::VecExecutionArgs;
@@ -60,7 +60,7 @@ impl ValidityVTable<ScalarFn> for ScalarFn {
             .iter_children()
             .map(|child| {
                 if let Some(scalar) = child.as_constant() {
-                    return Ok(bound::lit(scalar));
+                    return Ok(expr::lit(scalar));
                 }
                 BoundExpression::try_new(
                     TypedScalarFnInstance::new(ArrayExpr, FakeEq(child.clone())).erased(),

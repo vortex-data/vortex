@@ -15,15 +15,15 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::array_session;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::StructArray;
-use vortex_array::expr::bound::case_when;
-use vortex_array::expr::bound::case_when_no_else;
-use vortex_array::expr::bound::eq;
-use vortex_array::expr::bound::get_item;
-use vortex_array::expr::bound::gt;
-use vortex_array::expr::bound::lit;
-use vortex_array::expr::bound::lt;
-use vortex_array::expr::bound::nested_case_when;
-use vortex_array::expr::bound::root;
+use vortex_array::expr::case_when;
+use vortex_array::expr::case_when_no_else;
+use vortex_array::expr::eq;
+use vortex_array::expr::get_item;
+use vortex_array::expr::gt;
+use vortex_array::expr::lit;
+use vortex_array::expr::lt;
+use vortex_array::expr::nested_case_when;
+use vortex_array::expr::root;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
 
@@ -78,7 +78,7 @@ fn case_when_simple(bencher: Bencher, size: usize) {
         .bench_refs(|(expr, array, ctx)| {
             array
                 .clone()
-                .apply_bound(expr)
+                .apply(expr)
                 .unwrap()
                 .execute::<Canonical>(ctx)
                 .unwrap()
@@ -114,7 +114,7 @@ fn case_when_nary_3_conditions(bencher: Bencher, size: usize) {
         .bench_refs(|(expr, array, ctx)| {
             array
                 .clone()
-                .apply_bound(expr)
+                .apply(expr)
                 .unwrap()
                 .execute::<Canonical>(ctx)
                 .unwrap()
@@ -145,7 +145,7 @@ fn case_when_nary_10_conditions(bencher: Bencher, size: usize) {
         .bench_refs(|(expr, array, ctx)| {
             array
                 .clone()
-                .apply_bound(expr)
+                .apply(expr)
                 .unwrap()
                 .execute::<Canonical>(ctx)
                 .unwrap()
@@ -173,7 +173,7 @@ fn case_when_nary_equality_lookup(bencher: Bencher, size: usize) {
         .bench_refs(|(expr, array, ctx)| {
             array
                 .clone()
-                .apply_bound(expr)
+                .apply(expr)
                 .unwrap()
                 .execute::<Canonical>(ctx)
                 .unwrap()
@@ -196,7 +196,7 @@ fn case_when_without_else(bencher: Bencher, size: usize) {
         .bench_refs(|(expr, array, ctx)| {
             array
                 .clone()
-                .apply_bound(expr)
+                .apply(expr)
                 .unwrap()
                 .execute::<Canonical>(ctx)
                 .unwrap()
@@ -220,7 +220,7 @@ fn case_when_all_true(bencher: Bencher, size: usize) {
         .bench_refs(|(expr, array, ctx)| {
             array
                 .clone()
-                .apply_bound(expr)
+                .apply(expr)
                 .unwrap()
                 .execute::<Canonical>(ctx)
                 .unwrap()
@@ -262,7 +262,7 @@ fn case_when_nary_early_dominant(bencher: Bencher, size: usize) {
         .bench_refs(|(expr, array, ctx)| {
             array
                 .clone()
-                .apply_bound(expr)
+                .apply(expr)
                 .unwrap()
                 .execute::<Canonical>(ctx)
                 .unwrap()
@@ -289,7 +289,7 @@ fn case_when_all_false(bencher: Bencher, size: usize) {
         .bench_refs(|(expr, array, ctx)| {
             array
                 .clone()
-                .apply_bound(expr)
+                .apply(expr)
                 .unwrap()
                 .execute::<Canonical>(ctx)
                 .unwrap()
@@ -316,7 +316,7 @@ fn case_when_fragmented(bencher: Bencher, size: usize) {
         .bench_refs(|(expr, array, ctx)| {
             array
                 .clone()
-                .apply_bound(expr)
+                .apply(expr)
                 .unwrap()
                 .execute::<Canonical>(ctx)
                 .unwrap()

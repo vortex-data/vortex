@@ -288,8 +288,8 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::expr::bound::dynamic;
-    use crate::expr::bound::root;
+    use crate::expr::dynamic;
+    use crate::expr::root;
 
     #[test]
     fn is_not_strict() {
@@ -328,7 +328,7 @@ mod tests {
             true,
             root(input.dtype().clone()),
         );
-        let result = input.apply_bound(&expr)?;
+        let result = input.apply(&expr)?;
         assert_arrays_eq!(result, BoolArray::from_iter([true, false, false]), &mut ctx);
         Ok(())
     }
@@ -344,7 +344,7 @@ mod tests {
             true,
             root(input.dtype().clone()),
         );
-        let result = input.apply_bound(&expr)?;
+        let result = input.apply(&expr)?;
         assert_arrays_eq!(result, BoolArray::from_iter([true, true, true]), &mut ctx);
         Ok(())
     }
@@ -360,7 +360,7 @@ mod tests {
             false,
             root(input.dtype().clone()),
         );
-        let result = input.apply_bound(&expr)?;
+        let result = input.apply(&expr)?;
         assert_arrays_eq!(
             result,
             BoolArray::from_iter([false, false, false]),
@@ -383,11 +383,11 @@ mod tests {
         );
         let input = buffer![1i32, 5, 10].into_array();
 
-        let result = input.clone().apply_bound(&expr)?;
+        let result = input.clone().apply(&expr)?;
         assert_arrays_eq!(result, BoolArray::from_iter([true, false, false]), &mut ctx);
 
         threshold.store(10, Ordering::SeqCst);
-        let result = input.apply_bound(&expr)?;
+        let result = input.apply(&expr)?;
         assert_arrays_eq!(result, BoolArray::from_iter([true, true, false]), &mut ctx);
 
         Ok(())

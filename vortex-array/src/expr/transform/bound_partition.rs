@@ -22,8 +22,8 @@ use crate::expr::analysis::Annotation;
 use crate::expr::analysis::AnnotationFn;
 use crate::expr::analysis::BoundAnnotations;
 use crate::expr::analysis::descendent_bound_annotations;
-use crate::expr::bound::get_item;
-use crate::expr::bound::pack;
+use crate::expr::get_item;
+use crate::expr::pack;
 use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::NodeRewriter;
 use crate::expr::traversal::Transformed;
@@ -309,8 +309,8 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
+    use crate::expr;
     use crate::expr::analysis::make_bound_free_field_annotator;
-    use crate::expr::bound;
 
     fn scope() -> DType {
         DType::Struct(
@@ -327,11 +327,11 @@ mod tests {
         let dtype = scope();
         let fields = dtype.as_struct_fields_opt().unwrap();
         let partitioned = partition_bound(
-            bound::root(dtype.clone()),
+            expr::root(dtype.clone()),
             make_bound_free_field_annotator(fields),
         )?;
         assert!(partitioned.partitions.is_empty());
-        assert_eq!(partitioned.root, bound::root(dtype));
+        assert_eq!(partitioned.root, expr::root(dtype));
         Ok(())
     }
 
@@ -339,9 +339,9 @@ mod tests {
     fn partitions_independent_fields() -> VortexResult<()> {
         let dtype = scope();
         let fields = dtype.as_struct_fields_opt().unwrap();
-        let expression = bound::and(
-            bound::eq(bound::col("a", dtype.clone()), bound::lit(1_i32)),
-            bound::eq(bound::col("b", dtype.clone()), bound::lit(2_i32)),
+        let expression = expr::and(
+            expr::eq(expr::col("a", dtype.clone()), expr::lit(1_i32)),
+            expr::eq(expr::col("b", dtype.clone()), expr::lit(2_i32)),
         );
         let partitioned = partition_bound(expression, make_bound_free_field_annotator(fields))?;
         assert_eq!(partitioned.partitions.len(), 2);

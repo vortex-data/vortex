@@ -56,8 +56,7 @@ pub mod traversal;
 
 pub use analysis::*;
 pub use bound_expression::*;
-pub use exprs::bound;
-pub use exprs::union_child_validities;
+pub use exprs::*;
 pub use reduce_node::BoundExpressionReduceNode;
 
 /// Split the top-level boolean conjunction into its operands.

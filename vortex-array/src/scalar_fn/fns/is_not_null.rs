@@ -127,12 +127,12 @@ mod tests {
     use crate::arrays::StructArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
-    use crate::expr::bound::col;
-    use crate::expr::bound::eq;
-    use crate::expr::bound::get_item;
-    use crate::expr::bound::is_not_null;
-    use crate::expr::bound::or;
-    use crate::expr::bound::root;
+    use crate::expr::col;
+    use crate::expr::eq;
+    use crate::expr::get_item;
+    use crate::expr::is_not_null;
+    use crate::expr::or;
+    use crate::expr::root;
     use crate::expr::test_harness;
     use crate::scalar::Scalar;
     use crate::scalar_fn::EmptyOptions;
@@ -170,7 +170,7 @@ mod tests {
 
         let result = test_array
             .clone()
-            .apply_bound(&is_not_null(root(test_array.dtype().clone())))
+            .apply(&is_not_null(root(test_array.dtype().clone())))
             .unwrap();
 
         assert_eq!(result.len(), test_array.len());
@@ -192,7 +192,7 @@ mod tests {
 
         let result = test_array
             .clone()
-            .apply_bound(&is_not_null(root(test_array.dtype().clone())))
+            .apply(&is_not_null(root(test_array.dtype().clone())))
             .unwrap();
 
         assert_eq!(result.len(), test_array.len());
@@ -214,7 +214,7 @@ mod tests {
 
         let result = test_array
             .clone()
-            .apply_bound(&is_not_null(root(test_array.dtype().clone())))
+            .apply(&is_not_null(root(test_array.dtype().clone())))
             .unwrap();
 
         assert_eq!(result.len(), test_array.len());
@@ -241,7 +241,7 @@ mod tests {
 
         let result = test_array
             .clone()
-            .apply_bound(&is_not_null(get_item(
+            .apply(&is_not_null(get_item(
                 "a",
                 root(test_array.dtype().clone()),
             )))

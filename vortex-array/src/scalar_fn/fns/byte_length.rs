@@ -189,8 +189,8 @@ mod tests {
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
-    use crate::expr::bound::byte_length;
-    use crate::expr::bound::root;
+    use crate::expr::byte_length;
+    use crate::expr::root;
     use crate::scalar::Scalar;
 
     #[rstest]
@@ -205,7 +205,7 @@ mod tests {
         let mut ctx = array_session().create_execution_ctx();
         let result = array
             .clone()
-            .apply_bound(&byte_length(root(array.dtype().clone())))?;
+            .apply(&byte_length(root(array.dtype().clone())))?;
         let expected = PrimitiveArray::from_iter(expected_lens);
         assert_arrays_eq!(result, expected, &mut ctx);
         Ok(())
@@ -217,7 +217,7 @@ mod tests {
         let array = VarBinViewArray::from_iter_str(["short", "a longer string here"]).into_array();
         let result = array
             .clone()
-            .apply_bound(&byte_length(root(array.dtype().clone())))?;
+            .apply(&byte_length(root(array.dtype().clone())))?;
         let expected = PrimitiveArray::from_iter(vec![5u64, 20]);
         assert_arrays_eq!(result, expected, &mut ctx);
         Ok(())
@@ -229,7 +229,7 @@ mod tests {
             .into_array();
         let result = array
             .clone()
-            .apply_bound(&byte_length(root(array.dtype().clone())))?;
+            .apply(&byte_length(root(array.dtype().clone())))?;
 
         let mut ctx = array_session().create_execution_ctx();
         assert!(result.is_valid(0, &mut ctx)?);
@@ -252,7 +252,7 @@ mod tests {
         let array = ConstantArray::new(null_scalar, 2).into_array();
         let result = array
             .clone()
-            .apply_bound(&byte_length(root(array.dtype().clone())))?;
+            .apply(&byte_length(root(array.dtype().clone())))?;
         let mut ctx = array_session().create_execution_ctx();
         assert!(!result.is_valid(0, &mut ctx)?);
         assert!(!result.is_valid(1, &mut ctx)?);

@@ -25,8 +25,8 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::expr::bound::list_length;
-use vortex_array::expr::bound::root;
+use vortex_array::expr::list_length;
+use vortex_array::expr::root;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
@@ -113,7 +113,7 @@ fn run(bencher: Bencher, array: ArrayRef) {
         .bench_refs(|(array, ctx)| {
             array
                 .clone()
-                .apply_bound(&expr)
+                .apply(&expr)
                 .unwrap()
                 .execute::<Canonical>(ctx)
                 .unwrap()

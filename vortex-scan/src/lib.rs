@@ -246,7 +246,7 @@ pub trait Partition: 'static + Send {
 mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::bound;
+    use vortex_array::expr;
 
     use super::*;
 
@@ -263,7 +263,7 @@ mod tests {
         request.filter = Some(BoundExpression::new_root(other_scope));
         assert!(request.validate(&scope).is_err());
 
-        request.filter = Some(bound::lit(42i32));
+        request.filter = Some(expr::lit(42i32));
         assert!(request.validate(&scope).is_err());
     }
 }

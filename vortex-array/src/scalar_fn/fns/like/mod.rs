@@ -31,8 +31,8 @@ use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::BinaryView;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
+use crate::expr;
 use crate::expr::BoundExpression;
-use crate::expr::bound;
 use crate::expr::display::ExprDisplay;
 use crate::proto::expr as pb;
 use crate::scalar::Scalar;
@@ -181,7 +181,7 @@ impl ScalarFnVTable for Like {
         tracing::warn!("Computing validity for LIKE expression");
         let child_validity = expression.child(0).validity()?;
         let pattern_validity = expression.child(1).validity()?;
-        Ok(Some(bound::and(child_validity, pattern_validity)))
+        Ok(Some(expr::and(child_validity, pattern_validity)))
     }
 
     fn is_strict(&self, _instance: &Self::Options) -> bool {
@@ -543,12 +543,12 @@ mod tests {
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
-    use crate::expr::bound::get_item;
-    use crate::expr::bound::like;
-    use crate::expr::bound::lit;
-    use crate::expr::bound::not;
-    use crate::expr::bound::not_ilike;
-    use crate::expr::bound::root;
+    use crate::expr::get_item;
+    use crate::expr::like;
+    use crate::expr::lit;
+    use crate::expr::not;
+    use crate::expr::not_ilike;
+    use crate::expr::root;
     use crate::scalar::Scalar;
     use crate::scalar_fn::fns::like::Like;
     use crate::scalar_fn::fns::like::LikeOptions;
@@ -753,7 +753,7 @@ mod tests {
         let bools = BoolArray::from_iter([false, true, false, false, true, true]);
         let mut ctx = array_session().create_execution_ctx();
         assert_arrays_eq!(
-            bools.into_array().apply_bound(&not_expr).unwrap(),
+            bools.into_array().apply(&not_expr).unwrap(),
             BoolArray::from_iter([true, false, true, true, false, false]),
             &mut ctx
         );

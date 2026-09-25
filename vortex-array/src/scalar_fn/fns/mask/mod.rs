@@ -22,8 +22,8 @@ use crate::builtins::ArrayBuiltins;
 use crate::child_to_validity;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
+use crate::expr;
 use crate::expr::BoundExpression;
-use crate::expr::bound;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -137,7 +137,7 @@ impl ScalarFnVTable for Mask {
         } else {
             // Mask is all false, so the output is all nulls.
             let input_dtype = ctx.return_dtype(expr.child(0))?;
-            Ok(Some(bound::lit(Scalar::null(input_dtype.as_nullable()))))
+            Ok(Some(expr::lit(Scalar::null(input_dtype.as_nullable()))))
         }
     }
 
@@ -146,7 +146,7 @@ impl ScalarFnVTable for Mask {
         _options: &Self::Options,
         expression: &BoundExpression,
     ) -> VortexResult<Option<BoundExpression>> {
-        Ok(Some(bound::and(
+        Ok(Some(expr::and(
             expression.child(0).validity()?,
             expression.child(1).clone(),
         )))
@@ -203,8 +203,8 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability::Nullable;
     use crate::dtype::PType;
-    use crate::expr::bound::lit;
-    use crate::expr::bound::mask;
+    use crate::expr::lit;
+    use crate::expr::mask;
     use crate::scalar::Scalar;
 
     #[test]

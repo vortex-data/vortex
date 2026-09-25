@@ -324,8 +324,8 @@ mod tests {
     use vortex_array::dtype::DType as VortexDType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::bound::root;
-    use vortex_array::expr::bound::variant_get;
+    use vortex_array::expr::root;
+    use vortex_array::expr::variant_get;
     use vortex_array::scalar_fn::fns::variant_get::VariantPath;
     use vortex_array::scalar_fn::fns::variant_get::VariantPathElement;
     use vortex_array::validity::Validity;
@@ -531,7 +531,7 @@ mod tests {
     ) -> VortexResult<ArrayRef> {
         let expr = variant_get(root(array.dtype().clone()), parse_path(path)?, dtype);
         array
-            .apply_bound(&expr)?
+            .apply(&expr)?
             .execute::<ArrayRef>(&mut SESSION.create_execution_ctx())
     }
 

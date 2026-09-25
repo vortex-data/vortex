@@ -148,8 +148,8 @@ mod tests {
 
     use super::StatsRewriteRule;
     use crate::expr::BoundExpression;
-    use crate::expr::bound::lit;
-    use crate::expr::bound::or;
+    use crate::expr::lit;
+    use crate::expr::or;
     use crate::scalar_fn::ScalarFnId;
     use crate::scalar_fn::ScalarFnVTable;
     use crate::scalar_fn::fns::literal::Literal;

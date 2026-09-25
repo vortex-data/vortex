@@ -57,8 +57,8 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::expr::BoundExpression;
-    use vortex_array::expr::bound::lit;
-    use vortex_array::expr::bound::root;
+    use vortex_array::expr::lit;
+    use vortex_array::expr::root;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::EmptyOptions;
     use vortex_array::scalar_fn::ScalarFnVTableExt;

@@ -58,10 +58,10 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::expr::bound::get_item;
-    use crate::expr::bound::is_nan;
-    use crate::expr::bound::lit;
-    use crate::expr::bound::root;
+    use crate::expr::get_item;
+    use crate::expr::is_nan;
+    use crate::expr::lit;
+    use crate::expr::root;
     use crate::scalar::Scalar;
     use crate::scalar_fn::EmptyOptions;
     use crate::scalar_fn::ScalarFnVTableExt;
@@ -122,7 +122,7 @@ mod tests {
 
         let result = test_array
             .clone()
-            .apply_bound(&is_nan(root(test_array.dtype().clone())))
+            .apply(&is_nan(root(test_array.dtype().clone())))
             .unwrap();
 
         assert_eq!(result.len(), test_array.len());
@@ -152,7 +152,7 @@ mod tests {
 
         let result = test_array
             .clone()
-            .apply_bound(&is_nan(root(test_array.dtype().clone())))
+            .apply(&is_nan(root(test_array.dtype().clone())))
             .unwrap();
 
         assert_eq!(result.len(), test_array.len());
@@ -173,7 +173,7 @@ mod tests {
 
         let result = test_array
             .clone()
-            .apply_bound(&is_nan(root(test_array.dtype().clone())))
+            .apply(&is_nan(root(test_array.dtype().clone())))
             .unwrap();
 
         assert_eq!(result.len(), test_array.len());
@@ -203,7 +203,7 @@ mod tests {
         ];
 
         for (expr_child, expected_value) in cases {
-            let result = test_array.clone().apply_bound(&is_nan(expr_child)).unwrap();
+            let result = test_array.clone().apply(&is_nan(expr_child)).unwrap();
             for i in 0..result.len() {
                 let expected_scalar = match expected_value {
                     Some(value) => Scalar::bool(value, Nullability::Nullable),
@@ -239,7 +239,7 @@ mod tests {
 
         let result = test_array
             .clone()
-            .apply_bound(&is_nan(root(test_array.dtype().clone())))
+            .apply(&is_nan(root(test_array.dtype().clone())))
             .unwrap();
 
         assert_eq!(result.len(), test_array.len());

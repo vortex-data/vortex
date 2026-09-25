@@ -66,7 +66,7 @@
 //! use vortex::VortexSessionDefault;
 //! use vortex::array::{IntoArray, stream::ArrayStreamExt};
 //! use vortex::array::arrays::PrimitiveArray;
-//! use vortex::array::expr::bound::{gt, lit, root};
+//! use vortex::array::expr::{gt, lit, root};
 //! use vortex::array::validity::Validity;
 //! use vortex::buffer::{ByteBufferMut, buffer};
 //! use vortex::file::{OpenOptionsSessionExt, WriteOptionsSessionExt};
@@ -359,10 +359,10 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::dtype::FieldNames;
-    use vortex_array::expr::bound::gt;
-    use vortex_array::expr::bound::lit;
-    use vortex_array::expr::bound::root;
-    use vortex_array::expr::bound::select;
+    use vortex_array::expr::gt;
+    use vortex_array::expr::lit;
+    use vortex_array::expr::root;
+    use vortex_array::expr::select;
     use vortex_array::stream::ArrayStreamExt;
     use vortex_array::validity::Validity;
     use vortex_btrblocks::BtrBlocksCompressorBuilder;

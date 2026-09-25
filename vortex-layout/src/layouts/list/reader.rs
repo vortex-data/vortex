@@ -138,7 +138,7 @@ impl ListReader {
 
             let validity = create_validity(validity_array, nullability).to_array(out_len);
 
-            validity.apply_bound(&rewritten)
+            validity.apply(&rewritten)
         }
         .boxed())
     }
@@ -191,7 +191,7 @@ impl ListReader {
                 ListArray::new_unchecked(elements, offsets, create_validity(validity, nullability))
             }
             .into_array();
-            list.apply_bound(&expr)
+            list.apply(&expr)
         }
         .boxed())
     }
@@ -247,7 +247,7 @@ impl ListReader {
             } else {
                 list.filter(selected_mask)?
             };
-            list.apply_bound(&expr)
+            list.apply(&expr)
         }
         .boxed())
     }
@@ -287,7 +287,7 @@ impl ListReader {
             let validity = validity_fut.await?;
             let lengths = apply_lengths_validity(lengths, validity, nullability)?;
 
-            lengths.apply_bound(&rewritten)
+            lengths.apply(&rewritten)
         }
         .boxed())
     }
@@ -616,13 +616,13 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::expr::BoundExpression;
-    use vortex_array::expr::bound::cast;
-    use vortex_array::expr::bound::gt;
-    use vortex_array::expr::bound::is_not_null;
-    use vortex_array::expr::bound::is_null;
-    use vortex_array::expr::bound::list_length;
-    use vortex_array::expr::bound::lit;
-    use vortex_array::expr::bound::root;
+    use vortex_array::expr::cast;
+    use vortex_array::expr::gt;
+    use vortex_array::expr::is_not_null;
+    use vortex_array::expr::is_null;
+    use vortex_array::expr::list_length;
+    use vortex_array::expr::lit;
+    use vortex_array::expr::root;
     use vortex_buffer::buffer;
     use vortex_io::session::RuntimeSession;
     use vortex_io::session::RuntimeSessionExt;

@@ -360,9 +360,9 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::expr::bound::lit;
-    use crate::expr::bound::root;
-    use crate::expr::bound::zip_expr;
+    use crate::expr::lit;
+    use crate::expr::root;
+    use crate::expr::zip_expr;
     use crate::scalar::Scalar;
 
     #[test]

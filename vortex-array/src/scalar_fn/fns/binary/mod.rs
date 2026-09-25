@@ -19,8 +19,8 @@ use crate::ExecutionCtx;
 use crate::arrays::ScalarFnArray;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
+use crate::expr;
 use crate::expr::BoundExpression;
-use crate::expr::bound;
 use crate::expr::display::ExprDisplay;
 use crate::proto::expr as pb;
 use crate::scalar_fn::Arity;
@@ -228,14 +228,14 @@ impl ScalarFnVTable for Binary {
         // Kleene semantics (`null AND x`, `null OR x` for non-literal `x`).
         let simplified = match operator {
             Operator::And => match (bool_literal(lhs), bool_literal(rhs)) {
-                (Some(Some(false)), _) | (_, Some(Some(false))) => Some(bound::lit(false)),
+                (Some(Some(false)), _) | (_, Some(Some(false))) => Some(expr::lit(false)),
                 (Some(Some(true)), _) => Some(rhs.clone()),
                 (_, Some(Some(true))) => Some(lhs.clone()),
                 (Some(None), Some(None)) => Some(lhs.clone()),
                 _ => None,
             },
             Operator::Or => match (bool_literal(lhs), bool_literal(rhs)) {
-                (Some(Some(true)), _) | (_, Some(Some(true))) => Some(bound::lit(true)),
+                (Some(Some(true)), _) | (_, Some(Some(true))) => Some(expr::lit(true)),
                 (Some(Some(false)), _) => Some(rhs.clone()),
                 (_, Some(Some(false))) => Some(lhs.clone()),
                 (Some(None), Some(None)) => Some(lhs.clone()),
@@ -256,7 +256,7 @@ impl ScalarFnVTable for Binary {
             // Validate the comparison before reducing it. This preserves type
             // errors for expressions like `int_col = null_utf8`.
             ctx.return_dtype(expr)?;
-            return Ok(Some(bound::lit(Scalar::null(DType::Bool(
+            return Ok(Some(expr::lit(Scalar::null(DType::Bool(
                 Nullability::Nullable,
             )))));
         }
@@ -278,7 +278,7 @@ impl ScalarFnVTable for Binary {
             Operator::Or => None,
             _ => {
                 // All other binary operators are null if either side is null.
-                Some(bound::and(lhs, rhs))
+                Some(expr::and(lhs, rhs))
             }
         })
     }
@@ -319,18 +319,18 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::expr::BoundExpression;
-    use crate::expr::bound::and;
-    use crate::expr::bound::and_collect;
-    use crate::expr::bound::col;
-    use crate::expr::bound::eq;
-    use crate::expr::bound::gt;
-    use crate::expr::bound::gt_eq;
-    use crate::expr::bound::lit;
-    use crate::expr::bound::lt;
-    use crate::expr::bound::lt_eq;
-    use crate::expr::bound::not_eq;
-    use crate::expr::bound::or;
-    use crate::expr::bound::or_collect;
+    use crate::expr::and;
+    use crate::expr::and_collect;
+    use crate::expr::col;
+    use crate::expr::eq;
+    use crate::expr::gt;
+    use crate::expr::gt_eq;
+    use crate::expr::lit;
+    use crate::expr::lt;
+    use crate::expr::lt_eq;
+    use crate::expr::not_eq;
+    use crate::expr::or;
+    use crate::expr::or_collect;
     use crate::expr::test_harness;
     use crate::scalar::Scalar;
     #[test]
@@ -564,7 +564,7 @@ mod tests {
         use crate::IntoArray;
         use crate::arrays::BoolArray;
         use crate::arrays::StructArray;
-        use crate::expr::bound::col;
+        use crate::expr::col;
 
         let struct_arr = StructArray::from_fields(&[
             ("a", BoolArray::from_iter([Some(true)]).into_array()),
@@ -580,7 +580,7 @@ mod tests {
             col("a", struct_arr.dtype().clone()),
             col("b", struct_arr.dtype().clone()),
         );
-        let result = struct_arr.apply_bound(&expr).unwrap();
+        let result = struct_arr.apply(&expr).unwrap();
 
         assert_arrays_eq!(
             result,

@@ -153,7 +153,7 @@ impl LayoutReader for FlatReader {
                 // We have the choice to apply the filter or the expression first, we apply the
                 // expression first so that it can try pushing down itself and then the filter
                 // after this.
-                let array = array.apply_bound(&expr)?;
+                let array = array.apply(&expr)?;
                 let array = array.filter(mask.clone())?;
                 let mut ctx = session.create_execution_ctx();
                 let array_mask = array.null_as_false().execute(&mut ctx)?;
@@ -161,7 +161,7 @@ impl LayoutReader for FlatReader {
                 mask.intersect_by_rank(&array_mask)
             } else {
                 // Run over the full array, with a simpler bitand at the end.
-                let array = array.apply_bound(&expr)?;
+                let array = array.apply(&expr)?;
                 let mut ctx = session.create_execution_ctx();
                 let array_mask = array.null_as_false().execute(&mut ctx)?;
 
@@ -214,7 +214,7 @@ impl LayoutReader for FlatReader {
             }
 
             // Evaluate the projection expression.
-            array = array.apply_bound(&expr)?;
+            array = array.apply(&expr)?;
 
             Ok(array)
         }
@@ -237,9 +237,9 @@ mod test {
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::expr::bound::gt;
-    use vortex_array::expr::bound::lit;
-    use vortex_array::expr::bound::root;
+    use vortex_array::expr::gt;
+    use vortex_array::expr::lit;
+    use vortex_array::expr::root;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;

@@ -11,11 +11,11 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::bound::eq;
-use vortex_array::expr::bound::get_item;
-use vortex_array::expr::bound::lit;
-use vortex_array::expr::bound::or;
-use vortex_array::expr::bound::root;
+use vortex_array::expr::eq;
+use vortex_array::expr::get_item;
+use vortex_array::expr::lit;
+use vortex_array::expr::or;
+use vortex_array::expr::root;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;

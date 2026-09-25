@@ -23,8 +23,8 @@ use crate::dtype::DType;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::StructFields;
+use crate::expr;
 use crate::expr::BoundExpression;
-use crate::expr::bound;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
@@ -231,7 +231,7 @@ impl ScalarFnVTable for Merge {
         _options: &Self::Options,
         _expression: &BoundExpression,
     ) -> VortexResult<Option<BoundExpression>> {
-        Ok(Some(bound::lit(true)))
+        Ok(Some(expr::lit(true)))
     }
 
     fn is_strict(&self, _options: &Self::Options) -> bool {
@@ -282,10 +282,10 @@ mod tests {
     use crate::dtype::PType::U32;
     use crate::dtype::PType::U64;
     use crate::expr::BoundExpression;
-    use crate::expr::bound::get_item;
-    use crate::expr::bound::merge;
-    use crate::expr::bound::merge_opts;
-    use crate::expr::bound::root;
+    use crate::expr::get_item;
+    use crate::expr::merge;
+    use crate::expr::merge_opts;
+    use crate::expr::root;
     use crate::scalar_fn::fns::merge::DuplicateHandling;
     use crate::scalar_fn::fns::merge::StructArray;
     use crate::scalar_fn::fns::pack::Pack;
@@ -359,7 +359,7 @@ mod tests {
             ],
             DuplicateHandling::RightMost,
         );
-        let actual_array = test_array.apply_bound(&expr).unwrap();
+        let actual_array = test_array.apply(&expr).unwrap();
 
         assert_eq!(
             actual_array.dtype().as_struct_fields().names(),
@@ -444,7 +444,7 @@ mod tests {
             DuplicateHandling::Error,
         );
 
-        test_array.apply_bound(&expr).unwrap();
+        test_array.apply(&expr).unwrap();
     }
 
     #[test]
@@ -454,7 +454,7 @@ mod tests {
         let test_array = StructArray::from_fields(&[("a", buffer![0, 1, 2].into_array())])
             .unwrap()
             .into_array();
-        let actual_array = test_array.clone().apply_bound(&expr).unwrap();
+        let actual_array = test_array.clone().apply(&expr).unwrap();
         assert_eq!(actual_array.len(), test_array.len());
         assert_eq!(actual_array.nchildren(), 0);
     }
@@ -502,7 +502,7 @@ mod tests {
         );
         let mut ctx = array_session().create_execution_ctx();
         let actual_array = test_array
-            .apply_bound(&expr)
+            .apply(&expr)
             .unwrap()
             .execute::<StructArray>(&mut ctx)
             .unwrap();
@@ -555,7 +555,7 @@ mod tests {
             get_item("1", root(test_array.dtype().clone())),
         ]);
         let actual_array = test_array
-            .apply_bound(&expr)
+            .apply(&expr)
             .unwrap()
             .execute::<StructArray>(&mut ctx)
             .unwrap();

@@ -21,8 +21,8 @@ use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::StructFields;
+use crate::expr;
 use crate::expr::BoundExpression;
-use crate::expr::bound;
 use crate::expr::display::ExprDisplay;
 use crate::proto::expr as pb;
 use crate::scalar_fn::Arity;
@@ -132,7 +132,7 @@ impl ScalarFnVTable for Pack {
         _options: &Self::Options,
         _expression: &BoundExpression,
     ) -> VortexResult<Option<BoundExpression>> {
-        Ok(Some(bound::lit(true)))
+        Ok(Some(expr::lit(true)))
     }
 
     fn execute(
@@ -180,8 +180,8 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::expr::BoundExpression;
-    use crate::expr::bound::col as bound_col;
-    use crate::expr::bound::pack;
+    use crate::expr::col as bound_col;
+    use crate::expr::pack;
     use crate::scalar_fn::ScalarFnVTableExt;
     use crate::scalar_fn::fns::pack::StructArray;
     use crate::validity::Validity;
@@ -238,7 +238,7 @@ mod tests {
             .unwrap();
 
         let test_array = test_array();
-        let actual_array = test_array.clone().apply_bound(&expr).unwrap();
+        let actual_array = test_array.clone().apply(&expr).unwrap();
         assert_eq!(actual_array.len(), test_array.len());
         let nfields = actual_array
             .execute::<StructArray>(&mut ctx)
@@ -262,7 +262,7 @@ mod tests {
             .unwrap();
 
         let actual_array = test_array()
-            .apply_bound(&expr)
+            .apply(&expr)
             .unwrap()
             .execute::<StructArray>(&mut ctx)
             .unwrap();
@@ -312,7 +312,7 @@ mod tests {
             .unwrap();
 
         let actual_array = test_array()
-            .apply_bound(&expr)
+            .apply(&expr)
             .unwrap()
             .execute::<StructArray>(&mut ctx)
             .unwrap();
@@ -355,7 +355,7 @@ mod tests {
             .unwrap();
 
         let actual_array = test_array()
-            .apply_bound(&expr)
+            .apply(&expr)
             .unwrap()
             .execute::<StructArray>(&mut ctx)
             .unwrap();

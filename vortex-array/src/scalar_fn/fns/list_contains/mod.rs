@@ -438,15 +438,15 @@ mod tests {
     use crate::dtype::PType::I32;
     use crate::dtype::StructFields;
     use crate::expr::BoundExpression;
-    use crate::expr::bound::and;
-    use crate::expr::bound::col;
-    use crate::expr::bound::get_item;
-    use crate::expr::bound::gt;
-    use crate::expr::bound::list_contains;
-    use crate::expr::bound::lit;
-    use crate::expr::bound::lt;
-    use crate::expr::bound::or;
-    use crate::expr::bound::root;
+    use crate::expr::and;
+    use crate::expr::col;
+    use crate::expr::get_item;
+    use crate::expr::gt;
+    use crate::expr::list_contains;
+    use crate::expr::lit;
+    use crate::expr::lt;
+    use crate::expr::or;
+    use crate::expr::root;
     use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
     use crate::scalar_fn::fns::list_contains::BoolArray;
@@ -479,7 +479,7 @@ mod tests {
         let arr = test_array();
 
         let expr = list_contains(root(arr.dtype().clone()), lit(1));
-        let item = arr.apply_bound(&expr).unwrap();
+        let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
             item.execute_scalar(0, &mut array_session().create_execution_ctx())
@@ -498,7 +498,7 @@ mod tests {
         let arr = test_array();
 
         let expr = list_contains(root(arr.dtype().clone()), lit(2));
-        let item = arr.apply_bound(&expr).unwrap();
+        let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
             item.execute_scalar(0, &mut array_session().create_execution_ctx())
@@ -517,7 +517,7 @@ mod tests {
         let arr = test_array();
 
         let expr = list_contains(root(arr.dtype().clone()), lit(4));
-        let item = arr.apply_bound(&expr).unwrap();
+        let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
             item.execute_scalar(0, &mut array_session().create_execution_ctx())
@@ -542,7 +542,7 @@ mod tests {
         .into_array();
 
         let expr = list_contains(root(arr.dtype().clone()), lit(2));
-        let item = arr.apply_bound(&expr).unwrap();
+        let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
             item.execute_scalar(0, &mut array_session().create_execution_ctx())
@@ -567,7 +567,7 @@ mod tests {
         .into_array();
 
         let expr = list_contains(root(arr.dtype().clone()), lit(2));
-        let item = arr.apply_bound(&expr).unwrap();
+        let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
             item.execute_scalar(0, &mut array_session().create_execution_ctx())
@@ -674,7 +674,7 @@ mod tests {
 
         // Test contains true
         let expr = list_contains(lit(list_scalar.clone()), lit(2i32));
-        let result = arr.clone().apply_bound(&expr).unwrap();
+        let result = arr.clone().apply(&expr).unwrap();
         assert_eq!(
             result
                 .execute_scalar(0, &mut array_session().create_execution_ctx())
@@ -684,7 +684,7 @@ mod tests {
 
         // Test contains false
         let expr = list_contains(lit(list_scalar), lit(42i32));
-        let result = arr.apply_bound(&expr).unwrap();
+        let result = arr.apply(&expr).unwrap();
         assert_eq!(
             result
                 .execute_scalar(0, &mut array_session().create_execution_ctx())
@@ -703,14 +703,14 @@ mod tests {
         let needle = Scalar::null(DType::Primitive(I32, Nullability::Nullable));
 
         let expr = list_contains(lit(list.clone()), lit(needle.clone()));
-        let result = array.clone().apply_bound(&expr)?;
+        let result = array.clone().apply(&expr)?;
         assert_eq!(
             result.execute_scalar(0, &mut ctx)?,
             Scalar::bool(false, Nullability::Nullable)
         );
 
         let expr = list_contains(lit(list), lit(2i32));
-        let result = array.clone().apply_bound(&expr)?;
+        let result = array.clone().apply(&expr)?;
         assert_eq!(
             result.execute_scalar(0, &mut ctx)?,
             Scalar::bool(false, Nullability::NonNullable)
@@ -718,7 +718,7 @@ mod tests {
 
         let list = Scalar::null(DType::List(dtype, Nullability::Nullable));
         let expr = list_contains(lit(list), lit(needle));
-        let result = array.apply_bound(&expr)?;
+        let result = array.apply(&expr)?;
         assert!(result.execute_scalar(0, &mut ctx)?.is_null());
         Ok(())
     }
@@ -823,7 +823,7 @@ mod tests {
         };
         let elem = ConstantArray::new(scalar, list_array.len());
         let expr = list_contains(root(list_array.dtype().clone()), lit(elem.scalar().clone()));
-        let result = list_array.apply_bound(&expr).unwrap();
+        let result = list_array.apply(&expr).unwrap();
         assert_arrays_eq!(result, expected, &mut ctx);
     }
 
@@ -841,7 +841,7 @@ mod tests {
         .into_array();
 
         let expr = list_contains(root(list_array.dtype().clone()), lit(2i32));
-        let contains = list_array.apply_bound(&expr).unwrap();
+        let contains = list_array.apply(&expr).unwrap();
         let expected = BoolArray::from_iter([true, true]);
         assert_arrays_eq!(contains, expected, &mut ctx);
     }
@@ -859,7 +859,7 @@ mod tests {
         .into_array();
 
         let expr = list_contains(root(list_array.dtype().clone()), lit(2i32));
-        let contains = list_array.apply_bound(&expr).unwrap();
+        let contains = list_array.apply(&expr).unwrap();
 
         let expected = BoolArray::new(
             [false, false, false, false, false].into_iter().collect(),
@@ -879,7 +879,7 @@ mod tests {
 
         let arr = (0..7).collect::<PrimitiveArray>().into_array();
         let expr = list_contains(lit(list_scalar), root(arr.dtype().clone()));
-        let contains = arr.apply_bound(&expr).unwrap();
+        let contains = arr.apply(&expr).unwrap();
 
         let expected = BoolArray::from_iter([false, true, false, true, false, false, true]);
         assert_arrays_eq!(contains, expected, &mut ctx);
@@ -904,7 +904,7 @@ mod tests {
 
         let list_array = list_array.into_array();
         let expr = list_contains(root(list_array.dtype().clone()), lit(42i32));
-        let result = list_array.apply_bound(&expr).unwrap();
+        let result = list_array.apply(&expr).unwrap();
 
         let expected = BoolArray::from_iter([false, false, false, false]);
         assert_arrays_eq!(result, expected, &mut ctx);
@@ -931,7 +931,7 @@ mod tests {
         let null_scalar = Scalar::null(DType::Primitive(I32, Nullability::Nullable));
         let list_array = list_array.into_array();
         let expr = list_contains(root(list_array.dtype().clone()), lit(null_scalar));
-        let result = list_array.clone().apply_bound(&expr).unwrap();
+        let result = list_array.clone().apply(&expr).unwrap();
 
         let expected = BoolArray::new(
             [false, false, false].into_iter().collect(),
@@ -941,7 +941,7 @@ mod tests {
 
         // Searching for non-null
         let expr2 = list_contains(root(list_array.dtype().clone()), lit(42i32));
-        let result2 = list_array.apply_bound(&expr2).unwrap();
+        let result2 = list_array.apply(&expr2).unwrap();
 
         let expected2 = BoolArray::from_iter([false, false, false]);
         assert_arrays_eq!(result2, expected2, &mut ctx);
@@ -960,13 +960,13 @@ mod tests {
 
         let list_array = list_array.into_array();
         let expr = list_contains(root(list_array.dtype().clone()), lit(2i32));
-        let result = list_array.clone().apply_bound(&expr).unwrap();
+        let result = list_array.clone().apply(&expr).unwrap();
 
         let expected = BoolArray::from_iter([false, true, false, false]);
         assert_arrays_eq!(result, expected, &mut ctx);
 
         let expr5 = list_contains(root(list_array.dtype().clone()), lit(5i32));
-        let result5 = list_array.apply_bound(&expr5).unwrap();
+        let result5 = list_array.apply(&expr5).unwrap();
 
         let expected5 = BoolArray::from_iter([false, false, true, false]);
         assert_arrays_eq!(result5, expected5, &mut ctx);
@@ -984,13 +984,13 @@ mod tests {
 
         let list_array = list_array.into_array();
         let expr = list_contains(root(list_array.dtype().clone()), lit(255i32));
-        let result = list_array.clone().apply_bound(&expr).unwrap();
+        let result = list_array.clone().apply(&expr).unwrap();
 
         let expected = BoolArray::from_iter([false, false, false, true]);
         assert_arrays_eq!(result, expected, &mut ctx);
 
         let expr_zero = list_contains(root(list_array.dtype().clone()), lit(0i32));
-        let result_zero = list_array.apply_bound(&expr_zero).unwrap();
+        let result_zero = list_array.apply(&expr_zero).unwrap();
 
         let expected_zero = BoolArray::from_iter([true, false, false, false]);
         assert_arrays_eq!(result_zero, expected_zero, &mut ctx);

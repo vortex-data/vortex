@@ -131,10 +131,10 @@ mod tests {
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
-    use crate::expr::bound::col;
-    use crate::expr::bound::get_item;
-    use crate::expr::bound::not;
-    use crate::expr::bound::root;
+    use crate::expr::col;
+    use crate::expr::get_item;
+    use crate::expr::not;
+    use crate::expr::root;
     use crate::expr::test_harness;
     use crate::scalar_fn::fns::not::BoolArray;
 
@@ -154,7 +154,7 @@ mod tests {
 
         let result = input
             .clone()
-            .apply_bound(&not(root(input.dtype().clone())))?;
+            .apply(&not(root(input.dtype().clone())))?;
 
         assert_arrays_eq!(
             result,
@@ -170,7 +170,7 @@ mod tests {
         let bools = BoolArray::from_iter([false, true, false, false, true, true]).into_array();
         let not_expr = not(root(bools.dtype().clone()));
         let result = bools
-            .apply_bound(&not_expr)
+            .apply(&not_expr)
             .unwrap()
             .execute::<BoolArray>(&mut ctx)
             .unwrap();

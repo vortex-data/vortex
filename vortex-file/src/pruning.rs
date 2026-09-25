@@ -11,7 +11,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::bound::lit;
+use vortex_array::expr::lit;
 use vortex_array::expr::stats::Stat;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::cast::Cast;
@@ -46,7 +46,7 @@ pub(crate) fn can_prune_file_stats(
         return Ok(result.as_bool().value() == Some(true));
     }
 
-    let pruning = NullArray::new(1).into_array().apply_bound(&pruning_expr)?;
+    let pruning = NullArray::new(1).into_array().apply(&pruning_expr)?;
     let row_count_replacement = ConstantArray::new(row_count, pruning.len()).into_array();
     let pruning = substitute_row_count(pruning, &row_count_replacement)?;
 

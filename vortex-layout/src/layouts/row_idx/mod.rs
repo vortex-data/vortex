@@ -318,7 +318,7 @@ fn row_idx_mask_future(
 
         let mut ctx = session.create_execution_ctx();
         let result_mask = array
-            .apply_bound(&expr)?
+            .apply(&expr)?
             .null_as_false()
             .execute(&mut ctx)?;
 
@@ -339,7 +339,7 @@ fn row_idx_array_future(
         idx_array(row_offset, &row_range)
             .into_array()
             .filter(mask.await?)?
-            .apply_bound(&expr)
+            .apply(&expr)
     }
     .boxed()
 }
@@ -357,11 +357,11 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::bound::eq;
-    use vortex_array::expr::bound::gt;
-    use vortex_array::expr::bound::lit;
-    use vortex_array::expr::bound::or;
-    use vortex_array::expr::bound::root;
+    use vortex_array::expr::eq;
+    use vortex_array::expr::gt;
+    use vortex_array::expr::lit;
+    use vortex_array::expr::or;
+    use vortex_array::expr::root;
     use vortex_buffer::buffer;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;

@@ -19,9 +19,9 @@ use vortex_array::arrays::dict_test::gen_varbin_words;
 use vortex_array::arrays::varbin::VarBinArrayExt;
 use vortex_array::builders::dict::dict_encode;
 use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::expr::bound::eq;
-use vortex_array::expr::bound::lit;
-use vortex_array::expr::bound::root;
+use vortex_array::expr::eq;
+use vortex_array::expr::lit;
+use vortex_array::expr::root;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_session::VortexSession;
 
@@ -139,7 +139,7 @@ fn bench_compare_sliced_dict_primitive(
         .with_inputs(|| (&dict, SESSION.create_execution_ctx()))
         .bench_refs(|(dict, ctx)| {
             dict.clone()
-                .apply_bound(&eq(root(dict.dtype().clone()), lit(value)))
+                .apply(&eq(root(dict.dtype().clone()), lit(value)))
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap()
@@ -162,7 +162,7 @@ fn bench_compare_sliced_dict_varbinview(
         .with_inputs(|| (&dict, SESSION.create_execution_ctx()))
         .bench_refs(|(dict, ctx)| {
             dict.clone()
-                .apply_bound(&eq(root(dict.dtype().clone()), lit(value)))
+                .apply(&eq(root(dict.dtype().clone()), lit(value)))
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap()

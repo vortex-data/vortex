@@ -636,7 +636,7 @@ impl PyArray {
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
 
         let bound = bind_user_expression(&expr, slf.dtype())?;
-        let inner = slf.apply_bound(&bound)?;
+        let inner = slf.apply(&bound)?;
 
         Ok(PyArrayRef::from(inner))
     }

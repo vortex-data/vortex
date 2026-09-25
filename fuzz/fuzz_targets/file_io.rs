@@ -15,8 +15,8 @@ use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::StructFields;
-use vortex_array::expr::bound::lit;
-use vortex_array::expr::bound::root;
+use vortex_array::expr::lit;
+use vortex_array::expr::root;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_error::VortexExpect;
@@ -48,7 +48,7 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
     let expected_array = {
         let bool_mask = array_data
             .clone()
-            .apply_bound(&filter_expr.clone().unwrap_or_else(|| lit(true)))
+            .apply(&filter_expr.clone().unwrap_or_else(|| lit(true)))
             .vortex_expect("filter expression evaluation should succeed in fuzz test");
         let bool_mask_bool = bool_mask
             .execute::<BoolArray>(&mut ctx)
@@ -58,7 +58,7 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
             .filter(mask)
             .vortex_expect("filter operation should succeed in fuzz test");
         filtered
-            .apply_bound(&projection_expr.clone().unwrap_or_else(|| root(array_data.dtype().clone())))
+            .apply(&projection_expr.clone().unwrap_or_else(|| root(array_data.dtype().clone())))
             .vortex_expect("projection expression evaluation should succeed in fuzz test")
     };
 

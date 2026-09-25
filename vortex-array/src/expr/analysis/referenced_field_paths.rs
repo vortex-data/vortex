@@ -133,11 +133,11 @@ mod tests {
     use crate::dtype::PType::I32;
     use crate::dtype::StructFields;
     use crate::expr::BoundExpression;
-    use crate::expr::bound::get_item;
-    use crate::expr::bound::pack;
-    use crate::expr::bound::root;
-    use crate::expr::bound::select;
-    use crate::expr::bound::select_exclude;
+    use crate::expr::get_item;
+    use crate::expr::pack;
+    use crate::expr::root;
+    use crate::expr::select;
+    use crate::expr::select_exclude;
     use crate::scalar_fn::ScalarFnVTableExt;
     use crate::scalar_fn::fns::get_item::GetItem;
 
