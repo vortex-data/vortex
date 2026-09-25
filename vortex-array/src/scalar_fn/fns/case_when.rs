@@ -299,6 +299,10 @@ impl ScalarFnVTable for CaseWhen {
             return Ok(Some(x.clone()));
         }
 
+        if !fill_null_rewrite_supported(x.dtype()) {
+            return Ok(None);
+        }
+
         Ok(Some(FillNull.try_new_bound_expr(
             EmptyOptions,
             [x.clone(), fill.clone()],
@@ -313,6 +317,13 @@ impl ScalarFnVTable for CaseWhen {
     fn is_infallible(&self, _options: &Self::Options) -> bool {
         true
     }
+}
+
+fn fill_null_rewrite_supported(dtype: &DType) -> bool {
+    matches!(
+        dtype,
+        DType::Bool(_) | DType::Primitive(_, _) | DType::Decimal(_, _)
+    )
 }
 
 /// Average run length at which slicing + context-aware builder appends become cheaper than `scalar_at`.
@@ -460,6 +471,7 @@ mod tests {
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
+    use crate::arrays::VarBinViewArray;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -1482,6 +1494,45 @@ mod tests {
             buffer![1i64, 0, 3].into_array(),
             &mut ctx
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_simplify_utf8_coalesce_remains_executable() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let input = VarBinViewArray::from_iter_nullable_str([Some("a"), None]).into_array();
+
+        for expr in [
+            case_when(is_null(root()), lit("fallback"), root()),
+            case_when(is_not_null(root()), root(), lit("fallback")),
+        ] {
+            let original = input
+                .clone()
+                .apply_bound(&expr.bind(input.dtype())?)?
+                .execute::<Canonical>(&mut ctx)?
+                .into_array();
+            assert_arrays_eq!(
+                original,
+                VarBinViewArray::from_iter_nullable_str([Some("a"), Some("fallback")]),
+                &mut ctx
+            );
+
+            let optimized = expr.optimize_recursive(input.dtype())?;
+            let optimized_display = optimized.to_string();
+            assert!(optimized_display.contains("CASE"));
+            assert!(!optimized_display.contains("fill_null"));
+            let result = input
+                .clone()
+                .apply_bound(&optimized.bind(input.dtype())?)?
+                .execute::<Canonical>(&mut ctx)?
+                .into_array()
+                .cast(input.dtype().clone())?;
+            assert_arrays_eq!(
+                result,
+                VarBinViewArray::from_iter_nullable_str([Some("a"), Some("fallback")]),
+                &mut ctx
+            );
+        }
         Ok(())
     }
 
