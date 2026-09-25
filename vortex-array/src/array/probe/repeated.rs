@@ -91,8 +91,9 @@ impl RepeatedArrayProbe {
                     return Ok(false);
                 }
                 Validity::Array(array) => {
-                    // A lazy validity mask would otherwise be reexecuted for every row
-                    let array = if array.is::<ScalarFn>() {
+                    // ScalarFn's validity mask is lazy but we don't want to
+                    // reevaluate it for every new probe request
+                    let array = if self.array.is::<ScalarFn>() {
                         array.execute::<BoolArray>(ctx)?.into_array()
                     } else {
                         array
