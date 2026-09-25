@@ -27,3 +27,6 @@ pub(crate) fn initialize(session: &vortex_session::VortexSession) {
 
 #[cfg(test)]
 mod serde_tests;
+
+#[cfg(test)]
+mod chunk_widths_tests;

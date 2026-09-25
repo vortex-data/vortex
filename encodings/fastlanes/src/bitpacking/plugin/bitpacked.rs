@@ -28,6 +28,9 @@ use vortex_session::VortexSession;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::BitPackedData;
+use crate::FL_CHUNK_SIZE;
+use crate::bitpacking::array::BitPackedSlots;
+use crate::bitpacking::array::uniform_chunk_offsets;
 
 /// Metadata of the frozen `fastlanes.bitpacked` wire format.
 #[derive(Clone, prost::Message)]
@@ -70,10 +73,16 @@ impl ArrayPlugin for BitPackedPlugin {
                 .transpose()?,
         }
         .encode_to_vec();
-        Ok(Some(ArraySerialization::from_array(
+        let children = array.slots()[..BitPackedSlots::CHUNK_OFFSETS]
+            .iter()
+            .flatten()
+            .cloned()
+            .collect();
+        Ok(Some(ArraySerialization::new(
             self.id(),
-            array,
             metadata,
+            array.buffers(),
+            children,
         )))
     }
 
@@ -141,15 +150,9 @@ impl ArrayPlugin for BitPackedPlugin {
             })
             .transpose()?;
 
-        let slots = {
-            let mut s = ArraySlots::with_capacity(4);
-            PatchesData::push_slots(&mut s, patches.as_ref());
-            s.push(validity_to_child(&validity, len));
-            s
-        };
         let data = BitPackedData::try_new(
             packed,
-            patches,
+            patches.clone(),
             u8::try_from(metadata.bit_width).map_err(|_| {
                 vortex_err!(
                     "BitPackedMetadata bit_width {} does not fit in u8",
@@ -163,6 +166,14 @@ impl ArrayPlugin for BitPackedPlugin {
                 )
             })?,
         )?;
+        let slots = {
+            let mut s = ArraySlots::with_capacity(BitPackedSlots::COUNT);
+            PatchesData::push_slots(&mut s, patches.as_ref());
+            s.push(validity_to_child(&validity, len));
+            let num_chunks = (len + data.offset() as usize).div_ceil(FL_CHUNK_SIZE);
+            s.push(Some(uniform_chunk_offsets(data.bit_width(), num_chunks)));
+            s
+        };
         Ok(Array::<BitPacked>::try_from_parts(
             ArrayParts::new(BitPacked, dtype.clone(), len, data).with_slots(slots),
         )?

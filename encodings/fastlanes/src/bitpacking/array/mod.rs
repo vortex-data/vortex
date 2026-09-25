@@ -8,6 +8,7 @@ use std::mem::MaybeUninit;
 use fastlanes::BitPacking;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::TypedArrayRef;
 use vortex_array::array_slots;
 use vortex_array::arrays::Primitive;
@@ -15,12 +16,14 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
+use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::patches::PatchSlotIndices;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesData;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::child_to_validity;
+use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -49,6 +52,10 @@ pub struct BitPackedSlots {
     /// The validity bitmap indicating which elements are non-null.
     #[slot(3)]
     pub validity_child: Option<ArrayRef>,
+    /// Non-nullable `u64` byte boundaries, including one trailing boundary.
+    /// Adjacent boundaries differ by `128 * bit_width` bytes.
+    #[slot(4)]
+    pub chunk_offsets: ArrayRef,
 }
 
 pub(crate) const PATCH_SLOTS: PatchSlotIndices = PatchSlotIndices {
@@ -56,6 +63,15 @@ pub(crate) const PATCH_SLOTS: PatchSlotIndices = PatchSlotIndices {
     values: BitPackedSlots::PATCH_VALUES,
     chunk_offsets: BitPackedSlots::PATCH_CHUNK_OFFSETS,
 };
+
+/// Non-nullable byte boundaries for the packed chunks.
+pub(crate) const CHUNK_OFFSETS_DTYPE: DType =
+    DType::Primitive(PType::U64, Nullability::NonNullable);
+
+pub(crate) fn uniform_chunk_offsets(bit_width: u8, num_chunks: usize) -> ArrayRef {
+    Buffer::<u64>::from_iter((0..=num_chunks).map(|i| (i * 128 * bit_width as usize) as u64))
+        .into_array()
+}
 
 pub struct BitPackedDataParts {
     pub offset: u16,
@@ -179,6 +195,40 @@ impl BitPackedData {
             packed.len()
         );
 
+        Ok(())
+    }
+
+    pub(crate) fn validate_chunk_offsets(
+        &self,
+        offsets: &ArrayRef,
+        length: usize,
+    ) -> VortexResult<()> {
+        let num_chunks = (length + self.offset as usize).div_ceil(FL_CHUNK_SIZE);
+        vortex_ensure!(
+            offsets.dtype() == &CHUNK_OFFSETS_DTYPE,
+            "Expected non-nullable u64 chunk offsets"
+        );
+        vortex_ensure!(
+            offsets.len() == num_chunks + 1,
+            "Expected {} chunk boundaries, got {}",
+            num_chunks + 1,
+            offsets.len()
+        );
+        // Kernels still use the scalar width until they are migrated to the offsets child.
+        let offsets = offsets
+            .as_opt::<Primitive>()
+            .filter(|array| array.buffer_handle().is_on_host())
+            .ok_or_else(|| {
+                vortex_err!("Chunk offsets must be materialized while kernels use bit_width")
+            })?;
+        vortex_ensure!(
+            offsets
+                .as_slice::<u64>()
+                .windows(2)
+                .all(|pair| pair[1].checked_sub(pair[0]) == Some(128 * self.bit_width as u64)),
+            "Chunk offsets must imply bit_width {}",
+            self.bit_width
+        );
         Ok(())
     }
 
