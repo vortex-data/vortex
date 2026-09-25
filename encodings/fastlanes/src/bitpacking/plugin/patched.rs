@@ -29,8 +29,11 @@ impl ArrayPlugin for BitPackedPatchedPlugin {
     fn id(&self) -> ArrayId {
         // We reuse the existing `BitPacked` ID so that we can take over its
         // deserialization pathway.
-        // TODO(joe): dedup method name
-        ArrayVTable::id(&BitPacked)
+        BitPackedPlugin.id()
+    }
+
+    fn serialized_ids(&self) -> Vec<ArrayId> {
+        BitPackedPlugin.serialized_ids()
     }
 
     fn serialize(
@@ -38,7 +41,6 @@ impl ArrayPlugin for BitPackedPatchedPlugin {
         array: &ArrayRef,
         session: &VortexSession,
     ) -> VortexResult<Option<ArraySerialization>> {
-        // Both plugins share the same wire contract.
         BitPackedPlugin.serialize(array, session)
     }
 
