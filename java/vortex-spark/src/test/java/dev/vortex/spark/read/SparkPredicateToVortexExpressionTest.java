@@ -50,7 +50,7 @@ final class SparkPredicateToVortexExpressionTest {
 
     private static final DataType DECIMAL = DataTypes.createDecimalType(10, 2);
 
-    /** One data column per literal type {@code convertLiteral} maps, so every literal meets a same-typed column. */
+    /** One data column per supported literal type, so every literal meets a same-typed column. */
     private static final Map<String, DataType> SCHEMA = Map.ofEntries(
             Map.entry("id", DataTypes.IntegerType),
             Map.entry("name", DataTypes.StringType),
@@ -135,99 +135,97 @@ final class SparkPredicateToVortexExpressionTest {
     }
 
     @Test
-    @DisplayName("Every accepted comparison operator converts, with the column on either side")
-    void everyComparisonOperatorConverts() {
+    @DisplayName("Every supported comparison operator is pushable with the column on either side")
+    void everyComparisonOperatorIsPushable() {
         for (String op : COMPARISON_OPERATORS) {
             assertPushable(predicate(op, ref("id"), literal(42)), op + " with column on the left");
-            // Spark's V2 builder sometimes commutes; bound conversion swaps the operator back.
             assertPushable(predicate(op, literal(42), ref("id")), op + " with column on the right");
         }
     }
 
     @Test
-    @DisplayName("Comparison between two columns converts")
-    void columnToColumnComparisonConverts() {
+    @DisplayName("Comparison between two columns is pushable")
+    void columnToColumnComparisonIsPushable() {
         assertPushable(equality(ref("id"), ref("profile", "address", "zip")));
     }
 
     @Test
-    @DisplayName("Comparison between two literals is rejected by both sides")
+    @DisplayName("Comparison between two literals is not pushable")
     void literalToLiteralComparisonIsRejected() {
         assertNotPushable(equality(literal(1), literal(2)));
     }
 
     @Test
-    @DisplayName("Comparison with the wrong number of children is rejected by both sides")
+    @DisplayName("Comparison with the wrong number of children is not pushable")
     void comparisonWithWrongArityIsRejected() {
         assertNotPushable(predicate("=", ref("id")));
         assertNotPushable(predicate("=", ref("id"), literal(1), literal(2)));
     }
 
     @Test
-    @DisplayName("Nested column comparison converts")
-    void nestedColumnComparisonConverts() {
+    @DisplayName("Nested column comparison is pushable")
+    void nestedColumnComparisonIsPushable() {
         assertPushable(equality(ref("profile", "email"), literal("a@b.com")));
     }
 
     @Test
-    @DisplayName("IS_NULL and IS_NOT_NULL convert for top-level and nested columns")
-    void nullChecksConvert() {
+    @DisplayName("IS_NULL and IS_NOT_NULL are pushable for top-level and nested columns")
+    void nullChecksArePushable() {
         assertPushable(predicate("IS_NULL", ref("name")));
         assertPushable(predicate("IS_NOT_NULL", ref("name")));
         assertPushable(predicate("IS_NULL", ref("profile", "address", "city")));
     }
 
     @Test
-    @DisplayName("IN converts for a single literal and for many literals")
-    void inConverts() {
+    @DisplayName("IN is pushable for a single literal and for many literals")
+    void inIsPushable() {
         assertPushable(predicate("IN", ref("id"), literal(1)));
         assertPushable(predicate("IN", ref("id"), literal(1), literal(2), literal(3)));
     }
 
     @Test
-    @DisplayName("IN with no literals is rejected by both sides")
+    @DisplayName("IN with no literals is not pushable")
     void inWithoutLiteralsIsRejected() {
         assertNotPushable(predicate("IN", ref("id")));
     }
 
     @Test
-    @DisplayName("String matching predicates convert, including LIKE meta-characters in the needle")
-    void stringMatchesConvert() {
+    @DisplayName("String matching predicates are pushable, including LIKE meta-characters in the needle")
+    void stringMatchesArePushable() {
         for (String name : List.of("STARTS_WITH", "ENDS_WITH", "CONTAINS")) {
             assertPushable(predicate(name, ref("name"), literal("ali")), name);
-            // `buildLikePattern` escapes `%`, `_` and `\` so the match stays an exact substring.
             assertPushable(predicate(name, ref("name"), literal("100%_a\\b")), name + " with escapes");
         }
     }
 
     @Test
-    @DisplayName("String matching against a non-string literal is rejected by both sides")
+    @DisplayName("String matching against a non-string literal is not pushable")
     void stringMatchAgainstNonStringLiteralIsRejected() {
         assertNotPushable(predicate("STARTS_WITH", ref("name"), literal(1)));
     }
 
     @Test
-    @DisplayName("BOOLEAN_EXPRESSION over a column reference converts")
-    void bareBooleanColumnConverts() {
+    @DisplayName("BOOLEAN_EXPRESSION over a column reference is pushable")
+    void bareBooleanColumnIsPushable() {
         assertPushable(predicate("BOOLEAN_EXPRESSION", ref("active")));
     }
 
     @Test
-    @DisplayName("An unrecognised predicate name is rejected by both sides")
+    @DisplayName("An unrecognised predicate name is not pushable")
     void unknownPredicateNameIsRejected() {
         assertNotPushable(predicate("BLOOM_FILTER", ref("id"), literal(1)));
     }
 
     @Test
-    @DisplayName("AlwaysTrue and AlwaysFalse convert to boolean literals")
-    void constantPredicatesConvert() {
+    @DisplayName("AlwaysTrue and AlwaysFalse are pushable")
+    void constantPredicatesArePushable() {
         assertPushable(new AlwaysTrue());
         assertPushable(new AlwaysFalse());
     }
 
     @Test
-    @DisplayName("AND, OR and NOT convert when every leaf converts")
-    void compoundPredicatesConvert() {
+    @DisplayName("AND, OR and NOT are pushable when every leaf is pushable")
+    void compoundPredicatesArePushable() {
         Predicate left = equality(ref("id"), literal(1));
         Predicate right = predicate("IS_NOT_NULL", ref("name"));
         assertPushable(new And(left, right));
@@ -237,7 +235,7 @@ final class SparkPredicateToVortexExpressionTest {
     }
 
     @Test
-    @DisplayName("A compound predicate with one unconvertible leaf is rejected by both sides")
+    @DisplayName("A compound predicate with one unsupported leaf is not pushable")
     void compoundPredicateWithBadLeafIsRejected() {
         Predicate good = equality(ref("id"), literal(1));
         Predicate bad = predicate("BLOOM_FILTER", ref("id"), literal(1));
@@ -247,8 +245,8 @@ final class SparkPredicateToVortexExpressionTest {
     }
 
     @Test
-    @DisplayName("Every literal type that accepts a null value converts")
-    void nullLiteralsConvert() {
+    @DisplayName("Every supported literal type accepts a null value for pushdown")
+    void nullLiteralsArePushable() {
         for (String column : NULLABLE_LITERAL_COLUMNS) {
             assertPushable(
                     equality(ref(column), new LiteralValue<>(null, SCHEMA.get(column))), "null literal for " + column);
@@ -256,8 +254,8 @@ final class SparkPredicateToVortexExpressionTest {
     }
 
     @Test
-    @DisplayName("Every non-null literal type the translator maps converts")
-    void nonNullLiteralsConvert() {
+    @DisplayName("Every supported non-null literal type is pushable")
+    void nonNullLiteralsArePushable() {
         assertPushable(equality(ref("active"), new LiteralValue<>(true, DataTypes.BooleanType)));
         assertPushable(equality(ref("tiny"), new LiteralValue<>((byte) 1, DataTypes.ByteType)));
         assertPushable(equality(ref("small"), new LiteralValue<>((short) 1, DataTypes.ShortType)));
@@ -306,16 +304,15 @@ final class SparkPredicateToVortexExpressionTest {
     }
 
     @Test
-    @DisplayName("A literal type with no Vortex representation is rejected by both sides")
+    @DisplayName("A literal type with no Vortex representation is not pushable")
     void unrepresentableLiteralIsRejected() {
         assertNotPushable(equality(ref("id"), new LiteralValue<>(null, DataTypes.NullType)));
     }
 
     @Test
-    @DisplayName("A decimal literal that does not fit the declared scale is rejected by both sides")
+    @DisplayName("A decimal literal that does not fit the declared scale is not pushable")
     void decimalThatDoesNotFitTheScaleIsRejected() {
-        // `unscaledValueOf` calls `setScale(2)` without a rounding mode, so 12.345 throws and
-        // `isPushableLiteral` falls through to `literalOf`, which is empty.
+        // `unscaledValueOf` rejects 12.345 because it cannot be represented at scale 2.
         assertNotPushable(equality(ref("amount"), decimalLiteral("12.345")));
     }
 

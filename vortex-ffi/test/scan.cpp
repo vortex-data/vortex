@@ -979,7 +979,7 @@ TEST_CASE("Scan to Arrow", "[scan]") {
     compare_stream_with_sample(unique_stream);
 }
 
-TEST_CASE("Broken scan with DType mismatch in filter", "[filter]") {
+TEST_CASE("Authored filter rejects a literal outside the column dtype", "[filter]") {
     vx_session *session = vx_session_new();
     defer {
         vx_session_free(session);

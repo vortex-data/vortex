@@ -382,56 +382,51 @@ mod tests {
     use crate::optimizer::ArrayOptimizer;
     use crate::scalar::Scalar;
 
+    fn boolean_inputs() -> [BoundExpression; 5] {
+        let scope = test_harness::struct_dtype();
+        [
+            col("bool1", scope.clone()),
+            col("bool2", scope),
+            lit(true),
+            lit(false),
+            eq(lit(1i32), lit(1i32)),
+        ]
+    }
+
     #[test]
     fn and_collect_balanced() {
-        let values = vec![lit(true), lit(true), lit(true), lit(true), lit(true)];
-
-        insta::assert_snapshot!(and_collect(values.into_iter()).unwrap().display_tree(), @r"
-        vortex.binary(and)
-        ├── lhs: vortex.binary(and)
-        │   ├── lhs: vortex.literal(true)
-        │   └── rhs: vortex.literal(true)
-        └── rhs: vortex.binary(and)
-            ├── lhs: vortex.binary(and)
-            │   ├── lhs: vortex.literal(true)
-            │   └── rhs: vortex.literal(true)
-            └── rhs: vortex.literal(true)
-        ");
-
-        // 4 elements: and(and(1, 2), and(3, 4)) - perfectly balanced
-        let values = vec![lit(true), lit(true), lit(true), lit(true)];
-        insta::assert_snapshot!(and_collect(values.into_iter()).unwrap().display_tree(), @r"
-        vortex.binary(and)
-        ├── lhs: vortex.binary(and)
-        │   ├── lhs: vortex.literal(true)
-        │   └── rhs: vortex.literal(true)
-        └── rhs: vortex.binary(and)
-            ├── lhs: vortex.literal(true)
-            └── rhs: vortex.literal(true)
-        ");
-
-        // 1 element: just the element
-        let values = vec![lit(true)];
-        insta::assert_snapshot!(and_collect(values.into_iter()).unwrap().display_tree(), @"vortex.literal(true)");
-
-        // 0 elements: None
-        let values: Vec<BoundExpression> = vec![];
-        assert!(and_collect(values.into_iter()).is_none());
+        let values = boolean_inputs();
+        assert_eq!(
+            and_collect(values.clone()),
+            Some(and(
+                and(values[0].clone(), values[1].clone()),
+                and(
+                    and(values[2].clone(), values[3].clone()),
+                    values[4].clone(),
+                ),
+            ))
+        );
+        assert_eq!(
+            and_collect(values[..4].iter().cloned()),
+            Some(and(
+                and(values[0].clone(), values[1].clone()),
+                and(values[2].clone(), values[3].clone()),
+            ))
+        );
+        assert_eq!(and_collect([values[0].clone()]), Some(values[0].clone()));
+        assert!(and_collect(Vec::<BoundExpression>::new()).is_none());
     }
 
     #[test]
     fn or_collect_balanced() {
-        // 4 elements: or(or(1, 2), or(3, 4)) - perfectly balanced
-        let values = vec![lit(true), lit(true), lit(true), lit(true)];
-        insta::assert_snapshot!(or_collect(values.into_iter()).unwrap().display_tree(), @r"
-        vortex.binary(or)
-        ├── lhs: vortex.binary(or)
-        │   ├── lhs: vortex.literal(true)
-        │   └── rhs: vortex.literal(true)
-        └── rhs: vortex.binary(or)
-            ├── lhs: vortex.literal(true)
-            └── rhs: vortex.literal(true)
-        ");
+        let values = boolean_inputs();
+        assert_eq!(
+            or_collect(values[..4].iter().cloned()),
+            Some(or(
+                or(values[0].clone(), values[1].clone()),
+                or(values[2].clone(), values[3].clone()),
+            ))
+        );
     }
 
     #[test]

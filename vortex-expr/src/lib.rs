@@ -142,7 +142,7 @@ impl Expression {
         }
     }
 
-    /// Bind using the small built-in authored function registry.
+    /// Bind using the built-in authored function registry.
     pub fn bind(&self, dtype: &DType) -> VortexResult<BoundExpression> {
         self.bind_with(dtype, &ExpressionRegistry::with_builtins()?)
     }
@@ -221,7 +221,7 @@ impl ExpressionRegistry {
         Self::default()
     }
 
-    /// The deliberately small set of built-in authored functions.
+    /// Register the built-in authored functions.
     pub fn with_builtins() -> VortexResult<Self> {
         let mut registry = Self::new();
         for function in [

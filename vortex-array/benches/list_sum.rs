@@ -126,7 +126,7 @@ fn make_fsl(num_lists: usize) -> ArrayRef {
     FixedSizeListArray::new(elements, BASE_LIST_SIZE as u32, validity, num_lists).into_array()
 }
 
-/// Apply `list_sum(root(array.dtype().clone()))` and materialize the result.
+/// Apply `list_sum` to the input array and materialize the result.
 fn run(bencher: Bencher, array: ArrayRef) {
     let expr = list_sum(root(array.dtype().clone()));
     bencher

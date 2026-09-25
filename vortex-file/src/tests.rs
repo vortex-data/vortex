@@ -58,8 +58,6 @@ use vortex_array::extension::datetime::TimestampOptions;
 use vortex_array::field_path;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
-use vortex_array::scalar_fn::fns::binary::Binary;
-use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::scalar_fn::fns::pack::Pack;
 use vortex_array::scalar_fn::fns::pack::PackOptions;
 use vortex_array::stats::PRUNING_STATS;
@@ -2198,53 +2196,12 @@ async fn test_file_metadata_malformed_alignment_returns_error_on_default_open() 
     Ok(())
 }
 
+/// The compressor encodes constant timestamp children as `ConstantArray`s; a matching-unit
+/// predicate must still filter the decoded timestamps correctly.
 #[tokio::test]
-async fn timestamp_unit_mismatch() -> Result<(), Box<dyn std::error::Error>> {
-    // Write file with MILLISECONDS timestamps
-    let ts_array = PrimitiveArray::from_iter(vec![1704067200000i64, 1704153600000, 1704240000000])
-        .into_array();
-    let temporal = TemporalArray::new_timestamp(ts_array, TimeUnit::Milliseconds, None);
-
-    let mut buf = ByteBufferMut::empty();
-    SESSION
-        .write_options()
-        .write(&mut buf, temporal.into_array().to_array_stream())
-        .await?;
-
-    // Read with SECONDS filter scalar
-    let file = SESSION.open_options().open_buffer(buf)?;
-    let error = Binary
-        .try_new_bound_expr(
-            Operator::Gt,
-            [
-                root(file.dtype().clone()),
-                lit(Scalar::extension::<Timestamp>(
-                    TimestampOptions {
-                        unit: TimeUnit::Seconds,
-                        tz: None,
-                    },
-                    Scalar::from(1704153600i64),
-                )),
-            ],
-        )
-        .unwrap_err();
-    assert!(error.to_string().contains("different DTypes"), "{error}");
-
-    Ok(())
-}
-
-/// Regression test: filtering a milliseconds timestamp column with a seconds scalar should
-/// always error, regardless of how the internal children of `DateTimePartsArray` are encoded.
-///
-/// The compressor's built-in constant detection encodes the seconds/subseconds children
-/// (`[0, 0, 0]`) as `ConstantArray`s. The scanner should still detect the time unit
-/// mismatch and error, not silently return wrong results.
-#[tokio::test]
-async fn timestamp_unit_mismatch_errors_with_constant_children()
--> Result<(), Box<dyn std::error::Error>> {
+async fn timestamp_filter_with_constant_children() -> Result<(), Box<dyn std::error::Error>> {
     let compressor = vortex_btrblocks::BtrBlocksCompressor::default();
 
-    // Write file with MILLISECONDS timestamps using this compressor.
     let ts_array = PrimitiveArray::from_iter(vec![1704067200000i64, 1704153600000, 1704240000000])
         .into_array();
     let temporal = TemporalArray::new_timestamp(ts_array, TimeUnit::Milliseconds, None);
@@ -2260,24 +2217,24 @@ async fn timestamp_unit_mismatch_errors_with_constant_children()
         .write(&mut buf, temporal.into_array().to_array_stream())
         .await?;
 
-    // Read with SECONDS filter scalar — should error due to time unit mismatch.
     let file = SESSION.open_options().open_buffer(buf)?;
-    let error = Binary
-        .try_new_bound_expr(
-            Operator::Gt,
-            [
-                root(file.dtype().clone()),
-                lit(Scalar::extension::<Timestamp>(
-                    TimestampOptions {
-                        unit: TimeUnit::Seconds,
-                        tz: None,
-                    },
-                    Scalar::from(1704153600i64),
-                )),
-            ],
-        )
-        .unwrap_err();
-    assert!(error.to_string().contains("different DTypes"), "{error}");
+    let filter = gt(
+        root(file.dtype().clone()),
+        lit(Scalar::extension::<Timestamp>(
+            TimestampOptions {
+                unit: TimeUnit::Milliseconds,
+                tz: None,
+            },
+            Scalar::from(1704153600000i64),
+        )),
+    );
+    let result = file
+        .scan()?
+        .with_filter(filter)
+        .into_array_stream()?
+        .read_all()
+        .await?;
+    assert_eq!(result.len(), 1);
 
     Ok(())
 }

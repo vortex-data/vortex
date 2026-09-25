@@ -102,3 +102,37 @@ impl<T: DisplayTreeNode> Display for DisplayTreeExpr<'_, T> {
         write_branch_tree(self, self.0, &mut (), f)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
+    use crate::dtype::StructFields;
+    use crate::expr::get_item;
+    use crate::expr::gt;
+    use crate::expr::lit;
+    use crate::expr::root;
+
+    #[test]
+    fn display_bound_tree() {
+        let scope = DType::Struct(
+            StructFields::new(
+                ["x"].into(),
+                vec![DType::Primitive(PType::I32, Nullability::NonNullable)],
+            ),
+            Nullability::NonNullable,
+        );
+        let root_expr = root(scope.clone());
+        insta::assert_snapshot!(root_expr.display_tree(), @"vortex.root()");
+        let literal = lit(42i32);
+        insta::assert_snapshot!(literal.display_tree(), @"vortex.literal(42i32)");
+        let comparison = gt(get_item("x", root(scope)), lit(10i32));
+        insta::assert_snapshot!(comparison.display_tree(), @r"
+        vortex.binary(>)
+        ├── lhs: vortex.get_item(x)
+        │   └── input: vortex.root()
+        └── rhs: vortex.literal(10i32)
+        ");
+    }
+}

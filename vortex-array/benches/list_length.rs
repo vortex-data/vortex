@@ -105,7 +105,7 @@ fn make_listview(num_lists: usize) -> ArrayRef {
     ListViewArray::new(elements, offsets.into_array(), sizes.into_array(), validity).into_array()
 }
 
-/// Apply `list_length(root(array.dtype().clone()))` and materialize the result.
+/// Apply `list_length` to the input array and materialize the result.
 fn run(bencher: Bencher, array: ArrayRef) {
     let expr = list_length(root(array.dtype().clone()));
     bencher
