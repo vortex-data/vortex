@@ -426,7 +426,7 @@ mod tests {
             FlatLayoutStrategy::default(),
             FlatLayoutStrategy::default(),
             DictLayoutOptions::default(),
-            Arc::new(BtrBlocksCompressor::default()),
+            Arc::new(BtrBlocksCompressor::from_session(session)),
         );
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
@@ -456,7 +456,7 @@ mod tests {
                 FlatLayoutStrategy::default(),
                 FlatLayoutStrategy::default(),
                 DictLayoutOptions::default(),
-                Arc::new(BtrBlocksCompressor::default()),
+                Arc::new(BtrBlocksCompressor::from_session(&session)),
             );
 
             let array = VarBinArray::from_iter(
@@ -559,7 +559,7 @@ mod tests {
                 FlatLayoutStrategy::default(),
                 FlatLayoutStrategy::default(),
                 DictLayoutOptions::default(),
-                Arc::new(BtrBlocksCompressor::default()),
+                Arc::new(BtrBlocksCompressor::from_session(&session)),
             );
 
             let array =
@@ -614,7 +614,7 @@ mod tests {
                 FlatLayoutStrategy::default(),
                 FlatLayoutStrategy::default(),
                 DictLayoutOptions::default(),
-                Arc::new(BtrBlocksCompressor::default()),
+                Arc::new(BtrBlocksCompressor::from_session(&session)),
             );
 
             let array = VarBinArray::from_iter(

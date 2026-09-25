@@ -127,7 +127,7 @@ fn lineitem() -> VortexResult<ArrayRef> {
 
 /// Delta is opt-in, and these traces cover the delta-encoded FSST offsets, so enable it here.
 fn compressed_lineitem() -> VortexResult<ArrayRef> {
-    BtrBlocksCompressorBuilder::default()
+    BtrBlocksCompressorBuilder::from_session(&trace_session())
         .with_new_scheme(&DELTA_SCHEME)
         .build()
         .compress(&lineitem()?, &mut execution_ctx())

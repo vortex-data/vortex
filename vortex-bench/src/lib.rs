@@ -254,10 +254,10 @@ impl CompactionStrategy {
     pub fn apply_options(&self, options: VortexWriteOptions) -> VortexWriteOptions {
         match self {
             CompactionStrategy::Compact => options.with_strategy(
-                WriteStrategyBuilder::default()
+                WriteStrategyBuilder::from_session(&SESSION)
                     .with_btrblocks_builder(retain_edition_encodings(
                         &SESSION,
-                        BtrBlocksCompressorBuilder::default().with_compact(),
+                        BtrBlocksCompressorBuilder::from_session(&SESSION).with_compact(),
                     ))
                     .build(),
             ),

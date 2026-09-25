@@ -48,7 +48,7 @@
 //! # fn example() -> vortex::error::VortexResult<()> {
 //! let session = VortexSession::default();
 //! let array = PrimitiveArray::new(buffer![42u64; 1024], Validity::NonNullable).into_array();
-//! let compressed = BtrBlocksCompressor::default()
+//! let compressed = BtrBlocksCompressor::from_session(&session)
 //!     .compress(&array, &mut session.create_execution_ctx())?;
 //!
 //! assert_eq!(compressed.dtype(), array.dtype());
@@ -114,6 +114,7 @@ pub use vortex_array::scalar_fn;
 use vortex_array::scalar_fn::session::ScalarFnSession;
 use vortex_array::session::ArraySession;
 use vortex_array::stats::session::StatsSession;
+use vortex_btrblocks::CompressionSession;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::session::LayoutSession;
 use vortex_session::VortexSession;
@@ -145,6 +146,8 @@ pub mod buffer {
 pub mod compressor {
     pub use vortex_btrblocks::BtrBlocksCompressor;
     pub use vortex_btrblocks::BtrBlocksCompressorBuilder;
+    pub use vortex_btrblocks::CompressionSession;
+    pub use vortex_btrblocks::CompressionSessionExt;
     pub use vortex_btrblocks::Scheme;
     pub use vortex_btrblocks::SchemeId;
 }
@@ -309,7 +312,8 @@ pub mod encodings {
 /// Extension trait to create a default Vortex session.
 pub trait VortexSessionDefault {
     /// Creates a default Vortex session with standard arrays, layouts, scalar functions,
-    /// optimizer kernels, expressions, aggregate functions, and runtime support.
+    /// optimizer kernels, expressions, aggregate functions, compression schemes, and runtime
+    /// support.
     fn default() -> VortexSession;
 }
 
@@ -324,6 +328,7 @@ impl VortexSessionDefault for VortexSession {
             .with::<StatsSession>()
             .with::<AggregateFnSession>()
             .with::<MemorySession>()
+            .with::<CompressionSession>()
             .with::<RuntimeSession>();
         vortex_arrow::initialize(&session);
         vortex_parquet_variant::initialize(&session);
@@ -422,7 +427,7 @@ mod test {
 
         // You can compress an array in-memory with the BtrBlocks compressor
         let session = VortexSession::default();
-        let compressed = BtrBlocksCompressor::default().compress(
+        let compressed = BtrBlocksCompressor::from_session(&session).compress(
             &array.clone().into_array(),
             &mut session.create_execution_ctx(),
         )?;
@@ -489,8 +494,10 @@ mod test {
         session
             .write_options()
             .with_strategy(
-                WriteStrategyBuilder::default()
-                    .with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact())
+                WriteStrategyBuilder::from_session(&session)
+                    .with_btrblocks_builder(
+                        BtrBlocksCompressorBuilder::from_session(&session).with_compact(),
+                    )
                     .build(),
             )
             .write(

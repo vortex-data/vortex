@@ -1874,7 +1874,7 @@ async fn write_read_roundtrip_with_layout(
     array: ArrayRef,
     use_list_layout: bool,
 ) -> VortexResult<ArrayRef> {
-    let strategy = crate::strategy::WriteStrategyBuilder::default()
+    let strategy = crate::strategy::WriteStrategyBuilder::from_session(&SESSION)
         .with_list_layout()
         .build();
     let mut buf = ByteBufferMut::empty();
@@ -2251,14 +2251,14 @@ async fn timestamp_unit_mismatch() -> Result<(), Box<dyn std::error::Error>> {
 #[tokio::test]
 async fn timestamp_unit_mismatch_errors_with_constant_children()
 -> Result<(), Box<dyn std::error::Error>> {
-    let compressor = vortex_btrblocks::BtrBlocksCompressor::default();
+    let compressor = vortex_btrblocks::BtrBlocksCompressor::from_session(&SESSION);
 
     // Write file with MILLISECONDS timestamps using this compressor.
     let ts_array = PrimitiveArray::from_iter(vec![1704067200000i64, 1704153600000, 1704240000000])
         .into_array();
     let temporal = TemporalArray::new_timestamp(ts_array, TimeUnit::Milliseconds, None);
 
-    let strategy = crate::strategy::WriteStrategyBuilder::default()
+    let strategy = crate::strategy::WriteStrategyBuilder::from_session(&SESSION)
         .with_compressor(compressor)
         .build();
 
@@ -2574,7 +2574,7 @@ async fn dict_probe_honours_configured_compressor() -> VortexResult<()> {
     let mut buf = ByteBufferMut::empty();
     let summary = SESSION
         .write_options()
-        .with_strategy(crate::strategy::WriteStrategyBuilder::default().build())
+        .with_strategy(crate::strategy::WriteStrategyBuilder::from_session(&SESSION).build())
         .write(&mut buf, strings.clone().to_array_stream())
         .await?;
     assert!(
@@ -2583,12 +2583,12 @@ async fn dict_probe_honours_configured_compressor() -> VortexResult<()> {
     );
 
     let no_string_dict =
-        BtrBlocksCompressorBuilder::default().exclude_schemes([StringDictScheme.id()]);
+        BtrBlocksCompressorBuilder::from_session(&SESSION).exclude_schemes([StringDictScheme.id()]);
     let mut buf = ByteBufferMut::empty();
     let summary = SESSION
         .write_options()
         .with_strategy(
-            crate::strategy::WriteStrategyBuilder::default()
+            crate::strategy::WriteStrategyBuilder::from_session(&SESSION)
                 .with_btrblocks_builder(no_string_dict)
                 .build(),
         )
@@ -2610,7 +2610,7 @@ async fn probe_compressor_override_is_independent() -> VortexResult<()> {
     let values: Vec<&str> = (0..n).map(|i| ["alpha", "beta", "gamma"][i % 3]).collect();
     let strings = VarBinArray::from(values).into_array();
 
-    let probe_without_dict = BtrBlocksCompressorBuilder::default()
+    let probe_without_dict = BtrBlocksCompressorBuilder::from_session(&SESSION)
         .exclude_schemes([StringDictScheme.id()])
         .build();
 
@@ -2618,7 +2618,7 @@ async fn probe_compressor_override_is_independent() -> VortexResult<()> {
     let summary = SESSION
         .write_options()
         .with_strategy(
-            crate::strategy::WriteStrategyBuilder::default()
+            crate::strategy::WriteStrategyBuilder::from_session(&SESSION)
                 .with_probe_compressor(probe_without_dict)
                 .build(),
         )

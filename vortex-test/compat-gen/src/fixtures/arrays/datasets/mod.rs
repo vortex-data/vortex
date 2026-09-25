@@ -44,15 +44,17 @@ mod tests {
             let regular_bytes = adapter::write_compressed_to_bytes_with_session(
                 &session,
                 array.clone(),
-                WriteStrategyBuilder::default().build(),
+                WriteStrategyBuilder::from_session(&session).build(),
             )?;
             let _regular = adapter::read_file(regular_bytes)?;
 
             let compact_bytes = adapter::write_compressed_to_bytes_with_session(
                 &session,
                 array,
-                WriteStrategyBuilder::default()
-                    .with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact())
+                WriteStrategyBuilder::from_session(&session)
+                    .with_btrblocks_builder(
+                        BtrBlocksCompressorBuilder::from_session(&session).with_compact(),
+                    )
                     .build(),
             )?;
             let _compact = adapter::read_file(compact_bytes)?;

@@ -30,8 +30,8 @@
 //!
 //! Each `Scheme` implementation declares whether it [`matches`](Scheme::matches) a given
 //! canonical form and, if so, estimates the compression ratio (often by compressing a ~1%
-//! sample). There is no dynamic registry — the set of schemes is fixed at build time via
-//! [`ALL_SCHEMES`].
+//! sample). The available schemes are registered on the session's [`CompressionSession`], and
+//! [`BtrBlocksCompressorBuilder::from_session`] builds a compressor from them.
 //!
 //! Schemes can produce arrays that are themselves further compressed (e.g. FoR then BitPacking),
 //! up to [`MAX_CASCADE`] (3) layers deep. Descendant exclusion rules for of [`SchemeId`] prevents
@@ -51,12 +51,12 @@
 //! let session = array_session();
 //! let array = PrimitiveArray::new(buffer![42u64; 1024], Validity::NonNullable).into_array();
 //!
-//! let compressor = BtrBlocksCompressor::default();
+//! let compressor = BtrBlocksCompressor::from_session(&session);
 //! let compressed = compressor.compress(&array, &mut session.create_execution_ctx())?;
 //! assert_eq!(compressed.dtype(), array.dtype());
 //!
 //! // Remove specific schemes using the builder.
-//! let compressor = BtrBlocksCompressorBuilder::default()
+//! let compressor = BtrBlocksCompressorBuilder::from_session(&session)
 //!     .exclude_schemes([IntDictScheme.id()])
 //!     .build();
 //! # let _ = compressor;
@@ -70,17 +70,19 @@ mod builder;
 mod canonical_compressor;
 /// Compression scheme implementations.
 pub mod schemes;
+mod session;
 #[cfg(test)]
 #[cfg(not(codspeed))]
 mod trace_tests;
 
 // Re-export framework types from vortex-compressor for backwards compatibility.
 // Btrblocks-specific exports.
-pub use builder::ALL_SCHEMES;
 pub use builder::BtrBlocksCompressorBuilder;
 pub use builder::DELTA_SCHEME;
 pub use canonical_compressor::BtrBlocksCompressor;
 pub use schemes::patches::compress_patches;
+pub use session::CompressionSession;
+pub use session::CompressionSessionExt;
 pub use vortex_compressor::CascadingCompressor;
 pub use vortex_compressor::scheme::CompressorContext;
 pub use vortex_compressor::scheme::MAX_CASCADE;

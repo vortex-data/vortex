@@ -25,8 +25,8 @@ fn test_constant_compressed() -> VortexResult<()> {
     let strings: Vec<Option<&str>> = vec![Some("constant_value"); 100];
     let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
     let array_ref = array.into_array();
-    let compressed =
-        BtrBlocksCompressor::default().compress(&array_ref, &mut SESSION.create_execution_ctx())?;
+    let compressed = BtrBlocksCompressor::from_session(&SESSION)
+        .compress(&array_ref, &mut SESSION.create_execution_ctx())?;
     assert!(compressed.is::<Constant>());
     Ok(())
 }
@@ -40,8 +40,8 @@ fn test_dict_compressed() -> VortexResult<()> {
     }
     let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
     let array_ref = array.into_array();
-    let compressed =
-        BtrBlocksCompressor::default().compress(&array_ref, &mut SESSION.create_execution_ctx())?;
+    let compressed = BtrBlocksCompressor::from_session(&SESSION)
+        .compress(&array_ref, &mut SESSION.create_execution_ctx())?;
     assert!(compressed.is::<Dict>());
     Ok(())
 }
@@ -51,10 +51,14 @@ fn test_all_schemes_includes_onpair() {
     use crate::SchemeExt;
     use crate::schemes::string::onpair::OnPairScheme;
 
-    let ids: Vec<_> = crate::ALL_SCHEMES.iter().map(|s| s.id()).collect();
+    let ids: Vec<_> = crate::CompressionSession::default()
+        .schemes()
+        .iter()
+        .map(|s| s.id())
+        .collect();
     assert!(
         ids.contains(&OnPairScheme.id()),
-        "OnPairScheme not registered in ALL_SCHEMES"
+        "OnPairScheme not registered by default"
     );
 }
 
@@ -71,8 +75,8 @@ fn test_default_btrblocks_compressor_selects_onpair() -> VortexResult<()> {
     }
     let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
     let array_ref = array.into_array();
-    let compressed =
-        BtrBlocksCompressor::default().compress(&array_ref, &mut SESSION.create_execution_ctx())?;
+    let compressed = BtrBlocksCompressor::from_session(&SESSION)
+        .compress(&array_ref, &mut SESSION.create_execution_ctx())?;
     assert!(
         compressed.is::<vortex_onpair::OnPair>(),
         "expected OnPair, got {}",
@@ -91,8 +95,11 @@ fn test_fsst_in_default_scheme_list() -> VortexResult<()> {
 
     // FSST is registered by default.
     assert!(
-        crate::ALL_SCHEMES.iter().any(|s| s.id() == FSSTScheme.id()),
-        "FSSTScheme should be in ALL_SCHEMES",
+        crate::CompressionSession::default()
+            .schemes()
+            .iter()
+            .any(|s| s.id() == FSSTScheme.id()),
+        "FSSTScheme should be registered by default",
     );
 
     // An FSST-only builder still produces an FSST array for FSST-favourable

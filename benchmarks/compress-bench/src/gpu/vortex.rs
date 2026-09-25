@@ -102,7 +102,7 @@ impl Compressor for GpuVortexCompressor {
             CudaFlatLayoutStrategy::default(),
             retain_edition_encodings(
                 &SESSION,
-                BtrBlocksCompressorBuilder::default().only_cuda_compatible(),
+                BtrBlocksCompressorBuilder::from_session(&SESSION).only_cuda_compatible(),
             )
             .build(),
         )));

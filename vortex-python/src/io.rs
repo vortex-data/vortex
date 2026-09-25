@@ -384,11 +384,11 @@ impl PyVortexWriteOptions {
                 .enabled_component_ids(ComponentKind::Array)
                 .into_iter()
                 .collect();
-            let mut compressor = BtrBlocksCompressorBuilder::default();
+            let mut compressor = BtrBlocksCompressorBuilder::from_session(session);
             if self.use_compact_encodings {
                 compressor = compressor.with_compact();
             }
-            let strategy = WriteStrategyBuilder::default()
+            let strategy = WriteStrategyBuilder::from_session(session)
                 .with_btrblocks_builder(compressor.retain_allowed_encodings(&allowed_encodings));
             let strategy = strategy.build();
             current_runtime().block_on(async move {
