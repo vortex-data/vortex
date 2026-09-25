@@ -183,8 +183,6 @@ fn rejects_malformed_entry_storage() -> VortexResult<()> {
         DType::Map(map_dtype, Nullability::NonNullable),
         entries.len(),
         MapData,
-    )
-    .with_slots(
         MapSlots {
             entries: entries.into_array(),
         }

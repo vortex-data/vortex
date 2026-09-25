@@ -129,7 +129,13 @@ impl VTable for ZigZag {
         let encoded = children.get(0, &encoded_type, len)?;
         let slots = smallvec![Some(encoded.clone())];
         let data = ZigZagData::try_new(encoded.dtype())?;
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -197,9 +203,11 @@ impl ZigZag {
         let len = encoded.len();
         let slots = smallvec![Some(encoded.clone())];
         let data = ZigZagData::try_new(encoded.dtype())?;
-        Ok(unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(ZigZag, dtype, len, data).with_slots(slots))
-        })
+        Ok(
+            unsafe {
+                Array::from_parts_unchecked(ArrayParts::new(ZigZag, dtype, len, data, slots))
+            },
+        )
     }
 }
 

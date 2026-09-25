@@ -182,10 +182,13 @@ impl VTable for Dict {
         let values = children.get(1, dtype, metadata.values_len as usize)?;
         let all_values_referenced = metadata.all_values_referenced.unwrap_or(false);
 
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, unsafe {
-            DictData::new_unchecked().set_all_values_referenced(all_values_referenced)
-        })
-        .with_slots(smallvec![Some(codes), Some(values)]))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            unsafe { DictData::new_unchecked().set_all_values_referenced(all_values_referenced) },
+            smallvec![Some(codes), Some(values)],
+        ))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

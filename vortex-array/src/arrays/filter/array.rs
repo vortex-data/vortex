@@ -86,10 +86,13 @@ impl Array<Filter> {
         let len = mask.true_count();
         let data = FilterData::new(mask);
         unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(Filter, dtype, len, data)
-                    .with_slots(FilterSlots { child: array }.into_slots()),
-            )
+            Array::from_parts_unchecked(ArrayParts::new(
+                Filter,
+                dtype,
+                len,
+                data,
+                FilterSlots { child: array }.into_slots(),
+            ))
         }
     }
 
@@ -99,10 +102,13 @@ impl Array<Filter> {
         let len = mask.true_count();
         let data = FilterData::try_new(array.len(), mask)?;
         Ok(unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(Filter, dtype, len, data)
-                    .with_slots(FilterSlots { child: array }.into_slots()),
-            )
+            Array::from_parts_unchecked(ArrayParts::new(
+                Filter,
+                dtype,
+                len,
+                data,
+                FilterSlots { child: array }.into_slots(),
+            ))
         })
     }
 }

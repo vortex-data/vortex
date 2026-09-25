@@ -88,10 +88,13 @@ impl Array<Masked> {
             validity,
         )?;
         Ok(unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(Masked, dtype, len, data)
-                    .with_slots(smallvec![Some(child), validity_slot]),
-            )
+            Array::from_parts_unchecked(ArrayParts::new(
+                Masked,
+                dtype,
+                len,
+                data,
+                smallvec![Some(child), validity_slot],
+            ))
         })
     }
 }

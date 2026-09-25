@@ -13,6 +13,7 @@ use pyo3::prelude::*;
 use vortex::array::Array;
 use vortex::array::ArrayParts;
 use vortex::array::ArrayRef;
+use vortex::array::ArraySlots;
 use vortex::array::IntoArray;
 use vortex::array::stats::ArrayStats;
 use vortex::array::stats::StatsSet;
@@ -75,7 +76,7 @@ impl IntoArray for PythonArray {
         let dtype = self.dtype.clone();
         let len = self.len;
         let stats = StatsSet::from(self.stats.clone());
-        match Array::try_from_parts(ArrayParts::new(vtable, dtype, len, self)) {
+        match Array::try_from_parts(ArrayParts::new(vtable, dtype, len, self, ArraySlots::new())) {
             Ok(array) => array.with_stats_set(stats).into_array(),
             Err(err) => unreachable!(
                 "PythonArray metadata extracted from PyPythonArray must be valid: {err}"

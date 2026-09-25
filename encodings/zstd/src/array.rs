@@ -206,10 +206,13 @@ impl VTable for Zstd {
                 .map(|buffer| buffer.clone().try_to_host_sync())
                 .collect::<VortexResult<Vec<_>>>()?;
         }
-        Ok(
-            ArrayParts::new(self.clone(), array.dtype().clone(), array.len(), data)
-                .with_slots(array.slots().iter().cloned().collect()),
-        )
+        Ok(ArrayParts::new(
+            self.clone(),
+            array.dtype().clone(),
+            array.len(),
+            data,
+            array.slots().iter().cloned().collect(),
+        ))
     }
 
     fn serialize(
@@ -260,7 +263,13 @@ impl VTable for Zstd {
 
         let slots = smallvec![validity_to_child(&validity, len)];
         let data = ZstdData::new(dictionary_buffer, compressed_buffers, metadata, len);
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -424,9 +433,7 @@ impl Zstd {
         let len = data.len();
         data.validate(&dtype, len, &validity)?;
         let slots = smallvec![validity_to_child(&validity, data.unsliced_n_rows())];
-        Ok(unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Zstd, dtype, len, data).with_slots(slots))
-        })
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Zstd, dtype, len, data, slots)) })
     }
 
     /// Compress a [`VarBinViewArray`] using Zstd without a dictionary.

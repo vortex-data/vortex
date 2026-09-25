@@ -17,6 +17,7 @@ use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayParts;
 use crate::ArrayRef;
+use crate::ArraySlots;
 use crate::EqMode;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
@@ -167,6 +168,7 @@ impl VTable for Constant {
             dtype.clone(),
             len,
             ConstantData::new(scalar),
+            ArraySlots::new(),
         ))
     }
 

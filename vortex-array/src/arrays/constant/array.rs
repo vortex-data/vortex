@@ -4,6 +4,7 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 
+use crate::ArraySlots;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::arrays::Constant;
@@ -47,6 +48,14 @@ impl Array<Constant> {
         let scalar = scalar.into();
         let dtype = scalar.dtype().clone();
         let data = ConstantData::new(scalar);
-        unsafe { Array::from_parts_unchecked(ArrayParts::new(Constant, dtype, len, data)) }
+        unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(
+                Constant,
+                dtype,
+                len,
+                data,
+                ArraySlots::new(),
+            ))
+        }
     }
 }

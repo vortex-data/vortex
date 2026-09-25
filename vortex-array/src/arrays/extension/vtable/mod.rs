@@ -174,10 +174,13 @@ impl VTable for Extension {
             vortex_bail!("Expected 1 child, got {}", children.len());
         }
         let storage = children.get(0, ext_dtype.storage_dtype(), len)?;
-        Ok(
-            ArrayParts::new(self.clone(), dtype.clone(), len, EmptyArrayData)
-                .with_slots(ExtensionSlots { storage }.into_slots()),
-        )
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            EmptyArrayData,
+            ExtensionSlots { storage }.into_slots(),
+        ))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

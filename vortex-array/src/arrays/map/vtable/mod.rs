@@ -144,7 +144,13 @@ impl VTable for Map {
         );
 
         let slots = MapData::make_slots(entries);
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, MapData).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            MapData,
+            slots,
+        ))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

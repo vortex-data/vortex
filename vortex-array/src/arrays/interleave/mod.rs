@@ -273,10 +273,13 @@ impl Array<Interleave> {
             .len();
 
         unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(Interleave, dtype, len, InterleaveData { num_values })
-                    .with_slots(slots),
-            )
+            Array::from_parts_unchecked(ArrayParts::new(
+                Interleave,
+                dtype,
+                len,
+                InterleaveData { num_values },
+                slots,
+            ))
         }
     }
 }
