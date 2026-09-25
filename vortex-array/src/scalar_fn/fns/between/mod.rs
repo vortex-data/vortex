@@ -341,7 +341,6 @@ mod tests {
 
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_error::vortex_err;
 
     use super::*;
     use crate::IntoArray;
