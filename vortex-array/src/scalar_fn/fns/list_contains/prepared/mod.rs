@@ -210,9 +210,9 @@ impl PreparedSet {
                     collect_bits(
                         &values,
                         |value| {
-                            value.offset_from(min).is_some_and(|offset| {
-                                offset < bitmap.len() && bitmap.value(offset)
-                            })
+                            value
+                                .offset_from(min)
+                                .is_some_and(|offset| offset < bitmap.len() && bitmap.value(offset))
                         },
                         ctx.allocator(),
                     )

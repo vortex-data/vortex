@@ -36,8 +36,7 @@ use crate::validity::Validity;
 
 fn nested_needles() -> ArrayRef {
     ListArray::try_new(
-        PrimitiveArray::from_option_iter([Some(1i32), None, Some(2), None, Some(9)])
-            .into_array(),
+        PrimitiveArray::from_option_iter([Some(1i32), None, Some(2), None, Some(9)]).into_array(),
         buffer![0u32, 2, 2, 4, 5].into_array(),
         Validity::from(BitBuffer::from_iter([true, false, true, true])),
     )
@@ -132,8 +131,12 @@ fn test_row_set_returns_membership_bits(
 fn test_decimal_bitmap_across_storage_widths(
     #[values(2, 4, 9, 18, 38, 76)] precision: u8,
     #[values(
-        DecimalType::I8, DecimalType::I16, DecimalType::I32,
-        DecimalType::I64, DecimalType::I128, DecimalType::I256,
+        DecimalType::I8,
+        DecimalType::I16,
+        DecimalType::I32,
+        DecimalType::I64,
+        DecimalType::I128,
+        DecimalType::I256
     )]
     needle_width: DecimalType,
     #[values(false, true)] sql_null_semantics: bool,
@@ -145,16 +148,12 @@ fn test_decimal_bitmap_across_storage_widths(
         .map(|value| Scalar::decimal(value.into(), decimal, Nullability::Nullable))
         .into();
     elements.push(Scalar::null(dtype.clone()));
-    let list = ConstantArray::new(
-        Scalar::list(dtype, elements, Nullability::NonNullable),
-        4,
-    )
-    .into_array();
+    let list =
+        ConstantArray::new(Scalar::list(dtype, elements, Nullability::NonNullable), 4).into_array();
     let needles = match_each_decimal_value_type!(needle_width, |T| {
         DecimalArray::from_option_iter::<T, _>(
-            [Some(-2i8), Some(0), Some(1), None].map(|value| {
-                value.map(|value| DecimalValue::from(value).cast::<T>().unwrap())
-            }),
+            [Some(-2i8), Some(0), Some(1), None]
+                .map(|value| value.map(|value| DecimalValue::from(value).cast::<T>().unwrap())),
             decimal,
         )
         .into_array()
@@ -223,7 +222,12 @@ fn test_decimal_wide_values(
     assert_arrays_eq!(
         set.contains(&needles, &mut ctx)?,
         BoolArray::from_iter([
-            Some(true), Some(true), Some(false), Some(false), Some(false), None,
+            Some(true),
+            Some(true),
+            Some(false),
+            Some(false),
+            Some(false),
+            None,
         ]),
         &mut ctx
     );
