@@ -896,7 +896,7 @@ mod tests {
     ) {
         let schema = Arc::new(Schema::new(vec![Field::new("value", DataType::Int32, true)]));
         let batch = RecordBatch::try_new(
-            schema.clone(),
+            Arc::clone(&schema),
             vec![Arc::new(Int32Array::from(vec![Some(1), Some(2), None]))],
         )
         .unwrap();
@@ -931,7 +931,7 @@ mod tests {
         assert_arrays_eq!(
             actual,
             BoolArray::from_iter(expected.as_boolean().iter()),
-            &mut session.create_execution_ctx(),
+            &mut session.create_execution_ctx()
         );
     }
 
