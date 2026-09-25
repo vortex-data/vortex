@@ -10,6 +10,7 @@ use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
+use crate::ArraySlots;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::array::Array;
@@ -108,6 +109,7 @@ impl VTable for Null {
             dtype.clone(),
             len,
             EmptyArrayData,
+            ArraySlots::new(),
         ))
     }
 
@@ -170,7 +172,13 @@ pub struct Null;
 impl Array<Null> {
     pub fn new(len: usize) -> Self {
         unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Null, DType::Null, len, EmptyArrayData))
+            Array::from_parts_unchecked(ArrayParts::new(
+                Null,
+                DType::Null,
+                len,
+                EmptyArrayData,
+                ArraySlots::new(),
+            ))
         }
     }
 }

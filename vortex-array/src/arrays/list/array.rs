@@ -364,9 +364,7 @@ impl Array<List> {
         let len = offsets.len().saturating_sub(1);
         let slots = ListData::make_slots(&elements, &offsets, &validity, len);
         let data = ListData::build(elements, offsets, validity);
-        unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(List, dtype, len, data).with_slots(slots))
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(List, dtype, len, data, slots)) }
     }
 
     /// Constructs a new `ListArray`.
@@ -379,9 +377,7 @@ impl Array<List> {
         let len = offsets.len().saturating_sub(1);
         let slots = ListData::make_slots(&elements, &offsets, &validity, len);
         let data = ListData::try_build(elements, offsets, validity)?;
-        Ok(unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(List, dtype, len, data).with_slots(slots))
-        })
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(List, dtype, len, data, slots)) })
     }
 
     /// Creates a new `ListArray` without validation.
@@ -394,9 +390,7 @@ impl Array<List> {
         let len = offsets.len().saturating_sub(1);
         let slots = ListData::make_slots(&elements, &offsets, &validity, len);
         let data = unsafe { ListData::new_unchecked() };
-        unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(List, dtype, len, data).with_slots(slots))
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(List, dtype, len, data, slots)) }
     }
 
     pub fn into_data_parts(self) -> ListDataParts {

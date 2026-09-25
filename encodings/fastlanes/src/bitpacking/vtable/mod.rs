@@ -153,10 +153,13 @@ impl VTable for BitPacked {
         vortex_ensure_eq!(buffers.len(), 1);
         let mut data = array.data().clone();
         data.packed = buffers[0].clone();
-        Ok(
-            ArrayParts::new(self.clone(), array.dtype().clone(), array.len(), data)
-                .with_slots(array.slots().iter().cloned().collect()),
-        )
+        Ok(ArrayParts::new(
+            self.clone(),
+            array.dtype().clone(),
+            array.len(),
+            data,
+            array.slots().iter().cloned().collect(),
+        ))
     }
 
     fn serialize(
@@ -245,7 +248,7 @@ impl BitPacked {
             s
         };
         let data = BitPackedData::try_new(packed, patches, bit_width, offset)?;
-        Array::try_from_parts(ArrayParts::new(BitPacked, dtype, len, data).with_slots(slots))
+        Array::try_from_parts(ArrayParts::new(BitPacked, dtype, len, data, slots))
     }
 
     /// Construct a bit-packed array from packed data and explicit block byte boundaries.

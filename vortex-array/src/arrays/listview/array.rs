@@ -573,11 +573,7 @@ impl Array<ListView> {
         ListViewData::validate(&elements, &offsets, &sizes, &validity)
             .vortex_expect("`ListViewArray` construction failed");
         let data = ListViewData::new();
-        unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(ListView, dtype, len, data).with_slots(slots),
-            )
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(ListView, dtype, len, data, slots)) }
     }
 
     /// Constructs a new `ListViewArray`.
@@ -593,9 +589,7 @@ impl Array<ListView> {
         ListViewData::validate(&elements, &offsets, &sizes, &validity)?;
         let data = ListViewData::try_new()?;
         Ok(unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(ListView, dtype, len, data).with_slots(slots),
-            )
+            Array::from_parts_unchecked(ArrayParts::new(ListView, dtype, len, data, slots))
         })
     }
 
@@ -614,11 +608,7 @@ impl Array<ListView> {
         let len = offsets.len();
         let slots = ListViewData::make_slots(&elements, &offsets, &sizes, &validity, len);
         let data = unsafe { ListViewData::new_unchecked() };
-        unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(ListView, dtype, len, data).with_slots(slots),
-            )
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(ListView, dtype, len, data, slots)) }
     }
 
     /// Mark whether this list view can be zero-copy converted to a list.
@@ -647,11 +637,7 @@ impl Array<ListView> {
         let len = self.len();
         let slots: ArraySlots = self.slots().iter().cloned().collect();
         let data = unsafe { self.into_data().with_zero_copy_to_list(is_zctl) };
-        unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(ListView, dtype, len, data).with_slots(slots),
-            )
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(ListView, dtype, len, data, slots)) }
     }
 
     pub fn into_data_parts(self) -> ListViewDataParts {

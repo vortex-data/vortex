@@ -293,7 +293,13 @@ impl VTable for Sparse {
         )?;
         let slots = SparseData::make_slots(&patches);
         let data = SparseData::from_patches(&patches, fill_value)?;
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -427,9 +433,11 @@ impl Sparse {
         let patches = Patches::new(len, 0, indices, values, None)?;
         let slots = SparseData::make_slots(&patches);
         let data = SparseData::from_patches(&patches, fill_value)?;
-        Ok(unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Sparse, dtype, len, data).with_slots(slots))
-        })
+        Ok(
+            unsafe {
+                Array::from_parts_unchecked(ArrayParts::new(Sparse, dtype, len, data, slots))
+            },
+        )
     }
 
     pub fn try_new_from_patches(patches: Patches, fill_value: Scalar) -> VortexResult<SparseArray> {
@@ -437,9 +445,11 @@ impl Sparse {
         let len = patches.array_len();
         let slots = SparseData::make_slots(&patches);
         let data = SparseData::from_patches(&patches, fill_value)?;
-        Ok(unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Sparse, dtype, len, data).with_slots(slots))
-        })
+        Ok(
+            unsafe {
+                Array::from_parts_unchecked(ArrayParts::new(Sparse, dtype, len, data, slots))
+            },
+        )
     }
 
     pub(crate) unsafe fn new_unchecked(patches: Patches, fill_value: Scalar) -> SparseArray {
@@ -447,9 +457,7 @@ impl Sparse {
         let len = patches.array_len();
         let slots = SparseData::make_slots(&patches);
         let data = SparseData::from_patches_unchecked(&patches, fill_value);
-        unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Sparse, dtype, len, data).with_slots(slots))
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Sparse, dtype, len, data, slots)) }
     }
 
     /// Encode the given array as a [`SparseArray`].

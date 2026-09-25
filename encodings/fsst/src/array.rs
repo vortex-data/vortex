@@ -179,10 +179,13 @@ impl VTable for FSST {
         let symbols = Buffer::<Symbol>::from_byte_buffer(buffers[0].clone().try_to_host_sync()?);
         let symbol_lengths = Buffer::<u8>::from_byte_buffer(buffers[1].clone().try_to_host_sync()?);
         let data = FSSTData::try_new(symbols, symbol_lengths, buffers[2].clone(), array.len())?;
-        Ok(
-            ArrayParts::new(self.clone(), array.dtype().clone(), array.len(), data)
-                .with_slots(array.slots().iter().cloned().collect()),
-        )
+        Ok(ArrayParts::new(
+            self.clone(),
+            array.dtype().clone(),
+            array.len(),
+            data,
+            array.slots().iter().cloned().collect(),
+        ))
     }
 
     fn serialize(
@@ -298,7 +301,13 @@ impl VTable for FSST {
             }
             .into_slots();
             let data = FSSTData::try_new(symbols, symbol_lengths, codes_bytes, len)?;
-            return Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots));
+            return Ok(ArrayParts::new(
+                self.clone(),
+                dtype.clone(),
+                len,
+                data,
+                slots,
+            ));
         }
 
         vortex_bail!(
@@ -606,9 +615,7 @@ impl FSST {
         let slots = FSSTData::make_slots(&codes, &uncompressed_lengths);
         let codes_bytes = codes.bytes_handle().clone();
         let data = FSSTData::try_new(symbols, symbol_lengths, codes_bytes, len)?;
-        Ok(unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(FSST, dtype, len, data).with_slots(slots))
-        })
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(FSST, dtype, len, data, slots)) })
     }
 
     pub fn try_new_with_symbol_table(
@@ -632,9 +639,7 @@ impl FSST {
         let codes_bytes = codes.bytes_handle().clone();
         let data =
             unsafe { FSSTData::new_unchecked_with_symbol_table(symbol_table, codes_bytes, len) };
-        Ok(unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(FSST, dtype, len, data).with_slots(slots))
-        })
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(FSST, dtype, len, data, slots)) })
     }
 
     /// Legacy deserialization path (2 buffers): the codes were stored as a full
@@ -685,7 +690,13 @@ impl FSST {
         let slots = FSSTData::make_slots(&codes, &uncompressed_lengths);
         let codes_bytes = codes.bytes_handle().clone();
         let data = FSSTData::try_new(symbols.clone(), symbol_lengths.clone(), codes_bytes, len)?;
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))
     }
 
     pub(crate) unsafe fn new_unchecked_with_symbol_table(
@@ -699,9 +710,7 @@ impl FSST {
         let codes_bytes = codes.bytes_handle().clone();
         let data =
             unsafe { FSSTData::new_unchecked_with_symbol_table(symbol_table, codes_bytes, len) };
-        unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(FSST, dtype, len, data).with_slots(slots))
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(FSST, dtype, len, data, slots)) }
     }
 }
 

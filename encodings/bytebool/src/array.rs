@@ -103,10 +103,13 @@ impl VTable for ByteBool {
     ) -> VortexResult<ArrayParts<Self>> {
         vortex_ensure_eq!(buffers.len(), 1);
         let data = ByteBoolData::new(buffers[0].clone());
-        Ok(
-            ArrayParts::new(self.clone(), array.dtype().clone(), array.len(), data)
-                .with_slots(array.slots().iter().cloned().collect()),
-        )
+        Ok(ArrayParts::new(
+            self.clone(),
+            array.dtype().clone(),
+            array.len(),
+            data,
+            array.slots().iter().cloned().collect(),
+        ))
     }
 
     fn serialize(
@@ -147,7 +150,13 @@ impl VTable for ByteBool {
 
         let data = ByteBoolData::new(buffer);
         let slots = ByteBoolData::make_slots(&validity, len);
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -219,11 +228,7 @@ impl ByteBool {
         let slots = ByteBoolData::make_slots(&validity, buffer.len());
         let data = ByteBoolData::new(buffer);
         let len = data.len();
-        unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(ByteBool, dtype, len, data).with_slots(slots),
-            )
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(ByteBool, dtype, len, data, slots)) }
     }
 
     /// Construct a [`ByteBoolArray`] from a `Vec<bool>` and validity.

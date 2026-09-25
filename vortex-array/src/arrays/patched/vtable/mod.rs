@@ -183,7 +183,13 @@ impl VTable for Patched {
             patch_values: values,
         }
         .into_slots();
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))
     }
 
     fn append_to_builder(
@@ -682,10 +688,13 @@ mod tests {
             n_lanes: array.n_lanes(),
             offset: array.offset(),
         };
-        let new_array = Array::try_from_parts(
-            ArrayParts::new(Patched, array.dtype().clone(), array.len(), data)
-                .with_slots(slots.into_slots()),
-        )?
+        let new_array = Array::try_from_parts(ArrayParts::new(
+            Patched,
+            array.dtype().clone(),
+            array.len(),
+            data,
+            slots.into_slots(),
+        ))?
         .into_array();
 
         // Execute and verify the inner values changed (except at patch positions)

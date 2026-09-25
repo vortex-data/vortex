@@ -194,7 +194,7 @@ impl FoR {
         let len = encoded.len();
         let data = FoRData::try_new(offset)?;
         let slots = smallvec![Some(encoded), Some(references)];
-        Array::try_from_parts(ArrayParts::new(FoR, dtype, len, data).with_slots(slots))
+        Array::try_from_parts(ArrayParts::new(FoR, dtype, len, data, slots))
     }
 
     /// Encode a primitive array using Frame of Reference encoding.

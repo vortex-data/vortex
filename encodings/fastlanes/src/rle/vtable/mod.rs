@@ -195,7 +195,13 @@ impl VTable for RLE {
         }
         .into_slots();
         let data = RLEData::try_new(metadata.offset as usize)?;
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
@@ -224,7 +230,7 @@ impl RLE {
         }
         .into_slots();
         let data = RLEData::try_new(offset)?;
-        Array::try_from_parts(ArrayParts::new(RLE, dtype, length, data).with_slots(slots))
+        Array::try_from_parts(ArrayParts::new(RLE, dtype, length, data, slots))
     }
 
     /// Create a new RLE array without validation.
@@ -246,9 +252,7 @@ impl RLE {
         }
         .into_slots();
         let data = unsafe { RLEData::new_unchecked(offset) };
-        unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(RLE, dtype, length, data).with_slots(slots))
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(RLE, dtype, length, data, slots)) }
     }
 
     /// Encode a primitive array using FastLanes RLE.

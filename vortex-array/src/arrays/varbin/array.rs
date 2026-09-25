@@ -501,9 +501,7 @@ impl Array<VarBin> {
             dtype.clone(),
             validity,
         );
-        unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(VarBin, dtype, len, data).with_slots(slots))
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(VarBin, dtype, len, data, slots)) }
     }
 
     /// Creates a new `VarBinArray` without validation.
@@ -520,9 +518,7 @@ impl Array<VarBin> {
         let len = offsets.len().saturating_sub(1);
         let slots = VarBinData::make_slots(offsets, &validity, len);
         let data = unsafe { VarBinData::new_unchecked(bytes) };
-        unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(VarBin, dtype, len, data).with_slots(slots))
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(VarBin, dtype, len, data, slots)) }
     }
 
     /// Creates a new `VarBinArray` without validation from a [`BufferHandle`].
@@ -539,9 +535,7 @@ impl Array<VarBin> {
         let len = offsets.len().saturating_sub(1);
         let slots = VarBinData::make_slots(offsets, &validity, len);
         let data = unsafe { VarBinData::new_unchecked_from_handle(bytes) };
-        unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(VarBin, dtype, len, data).with_slots(slots))
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(VarBin, dtype, len, data, slots)) }
     }
 
     /// Constructs a new `VarBinArray`.
@@ -557,9 +551,11 @@ impl Array<VarBin> {
         let slots = VarBinData::make_slots(offsets, &validity, len);
         // SAFETY: validate ensures all invariants are met.
         let data = unsafe { VarBinData::new_unchecked_from_handle(bytes) };
-        Ok(unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(VarBin, dtype, len, data).with_slots(slots))
-        })
+        Ok(
+            unsafe {
+                Array::from_parts_unchecked(ArrayParts::new(VarBin, dtype, len, data, slots))
+            },
+        )
     }
 }
 

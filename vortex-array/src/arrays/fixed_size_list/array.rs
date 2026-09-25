@@ -263,9 +263,7 @@ impl Array<FixedSizeList> {
         let slots = FixedSizeListData::make_slots(&elements, &validity, len);
         let data = FixedSizeListData::build(elements, list_size, validity, len);
         unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(FixedSizeList, dtype, len, data).with_slots(slots),
-            )
+            Array::from_parts_unchecked(ArrayParts::new(FixedSizeList, dtype, len, data, slots))
         }
     }
 
@@ -284,9 +282,7 @@ impl Array<FixedSizeList> {
         let slots = FixedSizeListData::make_slots(&elements, &validity, len);
         let data = FixedSizeListData::try_build(elements, list_size, validity, len)?;
         Ok(unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(FixedSizeList, dtype, len, data).with_slots(slots),
-            )
+            Array::from_parts_unchecked(ArrayParts::new(FixedSizeList, dtype, len, data, slots))
         })
     }
 
@@ -309,9 +305,7 @@ impl Array<FixedSizeList> {
         let slots = FixedSizeListData::make_slots(&elements, &validity, len);
         let data = unsafe { FixedSizeListData::new_unchecked(list_size, len) };
         unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(FixedSizeList, dtype, len, data).with_slots(slots),
-            )
+            Array::from_parts_unchecked(ArrayParts::new(FixedSizeList, dtype, len, data, slots))
         }
     }
 
