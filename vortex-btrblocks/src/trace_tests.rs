@@ -53,9 +53,9 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
-use crate::BtrBlocksCompressor;
 use crate::CompressionSessionExt;
 use crate::DELTA_SCHEME;
+use crate::tests::no_editions_compressor;
 
 /// A session with the default Vortex encodings registered.
 ///
@@ -130,8 +130,7 @@ fn lineitem() -> VortexResult<ArrayRef> {
 fn compressed_lineitem() -> VortexResult<ArrayRef> {
     let session = trace_session();
     session.register_scheme(&DELTA_SCHEME);
-    BtrBlocksCompressor::from_session_no_editions(&session)
-        .compress(&lineitem()?, &mut execution_ctx())
+    no_editions_compressor(&session).compress(&lineitem()?, &mut execution_ctx())
 }
 
 fn field(array: &ArrayRef, name: &str) -> VortexResult<ArrayRef> {

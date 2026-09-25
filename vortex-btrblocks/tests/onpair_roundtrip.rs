@@ -19,9 +19,22 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_btrblocks::BtrBlocksCompressor;
+use vortex_btrblocks::BtrBlocksOptions;
 use vortex_session::VortexSession;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+
+/// A compressor over every scheme registered on `session`: these tests compress in memory, where
+/// no edition applies.
+fn no_editions_compressor(session: &VortexSession) -> BtrBlocksCompressor {
+    BtrBlocksCompressor::from_session_with_options(
+        session,
+        &BtrBlocksOptions {
+            enforce_editions: false,
+            ..Default::default()
+        },
+    )
+}
 
 /// Helper: synthetic short-string corpus that the cascading compressor should
 /// route through OnPair.
@@ -58,7 +71,7 @@ fn nonnullable_roundtrip_via_default_compressor() {
     )
     .into_array();
 
-    let compressed = BtrBlocksCompressor::from_session_no_editions(&SESSION)
+    let compressed = no_editions_compressor(&SESSION)
         .compress(&array, &mut SESSION.create_execution_ctx())
         .expect("compress");
     // Don't assert a specific scheme — both OnPair and FSST are registered and
@@ -101,7 +114,7 @@ fn nullable_roundtrip_via_default_compressor() {
     )
     .into_array();
 
-    let compressed = BtrBlocksCompressor::from_session_no_editions(&SESSION)
+    let compressed = no_editions_compressor(&SESSION)
         .compress(&array, &mut SESSION.create_execution_ctx())
         .expect("compress");
     // Don't assert OnPair specifically here — the sample-based selector may
@@ -137,7 +150,7 @@ fn large_unique_short_strings_roundtrip() {
     )
     .into_array();
 
-    let compressed = BtrBlocksCompressor::from_session_no_editions(&SESSION)
+    let compressed = no_editions_compressor(&SESSION)
         .compress(&array, &mut SESSION.create_execution_ctx())
         .expect("compress");
 
@@ -166,7 +179,7 @@ fn empty_and_short_string_roundtrip() {
     )
     .into_array();
 
-    let compressed = BtrBlocksCompressor::from_session_no_editions(&SESSION)
+    let compressed = no_editions_compressor(&SESSION)
         .compress(&array, &mut SESSION.create_execution_ctx())
         .expect("compress");
     let decoded = compressed
@@ -211,7 +224,7 @@ fn delta_dict_offsets_roundtrip() {
         DType::Utf8(Nullability::NonNullable),
     )
     .into_array();
-    let compressed = BtrBlocksCompressor::from_session_no_editions(&SESSION)
+    let compressed = no_editions_compressor(&SESSION)
         .compress(&array, &mut SESSION.create_execution_ctx())
         .expect("compress");
     let decoded = compressed

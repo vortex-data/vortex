@@ -30,7 +30,6 @@ use vortex::array::stats::StatsSetRef;
 use vortex::buffer::BufferString;
 use vortex::buffer::ByteBuffer;
 use vortex::compressor::BtrBlocksCompressor;
-use vortex::compressor::CascadingCompressor;
 use vortex::dtype::DType;
 use vortex::dtype::FieldMask;
 use vortex::editions::Edition;
@@ -562,7 +561,7 @@ pub fn cuda_write_strategy(session: &VortexSession, block_rows: usize) -> Arc<dy
         // An opaque compressor keeps IntDict; disabling the probe avoids u16-sized outer blocks.
         strategy
             .with_compressor(BtrBlocksCompressor::from_session(session))
-            .with_probe_compressor(BtrBlocksCompressor(CascadingCompressor::new(Vec::new())))
+            .with_probe_compressor(BtrBlocksCompressor::empty())
             .with_row_block_size(block_rows)
             .with_data_block_target_bytes(None)
             .build()

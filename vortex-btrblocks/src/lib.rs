@@ -33,9 +33,7 @@
 //! sample). The schemes available to a compressor are those registered on its session's
 //! [`CompressionSession`], which starts with the default schemes.
 //! [`BtrBlocksCompressor::from_session`] keeps the registered schemes whose serialized IDs the
-//! session's enabled editions permit; [`from_session_no_editions`] keeps them all.
-//!
-//! [`from_session_no_editions`]: BtrBlocksCompressor::from_session_no_editions
+//! session's enabled editions permit; [`BtrBlocksOptions`] turns that off or leaves schemes out.
 //!
 //! Schemes can produce arrays that are themselves further compressed (e.g. FoR then BitPacking),
 //! up to [`MAX_CASCADE`] (3) layers deep. Descendant exclusion rules for of [`SchemeId`] prevents
@@ -48,6 +46,7 @@
 //! use vortex_array::arrays::PrimitiveArray;
 //! use vortex_array::validity::Validity;
 //! use vortex_btrblocks::BtrBlocksCompressor;
+//! use vortex_btrblocks::BtrBlocksOptions;
 //! use vortex_buffer::buffer;
 //!
 //! # fn example() -> vortex_error::VortexResult<()> {
@@ -55,7 +54,13 @@
 //! let array = PrimitiveArray::new(buffer![42u64; 1024], Validity::NonNullable).into_array();
 //!
 //! // In memory, with no editions to respect, compress with every registered scheme.
-//! let compressor = BtrBlocksCompressor::from_session_no_editions(&session);
+//! let compressor = BtrBlocksCompressor::from_session_with_options(
+//!     &session,
+//!     &BtrBlocksOptions {
+//!         enforce_editions: false,
+//!         ..Default::default()
+//!     },
+//! );
 //! let compressed = compressor.compress(&array, &mut session.create_execution_ctx())?;
 //! assert_eq!(compressed.dtype(), array.dtype());
 //! # Ok(())
@@ -78,6 +83,7 @@ mod trace_tests;
 // Re-export framework types from vortex-compressor for backwards compatibility.
 // Btrblocks-specific exports.
 pub use canonical_compressor::BtrBlocksCompressor;
+pub use canonical_compressor::BtrBlocksOptions;
 pub use schemes::patches::compress_patches;
 pub use session::CompressionSession;
 pub use session::CompressionSessionExt;

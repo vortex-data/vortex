@@ -20,6 +20,7 @@ mod benchmarks {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_btrblocks::BtrBlocksCompressor;
+    use vortex_btrblocks::BtrBlocksOptions;
     use vortex_buffer::buffer_mut;
     use vortex_session::VortexSession;
     use vortex_utils::aliases::hash_set::HashSet;
@@ -51,7 +52,13 @@ mod benchmarks {
         let array = make_clickbench_window_name()
             .execute::<PrimitiveArray>(&mut ctx)
             .unwrap();
-        let compressor = BtrBlocksCompressor::from_session_no_editions(&SESSION);
+        let compressor = BtrBlocksCompressor::from_session_with_options(
+            &SESSION,
+            &BtrBlocksOptions {
+                enforce_editions: false,
+                ..Default::default()
+            },
+        );
         bencher
             .with_inputs(|| (&array, SESSION.create_execution_ctx()))
             .input_counter(|(array, _)| ItemsCount::new(array.len()))

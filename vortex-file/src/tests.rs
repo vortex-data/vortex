@@ -66,7 +66,7 @@ use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::validity::Validity;
 use vortex_btrblocks::BtrBlocksCompressor;
-use vortex_btrblocks::CascadingCompressor;
+use vortex_btrblocks::BtrBlocksOptions;
 use vortex_btrblocks::CompressionSession;
 use vortex_btrblocks::CompressionSessionExt;
 use vortex_btrblocks::SchemeExt;
@@ -2623,13 +2623,13 @@ async fn probe_compressor_override_is_independent() -> VortexResult<()> {
     let values: Vec<&str> = (0..n).map(|i| ["alpha", "beta", "gamma"][i % 3]).collect();
     let strings = VarBinArray::from(values).into_array();
 
-    let probe_without_dict = BtrBlocksCompressor(CascadingCompressor::new(
-        SESSION
-            .permitted_schemes()
-            .into_iter()
-            .filter(|scheme| scheme.id() != StringDictScheme.id())
-            .collect(),
-    ));
+    let probe_without_dict = BtrBlocksCompressor::from_session_with_options(
+        &SESSION,
+        &BtrBlocksOptions {
+            exclude_schemes: vec![StringDictScheme.id()],
+            ..Default::default()
+        },
+    );
 
     let mut buf = ByteBufferMut::empty();
     let summary = SESSION

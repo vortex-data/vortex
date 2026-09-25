@@ -74,11 +74,12 @@ const DEFAULT_SCHEMES: &[&dyn Scheme] = &[
     &temporal::TemporalScheme,
 ];
 
-/// The schemes [`CompressionSession::compact`] adds to the defaults: Zstd for strings and binary,
-/// and Pco for numerics when the `pco` feature is on.
-#[cfg(feature = "zstd")]
+/// The schemes [`CompressionSession::compact`] adds to the defaults: Zstd for strings and binary
+/// when the `zstd` feature is on, and Pco for numerics when the `pco` feature is on.
 const COMPACT_SCHEMES: &[&dyn Scheme] = &[
+    #[cfg(feature = "zstd")]
     &string::ZstdScheme,
+    #[cfg(feature = "zstd")]
     &binary::ZstdScheme,
     #[cfg(feature = "pco")]
     &integer::PcoScheme,
@@ -113,8 +114,7 @@ impl CompressionSession {
     }
 
     /// The default schemes plus the compact ones: Zstd for strings and binary, and Pco for
-    /// numerics when the `pco` feature is on. They trade decode speed for compression ratio.
-    #[cfg(feature = "zstd")]
+    /// numerics, each when its feature is on. They trade decode speed for compression ratio.
     pub fn compact() -> Self {
         let mut this = Self::default();
         for scheme in COMPACT_SCHEMES {
@@ -274,11 +274,11 @@ mod tests {
         assert!(!cuda.contains(&string::StringDictScheme.id()));
     }
 
-    #[cfg(feature = "zstd")]
     #[test]
     fn compact_extends_the_defaults() {
         let compact = ids(CompressionSession::compact().schemes());
         assert_eq!(&compact[..DEFAULT_SCHEMES.len()], &ids(DEFAULT_SCHEMES)[..]);
+        #[cfg(feature = "zstd")]
         assert!(compact.contains(&string::ZstdScheme.id()));
     }
 

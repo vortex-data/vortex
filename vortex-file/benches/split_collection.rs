@@ -22,6 +22,7 @@ use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::dtype::Field;
 use vortex_array::dtype::FieldMask;
+use vortex_btrblocks::BtrBlocksOptions;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_file::OpenOptionsSessionExt;
@@ -67,6 +68,14 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     session
 });
 
+/// Options ignoring editions: this session enables none.
+fn no_editions() -> BtrBlocksOptions {
+    BtrBlocksOptions {
+        enforce_editions: false,
+        ..Default::default()
+    }
+}
+
 fn make_file(columns: usize, chunks: usize) -> VortexFile {
     let field_names = (0..columns).map(|c| format!("col_{c}")).collect::<Vec<_>>();
     let struct_chunks = (0..chunks)
@@ -85,10 +94,11 @@ fn make_file(columns: usize, chunks: usize) -> VortexFile {
         .collect::<Vec<_>>();
     let array = ChunkedArray::from_iter(struct_chunks).into_array();
 
-    let strategy = vortex_file::WriteStrategyBuilder::from_session_no_editions(&SESSION)
-        .with_row_block_size(ROWS_PER_CHUNK)
-        .with_data_block_target_bytes(None)
-        .build();
+    let strategy =
+        vortex_file::WriteStrategyBuilder::from_session_with_options(&SESSION, no_editions())
+            .with_row_block_size(ROWS_PER_CHUNK)
+            .with_data_block_target_bytes(None)
+            .build();
 
     let mut buf = ByteBufferMut::empty();
     RUNTIME
@@ -143,7 +153,8 @@ fn make_misaligned_file(columns: usize, chunks: usize) -> VortexFile {
     .unwrap()
     .into_array();
 
-    let mut strategy = vortex_file::WriteStrategyBuilder::from_session_no_editions(&SESSION);
+    let mut strategy =
+        vortex_file::WriteStrategyBuilder::from_session_with_options(&SESSION, no_editions());
     for (c, (name, _)) in fields.iter().enumerate() {
         let field_strategy = RepartitionStrategy::new(
             ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),

@@ -15,6 +15,7 @@ use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_btrblocks::BtrBlocksCompressor;
+use vortex_btrblocks::BtrBlocksOptions;
 use vortex_btrblocks::CompressionSession;
 use vortex_btrblocks::CompressionSessionExt;
 use vortex_btrblocks::SchemeExt;
@@ -25,6 +26,18 @@ use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+
+/// A compressor over every scheme registered on `session`: these tests compress in memory, where
+/// no edition applies.
+fn no_editions_compressor(session: &VortexSession) -> BtrBlocksCompressor {
+    BtrBlocksCompressor::from_session_with_options(
+        session,
+        &BtrBlocksOptions {
+            enforce_editions: false,
+            ..Default::default()
+        },
+    )
+}
 
 const N: usize = 100_000;
 
@@ -39,7 +52,7 @@ fn default_without(excluded: SchemeId) -> BtrBlocksCompressor {
     {
         session.register_scheme(*scheme);
     }
-    BtrBlocksCompressor::from_session_no_editions(&session)
+    no_editions_compressor(&session)
 }
 
 fn lcg(state: &mut u64) -> u64 {
@@ -87,7 +100,7 @@ fn cases() -> Vec<(&'static str, ArrayRef)> {
 
 #[test]
 fn varbin_scheme_shrinks_binary() -> VortexResult<()> {
-    let with = BtrBlocksCompressor::from_session_no_editions(&SESSION);
+    let with = no_editions_compressor(&SESSION);
     let without = default_without(VarBinScheme.id());
 
     println!(

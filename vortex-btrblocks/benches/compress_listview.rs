@@ -25,6 +25,7 @@ mod benchmarks {
     use vortex_array::dtype::FieldNames;
     use vortex_array::validity::Validity;
     use vortex_btrblocks::BtrBlocksCompressor;
+    use vortex_btrblocks::BtrBlocksOptions;
     use vortex_buffer::buffer_mut;
     use vortex_session::VortexSession;
 
@@ -183,7 +184,13 @@ mod benchmarks {
     fn compress_listview(bencher: Bencher, layout: OffsetLayout) {
         let array = build_nested_listview(NUM_ROWS, layout);
         let nbytes = array.nbytes();
-        let compressor = BtrBlocksCompressor::from_session_no_editions(&SESSION);
+        let compressor = BtrBlocksCompressor::from_session_with_options(
+            &SESSION,
+            &BtrBlocksOptions {
+                enforce_editions: false,
+                ..Default::default()
+            },
+        );
         bencher
             .with_inputs(|| (&array, SESSION.create_execution_ctx()))
             .input_counter(|_| ItemsCount::new(NUM_ROWS))

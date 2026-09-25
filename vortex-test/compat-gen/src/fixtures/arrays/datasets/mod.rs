@@ -17,6 +17,7 @@ pub fn fixtures() -> Vec<Box<dyn DatasetFixture>> {
 #[cfg(test)]
 mod tests {
     use vortex::VortexSessionDefault;
+    use vortex::compressor::BtrBlocksOptions;
     use vortex::compressor::CompressionSession;
     use vortex::editions::CORE_2026_08_3;
     use vortex::editions::EditionSessionExt;
@@ -27,6 +28,14 @@ mod tests {
 
     use super::fixtures;
     use crate::adapter;
+
+    /// The adapter writes with editions disabled, so every registered scheme may be used.
+    fn no_editions() -> BtrBlocksOptions {
+        BtrBlocksOptions {
+            enforce_editions: false,
+            ..Default::default()
+        }
+    }
 
     fn is_clickbench_fixture(name: &str) -> bool {
         name.contains("clickbench")
@@ -47,14 +56,15 @@ mod tests {
             let regular_bytes = adapter::write_compressed_to_bytes_with_session(
                 &session,
                 array.clone(),
-                WriteStrategyBuilder::from_session_no_editions(&session).build(),
+                WriteStrategyBuilder::from_session_with_options(&session, no_editions()).build(),
             )?;
             let _regular = adapter::read_file(regular_bytes)?;
 
             let compact_bytes = adapter::write_compressed_to_bytes_with_session(
                 &compact_session,
                 array,
-                WriteStrategyBuilder::from_session_no_editions(&compact_session).build(),
+                WriteStrategyBuilder::from_session_with_options(&compact_session, no_editions())
+                    .build(),
             )?;
             let _compact = adapter::read_file(compact_bytes)?;
         }

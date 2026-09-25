@@ -385,6 +385,7 @@ mod tests {
     use vortex_array::expr::root;
     use vortex_array::validity::Validity;
     use vortex_btrblocks::BtrBlocksCompressor;
+    use vortex_btrblocks::BtrBlocksOptions;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_io::runtime::Handle;
@@ -417,6 +418,18 @@ mod tests {
             .with_handle(handle)
     }
 
+    /// A compressor over every scheme registered on `session`: these tests compress in memory, where
+    /// no edition applies.
+    fn no_editions_compressor(session: &VortexSession) -> BtrBlocksCompressor {
+        BtrBlocksCompressor::from_session_with_options(
+            session,
+            &BtrBlocksOptions {
+                enforce_editions: false,
+                ..Default::default()
+            },
+        )
+    }
+
     async fn write_dict_layout(
         array: ArrayRef,
         session: &VortexSession,
@@ -426,7 +439,7 @@ mod tests {
             FlatLayoutStrategy::default(),
             FlatLayoutStrategy::default(),
             DictLayoutOptions::default(),
-            Arc::new(BtrBlocksCompressor::from_session_no_editions(session)),
+            Arc::new(no_editions_compressor(session)),
         );
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
@@ -456,7 +469,7 @@ mod tests {
                 FlatLayoutStrategy::default(),
                 FlatLayoutStrategy::default(),
                 DictLayoutOptions::default(),
-                Arc::new(BtrBlocksCompressor::from_session_no_editions(&session)),
+                Arc::new(no_editions_compressor(&session)),
             );
 
             let array = VarBinArray::from_iter(
@@ -559,7 +572,7 @@ mod tests {
                 FlatLayoutStrategy::default(),
                 FlatLayoutStrategy::default(),
                 DictLayoutOptions::default(),
-                Arc::new(BtrBlocksCompressor::from_session_no_editions(&session)),
+                Arc::new(no_editions_compressor(&session)),
             );
 
             let array =
@@ -614,7 +627,7 @@ mod tests {
                 FlatLayoutStrategy::default(),
                 FlatLayoutStrategy::default(),
                 DictLayoutOptions::default(),
-                Arc::new(BtrBlocksCompressor::from_session_no_editions(&session)),
+                Arc::new(no_editions_compressor(&session)),
             );
 
             let array = VarBinArray::from_iter(

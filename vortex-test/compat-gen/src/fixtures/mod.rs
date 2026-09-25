@@ -9,6 +9,7 @@ use std::sync::Arc;
 use vortex::VortexSessionDefault;
 use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
+use vortex::compressor::BtrBlocksOptions;
 use vortex::compressor::CompressionSession;
 use vortex::file::WriteStrategyBuilder;
 use vortex::session::VortexSession;
@@ -145,7 +146,14 @@ impl Fixture for DatasetFixtureAdapter {
         if self.compact {
             session.register(CompressionSession::compact());
         }
-        let strategy = WriteStrategyBuilder::from_session_no_editions(&session).build();
+        let strategy = WriteStrategyBuilder::from_session_with_options(
+            &session,
+            BtrBlocksOptions {
+                enforce_editions: false,
+                ..Default::default()
+            },
+        )
+        .build();
         adapter::write_compressed(&path, array, strategy)?;
         Ok(vec![FixtureEntry {
             name: self.name().to_string(),
