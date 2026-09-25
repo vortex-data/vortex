@@ -3,6 +3,8 @@
 
 //! Builder for configuring `BtrBlocksCompressor` instances.
 
+use vortex_array::ArrayId;
+use vortex_decimal_byte_parts::decimal_byte_parts_v2_id;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_set::HashSet;
 
@@ -84,6 +86,16 @@ impl CompressionMode {
             }
         }
         excluded
+    }
+
+    /// Returns the serialized IDs [`build`](BtrBlocksCompressorBuilder::build) disallows in this
+    /// mode, on top of the session's restrictions.
+    fn excluded_encodings(self) -> Vec<ArrayId> {
+        match self {
+            Self::All | Self::Default | Self::Compact => Vec::new(),
+            // Multi-part DecimalByteParts arrays have no CUDA decode kernel.
+            Self::Cuda => vec![decimal_byte_parts_v2_id()],
+        }
     }
 }
 
@@ -218,15 +230,14 @@ impl BtrBlocksCompressorBuilder {
 
     fn allowed_schemes(&self) -> Vec<&'static dyn Scheme> {
         let excluded: HashSet<SchemeId> = self.mode.excluded_schemes().into_iter().collect();
+        let excluded_ids: HashSet<ArrayId> = self.mode.excluded_encodings().into_iter().collect();
+        let allowed = |id: &ArrayId| self.allowed.is_allowed(id) && !excluded_ids.contains(id);
         self.schemes
             .iter()
             .copied()
             .filter(|s| !excluded.contains(&s.id()))
-            .filter(|s| {
-                s.produced_encodings()
-                    .iter()
-                    .all(|id| self.allowed.is_allowed(id))
-            })
+            .map(|s| s.refine(&allowed).unwrap_or(s))
+            .filter(|s| s.produced_encodings().iter().all(&allowed))
             .collect()
     }
 }
