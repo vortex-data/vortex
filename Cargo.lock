@@ -10798,6 +10798,7 @@ dependencies = [
  "vortex-alp",
  "vortex-array",
  "vortex-arrow",
+ "vortex-btrblocks",
  "vortex-buffer",
  "vortex-compressor",
  "vortex-datetime-parts",

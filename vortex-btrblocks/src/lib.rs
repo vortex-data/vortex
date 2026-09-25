@@ -71,6 +71,8 @@ mod canonical_compressor;
 /// Compression scheme implementations.
 pub mod schemes;
 mod session;
+#[cfg(feature = "_test-harness")]
+pub mod test_harness;
 #[cfg(test)]
 #[cfg(not(codspeed))]
 mod trace_tests;

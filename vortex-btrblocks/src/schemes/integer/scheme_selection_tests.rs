@@ -30,7 +30,7 @@ use vortex_sparse::Sparse;
 use crate::BtrBlocksCompressor;
 use crate::BtrBlocksCompressorBuilder;
 use crate::DELTA_SCHEME;
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::test_harness::session);
 
 #[test]
 fn test_constant_compressed() -> VortexResult<()> {

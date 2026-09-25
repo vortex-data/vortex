@@ -21,7 +21,7 @@ use vortex_btrblocks::schemes::string::OnPairScheme;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_btrblocks::test_harness::session);
 
 const N: usize = 100_000;
 

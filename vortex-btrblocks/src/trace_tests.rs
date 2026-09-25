@@ -25,11 +25,9 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::FilterArray;
-use vortex_array::arrays::Patched;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::Struct;
 use vortex_array::arrays::StructArray;
-use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
@@ -45,7 +43,6 @@ use vortex_array::scalar_fn::fns::like::Like;
 use vortex_array::scalar_fn::fns::like::LikeOptions;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::session::ArraySession;
-use vortex_array::session::ArraySessionExt;
 use vortex_array::test_harness::trace::Traced;
 use vortex_array::test_harness::trace::trace_op;
 use vortex_arrow::ArrowSessionExt;
@@ -55,6 +52,7 @@ use vortex_session::VortexSession;
 
 use crate::BtrBlocksCompressorBuilder;
 use crate::DELTA_SCHEME;
+use crate::test_harness;
 
 /// A session with the default Vortex encodings registered.
 ///
@@ -63,36 +61,11 @@ use crate::DELTA_SCHEME;
 /// pushdown kernels — the traces below would degrade to plain canonicalization without failing
 /// any value assertion.
 ///
-/// This mirrors `vortex_file::register_default_encodings`, copied rather than called so that
-/// `vortex-btrblocks` does not depend on `vortex-file` (which depends on this crate). Keep the
-/// two in step when encodings are added. `bytebool` and `tensor` are the only entries omitted:
-/// this crate does not depend on them, so the compressor cannot emit them.
+/// Every registered encoding is also enabled, so the compressor may emit any of them.
 fn trace_session() -> VortexSession {
     let session = VortexSession::empty().with::<ArraySession>();
-
-    vortex_fsst::initialize(&session);
-    vortex_onpair::initialize(&session);
-    vortex_zigzag::initialize(&session);
-    #[cfg(feature = "zstd")]
-    vortex_zstd::initialize(&session);
-
-    {
-        let arrays = session.arrays();
-        #[cfg(feature = "pco")]
-        arrays.register(vortex_pco::Pco);
-        if use_experimental_patches() {
-            arrays.register(Patched);
-        }
-    }
-
-    vortex_alp::initialize(&session);
-    vortex_datetime_parts::initialize(&session);
-    vortex_decimal_byte_parts::initialize(&session);
-    vortex_fastlanes::initialize(&session);
-    vortex_runend::initialize(&session);
-    vortex_sequence::initialize(&session);
-    vortex_sparse::initialize(&session);
-
+    test_harness::register_encodings(&session);
+    test_harness::enable_all_registered_encodings(&session);
     session
 }
 

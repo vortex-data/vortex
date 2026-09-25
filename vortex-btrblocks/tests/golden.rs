@@ -51,7 +51,6 @@ use vortex_array::validity::Validity;
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_buffer::Buffer;
-use vortex_edition::ComponentKind;
 use vortex_edition::EDITION_DECLARATIONS;
 use vortex_edition::EDITION_FAMILIES;
 use vortex_edition::EditionId;
@@ -61,7 +60,7 @@ use vortex_edition::declarations::core::CORE_2026_08_3;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_btrblocks::test_harness::session);
 
 /// Number of values in each numeric corpus entry: comfortably above the 1024-value sampling
 /// threshold so scheme selection runs on sampled estimates, as it does for real file chunks.
@@ -402,6 +401,7 @@ fn without_onpair(builder: BtrBlocksCompressorBuilder) -> BtrBlocksCompressorBui
 
 fn edition_session(editions: &[EditionId]) -> VortexResult<VortexSession> {
     let session = vortex_array::array_session().with::<EditionSession>();
+    vortex_btrblocks::test_harness::register_encodings(&session);
     for family in EDITION_FAMILIES {
         session.editions().declare_family(family)?;
     }
@@ -414,36 +414,10 @@ fn edition_session(editions: &[EditionId]) -> VortexResult<VortexSession> {
     Ok(session)
 }
 
-fn compressor_for_session(
-    session: &VortexSession,
-    builder: BtrBlocksCompressorBuilder,
-) -> BtrBlocksCompressor {
-    let allowed = session
-        .enabled_component_ids(ComponentKind::Array)
-        .into_iter()
-        .collect();
-    without_onpair(builder)
-        .retain_allowed_encodings(&allowed)
-        .build()
-}
-
-/// Like [`compressor_for_session`] but keeps OnPair in the scheme pool.
-fn compressor_with_onpair(
-    session: &VortexSession,
-    builder: BtrBlocksCompressorBuilder,
-) -> BtrBlocksCompressor {
-    let allowed = session
-        .enabled_component_ids(ComponentKind::Array)
-        .into_iter()
-        .collect();
-    builder.retain_allowed_encodings(&allowed).build()
-}
-
 #[test]
 fn golden_regular() -> VortexResult<()> {
     let session = edition_session(&[CORE_2026_08_3])?;
-    let compressor =
-        compressor_for_session(&session, BtrBlocksCompressorBuilder::from_session(&session));
+    let compressor = without_onpair(BtrBlocksCompressorBuilder::from_session(&session)).build();
     golden_corpus_snapshots("regular", &compressor)
 }
 
@@ -451,8 +425,7 @@ fn golden_regular() -> VortexResult<()> {
 #[test]
 fn golden_onpair() -> VortexResult<()> {
     let session = edition_session(&[CORE_2026_08_3])?;
-    let compressor =
-        compressor_with_onpair(&session, BtrBlocksCompressorBuilder::from_session(&session));
+    let compressor = BtrBlocksCompressorBuilder::from_session(&session).build();
     golden_snapshots(
         "onpair",
         &compressor,
@@ -466,9 +439,7 @@ fn golden_compact() -> VortexResult<()> {
     let session = edition_session(&[CORE_2026_08_3])?;
     vortex_zstd::initialize(&session);
     session.enable_edition(vortex_zstd::editions::ZSTD_2026_02)?;
-    let compressor = compressor_for_session(
-        &session,
-        BtrBlocksCompressorBuilder::from_session(&session).with_compact(),
-    );
+    let compressor =
+        without_onpair(BtrBlocksCompressorBuilder::from_session(&session).with_compact()).build();
     golden_corpus_snapshots("compact", &compressor)
 }

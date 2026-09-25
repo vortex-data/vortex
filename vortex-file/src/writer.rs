@@ -247,16 +247,17 @@ impl VortexWriteOptions {
         } else {
             ctx
         };
-        let allowed_serialized_ids: HashSet<ArrayId> =
-            ctx.array_ctx().to_ids().into_iter().collect();
         let strategy = match self.strategy {
             Some(strategy) => strategy,
-            None => WriteStrategyBuilder::from_session(&self.session)
-                .with_btrblocks_builder(
-                    BtrBlocksCompressorBuilder::from_session(&self.session)
-                        .retain_allowed_encodings(&allowed_serialized_ids),
-                )
-                .build(),
+            None => {
+                let mut compressor = BtrBlocksCompressorBuilder::from_session(&self.session);
+                if !enforce_editions {
+                    compressor = compressor.disable_editions();
+                }
+                WriteStrategyBuilder::from_session(&self.session)
+                    .with_btrblocks_builder(compressor)
+                    .build()
+            }
         };
         let dtype = stream.dtype().clone();
         if enforce_editions {

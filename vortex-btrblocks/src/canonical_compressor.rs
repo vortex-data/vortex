@@ -90,14 +90,12 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
-    #[cfg(feature = "zstd")]
-    use vortex_utils::aliases::hash_set::HashSet;
 
     use crate::BtrBlocksCompressor;
     #[cfg(feature = "zstd")]
     use crate::BtrBlocksCompressorBuilder;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::test_harness::session);
 
     #[rstest]
     #[case::zctl(
@@ -300,11 +298,13 @@ mod tests {
 
         // The CUDA preset carries both Zstd schemes; the edition filter decides which one
         // survives.
-        let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        let session = vortex_array::array_session();
+        crate::test_harness::register_encodings(&session);
+        crate::test_harness::enable_encodings(&session, [allowed]);
+        let compressor = BtrBlocksCompressorBuilder::from_session(&session)
             .only_cuda_compatible()
-            .retain_allowed_encodings(&HashSet::from([allowed]))
             .build();
-        let mut ctx = SESSION.create_execution_ctx();
+        let mut ctx = session.create_execution_ctx();
         let compressed = compressor.compress(&array.clone().into_array(), &mut ctx)?;
 
         assert_eq!(compressed.encoding_id(), allowed);
