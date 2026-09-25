@@ -151,7 +151,7 @@ impl<'a> ParentRef<'a> {
     /// chain. Heap-backed parents delegate to the existing array; stack-backed parents
     /// dispatch through the stored [`ReduceFn`] so the borrowed parts only materialize if a
     /// rule reaches for an [`ArrayRef`]. The reduced array is validated to preserve the
-    /// parent's len and dtype, matching the heap path.
+    /// parent's length and logical type, allowing nullability to narrow as on the heap path.
     fn reduce(&self) -> VortexResult<Option<ArrayRef>> {
         let reduced = match self.data {
             ParentData::Heap { array, .. } => return array.reduce(),
@@ -167,10 +167,14 @@ impl<'a> ParentRef<'a> {
             reduced.encoding_id()
         );
         vortex_ensure!(
-            reduced.dtype() == self.dtype,
-            "Reduced array dtype mismatch from {} to {}",
+            reduced.dtype() == self.dtype
+                || (reduced.dtype().eq_ignore_nullability(self.dtype)
+                    && !reduced.dtype().is_nullable()),
+            "Reduced array dtype mismatch from {} ({}) to {} ({})",
             self.encoding_id,
-            reduced.encoding_id()
+            self.dtype,
+            reduced.encoding_id(),
+            reduced.dtype()
         );
         Ok(Some(reduced))
     }
@@ -471,22 +475,28 @@ fn reduce_parts<V: VTable>(parent: &ParentRef<'_>) -> VortexResult<Option<ArrayR
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_error::VortexResult;
 
     use super::ParentRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
+    use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::ScalarFnArray;
     use crate::arrays::Slice;
     use crate::arrays::SliceArray;
     use crate::arrays::Struct;
     use crate::assert_arrays_eq;
+    use crate::builtins::ArrayBuiltins;
     use crate::dtype::Nullability;
     use crate::optimizer::ArrayOptimizer;
+    use crate::scalar::Scalar;
     use crate::scalar_fn::ScalarFnVTableExt;
+    use crate::scalar_fn::fns::binary::Binary;
     use crate::scalar_fn::fns::cast::Cast;
+    use crate::scalar_fn::fns::operators::Operator;
     use crate::scalar_fn::fns::pack::Pack;
     use crate::scalar_fn::fns::pack::PackOptions;
 
@@ -564,6 +574,51 @@ mod tests {
         );
         assert_arrays_eq!(stack, heap, &mut ctx);
 
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(Operator::And, false, Some(false))]
+    #[case(Operator::Or, true, Some(true))]
+    #[case(Operator::And, true, None)]
+    #[case(Operator::Or, false, None)]
+    fn kleene_reduce_matches_heap_path(
+        #[case] operator: Operator,
+        #[case] constant: bool,
+        #[case] folded: Option<bool>,
+        #[values(false, true)] nullable_input: bool,
+        #[values(Nullability::NonNullable, Nullability::Nullable)]
+        constant_nullability: Nullability,
+        #[values(false, true)] constant_first: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = crate::array_session().create_execution_ctx();
+        let input = if nullable_input {
+            BoolArray::from_iter([Some(true), Some(false), None]).into_array()
+        } else {
+            BoolArray::from_iter([true, false, true]).into_array()
+        };
+        let expected = match folded {
+            Some(value) => ConstantArray::new(value, input.len()).into_array(),
+            None => input.clone(),
+        };
+        let constant =
+            ConstantArray::new(Scalar::bool(constant, constant_nullability), input.len())
+                .into_array();
+        let (lhs, rhs) = if constant_first {
+            (constant, input)
+        } else {
+            (input, constant)
+        };
+
+        let heap = Binary::try_new(lhs.clone(), rhs.clone(), operator)?
+            .into_array()
+            .optimize()?;
+        assert_eq!(heap.dtype(), expected.dtype());
+        assert_arrays_eq!(heap, expected, &mut ctx);
+
+        let stack = lhs.binary(rhs, operator)?;
+        assert_eq!(stack.dtype(), expected.dtype());
+        assert_arrays_eq!(stack, expected, &mut ctx);
         Ok(())
     }
 
