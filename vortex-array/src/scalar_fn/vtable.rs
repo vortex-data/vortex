@@ -14,6 +14,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
+use vortex_utils::iter::ReduceBalancedIterExt;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -30,7 +31,53 @@ use crate::scalar::Scalar;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::TypedScalarFnInstance;
+use crate::scalar_fn::fns::binary::Binary;
+use crate::scalar_fn::fns::is_not_null::IsNotNull;
 use crate::scalar_fn::fns::literal::Literal;
+use crate::scalar_fn::fns::operators::Operator;
+use crate::validity::Validity;
+
+// Here and beyond we use validity(x) interchangeably with is_not_null(x).
+#[derive(Clone)]
+pub enum ReduceNodeValidity<T: ReduceNode> {
+    /// Validity of T can be symbolically reduced (i.e. without evaluating T)
+    /// to a function over validities of this node's children. For an
+    /// expression reduce node, one example is byte_length(x).
+    /// validity(byte_length(x)) can be symbolically reduced to validity(x)
+    /// since byte_length doesn't change validity.
+    Reduced(T),
+    /// Validity of T can't be symbolically reduced to anything, and all
+    /// further reductions require evaluating T first. For an expression reduce
+    /// node, one example is list_contains(x, C) since you can't reduce
+    /// validity(list_contains(x, C)). list_contains([], null) is false, but to
+    /// know that, you need to evaluate x's offsets.
+    ///
+    /// This is also the default case.
+    Irreducible,
+}
+
+/// IsNotNull(child) as a reducible node
+pub fn is_not_null_node<T: ReduceNode>(child: &T) -> VortexResult<T> {
+    child.new_node(IsNotNull.bind(EmptyOptions), std::slice::from_ref(child))
+}
+
+/// "And" over "node's" non-nullable children
+pub fn union_child_validities<T: ReduceNode>(node: &T) -> VortexResult<T> {
+    let mut parts = Vec::with_capacity(node.child_count());
+    for i in 0..node.child_count() {
+        let child = node.child(i);
+        if child.node_dtype()?.is_nullable() {
+            parts.push(is_not_null_node(&child)?);
+        }
+    }
+    let parts = parts
+        .into_iter()
+        .try_reduce_balanced(|lhs, rhs| {
+            lhs.new_node(Binary.bind(Operator::And), &[lhs.clone(), rhs])
+        })?
+        .unwrap_or_else(|| node.new_constant(true.into()));
+    Ok(parts)
+}
 
 /// This trait defines the interface for scalar function vtables, including methods for
 /// serialization, deserialization, validation, child naming, return type computation,
@@ -142,6 +189,38 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
         Ok(None)
     }
 
+    /// For node, returns node' which is exactly the result of evaluating
+    /// validity(node). Returned node' is either a lazy computation over
+    /// children of node, a constant, or Irreducible which means you need to
+    /// evaluate node to get its validity.
+    fn validity<T: ReduceNode>(
+        &self,
+        options: &Self::Options,
+        node: &T,
+    ) -> VortexResult<ReduceNodeValidity<T>> {
+        if !self.is_strict(options) {
+            return Ok(ReduceNodeValidity::Irreducible);
+        }
+
+        let mut dtypes = Vec::with_capacity(node.child_count());
+        for i in 0..node.child_count() {
+            let dtype = node.child(i).node_dtype()?;
+            if matches!(dtype, DType::Null) {
+                return Ok(ReduceNodeValidity::Irreducible);
+            }
+            dtypes.push(dtype.as_nonnullable());
+        }
+
+        let res = if let Ok(dtype) = self.return_dtype(options, &dtypes)
+            && !dtype.is_nullable()
+        {
+            ReduceNodeValidity::Reduced(union_child_validities(node)?)
+        } else {
+            ReduceNodeValidity::Irreducible
+        };
+        Ok(res)
+    }
+
     /// Simplify the bound expression if possible.
     ///
     /// Every node of `expr` carries its dtype, so rules read types directly from the tree.
@@ -152,21 +231,6 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
     ) -> VortexResult<Option<BoundExpression>> {
         _ = options;
         _ = expr;
-        Ok(None)
-    }
-
-    /// Returns an expression that evaluates to the validity of the result of this expression.
-    ///
-    /// If a validity expression cannot be constructed, returns `None` and the expression will
-    /// be evaluated as normal before extracting the validity mask from the result.
-    ///
-    /// This is essentially a specialized form of a `reduce_parent`
-    fn validity(
-        &self,
-        options: &Self::Options,
-        expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
-        _ = (options, expression);
         Ok(None)
     }
 
@@ -246,6 +310,13 @@ pub trait ReduceNode: Clone {
 
     /// Produce a new constant node in the same scope as "self"
     fn new_constant(&self, value: Scalar) -> Self;
+
+    /// Symbolic validity of this node. Reduced() if you can get from node's
+    /// validity to validity of its children or a constant without evaluating
+    /// node.
+    fn validity(&self) -> VortexResult<ReduceNodeValidity<Self>>
+    where
+        Self: Sized;
 }
 
 /// A [`ReduceNode`] over a bound expression tree.
@@ -311,6 +382,13 @@ impl ReduceNode for ExpressionReduceNode<'_> {
     fn new_constant(&self, value: Scalar) -> Self {
         Self {
             expression: Cow::Owned(bound::lit(value)),
+        }
+    }
+
+    fn validity(&self) -> VortexResult<ReduceNodeValidity<Self>> {
+        match self.expression.as_scalar() {
+            Some(scalar_fn) => scalar_fn.validity_expression(self),
+            None => Ok(ReduceNodeValidity::Irreducible),
         }
     }
 }
@@ -392,6 +470,21 @@ impl ReduceNode for ArrayReduceNode<'_> {
         Self {
             array: Cow::Owned(array.into_array()),
         }
+    }
+
+    fn validity(&self) -> VortexResult<ReduceNodeValidity<Self>> {
+        if let Some(scalar_fn) = self.array.as_opt::<ScalarFn>() {
+            return scalar_fn.data().scalar_fn().validity_array(self);
+        }
+        Ok(ReduceNodeValidity::Reduced(
+            match self.array.validity()? {
+                Validity::NonNullable | Validity::AllValid => self.new_constant(true.into()),
+                Validity::AllInvalid => self.new_constant(false.into()),
+                Validity::Array(array) => Self {
+                    array: Cow::Owned(array),
+                },
+            },
+        ))
     }
 }
 

@@ -25,6 +25,7 @@ use crate::expr::display::ExprDisplay;
 use crate::scalar_fn::ArrayReduceNode;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ExpressionReduceNode;
+use crate::scalar_fn::ReduceNodeValidity;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::options::ScalarFnOptions;
@@ -122,10 +123,20 @@ impl ScalarFnRef {
         self.0.return_dtype(arg_types)
     }
 
-    /// Some(E) if evaluating validity for this function is faster than
-    /// evaluating the function itself, None otherwise.
-    pub fn validity(&self, expr: &Expression) -> VortexResult<Option<Expression>> {
-        self.0.validity(expr)
+    /// Symbolic validity of this node in an expression tree
+    pub(crate) fn validity_expression<'a>(
+        &self,
+        node: &ExpressionReduceNode<'a>,
+    ) -> VortexResult<ReduceNodeValidity<ExpressionReduceNode<'a>>> {
+        self.0.validity_expression(node)
+    }
+
+    /// Symbolic validity of this in an array tree
+    pub(crate) fn validity_array<'a>(
+        &self,
+        node: &ArrayReduceNode<'a>,
+    ) -> VortexResult<ReduceNodeValidity<ArrayReduceNode<'a>>> {
+        self.0.validity_array(node)
     }
 
     /// Execute the expression given the input arguments.
