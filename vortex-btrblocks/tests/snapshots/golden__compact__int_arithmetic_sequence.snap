@@ -1,0 +1,7 @@
+---
+source: vortex-btrblocks/tests/golden.rs
+expression: rendered
+---
+input: i64, len=16384, nbytes=131072
+root: vortex.sequence(i64, len=16384) nbytes=0
+  metadata: base: 10000i64, multiplier: 7i64

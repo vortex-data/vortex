@@ -1,0 +1,13 @@
+---
+source: vortex-btrblocks/tests/golden.rs
+expression: rendered
+---
+input: list(i32), len=4066, nbytes=81804
+root: vortex.list(list(i32), len=4066) nbytes=4434
+  metadata: 
+  elements: vortex.zigzag(i32, len=16384) nbytes=2969
+    metadata: 
+    encoded: vortex.pco(u32, len=16384) nbytes=2969
+      metadata: ptype: u32, nrows: 16384, slice: 0..16384
+  offsets: vortex.pco(u16, len=4067) nbytes=1465
+    metadata: ptype: u16, nrows: 4067, slice: 0..4067

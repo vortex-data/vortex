@@ -1,0 +1,13 @@
+---
+source: vortex-btrblocks/tests/golden.rs
+expression: rendered
+---
+input: i64, len=16384, nbytes=131072
+root: vortex.sparse(i64, len=16384) nbytes=5540
+  metadata: fill_value: 1000000i64
+  patch_indices: vortex.primitive(u16, len=848) nbytes=1696
+    metadata: ptype: u16
+  patch_values: fastlanes.for(i64, len=848) nbytes=3840
+    metadata: reference: 1000830099i64
+    encoded: fastlanes.bitpacked(i64, len=848) nbytes=3840
+      metadata: bit_width: 30, offset: 0

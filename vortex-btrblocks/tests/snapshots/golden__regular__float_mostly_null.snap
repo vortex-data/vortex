@@ -1,0 +1,13 @@
+---
+source: vortex-btrblocks/tests/golden.rs
+expression: rendered
+---
+input: f64?, len=16384, nbytes=133120
+root: vortex.sparse(f64?, len=16384) nbytes=8609
+  metadata: fill_value: null
+  patch_indices: vortex.primitive(u16, len=850) nbytes=1700
+    metadata: ptype: u16
+  patch_values: vortex.primitive(f64?, len=850) nbytes=6907
+    metadata: ptype: f64
+    validity: vortex.bool(bool, len=850) nbytes=107
+      metadata: offset: 0

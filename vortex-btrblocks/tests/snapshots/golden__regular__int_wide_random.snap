@@ -1,0 +1,7 @@
+---
+source: vortex-btrblocks/tests/golden.rs
+expression: rendered
+---
+input: u64, len=16384, nbytes=131072
+root: vortex.primitive(u64, len=16384) nbytes=131072
+  metadata: ptype: u64

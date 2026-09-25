@@ -66,4 +66,3 @@ impl Deref for BtrBlocksCompressor {
         &self.0
     }
 }
-

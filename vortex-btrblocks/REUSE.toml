@@ -1,0 +1,7 @@
+version = 1
+
+# `insta` snapshot files do not allow leading comment lines.
+[[annotations]]
+path = "tests/snapshots/**.snap"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "Apache-2.0"

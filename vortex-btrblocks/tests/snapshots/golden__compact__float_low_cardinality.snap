@@ -1,0 +1,13 @@
+---
+source: vortex-btrblocks/tests/golden.rs
+expression: rendered
+---
+input: f64, len=16384, nbytes=131072
+root: vortex.dict(f64, len=16384) nbytes=6184
+  metadata: all_values_referenced: true
+  codes: fastlanes.bitpacked(u8, len=16384) nbytes=6144
+    metadata: bit_width: 3, offset: 0
+  values: vortex.alp(f64, len=8) nbytes=40
+    metadata: exponents: e: 16, f: 11
+    encoded: vortex.pco(i64, len=8) nbytes=40
+      metadata: ptype: i64, nrows: 8, slice: 0..8

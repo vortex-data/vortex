@@ -1,0 +1,15 @@
+---
+source: vortex-btrblocks/tests/golden.rs
+expression: rendered
+---
+input: utf8, len=16384, nbytes=653785
+root: vortex.fsst(utf8, len=16384) nbytes=151382
+  metadata: len: 16384, nsymbols: 223
+  uncompressed_lengths: vortex.sparse(u8, len=16384) nbytes=3154
+    metadata: fill_value: 24u8
+    patch_indices: vortex.primitive(u16, len=1575) nbytes=3150
+      metadata: ptype: u16
+    patch_values: vortex.constant(u8, len=1575) nbytes=2
+      metadata: scalar: 23u8
+  codes_offsets: fastlanes.bitpacked(u32, len=16385) nbytes=36992
+    metadata: bit_width: 17, offset: 0

@@ -1,0 +1,9 @@
+---
+source: vortex-btrblocks/tests/golden.rs
+expression: rendered
+---
+input: i32?, len=16384, nbytes=67584
+root: vortex.pco(i32?, len=16384) nbytes=3086
+  metadata: ptype: i32, nrows: 16384, slice: 0..16384
+  validity: vortex.bool(bool, len=16384) nbytes=2048
+    metadata: offset: 0

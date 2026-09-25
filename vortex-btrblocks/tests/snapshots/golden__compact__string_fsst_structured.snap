@@ -1,0 +1,7 @@
+---
+source: vortex-btrblocks/tests/golden.rs
+expression: rendered
+---
+input: utf8, len=16384, nbytes=653785
+root: vortex.zstd(utf8, len=16384) nbytes=109119
+  metadata: nrows: 16384, slice: 0..16384

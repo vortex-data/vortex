@@ -1,0 +1,7 @@
+---
+source: vortex-btrblocks/tests/golden.rs
+expression: rendered
+---
+input: bool, len=16384, nbytes=2048
+root: vortex.bool(bool, len=16384) nbytes=2048
+  metadata: offset: 0

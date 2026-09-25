@@ -32,20 +32,25 @@ use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::Nullability;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::validity::Validity;
+#[cfg(feature = "zstd")]
+use vortex_edition::EDITION_DECLARATIONS;
+#[cfg(feature = "zstd")]
+use vortex_edition::EDITION_FAMILIES;
+#[cfg(feature = "zstd")]
+use vortex_edition::EditionId;
+#[cfg(feature = "zstd")]
+use vortex_edition::EditionSessionExt;
+#[cfg(feature = "zstd")]
+use vortex_edition::declarations::core::CORE_2026_08_3;
 use vortex_error::VortexResult;
 use vortex_fastlanes::Delta;
-#[cfg(feature = "zstd")]
-use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::BtrBlocksCompressor;
 use crate::BtrBlocksCompressorBuilder;
 use crate::SESSION;
 
 #[track_caller]
-fn assert_roundtrip(
-    compressor: &BtrBlocksCompressor,
-    input: &ArrayRef,
-) -> VortexResult<ArrayRef> {
+fn assert_roundtrip(compressor: &BtrBlocksCompressor, input: &ArrayRef) -> VortexResult<ArrayRef> {
     let mut ctx = SESSION.create_execution_ctx();
     let compressed = compressor.compress(input, &mut ctx)?;
     assert_arrays_eq!(&compressed, input, &mut ctx);
@@ -79,11 +84,11 @@ fn test_default_compressor_roundtrip() -> VortexResult<()> {
         None,
     );
     let elements = StructArray::from_fields(&[
-        ("integer", integers.into_array()), //
-        ("float", floats.into_array()), //
-        ("string", strings.into_array()), //
-        ("binary", binary.into_array()), //
-        ("decimal", decimals.into_array()), //
+        ("integer", integers.into_array()),     //
+        ("float", floats.into_array()),         //
+        ("string", strings.into_array()),       //
+        ("binary", binary.into_array()),        //
+        ("decimal", decimals.into_array()),     //
         ("timestamp", timestamps.into_array()), //
     ])?;
     let offsets = PrimitiveArray::from_iter((0..=2048i32).step_by(4));
@@ -94,7 +99,10 @@ fn test_default_compressor_roundtrip() -> VortexResult<()> {
     )?
     .into_array();
 
-    let compressed = assert_roundtrip(&BtrBlocksCompressor::from_session(&SESSION), &input)?;
+    let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .build();
+    let compressed = assert_roundtrip(&compressor, &input)?;
     assert!(compressed.nbytes() < input.nbytes());
 
     Ok(())
@@ -115,6 +123,7 @@ fn test_default_compressor_roundtrip() -> VortexResult<()> {
 fn test_delta_unaligned_roundtrip(#[case] input: PrimitiveArray) -> VortexResult<()> {
     // Zero-padding the final chunk used to inflate the delta span and reject this scheme.
     let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
         .build();
     let input = input.into_array();
     let compressed = assert_roundtrip(&compressor, &input)?;
@@ -128,9 +137,12 @@ fn test_delta_unaligned_roundtrip(#[case] input: PrimitiveArray) -> VortexResult
 
 #[cfg(feature = "zstd")]
 #[rstest]
-#[case::array_level(vortex_zstd::Zstd.id())]
-#[case::buffer_level(vortex_zstd::ZstdBuffers.id())]
-fn test_cuda_binary_zstd_follows_editions(#[case] allowed: ArrayId) -> VortexResult<()> {
+#[case::array_level(CORE_2026_08_3, vortex_zstd::Zstd.id())]
+#[case::buffer_level(vortex_zstd::editions::ZSTD_2026_02, vortex_zstd::ZstdBuffers.id())]
+fn test_cuda_binary_zstd_follows_editions(
+    #[case] edition: EditionId,
+    #[case] expected: ArrayId,
+) -> VortexResult<()> {
     let values: Vec<_> = (0..1024u32)
         .map(|i| {
             let mut value = Vec::from(&b"common binary payload prefix "[..]);
@@ -142,12 +154,20 @@ fn test_cuda_binary_zstd_follows_editions(#[case] allowed: ArrayId) -> VortexRes
     let input = VarBinViewArray::from_iter_bin(values.iter().map(Vec::as_slice)).into_array();
 
     // The CUDA preset enables both Zstd schemes; the edition filter must choose between them.
-    let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+    let session = vortex_array::array_session();
+    vortex_zstd::initialize(&session);
+    for family in EDITION_FAMILIES {
+        session.editions().declare_family(family)?;
+    }
+    for declaration in EDITION_DECLARATIONS {
+        session.register_edition(declaration)?;
+    }
+    session.enable_edition(edition)?;
+    let compressor = BtrBlocksCompressorBuilder::from_session(&session)
         .only_cuda_compatible()
-        .retain_allowed_encodings(&HashSet::from([allowed]))
         .build();
     let compressed = assert_roundtrip(&compressor, &input)?;
-    assert_eq!(compressed.encoding_id(), allowed);
+    assert_eq!(compressed.encoding_id(), expected);
 
     Ok(())
 }

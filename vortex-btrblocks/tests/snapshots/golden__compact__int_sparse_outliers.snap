@@ -1,0 +1,7 @@
+---
+source: vortex-btrblocks/tests/golden.rs
+expression: rendered
+---
+input: i64, len=16384, nbytes=131072
+root: vortex.pco(i64, len=16384) nbytes=3817
+  metadata: ptype: i64, nrows: 16384, slice: 0..16384
