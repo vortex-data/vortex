@@ -157,17 +157,6 @@ impl Expression {
         }
     }
 
-    /// Returns a new expression representing the validity mask output of this expression.
-    ///
-    /// The returned expression evaluates to a non-nullable boolean array.
-    pub fn validity(&self) -> VortexResult<Expression> {
-        match self {
-            // The scope is exactly as valid as itself.
-            Self::Root => Ok(Self::Root),
-            Self::Scalar { scalar_fn, .. } => scalar_fn.validity(self),
-        }
-    }
-
     /// Format the expression as a compact string.
     ///
     /// Since this is a recursive formatter, it is exposed on the public Expression type.

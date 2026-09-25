@@ -20,16 +20,13 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::dtype::DType;
 use crate::expr::BoundExpression;
-use crate::expr::Expression;
 use crate::expr::display::ExprDisplay;
 use crate::scalar_fn::ArrayReduceNode;
-use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ExpressionReduceNode;
+use crate::scalar_fn::ReduceNodeValidity;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::ScalarFnVTableExt;
-use crate::scalar_fn::fns::is_not_null::IsNotNull;
 use crate::scalar_fn::options::ScalarFnOptions;
 use crate::scalar_fn::signature::ScalarFnSignature;
 use crate::scalar_fn::typed::DynScalarFn;
@@ -125,12 +122,20 @@ impl ScalarFnRef {
         self.0.return_dtype(arg_types)
     }
 
-    /// Transforms the expression into one representing the validity of this expression.
-    pub fn validity(&self, expr: &Expression) -> VortexResult<Expression> {
-        Ok(self.0.validity(expr)?.unwrap_or_else(|| {
-            // TODO(ngates): make validity a mandatory method on VTable to avoid this fallback.
-            IsNotNull.new_expr(EmptyOptions, [expr.clone()])
-        }))
+    /// Symbolic validity of this node in an expression tree
+    pub(crate) fn validity_expression<'a>(
+        &self,
+        node: &ExpressionReduceNode<'a>,
+    ) -> VortexResult<ReduceNodeValidity<ExpressionReduceNode<'a>>> {
+        self.0.validity_expression(node)
+    }
+
+    /// Symbolic validity of this in an array tree
+    pub(crate) fn validity_array<'a>(
+        &self,
+        node: &ArrayReduceNode<'a>,
+    ) -> VortexResult<ReduceNodeValidity<ArrayReduceNode<'a>>> {
+        self.0.validity_array(node)
     }
 
     /// Execute the expression given the input arguments.

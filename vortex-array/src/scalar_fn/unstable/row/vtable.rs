@@ -25,13 +25,14 @@ use super::visitor::ExecuteValidRows;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::dtype::DType;
-use crate::expr::Expression;
-use crate::expr::union_child_validities;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
+use crate::scalar_fn::ReduceNode;
+use crate::scalar_fn::ReduceNodeValidity;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::union_child_validities;
 use crate::scalar_fn::unstable::row::execute::DenseAttempt;
 
 impl<F: RowFn> ScalarFnVTable for F {
@@ -70,12 +71,12 @@ impl<F: RowFn> ScalarFnVTable for F {
         execute_rows(self, options, args, ctx)
     }
 
-    fn validity(
+    fn validity<T: ReduceNode>(
         &self,
         _options: &Self::Options,
-        expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
-        union_child_validities(expression)
+        node: &T,
+    ) -> VortexResult<ReduceNodeValidity<T>> {
+        Ok(ReduceNodeValidity::Reduced(union_child_validities(node)?))
     }
 
     // `RowFn` is stricter than `ScalarFnVTable::is_strict`: its kernel cannot produce null from

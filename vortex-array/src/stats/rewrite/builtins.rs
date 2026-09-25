@@ -60,6 +60,7 @@ pub(crate) fn register_builtins(session: &StatsSession) {
     session.register_rewrite(BinaryNanCountStatsRewrite);
     session.register_rewrite(BinaryAllNonNanStatsRewrite);
     session.register_rewrite(BetweenStatsRewrite);
+    session.register_rewrite(LiteralStatsRewrite);
     session.register_rewrite(IsNullNullCountStatsRewrite);
     session.register_rewrite(IsNullAllNonNullStatsRewrite);
     session.register_rewrite(IsNullAllNullStatsRewrite);
@@ -80,6 +81,42 @@ fn row_count() -> BoundExpression {
     RowCount
         .try_new_bound_expr(EmptyOptions, [])
         .vortex_expect("row-count expressions are always well-typed")
+}
+
+#[derive(Debug)]
+struct LiteralStatsRewrite;
+
+impl StatsRewriteRule for LiteralStatsRewrite {
+    fn scalar_fn_id(&self) -> ScalarFnId {
+        Literal.id()
+    }
+
+    fn falsify(
+        &self,
+        expr: &BoundExpression,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<BoundExpression>> {
+        Ok(match literal_truth(expr) {
+            Some(true) => None,
+            _ => Some(lit(true)),
+        })
+    }
+
+    fn satisfy(
+        &self,
+        expr: &BoundExpression,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<BoundExpression>> {
+        Ok(match literal_truth(expr) {
+            Some(true) => Some(lit(true)),
+            _ => None,
+        })
+    }
+}
+
+/// Bool literal predicate value
+fn literal_truth(expr: &BoundExpression) -> Option<bool> {
+    expr.as_::<Literal>().as_bool_opt().and_then(|b| b.value())
 }
 
 #[derive(Debug)]
