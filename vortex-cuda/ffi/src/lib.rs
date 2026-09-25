@@ -110,8 +110,8 @@ pub unsafe extern "C-unwind" fn vx_cuda_session_new(
 /// Open a Vortex file sink configured to produce CUDA-readable files.
 ///
 /// Push host arrays and close/abort with `vx_array_sink_*`. Only on-disk encodings and layouts
-/// change; writing does not move arrays to the GPU. Opening a sink restricts the session's
-/// compression schemes to those the GPU decodes, as `vx_cuda_session_new` already does.
+/// change; writing does not move arrays to the GPU. The sink compresses with the session's
+/// schemes, so pass a session from `vx_cuda_session_new` to use only those the GPU decodes.
 ///
 /// # Safety
 ///
@@ -148,7 +148,6 @@ pub unsafe extern "C-unwind" fn vx_cuda_array_sink_open_file_block_rows(
     try_or(error_out, ptr::null_mut(), || {
         // SAFETY: The caller supplies a live borrowed session handle.
         let vortex_session = session_with_cuda(unsafe { vx_session_ref(session) }?);
-        vortex_session.register(CompressionSession::cuda());
         // SAFETY: All borrowed inputs satisfy the underlying sink's requirements.
         unsafe {
             vx_array_sink_open_file_with_strategy(

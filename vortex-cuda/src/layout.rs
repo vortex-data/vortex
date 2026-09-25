@@ -548,10 +548,12 @@ fn extract_constant_buffers(chunk: &ArrayRef) -> Vec<InlinedBuffer> {
 
 /// Build a CUDA-flat writer from the schemes registered on `session` that its editions permit.
 ///
-/// Requires [`register_cuda_layout`], and a [`CompressionSession::cuda`] registry for the file
-/// to use only encodings the GPU decodes. Zero `block_rows` uses default sizing and dictionary policy;
-/// nonzero sets row blocks without outer dictionaries or byte coalescing, retaining per-block
-/// dictionary compression.
+/// `session` must have [`register_cuda_layout`] applied and a [`CompressionSession::cuda`]
+/// registry: the writer uses whatever schemes are registered, so with any other registry the file
+/// may contain encodings the GPU does not decode.
+///
+/// Zero `block_rows` uses default sizing and dictionary policy; nonzero sets row blocks without
+/// outer dictionaries or byte coalescing, retaining per-block dictionary compression.
 ///
 /// [`CompressionSession::cuda`]: vortex::compressor::CompressionSession::cuda
 pub fn cuda_write_strategy(session: &VortexSession, block_rows: usize) -> Arc<dyn LayoutStrategy> {
