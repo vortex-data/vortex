@@ -358,11 +358,46 @@ ORDER BY d;
 1993-07-15
 1993-08-20
 
+# `date + interval` returns a TIMESTAMP, so DuckDB widens the column side to match and the
+# bound binds as `CAST(d AS TIMESTAMP) < TIMESTAMP '1993-10-01 00:00:00'`. The cast folds back
+# into the literal as an exact DATE bound, so the comparison reaches the scan.
 query TT
 EXPLAIN SELECT d FROM '$__TEST_DIR__/cast_pushdown-date-filter.vortex'
 WHERE d < DATE '1993-07-01' + INTERVAL '3' MONTH;
 ----
+<!REGEX>:.*FILTER.*
+
+# A bound strictly inside a day has no exact DATE equal, so `<` widens to the whole day.
+query D
+SELECT d FROM '$__TEST_DIR__/cast_pushdown-date-filter.vortex'
+WHERE d < TIMESTAMP '1993-10-15 12:00:00'
+ORDER BY d;
+----
+1993-07-15
+1993-08-20
+1993-10-15
+
+# TIMESTAMP WITH TIME ZONE depends on the session timezone, so it has no fixed DATE equal and
+# is left above the scan.
+statement ok
+SET TimeZone = 'America/New_York';
+
+query TT
+EXPLAIN SELECT d FROM '$__TEST_DIR__/cast_pushdown-date-filter.vortex'
+WHERE d < TIMESTAMPTZ '1993-10-01 00:00:00';
+----
 <REGEX>:.*FILTER.*
+
+query D
+SELECT d FROM '$__TEST_DIR__/cast_pushdown-date-filter.vortex'
+WHERE d < TIMESTAMPTZ '1993-10-01 00:00:00'
+ORDER BY d;
+----
+1993-07-15
+1993-08-20
+
+statement ok
+RESET TimeZone;
 
 statement ok
 CREATE OR REPLACE TABLE tbl(val FLOAT)

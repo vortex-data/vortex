@@ -397,20 +397,14 @@ logical_opt [
                                                                                                 "name": "COMPARISON_JOIN",
                                                                                                 "children": [
                                                                                                     {
-                                                                                                        "name": "FILTER",
-                                                                                                        "children": [
-                                                                                                            {
-                                                                                                                "name": "READ_VORTEX",
-                                                                                                                "children": [],
-                                                                                                                "extra_info": {
-                                                                                                                    "Filters": "($.l_shipdate >= 1994-01-01)",
-                                                                                                                    "Function": "Vortex Scan",
-                                                                                                                    "Estimated Cardinality": "120114"
-                                                                                                                }
-                                                                                                            }
-                                                                                                        ],
+                                                                                                        "name": "READ_VORTEX",
+                                                                                                        "children": [],
                                                                                                         "extra_info": {
-                                                                                                            "Expressions": "(CAST(l_shipdate AS TIMESTAMP) < '1995-01-01 00:00:00'::TIMESTAMP)",
+                                                                                                            "Filters": [
+                                                                                                                "($.l_shipdate >= 1994-01-01)",
+                                                                                                                "($.l_shipdate < 1995-01-01)"
+                                                                                                            ],
+                                                                                                            "Function": "Vortex Scan",
                                                                                                             "Estimated Cardinality": "24022"
                                                                                                         }
                                                                                                     },
@@ -657,38 +651,15 @@ physical_plan [
                                                                                                         "name": "HASH_JOIN",
                                                                                                         "children": [
                                                                                                             {
-                                                                                                                "name": "PROJECTION",
-                                                                                                                "children": [
-                                                                                                                    {
-                                                                                                                        "name": "FILTER",
-                                                                                                                        "children": [
-                                                                                                                            {
-                                                                                                                                "name": "READ_VORTEX",
-                                                                                                                                "children": [],
-                                                                                                                                "extra_info": {
-                                                                                                                                    "Function": "Vortex Scan",
-                                                                                                                                    "Filters": "($.l_shipdate >= 1994-01-01)",
-                                                                                                                                    "Projections": [
-                                                                                                                                        "l_partkey",
-                                                                                                                                        "l_suppkey",
-                                                                                                                                        "l_quantity",
-                                                                                                                                        "l_shipdate"
-                                                                                                                                    ],
-                                                                                                                                    "Estimated Cardinality": "120114"
-                                                                                                                                }
-                                                                                                                            }
-                                                                                                                        ],
-                                                                                                                        "extra_info": {
-                                                                                                                            "Expression": "(CAST(l_shipdate AS TIMESTAMP) < '1995-01-01 00:00:00'::TIMESTAMP)",
-                                                                                                                            "Estimated Cardinality": "24022"
-                                                                                                                        }
-                                                                                                                    }
-                                                                                                                ],
+                                                                                                                "name": "READ_VORTEX",
+                                                                                                                "children": [],
                                                                                                                 "extra_info": {
+                                                                                                                    "Function": "Vortex Scan",
+                                                                                                                    "Filters": "(CAST(l_shipdate AS TIMESTAMP) < '1995-01-01 00:00:00'::TIMESTAMP)",
                                                                                                                     "Projections": [
-                                                                                                                        "#0",
-                                                                                                                        "#1",
-                                                                                                                        "#2"
+                                                                                                                        "l_partkey",
+                                                                                                                        "l_suppkey",
+                                                                                                                        "l_quantity"
                                                                                                                     ],
                                                                                                                     "Estimated Cardinality": "24022"
                                                                                                                 }
