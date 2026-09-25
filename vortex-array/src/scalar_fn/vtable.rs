@@ -376,14 +376,14 @@ impl ReduceNode for ArrayReduceNode<'_> {
         let array = match &self.array {
             Cow::Borrowed(array) => Cow::Borrowed(
                 array
-                    .children_iter()
-                    .nth(idx)
+                    .nth_child(idx)
                     .vortex_expect("child idx out of bounds"),
             ),
             Cow::Owned(array) => Cow::Owned(
                 array
                     .nth_child(idx)
-                    .vortex_expect("child idx out of bounds"),
+                    .vortex_expect("child idx out of bounds")
+                    .clone(),
             ),
         };
         Self { array }
