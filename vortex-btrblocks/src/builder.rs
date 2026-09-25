@@ -18,6 +18,7 @@ use crate::SchemeExt;
 use crate::SchemeId;
 use crate::allowed_ids::AllowedIds;
 use crate::schemes::binary;
+use crate::schemes::bool;
 use crate::schemes::float;
 use crate::schemes::integer;
 use crate::schemes::string;
@@ -70,6 +71,7 @@ impl CompressionMode {
                     integer::DeltaScheme::default().id(),
                     integer::SparseScheme.id(),
                     integer::IntRLEScheme.id(),
+                    bool::SparseScheme.id(),
                     float::ALPRDScheme.id(),
                     float::FloatRLEScheme.id(),
                     float::NullDominatedSparseScheme.id(),

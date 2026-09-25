@@ -12,6 +12,7 @@ use vortex_session::SessionVar;
 use crate::Scheme;
 use crate::SchemeExt;
 use crate::schemes::binary;
+use crate::schemes::bool;
 use crate::schemes::decimal;
 use crate::schemes::float;
 use crate::schemes::integer;
@@ -87,6 +88,10 @@ impl Default for CompressionSession {
                 &binary::ZstdScheme,
                 #[cfg(feature = "zstd")]
                 &binary::ZstdBuffersScheme,
+                ////////////////////////////////////////////////////////////////////////////////////
+                // Bool schemes.
+                ////////////////////////////////////////////////////////////////////////////////////
+                &bool::SparseScheme,
                 // Decimal schemes. `refine` switches to v2 where the v2 ID is allowed.
                 &decimal::DECIMAL_V1,
                 // Temporal schemes.
