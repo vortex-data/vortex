@@ -30,9 +30,9 @@ use vortex::expr::and_collect;
 use vortex::expr::byte_length;
 use vortex::expr::cast;
 use vortex::expr::get_item;
+use vortex::expr::in_list;
 use vortex::expr::is_not_null;
 use vortex::expr::is_null;
-use vortex::expr::list_contains;
 use vortex::expr::list_length;
 use vortex::expr::lit;
 use vortex::expr::nested_case_when;
@@ -371,9 +371,9 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
             return Ok(is_not_null(arg));
         }
 
-        if let Some(in_list) = df.downcast_ref::<df_expr::InListExpr>() {
-            let value = self.convert(in_list.expr().as_ref())?;
-            let list_elements: Vec<_> = in_list
+        if let Some(in_list_expr) = df.downcast_ref::<df_expr::InListExpr>() {
+            let value = self.convert(in_list_expr.expr().as_ref())?;
+            let list_elements: Vec<_> = in_list_expr
                 .list()
                 .iter()
                 .map(|e| {
@@ -385,14 +385,33 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
                 })
                 .try_collect()?;
 
-            let list = Scalar::list(
-                list_elements[0].dtype().clone(),
-                list_elements,
-                Nullability::Nullable,
-            );
-            let expr = list_contains(lit(list), value);
+            let element_dtype = list_elements
+                .first()
+                .ok_or_else(|| exec_datafusion_err!("Cannot infer the type of an empty IN list"))?
+                .dtype()
+                .with_nullability(
+                    list_elements
+                        .iter()
+                        .fold(Nullability::NonNullable, |nullability, element| {
+                            nullability | element.dtype().nullability()
+                        }),
+                );
+            let list_elements = list_elements
+                .iter()
+                .map(|element| {
+                    element
+                        .cast(&element_dtype)
+                        .map_err(|e| exec_datafusion_err!("Invalid IN list element: {e}"))
+                })
+                .collect::<DFResult<Vec<_>>>()?;
+            let list = Scalar::list(element_dtype, list_elements, Nullability::NonNullable);
+            let expr = in_list(value, lit(list));
 
-            return Ok(if in_list.negated() { not(expr) } else { expr });
+            return Ok(if in_list_expr.negated() {
+                not(expr)
+            } else {
+                expr
+            });
         }
 
         if let Some(scalar_fn) = df.downcast_ref::<ScalarFunctionExpr>() {
@@ -727,6 +746,8 @@ mod tests {
     use arrow_schema::Schema;
     use arrow_schema::TimeUnit as ArrowTimeUnit;
     use datafusion::arrow::array::AsArray;
+    use datafusion::arrow::array::Int32Array;
+    use datafusion::arrow::array::RecordBatch;
     use datafusion::arrow::datatypes::Int32Type;
     use datafusion_common::ScalarValue;
     use datafusion_common::config::ConfigOptions;
@@ -736,6 +757,9 @@ mod tests {
     use datafusion_physical_plan::expressions as df_expr;
     use insta::assert_snapshot;
     use rstest::rstest;
+    use vortex::array::VortexSessionExecute;
+    use vortex::array::arrays::BoolArray;
+    use vortex::array::assert_arrays_eq;
 
     use super::*;
     use crate::common_tests::TestSessionContext;
@@ -870,6 +894,73 @@ mod tests {
             .unwrap();
 
         assert_snapshot!(result.display_tree().to_string(), @"vortex.literal(42i32)");
+    }
+
+    #[rstest]
+    fn test_in_list_null_semantics(
+        #[values(false, true)] negated: bool,
+        #[values(false, true)] null_first: bool,
+    ) {
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "value",
+            DataType::Int32,
+            true,
+        )]));
+        let batch = RecordBatch::try_new(
+            Arc::clone(&schema),
+            vec![Arc::new(Int32Array::from(vec![Some(1), Some(2), None]))],
+        )
+        .unwrap();
+        let mut list = vec![
+            Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(1)))) as Arc<dyn PhysicalExpr>,
+            Arc::new(df_expr::Literal::new(ScalarValue::Int32(None))) as Arc<dyn PhysicalExpr>,
+        ];
+        if null_first {
+            list.reverse();
+        }
+        let expr = df_expr::InListExpr::try_new(
+            Arc::new(df_expr::Column::new("value", 0)),
+            list,
+            negated,
+            &schema,
+        )
+        .unwrap();
+        let expected = expr
+            .evaluate(&batch)
+            .unwrap()
+            .into_array(batch.num_rows())
+            .unwrap();
+        let session = VortexSession::default();
+        let converted = DefaultExpressionConvertor::new(session.clone())
+            .convert(&expr)
+            .unwrap();
+        let input = session
+            .arrow()
+            .from_arrow_record_batch(batch, &schema)
+            .unwrap();
+        let actual = input.apply(&converted).unwrap();
+        assert_arrays_eq!(
+            actual,
+            BoolArray::from_iter(expected.as_boolean().iter()),
+            &mut session.create_execution_ctx()
+        );
+    }
+
+    #[test]
+    fn test_empty_in_list_declines_conversion() {
+        let schema = Schema::new(vec![Field::new("value", DataType::Int32, true)]);
+        let expr = df_expr::InListExpr::try_new_from_array(
+            Arc::new(df_expr::Column::new("value", 0)),
+            Arc::new(Int32Array::from(Vec::<i32>::new())),
+            false,
+            &schema,
+        )
+        .unwrap();
+        assert!(
+            DefaultExpressionConvertor::default()
+                .convert(&expr)
+                .is_err()
+        );
     }
 
     #[test]

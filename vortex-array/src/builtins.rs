@@ -31,6 +31,7 @@ use crate::scalar_fn::fns::get_item::GetItem;
 use crate::scalar_fn::fns::is_not_null::IsNotNull;
 use crate::scalar_fn::fns::is_null::IsNull;
 use crate::scalar_fn::fns::list_contains::ListContains;
+use crate::scalar_fn::fns::list_contains::ListContainsOptions;
 use crate::scalar_fn::fns::mask::Mask;
 use crate::scalar_fn::fns::not::Not;
 use crate::scalar_fn::fns::operators::Operator;
@@ -103,7 +104,7 @@ impl ExprBuiltins for Expression {
     }
 
     fn list_contains(&self, value: Expression) -> VortexResult<Expression> {
-        ListContains.try_new_expr(EmptyOptions, [self.clone(), value])
+        ListContains.try_new_expr(ListContainsOptions::default(), [self.clone(), value])
     }
 
     fn zip(&self, if_true: Expression, if_false: Expression) -> VortexResult<Expression> {

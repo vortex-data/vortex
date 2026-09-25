@@ -102,6 +102,10 @@ message LikeOpts {
   bool case_insensitive = 2;
 }
 
+message ListContainsOpts {
+  bool sql_null_semantics = 1;
+}
+
 message CastOpts {
   vortex.dtype.DType target = 1;
 }
