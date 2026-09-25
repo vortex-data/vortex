@@ -34,7 +34,7 @@ pub enum CompressionMode {
     #[default]
     Default,
     /// Excludes Delta and buffer-level Zstd, keeping Zstd for strings and binary and Pco for
-    /// numerics. Set by `with_compact`.
+    /// numerics. Set by [`with_compact`](BtrBlocksCompressorBuilder::with_compact).
     Compact,
     /// Excludes schemes without CUDA kernel support, keeping FSST for strings and both Zstd
     /// schemes for binary. Set by
@@ -96,8 +96,8 @@ impl CompressionMode {
 /// [`from_session`](Self::from_session) starts from the schemes registered in the session's
 /// [`CompressionSession`](crate::CompressionSession), in registration order. Its
 /// [`CompressionMode`] excludes some of them on [`build`](Self::build): by default Delta, Zstd
-/// and Pco. `with_compact` and [`only_cuda_compatible`](Self::only_cuda_compatible) switch the
-/// mode.
+/// and Pco. [`with_compact`](Self::with_compact) and
+/// [`only_cuda_compatible`](Self::only_cuda_compatible) switch the mode.
 ///
 /// The builder also tracks which serialized array IDs its schemes may produce, taken from the
 /// session's registered arrays and enabled editions. [`build`](Self::build) drops every scheme
@@ -183,9 +183,8 @@ impl BtrBlocksCompressorBuilder {
     /// numerics.
     ///
     /// This provides better compression ratios than the default, especially for floating-point
-    /// heavy datasets. Requires the `zstd` feature. The Pco schemes are only registered when the
-    /// `pco` feature is also enabled.
-    #[cfg(feature = "zstd")]
+    /// heavy datasets. The Zstd and Pco schemes are only registered with the `zstd` and `pco`
+    /// features.
     pub fn with_compact(mut self) -> Self {
         self.mode = CompressionMode::Compact;
         self
