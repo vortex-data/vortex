@@ -27,16 +27,15 @@ use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
-use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
 use vortex::expr::byte_length;
 use vortex::expr::cast;
 use vortex::expr::col;
 use vortex::expr::get_item;
+use vortex::expr::in_list;
 use vortex::expr::is_not_null;
 use vortex::expr::is_null;
-use vortex::expr::list_contains;
 use vortex::expr::list_length;
 use vortex::expr::lit;
 use vortex::expr::not;
@@ -433,13 +432,20 @@ pub fn can_push_expression(value: &duckdb::ExpressionRef) -> bool {
             // columns are native.
         }
         ExpressionClass::BoundOperator(op) => {
+            if matches!(
+                op.op,
+                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_IN
+                    | DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_NOT_IN
+            ) {
+                let mut children = op.children();
+                return children.next().is_some_and(can_push_expression)
+                    && children.all(|child| matches!(child.as_class(), Some(BoundConstant(_))));
+            }
             if !matches!(
                 op.op,
                 DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_NOT
                     | DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_IS_NULL
                     | DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_IS_NOT_NULL
-                    | DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_IN
-                    | DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_NOT_IN
             ) {
                 return false;
             }
@@ -729,12 +735,7 @@ fn try_from_compare_in(
             let Some(value) = try_from_expression_inner(c, ctx)? else {
                 return Ok(None);
             };
-            Ok(Some(
-                value
-                    .as_opt::<Literal>()
-                    .ok_or_else(|| vortex_err!("cannot have a non literal in a in_list"))?
-                    .clone(),
-            ))
+            Ok(value.as_opt::<Literal>().cloned())
         })
         .collect::<VortexResult<Option<Vec<_>>>>()?
     else {
@@ -743,10 +744,10 @@ fn try_from_compare_in(
     let list = Scalar::list(
         Arc::new(list_elements[0].dtype().clone()),
         list_elements,
-        Nullability::Nullable,
+        Nullability::NonNullable,
     );
 
-    let expr = list_contains(lit(list), element);
+    let expr = in_list(element, lit(list));
     Ok(Some(if not_in { not(expr) } else { expr }))
 }
 
