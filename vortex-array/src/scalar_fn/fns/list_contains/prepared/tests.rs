@@ -9,6 +9,7 @@ use vortex_error::VortexResult;
 use super::Probe;
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::VortexSessionExecute;
 use crate::array_session;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
@@ -67,12 +68,16 @@ fn map_needles() -> ArrayRef {
     builder.finish()
 }
 
+fn struct_needles() -> ArrayRef {
+    StructArray::from_fields(&[("list", nested_needles())])
+        .unwrap()
+        .into_array()
+}
+
 #[rstest]
 #[case::list(nested_needles())]
 #[case::map(map_needles())]
-#[case::struct_of_lists(
-    StructArray::from_fields(&[("list", nested_needles())]).unwrap().into_array()
-)]
+#[case::struct_of_lists(struct_needles())]
 #[case::fixed_size_list(FixedSizeListArray::new(
     PrimitiveArray::from_option_iter([
         Some(1i32), None, Some(2), None, Some(9), None, Some(8), None,
@@ -163,7 +168,7 @@ fn test_decimal_bitmap_across_storage_widths(
     assert_arrays_eq!(
         set.contains(&needles, &mut ctx)?,
         BoolArray::from_iter([Some(true), non_match, Some(true), None]),
-        &mut ctx,
+        &mut ctx
     );
     Ok(())
 }
@@ -220,7 +225,7 @@ fn test_decimal_wide_values(
         BoolArray::from_iter([
             Some(true), Some(true), Some(false), Some(false), Some(false), None,
         ]),
-        &mut ctx,
+        &mut ctx
     );
     Ok(())
 }
