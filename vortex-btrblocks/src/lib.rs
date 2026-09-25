@@ -70,6 +70,7 @@
 
 mod builder;
 mod canonical_compressor;
+mod permission_set;
 /// Compression scheme implementations.
 pub mod schemes;
 mod session;
@@ -79,7 +80,6 @@ mod trace_tests;
 
 // Re-export framework types from vortex-compressor for backwards compatibility.
 // Btrblocks-specific exports.
-pub use builder::AllowedSerializedIds;
 pub use builder::BtrBlocksCompressorBuilder;
 pub use builder::DELTA_SCHEME;
 pub use canonical_compressor::BtrBlocksCompressor;

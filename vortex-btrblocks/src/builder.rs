@@ -3,10 +3,6 @@
 
 //! Builder for configuring `BtrBlocksCompressor` instances.
 
-use vortex_array::ArrayId;
-use vortex_array::session::ArraySessionExt;
-use vortex_edition::ComponentKind;
-use vortex_edition::EditionSessionExt;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_set::HashSet;
 
@@ -16,6 +12,7 @@ use crate::CompressionSessionExt;
 use crate::Scheme;
 use crate::SchemeExt;
 use crate::SchemeId;
+use crate::permission_set::PermissionSet;
 use crate::schemes::binary;
 use crate::schemes::float;
 use crate::schemes::integer;
@@ -28,61 +25,6 @@ use crate::schemes::string;
 /// TODO(robert): Register it by default once we have scheme filtering.
 pub static DELTA_SCHEME: integer::DeltaScheme = integer::DeltaScheme::new(1.25);
 
-/// The serialized array IDs a compressor's schemes may produce.
-///
-/// An ID is allowed when it is not in `blacklist` and either `allow_all` is set or the ID is in
-/// `allowlist`. A scheme is kept only if every ID it declares in
-/// [`produced_encodings`](Scheme::produced_encodings) is allowed.
-///
-/// Built from a session, the allowlist is the IDs of the registered array plugins and the
-/// blacklist is those the session's enabled editions do not permit, matching what the file writer
-/// can write.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct AllowedSerializedIds {
-    /// Allow every ID not in `blacklist`, ignoring `allowlist`.
-    pub allow_all: bool,
-    /// IDs allowed when `allow_all` is unset.
-    pub allowlist: HashSet<ArrayId>,
-    /// IDs never allowed.
-    pub blacklist: HashSet<ArrayId>,
-}
-
-impl AllowedSerializedIds {
-    /// Allows every serialized ID.
-    pub fn all() -> Self {
-        Self {
-            allow_all: true,
-            ..Self::default()
-        }
-    }
-
-    /// Allows the serialized array IDs that are registered in the session and permitted by its
-    /// enabled editions.
-    ///
-    /// A session with no enabled editions permits no IDs.
-    pub fn from_session(session: &VortexSession) -> Self {
-        let allowlist: HashSet<ArrayId> = session
-            .arrays()
-            .registry()
-            .read(|registry| registry.keys().copied().collect());
-        let enabled: HashSet<ArrayId> = session
-            .enabled_component_ids(ComponentKind::Array)
-            .into_iter()
-            .collect();
-        let blacklist = allowlist.difference(&enabled).copied().collect();
-        Self {
-            allow_all: false,
-            allowlist,
-            blacklist,
-        }
-    }
-
-    /// Returns whether `id` is allowed.
-    pub fn is_allowed(&self, id: &ArrayId) -> bool {
-        !self.blacklist.contains(id) && (self.allow_all || self.allowlist.contains(id))
-    }
-}
-
 /// Builder for creating configured [`BtrBlocksCompressor`] instances.
 ///
 /// [`from_session`](Self::from_session) starts from the schemes registered in the session's
@@ -91,9 +33,9 @@ impl AllowedSerializedIds {
 /// added explicitly via [`with_new_scheme`](BtrBlocksCompressorBuilder::with_new_scheme) or
 /// `with_compact` when the `zstd` feature is enabled.
 ///
-/// The builder also carries the [`AllowedSerializedIds`] its schemes may produce, taken from the
+/// The builder also tracks which serialized array IDs its schemes may produce, taken from the
 /// session's registered arrays and enabled editions. [`build`](Self::build) drops every scheme
-/// that produces an ID outside it.
+/// that produces a disallowed ID.
 ///
 /// # Examples
 ///
@@ -116,7 +58,7 @@ impl AllowedSerializedIds {
 #[derive(Debug, Clone)]
 pub struct BtrBlocksCompressorBuilder {
     schemes: Vec<&'static dyn Scheme>,
-    allowed: AllowedSerializedIds,
+    allowed: PermissionSet,
 }
 
 impl BtrBlocksCompressorBuilder {
@@ -126,7 +68,7 @@ impl BtrBlocksCompressorBuilder {
     pub fn from_session(session: &VortexSession) -> Self {
         Self {
             schemes: session.compression().schemes().to_vec(),
-            allowed: AllowedSerializedIds::from_session(session),
+            allowed: PermissionSet::from_session(session),
         }
     }
 
@@ -137,7 +79,7 @@ impl BtrBlocksCompressorBuilder {
     pub fn empty() -> Self {
         Self {
             schemes: Vec::new(),
-            allowed: AllowedSerializedIds::all(),
+            allowed: PermissionSet::all(),
         }
     }
 
@@ -240,7 +182,7 @@ impl BtrBlocksCompressorBuilder {
 
     /// Allows every serialized ID, ignoring the session's registered arrays and enabled editions.
     pub fn unrestricted(mut self) -> Self {
-        self.allowed = AllowedSerializedIds::all();
+        self.allowed = PermissionSet::all();
         self
     }
 
