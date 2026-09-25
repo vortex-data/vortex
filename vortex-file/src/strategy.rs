@@ -65,14 +65,13 @@ pub struct WriteStrategyBuilder {
     use_list_layout: bool,
 }
 
-impl Default for WriteStrategyBuilder {
-    /// Create a new empty builder. It can be further configured,
-    /// and then finally built yielding the [`LayoutStrategy`].
-    fn default() -> Self {
+impl WriteStrategyBuilder {
+    /// Create a new builder that compresses with the schemes registered on `session`. It can be
+    /// further configured, and then finally built yielding the [`LayoutStrategy`].
+    pub fn from_session(session: &VortexSession) -> Self {
         Self {
-            // A fresh session holds only the default compression schemes.
             compressor: CompressorConfig::BtrBlocks(BtrBlocksCompressorBuilder::from_session(
-                &VortexSession::empty(),
+                session,
             )),
             row_block_size: 8192,
             data_block_target_bytes: Some(ONE_MEG),
@@ -82,9 +81,7 @@ impl Default for WriteStrategyBuilder {
             use_list_layout: use_experimental_list_layout(),
         }
     }
-}
 
-impl WriteStrategyBuilder {
     /// Override the row block size used for row repartitioning and zoned statistics.
     ///
     /// Larger blocks reduce footer/statistics overhead. Smaller blocks can improve pruning and

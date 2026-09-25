@@ -51,7 +51,7 @@ mod benchmarks {
         let array = make_clickbench_window_name()
             .execute::<PrimitiveArray>(&mut ctx)
             .unwrap();
-        let compressor = BtrBlocksCompressor::default();
+        let compressor = BtrBlocksCompressor::from_session(&SESSION);
         bencher
             .with_inputs(|| (&array, SESSION.create_execution_ctx()))
             .input_counter(|(array, _)| ItemsCount::new(array.len()))

@@ -246,7 +246,7 @@ fn write_options_for(
         return compaction.apply_options(SESSION.write_options());
     }
 
-    let mut builder = WriteStrategyBuilder::default();
+    let mut builder = WriteStrategyBuilder::from_session(&SESSION);
     if matches!(compaction, CompactionStrategy::Compact) {
         builder = builder.with_btrblocks_builder(retain_edition_encodings(
             &SESSION,

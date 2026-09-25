@@ -25,8 +25,8 @@ fn test_constant_compressed() -> VortexResult<()> {
     let strings: Vec<Option<&str>> = vec![Some("constant_value"); 100];
     let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
     let array_ref = array.into_array();
-    let compressed =
-        BtrBlocksCompressor::default().compress(&array_ref, &mut SESSION.create_execution_ctx())?;
+    let compressed = BtrBlocksCompressor::from_session(&SESSION)
+        .compress(&array_ref, &mut SESSION.create_execution_ctx())?;
     assert!(compressed.is::<Constant>());
     Ok(())
 }
@@ -40,8 +40,8 @@ fn test_dict_compressed() -> VortexResult<()> {
     }
     let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
     let array_ref = array.into_array();
-    let compressed =
-        BtrBlocksCompressor::default().compress(&array_ref, &mut SESSION.create_execution_ctx())?;
+    let compressed = BtrBlocksCompressor::from_session(&SESSION)
+        .compress(&array_ref, &mut SESSION.create_execution_ctx())?;
     assert!(compressed.is::<Dict>());
     Ok(())
 }
@@ -75,8 +75,8 @@ fn test_default_btrblocks_compressor_selects_onpair() -> VortexResult<()> {
     }
     let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
     let array_ref = array.into_array();
-    let compressed =
-        BtrBlocksCompressor::default().compress(&array_ref, &mut SESSION.create_execution_ctx())?;
+    let compressed = BtrBlocksCompressor::from_session(&SESSION)
+        .compress(&array_ref, &mut SESSION.create_execution_ctx())?;
     assert!(
         compressed.is::<vortex_onpair::OnPair>(),
         "expected OnPair, got {}",

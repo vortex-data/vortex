@@ -181,7 +181,7 @@ fn serialized_write_strategy(
             .filter(|&id| id != forced)
             .chain([DeltaScheme::default().id()]),
     );
-    WriteStrategyBuilder::default()
+    WriteStrategyBuilder::from_session(session)
         .with_btrblocks_builder(compressor)
         .build()
 }

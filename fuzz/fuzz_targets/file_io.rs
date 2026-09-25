@@ -65,7 +65,7 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
     let write_options = match compressor_strategy {
         CompressorStrategy::Default => SESSION.write_options(),
         CompressorStrategy::Compact => SESSION.write_options().with_strategy(
-            WriteStrategyBuilder::default()
+            WriteStrategyBuilder::from_session(&SESSION)
                 .with_btrblocks_builder(
                     BtrBlocksCompressorBuilder::from_session(&SESSION).with_compact(),
                 )

@@ -48,7 +48,7 @@
 //! # fn example() -> vortex::error::VortexResult<()> {
 //! let session = VortexSession::default();
 //! let array = PrimitiveArray::new(buffer![42u64; 1024], Validity::NonNullable).into_array();
-//! let compressed = BtrBlocksCompressor::default()
+//! let compressed = BtrBlocksCompressor::from_session(&session)
 //!     .compress(&array, &mut session.create_execution_ctx())?;
 //!
 //! assert_eq!(compressed.dtype(), array.dtype());
@@ -424,7 +424,7 @@ mod test {
 
         // You can compress an array in-memory with the BtrBlocks compressor
         let session = VortexSession::default();
-        let compressed = BtrBlocksCompressor::default().compress(
+        let compressed = BtrBlocksCompressor::from_session(&session).compress(
             &array.clone().into_array(),
             &mut session.create_execution_ctx(),
         )?;
@@ -491,7 +491,7 @@ mod test {
         session
             .write_options()
             .with_strategy(
-                WriteStrategyBuilder::default()
+                WriteStrategyBuilder::from_session(&session)
                     .with_btrblocks_builder(
                         BtrBlocksCompressorBuilder::from_session(&session).with_compact(),
                     )

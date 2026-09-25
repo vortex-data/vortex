@@ -59,13 +59,8 @@ pub struct BtrBlocksCompressorBuilder {
 impl BtrBlocksCompressorBuilder {
     /// Creates a builder with every scheme registered in the session's [`CompressionSession`].
     pub fn from_session(session: &VortexSession) -> Self {
-        Self::from_compression_session(&session.compression())
-    }
-
-    /// Creates a builder with every scheme registered in `compression`.
-    pub(crate) fn from_compression_session(compression: &CompressionSession) -> Self {
         Self {
-            schemes: compression.schemes().to_vec(),
+            schemes: session.compression().schemes().to_vec(),
         }
     }
 
@@ -192,7 +187,7 @@ mod tests {
     use super::*;
 
     fn default_builder() -> BtrBlocksCompressorBuilder {
-        BtrBlocksCompressorBuilder::from_compression_session(&CompressionSession::default())
+        BtrBlocksCompressorBuilder::from_session(&VortexSession::empty())
     }
 
     #[test]

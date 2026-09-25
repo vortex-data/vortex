@@ -51,7 +51,7 @@
 //! let session = array_session();
 //! let array = PrimitiveArray::new(buffer![42u64; 1024], Validity::NonNullable).into_array();
 //!
-//! let compressor = BtrBlocksCompressor::default();
+//! let compressor = BtrBlocksCompressor::from_session(&session);
 //! let compressed = compressor.compress(&array, &mut session.create_execution_ctx())?;
 //! assert_eq!(compressed.dtype(), array.dtype());
 //!

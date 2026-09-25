@@ -8,16 +8,15 @@ use std::ops::Deref;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::BtrBlocksCompressorBuilder;
 use crate::CascadingCompressor;
-use crate::CompressionSession;
 
 /// The BtrBlocks-style compressor with all built-in schemes pre-registered.
 ///
-/// This is a thin wrapper around [`CascadingCompressor`]. [`Default`] uses the schemes of a
-/// default [`CompressionSession`](crate::CompressionSession); use
-/// [`BtrBlocksCompressorBuilder::from_session`] to pick up the schemes registered on a session.
+/// This is a thin wrapper around [`CascadingCompressor`]. [`from_session`](Self::from_session)
+/// uses every scheme registered in the session's [`CompressionSession`](crate::CompressionSession).
 ///
 /// # Examples
 ///
@@ -26,11 +25,12 @@ use crate::CompressionSession;
 /// use vortex_btrblocks::schemes::integer::IntDictScheme;
 /// use vortex_session::VortexSession;
 ///
-/// // Default compressor - all schemes allowed.
-/// let compressor = BtrBlocksCompressor::default();
+/// let session = VortexSession::empty();
+///
+/// // Compressor with every scheme registered on the session.
+/// let compressor = BtrBlocksCompressor::from_session(&session);
 ///
 /// // Remove specific schemes using the builder.
-/// let session = VortexSession::empty();
 /// let compressor = BtrBlocksCompressorBuilder::from_session(&session)
 ///     .exclude_schemes([IntDictScheme.id()])
 ///     .build();
@@ -42,6 +42,12 @@ pub struct BtrBlocksCompressor(
 );
 
 impl BtrBlocksCompressor {
+    /// Creates a compressor with every scheme registered in the session's
+    /// [`CompressionSession`](crate::CompressionSession).
+    pub fn from_session(session: &VortexSession) -> Self {
+        BtrBlocksCompressorBuilder::from_session(session).build()
+    }
+
     /// Compresses an array using BtrBlocks-inspired compression.
     pub fn compress(&self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         self.0.compress(array, ctx)
@@ -53,12 +59,6 @@ impl Deref for BtrBlocksCompressor {
 
     fn deref(&self) -> &CascadingCompressor {
         &self.0
-    }
-}
-
-impl Default for BtrBlocksCompressor {
-    fn default() -> Self {
-        BtrBlocksCompressorBuilder::from_compression_session(&CompressionSession::default()).build()
     }
 }
 
@@ -124,7 +124,7 @@ mod tests {
     ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let array_ref = input.clone().into_array();
-        let result = BtrBlocksCompressor::default()
+        let result = BtrBlocksCompressor::from_session(&SESSION)
             .compress(&array_ref, &mut SESSION.create_execution_ctx())?;
         if expect_list {
             assert!(result.as_opt::<List>().is_some());
@@ -139,7 +139,7 @@ mod tests {
     fn test_constant_all_true() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let array = BoolArray::new(BitBuffer::from(vec![true; 100]), Validity::NonNullable);
-        let btr = BtrBlocksCompressor::default();
+        let btr = BtrBlocksCompressor::from_session(&SESSION);
         let compressed = btr.compress(
             &array.clone().into_array(),
             &mut SESSION.create_execution_ctx(),
@@ -153,7 +153,7 @@ mod tests {
     fn test_constant_all_false() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let array = BoolArray::new(BitBuffer::from(vec![false; 100]), Validity::NonNullable);
-        let btr = BtrBlocksCompressor::default();
+        let btr = BtrBlocksCompressor::from_session(&SESSION);
         let compressed = btr.compress(
             &array.clone().into_array(),
             &mut SESSION.create_execution_ctx(),
@@ -170,7 +170,7 @@ mod tests {
             BitBuffer::from(vec![true; 100]),
             Validity::from(BitBuffer::from(vec![true; 100])),
         );
-        let btr = BtrBlocksCompressor::default();
+        let btr = BtrBlocksCompressor::from_session(&SESSION);
         let compressed = btr.compress(
             &array.clone().into_array(),
             &mut SESSION.create_execution_ctx(),
@@ -185,7 +185,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let validity = Validity::from(BitBuffer::from_iter((0..100).map(|i| i % 3 != 0)));
         let array = BoolArray::new(BitBuffer::from(vec![true; 100]), validity);
-        let btr = BtrBlocksCompressor::default();
+        let btr = BtrBlocksCompressor::from_session(&SESSION);
         let compressed = btr.compress(
             &array.clone().into_array(),
             &mut SESSION.create_execution_ctx(),
@@ -202,7 +202,7 @@ mod tests {
             BitBuffer::from(vec![true, false, true, false, true]),
             Validity::NonNullable,
         );
-        let btr = BtrBlocksCompressor::default();
+        let btr = BtrBlocksCompressor::from_session(&SESSION);
         let compressed = btr.compress(
             &array.clone().into_array(),
             &mut SESSION.create_execution_ctx(),
@@ -217,7 +217,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let values = vec![Some(b"constant-bytes".as_slice()); 100];
         let array = VarBinViewArray::from_iter(values, DType::Binary(Nullability::NonNullable));
-        let btr = BtrBlocksCompressor::default();
+        let btr = BtrBlocksCompressor::from_session(&SESSION);
         let compressed = btr.compress(
             &array.clone().into_array(),
             &mut SESSION.create_execution_ctx(),
@@ -235,7 +235,7 @@ mod tests {
             .map(|idx| Some(distinct_values[idx % distinct_values.len()]))
             .collect::<Vec<_>>();
         let array = VarBinViewArray::from_iter(values, DType::Binary(Nullability::NonNullable));
-        let btr = BtrBlocksCompressor::default();
+        let btr = BtrBlocksCompressor::from_session(&SESSION);
         let compressed = btr.compress(
             &array.clone().into_array(),
             &mut SESSION.create_execution_ctx(),

@@ -391,7 +391,7 @@ async fn write_batch_to_vortex(
 
     // Use compact encodings (Pco + Zstd) for the telemetry files.
     let write_opts = session.write_options().with_strategy(
-        WriteStrategyBuilder::default()
+        WriteStrategyBuilder::from_session(&session)
             .with_btrblocks_builder(
                 BtrBlocksCompressorBuilder::from_session(&session).with_compact(),
             )

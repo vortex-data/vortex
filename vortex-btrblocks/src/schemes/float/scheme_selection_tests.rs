@@ -27,7 +27,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_sess
 fn test_constant_compressed() -> VortexResult<()> {
     let values: Vec<f64> = vec![42.5; 100];
     let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
-    let btr = BtrBlocksCompressor::default();
+    let btr = BtrBlocksCompressor::from_session(&SESSION);
     let compressed = btr.compress(&array.into_array(), &mut SESSION.create_execution_ctx())?;
     assert!(compressed.is::<Constant>());
     Ok(())
@@ -37,7 +37,7 @@ fn test_constant_compressed() -> VortexResult<()> {
 fn test_alp_compressed() -> VortexResult<()> {
     let values: Vec<f64> = (0..1000).map(|i| (i as f64) * 0.01).collect();
     let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
-    let btr = BtrBlocksCompressor::default();
+    let btr = BtrBlocksCompressor::from_session(&SESSION);
     let compressed = btr.compress(&array.into_array(), &mut SESSION.create_execution_ctx())?;
     assert!(compressed.is::<ALP>());
     Ok(())
@@ -50,7 +50,7 @@ fn test_dict_compressed() -> VortexResult<()> {
         .map(|i| distinct_values[i % distinct_values.len()])
         .collect();
     let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
-    let btr = BtrBlocksCompressor::default();
+    let btr = BtrBlocksCompressor::from_session(&SESSION);
     let compressed = btr.compress(&array.into_array(), &mut SESSION.create_execution_ctx())?;
     assert!(compressed.is::<ALP>());
     assert!(compressed.children()[0].is::<Dict>());
@@ -69,7 +69,7 @@ fn test_null_dominated_compressed() -> VortexResult<()> {
     }
     builder.append_nulls(95);
     let array = builder.finish_into_primitive();
-    let btr = BtrBlocksCompressor::default();
+    let btr = BtrBlocksCompressor::from_session(&SESSION);
     let compressed = btr.compress(&array.into_array(), &mut SESSION.create_execution_ctx())?;
     // Verify the compressed array preserves values.
     assert_eq!(compressed.len(), 100);

@@ -572,7 +572,7 @@ async fn btrblocks_respects_enabled_array_encodings() -> VortexResult<()> {
 #[tokio::test]
 async fn explicit_btrblocks_strategy_is_not_reconfigured() -> VortexResult<()> {
     let session = writer_test_session()?;
-    let strategy = WriteStrategyBuilder::default().build();
+    let strategy = WriteStrategyBuilder::from_session(&session).build();
     let mut buffer = ByteBufferMut::empty();
 
     let error = session
@@ -601,7 +601,7 @@ async fn explicit_btrblocks_strategy_is_not_reconfigured() -> VortexResult<()> {
 #[tokio::test]
 async fn serialization_context_rejects_unsupported_compressor_output() -> VortexResult<()> {
     let session = writer_test_session()?;
-    let strategy = WriteStrategyBuilder::default()
+    let strategy = WriteStrategyBuilder::from_session(&session)
         .with_compressor(forbidden_sequence_compressor)
         .build();
     let mut buffer = ByteBufferMut::empty();
@@ -633,7 +633,7 @@ async fn serialization_context_accepts_supported_compressor_output() -> VortexRe
     use crate::VortexSessionDefault;
 
     let session = VortexSession::default();
-    let strategy = WriteStrategyBuilder::default()
+    let strategy = WriteStrategyBuilder::from_session(&session)
         .with_compressor(forbidden_sequence_compressor)
         .build();
     let mut buffer = ByteBufferMut::empty();

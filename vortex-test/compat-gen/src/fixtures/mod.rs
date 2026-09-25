@@ -138,14 +138,14 @@ impl Fixture for DatasetFixtureAdapter {
         let array = self.inner.build(&ctx.session().arrow())?;
         let path = dir.join(self.name());
         if self.compact {
-            let strategy = WriteStrategyBuilder::default()
+            let strategy = WriteStrategyBuilder::from_session(ctx.session())
                 .with_btrblocks_builder(
                     BtrBlocksCompressorBuilder::from_session(ctx.session()).with_compact(),
                 )
                 .build();
             adapter::write_compressed(&path, array, strategy)?;
         } else {
-            let strategy = WriteStrategyBuilder::default().build();
+            let strategy = WriteStrategyBuilder::from_session(ctx.session()).build();
             adapter::write_compressed(&path, array, strategy)?;
         }
         Ok(vec![FixtureEntry {

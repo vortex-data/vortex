@@ -560,7 +560,7 @@ pub fn cuda_write_strategy(session: &VortexSession, block_rows: usize) -> Arc<dy
     let builder = BtrBlocksCompressorBuilder::from_session(session)
         .only_cuda_compatible()
         .retain_allowed_encodings(&allowed_encodings);
-    let strategy = WriteStrategyBuilder::default()
+    let strategy = WriteStrategyBuilder::from_session(session)
         .with_flat_strategy(Arc::new(CudaFlatLayoutStrategy::default()));
     if block_rows == 0 {
         strategy.with_btrblocks_builder(builder).build()
