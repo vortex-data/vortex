@@ -34,7 +34,14 @@ impl SliceReduce for Delta {
             .slice(min(start_chunk * 1024, deltas.len())..min(stop_chunk * 1024, deltas.len()))?;
 
         Ok(Some(
-            Delta::try_new(new_bases, new_deltas, physical_start % 1024, range.len())?.into_array(),
+            Delta::try_new(
+                new_bases,
+                new_deltas,
+                array.validity()?.slice(range.clone())?,
+                physical_start % 1024,
+                range.len(),
+            )?
+            .into_array(),
         ))
     }
 }

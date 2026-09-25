@@ -63,9 +63,7 @@ where
         remainder.is_empty(),
         "deltas must be padded to a multiple of 1024"
     );
-    // Use >= because cross-type casts (e.g. u32→u64) may produce more bases than the
-    // target LANES requires. Only the first chunks.len() * LANES bases are used.
-    assert!(bases.len() >= chunks.len() * LANES);
+    assert_eq!(bases.len(), chunks.len() * LANES);
 
     // Allocate a result array.
     let mut output = BufferMut::with_capacity(deltas.len());

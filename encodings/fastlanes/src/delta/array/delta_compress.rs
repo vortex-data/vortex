@@ -8,22 +8,20 @@ use fastlanes::Delta;
 use fastlanes::FastLanes;
 use fastlanes::Transpose;
 use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
-use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::validity::Validity;
-use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 
+use crate::ChunkBoundary;
 use crate::FL_CHUNK_SIZE;
-use crate::bit_transpose::transpose_bitbuffer;
 use crate::fill_forward_nulls;
 
+/// Encode nonnullable bases and deltas. The caller retains the source validity.
 pub fn delta_compress(
     array: &PrimitiveArray,
     ctx: &mut ExecutionCtx,
@@ -32,45 +30,15 @@ pub fn delta_compress(
     let original_ptype = array.ptype();
     let array = array.reinterpret_cast(original_ptype.to_unsigned());
 
-    let (bases, deltas) = match_each_unsigned_integer_ptype!(array.ptype(), |T| {
-        // Fill-forward null values so that transposed deltas at null positions remain
-        // small. Without this, bitpacking may skip patches for null positions, and the
-        // corrupted delta values propagate through the cumulative sum during decompression.
-        let filled = fill_forward_nulls(array.to_buffer::<T>(), &validity, ctx)?;
+    Ok(match_each_unsigned_integer_ptype!(array.ptype(), |T| {
+        let filled =
+            fill_forward_nulls(array.to_buffer::<T>(), &validity, ChunkBoundary::Carry, ctx)?;
         let (bases, deltas) = compress_primitive::<T, { T::LANES }>(&filled);
-        let validity = match validity {
-            Validity::Array(mask) => {
-                let bits = mask.execute::<BoolArray>(ctx)?.into_bit_buffer();
-                let pad = bits.len().next_multiple_of(FL_CHUNK_SIZE) - bits.len();
-                // Pad remainder bits as valid to match last-value remainder padding.
-                // `transpose_bitbuffer` uses the same element order as the value transpose, so
-                // the pad bits land on exactly the padded value slots; zero-filling them would
-                // mark those slots null and bitpacking would then skip their patches.
-                let bits = if pad == 0 {
-                    bits
-                } else {
-                    // `sliced` first so the copy covers only the logical range, not whatever
-                    // wider buffer the mask was sliced out of.
-                    let mut padded = BitBufferMut::copy_from(&bits.sliced());
-                    padded.append_n(true, pad);
-                    padded.freeze()
-                };
-                Validity::Array(
-                    BoolArray::new(transpose_bitbuffer(bits), Validity::NonNullable).into_array(),
-                )
-            }
-            validity => validity,
-        };
         (
-            PrimitiveArray::new(bases, array.dtype().nullability().into()),
-            PrimitiveArray::new(deltas, validity),
+            PrimitiveArray::new(bases, Validity::NonNullable).reinterpret_cast(original_ptype),
+            PrimitiveArray::new(deltas, Validity::NonNullable).reinterpret_cast(original_ptype),
         )
-    });
-
-    Ok((
-        bases.reinterpret_cast(original_ptype),
-        deltas.reinterpret_cast(original_ptype),
-    ))
+    }))
 }
 
 fn compress_primitive<T, const LANES: usize>(array: &[T]) -> (Buffer<T>, Buffer<T>)
@@ -86,7 +54,8 @@ where
     // Allocate result arrays.
     let mut bases = BufferMut::with_capacity(bases_len);
     let mut deltas = BufferMut::with_capacity(padded_len);
-    let (output_deltas, _) = deltas.spare_capacity_mut().as_chunks_mut::<FL_CHUNK_SIZE>();
+    let (output_deltas, _) =
+        deltas.spare_capacity_mut()[..padded_len].as_chunks_mut::<FL_CHUNK_SIZE>();
 
     // Loop over all full 1024-element chunks.
     let mut transposed: [T; FL_CHUNK_SIZE] = [T::default(); FL_CHUNK_SIZE];
@@ -133,19 +102,15 @@ mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::arrays::Bool;
-    use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
-    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
-    use vortex_error::vortex_bail;
     use vortex_session::VortexSession;
 
     use crate::Delta;
+    use crate::DeltaArraySlotsExt;
     use crate::FL_CHUNK_SIZE;
-    use crate::bit_transpose::untranspose_bitbuffer;
     use crate::bitpack_compress::bitpack_encode;
     use crate::delta::array::delta_decompress::delta_decompress;
     use crate::delta_compress;
@@ -185,6 +150,7 @@ mod tests {
     fn test_compress(#[case] array: PrimitiveArray) -> VortexResult<()> {
         let delta = Delta::try_from_primitive_array(&array, &mut SESSION.create_execution_ctx())?;
         assert_eq!(delta.len(), array.len());
+        assert!(!delta.deltas().dtype().is_nullable());
         let decompressed = delta_decompress(&delta, &mut SESSION.create_execution_ctx())?;
         assert_arrays_eq!(decompressed, array, &mut SESSION.create_execution_ctx());
         Ok(())
@@ -213,21 +179,14 @@ mod tests {
         Ok(())
     }
 
-    /// Padding remainder validity with `true` must not change logical nulls, including leading
-    /// and trailing nulls in the unaligned tail. After untranspose, pad bits are valid and are
-    /// sliced off by `logical_len`.
-    ///
-    /// Which transposed slots the pad bits land on varies with the remainder length, so cover
-    /// several, plus an aligned length that pads nothing at all.
+    // Validity stays logical even when the numeric children are padded.
     #[rstest]
     #[case::one_row_remainder(1025)]
     #[case::mid_chunk_remainder(1500)]
     #[case::two_chunks_plus_one(2049)]
     #[case::one_row_short_of_aligned(3071)]
     #[case::already_aligned(2048)]
-    fn remainder_validity_pad_does_not_clobber_logical_nulls(
-        #[case] len: usize,
-    ) -> VortexResult<()> {
+    fn remainder_preserves_logical_validity(#[case] len: usize) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         // Nulls at both ends, so a leading null and a null inside the padded tail are covered.
         let array = PrimitiveArray::from_option_iter(
@@ -241,24 +200,14 @@ mod tests {
         let padded_len = len.next_multiple_of(FL_CHUNK_SIZE);
         assert_eq!(deltas.len(), padded_len);
 
-        let Validity::Array(storage) = deltas.validity()? else {
-            vortex_bail!("expected array-backed storage validity")
-        };
-        let sequential =
-            untranspose_bitbuffer(storage.execute::<BoolArray>(&mut ctx)?.into_bit_buffer());
-        assert_eq!(sequential.len(), padded_len);
-        for i in 0..len {
-            assert_eq!(
-                sequential.value(i),
-                array.is_valid(i, &mut ctx)?,
-                "logical validity changed at {i}"
-            );
-        }
-        for i in len..padded_len {
-            assert!(sequential.value(i), "pad bit {i} should be valid");
-        }
-
-        let delta = Delta::try_new(bases.into_array(), deltas.into_array(), 0, len)?;
+        assert!(matches!(deltas.validity()?, Validity::NonNullable));
+        let delta = Delta::try_new(
+            bases.into_array(),
+            deltas.into_array(),
+            array.validity()?,
+            0,
+            len,
+        )?;
         assert_eq!(delta.len(), len);
         assert!(!delta.is_valid(0, &mut ctx)?);
         assert!(!delta.is_valid(len - 1, &mut ctx)?);
@@ -266,41 +215,6 @@ mod tests {
         Ok(())
     }
 
-    /// The transposed validity must line up slot for slot with the transposed delta values:
-    /// storage slot `j` describes logical row `transpose(j)`, the position `Transpose::transpose`
-    /// put that row's delta in. `fastlanes` unified the element order of the bit and value
-    /// transposes; before that these two permutations disagreed.
-    #[test]
-    fn storage_validity_aligns_with_transposed_value_slots() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-        // Chunk-aligned, so no remainder padding takes part.
-        const LEN: usize = 2 * FL_CHUNK_SIZE;
-        let valid = |i: usize| !i.is_multiple_of(3);
-        let array =
-            PrimitiveArray::from_option_iter((0..LEN).map(|i| valid(i).then_some(i as u32)));
-
-        let (_bases, deltas) = delta_compress(&array, &mut ctx)?;
-        let Validity::Array(storage) = deltas.validity()? else {
-            vortex_bail!("expected array-backed storage validity")
-        };
-        let bits = storage.execute::<BoolArray>(&mut ctx)?.into_bit_buffer();
-
-        for chunk in 0..LEN / FL_CHUNK_SIZE {
-            let base = chunk * FL_CHUNK_SIZE;
-            for slot in 0..FL_CHUNK_SIZE {
-                assert_eq!(
-                    bits.value(base + slot),
-                    valid(base + fastlanes::transpose(slot)),
-                    "chunk={chunk} slot={slot}"
-                );
-            }
-        }
-        Ok(())
-    }
-
-    /// Regression test: delta + bitpacked encoding must correctly round-trip nullable arrays
-    /// where null positions contain arbitrary values. Without fill-forward, the delta cumulative
-    /// sum propagates corrupted values from null positions.
     #[test]
     fn delta_bitpacked_trailing_nulls() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
@@ -308,19 +222,14 @@ mod tests {
             (0u8..200).map(|i| (!(50..100).contains(&i)).then_some(i)),
         );
         let (bases, deltas) = delta_compress(&array, &mut ctx)?;
-        let Validity::Array(storage_validity) = deltas.validity()? else {
-            vortex_bail!("test input should have array-backed validity")
-        };
-        assert!(storage_validity.is::<Bool>());
-
         let bitpacked_deltas = bitpack_encode(&deltas, 1, None, &mut ctx)?;
         let packed_delta = Delta::try_new(
             bases.into_array(),
             bitpacked_deltas.into_array(),
+            array.validity()?,
             0,
             array.len(),
-        )
-        .vortex_expect("Delta array construction should succeed");
+        )?;
         let packed_delta_prim = packed_delta
             .as_array()
             .clone()
