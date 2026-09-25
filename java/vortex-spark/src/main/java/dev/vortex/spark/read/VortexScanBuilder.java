@@ -19,9 +19,13 @@ import org.apache.spark.sql.connector.catalog.CatalogV2Util;
 import org.apache.spark.sql.connector.catalog.Column;
 import org.apache.spark.sql.connector.expressions.NamedReference;
 import org.apache.spark.sql.connector.expressions.Transform;
+import org.apache.spark.sql.connector.expressions.aggregate.AggregateFunc;
+import org.apache.spark.sql.connector.expressions.aggregate.Aggregation;
+import org.apache.spark.sql.connector.expressions.aggregate.CountStar;
 import org.apache.spark.sql.connector.expressions.filter.Predicate;
 import org.apache.spark.sql.connector.read.Scan;
 import org.apache.spark.sql.connector.read.ScanBuilder;
+import org.apache.spark.sql.connector.read.SupportsPushDownAggregates;
 import org.apache.spark.sql.connector.read.SupportsPushDownRequiredColumns;
 import org.apache.spark.sql.connector.read.SupportsPushDownV2Filters;
 import org.apache.spark.sql.types.DataType;
@@ -29,13 +33,14 @@ import org.apache.spark.sql.types.StructType;
 
 /** Spark V2 {@link ScanBuilder} for table scans over Vortex files. */
 public final class VortexScanBuilder
-        implements ScanBuilder, SupportsPushDownRequiredColumns, SupportsPushDownV2Filters {
+        implements ScanBuilder, SupportsPushDownRequiredColumns, SupportsPushDownV2Filters, SupportsPushDownAggregates {
     private final ImmutableList.Builder<String> paths;
     private final List<Column> tableColumns;
     private final List<Column> readColumns;
     private final Map<String, String> formatOptions;
     private final Set<String> partitionColumnNames;
     private Predicate[] pushedPredicates = new Predicate[0];
+    private boolean pushedCountStar = false;
 
     /** Creates a new VortexScanBuilder with empty paths and columns. */
     public VortexScanBuilder(Map<String, String> formatOptions) {
@@ -120,6 +125,10 @@ public final class VortexScanBuilder
 
         checkState(!paths.isEmpty(), "paths cannot be empty");
 
+        if (pushedCountStar) {
+            return new VortexCountStarScan(paths, this.formatOptions);
+        }
+
         return new VortexScan(
                 paths,
                 List.copyOf(this.tableColumns),
@@ -129,15 +138,51 @@ public final class VortexScanBuilder
     }
 
     /**
+     * Pushes down a global {@code COUNT(*)} so it is answered from file footer metadata instead of scanning data.
+     *
+     * <p>The pushdown is accepted only for an aggregation that is exactly one {@link CountStar} with no grouping
+     * expressions, and only when no predicates were pushed down (a pushed filter changes the number of matching rows,
+     * so footer row counts would over-count). Partition-column filters are never pushed (they are evaluated against
+     * directory paths before planning), so they do not block the pushdown.
+     *
+     * <p>This is a partial pushdown ({@link #supportCompletePushDown(Aggregation)} stays {@code false}): the scan emits
+     * one partial count per file and Spark performs the final summation.
+     *
+     * @param aggregation the aggregation Spark wants to push down
+     * @return true if the aggregation was pushed, false to fall back to a regular scan
+     */
+    @Override
+    public boolean pushAggregation(Aggregation aggregation) {
+        if (pushedPredicates.length != 0) {
+            return false;
+        }
+        if (aggregation.groupByExpressions().length != 0) {
+            return false;
+        }
+        AggregateFunc[] aggregateFunctions = aggregation.aggregateExpressions();
+        if (aggregateFunctions.length != 1 || !(aggregateFunctions[0] instanceof CountStar)) {
+            return false;
+        }
+        this.pushedCountStar = true;
+        return true;
+    }
+
+    /**
      * Prunes the columns to only include those specified in the required schema.
      *
      * <p>This method clears the current column list and replaces it with columns derived from the required schema.
      * Currently only supports top-level schema pruning - deeply nested schema pruning is not yet implemented.
      *
+     * <p>After a successful {@link #pushAggregation(Aggregation)} this method is a no-op: Spark re-prunes to the
+     * aggregation output schema, whose fields do not correspond to any table column.
+     *
      * @param requiredSchema the schema specifying which columns are required
      */
     @Override
     public void pruneColumns(StructType requiredSchema) {
+        if (pushedCountStar) {
+            return;
+        }
         readColumns.clear();
         readColumns.addAll(Arrays.asList(CatalogV2Util.structTypeToV2Columns(requiredSchema)));
     }
