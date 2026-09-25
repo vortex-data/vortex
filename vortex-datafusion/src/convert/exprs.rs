@@ -389,10 +389,13 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
                 .first()
                 .ok_or_else(|| exec_datafusion_err!("Cannot infer the type of an empty IN list"))?
                 .dtype()
-                .with_nullability(list_elements.iter().fold(
-                    Nullability::NonNullable,
-                    |nullability, element| nullability | element.dtype().nullability(),
-                ));
+                .with_nullability(
+                    list_elements
+                        .iter()
+                        .fold(Nullability::NonNullable, |nullability, element| {
+                            nullability | element.dtype().nullability()
+                        }),
+                );
             let list_elements = list_elements
                 .iter()
                 .map(|element| {
@@ -404,7 +407,11 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
             let list = Scalar::list(element_dtype, list_elements, Nullability::NonNullable);
             let expr = in_list(value, lit(list));
 
-            return Ok(if in_list_expr.negated() { not(expr) } else { expr });
+            return Ok(if in_list_expr.negated() {
+                not(expr)
+            } else {
+                expr
+            });
         }
 
         if let Some(scalar_fn) = df.downcast_ref::<ScalarFunctionExpr>() {
@@ -894,7 +901,11 @@ mod tests {
         #[values(false, true)] negated: bool,
         #[values(false, true)] null_first: bool,
     ) {
-        let schema = Arc::new(Schema::new(vec![Field::new("value", DataType::Int32, true)]));
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "value",
+            DataType::Int32,
+            true,
+        )]));
         let batch = RecordBatch::try_new(
             Arc::clone(&schema),
             vec![Arc::new(Int32Array::from(vec![Some(1), Some(2), None]))],
@@ -945,7 +956,11 @@ mod tests {
             &schema,
         )
         .unwrap();
-        assert!(DefaultExpressionConvertor::default().convert(&expr).is_err());
+        assert!(
+            DefaultExpressionConvertor::default()
+                .convert(&expr)
+                .is_err()
+        );
     }
 
     #[test]
