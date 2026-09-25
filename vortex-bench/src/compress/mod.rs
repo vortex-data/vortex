@@ -164,7 +164,7 @@ fn clear_stats(array: &ArrayRef) {
     for stat in Stat::all() {
         array.statistics().clear(stat);
     }
-    for child in array.children_iter() {
+    for child in array.children() {
         clear_stats(child);
     }
 }
