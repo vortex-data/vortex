@@ -9,13 +9,15 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::DecimalArray;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::decimal::narrowed_decimal;
 use vortex_array::dtype::DecimalType;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_decimal_byte_parts::DecimalByteParts;
+use vortex_decimal_byte_parts::DecimalBytePartsSlots;
 use vortex_decimal_byte_parts::decimal_byte_parts_v1_id;
+use vortex_decimal_byte_parts::decimal_byte_parts_v2_id;
+use vortex_decimal_byte_parts::split_decimal;
 use vortex_error::VortexResult;
 
 use crate::ArrayAndStats;
@@ -24,12 +26,54 @@ use crate::CompressorContext;
 use crate::Scheme;
 use crate::SchemeExt;
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+enum DecimalSchemeMode {
+    V1,
+    V2,
+}
+
+/// The v1 decimal scheme, which the default [`CompressionSession`](crate::CompressionSession)
+/// registers.
+pub(crate) static DECIMAL_V1: DecimalScheme = DecimalScheme::v1();
+static DECIMAL_V2: DecimalScheme = DecimalScheme::v2();
+
 /// Compression scheme for decimal arrays via byte-part decomposition.
 ///
-/// Narrows the decimal to the smallest integer type, compresses the underlying primitive, and wraps
-/// the result in a `DecimalBytePartsArray`.
+/// Narrows the decimal to the smallest integer type and compresses its byte parts independently.
+/// The v1 mode leaves values wider than `i64` canonical; v2 splits them into a signed most
+/// significant part and up to three unsigned lower parts. Single-part arrays serialize as v1
+/// in either mode, while arrays with lower parts serialize as v2.
+///
+/// The default uses v1. [`refine`](Scheme::refine) picks v2 when both decimal IDs are allowed
+/// and v1 otherwise.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct DecimalScheme;
+pub struct DecimalScheme {
+    mode: DecimalSchemeMode,
+}
+
+impl DecimalScheme {
+    /// Creates a decimal scheme configured for v1, disallowing splitting of wide decimals.
+    ///
+    /// Values that remain wider than `i64` after narrowing stay canonical.
+    pub const fn v1() -> Self {
+        Self {
+            mode: DecimalSchemeMode::V1,
+        }
+    }
+
+    /// Creates a decimal scheme configured for v2, allowing splitting of wide decimals.
+    pub const fn v2() -> Self {
+        Self {
+            mode: DecimalSchemeMode::V2,
+        }
+    }
+}
+
+impl Default for DecimalScheme {
+    fn default() -> Self {
+        Self::v1()
+    }
+}
 
 impl Scheme for DecimalScheme {
     fn scheme_name(&self) -> &'static str {
@@ -41,14 +85,28 @@ impl Scheme for DecimalScheme {
     }
 
     fn produced_encodings(&self) -> Vec<ArrayId> {
-        // This scheme only builds single-part arrays, which serialize under the frozen v1 ID.
-        // The in-memory ID is the v2 wire ID, which no edition permits yet.
-        vec![decimal_byte_parts_v1_id()]
+        match self.mode {
+            DecimalSchemeMode::V1 => vec![decimal_byte_parts_v1_id()],
+            DecimalSchemeMode::V2 => {
+                vec![decimal_byte_parts_v1_id(), decimal_byte_parts_v2_id()]
+            }
+        }
     }
 
-    /// Children: primitive=0.
+    fn refine(&self, allowed: &dyn Fn(&ArrayId) -> bool) -> Option<&'static dyn Scheme> {
+        if allowed(&decimal_byte_parts_v1_id()) && allowed(&decimal_byte_parts_v2_id()) {
+            Some(&DECIMAL_V2)
+        } else {
+            Some(&DECIMAL_V1)
+        }
+    }
+
+    /// Children: msp=0, then up to three lower parts in v2 mode.
     fn num_children(&self) -> usize {
-        1
+        match self.mode {
+            DecimalSchemeMode::V1 => 1,
+            DecimalSchemeMode::V2 => 4,
+        }
     }
 
     fn expected_compression_ratio(
@@ -68,22 +126,73 @@ impl Scheme for DecimalScheme {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        // TODO(joe): add support splitting i128/256 buffers into chunks of primitive values
-        // for compression. 2 for i128 and 4 for i256.
         let decimal = data.array().clone().execute::<DecimalArray>(exec_ctx)?;
         let decimal = narrowed_decimal(decimal);
-        let validity = decimal.validity()?;
-        let prim = match decimal.values_type() {
-            DecimalType::I8 => PrimitiveArray::new(decimal.buffer::<i8>(), validity),
-            DecimalType::I16 => PrimitiveArray::new(decimal.buffer::<i16>(), validity),
-            DecimalType::I32 => PrimitiveArray::new(decimal.buffer::<i32>(), validity),
-            DecimalType::I64 => PrimitiveArray::new(decimal.buffer::<i64>(), validity),
-            _ => return Ok(decimal.into_array()),
+        if self.mode == DecimalSchemeMode::V1
+            && matches!(decimal.values_type(), DecimalType::I128 | DecimalType::I256)
+        {
+            return Ok(decimal.into_array());
+        }
+
+        let parts = split_decimal(&decimal, exec_ctx)?;
+        let msp = compressor.compress_child(
+            &parts.msp,
+            &compress_ctx,
+            self.id(),
+            DecimalBytePartsSlots::MSP,
+            exec_ctx,
+        )?;
+        let lower_parts = parts
+            .lower_parts
+            .iter()
+            .enumerate()
+            .map(|(idx, part)| {
+                compressor.compress_child(
+                    part,
+                    &compress_ctx,
+                    self.id(),
+                    DecimalBytePartsSlots::LOWER_PARTS_OFFSET + idx,
+                    exec_ctx,
+                )
+            })
+            .collect::<VortexResult<Vec<_>>>()?;
+
+        DecimalByteParts::try_new_with_lower_parts(msp, lower_parts, decimal.decimal_dtype())
+            .map(IntoArray::into_array)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use vortex_array::ArrayId;
+    use vortex_decimal_byte_parts::decimal_byte_parts_v1_id;
+    use vortex_decimal_byte_parts::decimal_byte_parts_v2_id;
+
+    use super::DECIMAL_V1;
+    use super::DECIMAL_V2;
+    use crate::Scheme;
+    use crate::SchemeExt;
+
+    /// Both variants refine to v2 exactly when both decimal IDs are allowed.
+    #[rstest]
+    #[case::neither(false, false, false)]
+    #[case::v1(true, false, false)]
+    #[case::v2_only(false, true, false)]
+    #[case::both(true, true, true)]
+    fn refine_picks_v2_only_when_both_ids_are_allowed(
+        #[case] allow_v1: bool,
+        #[case] allow_v2: bool,
+        #[case] expect_v2: bool,
+        #[values(&DECIMAL_V1, &DECIMAL_V2)] scheme: &'static dyn Scheme,
+    ) {
+        let allowed = |id: &ArrayId| {
+            (allow_v1 && *id == decimal_byte_parts_v1_id())
+                || (allow_v2 && *id == decimal_byte_parts_v2_id())
         };
-
-        let compressed =
-            compressor.compress_child(&prim.into_array(), &compress_ctx, self.id(), 0, exec_ctx)?;
-
-        DecimalByteParts::try_new(compressed, decimal.decimal_dtype()).map(|d| d.into_array())
+        let refined = scheme.refine(&allowed).unwrap_or(scheme);
+        assert_eq!(refined.id(), scheme.id());
+        let expected: &dyn Scheme = if expect_v2 { &DECIMAL_V2 } else { &DECIMAL_V1 };
+        assert_eq!(refined.produced_encodings(), expected.produced_encodings());
     }
 }
