@@ -544,6 +544,45 @@ typedef struct {
 } vx_data_source_options;
 
 /**
+ * A random-access byte source implemented by the caller.
+ *
+ * "read_at" must tolerate concurrent calls from arbitrary threads. The struct
+ * is read only during the call it is passed to, but "ctx" and the callbacks
+ * must stay valid until "release" runs.
+ */
+typedef struct {
+    /**
+     * Opaque caller state passed to every callback. May be NULL.
+     */
+    void *ctx;
+    /**
+     * Total length of the source in bytes. Must be exact: the footer is read
+     * relative to the end, so a wrong length surfaces as a corrupt file.
+     */
+    uint64_t len;
+    /**
+     * Maximum number of concurrent "read_at" calls for this source. 0 selects a
+     * default. A process-wide ceiling applies across all sources as well.
+     */
+    size_t concurrency;
+    /**
+     * Optional name, typically the URI, used for cache keys and error messages;
+     * it should be stable and unique. Copied. Zero-length means anonymous.
+     */
+    vx_view name;
+    /**
+     * Required. Writes "length" bytes at "offset" into "dst" and returns the
+     * count written; a short count or a negative value fails the read.
+     */
+    int64_t (*read_at)(void *ctx, uint64_t offset, uint8_t *dst, size_t length);
+    /**
+     * Optional. Called once, before the call that drops the source returns -
+     * on that thread, or on a worker thread if any are configured.
+     */
+    void (*release)(void *ctx);
+} vx_readat;
+
+/**
  * Used for estimating number of partitions in a data source or number of rows
  * in a partition.
  */
@@ -890,6 +929,23 @@ const vx_data_source *
 vx_data_source_new_buffer(const vx_session *session, const void *buffer, size_t buffer_len, vx_error **err);
 
 /**
+ * Create a data source that reads through caller-supplied callbacks instead of
+ * Vortex's own I/O.
+ *
+ * Unlike vx_data_source_new_buffer, this keeps I/O pruning: only the segments a
+ * scan needs are fetched, rather than the whole file up front.
+ *
+ * "reader" is read during this call only; its callbacks and context must stay
+ * valid until "release" runs. A rejected descriptor leaves ownership with the
+ * caller and never calls "release"; once accepted, "release" runs before this
+ * call returns if it fails, and otherwise before vx_data_source_free returns.
+ *
+ * On error, returns NULL and sets "err".
+ */
+const vx_data_source *
+vx_data_source_new_readat(const vx_session *session, const vx_readat *reader, vx_error **err);
+
+/**
  * Increase reference count on vx_data_source
  */
 const vx_data_source *vx_data_source_clone(const vx_data_source *ptr);
@@ -1117,6 +1173,39 @@ vx_expression *vx_expression_clone(const vx_expression *ptr);
  * vx_expression_free(root);
  */
 vx_expression *vx_expression_literal(const vx_scalar *scalar, vx_error **err);
+
+/**
+ * Create an expression yielding each row's position within the file scanned.
+ *
+ * Recovers a row's original position after a filter dropped the rows around it,
+ * as Iceberg positional deletes need. Only valid inside a scan; else it errors.
+ */
+vx_expression *vx_expression_row_idx(void);
+
+/**
+ * Create a struct-valued expression from named child expressions.
+ *
+ * Where vx_expression_select trims a struct to some of its fields, pack builds
+ * one from arbitrary expressions - how fields inside a nested struct get pruned.
+ *
+ * "names" and "expressions" must both point to arrays of "len" entries, paired
+ * by position. "nullable" sets the resulting struct's nullability. Names are
+ * copied.
+ *
+ * Returns NULL if len == 0, if either array is NULL, if any entry of
+ * "expressions" is NULL, or if a name is not valid UTF-8.
+ *
+ * Example:
+ *
+ * vx_expression* root = vx_expression_root();
+ * vx_expression* addr = vx_expression_get_item(vx_view_from_cstr("addr"), root);
+ * vx_expression* city = vx_expression_get_item(vx_view_from_cstr("city"), addr);
+ * vx_view names[] = {vx_view_from_cstr("city")};
+ * const vx_expression* parts[] = {city};
+ * vx_expression* packed = vx_expression_pack(names, parts, 1, false);
+ */
+vx_expression *
+vx_expression_pack(const vx_view *names, const vx_expression *const *expressions, size_t len, bool nullable);
 
 /**
  * Create an expression that selects (includes) specific fields from a child

@@ -11178,6 +11178,7 @@ dependencies = [
  "arrow-array 59.3.0",
  "arrow-schema 59.3.0",
  "async-fs",
+ "async-lock",
  "bytes",
  "cbindgen",
  "futures",
