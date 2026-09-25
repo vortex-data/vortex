@@ -359,7 +359,7 @@ fn temporal_timestamp_micros() -> ArrayRef {
     .into_array()
 }
 
-/// Random booleans: no bool scheme is registered, pinning the "stays canonical" path.
+/// Random booleans: too dense for any bool scheme, pinning the "stays canonical" path.
 fn bool_random() -> ArrayRef {
     let mut rng = StdRng::seed_from_u64(117);
     BoolArray::from_iter((0..N).map(|_| rng.random::<bool>())).into_array()
