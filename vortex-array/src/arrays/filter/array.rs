@@ -43,7 +43,7 @@ pub struct FilterDataParts {
 }
 
 impl FilterData {
-    pub fn new(mask: Mask) -> Self {
+    fn new(mask: Mask) -> Self {
         Self { mask }
     }
 
@@ -95,14 +95,17 @@ impl Array<Filter> {
 
     /// Constructs a new `FilterArray`.
     pub fn try_new(array: ArrayRef, mask: Mask) -> VortexResult<Self> {
+        Ok(unsafe { Array::from_parts_unchecked(Self::try_new_parts(array, mask)?) })
+    }
+
+    /// Builds the [`ArrayParts<Filter>`]. The parts can then be optimized through
+    /// [`ArrayParts::optimize`](crate::array::ArrayParts::optimize) or materialized
+    /// directly with [`ArrayParts::into_array`].
+    pub fn try_new_parts(array: ArrayRef, mask: Mask) -> VortexResult<ArrayParts<Filter>> {
         let dtype = array.dtype().clone();
         let len = mask.true_count();
         let data = FilterData::try_new(array.len(), mask)?;
-        Ok(unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(Filter, dtype, len, data)
-                    .with_slots(FilterSlots { child: array }.into_slots()),
-            )
-        })
+        Ok(ArrayParts::new(Filter, dtype, len, data)
+            .with_slots(FilterSlots { child: array }.into_slots()))
     }
 }

@@ -87,7 +87,7 @@ impl BitPackedExecutor {
             return Ok(None);
         }
 
-        let bp = child.as_::<BitPacked>();
+        let bp = child.as_::<BitPacked>().materialize_view();
         let offset = slice.data().slice_range().start;
         let len = array.len();
         let (packed, bitpacked_offset, patch_range) = bitpacked_slice_view(bp, offset, len)?;

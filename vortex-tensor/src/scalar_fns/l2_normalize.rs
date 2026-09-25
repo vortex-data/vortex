@@ -14,11 +14,9 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::ScalarFn as ScalarFnArrayEncoding;
 use vortex_array::arrays::ScalarFnArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
-use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayView;
 use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayParts;
 use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayVTable;
@@ -209,8 +207,7 @@ impl ScalarFnArrayVTable for L2Normalize {
         view: &ScalarFnArrayView<Self>,
         _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
-        let array = view.as_::<ScalarFnArrayEncoding>();
-        let input_dtype = Some(array.child_at(0).dtype().try_into()?);
+        let input_dtype = Some(view.child_at(0).dtype().try_into()?);
 
         Ok(Some(L2NormalizeMetadata { input_dtype }.encode_to_vec()))
     }

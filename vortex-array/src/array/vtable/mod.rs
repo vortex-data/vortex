@@ -35,6 +35,8 @@ use crate::Canonical;
 use crate::EqMode;
 use crate::ExecutionResult;
 use crate::IntoArray;
+use crate::array::ParentRef;
+use crate::array::ParentView;
 pub use crate::array::plugin::*;
 use crate::arrays::ConstantArray;
 use crate::arrays::constant::Constant;
@@ -191,7 +193,7 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     ///
     /// Reductions are opportunistic and may return `Ok(None)` when no cheaper representation is
     /// known.
-    fn reduce(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {
+    fn reduce(array: ParentView<'_, Self>) -> VortexResult<Option<ArrayRef>> {
         _ = array;
         Ok(None)
     }
@@ -201,7 +203,7 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     /// This is used by lazy arrays to let child execution unlock parent simplifications.
     fn reduce_parent(
         array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
+        parent: &ParentRef<'_>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         _ = (array, parent, child_idx);

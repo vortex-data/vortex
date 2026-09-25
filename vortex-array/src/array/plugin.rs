@@ -7,6 +7,7 @@ use std::fmt::Formatter;
 use std::sync::Arc;
 
 use vortex_buffer::ByteBuffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
@@ -178,7 +179,10 @@ impl<V: VTable> ArrayPlugin for V {
             self.id(),
             array.encoding_id(),
         );
-        Ok(V::serialize(array.as_::<V>(), session)?
+        let typed = array
+            .as_typed::<V>()
+            .vortex_expect("Invoked for incorrect array type");
+        Ok(V::serialize(typed, session)?
             .map(|metadata| ArraySerialization::from_array(self.id(), array, metadata)))
     }
 

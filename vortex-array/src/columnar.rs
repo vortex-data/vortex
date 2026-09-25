@@ -11,10 +11,11 @@ use crate::CanonicalView;
 use crate::Executable;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::array::ArrayView;
+use crate::array::ParentView;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::dtype::DType;
+use crate::matcher::AsParent;
 use crate::matcher::Matcher;
 use crate::scalar::Scalar;
 
@@ -86,18 +87,25 @@ impl Executable for Columnar {
 
 pub enum ColumnarView<'a> {
     Canonical(CanonicalView<'a>),
-    Constant(ArrayView<'a, Constant>),
+    Constant(ParentView<'a, Constant>),
 }
 
 pub struct AnyColumnar;
 impl Matcher for AnyColumnar {
     type Match<'a> = ColumnarView<'a>;
 
-    fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
-        if let Some(constant) = array.as_opt::<Constant>() {
+    /// Fast encoding-id checks. Mirror of
+    /// [`AnyCanonical::matches`](crate::AnyCanonical) for the same reason.
+    #[inline]
+    fn matches<P: AsParent>(parent: &P) -> bool {
+        parent.is::<Constant>() || parent.is::<AnyCanonical>()
+    }
+
+    fn try_match<'a, P: AsParent>(parent: &'a P) -> Option<Self::Match<'a>> {
+        if let Some(constant) = parent.as_opt::<Constant>() {
             Some(ColumnarView::Constant(constant))
         } else {
-            array.as_opt::<AnyCanonical>().map(ColumnarView::Canonical)
+            parent.as_opt::<AnyCanonical>().map(ColumnarView::Canonical)
         }
     }
 }

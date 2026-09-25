@@ -10,7 +10,7 @@ use vortex_session::registry::CachedId;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::array::ArrayView;
+use crate::TypedArrayRef;
 use crate::arrays::ConstantArray;
 use crate::arrays::FixedSizeList;
 use crate::arrays::List;
@@ -25,6 +25,7 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::expr::Expression;
+use crate::matcher::AsParent;
 use crate::matcher::Matcher;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
@@ -141,7 +142,7 @@ pub(crate) fn list_length(
         let lengths =
             ConstantArray::new(Scalar::primitive(size, Nullability::NonNullable), fsl.len())
                 .into_array();
-        (lengths, fsl.validity()?)
+        (lengths, fsl.fixed_size_list_validity())
     } else if let Some(lv) = any_list.as_opt::<ListView>() {
         // Length array is exactly the sizes child
         (lv.sizes().clone(), lv.listview_validity())
@@ -167,7 +168,7 @@ pub(crate) fn list_length(
 
 /// Calculate the lengths of `ListArray` elements via the `offsets` child:
 /// `length[i] = offsets[i + 1] - offsets[i]`.
-fn list_length_from_offsets(list: ArrayView<'_, List>) -> VortexResult<ArrayRef> {
+fn list_length_from_offsets(list: impl TypedArrayRef<List>) -> VortexResult<ArrayRef> {
     let offsets = list.offsets();
     let n = offsets.len().saturating_sub(1);
 
@@ -182,10 +183,10 @@ struct AnyList;
 impl Matcher for AnyList {
     type Match<'a> = ();
 
-    fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
-        (array.as_opt::<List>().is_some()
-            || array.as_opt::<ListView>().is_some()
-            || array.as_opt::<FixedSizeList>().is_some())
+    fn try_match<'a, P: AsParent>(parent: &'a P) -> Option<Self::Match<'a>> {
+        (parent.is_encoding::<List>()
+            || parent.is_encoding::<ListView>()
+            || parent.is_encoding::<FixedSizeList>())
         .then_some(())
     }
 }

@@ -8,9 +8,11 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::ArrayView;
+use crate::array::ParentView;
 use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
 use crate::arrays::Masked;
+use crate::arrays::masked::MaskedArrayExt;
 use crate::arrays::slice::SliceReduce;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::match_each_decimal_value_type;
@@ -39,7 +41,7 @@ impl ArrayParentReduceRule<Decimal> for DecimalMaskedValidityRule {
     fn reduce_parent(
         &self,
         array: ArrayView<'_, Decimal>,
-        parent: ArrayView<'_, Masked>,
+        parent: ParentView<'_, Masked>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         // Merge the parent's validity mask into the child's validity
@@ -51,7 +53,7 @@ impl ArrayParentReduceRule<Decimal> for DecimalMaskedValidityRule {
                 DecimalArray::new_unchecked(
                     array.buffer::<D>(),
                     array.decimal_dtype(),
-                    array.validity()?.and(parent.validity()?)?,
+                    array.validity()?.and(parent.masked_validity())?,
                 )
             }
             .into_array()
@@ -104,6 +106,7 @@ mod tests {
     use crate::array_session;
     use crate::arrays::Decimal;
     use crate::arrays::DecimalArray;
+    use crate::arrays::decimal::DecimalArrayExt;
     use crate::assert_arrays_eq;
     use crate::buffer::BufferHandle;
     use crate::buffer::DeviceBuffer;
@@ -204,7 +207,7 @@ mod tests {
         assert_eq!(actual_bytes, &expected_bytes);
         assert_eq!(actual_bytes.as_ptr(), expected_bytes.as_ptr());
         assert_arrays_eq!(
-            decimal.validity()?.to_array(nested.len()),
+            decimal.validity().to_array(nested.len()),
             validity.to_array(array.len()).slice(original_range)?,
             &mut ctx
         );

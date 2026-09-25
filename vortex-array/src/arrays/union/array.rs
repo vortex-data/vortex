@@ -74,7 +74,7 @@ pub struct UnionDataParts {
 pub trait UnionArrayExt: UnionArraySlotsExt {
     /// The union's variant schema.
     fn variants(&self) -> &UnionVariants {
-        match self.as_ref().dtype() {
+        match self.dtype() {
             DType::Union(variants, _) => variants,
             _ => unreachable!("UnionArrayExt requires a union dtype"),
         }

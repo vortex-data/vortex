@@ -61,27 +61,26 @@ impl Display for ChunkedData {
 
 pub trait ChunkedArrayExt: TypedArrayRef<Chunked> {
     fn chunk_offsets_array(&self) -> &ArrayRef {
-        self.as_ref().slots()[ChunkedSlots::CHUNK_OFFSETS]
+        self.slots()[ChunkedSlots::CHUNK_OFFSETS]
             .as_ref()
             .vortex_expect("validated chunk offsets slot")
     }
 
     fn nchunks(&self) -> usize {
-        self.as_ref()
-            .slots()
+        self.slots()
             .len()
             .saturating_sub(ChunkedSlots::CHUNKS_OFFSET)
     }
 
     fn chunk(&self, idx: usize) -> &ArrayRef {
-        self.as_ref().slots()[ChunkedSlots::CHUNKS_OFFSET + idx]
+        self.slots()[ChunkedSlots::CHUNKS_OFFSET + idx]
             .as_ref()
             .vortex_expect("validated chunk slot")
     }
 
     fn iter_chunks<'a>(&'a self) -> Box<dyn Iterator<Item = &'a ArrayRef> + 'a> {
         Box::new(
-            self.as_ref().slots()[ChunkedSlots::CHUNKS_OFFSET..]
+            self.slots()[ChunkedSlots::CHUNKS_OFFSET..]
                 .iter()
                 .map(|slot| slot.as_ref().vortex_expect("validated chunk slot")),
         )
@@ -101,10 +100,7 @@ pub trait ChunkedArrayExt: TypedArrayRef<Chunked> {
     }
 
     fn find_chunk_idx(&self, index: usize) -> VortexResult<(usize, usize)> {
-        assert!(
-            index <= self.as_ref().len(),
-            "Index out of bounds of the array"
-        );
+        assert!(index <= self.len(), "Index out of bounds of the array");
         let chunk_offset_values = self.chunk_offset_values();
         let index_chunk = chunk_offset_values
             .search_sorted(&index, SearchSortedSide::Right)?
@@ -117,14 +113,14 @@ pub trait ChunkedArrayExt: TypedArrayRef<Chunked> {
 
     fn array_iterator(&self) -> impl ArrayIterator + '_ {
         ArrayIteratorAdapter::new(
-            self.as_ref().dtype().clone(),
+            self.dtype().clone(),
             self.iter_chunks().map(|chunk| Ok(chunk.clone())),
         )
     }
 
     fn array_stream(&self) -> impl ArrayStream + '_ {
         ArrayStreamAdapter::new(
-            self.as_ref().dtype().clone(),
+            self.dtype().clone(),
             stream::iter(self.iter_chunks().map(|chunk| Ok(chunk.clone()))),
         )
     }
