@@ -9,6 +9,7 @@ use vortex_session::SessionExt;
 use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
 
+use crate::DELTA_SCHEME;
 use crate::Scheme;
 use crate::SchemeExt;
 use crate::schemes::binary;
@@ -24,8 +25,9 @@ use crate::schemes::temporal;
 /// starts from these schemes. Registration order is the compressor's tie-break order, so that
 /// scheme selection is deterministic.
 ///
-/// [`Default`] registers the built-in schemes. Feature-gated schemes (Pco, Zstd) and Delta are
-/// not registered by default.
+/// [`Default`] registers every built-in scheme, including Delta and the feature-gated Pco and
+/// Zstd schemes. The builder's mode decides which of them a compressor uses, see
+/// [`CompressionMode`](crate::CompressionMode).
 #[derive(Clone, Debug)]
 pub struct CompressionSession {
     schemes: Vec<&'static dyn Scheme>,
@@ -48,7 +50,9 @@ impl Default for CompressionSession {
                 &integer::RunEndScheme,
                 &integer::SequenceScheme,
                 &integer::IntRLEScheme,
-                // Delta is omitted here: see `DELTA_SCHEME`.
+                &DELTA_SCHEME,
+                #[cfg(feature = "pco")]
+                &integer::PcoScheme,
                 ////////////////////////////////////////////////////////////////////////////////////
                 // Float schemes.
                 ////////////////////////////////////////////////////////////////////////////////////
@@ -57,6 +61,8 @@ impl Default for CompressionSession {
                 &float::FloatDictScheme,
                 &float::NullDominatedSparseScheme,
                 &float::FloatRLEScheme,
+                #[cfg(feature = "pco")]
+                &float::PcoScheme,
                 ////////////////////////////////////////////////////////////////////////////////////
                 // String schemes.
                 ////////////////////////////////////////////////////////////////////////////////////
@@ -66,11 +72,17 @@ impl Default for CompressionSession {
                 &string::FSSTScheme,
                 &string::OnPairScheme,
                 &string::NullDominatedSparseScheme,
+                #[cfg(feature = "zstd")]
+                &string::ZstdScheme,
                 ////////////////////////////////////////////////////////////////////////////////////
                 // Binary schemes.
                 ////////////////////////////////////////////////////////////////////////////////////
                 &binary::BinaryDictScheme,
                 &binary::VarBinScheme,
+                #[cfg(feature = "zstd")]
+                &binary::ZstdScheme,
+                #[cfg(feature = "zstd")]
+                &binary::ZstdBuffersScheme,
                 // Decimal schemes.
                 &decimal::DecimalScheme,
                 // Temporal schemes.
