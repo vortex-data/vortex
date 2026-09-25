@@ -160,6 +160,14 @@ impl<'a> ListScalar<'a> {
         })
     }
 
+    /// Returns the values of the list's elements, `None` for a null element, without building a
+    /// scalar for each.
+    ///
+    /// Returns None if the list is null.
+    pub(crate) fn element_values(&self) -> Option<&'a [Option<ScalarValue>]> {
+        self.elements
+    }
+
     /// Returns all elements in the list as a vector of scalars.
     ///
     /// Returns None if the list is null.
