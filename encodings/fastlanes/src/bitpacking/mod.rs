@@ -13,6 +13,8 @@ pub use array::bitpack_decompress;
 pub use array::chunk_packed_bytes;
 pub use array::unpack_iter;
 
+#[cfg(test)]
+mod chunk_widths_tests;
 pub(crate) mod compute;
 
 mod plugin;
@@ -27,6 +29,3 @@ pub use vtable::BitPackedArray;
 pub(crate) fn initialize(session: &vortex_session::VortexSession) {
     vtable::initialize(session);
 }
-
-#[cfg(test)]
-mod chunk_widths_tests;
