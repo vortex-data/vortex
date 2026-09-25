@@ -8,6 +8,11 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 This analysis uses Vortex commit `96bd521eb0565555def2af7b8e97e96891728da6`. It records source inspection,
 not executed regression tests.
 
+The [September 25 RowFn changes](../current-system/recent-changes.md) improve output storage,
+allocation, Boolean retry, UTF-8 decoding, and masking. They do not add caller demand to
+`ExecutionArgs`, RowFn batch planning, or input decoding. The demand boundary described here remains
+open. Output initialization now uses the `OutputBuffer` contract and tightened unsafe row tokens.
+
 ## Execution requests whole arrays
 
 `ExecutionArgs` exposes `get(index)`, `num_inputs()`, and `row_count()`. It has no demand argument or

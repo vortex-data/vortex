@@ -11,9 +11,10 @@ The recommendation is to prove this boundary with Vortex and Arrow before stabil
 DataFusion can then reuse the Arrow adapter. DuckDB needs a separate choice between its C callback
 and a version-matched C++ adapter.
 
-This tree contains findings and design proposals, dated 2026-09-21. The portable library and host
-adapters are not implemented. The [evidence record](evidence.md) identifies source revisions,
-completed experiments, and their limits.
+This tree contains findings and design proposals from 2026-09-21, updated for the Vortex source
+baseline on 2026-09-25. The portable library and host adapters are not implemented. The
+[recent changes](current-system/recent-changes.md) record completed RowFn improvements. The
+[evidence record](evidence.md) separates the updated source findings from historical experiments.
 
 ## Start here
 
@@ -21,6 +22,7 @@ These pages contain the main argument. The other files provide supporting detail
 
 | Page | What it answers |
 | --- | --- |
+| [Recent changes](current-system/recent-changes.md) | Which research concerns have been addressed since September 21? |
 | [Design](architecture.md) | What belongs in the library, and which API choices remain open? |
 | [Performance](performance/README.md) | What was measured, and which costs need attention? |
 | [Demand and completion](definedness/README.md) | How can conditionals avoid errors in rows they do not need? |
@@ -40,15 +42,18 @@ The [type analysis](type-system/README.md) compares this with an extensible capa
 
 **Most reusable logic sits between host operations.** Typed traversal, constants, preparation,
 deferred failure evidence, and sink initialization belong in the core. Adapters own column access,
-allocation, output construction, and host registration. Explicit wrappers such as `VortexRowFn<F>`
-avoid the blanket-implementation constraints. The [source inventory](current-system/README.md)
-maps the boundary and its safety obligations.
+allocation, output construction, and host registration. `OutputElement::Buffer` and `OutputBuffer`
+already separate output storage from traversal, with execution-allocator support. Extraction can
+build on that boundary. Explicit wrappers such as `VortexRowFn<F>` avoid the blanket-implementation
+constraints. The [source inventory](current-system/README.md) maps the boundary and its safety
+obligations.
 
-**Overhead has several causes.** The ARM experiment isolates about 101 to 104 ns of additional batch
-work with a shared collector. It also finds a larger collector difference at 16,384 rows. The x86
-sweep reports different setup costs and exposes UTF-8 validation, retry, and nullable execution
-costs. These are different experiments, not one combined benchmark. The
-[performance summary](performance/README.md) keeps both baselines and their limits visible.
+**The original measurements separate several costs.** The ARM experiment isolates about 101 to
+104 ns of additional batch work with a shared collector. It also finds a larger collector difference
+at 16,384 rows. The x86 sweep reports different setup costs and exposes UTF-8 validation, retry,
+and nullable execution costs. These are different experiments, not one combined benchmark. The
+[performance summary](performance/README.md) keeps both baselines and their limits visible. These
+timings predate direct packed Boolean retry, the UTF-8 decode change, and allocator and mask fixes.
 
 **Demand, completion, and validity are different facts.** A caller requests rows. A successful call
 completes those rows, including null results. Validity says which completed results are non-null.

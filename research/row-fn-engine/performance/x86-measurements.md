@@ -3,6 +3,9 @@
 
 # x86 overhead measurements
 
+These historical timings predate the [RowFn updates](../current-system/recent-changes.md). They do
+not quantify the remaining UTF-8 validation cost or the updated Boolean, allocation, and mask paths.
+
 [Performance overview](README.md). This record uses Vortex `f5b3b26` on 2026-09-21.
 
 The recorded run used the existing `row_fn_output` Divan benchmark and a temporary row-count sweep.

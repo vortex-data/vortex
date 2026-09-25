@@ -7,8 +7,10 @@ The useful quantity is the extra cost for the same observable result at the same
 There is no single overhead percentage for RowFn. The result depends on batch size, representation,
 null policy, output format, and the baseline API.
 
-This account uses Vortex commit `96bd521eb0565555def2af7b8e97e96891728da6`.
-It describes source work separately from the [local measurements](local-measurements.md).
+The execution and output account includes the
+[September 25 source update](../current-system/recent-changes.md) at
+`d8e45e0898e02efed0822a6c74bf0d515a5b3b74`. The
+[local measurements](local-measurements.md) retain their September 21 baseline.
 
 ## Choose the boundary first
 
@@ -83,7 +85,7 @@ For a non-nullary function with non-nullable, non-constant inputs, the normal ro
 5. The execution dispatch validates its concrete signature and reproduces the planned output contract.
 6. The tuple decoder obtains each input handle, checks constant representation, and decodes the column.
 7. Preparation receives decoded constants. The source checks each decoded length once.
-8. The typed loop computes the output values.
+8. Output allocation uses the execution allocator, then the typed loop writes the values.
 9. Output construction creates the array. Finalization checks its length, dtype, and validity.
 10. Finalization applies the logical label, checks the result, then casts its outer nullability.
 
@@ -117,9 +119,14 @@ Additional ownership work comes from canonical decoding, buffers, labels, and ou
 A direct array kernel often performs some of the same work. Count the difference rather than charging
 all reference counts to RowFn. See [ArrayRef][array-ref] and [borrowed batch arguments][borrowed].
 
-The [local allocation experiment](local-measurements.md) counts allocation requests for one narrow
-path. Requested bytes are not retained memory, peak live bytes, physical allocator block sizes, or
-resident memory. A request counter also cannot attribute time to individual allocations.
+Output collection now uses `OutputElement::Buffer` and `OutputBuffer`, with `ctx.allocator()` for
+payload allocation. Primitive output freezes its `BufferMut` without copying. Scalar and
+fixed-size-list sinks use the same storage contract, while UTF-8 output retains the allocator for
+descriptors and external bytes. [Output storage][storage], [sink allocation][sink].
+
+The [local allocation experiment](local-measurements.md) predates this boundary and counts requests
+for one narrow path. Requested bytes are not retained memory, peak live bytes, physical allocator
+block sizes, or resident memory. A request counter cannot attribute time to individual allocations.
 
 ## Validity changes the executed algorithm
 
@@ -149,12 +156,18 @@ Mask density alone does not describe mask cost. Alternating bits, long runs, and
 exercise different traversal behavior. Lazy validity can also require array execution before any
 row callback starts.
 
+Final mask attachment has a metadata-only path for eligible arrays with definitely all-valid
+validity. It attaches a lazy mask directly without materializing it. Boolean masking preserves the
+value handle and offset. This reduces output wrapping in those cases, but does not remove input
+validity composition or selected-row mask execution. [Mask reduction][mask].
+
 ## Output representation is part of the contract
 
 A Boolean result needs packed bits in a typical columnar host. Measuring a `Vec<bool>` result against
 a packed bitmap changes the required work. The current infallible Boolean output overrides
-`build_from` to collect packed bits directly. Deferred Boolean execution also has a packed path.
-A mandatory byte-per-row intermediate is therefore not an inherent RowFn cost.
+`build_from` to collect packed bits directly. Deferred Boolean execution and dense retry also have
+packed paths that honor `MULTIVERSIONED`. Selected and filtered execution still collect byte-sized
+values before packing. A byte-per-row intermediate is a cost of those paths, not every RowFn call.
 See [Boolean output][boolean] and [packed execution][packed].
 
 A string sink allocates payload storage and writes descriptors. A fixed-size list sink allocates
@@ -178,21 +191,25 @@ row can be undemanded. The useful work is the intersection of demand and the row
 requirements. Error, preparation, decoder, and output-initialization costs still need explicit scope.
 The [measurement plan](measurement-plan.md) includes these cases.
 
-[entry]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/unstable/row/vtable.rs
-[planning]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/unstable/row/batch/planning.rs
-[execute-visitor]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/unstable/row/visitor/execute.rs
-[tuple]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/unstable/row/types/element/tuple/element_tuple.rs
-[owned]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/unstable/row/execute/owned.rs
-[output]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/unstable/row/batch/execute/output.rs
-[style]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/STYLE.md
-[batch]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/unstable/row/batch/mod.rs
-[args]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/vtable.rs
-[row-bench]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/benches/row_fn_output.rs
-[numeric]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/fns/binary/numeric/row.rs
-[array-ref]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/array/erased.rs
-[borrowed]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/unstable/row/batch/args.rs
-[filtered]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/unstable/row/batch/execute/filtered.rs
-[dense]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/unstable/row/batch/execute/dense.rs
-[policy]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/unstable/row/visitor/plan.rs
-[boolean]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/unstable/row/types/element/bool.rs
-[packed]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/unstable/row/execute/packed_bool.rs
+[entry]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/unstable/row/vtable.rs
+[planning]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/unstable/row/batch/planning.rs
+[execute-visitor]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/unstable/row/visitor/execute.rs
+[tuple]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/unstable/row/types/element/tuple/element_tuple.rs
+[owned]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/unstable/row/execute/owned.rs
+[output]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/unstable/row/batch/execute/output.rs
+[style]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/STYLE.md
+[batch]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/unstable/row/batch/mod.rs
+[args]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/vtable.rs
+[row-bench]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/benches/row_fn_output.rs
+[numeric]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/fns/binary/numeric/row.rs
+[array-ref]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/array/erased.rs
+[borrowed]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/unstable/row/batch/args.rs
+[filtered]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/unstable/row/batch/execute/filtered.rs
+[dense]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/unstable/row/batch/execute/dense.rs
+[policy]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/unstable/row/visitor/plan.rs
+[boolean]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/unstable/row/types/element/bool.rs
+[packed]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/unstable/row/execute/packed_bool.rs
+
+[storage]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/unstable/row/types/element/output.rs
+[sink]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/unstable/row/types/sink/mod.rs
+[mask]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/fns/mask/kernel.rs

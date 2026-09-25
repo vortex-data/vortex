@@ -3,6 +3,10 @@
 
 # x86 sweep protocol
 
+This protocol records the original sweep. A new run must use the
+[updated execution paths](../current-system/recent-changes.md), including direct packed Boolean
+retry and allocator-aware output, and record its own source and artifacts.
+
 [Performance overview](README.md). This record uses Vortex `f5b3b26` on 2026-09-21.
 
 This plan defines how to measure the `RowFn` framework's overhead as a linear model, `time(N) =

@@ -7,13 +7,18 @@ Three public signatures prevent a type-only extraction:
 
 ```rust
 InputElement::decode(ArrayRef, &mut ExecutionCtx) -> VortexResult<Column>
-OutputElement::build(Vec<Self>) -> ArrayRef
+OutputBuffer::finish(self, len, &BufferAllocatorRef) -> ArrayRef
 OutputSink::finish(self) -> VortexResult<ArrayRef>
 ```
 
 This is a signature summary, not compilable Rust. Each boundary directly names Vortex arrays.
 Replacing `DType` leaves all three dependencies intact.
 [Sources: input][input], [owned output][output-element], [sink output][sink].
+
+The owned-output boundary already separates collection storage from traversal. `OutputElement`
+selects its associated `Buffer` and allocation method, while `OutputBuffer` exposes writable slots
+and publication. The extraction task is to generalize the host result and resource types in that
+contract. It no longer needs to remove a mandatory `Vec<Self>` from the executor.
 
 ## Dependency inventory
 
@@ -23,7 +28,8 @@ contract. These are extraction choices, not existing modules.
 | Current dependency | What RowFn uses it for | Proposed owner |
 | --- | --- | --- |
 | `ArrayRef` and `ExecutionArgs`. | Collect inputs, clone ownership, inspect lengths and dtypes, and obtain arrays for decoding. [Source][args]. | Host adapter. The core borrows prepared typed views. |
-| `ExecutionCtx`. | Execute inputs and validity through the Vortex session and registered parent kernels. [Source][context]. | Vortex adapter. The row loop does not need the whole context. |
+| `ExecutionCtx`. | Execute inputs and validity, and provide the output allocator. [Source][context]. | Vortex adapter. The row loop does not need the whole context. |
+| `BufferAllocatorRef` and `OutputBuffer`. | Allocate output payloads, expose slots, and publish initialized storage. [Source][output-element]. | Shared storage contract with host allocation and finalization. |
 | Canonical Vortex arrays. | Primitive decoding executes to `PrimitiveArray`. Boolean and UTF-8 adapters select their own canonical representations. [Sources][primitive], [utf8-input]. | Host-specific typed decoders. |
 | `Validity`. | Combine input validity lazily and attach it after computation. [Source][validity]. | Shared strictness rule, host validity representation and materialization. |
 | `MaskValuesRef` and `BitBuffer`. | Traverse valid rows, count selected rows, and preserve original positions. [Source][filtered-owned]. | Portable mask or row-selection interface with concrete efficient implementations. |
@@ -56,20 +62,22 @@ non-inline bytes into sink-owned buffers. A portable zero-copy output needs an e
 the source buffer owners.
 [Sources: output element][output-element], [UTF-8 writer][utf8-sink].
 
-## Allocation is only partly connected to ExecutionCtx
+## Output allocation uses ExecutionCtx
 
-`ExecutionCtx` exposes a session allocator. However, owned row output uses `Vec::with_capacity`,
-and standard sink allocation receives only the row count and sink parameters. It does not receive
-the execution context.
+Owned execution passes `ctx.allocator()` to `OutputElement::with_capacity` and `OutputBuffer::finish`.
+Standard sink allocation also receives this allocator, separately from physical sink parameters.
+Primitive output uses `BufferMut<T>` and reuses its allocation when constructing the array.
 [Sources: context allocator][context], [owned loop][owned-loop], [sink interface][sink].
 
-`Utf8Sink` uses `BufferMut::with_capacity` and `ByteBufferMut::with_capacity`. Those constructors
-use the static allocator rather than an allocator from `ExecutionCtx`. A portable library therefore
-needs a deliberate output-allocation boundary if the host must account for memory.
-[Sources: UTF-8 sink][utf8-sink], [buffer allocation][buffer-alloc].
+`Utf8Sink` retains the allocator for descriptors and external bytes. Packed Boolean collectors,
+scalar sinks, fixed-size-list children, and polygon output also use the execution allocator.
+The allocation boundary exists, although its public resource type is still `BufferAllocatorRef`.
+A portable host can reuse that utility or supply another resource contract.
+[Sources: UTF-8 sink][utf8-sink], [Boolean output][bool-output], [list sink][list-sink],
+[implemented change](recent-changes.md).
 
-A `VortexResult` return does not make allocation failures uniformly recoverable. Several paths
-use infallible collection constructors, and `OutputElement::build` cannot return an error.
+Allocator routing does not make allocation failures uniformly recoverable.
+`OutputElement::with_capacity` and `OutputBuffer::finish` do not return a `Result`.
 An extraction must decide whether allocation can abort, panic, or return a resource error.
 [Sources: owned output][output-element], [owned loop][owned-loop], [sink allocation][sink].
 
@@ -108,30 +116,29 @@ Neither lifecycle belongs inside a row callback.
 
 [Back to the overview](README.md).
 
-[input]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/unstable/row/types/element/input.rs#L26-L99
-[output-element]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/unstable/row/types/element/output.rs#L14-L61
-[sink]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/unstable/row/types/sink/mod.rs#L76-L153
-[args]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/vtable.rs#L433-L475
-[context]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/executor.rs#L350-L398
-[primitive]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/unstable/row/types/element/primitive.rs#L22-L107
-[utf8-input]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/unstable/row/types/element/utf8.rs#L32-L164
-[validity]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/validity.rs#L268-L335
-[filtered-owned]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/unstable/row/execute/owned.rs#L108-L183
-[constants]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/unstable/row/types/element/tuple/element_tuple.rs#L38-L134
-[broadcast]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/unstable/row/batch/execute/constant.rs#L13-L29
-[bool-output]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/unstable/row/types/element/bool.rs#L92-L115
-[list-sink]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/unstable/row/types/sink/fixed_size_list.rs#L98-L160
-[utf8-sink]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/unstable/row/types/sink/utf8.rs#L59-L146
-[attempt]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/unstable/row/execute/retry.rs#L24-L48
-[owned-loop]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/unstable/row/execute/owned.rs#L257-L295
-[vtable]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/unstable/row/vtable.rs#L37-L118
-[rowfn]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/unstable/row/row_fn.rs#L43-L90
-[dict-rule]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/arrays/dict/compute/rules.rs#L96-L179
-[scalar-rules]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/arrays/scalar_fn/rules.rs#L61-L134
-[stats]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/array/mod.rs#L466-L492
-[array-ref]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/array/erased.rs#L74-L85
-[collect]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/unstable/row/batch/planning.rs#L27-L49
-[buffer-alloc]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-buffer/src/buffer_mut.rs#L58-L79
-[numeric]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/fns/binary/numeric/row.rs#L36-L64
-[reduce]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/vtable.rs#L128-L162
-[tensor]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-tensor/src/scalar_fns/cosine_similarity.rs#L60-L124
+[input]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/unstable/row/types/element/input.rs
+[output-element]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/unstable/row/types/element/output.rs
+[sink]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/unstable/row/types/sink/mod.rs
+[args]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/vtable.rs
+[context]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/executor.rs
+[primitive]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/unstable/row/types/element/primitive.rs
+[utf8-input]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/unstable/row/types/element/utf8.rs
+[validity]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/validity.rs
+[filtered-owned]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/unstable/row/execute/owned.rs
+[constants]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/unstable/row/types/element/tuple/element_tuple.rs
+[broadcast]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/unstable/row/batch/execute/constant.rs
+[bool-output]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/unstable/row/types/element/bool.rs
+[list-sink]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/unstable/row/types/sink/fixed_size_list.rs
+[utf8-sink]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/unstable/row/types/sink/utf8.rs
+[attempt]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/unstable/row/execute/retry.rs
+[owned-loop]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/unstable/row/execute/owned.rs
+[vtable]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/unstable/row/vtable.rs
+[rowfn]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/unstable/row/row_fn.rs
+[dict-rule]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/arrays/dict/compute/rules.rs
+[scalar-rules]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/arrays/scalar_fn/rules.rs
+[stats]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/array/mod.rs
+[array-ref]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/array/erased.rs
+[collect]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/unstable/row/batch/planning.rs
+[numeric]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/fns/binary/numeric/row.rs
+[reduce]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/vtable.rs
+[tensor]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-tensor/src/scalar_fns/cosine_similarity.rs

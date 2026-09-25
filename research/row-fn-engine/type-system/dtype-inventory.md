@@ -3,6 +3,10 @@
 
 # DType usage inventory for the RowFn framework
 
+This is a historical line inventory. Since that snapshot, `OutputBuffer` owns output publication
+and UTF-8 decoding passes the dtype directly to `VarBinViewData::validate_and_fix`. The
+[September 25 source update](../current-system/recent-changes.md) records the changed boundaries.
+
 [Type overview](README.md). This source inventory uses Vortex `f5b3b26`. The row module is unchanged
 at the main research baseline `96bd521`.
 

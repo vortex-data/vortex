@@ -6,9 +6,21 @@
 [Overview](../README.md)
 
 RowFn adds batch work, and some execution paths also change the per-row algorithm. The evidence
-supports several specific improvements. It does not establish one framework overhead percentage.
+identifies specific costs. Several proposed improvements are now implemented in the September 25
+source baseline. The measurements below predate them and do not establish current overhead.
 
-## What the measurements show
+## Current implementation
+
+Dense Boolean retry now packs directly, output payloads use the execution allocator, and eligible
+all-valid arrays accept lazy validity masks directly. UTF-8 decoding avoids an intermediate array
+while retaining validation and null-payload sanitation. The
+[source update](../current-system/recent-changes.md) records these changes and their limits.
+
+The Boolean retry change also records compiler and native CI evidence for that change. It is a
+separate experiment from the original x86 sweep. No updated overhead matrix or extracted-library
+benchmark ran for this documentation update.
+
+## What the September 21 measurements show
 
 | Experiment | Result | What the comparison establishes |
 | --- | --- | --- |
@@ -29,9 +41,10 @@ The [evidence record](../evidence.md) states these different reproduction limits
 
 ## What deserves further work
 
-Source inspection supports repeated type validation, UTF-8 sanitation, rich retry errors, and
-missing specialized Boolean visits on selected paths. Lazy validity operations and filtered input
-execution also add costs outside the closure. These are optimization candidates, not verified fixes.
+Repeated type validation, UTF-8 validation and sanitation, rich retry errors, and byte collection on
+selected Boolean paths remain candidates. Lazy validity composition and filtered input execution
+also add work outside the closure. The new allocation, collection, and mask paths need matched
+measurements before the old timings can guide current priorities.
 
 The [candidate analysis](optimization-candidates.md) gives each cause, required invariant, and
 proposed comparison. The [pipeline trace](pipeline-trace.md) maps costs to execution scenarios.

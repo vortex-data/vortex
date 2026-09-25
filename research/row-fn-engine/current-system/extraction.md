@@ -36,13 +36,16 @@ Each host adapter owns input retention, decode or materialization, constant reco
 access, filtering, output allocation, metadata attachment, and error translation. The Vortex adapter
 also owns `ScalarFnVTable`, session registration, expression rewrites, and persistence.
 
-The separation needs two lower-level contracts:
+The separation uses two lower-level contracts:
 
 1. A decoded input owner lends a typed view whose addressable domain remains stable.
 2. An output owner lends row writers and publishes a host result only after initialization succeeds.
 
-These are proposed contracts. They do not require the core to define a new universal array object.
-They also permit a reference implementation backed by ordinary Rust buffers.
+The output side already has `OutputElement::Buffer` and `OutputBuffer`, which separate writable
+slots from allocation and publication. They still name Vortex resource and result types. Generalize
+those types while retaining the storage and initialization contract. A second adapter can use
+ordinary Rust buffers without requiring the core to define a universal array object.
+[Source: output buffer][output-buffer].
 
 Keeping the host decoder separate matters for compressed input. A host can decode one vector, expose
 a selection into existing storage, or apply a whole-column optimization before entering the row
@@ -55,8 +58,9 @@ The input owner must outlive every view and prepared value that borrows from it.
 an Arrow array, a Vortex decoded buffer, or another host's pinned storage behind that owner. The
 portable core only needs the resulting typed view.
 
-The output owner must expose its allocation and initialization policy before traversal. A host
-adapter can write directly into host-owned buffers instead of converting a Vortex array afterward.
+The output owner exposes its allocation and initialization policy before traversal. Current Vortex
+outputs use the execution allocator, and primitive publication retains the same allocation. A host
+adapter can use this boundary to write directly into host-owned buffers.
 Borrowed string results need a retained owner or a copy into the output arena.
 
 This design adds ownership work at the batch boundary, not a virtual call per row. Static generic
@@ -86,9 +90,10 @@ automatically from generic types or generic arrays.
 
 [Back to the overview](README.md).
 
-[visitor]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/unstable/row/visitor/row_visitor.rs#L21-L38
-[input]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/unstable/row/types/element/input.rs#L16-L43
-[sink]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/unstable/row/types/sink/mod.rs#L29-L104
-[primitive]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/unstable/row/types/element/primitive.rs#L22-L68
-[dictionary]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/arrays/dict/compute/rules.rs#L96-L179
-[loop]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/unstable/row/execute/sink.rs#L25-L94
+[visitor]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/unstable/row/visitor/row_visitor.rs
+[input]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/unstable/row/types/element/input.rs
+[sink]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/unstable/row/types/sink/mod.rs
+[primitive]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/unstable/row/types/element/primitive.rs
+[dictionary]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/arrays/dict/compute/rules.rs
+[loop]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/unstable/row/execute/sink.rs
+[output-buffer]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/unstable/row/types/element/output.rs

@@ -17,6 +17,7 @@ cannot produce a null from valid inputs.
 
 The detailed notes follow that boundary:
 
+- [Recent changes](recent-changes.md) records the implemented improvements since September 21.
 - [Execution](execution.md) follows one call through planning, constants, null handling, and output.
 - [Dependency inventory](dependencies.md) identifies each Vortex dependency and its proposed owner.
 - [Safety and errors](contracts.md) records the contracts that extraction must preserve.
@@ -30,11 +31,17 @@ output positions. Every sink must support initialized placeholders for skipped r
 optional sink initializer or compact-output scatter fallback in this revision.
 [Sources: filtered execution][filtered], [sink initialization][sink].
 
-These notes describe commit `96bd521eb0565555def2af7b8e97e96891728da6`. Source inspection supports the
-current-behavior claims. Proposed interfaces are design conclusions, not an implemented extraction.
-This source audit did not run Rust checks. Local measurements are recorded in the
-[performance notes](../performance/README.md).
+Output collection now has an associated storage type through `OutputElement::Buffer` and
+`OutputBuffer`. The executor uses the execution allocator for output payloads. Dense Boolean retry
+packs directly, and initialization tokens require an unsafe operation tied to the callback's exact
+row. These are implemented contracts to preserve during extraction.
 
-[rowfn]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/unstable/row/row_fn.rs#L22-L45
-[filtered]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/unstable/row/batch/execute/filtered.rs#L4-L20
-[sink]: https://github.com/vortex-data/vortex/blob/96bd521eb0565555def2af7b8e97e96891728da6/vortex-array/src/scalar_fn/unstable/row/types/sink/mod.rs#L90-L123
+The execution, dependency, safety, and extraction notes reflect commit
+`d8e45e0898e02efed0822a6c74bf0d515a5b3b74` as inspected on September 25. The consumer inventory and
+design history retain their September 21 scope. Proposed interfaces remain design conclusions,
+not an implemented extraction. This source update ran no Rust checks. The
+[performance notes](../performance/README.md) distinguish historical measurements from current work.
+
+[rowfn]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/unstable/row/row_fn.rs
+[filtered]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/unstable/row/batch/execute/filtered.rs
+[sink]: https://github.com/vortex-data/vortex/blob/d8e45e0898e02efed0822a6c74bf0d515a5b3b74/vortex-array/src/scalar_fn/unstable/row/types/sink/mod.rs

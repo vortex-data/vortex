@@ -7,6 +7,10 @@
 The row executor receives concrete Rust types after `RowFn::dispatch` selects a visit.
 
 The observations here refer to commit `96bd521eb0565555def2af7b8e97e96891728da6`.
+The [September 25 source update](../current-system/recent-changes.md) retains these dispatch and
+dtype contracts, but adds an associated output-storage boundary. `OutputElement::Buffer` selects
+storage and `OutputBuffer::finish` constructs the array. These traits still use Vortex types, so
+the type-only extraction limitation remains, with an existing storage contract to generalize.
 
 ## The five type boundaries
 

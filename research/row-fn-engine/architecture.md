@@ -36,6 +36,12 @@ These boundaries do not require one public trait or crate for every row in the t
 prototype needs a small core, a Vortex adapter, and an adapter with no Vortex array dependency.
 The [extraction notes](current-system/engine-boundary.md) cover concrete trait and dependency choices.
 
+Current Vortex already separates output collection through `OutputElement::Buffer` and
+`OutputBuffer`. The executor writes into supplied slots, and the buffer publishes the Vortex array.
+Owned outputs and sinks receive the execution allocator. Generalize these existing boundaries for
+host results and resources, while preserving primitive buffer reuse and initialization guarantees.
+The [source update](current-system/recent-changes.md) records this implemented part of the design.
+
 ## Bind types once, prepare each batch
 
 Function binding selects a signature and output contract from types, options, and relevant host

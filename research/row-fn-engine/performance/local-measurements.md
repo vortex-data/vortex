@@ -3,7 +3,10 @@
 
 # ARM overhead measurements
 
-The current framework has measurable batch overhead, and its output collector also affects cost.
+These September 21 measurements predate the [RowFn updates](../current-system/recent-changes.md).
+They do not measure the current output storage, allocator, or mask paths.
+
+The measured framework has batch overhead, and its output collector also affects cost.
 A matched experiment separates those effects for one canonical `i64` operation on Apple M4 Max.
 These results describe that operation and configuration. They do not establish a universal RowFn
 percentage or predict an Arrow, DataFusion, or DuckDB adapter.

@@ -8,9 +8,25 @@
 This tree combines source findings, historical design decisions, experiments, and proposed APIs.
 The synthesis changes research Markdown only. It does not change the RowFn implementation.
 
-## Source snapshots
+## Current source baseline
 
-The main Vortex reference is
+The 2026-09-25 update uses
+[`d8e45e0898e02efed0822a6c74bf0d515a5b3b74`](https://github.com/vortex-data/vortex/commit/d8e45e0898e02efed0822a6c74bf0d515a5b3b74),
+the production base of this research branch. It reads the newer RowFn changes, their surrounding
+source, and regression test code. The [change record](current-system/recent-changes.md) links the
+seven relevant commits and distinguishes completed work from remaining questions.
+
+Current execution, allocation, safety, and candidate descriptions reflect that baseline. Historical
+measurements, reproduction sources, compiler excerpts, and source inventories retain their original
+revisions. No old timing is presented as a measurement of the updated implementation.
+
+The later Boolean retry change records its own compiler and native CI evidence. This update reads
+the implementation and its documented constraints, but does not reproduce that experiment or import
+its artifacts. The original x86 sweep's missing compiler evidence remains a limit of that sweep.
+
+## Original source snapshots
+
+The original main Vortex reference is
 [`96bd521eb0565555def2af7b8e97e96891728da6`](https://github.com/vortex-data/vortex/commit/96bd521eb0565555def2af7b8e97e96891728da6).
 The x86 measurements and some source inventories use
 [`f5b3b26cf895e73a7db4b138337d9388b98570ce`](https://github.com/vortex-data/vortex/commit/f5b3b26cf895e73a7db4b138337d9388b98570ce).
@@ -25,8 +41,8 @@ They are not assertions about subsequent releases or current issue status.
 During synthesis, source inspection confirmed the Velox adapter's existing `Status` path and
 Substrait's built-in type coverage. Those corrections appear in the detailed prior-art pages.
 
-The [design history](current-system/design-history.md) records PR and issue findings. Pinned source
-takes precedence over tracker text when the two differ.
+The [design history](current-system/design-history.md) retains the September 21 PR and issue findings
+and links the later source update. Pinned source takes precedence over tracker text when they differ.
 
 ## How to read claims
 
@@ -73,7 +89,7 @@ The main pages use the following distinctions throughout:
 The [design](architecture.md) gives the recommendation. The detailed files preserve alternatives
 without treating them as accepted APIs.
 
-## Synthesis checks
+## Original synthesis checks
 
 The work reviewed source contracts, research text, local links, and branch contents. The repository
 commit hook also ran `cargo +nightly fmt --all -- --check` and `taplo fmt --check`. Both passed.
@@ -81,8 +97,10 @@ No Rust or TOML files changed.
 
 ## Work not performed
 
-No production adapter, extracted crate, demand-aware evaluator, or optimization was implemented.
+The research commits implement no production adapter, extracted crate, demand-aware evaluator, or
+optimization. The September 25 branch base includes the production improvements listed above.
 No test suite, Clippy, build, benchmark, or experimental harness ran during the synthesis.
+The September 25 documentation update also ran no test suite, formatting, build, or benchmark.
 
 The x86 study supplies native x86 timings. It does not supply x86 compiler evidence. The ARM study
 supplies both timings and compiler evidence for its fixture. Neither supplies host-conversion or

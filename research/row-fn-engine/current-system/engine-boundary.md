@@ -53,9 +53,10 @@ in the Vortex adapter can centralize this policy. Extension-over-constant recogn
 the extension's semantic guarantee. It is not a universal storage rule.
 
 **Context.** The current row module passes `ExecutionCtx` to array execution, validity resolution,
-and scalar extraction. The row arithmetic does not inspect session services. An opaque associated
-context can preserve this boundary. Allocation is a separate concern because standard output
-allocation does not consistently use the context allocator.
+and scalar extraction. It also supplies the allocator for output payloads. The row arithmetic does
+not inspect session services. An opaque associated context can preserve this boundary. The existing
+allocation argument is separate from physical sink parameters, so host glue can provide resources
+without expanding the row operation's API.
 
 **Registration.** `ScalarFnId`, serialization, and `VortexSession` belong to Vortex expression
 persistence. A core name can support diagnostics, but cross-host identity also needs a namespace
@@ -73,9 +74,11 @@ and `vortex-buffer` preserves the current implementation. Extracting their requi
 other hosts a smaller dependency graph. Duplicating the loops creates another implementation whose
 safety and generated code can drift.
 
-**Output reuse.** A direct writer into host-owned storage avoids a second array conversion.
-Borrowed strings also need ownership of the input buffers. Existing `OutputSink::finish` does not
-receive those owners. Reuse requires an ownership API, not a generic type parameter alone.
+**Output storage and reuse.** `OutputElement::Buffer` and `OutputBuffer` already let the output
+implementation allocate storage, lend slots, and publish an array. Primitive publication reuses its
+allocation. Generalize this boundary for host results instead of adding another collection layer.
+Borrowed strings still need ownership of the input buffers. Existing `OutputSink::finish` does not
+receive those owners. Sharing input payloads needs a separate ownership contract.
 
 ## Safety ownership after extraction
 
@@ -86,6 +89,8 @@ receive those owners. Reuse requires an ownership API, not a generic type parame
 | Selection indices are ordered as required and remain inside that domain. | Selection constructor and executor. |
 | Distinct row handles address the intended output rows. | Sink implementation. |
 | A write token belongs to the exact row that the callback initialized. | Sink API and callback contract. |
+| Initialization remains intact until the callback returns its token. | The caller of `InitializedElement::write` or `InitializedRow::fill`. |
+| Output slots retain their contents across views and permit safe abandonment. | `OutputBuffer` implementation. |
 | Skipped rows contain safe placeholders before full-array export. | Executor and sink initializer. |
 | An error or unwind can abandon every partially initialized prefix safely. | Output owner and executor. |
 | UTF-8 unchecked access follows validation of the exact retained bytes. | String input adapter. |

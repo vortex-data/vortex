@@ -3,6 +3,10 @@
 
 # RowFn design history
 
+The [September 25 source update](recent-changes.md) records later changes to allocation, Boolean
+retry, UTF-8 decoding, initialization evidence, and mask reduction. The chronology below retains
+its original issue and PR snapshot.
+
 [Current framework](README.md). PR and issue states below are the recorded 2026-09-21 snapshot. The
 [current contracts](contracts.md) take precedence over historical proposals and tracker text.
 

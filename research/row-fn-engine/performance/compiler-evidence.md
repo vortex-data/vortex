@@ -3,6 +3,9 @@
 
 # Compiler evidence for the local probe
 
+This is compiler evidence for the September 21 ARM artifact. It predates the
+[RowFn updates](../current-system/recent-changes.md), including the separate Boolean retry work.
+
 The direct iterator and RowFn both vectorize in the measured binary. Their main traversal shapes
 differ. The standard iterator processes eight `i64` values per vector-loop iteration. The RowFn
 collector processes 64 values per full chunk, followed by a remainder path.
@@ -17,7 +20,7 @@ their timing difference.
 The direct-collector baseline calls `i64::build_from` over a borrowed native slice. The ordinary RowFn
 path reaches the same output method through a decoded argument source. `build_from` delegates to
 `IndexedSourceExt::map_into`, which divides the input into full `CHUNK_LEN` chunks and a remainder.
-The current `CHUNK_LEN` is 64.
+The measured `CHUNK_LEN` is 64.
 
 The direct-iterator baseline uses standard slice iteration and `collect::<Vec<i64>>()` instead.
 Both implementations construct the same output array from their vector. See [the measured source](reproduction.md),

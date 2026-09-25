@@ -3,6 +3,10 @@
 
 # Reproduce the local experiment
 
+This harness is retained exactly for the original baseline. Newer RowFn versions require an
+allocator argument to `build_from`. Updating that call would create a new experiment, not reproduce
+the recorded artifact. See the [source update](../current-system/recent-changes.md).
+
 Use a checkout at `96bd521eb0565555def2af7b8e97e96891728da6` and its pinned toolchain.
 The manifest below used absolute paths into that checkout. Replace those paths with the local
 checkout path before compiling. Run Cargo from the repository root to inherit its `.cargo` flags.

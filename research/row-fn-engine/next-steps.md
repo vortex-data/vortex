@@ -9,7 +9,9 @@ The next useful experiment shares a real RowFn operation and executor between Vo
 adapter. It must preserve semantics, ownership, and generated code before the library API becomes
 stable. The isolated [type proof](type-system/compiled-proof.md) covers only the Rust mechanisms.
 
-These are proposed changes and experiments. This branch implements none of them.
+The portable library and adapters remain proposals. The branch base already contains the
+[September 23 and 24 RowFn improvements](current-system/recent-changes.md), including output
+allocation, packed Boolean retry, and mask reduction. The steps below start from that implementation.
 
 ## 1. Fix the contract before the crate split
 
@@ -20,9 +22,10 @@ The prototype needs four explicit decisions:
 - Input ownership, writer completion, allocation, and exact output metadata.
 - Caller demand, successful completion, and export of partial results.
 
-The recommendation is in [the design](architecture.md). A small `Engine` interface can organize
-host operations, while typed capabilities describe the selected inputs and output. A monolithic
-promise that every host supports every physical kind is unnecessary.
+The recommendation is in [the design](architecture.md). Start with the types and execution machinery
+that the shared executor consumes. Host glue resolves runtime types, decodes inputs, and constructs
+results. The existing `OutputBuffer` boundary supplies collection storage and publication, so the
+prototype can generalize it without requiring another output layer or one large `Engine` trait.
 
 ## 2. Prove extraction with representative functions
 
@@ -53,13 +56,15 @@ on extraction:
 | --- | --- |
 | Retain UTF-8 validation evidence. | Saved work versus required validation and null-payload sanitation. |
 | Delay rich error construction after rejected deferred evidence. | Retry signaling versus an observable error, with and without backtraces. |
-| Preserve packed Boolean paths on nullable execution. | Output representation, failure evidence, and constant arrangements. |
+| Pack selected and filtered Boolean output directly. | Avoided byte storage versus sparse writes, failure evidence, and original row positions. Dense retry already packs directly. |
 | Retain a bound call and classify constants once. | Saved binding work versus changing batch types, options, and owners. |
-| Simplify canonical output validity attachment. | Lazy metadata work versus materialized bitmap work and equivalent output contracts. |
-| Improve output collection or reuse. | Wrapper cost versus collector code generation, allocation, and ownership. |
+| Measure remaining validity and finalization work. | Composition and wrapper costs after eligible all-valid arrays gained direct lazy-mask attachment. |
+| Improve output collection or reuse. | Wrapper cost versus collector code generation and ownership, using the existing allocator-aware buffer contract. |
 
 Each candidate needs a separate comparison. Combining them with the crate move prevents useful
-attribution. The ARM harness and the x86 sweep are complementary evidence, not portable baselines.
+attribution. UTF-8 decoding already avoids the intermediate array, but still validates every decode.
+The ARM harness and x86 sweep predate these changes. Establish new measurements before using their
+numbers to prioritize current work, and preserve their original sources as historical evidence.
 
 ## 4. Prove demand through one conditional
 

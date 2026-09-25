@@ -56,6 +56,12 @@ the lifetime of every referenced allocation. Useful writer forms include:
 The framework chooses the writer before the loop. Its row closure receives an element writer or
 returns a typed value. It does not select an allocator for every row.
 
+Vortex now supplies this separation for owned collection through `OutputElement::Buffer` and
+`OutputBuffer`, and passes the execution allocator to owned output and sinks. Primitive publication
+reuses that output allocation. A portable adapter can generalize this boundary for its native
+result, while input-payload sharing still needs retained owners. The
+[source update](../current-system/recent-changes.md) describes the implemented contract.
+
 For strings, a result descriptor can refer to an input payload only if the result retains that
 payload's owner. Vortex's DuckDB exporter supplies a concrete example: it rewrites string views
 and registers backing buffers with DuckDB. The descriptor pass remains even when the payload is

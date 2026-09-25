@@ -3,6 +3,10 @@
 
 # Execution pipeline trace
 
+This is a historical trace. Its allocation, Boolean retry, UTF-8 construction, and mask descriptions
+are superseded by the [September 25 source update](../current-system/recent-changes.md). Paths and
+line numbers below describe the original revision.
+
 [Performance overview](README.md). This record uses Vortex `f5b3b26` on 2026-09-21.
 
 This document traces `execute_rows` step by step for a binary `i64 + i64` `RowFn` over `N` rows, one
