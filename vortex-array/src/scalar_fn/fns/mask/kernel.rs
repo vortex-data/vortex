@@ -93,7 +93,7 @@ where
             }
         }
 
-        <V as MaskReduce>::mask(array, &mask_child)
+        <V as MaskReduce>::mask(array, mask_child)
     }
 }
 
@@ -121,7 +121,7 @@ where
         let mask_child = parent
             .nth_child(1)
             .ok_or_else(|| vortex_err!("Mask expression must have 2 children"))?;
-        <V as MaskKernel>::mask(array, &mask_child, ctx)
+        <V as MaskKernel>::mask(array, mask_child, ctx)
     }
 }
 

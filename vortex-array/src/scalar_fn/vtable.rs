@@ -138,7 +138,9 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
         Ok(None)
     }
 
-    /// Simplify the expression if possible.
+    /// Simplify the bound expression if possible.
+    ///
+    /// Every node of `expr` carries its dtype, so rules read types directly from the tree.
     fn simplify(
         &self,
         options: &Self::Options,
@@ -284,14 +286,14 @@ impl ReduceNode for ArrayReduceNode<'_> {
         let array = match &self.array {
             Cow::Borrowed(array) => Cow::Borrowed(
                 array
-                    .children_iter()
-                    .nth(idx)
+                    .nth_child(idx)
                     .vortex_expect("child idx out of bounds"),
             ),
             Cow::Owned(array) => Cow::Owned(
                 array
                     .nth_child(idx)
-                    .vortex_expect("child idx out of bounds"),
+                    .vortex_expect("child idx out of bounds")
+                    .clone(),
             ),
         };
         Self { array }
