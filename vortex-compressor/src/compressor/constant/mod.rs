@@ -13,11 +13,11 @@
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::Canonical;
+use vortex_array::Columnar;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::aggregate_fn::fns::is_constant::is_constant;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::arrays::Extension;
 use vortex_array::arrays::MaskedArray;
 use vortex_array::arrays::VarBinView;
 use vortex_array::arrays::bool::BoolArrayExt;
@@ -46,40 +46,29 @@ pub(crate) fn is_constant_for_compression(
     array: &ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<bool> {
-    if let Some(extension) = array.as_opt::<Extension>() {
-        // Compare storage directly: extension min/max can hide NaNs in floating-point storage.
-        let storage = extension
-            .storage_array()
-            .clone()
-            .execute::<Canonical>(ctx)?
-            .into_array();
-        return is_constant_for_compression(&storage, ctx);
-    }
-
     let mask = array.validity()?.execute_mask(array.len(), ctx)?;
     let Some(first) = mask.first() else {
         return Ok(!array.is_empty());
     };
 
-    if mask.all_true() {
-        return is_constant(array, ctx);
-    }
-    if let Some(strings) = array.as_opt::<VarBinView>() {
-        return Ok(is_constant_varbinview(strings, &mask, first));
-    }
-    let Mask::Values(valid) = &mask else {
-        unreachable!("all-valid and all-null masks handled above");
-    };
-
-    Ok(match array.clone().execute::<Canonical>(ctx)? {
-        Canonical::Primitive(array) => {
+    Ok(match array.clone().execute::<Columnar>(ctx)? {
+        Columnar::Constant(_) => true,
+        Columnar::Canonical(Canonical::Extension(array)) => {
+            // Compare storage before consulting extension min/max, which can hide NaNs.
+            is_constant_for_compression(array.storage_array(), ctx)?
+        }
+        Columnar::Canonical(_) if mask.all_true() => is_constant(array, ctx)?,
+        Columnar::Canonical(Canonical::Primitive(array)) => {
             match_each_native_ptype!(array.ptype(), |T| {
                 let values = array.as_slice::<T>();
                 let first = values[first];
                 all_valid_match(&mask, |i| values[i].is_eq(first))
             })
         }
-        Canonical::Bool(array) => {
+        Columnar::Canonical(Canonical::Bool(array)) => {
+            let Mask::Values(valid) = &mask else {
+                unreachable!("all-valid and all-null masks handled above");
+            };
             let values = array.bit_buffer_view();
             let expected = if values.value(first) { u64::MAX } else { 0 };
             values
@@ -88,12 +77,15 @@ pub(crate) fn is_constant_for_compression(
                 .zip(valid.bit_buffer().chunks().iter_padded())
                 .all(|(values, valid)| ((values ^ expected) & valid) == 0)
         }
-        Canonical::Decimal(array) => {
+        Columnar::Canonical(Canonical::Decimal(array)) => {
             match_each_decimal_value_type!(array.values_type(), |T| {
                 let values = array.buffer::<T>();
                 let first = values[first];
                 all_valid_match(&mask, |i| values[i] == first)
             })
+        }
+        Columnar::Canonical(Canonical::VarBinView(array)) => {
+            is_constant_varbinview(array.as_view(), &mask, first)
         }
         _ => false,
     })

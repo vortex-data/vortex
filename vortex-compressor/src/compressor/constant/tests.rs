@@ -10,7 +10,9 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::Constant;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::DictArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::Masked;
 use vortex_array::arrays::PrimitiveArray;
@@ -25,6 +27,7 @@ use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtId;
 use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::extension::datetime::TimeUnit;
+use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
@@ -289,6 +292,54 @@ fn nullable_float_bit_patterns(
     if constant {
         assert!(compressed.children()[0].is::<Constant>());
     }
+    Ok(())
+}
+
+#[test]
+fn extension_with_constant_storage() -> VortexResult<()> {
+    let storage = ConstantArray::new(Scalar::from(f64::NAN), 100).into_array();
+    let dtype = ExtDType::<FloatExtension>::try_new(0, storage.dtype().clone())?;
+    let array = ExtensionArray::new(dtype.erased(), storage).into_array();
+    let mut ctx = SESSION.create_execution_ctx();
+
+    assert!(is_constant_for_compression(&array, &mut ctx)?);
+    let compressed = empty_compressor().compress(&array, &mut ctx)?;
+    assert!(compressed.is::<Constant>());
+    assert_arrays_eq!(compressed, array, &mut ctx);
+    Ok(())
+}
+
+#[rstest]
+#[case::float(PrimitiveArray::from_option_iter([None, Some(1.5f64), Some(1.5)]).into_array(), true)]
+#[case::nan(PrimitiveArray::from_option_iter([None, Some(1.5f64), Some(f64::NAN)]).into_array(), false)]
+#[case::signed_zero(PrimitiveArray::from_option_iter([None, Some(0.0f64), Some(-0.0)]).into_array(), false)]
+#[case::utf8(VarBinViewArray::from_iter_nullable_str([None, Some("abcdefghijklm"), Some("abcdefghijklm")]).into_array(), true)]
+#[case::different_utf8(VarBinViewArray::from_iter_nullable_str([None, Some("abcdefghijklA"), Some("abcdefghijklB")]).into_array(), false)]
+#[case::binary(VarBinViewArray::from_iter(
+    [None, Some(b"\xffabcdefghijklA"), Some(b"\xffabcdefghijklA")],
+    DType::Binary(Nullability::Nullable),
+).into_array(), true)]
+#[case::different_binary(VarBinViewArray::from_iter(
+    [None, Some(b"\xffabcdefghijklA"), Some(b"\xffabcdefghijklB")],
+    DType::Binary(Nullability::Nullable),
+).into_array(), false)]
+fn encoded_storage_constant_detection(
+    #[case] values: ArrayRef,
+    #[case] constant: bool,
+) -> VortexResult<()> {
+    let codes = PrimitiveArray::from_iter((0..100u32).map(|i| i % 3)).into_array();
+    let storage = DictArray::try_new(codes, values)?.into_array();
+    let array = if storage.dtype().is_float() {
+        let dtype = ExtDType::<FloatExtension>::try_new(0, storage.dtype().clone())?;
+        ExtensionArray::new(dtype.erased(), storage).into_array()
+    } else {
+        storage
+    };
+    let mut ctx = SESSION.create_execution_ctx();
+
+    assert_eq!(is_constant_for_compression(&array, &mut ctx)?, constant);
+    let compressed = empty_compressor().compress(&array, &mut ctx)?;
+    assert_arrays_eq!(compressed, array, &mut ctx);
     Ok(())
 }
 
