@@ -360,6 +360,7 @@ mod tests {
     use vortex::io::session::RuntimeSessionExt;
     use vortex_btrblocks::CompressionSession;
     use vortex_btrblocks::SchemeExt;
+    use vortex_btrblocks::schemes::string::ZstdScheme;
 
     use super::*;
 
@@ -372,6 +373,8 @@ mod tests {
             .schemes()
             .iter()
             .filter(|scheme| scheme.matches(&canonical))
+            // Registered, but the default compression mode excludes it.
+            .filter(|scheme| scheme.id() != ZstdScheme.id())
             .map(|scheme| scheme.id())
             .collect::<Vec<_>>();
         let mut expected = default_string_scheme_ids();
