@@ -47,11 +47,12 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::Nullability;
 use vortex_array::extension::datetime::TimeUnit;
+#[cfg(feature = "pco")]
+use vortex_array::session::ArraySessionExt;
 use vortex_array::validity::Validity;
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_buffer::Buffer;
-use vortex_edition::ComponentKind;
 use vortex_edition::EDITION_DECLARATIONS;
 use vortex_edition::EDITION_FAMILIES;
 use vortex_edition::EditionId;
@@ -402,6 +403,19 @@ fn without_onpair(builder: BtrBlocksCompressorBuilder) -> BtrBlocksCompressorBui
 
 fn edition_session(editions: &[EditionId]) -> VortexResult<VortexSession> {
     let session = vortex_array::array_session().with::<EditionSession>();
+    // The compressor only produces encodings registered on the session.
+    vortex_alp::initialize(&session);
+    vortex_datetime_parts::initialize(&session);
+    vortex_decimal_byte_parts::initialize(&session);
+    vortex_fastlanes::initialize(&session);
+    vortex_fsst::initialize(&session);
+    vortex_onpair::initialize(&session);
+    vortex_runend::initialize(&session);
+    vortex_sequence::initialize(&session);
+    vortex_sparse::initialize(&session);
+    vortex_zigzag::initialize(&session);
+    #[cfg(feature = "pco")]
+    session.arrays().register(vortex_pco::Pco);
     for family in EDITION_FAMILIES {
         session.editions().declare_family(family)?;
     }
@@ -414,36 +428,10 @@ fn edition_session(editions: &[EditionId]) -> VortexResult<VortexSession> {
     Ok(session)
 }
 
-fn compressor_for_session(
-    session: &VortexSession,
-    builder: BtrBlocksCompressorBuilder,
-) -> BtrBlocksCompressor {
-    let allowed = session
-        .enabled_component_ids(ComponentKind::Array)
-        .into_iter()
-        .collect();
-    without_onpair(builder)
-        .retain_allowed_encodings(&allowed)
-        .build()
-}
-
-/// Like [`compressor_for_session`] but keeps OnPair in the scheme pool.
-fn compressor_with_onpair(
-    session: &VortexSession,
-    builder: BtrBlocksCompressorBuilder,
-) -> BtrBlocksCompressor {
-    let allowed = session
-        .enabled_component_ids(ComponentKind::Array)
-        .into_iter()
-        .collect();
-    builder.retain_allowed_encodings(&allowed).build()
-}
-
 #[test]
 fn golden_regular() -> VortexResult<()> {
     let session = edition_session(&[CORE_2026_08_3])?;
-    let compressor =
-        compressor_for_session(&session, BtrBlocksCompressorBuilder::from_session(&session));
+    let compressor = without_onpair(BtrBlocksCompressorBuilder::from_session(&session)).build();
     golden_corpus_snapshots("regular", &compressor)
 }
 
@@ -451,8 +439,7 @@ fn golden_regular() -> VortexResult<()> {
 #[test]
 fn golden_onpair() -> VortexResult<()> {
     let session = edition_session(&[CORE_2026_08_3])?;
-    let compressor =
-        compressor_with_onpair(&session, BtrBlocksCompressorBuilder::from_session(&session));
+    let compressor = BtrBlocksCompressorBuilder::from_session(&session).build();
     golden_snapshots(
         "onpair",
         &compressor,
@@ -466,9 +453,7 @@ fn golden_compact() -> VortexResult<()> {
     let session = edition_session(&[CORE_2026_08_3])?;
     vortex_zstd::initialize(&session);
     session.enable_edition(vortex_zstd::editions::ZSTD_2026_02)?;
-    let compressor = compressor_for_session(
-        &session,
-        BtrBlocksCompressorBuilder::from_session(&session).with_compact(),
-    );
+    let compressor =
+        without_onpair(BtrBlocksCompressorBuilder::from_session(&session).with_compact()).build();
     golden_corpus_snapshots("compact", &compressor)
 }
