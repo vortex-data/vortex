@@ -70,7 +70,7 @@ impl Binary {
 }
 
 /// Kleene and/or lookup table where both arguments are constant and non-NULL.
-/// [is_and][left][right]
+/// is_and, left, right
 const KLEENE_LUT: [[[bool; 2]; 2]; 2] = [
     [[false, true], [true, true]],   // or
     [[false, false], [false, true]], // and
