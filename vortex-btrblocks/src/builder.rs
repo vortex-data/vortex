@@ -129,6 +129,8 @@ pub struct BtrBlocksCompressorBuilder {
     /// Schemes added with [`with_new_scheme`](Self::with_new_scheme), which the mode never
     /// excludes.
     included: HashSet<SchemeId>,
+    /// Schemes excluded with [`exclude_schemes`](Self::exclude_schemes).
+    excluded: HashSet<SchemeId>,
 }
 
 impl BtrBlocksCompressorBuilder {
@@ -141,6 +143,7 @@ impl BtrBlocksCompressorBuilder {
             allowed: AllowedIds::from_session(session),
             mode: CompressionMode::Default,
             included: HashSet::default(),
+            excluded: HashSet::default(),
         }
     }
 
@@ -154,6 +157,7 @@ impl BtrBlocksCompressorBuilder {
             allowed: AllowedIds::all(),
             mode: CompressionMode::Default,
             included: HashSet::default(),
+            excluded: HashSet::default(),
         }
     }
 
@@ -200,11 +204,11 @@ impl BtrBlocksCompressorBuilder {
         self
     }
 
-    /// Removes the specified compression schemes by their [`SchemeId`].
+    /// Excludes the specified compression schemes by their [`SchemeId`] on
+    /// [`build`](Self::build), including schemes added with
+    /// [`with_new_scheme`](Self::with_new_scheme).
     pub fn exclude_schemes(mut self, ids: impl IntoIterator<Item = SchemeId>) -> Self {
-        let ids: HashSet<_> = ids.into_iter().collect();
-        self.schemes.retain(|s| !ids.contains(&s.id()));
-        self.included.retain(|id| !ids.contains(id));
+        self.excluded.extend(ids);
         self
     }
 
@@ -224,19 +228,21 @@ impl BtrBlocksCompressorBuilder {
         self
     }
 
-    /// Builds the configured [`BtrBlocksCompressor`] from the schemes its [`CompressionMode`]
-    /// does not exclude and whose produced serialized IDs are all allowed.
+    /// Builds the configured [`BtrBlocksCompressor`] from the schemes that neither its
+    /// [`CompressionMode`] nor [`exclude_schemes`](Self::exclude_schemes) exclude and whose
+    /// produced serialized IDs are all allowed.
     pub fn build(self) -> BtrBlocksCompressor {
         BtrBlocksCompressor(CascadingCompressor::new(self.allowed_schemes()))
     }
 
     fn allowed_schemes(&self) -> Vec<&'static dyn Scheme> {
-        let excluded: HashSet<SchemeId> = self
+        let mut excluded: HashSet<SchemeId> = self
             .mode
             .excluded_schemes()
             .into_iter()
             .filter(|id| !self.included.contains(id))
             .collect();
+        excluded.extend(self.excluded.iter().copied());
         self.schemes
             .iter()
             .copied()
