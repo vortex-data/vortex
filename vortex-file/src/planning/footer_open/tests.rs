@@ -7,17 +7,17 @@ use rstest::rstest;
 use vortex_array::IntoArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::buffer;
-use vortex_io::runtime::current::CurrentThreadRuntime;
-
-use super::*;
-use vortex_scan::planning::driver::Driver;
 use vortex_io::request::IoIntent;
+use vortex_io::request::IoOwnerId;
 use vortex_io::request::IoRequest;
 use vortex_io::request::IoSource;
 use vortex_io::request::ReadAtIoSource;
-use vortex_io::request::IoOwnerId;
+use vortex_io::runtime::current::CurrentThreadRuntime;
+use vortex_scan::planning::driver::Driver;
 use vortex_scan::planning::next::next_fn;
 use vortex_scan::planning::next::pending;
+
+use super::*;
 use crate::planning::tests::fixtures::DonePlanner;
 use crate::planning::tests::fixtures::LARGE_FOOTER_CHUNKS;
 use crate::planning::tests::fixtures::PanickingReadAt;

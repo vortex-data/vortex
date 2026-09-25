@@ -8,14 +8,7 @@ use std::sync::Arc;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use crate::DeserializeStep;
-use crate::EOF_SIZE;
-use crate::Footer;
-use crate::FooterDeserializer;
-use crate::MAX_POSTSCRIPT_SIZE;
 use vortex_io::VortexReadAt;
-use vortex_session::VortexSession;
-
 use vortex_io::request::IoBatch;
 use vortex_io::request::IoConsumer;
 use vortex_io::request::IoRequestId;
@@ -27,6 +20,13 @@ use vortex_scan::planning::planner::Planner;
 use vortex_scan::planning::planner::PlannerOutput;
 use vortex_scan::planning::planner::State;
 use vortex_scan::planning::planner::WorkScope;
+use vortex_session::VortexSession;
+
+use crate::DeserializeStep;
+use crate::EOF_SIZE;
+use crate::Footer;
+use crate::FooterDeserializer;
+use crate::MAX_POSTSCRIPT_SIZE;
 use crate::planning::FileSource;
 use crate::planning::OpenedFile;
 

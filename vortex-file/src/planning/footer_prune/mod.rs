@@ -6,9 +6,6 @@
 use vortex_array::expr::Expression;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use crate::pruning::can_prune_file_stats;
-use vortex_session::VortexSession;
-
 use vortex_io::request::IoConsumer;
 use vortex_io::request::IoRequestId;
 use vortex_io::request::IoResult;
@@ -17,7 +14,10 @@ use vortex_scan::planning::planner::Planner;
 use vortex_scan::planning::planner::PlannerOutput;
 use vortex_scan::planning::planner::State;
 use vortex_scan::planning::planner::WorkScope;
+use vortex_session::VortexSession;
+
 use crate::planning::OpenedFile;
+use crate::pruning::can_prune_file_stats;
 
 /// Decides from the footer alone whether the file can be skipped.
 ///
