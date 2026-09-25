@@ -15,6 +15,7 @@ use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::kernel::ExecuteParentKernel;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::scalar_fn::fns::list_contains::ListContains as ListContainsExpr;
+use crate::scalar_fn::fns::list_contains::ListContainsOptions;
 
 /// Check list-contains without reading buffers (metadata-only).
 ///
@@ -30,6 +31,7 @@ pub trait ListContainsElementReduce: VTable {
     fn list_contains(
         list: &ArrayRef,
         element: ArrayView<'_, Self>,
+        options: &ListContainsOptions,
     ) -> VortexResult<Option<ArrayRef>>;
 }
 
@@ -42,6 +44,7 @@ pub trait ListContainsElementKernel: VTable {
     fn list_contains(
         list: &ArrayRef,
         element: ArrayView<'_, Self>,
+        options: &ListContainsOptions,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>>;
 }
@@ -70,7 +73,7 @@ where
             .as_opt::<ScalarFn>()
             .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
         let list = scalar_fn_array.get_child(0);
-        <V as ListContainsElementReduce>::list_contains(list, array)
+        <V as ListContainsElementReduce>::list_contains(list, array, parent.options)
     }
 }
 
@@ -99,6 +102,6 @@ where
             .as_opt::<ScalarFn>()
             .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
         let list = scalar_fn_array.get_child(0);
-        <V as ListContainsElementKernel>::list_contains(list, array, ctx)
+        <V as ListContainsElementKernel>::list_contains(list, array, parent.options, ctx)
     }
 }
