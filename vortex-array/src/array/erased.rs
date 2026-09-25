@@ -743,7 +743,10 @@ impl ArrayRef {
 
     /// Returns the array's children with their names.
     pub fn named_children(&self) -> Vec<(String, &ArrayRef)> {
-        self.children_names().into_iter().zip(self.children()).collect()
+        self.children_names()
+            .into_iter()
+            .zip(self.children())
+            .collect()
     }
 
     /// Returns the data buffers of the array.

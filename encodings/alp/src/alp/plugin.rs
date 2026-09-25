@@ -142,7 +142,7 @@ mod tests {
         let array = alp_encoded.as_array();
 
         let serialization = SESSION.array_serialize(array)?.unwrap();
-        let children = array.children();
+        let children = array.children().cloned().collect::<Vec<_>>();
         let buffers = array
             .buffers()
             .into_iter()
@@ -194,7 +194,7 @@ mod tests {
         let array = alp_encoded.as_array();
 
         let serialization = SESSION.array_serialize(array)?.unwrap();
-        let children = array.children();
+        let children = array.children().cloned().collect::<Vec<_>>();
         let buffers = array
             .buffers()
             .into_iter()
@@ -228,7 +228,7 @@ mod tests {
         let array = PrimitiveArray::from_iter([1.0f64, 2.0, 3.0]).into_array();
 
         let serialization = SESSION.array_serialize(&array).unwrap().unwrap();
-        let children = array.children();
+        let children = array.children().cloned().collect::<Vec<_>>();
         let buffers = array
             .buffers()
             .into_iter()

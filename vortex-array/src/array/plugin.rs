@@ -58,7 +58,12 @@ impl ArraySerialization {
 
     /// Reuse an in-memory array's buffers and children with the supplied serialized metadata.
     pub fn from_array(serialized_id: ArrayId, array: &ArrayRef, metadata: Vec<u8>) -> Self {
-        Self::new(serialized_id, metadata, array.buffers(), array.children().cloned().collect())
+        Self::new(
+            serialized_id,
+            metadata,
+            array.buffers(),
+            array.children().cloned().collect(),
+        )
     }
 }
 

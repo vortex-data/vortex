@@ -356,7 +356,7 @@ fn test_sliced_array_children() {
     let compressed =
         Zstd::from_primitive(&PrimitiveArray::from_option_iter(data), 0, 100, &mut ctx).unwrap();
     let sliced = compressed.slice(0..4).unwrap();
-    sliced.children();
+    sliced.children().for_each(drop);
 }
 
 /// Six rows, five of them stored, compressed into `values_per_frame`-sized frames with the frame

@@ -274,6 +274,5 @@ fn has_nested_delta(array: &vortex_array::ArrayRef, under_delta: bool) -> bool {
     }
     array
         .children()
-        .iter()
         .any(|child| has_nested_delta(child, under_delta || is_delta))
 }

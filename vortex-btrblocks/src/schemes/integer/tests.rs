@@ -84,7 +84,7 @@ fn constant_mostly_nulls() -> VortexResult<()> {
     let compressed = btr.compress(&array.into_array(), &mut SESSION.create_execution_ctx())?;
 
     assert!(compressed.is::<Masked>());
-    assert!(compressed.children()[0].is::<Constant>());
+    assert!(compressed.nth_child(0).is_some_and(|c| c.is::<Constant>()));
 
     let decoded = compressed;
     let expected =

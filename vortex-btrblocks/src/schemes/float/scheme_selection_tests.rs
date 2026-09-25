@@ -53,7 +53,7 @@ fn test_dict_compressed() -> VortexResult<()> {
     let btr = BtrBlocksCompressor::default();
     let compressed = btr.compress(&array.into_array(), &mut SESSION.create_execution_ctx())?;
     assert!(compressed.is::<ALP>());
-    assert!(compressed.children()[0].is::<Dict>());
+    assert!(compressed.nth_child(0).is_some_and(|c| c.is::<Dict>()));
     Ok(())
 }
 

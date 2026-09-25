@@ -143,7 +143,7 @@ mod tests {
         let array = bitpacked.as_array();
 
         let serialization = SESSION.array_serialize(array)?.unwrap();
-        let children = array.children();
+        let children = array.children().cloned().collect::<Vec<_>>();
         let buffers = array
             .buffers()
             .into_iter()
@@ -196,7 +196,7 @@ mod tests {
         let array = bitpacked.as_array();
 
         let serialization = SESSION.array_serialize(array)?.unwrap();
-        let children = array.children();
+        let children = array.children().cloned().collect::<Vec<_>>();
         let buffers = array
             .buffers()
             .into_iter()
@@ -229,7 +229,7 @@ mod tests {
         let array = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
 
         let serialization = SESSION.array_serialize(&array)?.unwrap();
-        let children = array.children();
+        let children = array.children().cloned().collect::<Vec<_>>();
         let buffers = array
             .buffers()
             .into_iter()

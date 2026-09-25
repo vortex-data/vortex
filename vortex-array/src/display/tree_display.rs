@@ -118,7 +118,7 @@ impl TreeDisplayAdapter for TreeDisplay {
             .peekable();
         while let Some((child_name, child)) = children.next() {
             let is_last = children.peek().is_none();
-            visit(&child_name, &child, is_last)?;
+            visit(&child_name, child, is_last)?;
         }
         Ok(())
     }
