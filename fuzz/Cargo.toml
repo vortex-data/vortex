@@ -4,12 +4,10 @@ authors = { workspace = true }
 categories = { workspace = true }
 description = "Fuzzer for vortex arrays"
 edition = { workspace = true }
-homepage = { workspace = true }
 include = { workspace = true }
 keywords = { workspace = true }
 license = { workspace = true }
 publish = false
-readme = "README.md"
 repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }

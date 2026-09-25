@@ -2,7 +2,6 @@
 name = "vortex-duckdb"
 version = { workspace = true }
 description = "Vortex DuckDB extension"
-homepage = { workspace = true }
 repository = { workspace = true }
 authors = { workspace = true }
 license = { workspace = true }
@@ -29,7 +28,6 @@ bitvec = { workspace = true }
 custom-labels = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
-kanal = { workspace = true }
 num-traits = { workspace = true }
 object_store = { workspace = true, features = ["aws"] }
 parking_lot = { workspace = true }

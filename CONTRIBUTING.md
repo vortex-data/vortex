@@ -69,6 +69,20 @@ Read the [Rust version compatibility policy](README.md#rust-version-compatibilit
 changing `rust-version`; when the MSRV job fails, the usual fix is in the code or the dependency
 update, not the MSRV.
 
+### Pruning Rust dependencies
+
+Use [cargo-shear](https://github.com/Boshen/cargo-shear) to find unused dependencies. Install it
+and inspect the workspace from the repository root:
+
+```bash
+cargo install --locked cargo-shear
+cargo shear
+```
+
+Run `cargo shear --fix` to apply suggested fixes, then review the manifest changes. Dependencies
+used only by generated code or to enable transitive features may need an entry in the affected
+crate's `[package.metadata.cargo-shear]` `ignored` list, with a comment explaining why.
+
 ### Python bindings
 
 `vortex-data` is a mixed Python and Rust package. `uv` manages its Python environment, and

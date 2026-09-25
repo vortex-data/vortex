@@ -3,7 +3,6 @@ name = "vortex-cuda-macros"
 authors.workspace = true
 description = "Proc macros for CUDA conditional compilation in Vortex"
 edition = { workspace = true }
-homepage = { workspace = true }
 categories = { workspace = true }
 include = { workspace = true }
 keywords = { workspace = true }

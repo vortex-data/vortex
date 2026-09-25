@@ -6,7 +6,6 @@ name = "vortex-cub"
 authors.workspace = true
 description = "Rust bindings to NVIDIA CUB library for Vortex GPU operations"
 edition = { workspace = true }
-homepage = { workspace = true }
 categories = { workspace = true }
 include = { workspace = true }
 keywords = { workspace = true }
@@ -18,6 +17,7 @@ version = { workspace = true }
 publish = false
 
 [package.metadata.cargo-shear]
+# Referenced only by bindgen's generated dynamic library loader.
 ignored = ["libloading"]
 
 [lints]

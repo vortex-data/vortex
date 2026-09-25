@@ -1087,6 +1087,8 @@ mod tests {
     }
 
     #[test]
+    // Direct I/O adds a second case only on Linux.
+    #[cfg_attr(not(target_os = "linux"), expect(clippy::single_element_loop))]
     fn test_maps_scan_options() -> VortexResult<()> {
         let buffered = PooledFileReadAtOptions::default();
         for (flags, batch_rows, read_at_options) in [
