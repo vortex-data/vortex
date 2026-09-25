@@ -427,11 +427,16 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
             this.encoding_id(),
             reduced.encoding_id()
         );
+        // Rules may reduce to a non-nullable constant
         vortex_ensure!(
-            reduced.dtype() == this.dtype(),
-            "Reduced array dtype mismatch from {} to {}",
+            reduced.dtype() == this.dtype()
+                || (reduced.dtype().eq_ignore_nullability(this.dtype())
+                    && !reduced.dtype().is_nullable()),
+            "Reduced array dtype mismatch from {} ({}) to {} ({})",
             this.encoding_id(),
-            reduced.encoding_id()
+            this.dtype(),
+            reduced.encoding_id(),
+            reduced.dtype()
         );
         Ok(Some(reduced))
     }

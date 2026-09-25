@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::mem::MaybeUninit;
+
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferAllocatorRef;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
@@ -16,6 +20,7 @@ use crate::dtype::NativePType;
 use crate::dtype::Nullability;
 use crate::scalar::ScalarValue;
 use crate::scalar_fn::unstable::row::InputElement;
+use crate::scalar_fn::unstable::row::OutputBuffer;
 use crate::scalar_fn::unstable::row::OutputElement;
 use crate::validity::Validity;
 
@@ -98,11 +103,29 @@ unsafe impl<T: NativePType> InputElement for T {
 }
 
 impl<T: NativePType> OutputElement for T {
+    type Buffer = BufferMut<Self>;
+
     fn element_dtype() -> DType {
         DType::Primitive(T::PTYPE, Nullability::NonNullable)
     }
 
-    fn build(values: Vec<Self>) -> ArrayRef {
-        PrimitiveArray::new(values, Validity::NonNullable).into_array()
+    fn with_capacity(rows: usize, allocator: &BufferAllocatorRef) -> Self::Buffer {
+        allocator.with_capacity(rows)
+    }
+}
+
+// SAFETY: clearing the length preserves the contents and exposes the same allocation each time.
+// Native values require no destruction when a partially initialized buffer is abandoned.
+unsafe impl<T: NativePType> OutputBuffer<T> for BufferMut<T> {
+    fn slots(&mut self) -> &mut [MaybeUninit<T>] {
+        self.clear();
+        self.spare_capacity_mut()
+    }
+
+    unsafe fn finish(mut self, len: usize, _allocator: &BufferAllocatorRef) -> ArrayRef {
+        // SAFETY: the caller initialized the first `len` slots of this buffer's spare capacity.
+        unsafe { self.set_len(len) };
+
+        PrimitiveArray::new(self.freeze(), Validity::NonNullable).into_array()
     }
 }

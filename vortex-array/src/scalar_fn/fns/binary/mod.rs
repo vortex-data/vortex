@@ -26,6 +26,7 @@ use crate::proto::expr as pb;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
+use crate::scalar_fn::ReduceNode;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
@@ -64,6 +65,22 @@ impl Binary {
         operator: Operator,
     ) -> VortexResult<ScalarFnArray> {
         ScalarFnArray::try_new(Binary.bind(operator), vec![lhs, rhs])
+    }
+}
+
+/// Kleene and/or lookup table where both arguments are constant and non-NULL.
+/// is_and, left, right
+const KLEENE_LUT: [[[bool; 2]; 2]; 2] = [
+    [[false, true], [true, true]],   // or
+    [[false, false], [false, true]], // and
+];
+
+/// Kleene and/or reduction where one argument is constant non-NULL and other
+/// is non-constant.
+fn kleene_one_const<T: ReduceNode>(node: T, constant: bool, is_and: bool) -> T {
+    match (is_and, constant) {
+        (true, true) | (false, false) => node,
+        (is_and, constant) => node.new_constant((constant && !is_and).into()),
     }
 }
 
@@ -269,18 +286,43 @@ impl ScalarFnVTable for Binary {
         operator: &Operator,
         expression: &BoundExpression,
     ) -> VortexResult<Option<BoundExpression>> {
+        if matches!(operator, Operator::And | Operator::Or) {
+            return Ok(None);
+        }
         let lhs = expression.child(0).validity()?;
         let rhs = expression.child(1).validity()?;
+        Ok(Some(expr::and(lhs, rhs)))
+    }
 
-        Ok(match operator {
-            // AND and OR are kleene logic.
-            Operator::And => None,
-            Operator::Or => None,
-            _ => {
-                // All other binary operators are null if either side is null.
-                Some(expr::and(lhs, rhs))
-            }
-        })
+    fn reduce<T: ReduceNode>(&self, operator: &Operator, node: &T) -> VortexResult<Option<T>> {
+        if !matches!(operator, Operator::And | Operator::Or) {
+            return Ok(None);
+        }
+        let left = node.child(0);
+        let right = node.child(1);
+
+        let left_const = left.as_constant();
+        let right_const = right.as_constant();
+
+        // We don't handle Kleene NULL reduction here (.value() returns None
+        // for NULL). This will be reduced in the boolean kernel during
+        // execution. Not handling the case keeps the code much simpler.
+        let left_const = left_const
+            .and_then(|s| s.value().cloned())
+            .map(|v| v.as_bool());
+        let right_const = right_const
+            .and_then(|s| s.value().cloned())
+            .map(|v| v.as_bool());
+        let is_and = *operator == Operator::And;
+
+        Ok(Some(match (left_const, right_const) {
+            (None, None) => return Ok(None),
+            (Some(left_const), Some(right_const)) => left.new_constant(
+                KLEENE_LUT[is_and as usize][left_const as usize][right_const as usize].into(),
+            ),
+            (Some(constant), None) => kleene_one_const(right, constant, is_and),
+            (None, Some(constant)) => kleene_one_const(left, constant, is_and),
+        }))
     }
 
     fn is_strict(&self, operator: &Operator) -> bool {
@@ -311,8 +353,13 @@ mod tests {
     use vortex_error::VortexResult;
 
     use super::*;
+    use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::array_session;
+    use crate::arrays::Bool;
+    use crate::arrays::BoolArray;
+    use crate::arrays::ConstantArray;
+    use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
@@ -332,7 +379,9 @@ mod tests {
     use crate::expr::or;
     use crate::expr::or_collect;
     use crate::expr::test_harness;
+    use crate::optimizer::ArrayOptimizer;
     use crate::scalar::Scalar;
+
     #[test]
     fn and_collect_balanced() {
         let values = vec![lit(true), lit(true), lit(true), lit(true), lit(true)];
@@ -498,40 +547,22 @@ mod tests {
 
         // Create a struct array with one element for testing.
         let lhs_struct = StructArray::from_fields(&[
-            (
-                "a",
-                crate::arrays::PrimitiveArray::from_iter([1i32]).into_array(),
-            ),
-            (
-                "b",
-                crate::arrays::PrimitiveArray::from_iter([3i32]).into_array(),
-            ),
+            ("a", PrimitiveArray::from_iter([1i32]).into_array()),
+            ("b", PrimitiveArray::from_iter([3i32]).into_array()),
         ])
         .unwrap()
         .into_array();
 
         let rhs_struct_equal = StructArray::from_fields(&[
-            (
-                "a",
-                crate::arrays::PrimitiveArray::from_iter([1i32]).into_array(),
-            ),
-            (
-                "b",
-                crate::arrays::PrimitiveArray::from_iter([3i32]).into_array(),
-            ),
+            ("a", PrimitiveArray::from_iter([1i32]).into_array()),
+            ("b", PrimitiveArray::from_iter([3i32]).into_array()),
         ])
         .unwrap()
         .into_array();
 
         let rhs_struct_different = StructArray::from_fields(&[
-            (
-                "a",
-                crate::arrays::PrimitiveArray::from_iter([1i32]).into_array(),
-            ),
-            (
-                "b",
-                crate::arrays::PrimitiveArray::from_iter([4i32]).into_array(),
-            ),
+            ("a", PrimitiveArray::from_iter([1i32]).into_array()),
+            ("b", PrimitiveArray::from_iter([4i32]).into_array()),
         ])
         .unwrap()
         .into_array();
@@ -561,8 +592,6 @@ mod tests {
     #[test]
     fn test_or_kleene_validity() {
         let mut ctx = array_session().create_execution_ctx();
-        use crate::IntoArray;
-        use crate::arrays::BoolArray;
         use crate::arrays::StructArray;
         use crate::expr::col;
 
@@ -659,14 +688,79 @@ mod tests {
     fn test_scalar_subtract_float_underflow_is_ok() {
         use vortex_buffer::buffer;
 
-        use crate::IntoArray;
-        use crate::arrays::ConstantArray;
-
         let values = buffer![f32::MIN, 2.0, 3.0].into_array();
         let rhs1 = ConstantArray::new(Scalar::from(1.0f32), 3).into_array();
         let _results = values.binary(rhs1, Operator::Sub).unwrap();
         let values = buffer![f32::MIN, 2.0, 3.0].into_array();
         let rhs2 = ConstantArray::new(Scalar::from(f32::MAX), 3).into_array();
         let _results = values.binary(rhs2, Operator::Sub).unwrap();
+    }
+
+    #[test]
+    fn test_and_reduce() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let left = BoolArray::from_iter([true, true, false]).into_array();
+        let right = ConstantArray::new(true, 3).into_array();
+
+        let array = Binary::try_new(left.clone(), right.clone(), Operator::And)?
+            .into_array()
+            .optimize()?; // calls reduce()
+        assert!(array.is::<Bool>()); // and(left, const) -> left
+        assert_arrays_eq!(array, left, &mut ctx);
+
+        let array = Binary::try_new(right.clone(), left.clone(), Operator::And)?
+            .into_array()
+            .optimize()?;
+        assert!(array.is::<Bool>()); // and(const, left) -> left
+        assert_arrays_eq!(array, left, &mut ctx);
+
+        let array = Binary::try_new(left.clone(), right.clone(), Operator::Or)?
+            .into_array()
+            .optimize()?;
+        assert_eq!(array.as_constant(), Some(true.into())); // or(left, const) -> true
+
+        let array = Binary::try_new(right.clone(), left, Operator::Or)?
+            .into_array()
+            .optimize()?;
+        assert_eq!(array.as_constant(), Some(true.into())); // or(const, left) -> true
+
+        let array = Binary::try_new(right.clone(), right.clone(), Operator::Or)?
+            .into_array()
+            .optimize()?;
+        assert_eq!(array.as_constant(), Some(true.into())); // or(const, const) -> const
+
+        let left_false = ConstantArray::new(false, 3).into_array();
+
+        let array = Binary::try_new(right.clone(), left_false.clone(), Operator::Or)?
+            .into_array()
+            .optimize()?;
+        assert_eq!(array.as_constant(), Some(true.into()));
+        let array = Binary::try_new(left_false, right, Operator::And)?
+            .into_array()
+            .optimize()?;
+        assert_eq!(array.as_constant(), Some(false.into()));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_and_reduce_nullable() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let nullable_true =
+            ConstantArray::new(Scalar::bool(true, Nullability::Nullable), 3).into_array();
+        let right = BoolArray::from_iter([true, false, true]).into_array();
+
+        let array = Binary::try_new(nullable_true, right.clone(), Operator::And)?
+            .into_array()
+            .optimize()?;
+        assert_arrays_eq!(array, right, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_and_reject_non_bool() {
+        let lhs = ConstantArray::new(7i32, 3).into_array();
+        let rhs = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
+        assert!(Binary::try_new(lhs, rhs, Operator::And).is_err());
     }
 }

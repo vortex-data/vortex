@@ -7,8 +7,11 @@ use vortex_error::VortexResult;
 
 use crate::dtype::DType;
 use crate::expr::BoundExpression;
+use crate::expr::lit;
+use crate::scalar::Scalar;
 use crate::scalar_fn::ReduceNode;
 use crate::scalar_fn::ScalarFnRef;
+use crate::scalar_fn::fns::literal::Literal;
 
 /// A [`ReduceNode`] over a bound expression tree.
 #[derive(Clone)]
@@ -67,5 +70,15 @@ impl ReduceNode for BoundExpressionReduceNode<'_> {
         Ok(Self {
             expression: Cow::Owned(expression),
         })
+    }
+
+    fn as_constant(&self) -> Option<Scalar> {
+        self.expression.as_opt::<Literal>().cloned()
+    }
+
+    fn new_constant(&self, value: Scalar) -> Self {
+        Self {
+            expression: Cow::Owned(lit(value)),
+        }
     }
 }

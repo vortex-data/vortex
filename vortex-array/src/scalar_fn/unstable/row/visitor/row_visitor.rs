@@ -393,10 +393,7 @@ pub trait RowVisitor: private::Sealed + Sized {
     ) -> VortexResult<Self::VisitResult>
     where
         Args: IndexedElementTuple,
-        Fail: FailureEvidence,
-    {
-        self.visit_prepared_deferred::<Args, bool, Prepared, Fail>(prepare, apply, finish_failure)
-    }
+        Fail: FailureEvidence;
 }
 
 pub(super) mod private {

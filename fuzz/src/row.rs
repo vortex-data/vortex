@@ -265,7 +265,14 @@ impl RowKey {
                 .zip(rhs)
                 .map(|(l, r)| l.compare(r, field))
                 .find(|o| o.is_ne())
-                .unwrap_or(Ordering::Equal),
+                .unwrap_or_else(|| {
+                    let length_order = lhs.len().cmp(&rhs.len());
+                    if field.descending {
+                        length_order.reverse()
+                    } else {
+                        length_order
+                    }
+                }),
             (lhs, rhs) => {
                 let natural = match (lhs, rhs) {
                     (Bool(l), Bool(r)) => l.cmp(r),
@@ -426,5 +433,44 @@ fn row_keys(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Vec<RowKey
             "unsupported dtypes are rejected before oracle construction: {:?}",
             c.dtype()
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cmp::Ordering;
+
+    use vortex_array::dtype::i256;
+
+    use super::RowKey;
+    use super::RowSortField;
+
+    #[test]
+    fn test_list_prefix_order_respects_direction() {
+        let one = RowKey::Int(i256::from_i128(1));
+        let prefixes = [
+            (vec![], one.clone()),
+            (vec![RowKey::Null], one.clone()),
+            (
+                vec![RowKey::Composite(vec![RowKey::Null])],
+                RowKey::Composite(vec![one]),
+            ),
+        ];
+        for (prefix, next) in prefixes {
+            let shorter = RowKey::Composite(prefix.clone());
+            let longer = RowKey::Composite(prefix.into_iter().chain([next]).collect());
+            for descending in [false, true] {
+                for nulls_first in [false, true] {
+                    let field = RowSortField::new(descending, nulls_first);
+                    let expected = if descending {
+                        Ordering::Greater
+                    } else {
+                        Ordering::Less
+                    };
+                    assert_eq!(shorter.compare(&longer, field), expected);
+                    assert_eq!(longer.compare(&shorter, field), expected.reverse());
+                }
+            }
+        }
     }
 }

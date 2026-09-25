@@ -377,6 +377,7 @@ where
             HashMap::with_hasher(FxBuildHasher)
         },
         prev: head,
+        pending: 0,
         runs: 1,
     };
 
@@ -426,6 +427,10 @@ where
         }
     }
 
+    if count_distinct_values {
+        loop_state.flush();
+    }
+
     let runs = loop_state.runs;
 
     let array_ref = array.as_ref();
@@ -472,10 +477,44 @@ where
 struct LoopState<T> {
     /// The previous value seen.
     prev: T,
+    /// Occurrences of `prev` in the current run not yet added to `distinct_values`.
+    pending: u32,
     /// The run count.
     runs: u32,
     /// The distinct values map.
     distinct_values: HashMap<NativeValue<T>, u32, FxBuildHasher>,
+}
+
+impl<T: IntegerPType> LoopState<T>
+where
+    NativeValue<T>: Eq + Hash,
+{
+    /// Adds the pending occurrences of `prev` to the distinct values map.
+    #[allow(clippy::inline_always)]
+    #[inline(always)]
+    fn flush(&mut self) {
+        *self
+            .distinct_values
+            .entry(NativeValue(self.prev))
+            .or_insert(0) += self.pending;
+        self.pending = 0;
+    }
+
+    /// Records one value, hashing only when the value differs from `prev`.
+    #[allow(clippy::inline_always)]
+    #[inline(always)]
+    fn push<const COUNT_DISTINCT_VALUES: bool>(&mut self, value: T) {
+        if value != self.prev {
+            if COUNT_DISTINCT_VALUES {
+                self.flush();
+            }
+            self.prev = value;
+            self.runs += 1;
+        }
+        if COUNT_DISTINCT_VALUES {
+            self.pending += 1;
+        }
+    }
 }
 
 /// Inner loop for non-null chunks of 64 values.
@@ -488,16 +527,47 @@ fn inner_loop_nonnull<T: IntegerPType>(
 ) where
     NativeValue<T>: Eq + Hash,
 {
-    for &value in values {
-        if count_distinct_values {
-            *state.distinct_values.entry(NativeValue(value)).or_insert(0) += 1;
-        }
+    if count_distinct_values {
+        inner_loop_nonnull_impl::<T, true>(values, state);
+    } else {
+        inner_loop_nonnull_impl::<T, false>(values, state);
+    }
+}
 
-        if value != state.prev {
-            state.prev = value;
-            state.runs += 1;
+/// Processes one non-null chunk, monomorphized on whether distinct values are counted.
+#[allow(clippy::inline_always)]
+#[inline(always)]
+fn inner_loop_nonnull_impl<T: IntegerPType, const COUNT_DISTINCT_VALUES: bool>(
+    values: &[T; 64],
+    state: &mut LoopState<T>,
+) where
+    NativeValue<T>: Eq + Hash,
+{
+    // Branch-free count of value changes, including the change from the previous chunk. At
+    // most 64, so a `u8` accumulator lets the comparison use full-width byte lanes.
+    let transitions = u8::from(values[0] != state.prev)
+        + values
+            .iter()
+            .zip(&values[1..])
+            .map(|(a, b)| u8::from(a != b))
+            .sum::<u8>();
+
+    if COUNT_DISTINCT_VALUES {
+        if transitions == 0 {
+            state.pending += 64;
+            return;
+        }
+        for &value in values {
+            if value != state.prev {
+                state.flush();
+                state.prev = value;
+            }
+            state.pending += 1;
         }
     }
+
+    state.runs += u32::from(transitions);
+    state.prev = values[63];
 }
 
 /// Inner loop for nullable chunks of 64 values.
@@ -511,17 +581,10 @@ fn inner_loop_nullable<T: IntegerPType>(
 ) where
     NativeValue<T>: Eq + Hash,
 {
-    for (idx, &value) in values.iter().enumerate() {
-        if is_valid.value(idx) {
-            if count_distinct_values {
-                *state.distinct_values.entry(NativeValue(value)).or_insert(0) += 1;
-            }
-
-            if value != state.prev {
-                state.prev = value;
-                state.runs += 1;
-            }
-        }
+    if count_distinct_values {
+        inner_loop_masked::<T, true>(values, is_valid, state);
+    } else {
+        inner_loop_masked::<T, false>(values, is_valid, state);
     }
 }
 
@@ -536,16 +599,26 @@ fn inner_loop_naive<T: IntegerPType>(
 ) where
     NativeValue<T>: Eq + Hash,
 {
+    if count_distinct_values {
+        inner_loop_masked::<T, true>(values, is_valid, state);
+    } else {
+        inner_loop_masked::<T, false>(values, is_valid, state);
+    }
+}
+
+/// Processes values with a validity mask, skipping nulls without breaking runs.
+#[allow(clippy::inline_always)]
+#[inline(always)]
+fn inner_loop_masked<T: IntegerPType, const COUNT_DISTINCT_VALUES: bool>(
+    values: &[T],
+    is_valid: &BitBuffer,
+    state: &mut LoopState<T>,
+) where
+    NativeValue<T>: Eq + Hash,
+{
     for (idx, &value) in values.iter().enumerate() {
         if is_valid.value(idx) {
-            if count_distinct_values {
-                *state.distinct_values.entry(NativeValue(value)).or_insert(0) += 1;
-            }
-
-            if value != state.prev {
-                state.prev = value;
-                state.runs += 1;
-            }
+            state.push::<COUNT_DISTINCT_VALUES>(value);
         }
     }
 }
@@ -554,6 +627,7 @@ fn inner_loop_naive<T: IntegerPType>(
 mod tests {
     use std::iter;
 
+    use rstest::rstest;
     use vortex_array::VortexSessionExecute;
     use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
@@ -562,7 +636,9 @@ mod tests {
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_utils::aliases::hash_map::HashMap;
 
+    use super::ErasedStats;
     use super::IntegerStats;
     use super::typed_int_stats;
 
@@ -627,5 +703,58 @@ mod tests {
         assert_eq!(stats.null_count, 1);
         assert_eq!(stats.average_run_length, 1);
         assert_eq!(stats.distinct_count().unwrap(), 2);
+    }
+
+    /// Returns the per-value counts and the run count of the valid values, computed naively.
+    fn naive_stats(values: &[u32], valid: &[bool]) -> (HashMap<u32, u32>, u32) {
+        let mut counts = HashMap::default();
+        let mut runs = 0;
+        let mut prev = None;
+        for (&value, _) in values.iter().zip(valid).filter(|(_, ok)| **ok) {
+            *counts.entry(value).or_insert(0) += 1;
+            if prev.replace(value) != Some(value) {
+                runs += 1;
+            }
+        }
+        (counts, runs)
+    }
+
+    /// Checks the chunked loops against a naive reference. The run lengths cover aligned
+    /// constant chunks (64), runs that cross chunk boundaries (3, 100), and chunks where every
+    /// value changes (1).
+    #[rstest]
+    fn test_matches_naive_reference(
+        #[values(1, 63, 64, 65, 64 * 20 + 17)] len: u32,
+        #[values(1, 3, 64, 100)] run_len: u32,
+        #[values(None, Some(97), Some(3))] null_every: Option<u32>,
+    ) -> VortexResult<()> {
+        let values: Vec<u32> = (0..len).map(|i| (i / run_len) % 16).collect();
+        let valid: Vec<bool> = (0..len)
+            .map(|i| null_every.is_none_or(|n| i % n != 0))
+            .collect();
+        let (expected, runs) = naive_stats(&values, &valid);
+
+        let validity = match null_every {
+            None => Validity::NonNullable,
+            Some(_) => Validity::from(BitBuffer::from(valid)),
+        };
+        let array = PrimitiveArray::new(Buffer::from(values), validity);
+        let mut ctx = array_session().create_execution_ctx();
+        let stats = typed_int_stats::<u32>(&array, true, &mut ctx)?;
+
+        let ErasedStats::U32(typed) = stats.erased() else {
+            unreachable!()
+        };
+        let actual: HashMap<u32, u32> = typed
+            .distinct()
+            .map(|d| d.distinct_values().iter().map(|(k, &c)| (k.0, c)).collect())
+            .unwrap_or_default();
+        assert_eq!(actual, expected);
+        let value_count: u32 = expected.values().sum();
+        assert_eq!(stats.value_count, value_count);
+        if value_count > 0 {
+            assert_eq!(stats.average_run_length, value_count / runs);
+        }
+        Ok(())
     }
 }

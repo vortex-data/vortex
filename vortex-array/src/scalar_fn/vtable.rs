@@ -18,11 +18,13 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFn;
 use crate::arrays::ScalarFnArray;
 use crate::dtype::DType;
 use crate::expr::BoundExpression;
 use crate::expr::display::ExprDisplay;
+use crate::scalar::Scalar;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::TypedScalarFnInstance;
@@ -232,6 +234,14 @@ pub trait ReduceNode: Clone {
     /// Create a new node from the given scalar function and children, inheriting this node's
     /// reduction context (e.g. cached expression dtypes or the array row count).
     fn new_node(&self, scalar_fn: ScalarFnRef, children: &[Self]) -> VortexResult<Self>;
+
+    /// Return a scalar value if this node is constant
+    fn as_constant(&self) -> Option<Scalar> {
+        None
+    }
+
+    /// Produce a new constant node in the same scope as "self"
+    fn new_constant(&self, value: Scalar) -> Self;
 }
 
 /// A [`ReduceNode`] over an array tree.
@@ -300,6 +310,17 @@ impl ReduceNode for ArrayReduceNode<'_> {
         Ok(Self {
             array: Cow::Owned(array.into_array()),
         })
+    }
+
+    fn as_constant(&self) -> Option<Scalar> {
+        self.array.as_constant()
+    }
+
+    fn new_constant(&self, value: Scalar) -> Self {
+        let array = ConstantArray::new(value, self.array.len());
+        Self {
+            array: Cow::Owned(array.into_array()),
+        }
     }
 }
 

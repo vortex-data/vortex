@@ -29,8 +29,10 @@ use crate::validity::Validity;
 
 pub(super) const RULES: ReduceRuleSet<ScalarFn> = ReduceRuleSet::new(&[
     &ScalarFnPackToStructRule,
-    &ScalarFnAbstractReduceRule,
     &IsNullReduceRule,
+    // Ordering is important. ScalarFn::reduce() must be called after all other
+    // optimizations
+    &ScalarFnAbstractReduceRule,
 ]);
 
 pub(super) const PARENT_RULES: ParentRuleSet<ScalarFn> = ParentRuleSet::new(&[

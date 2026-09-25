@@ -7,6 +7,7 @@
 //! uninitialized scalar storage, [`FixedSizeListSink`] provides runtime-width row storage, and
 //! [`Utf8Sink`] provides variable-length UTF-8 storage.
 
+use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -129,8 +130,14 @@ pub unsafe trait OutputSink: 'static + Sized {
     /// result, and masks the null rows.
     fn storage_dtype(params: &Self::Params) -> DType;
 
-    /// Allocate a sink for `rows` rows.
-    fn with_capacity(rows: usize, params: &Self::Params) -> VortexResult<Self>;
+    /// Allocate a sink for `rows` rows, using `allocator` for new output payload buffers.
+    ///
+    /// The allocator is an execution resource, separate from physical storage parameters.
+    fn with_capacity(
+        rows: usize,
+        params: &Self::Params,
+        allocator: &BufferAllocatorRef,
+    ) -> VortexResult<Self>;
 
     /// Borrow all output rows for the hot loop.
     fn rows(&mut self) -> Self::Rows<'_>;

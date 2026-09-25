@@ -8,12 +8,14 @@
 
 use std::mem::MaybeUninit;
 
+use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexResult;
 
 use super::OutputSink;
 use crate::ArrayRef;
 use crate::dtype::DType;
 use crate::scalar_fn::unstable::row::FillDefault;
+use crate::scalar_fn::unstable::row::OutputBuffer;
 use crate::scalar_fn::unstable::row::OutputElement;
 use crate::scalar_fn::unstable::row::ViewLen;
 
@@ -56,12 +58,13 @@ impl InitializedElement {
 /// success. The token is zero-sized, so the proof adds no runtime row state.
 ///
 /// When execution omits invalid rows, it initializes placeholders first. Errors and unwinds are
-/// safe because `values` keeps length zero until `finish`. The `T: Copy` bound means that
-/// initialized spare-capacity elements require no destruction.
-pub struct UninitElementSink<T> {
+/// safe because [`OutputBuffer`] permits abandoning partially initialized storage. The `T: Copy`
+/// bound means that initialized elements require no destruction.
+pub struct UninitElementSink<T: OutputElement> {
     /// Spare storage written in increasing row order.
-    values: Vec<T>,
-
+    values: T::Buffer,
+    /// Allocator for any physical conversion when the sink finishes.
+    allocator: BufferAllocatorRef,
     /// The number of slots exposed to the row loop and initialized before finishing.
     row_count: usize,
 }
@@ -91,7 +94,8 @@ impl<T: Copy + Default> FillDefault for UninitElementRows<'_, T> {
 // names one distinct slot. Safe code cannot construct `InitializedElement`. Its unsafe constructor
 // writes the supplied slot and requires the caller to return that exact evidence. The default
 // skipped-row initializer fills every slot with `T::default()` through
-// `UninitElementRows::fill_default` before masked traversal.
+// `UninitElementRows::fill_default` before masked traversal. `OutputBuffer` preserves initialized
+// slots across row views and permits abandoning partially initialized storage.
 unsafe impl<T: OutputElement + Copy + Default> OutputSink for UninitElementSink<T> {
     type Params = ();
     type Rows<'a> = UninitElementRows<'a, T>;
@@ -102,15 +106,20 @@ unsafe impl<T: OutputElement + Copy + Default> OutputSink for UninitElementSink<
         T::element_dtype()
     }
 
-    fn with_capacity(rows: usize, _params: &Self::Params) -> VortexResult<Self> {
+    fn with_capacity(
+        rows: usize,
+        _params: &Self::Params,
+        allocator: &BufferAllocatorRef,
+    ) -> VortexResult<Self> {
         Ok(Self {
-            values: Vec::with_capacity(rows),
+            values: T::with_capacity(rows, allocator),
+            allocator: allocator.clone(),
             row_count: rows,
         })
     }
 
     fn rows(&mut self) -> Self::Rows<'_> {
-        UninitElementRows(&mut self.values.spare_capacity_mut()[..self.row_count])
+        UninitElementRows(&mut self.values.slots()[..self.row_count])
     }
 
     unsafe fn row_unchecked<'a>(rows: &'a mut Self::Rows<'_>, index: usize) -> Self::Row<'a> {
@@ -118,11 +127,8 @@ unsafe impl<T: OutputElement + Copy + Default> OutputSink for UninitElementSink<
         unsafe { rows.0.get_unchecked_mut(index) }
     }
 
-    unsafe fn finish(mut self) -> VortexResult<ArrayRef> {
-        // SAFETY: the caller guarantees every slot in `0..row_count` was initialized, and
-        // `with_capacity` reserved every slot in that range.
-        unsafe { self.values.set_len(self.row_count) };
-
-        Ok(T::build(self.values))
+    unsafe fn finish(self) -> VortexResult<ArrayRef> {
+        // SAFETY: the caller guarantees every exposed slot was initialized.
+        Ok(unsafe { self.values.finish(self.row_count, &self.allocator) })
     }
 }

@@ -18,6 +18,7 @@ use crate::ExecutionCtx;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::unstable::row::FailureEvidence;
 use crate::scalar_fn::unstable::row::IndexedElementTuple;
+use crate::scalar_fn::unstable::row::OutputBuffer;
 use crate::scalar_fn::unstable::row::OutputElement;
 use crate::scalar_fn::unstable::row::visitor::assert_owned_output_needs_no_drop;
 
@@ -51,8 +52,7 @@ where
     Out: OutputElement,
     Fail: FailureEvidence,
 {
-    // The output vector stays at length zero until every slot is initialized so that an unwind
-    // abandons partially initialized spare capacity. This no-drop assertion proves that no
+    // Errors and unwinds abandon partially initialized slots. The assertion ensures that no
     // initialized value requires a destructor to run.
     const { assert_owned_output_needs_no_drop::<Out>() };
 
@@ -62,8 +62,8 @@ where
     let prepared = prepare(Args::const_values(&columns));
 
     let row_count = args.row_count();
-    let mut values = Vec::<Out>::with_capacity(row_count);
-    let output = &mut values.spare_capacity_mut()[..row_count];
+    let mut values = Out::with_capacity(row_count, ctx.allocator());
+    let output = &mut values.slots()[..row_count];
 
     let failure_evidence = if let Some(views) = Args::views_if_no_consts(&columns) {
         // Keep this validation beside the views so LLVM sees their common length here.
@@ -101,12 +101,13 @@ where
         accumulated_failure
     };
 
-    // SAFETY: normal completion of either execution path initializes `0..row_count` exactly
-    // once, and `values` was allocated with at least `row_count` capacity.
-    unsafe { values.set_len(row_count) };
-
     match finish_failure(failure_evidence) {
-        Ok(()) => Ok(DenseAttempt::Values(Out::build(values))),
+        Ok(()) => {
+            // SAFETY: normal completion of either path initializes every output slot.
+            let output = unsafe { values.finish(row_count, ctx.allocator()) };
+
+            Ok(DenseAttempt::Values(output))
+        }
         Err(error) => Ok(DenseAttempt::DeferredError(error)),
     }
 }

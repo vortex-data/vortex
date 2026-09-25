@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::mem::MaybeUninit;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 use rstest::rstest;
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -21,6 +23,7 @@ use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::array_session;
 use crate::arrays::BoolArray;
+use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::FixedSizeListArray;
@@ -35,6 +38,7 @@ use crate::dtype::Nullability;
 use crate::dtype::extension::ExtDTypeRef;
 use crate::extension::datetime::TimeUnit;
 use crate::extension::datetime::Timestamp;
+use crate::memory::test_allocator::tracking_allocator;
 use crate::scalar::Scalar;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ScalarFnId;
@@ -42,11 +46,13 @@ use crate::scalar_fn::VecExecutionArgs;
 use crate::scalar_fn::unstable::row::FixedSizeListSink;
 use crate::scalar_fn::unstable::row::InitializedRow;
 use crate::scalar_fn::unstable::row::InputElement;
+use crate::scalar_fn::unstable::row::OutputBuffer;
 use crate::scalar_fn::unstable::row::OutputElement;
 use crate::scalar_fn::unstable::row::OutputSink;
 use crate::scalar_fn::unstable::row::RowFn;
 use crate::scalar_fn::unstable::row::RowVisitor;
 use crate::scalar_fn::unstable::row::Utf8Column;
+use crate::scalar_fn::unstable::row::Utf8Sink;
 use crate::scalar_fn::unstable::row::execute::execute_bool_dense_attempt;
 use crate::scalar_fn::unstable::row::execute_rows;
 use crate::scalar_fn::unstable::row::row_fn_return_dtype;
@@ -249,15 +255,33 @@ unsafe impl InputElement for DenseRetryI64 {
 struct NullProducingI64(i64);
 
 impl OutputElement for NullProducingI64 {
+    type Buffer = BufferMut<Self>;
+
     fn element_dtype() -> DType {
         DType::from(i64::PTYPE)
     }
 
-    fn build(values: Vec<Self>) -> ArrayRef {
-        let values: Vec<_> = values.into_iter().map(|value| value.0).collect();
-        let validity = Validity::from_iter((0..values.len()).map(|index| index != 0));
+    fn with_capacity(rows: usize, allocator: &BufferAllocatorRef) -> Self::Buffer {
+        allocator.with_capacity(rows)
+    }
+}
 
-        PrimitiveArray::new(values, validity).into_array()
+// SAFETY: clearing the length preserves the slots, and these values require no destruction.
+unsafe impl OutputBuffer<NullProducingI64> for BufferMut<NullProducingI64> {
+    fn slots(&mut self) -> &mut [MaybeUninit<NullProducingI64>] {
+        self.clear();
+        self.spare_capacity_mut()
+    }
+
+    unsafe fn finish(mut self, len: usize, allocator: &BufferAllocatorRef) -> ArrayRef {
+        // SAFETY: the caller initialized the first `len` slots.
+        unsafe { self.set_len(len) };
+
+        let mut output = allocator.with_capacity(len);
+        output.extend(self.iter().map(|value| value.0));
+        let validity = Validity::from_iter((0..len).map(|index| index != 0));
+
+        PrimitiveArray::new(output.freeze(), validity).into_array()
     }
 }
 
@@ -276,8 +300,12 @@ unsafe impl OutputSink for I64Sink {
         DType::from(i64::PTYPE)
     }
 
-    fn with_capacity(rows: usize, _params: &Self::Params) -> VortexResult<Self> {
-        Ok(Self(BufferMut::zeroed(rows)))
+    fn with_capacity(
+        rows: usize,
+        _params: &Self::Params,
+        allocator: &BufferAllocatorRef,
+    ) -> VortexResult<Self> {
+        Ok(Self(allocator.zeroed(rows)))
     }
 
     fn rows(&mut self) -> Self::Rows<'_> {
@@ -1023,12 +1051,18 @@ fn test_deferred_owned_execution_retries_null_row_failure() -> VortexResult<()> 
     let lhs = PrimitiveArray::new(vec![1_i64, i64::MAX], validity.clone()).into_array();
     let rhs = ConstantArray::new(1_i64, 2).into_array();
     let args = VecExecutionArgs::new(vec![lhs, rhs], 2);
-    let mut ctx = array_session().create_execution_ctx();
+    let (allocator, tracker) = tracking_allocator();
+    let mut ctx = array_session()
+        .create_execution_ctx()
+        .with_allocator(allocator);
 
     let actual = execute_rows(&function, &EmptyOptions, &args, &mut ctx)?;
     let expected = PrimitiveArray::new(vec![2_i64, 0], validity).into_array();
 
-    assert_arrays_eq!(&actual, &expected, &mut ctx);
+    // Canonical masking retains the primitive payload without allocating replacement values.
+    let actual = actual.execute::<PrimitiveArray>(&mut ctx)?;
+    tracker.assert_owns(actual.as_slice::<i64>());
+    assert_arrays_eq!(actual.as_ref(), &expected, &mut ctx);
     assert_eq!(function.prepare_count(), 2);
     Ok(())
 }
@@ -1448,5 +1482,50 @@ fn test_undeclared_output_dtype_keeps_the_storage_dtype() -> VortexResult<()> {
     let expected = PrimitiveArray::from_iter(values).into_array();
 
     assert_arrays_eq!(&actual, &expected, &mut ctx);
+    Ok(())
+}
+
+#[derive(Clone)]
+struct ConstantString;
+
+impl RowFn for ConstantString {
+    type Options = EmptyOptions;
+
+    const ARG_NAMES: &'static [&'static str] = &["value"];
+    const INFALLIBLE: bool = true;
+
+    fn id(&self) -> ScalarFnId {
+        static ID: CachedId = CachedId::new("test.constant_string");
+        *ID
+    }
+
+    fn dispatch<V: RowVisitor>(
+        &self,
+        _options: &Self::Options,
+        _args: &[DType],
+        visitor: V,
+    ) -> VortexResult<V::VisitResult> {
+        visitor.visit_into::<(i64,), Utf8Sink, _>((), |_, output| {
+            output.write("an external UTF-8 payload");
+        })
+    }
+}
+
+#[test]
+fn constant_output_retains_execution_allocator_payload() -> VortexResult<()> {
+    let input = ConstantArray::new(1_i64, 3).into_array();
+    let args = VecExecutionArgs::new(vec![input], 3);
+    let (allocator, tracker) = tracking_allocator();
+    let mut ctx = array_session()
+        .create_execution_ctx()
+        .with_allocator(allocator);
+
+    let output = execute_rows(&ConstantString, &EmptyOptions, &args, &mut ctx)?;
+    let constant = output.as_::<Constant>();
+    let scalar = constant.scalar();
+    let value = scalar.as_utf8().value().unwrap();
+    assert_eq!(value.as_str(), "an external UTF-8 payload");
+    assert_eq!(output.len(), 3);
+    tracker.assert_owns(value.inner().as_slice());
     Ok(())
 }

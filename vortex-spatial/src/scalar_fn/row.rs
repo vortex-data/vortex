@@ -11,6 +11,7 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::memory::BufferAllocatorRef;
 use vortex_array::scalar_fn::unstable::row::InputElement;
 use vortex_array::scalar_fn::unstable::row::OutputSink;
 use vortex_array::scalar_fn::unstable::row::Preinitialized;
@@ -136,6 +137,7 @@ unsafe impl InputElement for GeometryRow {
 /// Row output for native 2-D polygons.
 pub(crate) struct PolygonSink {
     polygons: Vec<GeoPolygon<f64>>,
+    allocator: BufferAllocatorRef,
 }
 
 fn empty_polygon() -> GeoPolygon<f64> {
@@ -156,9 +158,14 @@ unsafe impl OutputSink for PolygonSink {
         polygon_storage_dtype(Dimension::Xy, Nullability::NonNullable)
     }
 
-    fn with_capacity(rows: usize, (): &Self::Params) -> VortexResult<Self> {
+    fn with_capacity(
+        rows: usize,
+        (): &Self::Params,
+        allocator: &BufferAllocatorRef,
+    ) -> VortexResult<Self> {
         Ok(Self {
             polygons: vec![empty_polygon(); rows],
+            allocator: allocator.clone(),
         })
     }
 
@@ -172,6 +179,6 @@ unsafe impl OutputSink for PolygonSink {
     }
 
     unsafe fn finish(self) -> VortexResult<ArrayRef> {
-        build_polygon_storage(&self.polygons)
+        build_polygon_storage(&self.polygons, &self.allocator)
     }
 }
