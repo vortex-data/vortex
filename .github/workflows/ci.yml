@@ -236,10 +236,11 @@ jobs:
       - uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
         with:
           sync: false
-      - name: Pytest - benchmark reporting
+      - name: Pytest - benchmark reporting and ingestion
         run: |
           uv run --no-project --with pytest --with pandas --with numpy --with orjson \
-            --with tabulate pytest scripts/tests/test_benchmark_reporting.py
+            --with tabulate --with xxhash \
+            pytest scripts/tests/test_benchmark_reporting.py scripts/tests/test_post_ingest.py
 
   python-cuda-test:
     name: "Python CUDA (test)"
