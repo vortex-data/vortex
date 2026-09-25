@@ -27,7 +27,6 @@ use crate::expr::Expression;
 use crate::expr::display::ExprDisplay;
 use crate::expr::lit;
 use crate::scalar::Scalar;
-use crate::scalar::ScalarValue;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::TypedScalarFnInstance;
@@ -252,7 +251,7 @@ pub trait ReduceNode: Clone {
     fn new_node(&self, scalar_fn: ScalarFnRef, children: &[Self]) -> VortexResult<Self>;
 
     /// Return a scalar value if this node is constant
-    fn as_constant(&self) -> Option<ScalarValue> {
+    fn as_constant(&self) -> Option<Scalar> {
         None
     }
 
@@ -325,10 +324,8 @@ impl ReduceNode for ExpressionReduceNode<'_> {
         })
     }
 
-    fn as_constant(&self) -> Option<ScalarValue> {
-        self.expression
-            .as_opt::<Literal>()
-            .and_then(|s| s.value().cloned())
+    fn as_constant(&self) -> Option<Scalar> {
+        self.expression.as_opt::<Literal>().cloned()
     }
 
     fn new_constant(&self, value: Scalar) -> Self {
@@ -407,8 +404,8 @@ impl ReduceNode for ArrayReduceNode<'_> {
         })
     }
 
-    fn as_constant(&self) -> Option<ScalarValue> {
-        self.array.as_constant().and_then(|s| s.value().cloned())
+    fn as_constant(&self) -> Option<Scalar> {
+        self.array.as_constant()
     }
 
     fn new_constant(&self, value: Scalar) -> Self {

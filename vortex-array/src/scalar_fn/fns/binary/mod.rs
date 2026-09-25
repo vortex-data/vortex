@@ -69,6 +69,22 @@ impl Binary {
     }
 }
 
+/// Kleene and/or lookup table where both arguments are constant and non-NULL.
+/// [is_and][left][right]
+const KLEENE_LUT: [[[bool; 2]; 2]; 2] = [
+    [[false, true], [true, true]],   // or
+    [[false, false], [false, true]], // and
+];
+
+/// Kleene and/or reduction where one argument is constant non-NULL and other
+/// is non-constant.
+fn kleene_one_const<T: ReduceNode>(node: T, constant: bool, is_and: bool) -> T {
+    match (is_and, constant) {
+        (true, true) | (false, false) => node,
+        (is_and, constant) => node.new_constant((constant && !is_and).into()),
+    }
+}
+
 impl ScalarFnVTable for Binary {
     type Options = Operator;
 
@@ -273,32 +289,40 @@ impl ScalarFnVTable for Binary {
         if !matches!(operator, Operator::And | Operator::Or) {
             return Ok(None);
         }
-        let is_and = *operator == Operator::And;
         let left = node.child(0);
         let right = node.child(1);
+
+        let left_const = left.as_constant();
+        let right_const = right.as_constant();
+
         // We don't handle Kleene NULL reduction here. This will be reduced in
         // the boolean kernel during execution. Not handling the case keeps the
         // code much simpler.
-        Ok(Some(match (left.as_constant(), right.as_constant()) {
+        if let Some(constant) = left_const.as_ref()
+            && constant.is_null()
+        {
+            return Ok(None);
+        }
+        if let Some(constant) = right_const.as_ref()
+            && constant.is_null()
+        {
+            return Ok(None);
+        }
+        let left_const = left_const
+            .and_then(|s| s.value().cloned())
+            .map(|v| v.as_bool());
+        let right_const = right_const
+            .and_then(|s| s.value().cloned())
+            .map(|v| v.as_bool());
+        let is_and = *operator == Operator::And;
+
+        Ok(Some(match (left_const, right_const) {
             (None, None) => return Ok(None),
-            (Some(left_const), Some(right_const)) => {
-                let left_const = left_const.as_bool();
-                let right_const = right_const.as_bool();
-                let res = if is_and {
-                    left_const && right_const
-                } else {
-                    left_const || right_const
-                };
-                left.new_constant(res.into())
-            }
-            (Some(left_const), None) => match (is_and, left_const.as_bool()) {
-                (true, true) | (false, false) => right,
-                (is_and, left_const) => left.new_constant((left_const && !is_and).into()),
-            },
-            (None, Some(right_const)) => match (is_and, right_const.as_bool()) {
-                (true, true) | (false, false) => left,
-                (is_and, right_const) => right.new_constant((right_const && !is_and).into()),
-            },
+            (Some(left_const), Some(right_const)) => left.new_constant(
+                KLEENE_LUT[is_and as usize][left_const as usize][right_const as usize].into(),
+            ),
+            (Some(constant), None) => kleene_one_const(right, constant, is_and),
+            (None, Some(constant)) => kleene_one_const(left, constant, is_and),
         }))
     }
 
