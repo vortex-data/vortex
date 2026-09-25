@@ -97,7 +97,7 @@ mod tests {
         let handle = BufferHandle::new_device(Arc::new(MetadataOnlyDeviceBuffer(1)));
         let input = BoolArray::try_new_from_handle(handle, 3, 5, Validity::AllValid)?;
         let mask = BoolArray::from_iter([true, false, true, false, true]).into_array();
-        let masked = <Bool as MaskReduce>::mask(input.as_ref().as_::<Bool>(), &mask)?
+        let masked = <Bool as MaskReduce>::mask(input.as_view(), &mask)?
             .expect("Boolean masking must reduce");
         let output = masked.as_::<Bool>();
 

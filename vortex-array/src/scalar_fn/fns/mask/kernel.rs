@@ -77,10 +77,6 @@ where
         if child_idx != 0 {
             return Ok(None);
         }
-        // Reduce only when the mask (child 1) is readable from metadata: a concrete `Bool` or a
-        // `Constant`. `Mask::return_dtype` guarantees the mask is `Bool(NonNullable)`, so a
-        // `Constant` here is a non-nullable Boolean. Other encodings may need execution, so leave
-        // them to the kernel.
         let mask_child = parent.get_child(1);
         if mask_child.as_opt::<Bool>().is_none() && mask_child.as_opt::<Constant>().is_none() {
             let can_attach_mask =

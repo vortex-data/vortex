@@ -208,7 +208,7 @@ mod tests {
         let parent = FilterArray::try_new(array.clone().into_array(), mask.clone())?;
 
         let result = ScalarFilterPushdownRule
-            .reduce_parent(array.as_view(), parent.as_view(), 0)?
+            .reduce_parent(array.as_view(), parent.as_parent_view(), 0)?
             .ok_or_else(|| vortex_err!("expected filter pushdown"))?;
 
         assert_eq!(values.cached_indices().is_some(), nchildren > 1);
@@ -244,7 +244,7 @@ mod tests {
         )?;
 
         let result = ScalarFilterPushdownRule
-            .reduce_parent(array.as_view(), parent.as_view(), 0)?
+            .reduce_parent(array.as_view(), parent.as_parent_view(), 0)?
             .ok_or_else(|| vortex_err!("expected filter pushdown"))?;
 
         assert_eq!(result.as_::<ScalarFn>().nchildren(), 0);

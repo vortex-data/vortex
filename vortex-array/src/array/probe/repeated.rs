@@ -296,7 +296,7 @@ mod tests {
             .ok_or_else(|| vortex_err!("expected a struct"))?;
         let mut repeated = RepeatedState::<()>::default();
         {
-            let mut state = ProbeState::repeated(typed, &mut repeated);
+            let mut state = ProbeState::repeated(typed.materialize_view(), &mut repeated);
             assert!(state.slot(5).is_err());
             assert!(state.slot(0)?.is_none());
             assert!(state.retained().is_some());

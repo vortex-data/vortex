@@ -37,7 +37,7 @@ impl DynAggregateKernel for DecimalBytePartsIsConstantKernel {
             return Ok(None);
         };
 
-        let result = is_constant_parts(array, ctx)?;
+        let result = is_constant_parts(array.materialize_view(), ctx)?;
         Ok(Some(IsConstant::make_partial(batch, result, ctx)?))
     }
 }
