@@ -30,6 +30,7 @@ use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
+use crate::kernel::Applies;
 use crate::kernel::ExecuteParentKernel;
 use crate::scalar::BoolScalar;
 use crate::scalar::Scalar;
@@ -68,6 +69,15 @@ where
     V: BooleanKernel,
 {
     type Parent = ExactScalarFn<Binary>;
+
+    fn applies(
+        &self,
+        _array: ArrayView<'_, V>,
+        parent: ScalarFnArrayView<'_, Binary>,
+        child_idx: usize,
+    ) -> Option<Applies> {
+        (is_boolean_operator(*parent.options) && child_idx < 2).then_some(Applies::Sometimes)
+    }
 
     fn execute_parent(
         &self,

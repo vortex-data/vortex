@@ -46,6 +46,7 @@ use crate::ExecutionCtx;
 use crate::array::VTable;
 use crate::arrays::Struct;
 use crate::arrays::struct_::compute::rules::struct_cast_reduce_parent;
+use crate::kernel::Applies;
 use crate::kernel::ExecuteParentKernel;
 use crate::matcher::Matcher;
 use crate::scalar_fn::ScalarFnVTable;
@@ -98,6 +99,14 @@ pub type ExecuteParentFn = fn(
 
 /// Type-erased execute-parent kernel stored in the session registry.
 pub trait DynExecuteParentKernel: Debug + Send + Sync + 'static {
+    /// Report, without executing, whether this kernel handles the `(child, parent)` pair.
+    ///
+    /// See [`ExecuteParentKernel::applies`]. Defaults to [`Applies::Sometimes`].
+    fn applies(&self, child: &ArrayRef, parent: &ArrayRef, child_idx: usize) -> Option<Applies> {
+        _ = (child, parent, child_idx);
+        Some(Applies::Sometimes)
+    }
+
     /// Attempt to execute the parent array fused with the child array.
     fn execute_parent(
         &self,
@@ -138,6 +147,12 @@ where
     V: VTable,
     K: ExecuteParentKernel<V>,
 {
+    fn applies(&self, child: &ArrayRef, parent: &ArrayRef, child_idx: usize) -> Option<Applies> {
+        let child = child.as_opt::<V>()?;
+        let parent = K::Parent::try_match(parent)?;
+        self.kernel.applies(child, parent, child_idx)
+    }
+
     fn execute_parent(
         &self,
         child: &ArrayRef,
@@ -282,6 +297,25 @@ impl ArrayKernels {
             .is_some()
     }
 
+    /// Report, without executing, whether a registered execute-parent kernel handles `child` in
+    /// slot `child_idx` of `parent`.
+    ///
+    /// Returns `None` when no registered kernel matches, in which case execution falls through to
+    /// the parent's own `execute`. Otherwise returns the strongest [`Applies`] across the
+    /// matching kernels.
+    pub fn execute_parent_applies(
+        &self,
+        parent: &ArrayRef,
+        child: &ArrayRef,
+        child_idx: usize,
+    ) -> Option<Applies> {
+        self.execute_parent
+            .get(&hash_fn_id(parent.encoding_id(), child.encoding_id()))?
+            .iter()
+            .filter_map(|kernel| kernel.applies(child, parent, child_idx))
+            .max()
+    }
+
     /// Return the currently published execute-parent kernel snapshot.
     pub(crate) fn execute_parent_snapshot(&self) -> Arc<ParentExecutionKernels> {
         self.execute_parent.snapshot()
@@ -377,14 +411,21 @@ impl<S: SessionExt> ArrayKernelsExt for S {}
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use super::ArrayKernelsExt;
     use super::KernelSession;
     use crate::ArrayVTable;
+    use crate::IntoArray;
     use crate::arrays::Bool;
+    use crate::arrays::BoolArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::kernel::Applies;
     use crate::scalar_fn::ScalarFnVTable;
     use crate::scalar_fn::fns::binary::Binary;
+    use crate::scalar_fn::fns::operators::Operator;
 
     #[test]
     fn kernel_session_default_registers_builtin_kernels() {
@@ -411,5 +452,39 @@ mod tests {
         // `kernels()` uses `get`, so it inserts a default `KernelSession` (with the built-in
         // kernels) rather than returning `None`.
         assert!(session.kernels().has_execute_parent(Binary.id(), Bool.id()));
+    }
+
+    #[rstest]
+    #[case::and(Operator::And, Some(Applies::Sometimes))]
+    #[case::or(Operator::Or, Some(Applies::Sometimes))]
+    #[case::eq(Operator::Eq, None)]
+    fn execute_parent_applies_uses_parent_options(
+        #[case] op: Operator,
+        #[case] expected: Option<Applies>,
+    ) -> VortexResult<()> {
+        let session = VortexSession::empty().with::<KernelSession>();
+        let lhs = BoolArray::from_iter([true, false, true]).into_array();
+        let rhs = BoolArray::from_iter([false, false, true]).into_array();
+        let parent = Binary::try_new(lhs.clone(), rhs, op)?.into_array();
+
+        assert_eq!(
+            session.kernels().execute_parent_applies(&parent, &lhs, 0),
+            expected
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn execute_parent_applies_none_without_registered_kernel() -> VortexResult<()> {
+        let session = VortexSession::empty().with_some(KernelSession::empty());
+        let lhs = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
+        let rhs = PrimitiveArray::from_iter([3i32, 2, 1]).into_array();
+        let parent = Binary::try_new(lhs.clone(), rhs, Operator::Eq)?.into_array();
+
+        assert_eq!(
+            session.kernels().execute_parent_applies(&parent, &lhs, 0),
+            None
+        );
+        Ok(())
     }
 }

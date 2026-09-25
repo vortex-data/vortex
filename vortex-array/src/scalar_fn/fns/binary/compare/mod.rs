@@ -38,6 +38,7 @@ use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
+use crate::kernel::Applies;
 use crate::kernel::ExecuteParentKernel;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::binary::Binary;
@@ -79,6 +80,16 @@ where
     V: CompareKernel,
 {
     type Parent = ExactScalarFn<Binary>;
+
+    fn applies(
+        &self,
+        _array: ArrayView<'_, V>,
+        parent: ScalarFnArrayView<'_, Binary>,
+        child_idx: usize,
+    ) -> Option<Applies> {
+        (CompareOperator::try_from(*parent.options).is_ok() && child_idx < 2)
+            .then_some(Applies::Sometimes)
+    }
 
     fn execute_parent(
         &self,

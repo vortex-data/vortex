@@ -14,6 +14,7 @@ use vortex_array::arrays::Filter;
 use vortex_array::arrays::Slice;
 use vortex_array::arrays::dict::TakeExecuteAdaptor;
 use vortex_array::arrays::filter::FilterExecuteAdaptor;
+use vortex_array::kernel::Applies;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_array::optimizer::kernels::ArrayKernelsExt;
 use vortex_array::scalar_fn::ScalarFnVTable;
@@ -45,6 +46,15 @@ struct RunEndSliceKernel;
 
 impl ExecuteParentKernel<RunEnd> for RunEndSliceKernel {
     type Parent = Slice;
+
+    fn applies(
+        &self,
+        _array: ArrayView<'_, RunEnd>,
+        _parent: ArrayView<'_, Slice>,
+        _child_idx: usize,
+    ) -> Option<Applies> {
+        Some(Applies::Always)
+    }
 
     fn execute_parent(
         &self,
