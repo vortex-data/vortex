@@ -10,7 +10,6 @@ use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::types::*;
 use vortex::aggregate_fn::NumericalAggregateOpts;
-use vortex::dtype::DType;
 use vortex::dtype::FieldName;
 use vortex::dtype::FieldNames;
 use vortex::dtype::Nullability;
@@ -594,16 +593,6 @@ pub fn get_item(field: String, child: Option<PyIntoExpr>) -> PyExpr {
     PyExpr {
         inner: expr::get_item(field, child),
     }
-}
-
-pub fn scalar<'py>(dtype: DType, value: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyExpr>> {
-    let py = value.py();
-    Bound::new(
-        py,
-        PyExpr {
-            inner: lit(scalar_helper(value, Some(&dtype))?),
-        },
-    )
 }
 
 /// Negate a Boolean expression.
