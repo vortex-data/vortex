@@ -4,6 +4,7 @@
 //! Encodings that enable zero-copy sharing of data with Arrow.
 
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
@@ -17,8 +18,10 @@ use crate::ArraySlots;
 use crate::Executable;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::child_to_validity;
+use crate::array::vtable::VTable as _;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::arrays::Decimal;
@@ -1232,63 +1235,109 @@ impl CanonicalView<'_> {
 
 /// A matcher for any canonical array type.
 pub struct AnyCanonical;
-impl Matcher for AnyCanonical {
-    type Match<'a> = CanonicalView<'a>;
 
-    #[inline]
-    fn matches(array: &ArrayRef) -> bool {
-        array.is::<Null>()
-            || array.is::<Bool>()
-            || array.is::<Primitive>()
-            || array.is::<Decimal>()
-            || array.is::<Struct>()
-            || array.is::<Union>()
-            || array.is::<ListView>()
-            || array.is::<Map>()
-            || array.is::<FixedSizeList>()
-            || array.is::<VarBinView>()
-            || array.is::<Variant>()
-            || array.is::<Extension>()
-    }
-
-    #[inline]
-    fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
-        if let Some(a) = array.as_opt::<Null>() {
-            Some(CanonicalView::Null(a))
-        } else if let Some(a) = array.as_opt::<Bool>() {
-            Some(CanonicalView::Bool(a))
-        } else if let Some(a) = array.as_opt::<Primitive>() {
-            Some(CanonicalView::Primitive(a))
-        } else if let Some(a) = array.as_opt::<Decimal>() {
-            Some(CanonicalView::Decimal(a))
-        } else if let Some(a) = array.as_opt::<Struct>() {
-            Some(CanonicalView::Struct(a))
-        } else if let Some(a) = array.as_opt::<Union>() {
-            Some(CanonicalView::Union(a))
-        } else if let Some(a) = array.as_opt::<ListView>() {
-            Some(CanonicalView::List(a))
-        } else if let Some(a) = array.as_opt::<Map>() {
-            Some(CanonicalView::Map(a))
-        } else if let Some(a) = array.as_opt::<FixedSizeList>() {
-            Some(CanonicalView::FixedSizeList(a))
-        } else if let Some(a) = array.as_opt::<VarBinView>() {
-            Some(CanonicalView::VarBinView(a))
-        } else if let Some(a) = array.as_opt::<Variant>() {
-            Some(CanonicalView::Variant(a))
-        } else {
-            array.as_opt::<Extension>().map(CanonicalView::Extension)
+/// The canonical encodings, as `field => vtable => CanonicalView variant` triples.
+///
+/// [`canonical_matcher`] expands this into the id cache and both halves of the [`Matcher`] impl,
+/// so the two cannot disagree about which encodings are canonical.
+macro_rules! with_canonical_encodings {
+    ($mac:ident) => {
+        $mac! {
+            null => Null => Null,
+            bool_ => Bool => Bool,
+            primitive => Primitive => Primitive,
+            decimal => Decimal => Decimal,
+            struct_ => Struct => Struct,
+            union_ => Union => Union,
+            list => ListView => List,
+            map => Map => Map,
+            fixed_size_list => FixedSizeList => FixedSizeList,
+            varbinview => VarBinView => VarBinView,
+            variant => Variant => Variant,
+            extension => Extension => Extension,
         }
-    }
+    };
 }
+
+/// Defines the canonical encoding id cache and [`AnyCanonical`]'s [`Matcher`] impl.
+macro_rules! canonical_matcher {
+    ($($field:ident => $vtable:ident => $variant:ident,)+) => {
+        /// The encoding ids of the canonical encodings, interned once.
+        ///
+        /// `VTable::id` takes `&self` and reads through a `CachedId`, so these are resolved once
+        /// rather than on every match.
+        struct CanonicalIds {
+            $($field: ArrayId,)+
+        }
+
+        static CANONICAL_IDS: LazyLock<CanonicalIds> = LazyLock::new(|| CanonicalIds {
+            $($field: $vtable.id(),)+
+        });
+
+        impl Matcher for AnyCanonical {
+            type Match<'a> = CanonicalView<'a>;
+
+            #[inline]
+            fn matches(array: &ArrayRef) -> bool {
+                // Comparing the interned encoding id picks the one encoding worth asking, instead
+                // of offering the array to each in turn: `array.is::<V>()` is a virtual `as_any`
+                // call plus a `TypeId` comparison, and this is the executor's per-iteration
+                // predicate.
+                //
+                // The id only selects, it does not decide. An encoding id does not identify a
+                // `VTable` type on its own - `ForeignArray`, `ScalarFn` and the Python vtable each
+                // return a per-instance `self.id`, and nothing stops one being registered under a
+                // canonical encoding's id - so the selected encoding still confirms by downcast.
+                // Without that, `matches` could answer yes where `try_match` answers `None`, and
+                // `Canonical::execute` turns that disagreement into a panic.
+                //
+                // This deliberately does not delegate to `try_match`: returning `bool` keeps the
+                // rejection path, which is the common one, clear of the `CanonicalView` the
+                // `Option` would carry.
+                let ids = &*CANONICAL_IDS;
+                let id = array.encoding_id();
+
+                // Reject as one `||` reduction over the ids rather than as a dozen separate
+                // branches, so the common non-canonical case stays branchless. Only an id that
+                // survives it walks the chain below to find its encoding.
+                if !($(id == ids.$field ||)+ false) {
+                    return false;
+                }
+
+                $(if id == ids.$field {
+                    return array.is::<$vtable>();
+                })+
+                false
+            }
+
+            #[inline]
+            fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
+                // Selected by id and confirmed by downcast, as in `matches` above. Walking the
+                // encodings in order instead cost a `FixedSizeList` array nine `as_opt` calls to
+                // reach its own arm, and an `Extension` array all twelve.
+                let ids = &*CANONICAL_IDS;
+                let id = array.encoding_id();
+                $(if id == ids.$field {
+                    return array.as_opt::<$vtable>().map(CanonicalView::$variant);
+                })+
+                None
+            }
+        }
+    };
+}
+
+with_canonical_encodings!(canonical_matcher);
 
 #[cfg(test)]
 mod test {
+    use std::sync::Arc;
     use std::sync::LazyLock;
 
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
     use vortex_session::VortexSession;
 
+    use crate::AnyCanonical;
     use crate::ArrayRef;
     use crate::Canonical;
     use crate::CanonicalValidity;
@@ -1303,11 +1352,96 @@ mod test {
     use crate::arrays::struct_::StructArrayExt;
     use crate::arrays::variant::VariantArraySlotsExt;
     use crate::canonical::StructArray;
+    use crate::dtype::DType;
+    use crate::dtype::DecimalDType;
+    use crate::dtype::MapDType;
     use crate::dtype::Nullability;
+    use crate::dtype::PType;
+    use crate::dtype::StructFields;
+    use crate::dtype::UnionVariants;
+    use crate::extension::datetime::Time;
+    use crate::extension::datetime::TimeUnit;
+    use crate::matcher::Matcher;
     use crate::scalar::Scalar;
 
     /// A shared session for these canonical tests, used to create execution contexts.
     static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+
+    /// One empty array per canonical encoding, covering every arm the matcher generates.
+    fn one_array_per_canonical_encoding() -> VortexResult<Vec<ArrayRef>> {
+        let i32_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let dtypes = [
+            DType::Null,
+            DType::Bool(Nullability::NonNullable),
+            i32_dtype.clone(),
+            DType::Decimal(DecimalDType::new(10, 2), Nullability::NonNullable),
+            DType::Utf8(Nullability::NonNullable),
+            DType::List(Arc::new(i32_dtype.clone()), Nullability::NonNullable),
+            DType::Map(
+                MapDType::try_new(i32_dtype.clone(), i32_dtype.clone(), false)?,
+                Nullability::NonNullable,
+            ),
+            DType::FixedSizeList(Arc::new(i32_dtype.clone()), 2, Nullability::NonNullable),
+            DType::Struct(
+                StructFields::new(["a"].into(), vec![i32_dtype.clone()]),
+                Nullability::NonNullable,
+            ),
+            DType::Union(
+                UnionVariants::try_new(["a"].into(), vec![i32_dtype], vec![0])?,
+                Nullability::NonNullable,
+            ),
+            DType::Extension(Time::new(TimeUnit::Seconds, Nullability::NonNullable).erased()),
+        ];
+
+        let mut arrays: Vec<ArrayRef> = dtypes
+            .iter()
+            .map(|dtype| Canonical::empty(dtype).into_array())
+            .collect();
+        // `Canonical::empty` rejects `DType::Variant`, so build that one directly.
+        arrays.push(VariantArray::try_new(variant_core_storage(0), None)?.into_array());
+
+        Ok(arrays)
+    }
+
+    /// Every canonical encoding must reach its own arm of both halves of [`AnyCanonical`].
+    ///
+    /// Each arm is selected by comparing the interned encoding id and then confirmed by a
+    /// downcast, so an arm that pairs an id with the wrong encoding answers no here rather than
+    /// viewing the array as the wrong variant. Pairing an id with the wrong `CanonicalView`
+    /// variant does not need covering: the view borrows `ArrayView<'_, V>`, so the compiler
+    /// rejects it.
+    ///
+    /// Checking `matches` as well as `try_match` is what keeps the two in step: they are separate
+    /// expansions, and the executor stops on `matches` while `Canonical::execute` then unwraps
+    /// `try_match`, so a disagreement between them is a panic.
+    ///
+    /// A loop rather than `rstest` cases because several of these dtypes are built fallibly.
+    #[test]
+    fn every_canonical_encoding_matches_any_canonical() -> VortexResult<()> {
+        let arrays = one_array_per_canonical_encoding()?;
+        assert_eq!(
+            arrays.len(),
+            12,
+            "expected one array per canonical encoding"
+        );
+
+        for array in arrays {
+            assert!(
+                AnyCanonical::matches(&array),
+                "{} array of dtype {} did not match AnyCanonical",
+                array.encoding_id(),
+                array.dtype(),
+            );
+            assert!(
+                AnyCanonical::try_match(&array).is_some(),
+                "{} array of dtype {} did not view as AnyCanonical",
+                array.encoding_id(),
+                array.dtype(),
+            );
+        }
+
+        Ok(())
+    }
 
     fn variant_core_storage(len: usize) -> ArrayRef {
         ConstantArray::new(

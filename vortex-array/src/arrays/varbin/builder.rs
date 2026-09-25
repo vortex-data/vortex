@@ -415,7 +415,9 @@ impl<O: OffsetBuilderPType> VarBinBuilder<O> {
 
         let offsets = self.offsets.take();
         self.offsets.push(O::zero());
-        let offsets = PrimitiveArray::new(offsets.freeze(), Validity::NonNullable);
+        // SAFETY: a non-nullable validity carries no length to match against the offsets.
+        let offsets =
+            unsafe { PrimitiveArray::new_unchecked(offsets.freeze(), Validity::NonNullable) };
         let data = self.data.take();
         let nulls = self.validity.take().freeze();
 

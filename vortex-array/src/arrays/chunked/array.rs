@@ -10,7 +10,7 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 use futures::stream;
-use vortex_buffer::BufferMut;
+use vortex_buffer::{Buffer, BufferMut};
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -49,8 +49,8 @@ pub struct ChunkedSlots {
 #[derive(Clone, Debug)]
 pub struct ChunkedData {
     pub(super) chunk_offsets: Vec<usize>,
-    /// This is used to find the next child to execute when in executing into a builder.
-    pub(super) next_builder_slot: usize,
+    /// The next child to visit while executing slots or appending into a builder.
+    pub(super) next_child_slot: usize,
 }
 
 impl Display for ChunkedData {
@@ -79,20 +79,18 @@ pub trait ChunkedArrayExt: TypedArrayRef<Chunked> {
             .vortex_expect("validated chunk slot")
     }
 
-    fn iter_chunks<'a>(&'a self) -> Box<dyn Iterator<Item = &'a ArrayRef> + 'a> {
-        Box::new(
-            self.as_ref().slots()[ChunkedSlots::CHUNKS_OFFSET..]
-                .iter()
-                .map(|slot| slot.as_ref().vortex_expect("validated chunk slot")),
-        )
+    fn iter_chunks(&self) -> impl Iterator<Item = &ArrayRef> {
+        self.as_ref().slots()[ChunkedSlots::CHUNKS_OFFSET..]
+            .iter()
+            .map(|slot| slot.as_ref().vortex_expect("validated chunk slot"))
     }
 
     fn chunks(&self) -> Vec<ArrayRef> {
         self.iter_chunks().cloned().collect()
     }
 
-    fn non_empty_chunks<'a>(&'a self) -> Box<dyn Iterator<Item = &'a ArrayRef> + 'a> {
-        Box::new(self.iter_chunks().filter(|chunk| !chunk.is_empty()))
+    fn non_empty_chunks(&self) -> impl Iterator<Item = &ArrayRef> {
+        self.iter_chunks().filter(|chunk| !chunk.is_empty())
     }
 
     /// Returns the cached chunk boundary offsets.
@@ -135,18 +133,19 @@ impl ChunkedData {
     pub(super) fn new(chunk_offsets: Vec<usize>) -> Self {
         Self {
             chunk_offsets,
-            next_builder_slot: ChunkedSlots::CHUNKS_OFFSET,
+            next_child_slot: ChunkedSlots::CHUNKS_OFFSET,
         }
     }
 
     pub(super) fn make_chunk_offsets_array(chunk_offsets: &[usize]) -> ArrayRef {
-        let mut chunk_offsets_buf = BufferMut::<u64>::with_capacity(chunk_offsets.len());
-        for &offset in chunk_offsets {
-            let offset = u64::try_from(offset)
-                .vortex_expect("chunk offset must fit in u64 for serialization");
-            unsafe { chunk_offsets_buf.push_unchecked(offset) }
-        }
-        PrimitiveArray::new(chunk_offsets_buf.freeze(), Validity::NonNullable).into_array()
+        let chunk_offsets_buf =
+            Buffer::from_trusted_len_iter(chunk_offsets.iter().copied().map(|offset| {
+                u64::try_from(offset)
+                    .vortex_expect("chunk offset must fit in u64 for serialization")
+            }));
+
+        unsafe { PrimitiveArray::new_unchecked(chunk_offsets_buf, Validity::NonNullable) }
+            .into_array()
     }
 
     /// Validates the components that would be used to create a `ChunkedArray`.
@@ -190,24 +189,8 @@ impl Array<Chunked> {
         Ok(ArrayParts::new(Chunked, dtype, len, ChunkedData::new(chunk_offsets)).with_slots(slots))
     }
 
-    pub(super) fn with_next_builder_slot(mut self, next_builder_slot: usize) -> Self {
-        if let Some(data) = self.data_mut() {
-            data.next_builder_slot = next_builder_slot;
-            return self;
-        }
-        // This is the slow path that will be hit at most once per execution since the second one
-        // *MUST* have execlusive access due to this copy.
-        let stats = self.statistics().to_owned();
-        let mut data = self.data().clone();
-        data.next_builder_slot = next_builder_slot;
-        // SAFETY: we only modified next_builder_slot which doesn't affect array invariants.
-        unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(Chunked, self.dtype().clone(), self.len(), data)
-                    .with_slots(self.slots().iter().cloned().collect::<ArraySlots>()),
-            )
-        }
-        .with_stats_set(stats)
+    pub(super) fn with_next_child_slot(self, next_child_slot: usize) -> Self {
+        self.with_data_mut(|data| data.next_child_slot = next_child_slot)
     }
 
     /// Constructs a new `ChunkedArray`.

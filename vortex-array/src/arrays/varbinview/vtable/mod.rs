@@ -249,7 +249,7 @@ impl VTable for VarBinView {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         if let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() {
-            return builder.append_varbinview_array(&array.into_owned(), ctx);
+            return builder.append_varbinview_array(array, ctx);
         }
         if let Some(result) =
             match_each_varbin_builder!(builder, |builder| builder.append_varbinview(array, ctx))

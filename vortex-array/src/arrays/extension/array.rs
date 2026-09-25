@@ -57,6 +57,16 @@ impl Array<Extension> {
             "Tried to create an `ExtensionArray` with an incompatible storage array"
         );
 
+        // SAFETY: the storage array's dtype was just checked against the extension dtype.
+        Ok(unsafe { Self::new_unchecked(ext_dtype, storage_array) })
+    }
+
+    /// Creates a new `ExtensionArray` without validating its storage array.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `storage_array` has the extension dtype's storage dtype.
+    pub unsafe fn new_unchecked(ext_dtype: ExtDTypeRef, storage_array: ArrayRef) -> Self {
         let dtype = DType::Extension(ext_dtype);
         let len = storage_array.len();
 
@@ -67,7 +77,7 @@ impl Array<Extension> {
             .into_slots(),
         );
 
-        Ok(unsafe { Array::from_parts_unchecked(parts) })
+        unsafe { Array::from_parts_unchecked(parts) }
     }
 
     /// Creates a new [`ExtensionArray`](crate::arrays::ExtensionArray) from a vtable, metadata, and

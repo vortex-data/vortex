@@ -3,7 +3,6 @@
 
 use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -11,6 +10,7 @@ use crate::IntoArray;
 use crate::arrays::ChunkedArray;
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity_in;
+use crate::canonical::Canonical;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
 
@@ -37,24 +37,36 @@ pub struct ChildBuilder {
     /// The summed length of `chunks`.
     chunks_len: usize,
 
-    /// Builder holding the scalars appended after the last chunk.
-    pending: Box<dyn ArrayBuilder>,
+    /// Builder holding the scalars appended after the last chunk, materialized by the first append
+    /// that is not a whole array.
+    pending: Option<Box<dyn ArrayBuilder>>,
+
+    /// The capacity the scalar builder is materialized with, grown by
+    /// [`reserve_exact`](Self::reserve_exact) until it is.
+    pending_capacity: usize,
+
+    allocator: BufferAllocatorRef,
 }
 
 impl ChildBuilder {
     /// Creates a child builder with the provided allocator and capacity.
+    ///
+    /// The scalar builder is allocated on first use. Children that only receive whole arrays
+    /// never allocate a scalar builder.
     pub fn with_capacity(dtype: &DType, capacity: usize, allocator: &BufferAllocatorRef) -> Self {
         Self {
             dtype: dtype.clone(),
             chunks: Vec::new(),
             chunks_len: 0,
-            pending: builder_with_capacity_in(dtype, capacity, allocator),
+            pending: None,
+            pending_capacity: capacity,
+            allocator: allocator.clone(),
         }
     }
 
     /// The number of values appended so far.
     pub fn len(&self) -> usize {
-        self.chunks_len + self.pending.len()
+        self.chunks_len + self.pending.as_ref().map_or(0, |pending| pending.len())
     }
 
     /// Appends every value of `array` to the child as a chunk of its own, keeping its encoding.
@@ -73,9 +85,16 @@ impl ChildBuilder {
     /// Nothing is decoded here, so `_ctx` goes unused; it stays in the signature so that the
     /// nested builders forwarding their [`ExecutionCtx`] here do not have to explain why they
     /// don't.
+    ///
+    /// `array` must have the child's dtype. This is a crate-internal invariant, checked under
+    /// `debug_assertions` only: every caller is a nested builder handing over a child of an array
+    /// whose own dtype was checked against that builder on the way in, so the child's dtype follows
+    /// from the parent's and re-deriving it per appended array would cost a dtype comparison per
+    /// chunk on the hot path.
     pub fn append_array(&mut self, array: &ArrayRef, _ctx: &mut ExecutionCtx) -> VortexResult<()> {
-        vortex_ensure!(
-            array.dtype() == &self.dtype,
+        debug_assert_eq!(
+            array.dtype(),
+            &self.dtype,
             "Cannot append an array of dtype {} to a child builder of dtype {}",
             array.dtype(),
             self.dtype,
@@ -95,40 +114,57 @@ impl ChildBuilder {
 
     /// Appends a single [`Scalar`] to the child.
     pub fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
-        self.pending.append_scalar(scalar)
+        self.pending().append_scalar(scalar)
     }
 
     /// Appends `n` "zero" values to the child.
     ///
     /// See [`ArrayBuilder::append_zeros`].
     pub fn append_zeros(&mut self, n: usize) {
-        self.pending.append_zeros(n)
+        self.pending().append_zeros(n)
     }
 
     /// Appends `n` null values to the child.
     ///
     /// See [`ArrayBuilder::append_nulls`].
     pub fn append_nulls(&mut self, n: usize) {
-        self.pending.append_nulls(n)
+        self.pending().append_nulls(n)
     }
 
     /// Appends `n` default values to the child.
     ///
     /// See [`ArrayBuilder::append_defaults`].
     pub fn append_defaults(&mut self, n: usize) {
-        self.pending.append_defaults(n)
+        self.pending().append_defaults(n)
     }
 
     /// Allocates space for `additional` more values in the scalar builder.
+    ///
+    /// While the scalar builder is still unmaterialized this only records the request, so that
+    /// reserving on a child that goes on to receive nothing but arrays allocates nothing.
     pub fn reserve_exact(&mut self, additional: usize) {
-        self.pending.reserve_exact(additional)
+        match self.pending.as_mut() {
+            Some(pending) => pending.reserve_exact(additional),
+            None => self.pending_capacity += additional,
+        }
+    }
+
+    /// Reserves room for `additional` more chunks.
+    ///
+    /// See [`ArrayBuilder::reserve_chunks`].
+    pub fn reserve_chunks(&mut self, additional: usize) {
+        self.chunks.reserve(additional);
     }
 
     /// Finishes the child, combining the accumulated chunks into a [`ChunkedArray`] when there is
     /// more than one of them.
     pub fn finish(&mut self) -> ArrayRef {
         if self.chunks.is_empty() {
-            return self.pending.finish();
+            return match self.pending.as_mut() {
+                Some(pending) => pending.finish(),
+                // Nothing was ever appended, so there is no builder to ask for an empty array.
+                None => Canonical::empty(&self.dtype).into_array(),
+            };
         }
 
         self.flush_pending();
@@ -142,13 +178,25 @@ impl ChildBuilder {
         unsafe { ChunkedArray::new_unchecked(chunks, self.dtype.clone()) }.into_array()
     }
 
+    /// The scalar builder, materialized on first use.
+    fn pending(&mut self) -> &mut dyn ArrayBuilder {
+        self.pending
+            .get_or_insert_with(|| {
+                builder_with_capacity_in(&self.dtype, self.pending_capacity, &self.allocator)
+            })
+            .as_mut()
+    }
+
     /// Moves whatever the scalar builder holds into `chunks`, keeping the chunks in logical order.
     fn flush_pending(&mut self) {
-        if self.pending.is_empty() {
+        let Some(pending) = self.pending.as_mut() else {
+            return;
+        };
+        if pending.is_empty() {
             return;
         }
-        self.chunks_len += self.pending.len();
-        let pending = self.pending.finish();
+        self.chunks_len += pending.len();
+        let pending = pending.finish();
         self.chunks.push(pending);
     }
 }
@@ -308,18 +356,19 @@ mod tests {
         Ok(())
     }
 
-    /// The dtype check has to run before the empty check, so that a mismatched array is rejected
+    /// The debug assertion has to run before the empty check, so that a mismatched array is caught
     /// whether or not it would have become a chunk.
     #[rstest]
     #[case::empty(0)]
     #[case::non_empty(CHUNK_LEN)]
-    fn test_appending_a_mismatched_dtype_is_rejected(#[case] len: usize) {
+    #[should_panic(expected = "Cannot append an array of dtype")]
+    fn test_appending_a_mismatched_dtype_is_caught(#[case] len: usize) {
         let mut ctx = array_session().create_execution_ctx();
         let mut builder =
             ChildBuilder::with_capacity(&DType::from(I32), 0, BufferAllocatorRef::static_ref());
 
         let wrong_dtype = ConstantArray::new(1i64, len).into_array();
-        assert!(builder.append_array(&wrong_dtype, &mut ctx).is_err());
+        drop(builder.append_array(&wrong_dtype, &mut ctx));
     }
 
     /// Everything the scalar builder can produce has to be flushed ahead of the next chunk.
@@ -365,6 +414,42 @@ mod tests {
 
         let expected = PrimitiveArray::new(buffer![3i32], NonNullable.into()).into_array();
         assert_arrays_eq!(&builder.finish(), &expected, &mut ctx);
+
+        Ok(())
+    }
+
+    /// Reserving is recorded while the scalar builder is unmaterialized and forwarded once it
+    /// exists; either way the scalars appended after it are the ones that come back.
+    #[test]
+    fn test_reserving_before_and_after_the_first_scalar() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let mut builder =
+            ChildBuilder::with_capacity(&DType::from(I32), 0, BufferAllocatorRef::static_ref());
+
+        builder.reserve_exact(2);
+        builder.append_scalar(&1i32.into())?;
+        builder.reserve_exact(2);
+        builder.append_scalar(&2i32.into())?;
+
+        let expected = PrimitiveArray::new(buffer![1i32, 2], NonNullable.into()).into_array();
+        assert_arrays_eq!(&builder.finish(), &expected, &mut ctx);
+
+        Ok(())
+    }
+
+    /// A child that is only ever reserved never materializes a scalar builder, and still finishes
+    /// as an empty array of its own dtype.
+    #[test]
+    fn test_reserving_alone_finishes_empty() -> VortexResult<()> {
+        let mut builder =
+            ChildBuilder::with_capacity(&DType::from(I32), 0, BufferAllocatorRef::static_ref());
+
+        builder.reserve_exact(CHUNK_LEN);
+
+        assert_eq!(builder.len(), 0);
+        let child = builder.finish();
+        assert!(child.is_empty());
+        assert!(child.is::<Primitive>());
 
         Ok(())
     }

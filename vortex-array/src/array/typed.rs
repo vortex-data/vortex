@@ -42,6 +42,7 @@ use crate::validity::Validity;
 /// `ArrayRef` stores `Arc<ArrayInner<dyn DynArrayData>>` — a single 16-byte fat pointer.
 /// Metadata is accessed via `self.0.*` (a normal struct field read through the Arc),
 /// while encoding-specific methods go through `self.0.data` (vtable dispatch).
+#[derive(Clone)]
 pub(crate) struct ArrayInner<D: ?Sized> {
     pub(crate) len: usize,
     pub(crate) encoding_id: ArrayId,
@@ -306,8 +307,28 @@ impl<V: VTable> Array<V> {
     /// Returns `None` when this handle is not the unique owner of the backing allocation.
     pub fn data_mut(&mut self) -> Option<&mut V::TypedArrayData> {
         let store = self.inner.inner_mut()?;
-        let array_inner = store.data.as_any_mut().downcast_mut::<ArrayData<V>>();
-        Some(&mut array_inner?.data)
+        // NOTE(ngates): use downcast_mut_unchecked when it becomes stable
+        debug_assert!(store.data.as_any().is::<ArrayData<V>>());
+        // SAFETY: `Array<V>` guarantees the inner is `ArrayData<V>`, the same invariant the shared
+        // path in `downcast_inner` relies on. Reaching it through `Any` instead spends a virtual
+        // `as_any_mut` and a `TypeId` comparison on a type the compiler already knows, which the
+        // executor pays once per chunk through `with_next_child_slot`.
+        let array_inner =
+            unsafe { &mut *std::ptr::from_mut(&mut store.data).cast::<ArrayData<V>>() };
+        Some(&mut array_inner.data)
+    }
+
+    /// Mutates encoding data, copying shared array metadata and slots while retaining statistics.
+    ///
+    /// The update must preserve the logical values and array invariants.
+    pub(crate) fn with_data_mut(self, update: impl FnOnce(&mut V::TypedArrayData)) -> Self {
+        // SAFETY: Array<V> guarantees the inner is ArrayData<V>.
+        let mut inner = unsafe { self.inner.downcast_inner_unchecked::<V>() };
+        update(&mut Arc::make_mut(&mut inner).data.data);
+        Self {
+            inner: ArrayRef::from_inner(inner),
+            _phantom: PhantomData,
+        }
     }
 
     /// Returns the full typed array construction parts if this handle owns the allocation.

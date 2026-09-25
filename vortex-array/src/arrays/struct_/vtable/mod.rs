@@ -207,7 +207,7 @@ impl VTable for Struct {
         let Some(builder) = builder.as_any_mut().downcast_mut::<StructBuilder>() else {
             vortex_bail!("append_to_builder for Struct requires a StructBuilder");
         };
-        builder.append_struct_array(&array.into_owned(), ctx)
+        builder.append_struct_array(array, ctx)
     }
 
     fn reduce_parent(
