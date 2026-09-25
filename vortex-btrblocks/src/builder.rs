@@ -18,13 +18,6 @@ use crate::schemes::float;
 use crate::schemes::integer;
 use crate::schemes::string;
 
-/// Delta, registered on the default [`CompressionSession`](crate::CompressionSession).
-///
-/// No edition includes `fastlanes.delta` yet, so the session's enabled editions decide whether
-/// the compressor may use it.
-/// [`only_cuda_compatible`](BtrBlocksCompressorBuilder::only_cuda_compatible) excludes it.
-pub static DELTA_SCHEME: integer::DeltaScheme = integer::DeltaScheme::new(1.25);
-
 /// The preset a [`BtrBlocksCompressorBuilder`] builds with.
 ///
 /// Every mode except [`All`](Self::All) excludes some schemes in
@@ -70,7 +63,7 @@ impl CompressionMode {
                 // paths. Delta has a CUDA decode kernel, but stays excluded until GPU delta
                 // decode is benchmarked against the schemes it would displace.
                 excluded.extend([
-                    DELTA_SCHEME.id(),
+                    integer::DeltaScheme::default().id(),
                     integer::SparseScheme.id(),
                     integer::IntRLEScheme.id(),
                     float::ALPRDScheme.id(),
@@ -275,7 +268,7 @@ mod tests {
             builder
                 .allowed_schemes()
                 .iter()
-                .any(|s| s.id() == DELTA_SCHEME.id())
+                .any(|s| s.id() == integer::DeltaScheme::default().id())
         };
         assert!(has_delta(&default_builder()));
         assert!(has_delta(&default_builder().with_compact()));

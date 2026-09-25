@@ -9,7 +9,6 @@ use vortex_session::SessionExt;
 use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
 
-use crate::DELTA_SCHEME;
 use crate::Scheme;
 use crate::SchemeExt;
 use crate::schemes::binary;
@@ -18,6 +17,12 @@ use crate::schemes::float;
 use crate::schemes::integer;
 use crate::schemes::string;
 use crate::schemes::temporal;
+
+/// Delta, with the minimum compression ratio it needs after its decompression penalty.
+///
+/// No edition includes `fastlanes.delta` yet, so the session's enabled editions decide whether
+/// the compressor may use it. The CUDA preset excludes it.
+static DELTA_SCHEME: integer::DeltaScheme = integer::DeltaScheme::new(1.25);
 
 /// The compression schemes registered on a session, in registration order.
 ///
