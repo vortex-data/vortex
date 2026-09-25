@@ -1,12 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! A custom [`ArrayPlugin`] that lets you load in and deserialize a `BitPacked` array with interior
-//! patches as a `PatchedArray` that wraps a patchless `BitPacked` array.
-//!
-//! This enables zero-cost backward compatibility with previously written datasets.
+//! Deserialization adapter that lifts internal bit-packed patches into a `Patched` array.
 
-use vortex_array::Array;
 use vortex_array::ArrayDeserialization;
 use vortex_array::ArrayId;
 use vortex_array::ArrayPlugin;
@@ -17,10 +13,9 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Patched;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
+use super::BitPackedPlugin;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
 
@@ -42,8 +37,8 @@ impl ArrayPlugin for BitPackedPatchedPlugin {
         array: &ArrayRef,
         session: &VortexSession,
     ) -> VortexResult<Option<ArraySerialization>> {
-        // delegate to BitPacked VTable for serialization
-        ArrayPlugin::serialize(&BitPacked, array, session)
+        // Both plugins share the same wire contract.
+        BitPackedPlugin.serialize(array, session)
     }
 
     fn deserialize(
@@ -51,21 +46,8 @@ impl ArrayPlugin for BitPackedPatchedPlugin {
         parts: ArrayDeserialization<'_>,
         session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
-        vortex_ensure!(
-            parts.serialized_id == self.id(),
-            "BitPacked plugin does not recognize serialized ID {}",
-            parts.serialized_id,
-        );
-        let bitpacked = Array::<BitPacked>::try_from_parts(ArrayVTable::deserialize(
-            &BitPacked,
-            parts.dtype,
-            parts.len,
-            parts.metadata,
-            parts.buffers,
-            parts.children,
-            session,
-        )?)
-        .map_err(|_| vortex_err!("BitPacked plugin should only deserialize fastlanes.bitpacked"))?;
+        let bitpacked = BitPackedPlugin.deserialize(parts, session)?;
+        let bitpacked = bitpacked.as_::<BitPacked>().into_owned();
 
         // Create a new BitPackedArray without the interior patches installed.
         let Some(patches) = bitpacked.patches() else {
