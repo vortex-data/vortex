@@ -9,7 +9,9 @@
 //! not touch Rust code. Every iteration therefore repeats the operation [`BATCH`] times.
 
 use allocator_api2::alloc::Global;
+#[cfg(not(codspeed))]
 use arrow_buffer::MutableBuffer;
+#[cfg(not(codspeed))]
 use bytes::BytesMut;
 use divan::Bencher;
 use mimalloc::MiMalloc;
@@ -68,11 +70,18 @@ fn allocate_drop_vortex_minimal_alignment(bencher: Bencher, size: usize) {
     });
 }
 
+/// The `bytes` and Arrow benchmarks are comparison baselines, gated out of CodSpeed.
+///
+/// They measure allocators Vortex does not own, so no pull request here can move them, yet each
+/// reported the same two fixed values across unrelated pull requests. They stay for local
+/// `cargo bench` comparisons against the Vortex buffers above.
+#[cfg(not(codspeed))]
 #[divan::bench(args = SIZES)]
 fn allocate_drop_bytes(bencher: Bencher, size: usize) {
     bencher.bench(|| allocate_drop_batch(|| BytesMut::with_capacity(size)));
 }
 
+#[cfg(not(codspeed))]
 #[divan::bench(args = SIZES)]
 fn allocate_drop_arrow(bencher: Bencher, size: usize) {
     bencher.bench(|| allocate_drop_batch(|| MutableBuffer::with_capacity(size)));
@@ -102,11 +111,13 @@ fn allocate_freeze_drop_vortex_minimal_alignment(bencher: Bencher, size: usize) 
     });
 }
 
+#[cfg(not(codspeed))]
 #[divan::bench(args = SIZES)]
 fn allocate_freeze_drop_bytes(bencher: Bencher, size: usize) {
     bencher.bench(|| allocate_drop_batch(|| BytesMut::with_capacity(size).freeze()));
 }
 
+#[cfg(not(codspeed))]
 #[divan::bench(args = SIZES)]
 fn allocate_freeze_drop_arrow(bencher: Bencher, size: usize) {
     bencher.bench(|| {
@@ -125,6 +136,7 @@ fn from_vec_drop_vortex(bencher: Bencher, size: usize) {
         });
 }
 
+#[cfg(not(codspeed))]
 #[divan::bench(args = SIZES)]
 fn from_vec_drop_bytes(bencher: Bencher, size: usize) {
     bencher
@@ -136,6 +148,7 @@ fn from_vec_drop_bytes(bencher: Bencher, size: usize) {
         });
 }
 
+#[cfg(not(codspeed))]
 #[divan::bench(args = SIZES)]
 fn from_vec_drop_arrow(bencher: Bencher, size: usize) {
     bencher

@@ -103,7 +103,12 @@ fn bench_case(bencher: Bencher, case: Case, f: TakeSlicesFn) {
         .counter(BytesCount::of_many::<u16>(case.output_len))
         .with_inputs(|| (&case.values, &case.starts, &case.lengths, case.output_len))
         .bench_refs(|(values, starts, lengths, output_len)| {
-            divan::black_box(f(values, starts, lengths, *output_len));
+            let output = f(values, starts, lengths, *output_len);
+            // Read one element through an opaque index. Black-boxing the buffer alone leaves the
+            // copy loop dead, because nothing ever reads what it wrote into spare capacity: the
+            // advancing-pointer variants reported no execution time at all on every recent run.
+            divan::black_box(output.as_slice()[divan::black_box(0)]);
+            divan::black_box(output);
         });
 }
 
