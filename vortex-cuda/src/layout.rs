@@ -552,6 +552,8 @@ fn extract_constant_buffers(chunk: &ArrayRef) -> Vec<InlinedBuffer> {
 /// to use only encodings the GPU decodes. Zero `block_rows` uses default sizing and dictionary policy;
 /// nonzero sets row blocks without outer dictionaries or byte coalescing, retaining per-block
 /// dictionary compression.
+///
+/// [`CompressionSession::cuda`]: vortex::compressor::CompressionSession::cuda
 pub fn cuda_write_strategy(session: &VortexSession, block_rows: usize) -> Arc<dyn LayoutStrategy> {
     let strategy = WriteStrategyBuilder::from_session(session)
         .with_flat_strategy(Arc::new(CudaFlatLayoutStrategy::default()));
