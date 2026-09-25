@@ -154,6 +154,53 @@ public final class Expression {
                 value.nativePointer(), lower.nativePointer(), upper.nativePointer(), lowerStrict, upperStrict));
     }
 
+    /**
+     * Whether the list {@code list} evaluates to contains {@code needle}, with Vortex's null rules: a null element
+     * never matches anything, so a needle that matches no element is {@code false}. A null {@code needle} is null,
+     * except against an empty list, where the result is {@code false}.
+     *
+     * <p>{@code list} must evaluate to a Vortex list whose element type matches {@code needle}'s type, ignoring
+     * nullability. With a {@link #literalList(Expression...) list literal} on the left and a column on the right this
+     * is a set-membership test that a constant-set kernel answers in one pass over the column, however large the set.
+     *
+     * @see #listContains(Expression, Expression, boolean)
+     * @see #in(Expression, Expression)
+     */
+    public static Expression listContains(Expression list, Expression needle) {
+        return listContains(list, needle, /* sqlNullSemantics= */ false);
+    }
+
+    /**
+     * {@link #listContains(Expression, Expression)} with a choice of null rules.
+     *
+     * @param sqlNullSemantics {@code false} for Vortex's rules, where a null element never matches; {@code true} for
+     *     SQL's three-valued {@code IN}, where a null element is an unknown value, so a needle that matches no element
+     *     is {@code null} rather than {@code false} whenever the list holds a null. A null needle is null, except
+     *     against an empty list with Vortex's default rules, where the result is {@code false}.
+     */
+    public static Expression listContains(Expression list, Expression needle, boolean sqlNullSemantics) {
+        return new Expression(
+                NativeExpression.listContains(list.nativePointer(), needle.nativePointer(), sqlNullSemantics));
+    }
+
+    /**
+     * SQL {@code value IN (list)}: {@link #listContains(Expression, Expression, boolean)} with SQL null semantics and
+     * the operands in SQL order. A null {@code value} is null, and so is a non-match against a list that holds a null;
+     * both filter the row out of a scan.
+     */
+    public static Expression in(Expression value, Expression list) {
+        return listContains(list, value, /* sqlNullSemantics= */ true);
+    }
+
+    /**
+     * SQL {@code value NOT IN (list)}: the negation of {@link #in(Expression, Expression)}. Under SQL's rules a null
+     * {@code value}, or a list that holds a null, makes a non-match null rather than true, so such a row is never
+     * admitted.
+     */
+    public static Expression notIn(Expression value, Expression list) {
+        return not(in(value, list));
+    }
+
     public static Expression literal(boolean value) {
         return new Expression(NativeExpression.literalBool(value, false));
     }
@@ -193,6 +240,32 @@ public final class Expression {
     public static Expression literal(byte[] value) {
         Preconditions.checkArgument(value != null, "use nullLiteral(DType.BINARY) for a null binary literal");
         return new Expression(NativeExpression.literalBinary(value));
+    }
+
+    /**
+     * Create a list literal out of literal element expressions, for example the right-hand side of an {@code IN} set.
+     *
+     * <p>Every element must itself be a literal and the elements must share a type, ignoring nullability; the list's
+     * element type is that shared type, made nullable if any element is. The list itself is non-null.
+     *
+     * @param elements at least one element; use {@link #literalEmptyList(DType)} for an empty list, which has no
+     *     element to take a type from
+     */
+    public static Expression literalList(Expression... elements) {
+        Preconditions.checkArgument(
+                elements.length > 0,
+                "literalList requires at least one element; use literalEmptyList for an empty list");
+        return new Expression(NativeExpression.literalList(nativePointers(elements)));
+    }
+
+    /** Create an empty list literal with the given nullable element type. It contains nothing, so nothing is in it. */
+    public static Expression literalEmptyList(DType elementType) {
+        return new Expression(NativeExpression.literalEmptyList(elementType.tag(), false));
+    }
+
+    /** Create a null list literal with the given nullable element type. */
+    public static Expression nullLiteralList(DType elementType) {
+        return new Expression(NativeExpression.literalEmptyList(elementType.tag(), true));
     }
 
     /**

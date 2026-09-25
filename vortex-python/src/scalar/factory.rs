@@ -22,6 +22,7 @@ use vortex::scalar::DecimalValue;
 use vortex::scalar::Scalar;
 
 use crate::dtype::PyDType;
+use crate::error::PyVortexError;
 use crate::error::PyVortexResult;
 use crate::scalar::PyScalar;
 use crate::scalar::bool;
@@ -180,32 +181,44 @@ fn scalar_helper_inner(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyRes
         if let Some(DType::List(element_dtype, ..)) = dtype {
             let elements = list
                 .iter()
-                .map(|e| scalar_helper_inner(&e, Some(element_dtype)))
-                .try_collect()?;
-            Scalar::list(
+                .map(|e| scalar_helper(&e, Some(element_dtype)))
+                .collect::<PyVortexResult<Vec<_>>>()?;
+            return Ok(Scalar::list(
                 Arc::clone(element_dtype),
                 elements,
                 Nullability::NonNullable,
-            );
+            ));
         } else {
-            // If no dtype was provided, we need to infer the element dtype from the list contents.
-            // We do this in a greedy way taking the first element dtype we find.
-            let mut elements = Vec::with_capacity(list.len());
-            let mut element_dtype = None;
-
-            for element in list.iter() {
-                let scalar = scalar_helper_inner(&element, element_dtype.as_ref())?;
-                if element_dtype.is_none() {
-                    element_dtype = Some(scalar.dtype().clone());
+            let elements = list
+                .iter()
+                .map(|element| scalar_helper_inner(&element, None))
+                .collect::<PyResult<Vec<_>>>()?;
+            let element_dtype = elements
+                .iter()
+                .find(|element| !matches!(element.dtype(), DType::Null))
+                .map(|element| element.dtype().clone())
+                .unwrap_or(DType::Null);
+            let mut nullability = element_dtype.nullability();
+            for element in &elements {
+                if !matches!(element.dtype(), DType::Null)
+                    && !element.dtype().eq_ignore_nullability(&element_dtype)
+                {
+                    return Err(PyValueError::new_err(format!(
+                        "list elements must share a dtype, got {} and {}",
+                        element_dtype,
+                        element.dtype()
+                    )));
                 }
-                elements.push(scalar);
+                nullability |= element.dtype().nullability();
             }
+            let element_dtype = element_dtype.with_nullability(nullability);
+            let elements = elements
+                .iter()
+                .map(|element| element.cast(&element_dtype).map_err(PyVortexError::from))
+                .collect::<PyVortexResult<Vec<_>>>()?;
 
             return Ok(Scalar::list(
-                element_dtype
-                    .map(Arc::new)
-                    // Empty list defaults to Null dtype
-                    .unwrap_or_else(|| Arc::new(DType::Null)),
+                Arc::new(element_dtype),
                 elements,
                 Nullability::NonNullable,
             ));
