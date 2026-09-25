@@ -39,6 +39,20 @@ def test_f16() -> None:
     assert scalar.as_py() == 1.0
 
 
+@pytest.mark.parametrize("values", [[1, None], [None, 1], [None, None], []])
+def test_list_scalar_nullability(values: list[int | None]):
+    assert vx.scalar(values).as_py() == values
+    dtype = vx.list_(vx.int_(32, nullable=True))
+    scalar = vx.scalar(values, dtype=dtype)
+    assert scalar.dtype == dtype
+    assert scalar.as_py() == values
+
+
+def test_list_scalar_rejects_mixed_types():
+    with pytest.raises(ValueError, match="must share a dtype"):
+        _ = vx.scalar([1, "two"])
+
+
 @pytest.mark.parametrize(
     "precision,scale,stored,expected",
     [

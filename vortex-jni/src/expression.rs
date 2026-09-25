@@ -38,6 +38,7 @@ use vortex::expr::between;
 use vortex::expr::get_item;
 use vortex::expr::is_not_null;
 use vortex::expr::is_null;
+use vortex::expr::list_contains_opts;
 use vortex::expr::lit;
 use vortex::expr::merge_opts;
 use vortex::expr::not;
@@ -60,6 +61,8 @@ use vortex::scalar_fn::fns::between::StrictComparison;
 use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::like::Like;
 use vortex::scalar_fn::fns::like::LikeOptions;
+use vortex::scalar_fn::fns::list_contains::ListContainsOptions;
+use vortex::scalar_fn::fns::literal::Literal;
 use vortex::scalar_fn::fns::merge::DuplicateHandling;
 use vortex::scalar_fn::fns::operators::Operator;
 
@@ -362,6 +365,33 @@ fn strict_from_bool(value: jboolean) -> StrictComparison {
     }
 }
 
+/// Build `list_contains(list, needle)`: whether the list-typed `list` expression contains
+/// `needle`.
+///
+/// `list` must evaluate to a Vortex `List`; the list's element dtype must match `needle`'s dtype
+/// ignoring nullability. With a list literal on the left and a column on the right this is a
+/// set-membership (`IN`) test that a constant-set kernel answers in one pass over the column.
+///
+/// `sql_null_semantics` selects how a null list element behaves: off, it never matches and a
+/// non-matching needle is `false`; on, it is SQL's unknown value and a non-matching needle is
+/// `null`, so `NOT IN` never admits it.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_listContains(
+    _env: EnvUnowned,
+    _class: JClass,
+    list: jlong,
+    needle: jlong,
+    sql_null_semantics: jboolean,
+) -> jlong {
+    let list = unsafe { expr_ref(list) }.clone();
+    let needle = unsafe { expr_ref(needle) }.clone();
+    into_raw(list_contains_opts(
+        list,
+        needle,
+        ListContainsOptions { sql_null_semantics },
+    ))
+}
+
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalBool(
     _env: EnvUnowned,
@@ -434,6 +464,93 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalBinary(
         }
         let bytes: Vec<u8> = env.convert_byte_array(&value)?;
         Ok(into_raw(lit(bytes.as_slice())))
+    })
+}
+
+/// Build a non-empty list literal out of the literal expressions in `elements`.
+///
+/// Every element must be a literal (`vortex.literal`) whose dtype matches the first element's
+/// ignoring nullability; the list's element dtype is that shared dtype, made nullable if any
+/// element is nullable, and each element is cast to it. The list itself is non-nullable — use
+/// [`Java_dev_vortex_jni_NativeExpression_literalEmptyList`] for a null or empty list, which
+/// cannot infer an element dtype from its (absent) elements.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalList(
+    mut env: EnvUnowned,
+    _class: JClass,
+    elements: JLongArray,
+) -> jlong {
+    try_or_throw(&mut env, |env| {
+        let ptrs = unsafe { elements.get_elements(env, ReleaseMode::NoCopyBack) }?;
+        let scalars = ptrs
+            .iter()
+            .map(|ptr| literal_scalar(unsafe { expr_ref(*ptr) }))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(into_raw(lit(list_scalar(&scalars)?)))
+    })
+}
+
+/// The scalar behind a literal expression, or an error if the expression is not a literal.
+fn literal_scalar(expr: &Expression) -> Result<Scalar, JNIError> {
+    expr.as_opt::<Literal>().cloned().ok_or_else(|| {
+        vortex_err!("list literal elements must themselves be literals, got {expr}").into()
+    })
+}
+
+/// Collect literal scalars into a single non-nullable list scalar.
+fn list_scalar(elements: &[Scalar]) -> Result<Scalar, JNIError> {
+    let Some(first) = elements.first() else {
+        throw_runtime!("list literal requires at least one element; use an empty list literal");
+    };
+
+    let mut nullability = Nullability::NonNullable;
+    for element in elements {
+        if !element.dtype().eq_ignore_nullability(first.dtype()) {
+            throw_runtime!(
+                "list literal elements must share a dtype, got {} and {}",
+                first.dtype(),
+                element.dtype()
+            );
+        }
+        nullability |= element.dtype().nullability();
+    }
+
+    let element_dtype = first.dtype().with_nullability(nullability);
+    let children = elements
+        .iter()
+        .map(|element| element.cast(&element_dtype))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Scalar::list(
+        Arc::new(element_dtype),
+        children,
+        Nullability::NonNullable,
+    ))
+}
+
+/// Build an empty (or null) list literal whose element dtype is selected by `element_dtype_tag`.
+///
+/// The tag table is the one [`Java_dev_vortex_jni_NativeExpression_literalNull`] reads; see
+/// `dev.vortex.api.Expression.DType` on the Java side for the source of truth. Elements are
+/// nullable so that the literal accepts a nullable column as its needle.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalEmptyList(
+    mut env: EnvUnowned,
+    _class: JClass,
+    element_dtype_tag: jbyte,
+    is_null_flag: jboolean,
+) -> jlong {
+    try_or_throw(&mut env, |_| {
+        let element_dtype = Arc::new(parse_null_dtype(element_dtype_tag)?);
+        if is_null_flag {
+            return Ok(into_raw(lit(Scalar::null(DType::List(
+                element_dtype,
+                Nullability::Nullable,
+            )))));
+        }
+        Ok(into_raw(lit(Scalar::list_empty(
+            element_dtype,
+            Nullability::NonNullable,
+        ))))
     })
 }
 
@@ -666,10 +783,26 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalUuid(
     })
 }
 
-/// Build a typed null literal whose nullable dtype is selected by `dtype_tag`.
+/// Parse a nullable primitive [`DType`] from the wire-encoded byte tag.
 ///
 /// Tag values intentionally do not overlap with [`parse_time_unit`].
 /// See `dev.vortex.api.Expression.DType` on the Java side for the source of truth.
+fn parse_null_dtype(tag: jbyte) -> Result<DType, JNIError> {
+    Ok(match tag {
+        0 => DType::Bool(Nullability::Nullable),
+        1 => DType::Primitive(PType::I8, Nullability::Nullable),
+        2 => DType::Primitive(PType::I16, Nullability::Nullable),
+        3 => DType::Primitive(PType::I32, Nullability::Nullable),
+        4 => DType::Primitive(PType::I64, Nullability::Nullable),
+        5 => DType::Primitive(PType::F32, Nullability::Nullable),
+        6 => DType::Primitive(PType::F64, Nullability::Nullable),
+        7 => DType::Utf8(Nullability::Nullable),
+        8 => DType::Binary(Nullability::Nullable),
+        other => throw_runtime!("unknown null dtype tag: {other}"),
+    })
+}
+
+/// Build a typed null literal whose nullable dtype is selected by `dtype_tag`.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalNull(
     mut env: EnvUnowned,
@@ -677,18 +810,6 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalNull(
     dtype_tag: jbyte,
 ) -> jlong {
     try_or_throw(&mut env, |_| {
-        let dtype = match dtype_tag {
-            0 => DType::Bool(Nullability::Nullable),
-            1 => DType::Primitive(PType::I8, Nullability::Nullable),
-            2 => DType::Primitive(PType::I16, Nullability::Nullable),
-            3 => DType::Primitive(PType::I32, Nullability::Nullable),
-            4 => DType::Primitive(PType::I64, Nullability::Nullable),
-            5 => DType::Primitive(PType::F32, Nullability::Nullable),
-            6 => DType::Primitive(PType::F64, Nullability::Nullable),
-            7 => DType::Utf8(Nullability::Nullable),
-            8 => DType::Binary(Nullability::Nullable),
-            other => throw_runtime!("unknown null dtype tag: {other}"),
-        };
-        Ok(into_raw(lit(Scalar::null(dtype))))
+        Ok(into_raw(lit(Scalar::null(parse_null_dtype(dtype_tag)?))))
     })
 }

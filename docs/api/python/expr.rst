@@ -52,6 +52,7 @@ Expressions are picklable, so a filter built in one process can be sent to anoth
    ~vortex.expr.pack
    ~vortex.expr.merge
    ~vortex.expr.list_contains
+   ~vortex.expr.in_list
    ~vortex.expr.list_length
    ~vortex.expr.list_sum
    ~vortex.expr.case_when
@@ -152,6 +153,8 @@ Lists
 -----
 
 .. autofunction:: vortex.expr.list_contains
+
+.. autofunction:: vortex.expr.in_list
 
 .. autofunction:: vortex.expr.list_length
 
