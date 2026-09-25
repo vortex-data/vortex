@@ -68,9 +68,9 @@
 //!
 //! [BtrBlocks]: https://www.cs.cit.tum.de/fileadmin/w00cfj/dis/papers/btrblocks.pdf
 
+mod allowed_ids;
 mod builder;
 mod canonical_compressor;
-mod permission_set;
 /// Compression scheme implementations.
 pub mod schemes;
 mod session;

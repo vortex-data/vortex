@@ -12,7 +12,7 @@ use crate::CompressionSessionExt;
 use crate::Scheme;
 use crate::SchemeExt;
 use crate::SchemeId;
-use crate::permission_set::PermissionSet;
+use crate::allowed_ids::AllowedIds;
 use crate::schemes::binary;
 use crate::schemes::float;
 use crate::schemes::integer;
@@ -58,7 +58,7 @@ pub static DELTA_SCHEME: integer::DeltaScheme = integer::DeltaScheme::new(1.25);
 #[derive(Debug, Clone)]
 pub struct BtrBlocksCompressorBuilder {
     schemes: Vec<&'static dyn Scheme>,
-    allowed: PermissionSet,
+    allowed: AllowedIds,
 }
 
 impl BtrBlocksCompressorBuilder {
@@ -68,7 +68,7 @@ impl BtrBlocksCompressorBuilder {
     pub fn from_session(session: &VortexSession) -> Self {
         Self {
             schemes: session.compression().schemes().to_vec(),
-            allowed: PermissionSet::from_session(session),
+            allowed: AllowedIds::from_session(session),
         }
     }
 
@@ -79,7 +79,7 @@ impl BtrBlocksCompressorBuilder {
     pub fn empty() -> Self {
         Self {
             schemes: Vec::new(),
-            allowed: PermissionSet::all(),
+            allowed: AllowedIds::all(),
         }
     }
 
@@ -176,13 +176,16 @@ impl BtrBlocksCompressorBuilder {
     /// Allows serialized IDs the session's enabled editions do not permit, still requiring them
     /// to be registered in the session.
     pub fn disable_editions(mut self) -> Self {
-        self.allowed.blacklist.clear();
+        self.allowed.editions = None;
         self
     }
 
-    /// Allows every serialized ID, ignoring the session's registered arrays and enabled editions.
+    /// Allows serialized IDs regardless of the session's registered arrays and enabled editions.
+    ///
+    /// Serialized IDs excluded by a preset stay excluded.
     pub fn unrestricted(mut self) -> Self {
-        self.allowed = PermissionSet::all();
+        self.allowed.registered = None;
+        self.allowed.editions = None;
         self
     }
 
@@ -287,11 +290,23 @@ mod tests {
     }
 
     #[test]
-    fn blacklist_overrides_allowlist() {
-        let mut builder = default_builder();
-        builder.allowed.blacklist.insert(FoR.id());
-        let schemes = builder.allowed_schemes();
-        assert!(!schemes.iter().any(|s| s.id() == integer::FoRScheme.id()));
+    fn excluded_encodings_survive_lifting_restrictions() {
+        let session = vortex_array::array_session();
+        vortex_fastlanes::initialize(&session);
+        for mut builder in [
+            BtrBlocksCompressorBuilder::from_session(&session),
+            BtrBlocksCompressorBuilder::empty().with_new_scheme(&integer::FoRScheme),
+        ] {
+            builder.allowed.excluded.insert(FoR.id());
+            for builder in [builder.clone().disable_editions(), builder.unrestricted()] {
+                assert!(
+                    !builder
+                        .allowed_schemes()
+                        .iter()
+                        .any(|s| s.id() == integer::FoRScheme.id())
+                );
+            }
+        }
     }
 
     #[test]
