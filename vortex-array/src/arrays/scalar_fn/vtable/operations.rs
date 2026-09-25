@@ -258,7 +258,7 @@ mod tests {
         let rhs = PrimitiveArray::from_iter(0..10i64);
 
         let scalar_fn = TypedScalarFnInstance::new(Binary, Operator::Mul).erased();
-        let args = vec![lhs.into_array(), rhs.into_array()];
+        let args = vec![lhs, rhs.into_array()];
 
         Ok(ScalarFnArray::try_new(scalar_fn, args)?.into_array())
     }

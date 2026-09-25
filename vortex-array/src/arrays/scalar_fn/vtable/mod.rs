@@ -25,25 +25,22 @@ use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::array::ValidityVTable;
 use crate::array::with_empty_buffers;
-use crate::arrays::StructArray;
 use crate::arrays::scalar_fn::array::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::array::ScalarFnData;
 use crate::arrays::scalar_fn::rules::PARENT_RULES;
 use crate::arrays::scalar_fn::rules::RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
-use crate::dtype::FieldName;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
-use crate::expr::Expression;
-use crate::expr::get_item;
-use crate::expr::is_not_null;
-use crate::expr::lit;
-use crate::expr::root;
 use crate::matcher::Matcher;
 use crate::scalar_fn;
+use crate::scalar_fn::ArrayReduceNode;
+use crate::scalar_fn::ReduceNode;
+use crate::scalar_fn::ReduceNodeValidity;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::VecExecutionArgs;
+use crate::scalar_fn::fns::is_not_null::IsNotNull;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 
@@ -246,53 +243,13 @@ impl<F: scalar_fn::ScalarFnVTable> Deref for ScalarFnArrayView<'_, F> {
 
 impl ValidityVTable<ScalarFn> for ScalarFn {
     fn validity(view: ArrayView<'_, ScalarFn>) -> VortexResult<Validity> {
-        // We want to defer execution of the underlying array. The naïve
-        // solution for this is to build an all true array and then .apply() an
-        // Expression referencing parts of root(). This doesn't work because
-        // in this Expression's evaluation root() is replaced by the original
-        // array which leads to non-terminating recursion, a stack overflow. So
-        // we build a Struct array and give the caller (which overrides
-        // ScalarFn valididy) the ability to reference children with get_item.
-        // In ScalarFn's overriden validity "expr.child(i)" then translates to
-        // "view.get_item(i)" which doesn't produce recursion since get_item
-        // references part of the original array as opposed to root().
-        let child_count = view.child_count();
-        let names = (0..child_count)
-            .map(|i| FieldName::from(i.to_string().as_str()))
-            .collect();
-        let fields = view.children();
-
-        let getters: Vec<_> = view
-            .children()
-            .into_iter()
-            .enumerate()
-            .map(|(i, child)| {
-                if let Some(scalar) = child.as_constant() {
-                    lit(scalar)
-                } else {
-                    get_item(i.to_string(), root())
-                }
-            })
-            .collect();
-
-        let struct_array = StructArray::new(names, fields, view.len(), Validity::NonNullable);
-
-        let scalar_fn = view.scalar_fn();
-        let expr = Expression::try_new(scalar_fn.clone(), getters)?;
-        let expr = scalar_fn
-            .validity(&expr)?
-            // However, there is another possible stack overflow if validity()
-            // isn't overriden. The naïve solution is to do is_not_null(expr)
-            // which is is_not_null(ScalarFn(get_item(...))).
-            // Inner ScalarFn(get_item)'s row request will call validity() back
-            // which will instantiate is_not_null(F( original is_not_null )).
-            //
-            // So, to break this recursion, we need to tweak array probing for
-            // ScalarFn, see execute_scalar in probe/array.rs and in
-            // probe/repeated.rs
-            .unwrap_or_else(|| is_not_null(expr.clone()));
-
-        let array = struct_array.into_array().apply(&expr)?;
-        Ok(Validity::Array(array))
+        let node = ArrayReduceNode::new(view.as_ref());
+        Ok(Validity::Array(match node.validity()? {
+            ReduceNodeValidity::Reduced(reduced) => reduced.into_array(),
+            // We get validity only after evaluating this node. To avoid
+            // infinite recursion, IsNotNull(x) -> x.validity() symbolically
+            // rewrites only in the Reduced() case.
+            ReduceNodeValidity::Irreducible => IsNotNull::new(view.as_ref().clone()).into_array(),
+        }))
     }
 }
