@@ -249,12 +249,11 @@ impl VortexWriteOptions {
         };
         let strategy = match self.strategy {
             Some(strategy) => strategy,
-            None if enforce_editions => WriteStrategyBuilder::from_session(&self.session).build(),
             // With editions disabled every registered encoding may be written.
             None => WriteStrategyBuilder::from_session_with_options(
                 &self.session,
                 BtrBlocksOptions {
-                    enforce_editions: false,
+                    enforce_editions,
                     ..Default::default()
                 },
             )
