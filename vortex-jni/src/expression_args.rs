@@ -3,13 +3,25 @@
 
 //! Shared JNI value decoding for authored and bound expression builders.
 
+use std::sync::Arc;
+
+use jni::sys::jboolean;
 use jni::sys::jbyte;
 use vortex::dtype::BigCast;
+use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
+use vortex::dtype::Nullability;
+use vortex::dtype::PType;
+use vortex::dtype::extension::ExtDType;
 use vortex::dtype::i256;
 use vortex::error::vortex_err;
 use vortex::extension::datetime::TimeUnit;
+use vortex::extension::uuid::Uuid;
+use vortex::extension::uuid::UuidMetadata;
 use vortex::scalar::DecimalValue;
+use vortex::scalar::Scalar;
+use vortex::scalar_fn::fns::between::StrictComparison;
+use vortex::scalar_fn::fns::merge::DuplicateHandling;
 use vortex::scalar_fn::fns::operators::Operator;
 
 use crate::errors::JNIError;
@@ -35,6 +47,62 @@ pub(crate) fn parse_op(op: jbyte) -> Result<Operator, JNIError> {
 /// Parse a Vortex [`TimeUnit`] from the wire-encoded byte tag.
 pub(crate) fn parse_time_unit(tag: jbyte) -> Result<TimeUnit, JNIError> {
     TimeUnit::try_from(tag as u8).map_err(JNIError::from)
+}
+
+/// Parse a merge strategy from its Java wire tag.
+pub(crate) fn parse_duplicate_handling(tag: jbyte) -> Result<DuplicateHandling, JNIError> {
+    Ok(match tag {
+        0 => DuplicateHandling::RightMost,
+        1 => DuplicateHandling::Error,
+        other => throw_runtime!("unknown duplicate handling code: {other}"),
+    })
+}
+
+pub(crate) fn strict_from_bool(value: jboolean) -> StrictComparison {
+    if value {
+        StrictComparison::Strict
+    } else {
+        StrictComparison::NonStrict
+    }
+}
+
+/// Number of bytes in a UUID's big-endian representation.
+const UUID_BYTE_LEN: usize = 16;
+
+/// Build the version-agnostic UUID extension dtype used by Java literals.
+pub(crate) fn uuid_dtype(nullability: Nullability) -> Result<DType, JNIError> {
+    let list_size = u32::try_from(UUID_BYTE_LEN)
+        .map_err(|_| vortex_err!("UUID byte length {UUID_BYTE_LEN} does not fit in u32"))?;
+    let storage_dtype = DType::FixedSizeList(
+        Arc::new(DType::Primitive(PType::U8, Nullability::NonNullable)),
+        list_size,
+        nullability,
+    );
+    let ext = ExtDType::<Uuid>::try_new(UuidMetadata::default(), storage_dtype)?;
+    Ok(DType::Extension(ext.erased()))
+}
+
+/// Build a non-null UUID scalar from its 16-byte big-endian representation.
+pub(crate) fn uuid_scalar(bytes: &[u8]) -> Result<Scalar, JNIError> {
+    if bytes.len() != UUID_BYTE_LEN {
+        throw_runtime!(
+            "UUID literal must be exactly {UUID_BYTE_LEN} bytes, got {}",
+            bytes.len()
+        );
+    }
+    let children: Vec<Scalar> = bytes
+        .iter()
+        .map(|&b| Scalar::primitive(b, Nullability::NonNullable))
+        .collect();
+    let storage = Scalar::fixed_size_list(
+        DType::Primitive(PType::U8, Nullability::NonNullable),
+        children,
+        Nullability::NonNullable,
+    );
+    Ok(Scalar::try_new(
+        uuid_dtype(Nullability::NonNullable)?,
+        storage.into_value(),
+    )?)
 }
 
 /// Decode Java `BigInteger.toByteArray()` into the narrowest decimal backing value.

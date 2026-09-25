@@ -8,8 +8,10 @@ use std::sync::Arc;
 use jni::EnvUnowned;
 use jni::objects::JByteArray;
 use jni::objects::JClass;
+use jni::objects::JLongArray;
 use jni::objects::JObjectArray;
 use jni::objects::JString;
+use jni::objects::ReleaseMode;
 use jni::sys::jboolean;
 use jni::sys::jbyte;
 use jni::sys::jdouble;
@@ -33,22 +35,33 @@ use vortex::scalar::Scalar;
 use vortex::scalar::ScalarValue;
 use vortex::scalar_fn::EmptyOptions;
 use vortex::scalar_fn::ScalarFnVTableExt;
+use vortex::scalar_fn::fns::between::Between;
+use vortex::scalar_fn::fns::between::BetweenOptions;
 use vortex::scalar_fn::fns::binary::Binary;
+use vortex::scalar_fn::fns::cast::Cast;
 use vortex::scalar_fn::fns::get_item::GetItem;
 use vortex::scalar_fn::fns::is_not_null::IsNotNull;
 use vortex::scalar_fn::fns::is_null::IsNull;
 use vortex::scalar_fn::fns::like::Like;
 use vortex::scalar_fn::fns::like::LikeOptions;
+use vortex::scalar_fn::fns::merge::Merge;
 use vortex::scalar_fn::fns::not::Not;
+use vortex::scalar_fn::fns::pack::Pack;
+use vortex::scalar_fn::fns::pack::PackOptions;
 use vortex::scalar_fn::fns::select::FieldSelection;
 use vortex::scalar_fn::fns::select::Select;
 
 use crate::data_source::NativeDataSource;
+use crate::errors::JNIError;
 use crate::errors::try_or_throw;
 use crate::expression::expr_ref;
 use crate::expression_args::decimal_value_from_be_bytes;
+use crate::expression_args::parse_duplicate_handling;
 use crate::expression_args::parse_op;
 use crate::expression_args::parse_time_unit;
+use crate::expression_args::strict_from_bool;
+use crate::expression_args::uuid_dtype;
+use crate::expression_args::uuid_scalar;
 
 fn into_raw(expression: BoundExpression) -> jlong {
     Box::into_raw(Box::new(expression)) as jlong
@@ -68,6 +81,17 @@ pub extern "system" fn Java_dev_vortex_jni_NativeBoundExpression_rowIdx(
 
 unsafe fn bound_ref<'a>(pointer: jlong) -> &'a BoundExpression {
     unsafe { &*(pointer as *const BoundExpression) }
+}
+
+fn collect_bound_operands(
+    env: &mut jni::Env,
+    expressions: &JLongArray,
+) -> Result<Vec<BoundExpression>, JNIError> {
+    let pointers = unsafe { expressions.get_elements(env, ReleaseMode::NoCopyBack) }?;
+    Ok(pointers
+        .iter()
+        .map(|pointer| unsafe { bound_ref(*pointer) }.clone())
+        .collect())
 }
 
 #[unsafe(no_mangle)]
@@ -134,6 +158,50 @@ pub extern "system" fn Java_dev_vortex_jni_NativeBoundExpression_select(
             FieldSelection::include(fields.into()),
             [child],
         )?))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeBoundExpression_pack(
+    mut env: EnvUnowned,
+    _class: JClass,
+    field_names: JObjectArray,
+    expressions: JLongArray,
+    nullable: jboolean,
+) -> jlong {
+    try_or_throw(&mut env, |env| {
+        let count = field_names.len(env)?;
+        let children = collect_bound_operands(env, &expressions)?;
+        if count != children.len() {
+            return Err(vortex_err!("pack requires one name per expression").into());
+        }
+        let mut names = Vec::with_capacity(count);
+        for idx in 0..count {
+            let name = field_names.get_element(env, idx)?;
+            let name = env.cast_local::<JString>(name)?;
+            names.push(FieldName::from(name.try_to_string(env)?));
+        }
+        Ok(into_raw(Pack.try_new_bound_expr(
+            PackOptions {
+                names: names.into(),
+                nullability: nullable.into(),
+            },
+            children,
+        )?))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeBoundExpression_merge(
+    mut env: EnvUnowned,
+    _class: JClass,
+    expressions: JLongArray,
+    duplicate_handling: jbyte,
+) -> jlong {
+    try_or_throw(&mut env, |env| {
+        let children = collect_bound_operands(env, &expressions)?;
+        let handling = parse_duplicate_handling(duplicate_handling)?;
+        Ok(into_raw(Merge.try_new_bound_expr(handling, children)?))
     })
 }
 
@@ -361,6 +429,25 @@ pub extern "system" fn Java_dev_vortex_jni_NativeBoundExpression_literalDecimal(
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeBoundExpression_literalUuid(
+    mut env: EnvUnowned,
+    _class: JClass,
+    value: JByteArray,
+    is_null: jboolean,
+) -> jlong {
+    try_or_throw(&mut env, |env| {
+        if is_null {
+            return Ok(literal(Scalar::null(uuid_dtype(Nullability::Nullable)?)));
+        }
+        if value.is_null() {
+            return Err(vortex_err!("UUID literal bytes must not be null").into());
+        }
+        let bytes = env.convert_byte_array(&value)?;
+        Ok(literal(uuid_scalar(&bytes)?))
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_vortex_jni_NativeBoundExpression_binary(
     mut env: EnvUnowned,
     _class: JClass,
@@ -373,6 +460,43 @@ pub extern "system" fn Java_dev_vortex_jni_NativeBoundExpression_binary(
         let lhs = unsafe { bound_ref(lhs_ptr) }.clone();
         let rhs = unsafe { bound_ref(rhs_ptr) }.clone();
         Ok(into_raw(Binary.try_new_bound_expr(operator, [lhs, rhs])?))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeBoundExpression_castToI64(
+    mut env: EnvUnowned,
+    _class: JClass,
+    child_ptr: jlong,
+) -> jlong {
+    try_or_throw(&mut env, |_| {
+        let child = unsafe { bound_ref(child_ptr) }.clone();
+        let target = DType::Primitive(PType::I64, child.dtype().nullability());
+        Ok(into_raw(Cast.try_new_bound_expr(target, [child])?))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeBoundExpression_between(
+    mut env: EnvUnowned,
+    _class: JClass,
+    value_ptr: jlong,
+    lower_ptr: jlong,
+    upper_ptr: jlong,
+    lower_strict: jboolean,
+    upper_strict: jboolean,
+) -> jlong {
+    try_or_throw(&mut env, |_env| {
+        let value = unsafe { bound_ref(value_ptr) }.clone();
+        let lower = unsafe { bound_ref(lower_ptr) }.clone();
+        let upper = unsafe { bound_ref(upper_ptr) }.clone();
+        Ok(into_raw(Between.try_new_bound_expr(
+            BetweenOptions {
+                lower_strict: strict_from_bool(lower_strict),
+                upper_strict: strict_from_bool(upper_strict),
+            },
+            [value, lower, upper],
+        )?))
     })
 }
 

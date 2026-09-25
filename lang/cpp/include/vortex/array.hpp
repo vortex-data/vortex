@@ -223,7 +223,7 @@ public:
     Array slice(size_t begin, size_t end) const;
 
     /**
-     * Apply an expression to an array.
+     * Apply an expression bound against this array's dtype.
      *
      * This function operates in constant time and doesn't execute the result
      * array. To execute the array, canonicalise it.
@@ -235,9 +235,9 @@ public:
      * std::array<uint16_t, 3> buffer = {0, 1, 2};
      * Array array = Array::primitive<uint16_t>(buffer);
      * Expression expr = expr::root() > expr::lit<uint16_t>(0);
-     * Array result = array.apply(expr);
+     * Array result = array.apply(expr.bind(array.dtype()));
      */
-    Array apply(const Expression &expr) const;
+    Array apply(const BoundExpression &expr) const;
 
     /**
      * Bulk view over values. Canonicalizes the array.

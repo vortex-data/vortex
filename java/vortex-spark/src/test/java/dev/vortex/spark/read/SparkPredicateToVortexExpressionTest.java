@@ -3,11 +3,14 @@
 
 package dev.vortex.spark.read;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.vortex.jni.NativeLoader;
+import dev.vortex.relocated.org.apache.arrow.vector.types.TimeUnit;
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.util.List;
 import java.util.Map;
 import org.apache.spark.sql.connector.expressions.Expression;
@@ -28,13 +31,10 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * Unit tests for {@link SparkPredicateToVortexExpression#isPushable(Predicate, Map)} and
- * {@link SparkPredicateToVortexExpression#convert(Predicate)}.
+ * Unit tests for Spark predicate pushdown eligibility.
  *
- * <p>{@code isPushable} decides which predicates {@code VortexScanBuilder.pushPredicates} lets Spark drop, while
- * {@code convert} builds the filter {@code VortexPartitionReader} actually pushes down. A predicate that passes the
- * first but fails the second is silently skipped by the reader, so the scan returns rows the query excluded. The tests
- * below pin that {@code isPushable} implies {@code convert().isPresent()} across every accepted shape.
+ * <p>{@code isPushable} decides which predicates {@code VortexScanBuilder.pushPredicates} lets Spark drop. The reader
+ * uses each file's Arrow timestamp unit to translate accepted timestamp predicates.
  */
 final class SparkPredicateToVortexExpressionTest {
 
@@ -87,7 +87,7 @@ final class SparkPredicateToVortexExpressionTest {
 
     @BeforeAll
     static void loadNativeLibrary() {
-        // `convert` allocates native expressions; `isPushable` does not.
+        // Literal validation allocates native bound expressions.
         NativeLoader.loadJni();
     }
 
@@ -272,6 +272,37 @@ final class SparkPredicateToVortexExpressionTest {
         assertPushable(equality(ref("createdAt"), new LiteralValue<>(1_700_000_000L, DataTypes.TimestampType)));
         assertPushable(equality(ref("createdLocal"), new LiteralValue<>(1_700_000_000L, DataTypes.TimestampNTZType)));
         assertPushable(equality(ref("amount"), decimalLiteral("12.34")));
+    }
+
+    @Test
+    void timestampPushdownUsesResolvedSparkTypes() {
+        Predicate aware = equality(ref("createdAt"), new LiteralValue<>(1L, DataTypes.TimestampType));
+        assertTrue(SparkPredicateToVortexExpression.isPushable(aware, SCHEMA));
+        assertTrue(SparkPredicateToVortexExpression.isPushable(
+                equality(ref("createdLocal"), new LiteralValue<>(1L, DataTypes.TimestampNTZType)), SCHEMA));
+        assertNotPushable(equality(ref("createdAt"), ref("createdAt")));
+        assertNotPushable(equality(ref("createdAt"), new LiteralValue<>(1L, DataTypes.TimestampNTZType)));
+    }
+
+    @Test
+    void timestampCutoffsMatchSparkNormalization() {
+        long[] rawValues = {-1_500L, -1_001L, -1_000L, -999L, -1L, 0L, 1L, 999L, 1_000L, 1_500L};
+        long[] microsValues = {Long.MIN_VALUE, -1_001L, -1L, 0L, 1L, 1_001L, Long.MAX_VALUE};
+        for (TimeUnit unit : TimeUnit.values()) {
+            for (long raw : rawValues) {
+                long normalized = switch (unit) {
+                    case SECOND -> Math.multiplyExact(raw, 1_000_000L);
+                    case MILLISECOND -> Math.multiplyExact(raw, 1_000L);
+                    case MICROSECOND -> raw;
+                    case NANOSECOND -> Math.floorDiv(raw, 1_000L);
+                };
+                for (long micros : microsValues) {
+                    BigInteger cutoff = SparkPredicateToVortexExpression.timestampLowerBound(
+                            BigInteger.valueOf(micros), unit);
+                    assertEquals(normalized >= micros, BigInteger.valueOf(raw).compareTo(cutoff) >= 0);
+                }
+            }
+        }
     }
 
     @Test

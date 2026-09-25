@@ -24,7 +24,7 @@ import java.util.UUID;
  */
 public final class Expression {
     /** Number of bytes in a UUID's big-endian representation. */
-    private static final int UUID_BYTE_LEN = 16;
+    static final int UUID_BYTE_LEN = 16;
 
     private final long pointer;
 
@@ -260,7 +260,7 @@ public final class Expression {
         return new Expression(NativeExpression.literalUuid(new byte[UUID_BYTE_LEN], true));
     }
 
-    private static byte[] uuidToBigEndianBytes(UUID value) {
+    static byte[] uuidToBigEndianBytes(UUID value) {
         return ByteBuffer.allocate(UUID_BYTE_LEN)
                 .order(ByteOrder.BIG_ENDIAN)
                 .putLong(value.getMostSignificantBits())

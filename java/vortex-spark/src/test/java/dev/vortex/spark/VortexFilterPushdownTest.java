@@ -226,7 +226,8 @@ public final class VortexFilterPushdownTest {
                                 3,
                                 Date.valueOf("2022-12-31"),
                                 Timestamp.valueOf("2022-12-31 23:59:59"),
-                                new BigDecimal("-5.00"))),
+                                new BigDecimal("-5.00")),
+                        RowFactory.create(4, null, null, null)),
                 schema);
 
         Path outputPath = tempDir.resolve("pushdown_temporal");
@@ -257,6 +258,11 @@ public final class VortexFilterPushdownTest {
         assertEquals(
                 List.of(1, 2),
                 idsOf(readDf.filter(readDf.col("ts").lt(Timestamp.valueOf("2022-01-01 00:00:00")))
+                        .orderBy("id")));
+
+        assertEquals(
+                List.of(1, 3),
+                idsOf(readDf.filter(readDf.col("ts").notEqual(Timestamp.valueOf("2021-06-15 12:30:00")))
                         .orderBy("id")));
 
         // Decimal equality

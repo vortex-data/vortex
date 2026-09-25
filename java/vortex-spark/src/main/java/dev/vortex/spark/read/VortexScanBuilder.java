@@ -148,6 +148,7 @@ public final class VortexScanBuilder
      * <p>A predicate is pushed when it references only data columns (not partition columns) and uses operators and
      * literal types that {@link SparkPredicateToVortexExpression} can map to Vortex expressions. Predicates that
      * reference partition columns or use unsupported features are returned to Spark for post-scan evaluation.
+     * Source-specific conversions are constructed by each partition reader; filter planning must not open files.
      *
      * @return the predicates that Spark must still evaluate
      */

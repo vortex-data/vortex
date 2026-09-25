@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #include "vortex/common.hpp"
+#include "vortex/dtype.hpp"
 #include "vortex/error.hpp"
 #include "vortex/expression.hpp"
 
@@ -18,6 +19,21 @@ using detail::Access;
 using detail::throw_on_error;
 using detail::to_view;
 
+void BoundExpression::Deleter::operator()(const vx_bound_expression *ptr) const noexcept {
+    vx_bound_expression_free(ptr);
+}
+
+BoundExpression::BoundExpression(const BoundExpression &other)
+    : handle_(vx_bound_expression_clone(other.handle_.get())) {
+}
+
+BoundExpression &BoundExpression::operator=(const BoundExpression &other) {
+    if (this != &other) {
+        handle_.reset(vx_bound_expression_clone(other.handle_.get()));
+    }
+    return *this;
+}
+
 void Expression::Deleter::operator()(const vx_expression *ptr) const noexcept {
     vx_expression_free(ptr);
 }
@@ -30,6 +46,14 @@ Expression &Expression::operator=(const Expression &other) {
         handle_.reset(vx_expression_clone(other.handle_.get()));
     }
     return *this;
+}
+
+BoundExpression Expression::bind(const DataType &dtype) const {
+    vx_error *error = nullptr;
+    const vx_bound_expression *out =
+        vx_expression_bind(handle_.get(), Access::c_ptr(dtype), &error);
+    throw_on_error(error);
+    return Access::adopt<BoundExpression>(out);
 }
 
 Expression Expression::operator[](std::string_view field) const {

@@ -40,7 +40,7 @@ int main(int argc, char **argv) {
     });
 
     Expression age_gt_10 = expr::col("age") > expr::lit<uint8_t>(10);
-    Array validity_array = array.apply(age_gt_10);
+    Array validity_array = array.apply(age_gt_10.bind(array.dtype()));
 
     const Validity validity = Validity::from_array(validity_array);
     Array array2 = make_struct({

@@ -13,9 +13,11 @@ import dev.vortex.arrow.ArrowAllocation;
 import dev.vortex.relocated.org.apache.arrow.memory.BufferAllocator;
 import dev.vortex.relocated.org.apache.arrow.vector.VectorSchemaRoot;
 import dev.vortex.relocated.org.apache.arrow.vector.ipc.ArrowReader;
+import dev.vortex.relocated.org.apache.arrow.vector.types.pojo.ArrowType;
 import dev.vortex.spark.VortexFilePartition;
 import dev.vortex.spark.VortexSparkSession;
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -66,15 +68,23 @@ final class VortexPartitionReader implements PartitionReader<ColumnarBatch> {
             options.projection(projection);
         }
         if (pushedPredicates != null && pushedPredicates.length > 0) {
-            buildFilterExpression(pushedPredicates, dataSource).ifPresent(options::filter);
+            Map<List<String>, ArrowType.Timestamp> timestampTypes =
+                    Arrays.stream(pushedPredicates).anyMatch(SparkPredicateToVortexExpression::hasTimestampLiteral)
+                            ? SparkPredicateToVortexExpression.timestampTypes(dataSource.arrowSchema(allocator))
+                            : Map.of();
+            buildFilterExpression(pushedPredicates, dataSource, timestampTypes).ifPresent(options::filter);
         }
         scan = dataSource.scan(options.build());
     }
 
-    private static Optional<BoundExpression> buildFilterExpression(Predicate[] predicates, DataSource dataSource) {
+    private static Optional<BoundExpression> buildFilterExpression(
+            Predicate[] predicates,
+            DataSource dataSource,
+            Map<List<String>, ArrowType.Timestamp> timestampTypes) {
         BoundExpression combined = null;
         for (Predicate predicate : predicates) {
-            Optional<BoundExpression> expr = SparkPredicateToVortexExpression.convertBound(predicate, dataSource);
+            Optional<BoundExpression> expr =
+                    SparkPredicateToVortexExpression.convertBound(predicate, dataSource, timestampTypes);
             if (expr.isEmpty()) {
                 throw new IllegalStateException("Spark dropped a predicate that Vortex cannot convert: " + predicate);
             }

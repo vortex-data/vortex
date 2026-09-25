@@ -8,7 +8,9 @@ import dev.vortex.VortexCleaner;
 import dev.vortex.jni.NativeBoundExpression;
 import java.lang.ref.Reference;
 import java.math.BigInteger;
+import java.util.Arrays;
 import java.util.Objects;
+import java.util.UUID;
 
 /** A Vortex expression whose fields and function argument types were checked against a data source. */
 public final class BoundExpression {
@@ -65,6 +67,34 @@ public final class BoundExpression {
         } finally {
             Reference.reachabilityFence(child);
         }
+    }
+
+    /** Pack typed values into a struct with named fields. */
+    public static BoundExpression pack(String[] fieldNames, BoundExpression[] expressions, boolean nullable) {
+        Objects.requireNonNull(fieldNames, "fieldNames");
+        Objects.requireNonNull(expressions, "expressions");
+        Preconditions.checkArgument(fieldNames.length == expressions.length, "pack requires one name per expression");
+        try {
+            return new BoundExpression(NativeBoundExpression.pack(fieldNames, nativePointers(expressions), nullable));
+        } finally {
+            Reference.reachabilityFence(expressions);
+        }
+    }
+
+    /** Merge typed structs, applying the requested duplicate field policy. */
+    public static BoundExpression merge(
+            Expression.DuplicateHandling duplicateHandling, BoundExpression... expressions) {
+        Objects.requireNonNull(duplicateHandling, "duplicateHandling");
+        try {
+            return new BoundExpression(NativeBoundExpression.merge(nativePointers(expressions), duplicateHandling.tag()));
+        } finally {
+            Reference.reachabilityFence(expressions);
+        }
+    }
+
+    /** Merge typed structs, failing if any field name is duplicated. */
+    public static BoundExpression merge(BoundExpression... expressions) {
+        return merge(Expression.DuplicateHandling.ERROR, expressions);
     }
 
     public static BoundExpression literal(boolean value) {
@@ -141,6 +171,28 @@ public final class BoundExpression {
         return new BoundExpression(NativeBoundExpression.literalDecimal(new byte[] {0}, precision, scale, true));
     }
 
+    /** Create a UUID literal from a Java UUID. */
+    public static BoundExpression literal(UUID value) {
+        Objects.requireNonNull(value, "value");
+        return literalUuid(Expression.uuidToBigEndianBytes(value));
+    }
+
+    /** Create a UUID literal from its 16-byte big-endian representation. */
+    public static BoundExpression literalUuid(byte[] bigEndianBytes) {
+        Objects.requireNonNull(bigEndianBytes, "bigEndianBytes");
+        Preconditions.checkArgument(
+                bigEndianBytes.length == Expression.UUID_BYTE_LEN,
+                "UUID literal must be exactly %s bytes, got %s",
+                Expression.UUID_BYTE_LEN,
+                bigEndianBytes.length);
+        return new BoundExpression(NativeBoundExpression.literalUuid(bigEndianBytes, false));
+    }
+
+    /** Create a null UUID literal. */
+    public static BoundExpression nullLiteralUuid() {
+        return new BoundExpression(NativeBoundExpression.literalUuid(new byte[Expression.UUID_BYTE_LEN], true));
+    }
+
     /** Construct an exact-typed binary operation without Vortex coercion. */
     public static BoundExpression binary(Expression.BinaryOp op, BoundExpression lhs, BoundExpression rhs) {
         try {
@@ -148,6 +200,16 @@ public final class BoundExpression {
         } finally {
             Reference.reachabilityFence(lhs);
             Reference.reachabilityFence(rhs);
+        }
+    }
+
+    /** Explicitly cast a typed value to a signed 64-bit integer. */
+    public static BoundExpression castToI64(BoundExpression child) {
+        Objects.requireNonNull(child, "child");
+        try {
+            return new BoundExpression(NativeBoundExpression.castToI64(child.pointer));
+        } finally {
+            Reference.reachabilityFence(child);
         }
     }
 
@@ -159,6 +221,19 @@ public final class BoundExpression {
     /** Construct a typed disjunction. */
     public static BoundExpression or(BoundExpression lhs, BoundExpression rhs) {
         return binary(Expression.BinaryOp.OR, lhs, rhs);
+    }
+
+    /** Test whether a typed value lies between two bounds, with optional strict comparisons. */
+    public static BoundExpression between(
+            BoundExpression value, BoundExpression lower, BoundExpression upper, boolean lowerStrict, boolean upperStrict) {
+        try {
+            return new BoundExpression(NativeBoundExpression.between(
+                    value.pointer, lower.pointer, upper.pointer, lowerStrict, upperStrict));
+        } finally {
+            Reference.reachabilityFence(value);
+            Reference.reachabilityFence(lower);
+            Reference.reachabilityFence(upper);
+        }
     }
 
     /** Negate a typed boolean expression. */
@@ -198,5 +273,12 @@ public final class BoundExpression {
             Reference.reachabilityFence(value);
             Reference.reachabilityFence(pattern);
         }
+    }
+
+    private static long[] nativePointers(BoundExpression[] expressions) {
+        return Arrays.stream(expressions)
+                .map(expression -> Objects.requireNonNull(expression, "expression"))
+                .mapToLong(BoundExpression::nativePointer)
+                .toArray();
     }
 }

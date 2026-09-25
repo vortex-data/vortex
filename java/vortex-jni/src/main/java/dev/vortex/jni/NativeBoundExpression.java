@@ -26,6 +26,12 @@ public final class NativeBoundExpression {
     /** Select fields from a typed struct child. */
     public static native long select(String[] names, long childPointer);
 
+    /** Pack typed children into a struct. */
+    public static native long pack(String[] fieldNames, long[] expressionPointers, boolean nullable);
+
+    /** Merge typed structs using the given duplicate field policy. */
+    public static native long merge(long[] expressionPointers, byte duplicateHandling);
+
     public static native long literalBool(boolean value, boolean isNull);
 
     public static native long literalI8(byte value, boolean isNull);
@@ -54,8 +60,17 @@ public final class NativeBoundExpression {
 
     public static native long literalDecimal(byte[] unscaledBigEndian, int precision, int scale, boolean isNull);
 
+    public static native long literalUuid(byte[] bigEndianBytes, boolean isNull);
+
     /** Construct a typed binary call. */
     public static native long binary(byte operator, long lhsPointer, long rhsPointer);
+
+    /** Explicitly cast a typed value to a signed 64-bit integer. */
+    public static native long castToI64(long childPointer);
+
+    /** Construct an exact-typed BETWEEN call. */
+    public static native long between(
+            long valuePointer, long lowerPointer, long upperPointer, boolean lowerStrict, boolean upperStrict);
 
     /** Construct typed boolean negation. */
     public static native long not(long childPointer);

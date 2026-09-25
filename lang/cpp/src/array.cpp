@@ -264,14 +264,9 @@ Array Array::slice(size_t begin, size_t end) const {
     return Access::adopt<Array>(out);
 }
 
-Array Array::apply(const Expression &expr) const {
+Array Array::apply(const BoundExpression &expr) const {
     vx_error *error = nullptr;
-    const DataType input_dtype = dtype();
-    const vx_bound_expression *bound =
-        vx_expression_bind(Access::c_ptr(expr), Access::c_ptr(input_dtype), &error);
-    throw_on_error(error);
-    const vx_array *out = vx_array_apply(handle_.get(), bound, &error);
-    vx_bound_expression_free(bound);
+    const vx_array *out = vx_array_apply(handle_.get(), Access::c_ptr(expr), &error);
     throw_on_error(error);
     return Access::adopt<Array>(out);
 }

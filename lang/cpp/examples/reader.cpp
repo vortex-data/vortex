@@ -17,7 +17,7 @@ int main() {
     // docs:begin:example
     const Session session;
     const DataSource ds = DataSource::open(session, {"people*.vortex", "me.vortex"});
-    Scan scan = ds.scan({.filter = col("height") >= lit<uint16_t>(50)});
+    Scan scan = ds.scan({.filter = (col("height") >= lit<uint16_t>(50)).bind(ds.dtype())});
 
     for (Partition &partition : scan.partitions()) {
         for (Array &array : partition.batches()) {

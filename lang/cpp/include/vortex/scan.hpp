@@ -167,8 +167,9 @@ struct Selection {
  * Scan scan = ds.scan({.limit = 100});
  */
 struct ScanOptions {
-    std::optional<Expression> projection;
-    std::optional<Expression> filter;
+    // Bind authored expressions against the source dtype before setting these.
+    std::optional<BoundExpression> projection;
+    std::optional<BoundExpression> filter;
     /*
      * Row range [begin; end) to apply over filtering.
      * [0; 0) or convenience constant AllRows means "return all rows".

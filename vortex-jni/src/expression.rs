@@ -31,27 +31,26 @@ use vortex::dtype::DecimalDType;
 use vortex::dtype::FieldName;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
-use vortex::dtype::extension::ExtDType;
 use vortex::error::vortex_err;
 use vortex::extension::datetime::Date;
 use vortex::extension::datetime::TimeUnit;
 use vortex::extension::datetime::Timestamp;
-use vortex::extension::uuid::Uuid;
-use vortex::extension::uuid::UuidMetadata;
 use vortex::scalar::Scalar;
 use vortex::scalar::ScalarValue;
 use vortex::scalar_fn::fns::between::BetweenOptions;
-use vortex::scalar_fn::fns::between::StrictComparison;
 use vortex::scalar_fn::fns::like::LikeOptions;
-use vortex::scalar_fn::fns::merge::DuplicateHandling;
 use vortex::scalar_fn::fns::pack::PackOptions;
 use vortex::scalar_fn::fns::select::FieldSelection;
 
 use crate::errors::JNIError;
 use crate::errors::try_or_throw;
 use crate::expression_args::decimal_value_from_be_bytes;
+use crate::expression_args::parse_duplicate_handling;
 use crate::expression_args::parse_op;
 use crate::expression_args::parse_time_unit;
+use crate::expression_args::strict_from_bool;
+use crate::expression_args::uuid_dtype;
+use crate::expression_args::uuid_scalar;
 
 fn into_raw(expr: Expression) -> jlong {
     Box::into_raw(Box::new(expr)) as jlong
@@ -61,17 +60,6 @@ fn into_raw(expr: Expression) -> jlong {
 pub(crate) unsafe fn expr_ref<'a>(ptr: jlong) -> &'a Expression {
     debug_assert!(ptr != 0, "null expression pointer");
     unsafe { &*(ptr as *const Expression) }
-}
-
-/// Parse a merge [`DuplicateHandling`] strategy from its wire-encoded byte tag.
-///
-/// See `dev.vortex.api.Expression.DuplicateHandling` on the Java side for the source of truth.
-fn parse_duplicate_handling(tag: jbyte) -> Result<DuplicateHandling, JNIError> {
-    Ok(match tag {
-        0 => DuplicateHandling::RightMost,
-        1 => DuplicateHandling::Error,
-        other => throw_runtime!("unknown duplicate handling code: {other}"),
-    })
 }
 
 #[unsafe(no_mangle)]
@@ -322,14 +310,6 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_between(
     })
 }
 
-fn strict_from_bool(value: jboolean) -> StrictComparison {
-    if value {
-        StrictComparison::Strict
-    } else {
-        StrictComparison::NonStrict
-    }
-}
-
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalBool(
     _env: EnvUnowned,
@@ -509,49 +489,6 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalTimestamp(
             Some(ScalarValue::from(value)),
         )?)))
     })
-}
-
-/// Number of bytes in a UUID's big-endian representation.
-const UUID_BYTE_LEN: usize = 16;
-
-/// Build the version-agnostic UUID extension [`DType`] with the given nullability.
-///
-/// The storage is a non-nullable `FixedSizeList(U8, 16)`, matching Vortex's UUID extension and
-/// Arrow's canonical UUID type. The metadata records no version constraint, so the dtype is
-/// compatible with any UUID column regardless of the UUID versions it contains.
-pub(crate) fn uuid_dtype(nullability: Nullability) -> Result<DType, JNIError> {
-    let list_size = u32::try_from(UUID_BYTE_LEN)
-        .map_err(|_| vortex_err!("UUID byte length {UUID_BYTE_LEN} does not fit in u32"))?;
-    let storage_dtype = DType::FixedSizeList(
-        Arc::new(DType::Primitive(PType::U8, Nullability::NonNullable)),
-        list_size,
-        nullability,
-    );
-    let ext = ExtDType::<Uuid>::try_new(UuidMetadata::default(), storage_dtype)?;
-    Ok(DType::Extension(ext.erased()))
-}
-
-/// Build a non-null UUID [`Scalar`] from its 16-byte big-endian representation.
-pub(crate) fn uuid_scalar(bytes: &[u8]) -> Result<Scalar, JNIError> {
-    if bytes.len() != UUID_BYTE_LEN {
-        throw_runtime!(
-            "UUID literal must be exactly {UUID_BYTE_LEN} bytes, got {}",
-            bytes.len()
-        );
-    }
-    let children: Vec<Scalar> = bytes
-        .iter()
-        .map(|&b| Scalar::primitive(b, Nullability::NonNullable))
-        .collect();
-    let storage = Scalar::fixed_size_list(
-        DType::Primitive(PType::U8, Nullability::NonNullable),
-        children,
-        Nullability::NonNullable,
-    );
-    Ok(Scalar::try_new(
-        uuid_dtype(Nullability::NonNullable)?,
-        storage.into_value(),
-    )?)
 }
 
 /// Build a UUID literal from its 16-byte big-endian representation.

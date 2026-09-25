@@ -28,7 +28,7 @@ TEST_CASE("Apply root()", "[expr]") {
     std::vector<int32_t> data = {10, 20, 30, 40, 50};
     Array array = Array::primitive<int32_t>(data);
 
-    Array applied = array.apply(expr::root());
+    Array applied = array.apply(expr::root().bind(array.dtype()));
 
     REQUIRE(applied.size() == data.size());
     REQUIRE(applied.is_primitive(I32));
@@ -48,7 +48,7 @@ TEST_CASE("Apply projection", "[expr]") {
         {"height", Array::primitive<uint16_t>(heights)},
     });
 
-    Array projected = struct_arr.apply(expr::col("age"));
+    Array projected = struct_arr.apply(expr::col("age").bind(struct_arr.dtype()));
     REQUIRE(projected.size() == ages.size());
     REQUIRE(projected.is_primitive(U8));
     auto values = projected.values<uint8_t>(session);
@@ -63,7 +63,7 @@ TEST_CASE("Apply arithmetic", "[expr]") {
     Array array = Array::primitive<int32_t>(data);
 
     Expression e = expr::add(expr::root(), expr::lit<int32_t>(10));
-    Array applied = array.apply(e);
+    Array applied = array.apply(e.bind(array.dtype()));
 
     REQUIRE(applied.is_primitive(I32));
     auto values = applied.values<int32_t>(session);
@@ -78,7 +78,7 @@ TEST_CASE("Operator overloading", "[expr]") {
     std::vector<uint32_t> data = {1, 2, 2, 7};
     Array array = Array::primitive<uint32_t>(data);
 
-    Array applied = array.apply(expr::root() == expr::lit<uint32_t>(2));
+    Array applied = array.apply((expr::root() == expr::lit<uint32_t>(2)).bind(array.dtype()));
     PrimitiveView<bool> view = applied.bools(session);
     REQUIRE(view.size() == data.size());
     BoolView values = view.values();
@@ -88,12 +88,12 @@ TEST_CASE("Operator overloading", "[expr]") {
     REQUIRE_FALSE(values[3]);
 }
 
-TEST_CASE("Apply error", "[expr]") {
+TEST_CASE("Bind error", "[expr]") {
     std::vector<uint8_t> data = {1, 2, 3};
     Array array = Array::primitive<uint8_t>(data);
 
     Expression bad = expr::add(expr::root(), expr::lit<int32_t>(1));
-    REQUIRE_THROWS_AS(array.apply(bad), VortexException);
+    REQUIRE_THROWS_AS(bad.bind(array.dtype()), VortexException);
 }
 
 TEST_CASE("Empty conjunction", "[expr]") {

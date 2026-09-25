@@ -173,6 +173,34 @@ public final class TestMinimal {
     }
 
     @Test
+    public void testBoundProjectionWithRowIdx() throws Exception {
+        BufferAllocator allocator = ArrowAllocation.rootAllocator();
+        Session session = Session.create();
+        DataSource ds = DataSource.open(session, writePath);
+        BoundExpression projection = BoundExpression.pack(
+                new String[] {"Name", "RowIndex"},
+                new BoundExpression[] {BoundExpression.column(ds, "Name"), BoundExpression.rowIdx()},
+                false);
+
+        List<Long> rowIndexes = new ArrayList<>();
+        List<Person> people = readAll(ds, ScanOptions.builder().projection(projection).build(), allocator, batch -> {
+            List<Person> results = new ArrayList<>();
+            ViewVarCharVector names = (ViewVarCharVector) batch.getVector("Name");
+            FieldVector indexes = batch.getVector("RowIndex");
+            for (int i = 0; i < batch.getRowCount(); i++) {
+                results.add(new Person(new String(names.get(i), UTF_8), null, null));
+                rowIndexes.add(((Number) indexes.getObject(i)).longValue());
+            }
+            return results;
+        });
+
+        List<String> expectedNames = MINIMAL_DATA.stream().map(person -> person.name).toList();
+        List<String> actualNames = people.stream().map(person -> person.name).toList();
+        assertEquals(expectedNames, actualNames);
+        assertEquals(List.of(0L, 1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L, 9L), rowIndexes);
+    }
+
+    @Test
     public void testProjectedScanWithFilter() throws Exception {
         BufferAllocator allocator = ArrowAllocation.rootAllocator();
         Session session = Session.create();

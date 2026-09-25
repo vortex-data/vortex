@@ -194,7 +194,7 @@ TEST_CASE("Project field", "[projection]") {
     TempPath path = write_sample(session);
     DataSource ds = DataSource::open(session, {path.string()});
 
-    Scan scan = ds.scan({.projection = expr::col("age")});
+    Scan scan = ds.scan({.projection = expr::col("age").bind(ds.dtype())});
     auto partition = scan.next_partition();
     REQUIRE(partition.has_value());
     auto array = partition->next();
@@ -207,7 +207,7 @@ TEST_CASE("Project none fields", "[projection]") {
     TempPath path = write_sample(session);
     DataSource ds = DataSource::open(session, {path.string()});
 
-    Scan scan = ds.scan({.projection = expr::root().select({})});
+    Scan scan = ds.scan({.projection = expr::root().select({}).bind(ds.dtype())});
     auto partition = scan.next_partition();
     REQUIRE(partition.has_value());
     auto array = partition->next();
@@ -220,7 +220,7 @@ TEST_CASE("Project multiple fields", "[projection]") {
     TempPath path = write_sample(session);
     DataSource ds = DataSource::open(session, {path.string()});
 
-    Scan scan = ds.scan({.projection = expr::root().select({"age", "height"})});
+    Scan scan = ds.scan({.projection = expr::root().select({"age", "height"}).bind(ds.dtype())});
     auto partition = scan.next_partition();
     REQUIRE(partition.has_value());
     auto array = partition->next();
@@ -235,7 +235,7 @@ TEST_CASE("Filter age", "[filter]") {
 
     constexpr uint8_t threshold = 50;
     Scan scan = ds.scan({
-        .filter = expr::gte(expr::col("age"), expr::lit<uint8_t>(threshold)),
+        .filter = expr::gte(expr::col("age"), expr::lit<uint8_t>(threshold)).bind(ds.dtype()),
     });
     auto partition = scan.next_partition();
     REQUIRE(partition.has_value());
@@ -251,7 +251,7 @@ TEST_CASE("Filter invalid values", "[filter]") {
     TempPath path = write_sample(session);
     DataSource ds = DataSource::open(session, {path.string()});
 
-    Scan scan = ds.scan({.filter = expr::col("age").is_null()});
+    Scan scan = ds.scan({.filter = expr::col("age").is_null().bind(ds.dtype())});
     auto partition = scan.next_partition();
     REQUIRE(!partition.has_value());
 }
@@ -265,11 +265,13 @@ TEST_CASE("Filter with operators", "[filter]") {
     DataSource ds = DataSource::open(session, paths);
 
     Scan scan1 = ds.scan({
-        .filter = expr::col("age") >= expr::lit<uint8_t>(90) && expr::col("age") < expr::lit<uint8_t>(95),
+        .filter = (expr::col("age") >= expr::lit<uint8_t>(90) && expr::col("age") < expr::lit<uint8_t>(95))
+                      .bind(ds.dtype()),
     });
 
     Scan scan2 = ds.scan({
-        .filter = !(expr::col("age") < expr::lit<uint8_t>(90)) && expr::col("age") < expr::lit<uint8_t>(95),
+        .filter = (!(expr::col("age") < expr::lit<uint8_t>(90)) && expr::col("age") < expr::lit<uint8_t>(95))
+                      .bind(ds.dtype()),
     });
 
     Scan scans[2] = {std::move(scan1), std::move(scan2)};
@@ -282,17 +284,15 @@ TEST_CASE("Filter with operators", "[filter]") {
     }
 }
 
-TEST_CASE("Type-mismatched filter", "[filter]") {
+TEST_CASE("Filter bound to another dtype", "[filter]") {
     Session session;
     TempPath path = write_sample(session);
     DataSource ds = DataSource::open(session, {path.string()});
 
-    Scan scan = ds.scan({
-        .filter = expr::eq(expr::col("age"), expr::lit<int32_t>(67)),
-    });
-    auto partition = scan.next_partition();
-    REQUIRE(partition.has_value());
-    REQUIRE_THROWS_AS(partition->next(), VortexException);
+    std::vector<int32_t> values = {67};
+    Array other = Array::primitive<int32_t>(values);
+    BoundExpression filter = (expr::root() == expr::lit<int32_t>(67)).bind(other.dtype());
+    REQUIRE_THROWS_AS(ds.scan({.filter = filter}), VortexException);
 }
 
 TEST_CASE("Row range and limit", "[scan]") {

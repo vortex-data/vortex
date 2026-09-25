@@ -67,6 +67,19 @@ final class VortexScanBuilderTest {
     }
 
     @Test
+    @DisplayName("Timestamp pushdown does not open source files during planning")
+    void timestampPredicateDoesNotOpenFiles() {
+        VortexScanBuilder builder = new VortexScanBuilder(Map.of());
+        builder.addPath("unsupported://planning/data.vortex");
+        builder.addColumn(Column.create("ts", DataTypes.TimestampType));
+        Predicate predicate = new Predicate(
+                "=", new Expression[] {ref("ts"), new LiteralValue<>(1L, DataTypes.TimestampType)});
+
+        assertArrayEquals(new Predicate[0], builder.pushPredicates(new Predicate[] {predicate}));
+        assertArrayEquals(new Predicate[] {predicate}, builder.pushedPredicates());
+    }
+
+    @Test
     @DisplayName("Predicate on a column missing from the read schema is left to Spark")
     void unknownColumnPredicateIsNotPushed() {
         VortexScanBuilder builder = builderWithColumns(new Transform[0], Column.create("id", DataTypes.IntegerType));

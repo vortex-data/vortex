@@ -76,7 +76,7 @@ TEST_CASE("Validity from a boolean mask", "[array]") {
     std::vector<uint8_t> mask_bytes = {1, 0, 1};
 
     Array mask_u8 = Array::primitive<uint8_t>(std::span<const uint8_t>(mask_bytes));
-    Array mask = mask_u8.apply(expr::root() == expr::lit<uint8_t>(1));
+    Array mask = mask_u8.apply((expr::root() == expr::lit<uint8_t>(1)).bind(mask_u8.dtype()));
 
     Array a = Array::primitive<int32_t>(std::span<const int32_t>(data), Validity::from_array(mask));
     REQUIRE(a.nullable());

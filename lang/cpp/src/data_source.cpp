@@ -87,30 +87,8 @@ DataType DataSource::dtype() const {
 
 Scan DataSource::scan(const ScanOptions &options) const {
     vx_scan_options raw {};
-    const DataType source_dtype = dtype();
-    auto bind = [&source_dtype](const Expression &expression) {
-        vx_error *error = nullptr;
-        const vx_bound_expression *bound =
-            vx_expression_bind(Access::c_ptr(expression), Access::c_ptr(source_dtype), &error);
-        throw_on_error(error);
-        return std::unique_ptr<const vx_bound_expression, decltype(&vx_bound_expression_free)>(
-            bound,
-            &vx_bound_expression_free);
-    };
-    std::unique_ptr<const vx_bound_expression, decltype(&vx_bound_expression_free)> projection(
-        nullptr,
-        &vx_bound_expression_free);
-    std::unique_ptr<const vx_bound_expression, decltype(&vx_bound_expression_free)> filter(
-        nullptr,
-        &vx_bound_expression_free);
-    if (options.projection.has_value()) {
-        projection = bind(*options.projection);
-    }
-    if (options.filter.has_value()) {
-        filter = bind(*options.filter);
-    }
-    raw.projection = projection.get();
-    raw.filter = filter.get();
+    raw.projection = options.projection ? Access::c_ptr(*options.projection) : nullptr;
+    raw.filter = options.filter ? Access::c_ptr(*options.filter) : nullptr;
     if (options.row_range.has_value()) {
         raw.row_range_begin = options.row_range->begin;
         raw.row_range_end = options.row_range->end;

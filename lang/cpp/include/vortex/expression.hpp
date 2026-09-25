@@ -14,7 +14,28 @@
 
 namespace vortex {
 
-// A user-authored expression bound against the input dtype when applied or scanned.
+class DataType;
+
+// An expression bound to an input dtype and ready to apply to an array.
+class BoundExpression {
+public:
+    BoundExpression(const BoundExpression &);
+    BoundExpression &operator=(const BoundExpression &);
+    BoundExpression(BoundExpression &&) noexcept = default;
+    BoundExpression &operator=(BoundExpression &&) noexcept = default;
+
+private:
+    friend struct detail::Access;
+    explicit BoundExpression(const vx_bound_expression *owned) : handle_(owned) {
+    }
+
+    struct Deleter {
+        void operator()(const vx_bound_expression *ptr) const noexcept;
+    };
+    std::unique_ptr<const vx_bound_expression, Deleter> handle_;
+};
+
+// A user-authored expression that can be bound against an input dtype.
 class Expression {
 public:
     Expression(const Expression &);
@@ -22,10 +43,13 @@ public:
     Expression(Expression &&) noexcept = default;
     Expression &operator=(Expression &&) noexcept = default;
 
+    /** Bind this expression against the input dtype. */
+    BoundExpression bind(const DataType &dtype) const;
+
     /**
      * Extract field from a Struct. Output DataType is field's DataType.
      *
-     * Errors at scan/apply time if field does not exist or if root() is
+     * Errors at binding time if field does not exist or if root() is
      * not a Struct.
      *
      * Example:
@@ -39,7 +63,7 @@ public:
     /*
      * Extract fields from a Struct. Output DataType is a Struct.
      *
-     * Errors at scan/apply time if any of fields does not exist or if root()
+     * Errors at binding time if any of fields does not exist or if root()
      * is not a Struct.
      */
     Expression select(std::span<const std::string> names) const;

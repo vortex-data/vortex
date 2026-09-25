@@ -8,9 +8,15 @@ import dev.vortex.api.DataSource;
 import dev.vortex.api.Expression;
 import dev.vortex.api.Expression.BinaryOp;
 import dev.vortex.api.Expression.TimeUnit;
+import dev.vortex.relocated.org.apache.arrow.vector.types.pojo.ArrowType;
+import dev.vortex.relocated.org.apache.arrow.vector.types.pojo.Field;
+import dev.vortex.relocated.org.apache.arrow.vector.types.pojo.Schema;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.apache.spark.sql.connector.expressions.Literal;
@@ -49,6 +55,9 @@ import org.apache.spark.unsafe.types.UTF8String;
  */
 final class SparkPredicateToVortexExpression {
 
+    private static final BigInteger LONG_MIN = BigInteger.valueOf(Long.MIN_VALUE);
+    private static final BigInteger LONG_MAX = BigInteger.valueOf(Long.MAX_VALUE);
+
     private SparkPredicateToVortexExpression() {}
 
     /**
@@ -61,7 +70,8 @@ final class SparkPredicateToVortexExpression {
      * {@link StructType} fields so that {@code info} must be a struct that contains an {@code email} field.
      *
      * <p>This check is used in {@code SupportsPushDownV2Filters.pushPredicates} to decide which predicates Spark can
-     * drop. It checks the resolved Spark argument types and supported predicate structure.
+     * drop. It checks resolved Spark argument types and supported predicate structure. The reader
+     * handles source timestamp units when it builds the bound filter for each file.
      */
     static boolean isPushable(Predicate predicate, Map<String, DataType> dataColumnTypes) {
         for (NamedReference ref : predicate.references()) {
@@ -70,6 +80,55 @@ final class SparkPredicateToVortexExpression {
             }
         }
         return isStructurallyPushable(predicate) && isTypeCompatible(predicate, dataColumnTypes);
+    }
+
+    static boolean hasTimestampLiteral(Predicate predicate) {
+        for (org.apache.spark.sql.connector.expressions.Expression child : predicate.children()) {
+            if (child instanceof Literal<?> literal && isTimestampType(literal.dataType())) {
+                return true;
+            }
+            if (child instanceof Predicate nested && hasTimestampLiteral(nested)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static Map<List<String>, ArrowType.Timestamp> timestampTypes(Schema schema) {
+        Map<List<String>, ArrowType.Timestamp> result = new HashMap<>();
+        for (Field field : schema.getFields()) {
+            collectTimestampTypes(field, new ArrayList<>(), result);
+        }
+        return result;
+    }
+
+    private static void collectTimestampTypes(
+            Field field, List<String> path, Map<List<String>, ArrowType.Timestamp> result) {
+        path.add(field.getName());
+        if (field.getType() instanceof ArrowType.Timestamp timestamp) {
+            result.put(List.copyOf(path), timestamp);
+        }
+        for (Field child : field.getChildren()) {
+            collectTimestampTypes(child, path, result);
+        }
+        path.remove(path.size() - 1);
+    }
+
+    private static boolean isTimestampType(DataType type) {
+        return type instanceof TimestampType || type instanceof TimestampNTZType;
+    }
+
+    private static boolean hasMatchingTimestampType(
+            org.apache.spark.sql.connector.expressions.Expression expression,
+            DataType sparkType,
+            Map<List<String>, ArrowType.Timestamp> timestampTypes) {
+        if (!(expression instanceof NamedReference reference)) {
+            return false;
+        }
+        ArrowType.Timestamp sourceType = timestampTypes.get(Arrays.asList(reference.fieldNames()));
+        return sourceType != null
+                && ((sparkType instanceof TimestampType && sourceType.getTimezone() != null)
+                        || (sparkType instanceof TimestampNTZType && sourceType.getTimezone() == null));
     }
 
     /**
@@ -128,10 +187,20 @@ final class SparkPredicateToVortexExpression {
 
         var children = predicate.children();
         return switch (predicate.name()) {
-            case "=", "<>", "!=", ">", ">=", "<", "<=" ->
-                children.length == 2
-                        && typeOf(children[0], dataColumnTypes).isPresent()
-                        && typeOf(children[0], dataColumnTypes).equals(typeOf(children[1], dataColumnTypes));
+            case "=", "<>", "!=", ">", ">=", "<", "<=" -> {
+                if (children.length != 2) {
+                    yield false;
+                }
+                Optional<DataType> leftType = typeOf(children[0], dataColumnTypes);
+                if (leftType.isEmpty() || !leftType.equals(typeOf(children[1], dataColumnTypes))) {
+                    yield false;
+                }
+                if (!isTimestampType(leftType.get())) {
+                    yield true;
+                }
+                yield (children[0] instanceof NamedReference && children[1] instanceof Literal<?>)
+                        || (children[1] instanceof NamedReference && children[0] instanceof Literal<?>);
+            }
             case "IN" -> {
                 if (children.length < 2) {
                     yield false;
@@ -197,7 +266,10 @@ final class SparkPredicateToVortexExpression {
     }
 
     /** Lower a Spark-resolved predicate directly to typed Vortex calls. */
-    static Optional<BoundExpression> convertBound(Predicate predicate, DataSource dataSource) {
+    static Optional<BoundExpression> convertBound(
+            Predicate predicate,
+            DataSource dataSource,
+            Map<List<String>, ArrowType.Timestamp> timestampTypes) {
         if (predicate instanceof AlwaysTrue) {
             return Optional.of(BoundExpression.literal(true));
         }
@@ -205,27 +277,27 @@ final class SparkPredicateToVortexExpression {
             return Optional.of(BoundExpression.literal(false));
         }
         if (predicate instanceof And and) {
-            Optional<BoundExpression> lhs = convertBound(and.left(), dataSource);
-            Optional<BoundExpression> rhs = convertBound(and.right(), dataSource);
+            Optional<BoundExpression> lhs = convertBound(and.left(), dataSource, timestampTypes);
+            Optional<BoundExpression> rhs = convertBound(and.right(), dataSource, timestampTypes);
             return lhs.isPresent() && rhs.isPresent()
                     ? Optional.of(BoundExpression.and(lhs.get(), rhs.get()))
                     : Optional.empty();
         }
         if (predicate instanceof Or or) {
-            Optional<BoundExpression> lhs = convertBound(or.left(), dataSource);
-            Optional<BoundExpression> rhs = convertBound(or.right(), dataSource);
+            Optional<BoundExpression> lhs = convertBound(or.left(), dataSource, timestampTypes);
+            Optional<BoundExpression> rhs = convertBound(or.right(), dataSource, timestampTypes);
             return lhs.isPresent() && rhs.isPresent()
                     ? Optional.of(BoundExpression.or(lhs.get(), rhs.get()))
                     : Optional.empty();
         }
         if (predicate instanceof Not not) {
-            return convertBound(not.child(), dataSource).map(BoundExpression::not);
+            return convertBound(not.child(), dataSource, timestampTypes).map(BoundExpression::not);
         }
 
         var children = predicate.children();
         return switch (predicate.name()) {
             case "=", "<>", "!=", ">", ">=", "<", "<=" ->
-                convertComparisonBound(predicate.name(), children, dataSource);
+                convertComparisonBound(predicate.name(), children, dataSource, timestampTypes);
             case "IS_NULL" ->
                 children.length == 1
                         ? boundColumnOf(children[0], dataSource).map(BoundExpression::isNull)
@@ -234,7 +306,7 @@ final class SparkPredicateToVortexExpression {
                 children.length == 1
                         ? boundColumnOf(children[0], dataSource).map(BoundExpression::isNotNull)
                         : Optional.empty();
-            case "IN" -> convertInBound(children, dataSource);
+            case "IN" -> convertInBound(children, dataSource, timestampTypes);
             case "STARTS_WITH" -> convertStringMatchBound(children, dataSource, false, true);
             case "ENDS_WITH" -> convertStringMatchBound(children, dataSource, true, false);
             case "CONTAINS" -> convertStringMatchBound(children, dataSource, true, true);
@@ -245,9 +317,24 @@ final class SparkPredicateToVortexExpression {
     }
 
     private static Optional<BoundExpression> convertComparisonBound(
-            String op, org.apache.spark.sql.connector.expressions.Expression[] children, DataSource dataSource) {
+            String op,
+            org.apache.spark.sql.connector.expressions.Expression[] children,
+            DataSource dataSource,
+            Map<List<String>, ArrowType.Timestamp> timestampTypes) {
         if (children.length != 2) {
             return Optional.empty();
+        }
+        if (children[0] instanceof NamedReference column
+                && children[1] instanceof Literal<?> literal
+                && isTimestampType(literal.dataType())) {
+            BoundExpression raw = BoundExpression.castToI64(BoundExpression.column(dataSource, column.fieldNames()));
+            return Optional.of(timestampComparison(toBinaryOp(op), column, literal, raw, timestampTypes));
+        }
+        if (children[1] instanceof NamedReference column
+                && children[0] instanceof Literal<?> literal
+                && isTimestampType(literal.dataType())) {
+            BoundExpression raw = BoundExpression.castToI64(BoundExpression.column(dataSource, column.fieldNames()));
+            return Optional.of(timestampComparison(swap(toBinaryOp(op)), column, literal, raw, timestampTypes));
         }
         Optional<BoundExpression> lhs = boundExprOf(children[0], dataSource);
         Optional<BoundExpression> rhs = boundExprOf(children[1], dataSource);
@@ -263,7 +350,9 @@ final class SparkPredicateToVortexExpression {
     }
 
     private static Optional<BoundExpression> convertInBound(
-            org.apache.spark.sql.connector.expressions.Expression[] children, DataSource dataSource) {
+            org.apache.spark.sql.connector.expressions.Expression[] children,
+            DataSource dataSource,
+            Map<List<String>, ArrowType.Timestamp> timestampTypes) {
         if (children.length < 2) {
             return Optional.empty();
         }
@@ -272,15 +361,94 @@ final class SparkPredicateToVortexExpression {
             return Optional.empty();
         }
         BoundExpression combined = null;
+        BoundExpression timestampRaw = null;
         for (int i = 1; i < children.length; i++) {
-            Optional<BoundExpression> literal = boundLiteralOf(children[i]);
-            if (literal.isEmpty()) {
-                return Optional.empty();
+            BoundExpression equal;
+            if (children[0] instanceof NamedReference reference
+                    && children[i] instanceof Literal<?> timestampLiteral
+                    && isTimestampType(timestampLiteral.dataType())) {
+                if (timestampRaw == null) {
+                    timestampRaw = BoundExpression.castToI64(column.get());
+                }
+                equal = timestampComparison(BinaryOp.EQ, reference, timestampLiteral, timestampRaw, timestampTypes);
+            } else {
+                Optional<BoundExpression> literal = boundLiteralOf(children[i]);
+                if (literal.isEmpty()) {
+                    return Optional.empty();
+                }
+                equal = BoundExpression.binary(BinaryOp.EQ, column.get(), literal.get());
             }
-            BoundExpression equal = BoundExpression.binary(BinaryOp.EQ, column.get(), literal.get());
             combined = combined == null ? equal : BoundExpression.or(combined, equal);
         }
         return Optional.of(combined);
+    }
+
+    private static BoundExpression timestampComparison(
+            BinaryOp operator,
+            NamedReference column,
+            Literal<?> literal,
+            BoundExpression raw,
+            Map<List<String>, ArrowType.Timestamp> timestampTypes) {
+        ArrowType.Timestamp sourceType = timestampTypes.get(Arrays.asList(column.fieldNames()));
+        if (sourceType == null || !hasMatchingTimestampType(column, literal.dataType(), timestampTypes)) {
+            throw new IllegalStateException("Spark accepted a timestamp predicate with an incompatible source type: "
+                    + Arrays.toString(column.fieldNames()));
+        }
+        // Arrow stores epoch counts in the declared unit; timezone metadata does not change those counts.
+        // Compare the raw counts against cutoffs that implement Spark's microsecond normalization.
+        if (literal.value() == null) {
+            return BoundExpression.binary(operator, raw, BoundExpression.nullLiteral(Expression.DType.I64));
+        }
+        BigInteger micros = BigInteger.valueOf(((Number) literal.value()).longValue());
+        BigInteger lower = timestampLowerBound(micros, sourceType.getUnit());
+        BigInteger upper = timestampLowerBound(micros.add(BigInteger.ONE), sourceType.getUnit());
+        return switch (operator) {
+            case EQ -> BoundExpression.and(rawAtLeast(raw, lower), rawBelow(raw, upper));
+            case NOT_EQ -> BoundExpression.or(rawBelow(raw, lower), rawAtLeast(raw, upper));
+            case GT -> rawAtLeast(raw, upper);
+            case GTE -> rawAtLeast(raw, lower);
+            case LT -> rawBelow(raw, lower);
+            case LTE -> rawBelow(raw, upper);
+            default -> throw new IllegalArgumentException("not a timestamp comparison operator: " + operator);
+        };
+    }
+
+    /** First stored timestamp value whose Spark-normalized value is at least {@code micros}. */
+    static BigInteger timestampLowerBound(
+            BigInteger micros, dev.vortex.relocated.org.apache.arrow.vector.types.TimeUnit unit) {
+        return switch (unit) {
+            case SECOND -> ceilDivide(micros, BigInteger.valueOf(1_000_000L));
+            case MILLISECOND -> ceilDivide(micros, BigInteger.valueOf(1_000L));
+            case MICROSECOND -> micros;
+            case NANOSECOND -> micros.multiply(BigInteger.valueOf(1_000L));
+        };
+    }
+
+    private static BigInteger ceilDivide(BigInteger value, BigInteger divisor) {
+        BigInteger[] quotientAndRemainder = value.divideAndRemainder(divisor);
+        return quotientAndRemainder[1].signum() > 0
+                ? quotientAndRemainder[0].add(BigInteger.ONE)
+                : quotientAndRemainder[0];
+    }
+
+    private static BoundExpression rawAtLeast(BoundExpression raw, BigInteger bound) {
+        if (bound.compareTo(LONG_MIN) < 0) {
+            return BoundExpression.binary(BinaryOp.GTE, raw, BoundExpression.literal(Long.MIN_VALUE));
+        }
+        if (bound.compareTo(LONG_MAX) > 0) {
+            return BoundExpression.binary(BinaryOp.LT, raw, BoundExpression.literal(Long.MIN_VALUE));
+        }
+        return BoundExpression.binary(BinaryOp.GTE, raw, BoundExpression.literal(bound.longValueExact()));
+    }
+
+    private static BoundExpression rawBelow(BoundExpression raw, BigInteger bound) {
+        if (bound.compareTo(LONG_MIN) < 0) {
+            return BoundExpression.binary(BinaryOp.LT, raw, BoundExpression.literal(Long.MIN_VALUE));
+        }
+        if (bound.compareTo(LONG_MAX) > 0) {
+            return BoundExpression.binary(BinaryOp.GTE, raw, BoundExpression.literal(Long.MIN_VALUE));
+        }
+        return BoundExpression.binary(BinaryOp.LT, raw, BoundExpression.literal(bound.longValueExact()));
     }
 
     private static Optional<BoundExpression> convertStringMatchBound(
