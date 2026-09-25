@@ -48,6 +48,15 @@ public final class ExpressionTest {
     }
 
     @Test
+    public void literalListComposesWithListContains() {
+        Expression set = Expression.literalList(
+                Expression.nullLiteral(Expression.DType.I64), false, Expression.literal(1L), Expression.literal(2L));
+        assertNotNull(Expression.listContains(set, Expression.column("id")));
+        assertNotNull(Expression.in(Expression.column("id"), set));
+        assertNotNull(Expression.notIn(Expression.column("id"), set));
+    }
+
+    @Test
     public void mergeComposes() {
         // Default duplicate handling (ERROR).
         assertNotNull(Expression.merge(Expression.column("a"), Expression.column("b")));
