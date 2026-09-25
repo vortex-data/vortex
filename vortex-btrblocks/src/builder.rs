@@ -18,9 +18,10 @@ use crate::schemes::float;
 use crate::schemes::integer;
 use crate::schemes::string;
 
-/// Delta, excluded by every [`CompressionMode`] because it is slower to decompress than the
-/// schemes that would otherwise win. Callers that want it opt in with
-/// [`with_new_scheme`](BtrBlocksCompressorBuilder::with_new_scheme).
+/// Delta, registered on the default [`CompressionSession`](crate::CompressionSession).
+///
+/// No edition includes `fastlanes.delta` yet, so the session's enabled editions decide whether
+/// the compressor may use it. [`CompressionMode::Cuda`] excludes it.
 pub static DELTA_SCHEME: integer::DeltaScheme = integer::DeltaScheme::new(1.25);
 
 /// The preset a [`BtrBlocksCompressorBuilder`] builds with.
@@ -30,11 +31,10 @@ pub static DELTA_SCHEME: integer::DeltaScheme = integer::DeltaScheme::new(1.25);
 /// [`with_new_scheme`](BtrBlocksCompressorBuilder::with_new_scheme).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum CompressionMode {
-    /// Excludes Delta, Zstd and Pco.
+    /// Excludes Zstd and Pco.
     #[default]
     Default,
-    /// Excludes Delta and buffer-level Zstd, keeping Zstd for strings and binary and Pco for
-    /// numerics. Set by [`with_compact`](BtrBlocksCompressorBuilder::with_compact).
+    /// Excludes buffer-level Zstd, keeping Zstd for strings and binary and Pco for numerics. Set by [`with_compact`](BtrBlocksCompressorBuilder::with_compact).
     Compact,
     /// Excludes schemes without CUDA kernel support, keeping FSST for strings and both Zstd
     /// schemes for binary. Set by
@@ -45,8 +45,7 @@ pub enum CompressionMode {
 impl CompressionMode {
     /// Returns the schemes [`build`](BtrBlocksCompressorBuilder::build) drops in this mode.
     fn excluded_schemes(self) -> Vec<SchemeId> {
-        #[cfg_attr(not(any(feature = "pco", feature = "zstd")), allow(unused_mut))]
-        let mut excluded = vec![DELTA_SCHEME.id()];
+        let mut excluded = Vec::new();
         match self {
             Self::Default => {
                 #[cfg(feature = "zstd")]
@@ -68,6 +67,7 @@ impl CompressionMode {
                 // paths. Delta has a CUDA decode kernel, but stays excluded until GPU delta
                 // decode is benchmarked against the schemes it would displace.
                 excluded.extend([
+                    DELTA_SCHEME.id(),
                     integer::SparseScheme.id(),
                     integer::IntRLEScheme.id(),
                     float::ALPRDScheme.id(),
@@ -95,8 +95,8 @@ impl CompressionMode {
 ///
 /// [`from_session`](Self::from_session) starts from the schemes registered in the session's
 /// [`CompressionSession`](crate::CompressionSession), in registration order. Its
-/// [`CompressionMode`] excludes some of them on [`build`](Self::build): by default Delta, Zstd
-/// and Pco. [`with_compact`](Self::with_compact) and
+/// [`CompressionMode`] excludes some of them on [`build`](Self::build): by default Zstd and
+/// Pco. [`with_compact`](Self::with_compact) and
 /// [`only_cuda_compatible`](Self::only_cuda_compatible) switch the mode.
 ///
 /// The builder also tracks which serialized array IDs its schemes may produce, taken from the
@@ -164,8 +164,7 @@ impl BtrBlocksCompressorBuilder {
     /// Adds a compression scheme that the [`CompressionMode`] will not exclude.
     ///
     /// This allows encoding crates outside of `vortex-btrblocks` to register their own schemes
-    /// with the compressor, and opts in to registered schemes the mode excludes, such as
-    /// [`DELTA_SCHEME`].
+    /// with the compressor, and opts in to registered schemes the mode excludes, such as Zstd.
     ///
     /// # Panics
     ///
@@ -288,16 +287,21 @@ mod tests {
     }
 
     #[test]
-    fn delta_is_opt_in() {
+    fn delta_is_excluded_only_by_cuda() {
         let has_delta = |builder: &BtrBlocksCompressorBuilder| {
             builder
                 .allowed_schemes()
                 .iter()
                 .any(|s| s.id() == DELTA_SCHEME.id())
         };
-        assert!(!has_delta(&default_builder()));
+        assert!(has_delta(&default_builder()));
+        assert!(has_delta(&default_builder().with_compact()));
         assert!(!has_delta(&default_builder().only_cuda_compatible()));
-        assert!(has_delta(&default_builder().with_new_scheme(&DELTA_SCHEME)));
+        assert!(has_delta(
+            &default_builder()
+                .only_cuda_compatible()
+                .with_new_scheme(&DELTA_SCHEME)
+        ));
     }
 
     #[test]
