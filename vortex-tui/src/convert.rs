@@ -102,7 +102,7 @@ pub async fn exec_convert(session: &VortexSession, flags: ConvertArgs) -> anyhow
         .enabled_component_ids(ComponentKind::Array)
         .into_iter()
         .collect();
-    let mut compressor = BtrBlocksCompressorBuilder::default();
+    let mut compressor = BtrBlocksCompressorBuilder::from_session(&session);
     if matches!(flags.strategy, Strategy::Compact) {
         compressor = compressor.with_compact();
     }

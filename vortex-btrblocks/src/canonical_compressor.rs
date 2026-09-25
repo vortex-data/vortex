@@ -11,23 +11,27 @@ use vortex_error::VortexResult;
 
 use crate::BtrBlocksCompressorBuilder;
 use crate::CascadingCompressor;
+use crate::CompressionSession;
 
 /// The BtrBlocks-style compressor with all built-in schemes pre-registered.
 ///
-/// This is a thin wrapper around [`CascadingCompressor`] that provides a default set of
-/// compression schemes via [`BtrBlocksCompressorBuilder`].
+/// This is a thin wrapper around [`CascadingCompressor`]. [`Default`] uses the schemes of a
+/// default [`CompressionSession`](crate::CompressionSession); use
+/// [`BtrBlocksCompressorBuilder::from_session`] to pick up the schemes registered on a session.
 ///
 /// # Examples
 ///
 /// ```rust
 /// use vortex_btrblocks::{BtrBlocksCompressor, BtrBlocksCompressorBuilder, Scheme, SchemeExt};
 /// use vortex_btrblocks::schemes::integer::IntDictScheme;
+/// use vortex_session::VortexSession;
 ///
 /// // Default compressor - all schemes allowed.
 /// let compressor = BtrBlocksCompressor::default();
 ///
 /// // Remove specific schemes using the builder.
-/// let compressor = BtrBlocksCompressorBuilder::default()
+/// let session = VortexSession::empty();
+/// let compressor = BtrBlocksCompressorBuilder::from_session(&session)
 ///     .exclude_schemes([IntDictScheme.id()])
 ///     .build();
 /// ```
@@ -54,7 +58,7 @@ impl Deref for BtrBlocksCompressor {
 
 impl Default for BtrBlocksCompressor {
     fn default() -> Self {
-        BtrBlocksCompressorBuilder::default().build()
+        BtrBlocksCompressorBuilder::from_compression_session(&CompressionSession::default()).build()
     }
 }
 
@@ -257,7 +261,9 @@ mod tests {
             DType::Binary(Nullability::NonNullable),
         );
 
-        let compressor = BtrBlocksCompressorBuilder::default().with_compact().build();
+        let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+            .with_compact()
+            .build();
         let mut ctx = SESSION.create_execution_ctx();
         let compressed = compressor.compress(&array.clone().into_array(), &mut ctx)?;
 
@@ -292,7 +298,7 @@ mod tests {
 
         // The CUDA preset carries both Zstd schemes; the edition filter decides which one
         // survives.
-        let compressor = BtrBlocksCompressorBuilder::default()
+        let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
             .only_cuda_compatible()
             .retain_allowed_encodings(&HashSet::from([allowed]))
             .build();

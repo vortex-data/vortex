@@ -557,7 +557,7 @@ pub fn cuda_write_strategy(session: &VortexSession, block_rows: usize) -> Arc<dy
         .enabled_component_ids(ComponentKind::Array)
         .into_iter()
         .collect();
-    let builder = BtrBlocksCompressorBuilder::default()
+    let builder = BtrBlocksCompressorBuilder::from_session(session)
         .only_cuda_compatible()
         .retain_allowed_encodings(&allowed_encodings);
     let strategy = WriteStrategyBuilder::default()

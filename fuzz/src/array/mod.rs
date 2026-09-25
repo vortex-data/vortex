@@ -564,7 +564,7 @@ pub fn compress_array(
         CompressorStrategy::Default => BtrBlocksCompressor::default()
             .compress(array, ctx)
             .vortex_expect("BtrBlocksCompressor compress should succeed in fuzz test"),
-        CompressorStrategy::Compact => BtrBlocksCompressorBuilder::default()
+        CompressorStrategy::Compact => BtrBlocksCompressorBuilder::from_session(ctx.session())
             .with_compact()
             .build()
             .compress(array, ctx)

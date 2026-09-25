@@ -442,7 +442,8 @@ fn compressor_with_onpair(
 #[test]
 fn golden_regular() -> VortexResult<()> {
     let session = edition_session(&[CORE_2026_08_3])?;
-    let compressor = compressor_for_session(&session, BtrBlocksCompressorBuilder::default());
+    let compressor =
+        compressor_for_session(&session, BtrBlocksCompressorBuilder::from_session(&session));
     golden_corpus_snapshots("regular", &compressor)
 }
 
@@ -450,7 +451,8 @@ fn golden_regular() -> VortexResult<()> {
 #[test]
 fn golden_onpair() -> VortexResult<()> {
     let session = edition_session(&[CORE_2026_08_3])?;
-    let compressor = compressor_with_onpair(&session, BtrBlocksCompressorBuilder::default());
+    let compressor =
+        compressor_with_onpair(&session, BtrBlocksCompressorBuilder::from_session(&session));
     golden_snapshots(
         "onpair",
         &compressor,
@@ -466,7 +468,7 @@ fn golden_compact() -> VortexResult<()> {
     session.enable_edition(vortex_zstd::editions::ZSTD_2026_02)?;
     let compressor = compressor_for_session(
         &session,
-        BtrBlocksCompressorBuilder::default().with_compact(),
+        BtrBlocksCompressorBuilder::from_session(&session).with_compact(),
     );
     golden_corpus_snapshots("compact", &compressor)
 }

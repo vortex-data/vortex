@@ -2587,7 +2587,7 @@ async fn dict_probe_honours_configured_compressor() -> VortexResult<()> {
     );
 
     let no_string_dict =
-        BtrBlocksCompressorBuilder::default().exclude_schemes([StringDictScheme.id()]);
+        BtrBlocksCompressorBuilder::from_session(&SESSION).exclude_schemes([StringDictScheme.id()]);
     let mut buf = ByteBufferMut::empty();
     let summary = SESSION
         .write_options()
@@ -2614,7 +2614,7 @@ async fn probe_compressor_override_is_independent() -> VortexResult<()> {
     let values: Vec<&str> = (0..n).map(|i| ["alpha", "beta", "gamma"][i % 3]).collect();
     let strings = VarBinArray::from(values).into_array();
 
-    let probe_without_dict = BtrBlocksCompressorBuilder::default()
+    let probe_without_dict = BtrBlocksCompressorBuilder::from_session(&SESSION)
         .exclude_schemes([StringDictScheme.id()])
         .build();
 

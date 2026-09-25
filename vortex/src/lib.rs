@@ -145,6 +145,8 @@ pub mod buffer {
 pub mod compressor {
     pub use vortex_btrblocks::BtrBlocksCompressor;
     pub use vortex_btrblocks::BtrBlocksCompressorBuilder;
+    pub use vortex_btrblocks::CompressionSession;
+    pub use vortex_btrblocks::CompressionSessionExt;
     pub use vortex_btrblocks::Scheme;
     pub use vortex_btrblocks::SchemeId;
 }
@@ -490,7 +492,9 @@ mod test {
             .write_options()
             .with_strategy(
                 WriteStrategyBuilder::default()
-                    .with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact())
+                    .with_btrblocks_builder(
+                        BtrBlocksCompressorBuilder::from_session(&session).with_compact(),
+                    )
                     .build(),
             )
             .write(

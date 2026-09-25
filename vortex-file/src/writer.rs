@@ -253,7 +253,7 @@ impl VortexWriteOptions {
             Some(strategy) => strategy,
             None => WriteStrategyBuilder::default()
                 .with_btrblocks_builder(
-                    BtrBlocksCompressorBuilder::default()
+                    BtrBlocksCompressorBuilder::from_session(&self.session)
                         .retain_allowed_encodings(&allowed_serialized_ids),
                 )
                 .build(),

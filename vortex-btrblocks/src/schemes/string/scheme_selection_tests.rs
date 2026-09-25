@@ -51,10 +51,14 @@ fn test_all_schemes_includes_onpair() {
     use crate::SchemeExt;
     use crate::schemes::string::onpair::OnPairScheme;
 
-    let ids: Vec<_> = crate::ALL_SCHEMES.iter().map(|s| s.id()).collect();
+    let ids: Vec<_> = crate::CompressionSession::default()
+        .schemes()
+        .iter()
+        .map(|s| s.id())
+        .collect();
     assert!(
         ids.contains(&OnPairScheme.id()),
-        "OnPairScheme not registered in ALL_SCHEMES"
+        "OnPairScheme not registered by default"
     );
 }
 
@@ -91,8 +95,11 @@ fn test_fsst_in_default_scheme_list() -> VortexResult<()> {
 
     // FSST is registered by default.
     assert!(
-        crate::ALL_SCHEMES.iter().any(|s| s.id() == FSSTScheme.id()),
-        "FSSTScheme should be in ALL_SCHEMES",
+        crate::CompressionSession::default()
+            .schemes()
+            .iter()
+            .any(|s| s.id() == FSSTScheme.id()),
+        "FSSTScheme should be registered by default",
     );
 
     // An FSST-only builder still produces an FSST array for FSST-favourable

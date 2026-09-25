@@ -4,78 +4,33 @@
 //! Builder for configuring `BtrBlocksCompressor` instances.
 
 use vortex_array::ArrayId;
+use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::BtrBlocksCompressor;
 use crate::CascadingCompressor;
+use crate::CompressionSession;
+use crate::CompressionSessionExt;
 use crate::Scheme;
 use crate::SchemeExt;
 use crate::SchemeId;
 use crate::schemes::binary;
-use crate::schemes::decimal;
 use crate::schemes::float;
 use crate::schemes::integer;
 use crate::schemes::string;
-use crate::schemes::temporal;
 
-/// All available compression schemes.
-///
-/// This list is order-sensitive: the builder preserves this order when constructing
-/// the final scheme list, so that tie-breaking is deterministic.
-pub const ALL_SCHEMES: &[&dyn Scheme] = &[
-    ////////////////////////////////////////////////////////////////////////////////////////////////
-    // Integer schemes.
-    ////////////////////////////////////////////////////////////////////////////////////////////////
-    // NOTE: FoR must precede BitPacking to avoid unnecessary patches.
-    &integer::FoRScheme,
-    // NOTE: ZigZag should precede BitPacking because we don't want negative numbers.
-    &integer::ZigZagScheme,
-    &integer::BitPackingScheme,
-    &integer::SparseScheme,
-    &integer::IntDictScheme,
-    &integer::RunEndScheme,
-    &integer::SequenceScheme,
-    &integer::IntRLEScheme,
-    // Delta is omitted here: see [`DELTA_SCHEME`].
-    ////////////////////////////////////////////////////////////////////////////////////////////////
-    // Float schemes.
-    ////////////////////////////////////////////////////////////////////////////////////////////////
-    &float::ALPScheme,
-    &float::ALPRDScheme,
-    &float::FloatDictScheme,
-    &float::NullDominatedSparseScheme,
-    &float::FloatRLEScheme,
-    ////////////////////////////////////////////////////////////////////////////////////////////////
-    // String schemes.
-    ////////////////////////////////////////////////////////////////////////////////////////////////
-    &string::StringDictScheme,
-    // Both string-fragmentation schemes are registered; the sample-based
-    // selector keeps whichever is smaller per column.
-    &string::FSSTScheme,
-    &string::OnPairScheme,
-    &string::NullDominatedSparseScheme,
-    ////////////////////////////////////////////////////////////////////////////////////////////////
-    // Binary schemes.
-    ////////////////////////////////////////////////////////////////////////////////////////////////
-    &binary::BinaryDictScheme,
-    &binary::VarBinScheme,
-    // Decimal schemes.
-    &decimal::DecimalScheme,
-    // Temporal schemes.
-    &temporal::TemporalScheme,
-];
-
-/// Delta, kept out of [`ALL_SCHEMES`] because it is slower to decompress than the schemes that
-/// would otherwise win. Callers that want it opt in with
+/// Delta, kept out of the default [`CompressionSession`] schemes because it is slower to
+/// decompress than the schemes that would otherwise win. Callers that want it opt in with
 /// [`with_new_scheme`](BtrBlocksCompressorBuilder::with_new_scheme).
 ///
-/// TODO(robert): Return it to [`ALL_SCHEMES`] once we have scheme filtering.
+/// TODO(robert): Register it by default once we have scheme filtering.
 pub static DELTA_SCHEME: integer::DeltaScheme = integer::DeltaScheme::new(1.25);
 
 /// Builder for creating configured [`BtrBlocksCompressor`] instances.
 ///
-/// By default, all schemes in [`ALL_SCHEMES`] are enabled in a deterministic order. Feature-gated
-/// schemes (Pco, Zstd) are not in `ALL_SCHEMES` and must be added explicitly via
+/// [`from_session`](Self::from_session) starts from the schemes registered in the session's
+/// [`CompressionSession`], in registration order. Feature-gated schemes (Pco, Zstd) are not
+/// registered by default and must be registered on the session, or added explicitly via
 /// [`with_new_scheme`](BtrBlocksCompressorBuilder::with_new_scheme) or `with_compact` when the
 /// `zstd` feature is enabled.
 ///
@@ -84,12 +39,15 @@ pub static DELTA_SCHEME: integer::DeltaScheme = integer::DeltaScheme::new(1.25);
 /// ```rust
 /// use vortex_btrblocks::{BtrBlocksCompressorBuilder, Scheme, SchemeExt};
 /// use vortex_btrblocks::schemes::integer::IntDictScheme;
+/// use vortex_session::VortexSession;
 ///
-/// // Default compressor with all schemes in ALL_SCHEMES.
-/// let compressor = BtrBlocksCompressorBuilder::default().build();
+/// let session = VortexSession::empty();
+///
+/// // Compressor with every scheme registered on the session.
+/// let compressor = BtrBlocksCompressorBuilder::from_session(&session).build();
 ///
 /// // Remove specific schemes.
-/// let compressor = BtrBlocksCompressorBuilder::default()
+/// let compressor = BtrBlocksCompressorBuilder::from_session(&session)
 ///     .exclude_schemes([IntDictScheme.id()])
 ///     .build();
 /// ```
@@ -98,15 +56,19 @@ pub struct BtrBlocksCompressorBuilder {
     schemes: Vec<&'static dyn Scheme>,
 }
 
-impl Default for BtrBlocksCompressorBuilder {
-    fn default() -> Self {
+impl BtrBlocksCompressorBuilder {
+    /// Creates a builder with every scheme registered in the session's [`CompressionSession`].
+    pub fn from_session(session: &VortexSession) -> Self {
+        Self::from_compression_session(&session.compression())
+    }
+
+    /// Creates a builder with every scheme registered in `compression`.
+    pub(crate) fn from_compression_session(compression: &CompressionSession) -> Self {
         Self {
-            schemes: ALL_SCHEMES.to_vec(),
+            schemes: compression.schemes().to_vec(),
         }
     }
-}
 
-impl BtrBlocksCompressorBuilder {
     /// Creates a builder with no schemes registered.
     ///
     /// Useful when the caller wants explicit, scheme-by-scheme control over the compressor.
@@ -116,7 +78,7 @@ impl BtrBlocksCompressorBuilder {
         }
     }
 
-    /// Adds an external compression scheme not in [`ALL_SCHEMES`].
+    /// Adds a compression scheme not registered on the session.
     ///
     /// This allows encoding crates outside of `vortex-btrblocks` to register their own schemes
     /// with the compressor.
@@ -229,6 +191,10 @@ mod tests {
 
     use super::*;
 
+    fn default_builder() -> BtrBlocksCompressorBuilder {
+        BtrBlocksCompressorBuilder::from_compression_session(&CompressionSession::default())
+    }
+
     #[test]
     fn empty_starts_with_no_schemes() {
         let builder = BtrBlocksCompressorBuilder::empty();
@@ -236,35 +202,50 @@ mod tests {
     }
 
     #[test]
-    fn default_includes_all_schemes() {
-        let builder = BtrBlocksCompressorBuilder::default();
-        assert_eq!(builder.schemes.len(), ALL_SCHEMES.len());
+    fn from_session_includes_registered_schemes() {
+        let session = VortexSession::empty();
+        let builder = BtrBlocksCompressorBuilder::from_session(&session);
+        assert_eq!(
+            builder.schemes.len(),
+            CompressionSession::default().schemes().len()
+        );
+
+        session.register_scheme(&DELTA_SCHEME);
+        let builder = BtrBlocksCompressorBuilder::from_session(&session);
+        assert_eq!(
+            builder.schemes.last().map(|s| s.id()),
+            Some(DELTA_SCHEME.id())
+        );
     }
 
     #[test]
     fn retain_allowed_encodings_filters_schemes() {
         let allowed: HashSet<ArrayId> = [FoR.id()].into_iter().collect();
-        let builder = BtrBlocksCompressorBuilder::default().retain_allowed_encodings(&allowed);
+        let builder = default_builder().retain_allowed_encodings(&allowed);
         assert_eq!(builder.schemes.len(), 1);
         assert_eq!(builder.schemes[0].id(), integer::FoRScheme.id());
 
-        let none = BtrBlocksCompressorBuilder::default().retain_allowed_encodings(&HashSet::new());
+        let none = default_builder().retain_allowed_encodings(&HashSet::new());
         assert!(none.schemes.is_empty());
     }
 
     #[test]
     fn retaining_all_declared_outputs_keeps_every_scheme() {
-        let allowed: HashSet<ArrayId> = ALL_SCHEMES
+        let allowed: HashSet<ArrayId> = CompressionSession::default()
+            .schemes()
             .iter()
             .flat_map(|scheme| scheme.produced_encodings())
             .collect();
-        let builder = BtrBlocksCompressorBuilder::default().retain_allowed_encodings(&allowed);
-        assert_eq!(builder.schemes.len(), ALL_SCHEMES.len());
+        let builder = default_builder().retain_allowed_encodings(&allowed);
+        assert_eq!(
+            builder.schemes.len(),
+            CompressionSession::default().schemes().len()
+        );
     }
 
     #[test]
     fn cuda_compatible_excludes_alprd() {
-        let builder = BtrBlocksCompressorBuilder::default().only_cuda_compatible();
+        let builder = default_builder().only_cuda_compatible();
         assert!(
             !builder
                 .schemes
@@ -276,7 +257,7 @@ mod tests {
     /// `vortex.sparse` has no CUDA decode kernel, so no sparse scheme may survive this preset.
     #[test]
     fn cuda_compatible_excludes_every_sparse_scheme() {
-        let builder = BtrBlocksCompressorBuilder::default().only_cuda_compatible();
+        let builder = default_builder().only_cuda_compatible();
         for excluded in [
             integer::SparseScheme.id(),
             float::NullDominatedSparseScheme.id(),
@@ -291,7 +272,7 @@ mod tests {
 
     #[test]
     fn cuda_compatible_uses_fsst_for_strings() {
-        let builder = BtrBlocksCompressorBuilder::default().only_cuda_compatible();
+        let builder = default_builder().only_cuda_compatible();
         assert!(
             builder
                 .schemes
@@ -310,7 +291,7 @@ mod tests {
     #[test]
     #[cfg(feature = "pco")]
     fn cuda_compatible_excludes_pco() {
-        let builder = BtrBlocksCompressorBuilder::default()
+        let builder = default_builder()
             .with_new_scheme(&integer::PcoScheme)
             .with_new_scheme(&float::PcoScheme)
             .only_cuda_compatible();

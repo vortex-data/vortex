@@ -176,7 +176,7 @@ fn test_delta_compressed() -> VortexResult<()> {
         .collect();
     let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
 
-    let btr = BtrBlocksCompressorBuilder::default()
+    let btr = BtrBlocksCompressorBuilder::from_session(&SESSION)
         .with_new_scheme(&DELTA_SCHEME)
         .build();
     let compressed = btr.compress(
@@ -216,7 +216,7 @@ fn test_delta_compressed_unaligned_length() -> VortexResult<()> {
         .collect();
     let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
 
-    let btr = BtrBlocksCompressorBuilder::default()
+    let btr = BtrBlocksCompressorBuilder::from_session(&SESSION)
         .with_new_scheme(&DELTA_SCHEME)
         .build();
     let compressed = btr.compress(
@@ -245,7 +245,7 @@ fn test_delta_nullable_unaligned_sum() -> VortexResult<()> {
     let array =
         PrimitiveArray::from_option_iter(iter::once(None).chain((1i32..=100_000).map(Some)));
 
-    let btr = BtrBlocksCompressorBuilder::default()
+    let btr = BtrBlocksCompressorBuilder::from_session(&SESSION)
         .with_new_scheme(&DELTA_SCHEME)
         .build();
     let compressed = btr.compress(&array.clone().into_array(), &mut ctx)?;

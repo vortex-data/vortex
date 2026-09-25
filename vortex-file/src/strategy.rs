@@ -26,6 +26,7 @@ use vortex_layout::layouts::table::TableStrategy;
 use vortex_layout::layouts::table::use_experimental_list_layout;
 use vortex_layout::layouts::zoned::writer::ZonedLayoutOptions;
 use vortex_layout::layouts::zoned::writer::ZonedStrategy;
+use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
 const ONE_MEG: u64 = 1 << 20;
@@ -69,7 +70,10 @@ impl Default for WriteStrategyBuilder {
     /// and then finally built yielding the [`LayoutStrategy`].
     fn default() -> Self {
         Self {
-            compressor: CompressorConfig::BtrBlocks(BtrBlocksCompressorBuilder::default()),
+            // A fresh session holds only the default compression schemes.
+            compressor: CompressorConfig::BtrBlocks(BtrBlocksCompressorBuilder::from_session(
+                &VortexSession::empty(),
+            )),
             row_block_size: 8192,
             data_block_target_bytes: Some(ONE_MEG),
             field_writers: HashMap::new(),

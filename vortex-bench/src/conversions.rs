@@ -250,7 +250,7 @@ fn write_options_for(
     if matches!(compaction, CompactionStrategy::Compact) {
         builder = builder.with_btrblocks_builder(retain_edition_encodings(
             &SESSION,
-            BtrBlocksCompressorBuilder::default().with_compact(),
+            BtrBlocksCompressorBuilder::from_session(&SESSION).with_compact(),
         ));
     }
     for name in binary_fields {
@@ -263,7 +263,8 @@ fn write_options_for(
 fn no_dict_layout() -> Arc<dyn LayoutStrategy> {
     Arc::new(CompressingStrategy::new(
         ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
-        retain_edition_encodings(&SESSION, BtrBlocksCompressorBuilder::default()).build(),
+        retain_edition_encodings(&SESSION, BtrBlocksCompressorBuilder::from_session(&SESSION))
+            .build(),
     ))
 }
 

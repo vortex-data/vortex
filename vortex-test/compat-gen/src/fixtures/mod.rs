@@ -139,7 +139,9 @@ impl Fixture for DatasetFixtureAdapter {
         let path = dir.join(self.name());
         if self.compact {
             let strategy = WriteStrategyBuilder::default()
-                .with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact())
+                .with_btrblocks_builder(
+                    BtrBlocksCompressorBuilder::from_session(ctx.session()).with_compact(),
+                )
                 .build();
             adapter::write_compressed(&path, array, strategy)?;
         } else {

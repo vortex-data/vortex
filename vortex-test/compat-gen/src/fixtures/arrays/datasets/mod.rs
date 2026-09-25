@@ -52,7 +52,9 @@ mod tests {
                 &session,
                 array,
                 WriteStrategyBuilder::default()
-                    .with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact())
+                    .with_btrblocks_builder(
+                        BtrBlocksCompressorBuilder::from_session(&session).with_compact(),
+                    )
                     .build(),
             )?;
             let _compact = adapter::read_file(compact_bytes)?;

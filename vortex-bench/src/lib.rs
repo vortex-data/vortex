@@ -257,7 +257,7 @@ impl CompactionStrategy {
                 WriteStrategyBuilder::default()
                     .with_btrblocks_builder(retain_edition_encodings(
                         &SESSION,
-                        BtrBlocksCompressorBuilder::default().with_compact(),
+                        BtrBlocksCompressorBuilder::from_session(&SESSION).with_compact(),
                     ))
                     .build(),
             ),
