@@ -27,16 +27,12 @@ import argparse
 import json
 import math
 import os
-import random
 import subprocess
 import sys
-import time
 import urllib.request
-from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import ModuleType
-from typing import TypeVar
 
 # MUST equal `benchmarks-website/web/lib/schema-version.ts::SCHEMA_VERSION`.
 # Bumping this is a coordinated change across the website contract, v3.rs, and
@@ -218,8 +214,6 @@ _RECORD_FIELDS: dict[str, tuple[frozenset[str], frozenset[str]]] = {
         frozenset({"env_triple"}),
     ),
 }
-
-_T = TypeVar("_T")
 
 _MEASUREMENT_ID_MODULE: ModuleType | None = None
 
@@ -481,12 +475,9 @@ def _upsert_returning_was_update(conn, sql: str, params: tuple) -> bool:
     return not row[0]
 
 
-def _insert_query_measurement(conn, mid_mod, r: dict) -> bool:
-    """Upsert a `query_measurements` row.
-
-    Record values are validated by `_validate_record_values` before dispatch.
-    """
-    mid = mid_mod.measurement_id_query(
+def _query_measurement_id(mid_mod, r: dict) -> int:
+    """Compute the `query_measurements` primary key."""
+    return mid_mod.measurement_id_query(
         commit_sha=r["commit_sha"],
         dataset=r["dataset"],
         dataset_variant=r.get("dataset_variant"),
@@ -496,6 +487,13 @@ def _insert_query_measurement(conn, mid_mod, r: dict) -> bool:
         engine=r["engine"],
         format=r["format"],
     )
+
+
+def _insert_query_measurement(conn, mid: int, r: dict) -> bool:
+    """Upsert a `query_measurements` row.
+
+    Record values are validated by `_validate_record_values` before dispatch.
+    """
     return _upsert_returning_was_update(
         conn,
         """
@@ -537,22 +535,26 @@ def _insert_query_measurement(conn, mid_mod, r: dict) -> bool:
             r.get("virtual_delta"),
             r.get("env_triple"),
             # The denormalized `commit_timestamp` (migration 006) is resolved from the
-            # `commits` row this same transaction upserted first, so the read path's
-            # latest-per-series summary never sees a NULL from this writer.
+            # `commits` row that `ingest_postgres` commits before the fact transaction, so the
+            # read path's latest-per-series summary never sees a NULL from this writer.
             r["commit_sha"],
         ),
     )
 
 
-def _insert_compression_time(conn, mid_mod, r: dict) -> bool:
-    """Upsert a `compression_times` row."""
-    mid = mid_mod.measurement_id_compression_time(
+def _compression_time_id(mid_mod, r: dict) -> int:
+    """Compute the `compression_times` primary key."""
+    return mid_mod.measurement_id_compression_time(
         commit_sha=r["commit_sha"],
         dataset=r["dataset"],
         dataset_variant=r.get("dataset_variant"),
         format=r["format"],
         op=r["op"],
     )
+
+
+def _insert_compression_time(conn, mid: int, r: dict) -> bool:
+    """Upsert a `compression_times` row."""
     return _upsert_returning_was_update(
         conn,
         """
@@ -581,14 +583,18 @@ def _insert_compression_time(conn, mid_mod, r: dict) -> bool:
     )
 
 
-def _insert_compression_size(conn, mid_mod, r: dict) -> bool:
-    """Upsert a `compression_sizes` row."""
-    mid = mid_mod.measurement_id_compression_size(
+def _compression_size_id(mid_mod, r: dict) -> int:
+    """Compute the `compression_sizes` primary key."""
+    return mid_mod.measurement_id_compression_size(
         commit_sha=r["commit_sha"],
         dataset=r["dataset"],
         dataset_variant=r.get("dataset_variant"),
         format=r["format"],
     )
+
+
+def _insert_compression_size(conn, mid: int, r: dict) -> bool:
+    """Upsert a `compression_sizes` row."""
     return _upsert_returning_was_update(
         conn,
         """
@@ -614,14 +620,18 @@ def _insert_compression_size(conn, mid_mod, r: dict) -> bool:
     )
 
 
-def _insert_random_access(conn, mid_mod, r: dict) -> bool:
-    """Upsert a `random_access_times` row."""
-    mid = mid_mod.measurement_id_random_access(
+def _random_access_time_id(mid_mod, r: dict) -> int:
+    """Compute the `random_access_times` primary key."""
+    return mid_mod.measurement_id_random_access(
         commit_sha=r["commit_sha"],
         dataset=r["dataset"],
         format=r["format"],
         open_mode=r["open_mode"],
     )
+
+
+def _insert_random_access(conn, mid: int, r: dict) -> bool:
+    """Upsert a `random_access_times` row."""
     return _upsert_returning_was_update(
         conn,
         """
@@ -650,19 +660,23 @@ def _insert_random_access(conn, mid_mod, r: dict) -> bool:
     )
 
 
-def _insert_vector_search(conn, mid_mod, r: dict) -> bool:
+def _vector_search_run_id(mid_mod, r: dict) -> int:
+    """Compute the `vector_search_runs` primary key."""
+    return mid_mod.measurement_id_vector_search(
+        commit_sha=r["commit_sha"],
+        dataset=r["dataset"],
+        layout=r["layout"],
+        flavor=r["flavor"],
+        threshold=float(r["threshold"]),
+    )
+
+
+def _insert_vector_search(conn, mid: int, r: dict) -> bool:
     """Upsert a `vector_search_runs` row.
 
     `threshold` is validated finite by `_validate_record_values` before dispatch.
     """
     threshold = float(r["threshold"])
-    mid = mid_mod.measurement_id_vector_search(
-        commit_sha=r["commit_sha"],
-        dataset=r["dataset"],
-        layout=r["layout"],
-        flavor=r["flavor"],
-        threshold=threshold,
-    )
     return _upsert_returning_was_update(
         conn,
         """
@@ -700,8 +714,16 @@ def _insert_vector_search(conn, mid_mod, r: dict) -> bool:
     )
 
 
-# Dispatch from a record's `kind` to its per-table upsert. Keyed identically to
-# `_RECORD_FIELDS`; the two maps are wired together when adding a fact table.
+# Dispatch from a record's `kind` to its per-table primary key and upsert. Keyed identically to
+# `_RECORD_FIELDS`; the three maps are wired together when adding a fact table.
+_MEASUREMENT_ID = {
+    "query_measurement": _query_measurement_id,
+    "compression_time": _compression_time_id,
+    "compression_size": _compression_size_id,
+    "random_access_time": _random_access_time_id,
+    "vector_search_run": _vector_search_run_id,
+}
+
 _APPLY_RECORD = {
     "query_measurement": _insert_query_measurement,
     "compression_time": _insert_compression_time,
@@ -743,82 +765,42 @@ def _upsert_commit(conn, commit: dict) -> None:
     )
 
 
-# Eight attempts cap repeated conflicts. The elapsed budget includes transaction work and backoff,
-# but does not cancel an active transaction. Per-statement and lock timeouts bound individual waits.
-_WRITE_CONFLICT_ATTEMPTS = 8
-_WRITE_CONFLICT_BUDGET_SECONDS = 120.0
-_WRITE_CONFLICT_BACKOFF_SECONDS = 10.0
-
-
-def _retry_write_conflicts(op: Callable[[], _T]) -> _T:
-    """Retry whole transactions only for deadlocks (40P01) and serialization failures (40001)."""
-    import psycopg
-
-    started = time.monotonic()
-    for attempt in range(1, _WRITE_CONFLICT_ATTEMPTS + 1):
-        try:
-            result = op()
-        except psycopg.Error as exc:
-            elapsed = time.monotonic() - started
-            retryable = exc.sqlstate in ("40P01", "40001")
-            remaining = _WRITE_CONFLICT_BUDGET_SECONDS - elapsed
-            if not retryable or attempt == _WRITE_CONFLICT_ATTEMPTS or remaining <= 0:
-                outcome = "exhausted" if retryable else "failed"
-                print(
-                    f"ingest attempt={attempt} elapsed={elapsed:.3f}s sqlstate={exc.sqlstate} outcome={outcome}",
-                    file=sys.stderr,
-                )
-                raise
-
-            ceiling = min(2 ** (attempt - 1), _WRITE_CONFLICT_BACKOFF_SECONDS)
-            delay = min(random.uniform(ceiling / 2, ceiling), remaining)
-            print(
-                f"ingest attempt={attempt} elapsed={elapsed:.3f}s sqlstate={exc.sqlstate} "
-                f"outcome=retry delay={delay:.3f}s",
-                file=sys.stderr,
-            )
-            time.sleep(delay)
-            # A delayed wakeup must not start another transaction after the retry budget expires.
-            elapsed = time.monotonic() - started
-            if elapsed >= _WRITE_CONFLICT_BUDGET_SECONDS:
-                print(
-                    f"ingest attempt={attempt} elapsed={elapsed:.3f}s sqlstate={exc.sqlstate} outcome=exhausted",
-                    file=sys.stderr,
-                )
-                raise
-        else:
-            elapsed = time.monotonic() - started
-            print(f"ingest attempt={attempt} elapsed={elapsed:.3f}s sqlstate=none outcome=committed", file=sys.stderr)
-            return result
-    raise AssertionError("unreachable: _retry_write_conflicts exited without return or raise")
-
-
 def ingest_postgres(conn, commit: dict, records: list[dict]) -> tuple[int, int]:
-    """Validate the entire file before atomically upserting it, with bounded conflict retries."""
-    sha = commit["sha"]
-    if not isinstance(sha, str) or len(sha) != 40 or any(c not in "0123456789abcdef" for c in sha):
-        raise SystemExit(f"commit SHA must be 40-hex lowercase, got: {sha!r}")
+    """Validate every record, then upsert the commit row and the file's fact rows.
+
+    Concurrent CI writers wait on each other only when their fact rows overlap, and never deadlock:
+
+    - The `commits` upsert commits in its own short transaction. Holding its row lock for the
+      whole file would make every writer for the same commit queue behind the others. Commit
+      metadata is a pure function of the SHA, and `commit-metadata.yml` already writes commit
+      rows without fact rows, so this row may land even when the fact transaction fails.
+    - The fact rows are upserted in one transaction, so a file lands all or nothing. They are
+      applied in (table, `measurement_id`) order, so two writers whose rows overlap take their
+      row locks in the same order and cannot deadlock.
+
+    Returns the number of fact rows inserted and updated.
+    """
     for idx, record in enumerate(records):
         kind = _validate_record_fields(record, idx)
         _validate_record_values(record, kind, idx)
-        if record["commit_sha"] != sha:
+        if record["commit_sha"] != commit["sha"]:
             raise SystemExit(
                 f"record {idx} ({kind}): commit_sha {record['commit_sha']!r} does not "
-                f"match the requested commit SHA {sha!r}"
+                f"match the requested commit SHA {commit['sha']!r}"
             )
 
     mid_mod = _measurement_id_module()
-    return _retry_write_conflicts(lambda: _ingest_postgres_once(conn, commit, records, mid_mod))
+    rows = [(record["kind"], _MEASUREMENT_ID[record["kind"]](mid_mod, record), record) for record in records]
+    rows.sort(key=lambda row: row[:2])
 
+    with conn.transaction():
+        _upsert_commit(conn, commit)
 
-def _ingest_postgres_once(conn, commit: dict, records: list[dict], mid_mod) -> tuple[int, int]:
-    """Upsert the validated commit and records in one transaction, rolling back on any error."""
     inserted = 0
     updated = 0
     with conn.transaction():
-        _upsert_commit(conn, commit)
-        for record in records:
-            if _APPLY_RECORD[record["kind"]](conn, mid_mod, record):
+        for kind, mid, record in rows:
+            if _APPLY_RECORD[kind](conn, mid, record):
                 updated += 1
             else:
                 inserted += 1
@@ -914,11 +896,11 @@ def connect_postgres(dsn: str, region: str | None) -> object:
     # migration-owned `public.*` tables, regardless of any `search_path` baked into the DSN's
     # `options=-c search_path=...` or the role's default. libpq applies repeated `-c` settings
     # left-to-right (last wins), so appending ours last makes it authoritative even if the DSN
-    # already set one.
+    # already set one. The connect and statement timeouts stop a network or server hang from
+    # holding the job until its own timeout. `statement_timeout` also covers time spent waiting
+    # for locks, so no separate `lock_timeout` is needed.
     existing_options = params.get("options") or ""
-    params["options"] = (
-        f"{existing_options} -c search_path=public -c statement_timeout=30000 -c lock_timeout=10000"
-    ).strip()
+    params["options"] = f"{existing_options} -c search_path=public -c statement_timeout=30000".strip()
     params["connect_timeout"] = 10
 
     conn = psycopg.connect(**params)
