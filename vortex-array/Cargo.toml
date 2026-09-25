@@ -21,10 +21,6 @@ all-features = true
 # Referenced only by the generated Protocol Buffers bindings.
 ignored = ["prost-types"]
 
-[package.metadata.cargo-machete]
-# Referenced only by the generated Protocol Buffers bindings.
-ignored = ["prost-types"]
-
 [lints]
 workspace = true
 
