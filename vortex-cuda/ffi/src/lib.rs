@@ -14,6 +14,7 @@ use std::ptr;
 use arrow_schema::ffi::FFI_ArrowSchema;
 use vortex::array::ArrayRef;
 use vortex::array::stream::ArrayStreamExt;
+use vortex::compressor::CompressionSession;
 use vortex::dtype::FieldName;
 use vortex::dtype::FieldNames;
 use vortex::error::VortexResult;
@@ -40,7 +41,6 @@ use vortex_cuda::arrow::DeviceArrayExt;
 use vortex_cuda::arrow::DeviceArrayStreamExt;
 use vortex_cuda::layout::cuda_write_strategy;
 use vortex_cuda::layout::register_cuda_layout;
-use vortex_cuda::layout::use_cuda_schemes;
 use vortex_ffi::ffi_runtime;
 use vortex_ffi::try_or;
 use vortex_ffi::vx_array;
@@ -101,7 +101,7 @@ pub unsafe extern "C-unwind" fn vx_cuda_session_new(
         Ok(vx_session_new_with(|session| {
             let session = session.with_some(cuda_session);
             register_cuda_layout(&session);
-            use_cuda_schemes(&session);
+            session.register(CompressionSession::cuda());
             session
         }))
     })
@@ -148,7 +148,7 @@ pub unsafe extern "C-unwind" fn vx_cuda_array_sink_open_file_block_rows(
     try_or(error_out, ptr::null_mut(), || {
         // SAFETY: The caller supplies a live borrowed session handle.
         let vortex_session = session_with_cuda(unsafe { vx_session_ref(session) }?);
-        use_cuda_schemes(vortex_session);
+        vortex_session.register(CompressionSession::cuda());
         // SAFETY: All borrowed inputs satisfy the underlying sink's requirements.
         unsafe {
             vx_array_sink_open_file_with_strategy(
@@ -1037,7 +1037,7 @@ mod tests {
     fn test_projection_gpu_values_and_validity() -> VortexResult<()> {
         let session = session().with_some(CudaSession::try_default()?);
         register_cuda_layout(&session);
-        use_cuda_schemes(&session);
+        session.register(CompressionSession::cuda());
         let input = table()?;
         let columns = ["値.x", "ids"];
         let expected = input.project(names(&columns)?.as_ref())?.into_array();

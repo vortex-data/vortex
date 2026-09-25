@@ -17,8 +17,7 @@ pub fn fixtures() -> Vec<Box<dyn DatasetFixture>> {
 #[cfg(test)]
 mod tests {
     use vortex::VortexSessionDefault;
-    use vortex::compressor::COMPACT_SCHEMES;
-    use vortex::compressor::CompressionSessionExt;
+    use vortex::compressor::CompressionSession;
     use vortex::editions::CORE_2026_08_3;
     use vortex::editions::EditionSessionExt;
     use vortex::file::WriteStrategyBuilder;
@@ -39,9 +38,7 @@ mod tests {
         session.enable_edition(CORE_2026_08_3)?;
         let compact_session = VortexSession::default();
         compact_session.enable_edition(CORE_2026_08_3)?;
-        for scheme in COMPACT_SCHEMES {
-            compact_session.register_scheme(*scheme);
-        }
+        compact_session.register(CompressionSession::compact());
         for dataset in fixtures()
             .into_iter()
             .filter(|fixture| !is_clickbench_fixture(fixture.name()))

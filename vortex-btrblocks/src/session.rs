@@ -5,8 +5,9 @@
 //!
 //! A session's [`CompressionSession`] holds the schemes available to compressors built from it
 //! with [`BtrBlocksCompressor::from_session`](crate::BtrBlocksCompressor::from_session). It
-//! starts with [`DEFAULT_SCHEMES`]. Whether a registered scheme may write its encodings is
-//! decided by the session's enabled editions.
+//! starts with the default schemes; [`CompressionSession::compact`] and
+//! [`CompressionSession::cuda`] build the other standard registries. Whether a registered scheme
+//! may write its encodings is decided by the session's enabled editions.
 
 use std::any::Any;
 
@@ -30,7 +31,7 @@ use crate::schemes::temporal;
 ///
 /// This list is order-sensitive: the compressor preserves registration order, so that
 /// tie-breaking is deterministic.
-pub const DEFAULT_SCHEMES: &[&dyn Scheme] = &[
+const DEFAULT_SCHEMES: &[&dyn Scheme] = &[
     ////////////////////////////////////////////////////////////////////////////////////////////////
     // Integer schemes.
     ////////////////////////////////////////////////////////////////////////////////////////////////
@@ -73,12 +74,10 @@ pub const DEFAULT_SCHEMES: &[&dyn Scheme] = &[
     &temporal::TemporalScheme,
 ];
 
-/// Compact schemes (Zstd for strings and binary, Pco for numerics when the `pco` feature is on).
-///
-/// Not part of [`DEFAULT_SCHEMES`]: they trade decode speed for compression ratio, so callers add
-/// them to a compressor's scheme list explicitly.
+/// The schemes [`CompressionSession::compact`] adds to the defaults: Zstd for strings and binary,
+/// and Pco for numerics when the `pco` feature is on.
 #[cfg(feature = "zstd")]
-pub const COMPACT_SCHEMES: &[&dyn Scheme] = &[
+const COMPACT_SCHEMES: &[&dyn Scheme] = &[
     &string::ZstdScheme,
     &binary::ZstdScheme,
     #[cfg(feature = "pco")]
@@ -87,18 +86,18 @@ pub const COMPACT_SCHEMES: &[&dyn Scheme] = &[
     &float::PcoScheme,
 ];
 
-/// Delta, kept out of [`DEFAULT_SCHEMES`] because it is slower to decompress than the schemes that
-/// would otherwise win. Callers that want it add it to their scheme list and permit
-/// `fastlanes.delta`.
+/// Delta, kept out of the default schemes because it is slower to decompress than the schemes
+/// that would otherwise win. Callers that want it register it and permit `fastlanes.delta`.
 ///
-/// TODO(robert): Return it to [`DEFAULT_SCHEMES`] once we have scheme filtering.
+/// TODO(robert): Return it to the defaults once we have scheme filtering.
 pub static DELTA_SCHEME: integer::DeltaScheme = integer::DeltaScheme::new(1.25);
 
 /// The compression schemes registered on a session, in registration order.
 ///
 /// Registration order is the compressor's tie-break order between equally good schemes, so
 /// sessions that register the same schemes in the same order compress identically.
-/// [`Default`] registers [`DEFAULT_SCHEMES`]; [`empty`](Self::empty) registers none.
+/// [`Default`] registers the default schemes, [`compact`](Self::compact) and [`cuda`](Self::cuda)
+/// their variants, and [`empty`](Self::empty) none.
 #[derive(Clone, Debug)]
 pub struct CompressionSession {
     /// Registered schemes in registration order.
@@ -111,6 +110,55 @@ impl CompressionSession {
         Self {
             schemes: Vec::new(),
         }
+    }
+
+    /// The default schemes plus the compact ones: Zstd for strings and binary, and Pco for
+    /// numerics when the `pco` feature is on. They trade decode speed for compression ratio.
+    #[cfg(feature = "zstd")]
+    pub fn compact() -> Self {
+        let mut this = Self::default();
+        for scheme in COMPACT_SCHEMES {
+            this.register(*scheme);
+        }
+        this
+    }
+
+    /// The default schemes that CUDA kernels decode, keeping FSST for string compression, plus
+    /// Zstd for binary compression when the `zstd` feature is on.
+    ///
+    /// Both the array-level and the buffer-level Zstd schemes are added. Buffer-level compression
+    /// preserves binary arrays' buffer layout for zero-conversion GPU decompression, but belongs
+    /// to the opt-in `zstd` edition, so a session's enabled editions decide which of the two a
+    /// writer uses. Files written with these schemes may be larger than with the defaults: the
+    /// set picks encodings the GPU decodes, not the smallest ones.
+    pub fn cuda() -> Self {
+        // Keep FSST, which has a CUDA decoder and direct Arrow offset-based export. Other string
+        // fragmentation and dictionary schemes still require unsupported decode paths. Delta is
+        // not a default either: it has a CUDA decode kernel, but GPU delta decode has not been
+        // benchmarked against the schemes it would displace.
+        let excluded = [
+            integer::SparseScheme.id(),
+            integer::IntRLEScheme.id(),
+            float::ALPRDScheme.id(),
+            float::FloatRLEScheme.id(),
+            float::NullDominatedSparseScheme.id(),
+            string::NullDominatedSparseScheme.id(),
+            string::StringDictScheme.id(),
+            binary::BinaryDictScheme.id(),
+        ];
+        let mut this = Self::empty();
+        for scheme in DEFAULT_SCHEMES
+            .iter()
+            .filter(|scheme| !excluded.contains(&scheme.id()))
+        {
+            this.register(*scheme);
+        }
+        #[cfg(feature = "zstd")]
+        {
+            this.register(&binary::ZstdScheme);
+            this.register(&binary::ZstdBuffersScheme);
+        }
+        this
     }
 
     /// Registers a scheme.
@@ -217,6 +265,21 @@ mod tests {
             ids(&session.registered_schemes()),
             vec![IntDictScheme.id(), FloatDictScheme.id()]
         );
+    }
+
+    #[test]
+    fn cuda_keeps_fsst_and_drops_string_dict() {
+        let cuda = ids(CompressionSession::cuda().schemes());
+        assert!(cuda.contains(&string::FSSTScheme.id()));
+        assert!(!cuda.contains(&string::StringDictScheme.id()));
+    }
+
+    #[cfg(feature = "zstd")]
+    #[test]
+    fn compact_extends_the_defaults() {
+        let compact = ids(CompressionSession::compact().schemes());
+        assert_eq!(&compact[..DEFAULT_SCHEMES.len()], &ids(DEFAULT_SCHEMES)[..]);
+        assert!(compact.contains(&string::ZstdScheme.id()));
     }
 
     /// Without enabled editions no serialized ID is permitted, so nothing survives.

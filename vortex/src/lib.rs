@@ -145,12 +145,9 @@ pub mod buffer {
 /// Default adaptive compression APIs based on the maintained BtrBlocks-style compressor.
 pub mod compressor {
     pub use vortex_btrblocks::BtrBlocksCompressor;
-    #[cfg(feature = "zstd")]
-    pub use vortex_btrblocks::COMPACT_SCHEMES;
     pub use vortex_btrblocks::CascadingCompressor;
     pub use vortex_btrblocks::CompressionSession;
     pub use vortex_btrblocks::CompressionSessionExt;
-    pub use vortex_btrblocks::DEFAULT_SCHEMES;
     pub use vortex_btrblocks::Scheme;
     pub use vortex_btrblocks::SchemeExt;
     pub use vortex_btrblocks::SchemeId;
@@ -375,8 +372,7 @@ mod test {
     use vortex_array::expr::select;
     use vortex_array::stream::ArrayStreamExt;
     use vortex_array::validity::Validity;
-    use vortex_btrblocks::COMPACT_SCHEMES;
-    use vortex_btrblocks::CompressionSessionExt;
+    use vortex_btrblocks::CompressionSession;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_file::OpenOptionsSessionExt;
@@ -495,9 +491,7 @@ mod test {
 
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("example_compact.vortex");
 
-        for scheme in COMPACT_SCHEMES {
-            session.register_scheme(*scheme);
-        }
+        session.register(CompressionSession::compact());
         session
             .write_options()
             .write(

@@ -19,7 +19,6 @@ use vortex_session::VortexSession;
 use crate::BtrBlocksCompressor;
 use crate::CompressionSession;
 use crate::CompressionSessionExt;
-use crate::DEFAULT_SCHEMES;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
@@ -54,10 +53,11 @@ fn test_all_schemes_includes_onpair() {
     use crate::SchemeExt;
     use crate::schemes::string::onpair::OnPairScheme;
 
-    let ids: Vec<_> = DEFAULT_SCHEMES.iter().map(|s| s.id()).collect();
+    let default = CompressionSession::default();
+    let ids: Vec<_> = default.schemes().iter().map(|s| s.id()).collect();
     assert!(
         ids.contains(&OnPairScheme.id()),
-        "OnPairScheme not registered in DEFAULT_SCHEMES"
+        "OnPairScheme not registered in the default schemes"
     );
 }
 
@@ -92,9 +92,10 @@ fn test_fsst_in_default_scheme_list() -> VortexResult<()> {
     use crate::schemes::string::FSSTScheme;
 
     // FSST is registered by default.
+    let default = CompressionSession::default();
     assert!(
-        DEFAULT_SCHEMES.iter().any(|s| s.id() == FSSTScheme.id()),
-        "FSSTScheme should be in DEFAULT_SCHEMES",
+        default.schemes().iter().any(|s| s.id() == FSSTScheme.id()),
+        "FSSTScheme should be in the default schemes",
     );
 
     // An FSST-only compressor still produces an FSST array for FSST-favourable

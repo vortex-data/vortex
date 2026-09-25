@@ -28,8 +28,7 @@ use tpcds::TpcDsBenchmark;
 use tpch::benchmark::TpcHBenchmark;
 pub use utils::file::*;
 pub use utils::logging::*;
-use vortex::compressor::COMPACT_SCHEMES;
-use vortex::compressor::CompressionSessionExt;
+use vortex::compressor::CompressionSession;
 use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
 use vortex::utils::aliases::hash_map::HashMap;
@@ -82,9 +81,7 @@ pub static SESSION: LazyLock<VortexSession> = LazyLock::new(new_session);
 /// [`SESSION`] plus the compact (Zstd and Pco) schemes, for [`CompactionStrategy::Compact`].
 pub static COMPACT_SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = new_session();
-    for scheme in COMPACT_SCHEMES {
-        session.register_scheme(*scheme);
-    }
+    session.register(CompressionSession::compact());
     session
 });
 

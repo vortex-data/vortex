@@ -23,6 +23,7 @@ use vortex::array::arrays::Dict;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::struct_::StructArrayExt;
 use vortex::buffer::ByteBufferMut;
+use vortex::compressor::CompressionSession;
 use vortex::error::VortexResult;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
@@ -36,7 +37,6 @@ use vortex_cuda::TracingLaunchStrategy;
 use vortex_cuda::executor::CudaArrayExt;
 use vortex_cuda::layout::cuda_write_strategy;
 use vortex_cuda::layout::register_cuda_layout;
-use vortex_cuda::layout::use_cuda_schemes;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 
@@ -94,7 +94,7 @@ async fn main() -> VortexResult<()> {
 async fn cmd_convert(input: PathBuf, output: PathBuf) -> VortexResult<()> {
     let session = VortexSession::default();
     register_cuda_layout(&session);
-    use_cuda_schemes(&session);
+    session.register(CompressionSession::cuda());
 
     let input_file = session.open_options().open_path(&input).await?;
     let scan = input_file.scan()?.into_array_stream()?;
@@ -141,7 +141,7 @@ async fn cmd_scan(path: PathBuf, gpu_file: bool, json_output: bool) -> VortexRes
 
     let session = VortexSession::default();
     register_cuda_layout(&session);
-    use_cuda_schemes(&session);
+    session.register(CompressionSession::cuda());
 
     let mut cuda_ctx = CudaSession::create_execution_ctx(&session)?
         .with_launch_strategy(Arc::new(TracingLaunchStrategy));

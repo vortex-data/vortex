@@ -370,7 +370,7 @@ mod tests {
     use vortex::io::runtime::BlockingRuntime;
     use vortex::io::runtime::current::CurrentThreadRuntime;
     use vortex::io::session::RuntimeSessionExt;
-    use vortex_btrblocks::DEFAULT_SCHEMES;
+    use vortex_btrblocks::CompressionSession;
     use vortex_btrblocks::SchemeExt;
 
     use super::*;
@@ -380,7 +380,9 @@ mod tests {
         // Every default scheme whose dtype gate accepts canonical Utf8 must be
         // excluded when another root string encoding is forced.
         let canonical = Canonical::VarBinView(VarBinViewArray::from_iter_str(["value"]));
-        let mut actual = DEFAULT_SCHEMES
+        let default = CompressionSession::default();
+        let mut actual = default
+            .schemes()
             .iter()
             .filter(|scheme| scheme.matches(&canonical))
             .map(|scheme| scheme.id())

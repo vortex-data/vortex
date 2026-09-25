@@ -11,8 +11,7 @@ use std::sync::atomic::AtomicPtr;
 use std::sync::atomic::Ordering;
 
 use vortex::VortexSessionDefault;
-use vortex::compressor::COMPACT_SCHEMES;
-use vortex::compressor::CompressionSessionExt;
+use vortex::compressor::CompressionSession;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::Handle;
 use vortex::io::session::RuntimeSessionExt;
@@ -93,9 +92,7 @@ fn new_session(handle: Handle) -> VortexSession {
 
 fn new_compact_session(handle: Handle) -> VortexSession {
     let session = new_session(handle);
-    for scheme in COMPACT_SCHEMES {
-        session.register_scheme(*scheme);
-    }
+    session.register(CompressionSession::compact());
     session
 }
 

@@ -14,7 +14,7 @@
 //! - `regular`: the schemes permitted by the default `core` edition, minus OnPair.
 //! - `onpair`: the structured-string entry with OnPair enabled — pins OnPair selection.
 //! - `compact`: the schemes permitted by the default `core` and opt-in `zstd` editions, with
-//!   the `zstd` + `pco` features and [`COMPACT_SCHEMES`](vortex_btrblocks::COMPACT_SCHEMES)
+//!   the `zstd` + `pco` features and [`CompressionSession::compact`]
 //!   — pins Zstd / Pco selection.
 //!
 //! Every corpus entry is longer than 1024 values so the sampling-based estimation path is
@@ -49,12 +49,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::validity::Validity;
 use vortex_btrblocks::BtrBlocksCompressor;
-#[cfg(all(feature = "zstd", feature = "pco"))]
-use vortex_btrblocks::COMPACT_SCHEMES;
 use vortex_btrblocks::CompressionSession;
-use vortex_btrblocks::CompressionSessionExt;
-use vortex_btrblocks::DEFAULT_SCHEMES;
-use vortex_btrblocks::Scheme;
 use vortex_btrblocks::SchemeExt;
 use vortex_btrblocks::schemes::string::OnPairScheme;
 use vortex_buffer::Buffer;
@@ -399,24 +394,26 @@ fn list_of_int_runs() -> VortexResult<ArrayRef> {
 /// Excludes OnPair from the `regular` and `compact` variants: it beats FSST on
 /// `string_fsst_structured`, and those variants pin the FSST selection. OnPair's own decisions
 /// are pinned by [`golden_onpair`].
-fn without_onpair(schemes: Vec<&'static dyn Scheme>) -> Vec<&'static dyn Scheme> {
-    schemes
-        .into_iter()
+fn without_onpair(registry: &CompressionSession) -> CompressionSession {
+    let mut filtered = CompressionSession::empty();
+    for scheme in registry
+        .schemes()
+        .iter()
         .filter(|scheme| scheme.id() != OnPairScheme.id())
-        .collect()
+    {
+        filtered.register(*scheme);
+    }
+    filtered
 }
 
-/// A session registering `schemes` and enabling `editions`.
+/// A session with the schemes in `registry` and `editions` enabled.
 fn edition_session(
     editions: &[EditionId],
-    schemes: Vec<&'static dyn Scheme>,
+    registry: CompressionSession,
 ) -> VortexResult<VortexSession> {
     let session = vortex_array::array_session()
-        .with_some(CompressionSession::empty())
+        .with_some(registry)
         .with::<EditionSession>();
-    for scheme in schemes {
-        session.register_scheme(scheme);
-    }
     for family in EDITION_FAMILIES {
         session.editions().declare_family(family)?;
     }
@@ -431,7 +428,10 @@ fn edition_session(
 
 #[test]
 fn golden_regular() -> VortexResult<()> {
-    let session = edition_session(&[CORE_2026_08_3], without_onpair(DEFAULT_SCHEMES.to_vec()))?;
+    let session = edition_session(
+        &[CORE_2026_08_3],
+        without_onpair(&CompressionSession::default()),
+    )?;
     let compressor = BtrBlocksCompressor::from_session(&session);
     golden_corpus_snapshots("regular", &compressor)
 }
@@ -439,7 +439,7 @@ fn golden_regular() -> VortexResult<()> {
 /// Pins OnPair's selection over FSST on the structured-string entry.
 #[test]
 fn golden_onpair() -> VortexResult<()> {
-    let session = edition_session(&[CORE_2026_08_3], DEFAULT_SCHEMES.to_vec())?;
+    let session = edition_session(&[CORE_2026_08_3], CompressionSession::default())?;
     let compressor = BtrBlocksCompressor::from_session(&session);
     golden_snapshots(
         "onpair",
@@ -451,12 +451,10 @@ fn golden_onpair() -> VortexResult<()> {
 #[cfg(all(feature = "zstd", feature = "pco"))]
 #[test]
 fn golden_compact() -> VortexResult<()> {
-    let schemes = DEFAULT_SCHEMES
-        .iter()
-        .chain(COMPACT_SCHEMES.iter())
-        .copied()
-        .collect();
-    let session = edition_session(&[CORE_2026_08_3], without_onpair(schemes))?;
+    let session = edition_session(
+        &[CORE_2026_08_3],
+        without_onpair(&CompressionSession::compact()),
+    )?;
     vortex_zstd::initialize(&session);
     session.enable_edition(vortex_zstd::editions::ZSTD_2026_02)?;
     let compressor = BtrBlocksCompressor::from_session(&session);

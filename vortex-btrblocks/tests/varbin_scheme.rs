@@ -17,7 +17,6 @@ use vortex_array::dtype::Nullability;
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_btrblocks::CompressionSession;
 use vortex_btrblocks::CompressionSessionExt;
-use vortex_btrblocks::DEFAULT_SCHEMES;
 use vortex_btrblocks::SchemeExt;
 use vortex_btrblocks::SchemeId;
 use vortex_btrblocks::schemes::binary::VarBinScheme;
@@ -32,7 +31,9 @@ const N: usize = 100_000;
 /// The default schemes minus `excluded`.
 fn default_without(excluded: SchemeId) -> BtrBlocksCompressor {
     let session = vortex_array::array_session().with_some(CompressionSession::empty());
-    for scheme in DEFAULT_SCHEMES
+    let default = CompressionSession::default();
+    for scheme in default
+        .schemes()
         .iter()
         .filter(|scheme| scheme.id() != excluded)
     {

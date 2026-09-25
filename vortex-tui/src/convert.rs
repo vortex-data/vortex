@@ -14,8 +14,7 @@ use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use vortex::VortexSessionDefault;
 use vortex::array::stream::ArrayStreamAdapter;
-use vortex::compressor::COMPACT_SCHEMES;
-use vortex::compressor::CompressionSessionExt;
+use vortex::compressor::CompressionSession;
 use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
 use vortex::file::WriteOptionsSessionExt;
@@ -102,9 +101,7 @@ pub async fn exec_convert(session: &VortexSession, flags: ConvertArgs) -> anyhow
     let compact_session;
     let session = if matches!(flags.strategy, Strategy::Compact) {
         compact_session = VortexSession::default().with_handle(session.handle());
-        for scheme in COMPACT_SCHEMES {
-            compact_session.register_scheme(*scheme);
-        }
+        compact_session.register(CompressionSession::compact());
         &compact_session
     } else {
         session

@@ -29,7 +29,7 @@ cargo run -p compress-bench --profile release_debug
 GPU dataset list in `src/main.rs`. It measures decompression only, for two backends:
 
 - **Vortex** — the file is written with CUDA-compatible BtrBlocks encodings only
-  (`use_cuda_schemes`) and a CUDA flat layout, then decoded on the device all the way to
+  (`CompressionSession::cuda()`) and a CUDA flat layout, then decoded on the device all the way to
   canonical arrays.
 - **Parquet** — the file is rewritten with GPU-friendly writer settings (see below) and read
   back with [cuDF](https://github.com/rapidsai/cudf)'s `read_parquet`, which performs the

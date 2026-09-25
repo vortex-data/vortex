@@ -30,8 +30,6 @@ use vortex_session::VortexSession;
 
 use crate::BtrBlocksCompressor;
 #[cfg(feature = "zstd")]
-use crate::COMPACT_SCHEMES;
-#[cfg(feature = "zstd")]
 use crate::CompressionSession;
 use crate::CompressionSessionExt;
 #[cfg(feature = "zstd")]
@@ -205,10 +203,7 @@ fn test_compact_binary_zstd_compressed() -> VortexResult<()> {
         DType::Binary(Nullability::NonNullable),
     );
 
-    let session = vortex_array::array_session();
-    for scheme in COMPACT_SCHEMES {
-        session.register_scheme(*scheme);
-    }
+    let session = vortex_array::array_session().with_some(CompressionSession::compact());
     let compressor = BtrBlocksCompressor::from_session_no_editions(&session);
     let mut ctx = SESSION.create_execution_ctx();
     let compressed = compressor.compress(&array.clone().into_array(), &mut ctx)?;

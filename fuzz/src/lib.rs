@@ -57,9 +57,7 @@ mod native_runtime {
 
     use vortex::VortexSessionDefault;
     #[cfg(feature = "zstd")]
-    use vortex::compressor::COMPACT_SCHEMES;
-    #[cfg(feature = "zstd")]
-    use vortex::compressor::CompressionSessionExt;
+    use vortex::compressor::CompressionSession;
     use vortex_io::runtime::BlockingRuntime;
     use vortex_io::runtime::current::CurrentThreadRuntime;
     use vortex_io::session::RuntimeSessionExt;
@@ -86,9 +84,7 @@ mod native_runtime {
     pub static COMPACT_SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::default().with_handle(RUNTIME.handle());
         super::enable_latest_core_edition(&session);
-        for scheme in COMPACT_SCHEMES {
-            session.register_scheme(*scheme);
-        }
+        session.register(CompressionSession::compact());
         session
     });
 }

@@ -9,8 +9,7 @@ use std::sync::Arc;
 use vortex::VortexSessionDefault;
 use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
-use vortex::compressor::COMPACT_SCHEMES;
-use vortex::compressor::CompressionSessionExt;
+use vortex::compressor::CompressionSession;
 use vortex::file::WriteStrategyBuilder;
 use vortex::session::VortexSession;
 use vortex_array::ExecutionCtx;
@@ -144,9 +143,7 @@ impl Fixture for DatasetFixtureAdapter {
         // session may be used.
         let session = VortexSession::default();
         if self.compact {
-            for scheme in COMPACT_SCHEMES {
-                session.register_scheme(*scheme);
-            }
+            session.register(CompressionSession::compact());
         }
         let strategy = WriteStrategyBuilder::from_session_no_editions(&session).build();
         adapter::write_compressed(&path, array, strategy)?;

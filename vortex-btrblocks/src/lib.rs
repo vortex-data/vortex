@@ -31,7 +31,7 @@
 //! Each `Scheme` implementation declares whether it [`matches`](Scheme::matches) a given
 //! canonical form and, if so, estimates the compression ratio (often by compressing a ~1%
 //! sample). The schemes available to a compressor are those registered on its session's
-//! [`CompressionSession`], which starts with [`DEFAULT_SCHEMES`].
+//! [`CompressionSession`], which starts with the default schemes.
 //! [`BtrBlocksCompressor::from_session`] keeps the registered schemes whose serialized IDs the
 //! session's enabled editions permit; [`from_session_no_editions`] keeps them all.
 //!
@@ -79,11 +79,8 @@ mod trace_tests;
 // Btrblocks-specific exports.
 pub use canonical_compressor::BtrBlocksCompressor;
 pub use schemes::patches::compress_patches;
-#[cfg(feature = "zstd")]
-pub use session::COMPACT_SCHEMES;
 pub use session::CompressionSession;
 pub use session::CompressionSessionExt;
-pub use session::DEFAULT_SCHEMES;
 pub use session::DELTA_SCHEME;
 pub use vortex_compressor::CascadingCompressor;
 pub use vortex_compressor::scheme::CompressorContext;

@@ -25,6 +25,7 @@ use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::struct_::StructArrayExt;
 use vortex::compressor::BtrBlocksCompressor;
+use vortex::compressor::CompressionSession;
 use vortex::error::VortexResult;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
@@ -49,7 +50,6 @@ use vortex_cuda::PooledFileReadAtOptions;
 use vortex_cuda::executor::CudaArrayExt;
 use vortex_cuda::layout::CudaFlatLayoutStrategy;
 use vortex_cuda::layout::register_cuda_layout;
-use vortex_cuda::layout::use_cuda_schemes;
 
 use crate::gpu::writer::GPU_ROW_GROUP_SIZE;
 
@@ -59,7 +59,7 @@ use crate::gpu::writer::GPU_ROW_GROUP_SIZE;
 static GPU_SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::default().with_tokio();
     register_cuda_layout(&session);
-    use_cuda_schemes(&session);
+    session.register(CompressionSession::cuda());
     session
 });
 

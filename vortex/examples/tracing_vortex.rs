@@ -39,8 +39,7 @@ use vortex::array::arrays::StructArray;
 use vortex::array::arrays::VarBinArray;
 use vortex::array::stream::ArrayStreamExt;
 use vortex::array::validity::Validity;
-use vortex::compressor::COMPACT_SCHEMES;
-use vortex::compressor::CompressionSessionExt;
+use vortex::compressor::CompressionSession;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex_file::OpenOptionsSessionExt;
@@ -54,9 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let session = VortexSession::default();
     // Use compact encodings (Pco + Zstd) for the telemetry files.
-    for scheme in COMPACT_SCHEMES {
-        session.register_scheme(*scheme);
-    }
+    session.register(CompressionSession::compact());
 
     // Create output directory
     let output_dir: PathBuf = "vortex-traces/".into();
