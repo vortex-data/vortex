@@ -150,10 +150,6 @@ name = "row_fn_bool_retry"
 harness = false
 
 [[bench]]
-name = "row_fn_utf8"
-harness = false
-
-[[bench]]
 name = "row_fn_output"
 harness = false
 
