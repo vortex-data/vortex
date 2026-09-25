@@ -151,7 +151,6 @@ mod tests {
     use crate::expr::bound;
     use crate::expr::case_when;
     use crate::expr::col;
-    use crate::expr::get_item;
     use crate::expr::gt;
     use crate::expr::gt_eq;
     use crate::expr::lt;
