@@ -10,7 +10,6 @@ use vortex_array::arrays::StructArray;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-
 use vortex_io::request::IoConsumer;
 use vortex_io::request::IoRequestId;
 use vortex_io::request::IoResult;
@@ -20,6 +19,7 @@ use vortex_scan::planning::planner::Planner;
 use vortex_scan::planning::planner::PlannerOutput;
 use vortex_scan::planning::planner::State;
 use vortex_scan::planning::planner::WorkScope;
+
 use crate::planning::OpenedFile;
 
 /// Emits one struct row `{ start: u64, end: u64 }` for a half-open candidate range, then
