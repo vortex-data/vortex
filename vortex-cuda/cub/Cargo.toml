@@ -19,6 +19,10 @@ publish = false
 [package.metadata.cargo-shear]
 ignored = ["libloading"]
 
+[package.metadata.cargo-machete]
+# Referenced only by bindgen's generated dynamic library loader.
+ignored = ["libloading"]
+
 [lints]
 workspace = true
 

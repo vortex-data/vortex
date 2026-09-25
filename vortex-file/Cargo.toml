@@ -15,7 +15,6 @@ version = { workspace = true }
 all-features = true
 
 [dependencies]
-async-stream = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
 flatbuffers = { workspace = true }
