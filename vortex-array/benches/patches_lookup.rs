@@ -4,18 +4,25 @@
 #![expect(clippy::unwrap_used)]
 #![expect(clippy::cast_possible_truncation)]
 
+use std::sync::LazyLock;
+
 use divan::Bencher;
 use mimalloc::MiMalloc;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
+use vortex_array::array_session;
 use vortex_array::patches::PATCH_CHUNK_SIZE;
 use vortex_array::patches::Patches;
 use vortex_buffer::Buffer;
+use vortex_session::VortexSession;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
 fn main() {
     divan::main();
@@ -104,10 +111,10 @@ fn queries_full_range() -> Vec<usize> {
 
 fn bench_search_index(bencher: Bencher, patches: Patches, queries: Vec<usize>) {
     bencher
-        .with_inputs(|| (&patches, &queries))
-        .bench_refs(|(patches, queries)| {
+        .with_inputs(|| (&patches, &queries, SESSION.create_execution_ctx()))
+        .bench_refs(|(patches, queries, ctx)| {
             for &q in queries.iter() {
-                divan::black_box(patches.search_index(q).unwrap());
+                divan::black_box(patches.search_index(q, ctx).unwrap());
             }
         });
 }
