@@ -21,11 +21,13 @@ use crate::CascadingCompressor;
 /// # Examples
 ///
 /// ```rust
-/// use vortex_btrblocks::{BtrBlocksCompressor, BtrBlocksCompressorBuilder, Scheme, SchemeExt};
+/// use vortex_btrblocks::{
+///     BtrBlocksCompressor, BtrBlocksCompressorBuilder, CompressionSession, Scheme, SchemeExt,
+/// };
 /// use vortex_btrblocks::schemes::integer::IntDictScheme;
 /// use vortex_session::VortexSession;
 ///
-/// let session = VortexSession::empty();
+/// let session = VortexSession::empty().with::<CompressionSession>();
 ///
 /// // Compressor with every scheme registered on the session.
 /// let compressor = BtrBlocksCompressor::from_session(&session);

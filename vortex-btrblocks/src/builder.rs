@@ -37,11 +37,11 @@ pub static DELTA_SCHEME: integer::DeltaScheme = integer::DeltaScheme::new(1.25);
 /// # Examples
 ///
 /// ```rust
-/// use vortex_btrblocks::{BtrBlocksCompressorBuilder, Scheme, SchemeExt};
+/// use vortex_btrblocks::{BtrBlocksCompressorBuilder, CompressionSession, Scheme, SchemeExt};
 /// use vortex_btrblocks::schemes::integer::IntDictScheme;
 /// use vortex_session::VortexSession;
 ///
-/// let session = VortexSession::empty();
+/// let session = VortexSession::empty().with::<CompressionSession>();
 ///
 /// // Compressor with every scheme registered on the session.
 /// let compressor = BtrBlocksCompressorBuilder::from_session(&session).build();
@@ -187,7 +187,9 @@ mod tests {
     use super::*;
 
     fn default_builder() -> BtrBlocksCompressorBuilder {
-        BtrBlocksCompressorBuilder::from_session(&VortexSession::empty())
+        BtrBlocksCompressorBuilder::from_session(
+            &VortexSession::empty().with::<CompressionSession>(),
+        )
     }
 
     #[test]
@@ -198,7 +200,7 @@ mod tests {
 
     #[test]
     fn from_session_includes_registered_schemes() {
-        let session = VortexSession::empty();
+        let session = VortexSession::empty().with::<CompressionSession>();
         let builder = BtrBlocksCompressorBuilder::from_session(&session);
         assert_eq!(
             builder.schemes.len(),

@@ -114,6 +114,7 @@ pub use vortex_array::scalar_fn;
 use vortex_array::scalar_fn::session::ScalarFnSession;
 use vortex_array::session::ArraySession;
 use vortex_array::stats::session::StatsSession;
+use vortex_btrblocks::CompressionSession;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::session::LayoutSession;
 use vortex_session::VortexSession;
@@ -311,7 +312,8 @@ pub mod encodings {
 /// Extension trait to create a default Vortex session.
 pub trait VortexSessionDefault {
     /// Creates a default Vortex session with standard arrays, layouts, scalar functions,
-    /// optimizer kernels, expressions, aggregate functions, and runtime support.
+    /// optimizer kernels, expressions, aggregate functions, compression schemes, and runtime
+    /// support.
     fn default() -> VortexSession;
 }
 
@@ -326,6 +328,7 @@ impl VortexSessionDefault for VortexSession {
             .with::<StatsSession>()
             .with::<AggregateFnSession>()
             .with::<MemorySession>()
+            .with::<CompressionSession>()
             .with::<RuntimeSession>();
         vortex_arrow::initialize(&session);
         vortex_parquet_variant::initialize(&session);
