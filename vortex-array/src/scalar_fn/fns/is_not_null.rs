@@ -230,6 +230,8 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::StructFields;
     use crate::expr::and;
+    use crate::expr::BoundExpression;
+    use crate::expr::Expression;
     use crate::expr::col;
     use crate::expr::eq;
     use crate::expr::get_item;
@@ -269,11 +271,21 @@ mod tests {
         DType::Struct(StructFields::new(names, fields), Nullability::NonNullable)
     }
 
+    fn optimized(expr: Expression, scope: &DType) -> VortexResult<BoundExpression> {
+        expr.bind(scope)?.optimize()
+    }
+
     #[test]
     fn reduce_to_constant() -> VortexResult<()> {
         let dtype = bool_dtype();
-        assert_eq!(is_not_null(col("b")).optimize(&dtype)?, lit(true));
-        assert_eq!(is_null(col("b")).optimize(&dtype)?, lit(false));
+        assert_eq!(
+            optimized(is_not_null(col("b")), &dtype)?,
+            lit(true).bind(&dtype)?
+        );
+        assert_eq!(
+            optimized(is_null(col("b")), &dtype)?,
+            lit(false).bind(&dtype)?
+        );
         Ok(())
     }
 
@@ -281,20 +293,20 @@ mod tests {
     fn reduce_kleene() -> VortexResult<()> {
         let dtype = bool_dtype();
         assert_eq!(
-            is_not_null(and(col("a"), col("b"))).optimize(&dtype)?,
-            or(is_not_null(col("a")), not(col("b")))
+            optimized(is_not_null(and(col("a"), col("b"))), &dtype)?,
+            or(is_not_null(col("a")), not(col("b"))).bind(&dtype)?
         );
         assert_eq!(
-            is_not_null(or(col("a"), col("b"))).optimize(&dtype)?,
-            or(is_not_null(col("a")), col("b"))
+            optimized(is_not_null(or(col("a"), col("b"))), &dtype)?,
+            or(is_not_null(col("a")), col("b")).bind(&dtype)?
         );
         assert_eq!(
-            is_null(and(col("a"), col("b"))).optimize(&dtype)?,
-            and(is_null(col("a")), col("b"))
+            optimized(is_null(and(col("a"), col("b"))), &dtype)?,
+            and(is_null(col("a")), col("b")).bind(&dtype)?
         );
         assert_eq!(
-            is_null(or(col("a"), col("b"))).optimize(&dtype)?,
-            and(is_null(col("a")), not(col("b")))
+            optimized(is_null(or(col("a"), col("b"))), &dtype)?,
+            and(is_null(col("a")), not(col("b"))).bind(&dtype)?
         );
         Ok(())
     }

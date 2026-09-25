@@ -23,7 +23,6 @@ use crate::child_to_validity;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::expr::BoundExpression;
-use crate::expr::Expression;
 use crate::expr::bound;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;

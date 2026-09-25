@@ -424,9 +424,9 @@ mod tests {
             .execute::<BoolArray>(ctx)?
             .opt_bool_vec(ctx);
 
-        let validity_expr = expr.validity(data.dtype())?;
+        let validity_expr = expr.bind(data.dtype())?.validity()?;
         let declared = data
-            .apply(&validity_expr)?
+            .apply_bound(&validity_expr)?
             .execute::<BoolArray>(ctx)?
             .bool_vec(ctx);
 

@@ -22,7 +22,6 @@ use crate::dtype::Nullability;
 use crate::expr::BoundExpression;
 use crate::expr::bound;
 use crate::expr::display::ExprDisplay;
-use crate::expr::expression::Expression;
 use crate::proto::expr as pb;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;

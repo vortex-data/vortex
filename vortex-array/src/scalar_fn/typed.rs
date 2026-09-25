@@ -24,7 +24,6 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::dtype::DType;
 use crate::expr::BoundExpression;
-use crate::expr::Expression;
 use crate::expr::display::ExprDisplay;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ArrayReduceNode;

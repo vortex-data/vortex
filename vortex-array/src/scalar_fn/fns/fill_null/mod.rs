@@ -23,7 +23,6 @@ use crate::arrays::ScalarFnArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::expr::BoundExpression;
-use crate::expr::Expression;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
