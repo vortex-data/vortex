@@ -49,6 +49,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::validity::Validity;
 use vortex_btrblocks::BtrBlocksCompressor;
+use vortex_btrblocks::BtrBlocksOptions;
 use vortex_btrblocks::CompressionSession;
 use vortex_btrblocks::SchemeExt;
 use vortex_btrblocks::schemes::string::OnPairScheme;
@@ -394,16 +395,11 @@ fn list_of_int_runs() -> VortexResult<ArrayRef> {
 /// Excludes OnPair from the `regular` and `compact` variants: it beats FSST on
 /// `string_fsst_structured`, and those variants pin the FSST selection. OnPair's own decisions
 /// are pinned by [`golden_onpair`].
-fn without_onpair(registry: &CompressionSession) -> CompressionSession {
-    let mut filtered = CompressionSession::empty();
-    for scheme in registry
-        .schemes()
-        .iter()
-        .filter(|scheme| scheme.id() != OnPairScheme.id())
-    {
-        filtered.register(*scheme);
+fn without_onpair() -> BtrBlocksOptions {
+    BtrBlocksOptions {
+        exclude_schemes: vec![OnPairScheme.id()],
+        ..Default::default()
     }
-    filtered
 }
 
 /// A session with the schemes in `registry` and `editions` enabled.
@@ -428,11 +424,8 @@ fn edition_session(
 
 #[test]
 fn golden_regular() -> VortexResult<()> {
-    let session = edition_session(
-        &[CORE_2026_08_3],
-        without_onpair(&CompressionSession::default()),
-    )?;
-    let compressor = BtrBlocksCompressor::from_session(&session);
+    let session = edition_session(&[CORE_2026_08_3], CompressionSession::default())?;
+    let compressor = BtrBlocksCompressor::from_session_with_options(&session, &without_onpair());
     golden_corpus_snapshots("regular", &compressor)
 }
 
@@ -451,12 +444,9 @@ fn golden_onpair() -> VortexResult<()> {
 #[cfg(all(feature = "zstd", feature = "pco"))]
 #[test]
 fn golden_compact() -> VortexResult<()> {
-    let session = edition_session(
-        &[CORE_2026_08_3],
-        without_onpair(&CompressionSession::compact()),
-    )?;
+    let session = edition_session(&[CORE_2026_08_3], CompressionSession::compact())?;
     vortex_zstd::initialize(&session);
     session.enable_edition(vortex_zstd::editions::ZSTD_2026_02)?;
-    let compressor = BtrBlocksCompressor::from_session(&session);
+    let compressor = BtrBlocksCompressor::from_session_with_options(&session, &without_onpair());
     golden_corpus_snapshots("compact", &compressor)
 }

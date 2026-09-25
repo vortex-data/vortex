@@ -67,8 +67,6 @@ use vortex_array::stream::ArrayStreamExt;
 use vortex_array::validity::Validity;
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_btrblocks::BtrBlocksOptions;
-use vortex_btrblocks::CompressionSession;
-use vortex_btrblocks::CompressionSessionExt;
 use vortex_btrblocks::SchemeExt;
 use vortex_btrblocks::schemes::string::StringDictScheme;
 use vortex_buffer::Buffer;
@@ -104,9 +102,7 @@ use crate::VortexFile;
 use crate::WriteOptionsSessionExt;
 use crate::flatbuffers::footer as fb;
 use crate::footer::SegmentSpec;
-static SESSION: LazyLock<VortexSession> = LazyLock::new(new_session);
-
-fn new_session() -> VortexSession {
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = array_session()
         .with::<LayoutSession>()
         .with::<RuntimeSession>();
@@ -115,7 +111,7 @@ fn new_session() -> VortexSession {
     crate::enable_all_registered_array_encodings(&session);
 
     session
-}
+});
 
 fn strict_sorted(indices: Buffer<u64>) -> StrictSortedBuffer<u64> {
     StrictSortedBuffer::try_new(indices).expect("test indices should be strictly increasing")
@@ -2591,20 +2587,19 @@ async fn dict_probe_honours_configured_compressor() -> VortexResult<()> {
         "default builder should produce a dict layout for low-cardinality strings"
     );
 
-    let mut no_string_dict = CompressionSession::empty();
-    for scheme in SESSION
-        .registered_schemes()
-        .into_iter()
-        .filter(|scheme| scheme.id() != StringDictScheme.id())
-    {
-        no_string_dict.register(scheme);
-    }
-    let session = new_session();
-    session.register(no_string_dict);
     let mut buf = ByteBufferMut::empty();
-    let summary = session
+    let summary = SESSION
         .write_options()
-        .with_strategy(crate::strategy::WriteStrategyBuilder::from_session(&session).build())
+        .with_strategy(
+            crate::strategy::WriteStrategyBuilder::from_session_with_options(
+                &SESSION,
+                BtrBlocksOptions {
+                    exclude_schemes: vec![StringDictScheme.id()],
+                    ..Default::default()
+                },
+            )
+            .build(),
+        )
         .write(&mut buf, strings.to_array_stream())
         .await?;
     assert!(
