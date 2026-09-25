@@ -17,6 +17,7 @@ use vortex_array::ArrayView;
 use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
+use vortex_array::ParentRef;
 use vortex_array::TypedArrayRef;
 use vortex_array::array_slots;
 use vortex_array::buffer::BufferHandle;
@@ -305,7 +306,6 @@ pub(crate) trait DecimalBytePartsArrayExt: DecimalBytePartsArraySlotsExt {
     /// The decimal dtype of this array.
     fn decimal_dtype(&self) -> DecimalDType {
         *self
-            .as_ref()
             .dtype()
             .as_decimal_opt()
             .vortex_expect("must be a decimal dtype")
@@ -404,7 +404,6 @@ mod tests {
     use vortex_array::ArrayParts;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
-use vortex_array::ParentRef;
     use vortex_array::VortexSessionExecute;
     use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;

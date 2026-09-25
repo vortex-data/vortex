@@ -106,6 +106,7 @@ mod tests {
     use crate::array_session;
     use crate::arrays::Decimal;
     use crate::arrays::DecimalArray;
+    use crate::arrays::decimal::DecimalArrayExt;
     use crate::assert_arrays_eq;
     use crate::buffer::BufferHandle;
     use crate::buffer::DeviceBuffer;
@@ -206,7 +207,7 @@ mod tests {
         assert_eq!(actual_bytes, &expected_bytes);
         assert_eq!(actual_bytes.as_ptr(), expected_bytes.as_ptr());
         assert_arrays_eq!(
-            decimal.validity()?.to_array(nested.len()),
+            decimal.validity().to_array(nested.len()),
             validity.to_array(array.len()).slice(original_range)?,
             &mut ctx
         );

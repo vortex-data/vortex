@@ -71,9 +71,9 @@ impl ArrayPlugin for DecimalBytePartsPlugin {
             )
         })?;
         let serialized = if view.lower_parts().is_empty() {
-            v1::serialize(view)?
+            v1::serialize(view.materialize_view())?
         } else {
-            v2::serialize(view)?
+            v2::serialize(view.materialize_view())?
         };
         Ok(Some(serialized))
     }
