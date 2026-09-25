@@ -47,6 +47,8 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::Nullability;
 use vortex_array::extension::datetime::TimeUnit;
+#[cfg(feature = "pco")]
+use vortex_array::session::ArraySessionExt;
 use vortex_array::validity::Validity;
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
@@ -60,7 +62,7 @@ use vortex_edition::declarations::core::CORE_2026_08_3;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_btrblocks::test_harness::session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 /// Number of values in each numeric corpus entry: comfortably above the 1024-value sampling
 /// threshold so scheme selection runs on sampled estimates, as it does for real file chunks.
@@ -401,7 +403,19 @@ fn without_onpair(builder: BtrBlocksCompressorBuilder) -> BtrBlocksCompressorBui
 
 fn edition_session(editions: &[EditionId]) -> VortexResult<VortexSession> {
     let session = vortex_array::array_session().with::<EditionSession>();
-    vortex_btrblocks::test_harness::register_encodings(&session);
+    // The compressor only produces encodings registered on the session.
+    vortex_alp::initialize(&session);
+    vortex_datetime_parts::initialize(&session);
+    vortex_decimal_byte_parts::initialize(&session);
+    vortex_fastlanes::initialize(&session);
+    vortex_fsst::initialize(&session);
+    vortex_onpair::initialize(&session);
+    vortex_runend::initialize(&session);
+    vortex_sequence::initialize(&session);
+    vortex_sparse::initialize(&session);
+    vortex_zigzag::initialize(&session);
+    #[cfg(feature = "pco")]
+    session.arrays().register(vortex_pco::Pco);
     for family in EDITION_FAMILIES {
         session.editions().declare_family(family)?;
     }

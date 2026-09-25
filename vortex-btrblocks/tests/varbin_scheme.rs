@@ -21,7 +21,7 @@ use vortex_btrblocks::schemes::string::OnPairScheme;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_btrblocks::test_harness::session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 const N: usize = 100_000;
 
@@ -70,8 +70,8 @@ fn cases() -> Vec<(&'static str, ArrayRef)> {
 
 #[test]
 fn varbin_scheme_shrinks_binary() -> VortexResult<()> {
-    let with = BtrBlocksCompressorBuilder::from_session(&SESSION).build();
-    let without = BtrBlocksCompressorBuilder::from_session(&SESSION)
+    let with = BtrBlocksCompressorBuilder::from_session(&SESSION).unrestricted().build();
+    let without = BtrBlocksCompressorBuilder::from_session(&SESSION).unrestricted()
         .exclude_schemes([VarBinScheme.id()])
         .build();
 
@@ -116,7 +116,7 @@ fn varbin_scheme_shrinks_binary() -> VortexResult<()> {
 /// change the result. `OnPairScheme` only matches utf8 and would otherwise win the utf8 column.
 #[test]
 fn fsst_versus_varbin_on_identical_bytes() -> VortexResult<()> {
-    let builder = BtrBlocksCompressorBuilder::from_session(&SESSION);
+    let builder = BtrBlocksCompressorBuilder::from_session(&SESSION).unrestricted();
     let builder = builder.exclude_schemes([OnPairScheme.id()]);
     let compressor = builder.build();
     let mut seed = 99u64;

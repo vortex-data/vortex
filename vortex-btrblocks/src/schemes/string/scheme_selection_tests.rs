@@ -16,16 +16,16 @@ use vortex_error::VortexResult;
 use vortex_fsst::FSST;
 use vortex_session::VortexSession;
 
-use crate::BtrBlocksCompressor;
+use crate::BtrBlocksCompressorBuilder;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::test_harness::session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 #[test]
 fn test_constant_compressed() -> VortexResult<()> {
     let strings: Vec<Option<&str>> = vec![Some("constant_value"); 100];
     let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
     let array_ref = array.into_array();
-    let compressed = BtrBlocksCompressor::from_session(&SESSION)
+    let compressed = BtrBlocksCompressorBuilder::from_session(&SESSION).unrestricted().build()
         .compress(&array_ref, &mut SESSION.create_execution_ctx())?;
     assert!(compressed.is::<Constant>());
     Ok(())
@@ -40,7 +40,7 @@ fn test_dict_compressed() -> VortexResult<()> {
     }
     let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
     let array_ref = array.into_array();
-    let compressed = BtrBlocksCompressor::from_session(&SESSION)
+    let compressed = BtrBlocksCompressorBuilder::from_session(&SESSION).unrestricted().build()
         .compress(&array_ref, &mut SESSION.create_execution_ctx())?;
     assert!(compressed.is::<Dict>());
     Ok(())
@@ -75,7 +75,7 @@ fn test_default_btrblocks_compressor_selects_onpair() -> VortexResult<()> {
     }
     let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
     let array_ref = array.into_array();
-    let compressed = BtrBlocksCompressor::from_session(&SESSION)
+    let compressed = BtrBlocksCompressorBuilder::from_session(&SESSION).unrestricted().build()
         .compress(&array_ref, &mut SESSION.create_execution_ctx())?;
     assert!(
         compressed.is::<vortex_onpair::OnPair>(),

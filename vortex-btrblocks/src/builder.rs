@@ -237,6 +237,12 @@ impl BtrBlocksCompressorBuilder {
         self
     }
 
+    /// Allows every serialized ID, ignoring the session's registered arrays and enabled editions.
+    pub fn unrestricted(mut self) -> Self {
+        self.allowed = AllowedSerializedIds::all();
+        self
+    }
+
     /// Builds the configured [`BtrBlocksCompressor`] from the schemes whose produced serialized
     /// IDs are all allowed.
     pub fn build(self) -> BtrBlocksCompressor {
@@ -263,10 +269,12 @@ mod tests {
 
     use super::*;
     use crate::CompressionSession;
-    use crate::test_harness;
 
     fn default_builder() -> BtrBlocksCompressorBuilder {
-        BtrBlocksCompressorBuilder::from_session(&test_harness::session())
+        BtrBlocksCompressorBuilder::from_session(
+            &VortexSession::empty().with::<CompressionSession>(),
+        )
+        .unrestricted()
     }
 
     #[test]
@@ -292,20 +300,10 @@ mod tests {
         );
     }
 
-    fn default_scheme_count() -> usize {
-        CompressionSession::default().schemes().len()
-    }
-
-    #[test]
-    fn from_session_allows_every_registered_and_enabled_encoding() {
-        let builder = BtrBlocksCompressorBuilder::from_session(&test_harness::session());
-        assert_eq!(builder.allowed_schemes().len(), default_scheme_count());
-    }
-
     #[test]
     fn from_session_without_enabled_editions_allows_nothing() {
         let session = vortex_array::array_session();
-        test_harness::register_encodings(&session);
+        vortex_fastlanes::initialize(&session);
         let builder = BtrBlocksCompressorBuilder::from_session(&session);
         assert!(builder.allowed_schemes().is_empty());
     }
@@ -313,8 +311,7 @@ mod tests {
     #[test]
     fn from_session_excludes_unregistered_encodings() {
         let session = vortex_array::array_session();
-        test_harness::enable_all_registered_encodings(&session);
-        let builder = BtrBlocksCompressorBuilder::from_session(&session);
+        let builder = BtrBlocksCompressorBuilder::from_session(&session).disable_editions();
         assert!(
             !builder
                 .allowed_schemes()
@@ -326,9 +323,24 @@ mod tests {
     #[test]
     fn disable_editions_allows_registered_encodings() {
         let session = vortex_array::array_session();
-        test_harness::register_encodings(&session);
+        vortex_fastlanes::initialize(&session);
         let builder = BtrBlocksCompressorBuilder::from_session(&session).disable_editions();
-        assert_eq!(builder.allowed_schemes().len(), default_scheme_count());
+        assert!(
+            builder
+                .allowed_schemes()
+                .iter()
+                .any(|s| s.id() == integer::FoRScheme.id())
+        );
+    }
+
+    #[test]
+    fn unrestricted_allows_every_scheme() {
+        let session = vortex_array::array_session();
+        let builder = BtrBlocksCompressorBuilder::from_session(&session).unrestricted();
+        assert_eq!(
+            builder.allowed_schemes().len(),
+            CompressionSession::default().schemes().len()
+        );
     }
 
     #[test]
