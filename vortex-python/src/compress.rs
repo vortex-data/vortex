@@ -56,7 +56,7 @@ pub fn compress(py: Python, array: PyArrayRef) -> PyVortexResult<PyArrayRef> {
     let session = session();
     let array = array.into_inner();
     let compressed = py.detach(move || {
-        BtrBlocksCompressor::from_session(&session)
+        BtrBlocksCompressor::from_session(session)
             .compress(&array, &mut session.create_execution_ctx())
     })?;
     Ok(PyArrayRef::from(compressed))

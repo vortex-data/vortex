@@ -9,7 +9,6 @@ use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::BtrBlocksCompressor;
 use crate::CascadingCompressor;
-use crate::CompressionSession;
 use crate::CompressionSessionExt;
 use crate::Scheme;
 use crate::SchemeExt;
@@ -19,9 +18,9 @@ use crate::schemes::float;
 use crate::schemes::integer;
 use crate::schemes::string;
 
-/// Delta, kept out of the default [`CompressionSession`] schemes because it is slower to
-/// decompress than the schemes that would otherwise win. Callers that want it opt in with
-/// [`with_new_scheme`](BtrBlocksCompressorBuilder::with_new_scheme).
+/// Delta, kept out of the default [`CompressionSession`](crate::CompressionSession) schemes
+/// because it is slower to decompress than the schemes that would otherwise win. Callers that
+/// want it opt in with [`with_new_scheme`](BtrBlocksCompressorBuilder::with_new_scheme).
 ///
 /// TODO(robert): Register it by default once we have scheme filtering.
 pub static DELTA_SCHEME: integer::DeltaScheme = integer::DeltaScheme::new(1.25);
@@ -29,10 +28,10 @@ pub static DELTA_SCHEME: integer::DeltaScheme = integer::DeltaScheme::new(1.25);
 /// Builder for creating configured [`BtrBlocksCompressor`] instances.
 ///
 /// [`from_session`](Self::from_session) starts from the schemes registered in the session's
-/// [`CompressionSession`], in registration order. Feature-gated schemes (Pco, Zstd) are not
-/// registered by default and must be registered on the session, or added explicitly via
-/// [`with_new_scheme`](BtrBlocksCompressorBuilder::with_new_scheme) or `with_compact` when the
-/// `zstd` feature is enabled.
+/// [`CompressionSession`](crate::CompressionSession), in registration order. Feature-gated
+/// schemes (Pco, Zstd) are not registered by default and must be registered on the session, or
+/// added explicitly via [`with_new_scheme`](BtrBlocksCompressorBuilder::with_new_scheme) or
+/// `with_compact` when the `zstd` feature is enabled.
 ///
 /// # Examples
 ///
@@ -57,7 +56,8 @@ pub struct BtrBlocksCompressorBuilder {
 }
 
 impl BtrBlocksCompressorBuilder {
-    /// Creates a builder with every scheme registered in the session's [`CompressionSession`].
+    /// Creates a builder with every scheme registered in the session's
+    /// [`CompressionSession`](crate::CompressionSession).
     pub fn from_session(session: &VortexSession) -> Self {
         Self {
             schemes: session.compression().schemes().to_vec(),
@@ -185,6 +185,7 @@ mod tests {
     use vortex_fastlanes::FoR;
 
     use super::*;
+    use crate::CompressionSession;
 
     fn default_builder() -> BtrBlocksCompressorBuilder {
         BtrBlocksCompressorBuilder::from_session(

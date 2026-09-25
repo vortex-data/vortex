@@ -70,6 +70,7 @@ mod builder;
 mod canonical_compressor;
 /// Compression scheme implementations.
 pub mod schemes;
+mod session;
 #[cfg(test)]
 #[cfg(not(codspeed))]
 mod trace_tests;
