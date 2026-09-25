@@ -19,6 +19,9 @@ use crate::expr::display::DisplayTreeExpr;
 use crate::expr::traversal::TraversalOrder;
 use crate::expr::traversal::pre_order_visit_down;
 use crate::scalar_fn::EmptyOptions;
+use crate::scalar_fn::ExpressionReduceNode;
+use crate::scalar_fn::ReduceNode;
+use crate::scalar_fn::ReduceNodeValidity;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
@@ -162,14 +165,24 @@ impl Expression {
 
     /// Returns a new expression representing the validity mask output of this expression.
     ///
-    /// The returned expression evaluates to a non-nullable boolean array.
-    pub fn validity(&self) -> VortexResult<Expression> {
+    /// Returned expression evaluates to a non-nullable boolean array.
+    /// When scalar function's validity is irreducible, returns
+    /// "is_not_null(self)", which requires evaluating "self".
+    pub fn validity(&self, scope: &DType) -> VortexResult<Expression> {
         match self {
             // The scope is exactly as valid as itself.
             Self::Root => Ok(Self::Root),
-            Self::Scalar { scalar_fn, .. } => Ok(scalar_fn
-                .validity(self)?
-                .unwrap_or_else(|| IsNotNull.new_expr(EmptyOptions, [self.clone()]))),
+            Self::Scalar { .. } => {
+                let node = ExpressionReduceNode::new(self, scope);
+                Ok(match node.validity()? {
+                    ReduceNodeValidity::Reduced(reduced) => reduced.into_expression(),
+                    // IsNotNull(x) -> x.validity() symbolic reduction rule works only
+                    // when node's.validity is Reduced to avoid infinite recursion.
+                    ReduceNodeValidity::Irreducible => {
+                        IsNotNull.new_expr(EmptyOptions, [self.clone()])
+                    }
+                })
+            }
         }
     }
 

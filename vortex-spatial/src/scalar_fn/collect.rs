@@ -30,12 +30,9 @@ use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ExecutionArgs;
-use vortex_array::scalar_fn::ReduceNode;
-use vortex_array::scalar_fn::ReduceNodeValidity;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::TypedScalarFnInstance;
-use vortex_array::scalar_fn::union_child_validities;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
@@ -304,14 +301,6 @@ impl ScalarFnVTable for SpatialCollect {
             |execution, ctx| execute_collect(execution, &output_dtype, ctx),
             ctx,
         )
-    }
-
-    fn validity<T: ReduceNode>(
-        &self,
-        _: &Self::Options,
-        node: &T,
-    ) -> VortexResult<ReduceNodeValidity<T>> {
-        Ok(ReduceNodeValidity::Reduced(union_child_validities(node)?))
     }
 
     fn is_strict(&self, _: &Self::Options) -> bool {

@@ -31,12 +31,9 @@ use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ExecutionArgs;
-use vortex_array::scalar_fn::ReduceNode;
-use vortex_array::scalar_fn::ReduceNodeValidity;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
-use vortex_array::scalar_fn::union_child_validities;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
@@ -178,14 +175,6 @@ impl ScalarFnVTable for L2Normalize {
             )?
             .into_array())
         })
-    }
-
-    fn validity<T: ReduceNode>(
-        &self,
-        _options: &Self::Options,
-        node: &T,
-    ) -> VortexResult<ReduceNodeValidity<T>> {
-        Ok(ReduceNodeValidity::Reduced(union_child_validities(node)?))
     }
 
     fn is_strict(&self, _options: &Self::Options) -> bool {

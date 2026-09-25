@@ -118,7 +118,7 @@ fn probe_scalar_fn_valid_repeated(bencher: Bencher, array: &ArrayRef) {
         })
         .bench_refs(|(probe, indices, ctx)| {
             for &index in indices.iter() {
-                black_box(probe.execute_is_invalid(index, ctx).unwrap());
+                black_box(probe.execute_is_valid(index, ctx).unwrap());
             }
         });
 }
