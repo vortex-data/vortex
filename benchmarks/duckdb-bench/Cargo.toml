@@ -13,9 +13,6 @@ rust-version.workspace = true
 version.workspace = true
 publish = false
 
-[package.metadata.cargo-shear]
-ignored = ["vortex-cuda"]
-
 [[bin]]
 name = "duckdb-bench"
 test = false
@@ -31,11 +28,7 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 vortex = { workspace = true }
 vortex-bench = { workspace = true }
-vortex-cuda = { workspace = true, optional = true }
 vortex-duckdb = { workspace = true }
-
-[features]
-cuda = ["dep:vortex-cuda"]
 
 [lints]
 workspace = true

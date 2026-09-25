@@ -21,12 +21,15 @@ all-features = true
 # Referenced only by the generated Protocol Buffers bindings.
 ignored = ["prost-types"]
 
+[package.metadata.cargo-machete]
+# Referenced only by the generated Protocol Buffers bindings.
+ignored = ["prost-types"]
+
 [lints]
 workspace = true
 
 [dependencies]
 arbitrary = { workspace = true, optional = true }
-arc-swap = { workspace = true }
 arcref = { workspace = true }
 arrow-buffer = { workspace = true }
 async-lock = { workspace = true }
