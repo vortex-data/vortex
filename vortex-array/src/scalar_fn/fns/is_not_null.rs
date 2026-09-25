@@ -229,9 +229,9 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::StructFields;
-    use crate::expr::and;
     use crate::expr::BoundExpression;
     use crate::expr::Expression;
+    use crate::expr::and;
     use crate::expr::col;
     use crate::expr::eq;
     use crate::expr::get_item;

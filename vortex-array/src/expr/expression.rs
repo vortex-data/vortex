@@ -20,7 +20,6 @@ use crate::expr::traversal::TraversalOrder;
 use crate::expr::traversal::pre_order_visit_down;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::ScalarFnVTableExt;
 
 /// An empty child slice, returned by [`Expression::children`] for childless variants.
 const NO_CHILDREN: &[Expression] = &[];
