@@ -4,6 +4,10 @@
 //! Builder for configuring `BtrBlocksCompressor` instances.
 
 use vortex_array::ArrayId;
+use vortex_edition::ComponentKind;
+use vortex_edition::EditionSessionExt;
+use vortex_edition::EnabledEditions;
+use vortex_session::SessionExt;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_set::HashSet;
 
@@ -25,6 +29,53 @@ use crate::schemes::string;
 /// TODO(robert): Register it by default once we have scheme filtering.
 pub static DELTA_SCHEME: integer::DeltaScheme = integer::DeltaScheme::new(1.25);
 
+/// The serialized array IDs a compressor's schemes may produce.
+///
+/// An ID is allowed when it is not in `blacklist` and either `allow_all` is set or the ID is in
+/// `allowlist`. A scheme is kept only if every ID it declares in
+/// [`produced_encodings`](Scheme::produced_encodings) is allowed.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AllowedSerializedIds {
+    /// Allow every ID not in `blacklist`, ignoring `allowlist`.
+    pub allow_all: bool,
+    /// IDs allowed when `allow_all` is unset.
+    pub allowlist: HashSet<ArrayId>,
+    /// IDs never allowed.
+    pub blacklist: HashSet<ArrayId>,
+}
+
+impl AllowedSerializedIds {
+    /// Allows every serialized ID.
+    pub fn all() -> Self {
+        Self {
+            allow_all: true,
+            ..Self::default()
+        }
+    }
+
+    /// Allows exactly the serialized array IDs the session's enabled editions permit.
+    ///
+    /// A session without [`EnabledEditions`] has no edition restriction, so every ID is allowed.
+    pub fn from_session(session: &VortexSession) -> Self {
+        if session.get_opt::<EnabledEditions>().is_none() {
+            return Self::all();
+        }
+        Self {
+            allow_all: false,
+            allowlist: session
+                .enabled_component_ids(ComponentKind::Array)
+                .into_iter()
+                .collect(),
+            blacklist: HashSet::default(),
+        }
+    }
+
+    /// Returns whether `id` is allowed.
+    pub fn is_allowed(&self, id: &ArrayId) -> bool {
+        !self.blacklist.contains(id) && (self.allow_all || self.allowlist.contains(id))
+    }
+}
+
 /// Builder for creating configured [`BtrBlocksCompressor`] instances.
 ///
 /// [`from_session`](Self::from_session) starts from the schemes registered in the session's
@@ -32,6 +83,10 @@ pub static DELTA_SCHEME: integer::DeltaScheme = integer::DeltaScheme::new(1.25);
 /// schemes (Pco, Zstd) are not registered by default and must be registered on the session, or
 /// added explicitly via [`with_new_scheme`](BtrBlocksCompressorBuilder::with_new_scheme) or
 /// `with_compact` when the `zstd` feature is enabled.
+///
+/// The builder also carries the [`AllowedSerializedIds`] its schemes may produce, taken from the
+/// session's enabled editions. [`build`](Self::build) drops every scheme that produces an ID
+/// outside it.
 ///
 /// # Examples
 ///
@@ -53,23 +108,28 @@ pub static DELTA_SCHEME: integer::DeltaScheme = integer::DeltaScheme::new(1.25);
 #[derive(Debug, Clone)]
 pub struct BtrBlocksCompressorBuilder {
     schemes: Vec<&'static dyn Scheme>,
+    allowed: AllowedSerializedIds,
 }
 
 impl BtrBlocksCompressorBuilder {
     /// Creates a builder with every scheme registered in the session's
-    /// [`CompressionSession`](crate::CompressionSession).
+    /// [`CompressionSession`](crate::CompressionSession), allowing the serialized IDs the
+    /// session's enabled editions permit.
     pub fn from_session(session: &VortexSession) -> Self {
         Self {
             schemes: session.compression().schemes().to_vec(),
+            allowed: AllowedSerializedIds::from_session(session),
         }
     }
 
     /// Creates a builder with no schemes registered.
     ///
     /// Useful when the caller wants explicit, scheme-by-scheme control over the compressor.
+    /// Every serialized ID is allowed.
     pub fn empty() -> Self {
         Self {
             schemes: Vec::new(),
+            allowed: AllowedSerializedIds::all(),
         }
     }
 
@@ -163,19 +223,45 @@ impl BtrBlocksCompressorBuilder {
         self
     }
 
-    /// Retains only schemes whose produced serialized IDs all belong to `allowed`.
+    /// Replaces the allowlist with `allowed`, keeping the blacklist, so that on
+    /// [`build`](Self::build) only schemes whose produced serialized IDs all belong to `allowed`
+    /// are retained.
     ///
     /// `allowed` holds serialized IDs. The file writer passes the array IDs its enabled editions
     /// permit.
     pub fn retain_allowed_encodings(mut self, allowed: &HashSet<ArrayId>) -> Self {
-        self.schemes
-            .retain(|s| s.produced_encodings().iter().all(|id| allowed.contains(id)));
+        self.allowed.allow_all = false;
+        self.allowed.allowlist = allowed.clone();
         self
     }
 
-    /// Builds the configured [`BtrBlocksCompressor`].
+    /// Replaces the serialized IDs the compressor's schemes may produce.
+    pub fn with_allowed_serialized_ids(mut self, allowed: AllowedSerializedIds) -> Self {
+        self.allowed = allowed;
+        self
+    }
+
+    /// Returns the serialized IDs the compressor's schemes may produce.
+    pub fn allowed_serialized_ids(&self) -> &AllowedSerializedIds {
+        &self.allowed
+    }
+
+    /// Builds the configured [`BtrBlocksCompressor`] from the schemes whose produced serialized
+    /// IDs are all allowed.
     pub fn build(self) -> BtrBlocksCompressor {
-        BtrBlocksCompressor(CascadingCompressor::new(self.schemes))
+        BtrBlocksCompressor(CascadingCompressor::new(self.allowed_schemes()))
+    }
+
+    fn allowed_schemes(&self) -> Vec<&'static dyn Scheme> {
+        self.schemes
+            .iter()
+            .copied()
+            .filter(|s| {
+                s.produced_encodings()
+                    .iter()
+                    .all(|id| self.allowed.is_allowed(id))
+            })
+            .collect()
     }
 }
 
@@ -219,12 +305,45 @@ mod tests {
     #[test]
     fn retain_allowed_encodings_filters_schemes() {
         let allowed: HashSet<ArrayId> = [FoR.id()].into_iter().collect();
-        let builder = default_builder().retain_allowed_encodings(&allowed);
-        assert_eq!(builder.schemes.len(), 1);
-        assert_eq!(builder.schemes[0].id(), integer::FoRScheme.id());
+        let schemes = default_builder()
+            .retain_allowed_encodings(&allowed)
+            .allowed_schemes();
+        assert_eq!(schemes.len(), 1);
+        assert_eq!(schemes[0].id(), integer::FoRScheme.id());
 
         let none = default_builder().retain_allowed_encodings(&HashSet::new());
-        assert!(none.schemes.is_empty());
+        assert!(none.allowed_schemes().is_empty());
+    }
+
+    #[test]
+    fn blacklist_overrides_allow_all() {
+        let allowed = AllowedSerializedIds {
+            blacklist: [FoR.id()].into_iter().collect(),
+            ..AllowedSerializedIds::all()
+        };
+        let schemes = default_builder()
+            .with_allowed_serialized_ids(allowed)
+            .allowed_schemes();
+        assert!(!schemes.iter().any(|s| s.id() == integer::FoRScheme.id()));
+        assert_eq!(
+            schemes.len(),
+            CompressionSession::default().schemes().len() - 1
+        );
+    }
+
+    #[test]
+    fn from_session_allows_all_without_editions() {
+        assert!(default_builder().allowed_serialized_ids().allow_all);
+    }
+
+    #[test]
+    fn from_session_takes_allowlist_from_enabled_editions() {
+        let session = VortexSession::empty().with::<CompressionSession>();
+        // Installs an empty edition selection, which permits no arrays.
+        drop(session.enabled_editions());
+        let builder = BtrBlocksCompressorBuilder::from_session(&session);
+        assert!(!builder.allowed_serialized_ids().allow_all);
+        assert!(builder.allowed_schemes().is_empty());
     }
 
     #[test]
@@ -236,7 +355,7 @@ mod tests {
             .collect();
         let builder = default_builder().retain_allowed_encodings(&allowed);
         assert_eq!(
-            builder.schemes.len(),
+            builder.allowed_schemes().len(),
             CompressionSession::default().schemes().len()
         );
     }
