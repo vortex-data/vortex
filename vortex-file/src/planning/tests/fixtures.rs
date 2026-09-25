@@ -15,14 +15,17 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use parking_lot::Mutex;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
-use vortex_array::VortexSessionExecute;
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
 use vortex_array::array_session;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::dtype::DType;
 use vortex_array::dtype::session::DTypeSessionExt;
+use vortex_array::expr::Expression;
 use vortex_array::session::ArraySessionExt;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
@@ -36,11 +39,16 @@ use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use crate::OpenOptionsSessionExt;
-use crate::VortexFile;
-use crate::VortexWriteOptions;
-use crate::WriteOptionsSessionExt;
 use vortex_io::VortexReadAt;
+use vortex_io::request::Completion;
+use vortex_io::request::IoBatch;
+use vortex_io::request::IoConsumer;
+use vortex_io::request::IoIntent;
+use vortex_io::request::IoOwnerId;
+use vortex_io::request::IoRequestId;
+use vortex_io::request::IoResult;
+use vortex_io::request::IoSource;
+use vortex_io::request::IoTarget;
 use vortex_io::runtime::BlockingRuntime;
 use vortex_io::runtime::current::CurrentThreadRuntime;
 use vortex_io::session::RuntimeSession;
@@ -50,16 +58,17 @@ use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::struct_::StructStrategy;
 use vortex_layout::session::LayoutSession;
 use vortex_layout::session::LayoutSessionExt;
-use vortex_session::VortexSession;
-
-use vortex_io::request::IoConsumer;
-use vortex_io::request::IoRequestId;
-use vortex_io::request::IoResult;
 use vortex_scan::planning::next::Next;
 use vortex_scan::planning::next::pending;
 use vortex_scan::planning::planner::Planner;
 use vortex_scan::planning::planner::PlannerOutput;
 use vortex_scan::planning::planner::State;
+use vortex_session::VortexSession;
+
+use crate::OpenOptionsSessionExt;
+use crate::VortexFile;
+use crate::VortexWriteOptions;
+use crate::WriteOptionsSessionExt;
 use crate::planning::OpenedFile;
 
 /// The one runtime every `block_on` in this crate's tests uses.
@@ -342,6 +351,123 @@ pub fn recording_child() -> (Next<OpenedFile>, Arc<AtomicBool>) {
 /// Execution context for comparing diagnostic arrays.
 pub fn ctx() -> ExecutionCtx {
     array_session().create_execution_ctx()
+}
+
+/// Writes the given chunks with a chunk-preserving strategy and asserts, through
+/// `VortexFile::splits`, that the natural splits equal the chunk ranges.
+pub fn write_chunked_test_file(columns: &[(&str, Vec<ArrayRef>)]) -> VortexResult<ByteBuffer> {
+    let array = zip_chunks(columns)?;
+    let buffer = write_with(chunk_preserving_strategy(), array)?;
+    let mut expected = Vec::new();
+    let mut start = 0u64;
+    for chunk in &columns[0].1 {
+        let end = start + chunk.len() as u64;
+        expected.push(start..end);
+        start = end;
+    }
+    assert_eq!(open_buffer(&buffer)?.splits()?, expected);
+    Ok(buffer)
+}
+
+/// Runs the existing scan over `buffer` with the same query, the reference for parity tests.
+pub fn reference_scan(
+    buffer: &ByteBuffer,
+    filter: Option<Expression>,
+    projection: Expression,
+) -> VortexResult<Vec<ArrayRef>> {
+    let file = open_buffer(buffer)?;
+    let filter = filter.map(|f| f.bind(file.dtype())).transpose()?;
+    let projection = projection.bind(file.dtype())?;
+    file.scan()?
+        .with_some_filter(filter)
+        .with_projection(projection)
+        .into_array_iter(&*RUNTIME)?
+        .collect()
+}
+
+/// Concatenates batches into one canonical array of `dtype`, so chunking does not affect
+/// comparison.
+pub fn concat(batches: Vec<ArrayRef>, dtype: &DType) -> VortexResult<ArrayRef> {
+    Ok(ChunkedArray::try_new(batches, dtype.clone())?
+        .into_array()
+        .execute::<Canonical>(&mut SESSION.create_execution_ctx())?
+        .into_array())
+}
+
+/// An [`IoSource`] over a real [`VortexReadAt`] that performs each fetch at submission and
+/// hands completions back newest first, so concurrently parked items complete in reverse
+/// submission order. Deterministic, unlike a source that races real reads.
+pub struct LifoReadAtIoSource {
+    read: Arc<dyn VortexReadAt>,
+    ready: Mutex<Vec<Completion>>,
+    submitted: Mutex<Vec<IoOwnerId>>,
+    completed: Mutex<Vec<IoOwnerId>>,
+}
+
+impl LifoReadAtIoSource {
+    pub fn new(read: Arc<dyn VortexReadAt>) -> Self {
+        Self {
+            read,
+            ready: Mutex::default(),
+            submitted: Mutex::default(),
+            completed: Mutex::default(),
+        }
+    }
+
+    /// Owner ids in submission order, one per request.
+    pub fn submitted(&self) -> Vec<IoOwnerId> {
+        self.submitted.lock().clone()
+    }
+
+    /// Owner ids in the order their requests were handed back.
+    pub fn completed(&self) -> Vec<IoOwnerId> {
+        self.completed.lock().clone()
+    }
+}
+
+impl IoSource for LifoReadAtIoSource {
+    fn submit(&self, owner: IoOwnerId, batch: IoBatch) -> VortexResult<()> {
+        for request in batch
+            .into_iter()
+            .filter(|request| request.intent == IoIntent::Fetch)
+        {
+            self.submitted.lock().push(owner);
+            let result = match request.target {
+                IoTarget::Size => RUNTIME.block_on(self.read.size()).map(IoResult::Size),
+                IoTarget::Range { offset, len } => RUNTIME
+                    .block_on(self.read.read_at(offset, len, Alignment::none()))
+                    .map(IoResult::Bytes),
+            };
+            self.ready.lock().push(Completion {
+                owner,
+                request: request.request,
+                result,
+            });
+        }
+        Ok(())
+    }
+
+    fn poll(&self) -> VortexResult<Option<Completion>> {
+        Ok(None)
+    }
+
+    fn wait(&self) -> VortexResult<Completion> {
+        let completion = self
+            .ready
+            .lock()
+            .pop()
+            .ok_or_else(|| vortex_err!("LifoReadAtIoSource: wait with nothing outstanding"))?;
+        self.completed.lock().push(completion.owner);
+        Ok(completion)
+    }
+
+    fn release(&self, owner: IoOwnerId) {
+        self.ready.lock().retain(|c| c.owner != owner);
+    }
+
+    fn clear(&self) {
+        self.ready.lock().clear();
+    }
 }
 
 #[cfg(test)]
