@@ -6,10 +6,12 @@ mod arrays;
 use std::path::Path;
 use std::sync::Arc;
 
+use vortex::VortexSessionDefault;
 use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
 use vortex::compressor::BtrBlocksCompressorBuilder;
 use vortex::file::WriteStrategyBuilder;
+use vortex::session::VortexSession;
 use vortex_array::ExecutionCtx;
 use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
@@ -137,23 +139,17 @@ impl Fixture for DatasetFixtureAdapter {
     fn write(&self, dir: &Path, ctx: &mut ExecutionCtx) -> VortexResult<Vec<FixtureEntry>> {
         let array = self.inner.build(&ctx.session().arrow())?;
         let path = dir.join(self.name());
+        // Build the compressor from the session the fixture is written with, so it only chooses
+        // schemes whose encodings that session's enabled editions accept.
+        let session = VortexSession::default();
+        let mut compressor = BtrBlocksCompressorBuilder::from_session(&session);
         if self.compact {
-            let strategy = WriteStrategyBuilder::from_session(ctx.session())
-                .with_btrblocks_builder(
-                    BtrBlocksCompressorBuilder::from_session(ctx.session())
-                        .disable_editions()
-                        .with_compact(),
-                )
-                .build();
-            adapter::write_compressed(&path, array, strategy)?;
-        } else {
-            let strategy = WriteStrategyBuilder::from_session(ctx.session())
-                .with_btrblocks_builder(
-                    BtrBlocksCompressorBuilder::from_session(ctx.session()).disable_editions(),
-                )
-                .build();
-            adapter::write_compressed(&path, array, strategy)?;
+            compressor = compressor.with_compact();
         }
+        let strategy = WriteStrategyBuilder::from_session(&session)
+            .with_btrblocks_builder(compressor)
+            .build();
+        adapter::write_compressed(&path, array, strategy)?;
         Ok(vec![FixtureEntry {
             name: self.name().to_string(),
             description: self.description().to_string(),
