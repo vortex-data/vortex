@@ -162,6 +162,10 @@ name = "like"
 harness = false
 
 [[bench]]
+name = "list_contains_set"
+harness = false
+
+[[bench]]
 name = "interleave"
 harness = false
 
