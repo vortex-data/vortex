@@ -64,9 +64,7 @@ impl Iterator for DepthFirstArrayIterator {
 
     fn next(&mut self) -> Option<Self::Item> {
         let next = self.stack.pop()?;
-        for child in next.children().into_iter().rev() {
-            self.stack.push(child);
-        }
+        self.stack.extend(next.children().rev().cloned());
         Some(next)
     }
 }
@@ -715,25 +713,20 @@ impl ArrayRef {
     // ArrayVisitor delegation methods
 
     /// Returns an iterator over the children of the array: its non-None slots in order.
-    pub fn children_iter(&self) -> impl Iterator<Item = &ArrayRef> {
+    pub fn children(&self) -> impl DoubleEndedIterator<Item = &ArrayRef> {
         self.0.slots.iter().filter_map(|s| s.as_ref())
-    }
-
-    /// Returns the children of the array.
-    pub fn children(&self) -> Vec<ArrayRef> {
-        self.children_iter().cloned().collect()
     }
 
     /// Returns the number of children of the array.
     pub fn nchildren(&self) -> usize {
-        self.children_iter().count()
+        self.children().count()
     }
 
     /// Returns the nth child of the array without allocating a Vec.
     ///
     /// Returns `None` if the index is out of bounds.
     pub fn nth_child(&self, idx: usize) -> Option<&ArrayRef> {
-        self.children_iter().nth(idx)
+        self.children().nth(idx)
     }
 
     /// Returns the names of the children of the array: the slot names of the non-None slots
@@ -749,11 +742,8 @@ impl ArrayRef {
     }
 
     /// Returns the array's children with their names.
-    pub fn named_children(&self) -> Vec<(String, ArrayRef)> {
-        self.children_names()
-            .into_iter()
-            .zip(self.children_iter().cloned())
-            .collect()
+    pub fn named_children(&self) -> Vec<(String, &ArrayRef)> {
+        self.children_names().into_iter().zip(self.children()).collect()
     }
 
     /// Returns the data buffers of the array.
@@ -811,7 +801,6 @@ impl ArrayRef {
     /// Count the number of buffers encoded by self and all child arrays.
     pub fn nbuffers_recursive(&self) -> usize {
         self.children()
-            .iter()
             .map(|c| c.nbuffers_recursive())
             .sum::<usize>()
             + self.nbuffers()

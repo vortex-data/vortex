@@ -183,15 +183,15 @@ mod tests {
 
         assert!(!ArrayRef::ptr_eq(&array, &normalized));
 
-        let original_children = array.children();
-        let normalized_children = normalized.children();
+        let original_children = array.children().collect::<Vec<_>>();
+        let normalized_children = normalized.children().collect::<Vec<_>>();
         assert!(ArrayRef::ptr_eq(
-            &original_children[0],
-            &normalized_children[0]
+            original_children[0],
+            normalized_children[0]
         ));
         assert!(!ArrayRef::ptr_eq(
-            &original_children[1],
-            &normalized_children[1]
+            original_children[1],
+            normalized_children[1]
         ));
         assert_arrays_eq!(
             normalized_children[1],
