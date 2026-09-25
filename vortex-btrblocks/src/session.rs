@@ -18,14 +18,20 @@ use crate::schemes::integer;
 use crate::schemes::string;
 use crate::schemes::temporal;
 
+/// Delta, with the minimum compression ratio it needs after its decompression penalty.
+///
+/// No edition includes `fastlanes.delta` yet, so the session's enabled editions decide whether
+/// the compressor may use it. The CUDA preset excludes it.
+static DELTA_SCHEME: integer::DeltaScheme = integer::DeltaScheme::new(1.25);
+
 /// The compression schemes registered on a session, in registration order.
 ///
 /// [`BtrBlocksCompressorBuilder::from_session`](crate::BtrBlocksCompressorBuilder::from_session)
 /// starts from these schemes. Registration order is the compressor's tie-break order, so that
 /// scheme selection is deterministic.
 ///
-/// [`Default`] registers the built-in schemes. Feature-gated schemes (Pco, Zstd) and Delta are
-/// not registered by default.
+/// [`Default`] registers every built-in scheme, including Delta and the feature-gated Pco and
+/// Zstd schemes. The builder's preset decides which of them a compressor uses.
 #[derive(Clone, Debug)]
 pub struct CompressionSession {
     schemes: Vec<&'static dyn Scheme>,
@@ -48,7 +54,9 @@ impl Default for CompressionSession {
                 &integer::RunEndScheme,
                 &integer::SequenceScheme,
                 &integer::IntRLEScheme,
-                // Delta is omitted here: see `DELTA_SCHEME`.
+                &DELTA_SCHEME,
+                #[cfg(feature = "pco")]
+                &integer::PcoScheme,
                 ////////////////////////////////////////////////////////////////////////////////////
                 // Float schemes.
                 ////////////////////////////////////////////////////////////////////////////////////
@@ -57,6 +65,8 @@ impl Default for CompressionSession {
                 &float::FloatDictScheme,
                 &float::NullDominatedSparseScheme,
                 &float::FloatRLEScheme,
+                #[cfg(feature = "pco")]
+                &float::PcoScheme,
                 ////////////////////////////////////////////////////////////////////////////////////
                 // String schemes.
                 ////////////////////////////////////////////////////////////////////////////////////
@@ -66,11 +76,17 @@ impl Default for CompressionSession {
                 &string::FSSTScheme,
                 &string::OnPairScheme,
                 &string::NullDominatedSparseScheme,
+                #[cfg(feature = "zstd")]
+                &string::ZstdScheme,
                 ////////////////////////////////////////////////////////////////////////////////////
                 // Binary schemes.
                 ////////////////////////////////////////////////////////////////////////////////////
                 &binary::BinaryDictScheme,
                 &binary::VarBinScheme,
+                #[cfg(feature = "zstd")]
+                &binary::ZstdScheme,
+                #[cfg(feature = "zstd")]
+                &binary::ZstdBuffersScheme,
                 // Decimal schemes.
                 &decimal::DecimalScheme,
                 // Temporal schemes.

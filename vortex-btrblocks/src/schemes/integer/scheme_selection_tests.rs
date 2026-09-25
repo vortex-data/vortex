@@ -28,7 +28,6 @@ use vortex_session::VortexSession;
 use vortex_sparse::Sparse;
 
 use crate::BtrBlocksCompressorBuilder;
-use crate::DELTA_SCHEME;
 static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 #[test]
@@ -193,7 +192,6 @@ fn test_delta_compressed() -> VortexResult<()> {
 
     let btr = BtrBlocksCompressorBuilder::from_session(&SESSION)
         .unrestricted()
-        .with_new_scheme(&DELTA_SCHEME)
         .build();
     let compressed = btr.compress(
         &array.clone().into_array(),
@@ -234,7 +232,6 @@ fn test_delta_compressed_unaligned_length() -> VortexResult<()> {
 
     let btr = BtrBlocksCompressorBuilder::from_session(&SESSION)
         .unrestricted()
-        .with_new_scheme(&DELTA_SCHEME)
         .build();
     let compressed = btr.compress(
         &array.clone().into_array(),
@@ -264,7 +261,6 @@ fn test_delta_nullable_unaligned_sum() -> VortexResult<()> {
 
     let btr = BtrBlocksCompressorBuilder::from_session(&SESSION)
         .unrestricted()
-        .with_new_scheme(&DELTA_SCHEME)
         .build();
     let compressed = btr.compress(&array.clone().into_array(), &mut ctx)?;
     assert!(
