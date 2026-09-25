@@ -807,12 +807,10 @@ mod tests {
     use datafusion_physical_expr::projection::ProjectionExprs;
     use datafusion_physical_plan::filter_pushdown::PushedDown;
     use rstest::rstest;
-    use vortex::expr::Expression;
 
     use super::*;
     use crate::common_tests::TestSessionContext;
     use crate::convert::DefaultExpressionConvertor;
-    use crate::convert::ProcessedProjection;
     use crate::convert::scalar_from_df;
 
     #[rstest]
@@ -951,9 +949,13 @@ mod tests {
             }
         }
 
-        fn convert(&self, expr: &dyn PhysicalExpr) -> DFResult<Expression> {
+        fn convert(
+            &self,
+            expr: &dyn PhysicalExpr,
+            scope: &DType,
+        ) -> DFResult<vortex::expr::BoundExpression> {
             self.calls.convert.store(true, Ordering::Relaxed);
-            self.inner.convert(expr)
+            self.inner.convert(expr, scope)
         }
 
         fn split_projection(
@@ -961,9 +963,10 @@ mod tests {
             source_projection: ProjectionExprs,
             input_schema: &Schema,
             output_schema: &Schema,
-        ) -> DFResult<ProcessedProjection> {
+            scope: &DType,
+        ) -> DFResult<crate::convert::ProcessedProjection> {
             self.inner
-                .split_projection(source_projection, input_schema, output_schema)
+                .split_projection(source_projection, input_schema, output_schema, scope)
         }
     }
 

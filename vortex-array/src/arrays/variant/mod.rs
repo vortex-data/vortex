@@ -96,8 +96,8 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::expr::root;
-    use crate::expr::variant_get;
+    use crate::expr::bound::root;
+    use crate::expr::bound::variant_get;
     use crate::scalar::Scalar;
     use crate::scalar_fn::fns::variant_get::VariantPath;
 
@@ -380,14 +380,14 @@ mod tests {
         )])?;
         let variant = VariantArray::try_new(core_storage, Some(shredded.into_array()))?;
         let expr = variant_get(
-            root(),
+            root(variant.dtype().clone()),
             VariantPath::field("a"),
             Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
         );
 
         let result = variant
             .into_array()
-            .apply(&expr)?
+            .apply_bound(&expr)?
             .execute::<PrimitiveArray>(&mut array_session().create_execution_ctx())?;
 
         assert_arrays_eq!(
@@ -415,14 +415,14 @@ mod tests {
         let variant = VariantArray::try_new(core_storage, Some(shredded.into_array()))?;
 
         let value_expr = variant_get(
-            root(),
+            root(variant.dtype().clone()),
             VariantPath::field("value"),
             Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
         );
         let value_result = variant
             .clone()
             .into_array()
-            .apply(&value_expr)?
+            .apply_bound(&value_expr)?
             .execute::<PrimitiveArray>(&mut array_session().create_execution_ctx())?;
         assert_arrays_eq!(
             value_result,
@@ -431,14 +431,15 @@ mod tests {
         );
 
         let typed_value_expr = variant_get(
-            root(),
+            root(variant.dtype().clone()),
             VariantPath::field("typed_value"),
             Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
         );
-        let typed_value_result = variant
-            .into_array()
-            .apply(&typed_value_expr)?
-            .execute::<PrimitiveArray>(&mut array_session().create_execution_ctx())?;
+        let typed_value_result =
+            variant
+                .into_array()
+                .apply_bound(&typed_value_expr)?
+                .execute::<PrimitiveArray>(&mut array_session().create_execution_ctx())?;
         assert_arrays_eq!(
             typed_value_result,
             PrimitiveArray::from_option_iter([Some(40i32), Some(50), Some(60)]),

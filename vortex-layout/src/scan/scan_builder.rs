@@ -520,11 +520,11 @@ mod test {
     use vortex_array::dtype::StructFields;
     use vortex_array::expr::BoundExpression;
     use vortex_array::expr::ExactBoundExpr;
-    use vortex_array::expr::eq;
-    use vortex_array::expr::get_item;
-    use vortex_array::expr::is_not_null;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::root;
+    use vortex_array::expr::bound::eq;
+    use vortex_array::expr::bound::get_item;
+    use vortex_array::expr::bound::is_not_null;
+    use vortex_array::expr::bound::lit;
+    use vortex_array::expr::bound::root;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
     use vortex_io::runtime::BlockingRuntime;
@@ -562,8 +562,8 @@ mod test {
     #[test]
     fn bound_setters_preserve_identity() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let projection = eq(root(), lit(1_i32)).bind(&dtype)?;
-        let filter = eq(root(), lit(2_i32)).bind(&dtype)?;
+        let projection = eq(root(dtype.clone()), lit(1_i32));
+        let filter = eq(root(dtype), lit(2_i32));
         let expected_projection = ExactBoundExpr(projection.clone());
         let expected_filter = ExactBoundExpr(filter.clone());
         let reader = Arc::new(CountingLayoutReader::new(Arc::new(AtomicUsize::new(0))));
@@ -580,7 +580,7 @@ mod test {
     #[test]
     fn root_projection_produces_all_mask() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let projection = root().bind(&dtype)?;
+        let projection = root(dtype);
 
         assert_eq!(referenced_field_masks(&projection, None)?, [FieldMask::All]);
         Ok(())
@@ -589,8 +589,8 @@ mod test {
     #[test]
     fn nested_projection_preserves_field_path_in_split_mask() -> VortexResult<()> {
         let dtype = nested_dtype();
-        let projection = get_item("1", get_item("a", root())).bind(&dtype)?;
-        let filter = eq(get_item("2", get_item("a", root())), lit(0_i32)).bind(&dtype)?;
+        let projection = get_item("1", get_item("a", root(dtype.clone())));
+        let filter = eq(get_item("2", get_item("a", root(dtype))), lit(0_i32));
 
         let field_masks = referenced_field_masks(&projection, Some(&filter))?;
 
@@ -603,8 +603,8 @@ mod test {
     #[test]
     fn filter_path_covers_nested_projection_path() -> VortexResult<()> {
         let dtype = nested_dtype();
-        let projection = get_item("1", get_item("a", root())).bind(&dtype)?;
-        let filter = is_not_null(get_item("a", root())).bind(&dtype)?;
+        let projection = get_item("1", get_item("a", root(dtype.clone())));
+        let filter = is_not_null(get_item("a", root(dtype)));
 
         let field_masks = referenced_field_masks(&projection, Some(&filter))?;
 
@@ -615,8 +615,8 @@ mod test {
     #[test]
     fn parent_projection_path_covers_nested_filter_path() -> VortexResult<()> {
         let dtype = nested_dtype();
-        let projection = get_item("a", root()).bind(&dtype)?;
-        let filter = is_not_null(get_item("1", get_item("a", root()))).bind(&dtype)?;
+        let projection = get_item("a", root(dtype.clone()));
+        let filter = is_not_null(get_item("1", get_item("a", root(dtype))));
 
         let field_masks = referenced_field_masks(&projection, Some(&filter))?;
 

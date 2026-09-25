@@ -16,8 +16,8 @@ public final class NativeScan {
      * called.
      *
      * @param dataSourcePointer pointer from {@link NativeDataSource#open}
-     * @param projectionPointer native expression pointer, or 0 for "all columns"
-     * @param filterPointer native filter expression pointer, or 0 for "no filter"
+     * @param projectionPointer native bound expression pointer, or 0 for "all columns"
+     * @param filterPointer native bound filter expression pointer, or 0 for "no filter"
      * @param rowRangeBegin inclusive start of the row range, 0 for "unbounded"
      * @param rowRangeEnd exclusive end of the row range, 0 for "unbounded"
      * @param selectionIndices sorted row indices; may be null

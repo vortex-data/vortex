@@ -15,8 +15,8 @@ use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::StructFields;
-use vortex_array::expr::lit;
-use vortex_array::expr::root;
+use vortex_array::expr::bound::lit;
+use vortex_array::expr::bound::root;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_error::VortexExpect;
@@ -48,7 +48,7 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
     let expected_array = {
         let bool_mask = array_data
             .clone()
-            .apply(&filter_expr.clone().unwrap_or_else(|| lit(true)))
+            .apply_bound(&filter_expr.clone().unwrap_or_else(|| lit(true)))
             .vortex_expect("filter expression evaluation should succeed in fuzz test");
         let bool_mask_bool = bool_mask
             .execute::<BoolArray>(&mut ctx)
@@ -58,7 +58,7 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
             .filter(mask)
             .vortex_expect("filter operation should succeed in fuzz test");
         filtered
-            .apply(&projection_expr.clone().unwrap_or_else(root))
+            .apply_bound(&projection_expr.clone().unwrap_or_else(|| root(array_data.dtype().clone())))
             .vortex_expect("projection expression evaluation should succeed in fuzz test")
     };
 
@@ -82,15 +82,13 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
         .open_buffer(full_buff)
         .vortex_expect("open_buffer should succeed in fuzz test");
     let projection = projection_expr
-        .unwrap_or_else(root)
-        .optimize_recursive(file.dtype())
-        .and_then(|expr| expr.bind(file.dtype()))
+        .unwrap_or_else(|| root(file.dtype().clone()))
+        .optimize_recursive()
         .vortex_expect("projection should bind in fuzz test");
     let filter = filter_expr
         .map(|filter| {
             filter
-                .optimize_recursive(file.dtype())
-                .and_then(|expr| expr.bind(file.dtype()))
+                .optimize_recursive()
         })
         .transpose()
         .vortex_expect("filter should bind in fuzz test");

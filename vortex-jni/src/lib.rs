@@ -19,9 +19,11 @@ macro_rules! throw_runtime {
 }
 
 mod arrow_compat;
+mod bound_expression;
 mod data_source;
 mod errors;
 mod expression;
+mod expression_args;
 mod file;
 mod io;
 mod logging;

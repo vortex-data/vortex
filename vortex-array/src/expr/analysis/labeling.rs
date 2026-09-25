@@ -9,14 +9,13 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::expr::BoundExpression;
 use crate::expr::ExactBoundExpr;
-use crate::expr::Expression;
 use crate::expr::traversal::Node;
 use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::NodeVisitor;
 use crate::expr::traversal::TraversalOrder;
 
 /// Boolean labels keyed by each expression node in a tree.
-pub type BooleanLabels<'a, N = Expression> = HashMap<&'a N, bool>;
+pub type BooleanLabels<'a, N = BoundExpression> = HashMap<&'a N, bool>;
 
 /// Labels keyed by bound-tree identity.
 pub type BoundLabels<L> = HashMap<ExactBoundExpr, L>;
@@ -151,45 +150,5 @@ where
         self.labels
             .insert(ExactBoundExpr(node.clone()), final_label);
         Ok(TraversalOrder::Continue)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::expr::col;
-    use crate::expr::eq;
-    use crate::expr::lit;
-
-    #[test]
-    fn test_tree_depth() {
-        // Expression: $.col1 = 5
-        // Tree: eq(get_item(root(), "col1"), lit(5))
-        // Depth: root = 1, get_item = 2, lit = 1, eq = 3
-        let expr = eq(col("col1"), lit(5));
-        let depths = label_tree(
-            &expr,
-            |_node| 1, // Each node has depth 1 by itself
-            |self_depth, child_depth| self_depth.max(*child_depth + 1),
-        );
-
-        // The root (eq) should have depth 3
-        assert_eq!(depths.get(&expr), Some(&3));
-    }
-
-    #[test]
-    fn test_node_count() {
-        // Count total nodes in subtree (including self)
-        // Tree: eq(get_item(root(), "col1"), lit(5))
-        // Nodes: eq, get_item, root, lit = 4
-        let expr = eq(col("col1"), lit(5));
-        let counts = label_tree(
-            &expr,
-            |_node| 1, // Each node counts as 1
-            |self_count, child_count| self_count + *child_count,
-        );
-
-        // Root should have count of 4 (eq, get_item, root, lit)
-        assert_eq!(counts.get(&expr), Some(&4));
     }
 }

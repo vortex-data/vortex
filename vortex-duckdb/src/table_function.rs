@@ -27,7 +27,6 @@ use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::expr::BoundExpression;
-use vortex::expr::Expression;
 use vortex::extension::uuid::Uuid;
 use vortex::metrics::tracing::get_global_labels;
 use vortex::scalar::Scalar;
@@ -77,7 +76,7 @@ pub const COUNT_STAR_PROJ_IDX: u64 = u64::MAX;
 pub(crate) struct BindState {
     pub dtype: DType,
     pub first_file_row_count: u64,
-    pub filters: Vec<Expression>,
+    pub filters: Vec<BoundExpression>,
     pub columns: Vec<DuckdbField>,
     // There exists at least one non-optional table filter or at least one
     // complex filter is pushed down.
@@ -244,7 +243,7 @@ pub fn finish_reading(global: &GlobalState, local: &mut LocalState) {
 pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
     let bind_data = init_input.bind_data();
 
-    build_partials(&bind_data.aggregates, &bind_data.columns, &bind_data.dtype)?;
+    build_partials(&bind_data.aggregates, &bind_data.columns)?;
     let has_count_star = bind_data
         .aggregates
         .iter()
@@ -262,9 +261,9 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
             projection_ids,
             column_fields: &bind_data.columns,
         };
-        Projection::new(input)
+        Projection::new(input, &bind_data.dtype)?
     } else {
-        Projection::new_aggregate(&bind_data.aggregates, &bind_data.columns)
+        Projection::new_aggregate(&bind_data.aggregates, &bind_data.columns, &bind_data.dtype)?
     };
 
     let filter = Filter::new(
@@ -290,7 +289,6 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
         "table function scan input"
     );
 
-    let projection = optimize_and_bind(projection, &bind_data.dtype)?;
     Ok(GlobalState {
         projection,
         filter,
@@ -303,17 +301,16 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
 }
 
 /// Dtype over which we accumulate
-fn aggregate_input_dtype(field: &DuckdbField, scope: &DType) -> VortexResult<DType> {
+fn aggregate_input_dtype(field: &DuckdbField) -> DType {
     match &field.projection_expr {
-        None => Ok(field.dtype.clone()),
-        Some(expr) => expr.return_dtype(scope),
+        None => field.dtype.clone(),
+        Some(expr) => expr.dtype().clone(),
     }
 }
 
 fn build_partials(
     aggregates: &[ColumnAggregate],
     fields: &[DuckdbField],
-    scope: &DType,
 ) -> VortexResult<Vec<(usize, Box<dyn DynAccumulator>)>> {
     let mut seen: HashMap<u64, usize> = HashMap::with_capacity(aggregates.len());
     let mut partials = Vec::with_capacity(aggregates.len());
@@ -328,7 +325,7 @@ fn build_partials(
         let next = seen.len();
         let field_pos = *seen.entry(*projection_id).or_insert(next);
         let column: usize = projection_id.as_();
-        let dtype = aggregate_input_dtype(&fields[column], scope)?;
+        let dtype = aggregate_input_dtype(&fields[column]);
         partials.push((field_pos, aggregate.build(dtype)?));
     }
     Ok(partials)
@@ -350,7 +347,7 @@ pub fn init_local(bind_data: &BindState, global: &GlobalState) -> LocalState {
         CURRENT_LABELSET.set(key, value);
     }
 
-    let partials = build_partials(&global.aggregates, &bind_data.columns, &bind_data.dtype)
+    let partials = build_partials(&global.aggregates, &bind_data.columns)
         // if aggregate initialization produced an error, it would error in
         // init_global, see build_partials call there
         .vortex_expect("local state aggregate initialization failed");
@@ -365,10 +362,6 @@ pub fn init_local(bind_data: &BindState, global: &GlobalState) -> LocalState {
         split: None,
         finished: false,
     }
-}
-
-pub(crate) fn optimize_and_bind(expr: Expression, dtype: &DType) -> VortexResult<BoundExpression> {
-    expr.optimize_recursive(dtype)?.bind(dtype)
 }
 
 pub(crate) fn convert_result(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<StructArray> {
@@ -410,9 +403,7 @@ pub fn pushdown_complex_filter(
     expr: &ExpressionRef,
 ) -> VortexResult<bool> {
     debug!(%expr, "pushing down expression");
-
-    let Some(expr) = try_from_bound_expression(expr, &bind_data.columns)? else {
-        debug!(%expr, "failed to push down expression");
+    let Some(expr) = convert_complex_filter(bind_data, expr) else {
         return Ok(false);
     };
 
@@ -435,6 +426,13 @@ pub fn pushdown_complex_filter(
         .as_opt::<Binary>()
         .map(|op| *op == Operator::Eq)
         .unwrap_or(false);
+    let bound = match expr.optimize_recursive() {
+        Ok(bound) => bound,
+        Err(error) => {
+            debug!(%error, "failed to type-check pushed filter");
+            return Ok(false);
+        }
+    };
 
     // Only table filters may be optional, any complex filter is
     // non-optional by definition.
@@ -442,9 +440,23 @@ pub fn pushdown_complex_filter(
         .has_non_optional_filter
         .store(true, Ordering::Relaxed);
 
-    debug!(%expr, report_pushed, "pushed down expression");
-    bind_data.filters.push(expr);
+    debug!(%bound, report_pushed, "pushed down expression");
+    bind_data.filters.push(bound);
     Ok(report_pushed)
+}
+
+fn convert_complex_filter(bind_data: &BindState, expr: &ExpressionRef) -> Option<BoundExpression> {
+    match try_from_bound_expression(expr, &bind_data.columns, &bind_data.dtype) {
+        Ok(Some(expr)) => Some(expr),
+        Ok(None) => {
+            debug!(%expr, "failed to push down expression");
+            None
+        }
+        Err(error) => {
+            debug!(%error, "failed to type-check pushed filter");
+            None
+        }
+    }
 }
 
 pub fn pushdown_projection_expression(
@@ -458,21 +470,39 @@ pub fn pushdown_projection_expression(
         return Ok(false);
     };
     debug!(%expr, %projection_id, col_name=field.name, "pushing down projection expression");
-    match try_from_projection_expression(expr, field)? {
-        None => {
+    let Some(bound) = convert_projection_expression(expr, field, &bind_data.dtype) else {
+        return Ok(false);
+    };
+    debug!(%expr, "pushed down expression");
+    let out_dtype = bound.dtype().clone();
+    let field = &mut bind_data.columns[projection_id];
+    field.logical_type = expr.return_type().to_owned();
+    field.dtype = out_dtype;
+    field.projection_expr = Some(bound);
+    Ok(true)
+}
+
+fn convert_projection_expression(
+    expr: &ExpressionRef,
+    field: &DuckdbField,
+    dtype: &DType,
+) -> Option<BoundExpression> {
+    let converted = match try_from_projection_expression(expr, field, dtype) {
+        Ok(Some(converted)) => converted,
+        Ok(None) => {
             debug!(%expr, "failed to push down expression");
-            Ok(false)
+            return None;
         }
-        Some(vx_expr) => {
-            debug!(%expr, "pushed down expression");
-            let Ok(out_dtype) = vx_expr.return_dtype(&bind_data.dtype) else {
-                return Ok(false);
-            };
-            let field = &mut bind_data.columns[projection_id];
-            field.logical_type = expr.return_type().to_owned();
-            field.dtype = out_dtype;
-            field.projection_expr = Some(vx_expr);
-            Ok(true)
+        Err(error) => {
+            debug!(%error, "failed to type-check projected expression");
+            return None;
+        }
+    };
+    match converted.optimize_recursive() {
+        Ok(bound) => Some(bound),
+        Err(error) => {
+            debug!(%error, "failed to optimize projected expression");
+            None
         }
     }
 }
@@ -487,9 +517,7 @@ fn can_push_projection_aggregate(
     let Some(field) = bind_data.columns.get(projection_id_usize) else {
         return false;
     };
-    let Ok(dtype) = aggregate_input_dtype(field, &bind_data.dtype) else {
-        return false;
-    };
+    let dtype = aggregate_input_dtype(field);
 
     // duckdb's min() returns nan only when every value is nan.
     // vortex's min() either ignores or counts nans.

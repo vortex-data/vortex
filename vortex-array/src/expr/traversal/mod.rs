@@ -6,7 +6,6 @@
 //! Users should want to implement [`Node`] and potentially [`NodeContainer`].
 
 mod fold;
-mod references;
 mod visitor;
 
 use std::marker::PhantomData;
@@ -17,13 +16,11 @@ pub use fold::FoldDownContext;
 pub use fold::FoldUp;
 pub use fold::NodeFolder;
 pub use fold::NodeFolderContext;
-pub use references::ReferenceCollector;
 pub use visitor::pre_order_visit_down;
 pub use visitor::pre_order_visit_up;
 use vortex_error::VortexResult;
 
 use crate::expr::BoundExpression;
-use crate::expr::Expression;
 use crate::expr::traversal::fold::NodeFolderContextWrapper;
 
 /// Signal to control a traversal's flow
@@ -478,56 +475,6 @@ impl<'a, T: 'a, C: NodeContainer<'a, T>> NodeContainer<'a, T> for Vec<C> {
     }
 }
 
-impl<'a> NodeContainer<'a, Self> for Expression {
-    fn apply_elements<F: FnMut(&'a Self) -> VortexResult<TraversalOrder>>(
-        &'a self,
-        mut f: F,
-    ) -> VortexResult<TraversalOrder> {
-        f(self)
-    }
-
-    fn map_elements<F: FnMut(Self) -> VortexResult<Transformed<Self>>>(
-        self,
-        mut f: F,
-    ) -> VortexResult<Transformed<Self>> {
-        f(self)
-    }
-}
-
-impl Node for Expression {
-    fn apply_children<'a, F: FnMut(&'a Self) -> VortexResult<TraversalOrder>>(
-        &'a self,
-        mut f: F,
-    ) -> VortexResult<TraversalOrder> {
-        self.children().apply_ref_elements(&mut f)
-    }
-
-    fn map_children<F: FnMut(Self) -> VortexResult<Transformed<Self>>>(
-        self,
-        f: F,
-    ) -> VortexResult<Transformed<Self>> {
-        let transformed = self.children().to_vec().map_elements(f)?;
-
-        if transformed.changed {
-            Ok(Transformed {
-                value: self.with_children(transformed.value)?,
-                order: transformed.order,
-                changed: true,
-            })
-        } else {
-            Ok(Transformed::no(self))
-        }
-    }
-
-    fn iter_children<T>(&self, f: impl FnOnce(&mut dyn Iterator<Item = &Self>) -> T) -> T {
-        f(&mut self.children().iter())
-    }
-
-    fn children_count(&self) -> usize {
-        self.children().len()
-    }
-}
-
 impl Node for BoundExpression {
     fn apply_children<'a, F: FnMut(&'a Self) -> VortexResult<TraversalOrder>>(
         &'a self,
@@ -602,179 +549,5 @@ impl Node for BoundExpression {
             BoundExpression::Scalar { children, .. } => children.len(),
             BoundExpression::Root { .. } => 0,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use vortex_error::VortexResult;
-    use vortex_utils::aliases::hash_set::HashSet;
-
-    use super::NodeExt;
-    use super::NodeRewriter;
-    use super::NodeVisitor;
-    use super::Transformed;
-    use super::TraversalOrder;
-    use super::visitor::pre_order_visit_down;
-    use crate::expr::Expression;
-    use crate::expr::and;
-    use crate::expr::col;
-    use crate::expr::eq;
-    use crate::expr::is_root;
-    use crate::expr::lit;
-    use crate::expr::not_eq;
-    use crate::expr::root;
-    use crate::scalar_fn::fns::binary::Binary;
-    use crate::scalar_fn::fns::get_item::GetItem;
-    use crate::scalar_fn::fns::literal::Literal;
-    use crate::scalar_fn::fns::operators::Operator;
-
-    #[derive(Default)]
-    pub struct ExprLitCollector<'a>(pub Vec<&'a Expression>);
-
-    impl<'a> NodeVisitor<'a> for ExprLitCollector<'a> {
-        type NodeTy = Expression;
-
-        fn visit_down(&mut self, node: &'a Expression) -> VortexResult<TraversalOrder> {
-            if node.is::<Literal>() {
-                self.0.push(node)
-            }
-            Ok(TraversalOrder::Continue)
-        }
-
-        fn visit_up(&mut self, _node: &'a Expression) -> VortexResult<TraversalOrder> {
-            Ok(TraversalOrder::Continue)
-        }
-    }
-
-    fn expr_col_to_lit_transform(
-        node: Expression,
-        idx: &mut i32,
-    ) -> VortexResult<Transformed<Expression>> {
-        if node.is::<GetItem>() {
-            let lit_id = *idx;
-            *idx += 1;
-            Ok(Transformed::yes(lit(lit_id)))
-        } else {
-            Ok(Transformed::no(node))
-        }
-    }
-
-    #[derive(Default)]
-    pub struct SkipDownRewriter;
-
-    impl NodeRewriter for SkipDownRewriter {
-        type NodeTy = Expression;
-
-        fn visit_down(&mut self, node: Self::NodeTy) -> VortexResult<Transformed<Self::NodeTy>> {
-            Ok(Transformed {
-                value: node,
-                order: TraversalOrder::Skip,
-                changed: false,
-            })
-        }
-
-        fn visit_up(&mut self, _node: Self::NodeTy) -> VortexResult<Transformed<Self::NodeTy>> {
-            Ok(Transformed::yes(root()))
-        }
-    }
-
-    #[test]
-    fn expr_deep_visitor_test() {
-        let col1: Expression = col("col1");
-        let lit1 = lit(1);
-        let expr = eq(col1, lit1);
-        let lit2 = lit(2);
-        let expr = and(expr, lit2);
-        let mut printer = ExprLitCollector::default();
-        expr.accept(&mut printer).unwrap();
-        assert_eq!(printer.0.len(), 2);
-    }
-
-    #[test]
-    fn expr_deep_mut_visitor_test() {
-        let col1: Expression = col("col1");
-        let col2: Expression = col("col2");
-        let expr = eq(col1, col2);
-        let lit2 = lit(2);
-        let expr = and(expr, lit2);
-
-        let mut idx = 0_i32;
-        let new = expr
-            .transform_up(|node| expr_col_to_lit_transform(node, &mut idx))
-            .unwrap();
-        assert!(new.changed);
-
-        let expr = new.value;
-
-        let mut printer = ExprLitCollector::default();
-        expr.accept(&mut printer).unwrap();
-        assert_eq!(printer.0.len(), 3);
-    }
-
-    #[test]
-    fn expr_skip_test() {
-        let col1: Expression = col("col1");
-        let col2: Expression = col("col2");
-        let expr1 = eq(col1, col2);
-        let col3: Expression = col("col3");
-        let col4: Expression = col("col4");
-        let expr2 = not_eq(col3, col4);
-        let expr = and(expr1, expr2);
-
-        let mut nodes = Vec::new();
-        pre_order_visit_down(&expr, |node: &Expression| {
-            if node.is::<GetItem>() {
-                nodes.push(node)
-            }
-            if let Some(operator) = node.as_opt::<Binary>()
-                && *operator == Operator::Eq
-            {
-                return Ok(TraversalOrder::Skip);
-            }
-            Ok(TraversalOrder::Continue)
-        })
-        .unwrap();
-
-        let nodes: HashSet<Expression> = HashSet::from_iter(nodes.into_iter().cloned());
-        assert_eq!(nodes, HashSet::from_iter([col("col3"), col("col4")]));
-    }
-
-    #[test]
-    fn expr_stop_test() {
-        let col1: Expression = col("col1");
-        let col2: Expression = col("col2");
-        let expr1 = eq(col1, col2);
-        let col3: Expression = col("col3");
-        let col4: Expression = col("col4");
-        let expr2 = not_eq(col3, col4);
-        let expr = and(expr1, expr2);
-
-        let mut nodes = Vec::new();
-        pre_order_visit_down(&expr, |node: &Expression| {
-            if node.is::<GetItem>() {
-                nodes.push(node)
-            }
-            if let Some(operator) = node.as_opt::<Binary>()
-                && *operator == Operator::Eq
-            {
-                return Ok(TraversalOrder::Stop);
-            }
-            Ok(TraversalOrder::Continue)
-        })
-        .unwrap();
-
-        assert!(nodes.is_empty());
-    }
-
-    #[test]
-    fn expr_skip_down_visit_up() {
-        let col = col("col");
-
-        let mut visitor = SkipDownRewriter;
-        let result = col.rewrite(&mut visitor).unwrap();
-
-        assert!(result.changed);
-        assert!(is_root(&result.value));
     }
 }

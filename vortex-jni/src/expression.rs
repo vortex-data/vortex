@@ -24,7 +24,8 @@ use jni::sys::jfloat;
 use jni::sys::jint;
 use jni::sys::jlong;
 use jni::sys::jshort;
-use vortex::dtype::BigCast;
+use vortex::authored_expr;
+use vortex::authored_expr::Expression;
 use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
 use vortex::dtype::FieldName;
@@ -32,71 +33,34 @@ use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::dtype::extension::ExtDType;
 use vortex::error::vortex_err;
-use vortex::expr::Expression;
-use vortex::expr::and_collect;
-use vortex::expr::between;
-use vortex::expr::get_item;
-use vortex::expr::is_not_null;
-use vortex::expr::is_null;
-use vortex::expr::lit;
-use vortex::expr::merge_opts;
-use vortex::expr::not;
-use vortex::expr::or_collect;
-use vortex::expr::pack;
-use vortex::expr::root;
-use vortex::expr::select;
 use vortex::extension::datetime::Date;
 use vortex::extension::datetime::TimeUnit;
 use vortex::extension::datetime::Timestamp;
 use vortex::extension::uuid::Uuid;
 use vortex::extension::uuid::UuidMetadata;
-use vortex::layout::layouts::row_idx::row_idx;
-use vortex::scalar::DecimalValue;
 use vortex::scalar::Scalar;
 use vortex::scalar::ScalarValue;
-use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::between::BetweenOptions;
 use vortex::scalar_fn::fns::between::StrictComparison;
-use vortex::scalar_fn::fns::binary::Binary;
-use vortex::scalar_fn::fns::like::Like;
 use vortex::scalar_fn::fns::like::LikeOptions;
 use vortex::scalar_fn::fns::merge::DuplicateHandling;
-use vortex::scalar_fn::fns::operators::Operator;
+use vortex::scalar_fn::fns::pack::PackOptions;
+use vortex::scalar_fn::fns::select::FieldSelection;
 
 use crate::errors::JNIError;
 use crate::errors::try_or_throw;
+use crate::expression_args::decimal_value_from_be_bytes;
+use crate::expression_args::parse_op;
+use crate::expression_args::parse_time_unit;
 
 fn into_raw(expr: Expression) -> jlong {
     Box::into_raw(Box::new(expr)) as jlong
 }
 
 /// SAFETY: pointer must originate from [`into_raw`] and not yet be freed.
-unsafe fn expr_ref<'a>(ptr: jlong) -> &'a Expression {
+pub(crate) unsafe fn expr_ref<'a>(ptr: jlong) -> &'a Expression {
     debug_assert!(ptr != 0, "null expression pointer");
     unsafe { &*(ptr as *const Expression) }
-}
-
-fn parse_op(op: jbyte) -> Result<Operator, JNIError> {
-    Ok(match op {
-        0 => Operator::Eq,
-        1 => Operator::NotEq,
-        2 => Operator::Gt,
-        3 => Operator::Gte,
-        4 => Operator::Lt,
-        5 => Operator::Lte,
-        6 => Operator::And,
-        7 => Operator::Or,
-        8 => Operator::Add,
-        9 => Operator::Sub,
-        10 => Operator::Mul,
-        11 => Operator::Div,
-        other => throw_runtime!("unknown binary operator code: {other}"),
-    })
-}
-
-/// Parse a Vortex [`TimeUnit`] from the wire-encoded byte tag.
-fn parse_time_unit(tag: jbyte) -> Result<TimeUnit, JNIError> {
-    TimeUnit::try_from(tag as u8).map_err(JNIError::from)
 }
 
 /// Parse a merge [`DuplicateHandling`] strategy from its wire-encoded byte tag.
@@ -128,15 +92,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_root(
     _env: EnvUnowned,
     _class: JClass,
 ) -> jlong {
-    into_raw(root())
-}
-
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_vortex_jni_NativeExpression_rowIdx(
-    _env: EnvUnowned,
-    _class: JClass,
-) -> jlong {
-    into_raw(row_idx())
+    into_raw(authored_expr::root())
 }
 
 #[unsafe(no_mangle)]
@@ -150,7 +106,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_getItem(
         let field: String = name.try_to_string(env)?;
         let field: FieldName = Arc::<str>::from(field.as_str()).into();
         let child = unsafe { expr_ref(child) }.clone();
-        Ok(into_raw(get_item(field, child)))
+        Ok(into_raw(Expression::call("column", field, [child])))
     })
 }
 
@@ -171,7 +127,11 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_select(
             fields.push(Arc::<str>::from(name.as_str()).into());
         }
         let child = unsafe { expr_ref(child) }.clone();
-        Ok(into_raw(select(fields, child)))
+        Ok(into_raw(Expression::call(
+            "select",
+            FieldSelection::include(fields.into()),
+            [child],
+        )))
     })
 }
 
@@ -201,7 +161,15 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_pack(
             elements.push((name, expr));
         }
 
-        Ok(into_raw(pack(elements, nullable.into())))
+        let (names, children): (Vec<_>, Vec<_>) = elements.into_iter().unzip();
+        Ok(into_raw(Expression::call(
+            "pack",
+            PackOptions {
+                names: names.into(),
+                nullability: nullable.into(),
+            },
+            children,
+        )))
     })
 }
 
@@ -219,7 +187,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_merge(
     try_or_throw(&mut env, |env| {
         let exprs = collect_operands(env, &expressions)?;
         let handling = parse_duplicate_handling(duplicate_handling)?;
-        Ok(into_raw(merge_opts(exprs, handling)))
+        Ok(into_raw(Expression::call("merge", handling, exprs)))
     })
 }
 
@@ -231,7 +199,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_and(
 ) -> jlong {
     try_or_throw(&mut env, |env| {
         let exprs = collect_operands(env, &operands)?;
-        and_collect(exprs)
+        authored_expr::and_collect(exprs)
             .map(into_raw)
             .ok_or_else(|| vortex_err!("empty AND expression").into())
     })
@@ -245,7 +213,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_or(
 ) -> jlong {
     try_or_throw(&mut env, |env| {
         let exprs = collect_operands(env, &operands)?;
-        or_collect(exprs)
+        authored_expr::or_collect(exprs)
             .map(into_raw)
             .ok_or_else(|| vortex_err!("empty OR expression").into())
     })
@@ -274,7 +242,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_binary(
         let operator = parse_op(op)?;
         let lhs = unsafe { expr_ref(lhs) }.clone();
         let rhs = unsafe { expr_ref(rhs) }.clone();
-        Ok(into_raw(Binary.new_expr(operator, [lhs, rhs])))
+        Ok(into_raw(authored_expr::binary(operator, lhs, rhs)))
     })
 }
 
@@ -285,7 +253,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_not(
     child: jlong,
 ) -> jlong {
     let child = unsafe { expr_ref(child) }.clone();
-    into_raw(not(child))
+    into_raw(authored_expr::not(child))
 }
 
 #[unsafe(no_mangle)]
@@ -295,7 +263,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_isNull(
     child: jlong,
 ) -> jlong {
     let child = unsafe { expr_ref(child) }.clone();
-    into_raw(is_null(child))
+    into_raw(authored_expr::is_null(child))
 }
 
 #[unsafe(no_mangle)]
@@ -305,7 +273,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_isNotNull(
     child: jlong,
 ) -> jlong {
     let child = unsafe { expr_ref(child) }.clone();
-    into_raw(is_not_null(child))
+    into_raw(authored_expr::is_not_null(child))
 }
 
 #[unsafe(no_mangle)]
@@ -319,7 +287,8 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_like(
 ) -> jlong {
     let child = unsafe { expr_ref(child) }.clone();
     let pattern = unsafe { expr_ref(pattern) }.clone();
-    into_raw(Like.new_expr(
+    into_raw(Expression::call(
+        "like",
         LikeOptions {
             negated,
             case_insensitive,
@@ -342,14 +311,13 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_between(
         let value = unsafe { expr_ref(value) }.clone();
         let lower = unsafe { expr_ref(lower) }.clone();
         let upper = unsafe { expr_ref(upper) }.clone();
-        Ok(into_raw(between(
-            value,
-            lower,
-            upper,
+        Ok(into_raw(Expression::call(
+            "between",
             BetweenOptions {
                 lower_strict: strict_from_bool(lower_strict),
                 upper_strict: strict_from_bool(upper_strict),
             },
+            [value, lower, upper],
         )))
     })
 }
@@ -371,9 +339,9 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalBool(
 ) -> jlong {
     if is_null_flag {
         let scalar = Scalar::null_native::<bool>();
-        return into_raw(lit(scalar));
+        return into_raw(authored_expr::lit(scalar));
     }
-    into_raw(lit(value))
+    into_raw(authored_expr::lit(value))
 }
 
 macro_rules! literal_primitive {
@@ -387,9 +355,9 @@ macro_rules! literal_primitive {
         ) -> jlong {
             if is_null_flag {
                 let scalar = Scalar::null_native::<$rust>();
-                return into_raw(lit(scalar));
+                return into_raw(authored_expr::lit(scalar));
             }
-            into_raw(lit(value as $rust))
+            into_raw(authored_expr::lit(value as $rust))
         }
     };
 }
@@ -414,10 +382,10 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalString(
     try_or_throw(&mut env, |env| {
         if value.is_null() {
             let scalar = Scalar::null_native::<String>();
-            return Ok(into_raw(lit(scalar)));
+            return Ok(into_raw(authored_expr::lit(scalar)));
         }
         let s: String = value.try_to_string(env)?;
-        Ok(into_raw(lit(s)))
+        Ok(into_raw(authored_expr::lit(s)))
     })
 }
 
@@ -430,10 +398,10 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalBinary(
     try_or_throw(&mut env, |env| {
         if value.is_null() {
             let scalar = Scalar::null_native::<vortex::buffer::ByteBuffer>();
-            return Ok(into_raw(lit(scalar)));
+            return Ok(into_raw(authored_expr::lit(scalar)));
         }
         let bytes: Vec<u8> = env.convert_byte_array(&value)?;
-        Ok(into_raw(lit(bytes.as_slice())))
+        Ok(into_raw(authored_expr::lit(bytes.as_slice())))
     })
 }
 
@@ -455,7 +423,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalDecimal(
             i8::try_from(scale).map_err(|_| vortex_err!("decimal scale out of range: {scale}"))?;
         let decimal_dtype = DecimalDType::try_new(precision, scale)?;
         if is_null_flag {
-            return Ok(into_raw(lit(Scalar::null(DType::Decimal(
+            return Ok(into_raw(authored_expr::lit(Scalar::null(DType::Decimal(
                 decimal_dtype,
                 Nullability::Nullable,
             )))));
@@ -470,64 +438,8 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalDecimal(
             DType::Decimal(decimal_dtype, Nullability::NonNullable),
             Some(ScalarValue::from(decimal_value)),
         )?;
-        Ok(into_raw(lit(scalar)))
+        Ok(into_raw(authored_expr::lit(scalar)))
     })
-}
-
-/// Decode a two's-complement big-endian byte array (Java `BigInteger.toByteArray()` format)
-/// into the smallest [`DecimalValue`] variant that can hold the precision.
-fn decimal_value_from_be_bytes(
-    bytes: &[u8],
-    dtype: &DecimalDType,
-) -> Result<DecimalValue, JNIError> {
-    if bytes.is_empty() {
-        throw_runtime!("decimal unscaled value must have at least one byte");
-    }
-    let value = i256_from_twos_complement_be(bytes);
-    // Pick the narrowest backing integer that fits the dtype's precision.
-    let required_bits = dtype.required_bit_width();
-    if required_bits <= 8 {
-        let v =
-            BigCast::from(value).ok_or_else(|| vortex_err!("decimal value does not fit in i8"))?;
-        Ok(DecimalValue::I8(v))
-    } else if required_bits <= 16 {
-        let v =
-            BigCast::from(value).ok_or_else(|| vortex_err!("decimal value does not fit in i16"))?;
-        Ok(DecimalValue::I16(v))
-    } else if required_bits <= 32 {
-        let v =
-            BigCast::from(value).ok_or_else(|| vortex_err!("decimal value does not fit in i32"))?;
-        Ok(DecimalValue::I32(v))
-    } else if required_bits <= 64 {
-        let v =
-            BigCast::from(value).ok_or_else(|| vortex_err!("decimal value does not fit in i64"))?;
-        Ok(DecimalValue::I64(v))
-    } else if required_bits <= 128 {
-        let v = value
-            .maybe_i128()
-            .ok_or_else(|| vortex_err!("decimal value does not fit in i128"))?;
-        Ok(DecimalValue::I128(v))
-    } else {
-        Ok(DecimalValue::I256(value))
-    }
-}
-
-/// Sign-extend a two's-complement big-endian byte slice into an `i256`.
-fn i256_from_twos_complement_be(bytes: &[u8]) -> vortex::dtype::i256 {
-    let mut le = [0u8; 32];
-    let len = bytes.len().min(32);
-    // Most significant byte comes first in big-endian; copy lowest 32 bytes reversed into LE.
-    for (i, b) in bytes.iter().rev().take(len).enumerate() {
-        le[i] = *b;
-    }
-    // If the original value is negative (high bit of the most-significant byte is set),
-    // sign-extend the remaining high bytes with 0xff.
-    if !bytes.is_empty() && (bytes[0] & 0x80) != 0 {
-        for byte in &mut le[len..] {
-            *byte = 0xff;
-        }
-    }
-    vortex::dtype::i256::from_le_bytes(le)
 }
 
 #[unsafe(no_mangle)]
@@ -548,7 +460,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalDate(
         let ext = Date::try_new(unit, nullability)?;
         let dtype = DType::Extension(ext.erased());
         if is_null_flag {
-            return Ok(into_raw(lit(Scalar::null(dtype))));
+            return Ok(into_raw(authored_expr::lit(Scalar::null(dtype))));
         }
         let storage_value = match unit {
             TimeUnit::Days => ScalarValue::from(
@@ -558,7 +470,10 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalDate(
             TimeUnit::Milliseconds => ScalarValue::from(value),
             other => throw_runtime!("date does not support time unit {other}"),
         };
-        Ok(into_raw(lit(Scalar::try_new(dtype, Some(storage_value))?)))
+        Ok(into_raw(authored_expr::lit(Scalar::try_new(
+            dtype,
+            Some(storage_value),
+        )?)))
     })
 }
 
@@ -587,9 +502,9 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalTimestamp(
         let ext = Timestamp::new_with_tz(unit, tz, nullability);
         let dtype = DType::Extension(ext.erased());
         if is_null_flag {
-            return Ok(into_raw(lit(Scalar::null(dtype))));
+            return Ok(into_raw(authored_expr::lit(Scalar::null(dtype))));
         }
-        Ok(into_raw(lit(Scalar::try_new(
+        Ok(into_raw(authored_expr::lit(Scalar::try_new(
             dtype,
             Some(ScalarValue::from(value)),
         )?)))
@@ -604,7 +519,7 @@ const UUID_BYTE_LEN: usize = 16;
 /// The storage is a non-nullable `FixedSizeList(U8, 16)`, matching Vortex's UUID extension and
 /// Arrow's canonical UUID type. The metadata records no version constraint, so the dtype is
 /// compatible with any UUID column regardless of the UUID versions it contains.
-fn uuid_dtype(nullability: Nullability) -> Result<DType, JNIError> {
+pub(crate) fn uuid_dtype(nullability: Nullability) -> Result<DType, JNIError> {
     let list_size = u32::try_from(UUID_BYTE_LEN)
         .map_err(|_| vortex_err!("UUID byte length {UUID_BYTE_LEN} does not fit in u32"))?;
     let storage_dtype = DType::FixedSizeList(
@@ -617,7 +532,7 @@ fn uuid_dtype(nullability: Nullability) -> Result<DType, JNIError> {
 }
 
 /// Build a non-null UUID [`Scalar`] from its 16-byte big-endian representation.
-fn uuid_scalar(bytes: &[u8]) -> Result<Scalar, JNIError> {
+pub(crate) fn uuid_scalar(bytes: &[u8]) -> Result<Scalar, JNIError> {
     if bytes.len() != UUID_BYTE_LEN {
         throw_runtime!(
             "UUID literal must be exactly {UUID_BYTE_LEN} bytes, got {}",
@@ -654,7 +569,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalUuid(
 ) -> jlong {
     try_or_throw(&mut env, |env| {
         if is_null_flag {
-            return Ok(into_raw(lit(Scalar::null(uuid_dtype(
+            return Ok(into_raw(authored_expr::lit(Scalar::null(uuid_dtype(
                 Nullability::Nullable,
             )?))));
         }
@@ -662,7 +577,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalUuid(
             throw_runtime!("UUID literal bytes must not be null");
         }
         let bytes = env.convert_byte_array(&value)?;
-        Ok(into_raw(lit(uuid_scalar(&bytes)?)))
+        Ok(into_raw(authored_expr::lit(uuid_scalar(&bytes)?)))
     })
 }
 
@@ -689,6 +604,6 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalNull(
             8 => DType::Binary(Nullability::Nullable),
             other => throw_runtime!("unknown null dtype tag: {other}"),
         };
-        Ok(into_raw(lit(Scalar::null(dtype))))
+        Ok(into_raw(authored_expr::lit(Scalar::null(dtype))))
     })
 }

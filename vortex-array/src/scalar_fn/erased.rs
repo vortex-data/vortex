@@ -19,12 +19,12 @@ use vortex_utils::debug_with::DebugWith;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::dtype::DType;
-use crate::expr::Expression;
+use crate::expr::BoundExpression;
+use crate::expr::BoundExpressionReduceNode;
 use crate::expr::display::ExprDisplay;
 use crate::scalar_fn::ArrayReduceNode;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
-use crate::scalar_fn::ExpressionReduceNode;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
@@ -38,7 +38,7 @@ use crate::scalar_fn::typed::TypedScalarFnInstance;
 /// A type-erased scalar function, pairing a vtable with bound options behind a trait object.
 ///
 /// This stores a [`ScalarFnVTable`] and its options behind an `Arc<dyn DynScalarFn>`, allowing
-/// heterogeneous storage inside [`Expression`] and [`crate::arrays::ScalarFnArray`].
+/// heterogeneous storage inside [`BoundExpression`] and [`crate::arrays::ScalarFnArray`].
 ///
 /// Use [`super::TypedScalarFnInstance::new()`] to construct, and [`super::TypedScalarFnInstance::erased()`] to
 /// obtain a [`ScalarFnRef`].
@@ -126,11 +126,14 @@ impl ScalarFnRef {
     }
 
     /// Transforms the expression into one representing the validity of this expression.
-    pub fn validity(&self, expr: &Expression) -> VortexResult<Expression> {
-        Ok(self.0.validity(expr)?.unwrap_or_else(|| {
-            // TODO(ngates): make validity a mandatory method on VTable to avoid this fallback.
-            IsNotNull.new_expr(EmptyOptions, [expr.clone()])
-        }))
+    pub fn validity(&self, expr: &BoundExpression) -> VortexResult<BoundExpression> {
+        self.0.validity(expr)?.map_or_else(
+            || {
+                // TODO(ngates): make validity a mandatory method on VTable to avoid this fallback.
+                IsNotNull.try_new_bound_expr(EmptyOptions, [expr.clone()])
+            },
+            Ok,
+        )
     }
 
     /// Execute the expression given the input arguments.
@@ -143,11 +146,11 @@ impl ScalarFnRef {
     }
 
     /// Perform abstract reduction on this scalar function node in an expression tree.
-    pub fn reduce_expression<'a>(
+    pub fn reduce_bound_expression<'a>(
         &self,
-        node: &ExpressionReduceNode<'a>,
-    ) -> VortexResult<Option<ExpressionReduceNode<'a>>> {
-        self.0.reduce_expression(node)
+        node: &BoundExpressionReduceNode<'a>,
+    ) -> VortexResult<Option<BoundExpressionReduceNode<'a>>> {
+        self.0.reduce_bound_expression(node)
     }
 
     /// Perform abstract reduction on this scalar function node in an array tree.
@@ -174,15 +177,10 @@ impl ScalarFnRef {
     /// Simplify the expression using type information.
     pub(crate) fn simplify(
         &self,
-        expr: &Expression,
+        expr: &BoundExpression,
         ctx: &dyn SimplifyCtx,
-    ) -> VortexResult<Option<Expression>> {
+    ) -> VortexResult<Option<BoundExpression>> {
         self.0.simplify(expr, ctx)
-    }
-
-    /// Simplify the expression without type information.
-    pub(crate) fn simplify_untyped(&self, expr: &Expression) -> VortexResult<Option<Expression>> {
-        self.0.simplify_untyped(expr)
     }
 }
 

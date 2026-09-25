@@ -389,6 +389,11 @@ typedef struct vx_array vx_array;
 typedef struct vx_array_sink vx_array_sink;
 
 /**
+ * A typed expression tree bound to a root dtype. Scan and array execution accept this handle.
+ */
+typedef struct vx_bound_expression vx_bound_expression;
+
+/**
  * A reference to one or more possibly remote paths.
  *
  * Creating vx_data_source opens the first matched path to read the schema.
@@ -580,11 +585,11 @@ typedef struct {
     /**
      * What columns to return. NULL means all columns.
      */
-    const vx_expression *projection;
+    const vx_bound_expression *projection;
     /**
      * Predicate expression. NULL means no filter.
      */
-    const vx_expression *filter;
+    const vx_bound_expression *filter;
     /**
      * Row range [begin, end). Setting row_range_begin and row_range_end to 0
      * means no limit.
@@ -860,7 +865,8 @@ vx_bool_view vx_array_data_ptr_bool(const vx_array *array, vx_error **error_out)
  * This operation takes constant time as it doesn't execute the underlying
  * array. Executing the underlying array still takes O(n) time.
  */
-const vx_array *vx_array_apply(const vx_array *array, const vx_expression *expression, vx_error **error);
+const vx_array *
+vx_array_apply(const vx_array *array, const vx_bound_expression *expression, vx_error **error);
 
 /**
  * Free a vx_data_source
@@ -1063,6 +1069,91 @@ vx_error_code vx_error_get_code(const vx_error *error);
 void vx_expression_free(const vx_expression *ptr);
 
 /**
+ * Free a vx_bound_expression
+ */
+void vx_bound_expression_free(const vx_bound_expression *ptr);
+
+/**
+ * Bind an authored expression against a root dtype, checking all scalar functions and fields.
+ * The returned handle owns its tree and must be freed with `vx_bound_expression_free`.
+ */
+const vx_bound_expression *
+vx_expression_bind(const vx_expression *expression, const vx_dtype *dtype, vx_error **error);
+
+/**
+ * Clone a bound expression handle.
+ */
+const vx_bound_expression *vx_bound_expression_clone(const vx_bound_expression *expression);
+
+/**
+ * Return the checked output dtype of a bound expression. The caller owns the returned handle.
+ */
+const vx_dtype *vx_bound_expression_dtype(const vx_bound_expression *expression);
+
+/**
+ * Create a bound root from an engine-owned input dtype.
+ */
+const vx_bound_expression *vx_bound_expression_root(const vx_dtype *dtype);
+
+/**
+ * Select a field from a bound struct expression.
+ */
+const vx_bound_expression *
+vx_bound_expression_get_item(vx_view name, const vx_bound_expression *child, vx_error **error);
+
+/**
+ * Construct a bound literal from a typed scalar.
+ */
+const vx_bound_expression *vx_bound_expression_literal(const vx_scalar *scalar, vx_error **error);
+
+/**
+ * Construct a bound binary operation. Both argument dtypes are checked by the scalar function.
+ */
+const vx_bound_expression *vx_bound_expression_binary(vx_binary_operator operator_,
+                                                      const vx_bound_expression *lhs,
+                                                      const vx_bound_expression *rhs,
+                                                      vx_error **error);
+
+/**
+ * Construct a typed boolean negation.
+ */
+const vx_bound_expression *vx_bound_expression_not(const vx_bound_expression *child, vx_error **error);
+
+/**
+ * Construct a typed null test.
+ */
+const vx_bound_expression *vx_bound_expression_is_null(const vx_bound_expression *child, vx_error **error);
+
+/**
+ * Construct a typed non-null test.
+ */
+const vx_bound_expression *vx_bound_expression_is_not_null(const vx_bound_expression *child,
+                                                           vx_error **error);
+
+/**
+ * Construct a typed SQL LIKE call.
+ */
+const vx_bound_expression *vx_bound_expression_like(const vx_bound_expression *value,
+                                                    const vx_bound_expression *pattern,
+                                                    bool negated,
+                                                    bool case_insensitive,
+                                                    vx_error **error);
+
+/**
+ * Cast a bound expression to an engine-selected dtype.
+ */
+const vx_bound_expression *
+vx_bound_expression_cast(const vx_bound_expression *child, const vx_dtype *dtype, vx_error **error);
+
+/**
+ * Select fields from a bound struct expression.
+ */
+const vx_bound_expression *vx_bound_expression_select(const vx_view *names,
+                                                      size_t len,
+                                                      const vx_bound_expression *child,
+                                                      vx_error **error);
+
+/**
  * Create a root expression. A root expression, applied to an array in
  * vx_array_apply, takes the array itself as opposed to functions like
  * vx_expression_column or vx_expression_select which take the array's parts.
@@ -1072,9 +1163,13 @@ void vx_expression_free(const vx_expression *ptr);
  * const vx_array* array = ...;
  * vx_expression* root = vx_expression_root();
  * const vx_error* error = NULL;
- * vx_array* applied_array = vx_array_apply(array, root, &error);
+ * const vx_dtype* dtype = vx_array_dtype(array);
+ * const vx_bound_expression* bound = vx_expression_bind(root, dtype, &error);
+ * const vx_array* applied_array = vx_array_apply(array, bound, &error);
  * // array and applied_array are identical
  * vx_array_free(applied_array);
+ * vx_bound_expression_free(bound);
+ * vx_dtype_free(dtype);
  * vx_expression_free(root);
  * vx_array_free(array);
  */
@@ -1105,12 +1200,15 @@ vx_expression *vx_expression_clone(const vx_expression *ptr);
  * vx_scalar_free(threshold_scalar);
  *
  * vx_expression* predicate = vx_expression_binary(VX_OPERATOR_GTE, age, threshold);
+ * const vx_dtype* dtype = vx_data_source_dtype(data_source);
+ * const vx_bound_expression* bound = vx_expression_bind(predicate, dtype, &error);
  * vx_scan_options options = {};
- * options.filter = predicate;
+ * options.filter = bound;
  *
  * vx_scan* scan = vx_data_source_scan(data_source, &options, NULL, &error);
  *
  * vx_scan_free(scan);
+ * vx_bound_expression_free(bound);
  * vx_expression_free(predicate);
  * vx_expression_free(threshold);
  * vx_expression_free(age);

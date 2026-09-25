@@ -26,7 +26,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
 use vortex_array::dtype::proto::dtype as pb;
-use vortex_array::expr::Expression;
+use vortex_array::expr::BoundExpression;
 use vortex_array::expr::union_child_validities;
 use vortex_array::match_each_float_ptype;
 use vortex_array::scalar_fn::Arity;
@@ -182,8 +182,8 @@ impl ScalarFnVTable for L2Normalize {
     fn validity(
         &self,
         _options: &Self::Options,
-        expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
+        expression: &BoundExpression,
+    ) -> VortexResult<Option<BoundExpression>> {
         union_child_validities(expression)
     }
 

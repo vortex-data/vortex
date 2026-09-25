@@ -3,14 +3,14 @@
 
 package dev.vortex.spark.read;
 
+import dev.vortex.api.BoundExpression;
+import dev.vortex.api.DataSource;
 import dev.vortex.api.Expression;
 import dev.vortex.api.Expression.BinaryOp;
 import dev.vortex.api.Expression.TimeUnit;
 import java.math.BigDecimal;
 import java.math.BigInteger;
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.apache.spark.sql.connector.expressions.Literal;
@@ -41,7 +41,7 @@ import org.apache.spark.sql.types.TimestampType;
 import org.apache.spark.unsafe.types.UTF8String;
 
 /**
- * Translates {@link Predicate Spark V2 predicates} into Vortex {@link Expression}s for predicate pushdown.
+ * Translates {@link Predicate Spark V2 predicates} into typed Vortex expressions for predicate pushdown.
  *
  * <p>The translator aims to express every Spark predicate Vortex can evaluate. Predicates that cannot be translated
  * (unsupported functions, literals on user-defined types, references to columns not present in the file, etc.) are left
@@ -60,9 +60,8 @@ final class SparkPredicateToVortexExpression {
      * example {@code info.email}) the validator walks the named reference part by part, descending into
      * {@link StructType} fields so that {@code info} must be a struct that contains an {@code email} field.
      *
-     * <p>This is the cheap check used in {@code SupportsPushDownV2Filters.pushPredicates} to decide which predicates
-     * Spark can drop. It does not allocate any native expressions; if it returns true, {@link #convert(Predicate)} must
-     * succeed (otherwise callers would silently drop predicates).
+     * <p>This check is used in {@code SupportsPushDownV2Filters.pushPredicates} to decide which predicates Spark can
+     * drop. It checks the resolved Spark argument types and supported predicate structure.
      */
     static boolean isPushable(Predicate predicate, Map<String, DataType> dataColumnTypes) {
         for (NamedReference ref : predicate.references()) {
@@ -70,7 +69,7 @@ final class SparkPredicateToVortexExpression {
                 return false;
             }
         }
-        return isStructurallyPushable(predicate);
+        return isStructurallyPushable(predicate) && isTypeCompatible(predicate, dataColumnTypes);
     }
 
     /**
@@ -78,24 +77,79 @@ final class SparkPredicateToVortexExpression {
      * dot-separated nested references. Returns true only when every part resolves to an actual field in the schema.
      */
     private static boolean resolveFieldPath(String[] parts, Map<String, DataType> dataColumnTypes) {
+        return resolveFieldType(parts, dataColumnTypes).isPresent();
+    }
+
+    private static Optional<DataType> resolveFieldType(String[] parts, Map<String, DataType> dataColumnTypes) {
         if (parts.length == 0) {
-            return false;
+            return Optional.empty();
         }
         DataType current = dataColumnTypes.get(parts[0]);
         if (current == null) {
-            return false;
+            return Optional.empty();
         }
         for (int i = 1; i < parts.length; i++) {
             if (!(current instanceof StructType struct)) {
-                return false;
+                return Optional.empty();
             }
             Optional<StructField> field = findField(struct, parts[i]);
             if (field.isEmpty()) {
-                return false;
+                return Optional.empty();
             }
             current = field.get().dataType();
         }
-        return true;
+        return Optional.of(current);
+    }
+
+    private static Optional<DataType> typeOf(
+            org.apache.spark.sql.connector.expressions.Expression expression, Map<String, DataType> dataColumnTypes) {
+        if (expression instanceof NamedReference reference) {
+            return resolveFieldType(reference.fieldNames(), dataColumnTypes);
+        }
+        if (expression instanceof Literal<?> literal && isPushableLiteral(literal)) {
+            return Optional.of(literal.dataType());
+        }
+        return Optional.empty();
+    }
+
+    private static boolean isTypeCompatible(Predicate predicate, Map<String, DataType> dataColumnTypes) {
+        if (predicate instanceof AlwaysTrue || predicate instanceof AlwaysFalse) {
+            return true;
+        }
+        if (predicate instanceof And and) {
+            return isTypeCompatible(and.left(), dataColumnTypes) && isTypeCompatible(and.right(), dataColumnTypes);
+        }
+        if (predicate instanceof Or or) {
+            return isTypeCompatible(or.left(), dataColumnTypes) && isTypeCompatible(or.right(), dataColumnTypes);
+        }
+        if (predicate instanceof Not not) {
+            return isTypeCompatible(not.child(), dataColumnTypes);
+        }
+
+        var children = predicate.children();
+        return switch (predicate.name()) {
+            case "=", "<>", "!=", ">", ">=", "<", "<=" ->
+                children.length == 2
+                        && typeOf(children[0], dataColumnTypes).isPresent()
+                        && typeOf(children[0], dataColumnTypes).equals(typeOf(children[1], dataColumnTypes));
+            case "IN" -> {
+                if (children.length < 2) {
+                    yield false;
+                }
+                Optional<DataType> fieldType = typeOf(children[0], dataColumnTypes);
+                boolean compatible = fieldType.isPresent();
+                for (int i = 1; i < children.length; i++) {
+                    compatible &= fieldType.equals(typeOf(children[i], dataColumnTypes));
+                }
+                yield compatible;
+            }
+            case "IS_NULL", "IS_NOT_NULL" -> children.length == 1;
+            case "STARTS_WITH", "ENDS_WITH", "CONTAINS" ->
+                children.length == 2 && typeOf(children[0], dataColumnTypes).orElse(null) instanceof StringType;
+            case "BOOLEAN_EXPRESSION" ->
+                children.length == 1 && typeOf(children[0], dataColumnTypes).orElse(null) instanceof BooleanType;
+            default -> false;
+        };
     }
 
     private static Optional<StructField> findField(StructType struct, String name) {
@@ -142,119 +196,127 @@ final class SparkPredicateToVortexExpression {
         };
     }
 
-    /**
-     * Converts a Spark predicate to a Vortex expression. Returns {@link Optional#empty()} if the predicate cannot be
-     * translated; callers should normally pre-check with {@link #isPushable}.
-     */
-    static Optional<Expression> convert(Predicate predicate) {
+    /** Lower a Spark-resolved predicate directly to typed Vortex calls. */
+    static Optional<BoundExpression> convertBound(Predicate predicate, DataSource dataSource) {
         if (predicate instanceof AlwaysTrue) {
-            return Optional.of(Expression.literal(true));
+            return Optional.of(BoundExpression.literal(true));
         }
         if (predicate instanceof AlwaysFalse) {
-            return Optional.of(Expression.literal(false));
+            return Optional.of(BoundExpression.literal(false));
         }
-        if (predicate instanceof And a) {
-            Optional<Expression> left = convert(a.left());
-            Optional<Expression> right = convert(a.right());
-            if (left.isPresent() && right.isPresent()) {
-                return Optional.of(Expression.and(left.get(), right.get()));
-            }
-            return Optional.empty();
+        if (predicate instanceof And and) {
+            Optional<BoundExpression> lhs = convertBound(and.left(), dataSource);
+            Optional<BoundExpression> rhs = convertBound(and.right(), dataSource);
+            return lhs.isPresent() && rhs.isPresent()
+                    ? Optional.of(BoundExpression.and(lhs.get(), rhs.get()))
+                    : Optional.empty();
         }
-        if (predicate instanceof Or o) {
-            Optional<Expression> left = convert(o.left());
-            Optional<Expression> right = convert(o.right());
-            if (left.isPresent() && right.isPresent()) {
-                return Optional.of(Expression.or(left.get(), right.get()));
-            }
-            return Optional.empty();
+        if (predicate instanceof Or or) {
+            Optional<BoundExpression> lhs = convertBound(or.left(), dataSource);
+            Optional<BoundExpression> rhs = convertBound(or.right(), dataSource);
+            return lhs.isPresent() && rhs.isPresent()
+                    ? Optional.of(BoundExpression.or(lhs.get(), rhs.get()))
+                    : Optional.empty();
         }
-        if (predicate instanceof Not n) {
-            return convert(n.child()).map(Expression::not);
+        if (predicate instanceof Not not) {
+            return convertBound(not.child(), dataSource).map(BoundExpression::not);
         }
-        org.apache.spark.sql.connector.expressions.Expression[] children = predicate.children();
+
+        var children = predicate.children();
         return switch (predicate.name()) {
-            case "=", "<>", "!=", ">", ">=", "<", "<=" -> convertComparison(predicate.name(), children);
-            case "IS_NULL" -> children.length == 1 ? columnOf(children[0]).map(Expression::isNull) : Optional.empty();
+            case "=", "<>", "!=", ">", ">=", "<", "<=" ->
+                convertComparisonBound(predicate.name(), children, dataSource);
+            case "IS_NULL" ->
+                children.length == 1
+                        ? boundColumnOf(children[0], dataSource).map(BoundExpression::isNull)
+                        : Optional.empty();
             case "IS_NOT_NULL" ->
-                children.length == 1 ? columnOf(children[0]).map(Expression::isNotNull) : Optional.empty();
-            case "IN" -> convertIn(children);
-            case "STARTS_WITH" ->
-                convertStringMatch(children, /* leadingWildcard= */ false, /* trailingWildcard= */ true);
-            case "ENDS_WITH" ->
-                convertStringMatch(children, /* leadingWildcard= */ true, /* trailingWildcard= */ false);
-            case "CONTAINS" -> convertStringMatch(children, /* leadingWildcard= */ true, /* trailingWildcard= */ true);
-            case "BOOLEAN_EXPRESSION" -> children.length == 1 ? columnOf(children[0]) : Optional.empty();
+                children.length == 1
+                        ? boundColumnOf(children[0], dataSource).map(BoundExpression::isNotNull)
+                        : Optional.empty();
+            case "IN" -> convertInBound(children, dataSource);
+            case "STARTS_WITH" -> convertStringMatchBound(children, dataSource, false, true);
+            case "ENDS_WITH" -> convertStringMatchBound(children, dataSource, true, false);
+            case "CONTAINS" -> convertStringMatchBound(children, dataSource, true, true);
+            case "BOOLEAN_EXPRESSION" ->
+                children.length == 1 ? boundColumnOf(children[0], dataSource) : Optional.empty();
             default -> Optional.empty();
         };
     }
 
-    private static Optional<Expression> convertComparison(
-            String op, org.apache.spark.sql.connector.expressions.Expression[] children) {
+    private static Optional<BoundExpression> convertComparisonBound(
+            String op, org.apache.spark.sql.connector.expressions.Expression[] children, DataSource dataSource) {
         if (children.length != 2) {
             return Optional.empty();
         }
-        // Allow either side to be the column; Spark's V2 builder sometimes commutes.
-        Optional<Expression> lhs = exprOf(children[0]);
-        Optional<Expression> rhs = exprOf(children[1]);
+        Optional<BoundExpression> lhs = boundExprOf(children[0], dataSource);
+        Optional<BoundExpression> rhs = boundExprOf(children[1], dataSource);
         if (lhs.isEmpty() || rhs.isEmpty()) {
             return Optional.empty();
         }
-        // We require at least one side to be a column reference to keep the surface small and to
-        // match what Vortex pushdown understands.
-        boolean lhsIsCol = isFieldRefExpr(children[0]);
-        boolean rhsIsCol = isFieldRefExpr(children[1]);
-        if (!lhsIsCol && !rhsIsCol) {
-            return Optional.empty();
+        BinaryOp operator = toBinaryOp(op);
+        if (!isFieldRefExpr(children[0])) {
+            operator = swap(operator);
+            return Optional.of(BoundExpression.binary(operator, rhs.get(), lhs.get()));
         }
-        BinaryOp binaryOp = toBinaryOp(op);
-        // Canonicalize so the column is on the left when only one side is a column.
-        if (!lhsIsCol) {
-            binaryOp = swap(binaryOp);
-            Expression tmp = lhs.get();
-            return Optional.of(Expression.binary(binaryOp, rhs.get(), tmp));
-        }
-        return Optional.of(Expression.binary(binaryOp, lhs.get(), rhs.get()));
+        return Optional.of(BoundExpression.binary(operator, lhs.get(), rhs.get()));
     }
 
-    private static Optional<Expression> convertIn(org.apache.spark.sql.connector.expressions.Expression[] children) {
+    private static Optional<BoundExpression> convertInBound(
+            org.apache.spark.sql.connector.expressions.Expression[] children, DataSource dataSource) {
         if (children.length < 2) {
             return Optional.empty();
         }
-        Optional<Expression> column = columnOf(children[0]);
+        Optional<BoundExpression> column = boundColumnOf(children[0], dataSource);
         if (column.isEmpty()) {
             return Optional.empty();
         }
-        Expression columnExpr = column.get();
-        List<Expression> eqs = new ArrayList<>(children.length - 1);
+        BoundExpression combined = null;
         for (int i = 1; i < children.length; i++) {
-            Optional<Expression> literal = literalOf(children[i]);
+            Optional<BoundExpression> literal = boundLiteralOf(children[i]);
             if (literal.isEmpty()) {
                 return Optional.empty();
             }
-            eqs.add(Expression.binary(BinaryOp.EQ, columnExpr, literal.get()));
+            BoundExpression equal = BoundExpression.binary(BinaryOp.EQ, column.get(), literal.get());
+            combined = combined == null ? equal : BoundExpression.or(combined, equal);
         }
-        if (eqs.size() == 1) {
-            return Optional.of(eqs.get(0));
-        }
-        return Optional.of(Expression.or(eqs.toArray(new Expression[0])));
+        return Optional.of(combined);
     }
 
-    private static Optional<Expression> convertStringMatch(
+    private static Optional<BoundExpression> convertStringMatchBound(
             org.apache.spark.sql.connector.expressions.Expression[] children,
+            DataSource dataSource,
             boolean leadingWildcard,
             boolean trailingWildcard) {
         if (children.length != 2) {
             return Optional.empty();
         }
-        Optional<Expression> column = columnOf(children[0]);
+        Optional<BoundExpression> column = boundColumnOf(children[0], dataSource);
         Optional<String> needle = stringValueOf(children[1]);
         if (column.isEmpty() || needle.isEmpty()) {
             return Optional.empty();
         }
         String pattern = buildLikePattern(needle.get(), leadingWildcard, trailingWildcard);
-        return Optional.of(Expression.like(
-                column.get(), Expression.literal(pattern), /* negated= */ false, /* caseInsensitive= */ false));
+        return Optional.of(BoundExpression.like(column.get(), BoundExpression.literal(pattern), false, false));
+    }
+
+    private static Optional<BoundExpression> boundColumnOf(
+            org.apache.spark.sql.connector.expressions.Expression expression, DataSource dataSource) {
+        if (!(expression instanceof NamedReference reference) || reference.fieldNames().length == 0) {
+            return Optional.empty();
+        }
+        return Optional.of(BoundExpression.column(dataSource, reference.fieldNames()));
+    }
+
+    private static Optional<BoundExpression> boundLiteralOf(
+            org.apache.spark.sql.connector.expressions.Expression expression) {
+        return literalOf(expression);
+    }
+
+    private static Optional<BoundExpression> boundExprOf(
+            org.apache.spark.sql.connector.expressions.Expression expression, DataSource dataSource) {
+        Optional<BoundExpression> column = boundColumnOf(expression, dataSource);
+        return column.isPresent() ? column : boundLiteralOf(expression);
     }
 
     /**
@@ -326,26 +388,6 @@ final class SparkPredicateToVortexExpression {
         return expr instanceof NamedReference;
     }
 
-    /** Returns the Vortex column expression for a Spark named reference, walking nested struct fields. */
-    private static Optional<Expression> columnOf(org.apache.spark.sql.connector.expressions.Expression expr) {
-        if (!(expr instanceof NamedReference)) {
-            return Optional.empty();
-        }
-        String[] parts = ((NamedReference) expr).fieldNames();
-        if (parts.length == 0) {
-            return Optional.empty();
-        }
-        return Optional.of(Expression.column(parts));
-    }
-
-    private static Optional<Expression> exprOf(org.apache.spark.sql.connector.expressions.Expression expr) {
-        Optional<Expression> col = columnOf(expr);
-        if (col.isPresent()) {
-            return col;
-        }
-        return literalOf(expr);
-    }
-
     private static Optional<String> stringValueOf(org.apache.spark.sql.connector.expressions.Expression expr) {
         if (!(expr instanceof Literal<?>)) {
             return Optional.empty();
@@ -392,7 +434,7 @@ final class SparkPredicateToVortexExpression {
         return literalOf(expr).isPresent();
     }
 
-    private static Optional<Expression> literalOf(org.apache.spark.sql.connector.expressions.Expression expr) {
+    private static Optional<BoundExpression> literalOf(org.apache.spark.sql.connector.expressions.Expression expr) {
         if (!(expr instanceof Literal<?>)) {
             return Optional.empty();
         }
@@ -402,97 +444,99 @@ final class SparkPredicateToVortexExpression {
         return convertLiteral(value, dataType);
     }
 
-    private static Optional<Expression> convertLiteral(Object value, DataType dataType) {
+    private static Optional<BoundExpression> convertLiteral(Object value, DataType dataType) {
         if (dataType instanceof BooleanType) {
             if (value == null) {
-                return Optional.of(Expression.nullLiteralBool());
+                return Optional.of(BoundExpression.nullLiteralBool());
             }
-            return Optional.of(Expression.literal((Boolean) value));
+            return Optional.of(BoundExpression.literal((Boolean) value));
         }
         if (dataType instanceof ByteType) {
             if (value == null) {
-                return Optional.of(Expression.nullLiteral(Expression.DType.I8));
+                return Optional.of(BoundExpression.nullLiteral(Expression.DType.I8));
             }
-            return Optional.of(Expression.literal(((Number) value).byteValue()));
+            return Optional.of(BoundExpression.literal(((Number) value).byteValue()));
         }
         if (dataType instanceof ShortType) {
             if (value == null) {
-                return Optional.of(Expression.nullLiteral(Expression.DType.I16));
+                return Optional.of(BoundExpression.nullLiteral(Expression.DType.I16));
             }
-            return Optional.of(Expression.literal(((Number) value).shortValue()));
+            return Optional.of(BoundExpression.literal(((Number) value).shortValue()));
         }
         if (dataType instanceof IntegerType) {
             if (value == null) {
-                return Optional.of(Expression.nullLiteral(Expression.DType.I32));
+                return Optional.of(BoundExpression.nullLiteral(Expression.DType.I32));
             }
-            return Optional.of(Expression.literal(((Number) value).intValue()));
+            return Optional.of(BoundExpression.literal(((Number) value).intValue()));
         }
         if (dataType instanceof LongType) {
             if (value == null) {
-                return Optional.of(Expression.nullLiteral(Expression.DType.I64));
+                return Optional.of(BoundExpression.nullLiteral(Expression.DType.I64));
             }
-            return Optional.of(Expression.literal(((Number) value).longValue()));
+            return Optional.of(BoundExpression.literal(((Number) value).longValue()));
         }
         if (dataType instanceof FloatType) {
             if (value == null) {
-                return Optional.of(Expression.nullLiteral(Expression.DType.F32));
+                return Optional.of(BoundExpression.nullLiteral(Expression.DType.F32));
             }
-            return Optional.of(Expression.literal(((Number) value).floatValue()));
+            return Optional.of(BoundExpression.literal(((Number) value).floatValue()));
         }
         if (dataType instanceof DoubleType) {
             if (value == null) {
-                return Optional.of(Expression.nullLiteral(Expression.DType.F64));
+                return Optional.of(BoundExpression.nullLiteral(Expression.DType.F64));
             }
-            return Optional.of(Expression.literal(((Number) value).doubleValue()));
+            return Optional.of(BoundExpression.literal(((Number) value).doubleValue()));
         }
         if (dataType instanceof StringType) {
             if (value == null) {
-                return Optional.of(Expression.nullLiteral(Expression.DType.UTF8));
+                return Optional.of(BoundExpression.nullLiteral(Expression.DType.UTF8));
             }
             if (value instanceof UTF8String || value instanceof CharSequence) {
-                return Optional.of(Expression.literal(value.toString()));
+                return Optional.of(BoundExpression.literal(value.toString()));
             }
         }
         if (dataType instanceof BinaryType) {
             if (value == null) {
-                return Optional.of(Expression.nullLiteral(Expression.DType.BINARY));
+                return Optional.of(BoundExpression.nullLiteral(Expression.DType.BINARY));
             }
             if (value instanceof byte[]) {
-                return Optional.of(Expression.literal((byte[]) value));
+                return Optional.of(BoundExpression.literal((byte[]) value));
             }
         }
         if (dataType instanceof DateType) {
             // Spark stores DateType as a 32-bit int day count since 1970-01-01.
             if (value == null) {
-                return Optional.of(Expression.nullLiteralDate(TimeUnit.DAYS));
+                return Optional.of(BoundExpression.nullLiteralDate(TimeUnit.DAYS));
             }
-            return Optional.of(Expression.literalDate(((Number) value).longValue(), TimeUnit.DAYS));
+            return Optional.of(BoundExpression.literalDate(((Number) value).longValue(), TimeUnit.DAYS));
         }
         if (dataType instanceof TimestampType) {
             // Spark stores TimestampType as a 64-bit microseconds-since-epoch in UTC.
             if (value == null) {
-                return Optional.of(Expression.nullLiteralTimestamp(TimeUnit.MICROSECONDS, "UTC"));
+                return Optional.of(BoundExpression.nullLiteralTimestamp(TimeUnit.MICROSECONDS, "UTC"));
             }
-            return Optional.of(Expression.literalTimestamp(((Number) value).longValue(), TimeUnit.MICROSECONDS, "UTC"));
+            return Optional.of(
+                    BoundExpression.literalTimestamp(((Number) value).longValue(), TimeUnit.MICROSECONDS, "UTC"));
         }
         if (dataType instanceof TimestampNTZType) {
             if (value == null) {
-                return Optional.of(Expression.nullLiteralTimestamp(TimeUnit.MICROSECONDS, null));
+                return Optional.of(BoundExpression.nullLiteralTimestamp(TimeUnit.MICROSECONDS, null));
             }
-            return Optional.of(Expression.literalTimestamp(((Number) value).longValue(), TimeUnit.MICROSECONDS, null));
+            return Optional.of(
+                    BoundExpression.literalTimestamp(((Number) value).longValue(), TimeUnit.MICROSECONDS, null));
         }
         if (dataType instanceof DecimalType) {
             DecimalType decimalType = (DecimalType) dataType;
             int precision = decimalType.precision();
             int scale = decimalType.scale();
             if (value == null) {
-                return Optional.of(Expression.nullLiteralDecimal(precision, scale));
+                return Optional.of(BoundExpression.nullLiteralDecimal(precision, scale));
             }
             BigInteger unscaled = unscaledValueOf(value, scale);
             if (unscaled == null) {
                 return Optional.empty();
             }
-            return Optional.of(Expression.literalDecimal(unscaled, precision, scale));
+            return Optional.of(BoundExpression.literalDecimal(unscaled, precision, scale));
         }
         // Some Spark literals (e.g. NullType, GeographyType) have no Vortex representation.
         return Optional.empty();

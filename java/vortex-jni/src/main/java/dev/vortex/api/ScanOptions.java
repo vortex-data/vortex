@@ -22,10 +22,10 @@ import org.roaringbitmap.longlong.Roaring64NavigableMap;
 public interface ScanOptions {
 
     /** Projection expression. If empty, all columns are returned. */
-    Optional<Expression> projection();
+    Optional<BoundExpression> projection();
 
     /** Filter expression applied before returning rows. */
-    Optional<Expression> filter();
+    Optional<BoundExpression> filter();
 
     /** Inclusive start of the row range to read. */
     OptionalLong rowRangeBegin();

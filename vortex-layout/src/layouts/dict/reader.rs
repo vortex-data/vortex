@@ -24,7 +24,6 @@ use vortex_array::expr::ExactBoundExpr;
 use vortex_array::expr::bound::pack as bound_pack;
 use vortex_array::expr::direct_bound_annotations;
 use vortex_array::expr::label_bound_tree;
-use vortex_array::expr::root;
 use vortex_array::expr::transform::partition_bound_annotations;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::scalar_fn::is_negative_cost;
@@ -103,9 +102,7 @@ impl DictReader {
         // We capture the name, so it may be wrong if we re-use the same reader within multiple
         // different parent readers. But that's rare...
         let values_len = self.values_len;
-        let root = root()
-            .bind(self.values.dtype())
-            .vortex_expect("root must bind against the dictionary values dtype");
+        let root = BoundExpression::new_root(self.values.dtype().clone());
         self.values_array
             .get_or_init(move || {
                 self.values
@@ -128,9 +125,7 @@ impl DictReader {
         // We capture the name, so it may be wrong if we re-use the same reader within multiple
         // different parent readers. But that's rare...
         let values_len = self.values_len;
-        let root = root()
-            .bind(self.values.dtype())
-            .vortex_expect("root must bind against the dictionary values dtype");
+        let root = BoundExpression::new_root(self.values.dtype().clone());
         self.values_array.get().cloned().unwrap_or_else(|| {
             self.values
                 .projection_evaluation(
@@ -264,7 +259,7 @@ impl LayoutReader for DictReader {
         // We register interest on the entire codes row_range for now, there
         // is no straightforward shift into the codes domain we can do to the expression
         // without reading values.
-        let root = root().bind(self.codes.dtype())?;
+        let root = BoundExpression::new_root(self.codes.dtype().clone());
         let codes_eval =
             self.codes
                 .projection_evaluation(row_range, &root, MaskFuture::new_true(mask.len()))?;
@@ -290,7 +285,7 @@ impl LayoutReader for DictReader {
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         // TODO: fix up expr partitioning with fallibility and strictness annotations
-        let codes_root = root().bind(self.codes.dtype())?;
+        let codes_root = BoundExpression::new_root(self.codes.dtype().clone());
         let codes_eval = self
             .codes
             .projection_evaluation(row_range, &codes_root, mask)
@@ -308,7 +303,7 @@ impl LayoutReader for DictReader {
             // self.values_array() is called first, it will populate
             // self.values with uncompressed data. Supply uncached data
             let values_len = self.values_len;
-            let values_root = root().bind(self.values.dtype())?;
+            let values_root = BoundExpression::new_root(self.values.dtype().clone());
             self.values
                 .projection_evaluation(
                     &(0..values_len as u64),
@@ -372,17 +367,16 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_array::dtype::StructFields;
     use vortex_array::expr::BoundExpression;
-    use vortex_array::expr::Expression;
+    use vortex_array::expr::bound::byte_length;
+    use vortex_array::expr::bound::cast;
+    use vortex_array::expr::bound::eq;
+    use vortex_array::expr::bound::get_item;
+    use vortex_array::expr::bound::is_not_null;
+    use vortex_array::expr::bound::like;
+    use vortex_array::expr::bound::lit;
     use vortex_array::expr::bound::pack as bound_pack;
-    use vortex_array::expr::byte_length;
-    use vortex_array::expr::cast;
-    use vortex_array::expr::eq;
-    use vortex_array::expr::get_item;
-    use vortex_array::expr::is_not_null;
-    use vortex_array::expr::like;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::pack;
-    use vortex_array::expr::root;
+    use vortex_array::expr::bound::pack;
+    use vortex_array::expr::bound::root;
     use vortex_array::validity::Validity;
     use vortex_btrblocks::BtrBlocksCompressor;
     use vortex_error::VortexExpect;
@@ -496,7 +490,13 @@ mod tests {
             let expression = pack(
                 [(
                     "top",
-                    pack([("one", root()), ("two", root())], Nullability::NonNullable),
+                    pack(
+                        [
+                            ("one", root(DType::Utf8(Nullability::Nullable))),
+                            ("two", root(DType::Utf8(Nullability::Nullable))),
+                        ],
+                        Nullability::NonNullable,
+                    ),
                 )],
                 Nullability::NonNullable,
             );
@@ -504,7 +504,7 @@ mod tests {
             let reader = layout
                 .new_reader("".into(), segments, &session, &Default::default())
                 .unwrap();
-            let expression = expression.bind(reader.dtype()).unwrap();
+
             let actual = reader
                 .projection_evaluation(
                     &(0..layout.row_count()),
@@ -583,7 +583,7 @@ mod tests {
                 .unwrap();
 
             let filter = eq(
-                root(),
+                root(DType::Utf8(Nullability::Nullable)),
                 lit(vortex_array::scalar::Scalar::utf8(
                     filter_value,
                     Nullability::Nullable,
@@ -592,7 +592,7 @@ mod tests {
             let reader = layout
                 .new_reader("".into(), segments, &session, &Default::default())
                 .unwrap();
-            let filter = filter.bind(reader.dtype()).unwrap();
+
             let mask = reader
                 .filter_evaluation(&(0..3), &filter, MaskFuture::new_true(3))
                 .unwrap()
@@ -652,12 +652,12 @@ mod tests {
                 .await
                 .unwrap();
 
-            let expression = is_not_null(root());
+            let expression = is_not_null(root(DType::Utf8(Nullability::Nullable)));
             assert_eq!(layout.encoding_id(), LayoutId::new("vortex.dict"));
             let reader = layout
                 .new_reader("".into(), segments, &session, &Default::default())
                 .unwrap();
-            let expression = expression.bind(reader.dtype()).unwrap();
+
             let actual = reader
                 .projection_evaluation(
                     &(0..layout.row_count()),
@@ -702,7 +702,7 @@ mod tests {
 
         let expected = array
             .clone()
-            .apply(&byte_length(root()))
+            .apply_bound(&byte_length(root(array.dtype().clone())))
             .unwrap()
             .into_array();
 
@@ -714,7 +714,7 @@ mod tests {
             let reader = layout
                 .new_reader("".into(), segments, &session, &Default::default())
                 .unwrap();
-            let expression = byte_length(root()).bind(reader.dtype()).unwrap();
+            let expression = byte_length(root(reader.dtype().clone()));
             let actual = reader
                 .projection_evaluation(
                     &(0..layout.row_count()),
@@ -729,7 +729,7 @@ mod tests {
         })
     }
 
-    fn pushed_inner(exprs: impl IntoIterator<Item = Expression>) -> Expression {
+    fn pushed_inner(exprs: impl IntoIterator<Item = BoundExpression>) -> BoundExpression {
         pack(
             exprs
                 .into_iter()
@@ -739,12 +739,12 @@ mod tests {
         )
     }
 
-    fn pushed_ref(idx: usize) -> Expression {
-        get_item(format!("_{idx}"), get_item("", root()))
+    fn pushed_ref(idx: usize, scope: DType) -> BoundExpression {
+        get_item(format!("_{idx}"), get_item("", root(scope)))
     }
 
     fn test_apply(
-        original: Expression,
+        original: BoundExpression,
         outer: BoundExpression,
         inner: BoundExpression,
     ) -> VortexResult<()> {
@@ -761,17 +761,9 @@ mod tests {
         );
         let pushed = array.clone().apply_bound(&pushed_expr)?;
         let actual = pushed.apply_bound(&outer)?;
-        let expected = array.apply(&original)?;
+        let expected = array.apply_bound(&original)?;
         assert_arrays_eq!(actual, expected, &mut ctx);
         Ok(())
-    }
-
-    fn split_bound(
-        expr: Expression,
-        dtype: &DType,
-    ) -> VortexResult<(BoundExpression, Option<BoundExpression>)> {
-        let bound = expr.bind(dtype)?;
-        split_expression_for_pushdown(&bound)
     }
 
     fn pushed_scope(inner: &BoundExpression) -> DType {
@@ -783,8 +775,8 @@ mod tests {
 
     #[test]
     fn split_expr_root() {
-        let (outer, inner) = split_bound(root(), &DType::Null).unwrap();
-        assert_eq!(outer, root().bind(&DType::Null).unwrap());
+        let (outer, inner) = split_expression_for_pushdown(&root(DType::Null)).unwrap();
+        assert_eq!(outer, root(DType::Null));
         assert_eq!(inner, None);
     }
 
@@ -792,38 +784,35 @@ mod tests {
     fn split_expr_partial_pushdown() -> VortexResult<()> {
         // cast is fallible, thus not pushed
         let target = DType::Primitive(PType::I64, Nullability::Nullable);
-        let expr = cast(byte_length(root()), target.clone());
-        let dtype = DType::Utf8(false.into());
-        let (outer, inner) = split_bound(expr.clone(), &dtype)?;
+        let dtype = DType::Utf8(Nullability::Nullable);
+        let expr = cast(byte_length(root(dtype.clone())), target.clone());
+        let (outer, inner) = split_expression_for_pushdown(&expr)?;
         let inner = inner.unwrap();
         // [0] = cast([1], dtype)
         // [1] = byte_length(root)
-        assert_eq!(
-            outer,
-            cast(pushed_ref(0), target).bind(&pushed_scope(&inner))?
-        );
-        assert_eq!(inner, pushed_inner([byte_length(root())]).bind(&dtype)?);
+        assert_eq!(outer, cast(pushed_ref(0, pushed_scope(&inner)), target));
+        assert_eq!(inner, pushed_inner([byte_length(root(dtype))]));
         test_apply(expr, outer, inner)
     }
 
     #[test]
     fn split_expr_full_pushdown() -> VortexResult<()> {
-        let expr = byte_length(root());
-        let dtype = DType::Utf8(false.into());
-        let (outer, inner) = split_bound(expr.clone(), &dtype)?;
+        let dtype = DType::Utf8(Nullability::Nullable);
+        let expr = byte_length(root(dtype.clone()));
+        let (outer, inner) = split_expression_for_pushdown(&expr)?;
         let inner = inner.unwrap();
-        assert_eq!(outer, pushed_ref(0).bind(&pushed_scope(&inner))?);
-        assert_eq!(inner, pushed_inner([byte_length(root())]).bind(&dtype)?);
+        assert_eq!(outer, pushed_ref(0, pushed_scope(&inner)));
+        assert_eq!(inner, pushed_inner([byte_length(root(dtype))]));
         test_apply(expr, outer, inner)
     }
 
     #[test]
     fn split_expr_no_pushdown() {
         // like is fallible, thus not pushed. lit() does not reference root()
-        let expr = like(root(), lit("abc"));
-        let dtype = DType::Utf8(true.into());
-        let (outer, inner) = split_bound(expr.clone(), &dtype).unwrap();
-        assert_eq!(outer, expr.bind(&dtype).unwrap());
+        let dtype = DType::Utf8(Nullability::Nullable);
+        let expr = like(root(dtype), lit("abc"));
+        let (outer, inner) = split_expression_for_pushdown(&expr).unwrap();
+        assert_eq!(outer, expr);
         assert_eq!(inner, None);
     }
 }

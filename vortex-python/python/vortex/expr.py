@@ -1,6 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+"""Build expressions for Vortex scans.
+
+Scan binding currently supports field access, literals, binary operations, casts,
+boolean negation, null tests, struct selection, and struct packing. Other
+builders can construct expression nodes, but binding or serializing those
+nodes raises an error until they have an authored binding rule.
+"""
 
 from ._lib.expr import (
     Expr,

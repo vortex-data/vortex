@@ -25,7 +25,7 @@ use super::visitor::ExecuteValidRows;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::dtype::DType;
-use crate::expr::Expression;
+use crate::expr::BoundExpression;
 use crate::expr::union_child_validities;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -73,8 +73,8 @@ impl<F: RowFn> ScalarFnVTable for F {
     fn validity(
         &self,
         _options: &Self::Options,
-        expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
+        expression: &BoundExpression,
+    ) -> VortexResult<Option<BoundExpression>> {
         union_child_validities(expression)
     }
 

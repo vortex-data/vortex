@@ -28,20 +28,10 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
-use vortex::expr::Expression;
-use vortex::expr::and_collect;
-use vortex::expr::byte_length;
-use vortex::expr::cast;
-use vortex::expr::col;
-use vortex::expr::get_item;
-use vortex::expr::is_not_null;
-use vortex::expr::is_null;
-use vortex::expr::list_contains;
-use vortex::expr::list_length;
-use vortex::expr::lit;
-use vortex::expr::not;
-use vortex::expr::or_collect;
-use vortex::expr::root;
+use vortex::expr::BoundExpression;
+use vortex::expr::bound::and_collect;
+use vortex::expr::bound::lit;
+use vortex::expr::bound::or_collect;
 use vortex::layout::layouts::row_idx::row_idx;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::EmptyOptions as ScalarEmptyOptions;
@@ -50,9 +40,17 @@ use vortex::scalar_fn::fns::between::Between;
 use vortex::scalar_fn::fns::between::BetweenOptions;
 use vortex::scalar_fn::fns::between::StrictComparison;
 use vortex::scalar_fn::fns::binary::Binary;
+use vortex::scalar_fn::fns::byte_length::ByteLength;
+use vortex::scalar_fn::fns::cast::Cast;
+use vortex::scalar_fn::fns::get_item::GetItem;
+use vortex::scalar_fn::fns::is_not_null::IsNotNull;
+use vortex::scalar_fn::fns::is_null::IsNull;
 use vortex::scalar_fn::fns::like::Like;
 use vortex::scalar_fn::fns::like::LikeOptions;
+use vortex::scalar_fn::fns::list_contains::ListContains;
+use vortex::scalar_fn::fns::list_length::ListLength;
 use vortex::scalar_fn::fns::literal::Literal;
+use vortex::scalar_fn::fns::not::Not;
 use vortex::scalar_fn::fns::operators::Operator;
 use vortex_spatial::extension::LineString;
 use vortex_spatial::extension::MultiLineString;
@@ -100,8 +98,12 @@ fn returns_a_list(expr: &duckdb::ExpressionRef) -> bool {
 
 /// Wrap `expr` in `list_length`. Since vortex `list_length` returns u64 but duckdb equivalents
 /// return i64, we must cast as well.
-fn build_list_length(expr: Expression, nullability: Nullability) -> Expression {
-    cast(list_length(expr), DType::Primitive(PType::I64, nullability))
+fn build_list_length(
+    expr: BoundExpression,
+    nullability: Nullability,
+) -> VortexResult<BoundExpression> {
+    let length = ListLength.try_new_bound_expr(ScalarEmptyOptions, [expr])?;
+    Cast.try_new_bound_expr(DType::Primitive(PType::I64, nullability), [length])
 }
 
 /// Read an `f64` from a constant expression (the `ST_DWithin` radius); `None` for non-constants.
@@ -116,7 +118,8 @@ fn from_bound_f64(value: &duckdb::ExpressionRef) -> VortexResult<Option<f64>> {
 #[derive(Clone, Copy)]
 struct ConvertCtx<'a> {
     /// Substituted for `BoundRef` references when converting scan-scoped table filters.
-    col_sub: Option<&'a Expression>,
+    col_sub: Option<&'a BoundExpression>,
+    scope: &'a DType,
     /// The scan's fields, when known.
     fields: Option<&'a [DuckdbField]>,
 }
@@ -147,7 +150,7 @@ fn is_native_spatial_column(fields: Option<&[DuckdbField]>, name: &str) -> bool 
 fn spatial_operand(
     value: &duckdb::ExpressionRef,
     ctx: ConvertCtx<'_>,
-) -> VortexResult<Option<Expression>> {
+) -> VortexResult<Option<BoundExpression>> {
     match value.as_class() {
         Some(BoundConstant(constant)) => {
             let scalar = Scalar::try_from(constant.value)?;
@@ -177,7 +180,7 @@ fn spatial_operand(
 fn spatial_operands(
     children: &[&duckdb::ExpressionRef],
     ctx: ConvertCtx<'_>,
-) -> VortexResult<Option<Vec<Expression>>> {
+) -> VortexResult<Option<Vec<BoundExpression>>> {
     children
         .iter()
         .map(|child| spatial_operand(child, ctx))
@@ -189,7 +192,7 @@ fn try_from_spatial_function(
     name: &str,
     func: &BoundFunction,
     ctx: ConvertCtx<'_>,
-) -> VortexResult<Option<Expression>> {
+) -> VortexResult<Option<BoundExpression>> {
     let children: Vec<_> = func.children().collect();
     let expr = match name.to_ascii_lowercase().as_str() {
         // DuckDB's spatial extension folds the radius of `ST_DWithin` into bind data; the override
@@ -205,8 +208,9 @@ fn try_from_spatial_function(
             let Some(distance) = from_bound_f64(children[2])? else {
                 return Ok(None);
             };
-            let spatial_distance = SpatialDistance.new_expr(ScalarEmptyOptions, operands);
-            Binary.new_expr(Operator::Lte, [spatial_distance, lit(distance)])
+            let spatial_distance =
+                SpatialDistance.try_new_bound_expr(ScalarEmptyOptions, operands)?;
+            Binary.try_new_bound_expr(Operator::Lte, [spatial_distance, lit(distance)])?
         }
         "st_distance" => {
             if children.len() != 2 {
@@ -215,7 +219,7 @@ fn try_from_spatial_function(
             let Some(operands) = spatial_operands(&children, ctx)? else {
                 return Ok(None);
             };
-            SpatialDistance.new_expr(ScalarEmptyOptions, operands)
+            SpatialDistance.try_new_bound_expr(ScalarEmptyOptions, operands)?
         }
         "st_intersects" => {
             if children.len() != 2 {
@@ -224,7 +228,7 @@ fn try_from_spatial_function(
             let Some(operands) = spatial_operands(&children, ctx)? else {
                 return Ok(None);
             };
-            SpatialIntersects.new_expr(ScalarEmptyOptions, operands)
+            SpatialIntersects.try_new_bound_expr(ScalarEmptyOptions, operands)?
         }
         containment @ ("st_contains" | "st_within") => {
             if children.len() != 2 {
@@ -237,7 +241,7 @@ fn try_from_spatial_function(
             if containment == "st_within" {
                 operands.swap(0, 1);
             }
-            SpatialContains.new_expr(ScalarEmptyOptions, operands)
+            SpatialContains.try_new_bound_expr(ScalarEmptyOptions, operands)?
         }
         _ => return Ok(None),
     };
@@ -248,7 +252,7 @@ fn try_from_spatial_function(
 fn try_from_bound_function(
     func: &BoundFunction,
     ctx: ConvertCtx<'_>,
-) -> VortexResult<Option<Expression>> {
+) -> VortexResult<Option<BoundExpression>> {
     let expr = match func.scalar_function.name() {
         "strlen" => {
             let children: Vec<_> = func.children().collect();
@@ -256,12 +260,12 @@ fn try_from_bound_function(
             let Some(col) = try_from_expression_inner(children[0], ctx)? else {
                 return Ok(None);
             };
-            let col = byte_length(col);
+            let col = ByteLength.try_new_bound_expr(ScalarEmptyOptions, [col])?;
             // byte_length returns u64, strlen expects i64.
             // At this point we don't know column's dtype so we ultimately
             // set it to be nullable.
             let dtype = DType::Primitive(PType::I64, Nullability::Nullable);
-            cast(col, dtype)
+            Cast.try_new_bound_expr(dtype, [col])?
         }
         "struct_extract" => {
             let children: Vec<_> = func.children().collect();
@@ -270,37 +274,10 @@ fn try_from_bound_function(
                 return Ok(None);
             };
             let field = from_bound_str(children[1])?;
-            get_item(field, child)
+            GetItem.try_new_bound_expr(field.into(), [child])?
         }
-        like @ ("~~" | "!~~") => {
-            let children: Vec<_> = func.children().collect();
-            vortex_ensure!(children.len() == 2);
-            let Some(string) = try_from_expression_inner(children[0], ctx)? else {
-                return Ok(None);
-            };
-            let Some(target) = try_from_expression_inner(children[1], ctx)? else {
-                return Ok(None);
-            };
-            let opts = LikeOptions {
-                negated: like == "!~~",
-                case_insensitive: false,
-            };
-            Like.new_expr(opts, [string, target])
-        }
-        matchers @ ("contains" | "prefix" | "suffix") => {
-            let children: Vec<_> = func.children().collect();
-            vortex_ensure!(children.len() == 2);
-            let Some(value) = try_from_expression_inner(children[0], ctx)? else {
-                return Ok(None);
-            };
-            let pattern = from_bound_str(children[1])?;
-            let pattern = match matchers {
-                "contains" => format!("%{pattern}%"),
-                "prefix" => format!("{pattern}%"),
-                "suffix" => format!("%{pattern}"),
-                _ => unreachable!(),
-            };
-            Like.new_expr(LikeOptions::default(), [value, lit(pattern)])
+        name @ ("~~" | "!~~" | "contains" | "prefix" | "suffix") => {
+            return try_from_string_match_function(name, func, ctx);
         }
         "array_length" => {
             let children = func.children().collect::<Vec<_>>();
@@ -313,7 +290,7 @@ fn try_from_bound_function(
             };
 
             // We don't know the column's nullability here
-            build_list_length(col, Nullability::Nullable)
+            build_list_length(col, Nullability::Nullable)?
         }
         // len/length semantics depend on the return type of underlying expr.
         "len" | "length" => {
@@ -327,7 +304,7 @@ fn try_from_bound_function(
                 };
 
                 // We don't know the column's nullability here
-                let list_len_expr = build_list_length(col, Nullability::Nullable);
+                let list_len_expr = build_list_length(col, Nullability::Nullable)?;
                 return Ok(Some(list_len_expr));
             } else {
                 return Ok(None);
@@ -340,23 +317,64 @@ fn try_from_bound_function(
     Ok(Some(expr))
 }
 
+fn try_from_string_match_function(
+    name: &str,
+    func: &BoundFunction,
+    ctx: ConvertCtx<'_>,
+) -> VortexResult<Option<BoundExpression>> {
+    let children: Vec<_> = func.children().collect();
+    vortex_ensure!(children.len() == 2);
+    let Some(value) = try_from_expression_inner(children[0], ctx)? else {
+        return Ok(None);
+    };
+    let (pattern, options) = match name {
+        "~~" | "!~~" => {
+            let Some(pattern) = try_from_expression_inner(children[1], ctx)? else {
+                return Ok(None);
+            };
+            (
+                pattern,
+                LikeOptions {
+                    negated: name == "!~~",
+                    case_insensitive: false,
+                },
+            )
+        }
+        "contains" | "prefix" | "suffix" => {
+            let text = from_bound_str(children[1])?;
+            let pattern = match name {
+                "contains" => format!("%{text}%"),
+                "prefix" => format!("{text}%"),
+                "suffix" => format!("%{text}"),
+                _ => unreachable!(),
+            };
+            (lit(pattern), LikeOptions::default())
+        }
+        _ => unreachable!(),
+    };
+    Ok(Some(Like.try_new_bound_expr(options, [value, pattern])?))
+}
+
 pub fn try_from_bound_expression(
     value: &duckdb::ExpressionRef,
     fields: &[DuckdbField],
-) -> VortexResult<Option<Expression>> {
+    scope: &DType,
+) -> VortexResult<Option<BoundExpression>> {
     try_from_expression_inner(
         value,
         ConvertCtx {
             col_sub: None,
             fields: Some(fields),
+            scope,
         },
     )
 }
 
 pub(super) fn try_from_bound_expression_with_col_sub(
     value: &duckdb::ExpressionRef,
-    col_sub: &Expression,
-) -> VortexResult<Option<Expression>> {
+    col_sub: &BoundExpression,
+    scope: &DType,
+) -> VortexResult<Option<BoundExpression>> {
     // No fields: scan-time table filters never carry spatial functions, because
     // `can_push_expression` refuses them.
     try_from_expression_inner(
@@ -364,6 +382,7 @@ pub(super) fn try_from_bound_expression_with_col_sub(
         ConvertCtx {
             col_sub: Some(col_sub),
             fields: None,
+            scope,
         },
     )
 }
@@ -450,16 +469,19 @@ pub fn can_push_expression(value: &duckdb::ExpressionRef) -> bool {
 }
 
 /// Applies `list_length` expression to a duckdb field
-fn list_length_on_field(field: &DuckdbField) -> Expression {
-    let col = get_item(field.name.as_str(), root());
-
+fn list_length_on_field(field: &DuckdbField, scope: &DType) -> VortexResult<BoundExpression> {
+    let col = GetItem.try_new_bound_expr(
+        field.name.as_str().into(),
+        [BoundExpression::new_root(scope.clone())],
+    )?;
     build_list_length(col, field.dtype.nullability())
 }
 
 pub fn try_from_projection_expression(
     value: &duckdb::ExpressionRef,
     field: &DuckdbField,
-) -> VortexResult<Option<Expression>> {
+    scope: &DType,
+) -> VortexResult<Option<BoundExpression>> {
     let Some(class) = value.as_class() else {
         return Ok(None);
     };
@@ -467,20 +489,31 @@ pub fn try_from_projection_expression(
         ExpressionClass::BoundFunction(func) => {
             match func.scalar_function.name() {
                 "strlen" => {
-                    let col = byte_length(get_item(field.name.as_str(), root()));
+                    let column = GetItem.try_new_bound_expr(
+                        field.name.as_str().into(),
+                        [BoundExpression::new_root(scope.clone())],
+                    )?;
+                    let col = ByteLength.try_new_bound_expr(ScalarEmptyOptions, [column])?;
                     // byte_length returns u64, strlen expects i64
                     let dtype = DType::Primitive(PType::I64, field.dtype.nullability());
-                    let col = cast(col, dtype);
+                    let col = Cast.try_new_bound_expr(dtype, [col])?;
                     Some(col)
                 }
                 "array_length" => {
                     // Only accept array_length(expr) rather than array_length(expr, dim).
-                    (func.children().count() == 1).then(|| list_length_on_field(field))
+                    if func.children().count() == 1 {
+                        Some(list_length_on_field(field, scope)?)
+                    } else {
+                        None
+                    }
                 }
                 // len/length have different semantics depending on field dtype.
                 "len" | "length" => {
-                    matches!(field.dtype, DType::List(..) | DType::FixedSizeList(..))
-                        .then(|| list_length_on_field(field))
+                    if matches!(field.dtype, DType::List(..) | DType::FixedSizeList(..)) {
+                        Some(list_length_on_field(field, scope)?)
+                    } else {
+                        None
+                    }
                 }
                 _ => None,
             }
@@ -491,8 +524,11 @@ pub fn try_from_projection_expression(
                 None
             } else {
                 let dtype = DType::from_logical_type(target, field.dtype.nullability())?;
-                let col = get_item(field.name.as_str(), root());
-                Some(cast(col, dtype))
+                let col = GetItem.try_new_bound_expr(
+                    field.name.as_str().into(),
+                    [BoundExpression::new_root(scope.clone())],
+                )?;
+                Some(Cast.try_new_bound_expr(dtype, [col])?)
             }
         }
         _ => None,
@@ -574,7 +610,7 @@ pub fn try_from_projection_aggregate(
 fn try_from_expression_inner(
     value: &duckdb::ExpressionRef,
     ctx: ConvertCtx<'_>,
-) -> VortexResult<Option<Expression>> {
+) -> VortexResult<Option<BoundExpression>> {
     let Some(class) = value.as_class() else {
         debug!(
             class_id = ?value.as_class_id(),
@@ -603,7 +639,8 @@ fn try_from_expression_inner(
             {
                 return Ok(None);
             }
-            col(name)
+            GetItem
+                .try_new_bound_expr(name.into(), [BoundExpression::new_root(ctx.scope.clone())])?
         }
         BoundConstant(const_) => lit(Scalar::try_from(const_.value)?),
         BoundComparison(compare) => {
@@ -616,63 +653,12 @@ fn try_from_expression_inner(
                 return Ok(None);
             };
 
-            Binary.new_expr(operator, [left, right])
+            Binary.try_new_bound_expr(operator, [left, right])?
         }
-        BoundBetween(between) => {
-            let Some(array) = try_from_expression_inner(between.input, ctx)? else {
-                return Ok(None);
-            };
-            let Some(lower) = try_from_expression_inner(between.lower, ctx)? else {
-                return Ok(None);
-            };
-            let Some(upper) = try_from_expression_inner(between.upper, ctx)? else {
-                return Ok(None);
-            };
-            Between.new_expr(
-                BetweenOptions {
-                    lower_strict: if between.lower_inclusive {
-                        StrictComparison::NonStrict
-                    } else {
-                        StrictComparison::Strict
-                    },
-                    upper_strict: if between.upper_inclusive {
-                        StrictComparison::NonStrict
-                    } else {
-                        StrictComparison::Strict
-                    },
-                },
-                [array, lower, upper],
-            )
+        BoundBetween(between) => return try_from_bound_between(between, ctx),
+        ExpressionClass::BoundOperator(operator) => {
+            return try_from_bound_operator(operator, ctx);
         }
-        ExpressionClass::BoundOperator(operator) => match operator.op {
-            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_NOT
-            | DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_IS_NULL
-            | DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_IS_NOT_NULL => {
-                let children: Vec<_> = operator.children().collect();
-                vortex_ensure!(children.len() == 1);
-                let Some(child) = try_from_expression_inner(children[0], ctx)? else {
-                    return Ok(None);
-                };
-                match operator.op {
-                    DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_NOT => not(child),
-                    DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_IS_NULL => is_null(child),
-                    DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_IS_NOT_NULL => {
-                        is_not_null(child)
-                    }
-                    _ => unreachable!(),
-                }
-            }
-            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_IN => {
-                return try_from_compare_in(operator, ctx, false);
-            }
-            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_NOT_IN => {
-                return try_from_compare_in(operator, ctx, true);
-            }
-            _ => {
-                debug!(op=?operator.op, "cannot push down operator");
-                return Ok(None);
-            }
-        },
         ExpressionClass::BoundFunction(func) => {
             return try_from_bound_function(&func, ctx);
         }
@@ -686,38 +672,118 @@ fn try_from_expression_inner(
             };
             // We don't know the column's nullability here
             let dtype = DType::from_logical_type(target, Nullability::Nullable)?;
-            cast(child, dtype)
+            Cast.try_new_bound_expr(dtype, [child])?
         }
-        BoundConjunction(conj) => {
-            let Some(children) = conj
-                .children()
-                .map(|c| try_from_expression_inner(c, ctx))
-                .collect::<VortexResult<Option<Vec<_>>>>()?
-            else {
-                return Ok(None);
-            };
-            match conj.op {
-                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_CONJUNCTION_AND => {
-                    and_collect(children).vortex_expect("cannot be empty")
-                }
-                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_CONJUNCTION_OR => {
-                    or_collect(children).vortex_expect("cannot be empty")
-                }
-                _ => vortex_bail!("unexpected operator {:?} in bound conjunction", conj.op),
-            }
-        }
+        BoundConjunction(conj) => return try_from_bound_conjunction(conj, ctx),
         ExpressionClass::BoundAggregate(_) => return Ok(None),
     }))
+}
+
+fn try_from_bound_between(
+    between: duckdb::BoundBetween<'_>,
+    ctx: ConvertCtx<'_>,
+) -> VortexResult<Option<BoundExpression>> {
+    let Some(array) = try_from_expression_inner(between.input, ctx)? else {
+        return Ok(None);
+    };
+    let Some(lower) = try_from_expression_inner(between.lower, ctx)? else {
+        return Ok(None);
+    };
+    let Some(upper) = try_from_expression_inner(between.upper, ctx)? else {
+        return Ok(None);
+    };
+    Ok(Some(Between.try_new_bound_expr(
+        BetweenOptions {
+            lower_strict: if between.lower_inclusive {
+                StrictComparison::NonStrict
+            } else {
+                StrictComparison::Strict
+            },
+            upper_strict: if between.upper_inclusive {
+                StrictComparison::NonStrict
+            } else {
+                StrictComparison::Strict
+            },
+        },
+        [array, lower, upper],
+    )?))
+}
+
+fn try_from_bound_conjunction(
+    conjunction: duckdb::BoundConjunction<'_>,
+    ctx: ConvertCtx<'_>,
+) -> VortexResult<Option<BoundExpression>> {
+    let Some(children) = conjunction
+        .children()
+        .map(|child| try_from_expression_inner(child, ctx))
+        .collect::<VortexResult<Option<Vec<_>>>>()?
+    else {
+        return Ok(None);
+    };
+    let bound = match conjunction.op {
+        DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_CONJUNCTION_AND => and_collect(children)
+            .ok_or_else(|| vortex_err!("DuckDB AND conjunction has no children"))?,
+        DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_CONJUNCTION_OR => or_collect(children)
+            .ok_or_else(|| vortex_err!("DuckDB OR conjunction has no children"))?,
+        _ => vortex_bail!(
+            "unexpected operator {:?} in bound conjunction",
+            conjunction.op
+        ),
+    };
+    Ok(Some(bound))
+}
+
+fn try_from_bound_operator(
+    operator: BoundOperator,
+    ctx: ConvertCtx<'_>,
+) -> VortexResult<Option<BoundExpression>> {
+    match operator.op {
+        DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_NOT
+        | DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_IS_NULL
+        | DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_IS_NOT_NULL => {
+            let children: Vec<_> = operator.children().collect();
+            vortex_ensure!(children.len() == 1);
+            let Some(child) = try_from_expression_inner(children[0], ctx)? else {
+                return Ok(None);
+            };
+            let bound = match operator.op {
+                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_NOT => {
+                    Not.try_new_bound_expr(ScalarEmptyOptions, [child])?
+                }
+                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_IS_NULL => {
+                    IsNull.try_new_bound_expr(ScalarEmptyOptions, [child])?
+                }
+                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_IS_NOT_NULL => {
+                    IsNotNull.try_new_bound_expr(ScalarEmptyOptions, [child])?
+                }
+                _ => unreachable!(),
+            };
+            Ok(Some(bound))
+        }
+        DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_IN => {
+            try_from_compare_in(operator, ctx, false)
+        }
+        DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_NOT_IN => {
+            try_from_compare_in(operator, ctx, true)
+        }
+        _ => {
+            debug!(op=?operator.op, "cannot push down operator");
+            Ok(None)
+        }
+    }
 }
 
 fn try_from_compare_in(
     operator: BoundOperator,
     ctx: ConvertCtx<'_>,
     not_in: bool,
-) -> VortexResult<Option<Expression>> {
+) -> VortexResult<Option<BoundExpression>> {
     // First child is element, rest form the list.
     let children: Vec<_> = operator.children().collect();
-    assert!(children.len() >= 2);
+    vortex_ensure!(
+        children.len() >= 2,
+        "IN requires an element and at least one value"
+    );
     let Some(element) = try_from_expression_inner(children[0], ctx)? else {
         return Ok(None);
     };
@@ -746,8 +812,12 @@ fn try_from_compare_in(
         Nullability::Nullable,
     );
 
-    let expr = list_contains(lit(list), element);
-    Ok(Some(if not_in { not(expr) } else { expr }))
+    let expr = ListContains.try_new_bound_expr(ScalarEmptyOptions, [lit(list), element])?;
+    Ok(Some(if not_in {
+        Not.try_new_bound_expr(ScalarEmptyOptions, [expr])?
+    } else {
+        expr
+    }))
 }
 
 impl TryFrom<DUCKDB_VX_EXPR_TYPE> for Operator {

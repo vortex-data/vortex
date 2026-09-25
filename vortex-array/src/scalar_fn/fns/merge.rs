@@ -23,8 +23,8 @@ use crate::dtype::DType;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::StructFields;
-use crate::expr::Expression;
-use crate::expr::lit;
+use crate::expr::BoundExpression;
+use crate::expr::bound;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
@@ -229,9 +229,9 @@ impl ScalarFnVTable for Merge {
     fn validity(
         &self,
         _options: &Self::Options,
-        _expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
-        Ok(Some(lit(true)))
+        _expression: &BoundExpression,
+    ) -> VortexResult<Option<BoundExpression>> {
+        Ok(Some(bound::lit(true)))
     }
 
     fn is_strict(&self, _options: &Self::Options) -> bool {
@@ -281,11 +281,11 @@ mod tests {
     use crate::dtype::PType::I64;
     use crate::dtype::PType::U32;
     use crate::dtype::PType::U64;
-    use crate::expr::Expression;
-    use crate::expr::get_item;
-    use crate::expr::merge;
-    use crate::expr::merge_opts;
-    use crate::expr::root;
+    use crate::expr::BoundExpression;
+    use crate::expr::bound::get_item;
+    use crate::expr::bound::merge;
+    use crate::expr::bound::merge_opts;
+    use crate::expr::bound::root;
     use crate::scalar_fn::fns::merge::DuplicateHandling;
     use crate::scalar_fn::fns::merge::StructArray;
     use crate::scalar_fn::fns::pack::Pack;
@@ -318,14 +318,6 @@ mod tests {
     #[test]
     pub fn test_merge_right_most() {
         let mut ctx = array_session().create_execution_ctx();
-        let expr = merge_opts(
-            vec![
-                get_item("0", root()),
-                get_item("1", root()),
-                get_item("2", root()),
-            ],
-            DuplicateHandling::RightMost,
-        );
 
         let test_array = StructArray::from_fields(&[
             (
@@ -358,7 +350,16 @@ mod tests {
         ])
         .unwrap()
         .into_array();
-        let actual_array = test_array.apply(&expr).unwrap();
+
+        let expr = merge_opts(
+            vec![
+                get_item("0", root(test_array.dtype().clone())),
+                get_item("1", root(test_array.dtype().clone())),
+                get_item("2", root(test_array.dtype().clone())),
+            ],
+            DuplicateHandling::RightMost,
+        );
+        let actual_array = test_array.apply_bound(&expr).unwrap();
 
         assert_eq!(
             actual_array.dtype().as_struct_fields().names(),
@@ -395,10 +396,6 @@ mod tests {
     #[test]
     #[should_panic(expected = "merge: duplicate fields in children")]
     pub fn test_merge_error_on_dupe_return_dtype() {
-        let expr = merge_opts(
-            vec![get_item("0", root()), get_item("1", root())],
-            DuplicateHandling::Error,
-        );
         let test_array = StructArray::try_from_iter([
             (
                 "0",
@@ -412,16 +409,20 @@ mod tests {
         .unwrap()
         .into_array();
 
-        expr.return_dtype(test_array.dtype()).unwrap();
+        let expr = merge_opts(
+            vec![
+                get_item("0", root(test_array.dtype().clone())),
+                get_item("1", root(test_array.dtype().clone())),
+            ],
+            DuplicateHandling::Error,
+        );
+
+        drop(expr);
     }
 
     #[test]
     #[should_panic(expected = "merge: duplicate fields in children")]
     pub fn test_merge_error_on_dupe_evaluate() {
-        let expr = merge_opts(
-            vec![get_item("0", root()), get_item("1", root())],
-            DuplicateHandling::Error,
-        );
         let test_array = StructArray::try_from_iter([
             (
                 "0",
@@ -435,17 +436,25 @@ mod tests {
         .unwrap()
         .into_array();
 
-        test_array.apply(&expr).unwrap();
+        let expr = merge_opts(
+            vec![
+                get_item("0", root(test_array.dtype().clone())),
+                get_item("1", root(test_array.dtype().clone())),
+            ],
+            DuplicateHandling::Error,
+        );
+
+        test_array.apply_bound(&expr).unwrap();
     }
 
     #[test]
     pub fn test_empty_merge() {
-        let expr = merge(Vec::<Expression>::new());
+        let expr = merge(Vec::<BoundExpression>::new());
 
         let test_array = StructArray::from_fields(&[("a", buffer![0, 1, 2].into_array())])
             .unwrap()
             .into_array();
-        let actual_array = test_array.clone().apply(&expr).unwrap();
+        let actual_array = test_array.clone().apply_bound(&expr).unwrap();
         assert_eq!(actual_array.len(), test_array.len());
         assert_eq!(actual_array.nchildren(), 0);
     }
@@ -453,11 +462,6 @@ mod tests {
     #[test]
     pub fn test_nested_merge() {
         // Nested structs are not merged!
-
-        let expr = merge_opts(
-            vec![get_item("0", root()), get_item("1", root())],
-            DuplicateHandling::RightMost,
-        );
 
         let test_array = StructArray::from_fields(&[
             (
@@ -488,9 +492,17 @@ mod tests {
         ])
         .unwrap()
         .into_array();
+
+        let expr = merge_opts(
+            vec![
+                get_item("0", root(test_array.dtype().clone())),
+                get_item("1", root(test_array.dtype().clone())),
+            ],
+            DuplicateHandling::RightMost,
+        );
         let mut ctx = array_session().create_execution_ctx();
         let actual_array = test_array
-            .apply(&expr)
+            .apply_bound(&expr)
             .unwrap()
             .execute::<StructArray>(&mut ctx)
             .unwrap();
@@ -514,7 +526,6 @@ mod tests {
     #[test]
     pub fn test_merge_order() {
         let mut ctx = array_session().create_execution_ctx();
-        let expr = merge(vec![get_item("0", root()), get_item("1", root())]);
 
         let test_array = StructArray::from_fields(&[
             (
@@ -538,8 +549,13 @@ mod tests {
         ])
         .unwrap()
         .into_array();
+
+        let expr = merge(vec![
+            get_item("0", root(test_array.dtype().clone())),
+            get_item("1", root(test_array.dtype().clone())),
+        ]);
         let actual_array = test_array
-            .apply(&expr)
+            .apply_bound(&expr)
             .unwrap()
             .execute::<StructArray>(&mut ctx)
             .unwrap();
@@ -549,13 +565,24 @@ mod tests {
 
     #[test]
     pub fn test_display() {
-        let expr = merge([get_item("struct1", root()), get_item("struct2", root())]);
+        let dtype = DType::struct_(
+            [
+                ("struct1", DType::struct_([("x", I32)], NonNullable)),
+                ("struct2", DType::struct_([("y", I32)], NonNullable)),
+                ("a", DType::struct_([("z", I32)], NonNullable)),
+            ],
+            NonNullable,
+        );
+        let expr = merge([
+            get_item("struct1", root(dtype.clone())),
+            get_item("struct2", root(dtype.clone())),
+        ]);
         assert_eq!(
             expr.to_string(),
             "vortex.merge($.struct1, $.struct2, opts=Error)"
         );
 
-        let expr2 = merge(vec![get_item("a", root())]);
+        let expr2 = merge(vec![get_item("a", root(dtype))]);
         assert_eq!(expr2.to_string(), "vortex.merge($.a, opts=Error)");
     }
 
@@ -570,15 +597,18 @@ mod tests {
         );
 
         let e = merge_opts(
-            [get_item("0", root()), get_item("1", root())],
+            [
+                get_item("0", root(dtype.clone())),
+                get_item("1", root(dtype)),
+            ],
             DuplicateHandling::RightMost,
         );
 
-        let result = e.optimize(&dtype).unwrap();
+        let result = e.optimize_recursive().unwrap();
 
         assert!(result.is::<Pack>());
         assert_eq!(
-            result.return_dtype(&dtype).unwrap(),
+            result.dtype().clone(),
             DType::struct_([("a", I32), ("b", U32), ("c", U64)], NonNullable)
         );
     }

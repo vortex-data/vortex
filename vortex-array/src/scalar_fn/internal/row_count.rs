@@ -159,15 +159,14 @@ mod tests {
     use vortex_array::dtype::PType;
 
     use crate::scalar_fn::EmptyOptions;
+    use crate::scalar_fn::ScalarFnVTableExt;
     use crate::scalar_fn::internal::row_count::RowCount;
-    use crate::scalar_fn::vtable::ScalarFnVTableExt;
 
     #[test]
     fn row_count_helper_dtype() {
-        let expr = RowCount.new_expr(EmptyOptions, []);
+        let expr = RowCount.try_new_bound_expr(EmptyOptions, []).unwrap();
         assert_eq!(
-            expr.return_dtype(&DType::Primitive(PType::I32, Nullability::Nullable))
-                .unwrap(),
+            expr.dtype().clone(),
             DType::Primitive(PType::U64, Nullability::NonNullable),
         );
     }

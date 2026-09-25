@@ -15,7 +15,7 @@ use vortex_array::arrays::Extension;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::ScalarFnArray;
 use vortex_array::dtype::DType;
-use vortex_array::expr::Expression;
+use vortex_array::expr::BoundExpression;
 use vortex_array::proto::expr as pb;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
@@ -211,8 +211,16 @@ impl ScalarFnVTable for JsonToVariant {
 ///
 /// Note that this is a lossy, normalizing conversion. See [`JsonToVariant`] for the full list of
 /// caveats.
-pub fn json_to_variant(child: Expression, shredding: ShreddingSpec) -> Expression {
-    JsonToVariant.new_expr(JsonToVariantOptions::new(shredding), [child])
+///
+/// # Errors
+///
+/// Returns an error if `child` is not a JSON extension expression or its output type cannot be
+/// determined.
+pub fn json_to_variant(
+    child: BoundExpression,
+    shredding: ShreddingSpec,
+) -> VortexResult<BoundExpression> {
+    JsonToVariant.try_new_bound_expr(JsonToVariantOptions::new(shredding), [child])
 }
 
 /// A list of `(path, dtype)` directives describing which Variant paths to shred and as what
@@ -314,8 +322,6 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::session::DTypeSession;
-    use vortex_array::expr::proto::ExprSerializeProtoExt;
-    use vortex_array::expr::root;
     use vortex_array::scalar_fn::session::ScalarFnSession;
     use vortex_array::scalar_fn::session::ScalarFnSessionExt;
     use vortex_array::session::ArraySession;
@@ -353,13 +359,13 @@ mod tests {
     }
 
     #[test]
-    fn expression_roundtrip_serialization() -> VortexResult<()> {
+    fn options_roundtrip_serialization() -> VortexResult<()> {
         let spec = ShreddingSpec::try_new([(VariantPath::field("a"), i64_dtype())])?;
-        let expr: Expression = json_to_variant(root(), spec);
-        let proto = expr.serialize_proto()?;
-        let actual = Expression::from_proto(&proto, &session())?;
-
-        assert_eq!(actual, expr);
+        let options = JsonToVariantOptions::new(spec);
+        let bytes = JsonToVariant
+            .serialize(&options)?
+            .expect("JSON options are serializable");
+        assert_eq!(JsonToVariant.deserialize(&bytes, &session())?, options);
         Ok(())
     }
 

@@ -29,12 +29,12 @@ use jni::objects::JLongArray;
 use jni::sys::jboolean;
 use jni::sys::jlong;
 use vortex::array::VortexSessionExecute;
+use vortex::array::expr::BoundExpression;
 use vortex::array::stream::SendableArrayStream;
 use vortex::buffer::Buffer;
+use vortex::dtype::DType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
-use vortex::expr::Expression;
-use vortex::expr::root;
 use vortex::expr::stats::Precision;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::layout::scan::arrow::RecordBatchIteratorAdapter;
@@ -72,6 +72,7 @@ pub(crate) enum NativePartition {
 
 #[allow(clippy::too_many_arguments)]
 fn build_scan_request(
+    dtype: &DType,
     projection_ptr: jlong,
     filter_ptr: jlong,
     row_range_begin: jlong,
@@ -83,15 +84,15 @@ fn build_scan_request(
     ordered: jboolean,
 ) -> VortexResult<ScanRequest> {
     let projection = if projection_ptr == 0 {
-        root()
+        BoundExpression::new_root(dtype.clone())
     } else {
-        unsafe { &*(projection_ptr as *const Expression) }.clone()
+        unsafe { &*(projection_ptr as *const BoundExpression) }.clone()
     };
 
     let filter = if filter_ptr == 0 {
         None
     } else {
-        Some(unsafe { &*(filter_ptr as *const Expression) }.clone())
+        Some(unsafe { &*(filter_ptr as *const BoundExpression) }.clone())
     };
 
     let selection = match selection_include {
@@ -176,6 +177,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeScan_create(
         };
 
         let request = build_scan_request(
+            ds.inner().dtype(),
             projection_ptr,
             filter_ptr,
             row_range_begin,

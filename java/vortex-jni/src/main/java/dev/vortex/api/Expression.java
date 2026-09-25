@@ -18,7 +18,9 @@ import java.util.UUID;
  * <p>Expressions are composed via the static factories ({@link #root()}, {@link #getItem(String, Expression)}, etc.).
  * Each returned {@code Expression} owns its native pointer; the pointer is released automatically when the
  * {@code Expression} is no longer reachable. Passing an expression as an input to a builder does <em>not</em> transfer
- * ownership — the resulting expression is an independent copy on the native side.
+ * ownership — the resulting expression is an independent copy on the native side. Binding for a scan requires an
+ * authored rule for every function in the tree; {@link DataSource#bind(Expression)} reports an error when a rule is
+ * missing.
  */
 public final class Expression {
     /** Number of bytes in a UUID's big-endian representation. */
@@ -39,16 +41,6 @@ public final class Expression {
     /** The root expression: applying it to an array yields the array itself. */
     public static Expression root() {
         return new Expression(NativeExpression.root());
-    }
-
-    /**
-     * The row-index expression. When evaluated as part of a Vortex scan it yields, as a non-nullable {@code u64}, each
-     * row's index in the file <em>before</em> filtering: the index is assigned to the unfiltered rows, so filtered-out
-     * rows leave gaps and the surviving rows keep their original positions rather than being renumbered. It cannot be
-     * evaluated outside of a scan.
-     */
-    public static Expression rowIdx() {
-        return new Expression(NativeExpression.rowIdx());
     }
 
     /** Access a named field from a struct expression. */

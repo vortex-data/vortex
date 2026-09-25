@@ -14,7 +14,8 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::dtype::DType;
-use crate::expr::Expression;
+use crate::expr::BoundExpression;
+use crate::expr::bound;
 use crate::expr::display::ExprDisplay;
 use crate::proto::expr as pb;
 use crate::scalar::Scalar;
@@ -23,11 +24,6 @@ use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::ScalarFnVTableExt;
-
-fn lit(value: impl Into<Scalar>) -> Expression {
-    Literal.new_expr(value.into(), [])
-}
 
 /// Expression that represents a literal scalar value.
 #[derive(Clone)]
@@ -97,9 +93,9 @@ impl ScalarFnVTable for Literal {
     fn validity(
         &self,
         scalar: &Scalar,
-        _expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
-        Ok(Some(lit(scalar.is_valid())))
+        _expression: &BoundExpression,
+    ) -> VortexResult<Option<BoundExpression>> {
+        Ok(Some(bound::lit(scalar.is_valid())))
     }
 
     fn is_strict(&self, _instance: &Self::Options) -> bool {
@@ -117,30 +113,27 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
-    use crate::expr::lit;
-    use crate::expr::test_harness;
+    use crate::expr::bound::lit;
     use crate::scalar::Scalar;
 
     #[test]
     fn dtype() {
-        let dtype = test_harness::struct_dtype();
-
         assert_eq!(
-            lit(10).return_dtype(&dtype).unwrap(),
+            lit(10).dtype().clone(),
             DType::Primitive(PType::I32, Nullability::NonNullable)
         );
         assert_eq!(
-            lit(i64::MAX).return_dtype(&dtype).unwrap(),
+            lit(i64::MAX).dtype().clone(),
             DType::Primitive(PType::I64, Nullability::NonNullable)
         );
         assert_eq!(
-            lit(true).return_dtype(&dtype).unwrap(),
+            lit(true).dtype().clone(),
             DType::Bool(Nullability::NonNullable)
         );
         assert_eq!(
             lit(Scalar::null(DType::Bool(Nullability::Nullable)))
-                .return_dtype(&dtype)
-                .unwrap(),
+                .dtype()
+                .clone(),
             DType::Bool(Nullability::Nullable)
         );
 
@@ -159,8 +152,8 @@ mod tests {
                 sdtype.clone(),
                 vec![Scalar::from(32_u32), Scalar::from("rufus".to_string())]
             ))
-            .return_dtype(&dtype)
-            .unwrap(),
+            .dtype()
+            .clone(),
             sdtype
         );
     }

@@ -270,21 +270,23 @@ impl FileOpener for VortexOpener {
                     projection.clone(),
                     &this_file_schema,
                     output_schema.as_ref(),
+                    vxf.dtype(),
                 )?
             } else {
                 // When projection pushdown is disabled, read only the required columns
                 // and apply the full projection after the scan.
-                expr_convertor.no_pushdown_projection(projection.clone(), &this_file_schema)?
+                expr_convertor.no_pushdown_projection(
+                    projection.clone(),
+                    &this_file_schema,
+                    vxf.dtype(),
+                )?
             };
 
             // The schema of the stream returned from the vortex scan.
             // We use a reference schema for types that don't roundtrip (Dictionary, Utf8, etc.).
-            let scan_projection = scan_projection
-                .optimize_recursive(vxf.dtype())
-                .and_then(|projection| projection.bind(vxf.dtype()))
-                .map_err(|_e| {
-                    exec_datafusion_err!("Couldn't get the dtype for the underlying Vortex scan")
-                })?;
+            let scan_projection = scan_projection.optimize_recursive().map_err(|e| {
+                exec_datafusion_err!("Couldn't optimize Vortex scan projection: {e}")
+            })?;
             let scan_dtype = scan_projection.dtype().clone();
 
             // When projection pushdown is enabled, the scan outputs the projected columns.
@@ -369,13 +371,9 @@ impl FileOpener for VortexOpener {
                         )));
                     }
 
-                    make_vortex_predicate(expr_convertor.as_ref(), &pushed).transpose()
+                    make_vortex_predicate(expr_convertor.as_ref(), &pushed, vxf.dtype()).transpose()
                 })
                 .transpose()?;
-            let filter = filter
-                .map(|filter| filter.optimize_recursive(vxf.dtype())?.bind(vxf.dtype()))
-                .transpose()
-                .map_err(|e| exec_datafusion_err!("Couldn't bind Vortex scan filter: {e}"))?;
 
             if let Some(limit) = limit
                 && filter.is_none()

@@ -10,7 +10,6 @@ use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::expr::BoundExpression;
 use crate::expr::ExactBoundExpr;
-use crate::expr::Expression;
 use crate::expr::traversal::Node;
 use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::NodeVisitor;
@@ -20,7 +19,7 @@ pub trait Annotation: Clone + Hash + Eq {}
 
 impl<A> Annotation for A where A: Clone + Hash + Eq {}
 
-pub trait AnnotationFn<N = Expression>: Fn(&N) -> Vec<Self::Annotation> {
+pub trait AnnotationFn<N = BoundExpression>: Fn(&N) -> Vec<Self::Annotation> {
     type Annotation: Annotation;
 }
 
@@ -32,7 +31,7 @@ where
     type Annotation = A;
 }
 
-pub type Annotations<'a, A, N = Expression> = HashMap<&'a N, HashSet<A>>;
+pub type Annotations<'a, A, N = BoundExpression> = HashMap<&'a N, HashSet<A>>;
 
 /// Annotations keyed by bound-tree identity.
 ///

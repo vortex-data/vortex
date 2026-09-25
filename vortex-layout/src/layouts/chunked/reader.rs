@@ -438,7 +438,7 @@ mod test {
     use vortex_array::dtype::FieldMask;
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::root;
+    use vortex_array::expr::bound::root;
     use vortex_buffer::buffer;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
@@ -555,7 +555,7 @@ mod test {
             let reader = layout
                 .new_reader("".into(), segments, &SESSION, &Default::default())
                 .unwrap();
-            let expr = root().bind(reader.dtype()).unwrap();
+            let expr = root(reader.dtype().clone());
             let result = reader
                 .projection_evaluation(
                     &(0..layout.row_count()),

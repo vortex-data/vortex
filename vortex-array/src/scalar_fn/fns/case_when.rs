@@ -33,7 +33,8 @@ use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity_in;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
-use crate::expr::Expression;
+use crate::expr::BoundExpression;
+use crate::expr::bound;
 use crate::expr::display::ExprDisplay;
 use crate::proto::expr as pb;
 use crate::scalar::Scalar;
@@ -259,9 +260,9 @@ impl ScalarFnVTable for CaseWhen {
     fn simplify(
         &self,
         options: &Self::Options,
-        expr: &Expression,
+        expr: &BoundExpression,
         _ctx: &dyn SimplifyCtx,
-    ) -> VortexResult<Option<Expression>> {
+    ) -> VortexResult<Option<BoundExpression>> {
         // Rewrite the COALESCE-shaped CASE WHEN into `fill_null`, which references `x`
         // once and lowers to a single fill kernel instead of a `zip`/merge that resolves
         // `x` twice (once for the `is_null` predicate, once for the value branch).
@@ -298,7 +299,7 @@ impl ScalarFnVTable for CaseWhen {
             return Ok(Some(x.clone()));
         }
 
-        Ok(Some(crate::expr::fill_null(x.clone(), fill.clone())))
+        Ok(Some(bound::fill_null(x.clone(), fill.clone())))
     }
 
     fn is_strict(&self, _options: &Self::Options) -> bool {
@@ -461,28 +462,29 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
-    use crate::expr::case_when;
-    use crate::expr::case_when_no_else;
-    use crate::expr::col;
-    use crate::expr::eq;
-    use crate::expr::get_item;
-    use crate::expr::gt;
-    use crate::expr::is_not_null;
-    use crate::expr::is_null;
-    use crate::expr::lit;
-    use crate::expr::nested_case_when;
-    use crate::expr::root;
+    use crate::expr::bound::case_when;
+    use crate::expr::bound::case_when_no_else;
+    use crate::expr::bound::col;
+    use crate::expr::bound::eq;
+    use crate::expr::bound::get_item;
+    use crate::expr::bound::gt;
+    use crate::expr::bound::is_not_null;
+    use crate::expr::bound::is_null;
+    use crate::expr::bound::lit;
+    use crate::expr::bound::nested_case_when;
+    use crate::expr::bound::root;
     use crate::expr::test_harness;
     use crate::scalar::Scalar;
+    use crate::scalar_fn::ScalarFnVTableExt;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
 
     /// Helper to evaluate an expression using the apply+execute pattern
-    fn evaluate_expr(expr: &Expression, array: &ArrayRef) -> ArrayRef {
+    fn evaluate_expr(expr: &BoundExpression, array: &ArrayRef) -> ArrayRef {
         let mut ctx = SESSION.create_execution_ctx();
         array
             .clone()
-            .apply(expr)
+            .apply_bound(expr)
             .unwrap()
             .execute::<Canonical>(&mut ctx)
             .unwrap()
@@ -521,9 +523,20 @@ mod tests {
 
     // ==================== Display Tests ====================
 
+    fn display_col(name: &str) -> BoundExpression {
+        let scope = DType::Struct(
+            StructFields::from_iter([(
+                name,
+                DType::Primitive(PType::I32, Nullability::NonNullable),
+            )]),
+            Nullability::NonNullable,
+        );
+        col(name, scope)
+    }
+
     #[test]
     fn test_display_with_else() {
-        let expr = case_when(gt(col("value"), lit(0i32)), lit(100i32), lit(0i32));
+        let expr = case_when(gt(display_col("value"), lit(0i32)), lit(100i32), lit(0i32));
         let display = format!("{}", expr);
         assert!(display.contains("CASE"));
         assert!(display.contains("WHEN"));
@@ -534,7 +547,7 @@ mod tests {
 
     #[test]
     fn test_display_no_else() {
-        let expr = case_when_no_else(gt(col("value"), lit(0i32)), lit(100i32));
+        let expr = case_when_no_else(gt(display_col("value"), lit(0i32)), lit(100i32));
         let display = format!("{}", expr);
         assert!(display.contains("CASE"));
         assert!(display.contains("WHEN"));
@@ -548,8 +561,8 @@ mod tests {
         // CASE WHEN x > 10 THEN 'high' WHEN x > 5 THEN 'medium' ELSE 'low' END
         let expr = nested_case_when(
             vec![
-                (gt(col("x"), lit(10i32)), lit("high")),
-                (gt(col("x"), lit(5i32)), lit("medium")),
+                (gt(display_col("x"), lit(10i32)), lit("high")),
+                (gt(display_col("x"), lit(5i32)), lit("medium")),
             ],
             Some(lit("low")),
         );
@@ -564,8 +577,7 @@ mod tests {
     #[test]
     fn test_return_dtype_with_else() {
         let expr = case_when(lit(true), lit(100i32), lit(0i32));
-        let input_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let result_dtype = expr.return_dtype(&input_dtype).unwrap();
+        let result_dtype = expr.dtype().clone();
         assert_eq!(
             result_dtype,
             DType::Primitive(PType::I32, Nullability::NonNullable)
@@ -582,8 +594,7 @@ mod tests {
                 Nullability::Nullable,
             ))),
         );
-        let input_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let result_dtype = expr.return_dtype(&input_dtype).unwrap();
+        let result_dtype = expr.dtype().clone();
         assert_eq!(
             result_dtype,
             DType::Primitive(PType::I32, Nullability::Nullable)
@@ -593,8 +604,7 @@ mod tests {
     #[test]
     fn test_return_dtype_without_else_is_nullable() {
         let expr = case_when_no_else(lit(true), lit(100i32));
-        let input_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let result_dtype = expr.return_dtype(&input_dtype).unwrap();
+        let result_dtype = expr.dtype().clone();
         assert_eq!(
             result_dtype,
             DType::Primitive(PType::I32, Nullability::Nullable)
@@ -605,11 +615,11 @@ mod tests {
     fn test_return_dtype_with_struct_input() {
         let dtype = test_harness::struct_dtype();
         let expr = case_when(
-            gt(get_item("col1", root()), lit(10u16)),
+            gt(get_item("col1", root(dtype)), lit(10u16)),
             lit(100i32),
             lit(0i32),
         );
-        let result_dtype = expr.return_dtype(&dtype).unwrap();
+        let result_dtype = expr.dtype().clone();
         assert_eq!(
             result_dtype,
             DType::Primitive(PType::I32, Nullability::NonNullable)
@@ -618,9 +628,15 @@ mod tests {
 
     #[test]
     fn test_return_dtype_mismatched_then_else_errors() {
-        let expr = case_when(lit(true), lit(100i32), lit("zero"));
-        let input_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let err = expr.return_dtype(&input_dtype).unwrap_err();
+        let err = CaseWhen
+            .try_new_bound_expr(
+                CaseWhenOptions {
+                    num_when_then_pairs: 1,
+                    has_else: true,
+                },
+                [lit(true), lit(100i32), lit("zero")],
+            )
+            .unwrap_err();
         assert!(
             err.to_string()
                 .contains("THEN and ELSE dtypes must match (ignoring nullability)")
@@ -733,12 +749,15 @@ mod tests {
 
     #[test]
     fn test_return_dtype_nary_mismatched_then_types_errors() {
-        let expr = nested_case_when(
-            vec![(lit(true), lit(100i32)), (lit(false), lit("oops"))],
-            Some(lit(0i32)),
-        );
-        let input_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let err = expr.return_dtype(&input_dtype).unwrap_err();
+        let err = CaseWhen
+            .try_new_bound_expr(
+                CaseWhenOptions {
+                    num_when_then_pairs: 2,
+                    has_else: true,
+                },
+                [lit(true), lit(100i32), lit(false), lit("oops"), lit(0i32)],
+            )
+            .unwrap_err();
         assert!(err.to_string().contains("THEN dtypes must match"));
     }
 
@@ -755,8 +774,7 @@ mod tests {
             vec![(lit(true), non_null_then), (lit(false), nullable_then)],
             Some(lit(0i32)),
         );
-        let input_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let result = expr.return_dtype(&input_dtype).unwrap();
+        let result = expr.dtype().clone();
         assert_eq!(result, DType::Primitive(PType::I32, Nullability::Nullable));
     }
 
@@ -766,12 +784,11 @@ mod tests {
             vec![(lit(true), lit(10i32)), (lit(false), lit(20i32))],
             None,
         );
-        let input_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let result = expr.return_dtype(&input_dtype).unwrap();
+        let result = expr.dtype().clone();
         assert_eq!(result, DType::Primitive(PType::I32, Nullability::Nullable));
     }
 
-    // ==================== Expression Manipulation Tests ====================
+    // ==================== BoundExpression Manipulation Tests ====================
 
     #[test]
     fn test_replace_children() {
@@ -791,7 +808,10 @@ mod tests {
                 .into_array();
 
         let expr = case_when(
-            gt(get_item("value", root()), lit(2i32)),
+            gt(
+                get_item("value", root(test_array.dtype().clone())),
+                lit(2i32),
+            ),
             lit(100i32),
             lit(0i32),
         );
@@ -815,8 +835,20 @@ mod tests {
 
         let expr = nested_case_when(
             vec![
-                (eq(get_item("value", root()), lit(1i32)), lit(10i32)),
-                (eq(get_item("value", root()), lit(3i32)), lit(30i32)),
+                (
+                    eq(
+                        get_item("value", root(test_array.dtype().clone())),
+                        lit(1i32),
+                    ),
+                    lit(10i32),
+                ),
+                (
+                    eq(
+                        get_item("value", root(test_array.dtype().clone())),
+                        lit(3i32),
+                    ),
+                    lit(30i32),
+                ),
             ],
             Some(lit(0i32)),
         );
@@ -836,8 +868,20 @@ mod tests {
         // Both conditions match for values > 3, but first one wins
         let expr = nested_case_when(
             vec![
-                (gt(get_item("value", root()), lit(2i32)), lit(100i32)),
-                (gt(get_item("value", root()), lit(3i32)), lit(200i32)),
+                (
+                    gt(
+                        get_item("value", root(test_array.dtype().clone())),
+                        lit(2i32),
+                    ),
+                    lit(100i32),
+                ),
+                (
+                    gt(
+                        get_item("value", root(test_array.dtype().clone())),
+                        lit(3i32),
+                    ),
+                    lit(200i32),
+                ),
             ],
             Some(lit(0i32)),
         );
@@ -858,7 +902,13 @@ mod tests {
                 .unwrap()
                 .into_array();
 
-        let expr = case_when_no_else(gt(get_item("value", root()), lit(3i32)), lit(100i32));
+        let expr = case_when_no_else(
+            gt(
+                get_item("value", root(test_array.dtype().clone())),
+                lit(3i32),
+            ),
+            lit(100i32),
+        );
 
         let result = evaluate_expr(&expr, &test_array);
         assert!(result.dtype().is_nullable());
@@ -879,7 +929,10 @@ mod tests {
                 .into_array();
 
         let expr = case_when(
-            gt(get_item("value", root()), lit(100i32)),
+            gt(
+                get_item("value", root(test_array.dtype().clone())),
+                lit(100i32),
+            ),
             lit(1i32),
             lit(0i32),
         );
@@ -897,7 +950,10 @@ mod tests {
                 .into_array();
 
         let expr = case_when(
-            gt(get_item("value", root()), lit(0i32)),
+            gt(
+                get_item("value", root(test_array.dtype().clone())),
+                lit(0i32),
+            ),
             lit(100i32),
             lit(0i32),
         );
@@ -919,7 +975,13 @@ mod tests {
             .unwrap()
             .into_array();
 
-        let expr = case_when_no_else(gt(get_item("value", root()), lit(0i32)), lit(100i32));
+        let expr = case_when_no_else(
+            gt(
+                get_item("value", root(test_array.dtype().clone())),
+                lit(0i32),
+            ),
+            lit(100i32),
+        );
 
         let result = evaluate_expr(&expr, &test_array);
         assert!(
@@ -952,8 +1014,20 @@ mod tests {
 
         let expr = nested_case_when(
             vec![
-                (eq(get_item("value", root()), lit(0i32)), lit(10i32)),
-                (eq(get_item("value", root()), lit(1i32)), lit(nullable_20)),
+                (
+                    eq(
+                        get_item("value", root(test_array.dtype().clone())),
+                        lit(0i32),
+                    ),
+                    lit(10i32),
+                ),
+                (
+                    eq(
+                        get_item("value", root(test_array.dtype().clone())),
+                        lit(1i32),
+                    ),
+                    lit(nullable_20),
+                ),
             ],
             Some(lit(0i32)),
         );
@@ -991,7 +1065,10 @@ mod tests {
                 .into_array();
 
         let expr = case_when(
-            gt(get_item("value", root()), lit(2i32)),
+            gt(
+                get_item("value", root(test_array.dtype().clone())),
+                lit(2i32),
+            ),
             lit(true),
             lit(false),
         );
@@ -1014,7 +1091,11 @@ mod tests {
         .unwrap()
         .into_array();
 
-        let expr = case_when(get_item("cond", root()), lit(100i32), lit(0i32));
+        let expr = case_when(
+            get_item("cond", root(test_array.dtype().clone())),
+            lit(100i32),
+            lit(0i32),
+        );
 
         let result = evaluate_expr(&expr, &test_array);
         assert_arrays_eq!(result, buffer![100i32, 0, 0, 0, 100].into_array(), &mut ctx);
@@ -1035,8 +1116,11 @@ mod tests {
         .into_array();
 
         let expr = case_when(
-            gt(get_item("value", root()), lit(2i32)),
-            get_item("result", root()),
+            gt(
+                get_item("value", root(test_array.dtype().clone())),
+                lit(2i32),
+            ),
+            get_item("result", root(test_array.dtype().clone())),
             lit(0i32),
         );
 
@@ -1059,7 +1143,11 @@ mod tests {
         .unwrap()
         .into_array();
 
-        let expr = case_when(get_item("cond", root()), lit(100i32), lit(0i32));
+        let expr = case_when(
+            get_item("cond", root(test_array.dtype().clone())),
+            lit(100i32),
+            lit(0i32),
+        );
 
         let result = evaluate_expr(&expr, &test_array);
         assert_arrays_eq!(result, buffer![0i32, 0, 0].into_array(), &mut ctx);
@@ -1078,8 +1166,20 @@ mod tests {
         // Two conditions, no ELSE — unmatched rows should be NULL
         let expr = nested_case_when(
             vec![
-                (eq(get_item("value", root()), lit(1i32)), lit(10i32)),
-                (eq(get_item("value", root()), lit(3i32)), lit(30i32)),
+                (
+                    eq(
+                        get_item("value", root(test_array.dtype().clone())),
+                        lit(1i32),
+                    ),
+                    lit(10i32),
+                ),
+                (
+                    eq(
+                        get_item("value", root(test_array.dtype().clone())),
+                        lit(3i32),
+                    ),
+                    lit(30i32),
+                ),
             ],
             None,
         );
@@ -1105,11 +1205,41 @@ mod tests {
         // 5 WHEN/THEN pairs: each value maps to its value * 10
         let expr = nested_case_when(
             vec![
-                (eq(get_item("value", root()), lit(1i32)), lit(10i32)),
-                (eq(get_item("value", root()), lit(2i32)), lit(20i32)),
-                (eq(get_item("value", root()), lit(3i32)), lit(30i32)),
-                (eq(get_item("value", root()), lit(4i32)), lit(40i32)),
-                (eq(get_item("value", root()), lit(5i32)), lit(50i32)),
+                (
+                    eq(
+                        get_item("value", root(test_array.dtype().clone())),
+                        lit(1i32),
+                    ),
+                    lit(10i32),
+                ),
+                (
+                    eq(
+                        get_item("value", root(test_array.dtype().clone())),
+                        lit(2i32),
+                    ),
+                    lit(20i32),
+                ),
+                (
+                    eq(
+                        get_item("value", root(test_array.dtype().clone())),
+                        lit(3i32),
+                    ),
+                    lit(30i32),
+                ),
+                (
+                    eq(
+                        get_item("value", root(test_array.dtype().clone())),
+                        lit(4i32),
+                    ),
+                    lit(40i32),
+                ),
+                (
+                    eq(
+                        get_item("value", root(test_array.dtype().clone())),
+                        lit(5i32),
+                    ),
+                    lit(50i32),
+                ),
             ],
             Some(lit(0i32)),
         );
@@ -1132,8 +1262,20 @@ mod tests {
         // All conditions are false, no ELSE — everything should be NULL
         let expr = nested_case_when(
             vec![
-                (gt(get_item("value", root()), lit(100i32)), lit(10i32)),
-                (gt(get_item("value", root()), lit(200i32)), lit(20i32)),
+                (
+                    gt(
+                        get_item("value", root(test_array.dtype().clone())),
+                        lit(100i32),
+                    ),
+                    lit(10i32),
+                ),
+                (
+                    gt(
+                        get_item("value", root(test_array.dtype().clone())),
+                        lit(200i32),
+                    ),
+                    lit(20i32),
+                ),
             ],
             None,
         );
@@ -1160,9 +1302,27 @@ mod tests {
         // value=30: matches all three, first should win
         let expr = nested_case_when(
             vec![
-                (gt(get_item("value", root()), lit(5i32)), lit(1i32)),
-                (gt(get_item("value", root()), lit(0i32)), lit(2i32)),
-                (gt(get_item("value", root()), lit(15i32)), lit(3i32)),
+                (
+                    gt(
+                        get_item("value", root(test_array.dtype().clone())),
+                        lit(5i32),
+                    ),
+                    lit(1i32),
+                ),
+                (
+                    gt(
+                        get_item("value", root(test_array.dtype().clone())),
+                        lit(0i32),
+                    ),
+                    lit(2i32),
+                ),
+                (
+                    gt(
+                        get_item("value", root(test_array.dtype().clone())),
+                        lit(15i32),
+                    ),
+                    lit(3i32),
+                ),
             ],
             Some(lit(0i32)),
         );
@@ -1183,9 +1343,21 @@ mod tests {
 
         let expr = nested_case_when(
             vec![
-                (gt(get_item("value", root()), lit(0i32)), lit(100i32)),
+                (
+                    gt(
+                        get_item("value", root(test_array.dtype().clone())),
+                        lit(0i32),
+                    ),
+                    lit(100i32),
+                ),
                 // Never evaluated due to early exit; 999 must never appear in output.
-                (gt(get_item("value", root()), lit(0i32)), lit(999i32)),
+                (
+                    gt(
+                        get_item("value", root(test_array.dtype().clone())),
+                        lit(0i32),
+                    ),
+                    lit(999i32),
+                ),
             ],
             Some(lit(0i32)),
         );
@@ -1205,11 +1377,29 @@ mod tests {
 
         let expr = nested_case_when(
             vec![
-                (eq(get_item("value", root()), lit(1i32)), lit(10i32)),
+                (
+                    eq(
+                        get_item("value", root(test_array.dtype().clone())),
+                        lit(1i32),
+                    ),
+                    lit(10i32),
+                ),
                 // Same condition as branch 0 — all matching rows already claimed → skipped.
                 // 999 must never appear in output.
-                (eq(get_item("value", root()), lit(1i32)), lit(999i32)),
-                (eq(get_item("value", root()), lit(2i32)), lit(20i32)),
+                (
+                    eq(
+                        get_item("value", root(test_array.dtype().clone())),
+                        lit(1i32),
+                    ),
+                    lit(999i32),
+                ),
+                (
+                    eq(
+                        get_item("value", root(test_array.dtype().clone())),
+                        lit(2i32),
+                    ),
+                    lit(20i32),
+                ),
             ],
             Some(lit(0i32)),
         );
@@ -1230,8 +1420,20 @@ mod tests {
         // value=3,4 → 'high' (branch 0)
         let expr = nested_case_when(
             vec![
-                (gt(get_item("value", root()), lit(2i32)), lit("high")),
-                (gt(get_item("value", root()), lit(0i32)), lit("low")),
+                (
+                    gt(
+                        get_item("value", root(test_array.dtype().clone())),
+                        lit(2i32),
+                    ),
+                    lit("high"),
+                ),
+                (
+                    gt(
+                        get_item("value", root(test_array.dtype().clone())),
+                        lit(0i32),
+                    ),
+                    lit("low"),
+                ),
             ],
             Some(lit("none")),
         );
@@ -1274,8 +1476,14 @@ mod tests {
 
         let expr = nested_case_when(
             vec![
-                (get_item("cond1", root()), lit(10i32)),
-                (get_item("cond2", root()), lit(20i32)),
+                (
+                    get_item("cond1", root(test_array.dtype().clone())),
+                    lit(10i32),
+                ),
+                (
+                    get_item("cond2", root(test_array.dtype().clone())),
+                    lit(20i32),
+                ),
             ],
             Some(lit(0i32)),
         );
@@ -1303,8 +1511,12 @@ mod tests {
     #[test]
     fn test_simplify_coalesce_is_null_rewrites_to_fill_null() -> VortexResult<()> {
         // CASE WHEN is_null(x) THEN 0 ELSE x END  ==>  fill_null(x, 0)
-        let expr = case_when(is_null(col("x")), lit(0i64), col("x"));
-        let optimized = expr.optimize_recursive(&nullable_i64_scope(&["x"]))?;
+        let expr = case_when(
+            is_null(col("x", nullable_i64_scope(&["x"]))),
+            lit(0i64),
+            col("x", nullable_i64_scope(&["x"])),
+        );
+        let optimized = expr.optimize_recursive()?;
         assert!(
             optimized.to_string().starts_with("vortex.fill_null"),
             "expected fill_null, got {optimized}"
@@ -1315,8 +1527,12 @@ mod tests {
     #[test]
     fn test_simplify_coalesce_is_not_null_rewrites_to_fill_null() -> VortexResult<()> {
         // CASE WHEN is_not_null(x) THEN x ELSE 0 END  ==>  fill_null(x, 0)
-        let expr = case_when(is_not_null(col("x")), col("x"), lit(0i64));
-        let optimized = expr.optimize_recursive(&nullable_i64_scope(&["x"]))?;
+        let expr = case_when(
+            is_not_null(col("x", nullable_i64_scope(&["x"]))),
+            col("x", nullable_i64_scope(&["x"])),
+            lit(0i64),
+        );
+        let optimized = expr.optimize_recursive()?;
         assert!(
             optimized.to_string().starts_with("vortex.fill_null"),
             "expected fill_null, got {optimized}"
@@ -1327,8 +1543,12 @@ mod tests {
     #[test]
     fn test_simplify_does_not_fire_when_operands_differ() -> VortexResult<()> {
         // The is_null operand (x) and the ELSE (y) are different columns: not a COALESCE.
-        let expr = case_when(is_null(col("x")), lit(0i64), col("y"));
-        let optimized = expr.optimize_recursive(&nullable_i64_scope(&["x", "y"]))?;
+        let expr = case_when(
+            is_null(col("x", nullable_i64_scope(&["x", "y"]))),
+            lit(0i64),
+            col("y", nullable_i64_scope(&["x", "y"])),
+        );
+        let optimized = expr.optimize_recursive()?;
         let s = optimized.to_string();
         assert!(s.contains("CASE"), "expected CASE WHEN to remain, got {s}");
         assert!(!s.contains("fill_null"), "must not rewrite, got {s}");
@@ -1339,8 +1559,12 @@ mod tests {
     fn test_simplify_does_not_fire_for_non_constant_fill() -> VortexResult<()> {
         // COALESCE(x, c) with a *column* fill: fill_null cannot consume a non-constant
         // fill value, so the rewrite must not fire.
-        let expr = case_when(is_null(col("x")), col("c"), col("x"));
-        let optimized = expr.optimize_recursive(&nullable_i64_scope(&["x", "c"]))?;
+        let expr = case_when(
+            is_null(col("x", nullable_i64_scope(&["x", "c"]))),
+            col("c", nullable_i64_scope(&["x", "c"])),
+            col("x", nullable_i64_scope(&["x", "c"])),
+        );
+        let optimized = expr.optimize_recursive()?;
         let s = optimized.to_string();
         assert!(s.contains("CASE"), "expected CASE WHEN to remain, got {s}");
         assert!(!s.contains("fill_null"), "must not rewrite, got {s}");
@@ -1360,10 +1584,18 @@ mod tests {
         };
 
         for expr in [
-            case_when(is_null(col("x")), null_fill(), col("x")),
-            case_when(is_not_null(col("x")), col("x"), null_fill()),
+            case_when(
+                is_null(col("x", nullable_i64_scope(&["x"]))),
+                null_fill(),
+                col("x", nullable_i64_scope(&["x"])),
+            ),
+            case_when(
+                is_not_null(col("x", nullable_i64_scope(&["x"]))),
+                col("x", nullable_i64_scope(&["x"])),
+                null_fill(),
+            ),
         ] {
-            let optimized = expr.optimize_recursive(&nullable_i64_scope(&["x"]))?;
+            let optimized = expr.optimize_recursive()?;
             assert_eq!(
                 optimized.to_string(),
                 "$.x",
@@ -1378,14 +1610,17 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         // The collapse-to-input rewrite must preserve values (and `x`'s nullability).
         let array = PrimitiveArray::from_option_iter([Some(1i64), None, Some(3)]).into_array();
-        let scope = DType::Primitive(PType::I64, Nullability::Nullable);
         let null_fill = lit(Scalar::null(DType::Primitive(
             PType::I64,
             Nullability::Nullable,
         )));
 
-        let original = case_when(is_null(root()), null_fill, root());
-        let optimized = original.optimize_recursive(&scope)?;
+        let original = case_when(
+            is_null(root(array.dtype().clone())),
+            null_fill,
+            root(array.dtype().clone()),
+        );
+        let optimized = original.optimize_recursive()?;
         assert_eq!(
             optimized.to_string(),
             "$",
@@ -1400,8 +1635,8 @@ mod tests {
 
     #[test]
     fn test_simplify_does_not_fire_without_else() -> VortexResult<()> {
-        let expr = case_when_no_else(is_null(col("x")), lit(0i64));
-        let optimized = expr.optimize_recursive(&nullable_i64_scope(&["x"]))?;
+        let expr = case_when_no_else(is_null(col("x", nullable_i64_scope(&["x"]))), lit(0i64));
+        let optimized = expr.optimize_recursive()?;
         assert!(
             !optimized.to_string().contains("fill_null"),
             "must not rewrite a no-ELSE case_when, got {optimized}"
@@ -1413,12 +1648,15 @@ mod tests {
     fn test_simplify_does_not_fire_for_multi_pair() -> VortexResult<()> {
         let expr = nested_case_when(
             vec![
-                (is_null(col("x")), lit(0i64)),
-                (gt(col("x"), lit(5i64)), lit(1i64)),
+                (is_null(col("x", nullable_i64_scope(&["x"]))), lit(0i64)),
+                (
+                    gt(col("x", nullable_i64_scope(&["x"])), lit(5i64)),
+                    lit(1i64),
+                ),
             ],
-            Some(col("x")),
+            Some(col("x", nullable_i64_scope(&["x"]))),
         );
-        let optimized = expr.optimize_recursive(&nullable_i64_scope(&["x"]))?;
+        let optimized = expr.optimize_recursive()?;
         assert!(
             !optimized.to_string().contains("fill_null"),
             "must not rewrite a multi-pair case_when, got {optimized}"
@@ -1431,10 +1669,13 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         // The optimized expression must produce the same values as the original CASE WHEN.
         let array = PrimitiveArray::from_option_iter([Some(1i64), None, Some(3)]).into_array();
-        let scope = DType::Primitive(PType::I64, Nullability::Nullable);
 
-        let original = case_when(is_null(root()), lit(0i64), root());
-        let optimized = original.optimize_recursive(&scope)?;
+        let original = case_when(
+            is_null(root(array.dtype().clone())),
+            lit(0i64),
+            root(array.dtype().clone()),
+        );
+        let optimized = original.optimize_recursive()?;
         assert!(
             optimized.to_string().starts_with("vortex.fill_null"),
             "expected fill_null, got {optimized}"

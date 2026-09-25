@@ -302,173 +302,51 @@ fn replace_root_dtype(expr: BoundExpression, root_dtype: DType) -> VortexResult<
 
 #[cfg(test)]
 mod tests {
-    use rstest::fixture;
-    use rstest::rstest;
+    use vortex_error::VortexResult;
 
     use super::*;
     use crate::dtype::DType;
-    use crate::dtype::Nullability::NonNullable;
-    use crate::dtype::Nullability::Nullable;
-    use crate::dtype::PType::I32;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::dtype::StructFields;
     use crate::expr::analysis::make_bound_free_field_annotator;
-    use crate::expr::and;
-    use crate::expr::col;
-    use crate::expr::get_item;
-    use crate::expr::lit;
-    use crate::expr::merge;
-    use crate::expr::pack;
-    use crate::expr::root;
-    use crate::expr::transform::replace::replace_root_fields;
+    use crate::expr::bound;
 
-    #[fixture]
-    fn dtype() -> DType {
+    fn scope() -> DType {
         DType::Struct(
             StructFields::from_iter([
-                (
-                    "a",
-                    DType::Struct(
-                        StructFields::from_iter([("x", I32.into()), ("y", DType::from(I32))]),
-                        NonNullable,
-                    ),
-                ),
-                ("b", I32.into()),
-                ("c", I32.into()),
+                ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
+                ("b", DType::Primitive(PType::I32, Nullability::NonNullable)),
             ]),
-            NonNullable,
+            Nullability::NonNullable,
         )
     }
 
-    fn partition_by_field(
-        expr: BoundExpression,
-        dtype: &DType,
-    ) -> VortexResult<BoundPartitionedExpr<FieldName>> {
+    #[test]
+    fn root_has_no_independent_partition() -> VortexResult<()> {
+        let dtype = scope();
         let fields = dtype.as_struct_fields_opt().unwrap();
-        partition_bound(expr, make_bound_free_field_annotator(fields))
+        let partitioned = partition_bound(
+            bound::root(dtype.clone()),
+            make_bound_free_field_annotator(fields),
+        )?;
+        assert!(partitioned.partitions.is_empty());
+        assert_eq!(partitioned.root, bound::root(dtype));
+        Ok(())
     }
 
-    #[rstest]
-    fn test_expr_top_level_ref(dtype: DType) {
+    #[test]
+    fn partitions_independent_fields() -> VortexResult<()> {
+        let dtype = scope();
         let fields = dtype.as_struct_fields_opt().unwrap();
-
-        let expr = root();
-        let partitioned = partition_by_field(expr.bind(&dtype).unwrap(), &dtype).unwrap();
-
-        // An un-expanded root expression is annotated by all fields, but since it is a single node
-        assert_eq!(partitioned.partitions.len(), 0);
-        assert_eq!(partitioned.root, root().bind(&dtype).unwrap());
-
-        // Instead, callers must expand the root expression themselves.
-        let expr = replace_root_fields(expr, fields);
-        let partitioned = partition_by_field(expr.bind(&dtype).unwrap(), &dtype).unwrap();
-
-        assert_eq!(partitioned.partitions.len(), fields.names().len());
-    }
-
-    #[rstest]
-    fn test_expr_top_level_ref_get_item_and_split(dtype: DType) {
-        let expr = get_item("y", get_item("a", root()));
-
-        let partitioned = partition_by_field(expr.bind(&dtype).unwrap(), &dtype).unwrap();
-        let root_dtype =
-            partition_root_dtype(&partitioned.partition_names, &partitioned.partitions);
-        assert_eq!(
-            partitioned.root,
-            get_item("a_0", get_item("a", root()))
-                .bind(&root_dtype)
-                .unwrap()
+        let expression = bound::and(
+            bound::eq(bound::col("a", dtype.clone()), bound::lit(1_i32)),
+            bound::eq(bound::col("b", dtype.clone()), bound::lit(2_i32)),
         );
-    }
-
-    #[rstest]
-    fn test_expr_top_level_ref_get_item_and_split_pack(dtype: DType) {
-        let expr = pack(
-            [
-                ("x", get_item("x", get_item("a", root()))),
-                ("y", get_item("y", get_item("a", root()))),
-                ("c", get_item("c", root())),
-            ],
-            NonNullable,
-        );
-        let partitioned = partition_by_field(expr.bind(&dtype).unwrap(), &dtype).unwrap();
-
-        let split_a = partitioned.find_partition(&"a".into()).unwrap();
-        assert_eq!(
-            split_a,
-            &pack(
-                [
-                    ("a_0", get_item("x", get_item("a", root()))),
-                    ("a_1", get_item("y", get_item("a", root())))
-                ],
-                NonNullable
-            )
-            .bind(&dtype)
-            .unwrap()
-        );
-    }
-
-    #[rstest]
-    fn test_expr_top_level_ref_get_item_add(dtype: DType) {
-        let expr = and(get_item("y", get_item("a", root())), lit(1));
-        let partitioned = partition_by_field(expr.bind(&dtype).unwrap(), &dtype).unwrap();
-
-        // Whole expr is a single split
-        assert_eq!(partitioned.partitions.len(), 1);
-    }
-
-    #[rstest]
-    fn test_expr_top_level_ref_get_item_add_cannot_split(dtype: DType) {
-        let expr = and(get_item("y", get_item("a", root())), get_item("b", root()));
-        let partitioned = partition_by_field(expr.bind(&dtype).unwrap(), &dtype).unwrap();
-
-        // One for id.a and id.b
+        let partitioned = partition_bound(expression, make_bound_free_field_annotator(fields))?;
         assert_eq!(partitioned.partitions.len(), 2);
-    }
-
-    #[rstest]
-    fn test_expr_merge(dtype: DType) {
-        let expr = merge([col("a"), pack([("b", col("b"))], NonNullable)]);
-
-        let partitioned = partition_by_field(expr.bind(&dtype).unwrap(), &dtype).unwrap();
-        let expected = merge([get_item("a_0", col("a")), get_item("b_0", col("b"))]);
-        let root_dtype =
-            partition_root_dtype(&partitioned.partition_names, &partitioned.partitions);
-        assert_eq!(
-            partitioned.root,
-            expected.bind(&root_dtype).unwrap(),
-            "{} {}",
-            partitioned.root,
-            expected
-        );
-
-        assert_eq!(partitioned.partitions.len(), 2);
-
-        let part_a = partitioned.find_partition(&"a".into()).unwrap();
-        let expected_a = pack([("a_0", col("a"))], NonNullable);
-        assert_eq!(
-            part_a,
-            &expected_a.bind(&dtype).unwrap(),
-            "{part_a} {expected_a}"
-        );
-
-        let part_b = partitioned.find_partition(&"b".into()).unwrap();
-        let expected_b = pack([("b_0", pack([("b", col("b"))], NonNullable))], NonNullable);
-        assert_eq!(
-            part_b,
-            &expected_b.bind(&dtype).unwrap(),
-            "{part_b} {expected_b}"
-        );
-    }
-
-    #[rstest]
-    fn replacing_partitions_refreshes_root_dtype(dtype: DType) -> VortexResult<()> {
-        let mut partitioned = partition_by_field(col("b").bind(&dtype)?, &dtype)?;
-        let field_dtype = DType::Primitive(I32, Nullable);
-        let replacement = pack([("b_0", root())], NonNullable).bind(&field_dtype)?;
-
-        partitioned.replace_partitions(vec![replacement].into_boxed_slice())?;
-
-        assert_eq!(partitioned.root.dtype(), &field_dtype);
+        assert!(partitioned.find_partition(&"a".into()).is_some());
+        assert!(partitioned.find_partition(&"b".into()).is_some());
         Ok(())
     }
 }

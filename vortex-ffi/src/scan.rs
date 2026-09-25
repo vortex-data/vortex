@@ -16,13 +16,14 @@ use futures::StreamExt;
 use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
 use vortex::array::VortexSessionExecute;
+use vortex::array::expr::BoundExpression;
 use vortex::array::expr::stats::Precision;
 use vortex::array::stream::SendableArrayStream;
 use vortex::buffer::Buffer;
+use vortex::dtype::DType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
-use vortex::expr::root;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::layout::scan::arrow::RecordBatchIteratorAdapter;
 use vortex::scan::DataSource;
@@ -42,7 +43,7 @@ use crate::dtype::vx_dtype;
 use crate::error::try_or;
 use crate::error::try_or_default;
 use crate::error::vx_error;
-use crate::expression::vx_expression;
+use crate::expression::vx_bound_expression;
 use crate::session::vx_session;
 
 pub enum VxScan {
@@ -119,9 +120,9 @@ pub struct vx_scan_selection {
 #[cfg_attr(test, derive(Default))]
 pub struct vx_scan_options {
     /// What columns to return. NULL means all columns.
-    pub projection: *const vx_expression,
+    pub projection: *const vx_bound_expression,
     /// Predicate expression. NULL means no filter.
-    pub filter: *const vx_expression,
+    pub filter: *const vx_bound_expression,
     /// Row range [begin, end). Setting row_range_begin and row_range_end to 0
     /// means no limit.
     pub row_range_begin: u64,
@@ -156,22 +157,22 @@ pub struct vx_estimate {
     pub estimate: u64,
 }
 
-fn scan_request(opts: *const vx_scan_options) -> VortexResult<ScanRequest> {
+fn scan_request(opts: *const vx_scan_options, dtype: &DType) -> VortexResult<ScanRequest> {
     if opts.is_null() {
-        return Ok(ScanRequest::default());
+        return Ok(ScanRequest::new(dtype));
     }
     let opts = unsafe { &*opts };
 
     let projection = if opts.projection.is_null() {
-        root()
+        BoundExpression::new_root(dtype.clone())
     } else {
-        vx_expression::as_ref(opts.projection).clone()
+        vx_bound_expression::as_ref(opts.projection).clone()
     };
 
     let filter = if opts.filter.is_null() {
         None
     } else {
-        Some(vx_expression::as_ref(opts.filter).clone())
+        Some(vx_bound_expression::as_ref(opts.filter).clone())
     };
 
     let selection = &opts.selection;
@@ -245,9 +246,10 @@ pub unsafe extern "C-unwind" fn vx_data_source_scan(
     err: *mut *mut vx_error,
 ) -> *mut vx_scan {
     try_or(err, ptr::null_mut(), || {
-        let request = scan_request(options)?;
+        let data_source = vx_data_source::as_ref(data_source);
+        let request = scan_request(options, data_source.dtype())?;
         RUNTIME.block_on(async {
-            let scan = vx_data_source::as_ref(data_source).scan(request).await?;
+            let scan = data_source.scan(request).await?;
             if !estimate.is_null() {
                 write_estimate(scan.partition_count().map(|v| v as u64), unsafe {
                     &mut *estimate
@@ -461,11 +463,12 @@ mod tests {
     use crate::data_source::vx_data_source_new;
     use crate::data_source::vx_data_source_options;
     use crate::expression::vx_binary_operator;
-    use crate::expression::vx_expression_binary;
-    use crate::expression::vx_expression_free;
-    use crate::expression::vx_expression_get_item;
-    use crate::expression::vx_expression_literal;
-    use crate::expression::vx_expression_root;
+    use crate::expression::vx_bound_expression;
+    use crate::expression::vx_bound_expression_binary;
+    use crate::expression::vx_bound_expression_free;
+    use crate::expression::vx_bound_expression_get_item;
+    use crate::expression::vx_bound_expression_literal;
+    use crate::expression::vx_bound_expression_root;
     use crate::scalar::vx_scalar_free;
     use crate::scalar::vx_scalar_new_u64;
     use crate::scan::vx_data_source_scan;
@@ -485,9 +488,47 @@ mod tests {
     use crate::tests::assert_no_error;
     use crate::tests::write_sample;
 
+    unsafe fn bound_field(
+        dtype: *const crate::dtype::vx_dtype,
+        field: &str,
+    ) -> *const vx_bound_expression {
+        unsafe {
+            let root = vx_bound_expression_root(dtype);
+            let mut error = ptr::null_mut();
+            let result =
+                vx_bound_expression_get_item(vx_view::from_str(field), root, &raw mut error);
+            assert_no_error(error);
+            vx_bound_expression_free(root);
+            result
+        }
+    }
+
+    unsafe fn age_filter(dtype: *const crate::dtype::vx_dtype) -> *const vx_bound_expression {
+        unsafe {
+            let age = bound_field(dtype, "age");
+            let value = vx_scalar_new_u64(100, false);
+            let mut error = ptr::null_mut();
+            let literal = vx_bound_expression_literal(value, &raw mut error);
+            assert_no_error(error);
+            vx_scalar_free(value);
+            let filter = vx_bound_expression_binary(
+                vx_binary_operator::VX_OPERATOR_GTE,
+                age,
+                literal,
+                &raw mut error,
+            );
+            assert_no_error(error);
+            vx_bound_expression_free(age);
+            vx_bound_expression_free(literal);
+            filter
+        }
+    }
+
     /// Perform a scan with options over a sample file, return owned read array and
     /// original generated array for the sample file.
-    fn scan(options: *const vx_scan_options) -> (*const vx_array, StructArray) {
+    fn scan(
+        make_options: impl FnOnce(*const crate::dtype::vx_dtype) -> Option<vx_scan_options>,
+    ) -> (*const vx_array, StructArray) {
         unsafe {
             let session = vx_session_new();
             let (sample, struct_array) = write_sample(session);
@@ -502,10 +543,21 @@ mod tests {
             assert_no_error(error);
             assert!(!ds.is_null());
 
+            let dtype = crate::dtype::vx_dtype::new(struct_array.dtype().clone());
+            let options = make_options(dtype);
+            crate::dtype::vx_dtype_free(dtype);
+            let options_ptr = options
+                .as_ref()
+                .map_or(ptr::null(), |options| options as *const _);
+
             let mut error = ptr::null_mut();
-            let scan = vx_data_source_scan(ds, options, ptr::null_mut(), &raw mut error);
+            let scan = vx_data_source_scan(ds, options_ptr, ptr::null_mut(), &raw mut error);
             assert_no_error(error);
             assert!(!scan.is_null());
+            if let Some(options) = options {
+                vx_bound_expression_free(options.projection);
+                vx_bound_expression_free(options.filter);
+            }
 
             let partition = vx_scan_next_partition(scan, &raw mut error);
             assert_no_error(error);
@@ -533,7 +585,7 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     fn test_no_options() {
         let mut ctx = array_session().create_execution_ctx();
-        let (array, struct_array) = scan(ptr::null());
+        let (array, struct_array) = scan(|_| None);
         assert_arrays_eq!(vx_array::as_ref(array), struct_array, &mut ctx);
         unsafe { vx_array_free(array) };
     }
@@ -542,8 +594,7 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     fn test_project_all() {
         let mut ctx = array_session().create_execution_ctx();
-        let opts = vx_scan_options::default();
-        let (array, struct_array) = scan(&raw const opts);
+        let (array, struct_array) = scan(|_| Some(vx_scan_options::default()));
         assert_arrays_eq!(vx_array::as_ref(array), struct_array, &mut ctx);
         unsafe { vx_array_free(array) };
     }
@@ -553,23 +604,20 @@ mod tests {
     fn test_project_single_field() {
         unsafe {
             let mut ctx = array_session().create_execution_ctx();
-            let root = vx_expression_root();
-            let mut opts = vx_scan_options::default();
-
             for field in ["age", "height", "name"] {
-                let field_expr = vx_expression_get_item(vx_view::from_str(field), root);
-                assert!(!field_expr.is_null());
-                opts.projection = field_expr;
-                let (array, struct_array) = scan(&raw const opts);
+                let (array, struct_array) = scan(|dtype| {
+                    Some(vx_scan_options {
+                        projection: bound_field(dtype, field),
+                        ..Default::default()
+                    })
+                });
                 assert_arrays_eq!(
                     vx_array::as_ref(array),
                     struct_array.unmasked_field_by_name(field).unwrap(),
                     &mut ctx
                 );
                 vx_array_free(array);
-                vx_expression_free(field_expr);
             }
-            vx_expression_free(root);
         }
     }
 
@@ -579,16 +627,24 @@ mod tests {
         let session = VortexSession::default();
         let mut ctx = session.create_execution_ctx();
         unsafe {
-            let root = vx_expression_root();
-            let mut opts = vx_scan_options::default();
-
-            let expr_age = vx_expression_get_item(vx_view::from_str("age"), root);
-            let expr_height = vx_expression_get_item(vx_view::from_str("height"), root);
-            let expr_sum =
-                vx_expression_binary(vx_binary_operator::VX_OPERATOR_ADD, expr_age, expr_height);
-
-            opts.projection = expr_sum;
-            let (array, _) = scan(&raw const opts);
+            let (array, _) = scan(|dtype| {
+                let age = bound_field(dtype, "age");
+                let height = bound_field(dtype, "height");
+                let mut error = ptr::null_mut();
+                let projection = vx_bound_expression_binary(
+                    vx_binary_operator::VX_OPERATOR_ADD,
+                    age,
+                    height,
+                    &raw mut error,
+                );
+                assert_no_error(error);
+                vx_bound_expression_free(age);
+                vx_bound_expression_free(height);
+                Some(vx_scan_options {
+                    projection,
+                    ..Default::default()
+                })
+            });
             {
                 let array = vx_array::as_ref(array);
                 let stats = array.statistics();
@@ -600,11 +656,6 @@ mod tests {
                 );
             }
             vx_array_free(array);
-
-            vx_expression_free(expr_age);
-            vx_expression_free(expr_height);
-            vx_expression_free(expr_sum);
-            vx_expression_free(root);
         }
     }
 
@@ -612,28 +663,15 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     fn test_filter() {
         unsafe {
-            let root = vx_expression_root();
-            let age_expr = vx_expression_get_item(vx_view::from_str("age"), root);
-            let value = vx_scalar_new_u64(100, false);
-            let mut error = ptr::null_mut();
-            let lit_100 = vx_expression_literal(value, &raw mut error);
-            assert_no_error(error);
-            vx_scalar_free(value);
-            let filter =
-                vx_expression_binary(vx_binary_operator::VX_OPERATOR_GTE, age_expr, lit_100);
-
-            let opts = vx_scan_options {
-                filter,
-                ..Default::default()
-            };
-            let (array, _) = scan(&raw const opts);
+            let (array, _) = scan(|dtype| {
+                Some(vx_scan_options {
+                    filter: age_filter(dtype),
+                    ..Default::default()
+                })
+            });
             assert_eq!(vx_array::as_ref(array).len(), 100);
 
             vx_array_free(array);
-            vx_expression_free(filter);
-            vx_expression_free(age_expr);
-            vx_expression_free(lit_100);
-            vx_expression_free(root);
         }
     }
 
@@ -641,43 +679,29 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     fn test_filter_project() {
         unsafe {
-            let root = vx_expression_root();
-            let age_expr = vx_expression_get_item(vx_view::from_str("age"), root);
-            let value = vx_scalar_new_u64(100, false);
-            let mut error = ptr::null_mut();
-            let lit_100 = vx_expression_literal(value, &raw mut error);
-            assert_no_error(error);
-            vx_scalar_free(value);
-            let filter =
-                vx_expression_binary(vx_binary_operator::VX_OPERATOR_GTE, age_expr, lit_100);
-            let projection = vx_expression_get_item(vx_view::from_str("age"), root);
-
-            let opts = vx_scan_options {
-                projection,
-                filter,
-                ..Default::default()
-            };
-            let (array, _) = scan(&raw const opts);
+            let (array, _) = scan(|dtype| {
+                Some(vx_scan_options {
+                    projection: bound_field(dtype, "age"),
+                    filter: age_filter(dtype),
+                    ..Default::default()
+                })
+            });
             assert_eq!(vx_array::as_ref(array).len(), 100);
 
             vx_array_free(array);
-            vx_expression_free(filter);
-            vx_expression_free(age_expr);
-            vx_expression_free(lit_100);
-            vx_expression_free(projection);
-            vx_expression_free(root);
         }
     }
 
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_row_range() {
-        let opts = vx_scan_options {
-            row_range_begin: 50,
-            row_range_end: 100,
-            ..Default::default()
-        };
-        let (array, _) = scan(&raw const opts);
+        let (array, _) = scan(|_| {
+            Some(vx_scan_options {
+                row_range_begin: 50,
+                row_range_end: 100,
+                ..Default::default()
+            })
+        });
         assert_eq!(vx_array::as_ref(array).len(), 50);
         unsafe { vx_array_free(array) };
     }
@@ -686,15 +710,16 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     fn test_selection() {
         let indices = [0u64, 50, 100, 150, 199];
-        let opts = vx_scan_options {
-            selection: vx_scan_selection {
-                idx: indices.as_ptr(),
-                idx_len: indices.len(),
-                include: vx_scan_selection_include::VX_SELECTION_INCLUDE_RANGE,
-            },
-            ..Default::default()
-        };
-        let (array, _) = scan(&raw const opts);
+        let (array, _) = scan(|_| {
+            Some(vx_scan_options {
+                selection: vx_scan_selection {
+                    idx: indices.as_ptr(),
+                    idx_len: indices.len(),
+                    include: vx_scan_selection_include::VX_SELECTION_INCLUDE_RANGE,
+                },
+                ..Default::default()
+            })
+        });
         assert_eq!(vx_array::as_ref(array).len(), indices.len());
         unsafe { vx_array_free(array) };
     }
@@ -702,11 +727,12 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_limit() {
-        let opts = vx_scan_options {
-            limit: 50,
-            ..Default::default()
-        };
-        let (array, _) = scan(&raw const opts);
+        let (array, _) = scan(|_| {
+            Some(vx_scan_options {
+                limit: 50,
+                ..Default::default()
+            })
+        });
         assert_eq!(vx_array::as_ref(array).len(), 50);
         unsafe { vx_array_free(array) };
     }
@@ -715,11 +741,12 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     fn test_ordered() {
         let mut ctx = array_session().create_execution_ctx();
-        let opts = vx_scan_options {
-            ordered: true,
-            ..Default::default()
-        };
-        let (array, struct_array) = scan(&raw const opts);
+        let (array, struct_array) = scan(|_| {
+            Some(vx_scan_options {
+                ordered: true,
+                ..Default::default()
+            })
+        });
         assert_arrays_eq!(vx_array::as_ref(array), struct_array, &mut ctx);
         unsafe { vx_array_free(array) };
     }

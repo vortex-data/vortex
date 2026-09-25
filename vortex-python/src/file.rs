@@ -14,14 +14,14 @@ use vortex::array::ExecutionCtx;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::builtins::ArrayBuiltins;
+use vortex::authored_expr::Expression;
+use vortex::authored_expr::root;
+use vortex::authored_expr::select;
 use vortex::dtype::DType;
 use vortex::dtype::FieldNames;
 use vortex::dtype::Nullability::NonNullable;
 use vortex::dtype::PType;
 use vortex::error::VortexResult;
-use vortex::expr::Expression;
-use vortex::expr::root;
-use vortex::expr::select;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
 use vortex::io::runtime::BlockingRuntime;
@@ -39,6 +39,7 @@ use crate::dataset::PyVortexDataset;
 use crate::dtype::PyDType;
 use crate::error::PyVortexResult;
 use crate::expr::PyExpr;
+use crate::expr::bind_user_expression;
 use crate::install_module;
 use crate::io::AnyVortexStore;
 use crate::iter::PyArrayIterator;
@@ -229,17 +230,10 @@ impl PyVortexFile {
         let runtime = current_runtime();
         let reader = slf.py().detach(|| {
             let filter = expr
-                .map(|e| {
-                    e.into_inner()
-                        .optimize_recursive(vxf.dtype())?
-                        .bind(vxf.dtype())
-                })
+                .map(|e| bind_user_expression(&e.into_inner(), vxf.dtype()))
                 .transpose()?;
-            let projection = projection
-                .map(|p| p.0)
-                .unwrap_or_else(root)
-                .optimize_recursive(vxf.dtype())?
-                .bind(vxf.dtype())?;
+            let projection = projection.map(|p| p.0).unwrap_or_else(root);
+            let projection = bind_user_expression(&projection, vxf.dtype())?;
             let mut builder = vxf
                 .scan()?
                 .with_some_filter(filter)
@@ -288,12 +282,9 @@ fn scan_builder(
     batch_size: Option<usize>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ScanBuilder<ArrayRef>> {
-    let projection = projection
-        .unwrap_or_else(root)
-        .optimize_recursive(vxf.dtype())?
-        .bind(vxf.dtype())?;
+    let projection = bind_user_expression(&projection.unwrap_or_else(root), vxf.dtype())?;
     let expr = expr
-        .map(|expr| expr.optimize_recursive(vxf.dtype())?.bind(vxf.dtype()))
+        .map(|expr| bind_user_expression(&expr, vxf.dtype()))
         .transpose()?;
     let mut builder = vxf
         .scan()?

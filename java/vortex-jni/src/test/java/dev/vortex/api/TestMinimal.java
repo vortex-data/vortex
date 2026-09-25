@@ -151,7 +151,8 @@ public final class TestMinimal {
         DataSource ds = DataSource.open(session, writePath);
         Expression projection = Expression.select(new String[] {"Name", "State"}, Expression.root());
 
-        ScanOptions options = ScanOptions.builder().projection(projection).build();
+        ScanOptions options =
+                ScanOptions.builder().projection(ds.bind(projection)).build();
 
         List<Person> people = readAll(ds, options, allocator, batch -> {
             List<Person> results = new ArrayList<>();
@@ -179,7 +180,7 @@ public final class TestMinimal {
         Expression filter =
                 Expression.binary(Expression.BinaryOp.EQ, Expression.column("State"), Expression.literal("VA"));
 
-        ScanOptions options = ScanOptions.builder().filter(filter).build();
+        ScanOptions options = ScanOptions.builder().filter(ds.bind(filter)).build();
         List<Person> people = readAll(ds, options, allocator, TestMinimal::readFullBatch);
         assertEquals(List.of(new Person("John", BigDecimal.valueOf(10_000L, 2), "VA")), people);
     }

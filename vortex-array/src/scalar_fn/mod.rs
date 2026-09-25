@@ -4,7 +4,7 @@
 //! Scalar function vtable machinery.
 //!
 //! This module contains the [`ScalarFnVTable`] trait and all built-in scalar function
-//! implementations. Expressions ([`crate::expr::Expression`]) reference scalar functions
+//! implementations. Bound expressions ([`crate::expr::BoundExpression`]) reference scalar functions
 //! at each node.
 //!
 //! Strict functions with row-at-a-time kernels can implement `unstable::row::RowFn`. It handles

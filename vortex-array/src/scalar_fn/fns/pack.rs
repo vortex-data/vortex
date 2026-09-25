@@ -21,9 +21,9 @@ use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::StructFields;
-use crate::expr::Expression;
+use crate::expr::BoundExpression;
+use crate::expr::bound;
 use crate::expr::display::ExprDisplay;
-use crate::expr::lit;
 use crate::proto::expr as pb;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -130,9 +130,9 @@ impl ScalarFnVTable for Pack {
     fn validity(
         &self,
         _options: &Self::Options,
-        _expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
-        Ok(Some(lit(true)))
+        _expression: &BoundExpression,
+    ) -> VortexResult<Option<BoundExpression>> {
+        Ok(Some(bound::lit(true)))
     }
 
     fn execute(
@@ -176,9 +176,12 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::struct_::StructArrayExt;
     use crate::assert_arrays_eq;
+    use crate::dtype::DType;
     use crate::dtype::Nullability;
-    use crate::expr::col;
-    use crate::expr::pack;
+    use crate::dtype::PType;
+    use crate::expr::BoundExpression;
+    use crate::expr::bound::col as bound_col;
+    use crate::expr::bound::pack;
     use crate::scalar_fn::ScalarFnVTableExt;
     use crate::scalar_fn::fns::pack::StructArray;
     use crate::validity::Validity;
@@ -190,6 +193,10 @@ mod tests {
         ])
         .unwrap()
         .into_array()
+    }
+
+    fn col(field: &str) -> BoundExpression {
+        bound_col(field, test_array().dtype().clone())
     }
 
     fn primitive_field(array: &ArrayRef, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
@@ -220,16 +227,18 @@ mod tests {
     #[test]
     pub fn test_empty_pack() {
         let mut ctx = array_session().create_execution_ctx();
-        let expr = Pack.new_expr(
-            PackOptions {
-                names: Default::default(),
-                nullability: Default::default(),
-            },
-            [],
-        );
+        let expr = Pack
+            .try_new_bound_expr(
+                PackOptions {
+                    names: Default::default(),
+                    nullability: Default::default(),
+                },
+                [],
+            )
+            .unwrap();
 
         let test_array = test_array();
-        let actual_array = test_array.clone().apply(&expr).unwrap();
+        let actual_array = test_array.clone().apply_bound(&expr).unwrap();
         assert_eq!(actual_array.len(), test_array.len());
         let nfields = actual_array
             .execute::<StructArray>(&mut ctx)
@@ -242,16 +251,18 @@ mod tests {
     #[test]
     pub fn test_simple_pack() {
         let mut ctx = array_session().create_execution_ctx();
-        let expr = Pack.new_expr(
-            PackOptions {
-                names: ["one", "two", "three"].into(),
-                nullability: Nullability::NonNullable,
-            },
-            [col("a"), col("b"), col("a")],
-        );
+        let expr = Pack
+            .try_new_bound_expr(
+                PackOptions {
+                    names: ["one", "two", "three"].into(),
+                    nullability: Nullability::NonNullable,
+                },
+                [col("a"), col("b"), col("a")],
+            )
+            .unwrap();
 
         let actual_array = test_array()
-            .apply(&expr)
+            .apply_bound(&expr)
             .unwrap()
             .execute::<StructArray>(&mut ctx)
             .unwrap();
@@ -279,26 +290,29 @@ mod tests {
     #[test]
     pub fn test_nested_pack() {
         let mut ctx = array_session().create_execution_ctx();
-        let expr = Pack.new_expr(
-            PackOptions {
-                names: ["one", "two", "three"].into(),
-                nullability: Nullability::NonNullable,
-            },
-            [
-                col("a"),
-                Pack.new_expr(
-                    PackOptions {
-                        names: ["two_one", "two_two"].into(),
-                        nullability: Nullability::NonNullable,
-                    },
-                    [col("b"), col("b")],
-                ),
-                col("a"),
-            ],
-        );
+        let expr = Pack
+            .try_new_bound_expr(
+                PackOptions {
+                    names: ["one", "two", "three"].into(),
+                    nullability: Nullability::NonNullable,
+                },
+                [
+                    col("a"),
+                    Pack.try_new_bound_expr(
+                        PackOptions {
+                            names: ["two_one", "two_two"].into(),
+                            nullability: Nullability::NonNullable,
+                        },
+                        [col("b"), col("b")],
+                    )
+                    .unwrap(),
+                    col("a"),
+                ],
+            )
+            .unwrap();
 
         let actual_array = test_array()
-            .apply(&expr)
+            .apply_bound(&expr)
             .unwrap()
             .execute::<StructArray>(&mut ctx)
             .unwrap();
@@ -330,16 +344,18 @@ mod tests {
     #[test]
     pub fn test_pack_nullable() {
         let mut ctx = array_session().create_execution_ctx();
-        let expr = Pack.new_expr(
-            PackOptions {
-                names: ["one", "two", "three"].into(),
-                nullability: Nullability::Nullable,
-            },
-            [col("a"), col("b"), col("a")],
-        );
+        let expr = Pack
+            .try_new_bound_expr(
+                PackOptions {
+                    names: ["one", "two", "three"].into(),
+                    nullability: Nullability::Nullable,
+                },
+                [col("a"), col("b"), col("a")],
+            )
+            .unwrap();
 
         let actual_array = test_array()
-            .apply(&expr)
+            .apply_bound(&expr)
             .unwrap()
             .execute::<StructArray>(&mut ctx)
             .unwrap();
@@ -350,19 +366,33 @@ mod tests {
 
     #[test]
     pub fn test_display() {
+        let scope = DType::struct_(
+            [
+                ("user_id", PType::I32),
+                ("username", PType::I32),
+                ("a", PType::I32),
+                ("b", PType::I32),
+            ],
+            Nullability::NonNullable,
+        );
         let expr = pack(
-            [("id", col("user_id")), ("name", col("username"))],
+            [
+                ("id", bound_col("user_id", scope.clone())),
+                ("name", bound_col("username", scope.clone())),
+            ],
             Nullability::NonNullable,
         );
         assert_eq!(expr.to_string(), "pack(id: $.user_id, name: $.username)");
 
-        let expr2 = Pack.new_expr(
-            PackOptions {
-                names: ["x", "y"].into(),
-                nullability: Nullability::Nullable,
-            },
-            [col("a"), col("b")],
-        );
+        let expr2 = Pack
+            .try_new_bound_expr(
+                PackOptions {
+                    names: ["x", "y"].into(),
+                    nullability: Nullability::Nullable,
+                },
+                [bound_col("a", scope.clone()), bound_col("b", scope)],
+            )
+            .unwrap();
         assert_eq!(expr2.to_string(), "pack(x: $.a, y: $.b)?");
     }
 }

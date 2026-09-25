@@ -577,8 +577,12 @@ mod tests {
             self.inner.can_be_pushed_down(expr, schema)
         }
 
-        fn convert(&self, expr: &dyn PhysicalExpr) -> DFResult<vortex::expr::Expression> {
-            self.inner.convert(expr)
+        fn convert(
+            &self,
+            expr: &dyn PhysicalExpr,
+            scope: &vortex::dtype::DType,
+        ) -> DFResult<vortex::expr::BoundExpression> {
+            self.inner.convert(expr, scope)
         }
 
         fn split_projection(
@@ -586,18 +590,10 @@ mod tests {
             source_projection: ProjectionExprs,
             input_schema: &Schema,
             output_schema: &Schema,
+            scope: &vortex::dtype::DType,
         ) -> DFResult<ProcessedProjection> {
             self.inner
-                .split_projection(source_projection, input_schema, output_schema)
-        }
-
-        fn no_pushdown_projection(
-            &self,
-            source_projection: ProjectionExprs,
-            input_schema: &Schema,
-        ) -> DFResult<ProcessedProjection> {
-            self.inner
-                .no_pushdown_projection(source_projection, input_schema)
+                .split_projection(source_projection, input_schema, output_schema, scope)
         }
     }
 

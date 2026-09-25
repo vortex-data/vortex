@@ -3,8 +3,8 @@
 
 package dev.vortex.spark.read;
 
+import dev.vortex.api.BoundExpression;
 import dev.vortex.api.DataSource;
-import dev.vortex.api.Expression;
 import dev.vortex.api.Partition;
 import dev.vortex.api.Scan;
 import dev.vortex.api.ScanOptions;
@@ -61,23 +61,24 @@ final class VortexPartitionReader implements PartitionReader<ColumnarBatch> {
 
         var options = ScanOptions.builder();
         if (!dataColumnNames.isEmpty()) {
-            Expression projection = Expression.select(dataColumnNames.toArray(new String[0]), Expression.root());
+            BoundExpression projection =
+                    BoundExpression.select(dataColumnNames.toArray(new String[0]), BoundExpression.root(dataSource));
             options.projection(projection);
         }
         if (pushedPredicates != null && pushedPredicates.length > 0) {
-            buildFilterExpression(pushedPredicates).ifPresent(options::filter);
+            buildFilterExpression(pushedPredicates, dataSource).ifPresent(options::filter);
         }
         scan = dataSource.scan(options.build());
     }
 
-    private static Optional<Expression> buildFilterExpression(Predicate[] predicates) {
-        Expression combined = null;
+    private static Optional<BoundExpression> buildFilterExpression(Predicate[] predicates, DataSource dataSource) {
+        BoundExpression combined = null;
         for (Predicate predicate : predicates) {
-            Optional<Expression> expr = SparkPredicateToVortexExpression.convert(predicate);
+            Optional<BoundExpression> expr = SparkPredicateToVortexExpression.convertBound(predicate, dataSource);
             if (expr.isEmpty()) {
-                continue;
+                throw new IllegalStateException("Spark dropped a predicate that Vortex cannot convert: " + predicate);
             }
-            combined = combined == null ? expr.get() : Expression.and(combined, expr.get());
+            combined = combined == null ? expr.get() : BoundExpression.and(combined, expr.get());
         }
         return Optional.ofNullable(combined);
     }

@@ -131,10 +131,10 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::expr::BoundExpression;
-    use vortex_array::expr::gt_eq;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::lt_eq;
-    use vortex_array::expr::root;
+    use vortex_array::expr::bound::gt_eq;
+    use vortex_array::expr::bound::lit;
+    use vortex_array::expr::bound::lt_eq;
+    use vortex_array::expr::bound::root;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::EmptyOptions;
     use vortex_array::scalar_fn::ScalarFnVTableExt;
@@ -164,14 +164,12 @@ mod tests {
         let scope = point_column(vec![0.0], vec![0.0])?.dtype().clone();
         let origin = point_column(vec![0.0], vec![0.0])?.execute_scalar(0, &mut ctx)?;
         let operands = if geom_first {
-            [root(), lit(origin)]
+            [root(scope), lit(origin)]
         } else {
-            [lit(origin), root()]
+            [lit(origin), root(scope)]
         };
-        let distance = SpatialDistance.new_expr(EmptyOptions, operands);
-        let predicate = Binary
-            .new_expr(operator, [distance, lit(radius.into())])
-            .bind(&scope)?;
+        let distance = SpatialDistance.try_new_bound_expr(EmptyOptions, operands)?;
+        let predicate = Binary.try_new_bound_expr(operator, [distance, lit(radius.into())])?;
 
         SpatialDistancePrune.falsify(&predicate, &session)
     }
@@ -184,10 +182,9 @@ mod tests {
 
         let scope = point_column(vec![0.0], vec![0.0])?.dtype().clone();
         let null_query = Scalar::null(scope.as_nullable());
-        let distance = SpatialDistance.new_expr(EmptyOptions, [root(), lit(null_query)]);
-        let predicate = Binary
-            .new_expr(Operator::Lte, [distance, lit(0.5f64)])
-            .bind(&scope)?;
+        let distance =
+            SpatialDistance.try_new_bound_expr(EmptyOptions, [root(scope), lit(null_query)])?;
+        let predicate = Binary.try_new_bound_expr(Operator::Lte, [distance, lit(0.5f64)])?;
 
         assert!(
             SpatialDistancePrune
@@ -272,9 +269,11 @@ mod tests {
 
         let scope = DType::Primitive(PType::F64, Nullability::NonNullable);
         let origin = point_column(vec![0.0], vec![0.0])?.execute_scalar(0, &mut ctx)?;
-        let distance = SpatialDistance.new_expr(EmptyOptions, [root(), lit(origin)]);
-        let predicate = lt_eq(distance, lit(0.5f64));
-        assert!(predicate.bind(&scope).is_err());
+        assert!(
+            SpatialDistance
+                .try_new_bound_expr(EmptyOptions, [root(scope), lit(origin)])
+                .is_err()
+        );
         Ok(())
     }
 
@@ -282,9 +281,7 @@ mod tests {
     #[test]
     fn ignores_non_distance_comparison() -> VortexResult<()> {
         let session = spatial_session();
-        let scope = point_column(vec![0.0], vec![0.0])?.dtype().clone();
-
-        let predicate = lt_eq(lit(1.0f64), lit(2.0f64)).bind(&scope)?;
+        let predicate = lt_eq(lit(1.0f64), lit(2.0f64));
         assert!(
             SpatialDistancePrune
                 .falsify(&predicate, &session)?
@@ -307,10 +304,10 @@ mod tests {
         )?;
 
         let origin = point_column(vec![0.0], vec![0.0])?.execute_scalar(0, &mut ctx)?;
-        let distance = SpatialDistance.new_expr(EmptyOptions, [root(), lit(origin)]);
+        let distance =
+            SpatialDistance.try_new_bound_expr(EmptyOptions, [root(point_dtype), lit(origin)])?;
         let predicate = lt_eq(distance, lit(0.5f64));
         let proof = predicate
-            .bind(&point_dtype)?
             .falsify(&session)?
             .expect("distance filter should be falsifiable");
 
@@ -333,10 +330,10 @@ mod tests {
         let zone_map = aabb_zone_map(&point_dtype, &[[0.8, 0.8, 0.9, 0.9]])?;
 
         let origin = point_column(vec![0.0], vec![0.0])?.execute_scalar(0, &mut ctx)?;
-        let distance = SpatialDistance.new_expr(EmptyOptions, [root(), lit(origin)]);
+        let distance =
+            SpatialDistance.try_new_bound_expr(EmptyOptions, [root(point_dtype), lit(origin)])?;
         let predicate = lt_eq(distance, lit(1.0f64));
         let proof = predicate
-            .bind(&point_dtype)?
             .falsify(&session)?
             .expect("distance filter should be falsifiable");
 
@@ -366,9 +363,9 @@ mod tests {
         )?;
 
         let origin = point_column(vec![0.0], vec![0.0])?.execute_scalar(0, &mut ctx)?;
-        let distance = SpatialDistance.new_expr(EmptyOptions, [root(), lit(origin)]);
+        let distance =
+            SpatialDistance.try_new_bound_expr(EmptyOptions, [root(point_dtype), lit(origin)])?;
         let proof = gt_eq(distance, lit(2.0f64))
-            .bind(&point_dtype)?
             .falsify(&session)?
             .expect("distance filter should be falsifiable");
 
@@ -389,9 +386,9 @@ mod tests {
         let zone_map = empty_zone_map(&point_dtype)?;
 
         let origin = point_column(vec![0.0], vec![0.0])?.execute_scalar(0, &mut ctx)?;
-        let distance = SpatialDistance.new_expr(EmptyOptions, [root(), lit(origin)]);
+        let distance =
+            SpatialDistance.try_new_bound_expr(EmptyOptions, [root(point_dtype), lit(origin)])?;
         let proof = lt_eq(distance, lit(0.5f64))
-            .bind(&point_dtype)?
             .falsify(&session)?
             .expect("distance filter should be falsifiable");
 

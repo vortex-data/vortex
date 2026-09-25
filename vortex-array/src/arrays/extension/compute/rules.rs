@@ -244,7 +244,7 @@ mod tests {
     }
 
     #[test]
-    fn test_scalar_fn_no_pushdown_different_ext_types() {
+    fn test_scalar_fn_rejects_different_ext_types() {
         #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
         struct TestExt2;
         impl ExtVTable for TestExt2 {
@@ -290,18 +290,8 @@ mod tests {
         let const_scalar = Scalar::extension::<TestExt2>(EmptyMetadata, Scalar::from(25i64));
         let const_array = ConstantArray::new(const_scalar, 3).into_array();
 
-        let scalar_fn_array = Binary::try_new(ext_array, const_array, Operator::Lt)
-            .unwrap()
-            .into_array();
-
-        let optimized = scalar_fn_array.optimize().unwrap();
-
-        // The first child should still be an ExtensionArray (no pushdown happened)
-        let scalar_fn = optimized.as_opt::<ScalarFn>().unwrap();
-        assert!(
-            scalar_fn.children()[0].as_opt::<Extension>().is_some(),
-            "Expected first child to remain ExtensionArray when ext types differ"
-        );
+        let error = Binary::try_new(ext_array, const_array, Operator::Lt).unwrap_err();
+        assert!(error.to_string().contains("different DTypes"), "{error}");
     }
 
     #[test]

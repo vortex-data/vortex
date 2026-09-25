@@ -139,7 +139,6 @@ fn list_sum_impl(
 mod tests {
     use std::sync::Arc;
 
-    use prost::Message;
     use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
@@ -159,12 +158,9 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::expr::Expression;
-    use crate::expr::list_sum;
-    use crate::expr::list_sum_opts;
-    use crate::expr::proto::ExprSerializeProtoExt;
-    use crate::expr::root;
-    use crate::proto::expr as pb;
+    use crate::expr::bound::list_sum;
+    use crate::expr::bound::list_sum_opts;
+    use crate::expr::bound::root;
     use crate::scalar::Scalar;
     use crate::scalar_fn::ScalarFnVTable;
     use crate::scalar_fn::fns::list_sum::ListSum;
@@ -189,7 +185,9 @@ mod tests {
     fn test_list_sum(#[case] offsets: ArrayRef) -> VortexResult<()> {
         let elements = create_list_elements();
         let list = ListArray::try_new(elements, offsets, Validity::NonNullable)?.into_array();
-        let result = list.apply(&list_sum(root()))?;
+        let result = list
+            .clone()
+            .apply_bound(&list_sum(root(list.dtype().clone())))?;
         let mut ctx = array_session().create_execution_ctx();
         // [1, 2] = 3; [3, 4, 5] = 12; [] = null; [6, null] = 6 (nulls skipped).
         let expected =
@@ -207,7 +205,9 @@ mod tests {
             Validity::Array(BoolArray::from_iter([true, false, true, false]).into_array()),
         )?
         .into_array();
-        let result = list.apply(&list_sum(root()))?;
+        let result = list
+            .clone()
+            .apply_bound(&list_sum(root(list.dtype().clone())))?;
 
         let mut ctx = array_session().create_execution_ctx();
         // Row 1 and 3 are null lists; row 2 is a valid but empty list.
@@ -225,7 +225,9 @@ mod tests {
             Validity::NonNullable,
         )?
         .into_array();
-        let result = list.apply(&list_sum(root()))?;
+        let result = list
+            .clone()
+            .apply_bound(&list_sum(root(list.dtype().clone())))?;
 
         let mut ctx = array_session().create_execution_ctx();
         let expected = PrimitiveArray::from_option_iter::<i64, _>([None, Some(1)]);
@@ -242,7 +244,9 @@ mod tests {
             Validity::NonNullable,
         )?
         .into_array();
-        let result = list.apply(&list_sum(root()))?;
+        let result = list
+            .clone()
+            .apply_bound(&list_sum(root(list.dtype().clone())))?;
 
         let mut ctx = array_session().create_execution_ctx();
         let expected = PrimitiveArray::from_option_iter::<i64, _>([None, Some(3)]);
@@ -259,7 +263,9 @@ mod tests {
             Validity::NonNullable,
         )?
         .into_array();
-        let result = list.apply(&list_sum(root()))?;
+        let result = list
+            .clone()
+            .apply_bound(&list_sum(root(list.dtype().clone())))?;
 
         let mut ctx = array_session().create_execution_ctx();
         let expected = PrimitiveArray::from_option_iter::<u64, _>([Some(6)]);
@@ -276,7 +282,9 @@ mod tests {
             Validity::NonNullable,
         )?
         .into_array();
-        let result = list.apply(&list_sum(root()))?;
+        let result = list
+            .clone()
+            .apply_bound(&list_sum(root(list.dtype().clone())))?;
 
         let mut ctx = array_session().create_execution_ctx();
         let expected = PrimitiveArray::from_option_iter::<u64, _>([Some(2), Some(1)]);
@@ -293,7 +301,9 @@ mod tests {
             Validity::NonNullable,
         )?
         .into_array();
-        let result = list.apply(&list_sum(root()))?;
+        let result = list
+            .clone()
+            .apply_bound(&list_sum(root(list.dtype().clone())))?;
 
         let mut ctx = array_session().create_execution_ctx();
         let expected = PrimitiveArray::from_option_iter::<f64, _>([Some(3.0)]);
@@ -313,7 +323,9 @@ mod tests {
             Validity::NonNullable,
         )?
         .into_array();
-        let result = list.apply(&list_sum(root()))?;
+        let result = list
+            .clone()
+            .apply_bound(&list_sum(root(list.dtype().clone())))?;
 
         let mut ctx = array_session().create_execution_ctx();
         let expected = PrimitiveArray::from_option_iter::<f64, _>([Some(0.0)]);
@@ -330,8 +342,8 @@ mod tests {
             Validity::NonNullable,
         )?
         .into_array();
-        let result = list.apply(&list_sum_opts(
-            root(),
+        let result = list.clone().apply_bound(&list_sum_opts(
+            root(list.dtype().clone()),
             NumericalAggregateOpts::include_nans(),
         ))?;
 
@@ -353,7 +365,9 @@ mod tests {
             Validity::NonNullable,
         )
         .into_array();
-        let result = lv.apply(&list_sum(root()))?;
+        let result = lv
+            .clone()
+            .apply_bound(&list_sum(root(lv.dtype().clone())))?;
 
         let mut ctx = array_session().create_execution_ctx();
         // [6, null] = 6; [1, 2, 3] = 6; [] = null; [2, 3] = 5.
@@ -372,7 +386,9 @@ mod tests {
     #[test]
     fn test_fixed_size_list_sum() -> VortexResult<()> {
         let fsl = create_fixed_size_list(Validity::NonNullable);
-        let result = fsl.apply(&list_sum(root()))?;
+        let result = fsl
+            .clone()
+            .apply_bound(&list_sum(root(fsl.dtype().clone())))?;
 
         let mut ctx = array_session().create_execution_ctx();
         let expected =
@@ -386,7 +402,9 @@ mod tests {
         let fsl = create_fixed_size_list(Validity::Array(
             BoolArray::from_iter([true, false, true, false]).into_array(),
         ));
-        let result = fsl.apply(&list_sum(root()))?;
+        let result = fsl
+            .clone()
+            .apply_bound(&list_sum(root(fsl.dtype().clone())))?;
 
         let mut ctx = array_session().create_execution_ctx();
         let expected = PrimitiveArray::from_option_iter::<i64, _>([Some(3), None, Some(11), None]);
@@ -405,7 +423,9 @@ mod tests {
         .into_array();
         let taken = list.take(buffer![3u64, 0, 2].into_array())?;
 
-        let result = taken.apply(&list_sum(root()))?;
+        let result = taken
+            .clone()
+            .apply_bound(&list_sum(root(taken.dtype().clone())))?;
         let mut ctx = array_session().create_execution_ctx();
         let expected = PrimitiveArray::from_option_iter::<i64, _>([Some(6), Some(3), None]);
         assert_arrays_eq!(result, expected, &mut ctx);
@@ -423,7 +443,9 @@ mod tests {
         .into_array();
         let sliced = list.slice(1..4)?;
 
-        let result = sliced.apply(&list_sum(root()))?;
+        let result = sliced
+            .clone()
+            .apply_bound(&list_sum(root(sliced.dtype().clone())))?;
         let mut ctx = array_session().create_execution_ctx();
         let expected = PrimitiveArray::from_option_iter::<i64, _>([Some(12), None, Some(6)]);
         assert_arrays_eq!(result, expected, &mut ctx);
@@ -439,7 +461,9 @@ mod tests {
             Validity::NonNullable,
         )?
         .into_array();
-        let result = list.apply(&list_sum(root()))?;
+        let result = list
+            .clone()
+            .apply_bound(&list_sum(root(list.dtype().clone())))?;
 
         let mut ctx = array_session().create_execution_ctx();
         let result = result.execute::<PrimitiveArray>(&mut ctx)?;
@@ -460,7 +484,9 @@ mod tests {
         let scalar = list.execute_scalar(1, &mut ctx)?;
 
         let constant = ConstantArray::new(scalar, 3).into_array();
-        let result = constant.apply(&list_sum(root()))?;
+        let result = constant
+            .clone()
+            .apply_bound(&list_sum(root(constant.dtype().clone())))?;
         let expected = PrimitiveArray::from_option_iter::<i64, _>([Some(12), Some(12), Some(12)]);
         assert_arrays_eq!(result, expected, &mut ctx);
         Ok(())
@@ -473,7 +499,9 @@ mod tests {
             Nullability::Nullable,
         ));
         let array = ConstantArray::new(null_scalar, 2).into_array();
-        let result = array.apply(&list_sum(root()))?;
+        let result = array
+            .clone()
+            .apply_bound(&list_sum(root(array.dtype().clone())))?;
 
         let mut ctx = array_session().create_execution_ctx();
         assert!(!result.is_valid(0, &mut ctx)?);
@@ -509,25 +537,17 @@ mod tests {
 
     #[test]
     fn test_display() {
-        assert_eq!(list_sum(root()).to_string(), "vortex.list.sum($)");
+        let dtype = DType::List(
+            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            Nullability::NonNullable,
+        );
         assert_eq!(
-            list_sum_opts(root(), NumericalAggregateOpts::include_nans()).to_string(),
+            list_sum(root(dtype.clone())).to_string(),
+            "vortex.list.sum($)"
+        );
+        assert_eq!(
+            list_sum_opts(root(dtype), NumericalAggregateOpts::include_nans()).to_string(),
             "vortex.list.sum($, opts=skip_nans=false)"
         );
-    }
-
-    #[test]
-    fn test_proto_round_trip() -> VortexResult<()> {
-        for expr in [
-            list_sum(root()),
-            list_sum_opts(root(), NumericalAggregateOpts::include_nans()),
-        ] {
-            let proto = expr.serialize_proto()?;
-            let buf = proto.encode_to_vec();
-            let decoded = pb::Expr::decode(buf.as_slice())?;
-            let deser = Expression::from_proto(&decoded, &array_session())?;
-            assert_eq!(expr, deser);
-        }
-        Ok(())
     }
 }

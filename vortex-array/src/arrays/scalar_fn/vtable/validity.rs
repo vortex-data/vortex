@@ -15,8 +15,8 @@ use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::vtable::ArrayExpr;
 use crate::arrays::scalar_fn::vtable::FakeEq;
 use crate::arrays::scalar_fn::vtable::ScalarFn;
-use crate::expr::Expression;
-use crate::expr::lit;
+use crate::expr::BoundExpression;
+use crate::expr::bound;
 use crate::legacy_session;
 use crate::scalar_fn::TypedScalarFnInstance;
 use crate::scalar_fn::VecExecutionArgs;
@@ -27,13 +27,13 @@ use crate::validity::Validity;
 ///
 /// This assumes all leaf expressions are either ArrayExpr (wrapping actual arrays) or Literals.
 fn execute_expr(
-    expr: &Expression,
+    expr: &BoundExpression,
     row_count: usize,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    // Only Expression::Scalar is executable
+    // Only bound scalar nodes are executable.
     let Some(scalar_fn) = expr.as_scalar() else {
-        vortex_bail!("Only Expression::Scalar is executable");
+        vortex_bail!("Only bound scalar expressions are executable");
     };
 
     // Handle Literal expression - create a constant array
@@ -60,16 +60,16 @@ impl ValidityVTable<ScalarFn> for ScalarFn {
             .iter_children()
             .map(|child| {
                 if let Some(scalar) = child.as_constant() {
-                    return Ok(lit(scalar));
+                    return Ok(bound::lit(scalar));
                 }
-                Expression::try_new(
+                BoundExpression::try_new(
                     TypedScalarFnInstance::new(ArrayExpr, FakeEq(child.clone())).erased(),
                     [],
                 )
             })
             .collect::<VortexResult<_>>()?;
 
-        let expr = Expression::try_new(array.scalar_fn().clone(), inputs)?;
+        let expr = BoundExpression::try_new(array.scalar_fn().clone(), inputs)?;
         let validity_expr = array.scalar_fn().validity(&expr)?;
 
         #[allow(clippy::disallowed_methods)]

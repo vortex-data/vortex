@@ -4,22 +4,22 @@ use std::ops::Range;
 
 use num_traits::AsPrimitive as _;
 use vortex::dtype::DType;
+use vortex::dtype::FieldNames;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::expr::BoundExpression;
-use vortex::expr::Expression;
-use vortex::expr::and_collect;
-use vortex::expr::col;
-use vortex::expr::get_item;
-use vortex::expr::lit;
-use vortex::expr::pack;
-use vortex::expr::root;
-use vortex::expr::select;
+use vortex::expr::bound;
 use vortex::layout::layouts::row_idx::row_idx;
 use vortex::scalar::Scalar;
+use vortex::scalar_fn::ScalarFnVTableExt;
+use vortex::scalar_fn::fns::get_item::GetItem;
+use vortex::scalar_fn::fns::pack::Pack;
+use vortex::scalar_fn::fns::pack::PackOptions;
+use vortex::scalar_fn::fns::select::FieldSelection;
+use vortex::scalar_fn::fns::select::Select;
 use vortex::scan::selection::Selection;
 use vortex_utils::aliases::hash_set::HashSet;
 
@@ -47,11 +47,11 @@ pub struct DuckdbField {
     pub dtype: DType,
     /// Expression to use instead of get_item(col, root()), e.g. len(col).
     /// It does not include column name so it's just "len" and not "len(col)"
-    pub projection_expr: Option<Expression>,
+    pub projection_expr: Option<BoundExpression>,
 }
 
 pub struct Projection {
-    pub projection: Expression,
+    pub projection: BoundExpression,
     pub file_row_number_column_pos: Option<usize>,
 }
 
@@ -71,7 +71,7 @@ pub struct ProjectionInput<'a> {
 }
 
 impl Projection {
-    pub fn new(input: ProjectionInput) -> Self {
+    pub fn new(input: ProjectionInput, scope: &DType) -> VortexResult<Self> {
         let projection_ids: HashSet<u64> = input.projection_ids.iter().copied().collect();
         // If projection ids are empty, use column_ids.
         // See duckdb/src/planner/operator/logical_get.cpp#L168
@@ -93,7 +93,7 @@ impl Projection {
                     // filter-only column needs to be emitted only for output
                     // vector position match, it will never be read
                     let dtype = DType::Primitive(PType::U64, Nullability::Nullable);
-                    exprs.push(("file_row_number", lit(Scalar::null(dtype))));
+                    exprs.push(("file_row_number", bound::lit(Scalar::null(dtype))));
                 }
                 continue;
             }
@@ -110,7 +110,10 @@ impl Projection {
                 is_star = false;
                 // filter-only column needs to be emitted only for output
                 // vector position match, it will never be read
-                exprs.push((name, lit(Scalar::null(column_field.dtype.as_nullable()))));
+                exprs.push((
+                    name,
+                    bound::lit(Scalar::null(column_field.dtype.as_nullable())),
+                ));
                 continue;
             }
 
@@ -122,7 +125,8 @@ impl Projection {
             // Example: if we SELECT len(str), we can't use root() as we try to
             // pushdown scalar functions.
             let expr = match &column_field.projection_expr {
-                None => get_item(name, root()),
+                None => GetItem
+                    .try_new_bound_expr(name.into(), [BoundExpression::new_root(scope.clone())])?,
                 Some(func) => {
                     is_star = false;
                     func.clone()
@@ -136,23 +140,34 @@ impl Projection {
         is_star &= real_column_count == input.column_fields.len() as u64;
 
         if is_star {
-            return Projection {
-                projection: root(),
+            return Ok(Projection {
+                projection: BoundExpression::new_root(scope.clone()),
                 file_row_number_column_pos: None,
-            };
+            });
         }
         if file_row_number_column_pos.is_some() {
             // row_idx will be moved to correct position in scan(), prepend here
             exprs.insert(0, ("file_row_number", row_idx()));
         }
-        Self {
-            projection: pack(exprs, false.into()),
+        let (names, children): (Vec<_>, Vec<_>) = exprs.into_iter().unzip();
+        Ok(Self {
+            projection: Pack.try_new_bound_expr(
+                PackOptions {
+                    names: FieldNames::from_iter(names),
+                    nullability: Nullability::NonNullable,
+                },
+                children,
+            )?,
             file_row_number_column_pos,
-        }
+        })
     }
 
     // Create a projection for aggregate scan
-    pub fn new_aggregate(aggregates: &[ColumnAggregate], fields: &[DuckdbField]) -> Self {
+    pub fn new_aggregate(
+        aggregates: &[ColumnAggregate],
+        fields: &[DuckdbField],
+        scope: &DType,
+    ) -> VortexResult<Self> {
         let mut exprs = Vec::with_capacity(aggregates.len());
         let mut seen: HashSet<u64> = HashSet::with_capacity(aggregates.len());
         let mut has_columns_with_expr = false;
@@ -166,7 +181,10 @@ impl Projection {
             let projection_id: usize = projection_id.as_();
             let field = &fields[projection_id];
             let expr = match &field.projection_expr {
-                None => get_item(field.name.as_str(), root()),
+                None => GetItem.try_new_bound_expr(
+                    field.name.as_str().into(),
+                    [BoundExpression::new_root(scope.clone())],
+                )?,
                 Some(func) => {
                     has_columns_with_expr = true;
                     func.clone()
@@ -175,15 +193,25 @@ impl Projection {
             exprs.push((field.name.as_str(), expr));
         }
         let projection = if has_columns_with_expr {
-            pack(exprs, false.into())
+            let (names, children): (Vec<_>, Vec<_>) = exprs.into_iter().unzip();
+            Pack.try_new_bound_expr(
+                PackOptions {
+                    names: FieldNames::from_iter(names),
+                    nullability: Nullability::NonNullable,
+                },
+                children,
+            )?
         } else {
             let names = exprs.into_iter().map(|(name, _)| name).collect::<Vec<_>>();
-            select(names, root())
+            Select.try_new_bound_expr(
+                FieldSelection::include(FieldNames::from_iter(names)),
+                [BoundExpression::new_root(scope.clone())],
+            )?
         };
-        Projection {
+        Ok(Projection {
             projection,
             file_row_number_column_pos: None,
-        }
+        })
     }
 }
 
@@ -194,7 +222,7 @@ pub struct Filter {
     pub has_non_optional_filter: bool,
 }
 
-fn push_filter_expr(filter_exprs: &mut Vec<Expression>, expr: &Expression) {
+fn push_filter_expr(filter_exprs: &mut Vec<BoundExpression>, expr: &BoundExpression) {
     if !filter_exprs.iter().any(|existing| existing == expr) {
         filter_exprs.push(expr.clone());
     }
@@ -207,7 +235,7 @@ impl Filter {
         table_filter_set: Option<&TableFilterSetRef>,
         column_ids: &[u64],
         column_fields: &[DuckdbField],
-        additional_filters: &[Expression],
+        additional_filters: &[BoundExpression],
         dtype: &DType,
     ) -> VortexResult<Self> {
         let mut has_non_optional_filter = false;
@@ -223,14 +251,14 @@ impl Filter {
                 let idx_u: usize = idx.as_();
                 let col_idx: usize = column_ids[idx_u].as_();
                 let name = &column_fields.get(col_idx).vortex_expect("exists").name;
-                if let Some(expr) = try_from_table_filter(ex, &col(name.as_str()), dtype)? {
+                let column = GetItem.try_new_bound_expr(
+                    name.as_str().into(),
+                    [BoundExpression::new_root(dtype.clone())],
+                )?;
+                if let Some(expr) = try_from_table_filter(ex, &column, dtype)? {
                     push_filter_expr(&mut table_filter_exprs, &expr);
                 }
             }
-        }
-
-        for expr in additional_filters {
-            push_filter_expr(&mut table_filter_exprs, expr);
         }
 
         let mut row_selection = Selection::All;
@@ -244,9 +272,14 @@ impl Filter {
             }
         };
 
-        let filter = and_collect(table_filter_exprs)
-            .map(|expr| expr.optimize_recursive(dtype)?.bind(dtype))
+        let table_filter = bound::and_collect(table_filter_exprs)
+            .map(|expr| expr.optimize_recursive())
             .transpose()?;
+        let filter = bound::and_collect(
+            table_filter
+                .into_iter()
+                .chain(additional_filters.iter().cloned()),
+        );
 
         let out = Self {
             filter,
@@ -280,11 +313,7 @@ pub fn extract_schema_from_dtype(dtype: &DType) -> VortexResult<Vec<DuckdbField>
 
 #[cfg(test)]
 mod tests {
-    use vortex::dtype::DType;
-    use vortex::expr::lit;
-    use vortex::expr::pack;
-    use vortex::expr::root;
-    use vortex::layout::layouts::row_idx::row_idx;
+    use vortex::dtype::StructFields;
 
     use super::*;
 
@@ -297,8 +326,24 @@ mod tests {
         }
     }
 
+    fn scope(fields: &[DuckdbField]) -> DType {
+        DType::Struct(
+            StructFields::from_iter(
+                fields
+                    .iter()
+                    .map(|field| (field.name.as_str(), field.dtype.clone())),
+            ),
+            Nullability::NonNullable,
+        )
+    }
+
+    fn projection(input: ProjectionInput<'_>) -> VortexResult<Projection> {
+        let dtype = scope(input.column_fields);
+        Projection::new(input, &dtype)
+    }
+
     #[test]
-    fn test_select_star() {
+    fn test_select_star() -> VortexResult<()> {
         let ids = [0, 1, 2];
         let fields = [field("a"), field("b"), field("c")];
 
@@ -307,18 +352,21 @@ mod tests {
             projection_ids: &[],
             column_fields: &fields,
         };
-        assert_eq!(Projection::new(input.clone()).projection, root());
+        assert_eq!(
+            projection(input.clone())?.projection,
+            bound::root(scope(&fields))
+        );
 
         // file_row_number turns star into an explicit pack with row_idx first
         let ids = [FILE_ROW_NUMBER_COLUMN_IDX, 0, 1, 2];
         input.column_ids = &ids;
-        let result = Projection::new(input.clone());
-        let expected = pack(
+        let result = projection(input.clone())?;
+        let expected = bound::pack(
             [
                 ("file_row_number", row_idx()),
-                ("a", get_item("a", root())),
-                ("b", get_item("b", root())),
-                ("c", get_item("c", root())),
+                ("a", bound::col("a", scope(&fields))),
+                ("b", bound::col("b", scope(&fields))),
+                ("c", bound::col("c", scope(&fields))),
             ],
             false.into(),
         );
@@ -326,27 +374,37 @@ mod tests {
         assert_eq!(result.file_row_number_column_pos, Some(0));
 
         input.column_ids = &[0, 1];
-        assert_ne!(Projection::new(input.clone()).projection, root());
+        assert_ne!(
+            projection(input.clone())?.projection,
+            bound::root(scope(&fields))
+        );
 
         input.column_ids = &[0, 2, 2];
-        assert_ne!(Projection::new(input.clone()).projection, root());
+        assert_ne!(
+            projection(input.clone())?.projection,
+            bound::root(scope(&fields))
+        );
 
         input.column_ids = &[2, 1, 0];
-        assert_ne!(Projection::new(input.clone()).projection, root());
+        assert_ne!(
+            projection(input.clone())?.projection,
+            bound::root(scope(&fields))
+        );
 
         // If any column has a projection expression, we can't use SELECT *
         let mut fields = [field("a"), field("b"), field("c")];
-        fields[0].projection_expr = Some(lit(true));
+        fields[0].projection_expr = Some(bound::lit(true));
         let input = ProjectionInput {
             column_ids: &[0, 1, 2],
             projection_ids: &[],
             column_fields: &fields,
         };
-        assert_ne!(Projection::new(input).projection, root());
+        assert_ne!(projection(input)?.projection, bound::root(scope(&fields)));
+        Ok(())
     }
 
     #[test]
-    fn test_projections() {
+    fn test_projections() -> VortexResult<()> {
         let fields = [field("a"), field("b"), field("c")];
 
         let input = ProjectionInput {
@@ -354,28 +412,28 @@ mod tests {
             projection_ids: &[0, 2],
             column_fields: &fields,
         };
-        let projection = Projection::new(input).projection;
-        let expected = pack(
+        let projected = projection(input)?.projection;
+        let expected = bound::pack(
             [
-                ("a", get_item("a", root())),
-                ("b", lit(Scalar::null(DType::Null))),
-                ("c", get_item("c", root())),
+                ("a", bound::col("a", scope(&fields))),
+                ("b", bound::lit(Scalar::null(DType::Null))),
+                ("c", bound::col("c", scope(&fields))),
             ],
             false.into(),
         );
-        assert_eq!(projection, expected);
+        assert_eq!(projected, expected);
 
         let input = ProjectionInput {
             column_ids: &[FILE_ROW_NUMBER_COLUMN_IDX, 0],
             projection_ids: &[1],
             column_fields: &fields,
         };
-        let result = Projection::new(input);
+        let result = projection(input)?;
         let frn_dtype = DType::Primitive(PType::U64, Nullability::Nullable);
-        let expected = pack(
+        let expected = bound::pack(
             [
-                ("file_row_number", lit(Scalar::null(frn_dtype))),
-                ("a", get_item("a", root())),
+                ("file_row_number", bound::lit(Scalar::null(frn_dtype))),
+                ("a", bound::col("a", scope(&fields))),
             ],
             false.into(),
         );
@@ -387,23 +445,25 @@ mod tests {
             projection_ids: &[0, 1],
             column_fields: &fields,
         };
-        let result = Projection::new(input);
-        let expected = pack(
+        let result = projection(input)?;
+        let expected = bound::pack(
             [
                 ("file_row_number", row_idx()),
-                ("a", get_item("a", root())),
-                ("b", lit(Scalar::null(DType::Null))),
+                ("a", bound::col("a", scope(&fields))),
+                ("b", bound::lit(Scalar::null(DType::Null))),
             ],
             false.into(),
         );
         assert_eq!(result.projection, expected);
         assert_eq!(result.file_row_number_column_pos, Some(1));
+        Ok(())
     }
 
     #[test]
     fn test_push_filter_expr_preserves_order() {
-        let first = col("first");
-        let second = col("second");
+        let fields = [field("first"), field("second")];
+        let first = bound::col("first", scope(&fields));
+        let second = bound::col("second", scope(&fields));
 
         let mut filter_exprs = Vec::new();
         push_filter_expr(&mut filter_exprs, &first);

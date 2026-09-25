@@ -24,7 +24,6 @@ use vortex_array::expr::ExactBoundExpr;
 use vortex_array::expr::bound::get_item;
 use vortex_array::expr::bound::pack;
 use vortex_array::expr::make_bound_free_field_annotator;
-use vortex_array::expr::root;
 use vortex_array::expr::transform::BoundPartitionedExpr;
 use vortex_array::expr::transform::partition_bound;
 use vortex_array::expr::traversal::NodeExt;
@@ -464,7 +463,7 @@ impl LayoutReader for StructReader {
         let validity_fut = self
             .validity()?
             .map(|reader| {
-                let root = root().bind(reader.dtype())?;
+                let root = BoundExpression::new_root(reader.dtype().clone());
                 reader.projection_evaluation(row_range, &root, mask_fut.clone())
             })
             .transpose()?;
@@ -559,17 +558,20 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::StructFields;
-    use vortex_array::expr::Expression;
-    use vortex_array::expr::col;
-    use vortex_array::expr::eq;
-    use vortex_array::expr::get_item;
-    use vortex_array::expr::gt;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::or;
-    use vortex_array::expr::pack;
-    use vortex_array::expr::root;
-    use vortex_array::expr::select;
+    use vortex_array::expr::BoundExpression;
+    use vortex_array::expr::bound::col;
+    use vortex_array::expr::bound::eq;
+    use vortex_array::expr::bound::get_item;
+    use vortex_array::expr::bound::gt;
+    use vortex_array::expr::bound::lit;
+    use vortex_array::expr::bound::or;
+    use vortex_array::expr::bound::pack;
+    use vortex_array::expr::bound::root;
+    use vortex_array::expr::bound::select;
     use vortex_array::scalar::Scalar;
+    use vortex_array::scalar_fn::ScalarFnVTableExt;
+    use vortex_array::scalar_fn::fns::binary::Binary;
+    use vortex_array::scalar_fn::fns::operators::Operator;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_io::runtime::single::block_on;
@@ -770,11 +772,12 @@ mod tests {
             .new_reader("".into(), segments, &SESSION, &Default::default())
             .unwrap();
         let filt = or(
-            eq(col("a"), lit(7)),
-            or(eq(col("b"), lit(5)), eq(col("a"), lit(3))),
-        )
-        .bind(reader.dtype())
-        .unwrap();
+            eq(col("a", reader.dtype().clone()), lit(7)),
+            or(
+                eq(col("b", reader.dtype().clone()), lit(5)),
+                eq(col("a", reader.dtype().clone()), lit(3)),
+            ),
+        );
         let result = block_on(|_| {
             reader
                 .filter_evaluation(&(0..3), &filt, MaskFuture::new_true(3))
@@ -792,9 +795,10 @@ mod tests {
         let reader = layout
             .new_reader("".into(), segments, &SESSION, &Default::default())
             .unwrap();
-        let expr = gt(get_item("a", root()), get_item("b", root()))
-            .bind(reader.dtype())
-            .unwrap();
+        let expr = gt(
+            get_item("a", root(reader.dtype().clone())),
+            get_item("b", root(reader.dtype().clone())),
+        );
         let result = block_on(|_| {
             reader
                 .projection_evaluation(&(0..3), &expr, MaskFuture::new_true(3))
@@ -813,9 +817,10 @@ mod tests {
         let reader = layout
             .new_reader("".into(), segments, &SESSION, &Default::default())
             .unwrap();
-        let expr = gt(get_item("a", root()), get_item("b", root()))
-            .bind(reader.dtype())
-            .unwrap();
+        let expr = gt(
+            get_item("a", root(reader.dtype().clone())),
+            get_item("b", root(reader.dtype().clone())),
+        );
         let result = block_on(|_| {
             reader
                 .projection_evaluation(
@@ -840,11 +845,12 @@ mod tests {
             .new_reader("".into(), segments, &SESSION, &Default::default())
             .unwrap();
         let expr = pack(
-            [("a", get_item("a", root())), ("b", get_item("b", root()))],
+            [
+                ("a", get_item("a", root(reader.dtype().clone()))),
+                ("b", get_item("b", root(reader.dtype().clone()))),
+            ],
             Nullability::NonNullable,
-        )
-        .bind(reader.dtype())
-        .unwrap();
+        );
         let result = block_on(|_| {
             reader
                 .projection_evaluation(
@@ -885,7 +891,7 @@ mod tests {
         let reader = layout
             .new_reader("".into(), segments, &SESSION, &Default::default())
             .unwrap();
-        let expr = get_item("a", root()).bind(reader.dtype()).unwrap();
+        let expr = get_item("a", root(reader.dtype().clone()));
         let project = reader
             .projection_evaluation(&(0..3), &expr, MaskFuture::new_true(3))
             .unwrap();
@@ -915,16 +921,15 @@ mod tests {
         // Project out the nested struct field.
         // The projection should preserve the nulls of the `b` struct when we select out the
         // child column `c`.
-        let expr = select(
-            vec![FieldName::from("c")],
-            get_item("b", get_item("a", root())),
-        );
         let result = block_on(move |handle| {
             let session = new_session().with_handle(handle);
             async move {
                 let reader =
                     layout.new_reader("".into(), segments, &session, &Default::default())?;
-                let expr = expr.bind(reader.dtype())?;
+                let expr = select(
+                    vec![FieldName::from("c")],
+                    get_item("b", get_item("a", root(reader.dtype().clone()))),
+                );
                 reader
                     .projection_evaluation(&(0..3), &expr, MaskFuture::new_true(3))?
                     .await
@@ -984,9 +989,10 @@ mod tests {
         let reader = layout
             .new_reader("".into(), segments, &SESSION, &Default::default())
             .unwrap();
-        let expr = pack(Vec::<(String, Expression)>::new(), Nullability::Nullable)
-            .bind(reader.dtype())
-            .unwrap();
+        let expr = pack(
+            Vec::<(String, BoundExpression)>::new(),
+            Nullability::Nullable,
+        );
 
         let project = reader
             .projection_evaluation(&(0..5), &expr, MaskFuture::new_true(5))
@@ -1041,9 +1047,10 @@ mod tests {
             .unwrap();
 
         // DType mismatch: "age" is u8 but literal is i32
-        let filt = eq(col("age"), lit(67i32));
-
-        let result = filt.bind(reader.dtype());
+        let result = Binary.try_new_bound_expr(
+            Operator::Eq,
+            [col("age", reader.dtype().clone()), lit(67i32)],
+        );
         assert!(result.is_err());
         let err = result.err().unwrap().to_string();
         assert!(err.contains("Cannot compare different DTypes"), "{err}");

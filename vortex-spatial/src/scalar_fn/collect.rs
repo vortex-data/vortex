@@ -26,7 +26,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtDTypeRef;
-use vortex_array::expr::Expression;
+use vortex_array::expr::BoundExpression;
 use vortex_array::expr::union_child_validities;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
@@ -308,8 +308,8 @@ impl ScalarFnVTable for SpatialCollect {
     fn validity(
         &self,
         _: &Self::Options,
-        expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
+        expression: &BoundExpression,
+    ) -> VortexResult<Option<BoundExpression>> {
         union_child_validities(expression)
     }
 

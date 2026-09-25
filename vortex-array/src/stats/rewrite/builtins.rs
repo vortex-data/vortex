@@ -791,29 +791,29 @@ mod tests {
     use crate::aggregate_fn::fns::all_non_nan::AllNonNan;
     use crate::array_session;
     use crate::dtype::DType;
+    use crate::dtype::FieldName;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
     use crate::expr::BoundExpression;
-    use crate::expr::Expression;
-    use crate::expr::and;
-    use crate::expr::between;
-    use crate::expr::cast;
-    use crate::expr::col;
-    use crate::expr::dynamic;
-    use crate::expr::eq;
-    use crate::expr::get_item;
-    use crate::expr::gt;
-    use crate::expr::gt_eq;
-    use crate::expr::is_nan;
-    use crate::expr::is_not_null;
-    use crate::expr::is_null;
-    use crate::expr::like;
-    use crate::expr::list_contains;
-    use crate::expr::lit;
-    use crate::expr::lt;
-    use crate::expr::lt_eq;
-    use crate::expr::or;
+    use crate::expr::bound::and;
+    use crate::expr::bound::between;
+    use crate::expr::bound::cast;
+    use crate::expr::bound::col as bound_col;
+    use crate::expr::bound::dynamic;
+    use crate::expr::bound::eq;
+    use crate::expr::bound::get_item;
+    use crate::expr::bound::gt;
+    use crate::expr::bound::gt_eq;
+    use crate::expr::bound::is_nan;
+    use crate::expr::bound::is_not_null;
+    use crate::expr::bound::is_null;
+    use crate::expr::bound::like;
+    use crate::expr::bound::list_contains;
+    use crate::expr::bound::lit;
+    use crate::expr::bound::lt;
+    use crate::expr::bound::lt_eq;
+    use crate::expr::bound::or;
     use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
     use crate::scalar_fn::EmptyOptions;
@@ -827,20 +827,19 @@ mod tests {
     use crate::scalar_fn::fns::dynamic::DynamicComparisonExpr;
     use crate::scalar_fn::fns::operators::CompareOperator;
     use crate::scalar_fn::internal::row_count::RowCount;
-    use crate::stats::expr::StatFn;
-    use crate::stats::expr::StatOptions;
+    use crate::stats::bound;
     use crate::stats::rewrite::StatsRewriteRule;
     use crate::stats::session::StatsSessionExt;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
-    fn stat(expr: Expression, stat: Stat) -> Expression {
+    fn stat(expr: BoundExpression, stat: Stat) -> BoundExpression {
         let aggregate_fn = stat.aggregate_fn().expect("stat should have aggregate fn");
         stat_fn(expr, aggregate_fn)
     }
 
-    fn stat_fn(expr: Expression, aggregate_fn: AggregateFnRef) -> Expression {
-        StatFn.new_expr(StatOptions::new(aggregate_fn), [expr])
+    fn stat_fn(expr: BoundExpression, aggregate_fn: AggregateFnRef) -> BoundExpression {
+        bound::stat(expr, aggregate_fn)
     }
 
     fn test_scope() -> DType {
@@ -857,6 +856,10 @@ mod tests {
         )
     }
 
+    fn col(field: impl Into<FieldName>) -> BoundExpression {
+        bound_col(field, test_scope())
+    }
+
     fn nested_struct_dtype() -> DType {
         DType::Struct(
             StructFields::from_iter([("x", DType::Primitive(PType::F32, Nullability::Nullable))]),
@@ -864,41 +867,37 @@ mod tests {
         )
     }
 
-    fn falsify(expr: &Expression) -> VortexResult<Option<BoundExpression>> {
-        expr.bind(&test_scope())?.falsify(&SESSION)
+    fn falsify(expr: &BoundExpression) -> VortexResult<Option<BoundExpression>> {
+        expr.falsify(&SESSION)
     }
 
-    fn satisfy(expr: &Expression) -> VortexResult<Option<BoundExpression>> {
-        expr.bind(&test_scope())?.satisfy(&SESSION)
+    fn satisfy(expr: &BoundExpression) -> VortexResult<Option<BoundExpression>> {
+        expr.satisfy(&SESSION)
     }
 
-    fn bind_expected(expr: Option<Expression>) -> VortexResult<Option<BoundExpression>> {
-        expr.map(|expr| expr.bind(&test_scope())).transpose()
-    }
-
-    fn all_null(expr: &Expression) -> Expression {
+    fn all_null(expr: &BoundExpression) -> BoundExpression {
         crate::stats::all_null(expr.clone())
     }
 
-    fn all_non_null(expr: &Expression) -> Expression {
+    fn all_non_null(expr: &BoundExpression) -> BoundExpression {
         crate::stats::all_non_null(expr.clone())
     }
 
-    fn all_nan(expr: &Expression) -> Expression {
+    fn all_nan(expr: &BoundExpression) -> BoundExpression {
         crate::stats::all_nan(expr.clone())
     }
 
-    fn all_non_nan(expr: &Expression) -> Expression {
+    fn all_non_nan(expr: &BoundExpression) -> BoundExpression {
         crate::stats::all_non_nan(expr.clone())
     }
 
     macro_rules! assert_rewrite_eq {
         ($actual:expr, $expected:expr) => {
-            assert_eq!($actual, bind_expected($expected)?)
+            assert_eq!($actual, $expected)
         };
     }
 
-    fn nan_guarded(expr: Expression, value_predicate: Expression) -> Expression {
+    fn nan_guarded(expr: BoundExpression, value_predicate: BoundExpression) -> BoundExpression {
         or(
             and(
                 eq(stat(expr.clone(), Stat::NaNCount), lit(0u64)),
@@ -991,7 +990,7 @@ mod tests {
         let expr = (1..16).fold(eq(col("a"), lit(0)), |chain, i| {
             or(chain, eq(col("a"), lit(i)))
         });
-        let falsifier = expr.bind(&test_scope())?.falsify(&session)?;
+        let falsifier = expr.falsify(&session)?;
         assert!(falsifier.is_some());
 
         // One visit per `Binary` node: 16 comparisons plus 15 `or`s.
@@ -1036,7 +1035,7 @@ mod tests {
             Some(or(
                 eq(
                     stat(col("a"), Stat::NullCount),
-                    RowCount.new_expr(EmptyOptions, []),
+                    RowCount.try_new_bound_expr(EmptyOptions, [])?,
                 ),
                 all_null(&col("a")),
             ))
@@ -1051,7 +1050,7 @@ mod tests {
             Some(or(
                 eq(
                     stat(col("a"), Stat::NullCount),
-                    RowCount.new_expr(EmptyOptions, []),
+                    RowCount.try_new_bound_expr(EmptyOptions, [])?,
                 ),
                 all_null(&col("a")),
             ))
@@ -1101,7 +1100,7 @@ mod tests {
             Some(or(
                 eq(
                     stat(col("f"), Stat::NaNCount),
-                    RowCount.new_expr(EmptyOptions, [])
+                    RowCount.try_new_bound_expr(EmptyOptions, [])?
                 ),
                 all_nan(&col("f")),
             ))
@@ -1110,7 +1109,7 @@ mod tests {
         assert_rewrite_eq!(
             satisfy(&is_nan(lit(f32::NAN)))?,
             Some(or(
-                eq(lit(1u64), RowCount.new_expr(EmptyOptions, [])),
+                eq(lit(1u64), RowCount.try_new_bound_expr(EmptyOptions, [])?),
                 all_nan(&lit(f32::NAN)),
             ))
         );
@@ -1213,14 +1212,14 @@ mod tests {
 
         assert_rewrite_eq!(
             falsify(&expr)?,
-            Some(DynamicComparison.new_expr(
+            Some(DynamicComparison.try_new_bound_expr(
                 DynamicComparisonExpr {
                     operator: CompareOperator::Lte,
                     rhs: Arc::clone(&dynamic.rhs),
                     default: false,
                 },
                 [stat(col("a"), Stat::Max)],
-            ))
+            )?)
         );
         Ok(())
     }

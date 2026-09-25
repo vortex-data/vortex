@@ -31,8 +31,8 @@ use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::BinaryView;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
-use crate::expr::Expression;
-use crate::expr::and;
+use crate::expr::BoundExpression;
+use crate::expr::bound;
 use crate::expr::display::ExprDisplay;
 use crate::proto::expr as pb;
 use crate::scalar::Scalar;
@@ -176,12 +176,12 @@ impl ScalarFnVTable for Like {
     fn validity(
         &self,
         _options: &Self::Options,
-        expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
+        expression: &BoundExpression,
+    ) -> VortexResult<Option<BoundExpression>> {
         tracing::warn!("Computing validity for LIKE expression");
         let child_validity = expression.child(0).validity()?;
         let pattern_validity = expression.child(1).validity()?;
-        Ok(Some(and(child_validity, pattern_validity)))
+        Ok(Some(bound::and(child_validity, pattern_validity)))
     }
 
     fn is_strict(&self, _instance: &Self::Options) -> bool {
@@ -543,12 +543,12 @@ mod tests {
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
-    use crate::expr::get_item;
-    use crate::expr::like;
-    use crate::expr::lit;
-    use crate::expr::not;
-    use crate::expr::not_ilike;
-    use crate::expr::root;
+    use crate::expr::bound::get_item;
+    use crate::expr::bound::like;
+    use crate::expr::bound::lit;
+    use crate::expr::bound::not;
+    use crate::expr::bound::not_ilike;
+    use crate::expr::bound::root;
     use crate::scalar::Scalar;
     use crate::scalar_fn::fns::like::Like;
     use crate::scalar_fn::fns::like::LikeOptions;
@@ -749,11 +749,11 @@ mod tests {
 
     #[test]
     fn invert_booleans() {
-        let not_expr = not(root());
+        let not_expr = not(root(DType::Bool(Nullability::NonNullable)));
         let bools = BoolArray::from_iter([false, true, false, false, true, true]);
         let mut ctx = array_session().create_execution_ctx();
         assert_arrays_eq!(
-            bools.into_array().apply(&not_expr).unwrap(),
+            bools.into_array().apply_bound(&not_expr).unwrap(),
             BoolArray::from_iter([true, false, true, true, false, false]),
             &mut ctx
         );
@@ -762,16 +762,16 @@ mod tests {
     #[test]
     fn dtype() {
         let dtype = DType::Utf8(Nullability::NonNullable);
-        let like_expr = like(root(), lit("%test%"));
+        let like_expr = like(root(dtype), lit("%test%"));
         assert_eq!(
-            like_expr.return_dtype(&dtype).unwrap(),
+            like_expr.dtype().clone(),
             DType::Bool(Nullability::NonNullable)
         );
     }
 
     #[test]
     fn signature() {
-        let like_expr = like(root(), lit("%test%"));
+        let like_expr = like(root(DType::Utf8(Nullability::NonNullable)), lit("%test%"));
         assert!(
             like_expr
                 .as_scalar()
@@ -786,10 +786,22 @@ mod tests {
 
     #[test]
     fn test_display() {
-        let expr = like(get_item("name", root()), lit("%john%"));
+        let expr = like(
+            get_item(
+                "name",
+                root(DType::Struct(
+                    crate::dtype::StructFields::new(
+                        ["name"].into(),
+                        vec![DType::Utf8(Nullability::NonNullable)],
+                    ),
+                    Nullability::NonNullable,
+                )),
+            ),
+            lit("%john%"),
+        );
         assert_eq!(expr.to_string(), "$.name like \"%john%\"");
 
-        let expr2 = not_ilike(root(), lit("test*"));
+        let expr2 = not_ilike(root(DType::Utf8(Nullability::NonNullable)), lit("test*"));
         assert_eq!(expr2.to_string(), "$ not ilike \"test*\"");
     }
 

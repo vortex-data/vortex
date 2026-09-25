@@ -27,7 +27,7 @@ use crate::builders::builder_with_capacity_in;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::StructFields;
-use crate::expr::Expression;
+use crate::expr::BoundExpression;
 use crate::expr::display::ExprDisplay;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -159,9 +159,9 @@ impl ScalarFnVTable for Zip {
     fn simplify(
         &self,
         _options: &Self::Options,
-        expr: &Expression,
+        expr: &BoundExpression,
         _ctx: &dyn SimplifyCtx,
-    ) -> VortexResult<Option<Expression>> {
+    ) -> VortexResult<Option<BoundExpression>> {
         let Some(mask_lit) = expr.child(2).as_opt::<Literal>() else {
             return Ok(None);
         };
@@ -360,16 +360,16 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::expr::lit;
-    use crate::expr::root;
-    use crate::expr::zip_expr;
+    use crate::expr::bound::lit;
+    use crate::expr::bound::root;
+    use crate::expr::bound::zip_expr;
     use crate::scalar::Scalar;
 
     #[test]
     fn dtype() {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let expr = zip_expr(lit(true), root(), lit(0i32));
-        let result_dtype = expr.return_dtype(&dtype).unwrap();
+        let expr = zip_expr(lit(true), root(dtype), lit(0i32));
+        let result_dtype = expr.dtype().clone();
         assert_eq!(
             result_dtype,
             DType::Primitive(PType::I32, Nullability::NonNullable)
@@ -378,7 +378,11 @@ mod tests {
 
     #[test]
     fn test_display() {
-        let expr = zip_expr(lit(true), root(), lit(0i32));
+        let expr = zip_expr(
+            lit(true),
+            root(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            lit(0i32),
+        );
         assert_eq!(expr.to_string(), "zip($, 0i32, true)");
     }
 

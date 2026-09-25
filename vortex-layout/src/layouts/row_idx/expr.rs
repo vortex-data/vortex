@@ -7,7 +7,7 @@ use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::expr::Expression;
+use vortex_array::expr::BoundExpression;
 use vortex_array::expr::display::ExprDisplay;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
@@ -16,6 +16,7 @@ use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::registry::CachedId;
@@ -68,6 +69,9 @@ impl ScalarFnVTable for RowIdx {
     }
 }
 
-pub fn row_idx() -> Expression {
-    RowIdx.new_expr(EmptyOptions, [])
+/// Create a typed row-index expression for scan projections.
+pub fn row_idx() -> BoundExpression {
+    RowIdx
+        .try_new_bound_expr(EmptyOptions, [])
+        .vortex_expect("row index has no arguments")
 }

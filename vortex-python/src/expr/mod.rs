@@ -10,25 +10,25 @@ use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::types::*;
 use vortex::aggregate_fn::NumericalAggregateOpts;
+use vortex::authored_expr as expr;
+use vortex::authored_expr::Expression;
+use vortex::authored_expr::lit;
 use vortex::dtype::DType;
 use vortex::dtype::FieldName;
 use vortex::dtype::FieldNames;
 use vortex::dtype::Nullability;
-use vortex::expr;
-use vortex::expr::Expression;
-use vortex::expr::lit;
-use vortex::expr::proto::ExprSerializeProtoExt;
+use vortex::error::VortexResult;
+use vortex::expr::BoundExpression;
 use vortex::proto::expr as pb;
-use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::between::BetweenOptions;
 use vortex::scalar_fn::fns::between::StrictComparison;
-use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::merge::DuplicateHandling;
 use vortex::scalar_fn::fns::operators::Operator;
 use vortex::scalar_fn::fns::variant_get::VariantPath;
 use vortex::scalar_fn::fns::variant_get::VariantPathElement;
 
 use crate::dtype::PyDType;
+use crate::error::PyVortexError;
 use crate::error::PyVortexResult;
 use crate::install_module;
 use crate::scalar::factory::scalar_helper;
@@ -138,6 +138,14 @@ impl PyExpr {
     }
 }
 
+/// Apply authored coercion rules to the supported Python expression subset.
+pub(crate) fn bind_user_expression(
+    expression: &Expression,
+    dtype: &DType,
+) -> VortexResult<BoundExpression> {
+    expression.bind(dtype)?.optimize_recursive()
+}
+
 /// A Python value that can be coerced into an [`Expression`].
 ///
 /// Accepts an existing [`PyExpr`], or any Python value convertible to a Vortex scalar (including
@@ -176,7 +184,7 @@ fn py_binary_operator<'py>(
     Bound::new(
         left.py(),
         PyExpr {
-            inner: Binary.new_expr(operator, [left.inner.clone(), right]),
+            inner: expr::binary(operator, left.inner.clone(), right),
         },
     )
 }
@@ -191,7 +199,7 @@ fn py_reflected_operator<'py>(
     Bound::new(
         right.py(),
         PyExpr {
-            inner: Binary.new_expr(operator, [left, right.inner.clone()]),
+            inner: expr::binary(operator, left, right.inner.clone()),
         },
     )
 }
@@ -424,8 +432,7 @@ impl PyExpr {
     /// True
     /// ```
     fn serialize<'py>(self_: PyRef<'py, Self>) -> PyVortexResult<Bound<'py, PyBytes>> {
-        let proto = self_.inner.serialize_proto()?;
-        Ok(PyBytes::new(self_.py(), &proto.encode_to_vec()))
+        Ok(PyBytes::new(self_.py(), &self_.inner.to_bytes()?))
     }
 
     /// Support for Python's pickle protocol, backed by the protobuf wire format.
@@ -436,8 +443,7 @@ impl PyExpr {
         self_: PyRef<'py, Self>,
     ) -> PyVortexResult<(Bound<'py, PyAny>, (Bound<'py, PyBytes>,))> {
         let py = self_.py();
-        let proto = self_.inner.serialize_proto()?;
-        let bytes = PyBytes::new(py, &proto.encode_to_vec());
+        let bytes = PyBytes::new(py, &self_.inner.to_bytes()?);
 
         let module = PyModule::import(py, "vortex._lib.expr")?;
         let deserialize_fn = module.getattr(intern!(py, "deserialize"))?;
@@ -770,15 +776,15 @@ binary_fn!(mul, mul_expr, "The product of the arguments.");
 binary_fn!(div, div_expr, "`left` divided by `right`.");
 
 fn sub_expr(left: Expression, right: Expression) -> Expression {
-    Binary.new_expr(Operator::Sub, [left, right])
+    expr::binary(Operator::Sub, left, right)
 }
 
 fn mul_expr(left: Expression, right: Expression) -> Expression {
-    Binary.new_expr(Operator::Mul, [left, right])
+    expr::binary(Operator::Mul, left, right)
 }
 
 fn div_expr(left: Expression, right: Expression) -> Expression {
-    Binary.new_expr(Operator::Div, [left, right])
+    expr::binary(Operator::Div, left, right)
 }
 
 /// True where `child` lies between `lower` and `upper`.
@@ -1192,7 +1198,8 @@ pub fn case_when(when_then: &Bound<'_, PyAny>, else_value: Option<PyIntoExpr>) -
         ));
     }
     Ok(PyExpr {
-        inner: expr::nested_case_when(when_then, else_value.map(PyIntoExpr::into_inner)),
+        inner: expr::nested_case_when(when_then, else_value.map(PyIntoExpr::into_inner))
+            .map_err(PyVortexError::from)?,
     })
 }
 

@@ -15,12 +15,12 @@ use vortex::array::ExecutionCtx;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::iter::ArrayIteratorExt;
+use vortex::authored_expr::Expression;
+use vortex::authored_expr::root;
+use vortex::authored_expr::select;
 use vortex::dtype::FieldName;
 use vortex::dtype::FieldNames;
 use vortex::error::VortexResult;
-use vortex::expr::Expression;
-use vortex::expr::root;
-use vortex::expr::select;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
 use vortex::io::runtime::BlockingRuntime;
@@ -34,6 +34,7 @@ use crate::arrow::ToPyArrow;
 use crate::current_runtime;
 use crate::error::PyVortexResult;
 use crate::expr::PyExpr;
+use crate::expr::bind_user_expression;
 use crate::install_module;
 use crate::object_store::resolve::ResolvedStore;
 use crate::object_store::resolve::resolve_store;
@@ -59,15 +60,9 @@ pub fn read_array_from_reader(
     row_range: Option<(u64, u64)>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let projection = projection
-        .optimize_recursive(vortex_file.dtype())?
-        .bind(vortex_file.dtype())?;
+    let projection = bind_user_expression(&projection, vortex_file.dtype())?;
     let filter = filter
-        .map(|filter| {
-            filter
-                .optimize_recursive(vortex_file.dtype())?
-                .bind(vortex_file.dtype())
-        })
+        .map(|filter| bind_user_expression(&filter, vortex_file.dtype()))
         .transpose()?;
     let mut scan = vortex_file.scan()?.with_projection(projection);
 
@@ -197,11 +192,9 @@ impl PyVortexDataset {
         let filter = filter_from_python(row_filter);
 
         let reader = self_.py().detach(move || {
-            let projection = projection
-                .optimize_recursive(vxf.dtype())?
-                .bind(vxf.dtype())?;
+            let projection = bind_user_expression(&projection, vxf.dtype())?;
             let filter = filter
-                .map(|filter| filter.optimize_recursive(vxf.dtype())?.bind(vxf.dtype()))
+                .map(|filter| bind_user_expression(&filter, vxf.dtype()))
                 .transpose()?;
             let mut scan = vxf
                 .scan()?
@@ -243,11 +236,10 @@ impl PyVortexDataset {
         let vxf = self_.vxf.clone();
         let filter = filter_from_python(row_filter);
         let n_rows: usize = self_.py().detach(move || {
-            let projection = select(FieldNames::empty(), root())
-                .optimize_recursive(vxf.dtype())?
-                .bind(vxf.dtype())?;
+            let projection =
+                bind_user_expression(&select(FieldNames::empty(), root()), vxf.dtype())?;
             let filter = filter
-                .map(|filter| filter.optimize_recursive(vxf.dtype())?.bind(vxf.dtype()))
+                .map(|filter| bind_user_expression(&filter, vxf.dtype()))
                 .transpose()?;
             let mut scan = vxf
                 .scan()?

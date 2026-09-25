@@ -69,6 +69,7 @@ use crate::dtype::PyDType;
 use crate::error::PyVortexError;
 use crate::error::PyVortexResult;
 use crate::expr::PyExpr;
+use crate::expr::bind_user_expression;
 use crate::install_module;
 use crate::python_repr::PythonRepr;
 use crate::scalar::PyScalar;
@@ -634,7 +635,8 @@ impl PyArray {
     pub fn apply(slf: Bound<Self>, expr: PyExpr) -> PyVortexResult<PyArrayRef> {
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
 
-        let inner = slf.apply(&expr)?;
+        let bound = bind_user_expression(&expr, slf.dtype())?;
+        let inner = slf.apply_bound(&bound)?;
 
         Ok(PyArrayRef::from(inner))
     }

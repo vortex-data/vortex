@@ -26,8 +26,8 @@ use vortex_array::assert_nth_scalar_is_null;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::expr::root;
-use vortex_array::expr::variant_get;
+use vortex_array::expr::bound::root;
+use vortex_array::expr::bound::variant_get;
 use vortex_array::scalar_fn::fns::variant_get::VariantPath;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -59,9 +59,9 @@ fn json_input(storage: ArrayRef) -> VortexResult<ArrayRef> {
 }
 
 fn execute_json_to_variant(input: ArrayRef, shredding: ShreddingSpec) -> VortexResult<ArrayRef> {
-    let expr = json_to_variant(root(), shredding);
+    let expr = json_to_variant(root(input.dtype().clone()), shredding)?;
     input
-        .apply(&expr)?
+        .apply_bound(&expr)?
         .execute::<ArrayRef>(&mut SESSION.create_execution_ctx())
 }
 
@@ -219,8 +219,8 @@ fn shredding_produces_typed_value_child() -> VortexResult<()> {
     // Typed extraction must serve shredded rows and fall back for mismatched rows.
     let typed = result
         .clone()
-        .apply(&variant_get(
-            root(),
+        .apply_bound(&variant_get(
+            root(result.dtype().clone()),
             VariantPath::field("a"),
             Some(i64_dtype()),
         ))?
@@ -233,8 +233,9 @@ fn shredding_produces_typed_value_child() -> VortexResult<()> {
 
     // Mismatched rows keep their original value through the variant fallback.
     let untyped = result
-        .apply(&variant_get(
-            root(),
+        .clone()
+        .apply_bound(&variant_get(
+            root(result.dtype().clone()),
             VariantPath::field("a"),
             Some(DType::Utf8(Nullability::Nullable)),
         ))?
@@ -260,8 +261,9 @@ fn shredding_preserves_null_rows() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     assert_nth_scalar_is_null!(result, 1, &mut ctx);
     let typed = result
-        .apply(&variant_get(
-            root(),
+        .clone()
+        .apply_bound(&variant_get(
+            root(result.dtype().clone()),
             VariantPath::field("a"),
             Some(i64_dtype()),
         ))?

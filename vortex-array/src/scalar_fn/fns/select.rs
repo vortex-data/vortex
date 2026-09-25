@@ -23,11 +23,10 @@ use crate::arrays::struct_::StructArrayExt;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
+use crate::expr::BoundExpression;
+use crate::expr::bound;
 use crate::expr::display::ExprDisplay;
-use crate::expr::expression::Expression;
 use crate::expr::field::DisplayFieldNames;
-use crate::expr::get_item;
-use crate::expr::pack;
 use crate::proto::expr::FieldNames as ProtoFieldNames;
 use crate::proto::expr::SelectOpts;
 use crate::proto::expr::select_opts::Opts;
@@ -184,9 +183,9 @@ impl ScalarFnVTable for Select {
     fn simplify(
         &self,
         selection: &FieldSelection,
-        expr: &Expression,
+        expr: &BoundExpression,
         ctx: &dyn SimplifyCtx,
-    ) -> VortexResult<Option<Expression>> {
+    ) -> VortexResult<Option<BoundExpression>> {
         let child_struct = expr.child(0);
         let struct_dtype = ctx.return_dtype(child_struct)?;
         let struct_nullability = struct_dtype.nullability();
@@ -215,8 +214,8 @@ impl ScalarFnVTable for Select {
         //  special-casing for pack, but not for select. We will fix this up when we revisit the
         //  layout APIs.
         if included_fields.is_empty() {
-            let empty: Vec<(FieldName, Expression)> = vec![];
-            return Ok(Some(pack(empty, struct_nullability)));
+            let empty: Vec<(FieldName, BoundExpression)> = vec![];
+            return Ok(Some(bound::pack(empty, struct_nullability)));
         }
 
         // We cannot always convert a `select` into a `pack(get_item(f1), get_item(f2), ...)`.
@@ -234,10 +233,10 @@ impl ScalarFnVTable for Select {
             struct_nullability.is_nullable() && !all_included_fields_are_nullable;
 
         if child_is_pack && !would_intersect_validity {
-            let pack_expr = pack(
+            let pack_expr = bound::pack(
                 included_fields
                     .into_iter()
-                    .map(|name| (name.clone(), get_item(name, child_struct.clone()))),
+                    .map(|name| (name.clone(), bound::get_item(name, child_struct.clone()))),
                 struct_nullability,
             );
 
@@ -339,9 +338,9 @@ mod tests {
     use crate::dtype::Nullability::Nullable;
     use crate::dtype::PType::I32;
     use crate::dtype::StructFields;
-    use crate::expr::root;
-    use crate::expr::select;
-    use crate::expr::select_exclude;
+    use crate::expr::bound::root;
+    use crate::expr::bound::select;
+    use crate::expr::bound::select_exclude;
     use crate::expr::test_harness;
     use crate::scalar::Scalar;
     use crate::scalar_fn::ScalarFnVTableExt;
@@ -360,11 +359,10 @@ mod tests {
     #[test]
     pub fn include_columns() {
         let mut ctx = array_session().create_execution_ctx();
-        let st = test_array();
-        let select = select(vec![FieldName::from("a")], root());
+        let st = test_array().into_array();
+        let select = select(vec![FieldName::from("a")], root(st.dtype().clone()));
         let selected = st
-            .into_array()
-            .apply(&select)
+            .apply_bound(&select)
             .unwrap()
             .execute::<StructArray>(&mut ctx)
             .unwrap();
@@ -375,11 +373,10 @@ mod tests {
     #[test]
     pub fn exclude_columns() {
         let mut ctx = array_session().create_execution_ctx();
-        let st = test_array();
-        let select = select_exclude(vec![FieldName::from("a")], root());
+        let st = test_array().into_array();
+        let select = select_exclude(vec![FieldName::from("a")], root(st.dtype().clone()));
         let selected = st
-            .into_array()
-            .apply(&select)
+            .apply_bound(&select)
             .unwrap()
             .execute::<StructArray>(&mut ctx)
             .unwrap();
@@ -391,7 +388,7 @@ mod tests {
     fn dtype() {
         let dtype = test_harness::struct_dtype();
 
-        let select_expr = select(vec![FieldName::from("a")], root());
+        let select_expr = select(vec![FieldName::from("a")], root(dtype.clone()));
         let expected_dtype = DType::Struct(
             dtype
                 .as_struct_fields_opt()
@@ -400,7 +397,7 @@ mod tests {
                 .unwrap(),
             Nullability::NonNullable,
         );
-        assert_eq!(select_expr.return_dtype(&dtype).unwrap(), expected_dtype);
+        assert_eq!(select_expr.dtype(), &expected_dtype);
 
         let select_expr_exclude = select_exclude(
             vec![
@@ -409,19 +406,16 @@ mod tests {
                 FieldName::from("bool1"),
                 FieldName::from("bool2"),
             ],
-            root(),
+            root(dtype.clone()),
         );
-        assert_eq!(
-            select_expr_exclude.return_dtype(&dtype).unwrap(),
-            expected_dtype
-        );
+        assert_eq!(select_expr_exclude.dtype(), &expected_dtype);
 
         let select_expr_exclude = select_exclude(
             vec![FieldName::from("col1"), FieldName::from("col2")],
-            root(),
+            root(dtype.clone()),
         );
         assert_eq!(
-            select_expr_exclude.return_dtype(&dtype).unwrap(),
+            select_expr_exclude.dtype().clone(),
             DType::Struct(
                 dtype
                     .as_struct_fields_opt()
@@ -436,8 +430,12 @@ mod tests {
     #[test]
     fn test_as_include_names() {
         let field_names = FieldNames::from(["a", "b", "c"]);
-        let include = select(["a"], root());
-        let exclude = select_exclude(["b", "c"], root());
+        let dtype = DType::Struct(
+            StructFields::new(field_names.clone(), vec![DType::Null; 3]),
+            Nullability::NonNullable,
+        );
+        let include = select(["a"], root(dtype.clone()));
+        let exclude = select_exclude(["b", "c"], root(dtype));
         assert_eq!(
             &include
                 .as_::<Select>()
@@ -496,16 +494,16 @@ mod tests {
             StructFields::new(["a", "b"].into(), vec![I32.into(), I32.into()]),
             Nullable,
         );
-        let e = select(["a", "b"], root());
+        let e = select(["a", "b"], root(dtype));
 
-        let result = e.optimize_recursive(&dtype).unwrap();
+        let result = e.optimize_recursive().unwrap();
 
-        assert!(result.return_dtype(&dtype).unwrap().is_nullable());
+        assert!(result.dtype().is_nullable());
     }
 
     #[test]
     fn test_remove_select_rule_exclude_fields() {
-        use crate::expr::select_exclude;
+        use crate::expr::bound::select_exclude;
 
         let dtype = DType::Struct(
             StructFields::new(
@@ -514,12 +512,12 @@ mod tests {
             ),
             Nullable,
         );
-        let e = select_exclude(["c"], root());
+        let e = select_exclude(["c"], root(dtype));
 
-        let result = e.optimize_recursive(&dtype).unwrap();
+        let result = e.optimize_recursive().unwrap();
 
         // Should exclude "c" and include "a" and "b"
-        let result_dtype = result.return_dtype(&dtype).unwrap();
+        let result_dtype = result.dtype();
         assert!(result_dtype.is_nullable());
         let fields = result_dtype.as_struct_fields_opt().unwrap();
         assert_eq!(fields.names().as_ref(), &["a", "b"]);

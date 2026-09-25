@@ -57,8 +57,8 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::expr::BoundExpression;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::root;
+    use vortex_array::expr::bound::lit;
+    use vortex_array::expr::bound::root;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::EmptyOptions;
     use vortex_array::scalar_fn::ScalarFnVTableExt;
@@ -81,13 +81,11 @@ mod tests {
         let scope = point_column(vec![0.0], vec![0.0])?.dtype().clone();
         let query = point_column(vec![1.0], vec![0.5])?.execute_scalar(0, &mut ctx)?;
         let operands = if geom_first {
-            [root(), lit(query)]
+            [root(scope), lit(query)]
         } else {
-            [lit(query), root()]
+            [lit(query), root(scope)]
         };
-        let predicate = SpatialIntersects
-            .new_expr(EmptyOptions, operands)
-            .bind(&scope)?;
+        let predicate = SpatialIntersects.try_new_bound_expr(EmptyOptions, operands)?;
         SpatialIntersectsPrune.falsify(&predicate, &session)
     }
 
@@ -108,8 +106,11 @@ mod tests {
 
         let scope = DType::Primitive(PType::F64, Nullability::NonNullable);
         let query = point_column(vec![0.0], vec![0.0])?.execute_scalar(0, &mut ctx)?;
-        let predicate = SpatialIntersects.new_expr(EmptyOptions, [root(), lit(query)]);
-        assert!(predicate.bind(&scope).is_err());
+        assert!(
+            SpatialIntersects
+                .try_new_bound_expr(EmptyOptions, [root(scope), lit(query)])
+                .is_err()
+        );
         Ok(())
     }
 
@@ -121,9 +122,8 @@ mod tests {
 
         let scope = point_column(vec![0.0], vec![0.0])?.dtype().clone();
         let null_query = Scalar::null(scope.as_nullable());
-        let predicate = SpatialIntersects
-            .new_expr(EmptyOptions, [root(), lit(null_query)])
-            .bind(&scope)?;
+        let predicate =
+            SpatialIntersects.try_new_bound_expr(EmptyOptions, [root(scope), lit(null_query)])?;
 
         assert!(
             SpatialIntersectsPrune
@@ -153,9 +153,9 @@ mod tests {
         )?;
 
         let query = point_column(vec![1.0], vec![0.5])?.execute_scalar(0, &mut ctx)?;
-        let predicate = SpatialIntersects.new_expr(EmptyOptions, [root(), lit(query)]);
+        let predicate =
+            SpatialIntersects.try_new_bound_expr(EmptyOptions, [root(point_dtype), lit(query)])?;
         let proof = predicate
-            .bind(&point_dtype)?
             .falsify(&session)?
             .expect("intersects filter should be falsifiable");
 
@@ -175,8 +175,7 @@ mod tests {
 
         let query = point_column(vec![0.0], vec![0.0])?.execute_scalar(0, &mut ctx)?;
         let proof = SpatialIntersects
-            .new_expr(EmptyOptions, [root(), lit(query)])
-            .bind(&point_dtype)?
+            .try_new_bound_expr(EmptyOptions, [root(point_dtype), lit(query)])?
             .falsify(&session)?
             .expect("intersects filter should be falsifiable");
 

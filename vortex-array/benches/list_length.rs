@@ -25,8 +25,8 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::expr::list_length;
-use vortex_array::expr::root;
+use vortex_array::expr::bound::list_length;
+use vortex_array::expr::bound::root;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
@@ -105,15 +105,15 @@ fn make_listview(num_lists: usize) -> ArrayRef {
     ListViewArray::new(elements, offsets.into_array(), sizes.into_array(), validity).into_array()
 }
 
-/// Apply `list_length(root())` and materialize the result.
+/// Apply `list_length(root(array.dtype().clone()))` and materialize the result.
 fn run(bencher: Bencher, array: ArrayRef) {
-    let expr = list_length(root());
+    let expr = list_length(root(array.dtype().clone()));
     bencher
         .with_inputs(|| (&array, SESSION.create_execution_ctx()))
         .bench_refs(|(array, ctx)| {
             array
                 .clone()
-                .apply(&expr)
+                .apply_bound(&expr)
                 .unwrap()
                 .execute::<Canonical>(ctx)
                 .unwrap()

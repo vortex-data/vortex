@@ -16,7 +16,7 @@ use ratzilla::ratatui::Terminal;
 use vortex::array::MaskFuture;
 use vortex::array::serde::SerializedArray;
 use vortex::error::VortexExpect;
-use vortex::expr::root;
+use vortex::expr::BoundExpression;
 use vortex::layout::layouts::flat::Flat;
 use vortex::layout::segments::SegmentSource;
 use vortex::session::VortexSession;
@@ -85,9 +85,7 @@ async fn load_flat_array(
             &Default::default(),
         )
         .vortex_expect("Failed to create reader");
-    let expr = root()
-        .bind(reader.dtype())
-        .vortex_expect("root must bind against the layout dtype");
+    let expr = BoundExpression::new_root(reader.dtype().clone());
     reader
         .projection_evaluation(
             &(0..row_count),

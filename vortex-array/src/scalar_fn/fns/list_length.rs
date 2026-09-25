@@ -24,7 +24,7 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
-use crate::expr::Expression;
+use crate::expr::BoundExpression;
 use crate::matcher::Matcher;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
@@ -103,8 +103,8 @@ impl ScalarFnVTable for ListLength {
     fn validity(
         &self,
         _: &Self::Options,
-        expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
+        expression: &BoundExpression,
+    ) -> VortexResult<Option<BoundExpression>> {
         Ok(Some(expression.child(0).validity()?))
     }
 
@@ -212,9 +212,9 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::expr::cast;
-    use crate::expr::list_length;
-    use crate::expr::root;
+    use crate::expr::bound::cast;
+    use crate::expr::bound::list_length;
+    use crate::expr::bound::root;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 
@@ -237,7 +237,9 @@ mod tests {
     fn test_list_length(#[case] offsets: ArrayRef) -> VortexResult<()> {
         let elements = create_list_elements();
         let list = ListArray::try_new(elements, offsets, Validity::NonNullable)?.into_array();
-        let result = list.apply(&list_length(root()))?;
+        let result = list
+            .clone()
+            .apply_bound(&list_length(root(list.dtype().clone())))?;
         let mut ctx = array_session().create_execution_ctx();
         assert_arrays_eq!(result, PrimitiveArray::from_iter([2u64, 3, 0, 2]), &mut ctx);
         Ok(())
@@ -254,7 +256,9 @@ mod tests {
             Validity::Array(BoolArray::from_iter([true, false, true, false]).into_array()),
         )?
         .into_array();
-        let result = list.apply(&list_length(root()))?;
+        let result = list
+            .clone()
+            .apply_bound(&list_length(root(list.dtype().clone())))?;
 
         let mut ctx = array_session().create_execution_ctx();
         let result = result.execute::<PrimitiveArray>(&mut ctx)?;
@@ -273,7 +277,9 @@ mod tests {
             Nullability::Nullable,
         ));
         let array = ConstantArray::new(null_scalar, 2).into_array();
-        let result = array.apply(&list_length(root()))?;
+        let result = array
+            .clone()
+            .apply_bound(&list_length(root(array.dtype().clone())))?;
 
         let mut ctx = array_session().create_execution_ctx();
         assert!(!result.is_valid(0, &mut ctx)?);
@@ -291,7 +297,9 @@ mod tests {
             Validity::NonNullable,
         )
         .into_array();
-        let result = lv.apply(&list_length(root()))?;
+        let result = lv
+            .clone()
+            .apply_bound(&list_length(root(lv.dtype().clone())))?;
         let mut ctx = array_session().create_execution_ctx();
         assert_arrays_eq!(result, PrimitiveArray::from_iter([2u64, 3, 0, 2]), &mut ctx);
         Ok(())
@@ -307,7 +315,9 @@ mod tests {
             Validity::Array(BoolArray::from_iter([true, false, true, false]).into_array()),
         )
         .into_array();
-        let result = lv.apply(&list_length(root()))?;
+        let result = lv
+            .clone()
+            .apply_bound(&list_length(root(lv.dtype().clone())))?;
 
         let mut ctx = array_session().create_execution_ctx();
         let result = result.execute::<PrimitiveArray>(&mut ctx)?;
@@ -328,7 +338,9 @@ mod tests {
         .into_array();
         let taken = list.take(buffer![3u64, 0, 2].into_array())?;
 
-        let result = taken.apply(&list_length(root()))?;
+        let result = taken
+            .clone()
+            .apply_bound(&list_length(root(taken.dtype().clone())))?;
         let mut ctx = array_session().create_execution_ctx();
         assert_arrays_eq!(result, PrimitiveArray::from_iter([2u64, 2, 0]), &mut ctx);
         Ok(())
@@ -343,7 +355,9 @@ mod tests {
     #[test]
     fn test_fixed_size_list_length() -> VortexResult<()> {
         let fsl = create_fixed_size_list(Validity::NonNullable);
-        let result = fsl.apply(&list_length(root()))?;
+        let result = fsl
+            .clone()
+            .apply_bound(&list_length(root(fsl.dtype().clone())))?;
 
         let mut ctx = array_session().create_execution_ctx();
         assert_arrays_eq!(result, PrimitiveArray::from_iter([2u64, 2, 2, 2]), &mut ctx);
@@ -355,7 +369,9 @@ mod tests {
         let fsl = create_fixed_size_list(Validity::Array(
             BoolArray::from_iter([true, false, true, false]).into_array(),
         ));
-        let result = fsl.apply(&list_length(root()))?;
+        let result = fsl
+            .clone()
+            .apply_bound(&list_length(root(fsl.dtype().clone())))?;
 
         let mut ctx = array_session().create_execution_ctx();
         let result = result.execute::<PrimitiveArray>(&mut ctx)?;
@@ -376,7 +392,10 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let lengths = fsl.apply(&list_length(cast(root(), failing_cast_dtype)))?;
+        let lengths = fsl.clone().apply_bound(&list_length(cast(
+            root(fsl.dtype().clone()),
+            failing_cast_dtype,
+        )))?;
 
         let mut ctx = array_session().create_execution_ctx();
         let result = lengths.execute::<ArrayRef>(&mut ctx);
@@ -394,7 +413,10 @@ mod tests {
 
     #[test]
     fn test_display() {
-        let expr = list_length(root());
+        let expr = list_length(root(DType::List(
+            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            Nullability::NonNullable,
+        )));
         assert_eq!(expr.to_string(), "vortex.list.length($)");
     }
 }

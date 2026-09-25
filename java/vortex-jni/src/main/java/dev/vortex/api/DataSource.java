@@ -6,7 +6,9 @@ package dev.vortex.api;
 import com.google.common.base.Preconditions;
 import dev.vortex.VortexCleaner;
 import dev.vortex.io.NativeReadable;
+import dev.vortex.jni.NativeBoundExpression;
 import dev.vortex.jni.NativeDataSource;
+import java.lang.ref.Reference;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -33,6 +35,10 @@ public final class DataSource {
         this.session = Objects.requireNonNull(session, "session");
         this.pointer = pointer;
         VortexCleaner.register(this, () -> NativeDataSource.free(pointer));
+    }
+
+    long nativePointer() {
+        return pointer;
     }
 
     /** Open a single URI. */
@@ -225,12 +231,25 @@ public final class DataSource {
         }
     }
 
+    /** Bind a user-authored expression to this data source's schema. */
+    public BoundExpression bind(Expression expression) {
+        Objects.requireNonNull(expression, "expression");
+        try {
+            return new BoundExpression(NativeBoundExpression.bind(expression.nativePointer(), pointer));
+        } finally {
+            Reference.reachabilityFence(expression);
+            Reference.reachabilityFence(this);
+        }
+    }
+
     /** Submit a scan. */
     public Scan scan(ScanOptions options) {
         Objects.requireNonNull(options, "options");
 
-        long projectionPtr = options.projection().map(Expression::nativePointer).orElse(0L);
-        long filterPtr = options.filter().map(Expression::nativePointer).orElse(0L);
+        BoundExpression projection = options.projection().orElse(null);
+        BoundExpression filter = options.filter().orElse(null);
+        long projectionPtr = projection == null ? 0L : projection.nativePointer();
+        long filterPtr = filter == null ? 0L : filter.nativePointer();
         long begin = options.rowRangeBegin().orElse(0L);
         long end = options.rowRangeEnd().orElse(0L);
         ScanOptions.SelectionMode selectionMode = options.selectionMode();
@@ -239,17 +258,25 @@ public final class DataSource {
         long limit = options.limit().orElse(0L);
         boolean ordered = options.ordered();
 
-        long scanPtr = dev.vortex.jni.NativeScan.create(
-                pointer,
-                projectionPtr,
-                filterPtr,
-                begin,
-                end,
-                selectionIndices,
-                selectionRoaringBitmap,
-                selectionMode.code(),
-                limit,
-                ordered);
+        long scanPtr;
+        try {
+            scanPtr = dev.vortex.jni.NativeScan.create(
+                    pointer,
+                    projectionPtr,
+                    filterPtr,
+                    begin,
+                    end,
+                    selectionIndices,
+                    selectionRoaringBitmap,
+                    selectionMode.code(),
+                    limit,
+                    ordered);
+        } finally {
+            Reference.reachabilityFence(projection);
+            Reference.reachabilityFence(filter);
+            Reference.reachabilityFence(options);
+            Reference.reachabilityFence(this);
+        }
         return Scan.fromPointer(session, scanPtr);
     }
 

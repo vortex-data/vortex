@@ -21,10 +21,8 @@ public final class ExpressionTest {
 
     @Test
     public void rowIdxBuildsAndComposes() {
-        assertNotNull(Expression.rowIdx());
-        // Mirrors `gt(row_idx(), lit(...))` on the Rust side: the row-index expression
-        // composes like any other.
-        assertNotNull(Expression.binary(Expression.BinaryOp.LT, Expression.rowIdx(), Expression.literal(5L)));
+        assertNotNull(BoundExpression.binary(
+                Expression.BinaryOp.LT, BoundExpression.rowIdx(), BoundExpression.literalUnsigned64(5L)));
     }
 
     @Test
@@ -41,7 +39,7 @@ public final class ExpressionTest {
     public void packComposes() {
         assertNotNull(Expression.pack(
                 new String[] {"x", "y", "z"},
-                new Expression[] {Expression.column("a"), Expression.literal(5L), Expression.rowIdx()},
+                new Expression[] {Expression.column("a"), Expression.literal(5L), Expression.literal(6L)},
                 true));
     }
 

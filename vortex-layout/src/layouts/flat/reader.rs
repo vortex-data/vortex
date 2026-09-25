@@ -237,9 +237,9 @@ mod test {
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::expr::gt;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::root;
+    use vortex_array::expr::bound::gt;
+    use vortex_array::expr::bound::lit;
+    use vortex_array::expr::bound::root;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
@@ -279,7 +279,7 @@ mod test {
             );
 
             let reader = layout.new_reader("".into(), segments, &session, &Default::default())?;
-            let expr = root().bind(reader.dtype())?;
+            let expr = root(reader.dtype().clone());
             let result = reader
                 .projection_evaluation(
                     &(0..layout.row_count()),
@@ -319,7 +319,7 @@ mod test {
             let reader = layout
                 .new_reader("".into(), segments, &session, &Default::default())
                 .unwrap();
-            let expr = gt(root(), lit(3i32)).bind(reader.dtype()).unwrap();
+            let expr = gt(root(reader.dtype().clone()), lit(3i32));
             let result = reader
                 .projection_evaluation(
                     &(0..layout.row_count()),
@@ -359,7 +359,7 @@ mod test {
             let reader = layout
                 .new_reader("".into(), segments, &session, &Default::default())
                 .unwrap();
-            let expr = root().bind(reader.dtype()).unwrap();
+            let expr = root(reader.dtype().clone());
             let result = reader
                 .projection_evaluation(&(2..4), &expr, MaskFuture::new_true(2))
                 .unwrap()

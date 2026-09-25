@@ -13,7 +13,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::dtype::DType;
-use crate::expr::Expression;
+use crate::expr::BoundExpression;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::EmptyOptions;
@@ -88,8 +88,8 @@ impl ScalarFnVTable for ExtStorage {
     fn validity(
         &self,
         _options: &Self::Options,
-        expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
+        expression: &BoundExpression,
+    ) -> VortexResult<Option<BoundExpression>> {
         Ok(Some(expression.child(0).validity()?))
     }
 
@@ -107,6 +107,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
 
+    use super::ExtStorage;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::ConstantArray;
@@ -117,11 +118,13 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::extension::ExtDTypeRef;
-    use crate::expr::ext_storage;
-    use crate::expr::root;
+    use crate::expr::bound::ext_storage;
+    use crate::expr::bound::root;
     use crate::extension::datetime::TimeUnit;
     use crate::extension::datetime::Timestamp;
     use crate::scalar::Scalar;
+    use crate::scalar_fn::EmptyOptions;
+    use crate::scalar_fn::ScalarFnVTableExt;
 
     fn ext_dtype(nullability: Nullability) -> ExtDTypeRef {
         Timestamp::new(TimeUnit::Nanoseconds, nullability).erased()
@@ -133,7 +136,9 @@ mod tests {
         let array =
             ExtensionArray::new(ext_dtype(Nullability::NonNullable), storage.clone()).into_array();
 
-        let result = array.apply(&ext_storage(root()))?;
+        let result = array
+            .clone()
+            .apply_bound(&ext_storage(root(array.dtype().clone())))?;
 
         assert_eq!(
             result.dtype(),
@@ -153,7 +158,9 @@ mod tests {
         let array =
             ExtensionArray::new(ext_dtype(Nullability::Nullable), storage.clone()).into_array();
 
-        let result = array.apply(&ext_storage(root()))?;
+        let result = array
+            .clone()
+            .apply_bound(&ext_storage(root(array.dtype().clone())))?;
 
         assert_eq!(
             result.dtype(),
@@ -174,7 +181,9 @@ mod tests {
             Scalar::extension_ref(ext_dtype(Nullability::NonNullable), storage_scalar.clone());
         let array = ConstantArray::new(scalar, 3).into_array();
 
-        let result = array.apply(&ext_storage(root()))?;
+        let result = array
+            .clone()
+            .apply_bound(&ext_storage(root(array.dtype().clone())))?;
 
         assert_eq!(
             result.dtype(),
@@ -191,12 +200,17 @@ mod tests {
     #[test]
     fn rejects_non_extension_input() {
         let dtype = DType::Primitive(PType::U64, Nullability::NonNullable);
-        let err = ext_storage(root()).return_dtype(&dtype).unwrap_err();
+        let err = ExtStorage
+            .try_new_bound_expr(EmptyOptions, [root(dtype)])
+            .unwrap_err();
         assert!(err.to_string().contains("requires Extension"));
     }
 
     #[test]
     fn test_display() {
-        assert_eq!(ext_storage(root()).to_string(), "vortex.ext.storage($)");
+        assert_eq!(
+            ext_storage(root(DType::Extension(ext_dtype(Nullability::NonNullable)))).to_string(),
+            "vortex.ext.storage($)"
+        );
     }
 }

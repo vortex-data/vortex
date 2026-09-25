@@ -20,7 +20,6 @@ use vortex_array::arrays::StructArray;
 use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::ExactBoundExpr;
-use vortex_array::expr::root;
 use vortex_array::scalar_fn::fns::dynamic::DynamicExprUpdates;
 use vortex_error::SharedVortexResult;
 use vortex_error::VortexExpect;
@@ -150,9 +149,7 @@ impl PruningState {
                     .lazy_children
                     .get(1)
                     .vortex_expect("failed to get zone child");
-                let root = root()
-                    .bind(zones_reader.dtype())
-                    .vortex_expect("root must bind against the zone-map dtype");
+                let root = BoundExpression::new_root(zones_reader.dtype().clone());
                 let zones_eval = zones_reader
                     .projection_evaluation(
                         &(0..zone_count as u64),

@@ -357,11 +357,11 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::eq;
-    use vortex_array::expr::gt;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::or;
-    use vortex_array::expr::root;
+    use vortex_array::expr::bound::eq;
+    use vortex_array::expr::bound::gt;
+    use vortex_array::expr::bound::lit;
+    use vortex_array::expr::bound::or;
+    use vortex_array::expr::bound::root;
     use vortex_buffer::buffer;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
@@ -398,7 +398,7 @@ mod tests {
                 .await
                 .unwrap();
 
-            let expr = eq(root(), lit(3i32));
+            let expr = eq(root(array.dtype().clone()), lit(3i32));
             let reader = RowIdxLayoutReader::new(
                 0,
                 layout
@@ -406,7 +406,7 @@ mod tests {
                     .unwrap(),
                 session.clone(),
             );
-            let expr = expr.bind(reader.dtype()).unwrap();
+            let expr = expr;
             let result = reader
                 .projection_evaluation(
                     &(0..layout.row_count()),
@@ -453,7 +453,7 @@ mod tests {
                     .unwrap(),
                 session.clone(),
             );
-            let expr = expr.bind(reader.dtype()).unwrap();
+            let expr = expr;
             let result = reader
                 .projection_evaluation(
                     &(0..layout.row_count()),
@@ -493,8 +493,11 @@ mod tests {
                 .unwrap();
 
             let expr = or(
-                eq(root(), lit(3i32)),
-                or(gt(row_idx(), lit(3u64)), eq(root(), lit(1i32))),
+                eq(root(array.dtype().clone()), lit(3i32)),
+                or(
+                    gt(row_idx(), lit(3u64)),
+                    eq(root(array.dtype().clone()), lit(1i32)),
+                ),
             );
 
             let reader = RowIdxLayoutReader::new(
@@ -504,7 +507,7 @@ mod tests {
                     .unwrap(),
                 session.clone(),
             );
-            let expr = expr.bind(reader.dtype()).unwrap();
+            let expr = expr;
             let result = reader
                 .projection_evaluation(
                     &(0..layout.row_count()),
@@ -526,9 +529,7 @@ mod tests {
     #[test]
     fn row_idx_array_all_true_keeps_sequence() {
         block_on(|_| async {
-            let expr = root()
-                .bind(&DType::Primitive(PType::U64, Nullability::NonNullable))
-                .unwrap();
+            let expr = root(DType::Primitive(PType::U64, Nullability::NonNullable));
 
             let result = super::row_idx_array_future(
                 10,
@@ -547,9 +548,7 @@ mod tests {
     #[test]
     fn row_idx_array_all_false_returns_empty() {
         block_on(|_| async {
-            let expr = root()
-                .bind(&DType::Primitive(PType::U64, Nullability::NonNullable))
-                .unwrap();
+            let expr = root(DType::Primitive(PType::U64, Nullability::NonNullable));
 
             let result = super::row_idx_array_future(
                 10,

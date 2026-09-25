@@ -45,7 +45,7 @@ use crate::error::try_or;
 use crate::error::try_or_default;
 use crate::error::vx_error;
 use crate::error::write_error;
-use crate::expression::vx_expression;
+use crate::expression::vx_bound_expression;
 use crate::ptype::vx_ptype;
 use crate::scalar::vx_scalar;
 use crate::session::vx_session;
@@ -703,15 +703,15 @@ pub unsafe extern "C-unwind" fn vx_array_data_ptr_bool(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vx_array_apply(
     array: *const vx_array,
-    expression: *const vx_expression,
+    expression: *const vx_bound_expression,
     error: *mut *mut vx_error,
 ) -> *const vx_array {
     try_or_default(error, || {
         vortex_ensure!(!array.is_null());
         vortex_ensure!(!expression.is_null());
         let array = vx_array::as_ref(array);
-        let expression = vx_expression::as_ref(expression);
-        Ok(vx_array::new(array.clone().apply(expression)?))
+        let expression = vx_bound_expression::as_ref(expression);
+        Ok(vx_array::new(array.clone().apply_bound(expression)?))
     })
 }
 
@@ -731,16 +731,17 @@ mod tests {
     use vortex::array::arrays::bool::BoolArrayExt;
     use vortex::array::validity::Validity;
     use vortex::buffer::buffer;
-    use vortex::expr::eq;
-    use vortex::expr::lit;
-    use vortex::expr::root;
+    use vortex::expr::bound::eq;
+    use vortex::expr::bound::lit;
+    use vortex::expr::bound::root;
 
     use crate::array::*;
     use crate::dtype::vx_dtype_free;
     use crate::dtype::vx_dtype_get_variant;
     use crate::dtype::vx_dtype_variant;
     use crate::error::vx_error_free;
-    use crate::expression::vx_expression_free;
+    use crate::expression::vx_bound_expression;
+    use crate::expression::vx_bound_expression_free;
     use crate::scalar::*;
     use crate::session::vx_session_free;
     use crate::session::vx_session_new;
@@ -978,6 +979,7 @@ mod tests {
             buffer![1i32, 2i32, 3i32, 3i32],
             Validity::from_iter([true, false, true, true]),
         );
+        let dtype = primitive.dtype().clone();
 
         unsafe {
             let mut error = ptr::null_mut();
@@ -994,10 +996,8 @@ mod tests {
             assert!(!error.is_null());
             vx_error_free(error);
 
-            // Test with Vortex Rust-side expressions here, test C API for
-            // expressions in src/expressions.rs
-            let expression = eq(root(), lit(3i32));
-            let expression = vx_expression::new(expression);
+            let expression = eq(root(dtype), lit(3i32));
+            let expression = vx_bound_expression::new(expression);
 
             let res = vx_array_apply(ptr::null(), expression, &raw mut error);
             assert!(res.is_null());
@@ -1017,7 +1017,7 @@ mod tests {
             }
             vx_array_free(res);
 
-            vx_expression_free(expression);
+            vx_bound_expression_free(expression);
             vx_array_free(array);
         }
     }

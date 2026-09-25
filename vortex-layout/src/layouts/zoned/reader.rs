@@ -256,10 +256,10 @@ mod test {
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::expr::gt;
-    use vortex_array::expr::is_not_null;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::root;
+    use vortex_array::expr::bound::gt;
+    use vortex_array::expr::bound::is_not_null;
+    use vortex_array::expr::bound::lit;
+    use vortex_array::expr::bound::root;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
@@ -343,7 +343,7 @@ mod test {
             let reader = layout
                 .new_reader("".into(), segments, &session, &Default::default())
                 .unwrap();
-            let expr = root().bind(reader.dtype()).unwrap();
+            let expr = root(reader.dtype().clone());
             let result = reader
                 .projection_evaluation(
                     &(0..layout.row_count()),
@@ -371,7 +371,7 @@ mod test {
                 .unwrap();
 
             // Choose a prune-able expression
-            let expr = gt(root(), lit(7)).bind(reader.dtype()).unwrap();
+            let expr = gt(root(reader.dtype().clone()), lit(7));
 
             let result = reader
                 .pruning_evaluation(
@@ -437,7 +437,7 @@ mod test {
                 .new_reader("".into(), segments, &session, &Default::default())
                 .unwrap();
 
-            let expr = is_not_null(root()).bind(reader.dtype()).unwrap();
+            let expr = is_not_null(root(reader.dtype().clone()));
             let result = reader
                 .pruning_evaluation(
                     &(0..row_count),
@@ -501,7 +501,7 @@ mod test {
             let reader =
                 legacy_layout.new_reader("".into(), segments, &session, &Default::default())?;
 
-            let expr = gt(root(), lit(7)).bind(reader.dtype())?;
+            let expr = gt(root(reader.dtype().clone()), lit(7));
             let result = reader
                 .pruning_evaluation(
                     &(0..row_count),
@@ -512,7 +512,7 @@ mod test {
 
             assert_eq!(result, Mask::from_iter(expected));
 
-            let root = root().bind(reader.dtype())?;
+            let root = root(reader.dtype().clone());
             let projected = reader
                 .projection_evaluation(
                     &(0..row_count),

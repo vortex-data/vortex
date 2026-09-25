@@ -13,15 +13,17 @@ use crate::array_session;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::datetime::TemporalData;
 use crate::assert_arrays_eq;
-use crate::expr::gt;
-use crate::expr::lit;
-use crate::expr::root;
+use crate::expr::bound::lit;
+use crate::expr::bound::root;
 use crate::extension::datetime::TemporalMetadata;
 use crate::extension::datetime::TimeUnit;
 use crate::extension::datetime::Timestamp;
 use crate::extension::datetime::TimestampOptions;
 use crate::hash::ArrayEq;
 use crate::scalar::Scalar;
+use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::fns::binary::Binary;
+use crate::scalar_fn::fns::operators::Operator;
 use crate::validity::Validity;
 
 macro_rules! test_temporal_roundtrip {
@@ -213,28 +215,27 @@ fn test_validity_preservation(#[case] validity: Validity) {
 }
 
 #[test]
-fn test222() -> VortexResult<()> {
-    // Write file with MILLISECONDS timestamps
+fn timestamp_unit_mismatch_rejected_by_bound_expression() -> VortexResult<()> {
     let ts_array = PrimitiveArray::from_iter(vec![1704067200000i64, 1704153600000, 1704240000000])
         .into_array();
     let temporal = TemporalData::new_timestamp(ts_array, TimeUnit::Milliseconds, None);
 
-    // Read with SECONDS filter scalar
-    let filter_expr = gt(
-        root(),
-        lit(Scalar::extension::<Timestamp>(
-            TimestampOptions {
-                unit: TimeUnit::Seconds,
-                tz: None,
-            },
-            Scalar::from(1704153600i64),
-        )),
-    );
-
-    let _result = temporal.into_array().apply(&filter_expr);
-
-    // let err = result.is_err().unwrap();
-    // println!("Expected error: {}", err);
+    let error = Binary
+        .try_new_bound_expr(
+            Operator::Gt,
+            [
+                root(temporal.dtype().clone()),
+                lit(Scalar::extension::<Timestamp>(
+                    TimestampOptions {
+                        unit: TimeUnit::Seconds,
+                        tz: None,
+                    },
+                    Scalar::from(1704153600i64),
+                )),
+            ],
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("different DTypes"), "{error}");
 
     Ok(())
 }

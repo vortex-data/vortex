@@ -30,13 +30,12 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::Expression;
-use vortex_array::expr::eq;
-use vortex_array::expr::gt;
-use vortex_array::expr::is_not_null;
-use vortex_array::expr::lit;
-use vortex_array::expr::or;
-use vortex_array::expr::root;
+use vortex_array::expr::bound::eq;
+use vortex_array::expr::bound::gt;
+use vortex_array::expr::bound::is_not_null;
+use vortex_array::expr::bound::lit;
+use vortex_array::expr::bound::or;
+use vortex_array::expr::bound::root;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_layout::layouts::zoned::zone_map::ZoneMap;
@@ -252,12 +251,8 @@ fn f64_dtype() -> DType {
     DType::Primitive(PType::F64, Nullability::Nullable)
 }
 
-fn falsify(expr: Expression, column_dtype: &DType) -> BoundExpression {
-    expr.bind(column_dtype)
-        .unwrap()
-        .falsify(&SESSION)
-        .unwrap()
-        .unwrap()
+fn falsify(expr: BoundExpression) -> BoundExpression {
+    expr.falsify(&SESSION).unwrap().unwrap()
 }
 
 fn run(bencher: Bencher, zone_map: ZoneMap, predicate: BoundExpression) {
@@ -274,7 +269,7 @@ fn run(bencher: Bencher, zone_map: ZoneMap, predicate: BoundExpression) {
 #[divan::bench(args = ZONE_COUNTS)]
 fn int_gt(bencher: Bencher, num_zones: usize) {
     static PREDICATE: LazyLock<BoundExpression> =
-        LazyLock::new(|| falsify(gt(root(), lit(5_000i32)), &i32_dtype()));
+        LazyLock::new(|| falsify(gt(root(i32_dtype()), lit(5_000i32))));
     run(
         bencher,
         numeric_zone_map(i32_dtype(), num_zones),
@@ -287,7 +282,7 @@ fn int_gt(bencher: Bencher, num_zones: usize) {
 #[divan::bench(args = ZONE_COUNTS)]
 fn float_gt(bencher: Bencher, num_zones: usize) {
     static PREDICATE: LazyLock<BoundExpression> =
-        LazyLock::new(|| falsify(gt(root(), lit(5_000f64)), &f64_dtype()));
+        LazyLock::new(|| falsify(gt(root(f64_dtype()), lit(5_000f64))));
     run(
         bencher,
         numeric_zone_map(f64_dtype(), num_zones),
@@ -299,7 +294,7 @@ fn float_gt(bencher: Bencher, num_zones: usize) {
 #[divan::bench(args = ZONE_COUNTS)]
 fn is_not_null_pred(bencher: Bencher, num_zones: usize) {
     static PREDICATE: LazyLock<BoundExpression> =
-        LazyLock::new(|| falsify(is_not_null(root()), &i32_dtype()));
+        LazyLock::new(|| falsify(is_not_null(root(i32_dtype()))));
     run(
         bencher,
         numeric_zone_map(i32_dtype(), num_zones),
@@ -314,10 +309,10 @@ fn is_not_null_pred(bencher: Bencher, num_zones: usize) {
 fn or_chain(bencher: Bencher, num_zones: usize) {
     static PREDICATE: LazyLock<BoundExpression> = LazyLock::new(|| {
         let expr = (0..4i32)
-            .map(|i| eq(root(), lit(i * 500)))
+            .map(|i| eq(root(i32_dtype()), lit(i * 500)))
             .reduce(or)
             .unwrap();
-        falsify(expr, &i32_dtype())
+        falsify(expr)
     });
     run(
         bencher,
@@ -331,7 +326,7 @@ fn or_chain(bencher: Bencher, num_zones: usize) {
 #[divan::bench(args = ZONE_COUNTS)]
 fn missing_stats(bencher: Bencher, num_zones: usize) {
     static PREDICATE: LazyLock<BoundExpression> =
-        LazyLock::new(|| falsify(gt(root(), lit(5_000i32)), &i32_dtype()));
+        LazyLock::new(|| falsify(gt(root(i32_dtype()), lit(5_000i32))));
     run(
         bencher,
         counts_only_zone_map(i32_dtype(), num_zones),

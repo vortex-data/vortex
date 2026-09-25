@@ -13,8 +13,6 @@ public final class NativeExpression {
 
     public static native long root();
 
-    public static native long rowIdx();
-
     public static native long getItem(String fieldName, long childPointer);
 
     public static native long select(String[] fieldNames, long childPointer);

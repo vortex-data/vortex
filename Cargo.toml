@@ -14,6 +14,7 @@ members = [
     "vortex-io",
     "vortex-cloud",
     "vortex-array",
+    "vortex-expr",
     "vortex-arrow",
     "vortex-row",
     "vortex-tensor",
@@ -314,6 +315,7 @@ vortex-datetime-parts = { version = "0.1.0", path = "./encodings/datetime-parts"
 vortex-decimal-byte-parts = { version = "0.1.0", path = "encodings/decimal-byte-parts", default-features = false }
 vortex-edition = { version = "0.1.0", path = "./vortex-edition", default-features = false }
 vortex-error = { version = "0.1.0", path = "./vortex-error", default-features = false }
+vortex-expr = { version = "0.1.0", path = "./vortex-expr" }
 vortex-fastlanes = { version = "0.1.0", path = "./encodings/fastlanes", default-features = false }
 vortex-file = { version = "0.1.0", path = "./vortex-file", default-features = false }
 vortex-fsst = { version = "0.1.0", path = "./encodings/fsst", default-features = false }

@@ -35,13 +35,13 @@ use futures::stream::BoxStream;
 use selection::Selection;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
-use vortex_array::expr::Expression;
-use vortex_array::expr::root;
+use vortex_array::expr::BoundExpression;
 use vortex_array::expr::stats::Precision;
 use vortex_array::stats::StatsSet;
 use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
 
 /// A sendable stream of partitions.
@@ -116,6 +116,7 @@ pub trait DataSource: 'static + Send + Sync {
     }
 
     /// Returns a scan over the source.
+    /// Implementations should validate the request against [`Self::dtype`] before scanning.
     async fn scan(&self, scan_request: ScanRequest) -> VortexResult<DataSourceScanRef>;
 
     /// Returns the statistics for a given field.
@@ -125,10 +126,10 @@ pub trait DataSource: 'static + Send + Sync {
 /// A request to scan a data source.
 #[derive(Debug, Clone)]
 pub struct ScanRequest {
-    /// Projection expression. Defaults to `root()` which returns all columns.
-    pub projection: Expression,
-    /// Filter expression, `None` implies no filter.
-    pub filter: Option<Expression>,
+    /// Projection expression bound against the data source dtype.
+    pub projection: BoundExpression,
+    /// Filter expression bound against the data source dtype. `None` implies no filter.
+    pub filter: Option<BoundExpression>,
     /// The per-partition row range to read. Row range will be applied
     /// over every partition you scan.
     pub row_range: Option<Range<u64>>,
@@ -147,10 +148,11 @@ pub struct ScanRequest {
     pub limit: Option<u64>,
 }
 
-impl Default for ScanRequest {
-    fn default() -> Self {
+impl ScanRequest {
+    /// Create a request that returns all columns from a source with the given dtype.
+    pub fn new(dtype: &DType) -> Self {
         Self {
-            projection: root(),
+            projection: BoundExpression::new_root(dtype.clone()),
             filter: None,
             row_range: None,
             selection: Selection::default(),
@@ -159,6 +161,36 @@ impl Default for ScanRequest {
             limit: None,
             partition_range: None,
         }
+    }
+
+    /// Ensure the projection and filter are bound against the data source dtype.
+    pub fn validate(&self, dtype: &DType) -> VortexResult<()> {
+        vortex_ensure!(
+            self.projection.is_root_bound_to(dtype),
+            "Scan projection is bound against a different dtype"
+        );
+        if let Some(filter) = &self.filter {
+            vortex_ensure!(
+                filter.is_root_bound_to(dtype),
+                "Scan filter is bound against a different dtype"
+            );
+            vortex_ensure!(
+                matches!(filter.dtype(), DType::Bool(_)),
+                "Scan filter must evaluate to boolean, got {}",
+                filter.dtype()
+            );
+        }
+        Ok(())
+    }
+
+    /// Simplify already-bound scan expressions without changing their binding rules.
+    pub fn optimize(mut self) -> VortexResult<Self> {
+        self.projection = self.projection.optimize_recursive()?;
+        self.filter = self
+            .filter
+            .map(|filter| filter.optimize_recursive())
+            .transpose()?;
+        Ok(self)
     }
 }
 
@@ -208,4 +240,30 @@ pub trait Partition: 'static + Send {
     /// operations should be spawned onto the runtime to enable parallel execution across
     /// threads.
     fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream>;
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::expr::bound;
+
+    use super::*;
+
+    #[test]
+    fn scan_request_rejects_wrong_scope_and_non_boolean_filter() {
+        let scope = DType::Bool(Nullability::NonNullable);
+        let other_scope = DType::Primitive(PType::I32, Nullability::NonNullable);
+
+        let mut request = ScanRequest::new(&scope);
+        request.projection = BoundExpression::new_root(other_scope.clone());
+        assert!(request.validate(&scope).is_err());
+
+        request.projection = BoundExpression::new_root(scope.clone());
+        request.filter = Some(BoundExpression::new_root(other_scope));
+        assert!(request.validate(&scope).is_err());
+
+        request.filter = Some(bound::lit(42i32));
+        assert!(request.validate(&scope).is_err());
+    }
 }

@@ -19,10 +19,9 @@ use crate::ExecutionCtx;
 use crate::arrays::ScalarFnArray;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
-use crate::expr::and;
+use crate::expr::BoundExpression;
+use crate::expr::bound;
 use crate::expr::display::ExprDisplay;
-use crate::expr::expression::Expression;
-use crate::expr::lit;
 use crate::proto::expr as pb;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -123,6 +122,17 @@ impl ScalarFnVTable for Binary {
         let lhs = &arg_dtypes[0];
         let rhs = &arg_dtypes[1];
 
+        if matches!(operator, Operator::And | Operator::Or) {
+            if !matches!(lhs, DType::Bool(_)) || !matches!(rhs, DType::Bool(_)) {
+                vortex_bail!(
+                    "Boolean operation requires Bool operands, got {} and {}",
+                    lhs,
+                    rhs
+                );
+            }
+            return Ok(DType::Bool((lhs.is_nullable() || rhs.is_nullable()).into()));
+        }
+
         if operator.is_arithmetic() {
             if lhs.is_primitive() && lhs.eq_ignore_nullability(rhs) {
                 return Ok(lhs.with_nullability(lhs.nullability() | rhs.nullability()));
@@ -144,12 +154,18 @@ impl ScalarFnVTable for Binary {
             );
         }
 
-        if operator.is_comparison()
-            && !lhs.eq_ignore_nullability(rhs)
-            && !lhs.is_extension()
-            && !rhs.is_extension()
-        {
-            vortex_bail!("Cannot compare different DTypes {} and {}", lhs, rhs);
+        if operator.is_comparison() && !lhs.eq_ignore_nullability(rhs) {
+            let comparable_storage = match (lhs, rhs) {
+                (DType::Extension(ext), other) | (other, DType::Extension(ext))
+                    if !other.is_extension() =>
+                {
+                    ext.storage_dtype().eq_ignore_nullability(other)
+                }
+                _ => false,
+            };
+            if !comparable_storage {
+                vortex_bail!("Cannot compare different DTypes {} and {}", lhs, rhs);
+            }
         }
 
         Ok(DType::Bool((lhs.is_nullable() || rhs.is_nullable()).into()))
@@ -180,15 +196,16 @@ impl ScalarFnVTable for Binary {
         }
     }
 
-    fn simplify_untyped(
+    fn simplify(
         &self,
         operator: &Operator,
-        expr: &Expression,
-    ) -> VortexResult<Option<Expression>> {
+        expr: &BoundExpression,
+        ctx: &dyn SimplifyCtx,
+    ) -> VortexResult<Option<BoundExpression>> {
         let lhs = expr.child(0);
         let rhs = expr.child(1);
 
-        let bool_literal = |expr: &Expression| {
+        let bool_literal = |expr: &BoundExpression| {
             expr.as_opt::<Literal>()?
                 .as_bool_opt()
                 .map(|value| value.value())
@@ -209,33 +226,29 @@ impl ScalarFnVTable for Binary {
         // Other null cases either fall out of the identity/annihilator rules
         // above (`null AND true`, `null OR false`) or cannot be simplified under
         // Kleene semantics (`null AND x`, `null OR x` for non-literal `x`).
-        Ok(match operator {
+        let simplified = match operator {
             Operator::And => match (bool_literal(lhs), bool_literal(rhs)) {
-                (Some(Some(false)), _) | (_, Some(Some(false))) => Some(lit(false)),
+                (Some(Some(false)), _) | (_, Some(Some(false))) => Some(bound::lit(false)),
                 (Some(Some(true)), _) => Some(rhs.clone()),
                 (_, Some(Some(true))) => Some(lhs.clone()),
                 (Some(None), Some(None)) => Some(lhs.clone()),
                 _ => None,
             },
             Operator::Or => match (bool_literal(lhs), bool_literal(rhs)) {
-                (Some(Some(true)), _) | (_, Some(Some(true))) => Some(lit(true)),
+                (Some(Some(true)), _) | (_, Some(Some(true))) => Some(bound::lit(true)),
                 (Some(Some(false)), _) => Some(rhs.clone()),
                 (_, Some(Some(false))) => Some(lhs.clone()),
                 (Some(None), Some(None)) => Some(lhs.clone()),
                 _ => None,
             },
             _ => None,
-        })
-    }
+        };
+        if simplified.is_some() {
+            return Ok(simplified);
+        }
 
-    fn simplify(
-        &self,
-        operator: &Operator,
-        expr: &Expression,
-        ctx: &dyn SimplifyCtx,
-    ) -> VortexResult<Option<Expression>> {
         let is_literal_null =
-            |expr: &Expression| expr.as_opt::<Literal>().is_some_and(Scalar::is_null);
+            |expr: &BoundExpression| expr.as_opt::<Literal>().is_some_and(Scalar::is_null);
 
         if operator.is_comparison()
             && (is_literal_null(expr.child(0)) || is_literal_null(expr.child(1)))
@@ -243,7 +256,9 @@ impl ScalarFnVTable for Binary {
             // Validate the comparison before reducing it. This preserves type
             // errors for expressions like `int_col = null_utf8`.
             ctx.return_dtype(expr)?;
-            return Ok(Some(lit(Scalar::null(DType::Bool(Nullability::Nullable)))));
+            return Ok(Some(bound::lit(Scalar::null(DType::Bool(
+                Nullability::Nullable,
+            )))));
         }
 
         Ok(None)
@@ -252,8 +267,8 @@ impl ScalarFnVTable for Binary {
     fn validity(
         &self,
         operator: &Operator,
-        expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
+        expression: &BoundExpression,
+    ) -> VortexResult<Option<BoundExpression>> {
         let lhs = expression.child(0).validity()?;
         let rhs = expression.child(1).validity()?;
 
@@ -263,7 +278,7 @@ impl ScalarFnVTable for Binary {
             Operator::Or => None,
             _ => {
                 // All other binary operators are null if either side is null.
-                Some(and(lhs, rhs))
+                Some(bound::and(lhs, rhs))
             }
         })
     }
@@ -303,128 +318,134 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::expr::Expression;
-    use crate::expr::and_collect;
-    use crate::expr::col;
-    use crate::expr::eq;
-    use crate::expr::gt;
-    use crate::expr::gt_eq;
-    use crate::expr::lit;
-    use crate::expr::lt;
-    use crate::expr::lt_eq;
-    use crate::expr::not_eq;
-    use crate::expr::or;
-    use crate::expr::or_collect;
+    use crate::expr::BoundExpression;
+    use crate::expr::bound::and;
+    use crate::expr::bound::and_collect;
+    use crate::expr::bound::col;
+    use crate::expr::bound::eq;
+    use crate::expr::bound::gt;
+    use crate::expr::bound::gt_eq;
+    use crate::expr::bound::lit;
+    use crate::expr::bound::lt;
+    use crate::expr::bound::lt_eq;
+    use crate::expr::bound::not_eq;
+    use crate::expr::bound::or;
+    use crate::expr::bound::or_collect;
     use crate::expr::test_harness;
     use crate::scalar::Scalar;
     #[test]
     fn and_collect_balanced() {
-        let values = vec![lit(1), lit(2), lit(3), lit(4), lit(5)];
+        let values = vec![lit(true), lit(true), lit(true), lit(true), lit(true)];
 
         insta::assert_snapshot!(and_collect(values.into_iter()).unwrap().display_tree(), @r"
         vortex.binary(and)
         ├── lhs: vortex.binary(and)
-        │   ├── lhs: vortex.literal(1i32)
-        │   └── rhs: vortex.literal(2i32)
+        │   ├── lhs: vortex.literal(true)
+        │   └── rhs: vortex.literal(true)
         └── rhs: vortex.binary(and)
             ├── lhs: vortex.binary(and)
-            │   ├── lhs: vortex.literal(3i32)
-            │   └── rhs: vortex.literal(4i32)
-            └── rhs: vortex.literal(5i32)
+            │   ├── lhs: vortex.literal(true)
+            │   └── rhs: vortex.literal(true)
+            └── rhs: vortex.literal(true)
         ");
 
         // 4 elements: and(and(1, 2), and(3, 4)) - perfectly balanced
-        let values = vec![lit(1), lit(2), lit(3), lit(4)];
+        let values = vec![lit(true), lit(true), lit(true), lit(true)];
         insta::assert_snapshot!(and_collect(values.into_iter()).unwrap().display_tree(), @r"
         vortex.binary(and)
         ├── lhs: vortex.binary(and)
-        │   ├── lhs: vortex.literal(1i32)
-        │   └── rhs: vortex.literal(2i32)
+        │   ├── lhs: vortex.literal(true)
+        │   └── rhs: vortex.literal(true)
         └── rhs: vortex.binary(and)
-            ├── lhs: vortex.literal(3i32)
-            └── rhs: vortex.literal(4i32)
+            ├── lhs: vortex.literal(true)
+            └── rhs: vortex.literal(true)
         ");
 
         // 1 element: just the element
-        let values = vec![lit(1)];
-        insta::assert_snapshot!(and_collect(values.into_iter()).unwrap().display_tree(), @"vortex.literal(1i32)");
+        let values = vec![lit(true)];
+        insta::assert_snapshot!(and_collect(values.into_iter()).unwrap().display_tree(), @"vortex.literal(true)");
 
         // 0 elements: None
-        let values: Vec<Expression> = vec![];
+        let values: Vec<BoundExpression> = vec![];
         assert!(and_collect(values.into_iter()).is_none());
     }
 
     #[test]
     fn or_collect_balanced() {
         // 4 elements: or(or(1, 2), or(3, 4)) - perfectly balanced
-        let values = vec![lit(1), lit(2), lit(3), lit(4)];
+        let values = vec![lit(true), lit(true), lit(true), lit(true)];
         insta::assert_snapshot!(or_collect(values.into_iter()).unwrap().display_tree(), @r"
         vortex.binary(or)
         ├── lhs: vortex.binary(or)
-        │   ├── lhs: vortex.literal(1i32)
-        │   └── rhs: vortex.literal(2i32)
+        │   ├── lhs: vortex.literal(true)
+        │   └── rhs: vortex.literal(true)
         └── rhs: vortex.binary(or)
-            ├── lhs: vortex.literal(3i32)
-            └── rhs: vortex.literal(4i32)
+            ├── lhs: vortex.literal(true)
+            └── rhs: vortex.literal(true)
         ");
     }
 
     #[test]
     fn dtype() {
         let dtype = test_harness::struct_dtype();
-        let bool1: Expression = col("bool1");
-        let bool2: Expression = col("bool2");
+        let bool1: BoundExpression = col("bool1", dtype.clone());
+        let bool2: BoundExpression = col("bool2", dtype.clone());
         assert_eq!(
-            and(bool1.clone(), bool2.clone())
-                .return_dtype(&dtype)
-                .unwrap(),
+            and(bool1.clone(), bool2.clone()).dtype().clone(),
             DType::Bool(Nullability::NonNullable)
         );
         assert_eq!(
-            or(bool1, bool2).return_dtype(&dtype).unwrap(),
+            or(bool1, bool2).dtype().clone(),
             DType::Bool(Nullability::NonNullable)
         );
 
-        let col1: Expression = col("col1");
-        let col2: Expression = col("col2");
+        let col1: BoundExpression = col("col1", dtype.clone());
+        let col2: BoundExpression = col("col2", dtype);
 
         assert_eq!(
-            eq(col1.clone(), col2.clone()).return_dtype(&dtype).unwrap(),
+            eq(col1.clone(), col2.clone()).dtype().clone(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
-            not_eq(col1.clone(), col2.clone())
-                .return_dtype(&dtype)
-                .unwrap(),
+            not_eq(col1.clone(), col2.clone()).dtype().clone(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
-            gt(col1.clone(), col2.clone()).return_dtype(&dtype).unwrap(),
+            gt(col1.clone(), col2.clone()).dtype().clone(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
-            gt_eq(col1.clone(), col2.clone())
-                .return_dtype(&dtype)
-                .unwrap(),
+            gt_eq(col1.clone(), col2.clone()).dtype().clone(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
-            lt(col1.clone(), col2.clone()).return_dtype(&dtype).unwrap(),
+            lt(col1.clone(), col2.clone()).dtype().clone(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
-            lt_eq(col1.clone(), col2.clone())
-                .return_dtype(&dtype)
-                .unwrap(),
+            lt_eq(col1.clone(), col2.clone()).dtype().clone(),
             DType::Bool(Nullability::Nullable)
         );
 
         assert_eq!(
             or(lt(col1.clone(), col2.clone()), not_eq(col1, col2))
-                .return_dtype(&dtype)
-                .unwrap(),
+                .dtype()
+                .clone(),
             DType::Bool(Nullability::Nullable)
         );
+    }
+
+    #[test]
+    fn boolean_operation_rejects_non_boolean_operands() {
+        for operator in [Operator::And, Operator::Or] {
+            let error = Binary
+                .try_new_bound_expr(operator, [lit(1), lit(2)])
+                .unwrap_err();
+            assert!(
+                error.to_string().contains("requires Bool operands"),
+                "{error}"
+            );
+        }
     }
 
     #[test]
@@ -432,7 +453,7 @@ mod tests {
         let dtype = test_harness::struct_dtype();
 
         let expr = eq(
-            col("col1"),
+            col("col1", dtype),
             lit(Scalar::null(DType::Primitive(
                 PType::U16,
                 Nullability::Nullable,
@@ -440,7 +461,7 @@ mod tests {
         );
 
         assert_eq!(
-            expr.optimize_recursive(&dtype)?,
+            expr.optimize_recursive()?,
             lit(Scalar::null(DType::Bool(Nullability::Nullable)))
         );
         Ok(())
@@ -449,12 +470,17 @@ mod tests {
     #[test]
     fn comparison_with_incompatible_null_still_type_checks() {
         let dtype = test_harness::struct_dtype();
-        let expr = eq(
-            col("col1"),
-            lit(Scalar::null(DType::Utf8(Nullability::Nullable))),
+        assert!(
+            Binary
+                .try_new_bound_expr(
+                    Operator::Eq,
+                    [
+                        col("col1", dtype),
+                        lit(Scalar::null(DType::Utf8(Nullability::Nullable))),
+                    ],
+                )
+                .is_err()
         );
-
-        assert!(expr.optimize_recursive(&dtype).is_err());
     }
 
     #[test]
@@ -538,7 +564,7 @@ mod tests {
         use crate::IntoArray;
         use crate::arrays::BoolArray;
         use crate::arrays::StructArray;
-        use crate::expr::col;
+        use crate::expr::bound::col;
 
         let struct_arr = StructArray::from_fields(&[
             ("a", BoolArray::from_iter([Some(true)]).into_array()),
@@ -550,8 +576,11 @@ mod tests {
         .unwrap()
         .into_array();
 
-        let expr = or(col("a"), col("b"));
-        let result = struct_arr.apply(&expr).unwrap();
+        let expr = or(
+            col("a", struct_arr.dtype().clone()),
+            col("b", struct_arr.dtype().clone()),
+        );
+        let result = struct_arr.apply_bound(&expr).unwrap();
 
         assert_arrays_eq!(
             result,

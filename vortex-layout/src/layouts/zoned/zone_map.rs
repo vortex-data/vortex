@@ -22,11 +22,7 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::Expression;
-use vortex_array::expr::eq;
-use vortex_array::expr::get_item;
-use vortex_array::expr::lit;
-use vortex_array::expr::root;
+use vortex_array::expr::bound;
 use vortex_array::expr::stats::Stat;
 use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
@@ -187,66 +183,54 @@ impl StatBinder for ZoneMapStatsBinder<'_> {
         );
 
         if let Some(stat_expr) = self.zone_map.aggregate_field_expr(aggregate_fn) {
-            return Ok(Some(self.bind_target(stat_expr)?));
+            return Ok(Some(stat_expr));
         }
 
         if aggregate_fn.is::<AllNull>() {
             return self
                 .zone_map
                 .stat_field_expr(Stat::NullCount)
-                .map(|null_count| self.bind_target(eq(null_count, row_count_expr())))
+                .map(|null_count| Ok(bound::eq(null_count, row_count_expr()?)))
                 .transpose();
         }
 
         if aggregate_fn.is::<AllNonNull>() {
-            return self
+            return Ok(self
                 .zone_map
                 .stat_field_expr(Stat::NullCount)
-                .map(|null_count| self.bind_target(eq(null_count, lit(0u64))))
-                .transpose();
+                .map(|null_count| bound::eq(null_count, bound::lit(0u64))));
         }
 
         if aggregate_fn.is::<AllNan>() {
             return self
                 .zone_map
                 .stat_field_expr(Stat::NaNCount)
-                .map(|nan_count| self.bind_target(eq(nan_count, row_count_expr())))
+                .map(|nan_count| Ok(bound::eq(nan_count, row_count_expr()?)))
                 .transpose();
         }
 
         if aggregate_fn.is::<AllNonNan>() {
-            return self
+            return Ok(self
                 .zone_map
                 .stat_field_expr(Stat::NaNCount)
-                .map(|nan_count| self.bind_target(eq(nan_count, lit(0u64))))
-                .transpose();
+                .map(|nan_count| bound::eq(nan_count, bound::lit(0u64))));
         }
 
         if let Some(stat) = Stat::from_aggregate_fn(aggregate_fn) {
-            return self
-                .zone_map
-                .stat_field_expr(stat)
-                .map(|expr| self.bind_target(expr))
-                .transpose();
+            return Ok(self.zone_map.stat_field_expr(stat));
         }
 
         Ok(None)
     }
 }
 
-impl ZoneMapStatsBinder<'_> {
-    fn bind_target(&self, expr: Expression) -> VortexResult<BoundExpression> {
-        expr.bind(self.zone_map.array.dtype())
-    }
-}
-
 impl ZoneMap {
-    fn aggregate_field_expr(&self, requested: &AggregateFnRef) -> Option<Expression> {
+    fn aggregate_field_expr(&self, requested: &AggregateFnRef) -> Option<BoundExpression> {
         let field_name = requested.to_string();
         if self.array.unmasked_field_by_name_opt(&field_name).is_some() {
             return Some(aggregate_result_expr(
                 requested,
-                get_item(field_name, root()),
+                self.field_expr(field_name),
             ));
         }
 
@@ -259,10 +243,10 @@ impl ZoneMap {
 
             match stored.can_satisfy(requested) {
                 AggregateFnSatisfaction::Exact => {
-                    return Some(aggregate_result_expr(stored, get_item(field_name, root())));
+                    return Some(aggregate_result_expr(stored, self.field_expr(field_name)));
                 }
                 AggregateFnSatisfaction::Approximate => {
-                    approximate = Some(aggregate_result_expr(stored, get_item(field_name, root())));
+                    approximate = Some(aggregate_result_expr(stored, self.field_expr(field_name)));
                 }
                 AggregateFnSatisfaction::No => {}
             }
@@ -271,7 +255,7 @@ impl ZoneMap {
         approximate
     }
 
-    fn stat_field_expr(&self, stat: Stat) -> Option<Expression> {
+    fn stat_field_expr(&self, stat: Stat) -> Option<BoundExpression> {
         if let Some(aggregate_fn) = stat.aggregate_fn()
             && let Some(expr) = self.aggregate_field_expr(&aggregate_fn)
         {
@@ -281,25 +265,29 @@ impl ZoneMap {
         self.legacy_stat_field_expr(stat)
     }
 
-    fn legacy_stat_field_expr(&self, stat: Stat) -> Option<Expression> {
+    fn legacy_stat_field_expr(&self, stat: Stat) -> Option<BoundExpression> {
         if self.array.unmasked_field_by_name_opt(stat.name()).is_some() {
-            return Some(get_item(stat.name(), root()));
+            return Some(self.field_expr(stat.name()));
         }
 
         None
     }
+
+    fn field_expr(&self, name: impl Into<vortex_array::dtype::FieldName>) -> BoundExpression {
+        bound::get_item(name, bound::root(self.array.dtype().clone()))
+    }
 }
 
-fn aggregate_result_expr(stored: &AggregateFnRef, state_expr: Expression) -> Expression {
+fn aggregate_result_expr(stored: &AggregateFnRef, state_expr: BoundExpression) -> BoundExpression {
     if stored.is::<BoundedMax>() {
-        get_item(BOUNDED_MAX_BOUND, state_expr)
+        bound::get_item(BOUNDED_MAX_BOUND, state_expr)
     } else {
         state_expr
     }
 }
 
-fn row_count_expr() -> Expression {
-    RowCount.new_expr(EmptyOptions, [])
+fn row_count_expr() -> VortexResult<BoundExpression> {
+    RowCount.try_new_bound_expr(EmptyOptions, [])
 }
 
 /// Build per-zone row counts for a zone map.
@@ -355,6 +343,8 @@ mod tests {
     use vortex_array::aggregate_fn::AggregateFnVTableExt;
     use vortex_array::aggregate_fn::EmptyOptions;
     use vortex_array::aggregate_fn::NumericalAggregateOpts;
+    use vortex_array::aggregate_fn::fns::all_nan::AllNan;
+    use vortex_array::aggregate_fn::fns::all_non_nan::AllNonNan;
     use vortex_array::aggregate_fn::fns::all_non_null::AllNonNull;
     use vortex_array::aggregate_fn::fns::all_null::AllNull;
     use vortex_array::aggregate_fn::fns::bounded_max::BOUNDED_MAX_BOUND;
@@ -377,17 +367,19 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::expr::BoundExpression;
-    use vortex_array::expr::Expression;
-    use vortex_array::expr::cast;
-    use vortex_array::expr::gt;
-    use vortex_array::expr::gt_eq;
-    use vortex_array::expr::is_not_null;
-    use vortex_array::expr::is_null;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::lt;
-    use vortex_array::expr::not_eq;
-    use vortex_array::expr::root;
+    use vortex_array::expr::bound::cast;
+    use vortex_array::expr::bound::gt;
+    use vortex_array::expr::bound::gt_eq;
+    use vortex_array::expr::bound::is_not_null;
+    use vortex_array::expr::bound::is_null;
+    use vortex_array::expr::bound::lit;
+    use vortex_array::expr::bound::lt;
+    use vortex_array::expr::bound::not_eq;
+    use vortex_array::expr::bound::root;
     use vortex_array::expr::stats::Stat;
+    use vortex_array::scalar_fn::ScalarFnVTableExt;
+    use vortex_array::stats::StatFn;
+    use vortex_array::stats::StatOptions;
     use vortex_array::stats::all_nan;
     use vortex_array::stats::all_non_nan;
     use vortex_array::stats::all_non_null;
@@ -401,16 +393,12 @@ mod tests {
     use crate::layouts::zoned::zone_map::ZoneMap;
     use crate::test::SESSION;
 
-    fn falsify(expr: &Expression, dtype: DType) -> BoundExpression {
-        expr.bind(&dtype)
-            .unwrap()
-            .falsify(&SESSION)
-            .unwrap()
-            .unwrap()
+    fn falsify(expr: &BoundExpression) -> BoundExpression {
+        expr.falsify(&SESSION).unwrap().unwrap()
     }
 
-    fn prune(zone_map: &ZoneMap, predicate: &Expression) -> VortexResult<Mask> {
-        zone_map.prune(&predicate.bind(&zone_map.column_dtype)?, &SESSION)
+    fn prune(zone_map: &ZoneMap, predicate: &BoundExpression) -> VortexResult<Mask> {
+        zone_map.prune(predicate, &SESSION)
     }
 
     fn default_bounded_stat_max_bytes() -> NonZeroUsize {
@@ -455,8 +443,8 @@ mod tests {
 
         // A >= 6
         // => A.max < 6
-        let expr = gt_eq(root(), lit(6i32));
-        let pruning_expr = falsify(&expr, PType::I32.into());
+        let expr = gt_eq(root(PType::I32.into()), lit(6i32));
+        let pruning_expr = falsify(&expr);
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
         assert_arrays_eq!(
             mask.into_array(),
@@ -466,8 +454,8 @@ mod tests {
 
         // A > 5
         // => A.max <= 5
-        let expr = gt(root(), lit(5i32));
-        let pruning_expr = falsify(&expr, PType::I32.into());
+        let expr = gt(root(PType::I32.into()), lit(5i32));
+        let pruning_expr = falsify(&expr);
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
         assert_arrays_eq!(
             mask.into_array(),
@@ -477,8 +465,8 @@ mod tests {
 
         // A < 2
         // => A.min >= 2
-        let expr = lt(root(), lit(2i32));
-        let pruning_expr = falsify(&expr, PType::I32.into());
+        let expr = lt(root(PType::I32.into()), lit(2i32));
+        let pruning_expr = falsify(&expr);
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
         assert_arrays_eq!(
             mask.into_array(),
@@ -526,8 +514,8 @@ mod tests {
         .unwrap();
         let ctx = &mut SESSION.create_execution_ctx();
 
-        let expr = gt(root(), lit(5i32));
-        let pruning_expr = falsify(&expr, PType::I32.into());
+        let expr = gt(root(PType::I32.into()), lit(5i32));
+        let pruning_expr = falsify(&expr);
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
         assert_arrays_eq!(
             mask.into_array(),
@@ -535,8 +523,8 @@ mod tests {
             ctx
         );
 
-        let expr = lt(root(), lit(2i32));
-        let pruning_expr = falsify(&expr, PType::I32.into());
+        let expr = lt(root(PType::I32.into()), lit(2i32));
+        let pruning_expr = falsify(&expr);
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
         assert_arrays_eq!(
             mask.into_array(),
@@ -560,8 +548,8 @@ mod tests {
         )
         .unwrap();
 
-        let expr = is_not_null(root());
-        let pruning_expr = falsify(&expr, PType::U64.into());
+        let expr = is_not_null(root(PType::U64.into()));
+        let pruning_expr = falsify(&expr);
 
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
         assert_arrays_eq!(
@@ -601,7 +589,7 @@ mod tests {
         )
         .unwrap();
 
-        let pruning_expr = falsify(&is_not_null(root()), PType::U64.into());
+        let pruning_expr = falsify(&is_not_null(root(PType::U64.into())));
         let message = zone_map
             .prune(&pruning_expr, &SESSION)
             .err()
@@ -629,8 +617,8 @@ mod tests {
         )
         .unwrap();
 
-        let expr = is_not_null(root());
-        let pruning_expr = falsify(&expr, PType::U64.into());
+        let expr = is_not_null(root(PType::U64.into()));
+        let pruning_expr = falsify(&expr);
 
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
         assert_eq!(mask.len(), 0);
@@ -651,8 +639,8 @@ mod tests {
         )
         .unwrap();
 
-        let expr = is_null(root());
-        let pruning_expr = falsify(&expr, PType::U64.into());
+        let expr = is_null(root(PType::U64.into()));
+        let pruning_expr = falsify(&expr);
 
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
         assert_arrays_eq!(
@@ -677,7 +665,7 @@ mod tests {
         )
         .unwrap();
 
-        let mask = prune(&zone_map, &all_null(root())).unwrap();
+        let mask = prune(&zone_map, &all_null(root(zone_map.column_dtype.clone()))).unwrap();
         assert_arrays_eq!(
             mask.into_array(),
             BoolArray::from_iter([false, true, true]),
@@ -700,7 +688,11 @@ mod tests {
         )
         .unwrap();
 
-        let mask = prune(&zone_map, &all_non_null(root())).unwrap();
+        let mask = prune(
+            &zone_map,
+            &all_non_null(root(zone_map.column_dtype.clone())),
+        )
+        .unwrap();
         assert_arrays_eq!(
             mask.into_array(),
             BoolArray::from_iter([true, false, false]),
@@ -725,14 +717,18 @@ mod tests {
         .unwrap();
         let ctx = &mut SESSION.create_execution_ctx();
 
-        let mask = prune(&zone_map, &all_null(root())).unwrap();
+        let mask = prune(&zone_map, &all_null(root(zone_map.column_dtype.clone()))).unwrap();
         assert_arrays_eq!(
             mask.into_array(),
             BoolArray::from_iter([true, false, true]),
             ctx
         );
 
-        let mask = prune(&zone_map, &all_non_null(root())).unwrap();
+        let mask = prune(
+            &zone_map,
+            &all_non_null(root(zone_map.column_dtype.clone())),
+        )
+        .unwrap();
         assert_arrays_eq!(
             mask.into_array(),
             BoolArray::from_iter([false, true, false]),
@@ -757,14 +753,14 @@ mod tests {
         .unwrap();
         let ctx = &mut SESSION.create_execution_ctx();
 
-        let mask = prune(&zone_map, &all_nan(root())).unwrap();
+        let mask = prune(&zone_map, &all_nan(root(zone_map.column_dtype.clone()))).unwrap();
         assert_arrays_eq!(
             mask.into_array(),
             BoolArray::from_iter([true, false, true]),
             ctx
         );
 
-        let mask = prune(&zone_map, &all_non_nan(root())).unwrap();
+        let mask = prune(&zone_map, &all_non_nan(root(zone_map.column_dtype.clone()))).unwrap();
         assert_arrays_eq!(
             mask.into_array(),
             BoolArray::from_iter([false, true, false]),
@@ -775,8 +771,10 @@ mod tests {
     #[test]
     fn non_float_nan_stat_fns_fail_to_bind() {
         let dtype = DType::from(PType::I32);
-        for expr in [all_nan(root()), all_non_nan(root())] {
-            let error = expr.bind(&dtype).unwrap_err();
+        for aggregate in [AllNan.bind(EmptyOptions), AllNonNan.bind(EmptyOptions)] {
+            let error = StatFn
+                .try_new_bound_expr(StatOptions::new(aggregate), [root(dtype.clone())])
+                .unwrap_err();
             assert!(
                 error
                     .to_string()
@@ -798,15 +796,19 @@ mod tests {
         .unwrap();
         let ctx = &mut SESSION.create_execution_ctx();
 
-        let mask = prune(&zone_map, &all_non_null(root())).unwrap();
+        let mask = prune(
+            &zone_map,
+            &all_non_null(root(zone_map.column_dtype.clone())),
+        )
+        .unwrap();
         assert_arrays_eq!(
             mask.into_array(),
             BoolArray::from_iter([false, false, false]),
             ctx
         );
 
-        let expr = gt(root(), lit(5u64));
-        let pruning_expr = falsify(&expr, PType::U64.into());
+        let expr = gt(root(PType::U64.into()), lit(5u64));
+        let pruning_expr = falsify(&expr);
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
         assert_arrays_eq!(
             mask.into_array(),
@@ -832,8 +834,8 @@ mod tests {
         .unwrap();
         let ctx = &mut SESSION.create_execution_ctx();
 
-        let expr = gt(root(), lit(5.0f32));
-        let pruning_expr = falsify(&expr, PType::F32.into());
+        let expr = gt(root(PType::F32.into()), lit(5.0f32));
+        let pruning_expr = falsify(&expr);
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
         assert_arrays_eq!(
             mask.into_array(),
@@ -903,8 +905,8 @@ mod tests {
         .unwrap();
 
         let cast_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let expr = not_eq(cast(root(), cast_dtype), lit(5i32));
-        let pruning_expr = falsify(&expr, PType::F32.into());
+        let expr = not_eq(cast(root(PType::F32.into()), cast_dtype), lit(5i32));
+        let pruning_expr = falsify(&expr);
 
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
         assert_arrays_eq!(
@@ -937,7 +939,10 @@ mod tests {
         let max_fn = Stat::Max
             .aggregate_fn()
             .expect("max should have an aggregate function");
-        let predicate = is_null(vortex_array::stats::stat(root(), max_fn));
+        let predicate = is_null(vortex_array::stats::stat(
+            root(zone_map.column_dtype.clone()),
+            max_fn,
+        ));
 
         // Missing StatFn lowers to a nullable null literal, so `is_null(...)` is true for every zone.
         let mask = prune(&zone_map, &predicate).unwrap();
@@ -962,8 +967,9 @@ mod tests {
         let max_fn = Stat::Max
             .aggregate_fn()
             .expect("max should have an aggregate function");
-        let predicate = is_null(vortex_array::stats::stat(root(), max_fn));
-        let error = prune(&zone_map, &predicate).unwrap_err();
+        let error = StatFn
+            .try_new_bound_expr(StatOptions::new(max_fn), [root(zone_map.column_dtype)])
+            .unwrap_err();
 
         assert!(
             error
@@ -988,8 +994,8 @@ mod tests {
         )
         .unwrap();
 
-        let expr = is_not_null(root());
-        let pruning_expr = falsify(&expr, PType::U64.into());
+        let expr = is_not_null(root(PType::U64.into()));
+        let pruning_expr = falsify(&expr);
 
         // All three zones have length 4 (total rows = 12).
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
@@ -1016,7 +1022,7 @@ mod tests {
         )
         .unwrap();
 
-        let mask = prune(&zone_map, &all_null(root())).unwrap();
+        let mask = prune(&zone_map, &all_null(root(zone_map.column_dtype.clone()))).unwrap();
         assert_arrays_eq!(
             mask.into_array(),
             BoolArray::from_iter([false, true, true]),
@@ -1040,7 +1046,11 @@ mod tests {
         )
         .unwrap();
 
-        let mask = prune(&zone_map, &all_non_null(root())).unwrap();
+        let mask = prune(
+            &zone_map,
+            &all_non_null(root(zone_map.column_dtype.clone())),
+        )
+        .unwrap();
         assert_arrays_eq!(
             mask.into_array(),
             BoolArray::from_iter([true, false, false]),

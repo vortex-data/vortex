@@ -26,7 +26,6 @@
 
 use std::any::Any;
 use std::collections::VecDeque;
-use std::ops::Range;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -37,13 +36,11 @@ use itertools::Itertools;
 use tracing::Instrument;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
-use vortex_array::expr::BoundExpression;
 use vortex_array::expr::stats::Precision;
 use vortex_array::stats::StatsSet;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::stream::SendableArrayStream;
-use vortex_error::SharedVortexResult;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -290,6 +287,8 @@ impl DataSource for MultiLayoutDataSource {
     }
 
     async fn scan(&self, scan_request: ScanRequest) -> VortexResult<DataSourceScanRef> {
+        scan_request.validate(&self.dtype)?;
+        let scan_request = scan_request.optimize()?;
         let mut ready = VecDeque::new();
         let mut deferred = VecDeque::new();
 
@@ -302,14 +301,13 @@ impl DataSource for MultiLayoutDataSource {
             }
         }
 
-        let request = BoundScanRequest::try_new(scan_request, &self.dtype)?;
-        let dtype = request.projection.dtype().clone();
+        let dtype = scan_request.projection.dtype().clone();
 
         Ok(Box::new(MultiLayoutScan {
             session: self.session.clone(),
             source_dtype: self.dtype.clone(),
             dtype,
-            request,
+            request: scan_request,
             ready,
             deferred,
             handle: self.session.handle(),
@@ -322,52 +320,11 @@ impl DataSource for MultiLayoutDataSource {
     }
 }
 
-#[derive(Clone)]
-struct BoundScanRequest {
-    projection: BoundExpression,
-    filter: SharedVortexResult<Option<BoundExpression>>,
-    row_range: Option<Range<u64>>,
-    selection: Selection,
-    partition_selection: Selection,
-    partition_range: Option<Range<u64>>,
-    ordered: bool,
-    limit: Option<u64>,
-}
-
-impl BoundScanRequest {
-    fn try_new(request: ScanRequest, dtype: &DType) -> VortexResult<Self> {
-        let ScanRequest {
-            projection,
-            filter,
-            row_range,
-            selection,
-            partition_selection,
-            partition_range,
-            ordered,
-            limit,
-        } = request;
-
-        Ok(Self {
-            projection: projection.optimize_recursive(dtype)?.bind(dtype)?,
-            filter: filter
-                .map(|expr| expr.optimize_recursive(dtype)?.bind(dtype))
-                .transpose()
-                .map_err(Arc::new),
-            row_range,
-            selection,
-            partition_selection,
-            partition_range,
-            ordered,
-            limit,
-        })
-    }
-}
-
 struct MultiLayoutScan {
     session: VortexSession,
     source_dtype: DType,
     dtype: DType,
-    request: BoundScanRequest,
+    request: ScanRequest,
     ready: VecDeque<LayoutReaderRef>,
     deferred: VecDeque<Arc<dyn LayoutReaderFactory>>,
     handle: vortex_io::runtime::Handle,
@@ -467,7 +424,7 @@ fn reader_partition(
     reader: LayoutReaderRef,
     session: VortexSession,
     source_dtype: &DType,
-    request: BoundScanRequest,
+    request: ScanRequest,
 ) -> PartitionStream {
     if reader.dtype() != source_dtype {
         let error = vortex_err!(
@@ -503,7 +460,7 @@ fn reader_partition(
 
     // Check file-level pruning: if the filter can be proven false for the entire row range
     // using file-level statistics, skip this reader entirely.
-    if let Ok(Some(filter)) = &request.filter {
+    if let Some(filter) = &request.filter {
         let mask_len = usize::try_from(row_range.end - row_range.start).unwrap_or(usize::MAX);
         let mask = Mask::new_true(mask_len);
         if let Ok(pruning_future) = reader.pruning_evaluation(&row_range, filter, mask)
@@ -518,7 +475,7 @@ fn reader_partition(
         Ok(Box::new(MultiLayoutPartition {
             reader,
             session,
-            request: BoundScanRequest {
+            request: ScanRequest {
                 row_range: Some(row_range),
                 ..request
             },
@@ -535,7 +492,7 @@ fn reader_partition(
 struct MultiLayoutPartition {
     reader: LayoutReaderRef,
     session: VortexSession,
-    request: BoundScanRequest,
+    request: ScanRequest,
     index: usize,
 }
 
@@ -559,11 +516,7 @@ impl Partition for MultiLayoutPartition {
             .limit
             .map_or(row_count, |limit| row_count.min(limit));
 
-        let has_filter = match &self.request.filter {
-            Ok(filter) => filter.is_some(),
-            Err(_) => true,
-        };
-        if has_filter {
+        if self.request.filter.is_some() {
             Precision::inexact(row_count)
         } else {
             Precision::exact(row_count)
@@ -576,11 +529,10 @@ impl Partition for MultiLayoutPartition {
 
     fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream> {
         let request = self.request;
-        let filter = request.filter?;
         let mut builder = ScanBuilder::new(self.session, self.reader)
             .with_selection(request.selection)
             .with_projection(request.projection)
-            .with_some_filter(filter)
+            .with_some_filter(request.filter)
             .with_some_limit(request.limit)
             .with_ordered(request.ordered);
 
@@ -601,10 +553,6 @@ impl Partition for MultiLayoutPartition {
 mod tests {
     use rstest::rstest;
     use vortex_array::dtype::Nullability;
-    use vortex_array::dtype::PType;
-    use vortex_array::expr::eq;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::root;
 
     use super::*;
     use crate::scan::test::new_session;
@@ -638,20 +586,5 @@ mod tests {
     #[case::no_children(vec![], Precision::exact(0u64))]
     fn byte_size_precision(#[case] sizes: Vec<Option<u64>>, #[case] expected: Precision<u64>) {
         assert_eq!(deferred_source(sizes).byte_size(), expected);
-    }
-
-    #[test]
-    fn filter_binding_errors_are_deferred() -> VortexResult<()> {
-        let dtype = DType::Primitive(PType::U8, Nullability::NonNullable);
-        let request = ScanRequest {
-            filter: Some(eq(root(), lit(67_i32))),
-            ..ScanRequest::default()
-        };
-
-        let request = BoundScanRequest::try_new(request, &dtype)?;
-
-        assert_eq!(request.projection.dtype(), &dtype);
-        assert!(request.filter.is_err());
-        Ok(())
     }
 }

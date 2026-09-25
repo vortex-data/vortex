@@ -24,8 +24,8 @@ use crate::arrays::ScalarFnArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::DType::Bool;
+use crate::expr::BoundExpression;
 use crate::expr::display::ExprDisplay;
-use crate::expr::expression::Expression;
 use crate::proto::expr as pb;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
@@ -330,8 +330,8 @@ impl ScalarFnVTable for Between {
     fn validity(
         &self,
         _options: &Self::Options,
-        _expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
+        _expression: &BoundExpression,
+    ) -> VortexResult<Option<BoundExpression>> {
         // `Between` stands for two compares under Kleene `AND`, and `null AND false` is `false`,
         // so a null bound does not make a row null. There is no validity expression to derive,
         // which is also why `Binary` returns `None` for `Operator::And`.
@@ -368,11 +368,12 @@ mod tests {
     use crate::dtype::DecimalDType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::expr::between;
-    use crate::expr::col;
-    use crate::expr::get_item;
-    use crate::expr::lit;
-    use crate::expr::root;
+    use crate::expr::bound::between;
+    use crate::expr::bound::col;
+    use crate::expr::bound::get_item;
+    use crate::expr::bound::lit;
+    use crate::expr::bound::root;
+    use crate::expr::test_harness;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
     use crate::test_harness::to_int_indices;
@@ -408,16 +409,22 @@ mod tests {
         let hi = PrimitiveArray::from_option_iter([Some(5), Some(50), Some(5)]).into_array();
         let data = StructArray::from_fields(&[("x", x), ("lo", lo), ("hi", hi)])?.into_array();
 
-        let expr = between(col("x"), col("lo"), col("hi"), NON_STRICT);
+        let expr = between(
+            col("x", data.dtype().clone()),
+            col("lo", data.dtype().clone()),
+            col("hi", data.dtype().clone()),
+            NON_STRICT,
+        );
 
         let executed = data
             .clone()
-            .apply(&expr)?
+            .apply_bound(&expr)?
             .execute::<BoolArray>(ctx)?
             .opt_bool_vec(ctx);
 
+        let validity = expr.validity()?;
         let declared = data
-            .apply(&expr.validity()?)?
+            .apply_bound(&validity)?
             .execute::<BoolArray>(ctx)?
             .bool_vec(ctx);
 
@@ -433,7 +440,7 @@ mod tests {
     #[test]
     fn is_not_strict() {
         let expr = between(
-            root(),
+            root(DType::Primitive(PType::I32, Nullability::NonNullable)),
             lit(0),
             lit(100),
             BetweenOptions {
@@ -448,7 +455,7 @@ mod tests {
     #[test]
     fn test_display() {
         let expr = between(
-            get_item("score", root()),
+            get_item("a", root(test_harness::struct_dtype())),
             lit(10),
             lit(50),
             BetweenOptions {
@@ -456,10 +463,10 @@ mod tests {
                 upper_strict: StrictComparison::Strict,
             },
         );
-        assert_eq!(expr.to_string(), "(10i32 <= $.score < 50i32)");
+        assert_eq!(expr.to_string(), "(10i32 <= $.a < 50i32)");
 
         let expr2 = between(
-            root(),
+            root(DType::Primitive(PType::I32, Nullability::NonNullable)),
             lit(0),
             lit(100),
             BetweenOptions {

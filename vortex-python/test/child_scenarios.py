@@ -120,7 +120,7 @@ def child_has_live_workers(ctx: BaseContext, path: str) -> None:
 def expr_filter_in_child(ctx: BaseContext, path: str) -> None:
     """An Expr pickled into the child and evaluated there."""
     assert count_rows(path) == ROWS
-    expr = (ve.column("age") >= ROWS - 2) & ve.like(ve.column("name"), "person-%")
+    expr = (ve.column("age") >= ROWS - 2) & (ve.column("name") != "missing")
     assert in_child(ctx, filtered_names, path, expr) == [f"person-{ROWS - 2}", f"person-{ROWS - 1}"]
 
 

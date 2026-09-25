@@ -58,25 +58,27 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::expr::get_item;
-    use crate::expr::is_nan;
-    use crate::expr::lit;
-    use crate::expr::root;
+    use crate::expr::bound::get_item;
+    use crate::expr::bound::is_nan;
+    use crate::expr::bound::lit;
+    use crate::expr::bound::root;
     use crate::scalar::Scalar;
+    use crate::scalar_fn::EmptyOptions;
+    use crate::scalar_fn::ScalarFnVTableExt;
     use crate::validity::Validity;
 
     #[test]
     fn dtype() {
         assert_eq!(
-            is_nan(root())
-                .return_dtype(&DType::Primitive(PType::F32, Nullability::Nullable))
-                .unwrap(),
+            is_nan(root(DType::Primitive(PType::F32, Nullability::Nullable)))
+                .dtype()
+                .clone(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
-            is_nan(root())
-                .return_dtype(&DType::Primitive(PType::F64, Nullability::NonNullable))
-                .unwrap(),
+            is_nan(root(DType::Primitive(PType::F64, Nullability::NonNullable)))
+                .dtype()
+                .clone(),
             DType::Bool(Nullability::NonNullable)
         );
     }
@@ -84,21 +86,25 @@ mod tests {
     #[test]
     fn dtype_rejects_non_float() {
         assert!(
-            is_nan(root())
-                .return_dtype(&DType::Primitive(PType::I32, Nullability::NonNullable))
+            super::IsNan
+                .try_new_bound_expr(
+                    EmptyOptions,
+                    [root(DType::Primitive(PType::I32, Nullability::NonNullable))],
+                )
                 .is_err()
         );
         assert!(
-            is_nan(root())
-                .return_dtype(&DType::Bool(Nullability::NonNullable))
+            super::IsNan
+                .try_new_bound_expr(EmptyOptions, [root(DType::Bool(Nullability::NonNullable))])
                 .is_err()
         );
     }
 
     #[test]
     fn replace_children() {
-        let expr = is_nan(root());
-        expr.with_children([root()])
+        let dtype = DType::Primitive(PType::F32, Nullability::NonNullable);
+        let expr = is_nan(root(dtype.clone()));
+        expr.with_children([root(dtype)])
             .vortex_expect("operation should succeed in test");
     }
 
@@ -114,7 +120,10 @@ mod tests {
         .into_array();
         let expected = [Some(false), Some(true), None, Some(false), Some(true)];
 
-        let result = test_array.clone().apply(&is_nan(root())).unwrap();
+        let result = test_array
+            .clone()
+            .apply_bound(&is_nan(root(test_array.dtype().clone())))
+            .unwrap();
 
         assert_eq!(result.len(), test_array.len());
         assert_eq!(result.dtype(), &DType::Bool(Nullability::Nullable));
@@ -141,7 +150,10 @@ mod tests {
         .into_array();
         let expected = [false, true, false, true];
 
-        let result = test_array.clone().apply(&is_nan(root())).unwrap();
+        let result = test_array
+            .clone()
+            .apply_bound(&is_nan(root(test_array.dtype().clone())))
+            .unwrap();
 
         assert_eq!(result.len(), test_array.len());
         assert_eq!(result.dtype(), &DType::Bool(Nullability::NonNullable));
@@ -159,7 +171,10 @@ mod tests {
     fn evaluate_all_null_floats() {
         let test_array = PrimitiveArray::from_option_iter([None::<f32>, None, None]).into_array();
 
-        let result = test_array.clone().apply(&is_nan(root())).unwrap();
+        let result = test_array
+            .clone()
+            .apply_bound(&is_nan(root(test_array.dtype().clone())))
+            .unwrap();
 
         assert_eq!(result.len(), test_array.len());
         for i in 0..result.len() {
@@ -188,7 +203,7 @@ mod tests {
         ];
 
         for (expr_child, expected_value) in cases {
-            let result = test_array.clone().apply(&is_nan(expr_child)).unwrap();
+            let result = test_array.clone().apply_bound(&is_nan(expr_child)).unwrap();
             for i in 0..result.len() {
                 let expected_scalar = match expected_value {
                     Some(value) => Scalar::bool(value, Nullability::Nullable),
@@ -207,7 +222,11 @@ mod tests {
     #[test]
     fn evaluate_rejects_non_float() {
         let test_array = buffer![1i32, 2, 3].into_array();
-        assert!(test_array.apply(&is_nan(root())).is_err());
+        assert!(
+            super::IsNan
+                .try_new_bound_expr(EmptyOptions, [root(test_array.dtype().clone())])
+                .is_err()
+        );
     }
 
     #[test]
@@ -218,7 +237,10 @@ mod tests {
             .unwrap();
         let expected = [true, false, true];
 
-        let result = test_array.clone().apply(&is_nan(root())).unwrap();
+        let result = test_array
+            .clone()
+            .apply_bound(&is_nan(root(test_array.dtype().clone())))
+            .unwrap();
 
         assert_eq!(result.len(), test_array.len());
         for (i, expected_value) in expected.iter().enumerate() {
@@ -233,17 +255,24 @@ mod tests {
 
     #[test]
     fn test_display() {
-        let expr = is_nan(get_item("name", root()));
+        let dtype = DType::struct_(
+            [(
+                "name",
+                DType::Primitive(PType::F32, Nullability::NonNullable),
+            )],
+            Nullability::NonNullable,
+        );
+        let expr = is_nan(get_item("name", root(dtype)));
         assert_eq!(expr.to_string(), "vortex.is_nan($.name)");
 
-        let expr2 = is_nan(root());
+        let expr2 = is_nan(root(DType::Primitive(PType::F32, Nullability::NonNullable)));
         assert_eq!(expr2.to_string(), "vortex.is_nan($)");
     }
 
     #[test]
     fn test_is_nan_is_strict() {
         assert!(
-            is_nan(root())
+            is_nan(root(DType::Primitive(PType::F32, Nullability::NonNullable)))
                 .as_scalar()
                 .is_some_and(|f| f.signature().is_strict())
         );

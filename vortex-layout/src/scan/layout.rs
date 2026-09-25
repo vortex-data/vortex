@@ -112,20 +112,13 @@ impl DataSource for LayoutReaderDataSource {
     }
 
     async fn scan(&self, scan_request: ScanRequest) -> VortexResult<DataSourceScanRef> {
+        scan_request.validate(self.reader.dtype())?;
+        let scan_request = scan_request.optimize()?;
         let total_rows = self.reader.row_count();
         let row_range = scan_request.row_range.unwrap_or(0..total_rows);
 
-        let projection = scan_request
-            .projection
-            .optimize_recursive(self.reader.dtype())?
-            .bind(self.reader.dtype())?;
-        let filter = scan_request
-            .filter
-            .map(|expr| {
-                expr.optimize_recursive(self.reader.dtype())?
-                    .bind(self.reader.dtype())
-            })
-            .transpose()?;
+        let projection = scan_request.projection;
+        let filter = scan_request.filter;
         let dtype = projection.dtype().clone();
 
         // If the dtype is an empty struct, and there is no filter, we can return a special

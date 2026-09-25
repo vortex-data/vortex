@@ -161,27 +161,26 @@ impl FilterExpr {
 mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
-    use vortex_array::expr::and;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::not;
-    use vortex_array::expr::root;
+    use vortex_array::expr::bound::and;
+    use vortex_array::expr::bound::lit;
+    use vortex_array::expr::bound::not;
+    use vortex_array::expr::bound::root;
     use vortex_error::VortexResult;
 
     use super::FilterExpr;
 
     #[test]
     fn bound_conjuncts_preserve_order_and_types() -> VortexResult<()> {
-        let expr = and(root(), and(not(root()), lit(true)));
         let dtype = DType::Bool(Nullability::Nullable);
-        let bound = expr.bind(&dtype)?;
+        let expr = and(
+            root(dtype.clone()),
+            and(not(root(dtype.clone())), lit(true)),
+        );
+        let bound = expr;
         let filter = FilterExpr::new(bound);
         let conjuncts = filter.conjuncts();
 
-        let expected = vec![
-            root().bind(&dtype)?,
-            not(root()).bind(&dtype)?,
-            lit(true).bind(&dtype)?,
-        ];
+        let expected = vec![root(dtype.clone()), not(root(dtype)), lit(true)];
         assert_eq!(conjuncts, expected.as_slice());
         assert_eq!(
             conjuncts
@@ -200,7 +199,7 @@ mod tests {
     #[test]
     fn waits_for_all_conjuncts_before_reordering() -> VortexResult<()> {
         let dtype = DType::Bool(Nullability::Nullable);
-        let bound = and(root(), not(root())).bind(&dtype)?;
+        let bound = and(root(dtype.clone()), not(root(dtype)));
         let filter = FilterExpr::new(bound);
 
         filter.report_selectivity(0, 0.9);

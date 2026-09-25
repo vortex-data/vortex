@@ -288,8 +288,8 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::expr::dynamic;
-    use crate::expr::root;
+    use crate::expr::bound::dynamic;
+    use crate::expr::bound::root;
 
     #[test]
     fn is_not_strict() {
@@ -298,7 +298,7 @@ mod tests {
             || None,
             DType::Primitive(PType::I32, Nullability::NonNullable),
             true,
-            root(),
+            root(DType::Primitive(PType::I32, Nullability::NonNullable)),
         );
 
         assert!(!expr.as_scalar().is_some_and(|f| f.signature().is_strict()));
@@ -311,13 +311,9 @@ mod tests {
             || Some(5i32.into()),
             DType::Primitive(PType::I32, Nullability::NonNullable),
             true,
-            root(),
+            root(DType::Primitive(PType::I32, Nullability::NonNullable)),
         );
-        let input_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        assert_eq!(
-            expr.return_dtype(&input_dtype)?,
-            DType::Bool(Nullability::NonNullable)
-        );
+        assert_eq!(expr.dtype().clone(), DType::Bool(Nullability::NonNullable));
         Ok(())
     }
 
@@ -330,9 +326,9 @@ mod tests {
             || Some(5i32.into()),
             DType::Primitive(PType::I32, Nullability::NonNullable),
             true,
-            root(),
+            root(input.dtype().clone()),
         );
-        let result = input.apply(&expr)?;
+        let result = input.apply_bound(&expr)?;
         assert_arrays_eq!(result, BoolArray::from_iter([true, false, false]), &mut ctx);
         Ok(())
     }
@@ -346,9 +342,9 @@ mod tests {
             || None,
             DType::Primitive(PType::I32, Nullability::NonNullable),
             true,
-            root(),
+            root(input.dtype().clone()),
         );
-        let result = input.apply(&expr)?;
+        let result = input.apply_bound(&expr)?;
         assert_arrays_eq!(result, BoolArray::from_iter([true, true, true]), &mut ctx);
         Ok(())
     }
@@ -362,9 +358,9 @@ mod tests {
             || None,
             DType::Primitive(PType::I32, Nullability::NonNullable),
             false,
-            root(),
+            root(input.dtype().clone()),
         );
-        let result = input.apply(&expr)?;
+        let result = input.apply_bound(&expr)?;
         assert_arrays_eq!(
             result,
             BoolArray::from_iter([false, false, false]),
@@ -383,15 +379,15 @@ mod tests {
             move || Some(threshold_clone.load(Ordering::SeqCst).into()),
             DType::Primitive(PType::I32, Nullability::NonNullable),
             true,
-            root(),
+            root(DType::Primitive(PType::I32, Nullability::NonNullable)),
         );
         let input = buffer![1i32, 5, 10].into_array();
 
-        let result = input.clone().apply(&expr)?;
+        let result = input.clone().apply_bound(&expr)?;
         assert_arrays_eq!(result, BoolArray::from_iter([true, false, false]), &mut ctx);
 
         threshold.store(10, Ordering::SeqCst);
-        let result = input.apply(&expr)?;
+        let result = input.apply_bound(&expr)?;
         assert_arrays_eq!(result, BoolArray::from_iter([true, true, false]), &mut ctx);
 
         Ok(())

@@ -102,8 +102,7 @@ def test_builder_returns_expr(name: str) -> None:
     assert isinstance(BUILDERS[name](), Expr)
 
 
-# `CaseWhen::serialize` is deliberately disabled in vortex-array pending a stable wire format, so
-# `case_when` expressions cannot cross a process boundary yet.
+# CaseWhen has no wire format yet.
 NOT_SERIALIZABLE = {"case_when", "case_when_no_else"}
 
 

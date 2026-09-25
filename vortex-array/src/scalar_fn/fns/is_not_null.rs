@@ -127,12 +127,12 @@ mod tests {
     use crate::arrays::StructArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
-    use crate::expr::col;
-    use crate::expr::eq;
-    use crate::expr::get_item;
-    use crate::expr::is_not_null;
-    use crate::expr::or;
-    use crate::expr::root;
+    use crate::expr::bound::col;
+    use crate::expr::bound::eq;
+    use crate::expr::bound::get_item;
+    use crate::expr::bound::is_not_null;
+    use crate::expr::bound::or;
+    use crate::expr::bound::root;
     use crate::expr::test_harness;
     use crate::scalar::Scalar;
     use crate::scalar_fn::EmptyOptions;
@@ -149,15 +149,15 @@ mod tests {
     fn dtype() {
         let dtype = test_harness::struct_dtype();
         assert_eq!(
-            is_not_null(root()).return_dtype(&dtype).unwrap(),
+            is_not_null(root(dtype)).dtype().clone(),
             DType::Bool(Nullability::NonNullable)
         );
     }
 
     #[test]
     fn replace_children() {
-        let expr = is_not_null(root());
-        expr.with_children([root()])
+        let expr = is_not_null(root(DType::Null));
+        expr.with_children([root(DType::Null)])
             .vortex_expect("operation should succeed in test");
     }
 
@@ -168,7 +168,10 @@ mod tests {
                 .into_array();
         let expected = [true, false, true, false, true];
 
-        let result = test_array.clone().apply(&is_not_null(root())).unwrap();
+        let result = test_array
+            .clone()
+            .apply_bound(&is_not_null(root(test_array.dtype().clone())))
+            .unwrap();
 
         assert_eq!(result.len(), test_array.len());
         assert_eq!(result.dtype(), &DType::Bool(Nullability::NonNullable));
@@ -187,7 +190,10 @@ mod tests {
     fn evaluate_all_true() {
         let test_array = buffer![1, 2, 3, 4, 5].into_array();
 
-        let result = test_array.clone().apply(&is_not_null(root())).unwrap();
+        let result = test_array
+            .clone()
+            .apply_bound(&is_not_null(root(test_array.dtype().clone())))
+            .unwrap();
 
         assert_eq!(result.len(), test_array.len());
         for i in 0..result.len() {
@@ -206,7 +212,10 @@ mod tests {
             PrimitiveArray::from_option_iter(vec![None::<i32>, None, None, None, None])
                 .into_array();
 
-        let result = test_array.clone().apply(&is_not_null(root())).unwrap();
+        let result = test_array
+            .clone()
+            .apply_bound(&is_not_null(root(test_array.dtype().clone())))
+            .unwrap();
 
         assert_eq!(result.len(), test_array.len());
         for i in 0..result.len() {
@@ -232,7 +241,10 @@ mod tests {
 
         let result = test_array
             .clone()
-            .apply(&is_not_null(get_item("a", root())))
+            .apply_bound(&is_not_null(get_item(
+                "a",
+                root(test_array.dtype().clone()),
+            )))
             .unwrap();
 
         assert_eq!(result.len(), test_array.len());
@@ -250,17 +262,18 @@ mod tests {
 
     #[test]
     fn test_display() {
-        let expr = is_not_null(get_item("name", root()));
+        let scope = DType::struct_([("name", DType::Null)], Nullability::NonNullable);
+        let expr = is_not_null(get_item("name", root(scope)));
         assert_eq!(expr.to_string(), "is_not_null($.name)");
 
-        let expr2 = is_not_null(root());
+        let expr2 = is_not_null(root(DType::Null));
         assert_eq!(expr2.to_string(), "is_not_null($)");
     }
 
     #[test]
     fn test_is_not_null_is_not_strict() {
         assert!(
-            !is_not_null(col("a"))
+            !is_not_null(col("a", test_harness::struct_dtype()))
                 .as_scalar()
                 .is_some_and(|f| f.signature().is_strict())
         );
@@ -268,18 +281,18 @@ mod tests {
 
     #[test]
     fn test_is_not_null_falsification() -> VortexResult<()> {
-        let expr = is_not_null(col("a"));
         let dtype = test_harness::struct_dtype();
+        let expr = is_not_null(col("a", dtype.clone()));
 
         assert_eq!(
-            expr.bind(&dtype)?.falsify(&STATS_SESSION)?,
-            Some(
-                or(
-                    eq(null_count(col("a")), RowCount.new_expr(EmptyOptions, []),),
-                    all_null(col("a")),
-                )
-                .bind(&dtype)?
-            )
+            expr.falsify(&STATS_SESSION)?,
+            Some(or(
+                eq(
+                    null_count(col("a", dtype.clone())),
+                    RowCount.try_new_bound_expr(EmptyOptions, [])?,
+                ),
+                all_null(col("a", dtype)),
+            ))
         );
         Ok(())
     }

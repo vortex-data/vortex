@@ -14,9 +14,10 @@ use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
-use vortex_array::expr::Expression;
+use vortex_array::expr::BoundExpression;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_layout::LayoutReader;
 use vortex_layout::scan::layout::LayoutReaderDataSource;
 use vortex_layout::scan::scan_builder::ScanBuilder;
@@ -226,7 +227,15 @@ impl VortexFile {
     ///
     /// Row-count-aware pruning predicates are evaluated with the file's total
     /// row count as their scope.
-    pub fn can_prune(&self, filter: &Expression) -> VortexResult<bool> {
+    pub fn can_prune(&self, filter: &BoundExpression) -> VortexResult<bool> {
+        vortex_ensure!(
+            filter.is_root_bound_to(self.footer.dtype()),
+            "Pruning filter is bound against a different dtype"
+        );
+        vortex_ensure!(
+            matches!(filter.dtype(), DType::Bool(_)),
+            "Pruning filter must evaluate to boolean"
+        );
         let Some((stats, fields)) = self
             .footer
             .statistics()
@@ -236,7 +245,7 @@ impl VortexFile {
         };
 
         can_prune_file_stats(
-            &filter.bind(self.footer.dtype())?,
+            filter,
             self.footer.row_count(),
             stats,
             fields,

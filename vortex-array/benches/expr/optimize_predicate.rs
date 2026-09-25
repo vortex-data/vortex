@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Benchmarks `Expression::optimize_recursive` on lookup-style pushdown predicates:
+//! Benchmarks `BoundExpression::optimize_recursive` on lookup-style pushdown predicates:
 //! an id membership test (either `list_contains` or a balanced OR of equalities) conjoined
 //! with timestamp range bounds and kind filters.
 
@@ -19,17 +19,17 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::StructFields;
-use vortex_array::expr::Expression;
-use vortex_array::expr::and;
-use vortex_array::expr::and_collect;
-use vortex_array::expr::col;
-use vortex_array::expr::eq;
-use vortex_array::expr::gt_eq;
-use vortex_array::expr::list_contains;
-use vortex_array::expr::lit;
-use vortex_array::expr::lt;
-use vortex_array::expr::not_eq;
-use vortex_array::expr::or_collect;
+use vortex_array::expr::BoundExpression;
+use vortex_array::expr::bound::and;
+use vortex_array::expr::bound::and_collect;
+use vortex_array::expr::bound::col;
+use vortex_array::expr::bound::eq;
+use vortex_array::expr::bound::gt_eq;
+use vortex_array::expr::bound::list_contains;
+use vortex_array::expr::bound::lit;
+use vortex_array::expr::bound::lt;
+use vortex_array::expr::bound::not_eq;
+use vortex_array::expr::bound::or_collect;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
 use vortex_array::scalar::Scalar;
@@ -152,7 +152,7 @@ fn id_strings(id_count: usize) -> Vec<String> {
         .collect()
 }
 
-fn timestamp_lit(micros: i64) -> Expression {
+fn timestamp_lit(micros: i64) -> BoundExpression {
     let storage = Scalar::primitive(micros, Nullability::NonNullable);
     lit(Scalar::extension_ref(
         Timestamp::new(TimeUnit::Microseconds, Nullability::NonNullable).erased(),
@@ -160,7 +160,7 @@ fn timestamp_lit(micros: i64) -> Expression {
     ))
 }
 
-fn id_in_list_filter(ids: &[String]) -> Expression {
+fn id_in_list_filter(ids: &[String]) -> BoundExpression {
     let elements = ids
         .iter()
         .map(|id| Scalar::utf8(id.as_str(), Nullability::Nullable))
@@ -170,21 +170,25 @@ fn id_in_list_filter(ids: &[String]) -> Expression {
         elements,
         Nullability::Nullable,
     );
-    list_contains(lit(list), col(FIELD_ID))
+    list_contains(lit(list), col(FIELD_ID, scope()))
 }
 
-fn id_balanced_or_filter(ids: &[String]) -> Expression {
-    or_collect(ids.iter().map(|id| eq(col(FIELD_ID), lit(id.as_str())))).unwrap()
+fn id_balanced_or_filter(ids: &[String]) -> BoundExpression {
+    or_collect(
+        ids.iter()
+            .map(|id| eq(col(FIELD_ID, scope()), lit(id.as_str()))),
+    )
+    .unwrap()
 }
 
-fn id_filter(ids: &[String], shape: IdPredicateShape) -> Expression {
+fn id_filter(ids: &[String], shape: IdPredicateShape) -> BoundExpression {
     match shape {
         IdPredicateShape::InList => id_in_list_filter(ids),
         IdPredicateShape::BalancedOr => id_balanced_or_filter(ids),
     }
 }
 
-fn lookup_predicate(predicate_case: PredicateCase) -> Expression {
+fn lookup_predicate(predicate_case: PredicateCase) -> BoundExpression {
     let ids = id_strings(predicate_case.id_count);
     let min_timestamp_us = TIMESTAMP_BASE_SECS * MICROS_PER_SECOND;
     let max_timestamp_us =
@@ -192,22 +196,27 @@ fn lookup_predicate(predicate_case: PredicateCase) -> Expression {
 
     let id_filter = and(
         id_filter(&ids, predicate_case.shape),
-        not_eq(col(FIELD_KIND), lit(KIND_EXCLUDED)),
+        not_eq(col(FIELD_KIND, scope()), lit(KIND_EXCLUDED)),
     );
 
     and_collect([
         id_filter,
-        gt_eq(col(FIELD_TIMESTAMP), timestamp_lit(min_timestamp_us)),
-        lt(col(FIELD_TIMESTAMP), timestamp_lit(max_timestamp_us)),
-        eq(col(FIELD_KIND), lit(KIND_INCLUDED)),
+        gt_eq(
+            col(FIELD_TIMESTAMP, scope()),
+            timestamp_lit(min_timestamp_us),
+        ),
+        lt(
+            col(FIELD_TIMESTAMP, scope()),
+            timestamp_lit(max_timestamp_us),
+        ),
+        eq(col(FIELD_KIND, scope()), lit(KIND_INCLUDED)),
     ])
     .unwrap()
 }
 
 #[divan::bench(args = PREDICATE_CASES)]
 fn optimize_lookup_predicate(bencher: Bencher, predicate_case: &PredicateCase) {
-    let scope = scope();
     let predicate = lookup_predicate(*predicate_case);
 
-    bencher.bench(|| black_box(predicate.optimize_recursive(&scope)));
+    bencher.bench(|| black_box(predicate.optimize_recursive()));
 }

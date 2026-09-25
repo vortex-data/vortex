@@ -594,7 +594,10 @@ TEST_CASE("Multithreaded scan", "[datasource]") {
     }
 }
 
-const vx_array *scan_with_options(vx_session *session, vx_scan_options &options) {
+const vx_array *scan_with_options(vx_session *session,
+                                  vx_scan_options &options,
+                                  const vx_expression *projection = nullptr,
+                                  const vx_expression *filter = nullptr) {
     TempPath path = write_sample(session);
     vx_error *error = nullptr;
 
@@ -609,6 +612,25 @@ const vx_array *scan_with_options(vx_session *session, vx_scan_options &options)
     defer {
         vx_data_source_free(ds);
     };
+
+    const vx_dtype *dtype = vx_data_source_dtype(ds);
+    defer {
+        vx_dtype_free(dtype);
+    };
+    const vx_bound_expression *bound_projection =
+        projection == nullptr ? nullptr : vx_expression_bind(projection, dtype, &error);
+    require_no_error(error);
+    defer {
+        vx_bound_expression_free(bound_projection);
+    };
+    const vx_bound_expression *bound_filter =
+        filter == nullptr ? nullptr : vx_expression_bind(filter, dtype, &error);
+    require_no_error(error);
+    defer {
+        vx_bound_expression_free(bound_filter);
+    };
+    options.projection = bound_projection;
+    options.filter = bound_filter;
 
     vx_scan *scan = vx_data_source_scan(ds, &options, nullptr, &error);
     require_no_error(error);
@@ -654,8 +676,7 @@ TEST_CASE("Project root", "[projection]") {
         vx_expression_free(root);
     };
     vx_scan_options opts = {};
-    opts.projection = root;
-    const vx_array *array = scan_with_options(session, opts);
+    const vx_array *array = scan_with_options(session, opts, root);
     defer {
         vx_array_free(array);
     };
@@ -680,8 +701,7 @@ TEST_CASE("Project single field", "[projection]") {
     };
 
     {
-        opts.projection = age_field;
-        const vx_array *array = scan_with_options(session, opts);
+        const vx_array *array = scan_with_options(session, opts, age_field);
         defer {
             vx_array_free(array);
         };
@@ -695,8 +715,7 @@ TEST_CASE("Project single field", "[projection]") {
     };
 
     {
-        opts.projection = height_field;
-        const vx_array *array = scan_with_options(session, opts);
+        const vx_array *array = scan_with_options(session, opts, height_field);
         defer {
             vx_array_free(array);
         };
@@ -742,8 +761,7 @@ TEST_CASE("Filter with literal expression", "[filter]") {
     };
 
     vx_scan_options opts = {};
-    opts.filter = filter;
-    const vx_array *array = scan_with_options(session, opts);
+    const vx_array *array = scan_with_options(session, opts, nullptr, filter);
     defer {
         vx_array_free(array);
     };
@@ -787,8 +805,7 @@ TEST_CASE("Project UTF-8 literal expression", "[projection]") {
     };
 
     vx_scan_options opts = {};
-    opts.projection = literal_expr;
-    const vx_array *array = scan_with_options(session, opts);
+    const vx_array *array = scan_with_options(session, opts, literal_expr);
     defer {
         vx_array_free(array);
     };
@@ -991,7 +1008,7 @@ TEST_CASE("Broken scan with DType mismatch in filter", "[filter]") {
         vx_expression_free(age_col);
     };
 
-    vx_scalar *lit = vx_scalar_new_i32(67, false);
+    vx_scalar *lit = vx_scalar_new_i32(300, false);
     defer {
         vx_scalar_free(lit);
     };
@@ -1002,32 +1019,17 @@ TEST_CASE("Broken scan with DType mismatch in filter", "[filter]") {
         vx_expression_free(lit_expr);
     };
 
-    // DType mismatch between age_col (u8) and lit (i32)
+    // Authored binding cannot coerce 300 to the age column's u8 dtype.
     vx_expression *filter = vx_expression_binary(VX_OPERATOR_EQ, age_col, lit_expr);
     REQUIRE(filter != nullptr);
     defer {
         vx_expression_free(filter);
     };
 
-    vx_scan_options scan_opts = {};
-    scan_opts.filter = filter;
-
-    vx_scan *scan = vx_data_source_scan(ds, &scan_opts, nullptr, &error);
-    require_no_error(error);
-    defer {
-        vx_scan_free(scan);
-    };
-
-    vx_partition *partition = vx_scan_next_partition(scan, &error);
-    require_no_error(error);
-    REQUIRE(partition != nullptr);
-    defer {
-        vx_partition_free(partition);
-    };
-
-    // This call must set vx_error and return nullptr, not panic
-    const vx_array *array = vx_partition_next(partition, &error);
-    REQUIRE(array == nullptr);
+    const vx_dtype *dtype = vx_data_source_dtype(ds);
+    const vx_bound_expression *bound_filter = vx_expression_bind(filter, dtype, &error);
+    REQUIRE(bound_filter == nullptr);
     REQUIRE(error != nullptr);
     vx_error_free(error);
+    vx_dtype_free(dtype);
 }

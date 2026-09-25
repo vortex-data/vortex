@@ -6,23 +6,29 @@ use std::ptr::NonNull;
 use std::slice;
 use std::sync::Arc;
 
+use vortex::array::expr::BoundExpression;
+use vortex::authored_expr;
+use vortex::authored_expr::Expression;
 use vortex::dtype::FieldName;
 use vortex::error::VortexExpect;
-use vortex::expr::Expression;
-use vortex::expr::and_collect;
-use vortex::expr::get_item;
-use vortex::expr::is_null;
-use vortex::expr::list_contains;
-use vortex::expr::lit;
-use vortex::expr::not;
-use vortex::expr::or_collect;
-use vortex::expr::root;
-use vortex::expr::select;
+use vortex::error::vortex_ensure;
+use vortex::scalar_fn::EmptyOptions;
 use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::binary::Binary;
+use vortex::scalar_fn::fns::cast::Cast;
+use vortex::scalar_fn::fns::get_item::GetItem;
+use vortex::scalar_fn::fns::is_not_null::IsNotNull;
+use vortex::scalar_fn::fns::is_null::IsNull;
+use vortex::scalar_fn::fns::like::Like;
+use vortex::scalar_fn::fns::like::LikeOptions;
+use vortex::scalar_fn::fns::literal::Literal;
+use vortex::scalar_fn::fns::not::Not;
 use vortex::scalar_fn::fns::operators::Operator;
+use vortex::scalar_fn::fns::select::FieldSelection;
+use vortex::scalar_fn::fns::select::Select;
 
 use crate::box_wrapper;
+use crate::dtype::vx_dtype;
 use crate::error::try_or;
 use crate::error::vx_error;
 use crate::scalar::vx_scalar;
@@ -33,15 +39,205 @@ use crate::to_field_names;
 box_wrapper!(
     /// A node in a Vortex expression tree.
     ///
-    /// Expressions represent scalar computations that can be performed on
-    /// data. Each expression consists of an encoding (vtable), heap-allocated
-    /// metadata, and child expressions.
+    /// Expressions are authored function calls with opaque options and child expressions.
     ///
     /// Operations on expressions don't take ownership of input values, and so
     /// input values must be freed by the caller.
     Expression,
     vx_expression
 );
+
+box_wrapper!(
+    /// A typed expression tree bound to a root dtype. Scan and array execution accept this handle.
+    BoundExpression,
+    vx_bound_expression
+);
+
+/// Bind an authored expression against a root dtype, checking all scalar functions and fields.
+/// The returned handle owns its tree and must be freed with `vx_bound_expression_free`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_expression_bind(
+    expression: *const vx_expression,
+    dtype: *const vx_dtype,
+    error: *mut *mut vx_error,
+) -> *const vx_bound_expression {
+    try_or(error, ptr::null(), || {
+        vortex_ensure!(!expression.is_null() && !dtype.is_null());
+        let expr = vx_expression::as_ref(expression);
+        let dtype = vx_dtype::as_ref(dtype);
+        let bound = expr.bind(dtype)?.optimize_recursive()?;
+        Ok(vx_bound_expression::new(bound))
+    })
+}
+
+/// Clone a bound expression handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_bound_expression_clone(
+    expression: *const vx_bound_expression,
+) -> *const vx_bound_expression {
+    vx_bound_expression::new(vx_bound_expression::as_ref(expression).clone())
+}
+
+/// Return the checked output dtype of a bound expression. The caller owns the returned handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_bound_expression_dtype(
+    expression: *const vx_bound_expression,
+) -> *const vx_dtype {
+    vx_dtype::new(vx_bound_expression::as_ref(expression).dtype().clone())
+}
+
+/// Create a bound root from an engine-owned input dtype.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vx_bound_expression_root(
+    dtype: *const vx_dtype,
+) -> *const vx_bound_expression {
+    vx_bound_expression::new(BoundExpression::new_root(vx_dtype::as_ref(dtype).clone()))
+}
+
+/// Select a field from a bound struct expression.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_bound_expression_get_item(
+    name: vx_view,
+    child: *const vx_bound_expression,
+    error: *mut *mut vx_error,
+) -> *const vx_bound_expression {
+    try_or(error, ptr::null(), || {
+        let name: FieldName = unsafe { name.as_str()? }.into();
+        let child = vx_bound_expression::as_ref(child).clone();
+        Ok(vx_bound_expression::new(
+            GetItem.try_new_bound_expr(name, [child])?,
+        ))
+    })
+}
+
+/// Construct a bound literal from a typed scalar.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_bound_expression_literal(
+    scalar: *const vx_scalar,
+    error: *mut *mut vx_error,
+) -> *const vx_bound_expression {
+    try_or(error, ptr::null(), || {
+        Ok(vx_bound_expression::new(Literal.try_new_bound_expr(
+            vx_scalar::as_ref(scalar).clone(),
+            [],
+        )?))
+    })
+}
+
+/// Construct a bound binary operation. Both argument dtypes are checked by the scalar function.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_bound_expression_binary(
+    operator: vx_binary_operator,
+    lhs: *const vx_bound_expression,
+    rhs: *const vx_bound_expression,
+    error: *mut *mut vx_error,
+) -> *const vx_bound_expression {
+    try_or(error, ptr::null(), || {
+        let lhs = vx_bound_expression::as_ref(lhs).clone();
+        let rhs = vx_bound_expression::as_ref(rhs).clone();
+        Ok(vx_bound_expression::new(
+            Binary.try_new_bound_expr(operator.into(), [lhs, rhs])?,
+        ))
+    })
+}
+
+/// Construct a typed boolean negation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_bound_expression_not(
+    child: *const vx_bound_expression,
+    error: *mut *mut vx_error,
+) -> *const vx_bound_expression {
+    try_or(error, ptr::null(), || {
+        let child = vx_bound_expression::as_ref(child).clone();
+        Ok(vx_bound_expression::new(
+            Not.try_new_bound_expr(EmptyOptions, [child])?,
+        ))
+    })
+}
+
+/// Construct a typed null test.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_bound_expression_is_null(
+    child: *const vx_bound_expression,
+    error: *mut *mut vx_error,
+) -> *const vx_bound_expression {
+    try_or(error, ptr::null(), || {
+        let child = vx_bound_expression::as_ref(child).clone();
+        Ok(vx_bound_expression::new(
+            IsNull.try_new_bound_expr(EmptyOptions, [child])?,
+        ))
+    })
+}
+
+/// Construct a typed non-null test.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_bound_expression_is_not_null(
+    child: *const vx_bound_expression,
+    error: *mut *mut vx_error,
+) -> *const vx_bound_expression {
+    try_or(error, ptr::null(), || {
+        let child = vx_bound_expression::as_ref(child).clone();
+        Ok(vx_bound_expression::new(
+            IsNotNull.try_new_bound_expr(EmptyOptions, [child])?,
+        ))
+    })
+}
+
+/// Construct a typed SQL LIKE call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_bound_expression_like(
+    value: *const vx_bound_expression,
+    pattern: *const vx_bound_expression,
+    negated: bool,
+    case_insensitive: bool,
+    error: *mut *mut vx_error,
+) -> *const vx_bound_expression {
+    try_or(error, ptr::null(), || {
+        let value = vx_bound_expression::as_ref(value).clone();
+        let pattern = vx_bound_expression::as_ref(pattern).clone();
+        Ok(vx_bound_expression::new(Like.try_new_bound_expr(
+            LikeOptions {
+                negated,
+                case_insensitive,
+            },
+            [value, pattern],
+        )?))
+    })
+}
+
+/// Cast a bound expression to an engine-selected dtype.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_bound_expression_cast(
+    child: *const vx_bound_expression,
+    dtype: *const vx_dtype,
+    error: *mut *mut vx_error,
+) -> *const vx_bound_expression {
+    try_or(error, ptr::null(), || {
+        let child = vx_bound_expression::as_ref(child).clone();
+        let dtype = vx_dtype::as_ref(dtype).clone();
+        Ok(vx_bound_expression::new(
+            Cast.try_new_bound_expr(dtype, [child])?,
+        ))
+    })
+}
+
+/// Select fields from a bound struct expression.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_bound_expression_select(
+    names: *const vx_view,
+    len: usize,
+    child: *const vx_bound_expression,
+    error: *mut *mut vx_error,
+) -> *const vx_bound_expression {
+    try_or(error, ptr::null(), || {
+        let names = unsafe { to_field_names(names, len) }?;
+        let child = vx_bound_expression::as_ref(child).clone();
+        Ok(vx_bound_expression::new(Select.try_new_bound_expr(
+            FieldSelection::include(names.into()),
+            [child],
+        )?))
+    })
+}
 
 /// Create a root expression. A root expression, applied to an array in
 /// vx_array_apply, takes the array itself as opposed to functions like
@@ -52,14 +248,18 @@ box_wrapper!(
 /// const vx_array* array = ...;
 /// vx_expression* root = vx_expression_root();
 /// const vx_error* error = NULL;
-/// vx_array* applied_array = vx_array_apply(array, root, &error);
+/// const vx_dtype* dtype = vx_array_dtype(array);
+/// const vx_bound_expression* bound = vx_expression_bind(root, dtype, &error);
+/// const vx_array* applied_array = vx_array_apply(array, bound, &error);
 /// // array and applied_array are identical
 /// vx_array_free(applied_array);
+/// vx_bound_expression_free(bound);
+/// vx_dtype_free(dtype);
 /// vx_expression_free(root);
 /// vx_array_free(array);
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vx_expression_root() -> *mut vx_expression {
-    vx_expression::new(root())
+    vx_expression::new(authored_expr::root())
 }
 
 /// Increase reference count on vx_expression
@@ -89,12 +289,15 @@ pub unsafe extern "C-unwind" fn vx_expression_clone(
 /// vx_scalar_free(threshold_scalar);
 ///
 /// vx_expression* predicate = vx_expression_binary(VX_OPERATOR_GTE, age, threshold);
+/// const vx_dtype* dtype = vx_data_source_dtype(data_source);
+/// const vx_bound_expression* bound = vx_expression_bind(predicate, dtype, &error);
 /// vx_scan_options options = {};
-/// options.filter = predicate;
+/// options.filter = bound;
 ///
 /// vx_scan* scan = vx_data_source_scan(data_source, &options, NULL, &error);
 ///
 /// vx_scan_free(scan);
+/// vx_bound_expression_free(bound);
 /// vx_expression_free(predicate);
 /// vx_expression_free(threshold);
 /// vx_expression_free(age);
@@ -105,7 +308,9 @@ pub unsafe extern "C-unwind" fn vx_expression_literal(
     err: *mut *mut vx_error,
 ) -> *mut vx_expression {
     try_or(err, ptr::null_mut(), || {
-        Ok(vx_expression::new(lit(vx_scalar::as_ref(scalar).clone())))
+        Ok(vx_expression::new(authored_expr::lit(
+            vx_scalar::as_ref(scalar).clone(),
+        )))
     })
 }
 
@@ -130,7 +335,11 @@ pub unsafe extern "C" fn vx_expression_select(
 ) -> *mut vx_expression {
     let names =
         unsafe { to_field_names(names, len) }.vortex_expect("converting names to field names");
-    let expr = select(names, vx_expression::as_ref(child).clone());
+    let expr = Expression::call(
+        "select",
+        FieldSelection::include(names.into()),
+        [vx_expression::as_ref(child).clone()],
+    );
     vx_expression::new(expr)
 }
 
@@ -146,7 +355,7 @@ pub unsafe extern "C" fn vx_expression_and(
     } else {
         unsafe { slice::from_raw_parts(expressions, len) }
     };
-    match and_collect(slice.iter().map(|x| vx_expression::as_ref(*x).clone())) {
+    match authored_expr::and_collect(slice.iter().map(|x| vx_expression::as_ref(*x).clone())) {
         Some(expr) => vx_expression::new(expr),
         None => ptr::null_mut(),
     }
@@ -164,7 +373,7 @@ pub unsafe extern "C" fn vx_expression_or(
     } else {
         unsafe { slice::from_raw_parts(expressions, len) }
     };
-    match or_collect(slice.iter().map(|x| vx_expression::as_ref(*x).clone())) {
+    match authored_expr::or_collect(slice.iter().map(|x| vx_expression::as_ref(*x).clone())) {
         Some(expr) => vx_expression::new(expr),
         None => ptr::null_mut(),
     }
@@ -251,7 +460,7 @@ pub unsafe extern "C" fn vx_expression_binary(
 ) -> *mut vx_expression {
     let lhs = vx_expression::as_ref(lhs).clone();
     let rhs = vx_expression::as_ref(rhs).clone();
-    vx_expression::new(Binary.new_expr(operator.into(), [lhs, rhs]))
+    vx_expression::new(authored_expr::binary(operator.into(), lhs, rhs))
 }
 
 /// Create a logical NOT of the child expression.
@@ -259,7 +468,7 @@ pub unsafe extern "C" fn vx_expression_binary(
 /// Returns the logical negation of the input boolean expression.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vx_expression_not(child: *const vx_expression) -> *mut vx_expression {
-    vx_expression::new(not(vx_expression::as_ref(child).clone()))
+    vx_expression::new(authored_expr::not(vx_expression::as_ref(child).clone()))
 }
 
 /// Create an expression that checks for null values.
@@ -267,7 +476,7 @@ pub unsafe extern "C" fn vx_expression_not(child: *const vx_expression) -> *mut 
 /// Returns a boolean array indicating which positions contain null values.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vx_expression_is_null(child: *const vx_expression) -> *mut vx_expression {
-    vx_expression::new(is_null(vx_expression::as_ref(child).clone()))
+    vx_expression::new(authored_expr::is_null(vx_expression::as_ref(child).clone()))
 }
 
 /// Create an expression that extracts a named field from a struct expression.
@@ -290,7 +499,11 @@ pub unsafe extern "C" fn vx_expression_get_item(
     };
     let item: Arc<str> = Arc::from(item);
     let item: FieldName = item.into();
-    vx_expression::new(get_item(item, vx_expression::as_ref(child).clone()))
+    vx_expression::new(Expression::call(
+        "column",
+        item,
+        [vx_expression::as_ref(child).clone()],
+    ))
 }
 
 /// Create an expression that checks if a value is contained in a list.
@@ -303,7 +516,7 @@ pub unsafe extern "C" fn vx_expression_list_contains(
 ) -> *mut vx_expression {
     let list = vx_expression::as_ref(list).clone();
     let value = vx_expression::as_ref(value).clone();
-    vx_expression::new(list_contains(list, value))
+    vx_expression::new(Expression::call("list_contains", (), [list, value]))
 }
 
 #[cfg(test)]
@@ -328,11 +541,18 @@ mod tests {
     use crate::array::vx_array;
     use crate::array::vx_array_apply;
     use crate::array::vx_array_free;
+    use crate::dtype::vx_dtype;
+    use crate::dtype::vx_dtype_free;
     use crate::error::vx_error_free;
     use crate::expression::vx_binary_operator;
+    use crate::expression::vx_bound_expression_binary;
+    use crate::expression::vx_bound_expression_dtype;
+    use crate::expression::vx_bound_expression_free;
+    use crate::expression::vx_bound_expression_literal;
     use crate::expression::vx_expression;
     use crate::expression::vx_expression_and;
     use crate::expression::vx_expression_binary;
+    use crate::expression::vx_expression_bind;
     use crate::expression::vx_expression_free;
     use crate::expression::vx_expression_get_item;
     use crate::expression::vx_expression_list_contains;
@@ -350,6 +570,34 @@ mod tests {
         unsafe {
             let root = vx_expression_root();
             vx_expression_free(root);
+        }
+    }
+
+    #[test]
+    fn test_direct_bound_binary() {
+        unsafe {
+            let scalar = vx_scalar_new_i32(42, false);
+            let mut error = ptr::null_mut();
+            let lhs = vx_bound_expression_literal(scalar, &raw mut error);
+            let rhs = vx_bound_expression_literal(scalar, &raw mut error);
+            assert!(error.is_null());
+            let equals = vx_bound_expression_binary(
+                vx_binary_operator::VX_OPERATOR_EQ,
+                lhs,
+                rhs,
+                &raw mut error,
+            );
+            assert!(error.is_null());
+            let dtype = vx_bound_expression_dtype(equals);
+            assert!(matches!(
+                vx_dtype::as_ref(dtype),
+                vortex::dtype::DType::Bool(_)
+            ));
+            vx_dtype_free(dtype);
+            vx_bound_expression_free(equals);
+            vx_bound_expression_free(rhs);
+            vx_bound_expression_free(lhs);
+            vx_scalar_free(scalar);
         }
     }
 
@@ -377,9 +625,12 @@ mod tests {
             assert_ne!(column, ptr::null_mut());
 
             let array = vx_array::new(array.into_array());
+            let dtype = vx_dtype::new(vx_array::as_ref(array).dtype().clone());
             let mut error = ptr::null_mut();
 
-            let applied_array = vx_array_apply(array, column, &raw mut error);
+            let bound = vx_expression_bind(column, dtype, &raw mut error);
+            assert!(error.is_null());
+            let applied_array = vx_array_apply(array, bound, &raw mut error);
             assert!(!applied_array.is_null());
             assert!(error.is_null());
             {
@@ -392,27 +643,31 @@ mod tests {
                 assert_eq!(prim.to_buffer(), expected);
             }
             vx_array_free(applied_array);
+            vx_bound_expression_free(bound);
 
             vx_expression_free(column);
 
             let column = vx_expression_get_item(vx_view::from_str("ololo"), root);
             assert_ne!(column, ptr::null_mut());
 
-            let applied_array = vx_array_apply(array, column, &raw mut error);
-            assert!(applied_array.is_null());
+            let bound = vx_expression_bind(column, dtype, &raw mut error);
+            assert!(bound.is_null());
             assert!(!error.is_null());
             vx_error_free(error);
 
             let names_array_vx = vx_array::new(names_array.into_array());
-            let applied_array = vx_array_apply(names_array_vx, column, &raw mut error);
-            assert!(applied_array.is_null());
+            let names_dtype = vx_dtype::new(vx_array::as_ref(names_array_vx).dtype().clone());
+            let bound = vx_expression_bind(column, names_dtype, &raw mut error);
+            assert!(bound.is_null());
             assert!(!error.is_null());
             vx_error_free(error);
+            vx_dtype_free(names_dtype);
             vx_array_free(names_array_vx);
 
             vx_expression_free(column);
 
             vx_array_free(array);
+            vx_dtype_free(dtype);
             vx_expression_free(root);
         }
     }
@@ -426,6 +681,7 @@ mod tests {
 
         unsafe {
             let array = vx_array::new(array);
+            let dtype = vx_dtype::new(vx_array::as_ref(array).dtype().clone());
 
             let value = 2i32;
             let scalar = vx_scalar_new_i32(value, false);
@@ -437,7 +693,9 @@ mod tests {
             assert!(!expr.is_null());
             vx_scalar_free(scalar);
 
-            let applied = vx_array_apply(array, expr, &raw mut error);
+            let bound = vx_expression_bind(expr, dtype, &raw mut error);
+            assert!(error.is_null());
+            let applied = vx_array_apply(array, bound, &raw mut error);
             assert!(error.is_null());
             assert!(!applied.is_null());
 
@@ -450,6 +708,7 @@ mod tests {
             }
 
             vx_array_free(applied);
+            vx_bound_expression_free(bound);
             vx_expression_free(expr);
 
             {
@@ -460,6 +719,7 @@ mod tests {
             }
 
             vx_array_free(array);
+            vx_dtype_free(dtype);
         }
     }
 
@@ -471,13 +731,16 @@ mod tests {
             let root = vx_expression_root();
 
             let array = vx_array::new(array.into_array());
+            let dtype = vx_dtype::new(vx_array::as_ref(array).dtype().clone());
 
             let columns = [vx_view::from_str("name"), vx_view::from_str("age")];
             let column = vx_expression_select(columns.as_ptr(), 2, root);
             assert_ne!(column, ptr::null_mut());
 
             let mut error = ptr::null_mut();
-            let applied_array = vx_array_apply(array, column, &raw mut error);
+            let bound = vx_expression_bind(column, dtype, &raw mut error);
+            assert!(error.is_null());
+            let applied_array = vx_array_apply(array, bound, &raw mut error);
             assert!(!applied_array.is_null());
             assert!(error.is_null());
             {
@@ -486,17 +749,19 @@ mod tests {
                 assert_eq!(applied_array.dtype(), array.dtype());
             }
             vx_array_free(applied_array);
+            vx_bound_expression_free(bound);
             vx_expression_free(column);
 
             let columns = [vx_view::from_str("age"), vx_view::from_str("ololo")];
             let column = vx_expression_select(columns.as_ptr(), 2, root);
-            let applied_array = vx_array_apply(array, column, &raw mut error);
-            assert!(applied_array.is_null());
+            let bound = vx_expression_bind(column, dtype, &raw mut error);
+            assert!(bound.is_null());
             assert!(!error.is_null());
             vx_error_free(error);
             vx_expression_free(column);
 
             vx_array_free(array);
+            vx_dtype_free(dtype);
             vx_expression_free(root);
         }
     }
@@ -514,6 +779,7 @@ mod tests {
 
         unsafe {
             let array = vx_array::new(array.unwrap().into_array());
+            let dtype = vx_dtype::new(vx_array::as_ref(array).dtype().clone());
 
             let root = vx_expression_root();
             let expression_col1 = vx_expression_get_item(vx_view::from_str("col1"), root);
@@ -536,7 +802,9 @@ mod tests {
             let expressions_ptr = expressions.as_ptr() as *const *const vx_expression;
             let expression_and123 = vx_expression_and(expressions_ptr, 2);
             assert!(!expression_and123.is_null());
-            let applied_array = vx_array_apply(array, expression_and123, &raw mut error);
+            let bound_and = vx_expression_bind(expression_and123, dtype, &raw mut error);
+            assert!(error.is_null());
+            let applied_array = vx_array_apply(array, bound_and, &raw mut error);
             assert!(error.is_null());
             assert!(!applied_array.is_null());
             {
@@ -548,11 +816,14 @@ mod tests {
                 assert_eq!(array.to_bit_buffer(), expected.to_bit_buffer());
             }
             vx_expression_free(expression_and123);
+            vx_bound_expression_free(bound_and);
             vx_array_free(applied_array);
 
             let expression_or123 = vx_expression_or(expressions_ptr, 2);
             assert!(!expression_or123.is_null());
-            let applied_array = vx_array_apply(array, expression_or123, &raw mut error);
+            let bound_or = vx_expression_bind(expression_or123, dtype, &raw mut error);
+            assert!(error.is_null());
+            let applied_array = vx_array_apply(array, bound_or, &raw mut error);
             assert!(error.is_null());
             assert!(!applied_array.is_null());
             {
@@ -564,6 +835,7 @@ mod tests {
                 assert_eq!(array.to_bit_buffer(), expected.to_bit_buffer());
             }
             vx_array_free(applied_array);
+            vx_bound_expression_free(bound_or);
 
             vx_expression_free(expression_or123);
 
@@ -575,6 +847,7 @@ mod tests {
             vx_expression_free(root);
 
             vx_array_free(array);
+            vx_dtype_free(dtype);
         }
     }
 
@@ -589,6 +862,7 @@ mod tests {
         unsafe {
             let root = vx_expression_root();
             let array = vx_array::new(array.into_array());
+            let dtype = vx_dtype::new(vx_array::as_ref(array).dtype().clone());
             let value = vx_scalar_new_i32(1, false);
             let mut error = ptr::null_mut();
             let expression_value = vx_expression_literal(value, &raw mut error);
@@ -599,7 +873,9 @@ mod tests {
             assert!(!expression.is_null());
 
             let mut error = ptr::null_mut();
-            let applied = vx_array_apply(array, expression, &raw mut error);
+            let bound = vx_expression_bind(expression, dtype, &raw mut error);
+            assert!(error.is_null());
+            let applied = vx_array_apply(array, bound, &raw mut error);
             assert!(error.is_null());
             assert!(!applied.is_null());
             {
@@ -611,10 +887,12 @@ mod tests {
                 assert_eq!(applied.to_bit_buffer(), expected.to_bit_buffer());
             }
             vx_array_free(applied);
+            vx_bound_expression_free(bound);
 
             vx_expression_free(expression_value);
             vx_expression_free(expression);
             vx_array_free(array);
+            vx_dtype_free(dtype);
 
             vx_expression_free(root);
         }

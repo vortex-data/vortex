@@ -10570,6 +10570,7 @@ dependencies = [
  "vortex-decimal-byte-parts",
  "vortex-edition",
  "vortex-error",
+ "vortex-expr",
  "vortex-fastlanes",
  "vortex-file",
  "vortex-fsst",
@@ -11146,6 +11147,16 @@ dependencies = [
  "serial_test",
  "temp-env",
  "tokio",
+]
+
+[[package]]
+name = "vortex-expr"
+version = "0.1.0"
+dependencies = [
+ "prost 0.14.4",
+ "vortex-array",
+ "vortex-error",
+ "vortex-session",
 ]
 
 [[package]]

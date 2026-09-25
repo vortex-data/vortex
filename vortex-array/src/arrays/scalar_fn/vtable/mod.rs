@@ -35,7 +35,7 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
-use crate::expr::Expression;
+use crate::expr::BoundExpression;
 use crate::expr::display::ExprDisplay;
 use crate::matcher::Matcher;
 use crate::scalar_fn;
@@ -310,10 +310,12 @@ impl scalar_fn::ScalarFnVTable for ArrayExpr {
     fn validity(
         &self,
         options: &Self::Options,
-        _expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
+        _expression: &BoundExpression,
+    ) -> VortexResult<Option<BoundExpression>> {
         let validity_array = options.0.validity()?.to_array(options.0.len());
-        Ok(Some(ArrayExpr.new_expr(FakeEq(validity_array), [])))
+        Ok(Some(
+            ArrayExpr.try_new_bound_expr(FakeEq(validity_array), [])?,
+        ))
     }
 
     fn is_strict(&self, _options: &Self::Options) -> bool {

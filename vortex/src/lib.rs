@@ -66,7 +66,7 @@
 //! use vortex::VortexSessionDefault;
 //! use vortex::array::{IntoArray, stream::ArrayStreamExt};
 //! use vortex::array::arrays::PrimitiveArray;
-//! use vortex::array::expr::{gt, lit, root};
+//! use vortex::array::expr::bound::{gt, lit, root};
 //! use vortex::array::validity::Validity;
 //! use vortex::buffer::{ByteBufferMut, buffer};
 //! use vortex::file::{OpenOptionsSessionExt, WriteOptionsSessionExt};
@@ -85,9 +85,8 @@
 //! let file = session
 //!     .open_options()
 //!     .open_buffer(bytes)?;
-//! let filter = gt(root(), lit(2u64))
-//!     .optimize_recursive(file.dtype())?
-//!     .bind(file.dtype())?;
+//! let filter = gt(root(file.dtype().clone()), lit(2u64))
+//!     .optimize_recursive()?;
 //! let filtered = file
 //!     .scan()?
 //!     .with_filter(filter)
@@ -105,8 +104,7 @@ pub use vortex_array::aggregate_fn;
 use vortex_array::aggregate_fn::session::AggregateFnSession;
 pub use vortex_array::compute;
 use vortex_array::dtype::session::DTypeSession;
-// vortex::expr is in the process of having its dependencies inverted, and will eventually be
-// pulled back out into a vortex_expr crate.
+// Typed expressions and their analysis live with arrays.
 pub use vortex_array::expr;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
@@ -114,6 +112,7 @@ pub use vortex_array::scalar_fn;
 use vortex_array::scalar_fn::session::ScalarFnSession;
 use vortex_array::session::ArraySession;
 use vortex_array::stats::session::StatsSession;
+pub use vortex_expr as authored_expr;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::session::LayoutSession;
 use vortex_session::VortexSession;
@@ -360,10 +359,10 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::dtype::FieldNames;
-    use vortex_array::expr::gt;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::root;
-    use vortex_array::expr::select;
+    use vortex_array::expr::bound::gt;
+    use vortex_array::expr::bound::lit;
+    use vortex_array::expr::bound::root;
+    use vortex_array::expr::bound::select;
     use vortex_array::stream::ArrayStreamExt;
     use vortex_array::validity::Validity;
     use vortex_btrblocks::BtrBlocksCompressorBuilder;
@@ -458,9 +457,7 @@ mod test {
 
         // [read]
         let file = session.open_options().open_path(path.clone()).await?;
-        let filter = gt(root(), lit(2u64))
-            .optimize_recursive(file.dtype())?
-            .bind(file.dtype())?;
+        let filter = gt(root(file.dtype().clone()), lit(2u64)).optimize_recursive()?;
         let array = file
             .scan()?
             .with_filter(filter)
@@ -558,9 +555,7 @@ mod test {
 
         // Read the file back, but project down to just the "value" column.
         let file = session.open_options().open_path(path.clone()).await?;
-        let projection = select(["value"], root())
-            .optimize_recursive(file.dtype())?
-            .bind(file.dtype())?;
+        let projection = select(["value"], root(file.dtype().clone())).optimize_recursive()?;
         let projected = file
             .scan()?
             .with_projection(projection)

@@ -18,7 +18,7 @@ use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::extension::ExtDType;
-use vortex_array::expr::Expression;
+use vortex_array::expr::BoundExpression;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
@@ -256,7 +256,11 @@ impl ScalarFnVTable for SpatialEnvelope {
         )
     }
 
-    fn validity(&self, _: &Self::Options, _: &Expression) -> VortexResult<Option<Expression>> {
+    fn validity(
+        &self,
+        _: &Self::Options,
+        _: &BoundExpression,
+    ) -> VortexResult<Option<BoundExpression>> {
         // The output null mask is not derivable from the operand's validity alone: an empty
         // geometry yields a null box even where the operand is valid. Let the planner execute.
         Ok(None)

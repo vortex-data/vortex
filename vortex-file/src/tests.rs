@@ -39,26 +39,27 @@ use vortex_array::dtype::PType;
 use vortex_array::dtype::PType::I32;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::Expression;
-use vortex_array::expr::and;
-use vortex_array::expr::cast;
-use vortex_array::expr::col;
-use vortex_array::expr::eq;
-use vortex_array::expr::get_item;
-use vortex_array::expr::gt;
-use vortex_array::expr::gt_eq;
-use vortex_array::expr::lit;
-use vortex_array::expr::lt;
-use vortex_array::expr::lt_eq;
-use vortex_array::expr::or;
-use vortex_array::expr::root;
-use vortex_array::expr::select;
+use vortex_array::expr::bound::and;
+use vortex_array::expr::bound::cast;
+use vortex_array::expr::bound::col;
+use vortex_array::expr::bound::eq;
+use vortex_array::expr::bound::get_item;
+use vortex_array::expr::bound::gt;
+use vortex_array::expr::bound::gt_eq;
+use vortex_array::expr::bound::lit;
+use vortex_array::expr::bound::lt;
+use vortex_array::expr::bound::lt_eq;
+use vortex_array::expr::bound::or;
+use vortex_array::expr::bound::root;
+use vortex_array::expr::bound::select;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
 use vortex_array::extension::datetime::TimestampOptions;
 use vortex_array::field_path;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
+use vortex_array::scalar_fn::fns::binary::Binary;
+use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::scalar_fn::fns::pack::Pack;
 use vortex_array::scalar_fn::fns::pack::PackOptions;
 use vortex_array::stats::PRUNING_STATS;
@@ -116,10 +117,9 @@ fn strict_sorted(indices: Buffer<u64>) -> StrictSortedBuffer<u64> {
     StrictSortedBuffer::try_new(indices).expect("test indices should be strictly increasing")
 }
 
-fn bind_scan_expr(file: &VortexFile, expr: Expression) -> BoundExpression {
-    expr.optimize_recursive(file.dtype())
-        .and_then(|expr| expr.bind(file.dtype()))
-        .vortex_expect("scan expression should bind")
+fn optimize_scan_expr(expr: BoundExpression) -> BoundExpression {
+    expr.optimize_recursive()
+        .vortex_expect("scan expression should optimize")
 }
 
 #[tokio::test]
@@ -329,7 +329,10 @@ async fn test_read_projection() {
     let array = file
         .scan()
         .unwrap()
-        .with_projection(bind_scan_expr(&file, select(["strings"], root())))
+        .with_projection(optimize_scan_expr(select(
+            ["strings"],
+            root(file.dtype().clone()),
+        )))
         .into_array_stream()
         .unwrap()
         .read_all()
@@ -355,7 +358,10 @@ async fn test_read_projection() {
     let array = file
         .scan()
         .unwrap()
-        .with_projection(bind_scan_expr(&file, select(["numbers"], root())))
+        .with_projection(optimize_scan_expr(select(
+            ["numbers"],
+            root(file.dtype().clone()),
+        )))
         .into_array_stream()
         .unwrap()
         .read_all()
@@ -530,16 +536,13 @@ async fn issue_5385_filter_casted_column() {
     let result = file
         .scan()
         .unwrap()
-        .with_filter(bind_scan_expr(
-            &file,
-            eq(
-                cast(
-                    get_item("x", root()),
-                    DType::Primitive(PType::U16, Nullability::NonNullable),
-                ),
-                lit(1u16),
+        .with_filter(optimize_scan_expr(eq(
+            cast(
+                get_item("x", root(file.dtype().clone())),
+                DType::Primitive(PType::U16, Nullability::NonNullable),
             ),
-        ))
+            lit(1u16),
+        )))
         .into_array_stream()
         .unwrap()
         .read_all()
@@ -583,10 +586,10 @@ async fn filter_string() {
     let result: Vec<_> = file
         .scan()
         .unwrap()
-        .with_filter(bind_scan_expr(
-            &file,
-            eq(get_item("name", root()), lit("Joseph")),
-        ))
+        .with_filter(optimize_scan_expr(eq(
+            get_item("name", root(file.dtype().clone())),
+            lit("Joseph"),
+        )))
         .into_array_stream()
         .unwrap()
         .try_collect()
@@ -644,16 +647,13 @@ async fn filter_or() {
     let result: Vec<_> = file
         .scan()
         .unwrap()
-        .with_filter(bind_scan_expr(
-            &file,
-            or(
-                eq(get_item("name", root()), lit("Angela")),
-                and(
-                    gt_eq(get_item("age", root()), lit(20)),
-                    lt_eq(get_item("age", root()), lit(30)),
-                ),
+        .with_filter(optimize_scan_expr(or(
+            eq(get_item("name", root(file.dtype().clone())), lit("Angela")),
+            and(
+                gt_eq(get_item("age", root(file.dtype().clone())), lit(20)),
+                lt_eq(get_item("age", root(file.dtype().clone())), lit(30)),
             ),
-        ))
+        )))
         .into_array_stream()
         .unwrap()
         .try_collect()
@@ -713,13 +713,10 @@ async fn filter_and() {
     let result: Vec<_> = file
         .scan()
         .unwrap()
-        .with_filter(bind_scan_expr(
-            &file,
-            and(
-                gt(get_item("age", root()), lit(21)),
-                lt_eq(get_item("age", root()), lit(33)),
-            ),
-        ))
+        .with_filter(optimize_scan_expr(and(
+            gt(get_item("age", root(file.dtype().clone())), lit(21)),
+            lt_eq(get_item("age", root(file.dtype().clone())), lit(33)),
+        )))
         .into_array_stream()
         .unwrap()
         .try_collect()
@@ -924,10 +921,10 @@ async fn test_with_indices_and_with_row_filter_simple() {
     let actual_kept_array = file
         .scan()
         .unwrap()
-        .with_filter(bind_scan_expr(
-            &file,
-            gt(get_item("numbers", root()), lit(50_i16)),
-        ))
+        .with_filter(optimize_scan_expr(gt(
+            get_item("numbers", root(file.dtype().clone())),
+            lit(50_i16),
+        )))
         .with_row_indices(strict_sorted(Buffer::empty()))
         .into_array_stream()
         .unwrap()
@@ -945,10 +942,10 @@ async fn test_with_indices_and_with_row_filter_simple() {
     let actual_kept_array = file
         .scan()
         .unwrap()
-        .with_filter(bind_scan_expr(
-            &file,
-            gt(get_item("numbers", root()), lit(50_i16)),
-        ))
+        .with_filter(optimize_scan_expr(gt(
+            get_item("numbers", root(file.dtype().clone())),
+            lit(50_i16),
+        )))
         .with_row_indices(strict_sorted(Buffer::from_iter(kept_indices)))
         .into_array_stream()
         .unwrap()
@@ -976,10 +973,10 @@ async fn test_with_indices_and_with_row_filter_simple() {
     let actual_array = file
         .scan()
         .unwrap()
-        .with_filter(bind_scan_expr(
-            &file,
-            gt(get_item("numbers", root()), lit(50_i16)),
-        ))
+        .with_filter(optimize_scan_expr(gt(
+            get_item("numbers", root(file.dtype().clone())),
+            lit(50_i16),
+        )))
         .with_row_indices(strict_sorted((0..500).collect::<Buffer<_>>()))
         .into_array_stream()
         .unwrap()
@@ -1041,10 +1038,10 @@ async fn filter_string_chunked() {
     let actual_array = file
         .scan()
         .unwrap()
-        .with_filter(bind_scan_expr(
-            &file,
-            eq(get_item("name", root()), lit("Joseph")),
-        ))
+        .with_filter(optimize_scan_expr(eq(
+            get_item("name", root(file.dtype().clone())),
+            lit("Joseph"),
+        )))
         .into_array_stream()
         .unwrap()
         .read_all()
@@ -1134,13 +1131,10 @@ async fn test_pruning_with_or() {
     let actual_array = file
         .scan()
         .unwrap()
-        .with_filter(bind_scan_expr(
-            &file,
-            or(
-                lt_eq(get_item("letter", root()), lit("J")),
-                lt(get_item("number", root()), lit(25)),
-            ),
-        ))
+        .with_filter(optimize_scan_expr(or(
+            lt_eq(get_item("letter", root(file.dtype().clone())), lit("J")),
+            lt(get_item("number", root(file.dtype().clone())), lit(25)),
+        )))
         .into_array_stream()
         .unwrap()
         .read_all()
@@ -1212,10 +1206,10 @@ async fn test_repeated_projection() {
     let actual = file
         .scan()
         .unwrap()
-        .with_projection(bind_scan_expr(
-            &file,
-            select(["strings", "strings"], root()),
-        ))
+        .with_projection(optimize_scan_expr(select(
+            ["strings", "strings"],
+            root(file.dtype().clone()),
+        )))
         .into_array_stream()
         .unwrap()
         .read_all()
@@ -1392,16 +1386,13 @@ async fn write_nullable_nested_struct() -> VortexResult<()> {
 #[tokio::test]
 async fn scan_empty_fields() -> VortexResult<()> {
     let array = (0..10000).collect::<PrimitiveArray>();
-    let projection = Pack
-        .new_expr(
-            PackOptions {
-                names: Default::default(),
-                nullability: Nullability::Nullable,
-            },
-            [],
-        )
-        .optimize_recursive(array.dtype())?
-        .bind(array.dtype())?;
+    let projection = Pack.try_new_bound_expr(
+        PackOptions {
+            names: Default::default(),
+            nullability: Nullability::Nullable,
+        },
+        [],
+    )?;
 
     let result = round_trip(&array.clone().into_array(), |scan| {
         Ok(scan.with_projection(projection))
@@ -2221,25 +2212,23 @@ async fn timestamp_unit_mismatch() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     // Read with SECONDS filter scalar
-    let filter_expr = gt(
-        root(),
-        lit(Scalar::extension::<Timestamp>(
-            TimestampOptions {
-                unit: TimeUnit::Seconds,
-                tz: None,
-            },
-            Scalar::from(1704153600i64),
-        )),
-    );
-
     let file = SESSION.open_options().open_buffer(buf)?;
-    let filter = filter_expr
-        .optimize_recursive(file.dtype())?
-        .bind(file.dtype())?;
-    let mut stream = file.scan()?.with_filter(filter).into_array_stream()?;
-    let result = stream.try_next().await;
-
-    assert!(result.is_err());
+    let error = Binary
+        .try_new_bound_expr(
+            Operator::Gt,
+            [
+                root(file.dtype().clone()),
+                lit(Scalar::extension::<Timestamp>(
+                    TimestampOptions {
+                        unit: TimeUnit::Seconds,
+                        tz: None,
+                    },
+                    Scalar::from(1704153600i64),
+                )),
+            ],
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("different DTypes"), "{error}");
 
     Ok(())
 }
@@ -2272,31 +2261,23 @@ async fn timestamp_unit_mismatch_errors_with_constant_children()
         .await?;
 
     // Read with SECONDS filter scalar — should error due to time unit mismatch.
-    let filter_expr = gt(
-        root(),
-        lit(Scalar::extension::<Timestamp>(
-            TimestampOptions {
-                unit: TimeUnit::Seconds,
-                tz: None,
-            },
-            Scalar::from(1704153600i64),
-        )),
-    );
-
     let file = SESSION.open_options().open_buffer(buf)?;
-    let filter = filter_expr
-        .optimize_recursive(file.dtype())?
-        .bind(file.dtype())?;
-    let stream = file.scan()?.with_filter(filter).into_array_stream()?;
-    let results = stream.try_collect::<Vec<_>>().await;
-
-    assert!(
-        results.is_err(),
-        "Expected error from timestamp unit mismatch (ms vs s), but got {} results. \
-         This indicates the scanner silently applied the filter incorrectly when \
-         DateTimePartsArray children use ConstantArray encoding.",
-        results?.len()
-    );
+    let error = Binary
+        .try_new_bound_expr(
+            Operator::Gt,
+            [
+                root(file.dtype().clone()),
+                lit(Scalar::extension::<Timestamp>(
+                    TimestampOptions {
+                        unit: TimeUnit::Seconds,
+                        tz: None,
+                    },
+                    Scalar::from(1704153600i64),
+                )),
+            ],
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("different DTypes"), "{error}");
 
     Ok(())
 }
@@ -2389,7 +2370,10 @@ async fn test_large_flat_chunk_scan_subdivides_splits() -> VortexResult<()> {
     // A filtered scan crossing sub-split boundaries selects exactly the matching rows.
     let result = file
         .scan()?
-        .with_filter(bind_scan_expr(&file, gt(root(), lit(0i32))))
+        .with_filter(optimize_scan_expr(gt(
+            root(file.dtype().clone()),
+            lit(0i32),
+        )))
         .into_array_stream()?
         .read_all()
         .await?;
@@ -2464,7 +2448,10 @@ async fn test_flat_chunk_scan_with_row_count_splits(
     let result = file
         .scan()?
         .with_split_by(SplitBy::RowCount(rows_per_split))
-        .with_filter(bind_scan_expr(&file, gt(root(), lit(0i32))))
+        .with_filter(optimize_scan_expr(gt(
+            root(file.dtype().clone()),
+            lit(0i32),
+        )))
         .into_array_stream()?
         .read_all()
         .await?;
@@ -2747,20 +2734,30 @@ async fn test_can_prune_composite_predicates() -> VortexResult<()> {
         .write(&mut buf, st.into_array().to_array_stream())
         .await?;
     let file = SESSION.open_options().open_buffer(buf)?;
+    let can_prune = |expr: BoundExpression| -> VortexResult<bool> { file.can_prune(&expr) };
 
     // Bare comparisons: falsified directly by min/max stats.
-    assert!(file.can_prune(&gt(col("age"), lit(30)))?);
-    assert!(file.can_prune(&lt(col("price"), lit(100)))?);
+    assert!(can_prune(gt(col("age", file.dtype().clone()), lit(30)))?);
+    assert!(can_prune(lt(col("price", file.dtype().clone()), lit(100)))?);
 
     // Composite predicates whose falsifications are boolean trees.
-    assert!(file.can_prune(&and(gt(col("age"), lit(30)), lt(col("price"), lit(100))))?);
-    assert!(file.can_prune(&or(gt(col("age"), lit(30)), lt(col("age"), lit(10))))?);
-    assert!(file.can_prune(&eq(col("age"), lit(5)))?);
+    assert!(can_prune(and(
+        gt(col("age", file.dtype().clone()), lit(30)),
+        lt(col("price", file.dtype().clone()), lit(100))
+    ))?);
+    assert!(can_prune(or(
+        gt(col("age", file.dtype().clone()), lit(30)),
+        lt(col("age", file.dtype().clone()), lit(10))
+    ))?);
+    assert!(can_prune(eq(col("age", file.dtype().clone()), lit(5)))?);
 
     // Non-falsifiable controls: rows may match, so pruning must refuse.
-    assert!(!file.can_prune(&gt(col("age"), lit(20)))?);
-    assert!(!file.can_prune(&eq(col("age"), lit(18)))?);
-    assert!(!file.can_prune(&and(gt(col("age"), lit(20)), gt(col("price"), lit(100))))?);
+    assert!(!can_prune(gt(col("age", file.dtype().clone()), lit(20)))?);
+    assert!(!can_prune(eq(col("age", file.dtype().clone()), lit(18)))?);
+    assert!(!can_prune(and(
+        gt(col("age", file.dtype().clone()), lit(20)),
+        gt(col("price", file.dtype().clone()), lit(100))
+    ))?);
 
     Ok(())
 }
@@ -2821,18 +2818,16 @@ async fn repro_8166_binary_gt_all_ff_max() -> VortexResult<()> {
     literal.push(0x98);
     assert_eq!(literal.len(), 63);
 
+    let file = SESSION.open_options().open_buffer(buf)?;
     let filter = gt(
-        get_item("yyw", root()),
+        get_item("yyw", root(file.dtype().clone())),
         lit(Scalar::binary(
             ByteBuffer::from(literal),
             Nullability::NonNullable,
         )),
     );
 
-    let file = SESSION.open_options().open_buffer(buf)?;
-    let filter = filter
-        .optimize_recursive(file.dtype())?
-        .bind(file.dtype())?;
+    let filter = filter.optimize_recursive()?;
     let result = file
         .scan()?
         .with_filter(filter)

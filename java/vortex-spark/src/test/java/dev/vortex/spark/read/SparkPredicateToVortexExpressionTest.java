@@ -135,101 +135,94 @@ final class SparkPredicateToVortexExpressionTest {
     }
 
     @Test
-    @DisplayName("Empty named reference is not pushable")
-    void emptyReferenceIsNotPushable() {
-        Predicate equality = equality(ref(), literal(1));
-        assertFalse(SparkPredicateToVortexExpression.isPushable(equality, SCHEMA));
-    }
-
-    @Test
     @DisplayName("Every accepted comparison operator converts, with the column on either side")
     void everyComparisonOperatorConverts() {
         for (String op : COMPARISON_OPERATORS) {
-            assertPushableAndConvertible(predicate(op, ref("id"), literal(42)), op + " with column on the left");
-            // Spark's V2 builder sometimes commutes; `convertComparison` swaps the operator back.
-            assertPushableAndConvertible(predicate(op, literal(42), ref("id")), op + " with column on the right");
+            assertPushable(predicate(op, ref("id"), literal(42)), op + " with column on the left");
+            // Spark's V2 builder sometimes commutes; bound conversion swaps the operator back.
+            assertPushable(predicate(op, literal(42), ref("id")), op + " with column on the right");
         }
     }
 
     @Test
     @DisplayName("Comparison between two columns converts")
     void columnToColumnComparisonConverts() {
-        assertPushableAndConvertible(equality(ref("id"), ref("profile", "address", "zip")));
+        assertPushable(equality(ref("id"), ref("profile", "address", "zip")));
     }
 
     @Test
     @DisplayName("Comparison between two literals is rejected by both sides")
     void literalToLiteralComparisonIsRejected() {
-        assertNotPushableAndNotConvertible(equality(literal(1), literal(2)));
+        assertNotPushable(equality(literal(1), literal(2)));
     }
 
     @Test
     @DisplayName("Comparison with the wrong number of children is rejected by both sides")
     void comparisonWithWrongArityIsRejected() {
-        assertNotPushableAndNotConvertible(predicate("=", ref("id")));
-        assertNotPushableAndNotConvertible(predicate("=", ref("id"), literal(1), literal(2)));
+        assertNotPushable(predicate("=", ref("id")));
+        assertNotPushable(predicate("=", ref("id"), literal(1), literal(2)));
     }
 
     @Test
     @DisplayName("Nested column comparison converts")
     void nestedColumnComparisonConverts() {
-        assertPushableAndConvertible(equality(ref("profile", "email"), literal("a@b.com")));
+        assertPushable(equality(ref("profile", "email"), literal("a@b.com")));
     }
 
     @Test
     @DisplayName("IS_NULL and IS_NOT_NULL convert for top-level and nested columns")
     void nullChecksConvert() {
-        assertPushableAndConvertible(predicate("IS_NULL", ref("name")));
-        assertPushableAndConvertible(predicate("IS_NOT_NULL", ref("name")));
-        assertPushableAndConvertible(predicate("IS_NULL", ref("profile", "address", "city")));
+        assertPushable(predicate("IS_NULL", ref("name")));
+        assertPushable(predicate("IS_NOT_NULL", ref("name")));
+        assertPushable(predicate("IS_NULL", ref("profile", "address", "city")));
     }
 
     @Test
     @DisplayName("IN converts for a single literal and for many literals")
     void inConverts() {
-        assertPushableAndConvertible(predicate("IN", ref("id"), literal(1)));
-        assertPushableAndConvertible(predicate("IN", ref("id"), literal(1), literal(2), literal(3)));
+        assertPushable(predicate("IN", ref("id"), literal(1)));
+        assertPushable(predicate("IN", ref("id"), literal(1), literal(2), literal(3)));
     }
 
     @Test
     @DisplayName("IN with no literals is rejected by both sides")
     void inWithoutLiteralsIsRejected() {
-        assertNotPushableAndNotConvertible(predicate("IN", ref("id")));
+        assertNotPushable(predicate("IN", ref("id")));
     }
 
     @Test
     @DisplayName("String matching predicates convert, including LIKE meta-characters in the needle")
     void stringMatchesConvert() {
         for (String name : List.of("STARTS_WITH", "ENDS_WITH", "CONTAINS")) {
-            assertPushableAndConvertible(predicate(name, ref("name"), literal("ali")), name);
+            assertPushable(predicate(name, ref("name"), literal("ali")), name);
             // `buildLikePattern` escapes `%`, `_` and `\` so the match stays an exact substring.
-            assertPushableAndConvertible(predicate(name, ref("name"), literal("100%_a\\b")), name + " with escapes");
+            assertPushable(predicate(name, ref("name"), literal("100%_a\\b")), name + " with escapes");
         }
     }
 
     @Test
     @DisplayName("String matching against a non-string literal is rejected by both sides")
     void stringMatchAgainstNonStringLiteralIsRejected() {
-        assertNotPushableAndNotConvertible(predicate("STARTS_WITH", ref("name"), literal(1)));
+        assertNotPushable(predicate("STARTS_WITH", ref("name"), literal(1)));
     }
 
     @Test
     @DisplayName("BOOLEAN_EXPRESSION over a column reference converts")
     void bareBooleanColumnConverts() {
-        assertPushableAndConvertible(predicate("BOOLEAN_EXPRESSION", ref("active")));
+        assertPushable(predicate("BOOLEAN_EXPRESSION", ref("active")));
     }
 
     @Test
     @DisplayName("An unrecognised predicate name is rejected by both sides")
     void unknownPredicateNameIsRejected() {
-        assertNotPushableAndNotConvertible(predicate("BLOOM_FILTER", ref("id"), literal(1)));
+        assertNotPushable(predicate("BLOOM_FILTER", ref("id"), literal(1)));
     }
 
     @Test
     @DisplayName("AlwaysTrue and AlwaysFalse convert to boolean literals")
     void constantPredicatesConvert() {
-        assertPushableAndConvertible(new AlwaysTrue());
-        assertPushableAndConvertible(new AlwaysFalse());
+        assertPushable(new AlwaysTrue());
+        assertPushable(new AlwaysFalse());
     }
 
     @Test
@@ -237,10 +230,10 @@ final class SparkPredicateToVortexExpressionTest {
     void compoundPredicatesConvert() {
         Predicate left = equality(ref("id"), literal(1));
         Predicate right = predicate("IS_NOT_NULL", ref("name"));
-        assertPushableAndConvertible(new And(left, right));
-        assertPushableAndConvertible(new Or(left, right));
-        assertPushableAndConvertible(new Not(left));
-        assertPushableAndConvertible(new Not(new And(left, new Or(right, new AlwaysFalse()))));
+        assertPushable(new And(left, right));
+        assertPushable(new Or(left, right));
+        assertPushable(new Not(left));
+        assertPushable(new Not(new And(left, new Or(right, new AlwaysFalse()))));
     }
 
     @Test
@@ -248,16 +241,16 @@ final class SparkPredicateToVortexExpressionTest {
     void compoundPredicateWithBadLeafIsRejected() {
         Predicate good = equality(ref("id"), literal(1));
         Predicate bad = predicate("BLOOM_FILTER", ref("id"), literal(1));
-        assertNotPushableAndNotConvertible(new And(good, bad));
-        assertNotPushableAndNotConvertible(new Or(bad, good));
-        assertNotPushableAndNotConvertible(new Not(bad));
+        assertNotPushable(new And(good, bad));
+        assertNotPushable(new Or(bad, good));
+        assertNotPushable(new Not(bad));
     }
 
     @Test
     @DisplayName("Every literal type that accepts a null value converts")
     void nullLiteralsConvert() {
         for (String column : NULLABLE_LITERAL_COLUMNS) {
-            assertPushableAndConvertible(
+            assertPushable(
                     equality(ref(column), new LiteralValue<>(null, SCHEMA.get(column))), "null literal for " + column);
         }
     }
@@ -265,29 +258,26 @@ final class SparkPredicateToVortexExpressionTest {
     @Test
     @DisplayName("Every non-null literal type the translator maps converts")
     void nonNullLiteralsConvert() {
-        assertPushableAndConvertible(equality(ref("active"), new LiteralValue<>(true, DataTypes.BooleanType)));
-        assertPushableAndConvertible(equality(ref("tiny"), new LiteralValue<>((byte) 1, DataTypes.ByteType)));
-        assertPushableAndConvertible(equality(ref("small"), new LiteralValue<>((short) 1, DataTypes.ShortType)));
-        assertPushableAndConvertible(equality(ref("id"), literal(42)));
-        assertPushableAndConvertible(equality(ref("big"), new LiteralValue<>(1L, DataTypes.LongType)));
-        assertPushableAndConvertible(equality(ref("ratio"), new LiteralValue<>(1.5f, DataTypes.FloatType)));
-        assertPushableAndConvertible(equality(ref("weight"), new LiteralValue<>(1.5d, DataTypes.DoubleType)));
-        assertPushableAndConvertible(equality(ref("name"), literal("alice")));
-        assertPushableAndConvertible(
-                equality(ref("payload"), new LiteralValue<>(new byte[] {1, 2, 3}, DataTypes.BinaryType)));
+        assertPushable(equality(ref("active"), new LiteralValue<>(true, DataTypes.BooleanType)));
+        assertPushable(equality(ref("tiny"), new LiteralValue<>((byte) 1, DataTypes.ByteType)));
+        assertPushable(equality(ref("small"), new LiteralValue<>((short) 1, DataTypes.ShortType)));
+        assertPushable(equality(ref("id"), literal(42)));
+        assertPushable(equality(ref("big"), new LiteralValue<>(1L, DataTypes.LongType)));
+        assertPushable(equality(ref("ratio"), new LiteralValue<>(1.5f, DataTypes.FloatType)));
+        assertPushable(equality(ref("weight"), new LiteralValue<>(1.5d, DataTypes.DoubleType)));
+        assertPushable(equality(ref("name"), literal("alice")));
+        assertPushable(equality(ref("payload"), new LiteralValue<>(new byte[] {1, 2, 3}, DataTypes.BinaryType)));
         // Spark encodes DateType as an epoch-day int and both timestamp types as epoch micros.
-        assertPushableAndConvertible(equality(ref("birthday"), new LiteralValue<>(19_000, DataTypes.DateType)));
-        assertPushableAndConvertible(
-                equality(ref("createdAt"), new LiteralValue<>(1_700_000_000L, DataTypes.TimestampType)));
-        assertPushableAndConvertible(
-                equality(ref("createdLocal"), new LiteralValue<>(1_700_000_000L, DataTypes.TimestampNTZType)));
-        assertPushableAndConvertible(equality(ref("amount"), decimalLiteral("12.34")));
+        assertPushable(equality(ref("birthday"), new LiteralValue<>(19_000, DataTypes.DateType)));
+        assertPushable(equality(ref("createdAt"), new LiteralValue<>(1_700_000_000L, DataTypes.TimestampType)));
+        assertPushable(equality(ref("createdLocal"), new LiteralValue<>(1_700_000_000L, DataTypes.TimestampNTZType)));
+        assertPushable(equality(ref("amount"), decimalLiteral("12.34")));
     }
 
     @Test
     @DisplayName("A literal type with no Vortex representation is rejected by both sides")
     void unrepresentableLiteralIsRejected() {
-        assertNotPushableAndNotConvertible(equality(ref("id"), new LiteralValue<>(null, DataTypes.NullType)));
+        assertNotPushable(equality(ref("id"), new LiteralValue<>(null, DataTypes.NullType)));
     }
 
     @Test
@@ -295,44 +285,35 @@ final class SparkPredicateToVortexExpressionTest {
     void decimalThatDoesNotFitTheScaleIsRejected() {
         // `unscaledValueOf` calls `setScale(2)` without a rounding mode, so 12.345 throws and
         // `isPushableLiteral` falls through to `literalOf`, which is empty.
-        assertNotPushableAndNotConvertible(equality(ref("amount"), decimalLiteral("12.345")));
+        assertNotPushable(equality(ref("amount"), decimalLiteral("12.345")));
     }
 
     @Test
-    @DisplayName("An empty named reference is rejected by convert as well as by isPushable")
-    void emptyReferenceIsAlsoNotConvertible() {
-        // `isFieldRefExpr` on the convert path only checks `instanceof NamedReference`, so the
-        // zero-part guard lives in `columnOf`. Without it a pushable-looking predicate would reach
-        // the reader and be silently dropped.
-        assertNotPushableAndNotConvertible(equality(ref(), literal(1)));
-        assertNotPushableAndNotConvertible(predicate("IS_NULL", ref()));
-        assertNotPushableAndNotConvertible(predicate("IN", ref(), literal(1)));
-        assertNotPushableAndNotConvertible(predicate("STARTS_WITH", ref(), literal("a")));
-        assertNotPushableAndNotConvertible(predicate("BOOLEAN_EXPRESSION", ref()));
+    @DisplayName("An empty named reference is not pushable")
+    void emptyReferenceIsNotPushable() {
+        // Reject empty field paths before the scan attempts to resolve them.
+        assertNotPushable(equality(ref(), literal(1)));
+        assertNotPushable(predicate("IS_NULL", ref()));
+        assertNotPushable(predicate("IN", ref(), literal(1)));
+        assertNotPushable(predicate("STARTS_WITH", ref(), literal("a")));
+        assertNotPushable(predicate("BOOLEAN_EXPRESSION", ref()));
     }
 
-    /**
-     * Asserts the invariant documented on {@link SparkPredicateToVortexExpression#isPushable(Predicate, Map)}: a
-     * predicate Spark is allowed to drop must produce a Vortex expression.
-     */
-    private static void assertPushableAndConvertible(Predicate predicate) {
-        assertPushableAndConvertible(predicate, predicate.name());
+    /** Check whether Spark may drop the predicate after Vortex accepts it for pushdown. */
+    private static void assertPushable(Predicate predicate) {
+        assertPushable(predicate, predicate.name());
     }
 
-    private static void assertPushableAndConvertible(Predicate predicate, String what) {
+    private static void assertPushable(Predicate predicate, String what) {
         assertTrue(SparkPredicateToVortexExpression.isPushable(predicate, SCHEMA), () -> "not pushable: " + what);
-        assertTrue(
-                SparkPredicateToVortexExpression.convert(predicate).isPresent(),
-                () -> "pushable but not convertible: " + what);
     }
 
-    private static void assertNotPushableAndNotConvertible(Predicate predicate) {
-        assertNotPushableAndNotConvertible(predicate, predicate.name());
+    private static void assertNotPushable(Predicate predicate) {
+        assertNotPushable(predicate, predicate.name());
     }
 
-    private static void assertNotPushableAndNotConvertible(Predicate predicate, String what) {
+    private static void assertNotPushable(Predicate predicate, String what) {
         assertFalse(SparkPredicateToVortexExpression.isPushable(predicate, SCHEMA), () -> "pushable: " + what);
-        assertFalse(SparkPredicateToVortexExpression.convert(predicate).isPresent(), () -> "convertible: " + what);
     }
 
     private static Predicate predicate(String name, Expression... children) {

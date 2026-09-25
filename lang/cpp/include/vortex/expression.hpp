@@ -14,7 +14,7 @@
 
 namespace vortex {
 
-// A node in an expression tree used for scan filters and projections.
+// A user-authored expression bound against the input dtype when applied or scanned.
 class Expression {
 public:
     Expression(const Expression &);
@@ -102,8 +102,8 @@ Expression lit(const Scalar &value);
 /*
  * Literal expression.
  *
- * Literal's DataType must match column it's compared against, otherwise scan
- * fails at runtime. No type coercion is performed.
+ * The authored binding rule may coerce a literal to the compared column's
+ * DataType. Binding fails if the value cannot be represented in that type.
  */
 template <element_type T>
 Expression lit(T value) {

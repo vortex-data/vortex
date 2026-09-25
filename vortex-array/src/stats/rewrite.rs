@@ -147,12 +147,9 @@ mod tests {
     use vortex_session::VortexSession;
 
     use super::StatsRewriteRule;
-    use crate::dtype::DType;
-    use crate::dtype::Nullability;
-    use crate::dtype::PType;
     use crate::expr::BoundExpression;
-    use crate::expr::lit;
-    use crate::expr::or;
+    use crate::expr::bound::lit;
+    use crate::expr::bound::or;
     use crate::scalar_fn::ScalarFnId;
     use crate::scalar_fn::ScalarFnVTable;
     use crate::scalar_fn::fns::literal::Literal;
@@ -189,19 +186,18 @@ mod tests {
     #[test]
     fn combines_multiple_falsifiers_with_or() -> VortexResult<()> {
         let session = crate::array_session();
-        let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         session.stats().register_rewrite(StaticLiteralRule {
-            falsifier: Some(lit(false).bind(&dtype)?),
+            falsifier: Some(lit(false)),
             satisfier: None,
         });
         session.stats().register_rewrite(StaticLiteralRule {
-            falsifier: Some(lit(true).bind(&dtype)?),
+            falsifier: Some(lit(true)),
             satisfier: None,
         });
 
         assert_eq!(
-            lit(true).bind(&dtype)?.falsify(&session)?,
-            Some(or(lit(false), lit(true)).bind(&dtype)?)
+            lit(true).falsify(&session)?,
+            Some(or(lit(false), lit(true)))
         );
         Ok(())
     }
@@ -209,19 +205,18 @@ mod tests {
     #[test]
     fn combines_multiple_satisfiers_with_or() -> VortexResult<()> {
         let session = crate::array_session();
-        let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         session.stats().register_rewrite(StaticLiteralRule {
             falsifier: None,
-            satisfier: Some(lit(false).bind(&dtype)?),
+            satisfier: Some(lit(false)),
         });
         session.stats().register_rewrite(StaticLiteralRule {
             falsifier: None,
-            satisfier: Some(lit(true).bind(&dtype)?),
+            satisfier: Some(lit(true)),
         });
 
         assert_eq!(
-            lit(true).bind(&dtype)?.satisfy(&session)?,
-            Some(or(lit(false), lit(true)).bind(&dtype)?)
+            lit(true).satisfy(&session)?,
+            Some(or(lit(false), lit(true)))
         );
         Ok(())
     }
@@ -229,9 +224,8 @@ mod tests {
     #[test]
     fn unregistered_expression_has_no_rewrite() -> VortexResult<()> {
         let session = crate::array_session();
-        let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
 
-        let expr = lit(true).bind(&dtype)?;
+        let expr = lit(true);
         assert_eq!(expr.falsify(&session)?, None);
         assert_eq!(expr.satisfy(&session)?, None);
         Ok(())
@@ -240,9 +234,8 @@ mod tests {
     #[test]
     fn non_predicate_expression_errors() -> VortexResult<()> {
         let session = crate::array_session();
-        let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
 
-        let expr = lit(7).bind(&dtype)?;
+        let expr = lit(7);
         assert!(expr.falsify(&session).is_err());
         assert!(expr.satisfy(&session).is_err());
         Ok(())

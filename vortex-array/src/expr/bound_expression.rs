@@ -15,9 +15,7 @@ use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
 
 use crate::dtype::DType;
-use crate::expr::Expression;
 use crate::expr::display::DisplayTreeExpr;
-use crate::expr::scope::Scope;
 use crate::expr::traversal::TraversalOrder;
 use crate::expr::traversal::pre_order_visit_down;
 use crate::scalar_fn::ScalarFnRef;
@@ -25,7 +23,7 @@ use crate::scalar_fn::ScalarFnVTable;
 use crate::stats::rewrite::falsify;
 use crate::stats::rewrite::satisfy;
 
-/// An [`Expression`] that has been type-checked against a [`Scope`].
+/// A type-checked expression tree.
 ///
 /// Every node carries its own dtype, so reading one is a field access rather than a walk of the
 /// subtree. Holding a `BoundExpression` is proof that the whole tree type-checked.
@@ -225,6 +223,39 @@ impl BoundExpression {
         matches!(self, Self::Root { .. })
     }
 
+    /// Replace each typed scope root with another typed expression of the same dtype.
+    pub fn replace_root(&self, replacement: &BoundExpression) -> VortexResult<BoundExpression> {
+        match self {
+            Self::Root { dtype } => {
+                vortex_ensure!(
+                    dtype == replacement.dtype(),
+                    "cannot replace root of dtype {dtype} with {}",
+                    replacement.dtype()
+                );
+                Ok(replacement.clone())
+            }
+            Self::Scalar {
+                scalar_fn,
+                children,
+                ..
+            } => Self::try_new(
+                scalar_fn.clone(),
+                children
+                    .iter()
+                    .map(|child| child.replace_root(replacement))
+                    .collect::<VortexResult<Vec<_>>>()?,
+            ),
+        }
+    }
+
+    /// Return a typed expression for this expression's validity mask.
+    pub fn validity(&self) -> VortexResult<BoundExpression> {
+        match self {
+            Self::Root { .. } => Ok(self.clone()),
+            Self::Scalar { scalar_fn, .. } => scalar_fn.validity(self),
+        }
+    }
+
     /// Return whether every scope root in this expression has `dtype`.
     ///
     /// Expressions without a scope root, such as literals, match every dtype.
@@ -266,34 +297,6 @@ impl Display for BoundExpression {
     }
 }
 
-impl Expression {
-    /// Bind this expression against a root dtype, type-checking every node in a single walk.
-    ///
-    /// The returned tree carries a dtype on each node, so callers needing types at more than one
-    /// node should bind once and read fields rather than calling
-    /// [`return_dtype`](Expression::return_dtype) repeatedly.
-    pub fn bind(&self, dtype: &DType) -> VortexResult<BoundExpression> {
-        self.bind_scope(&Scope::new(dtype.clone()))
-    }
-
-    /// Bind this expression against an explicit [`Scope`].
-    pub fn bind_scope(&self, scope: &Scope) -> VortexResult<BoundExpression> {
-        if self.is_root() {
-            return Ok(BoundExpression::new_root(scope.root().clone()));
-        }
-
-        let children: Vec<_> = self
-            .children()
-            .iter()
-            .map(|child| child.bind_scope(scope))
-            .try_collect()?;
-        let scalar_fn = self
-            .as_scalar()
-            .vortex_expect("root was handled above, so this is a scalar node");
-        BoundExpression::try_new(scalar_fn.clone(), children)
-    }
-}
-
 /// Iterative drop to avoid stack overflows on deep trees.
 impl Drop for BoundExpression {
     fn drop(&mut self) {
@@ -322,129 +325,28 @@ mod tests {
     use super::*;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::expr::col;
-    use crate::expr::eq;
-    use crate::expr::lit;
-    use crate::expr::root;
+    use crate::expr::bound;
     use crate::expr::test_harness::struct_dtype;
-    use crate::scalar_fn::fns::literal::Literal;
-
-    fn scope() -> Scope {
-        Scope::new(struct_dtype())
-    }
 
     #[test]
-    fn root_binds_to_the_scope() -> VortexResult<()> {
-        let bound = root().bind_scope(&scope())?;
-        assert!(bound.is_root());
-        assert_eq!(bound.dtype(), &struct_dtype());
-        assert_eq!(bound, BoundExpression::new_root(struct_dtype()));
-        Ok(())
-    }
-
-    #[test]
-    fn every_node_carries_its_dtype() -> VortexResult<()> {
-        let expr = eq(col("a"), lit(1_i32));
-        let bound = expr.bind_scope(&scope())?;
-
-        assert_eq!(bound.dtype(), &DType::Bool(Nullability::NonNullable));
-
-        let lhs = &bound.children()[0];
+    fn every_node_carries_its_dtype() {
+        let scope = struct_dtype();
+        let expr = bound::eq(bound::col("a", scope.clone()), bound::lit(1_i32));
+        assert_eq!(expr.dtype(), &DType::Bool(Nullability::NonNullable));
         assert_eq!(
-            lhs.dtype(),
+            expr.child(0).dtype(),
             &DType::Primitive(PType::I32, Nullability::NonNullable)
         );
-        assert_eq!(lhs.children()[0].dtype(), &struct_dtype());
-        Ok(())
+        assert_eq!(expr.child(0).child(0).dtype(), &scope);
     }
 
     #[test]
-    fn bind_agrees_with_return_dtype() -> VortexResult<()> {
-        for expr in [root(), col("a"), eq(col("a"), lit(1_i32)), lit(true)] {
-            assert_eq!(
-                expr.bind(&struct_dtype())?.dtype(),
-                &expr.return_dtype(&struct_dtype())?,
-                "disagreement for {expr}"
-            );
-        }
+    fn bound_expression_can_be_rebuilt() -> VortexResult<()> {
+        let expr = bound::eq(bound::lit(1_i32), bound::lit(2_i32));
+        let rebuilt = expr
+            .clone()
+            .with_children([bound::lit(3_i32), bound::lit(4_i32)])?;
+        assert_eq!(rebuilt.dtype(), expr.dtype());
         Ok(())
-    }
-
-    #[test]
-    fn contains_scalar_function() -> VortexResult<()> {
-        let bound = eq(col("a"), lit(1_i32)).bind_scope(&scope())?;
-        assert!(bound.contains::<Literal>()?);
-        assert!(!root().bind_scope(&scope())?.contains::<Literal>()?);
-        Ok(())
-    }
-
-    #[test]
-    fn bound_to_checks_every_root() -> VortexResult<()> {
-        let dtype = struct_dtype();
-        let bound = eq(col("a"), col("a")).bind(&dtype)?;
-        assert!(bound.is_root_bound_to(&dtype));
-        assert!(!bound.is_root_bound_to(&DType::Bool(Nullability::NonNullable)));
-        assert!(
-            lit(true)
-                .bind(&dtype)?
-                .is_root_bound_to(&DType::Bool(Nullability::NonNullable))
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn bound_display_matches_unbound() -> VortexResult<()> {
-        for expr in [root(), col("a"), eq(col("a"), lit(1_i32)), lit(true)] {
-            let bound = expr.bind_scope(&scope())?;
-            assert_eq!(bound.to_string(), expr.to_string());
-            assert_eq!(
-                bound.display_tree().to_string(),
-                expr.display_tree().to_string()
-            );
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn clone_shares_children() -> VortexResult<()> {
-        let bound = eq(col("a"), lit(1_i32)).bind_scope(&scope())?;
-        let cloned = bound.clone();
-
-        let (
-            BoundExpression::Scalar { children: a, .. },
-            BoundExpression::Scalar { children: b, .. },
-        ) = (&bound, &cloned)
-        else {
-            unreachable!("eq is a scalar node")
-        };
-        assert!(Arc::ptr_eq(a, b));
-        Ok(())
-    }
-
-    #[test]
-    fn repeated_subtree_is_bound_per_occurrence() -> VortexResult<()> {
-        let shared = col("a");
-        let bound = eq(shared.clone(), shared).bind_scope(&scope())?;
-        let children = bound.children();
-        assert_eq!(children[0].dtype(), children[1].dtype());
-        Ok(())
-    }
-
-    #[test]
-    fn structural_and_exact_equality_are_distinct() -> VortexResult<()> {
-        let expr = eq(col("a"), lit(1_i32));
-        let bound = expr.bind_scope(&scope())?;
-        let independently_bound = expr.bind_scope(&scope())?;
-
-        assert_eq!(bound, independently_bound);
-        assert_eq!(ExactBoundExpr(bound.clone()), ExactBoundExpr(bound.clone()));
-        assert_ne!(ExactBoundExpr(bound), ExactBoundExpr(independently_bound));
-        Ok(())
-    }
-
-    #[test]
-    fn binding_reports_a_type_error() {
-        let expr = eq(col("a"), lit("nope"));
-        assert!(expr.bind_scope(&scope()).is_err());
     }
 }

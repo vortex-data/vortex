@@ -8,15 +8,15 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::StructFields;
-use vortex_array::expr::Expression;
-use vortex_array::expr::and;
-use vortex_array::expr::checked_add;
-use vortex_array::expr::get_item;
-use vortex_array::expr::gt;
-use vortex_array::expr::is_null;
-use vortex_array::expr::lit;
-use vortex_array::expr::pack;
-use vortex_array::expr::root;
+use vortex_array::expr::BoundExpression;
+use vortex_array::expr::bound::and;
+use vortex_array::expr::bound::checked_add;
+use vortex_array::expr::bound::get_item;
+use vortex_array::expr::bound::gt;
+use vortex_array::expr::bound::is_null;
+use vortex_array::expr::bound::lit;
+use vortex_array::expr::bound::pack;
+use vortex_array::expr::bound::root;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
@@ -57,17 +57,13 @@ fn make_plan(layout: LayoutRef) -> VortexResult<PlanRef> {
     lower(&layout)
 }
 
-fn make_eval(expression: Expression, child: PlanRef) -> VortexResult<EvalPlan> {
-    let expression = expression
-        .optimize_recursive(child.dtype())?
-        .bind(child.dtype())?;
+fn make_eval(expression: BoundExpression, child: PlanRef) -> VortexResult<EvalPlan> {
+    let expression = expression.optimize_recursive()?;
     EvalPlan::try_new(expression, child)
 }
 
-fn make_row_idx_plan(expression: Expression, child: PlanRef) -> VortexResult<PlanRef> {
-    let expression = expression
-        .optimize_recursive(child.dtype())?
-        .bind(child.dtype())?;
+fn make_row_idx_plan(expression: BoundExpression, child: PlanRef) -> VortexResult<PlanRef> {
+    let expression = expression.optimize_recursive()?;
     plan_row_idx_expression(expression, child)
 }
 
@@ -306,7 +302,7 @@ fn with_children_replaces_children_in_order() -> VortexResult<()> {
 
 #[test]
 fn eval_try_new_validates_expression_root_dtype() -> VortexResult<()> {
-    let expression = root().bind(&primitive(PType::I32, Nullability::NonNullable))?;
+    let expression = root(primitive(PType::I32, Nullability::NonNullable));
     let child = make_plan(flat(3, primitive(PType::I64, Nullability::NonNullable), 0))?;
 
     let error = EvalPlan::try_new(expression, child)
@@ -324,7 +320,7 @@ fn eval_try_new_validates_expression_root_dtype() -> VortexResult<()> {
 #[test]
 fn optimize_drops_identity_expressions() -> VortexResult<()> {
     let child = make_plan(flat(3, primitive(PType::I32, Nullability::NonNullable), 0))?;
-    let expression = root().bind(child.dtype())?;
+    let expression = root(child.dtype().clone());
     let plan: PlanRef = EvalPlan::try_new(expression, child)?.into_plan();
 
     assert!(optimize(plan)?.is::<SegmentScan>());
@@ -345,7 +341,7 @@ fn optimize_rewrites_nested_children() -> VortexResult<()> {
     // Wrap the first chunk in an identity expression, which optimization should remove without
     // any chunked-specific rule.
     let chunk = child_of(&chunked, 0)?;
-    let identity: PlanRef = EvalPlan::try_new(root().bind(chunk.dtype())?, chunk)?.into_plan();
+    let identity: PlanRef = EvalPlan::try_new(root(chunk.dtype().clone()), chunk)?.into_plan();
     let wrapped = chunked.with_children(vec![identity, child_of(&chunked, 1)?])?;
 
     let optimized = optimize(wrapped)?;
@@ -368,7 +364,7 @@ fn plan_display_matches_array_tree_display_shape() -> VortexResult<()> {
     )
     .into_layout();
     let child = make_plan(layout)?;
-    let expression = get_item("a", root()).bind(child.dtype())?;
+    let expression = get_item("a", root(child.dtype().clone()));
     let plan = EvalPlan::try_new(expression, child)?;
 
     assert_eq!(plan.to_string(), "vortex.plan.eval(i32, rows=3) expr=$.a");
@@ -535,8 +531,8 @@ fn expression_partitions_across_row_idx_and_struct() -> VortexResult<()> {
     let expression = and(
         gt(row_idx(), lit(11_u64)),
         and(
-            gt(get_item("a", root()), lit(5_i32)),
-            gt(get_item("b", root()), lit(7_i32)),
+            gt(get_item("a", root(layout.dtype().clone())), lit(5_i32)),
+            gt(get_item("b", root(layout.dtype().clone())), lit(7_i32)),
         ),
     );
     let plan = make_row_idx_plan(expression, make_plan(layout)?)?;
@@ -572,7 +568,7 @@ fn empty_projection_prunes_row_idx_child_fields() -> VortexResult<()> {
     )
     .into_layout();
     let projection = pack(
-        std::iter::empty::<(&str, Expression)>(),
+        std::iter::empty::<(&str, BoundExpression)>(),
         Nullability::NonNullable,
     );
     let plan = make_row_idx_plan(projection, make_plan(layout)?)?;
@@ -601,7 +597,10 @@ fn row_idx_and_data_expression_pushes_data_into_chunks() -> VortexResult<()> {
     )
     .into_layout();
     let child = make_plan(layout)?;
-    let expression = and(gt(row_idx(), lit(10_u64)), gt(root(), lit(5_i32)));
+    let expression = and(
+        gt(row_idx(), lit(10_u64)),
+        gt(root(child.dtype().clone()), lit(5_i32)),
+    );
     let plan = optimize(make_row_idx_plan(expression, child)?)?;
 
     insta::assert_snapshot!(plan.display_tree(), @r"
@@ -633,7 +632,11 @@ fn expression_pushes_through_struct_field_and_dictionary_values() -> VortexResul
         vec![dictionary, flat(3, value_dtype, 2)],
     )
     .into_layout();
-    let plan = make_eval(gt(get_item("a", root()), lit(5_i32)), make_plan(layout)?)?.into_plan();
+    let plan = make_eval(
+        gt(get_item("a", root(layout.dtype().clone())), lit(5_i32)),
+        make_plan(layout)?,
+    )?
+    .into_plan();
 
     insta::assert_snapshot!(plan.display_tree(), @"
     root: vortex.plan.eval(bool, rows=3) expr=($.a > 5i32)
@@ -677,7 +680,11 @@ fn expression_pushes_through_struct_field_with_heterogeneous_chunks() -> VortexR
         vec![chunks, flat(5, value_dtype, 3)],
     )
     .into_layout();
-    let plan = make_eval(gt(get_item("a", root()), lit(5_i32)), make_plan(layout)?)?.into_plan();
+    let plan = make_eval(
+        gt(get_item("a", root(layout.dtype().clone())), lit(5_i32)),
+        make_plan(layout)?,
+    )?
+    .into_plan();
 
     insta::assert_snapshot!(plan.display_tree(), @"
     root: vortex.plan.eval(bool, rows=5) expr=($.a > 5i32)
@@ -728,7 +735,10 @@ fn expression_pushes_through_nested_struct_fields_in_one_pass() -> VortexResult<
         vec![nested, flat(3, value_dtype, 2)],
     )
     .into_layout();
-    let expression = gt(get_item("x", get_item("nested", root())), lit(5_i32));
+    let expression = gt(
+        get_item("x", get_item("nested", root(layout.dtype().clone()))),
+        lit(5_i32),
+    );
     let plan = make_eval(expression, make_plan(layout)?)?.into_plan();
 
     let optimized = optimize(plan)?;
@@ -757,7 +767,10 @@ fn expression_pushes_through_single_field_nested_structs() -> VortexResult<()> {
         vec![inner],
     )
     .into_layout();
-    let expression = gt(get_item("b", get_item("a", root())), lit(5_i32));
+    let expression = gt(
+        get_item("b", get_item("a", root(layout.dtype().clone()))),
+        lit(5_i32),
+    );
     let plan = make_eval(expression, make_plan(layout)?)?.into_plan();
 
     insta::assert_snapshot!(plan.display_tree(), @r"
@@ -798,7 +811,10 @@ fn expression_pushes_through_three_single_field_structs() -> VortexResult<()> {
     )
     .into_layout();
     let expression = gt(
-        get_item("c", get_item("b", get_item("a", root()))),
+        get_item(
+            "c",
+            get_item("b", get_item("a", root(layout.dtype().clone()))),
+        ),
         lit(5_i32),
     );
     let plan = make_eval(expression, make_plan(layout)?)?.into_plan();
@@ -845,8 +861,14 @@ fn compound_expression_pushes_through_nested_struct_and_dictionary() -> VortexRe
     )
     .into_layout();
     let expression = and(
-        gt(get_item("b", get_item("a", root())), lit(5_i32)),
-        gt(get_item("c", get_item("a", root())), lit(7_i32)),
+        gt(
+            get_item("b", get_item("a", root(layout.dtype().clone()))),
+            lit(5_i32),
+        ),
+        gt(
+            get_item("c", get_item("a", root(layout.dtype().clone()))),
+            lit(7_i32),
+        ),
     );
     let plan = make_eval(expression, make_plan(layout)?)?.into_plan();
 
@@ -894,7 +916,10 @@ fn expression_pushes_through_dictionary_of_struct_values() -> VortexResult<()> {
         vec![dictionary, flat(3, value_dtype, 3)],
     )
     .into_layout();
-    let expression = gt(get_item("b", get_item("a", root())), lit(5_i32));
+    let expression = gt(
+        get_item("b", get_item("a", root(layout.dtype().clone()))),
+        lit(5_i32),
+    );
     let plan = make_eval(expression, make_plan(layout)?)?.into_plan();
 
     let optimized = optimize(plan)?;
@@ -933,8 +958,8 @@ fn multi_field_struct_expression_pushes_into_each_field() -> VortexResult<()> {
     )
     .into_layout();
     let expression = and(
-        gt(get_item("a", root()), lit(5_i32)),
-        gt(get_item("b", root()), lit(7_i32)),
+        gt(get_item("a", root(layout.dtype().clone())), lit(5_i32)),
+        gt(get_item("b", root(layout.dtype().clone())), lit(7_i32)),
     );
     let plan = make_eval(expression, make_plan(layout)?)?.into_plan();
 
@@ -976,8 +1001,8 @@ fn repeated_cross_field_expressions_reach_a_fixed_point() -> VortexResult<()> {
         vec![flat(3, value_dtype.clone(), 0), flat(3, value_dtype, 1)],
     )
     .into_layout();
-    let a = get_item("a", root());
-    let b = get_item("b", root());
+    let a = get_item("a", root(layout.dtype().clone()));
+    let b = get_item("b", root(layout.dtype().clone()));
     let expression = and(
         gt(checked_add(a.clone(), b.clone()), lit(10_i32)),
         gt(checked_add(a, b), lit(20_i32)),
@@ -1016,7 +1041,10 @@ fn multi_field_struct_expression_keeps_cross_field_refinement() -> VortexResult<
     )
     .into_layout();
     let expression = gt(
-        checked_add(get_item("a", root()), get_item("b", root())),
+        checked_add(
+            get_item("a", root(layout.dtype().clone())),
+            get_item("b", root(layout.dtype().clone())),
+        ),
         lit(10_i32),
     );
     let plan = make_eval(expression, make_plan(layout)?)?.into_plan();
@@ -1048,8 +1076,11 @@ fn dictionary_pushdown_rejects_unsafe_expressions() -> VortexResult<()> {
 
     for expression in [
         lit(false),
-        is_null(root()),
-        gt(checked_add(root(), lit(1_i32)), lit(5_i32)),
+        is_null(root(dictionary.dtype().clone())),
+        gt(
+            checked_add(root(dictionary.dtype().clone()), lit(1_i32)),
+            lit(5_i32),
+        ),
     ] {
         let plan = make_eval(expression.clone(), make_plan(Arc::clone(&dictionary))?)?.into_plan();
         let optimized = optimize(plan)?;
@@ -1076,7 +1107,11 @@ fn nullable_struct_keeps_expression_above_parent_validity() -> VortexResult<()> 
         ],
     )
     .into_layout();
-    let plan = make_eval(gt(get_item("a", root()), lit(5_i32)), make_plan(layout)?)?.into_plan();
+    let plan = make_eval(
+        gt(get_item("a", root(layout.dtype().clone())), lit(5_i32)),
+        make_plan(layout)?,
+    )?
+    .into_plan();
 
     let optimized = optimize(plan)?;
     let eval = optimized
