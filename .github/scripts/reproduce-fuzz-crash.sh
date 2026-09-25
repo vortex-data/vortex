@@ -11,7 +11,7 @@ if [ -n "$FUZZER_ARTIFACT" ]; then
   env "${FUZZ_ENV[@]}" RUST_BACKTRACE=1 \
     "$GITHUB_WORKSPACE/fuzz-binaries/$FUZZ_NAME" \
     "$FIRST_CRASH" \
-    2>&1 | tee fuzz_output.log || true
+    2>&1 | tee -a fuzz_output.log || true
 else
   FEATURES_FLAG=()
   if [ -n "$EXTRA_FEATURES" ]; then
@@ -22,5 +22,5 @@ else
     "${FEATURES_FLAG[@]}" \
     "$FUZZ_TARGET" \
     "$FIRST_CRASH" \
-    2>&1 | tee fuzz_output.log || true
+    2>&1 | tee -a fuzz_output.log || true
 fi

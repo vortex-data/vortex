@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+name: "Setup Fuzz LLVM"
+description: "Install LLVM and configure symbolization for cargo-fuzz and precompiled fuzzers"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Check LLVM toolchain
+      id: llvm-toolchain
+      shell: bash
+      run: |
+        if command -v clang >/dev/null && command -v llvm-symbolizer >/dev/null; then
+          echo "installed=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "installed=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Install LLVM
+      if: steps.llvm-toolchain.outputs.installed != 'true'
+      uses: aminya/setup-cpp@v1
+      with:
+        compiler: llvm
+
+    - name: Configure LLVM symbolizer
+      shell: bash
+      run: |
+        SYMBOLIZER=$(command -v llvm-symbolizer)
+        "$SYMBOLIZER" --version
+        echo "ASAN_SYMBOLIZER_PATH=$SYMBOLIZER" >> "$GITHUB_ENV"
+        echo "LLVM_SYMBOLIZER_PATH=$SYMBOLIZER" >> "$GITHUB_ENV"

@@ -22,6 +22,7 @@ on:
       - "Cargo.lock"
       - "rust-toolchain.toml"
       - "fuzz/**"
+      - ".github/actions/setup-fuzz-llvm/**"
       - ".github/actions/setup-prebuild/**"
       - ".github/actions/setup-rust/**"
       - ".github/workflows/build-fuzzers.yml"

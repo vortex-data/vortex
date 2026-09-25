@@ -44,21 +44,7 @@ jobs:
           toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
           enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
 
-      - name: Check LLVM toolchain
-        id: llvm-toolchain
-        shell: bash
-        run: |
-          if command -v clang >/dev/null && command -v llvm-symbolizer >/dev/null; then
-            echo "installed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "installed=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Install llvm
-        if: steps.llvm-toolchain.outputs.installed != 'true'
-        uses: aminya/setup-cpp@v1
-        with:
-          compiler: llvm
+      - uses: ./.github/actions/setup-fuzz-llvm
 
       - name: Install cargo-fuzz
         uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995

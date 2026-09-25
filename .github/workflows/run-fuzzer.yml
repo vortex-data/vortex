@@ -106,22 +106,7 @@ jobs:
           toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
           enable-sccache: "false"
 
-      - name: Check LLVM toolchain
-        id: llvm-toolchain
-        if: inputs.fuzzer_artifact == ''
-        shell: bash
-        run: |
-          if command -v clang >/dev/null && command -v llvm-symbolizer >/dev/null; then
-            echo "installed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "installed=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Install llvm
-        if: inputs.fuzzer_artifact == '' && steps.llvm-toolchain.outputs.installed != 'true'
-        uses: aminya/setup-cpp@v1
-        with:
-          compiler: llvm
+      - uses: ./.github/actions/setup-fuzz-llvm
 
       - name: Install cargo-fuzz
         if: inputs.fuzzer_artifact == ''
@@ -179,12 +164,12 @@ jobs:
           retention-days: 180
 
       - name: Archive fuzzer output log
-        if: steps.check.outputs.crashes_found == 'true'
+        if: always() && steps.fuzz.outcome != 'skipped'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
         with:
           name: ${{ env.FUZZ_NAME }}-logs
           path: fuzz_output.log
-          retention-days: 90
+          retention-days: ${{ steps.check.outputs.crashes_found == 'true' && 90 || 7 }}
 
       - name: Persist corpus
         shell: bash
