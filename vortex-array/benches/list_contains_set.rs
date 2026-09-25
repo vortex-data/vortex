@@ -202,11 +202,11 @@ fn nested_list_random(bencher: Bencher, set_len: usize) {
     let (set, needles) = random_i64(set_len);
     let element_dtype = Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable));
     let set = Scalar::list(
-        DType::List(element_dtype.clone(), Nullability::NonNullable),
+        DType::List(Arc::clone(&element_dtype), Nullability::NonNullable),
         set.into_iter()
             .map(|value| {
                 Scalar::list(
-                    element_dtype.clone(),
+                    Arc::clone(&element_dtype),
                     vec![value.into(), (value + 1).into()],
                     Nullability::NonNullable,
                 )
