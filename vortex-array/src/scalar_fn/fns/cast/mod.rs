@@ -45,10 +45,12 @@ use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ReduceNode;
+use crate::scalar_fn::ReduceNodeValidity;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::literal::Literal;
+use crate::scalar_fn::is_not_null_node;
 
 /// A cast expression that converts values to a target data type.
 #[derive(Clone)]
@@ -178,11 +180,15 @@ impl ScalarFnVTable for Cast {
         Ok(scalar.cast(target_dtype).ok().map(bound::lit))
     }
 
-    fn validity(&self, dtype: &DType, expression: &Expression) -> VortexResult<Option<Expression>> {
-        Ok(Some(if dtype.is_nullable() {
-            expression.child(0).validity()?
+    fn validity<T: ReduceNode>(
+        &self,
+        dtype: &DType,
+        node: &T,
+    ) -> VortexResult<ReduceNodeValidity<T>> {
+        Ok(ReduceNodeValidity::Reduced(if dtype.is_nullable() {
+            is_not_null_node(&node.child(0))?
         } else {
-            lit(true)
+            node.new_constant(true.into())
         }))
     }
 

@@ -20,7 +20,6 @@ use crate::arrays::ScalarFnArray;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::expr::BoundExpression;
-use crate::expr::and;
 use crate::expr::bound;
 use crate::expr::display::ExprDisplay;
 use crate::expr::expression::Expression;
@@ -262,19 +261,6 @@ impl ScalarFnVTable for Binary {
         })
     }
 
-    fn validity(
-        &self,
-        operator: &Operator,
-        expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
-        if matches!(operator, Operator::And | Operator::Or) {
-            return Ok(None); // AND and OR are kleene logic
-        }
-        let lhs = expression.child(0).validity()?;
-        let rhs = expression.child(1).validity()?;
-        Ok(Some(and(lhs, rhs)))
-    }
-
     fn reduce<T: ReduceNode>(&self, operator: &Operator, node: &T) -> VortexResult<Option<T>> {
         if !matches!(operator, Operator::And | Operator::Or) {
             return Ok(None);
@@ -307,8 +293,6 @@ impl ScalarFnVTable for Binary {
     }
 
     fn is_strict(&self, operator: &Operator) -> bool {
-        // Kleene AND/OR is not strict (`false AND null = false`, `true OR null = true`), which is
-        // consistent with `validity` returning `None` for these operators above.
         !matches!(operator, Operator::And | Operator::Or)
     }
 
@@ -350,6 +334,7 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::expr::Expression;
+    use crate::expr::and;
     use crate::expr::and_collect;
     use crate::expr::col;
     use crate::expr::eq;

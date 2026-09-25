@@ -29,9 +29,12 @@ use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
+use crate::scalar_fn::ReduceNode;
+use crate::scalar_fn::ReduceNodeValidity;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::is_not_null_node;
 
 /// An expression that replaces null values in the input with a fill value.
 #[derive(Clone)]
@@ -133,14 +136,16 @@ impl ScalarFnVTable for FillNull {
         Ok(None)
     }
 
-    fn validity(
+    fn validity<T: ReduceNode>(
         &self,
         _options: &Self::Options,
-        expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
+        node: &T,
+    ) -> VortexResult<ReduceNodeValidity<T>> {
         // After fill_null, the result validity depends on the fill value's nullability.
         // If fill_value is non-nullable, the result is always valid.
-        Ok(Some(expression.child(1).validity()?))
+        Ok(ReduceNodeValidity::Reduced(is_not_null_node(
+            &node.child(1),
+        )?))
     }
 
     fn is_strict(&self, _options: &Self::Options) -> bool {

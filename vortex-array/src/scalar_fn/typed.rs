@@ -31,6 +31,7 @@ use crate::scalar_fn::ArrayReduceNode;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ExpressionReduceNode;
+use crate::scalar_fn::ReduceNodeValidity;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTable;
@@ -97,7 +98,14 @@ pub(super) trait DynScalarFn: 'static + Send + Sync + super::sealed::Sealed {
     // Expression methods — take expressions for tree traversal
     fn fmt_sql(&self, expression: &dyn ExprDisplay, f: &mut Formatter<'_>) -> fmt::Result;
     fn simplify(&self, expression: &BoundExpression) -> VortexResult<Option<BoundExpression>>;
-    fn validity(&self, expression: &Expression) -> VortexResult<Option<Expression>>;
+    fn validity_expression<'a>(
+        &self,
+        node: &ExpressionReduceNode<'a>,
+    ) -> VortexResult<ReduceNodeValidity<ExpressionReduceNode<'a>>>;
+    fn validity_array<'a>(
+        &self,
+        node: &ArrayReduceNode<'a>,
+    ) -> VortexResult<ReduceNodeValidity<ArrayReduceNode<'a>>>;
 
     // Options operations — self-contained
     fn options_serialize(&self) -> VortexResult<Option<Vec<u8>>>;
@@ -201,8 +209,18 @@ impl<V: ScalarFnVTable> DynScalarFn for TypedScalarFnInstance<V> {
         V::simplify(&self.vtable, &self.options, expression)
     }
 
-    fn validity(&self, expression: &Expression) -> VortexResult<Option<Expression>> {
-        V::validity(&self.vtable, &self.options, expression)
+    fn validity_expression<'a>(
+        &self,
+        node: &ExpressionReduceNode<'a>,
+    ) -> VortexResult<ReduceNodeValidity<ExpressionReduceNode<'a>>> {
+        V::validity(&self.vtable, &self.options, node)
+    }
+
+    fn validity_array<'a>(
+        &self,
+        node: &ArrayReduceNode<'a>,
+    ) -> VortexResult<ReduceNodeValidity<ArrayReduceNode<'a>>> {
+        V::validity(&self.vtable, &self.options, node)
     }
 
     fn options_serialize(&self) -> VortexResult<Option<Vec<u8>>> {
