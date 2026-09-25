@@ -22,9 +22,10 @@ use crate::builtins::ArrayBuiltins;
 use crate::child_to_validity;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
+use crate::expr::BoundExpression;
 use crate::expr::Expression;
 use crate::expr::and;
-use crate::expr::lit;
+use crate::expr::bound;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -33,7 +34,6 @@ use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
-use crate::scalar_fn::SimplifyCtx;
 use crate::scalar_fn::fns::literal::Literal;
 
 /// An expression that masks an input based on a boolean mask.
@@ -115,9 +115,8 @@ impl ScalarFnVTable for Mask {
     fn simplify(
         &self,
         _options: &Self::Options,
-        expr: &Expression,
-        ctx: &dyn SimplifyCtx,
-    ) -> VortexResult<Option<Expression>> {
+        expr: &BoundExpression,
+    ) -> VortexResult<Option<BoundExpression>> {
         let Some(mask_lit) = expr.child(1).as_opt::<Literal>() else {
             return Ok(None);
         };
@@ -132,8 +131,8 @@ impl ScalarFnVTable for Mask {
             Ok(Some(expr.child(0).clone()))
         } else {
             // Mask is all false, so the output is all nulls.
-            let input_dtype = ctx.return_dtype(expr.child(0))?;
-            Ok(Some(lit(Scalar::null(input_dtype.as_nullable()))))
+            let input_dtype = expr.child(0).dtype();
+            Ok(Some(bound::lit(Scalar::null(input_dtype.as_nullable()))))
         }
     }
 
@@ -199,6 +198,7 @@ mod test {
     use crate::dtype::DType;
     use crate::dtype::Nullability::Nullable;
     use crate::dtype::PType;
+    use crate::expr::bound;
     use crate::expr::lit;
     use crate::expr::mask;
     use crate::scalar::Scalar;
@@ -211,15 +211,20 @@ mod test {
 
         let mask_true_expr = mask(input_expr.clone(), true_mask_expr);
         let simplified_true = mask_true_expr
-            .optimize(&DType::Null)
+            .bind(&DType::Null)
+            .and_then(|expr| expr.optimize())
             .vortex_expect("Simplification");
-        assert_eq!(&simplified_true, &input_expr);
+        assert_eq!(
+            &simplified_true,
+            &input_expr.bind(&DType::Null).vortex_expect("bind")
+        );
 
         let mask_false_expr = mask(input_expr, false_mask_expr);
         let simplified_false = mask_false_expr
-            .optimize(&DType::Null)
+            .bind(&DType::Null)
+            .and_then(|expr| expr.optimize())
             .vortex_expect("Simplification");
-        let expected_null_expr = lit(Scalar::null(DType::Primitive(PType::U32, Nullable)));
+        let expected_null_expr = bound::lit(Scalar::null(DType::Primitive(PType::U32, Nullable)));
         assert_eq!(&simplified_false, &expected_null_expr);
     }
 }

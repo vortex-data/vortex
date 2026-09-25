@@ -19,13 +19,10 @@ use crate::arrays::ScalarFnArray;
 use crate::arrays::StructArray;
 use crate::arrays::struct_::StructArrayExt;
 use crate::builtins::ArrayBuiltins;
-use crate::builtins::ExprBuiltins;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::dtype::Nullability;
-use crate::expr::Expression;
 use crate::expr::display::ExprDisplay;
-use crate::expr::lit;
 use crate::proto::expr as pb;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
@@ -176,44 +173,6 @@ impl ScalarFnVTable for GetItem {
                     Mask.bind(EmptyOptions),
                     &[field, node.new_node(Literal.bind(true.into()), &[])?],
                 )?;
-            }
-
-            return Ok(Some(field));
-        }
-
-        Ok(None)
-    }
-
-    fn simplify_untyped(
-        &self,
-        field_name: &FieldName,
-        expr: &Expression,
-    ) -> VortexResult<Option<Expression>> {
-        let child = expr.child(0);
-
-        // If the child is a Pack expression, we can directly return the corresponding child.
-        if let Some(pack) = child.as_opt::<Pack>() {
-            let idx = pack
-                .names
-                .iter()
-                .position(|name| name == field_name)
-                .ok_or_else(|| {
-                    vortex_err!(
-                        "Cannot find field {} in pack fields {:?}",
-                        field_name,
-                        pack.names
-                    )
-                })?;
-
-            let mut field = child.child(idx).clone();
-
-            // It's useful to simplify this node without type info, but we need to make sure
-            // the nullability is correct. We cannot cast since we don't have the dtype info here,
-            // so instead we insert a Mask expression that we know converts a child's dtype to
-            // nullable.
-            if pack.nullability.is_nullable() {
-                // Mask with an all-true array to ensure the field DType is nullable.
-                field = field.mask(lit(true))?;
             }
 
             return Ok(Some(field));
@@ -409,11 +368,13 @@ mod tests {
         let pack_expr = pack([("a", lit(1)), ("b", lit(2))], NonNullable);
         let get_item_expr = get_item("b", pack_expr);
 
+        let dtype = DType::Struct(StructFields::empty(), NonNullable);
         let result = get_item_expr
-            .optimize_recursive(&DType::Struct(StructFields::empty(), NonNullable))
+            .bind(&dtype)
+            .and_then(|expr| expr.optimize_recursive())
             .unwrap();
 
-        assert_eq!(result, lit(2));
+        assert_eq!(result, lit(2).bind(&dtype).unwrap());
     }
 
     #[test]
@@ -426,8 +387,8 @@ mod tests {
 
         let dtype = DType::Primitive(PType::I32, NonNullable);
 
-        let result = get_z.optimize_recursive(&dtype).unwrap();
-        assert_eq!(result, lit(4));
+        let result = get_z.bind(&dtype).unwrap().optimize_recursive().unwrap();
+        assert_eq!(result, lit(4).bind(&dtype).unwrap());
     }
 
     #[test]
@@ -446,8 +407,12 @@ mod tests {
 
         let dtype = DType::Primitive(PType::I32, NonNullable);
 
-        let result = get_final.optimize_recursive(&dtype).unwrap();
-        assert_eq!(result, lit(42));
+        let result = get_final
+            .bind(&dtype)
+            .unwrap()
+            .optimize_recursive()
+            .unwrap();
+        assert_eq!(result, lit(42).bind(&dtype).unwrap());
     }
 
     #[test]
@@ -461,8 +426,12 @@ mod tests {
 
         let dtype = DType::Primitive(PType::I32, NonNullable);
 
-        let result = get_result.optimize_recursive(&dtype).unwrap();
-        let expected = checked_add(lit(1), lit(10));
+        let result = get_result
+            .bind(&dtype)
+            .unwrap()
+            .optimize_recursive()
+            .unwrap();
+        let expected = checked_add(lit(1), lit(10)).bind(&dtype).unwrap();
         assert_eq!(&result, &expected);
     }
 

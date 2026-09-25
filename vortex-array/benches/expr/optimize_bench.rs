@@ -43,7 +43,7 @@ fn build_or_chain(n: usize) -> Expression {
 
 #[divan::bench(args = [200])]
 fn optimize_or_chain(bencher: Bencher, n: usize) {
-    let expr = build_or_chain(n);
     let scope = struct_scope();
-    bencher.bench(|| expr.optimize_recursive(&scope).unwrap());
+    let expr = build_or_chain(n).bind(&scope).unwrap();
+    bencher.bench(|| expr.optimize_recursive().unwrap());
 }

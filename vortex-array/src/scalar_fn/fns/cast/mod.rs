@@ -35,6 +35,8 @@ use crate::arrays::VarBinView;
 use crate::arrays::struct_::compute::cast::struct_cast;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
+use crate::expr::BoundExpression;
+use crate::expr::bound;
 use crate::expr::display::ExprDisplay;
 use crate::expr::expression::Expression;
 use crate::expr::lit;
@@ -163,17 +165,17 @@ impl ScalarFnVTable for Cast {
         Ok(None)
     }
 
-    fn simplify_untyped(
+    fn simplify(
         &self,
         target_dtype: &DType,
-        expr: &Expression,
-    ) -> VortexResult<Option<Expression>> {
+        expr: &BoundExpression,
+    ) -> VortexResult<Option<BoundExpression>> {
         let Some(scalar) = expr.child(0).as_opt::<Literal>() else {
             return Ok(None);
         };
         // A failing cast (e.g. null to a non-nullable dtype) is left in place so the error
         // surfaces at execution time rather than during optimization.
-        Ok(scalar.cast(target_dtype).ok().map(lit))
+        Ok(scalar.cast(target_dtype).ok().map(bound::lit))
     }
 
     fn validity(&self, dtype: &DType, expression: &Expression) -> VortexResult<Option<Expression>> {
@@ -300,7 +302,7 @@ mod tests {
             lit(3i32),
             DType::Primitive(PType::F64, Nullability::NonNullable),
         );
-        let optimized = expr.optimize(&test_harness::struct_dtype())?;
+        let optimized = expr.bind(&test_harness::struct_dtype())?.optimize()?;
 
         let scalar = optimized
             .as_opt::<Literal>()
@@ -320,7 +322,7 @@ mod tests {
             lit(decimal),
             DType::Primitive(PType::F64, Nullability::NonNullable),
         );
-        let optimized = expr.optimize(&test_harness::struct_dtype())?;
+        let optimized = expr.bind(&test_harness::struct_dtype())?.optimize()?;
 
         let scalar = optimized
             .as_opt::<Literal>()
@@ -342,7 +344,7 @@ mod tests {
             ))),
             target.clone(),
         );
-        let optimized = expr.optimize(&test_harness::struct_dtype())?;
+        let optimized = expr.bind(&test_harness::struct_dtype())?.optimize()?;
 
         assert!(optimized.as_opt::<Literal>().is_none());
         assert_eq!(optimized.as_opt::<Cast>(), Some(&target));

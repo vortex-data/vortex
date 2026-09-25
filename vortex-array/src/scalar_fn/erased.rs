@@ -19,6 +19,7 @@ use vortex_utils::debug_with::DebugWith;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::dtype::DType;
+use crate::expr::BoundExpression;
 use crate::expr::Expression;
 use crate::expr::display::ExprDisplay;
 use crate::scalar_fn::ArrayReduceNode;
@@ -28,7 +29,6 @@ use crate::scalar_fn::ExpressionReduceNode;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
-use crate::scalar_fn::SimplifyCtx;
 use crate::scalar_fn::fns::is_not_null::IsNotNull;
 use crate::scalar_fn::options::ScalarFnOptions;
 use crate::scalar_fn::signature::ScalarFnSignature;
@@ -171,18 +171,9 @@ impl ScalarFnRef {
         self.0.fmt_sql(expr, f)
     }
 
-    /// Simplify the expression using type information.
-    pub(crate) fn simplify(
-        &self,
-        expr: &Expression,
-        ctx: &dyn SimplifyCtx,
-    ) -> VortexResult<Option<Expression>> {
-        self.0.simplify(expr, ctx)
-    }
-
-    /// Simplify the expression without type information.
-    pub(crate) fn simplify_untyped(&self, expr: &Expression) -> VortexResult<Option<Expression>> {
-        self.0.simplify_untyped(expr)
+    /// Simplify a bound expression using the dtypes carried by its nodes.
+    pub(crate) fn simplify(&self, expr: &BoundExpression) -> VortexResult<Option<BoundExpression>> {
+        self.0.simplify(expr)
     }
 }
 
