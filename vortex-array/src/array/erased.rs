@@ -732,8 +732,8 @@ impl ArrayRef {
     /// Returns the nth child of the array without allocating a Vec.
     ///
     /// Returns `None` if the index is out of bounds.
-    pub fn nth_child(&self, idx: usize) -> Option<ArrayRef> {
-        self.children_iter().nth(idx).cloned()
+    pub fn nth_child(&self, idx: usize) -> Option<&ArrayRef> {
+        self.children_iter().nth(idx)
     }
 
     /// Returns the names of the children of the array: the slot names of the non-None slots
