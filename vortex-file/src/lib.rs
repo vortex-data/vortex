@@ -109,6 +109,7 @@ pub mod flatbuffers;
 mod footer;
 pub mod multi;
 mod open;
+pub mod planning;
 mod pruning;
 mod read;
 /// Segment sources, caches, and sinks used by file readers and writers.
