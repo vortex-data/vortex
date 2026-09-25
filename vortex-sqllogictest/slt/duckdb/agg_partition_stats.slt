@@ -15,13 +15,13 @@ query TT
 EXPLAIN SELECT count(*)
 FROM '${WORK_DIR}/agg_partition_stats.vortex';
 ----
-<REGEX>:.*COLUMN_DATA_SCAN.*
+<REGEX>:.*Column Data Scan.*
 
 query TT
 EXPLAIN SELECT count(*)
 FROM '${WORK_DIR}/agg_partition_stats.vortex';
 ----
-<!REGEX>:.*(READ_VORTEX|AGGREGATE).*
+<!REGEX>:.*(Read Vortex|AGGREGATE).*
 
 query I
 SELECT count(*)
@@ -33,13 +33,13 @@ query TT
 EXPLAIN SELECT min(i), max(i)
 FROM '${WORK_DIR}/agg_partition_stats.vortex';
 ----
-<REGEX>:.*COLUMN_DATA_SCAN.*
+<REGEX>:.*Column Data Scan.*
 
 query TT
 EXPLAIN SELECT min(i), max(i)
 FROM '${WORK_DIR}/agg_partition_stats.vortex';
 ----
-<!REGEX>:.*(READ_VORTEX|AGGREGATE).*
+<!REGEX>:.*(Read Vortex|AGGREGATE).*
 
 query II
 SELECT min(i), max(i) FROM '${WORK_DIR}/agg_partition_stats.vortex';
@@ -62,7 +62,7 @@ query TT
 EXPLAIN SELECT min(d), max(d)
 FROM '${WORK_DIR}/agg_partition_stats-date.vortex';
 ----
-<REGEX>:.*COLUMN_DATA_SCAN.*
+<REGEX>:.*Column Data Scan.*
 
 query DD
 SELECT min(d), max(d) FROM '${WORK_DIR}/agg_partition_stats-date.vortex';
@@ -73,7 +73,7 @@ query TT
 EXPLAIN SELECT count(*) FROM '${WORK_DIR}/agg_partition_stats.vortex'
 WHERE i > 50000;
 ----
-<REGEX>:.*READ_VORTEX.*
+<REGEX>:.*Read Vortex.*
 
 query I
 SELECT count(*) FROM '${WORK_DIR}/agg_partition_stats.vortex'

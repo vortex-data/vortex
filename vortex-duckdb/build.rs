@@ -23,21 +23,18 @@ const DUCKDB_RELEASES_URL: &str = "https://ci-builds.vortex.dev";
 
 const DUCKDB_SOURCE_RELEASE_URL: &str = "https://github.com/duckdb/duckdb/archive/refs/tags";
 const DUCKDB_SOURCE_COMMIT_URL: &str = "https://github.com/duckdb/duckdb/archive";
-const DEFAULT_DUCKDB_VERSION: &str = "1.5.5";
+const DEFAULT_DUCKDB_VERSION: &str = "31adc8b766540e1dffbfdd3804632b59d237b342";
 
 const BUILD_ARTIFACTS: [&str; 3] = ["libduckdb.dylib", "libduckdb.so", "libduckdb_static.a"];
 const BUILD_MARKER: &str = ".vx-build-complete";
 const DUCKDB_CACHE_DIR: &str = "vortex-duckdb-cache";
 const EXTRACT_MARKER: &str = ".vx-extract-complete";
 
-const SOURCE_FILES: [&str; 12] = [
+const SOURCE_FILES: [&str; 9] = [
     "cpp/vortex_duckdb.cpp",
     "cpp/copy_function.cpp",
     "cpp/expr.cpp",
-    "cpp/optimizer.cpp",
-    "cpp/scalar_fn_pushdown.cpp",
     "cpp/spatial_overrides.cpp",
-    "cpp/cast_pushdown.cpp",
     "cpp/aggregate_fn_pushdown.cpp",
     "cpp/table_filter.cpp",
     "cpp/multi_file_reader.cpp",
@@ -354,48 +351,6 @@ fn extract(archive: &Path, dest: &Path) {
     zip::ZipArchive::new(file).unwrap().extract(dest).unwrap();
 }
 
-fn git_apply(repo_dir: &Path, patch: &Path, args: &[&str]) -> bool {
-    let output = Command::new("git")
-        .current_dir(repo_dir)
-        .args(["apply", "-p1"])
-        .args(args)
-        .arg(patch)
-        .output();
-    match output {
-        Ok(out) => out.status.success(),
-        Err(e) => {
-            println!("cargo:error=git is required to patch DuckDB sources: {e}");
-            exit(1);
-        }
-    }
-}
-
-fn apply_source_patches(crate_dir: &Path, repo_dir: &Path) {
-    let mut patches: Vec<PathBuf> = fs::read_dir(crate_dir.join("patches"))
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
-        .filter(|path| path.extension().is_some_and(|ext| ext == "diff"))
-        .collect();
-    patches.sort();
-
-    for patch in patches {
-        // A successful reverse dry-run means the patch is already applied.
-        if git_apply(repo_dir, &patch, &["--check", "--reverse"]) {
-            continue;
-        }
-        if !git_apply(repo_dir, &patch, &[]) {
-            println!(
-                "cargo:error=Failed to apply {} to {}; delete that directory to re-extract \
-                DuckDB sources",
-                patch.display(),
-                repo_dir.display()
-            );
-            exit(1);
-        }
-        println!("cargo:info=Applied {}", patch.display());
-    }
-}
-
 /// Download DuckDB library archive from R2 and extract it.
 /// Return false if archive is not available or download failed
 fn download_prebuilt(version: &DuckDBVersion, library_dir: &Path, target: &str) -> bool {
@@ -447,12 +402,15 @@ fn build_duckdb(version: &DuckDBVersion, duckdb_repo_dir: &Path) {
         ("1", "0")
     };
 
-    // If we're building from a commit we need to build benchmark
-    // extensions statically, otherwise DuckDB tries to load them from an http
-    // endpoint with version 0.0.1 (all non-tagged builds) which doesn't exist.
+    // If we're building from a commit we need to build some extensions
+    // statically, otherwise DuckDB tries to load them from an http endpoint
+    // with version 0.0.1 (all non-tagged builds) which doesn't exist.
     let static_extensions = match version {
         DuckDBVersion::Release(_) => "parquet",
-        DuckDBVersion::Commit(_) => "parquet;tpch;tpcds",
+        // tpch/tpcds/parquet needed for benchmarks
+        // icu needed for timestamptz tests
+        // httpfs needed for s3 write test
+        DuckDBVersion::Commit(_) => "parquet;tpch;tpcds;icu;httpfs",
     };
 
     let envs = [
@@ -590,7 +548,21 @@ fn compile_cpp(duckdb_include_dir: &Path) {
         .flag_if_supported("-fno-gnu-unique")
         // We don't want compiler warnings inside duckdb headers, pass as flags
         .flag("-isystem")
-        .flag(duckdb_include_dir)
+        .flag(duckdb_include_dir);
+
+    if let Some(root) = duckdb_include_dir.parent().and_then(Path::parent) {
+        let third_party = root.join("third_party");
+        if let Ok(entries) = fs::read_dir(&third_party) {
+            for entry in entries.flatten() {
+                let include = entry.path().join("include");
+                if include.is_dir() {
+                    build.flag("-isystem").flag(include);
+                }
+            }
+        }
+    }
+
+    build
         .include("include")
         .include("cpp/include")
         .files(SOURCE_FILES)
@@ -658,7 +630,6 @@ fn vortex_version(crate_dir: &Path) {
 
 fn main() {
     println!("cargo:rerun-if-changed=cpp/include");
-    println!("cargo:rerun-if-changed=patches");
     println!("cargo:rerun-if-env-changed=VX_DUCKDB_DEBUG");
     println!("cargo:rerun-if-env-changed=VX_DUCKDB_SAN");
     println!("cargo:rerun-if-env-changed=DEBUG");
@@ -690,7 +661,6 @@ fn main() {
             "cargo:info=Using DuckDB source from DUCKDB_SOURCE_DIR={}",
             source_dir.display()
         );
-        apply_source_patches(&crate_dir, &source_dir);
         bindgen_c2rust(&crate_dir, &duckdb_include_dir);
         cbindgen_rust2c(&crate_dir);
         compile_cpp(&duckdb_include_dir);
@@ -741,8 +711,6 @@ fn main() {
         fs::remove_file(&source_archive_path).unwrap();
         fs::write(&extract_marker, version.to_string()).unwrap();
     }
-
-    apply_source_patches(&crate_dir, &inner_dir);
 
     drop(fs::remove_file(&duckdb_dir));
     drop(fs::remove_dir_all(&duckdb_dir));

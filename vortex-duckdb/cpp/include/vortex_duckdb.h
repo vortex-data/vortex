@@ -60,7 +60,8 @@ void duckdb_vx_reusable_dict_set_vector(duckdb_vx_reusable_dict reusable, duckdb
 /// Creates a dictionary vector using a reusable dictionary and a selection vector.
 void duckdb_vx_vector_dictionary_reusable(duckdb_vector vector,
                                           duckdb_vx_reusable_dict reusable,
-                                          duckdb_selection_vector sel_vec);
+                                          duckdb_selection_vector sel_vec,
+                                          idx_t sel_count);
 
 // Create a null value with a reference to a logical type.
 duckdb_value duckdb_vx_value_create_null(duckdb_logical_type ty);

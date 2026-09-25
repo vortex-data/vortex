@@ -11,7 +11,7 @@ query TT
 EXPLAIN SELECT * FROM '$__TEST_DIR__/cast_pushdown-date.vortex'
 WHERE ts::DATE = '2020-01-01';
 ----
-<REGEX>:.*FILTER.*
+<REGEX>:.*Filter.*
 
 query T
 SELECT ts FROM '$__TEST_DIR__/cast_pushdown-date.vortex'
@@ -27,7 +27,8 @@ TO '$__TEST_DIR__/cast_pushdown.vortex';
 
 # Column is used uncasted
 query TT
-EXPLAIN SELECT * FROM '$__TEST_DIR__/cast_pushdown.vortex';
+EXPLAIN (FORMAT json)
+SELECT * FROM '$__TEST_DIR__/cast_pushdown.vortex';
 ----
 <!REGEX>:.*PROJECTION.*
 
@@ -69,7 +70,8 @@ SELECT DISTINCT column00::UTINYINT FROM '$__TEST_DIR__/cast_pushdown.vortex' ORD
 
 # Column is used casted and uncasted
 query TT
-EXPLAIN SELECT column00, column00::UTINYINT FROM '$__TEST_DIR__/cast_pushdown.vortex';
+EXPLAIN (FORMAT json)
+SELECT column00, column00::UTINYINT FROM '$__TEST_DIR__/cast_pushdown.vortex';
 ----
 <REGEX>:.*PROJECTION.*
 
@@ -112,7 +114,8 @@ WHERE column00 > 0 ORDER BY 1;
 # Column is used uncasted with filter on casted.
 # Cast is pushed in WHERE separately
 query TT
-EXPLAIN SELECT column00 FROM '$__TEST_DIR__/cast_pushdown.vortex'
+EXPLAIN (FORMAT json)
+SELECT column00 FROM '$__TEST_DIR__/cast_pushdown.vortex'
 WHERE column00::UTINYINT > 0;
 ----
 <!REGEX>:.*FILTER.*
@@ -158,7 +161,8 @@ ORDER BY column00::UTINYINT;
 
 # Two different casts of the same column: conflict
 query TT
-EXPLAIN SELECT column00::UTINYINT, column00::USMALLINT
+EXPLAIN (FORMAT json)
+SELECT column00::UTINYINT, column00::USMALLINT
 FROM '$__TEST_DIR__/cast_pushdown.vortex';
 ----
 <REGEX>:.*PROJECTION.*
@@ -180,7 +184,8 @@ FROM '$__TEST_DIR__/cast_pushdown.vortex' ORDER BY 1, 2;
 
 # TRY_CAST is not pushed down
 query TT
-EXPLAIN SELECT TRY_CAST(column00 AS UTINYINT) FROM '$__TEST_DIR__/cast_pushdown.vortex';
+EXPLAIN (FORMAT json)
+SELECT TRY_CAST(column00 AS UTINYINT) FROM '$__TEST_DIR__/cast_pushdown.vortex';
 ----
 <REGEX>:.*PROJECTION.*
 
@@ -221,7 +226,7 @@ query TT
 EXPLAIN SELECT column00 FROM '$__TEST_DIR__/cast_pushdown.vortex'
 WHERE TRY_CAST(column00 AS UTINYINT) > 0;
 ----
-<REGEX>:.*FILTER.*
+<REGEX>:.*Filter.*
 
 query I
 SELECT column00 FROM '$__TEST_DIR__/cast_pushdown.vortex'
@@ -291,7 +296,8 @@ FROM '$__TEST_DIR__/cast_pushdown.vortex' ORDER BY 1, 2;
 
 # CAST and TRY_CAST of different target types: conflict, pushdown blocked
 query TT
-EXPLAIN SELECT column00::UTINYINT, TRY_CAST(column00 AS USMALLINT)
+EXPLAIN (FORMAT json)
+SELECT column00::UTINYINT, TRY_CAST(column00 AS USMALLINT)
 FROM '$__TEST_DIR__/cast_pushdown.vortex';
 ----
 <REGEX>:.*PROJECTION.*
@@ -320,12 +326,14 @@ FROM '$__TEST_DIR__/cast_pushdown.vortex' ORDER BY 1, 2;
 # i128 and u128 casts are not allowed as Vortex doesn't support these types
 
 query TT
-EXPLAIN SELECT column00::HUGEINT FROM '$__TEST_DIR__/cast_pushdown.vortex';
+EXPLAIN (FORMAT json)
+SELECT column00::HUGEINT FROM '$__TEST_DIR__/cast_pushdown.vortex';
 ----
 <REGEX>:.*PROJECTION.*
 
 query TT
-EXPLAIN SELECT column00::UHUGEINT FROM '$__TEST_DIR__/cast_pushdown.vortex';
+EXPLAIN (FORMAT json)
+SELECT column00::UHUGEINT FROM '$__TEST_DIR__/cast_pushdown.vortex';
 ----
 <REGEX>:.*PROJECTION.*
 
@@ -334,14 +342,14 @@ EXPLAIN SELECT column00
 FROM '$__TEST_DIR__/cast_pushdown.vortex'
 WHERE column01::HUGEINT >= column00;
 ----
-<REGEX>:.*FILTER.*
+<REGEX>:.*Filter.*
 
 query TT
 EXPLAIN SELECT column01
 FROM '$__TEST_DIR__/cast_pushdown.vortex'
 WHERE column00::UHUGEINT >= column01
 ----
-<REGEX>:.*FILTER.*
+<REGEX>:.*Filter.*
 
 statement ok
 COPY (SELECT * FROM (
@@ -362,7 +370,7 @@ query TT
 EXPLAIN SELECT d FROM '$__TEST_DIR__/cast_pushdown-date-filter.vortex'
 WHERE d < DATE '1993-07-01' + INTERVAL '3' MONTH;
 ----
-<REGEX>:.*FILTER.*
+<REGEX>:.*Filter.*
 
 statement ok
 CREATE OR REPLACE TABLE tbl(val FLOAT)
@@ -376,7 +384,8 @@ COPY (SELECT * FROM tbl) TO '$__TEST_DIR__/cast_pushdown-float.vortex';
 # floating point casts are not pushed down because Vortex's behaviour, truncate
 # to zero, differs from Duckdb's rounding
 query TT
-EXPLAIN SELECT CAST(val AS INTEGER) FROM '$__TEST_DIR__/cast_pushdown-float.vortex';
+EXPLAIN (FORMAT json)
+SELECT CAST(val AS INTEGER) FROM '$__TEST_DIR__/cast_pushdown-float.vortex';
 ----
 <REGEX>:.*PROJECTION.*
 
@@ -411,7 +420,7 @@ query TT
 EXPLAIN SELECT col::UTINYINT FROM '$__TEST_DIR__/cast_pushdown-many.vortex'
 WHERE TRY_CAST(col AS UTINYINT) IS NOT NULL;
 ----
-<REGEX>:.*FILTER.*TRY_CAST.*
+<REGEX>:.*Filter.*TRY_CAST.*
 
 query TT
 EXPLAIN SELECT col::UTINYINT FROM '$__TEST_DIR__/cast_pushdown-many.vortex'
@@ -432,7 +441,8 @@ COPY (SELECT * FROM (VALUES (1, 'a'), (257, 'b')) AS t(n, s))
 TO '$__TEST_DIR__/cast_pushdown-residual-filter.vortex';
 
 query TT
-EXPLAIN SELECT n::UTINYINT FROM '$__TEST_DIR__/cast_pushdown-residual-filter.vortex'
+EXPLAIN (FORMAT json)
+SELECT n::UTINYINT FROM '$__TEST_DIR__/cast_pushdown-residual-filter.vortex'
 WHERE s || 'x' = 'ax';
 ----
 <REGEX>:.*FILTER.*
