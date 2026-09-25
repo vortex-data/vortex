@@ -230,5 +230,5 @@ ambiguous, ask the user instead of inventing a prefix.
 All commits must be signed off by the committers in this form:
 
 ```text
-Signed-off-by: "COMMITTER" <COMMITTER_EMAIL>
+Signed-off-by: <COMMITTER> <COMMITTER_EMAIL>
 ```
