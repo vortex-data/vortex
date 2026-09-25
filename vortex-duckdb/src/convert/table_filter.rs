@@ -15,9 +15,9 @@ use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
 use vortex::expr::get_item;
+use vortex::expr::in_list;
 use vortex::expr::is_not_null;
 use vortex::expr::is_null;
-use vortex::expr::list_contains;
 use vortex::expr::lit;
 use vortex::expr::or_collect;
 use vortex::scalar::Scalar;
@@ -89,8 +89,8 @@ pub fn try_from_table_filter(
                 "IN filter must have at least one value"
             );
             let dtype = scalars[0].dtype().clone();
-            let list_scalar = Scalar::list(Arc::new(dtype), scalars, Nullability::Nullable);
-            list_contains(lit(list_scalar), col.clone())
+            let list_scalar = Scalar::list(Arc::new(dtype), scalars, Nullability::NonNullable);
+            in_list(col.clone(), lit(list_scalar))
         }
         TableFilterClass::Dynamic(dynamic) => {
             let op = match dynamic.operator {

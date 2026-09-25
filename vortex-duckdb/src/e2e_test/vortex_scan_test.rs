@@ -18,6 +18,7 @@ use jiff::Zoned;
 use jiff::tz;
 use jiff::tz::TimeZone;
 use num_traits::AsPrimitive;
+use rstest::rstest;
 use tempfile::NamedTempFile;
 use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
@@ -278,6 +279,99 @@ fn test_vortex_scan_integers_between() {
         0,
     );
     assert_eq!(sum, 43);
+}
+
+fn assert_membership_filter_pushed(
+    conn: &Connection,
+    table: &str,
+    predicate: &str,
+    expected: i64,
+) -> Result<()> {
+    let query = format!("SELECT count(*) FROM {table} WHERE {predicate}");
+    let result = conn.query(&query)?;
+    let chunk = result.into_iter().next().unwrap();
+    assert_eq!(chunk.get_vector(0).as_slice_with_len::<i64>(1), [expected]);
+
+    let mut plan = String::new();
+    for mut chunk in conn.query(&format!("EXPLAIN {query}"))? {
+        let len = chunk.len().as_();
+        let vector = chunk.get_vector_mut(1);
+        for value in unsafe { vector.as_slice_mut::<duckdb_string_t>(len) } {
+            plan.push_str(&String::from_duckdb_value(value));
+        }
+    }
+    assert!(
+        plan.contains("list_contains"),
+        "missing membership filter:\n{plan}"
+    );
+    assert!(!plan.contains("FILTER"), "filter was not pushed:\n{plan}");
+    Ok(())
+}
+
+#[rstest]
+#[case::in_list("number IN (1, 3)", 2)]
+#[case::not_in_list("number NOT IN (1, 3)", 2)]
+#[case::null_last("number IN (1, NULL)", 1)]
+#[case::null_first("number IN (NULL, 1)", 1)]
+#[case::not_in_null("number NOT IN (1, NULL)", 0)]
+#[case::unknown("(number IN (1, NULL)) IS NULL", 4)]
+#[case::known("(number IN (NULL, 1)) IS NOT NULL", 1)]
+fn test_membership_filter_pushdown(
+    #[case] predicate: &str,
+    #[case] expected: i64,
+    #[values(false, true)] through_view: bool,
+) -> Result<()> {
+    let file = RUNTIME.block_on(async {
+        let numbers =
+            PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4), None]);
+        write_single_column_vortex_file("number", numbers).await
+    });
+    let conn = database_connection();
+    let file_table = format!("'{}'", file.path().to_string_lossy());
+    let table = if through_view {
+        conn.query(&format!("CREATE VIEW members AS SELECT * FROM {file_table}"))?;
+        "members"
+    } else {
+        file_table.as_str()
+    };
+    assert_membership_filter_pushed(&conn, table, predicate, expected)
+}
+
+#[test]
+fn test_large_membership_filter_pushdown() -> Result<()> {
+    let file = RUNTIME.block_on(async {
+        let numbers = PrimitiveArray::from_option_iter([Some(1i32), Some(42), Some(1001), None]);
+        write_single_column_vortex_file("number", numbers).await
+    });
+    let conn = database_connection();
+    let members = (0..1000)
+        .map(|value| value.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    assert_membership_filter_pushed(
+        &conn,
+        &format!("'{}'", file.path().to_string_lossy()),
+        &format!("number IN ({members})"),
+        2,
+    )
+}
+
+#[test]
+fn test_membership_with_nonconstant_list_stays_in_duckdb() -> Result<()> {
+    let file = RUNTIME.block_on(async {
+        let numbers = buffer![1i32, 2, 3];
+        write_single_column_vortex_file("number", numbers).await
+    });
+    let conn = database_connection();
+    // Exercise the unsupported IN expression itself, before DuckDB expands it to comparisons.
+    conn.query("SET disabled_optimizers = 'in_clause'")?;
+    let result = conn.query(&format!(
+        "SELECT count(*) FROM '{}' WHERE number IN (number, 99)",
+        file.path().to_string_lossy(),
+    ))?;
+    let chunk = result.into_iter().next().unwrap();
+    assert_eq!(chunk.get_vector(0).as_slice_with_len::<i64>(1), [3]);
+    Ok(())
 }
 
 #[test]
