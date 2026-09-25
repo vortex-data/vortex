@@ -295,19 +295,9 @@ impl ScalarFnVTable for Binary {
         let left_const = left.as_constant();
         let right_const = right.as_constant();
 
-        // We don't handle Kleene NULL reduction here. This will be reduced in
-        // the boolean kernel during execution. Not handling the case keeps the
-        // code much simpler.
-        if let Some(constant) = left_const.as_ref()
-            && constant.is_null()
-        {
-            return Ok(None);
-        }
-        if let Some(constant) = right_const.as_ref()
-            && constant.is_null()
-        {
-            return Ok(None);
-        }
+        // We don't handle Kleene NULL reduction here (.value() returns None
+        // for NULL). This will be reduced in the boolean kernel during
+        // execution. Not handling the case keeps the code much simpler.
         let left_const = left_const
             .and_then(|s| s.value().cloned())
             .map(|v| v.as_bool());
