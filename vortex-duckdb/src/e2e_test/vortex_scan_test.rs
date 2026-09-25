@@ -329,7 +329,9 @@ fn test_membership_filter_pushdown(
     let conn = database_connection();
     let file_table = format!("'{}'", file.path().to_string_lossy());
     let table = if through_view {
-        conn.query(&format!("CREATE VIEW members AS SELECT * FROM {file_table}"))?;
+        conn.query(&format!(
+            "CREATE VIEW members AS SELECT * FROM {file_table}"
+        ))?;
         "members"
     } else {
         file_table.as_str()
