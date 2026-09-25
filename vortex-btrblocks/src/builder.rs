@@ -21,20 +21,22 @@ use crate::schemes::string;
 /// Delta, registered on the default [`CompressionSession`](crate::CompressionSession).
 ///
 /// No edition includes `fastlanes.delta` yet, so the session's enabled editions decide whether
-/// the compressor may use it. [`CompressionMode::Cuda`] excludes it.
+/// the compressor may use it.
+/// [`only_cuda_compatible`](BtrBlocksCompressorBuilder::only_cuda_compatible) excludes it.
 pub static DELTA_SCHEME: integer::DeltaScheme = integer::DeltaScheme::new(1.25);
 
 /// The preset a [`BtrBlocksCompressorBuilder`] builds with.
 ///
-/// Every mode excludes some of the session's schemes in
-/// [`build`](BtrBlocksCompressorBuilder::build), except those added with
-/// [`with_new_scheme`](BtrBlocksCompressorBuilder::with_new_scheme).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum CompressionMode {
-    /// Excludes Zstd and Pco.
-    #[default]
+/// Every mode except [`All`](Self::All) excludes some schemes in
+/// [`build`](BtrBlocksCompressorBuilder::build).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CompressionMode {
+    /// Excludes nothing. Set by [`empty`](BtrBlocksCompressorBuilder::empty).
+    All,
+    /// Excludes Zstd and Pco. Set by [`from_session`](BtrBlocksCompressorBuilder::from_session).
     Default,
-    /// Excludes buffer-level Zstd, keeping Zstd for strings and binary and Pco for numerics. Set by [`with_compact`](BtrBlocksCompressorBuilder::with_compact).
+    /// Excludes buffer-level Zstd, keeping Zstd for strings and binary and Pco for numerics.
+    /// Set by [`with_compact`](BtrBlocksCompressorBuilder::with_compact).
     Compact,
     /// Excludes schemes without CUDA kernel support, keeping FSST for strings and both Zstd
     /// schemes for binary. Set by
@@ -47,6 +49,7 @@ impl CompressionMode {
     fn excluded_schemes(self) -> Vec<SchemeId> {
         let mut excluded = Vec::new();
         match self {
+            Self::All => {}
             Self::Default => {
                 #[cfg(feature = "zstd")]
                 excluded.extend([
@@ -94,10 +97,10 @@ impl CompressionMode {
 /// Builder for creating configured [`BtrBlocksCompressor`] instances.
 ///
 /// [`from_session`](Self::from_session) starts from the schemes registered in the session's
-/// [`CompressionSession`](crate::CompressionSession), in registration order. Its
-/// [`CompressionMode`] excludes some of them on [`build`](Self::build): by default Zstd and
-/// Pco. [`with_compact`](Self::with_compact) and
-/// [`only_cuda_compatible`](Self::only_cuda_compatible) switch the mode.
+/// [`CompressionSession`](crate::CompressionSession), in registration order, and
+/// [`build`](Self::build) excludes some of them: by default Zstd and Pco.
+/// [`with_compact`](Self::with_compact) and [`only_cuda_compatible`](Self::only_cuda_compatible)
+/// switch to a different preset.
 ///
 /// The builder also tracks which serialized array IDs its schemes may produce, taken from the
 /// session's registered arrays and enabled editions. [`build`](Self::build) drops every scheme
@@ -126,11 +129,6 @@ pub struct BtrBlocksCompressorBuilder {
     schemes: Vec<&'static dyn Scheme>,
     allowed: AllowedIds,
     mode: CompressionMode,
-    /// Schemes added with [`with_new_scheme`](Self::with_new_scheme), which the mode never
-    /// excludes.
-    included: HashSet<SchemeId>,
-    /// Schemes excluded with [`exclude_schemes`](Self::exclude_schemes).
-    excluded: HashSet<SchemeId>,
 }
 
 impl BtrBlocksCompressorBuilder {
@@ -142,48 +140,41 @@ impl BtrBlocksCompressorBuilder {
             schemes: session.compression().schemes().to_vec(),
             allowed: AllowedIds::from_session(session),
             mode: CompressionMode::Default,
-            included: HashSet::default(),
-            excluded: HashSet::default(),
         }
     }
 
     /// Creates a builder with no schemes registered.
     ///
     /// Useful when the caller wants explicit, scheme-by-scheme control over the compressor.
-    /// Every serialized ID is allowed.
+    /// Every added scheme and every serialized ID is allowed.
     pub fn empty() -> Self {
         Self {
             schemes: Vec::new(),
             allowed: AllowedIds::all(),
-            mode: CompressionMode::Default,
-            included: HashSet::default(),
-            excluded: HashSet::default(),
+            mode: CompressionMode::All,
         }
     }
 
-    /// Adds a compression scheme that the [`CompressionMode`] will not exclude.
+    /// Adds a compression scheme not registered on the session.
     ///
     /// This allows encoding crates outside of `vortex-btrblocks` to register their own schemes
-    /// with the compressor, and opts in to registered schemes the mode excludes, such as Zstd.
+    /// with the compressor.
     ///
     /// # Panics
     ///
-    /// Panics if a scheme with the same [`SchemeId`] was already added with this method.
+    /// Panics if a scheme with the same [`SchemeId`] is already present.
     pub fn with_new_scheme(mut self, scheme: &'static dyn Scheme) -> Self {
         assert!(
-            self.included.insert(scheme.id()),
+            !self.schemes.iter().any(|s| s.id() == scheme.id()),
             "scheme {:?} is already present in the builder",
             scheme.id(),
         );
 
-        if !self.schemes.iter().any(|s| s.id() == scheme.id()) {
-            self.schemes.push(scheme);
-        }
+        self.schemes.push(scheme);
         self
     }
 
-    /// Switches to [`CompressionMode::Compact`], keeping Zstd for strings and binary and Pco for
-    /// numerics.
+    /// Switches to the compact preset, keeping Zstd for strings and binary and Pco for numerics.
     ///
     /// This provides better compression ratios than the default, especially for floating-point
     /// heavy datasets. The Zstd and Pco schemes are only registered with the `zstd` and `pco`
@@ -193,8 +184,8 @@ impl BtrBlocksCompressorBuilder {
         self
     }
 
-    /// Switches to [`CompressionMode::Cuda`], excluding schemes without CUDA kernel support,
-    /// keeping FSST for string compression and Zstd for binary compression.
+    /// Switches to the CUDA preset, excluding schemes without CUDA kernel support, keeping FSST
+    /// for string compression and Zstd for binary compression.
     ///
     /// This preset is intended for files that will be decoded by CUDA kernels. It may choose a
     /// larger encoded representation than the default compressor.
@@ -203,11 +194,10 @@ impl BtrBlocksCompressorBuilder {
         self
     }
 
-    /// Excludes the specified compression schemes by their [`SchemeId`] on
-    /// [`build`](Self::build), including schemes added with
-    /// [`with_new_scheme`](Self::with_new_scheme).
+    /// Removes the specified compression schemes by their [`SchemeId`].
     pub fn exclude_schemes(mut self, ids: impl IntoIterator<Item = SchemeId>) -> Self {
-        self.excluded.extend(ids);
+        let ids: HashSet<_> = ids.into_iter().collect();
+        self.schemes.retain(|s| !ids.contains(&s.id()));
         self
     }
 
@@ -227,21 +217,14 @@ impl BtrBlocksCompressorBuilder {
         self
     }
 
-    /// Builds the configured [`BtrBlocksCompressor`] from the schemes that neither its
-    /// [`CompressionMode`] nor [`exclude_schemes`](Self::exclude_schemes) exclude and whose
-    /// produced serialized IDs are all allowed.
+    /// Builds the configured [`BtrBlocksCompressor`] from the schemes that its preset does not
+    /// exclude and whose produced serialized IDs are all allowed.
     pub fn build(self) -> BtrBlocksCompressor {
         BtrBlocksCompressor(CascadingCompressor::new(self.allowed_schemes()))
     }
 
     fn allowed_schemes(&self) -> Vec<&'static dyn Scheme> {
-        let mut excluded: HashSet<SchemeId> = self
-            .mode
-            .excluded_schemes()
-            .into_iter()
-            .filter(|id| !self.included.contains(id))
-            .collect();
-        excluded.extend(self.excluded.iter().copied());
+        let excluded: HashSet<SchemeId> = self.mode.excluded_schemes().into_iter().collect();
         self.schemes
             .iter()
             .copied()
@@ -297,11 +280,6 @@ mod tests {
         assert!(has_delta(&default_builder()));
         assert!(has_delta(&default_builder().with_compact()));
         assert!(!has_delta(&default_builder().only_cuda_compatible()));
-        assert!(has_delta(
-            &default_builder()
-                .only_cuda_compatible()
-                .with_new_scheme(&DELTA_SCHEME)
-        ));
     }
 
     #[test]
@@ -375,6 +353,14 @@ mod tests {
     #[test]
     fn empty_allows_all() {
         let builder = BtrBlocksCompressorBuilder::empty().with_new_scheme(&integer::FoRScheme);
+        assert_eq!(builder.allowed_schemes().len(), 1);
+    }
+
+    /// `empty()` keeps schemes that the default preset would exclude.
+    #[test]
+    #[cfg(feature = "zstd")]
+    fn empty_keeps_schemes_the_default_preset_excludes() {
+        let builder = BtrBlocksCompressorBuilder::empty().with_new_scheme(&string::ZstdScheme);
         assert_eq!(builder.allowed_schemes().len(), 1);
     }
 

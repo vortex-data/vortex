@@ -26,8 +26,7 @@ use crate::schemes::temporal;
 /// scheme selection is deterministic.
 ///
 /// [`Default`] registers every built-in scheme, including Delta and the feature-gated Pco and
-/// Zstd schemes. The builder's mode decides which of them a compressor uses, see
-/// [`CompressionMode`](crate::CompressionMode).
+/// Zstd schemes. The builder's preset decides which of them a compressor uses.
 #[derive(Clone, Debug)]
 pub struct CompressionSession {
     schemes: Vec<&'static dyn Scheme>,

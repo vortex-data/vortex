@@ -81,7 +81,6 @@ mod trace_tests;
 // Re-export framework types from vortex-compressor for backwards compatibility.
 // Btrblocks-specific exports.
 pub use builder::BtrBlocksCompressorBuilder;
-pub use builder::CompressionMode;
 pub use builder::DELTA_SCHEME;
 pub use canonical_compressor::BtrBlocksCompressor;
 pub use schemes::patches::compress_patches;

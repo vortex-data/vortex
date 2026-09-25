@@ -32,7 +32,6 @@ use vortex_utils::aliases::hash_map::HashMap;
 const ONE_MEG: u64 = 1 << 20;
 
 /// How the compressor was configured on [`WriteStrategyBuilder`].
-#[expect(clippy::large_enum_variant, reason = "built once per write strategy")]
 enum CompressorConfig {
     /// A [`BtrBlocksCompressorBuilder`] that [`WriteStrategyBuilder::build`] will finalize.
     /// `IntDictScheme` is automatically excluded from the data compressor to prevent recursive
