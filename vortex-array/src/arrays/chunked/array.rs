@@ -79,20 +79,18 @@ pub trait ChunkedArrayExt: TypedArrayRef<Chunked> {
             .vortex_expect("validated chunk slot")
     }
 
-    fn iter_chunks<'a>(&'a self) -> Box<dyn Iterator<Item = &'a ArrayRef> + 'a> {
-        Box::new(
-            self.as_ref().slots()[ChunkedSlots::CHUNKS_OFFSET..]
-                .iter()
-                .map(|slot| slot.as_ref().vortex_expect("validated chunk slot")),
-        )
+    fn iter_chunks(&self) -> impl Iterator<Item = &ArrayRef> {
+        self.as_ref().slots()[ChunkedSlots::CHUNKS_OFFSET..]
+            .iter()
+            .map(|slot| slot.as_ref().vortex_expect("validated chunk slot"))
     }
 
     fn chunks(&self) -> Vec<ArrayRef> {
         self.iter_chunks().cloned().collect()
     }
 
-    fn non_empty_chunks<'a>(&'a self) -> Box<dyn Iterator<Item = &'a ArrayRef> + 'a> {
-        Box::new(self.iter_chunks().filter(|chunk| !chunk.is_empty()))
+    fn non_empty_chunks(&self) -> impl Iterator<Item = &ArrayRef> {
+        self.iter_chunks().filter(|chunk| !chunk.is_empty())
     }
 
     /// Returns the cached chunk boundary offsets.
