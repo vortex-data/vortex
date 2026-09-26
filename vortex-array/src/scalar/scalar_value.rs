@@ -48,7 +48,7 @@ impl ScalarValue {
     /// Returns the zero / identity value for the given [`DType`].
     pub(super) fn zero_value(dtype: &DType) -> Self {
         Self::try_zero_value(dtype)
-            .unwrap_or_else(|| vortex_panic!("{dtype} has no non-null zero value"))
+            .unwrap_or_else(|| vortex_panic!(AssertionFailed: "{dtype} has no non-null zero value"))
     }
 
     /// Returns the non-null zero value for `dtype`, or [`None`] if no such value exists.

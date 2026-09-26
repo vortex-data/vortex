@@ -82,7 +82,7 @@ where
         let parent_ref: ArrayRef = (*parent).clone();
         let mask_child = parent_ref
             .nth_child(1)
-            .ok_or_else(|| vortex_err!("Mask expression must have 2 children"))?;
+            .ok_or_else(|| vortex_err!(AssertionFailed: "Mask expression must have 2 children"))?;
 
         if mask_child.as_opt::<Bool>().is_none() && mask_child.as_opt::<Constant>().is_none() {
             let can_attach_mask =
@@ -120,7 +120,7 @@ where
         }
         let mask_child = parent
             .nth_child(1)
-            .ok_or_else(|| vortex_err!("Mask expression must have 2 children"))?;
+            .ok_or_else(|| vortex_err!(AssertionFailed: "Mask expression must have 2 children"))?;
         <V as MaskKernel>::mask(array, mask_child, ctx)
     }
 }

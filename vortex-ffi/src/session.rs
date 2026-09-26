@@ -50,7 +50,7 @@ pub unsafe extern "C-unwind" fn vx_session_clone(session: *const vx_session) -> 
 /// `session` must be null or a valid `vx_session` pointer created by this crate, and must stay
 /// valid for the returned reference.
 pub unsafe fn vx_session_ref<'a>(session: *const vx_session) -> VortexResult<&'a VortexSession> {
-    vortex_ensure!(!session.is_null(), "null vx_session");
+    vortex_ensure!(!session.is_null(), InvalidArgument: "null vx_session");
     Ok(vx_session::as_ref(session))
 }
 

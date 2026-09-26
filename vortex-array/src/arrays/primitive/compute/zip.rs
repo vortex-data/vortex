@@ -39,7 +39,7 @@ impl ZipKernel for Primitive {
 
         if if_true.ptype() != if_false.ptype() {
             vortex_bail!(
-                "zip requires if_true and if_false to share a primitive type, got {} and {}",
+                InvalidArgument: "zip requires if_true and if_false to share a primitive type, got {} and {}",
                 if_true.ptype(),
                 if_false.ptype()
             );

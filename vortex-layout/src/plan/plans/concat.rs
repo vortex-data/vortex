@@ -65,14 +65,14 @@ impl ConcatPlan {
         for child in &children {
             if child.dtype() != &dtype {
                 vortex_bail!(
-                    "Concat child dtype {} does not match {dtype}",
+                    MismatchedTypes: "Concat child dtype {} does not match {dtype}",
                     child.dtype()
                 );
             }
             row_offsets.push(row_count);
             row_count = row_count
                 .checked_add(child.row_count())
-                .ok_or_else(|| vortex_error::vortex_err!("Concat row count overflow"))?;
+                .ok_or_else(|| vortex_error::vortex_err!(Overflow: "Concat row count overflow"))?;
         }
         // SAFETY: Child dtypes and the checked cumulative row metadata were validated above.
         Ok(unsafe {
@@ -107,7 +107,7 @@ impl PlanVTable for Concat {
     ) -> VortexResult<()> {
         if children.len() != plan.children().len() {
             vortex_bail!(
-                "Concat expects {} children but got {}",
+                InvalidArgument: "Concat expects {} children but got {}",
                 plan.children().len(),
                 children.len()
             );
@@ -119,7 +119,7 @@ impl PlanVTable for Concat {
             let child = child?;
             if child.dtype() != plan.dtype() {
                 vortex_bail!(
-                    "Concat child dtype {} does not match {}",
+                    MismatchedTypes: "Concat child dtype {} does not match {}",
                     child.dtype(),
                     plan.dtype()
                 );
@@ -127,11 +127,11 @@ impl PlanVTable for Concat {
             row_offsets.push(row_count);
             row_count = row_count
                 .checked_add(child.row_count())
-                .ok_or_else(|| vortex_error::vortex_err!("Concat row count overflow"))?;
+                .ok_or_else(|| vortex_error::vortex_err!(Overflow: "Concat row count overflow"))?;
         }
         if row_count != plan.row_count() {
             vortex_bail!(
-                "Concat children have {row_count} rows but the plan has {}",
+                InvalidArgument: "Concat children have {row_count} rows but the plan has {}",
                 plan.row_count()
             );
         }

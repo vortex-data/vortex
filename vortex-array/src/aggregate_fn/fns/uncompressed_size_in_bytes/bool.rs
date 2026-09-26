@@ -23,5 +23,5 @@ pub(super) fn bool_uncompressed_size_in_bytes(
 
     value_size
         .checked_add(validity_size)
-        .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))
+        .ok_or_else(|| vortex_err!(Overflow: "uncompressed size in bytes overflowed u64"))
 }

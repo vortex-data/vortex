@@ -132,8 +132,9 @@ impl ExtVTable for Timestamp {
             None => bytes.extend_from_slice(0u16.to_le_bytes().as_slice()),
             Some(tz) => {
                 let tz_bytes = tz.as_bytes();
-                let tz_len = u16::try_from(tz_bytes.len())
-                    .unwrap_or_else(|err| vortex_panic!("tz did not fit in u16: {}", err));
+                let tz_len = u16::try_from(tz_bytes.len()).unwrap_or_else(
+                    |err| vortex_panic!(Overflow: "tz did not fit in u16: {}", err),
+                );
                 bytes.extend_from_slice(tz_len.to_le_bytes().as_slice());
                 bytes.extend_from_slice(tz_bytes);
             }
@@ -145,7 +146,7 @@ impl ExtVTable for Timestamp {
     fn deserialize_metadata(&self, data: &[u8]) -> VortexResult<Self::Metadata> {
         vortex_ensure!(
             data.len() >= 3,
-            "Timestamp metadata must have at least 3 bytes, got {}",
+            Serde: "Timestamp metadata must have at least 3 bytes, got {}",
             data.len()
         );
 
@@ -166,13 +167,13 @@ impl ExtVTable for Timestamp {
         // Attempt to load from len-prefixed bytes
         vortex_ensure!(
             data.len() >= 3 + tz_len,
-            "Timestamp metadata is truncated: declared timezone length {} but only {} bytes available",
+            Serde: "Timestamp metadata is truncated: declared timezone length {} but only {} bytes available",
             tz_len,
             data.len() - 3
         );
         let tz_bytes = &data[3..3 + tz_len];
         let tz: Arc<str> = str::from_utf8(tz_bytes)
-            .map_err(|e| vortex_err!("timezone is not valid utf8 string: {e}"))?
+            .map_err(|e| vortex_err!(Serde: "timezone is not valid utf8 string: {e}"))?
             .to_string()
             .into();
         Ok(TimestampOptions {
@@ -184,7 +185,7 @@ impl ExtVTable for Timestamp {
     fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
         vortex_ensure!(
             matches!(ext_dtype.storage_dtype(), DType::Primitive(PType::I64, _)),
-            "Timestamp storage dtype must be i64"
+            MismatchedTypes: "Timestamp storage dtype must be i64"
         );
         Ok(())
     }
@@ -214,17 +215,20 @@ impl ExtVTable for Timestamp {
                 Span::new().seconds(ts_value),
                 TimestampValue::Seconds(ts_value, tz),
             ),
-            TimeUnit::Days => vortex_bail!("Timestamp does not support Days time unit"),
+            TimeUnit::Days => {
+                vortex_bail!(InvalidArgument: "Timestamp does not support Days time unit")
+            }
         };
 
         // Validate the storage value is within the valid range for Timestamp.
         let ts = jiff::Timestamp::UNIX_EPOCH
             .checked_add(span)
-            .map_err(|e| vortex_err!("Invalid timestamp scalar: {}", e))?;
+            .map_err(|e| vortex_err!(InvalidArgument: "Invalid timestamp scalar: {}", e))?;
 
         if let Some(tz) = tz {
-            ts.in_tz(tz.as_ref())
-                .map_err(|e| vortex_err!("Invalid timezone for timestamp scalar: {}", e))?;
+            ts.in_tz(tz.as_ref()).map_err(
+                |e| vortex_err!(InvalidArgument: "Invalid timezone for timestamp scalar: {}", e),
+            )?;
         }
 
         Ok(value)

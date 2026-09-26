@@ -34,7 +34,9 @@ mod tests {
         acc.finish()?
             .as_primitive()
             .typed_value::<u64>()
-            .ok_or_else(|| vortex_err!("uncompressed size result should not be null"))
+            .ok_or_else(
+                || vortex_err!(AssertionFailed: "uncompressed size result should not be null"),
+            )
     }
 
     #[test]

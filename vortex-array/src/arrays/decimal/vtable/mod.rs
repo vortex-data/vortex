@@ -124,7 +124,7 @@ impl VTable for Decimal {
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         let DType::Decimal(_, nullability) = dtype else {
-            vortex_bail!("Expected decimal dtype, got {dtype:?}");
+            vortex_bail!(MismatchedTypes: "Expected decimal dtype, got {dtype:?}");
         };
         vortex_ensure!(
             data.len() == len,
@@ -163,7 +163,7 @@ impl VTable for Decimal {
         let validity = fixed_width::deserialize_validity(dtype.nullability(), len, children)?;
 
         let Some(decimal_dtype) = dtype.as_decimal_opt() else {
-            vortex_bail!("Expected Decimal dtype, got {:?}", dtype)
+            vortex_bail!(MismatchedTypes: "Expected Decimal dtype, got {:?}", dtype)
         };
 
         let slots = DecimalData::make_slots(&validity, len);
@@ -171,7 +171,7 @@ impl VTable for Decimal {
             // Check and reinterpret-cast the buffer
             vortex_ensure!(
                 values.is_aligned_to(Alignment::of::<D>()),
-                "DecimalArray buffer not aligned for values type {:?}",
+                InvalidArgument: "DecimalArray buffer not aligned for values type {:?}",
                 D::DECIMAL_TYPE
             );
             DecimalData::try_new_handle(values, metadata.values_type(), *decimal_dtype)
@@ -193,7 +193,7 @@ impl VTable for Decimal {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let Some(builder) = builder.as_any_mut().downcast_mut::<DecimalBuilder>() else {
-            vortex_bail!("append_to_builder for Decimal requires a DecimalBuilder");
+            vortex_bail!(InvalidArgument: "append_to_builder for Decimal requires a DecimalBuilder");
         };
         builder.append_decimal_array(&array.into_owned(), ctx)
     }

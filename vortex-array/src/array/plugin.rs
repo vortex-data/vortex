@@ -174,7 +174,7 @@ impl<V: VTable> ArrayPlugin for V {
     ) -> VortexResult<Option<ArraySerialization>> {
         vortex_ensure!(
             self.id() == array.encoding_id(),
-            "array plugin {} cannot serialize in-memory array {}",
+            Serde: "array plugin {} cannot serialize in-memory array {}",
             self.id(),
             array.encoding_id(),
         );
@@ -189,7 +189,7 @@ impl<V: VTable> ArrayPlugin for V {
     ) -> VortexResult<ArrayRef> {
         vortex_ensure!(
             self.id() == parts.serialized_id,
-            "array plugin {} does not recognize serialized ID {}",
+            Serde: "array plugin {} does not recognize serialized ID {}",
             self.id(),
             parts.serialized_id,
         );

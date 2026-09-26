@@ -55,7 +55,7 @@ impl Array<Variant> {
         let dtype = core_storage.dtype().clone();
         vortex_ensure!(
             matches!(dtype, DType::Variant(_)),
-            "VariantArray core_storage dtype must be Variant, found {dtype}"
+            MismatchedTypes: "VariantArray core_storage dtype must be Variant, found {dtype}"
         );
         let len = core_storage.len();
         let stats = core_storage.statistics().to_owned();
@@ -136,7 +136,7 @@ mod tests {
     fn execute_variant(array: ArrayRef) -> VortexResult<VariantArray> {
         let mut ctx = array_session().create_execution_ctx();
         let Canonical::Variant(variant) = array.execute::<Canonical>(&mut ctx)? else {
-            return Err(vortex_err!("expected canonical variant array"));
+            return Err(vortex_err!(MismatchedTypes: "expected canonical variant array"));
         };
         Ok(variant)
     }
@@ -151,7 +151,7 @@ mod tests {
 
         let shredded = array
             .shredded()
-            .ok_or_else(|| vortex_err!("expected shredded child"))?;
+            .ok_or_else(|| vortex_err!(InvalidArgument: "expected shredded child"))?;
         let mut ctx = array_session().create_execution_ctx();
         let shredded = shredded.clone().execute::<PrimitiveArray>(&mut ctx)?;
         let expected_shredded_array = if let Some(values) = expected_shredded
@@ -180,9 +180,9 @@ mod tests {
             let variant = scalar.as_variant();
             match expected {
                 Some(expected) => {
-                    let value = variant
-                        .value()
-                        .ok_or_else(|| vortex_err!("expected non-null variant row"))?;
+                    let value = variant.value().ok_or_else(
+                        || vortex_err!(InvalidArgument: "expected non-null variant row"),
+                    )?;
                     assert_eq!(value.as_primitive().typed_value::<i32>(), Some(*expected));
                 }
                 None => assert!(variant.is_null()),
@@ -272,9 +272,9 @@ mod tests {
             let variant = scalar.as_variant();
             match expected {
                 Some(expected) => {
-                    let value = variant
-                        .value()
-                        .ok_or_else(|| vortex_err!("expected non-null variant row"))?;
+                    let value = variant.value().ok_or_else(
+                        || vortex_err!(InvalidArgument: "expected non-null variant row"),
+                    )?;
                     assert_eq!(value.as_primitive().typed_value::<i32>(), Some(expected));
                 }
                 None => assert!(variant.is_null()),

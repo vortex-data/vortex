@@ -243,7 +243,7 @@ pub fn with_empty_buffers<V: VTable>(
 ) -> VortexResult<ArrayParts<V>> {
     vortex_ensure!(
         buffers.is_empty(),
-        "Array {} expects 0 buffers, got {}",
+        InvalidArgument: "Array {} expects 0 buffers, got {}",
         array.encoding_id(),
         buffers.len()
     );
@@ -263,7 +263,7 @@ pub fn unsupported_buffer_replacement<V: VTable>(
     _buffers: &[BufferHandle],
 ) -> VortexResult<ArrayParts<V>> {
     vortex_bail!(
-        "Array {} does not support in-memory buffer replacement",
+        InvalidArgument: "Array {} does not support in-memory buffer replacement",
         array.encoding_id()
     )
 }
@@ -331,7 +331,7 @@ pub fn patches_child(patches: &Patches, idx: usize) -> ArrayRef {
             .as_ref()
             .vortex_expect("patch_chunk_offsets child out of bounds")
             .clone(),
-        _ => vortex_panic!("patches child index {idx} out of bounds"),
+        _ => vortex_panic!(OutOfBounds: "patches child index {idx} out of bounds"),
     }
 }
 
@@ -342,6 +342,6 @@ pub fn patches_child_name(idx: usize) -> &'static str {
         0 => "patch_indices",
         1 => "patch_values",
         2 => "patch_chunk_offsets",
-        _ => vortex_panic!("patches child name index {idx} out of bounds"),
+        _ => vortex_panic!(OutOfBounds: "patches child name index {idx} out of bounds"),
     }
 }

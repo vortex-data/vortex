@@ -83,7 +83,7 @@ impl ScalarFnVTable for FillNull {
     fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
         vortex_ensure!(
             arg_dtypes[0].eq_ignore_nullability(&arg_dtypes[1]),
-            "fill_null requires input and fill value to have the same base type, got {} and {}",
+            MismatchedTypes: "fill_null requires input and fill value to have the same base type, got {} and {}",
             arg_dtypes[0],
             arg_dtypes[1]
         );
@@ -102,13 +102,13 @@ impl ScalarFnVTable for FillNull {
         let input = args.get(0)?;
         let fill_value = args.get(1)?;
 
-        let fill_scalar = fill_value
-            .as_constant()
-            .ok_or_else(|| vortex_err!("fill_null fill_value must be a constant/scalar"))?;
+        let fill_scalar = fill_value.as_constant().ok_or_else(
+            || vortex_err!(InvalidArgument: "fill_null fill_value must be a constant/scalar"),
+        )?;
 
         vortex_ensure!(
             !fill_scalar.is_null(),
-            "fill_null requires a non-null fill value"
+            InvalidArgument: "fill_null requires a non-null fill value"
         );
 
         let Some(columnar) = input.as_opt::<AnyColumnar>() else {
@@ -170,15 +170,20 @@ fn fill_null_canonical(
     }
     match canonical {
         CanonicalView::Bool(a) => <Bool as FillNullKernel>::fill_null(a, fill_value, ctx)?
-            .ok_or_else(|| vortex_err!("FillNullKernel for BoolArray returned None")),
+            .ok_or_else(
+                || vortex_err!(AssertionFailed: "FillNullKernel for BoolArray returned None"),
+            ),
         CanonicalView::Primitive(a) => {
-            <Primitive as FillNullKernel>::fill_null(a, fill_value, ctx)?
-                .ok_or_else(|| vortex_err!("FillNullKernel for PrimitiveArray returned None"))
+            <Primitive as FillNullKernel>::fill_null(a, fill_value, ctx)?.ok_or_else(
+                || vortex_err!(AssertionFailed: "FillNullKernel for PrimitiveArray returned None"),
+            )
         }
         CanonicalView::Decimal(a) => <Decimal as FillNullKernel>::fill_null(a, fill_value, ctx)?
-            .ok_or_else(|| vortex_err!("FillNullKernel for DecimalArray returned None")),
+            .ok_or_else(
+                || vortex_err!(AssertionFailed: "FillNullKernel for DecimalArray returned None"),
+            ),
         other => vortex_bail!(
-            "No FillNullKernel for canonical array {}",
+            NotImplemented: "No FillNullKernel for canonical array {}",
             other.to_array_ref().encoding_id()
         ),
     }

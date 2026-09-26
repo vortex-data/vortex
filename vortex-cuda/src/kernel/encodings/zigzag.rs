@@ -48,15 +48,15 @@ impl CudaExecute for ZigZagExecutor {
         array: ArrayRef,
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
-        let array =
-            Self::try_specialize(array).ok_or_else(|| vortex_err!("Expected ZigZagArray"))?;
+        let array = Self::try_specialize(array)
+            .ok_or_else(|| vortex_err!(InvalidArgument: "Expected ZigZagArray"))?;
 
         // The encoded array is unsigned, we decode to signed of the same width.
         let encoded_ptype = array.encoded().dtype().as_ptype();
         let output_ptype = PType::try_from(array.dtype())?;
         vortex_ensure!(
             output_ptype == encoded_ptype.to_signed(),
-            "ZigZag output type {output_ptype} must be the signed equivalent of {encoded_ptype}"
+            MismatchedTypes: "ZigZag output type {output_ptype} must be the signed equivalent of {encoded_ptype}"
         );
 
         match_each_unsigned_integer_ptype!(encoded_ptype, |U| {
@@ -74,7 +74,7 @@ where
     U: NativePType + DeviceRepr + Send + Sync + 'static,
 {
     let array_len = array.encoded().len();
-    vortex_ensure!(array_len > 0, "ZigZag array must not be empty");
+    vortex_ensure!(array_len > 0, InvalidArgument: "ZigZag array must not be empty");
 
     // Execute child and copy to device
     let canonical = array.encoded().clone().execute_cuda(ctx).await?;
@@ -108,7 +108,7 @@ where
     let mut output = ctx.device_alloc::<U>(array_len)?;
     ctx.stream()
         .memcpy_dtod(&input_view, &mut output)
-        .map_err(|err| vortex_err!("Failed to copy shared ZigZag input: {err}"))?;
+        .map_err(|err| vortex_err!(Io: "Failed to copy shared ZigZag input: {err}"))?;
     ctx.launch_kernel(&cuda_function, array_len, |args| {
         args.arg(&mut output).arg(&array_len_u64);
     })?;

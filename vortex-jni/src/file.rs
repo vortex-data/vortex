@@ -76,7 +76,7 @@ pub(crate) fn extract_metadata(
         let key_str = env.cast_local::<JString>(key_obj)?;
         let key = key_str.try_to_string(env)?;
         if val_obj.is_null() {
-            return Err(vortex_err!("null metadata value for key '{key}'").into());
+            return Err(vortex_err!(InvalidArgument: "null metadata value for key '{key}'").into());
         }
         let bytes = env.cast_local::<JByteArray>(val_obj)?;
         segments.insert(key, ByteBuffer::from(env.convert_byte_array(&bytes)?));
@@ -183,14 +183,14 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFiles_readMetadataFromReadable(
     try_or_throw(&mut env, |env| {
         let session = unsafe { session_ref(session_ptr) };
         if readable.is_null() {
-            throw_runtime!("null readable");
+            throw_runtime!(InvalidArgument: "null readable");
         }
         let name: String = name.try_to_string(env)?;
         if name.is_empty() {
-            throw_runtime!("readable name must not be empty");
+            throw_runtime!(InvalidArgument: "readable name must not be empty");
         }
-        let length =
-            u64::try_from(length).map_err(|_| vortex_err!("negative readable length: {length}"))?;
+        let length = u64::try_from(length)
+            .map_err(|_| vortex_err!(InvalidArgument: "negative readable length: {length}"))?;
 
         let vm = env.get_java_vm()?;
         let readable = Arc::new(env.new_global_ref(&readable)?);

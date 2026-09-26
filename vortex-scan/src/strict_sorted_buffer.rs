@@ -40,7 +40,7 @@ impl<T: Ord> StrictSortedBuffer<T> {
         for (idx, window) in buffer.windows(2).enumerate() {
             if window[0] >= window[1] {
                 vortex_bail!(
-                    "buffer values must be strictly increasing at positions {} and {}",
+                    InvalidArgument: "buffer values must be strictly increasing at positions {} and {}",
                     idx,
                     idx + 1
                 );

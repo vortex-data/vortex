@@ -31,14 +31,14 @@ impl ExtVTable for Json {
     }
 
     fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::Metadata> {
-        vortex_ensure!(metadata.is_empty(), "JSON metadata must be empty");
+        vortex_ensure!(metadata.is_empty(), Serde: "JSON metadata must be empty");
         Ok(EmptyMetadata)
     }
 
     fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
         vortex_ensure!(
             ext_dtype.storage_dtype().is_utf8(),
-            "JSON storage dtype must be utf8, got {}",
+            MismatchedTypes: "JSON storage dtype must be utf8, got {}",
             ext_dtype.storage_dtype()
         );
         Ok(())
@@ -49,7 +49,7 @@ impl ExtVTable for Json {
         storage_value: &'a ScalarValue,
     ) -> VortexResult<Self::NativeValue<'a>> {
         let ScalarValue::Utf8(value) = storage_value else {
-            vortex_bail!("JSON storage scalar must be utf8, got {storage_value}");
+            vortex_bail!(MismatchedTypes: "JSON storage scalar must be utf8, got {storage_value}");
         };
         Ok(value.as_str())
     }

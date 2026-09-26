@@ -219,10 +219,6 @@ typedef enum {
      */
     VX_ERROR_CODE_OUT_OF_BOUNDS = 1,
     /**
-     * Compute kernel execute error
-     */
-    VX_ERROR_CODE_COMPUTE = 2,
-    /**
      * An invalid argument was provided.
      */
     VX_ERROR_CODE_INVALID_ARGUMENT = 3,
@@ -250,6 +246,14 @@ typedef enum {
      * Panic inside FFI
      */
     VX_ERROR_CODE_PANIC = 9,
+    /**
+     * A name was looked up and nothing was bound to it
+     */
+    VX_ERROR_CODE_NOT_FOUND = 10,
+    /**
+     * A numeric value does not fit its target type
+     */
+    VX_ERROR_CODE_OVERFLOW = 11,
 } vx_error_code;
 
 /**

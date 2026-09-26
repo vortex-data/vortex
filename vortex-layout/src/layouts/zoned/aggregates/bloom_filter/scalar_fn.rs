@@ -88,12 +88,12 @@ impl ScalarFnVTable for BloomContains {
     fn return_dtype(&self, _options: &Self::Options, args: &[DType]) -> VortexResult<DType> {
         vortex_ensure!(
             matches!(args[0], DType::Binary(_)),
-            "bloom filter must be Binary"
+            MismatchedTypes: "bloom filter must be Binary"
         );
 
         vortex_ensure!(
             is_bloom_valid_dtype(&args[1]),
-            "bloom filter needle value type is unsupported"
+            MismatchedTypes: "bloom filter needle value type is unsupported"
         );
 
         Ok(DType::Bool(args[0].nullability() | args[1].nullability()))
@@ -114,9 +114,9 @@ impl ScalarFnVTable for BloomContains {
         // For now, a bloom filter can execute only when the needle is a literal,
         // so anything other than a constant here is unexpected.
         let needle_array = args.get(1)?;
-        let needle = needle_array
-            .as_constant()
-            .ok_or_else(|| vortex_err!("bloom filter needle must be a constant"))?;
+        let needle = needle_array.as_constant().ok_or_else(
+            || vortex_err!(InvalidArgument: "bloom filter needle must be a constant"),
+        )?;
 
         // The bloom filter doesn't consider nulls as values
         // whose presence it should detect. During writes, the filter
@@ -181,7 +181,7 @@ impl ScalarFnVTable for BloomContains {
                 // and a property of the implementation.
                 u32::try_from(partial.len()).vortex_expect("valid u32 size"),
                 options.blocks_count().get(),
-                "expected equal blocks count"
+                InvalidArgument: "expected equal blocks count"
             );
             partial.contains_scalar(&needle)
         };
@@ -358,9 +358,9 @@ mod tests {
         )?;
 
         let dtype = DType::Primitive(PType::I64, Nullability::NonNullable);
-        let proof = eq(root(dtype), lit(42i64))
-            .falsify(&session)?
-            .ok_or_else(|| vortex_error::vortex_err!("equality should have a bloom falsifier"))?;
+        let proof = eq(root(dtype), lit(42i64)).falsify(&session)?.ok_or_else(
+            || vortex_error::vortex_err!(AssertionFailed: "equality should have a bloom falsifier"),
+        )?;
 
         let mut ctx = session.create_execution_ctx();
         assert_arrays_eq!(
@@ -396,7 +396,7 @@ mod tests {
         let dtype = DType::Primitive(PType::I64, Nullability::NonNullable);
         let proof = eq(root(dtype.clone()), lit(42i64))
             .falsify(&session)?
-            .ok_or_else(|| vortex_error::vortex_err!("equality should have a bloom falsifier"))?;
+            .ok_or_else(|| vortex_error::vortex_err!(AssertionFailed: "equality should have a bloom falsifier"))?;
 
         let zone_map = ZoneMap::try_new(
             dtype,

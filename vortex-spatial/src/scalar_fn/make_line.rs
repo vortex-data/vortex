@@ -44,7 +44,7 @@ use crate::scalar_fn::execute::dispatch_binary;
 fn validate_make_line_operands(dtypes: &[DType]) -> VortexResult<()> {
     vortex_ensure!(
         dtypes.len() == 2,
-        "spatial: make_line requires exactly two point operands, got {}",
+        InvalidArgument: "spatial: make_line requires exactly two point operands, got {}",
         dtypes.len()
     );
     for dtype in dtypes {
@@ -52,7 +52,7 @@ fn validate_make_line_operands(dtypes: &[DType]) -> VortexResult<()> {
             dtype
                 .as_extension_opt()
                 .is_some_and(|extension| extension.is::<Point>()),
-            "spatial: make_line operand {dtype} is not a native point"
+            MismatchedTypes: "spatial: make_line operand {dtype} is not a native point"
         );
     }
     Ok(())
@@ -67,7 +67,7 @@ fn make_line_metadata(
         (Some(left_crs), Some(right_crs)) => {
             vortex_ensure!(
                 left_crs == right_crs,
-                "spatial: make_line operands have different coordinate reference systems: \
+                InvalidArgument: "spatial: make_line operands have different coordinate reference systems: \
                  {left_crs} and {right_crs}"
             );
             Ok(left.clone())
@@ -108,7 +108,9 @@ fn point_coordinates(
                     fields
                         .field(name)
                         .map(|value| ConstantArray::new(value, len).into_array())
-                        .ok_or_else(|| vortex_err!("spatial: point coordinate missing {name}"))
+                        .ok_or_else(
+                            || vortex_err!(NotFound: "spatial: point coordinate missing {name}"),
+                        )
                 })
                 .collect::<VortexResult<Vec<_>>>()?;
             StructArray::try_new(names, arrays, len, Validity::NonNullable)
@@ -346,7 +348,7 @@ mod tests {
             .execute::<Columnar>(&mut ctx)?;
         let Columnar::Constant(lines) = result else {
             return Err(vortex_err!(
-                "make_line of two constants should remain constant"
+                AssertionFailed: "make_line of two constants should remain constant"
             ));
         };
         assert_eq!(lines.len(), 3);
@@ -408,7 +410,7 @@ mod tests {
             .execute::<Columnar>(&mut ctx)?;
         let Columnar::Constant(lines) = result else {
             return Err(vortex_err!(
-                "make_line with a null constant should remain constant"
+                AssertionFailed: "make_line with a null constant should remain constant"
             ));
         };
         assert_eq!(lines.len(), 2);

@@ -100,11 +100,11 @@ impl LayoutChildren for OwnedLayoutChildren {
 
     fn child(&self, idx: usize, dtype: &DType) -> VortexResult<LayoutRef> {
         if idx >= self.0.len() {
-            vortex_bail!("Child index out of bounds: {} of {}", idx, self.0.len());
+            vortex_bail!(OutOfBounds: "Child index out of bounds: {} of {}", idx, self.0.len());
         }
         let child = &self.0[idx];
         if child.dtype() != dtype {
-            vortex_bail!("Child dtype mismatch: {} != {}", child.dtype(), dtype);
+            vortex_bail!(MismatchedTypes: "Child dtype mismatch: {} != {}", child.dtype(), dtype);
         }
         Ok(Arc::clone(child))
     }
@@ -199,7 +199,7 @@ impl ViewedLayoutChildren {
         let encoding_id = self
             .layout_read_ctx
             .resolve(fb_layout.encoding())
-            .ok_or_else(|| vortex_err!("Encoding not found: {}", fb_layout.encoding()))?;
+            .ok_or_else(|| vortex_err!(NotFound: "Encoding not found: {}", fb_layout.encoding()))?;
 
         let children = fb_layout
             .children()
@@ -234,7 +234,7 @@ impl LayoutChildren for ViewedLayoutChildren {
 
     fn child(&self, idx: usize, dtype: &DType) -> VortexResult<LayoutRef> {
         if idx >= self.nchildren() {
-            vortex_bail!("Child index out of bounds: {} of {}", idx, self.nchildren());
+            vortex_bail!(OutOfBounds: "Child index out of bounds: {} of {}", idx, self.nchildren());
         }
 
         let layout_ref = self.cache[idx].get_or_try_init(|| {
@@ -258,13 +258,13 @@ impl LayoutChildren for ViewedLayoutChildren {
                 .layout_read_ctx
                 .resolve(fb_child.encoding())
                 .ok_or_else(|| {
-                    vortex_err!("Unknown layout encoding index: {}", fb_child.encoding())
+                    vortex_err!(NotFound: "Unknown layout encoding index: {}", fb_child.encoding())
                 })?;
             let Some(encoding) = self.layouts.get(&encoding_id) else {
                 if self.allow_unknown {
                     return viewed_children.foreign_layout_from_fb(fb_child, dtype);
                 }
-                vortex_bail!("Unknown layout encoding: {encoding_id}");
+                vortex_bail!(NotFound: "Unknown layout encoding: {encoding_id}");
             };
 
             let build_ctx = LayoutBuildContext {

@@ -54,7 +54,7 @@ impl Array<Extension> {
         vortex_ensure_eq!(
             ext_dtype.storage_dtype(),
             storage_array.dtype(),
-            "Tried to create an `ExtensionArray` with an incompatible storage array"
+            MismatchedTypes: "Tried to create an `ExtensionArray` with an incompatible storage array"
         );
 
         let dtype = DType::Extension(ext_dtype);

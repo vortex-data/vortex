@@ -28,7 +28,7 @@ use crate::EditionSession;
 pub fn validate_edition(editions: &EditionSession, edition: &EditionId) -> VortexResult<()> {
     edition.validate()?;
     if editions.find(edition).is_none() {
-        vortex_bail!("{edition} is not declared in the session");
+        vortex_bail!(NotFound: "{edition} is not declared in the session");
     }
     editions.validate()
 }

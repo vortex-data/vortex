@@ -52,7 +52,7 @@ impl<'a> IntoIterator for &'a TableFilterSetRef {
     fn into_iter(self) -> Self::IntoIter {
         Box::new((0..self.len()).map(move |i| {
             self.get(i)
-                .unwrap_or_else(|| vortex_panic!("inside filter set bounds {i}"))
+                .unwrap_or_else(|| vortex_panic!(AssertionFailed: "inside filter set bounds {i}"))
         }))
     }
 }

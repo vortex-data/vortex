@@ -119,7 +119,7 @@ pub fn segments_ui(app_state: &mut AppState, area: Rect, buf: &mut Buffer) {
         );
         app_state.segment_grid_state.segment_tree = Some(
             to_display_segment_tree(segment_tree)
-                .map_err(|e| vortex_err!("Fail to compute segment tree {e}"))
+                .map_err(|e| vortex_err!(Other: "Fail to compute segment tree {e}"))
                 .vortex_expect("operation should succeed in TUI"),
         );
     }
@@ -134,7 +134,7 @@ pub fn segments_ui(app_state: &mut AppState, area: Rect, buf: &mut Buffer) {
             height: AvailableSpace::Definite(area.height as f32),
         };
         tree.compute_layout(*root_node, viewport_size)
-            .map_err(|e| vortex_err!("Fail to compute layout {e}"))
+            .map_err(|e| vortex_err!(Other: "Fail to compute layout {e}"))
             .vortex_expect("operation should succeed in TUI");
         app_state.frame_size = area.as_size();
 

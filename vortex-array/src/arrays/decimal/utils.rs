@@ -59,7 +59,7 @@ pub fn converted_buffer<W: NativeDecimalType>(
                         .find(|&(_, v)| W::from(*v).is_none())
                         .vortex_expect("overflow scan found an overflowing value");
                     vortex_bail!(
-                        "decimal value {v} at index {i} does not fit {}",
+                        Overflow: "decimal value {v} at index {i} does not fit {}",
                         W::DECIMAL_TYPE
                     );
                 }
@@ -71,7 +71,7 @@ pub fn converted_buffer<W: NativeDecimalType>(
                     for (i, v) in src.iter().enumerate() {
                         if values.value(i) && W::from(*v).is_none() {
                             vortex_bail!(
-                                "decimal value {v} at index {i} does not fit {}",
+                                Overflow: "decimal value {v} at index {i} does not fit {}",
                                 W::DECIMAL_TYPE
                             );
                         }

@@ -51,7 +51,7 @@ impl FilterData {
         vortex_ensure_eq!(
             array_len,
             mask.len(),
-            "FilterArray length mismatch: array has length {} but mask has length {}",
+            InvalidArgument: "FilterArray length mismatch: array has length {} but mask has length {}",
             array_len,
             mask.len()
         );

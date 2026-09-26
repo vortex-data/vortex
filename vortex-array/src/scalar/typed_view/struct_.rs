@@ -116,7 +116,7 @@ impl<'a> StructScalar<'a> {
     /// Creates a new [`StructScalar`] from a [`DType`] and optional [`ScalarValue`].
     pub(crate) fn try_new(dtype: &'a DType, value: Option<&'a ScalarValue>) -> VortexResult<Self> {
         if !matches!(dtype, DType::Struct(..)) {
-            vortex_bail!("Expected struct scalar, found {}", dtype)
+            vortex_bail!(MismatchedTypes: "Expected struct scalar, found {}", dtype)
         }
 
         Ok(Self {
@@ -204,7 +204,7 @@ impl<'a> StructScalar<'a> {
     pub fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
         let DType::Struct(st, _) = dtype else {
             vortex_bail!(
-                "Cannot cast struct to {}: struct can only be cast to struct",
+                MismatchedTypes: "Cannot cast struct to {}: struct can only be cast to struct",
                 dtype
             )
         };
@@ -212,7 +212,7 @@ impl<'a> StructScalar<'a> {
 
         if st.fields().len() != own_st.fields().len() {
             vortex_bail!(
-                "Cannot cast between structs with different number of fields: {} and {}",
+                MismatchedTypes: "Cannot cast between structs with different number of fields: {} and {}",
                 own_st.fields().len(),
                 st.fields().len()
             );
@@ -251,7 +251,7 @@ impl<'a> StructScalar<'a> {
         let struct_dtype = self
             .dtype
             .as_struct_fields_opt()
-            .ok_or_else(|| vortex_err!("Not a struct dtype"))?;
+            .ok_or_else(|| vortex_err!(MismatchedTypes: "Not a struct dtype"))?;
         let projected_dtype = DType::Struct(
             struct_dtype.project(projection)?,
             self.dtype().nullability(),
@@ -281,14 +281,14 @@ impl Scalar {
     /// Creates a new struct scalar with the given fields, checking dtypes at runtime.
     pub fn struct_(dtype: DType, children: impl IntoIterator<Item = Scalar>) -> Self {
         let DType::Struct(struct_fields, _) = &dtype else {
-            vortex_panic!("Expected struct dtype, found {}", dtype);
+            vortex_panic!(MismatchedTypes: "Expected struct dtype, found {}", dtype);
         };
 
         let children: Vec<Scalar> = children.into_iter().collect();
         let field_dtypes = struct_fields.fields();
         if children.len() != field_dtypes.len() {
             vortex_panic!(
-                "Struct has {} fields but {} children were provided",
+                InvalidArgument: "Struct has {} fields but {} children were provided",
                 field_dtypes.len(),
                 children.len()
             );
@@ -297,7 +297,7 @@ impl Scalar {
         for (idx, (child, expected_dtype)) in children.iter().zip(field_dtypes).enumerate() {
             if child.dtype() != &expected_dtype {
                 vortex_panic!(
-                    "Field {} expected dtype {} but got {}",
+                    MismatchedTypes: "Field {} expected dtype {} but got {}",
                     idx,
                     expected_dtype,
                     child.dtype()

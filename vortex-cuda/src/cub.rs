@@ -38,7 +38,7 @@ pub(crate) fn onpair_batch_offsets(
 ) -> VortexResult<CudaSlice<u64>> {
     let num_batches_i64 = i64::try_from(num_batches)?;
     let temp_bytes = onpair::batch_offsets_temp_size(num_batches_i64)
-        .map_err(|err| vortex_err!("CUB onpair_batch_offsets_temp_size failed: {err}"))?;
+        .map_err(|err| vortex_err!(Io: "CUB onpair_batch_offsets_temp_size failed: {err}"))?;
 
     let mut temp = ctx.device_alloc::<u8>(temp_bytes.max(1))?;
     let mut chunk_offsets = ctx.device_alloc::<u64>(num_batches + 1)?;
@@ -65,7 +65,7 @@ pub(crate) fn onpair_batch_offsets(
             num_batches_i64,
             stream_ptr,
         )
-        .map_err(|err| vortex_err!("CUB onpair_batch_offsets failed: {err}"))
+        .map_err(|err| vortex_err!(Io: "CUB onpair_batch_offsets failed: {err}"))
     })?;
     drop((record_status, record_offsets, record_temp));
 
@@ -79,7 +79,7 @@ pub(crate) fn exclusive_sum_i32(
 ) -> VortexResult<CudaSlice<i32>> {
     let len_i64 = i64::try_from(len)?;
     let temp_bytes = scan::exclusive_sum_i32_temp_size(len_i64)
-        .map_err(|err| vortex_err!("CUB scan_exclusive_sum_i32_temp_size failed: {err}"))?;
+        .map_err(|err| vortex_err!(Io: "CUB scan_exclusive_sum_i32_temp_size failed: {err}"))?;
 
     let mut temp = ctx.device_alloc::<u8>(temp_bytes.max(1))?;
     let mut output = ctx.device_alloc::<i32>(len)?;
@@ -98,7 +98,7 @@ pub(crate) fn exclusive_sum_i32(
             len_i64,
             stream_ptr,
         )
-        .map_err(|err| vortex_err!("CUB scan_exclusive_sum_i32 failed: {err}"))
+        .map_err(|err| vortex_err!(Io: "CUB scan_exclusive_sum_i32 failed: {err}"))
     })?;
     drop((record_input, record_output, record_temp));
 
@@ -138,7 +138,7 @@ mod tests {
         let mut status = ctx.device_alloc::<u32>(1)?;
         ctx.stream()
             .memset_zeros(&mut status)
-            .map_err(|e| vortex_err!("Failed to zero status flag: {e}"))?;
+            .map_err(|e| vortex_err!(Io: "Failed to zero status flag: {e}"))?;
 
         let offsets = onpair_batch_offsets(
             &codes_dev,
@@ -154,11 +154,11 @@ mod tests {
         let offsets = ctx
             .stream()
             .clone_dtoh(&offsets)
-            .map_err(|e| vortex_err!("Failed to copy offsets to host: {e}"))?;
+            .map_err(|e| vortex_err!(Io: "Failed to copy offsets to host: {e}"))?;
         let status = ctx
             .stream()
             .clone_dtoh(&status)
-            .map_err(|e| vortex_err!("Failed to copy status to host: {e}"))?;
+            .map_err(|e| vortex_err!(Io: "Failed to copy status to host: {e}"))?;
         Ok((offsets, status[0]))
     }
 

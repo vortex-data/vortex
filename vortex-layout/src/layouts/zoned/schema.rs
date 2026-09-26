@@ -32,7 +32,7 @@ impl AggregateSpecProto {
     pub(crate) fn try_from_aggregate_fn(aggregate_fn: &AggregateFnRef) -> VortexResult<Self> {
         let options = aggregate_fn.options().serialize()?.ok_or_else(|| {
             vortex_err!(
-                "Aggregate function '{}' is not serializable",
+                Serde: "Aggregate function '{}' is not serializable",
                 aggregate_fn.id()
             )
         })?;
@@ -57,13 +57,13 @@ impl AggregateSpecProto {
                 return Ok(None);
             }
 
-            vortex_bail!("unknown aggregate function id: {}", self.id);
+            vortex_bail!(NotFound: "unknown aggregate function id: {}", self.id);
         };
 
         let aggregate_fn = plugin.deserialize(&self.options, session)?;
         if aggregate_fn.id() != aggregate_fn_id {
             vortex_bail!(
-                "Aggregate function ID mismatch: expected {}, got {}",
+                MismatchedTypes: "Aggregate function ID mismatch: expected {}, got {}",
                 aggregate_fn_id,
                 aggregate_fn.id()
             );

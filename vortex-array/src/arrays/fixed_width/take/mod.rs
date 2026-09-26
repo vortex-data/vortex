@@ -105,10 +105,10 @@ pub(crate) fn take<V: FixedWidthArray>(
     }
 
     let DType::Primitive(ptype, nullability) = indices.dtype() else {
-        vortex_bail!("Invalid indices dtype: {}", indices.dtype())
+        vortex_bail!(InvalidArgument: "Invalid indices dtype: {}", indices.dtype())
     };
     if !ptype.is_int() {
-        vortex_bail!("Invalid indices dtype: {}", indices.dtype())
+        vortex_bail!(InvalidArgument: "Invalid indices dtype: {}", indices.dtype())
     }
 
     let indices_validity = indices.validity()?;

@@ -38,7 +38,7 @@ impl RowFn for IsNan {
     ) -> VortexResult<V::VisitResult> {
         let ptype = match args {
             [DType::Primitive(ptype, _)] if ptype.is_float() => *ptype,
-            _ => vortex_bail!("is_nan expects a single float input, got {args:?}"),
+            _ => vortex_bail!(InvalidArgument: "is_nan expects a single float input, got {args:?}"),
         };
         match_each_float_ptype!(ptype, |T| {
             visitor.visit_bool::<(T,), false>(|(value,)| value.is_nan())

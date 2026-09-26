@@ -103,7 +103,7 @@ pub(crate) fn struct_cast_fields(
                     // If the field is nullable, we add a new ConstantArray field with the type.
                     vortex_ensure!(
                         target_type.is_nullable(),
-                        "CAST for struct only supports added nullable fields"
+                        InvalidArgument: "CAST for struct only supports added nullable fields"
                     );
 
                     cast_fields.push(

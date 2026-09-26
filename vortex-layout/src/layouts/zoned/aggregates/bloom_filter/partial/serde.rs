@@ -30,12 +30,12 @@ impl BloomPartial {
     pub(in crate::layouts::zoned) fn deserialize(bytes: ByteBuffer) -> VortexResult<Self> {
         vortex_ensure!(
             !bytes.is_empty() && bytes.len().is_multiple_of(BLOCK_SIZE),
-            "invalid bloom filter byte length: {}",
+            Serde: "invalid bloom filter byte length: {}",
             bytes.len()
         );
         vortex_ensure!(
             u32::try_from(bytes.len() / BLOCK_SIZE).is_ok(),
-            "bloom blocks length must be non-zero and lower than u32::MAX",
+            Serde: "bloom blocks length must be non-zero and lower than u32::MAX",
         );
 
         let blocks = Buffer::<Block>::from_byte_buffer(bytes.aligned(Alignment::of::<Block>()));

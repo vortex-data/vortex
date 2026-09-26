@@ -91,7 +91,7 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> MapBuilder<O, S> {
     pub fn append_value(&mut self, value: MapScalar<'_>) -> VortexResult<()> {
         vortex_ensure!(
             value.dtype() == &self.dtype,
-            "MapBuilder expected map scalar with dtype {}, got {}",
+            MismatchedTypes: "MapBuilder expected map scalar with dtype {}, got {}",
             self.dtype,
             value.dtype()
         );
@@ -126,7 +126,7 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> MapBuilder<O, S> {
     ) -> VortexResult<()> {
         vortex_ensure!(
             array.dtype() == self.dtype(),
-            "MapBuilder expected map array with dtype {}, got {}",
+            MismatchedTypes: "MapBuilder expected map array with dtype {}, got {}",
             self.dtype(),
             array.dtype()
         );
@@ -163,7 +163,7 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ArrayBuilder for MapBuilder<O
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
         vortex_ensure!(
             scalar.dtype() == self.dtype(),
-            "MapBuilder expected scalar with dtype {}, got {}",
+            MismatchedTypes: "MapBuilder expected scalar with dtype {}, got {}",
             self.dtype(),
             scalar.dtype()
         );

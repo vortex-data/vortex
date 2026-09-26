@@ -68,7 +68,7 @@ pub unsafe fn vx_array_sink_open_file_with_strategy(
     let session = vx_session::as_ref(session).clone();
 
     if path.ptr.is_null() {
-        vortex_bail!("null path");
+        vortex_bail!(InvalidArgument: "null path");
     }
     let path = unsafe { path.as_str() }?.to_string();
 
@@ -130,13 +130,13 @@ pub unsafe extern "C-unwind" fn vx_array_sink_push(
 
         vortex_ensure!(
             *array.dtype() == sink.dtype,
-            "array dtype {} does not match sink dtype {}",
+            MismatchedTypes: "array dtype {} does not match sink dtype {}",
             array.dtype(),
             sink.dtype
         );
         RUNTIME
             .block_on(sink.sink.send(Ok(array.clone())))
-            .map_err(|e| vortex_err!("Send error: {e}"))
+            .map_err(|e| vortex_err!(Io: "Send error: {e}"))
     })
 }
 

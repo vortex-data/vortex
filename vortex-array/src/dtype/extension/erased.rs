@@ -152,7 +152,7 @@ impl ExtDTypeRef {
         self.try_downcast::<V>()
             .map_err(|this| {
                 vortex_err!(
-                    "Failed to downcast ExtDTypeRef {} to {}",
+                    MismatchedTypes: "Failed to downcast ExtDTypeRef {} to {}",
                     this.0.id(),
                     type_name::<V>(),
                 )

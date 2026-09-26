@@ -41,7 +41,7 @@ where
     let row_count = args.row_count();
 
     let Some(source) = decoded_source::<Args>(&columns, row_count) else {
-        vortex_bail!("a decoded row input does not address exactly {row_count} rows");
+        vortex_bail!(AssertionFailed: "a decoded row input does not address exactly {row_count} rows");
     };
 
     let collect = |index| {
@@ -82,7 +82,7 @@ where
     let row_count = args.row_count();
 
     let Some(source) = decoded_source::<Args>(&columns, row_count) else {
-        vortex_bail!("a decoded row input does not address exactly {row_count} rows");
+        vortex_bail!(AssertionFailed: "a decoded row input does not address exactly {row_count} rows");
     };
 
     let mut failure = Fail::default();
@@ -136,7 +136,7 @@ where
     let row_count = args.row_count();
 
     let Some(source) = decoded_source::<Args>(&columns, row_count) else {
-        vortex_bail!("a decoded row input does not address exactly {row_count} rows");
+        vortex_bail!(AssertionFailed: "a decoded row input does not address exactly {row_count} rows");
     };
 
     // NB: The collector must capture one borrow of the whole state. That shape is load-bearing for

@@ -104,13 +104,13 @@ impl VTable for Dict {
         let view = DictSlotsView::from_slots(slots);
         let codes = view.codes;
         let values = view.values;
-        vortex_ensure!(codes.len() == len, "DictArray codes length mismatch");
+        vortex_ensure!(codes.len() == len, InvalidArgument: "DictArray codes length mismatch");
         vortex_ensure!(
             values
                 .dtype()
                 .union_nullability(codes.dtype().nullability())
                 == *dtype,
-            "DictArray dtype does not match codes/values dtype"
+            MismatchedTypes: "DictArray dtype does not match codes/values dtype"
         );
         Ok(())
     }
@@ -120,7 +120,7 @@ impl VTable for Dict {
     }
 
     fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
-        vortex_panic!("DictArray buffer index {idx} out of bounds")
+        vortex_panic!(OutOfBounds: "DictArray buffer index {idx} out of bounds")
     }
 
     fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
@@ -144,7 +144,7 @@ impl VTable for Dict {
                 codes_ptype: PType::try_from(array.codes().dtype())? as i32,
                 values_len: u32::try_from(array.values().len()).map_err(|_| {
                     vortex_err!(
-                        "Dictionary values size {} overflowed u32",
+                        Overflow: "Dictionary values size {} overflowed u32",
                         array.values().len()
                     )
                 })?,
@@ -167,7 +167,7 @@ impl VTable for Dict {
         let metadata = DictMetadata::decode(metadata)?;
         if children.len() != 2 {
             vortex_bail!(
-                "Expected 2 children for dict encoding, found {}",
+                InvalidArgument: "Expected 2 children for dict encoding, found {}",
                 children.len()
             )
         }

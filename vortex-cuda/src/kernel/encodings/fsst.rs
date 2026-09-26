@@ -79,7 +79,7 @@ async fn cuda_validity(
         )),
         Validity::Array(array) => {
             let bool_array = array.try_downcast::<Bool>().map_err(|array| {
-                vortex_err!("CUDA validity execution produced {}", array.dtype())
+                vortex_err!(MismatchedTypes: "CUDA validity execution produced {}", array.dtype())
             })?;
             let BoolDataParts { bits, meta } = bool_array.into_data().into_parts(len);
             let bit_offset = meta.offset();
@@ -107,7 +107,8 @@ impl CudaExecute for FSSTExecutor {
         array: ArrayRef,
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
-        let fsst = Self::try_specialize(array).ok_or_else(|| vortex_err!("Expected FSSTArray"))?;
+        let fsst = Self::try_specialize(array)
+            .ok_or_else(|| vortex_err!(InvalidArgument: "Expected FSSTArray"))?;
 
         let dtype = fsst.dtype().clone();
         let validity = fsst.codes().validity()?;

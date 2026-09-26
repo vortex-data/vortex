@@ -105,7 +105,7 @@ impl TryFrom<ExtensionArray> for PointData {
     fn try_from(ext: ExtensionArray) -> Result<Self, Self::Error> {
         vortex_ensure!(
             ext.ext_dtype().is::<Point>(),
-            "expected a Point extension array"
+            MismatchedTypes: "expected a Point extension array"
         );
         Ok(PointData(ext))
     }
@@ -131,7 +131,7 @@ fn point_array(storage: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Point
     let session = ctx.session().clone();
     let arrow = session.arrow().execute_arrow(storage.clone(), None, ctx)?;
     PointArray::try_from((arrow.as_ref(), point_type))
-        .map_err(|e| vortex_err!("failed to construct PointArray: {e}"))
+        .map_err(|e| vortex_err!(InvalidArgument: "failed to construct PointArray: {e}"))
 }
 
 /// Decode `Point` storage to `geo_types` points, for the spatial scalar functions.
@@ -143,8 +143,10 @@ pub(crate) fn point_geometries(
         .iter()
         .map(|geometry| -> VortexResult<Geometry<f64>> {
             Ok(geometry
-                .ok_or_else(|| vortex_err!("spatial: null geometry is not supported"))?
-                .map_err(|e| vortex_err!("spatial: geometry access failed: {e}"))?
+                .ok_or_else(
+                    || vortex_err!(InvalidArgument: "spatial: null geometry is not supported"),
+                )?
+                .map_err(|e| vortex_err!(Serde: "spatial: geometry access failed: {e}"))?
                 .to_geometry())
         })
         .collect()
@@ -213,7 +215,7 @@ impl ArrowExportVTable for Point {
         // Round-trip through the GeoArrow point array type: this validates that the storage is
         // the separated-coordinate struct layout expected for a `PointType` extension field.
         let points = PointArray::try_from((arrow_storage.as_ref(), point_meta))
-            .map_err(|e| vortex_err!("failed to construct PointArray: {e}"))?;
+            .map_err(|e| vortex_err!(InvalidArgument: "failed to construct PointArray: {e}"))?;
 
         Ok(ArrowExport::Exported(points.into_arrow()))
     }
@@ -237,7 +239,7 @@ impl ArrowImportVTable for Point {
         {
             vortex_ensure!(
                 point_meta.coord_type() == CoordType::Separated,
-                "geoarrow.point with interleaved coordinates is not supported; \
+                NotImplemented: "geoarrow.point with interleaved coordinates is not supported; \
                  re-encode with separated (struct) coordinates"
             );
             (

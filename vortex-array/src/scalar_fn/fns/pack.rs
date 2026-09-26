@@ -197,7 +197,7 @@ mod tests {
         let mut field_path = field_path.iter();
 
         let Some(field) = field_path.next() else {
-            vortex_bail!("empty field path");
+            vortex_bail!(InvalidArgument: "empty field path");
         };
 
         let mut array = array

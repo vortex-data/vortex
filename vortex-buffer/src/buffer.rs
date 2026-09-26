@@ -498,7 +498,7 @@ impl<T> Buffer<T> {
             slice_start_misaligned(alignment, begin_byte);
         }
         if !alignment.is_aligned_to(Alignment::of::<T>()) {
-            vortex_panic!("Slice alignment must at least align to type T")
+            vortex_panic!(InvalidArgument: "Slice alignment must at least align to type T")
         }
 
         Self {
@@ -535,15 +535,15 @@ impl<T> Buffer<T> {
     /// Also requires that the given alignment aligns to the type of slice and is smaller or equal to the buffers alignment
     pub fn slice_ref_with_alignment(&self, subset: &[T], alignment: Alignment) -> Self {
         if !alignment.is_aligned_to(Alignment::of::<T>()) {
-            vortex_panic!("slice_ref alignment must at least align to type T")
+            vortex_panic!(InvalidArgument: "slice_ref alignment must at least align to type T")
         }
 
         if !self.alignment.is_aligned_to(alignment) {
-            vortex_panic!("slice_ref subset alignment must at least align to the buffer alignment")
+            vortex_panic!(InvalidArgument: "slice_ref subset alignment must at least align to the buffer alignment")
         }
 
         if !alignment.is_ptr_aligned(subset.as_ptr()) {
-            vortex_panic!("slice_ref subset must be aligned to {:?}", alignment);
+            vortex_panic!(InvalidArgument: "slice_ref subset must be aligned to {:?}", alignment);
         }
 
         let start = self.as_ptr().addr();
@@ -553,7 +553,7 @@ impl<T> Buffer<T> {
             .checked_add(size_of_val(subset))
             .vortex_expect("slice_ref address overflow");
         if subset_start < start || subset_end > end {
-            vortex_panic!("slice_ref subset must be contained in the buffer");
+            vortex_panic!(InvalidArgument: "slice_ref subset must be contained in the buffer");
         }
 
         Self {
@@ -691,7 +691,7 @@ impl<T> Buffer<T> {
             self.alignment = alignment;
             self
         } else {
-            vortex_panic!("Buffer is not aligned to requested alignment {}", alignment)
+            vortex_panic!(InvalidArgument: "Buffer is not aligned to requested alignment {}", alignment)
         }
     }
 }
@@ -847,7 +847,7 @@ impl Buf for ByteBuffer {
     fn advance(&mut self, cnt: usize) {
         if !self.alignment.is_offset_aligned(cnt) {
             vortex_panic!(
-                "Cannot advance buffer by {} items, resulting alignment is not {}",
+                InvalidArgument: "Cannot advance buffer by {} items, resulting alignment is not {}",
                 cnt,
                 self.alignment
             );
@@ -949,57 +949,57 @@ impl<T> From<BufferMut<T>> for Buffer<T> {
 #[cold]
 #[inline(never)]
 fn misaligned_scalar_type(alignment: Alignment, scalar_align: Alignment) -> ! {
-    vortex_panic!("Alignment {alignment} must align to the scalar type's alignment {scalar_align}")
+    vortex_panic!(InvalidArgument: "Alignment {alignment} must align to the scalar type's alignment {scalar_align}")
 }
 
 #[cold]
 #[inline(never)]
 fn incompatible_scalar_alignment(alignment: Alignment, scalar_align: Alignment) -> ! {
     vortex_panic!(
-        "Alignment {alignment} must be compatible with the scalar type's alignment {scalar_align}"
+        InvalidArgument: "Alignment {alignment} must be compatible with the scalar type's alignment {scalar_align}"
     )
 }
 
 #[cold]
 #[inline(never)]
 fn buffer_not_aligned(alignment: Alignment) -> ! {
-    vortex_panic!("Buffer must align to the requested alignment {alignment}")
+    vortex_panic!(InvalidArgument: "Buffer must align to the requested alignment {alignment}")
 }
 
 #[cold]
 #[inline(never)]
 fn bytes_not_aligned(alignment: Alignment) -> ! {
-    vortex_panic!("Bytes alignment must align to the requested alignment {alignment}")
+    vortex_panic!(InvalidArgument: "Bytes alignment must align to the requested alignment {alignment}")
 }
 
 #[cold]
 #[inline(never)]
 fn buffer_len_not_multiple(len: usize, scalar_size: usize) -> ! {
-    vortex_panic!("Buffer length {len} must be a multiple of the scalar type's size {scalar_size}")
+    vortex_panic!(InvalidArgument: "Buffer length {len} must be a multiple of the scalar type's size {scalar_size}")
 }
 
 #[cold]
 #[inline(never)]
 fn bytes_len_not_multiple(len: usize, scalar_size: usize) -> ! {
-    vortex_panic!("Bytes length {len} must be a multiple of the scalar type's size {scalar_size}")
+    vortex_panic!(InvalidArgument: "Bytes length {len} must be a multiple of the scalar type's size {scalar_size}")
 }
 
 #[cold]
 #[inline(never)]
 fn slice_range_inverted(begin: usize, end: usize) -> ! {
-    vortex_panic!("range start must not be greater than end: {begin:?} <= {end:?}")
+    vortex_panic!(InvalidArgument: "range start must not be greater than end: {begin:?} <= {end:?}")
 }
 
 #[cold]
 #[inline(never)]
 fn slice_range_out_of_bounds(end: usize, len: usize) -> ! {
-    vortex_panic!("range end out of bounds: {end:?} > {len:?}")
+    vortex_panic!(OutOfBounds: "range end out of bounds: {end:?} > {len:?}")
 }
 
 #[cold]
 #[inline(never)]
 fn slice_start_misaligned(alignment: Alignment, begin_byte: usize) -> ! {
-    vortex_panic!("range start must be aligned to {alignment:?}, byte {begin_byte}")
+    vortex_panic!(InvalidArgument: "range start must be aligned to {alignment:?}, byte {begin_byte}")
 }
 
 #[cfg(test)]

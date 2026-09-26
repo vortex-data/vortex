@@ -37,7 +37,7 @@ impl Scalar {
             && !source.keys_sorted()
         {
             return Err(vortex_err!(
-                "Cannot cast {} to {target_dtype}: source does not assert sorted map keys",
+                MismatchedTypes: "Cannot cast {} to {target_dtype}: source does not assert sorted map keys",
                 self.dtype()
             ));
         }
@@ -47,7 +47,7 @@ impl Scalar {
         if self.value().is_none() || matches!(self.dtype(), DType::Null) {
             vortex_ensure!(
                 target_dtype.is_nullable(),
-                "Cannot cast null to {target_dtype}: target type is non-nullable"
+                InvalidArgument: "Cannot cast null to {target_dtype}: target type is non-nullable"
             );
 
             return Scalar::try_new(target_dtype.clone(), self.value().cloned());
@@ -71,10 +71,12 @@ impl Scalar {
             DType::Map(..) => self.as_map().cast(target_dtype),
             DType::Struct(..) => self.as_struct().cast(target_dtype),
             DType::Union(..) => vortex_bail!(
-                "union scalar cast from {} to {target_dtype} is not supported (yet)",
+                InvalidArgument: "union scalar cast from {} to {target_dtype} is not supported (yet)",
                 self.dtype()
             ),
-            DType::Variant(_) => vortex_bail!("Variant scalars can't be cast to {target_dtype}"),
+            DType::Variant(_) => {
+                vortex_bail!(NotImplemented: "Variant scalars can't be cast to {target_dtype}")
+            }
             DType::Extension(..) => self.as_extension().cast(target_dtype),
         }
     }

@@ -122,7 +122,7 @@ impl LayoutStrategy for ZonedStrategy {
         let aggregate_fns = stats_accumulator.lock().aggregate_fns();
         for aggregate_fn in aggregate_fns.iter() {
             if !ctx.allows_aggregate(&aggregate_fn.id()) {
-                vortex_bail!("Aggregate {} not permitted by ctx", aggregate_fn.id());
+                vortex_bail!(InvalidArgument: "Aggregate {} not permitted by ctx", aggregate_fn.id());
             }
         }
 

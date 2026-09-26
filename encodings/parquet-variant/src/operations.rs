@@ -225,7 +225,7 @@ fn scalar_from_shredded_object_scalar(
         let unshredded = scalar_from_unshredded_value(metadata, &value)?;
         if !unshredded.is_null() {
             let Some(unshredded) = unshredded.as_struct_opt() else {
-                vortex_bail!("Variant typed_value must be object if typed_value is a struct");
+                vortex_bail!(InvalidArgument: "Variant typed_value must be object if typed_value is a struct");
             };
             for name in unshredded.names().iter() {
                 if names
@@ -322,17 +322,16 @@ fn parquet_variant_to_scalar(variant: PqVariant<'_, '_>) -> VortexResult<Scalar>
             let dtype = DType::Extension(
                 Timestamp::new_with_tz(TimeUnit::Nanoseconds, Some(Arc::from("UTC")), nn).erased(),
             );
-            let nanos = v
-                .timestamp_nanos_opt()
-                .ok_or_else(|| vortex_err!("Timestamp nanoseconds value out of i64 range"))?;
+            let nanos = v.timestamp_nanos_opt().ok_or_else(
+                || vortex_err!(Overflow: "Timestamp nanoseconds value out of i64 range"),
+            )?;
             Scalar::try_new(dtype, Some(ScalarValue::Primitive(PValue::I64(nanos))))?
         }
         PqVariant::TimestampNtzNanos(v) => {
             let dtype = DType::Extension(Timestamp::new(TimeUnit::Nanoseconds, nn).erased());
-            let nanos = v
-                .and_utc()
-                .timestamp_nanos_opt()
-                .ok_or_else(|| vortex_err!("Timestamp nanoseconds value out of i64 range"))?;
+            let nanos = v.and_utc().timestamp_nanos_opt().ok_or_else(
+                || vortex_err!(Overflow: "Timestamp nanoseconds value out of i64 range"),
+            )?;
             Scalar::try_new(dtype, Some(ScalarValue::Primitive(PValue::I64(nanos))))?
         }
         PqVariant::Time(v) => {

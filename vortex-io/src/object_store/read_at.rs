@@ -135,7 +135,7 @@ async fn read_object_store_range(
                 let end = written + bytes.len();
                 vortex_ensure!(
                     end <= length,
-                    "Object store stream returned too many bytes: {} > expected {} (range: {:?})",
+                    Io: "Object store stream returned too many bytes: {} > expected {} (range: {:?})",
                     end,
                     length,
                     range
@@ -146,7 +146,7 @@ async fn read_object_store_range(
 
             vortex_ensure!(
                 written == length,
-                "Object store stream returned {} bytes but expected {} bytes (range: {:?})",
+                Io: "Object store stream returned {} bytes but expected {} bytes (range: {:?})",
                 written,
                 length,
                 range

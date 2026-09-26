@@ -232,7 +232,7 @@ impl VarBinViewData {
         let views_nbytes = views.len();
         vortex_ensure!(
             views_nbytes.is_multiple_of(size_of::<BinaryView>()),
-            "Expected views buffer length ({views_nbytes}) to be a multiple of {}",
+            InvalidArgument: "Expected views buffer length ({views_nbytes}) to be a multiple of {}",
             size_of::<BinaryView>()
         );
 
@@ -240,7 +240,7 @@ impl VarBinViewData {
         if let Some(host) = views.as_host_opt() {
             vortex_ensure!(
                 host.is_aligned(Alignment::of::<BinaryView>()),
-                "Views on host must be 16 byte aligned"
+                InvalidArgument: "Views on host must be 16 byte aligned"
             );
         }
 
@@ -461,18 +461,18 @@ impl VarBinViewData {
             let end_offset = start_offset.saturating_add(view.size as usize);
 
             let buf = buffers.get(buf_index).ok_or_else(||
-                vortex_err!(InvalidArgument: "view at index {idx} references invalid buffer: {buf_index} out of bounds for VarBinViewData with {} buffers",
+                vortex_err!(OutOfBounds: "view at index {idx} references invalid buffer: {buf_index} out of bounds for VarBinViewData with {} buffers",
                     buffers.len()))?;
 
             vortex_ensure!(
                 start_offset < buf.len(),
-                InvalidArgument: "start offset {start_offset} out of bounds for buffer {buf_index} with size {}",
+                OutOfBounds: "start offset {start_offset} out of bounds for buffer {buf_index} with size {}",
                 buf.len(),
             );
 
             vortex_ensure!(
                 end_offset <= buf.len(),
-                InvalidArgument: "end offset {end_offset} out of bounds for buffer {buf_index} with size {}",
+                OutOfBounds: "end offset {end_offset} out of bounds for buffer {buf_index} with size {}",
                 buf.len(),
             );
 
@@ -553,7 +553,7 @@ impl VarBinViewData {
     pub fn buffer(&self, idx: usize) -> &ByteBuffer {
         if idx >= self.data_buffers().len() {
             vortex_panic!(
-                "{idx} buffer index out of bounds, there are {} buffers",
+                OutOfBounds: "{idx} buffer index out of bounds, there are {} buffers",
                 self.data_buffers().len()
             );
         }

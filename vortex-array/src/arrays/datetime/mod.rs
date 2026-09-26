@@ -176,10 +176,10 @@ impl TryFrom<ArrayRef> for TemporalData {
     fn try_from(value: ArrayRef) -> Result<Self, Self::Error> {
         let ext = value
             .as_opt::<Extension>()
-            .ok_or_else(|| vortex_err!("array must be an ExtensionArray"))?;
+            .ok_or_else(|| vortex_err!(InvalidArgument: "array must be an ExtensionArray"))?;
         if !ext.ext_dtype().is::<AnyTemporal>() {
             vortex_bail!(
-                "array extension dtype {} is not a temporal type",
+                MismatchedTypes: "array extension dtype {} is not a temporal type",
                 ext.ext_dtype()
             );
         }
@@ -208,7 +208,7 @@ impl TryFrom<ExtensionArray> for TemporalData {
     fn try_from(ext: ExtensionArray) -> Result<Self, Self::Error> {
         if !ext.ext_dtype().is::<AnyTemporal>() {
             vortex_bail!(
-                "array extension dtype {} is not a temporal type",
+                MismatchedTypes: "array extension dtype {} is not a temporal type",
                 ext.ext_dtype()
             );
         }

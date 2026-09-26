@@ -54,11 +54,11 @@ pub async fn exec_query(session: &VortexSession, args: QueryArgs) -> VortexResul
     let file_path = args
         .file
         .to_str()
-        .ok_or_else(|| vortex_err!("Path is not valid UTF-8"))?;
+        .ok_or_else(|| vortex_err!(InvalidArgument: "Path is not valid UTF-8"))?;
 
     let batches: Vec<RecordBatch> = execute_vortex_query(session, file_path, &args.sql)
         .await
-        .map_err(|e| vortex_err!("{e}"))?;
+        .map_err(|e| vortex_err!(InvalidArgument: "{e}"))?;
 
     // Build schema info from the result
     let schema = if let Some(batch) = batches.first() {
@@ -82,7 +82,7 @@ pub async fn exec_query(session: &VortexSession, args: QueryArgs) -> VortexResul
     };
 
     let json_output = serde_json::to_string_pretty(&output)
-        .map_err(|e| vortex_err!("Failed to serialize JSON: {e}"))?;
+        .map_err(|e| vortex_err!(Serde: "Failed to serialize JSON: {e}"))?;
     println!("{json_output}");
 
     Ok(())

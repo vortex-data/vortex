@@ -67,16 +67,17 @@ pub fn layout_from_flatbuffer_with_options(
     let layout_session = session.layouts();
     let layouts = layout_session.registry();
     let fb_layout = root_with_opts::<layout::Layout>(&LAYOUT_VERIFIER, &flatbuffer)?;
-    let encoding_id = layout_ctx
-        .resolve(fb_layout.encoding())
-        .ok_or_else(|| vortex_err!("Invalid encoding ID: {}", fb_layout.encoding()))?;
+    let encoding_id = layout_ctx.resolve(fb_layout.encoding()).ok_or_else(
+        || vortex_err!(InvalidArgument: "Invalid encoding ID: {}", fb_layout.encoding()),
+    )?;
     let encoding = layouts.get(&encoding_id);
 
     if encoding.is_none() && allow_unknown {
         return foreign_layout_from_fb(fb_layout, dtype, layout_ctx);
     }
-    let encoding =
-        encoding.ok_or_else(|| vortex_err!("Invalid encoding ID: {}", fb_layout.encoding()))?;
+    let encoding = encoding.ok_or_else(
+        || vortex_err!(InvalidArgument: "Invalid encoding ID: {}", fb_layout.encoding()),
+    )?;
 
     // SAFETY: we validate the flatbuffer above in the `root` call, and extract a loc.
     let viewed_children = unsafe {
@@ -120,9 +121,9 @@ fn foreign_layout_from_fb(
     dtype: &DType,
     layout_ctx: &ReadContext,
 ) -> VortexResult<LayoutRef> {
-    let encoding_id = layout_ctx
-        .resolve(fb_layout.encoding())
-        .ok_or_else(|| vortex_err!("Invalid encoding ID: {}", fb_layout.encoding()))?;
+    let encoding_id = layout_ctx.resolve(fb_layout.encoding()).ok_or_else(
+        || vortex_err!(InvalidArgument: "Invalid encoding ID: {}", fb_layout.encoding()),
+    )?;
 
     let children = fb_layout
         .children()
@@ -203,7 +204,7 @@ impl WriteFlatBuffer for LayoutFlatBufferWriter<'_> {
         // Dictionary-encode the layout ID
         let encoding = self.ctx.intern(&self.layout.encoding_id()).ok_or_else(|| {
             vortex_err!(
-                "Layout encoding {} not permitted by ctx",
+                Serde: "Layout encoding {} not permitted by ctx",
                 self.layout.encoding_id()
             )
         })?;

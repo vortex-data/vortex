@@ -424,7 +424,7 @@ impl AggregateFnVTable for IsConstant {
                         todo!("TODO(connor)[Union]: implement IsConstant for Union arrays")
                     }
                     Canonical::Variant(_) => {
-                        vortex_bail!("Variant arrays don't support IsConstant")
+                        vortex_bail!(NotImplemented: "Variant arrays don't support IsConstant")
                     }
                 };
 

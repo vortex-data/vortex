@@ -32,7 +32,7 @@ impl<T: ArrowNativeType> Buffer<T> {
         let alignment = Alignment::of::<T>();
         if arrow.as_ptr().align_offset(alignment.as_usize()) != 0 {
             vortex_panic!(
-                "Arrow buffer is not aligned to the requested alignment: {}",
+                InvalidArgument: "Arrow buffer is not aligned to the requested alignment: {}",
                 alignment
             );
         }
@@ -70,7 +70,7 @@ impl ByteBuffer {
 
         if arrow.as_ptr().align_offset(alignment.as_usize()) != 0 {
             vortex_panic!(
-                "Arrow buffer is not aligned to the requested alignment: {}",
+                InvalidArgument: "Arrow buffer is not aligned to the requested alignment: {}",
                 alignment
             );
         }

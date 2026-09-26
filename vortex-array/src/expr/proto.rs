@@ -40,7 +40,7 @@ impl ExprSerializeProtoExt for Expression {
 
         let metadata = scalar_fn.options().serialize()?.ok_or_else(|| {
             vortex_err!(
-                "Expression '{}' is not serializable: {}",
+                Serde: "Expression '{}' is not serializable: {}",
                 scalar_fn.id(),
                 self
             )
@@ -60,7 +60,7 @@ impl Expression {
         if expr.id == ROOT_ID {
             vortex_ensure!(
                 expr.children.is_empty(),
-                "root expression must have no children, got {}",
+                Serde: "root expression must have no children, got {}",
                 expr.children.len()
             );
             return Ok(Expression::Root);
@@ -79,7 +79,7 @@ impl Expression {
         } else if session.allows_unknown() {
             ForeignScalarFnVTable::make_scalar_fn(expr_id, expr.metadata().to_vec(), children.len())
         } else {
-            return Err(vortex_err!("unknown expression id: {}", expr_id));
+            return Err(vortex_err!(NotFound: "unknown expression id: {}", expr_id));
         };
 
         Expression::try_new(scalar_fn, children)

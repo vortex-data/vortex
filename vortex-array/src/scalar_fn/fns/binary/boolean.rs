@@ -138,7 +138,7 @@ pub(crate) fn execute_boolean(
     let rhs = rhs.execute::<BoolArray>(ctx)?;
     let Some(result) = <Bool as BooleanKernel>::boolean(rhs.as_view(), &lhs.into_array(), op, ctx)?
     else {
-        vortex_bail!("No boolean kernel for two BoolArrays");
+        vortex_bail!(AssertionFailed: "No boolean kernel for two BoolArrays");
     };
     Ok(result)
 }
@@ -187,7 +187,7 @@ fn constant_array_boolean(
         ))),
         (Operator::Or, Some(false)) => Ok(Some(cast_bool_nullability(array, nullability)?)),
         (Operator::And | Operator::Or, None) => Ok(None),
-        (other, _) => vortex_bail!("Not a boolean operator: {other}"),
+        (other, _) => vortex_bail!(MismatchedTypes: "Not a boolean operator: {other}"),
     }
 }
 
@@ -207,14 +207,14 @@ fn boolean_scalar_scalar(
             (None, _) | (_, None) => None,
             (Some(l), Some(r)) => Some(l | r),
         },
-        other => vortex_bail!("Not a boolean operator: {other}"),
+        other => vortex_bail!(MismatchedTypes: "Not a boolean operator: {other}"),
     })
 }
 
 fn bool_scalar_value(scalar: &Scalar) -> VortexResult<Option<bool>> {
     Ok(scalar
         .as_bool_opt()
-        .ok_or_else(|| vortex_err!("expected boolean scalar"))?
+        .ok_or_else(|| vortex_err!(MismatchedTypes: "expected boolean scalar"))?
         .value())
 }
 
@@ -235,7 +235,7 @@ pub fn kleene_boolean_buffers(
         let values = match operator {
             Operator::And => lhs_values & &rhs_values,
             Operator::Or => lhs_values | &rhs_values,
-            other => vortex_bail!("Not a boolean operator: {other}"),
+            other => vortex_bail!(MismatchedTypes: "Not a boolean operator: {other}"),
         };
         return Ok(BoolArray::try_new(values, Validity::from(nullability))?.into_array());
     }
@@ -298,7 +298,7 @@ pub fn kleene_boolean_buffer_scalar(
                 Validity::from_mask(valid, nullability),
             )?
         }
-        (other, _) => vortex_bail!("Not a boolean operator: {other}"),
+        (other, _) => vortex_bail!(MismatchedTypes: "Not a boolean operator: {other}"),
     };
 
     Ok(result.into_array())
@@ -482,7 +482,7 @@ fn fused_boolean_word_sources(
             nullability,
             allocator,
         ),
-        other => vortex_bail!("Not a boolean operator: {other}"),
+        other => vortex_bail!(MismatchedTypes: "Not a boolean operator: {other}"),
     }
 }
 
@@ -642,7 +642,7 @@ where
             nullability,
             allocator,
         ),
-        other => vortex_bail!("Not a boolean operator: {other}"),
+        other => vortex_bail!(MismatchedTypes: "Not a boolean operator: {other}"),
     }
 }
 

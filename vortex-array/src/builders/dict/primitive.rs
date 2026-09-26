@@ -44,7 +44,7 @@ where
         16 => u16::MAX as u64,
         32 => u32::MAX as u64,
         64 => u64::MAX,
-        width => vortex_panic!("invalid bit_width: {width}"),
+        width => vortex_panic!(InvalidArgument: "invalid bit_width: {width}"),
     });
     match max_possible_len {
         max if max <= u8::MAX as u64 => Box::new(PrimitiveDictBuilder::<T, u8>::new_in(
@@ -105,7 +105,7 @@ where
                     return None;
                 }
                 let next_code = Code::from_usize(self.values.len()).unwrap_or_else(|| {
-                    vortex_panic!("{} has to fit into {}", self.values.len(), Code::PTYPE)
+                    vortex_panic!(Overflow: "{} has to fit into {}", self.values.len(), Code::PTYPE)
                 });
                 self.values.push(v);
                 self.values_nulls.append_true();
@@ -125,9 +125,9 @@ where
             return None;
         }
 
-        let code = Code::from_usize(self.values.len()).unwrap_or_else(|| {
-            vortex_panic!("{} has to fit into {}", self.values.len(), Code::PTYPE)
-        });
+        let code = Code::from_usize(self.values.len()).unwrap_or_else(
+            || vortex_panic!(Overflow: "{} has to fit into {}", self.values.len(), Code::PTYPE),
+        );
         self.values.push(T::default());
         self.values_nulls.append_false();
         self.null_code

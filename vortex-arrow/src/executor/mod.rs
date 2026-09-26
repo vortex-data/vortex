@@ -199,13 +199,13 @@ pub(crate) fn execute_arrow_naive(
         | DataType::Duration(_)
         | DataType::Interval(_)
         | DataType::Union(..) => {
-            vortex_bail!("Conversion to Arrow type {resolved_type} is not supported");
+            vortex_bail!(InvalidArgument: "Conversion to Arrow type {resolved_type} is not supported");
         }
     }?;
 
     vortex_ensure!(
         arrow.len() == len,
-        "Arrow array length does not match Vortex array length after conversion to {:?}",
+        AssertionFailed: "Arrow array length does not match Vortex array length after conversion to {:?}",
         arrow
     );
 

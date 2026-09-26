@@ -222,7 +222,7 @@ impl VortexSession {
     pub fn with_some<V: VortexSessionVar>(self, var: V) -> Self {
         if self.get_opt::<V>().is_some() {
             vortex_panic!(
-                "Session variable of type {} already exists",
+                InvalidArgument: "Session variable of type {} already exists",
                 type_name::<V>()
             );
         }

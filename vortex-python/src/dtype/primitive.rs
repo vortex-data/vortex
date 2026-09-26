@@ -20,7 +20,7 @@ impl PyPrimitiveDType {
     #[getter]
     fn ptype(slf: PyRef<Self>) -> PyPType {
         let DType::Primitive(ptype, _) = slf.as_ref().deref() else {
-            vortex_panic!("Not a primitive DType");
+            vortex_panic!(MismatchedTypes: "Not a primitive DType");
         };
         PyPType::from(*ptype)
     }

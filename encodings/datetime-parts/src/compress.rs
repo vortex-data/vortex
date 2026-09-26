@@ -34,7 +34,7 @@ pub struct TemporalParts {
 pub fn split_temporal(array: TemporalArray, ctx: &mut ExecutionCtx) -> VortexResult<TemporalParts> {
     let time_unit = array.temporal_metadata().time_unit();
     if matches!(time_unit, TimeUnit::Days) {
-        vortex_bail!("Cannot handle day-level data");
+        vortex_bail!(NotImplemented: "Cannot handle day-level data");
     }
 
     let temporal_values = array

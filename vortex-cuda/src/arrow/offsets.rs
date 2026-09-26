@@ -56,11 +56,11 @@ where
 {
     let scan_len = len
         .checked_add(1)
-        .ok_or_else(|| vortex_err!("Arrow offset count overflow"))?;
+        .ok_or_else(|| vortex_err!(Overflow: "Arrow offset count overflow"))?;
     let mut status = ctx.device_alloc::<u32>(1)?;
     ctx.stream()
         .memset_zeros(&mut status)
-        .map_err(|err| vortex_err!("Failed to zero Arrow offset status buffer: {err}"))?;
+        .map_err(|err| vortex_err!(Io: "Failed to zero Arrow offset status buffer: {err}"))?;
     let lengths_view = lengths.cuda_view::<L>()?;
     let mut scan_input = ctx.device_alloc::<i32>(scan_len)?;
     let ptype = L::PTYPE.to_string();
@@ -89,9 +89,9 @@ where
     let (status_bytes, total_bytes) = futures::try_join!(status_copy, total_copy)?;
     match Buffer::<u32>::from_byte_buffer(status_bytes)[0] {
         0 => {}
-        1 => vortex_bail!("cannot build Arrow offsets from a negative length"),
-        2 => vortex_bail!("length sum exceeds Arrow i32 offset range"),
-        status => vortex_bail!("unexpected Arrow offset status {status}"),
+        1 => vortex_bail!(InvalidArgument: "cannot build Arrow offsets from a negative length"),
+        2 => vortex_bail!(Overflow: "length sum exceeds Arrow i32 offset range"),
+        status => vortex_bail!(AssertionFailed: "unexpected Arrow offset status {status}"),
     }
 
     Ok(I32Offsets {

@@ -113,7 +113,7 @@ impl Scalar {
     /// Panics if `dtype` has no default value.
     pub fn default_value(dtype: &DType) -> Self {
         Self::try_default_value(dtype)
-            .unwrap_or_else(|| vortex_panic!("{dtype} has no default value"))
+            .unwrap_or_else(|| vortex_panic!(AssertionFailed: "{dtype} has no default value"))
     }
 
     /// Returns a valid default scalar, or [`None`] if `dtype` has no default.
@@ -206,7 +206,9 @@ impl Scalar {
         let value = self.value()?;
 
         let is_zero = match self.dtype() {
-            DType::Null => vortex_panic!("non-null value somehow had `DType::Null`"),
+            DType::Null => {
+                vortex_panic!(AssertionFailed: "non-null value somehow had `DType::Null`")
+            }
             DType::Bool(_) => !value.as_bool(),
             DType::Primitive(..) => value.as_primitive().is_zero(),
             DType::Decimal(..) => value.as_decimal().is_zero(),
@@ -258,7 +260,7 @@ impl Scalar {
         vortex_ensure_eq!(
             primitive.ptype().byte_width(),
             ptype.byte_width(),
-            "can't reinterpret cast between integers of two different widths"
+            InvalidArgument: "can't reinterpret cast between integers of two different widths"
         );
 
         Scalar::try_new(

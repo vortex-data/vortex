@@ -493,7 +493,7 @@ impl Mask {
                         .select(values.true_count - 1)
                         .unwrap_or_else(|| {
                             vortex_panic!(
-                                "Rank {} out of bounds for mask with true count {}",
+                                OutOfBounds: "Rank {} out of bounds for mask with true count {}",
                                 values.true_count - 1,
                                 values.true_count
                             )
@@ -507,7 +507,7 @@ impl Mask {
     pub fn rank(&self, n: usize) -> usize {
         if n >= self.true_count() {
             vortex_panic!(
-                "Rank {n} out of bounds for mask with true count {}",
+                OutOfBounds: "Rank {n} out of bounds for mask with true count {}",
                 self.true_count()
             );
         }
@@ -521,7 +521,7 @@ impl Mask {
 
                 values.buffer.select(n).unwrap_or_else(|| {
                     vortex_panic!(
-                        "Rank {} out of bounds for mask with true count {}",
+                        OutOfBounds: "Rank {} out of bounds for mask with true count {}",
                         values.true_count - 1,
                         values.true_count
                     )

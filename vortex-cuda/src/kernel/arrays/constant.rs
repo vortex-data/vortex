@@ -52,12 +52,12 @@ impl CudaExecute for ConstantNumericExecutor {
         array: ArrayRef,
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
-        let array =
-            Self::try_specialize(array).ok_or_else(|| vortex_err!("Expected ConstantArray"))?;
+        let array = Self::try_specialize(array)
+            .ok_or_else(|| vortex_err!(MismatchedTypes: "Expected ConstantArray"))?;
 
         // Check if scalar is null
         if array.scalar().is_null() {
-            vortex_bail!("CUDA constant array does not support null scalar values");
+            vortex_bail!(InvalidArgument: "CUDA constant array does not support null scalar values");
         }
 
         match array.scalar().dtype() {
@@ -76,7 +76,7 @@ impl CudaExecute for ConstantNumericExecutor {
                 })
             }
             dt => vortex_bail!(
-                "CUDA constant array only supports numeric types, got {:?}",
+                NotImplemented: "CUDA constant array only supports numeric types, got {:?}",
                 dt
             ),
         }
@@ -103,7 +103,7 @@ where
         .scalar()
         .as_primitive()
         .typed_value::<P>()
-        .ok_or_else(|| vortex_err!("Expected non-null primitive scalar value"))?;
+        .ok_or_else(|| vortex_err!(MismatchedTypes: "Expected non-null primitive scalar value"))?;
 
     // Allocate output buffer on device
     let mut output_buffer = ctx.device_alloc::<P>(array_len)?;
@@ -154,12 +154,12 @@ where
     let decimal_scalar = array.scalar().as_decimal();
     let decimal_value = decimal_scalar
         .decimal_value()
-        .ok_or_else(|| vortex_err!("Expected non-null decimal scalar value"))?;
+        .ok_or_else(|| vortex_err!(MismatchedTypes: "Expected non-null decimal scalar value"))?;
 
     // Cast the decimal value to the native type
     let value: D = decimal_value
         .cast::<D>()
-        .ok_or_else(|| vortex_err!("Failed to cast decimal value to native type"))?;
+        .ok_or_else(|| vortex_err!(Overflow: "Failed to cast decimal value to native type"))?;
 
     // Allocate output buffer on device
     let mut output_buffer = ctx.device_alloc::<D>(array_len)?;

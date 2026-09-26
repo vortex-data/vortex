@@ -783,7 +783,7 @@ fn compare_outputs(function_name: &str, expected: &[f32], actual: &[f32], expect
                 );
             }
             vortex_panic!(
-                "{}: Output mismatch at index {}: expected={}, actual={}",
+                AssertionFailed: "{}: Output mismatch at index {}: expected={}, actual={}",
                 function_name,
                 i,
                 expected_slice[i],

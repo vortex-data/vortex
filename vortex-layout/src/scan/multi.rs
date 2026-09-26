@@ -286,7 +286,7 @@ impl DataSource for MultiLayoutDataSource {
         _data: &[u8],
         _session: &VortexSession,
     ) -> VortexResult<PartitionRef> {
-        vortex_bail!("MultiLayoutDataSource partitions are not yet serializable")
+        vortex_bail!(Serde: "MultiLayoutDataSource partitions are not yet serializable")
     }
 
     async fn scan(&self, scan_request: ScanRequest) -> VortexResult<DataSourceScanRef> {
@@ -471,7 +471,7 @@ fn reader_partition(
 ) -> PartitionStream {
     if reader.dtype() != source_dtype {
         let error = vortex_err!(
-            "Multi-layout reader dtype mismatch: expected {}, got {}",
+            MismatchedTypes: "Multi-layout reader dtype mismatch: expected {}, got {}",
             source_dtype,
             reader.dtype()
         );

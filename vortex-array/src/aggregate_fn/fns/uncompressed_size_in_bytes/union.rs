@@ -19,7 +19,7 @@ pub(super) fn union_uncompressed_size_in_bytes(
     for child in array.iter_children() {
         size = size
             .checked_add(uncompressed_size_in_bytes_u64(child, ctx)?)
-            .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))?;
+            .ok_or_else(|| vortex_err!(Overflow: "uncompressed size in bytes overflowed u64"))?;
     }
 
     Ok(size)

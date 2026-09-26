@@ -76,7 +76,7 @@ impl ChildBuilder {
     pub fn append_array(&mut self, array: &ArrayRef, _ctx: &mut ExecutionCtx) -> VortexResult<()> {
         vortex_ensure!(
             array.dtype() == &self.dtype,
-            "Cannot append an array of dtype {} to a child builder of dtype {}",
+            MismatchedTypes: "Cannot append an array of dtype {} to a child builder of dtype {}",
             array.dtype(),
             self.dtype,
         );

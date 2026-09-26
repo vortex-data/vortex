@@ -39,7 +39,7 @@ fn cached_clickbench_parquet() -> VortexResult<PathBuf> {
         return Ok(dest);
     }
 
-    fs::create_dir_all(&data_dir).map_err(|e| vortex_err!("failed to create data dir: {e}"))?;
+    fs::create_dir_all(&data_dir).map_err(|e| vortex_err!(Io: "failed to create data dir: {e}"))?;
 
     // Download full partition 0 to a temp file.
     let source_bytes = download_with_retries(CLICKBENCH_URL)?;
@@ -54,18 +54,18 @@ fn download_with_retries(url: &str) -> VortexResult<Bytes> {
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(300))
         .build()
-        .map_err(|e| vortex_err!("failed to build HTTP client: {e}"))?;
+        .map_err(|e| vortex_err!(Io: "failed to build HTTP client: {e}"))?;
 
     for attempt in 1..=MAX_RETRIES {
         match client.get(url).send() {
             Ok(response) if response.status().is_success() => {
                 return response
                     .bytes()
-                    .map_err(|e| vortex_err!("failed to read response body: {e}"));
+                    .map_err(|e| vortex_err!(Io: "failed to read response body: {e}"));
             }
             Ok(response) if response.status().is_client_error() => {
                 return Err(vortex_err!(
-                    "HTTP {}: failed to download {url}",
+                    Io: "HTTP {}: failed to download {url}",
                     response.status()
                 ));
             }
@@ -87,7 +87,7 @@ fn download_with_retries(url: &str) -> VortexResult<Bytes> {
     }
 
     Err(vortex_err!(
-        "failed to download {url} after {MAX_RETRIES} attempts"
+        Io: "failed to download {url} after {MAX_RETRIES} attempts"
     ))
 }
 
@@ -95,7 +95,7 @@ fn download_with_retries(url: &str) -> VortexResult<Bytes> {
 fn sample_and_write(source_bytes: &[u8], dest: &std::path::Path) -> VortexResult<()> {
     let source_bytes = Bytes::copy_from_slice(source_bytes);
     let builder = ParquetRecordBatchReaderBuilder::try_new(source_bytes.clone())
-        .map_err(|e| vortex_err!("failed to open source parquet: {e}"))?;
+        .map_err(|e| vortex_err!(Io: "failed to open source parquet: {e}"))?;
     let metadata = Arc::clone(builder.metadata());
 
     let total_rows: usize = metadata
@@ -135,35 +135,35 @@ fn sample_and_write(source_bytes: &[u8], dest: &std::path::Path) -> VortexResult
     let mut sampled_batches: Vec<RecordBatch> = Vec::new();
     for &(rg_idx, local_offset, count) in &ranges {
         let reader = ParquetRecordBatchReaderBuilder::try_new(source_bytes.clone())
-            .map_err(|e| vortex_err!("failed to open parquet for sampling: {e}"))?
+            .map_err(|e| vortex_err!(Io: "failed to open parquet for sampling: {e}"))?
             .with_row_groups(vec![rg_idx])
             .with_offset(local_offset)
             .with_limit(count)
             .with_batch_size(count)
             .build()
-            .map_err(|e| vortex_err!("failed to build parquet reader: {e}"))?;
+            .map_err(|e| vortex_err!(Serde: "failed to build parquet reader: {e}"))?;
 
         for batch in reader {
             sampled_batches
-                .push(batch.map_err(|e| vortex_err!("failed to read parquet batch: {e}"))?);
+                .push(batch.map_err(|e| vortex_err!(Io: "failed to read parquet batch: {e}"))?);
         }
     }
 
     // Write sampled batches to a parquet file.
     let schema = sampled_batches[0].schema();
     let combined = arrow_select::concat::concat_batches(&schema, &sampled_batches)
-        .map_err(|e| vortex_err!("failed to concat batches: {e}"))?;
+        .map_err(|e| vortex_err!(InvalidArgument: "failed to concat batches: {e}"))?;
 
-    let file =
-        fs::File::create(dest).map_err(|e| vortex_err!("failed to create output parquet: {e}"))?;
+    let file = fs::File::create(dest)
+        .map_err(|e| vortex_err!(Io: "failed to create output parquet: {e}"))?;
     let mut writer = parquet::arrow::ArrowWriter::try_new(file, schema, None)
-        .map_err(|e| vortex_err!("failed to create parquet writer: {e}"))?;
+        .map_err(|e| vortex_err!(Serde: "failed to create parquet writer: {e}"))?;
     writer
         .write(&combined)
-        .map_err(|e| vortex_err!("failed to write parquet: {e}"))?;
+        .map_err(|e| vortex_err!(Io: "failed to write parquet: {e}"))?;
     writer
         .close()
-        .map_err(|e| vortex_err!("failed to close parquet writer: {e}"))?;
+        .map_err(|e| vortex_err!(Io: "failed to close parquet writer: {e}"))?;
 
     Ok(())
 }
@@ -181,19 +181,20 @@ impl DatasetFixture for ClickBenchHits5kFixture {
 
     fn build(&self, arrow: &ArrowSession) -> VortexResult<ArrayRef> {
         let path = cached_clickbench_parquet()?;
-        let file_bytes = fs::read(&path)
-            .map_err(|e| vortex_err!("failed to read cached parquet at {}: {e}", path.display()))?;
+        let file_bytes = fs::read(&path).map_err(
+            |e| vortex_err!(Io: "failed to read cached parquet at {}: {e}", path.display()),
+        )?;
         let bytes = Bytes::from(file_bytes);
 
         let reader = ParquetRecordBatchReaderBuilder::try_new(bytes)
-            .map_err(|e| vortex_err!("failed to open parquet: {e}"))?
+            .map_err(|e| vortex_err!(Io: "failed to open parquet: {e}"))?
             .with_batch_size(1000)
             .build()
-            .map_err(|e| vortex_err!("failed to build parquet reader: {e}"))?;
+            .map_err(|e| vortex_err!(Serde: "failed to build parquet reader: {e}"))?;
 
         let batches: Vec<RecordBatch> = reader
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| vortex_err!("failed to read parquet batches: {e}"))?;
+            .map_err(|e| vortex_err!(Io: "failed to read parquet batches: {e}"))?;
 
         Ok(ChunkedArray::from_iter(
             batches

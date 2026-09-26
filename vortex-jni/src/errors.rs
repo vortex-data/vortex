@@ -43,7 +43,7 @@ impl From<JNIError> for VortexError {
     fn from(error: JNIError) -> Self {
         match error {
             JNIError::Vortex(error) => error,
-            JNIError::Custom(error) => vortex_err!("JNI: {error}"),
+            JNIError::Custom(error) => vortex_err!(Other: "JNI: {error}"),
         }
     }
 }

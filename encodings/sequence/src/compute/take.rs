@@ -36,7 +36,7 @@ fn take_inner<T: IntegerPType, O: SequenceValue>(
         AllOr::All => PrimitiveArray::new(
             Buffer::from_trusted_len_iter(indices.iter().map(|i| {
                 if i.as_() >= len {
-                    vortex_panic!(OutOfBounds: i.as_(), 0, len);
+                    vortex_panic!(OutOfBounds: "index {} out of bounds from {} to {}", i.as_(), 0, len);
                 }
                 eval::wrapping_value(base, multiplier, i.as_())
             })),
@@ -53,7 +53,7 @@ fn take_inner<T: IntegerPType, O: SequenceValue>(
                 Buffer::from_trusted_len_iter(indices.iter().enumerate().map(|(mask_index, i)| {
                     if b.value(mask_index) {
                         if i.as_() >= len {
-                            vortex_panic!(OutOfBounds: i.as_(), 0, len);
+                            vortex_panic!(OutOfBounds: "index {} out of bounds from {} to {}", i.as_(), 0, len);
                         }
 
                         eval::wrapping_value(base, multiplier, i.as_())

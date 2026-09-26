@@ -891,7 +891,7 @@ impl TryFrom<&DType> for PType {
         if let DType::Primitive(p, _) = value {
             Ok(*p)
         } else {
-            vortex_bail!("Cannot convert DType {value} into PType")
+            vortex_bail!(MismatchedTypes: "Cannot convert DType {value} into PType")
         }
     }
 }
@@ -948,7 +948,7 @@ macro_rules! try_from_bytes {
         impl TryFromBytes for $T {
             fn try_from_le_bytes(bytes: &[u8]) -> VortexResult<Self> {
                 Ok(<$T>::from_le_bytes(bytes.try_into().map_err(|_| {
-                    vortex_err!("Failed to convert bytes into {}", stringify!($T))
+                    vortex_err!(InvalidArgument: "Failed to convert bytes into {}", stringify!($T))
                 })?))
             }
         }

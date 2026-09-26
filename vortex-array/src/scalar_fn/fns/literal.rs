@@ -59,7 +59,7 @@ impl ScalarFnVTable for Literal {
         Scalar::from_proto(
             ops.value
                 .as_ref()
-                .ok_or_else(|| vortex_err!("Literal metadata missing value"))?,
+                .ok_or_else(|| vortex_err!(NotFound: "Literal metadata missing value"))?,
             session,
         )
     }

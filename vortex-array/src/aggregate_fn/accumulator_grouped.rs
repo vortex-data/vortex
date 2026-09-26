@@ -229,13 +229,13 @@ impl<V: AggregateFnVTable> DynGroupedAccumulator for GroupedAccumulator<V> {
             DType::List(elem, _) => elem,
             DType::FixedSizeList(elem, ..) => elem,
             _ => vortex_bail!(
-                "Input DType mismatch: expected List or FixedSizeList, got {}",
+                MismatchedTypes: "Input DType mismatch: expected List or FixedSizeList, got {}",
                 groups.dtype()
             ),
         };
         vortex_ensure!(
             elements_dtype.as_ref() == &self.dtypes.dtype,
-            "Input DType mismatch: expected {}, got {}",
+            MismatchedTypes: "Input DType mismatch: expected {}, got {}",
             self.dtypes.dtype,
             elements_dtype
         );
@@ -249,7 +249,9 @@ impl<V: AggregateFnVTable> DynGroupedAccumulator for GroupedAccumulator<V> {
         match canonical {
             Canonical::List(groups) => self.accumulate_grouped_array(groups.into(), ctx),
             Canonical::FixedSizeList(groups) => self.accumulate_grouped_array(groups.into(), ctx),
-            _ => vortex_panic!("We checked the DType above, so this should never happen"),
+            _ => {
+                vortex_panic!(AssertionFailed: "We checked the DType above, so this should never happen")
+            }
         }
     }
 
@@ -269,7 +271,7 @@ impl<V: AggregateFnVTable> DynGroupedAccumulator for GroupedAccumulator<V> {
 
         vortex_ensure!(
             results.dtype() == &self.dtypes.return_dtype,
-            "Return DType mismatch: expected {}, got {}",
+            AssertionFailed: "Return DType mismatch: expected {}, got {}",
             self.dtypes.return_dtype,
             results.dtype()
         );
@@ -365,7 +367,7 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
     fn push_result(&mut self, state: ArrayRef) -> VortexResult<()> {
         vortex_ensure!(
             state.dtype() == &self.dtypes.partial_dtype,
-            "State DType mismatch: expected {}, got {}",
+            AssertionFailed: "State DType mismatch: expected {}, got {}",
             self.dtypes.partial_dtype,
             state.dtype()
         );

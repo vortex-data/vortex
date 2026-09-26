@@ -66,13 +66,13 @@ pub fn uncompressed_size_in_bytes(array: &ArrayRef, ctx: &mut ExecutionCtx) -> V
     let size = uncompressed_size_in_bytes_u64(array, ctx)?;
 
     usize::try_from(size)
-        .map_err(|e| vortex_err!("Failed to convert uncompressed size to usize: {e}"))
+        .map_err(|e| vortex_err!(Overflow: "Failed to convert uncompressed size to usize: {e}"))
 }
 
 fn uncompressed_size_in_bytes_u64(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<u64> {
     if let Precision::Exact(size_scalar) = array.statistics().get(Stat::UncompressedSizeInBytes) {
         return u64::try_from(&size_scalar)
-            .map_err(|e| vortex_err!("Failed to convert uncompressed size stat to u64: {e}"));
+            .map_err(|e| e.with_context("Failed to convert uncompressed size stat to u64"));
     }
 
     let mut acc =
@@ -158,7 +158,7 @@ impl AggregateFnVTable for UncompressedSizeInBytes {
     ) -> VortexResult<Self::Partial> {
         first
             .checked_add(second)
-            .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))
+            .ok_or_else(|| vortex_err!(Overflow: "uncompressed size in bytes overflowed u64"))
     }
 
     fn to_scalar(
@@ -193,7 +193,7 @@ impl AggregateFnVTable for UncompressedSizeInBytes {
         };
         *partial = partial
             .checked_add(size)
-            .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))?;
+            .ok_or_else(|| vortex_err!(Overflow: "uncompressed size in bytes overflowed u64"))?;
         Ok(())
     }
 
@@ -234,7 +234,7 @@ pub(crate) fn canonical_uncompressed_size_in_bytes(
         Canonical::Union(array) => union_uncompressed_size_in_bytes(array, ctx),
         Canonical::Extension(array) => extension_uncompressed_size_in_bytes(array, ctx),
         Canonical::Variant(_) => {
-            vortex_bail!("UncompressedSizeInBytes is not supported for Variant arrays")
+            vortex_bail!(InvalidArgument: "UncompressedSizeInBytes is not supported for Variant arrays")
         }
     }
 }
@@ -272,13 +272,13 @@ pub(crate) fn constant_uncompressed_size_in_bytes(
             return canonical_uncompressed_size_in_bytes(&canonical, ctx);
         }
         DType::Variant(_) => {
-            vortex_bail!("UncompressedSizeInBytes is not supported for Variant arrays")
+            vortex_bail!(InvalidArgument: "UncompressedSizeInBytes is not supported for Variant arrays")
         }
     };
 
     value_size
         .checked_add(constant_validity_size(array, ctx)?)
-        .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))
+        .ok_or_else(|| vortex_err!(Overflow: "uncompressed size in bytes overflowed u64"))
 }
 
 fn constant_varbinview_value_size(len: usize, scalar_len: Option<usize>) -> VortexResult<u64> {
@@ -286,13 +286,15 @@ fn constant_varbinview_value_size(len: usize, scalar_len: Option<usize>) -> Vort
     // Only a value too long to inline adds a data buffer, matching `constant_canonicalize`.
     let data_size = match scalar_len {
         Some(scalar_len) if scalar_len > BinaryView::MAX_INLINED_SIZE => u64::try_from(scalar_len)
-            .map_err(|e| vortex_err!("Failed to convert data buffer length to u64: {e}"))?,
+            .map_err(
+                |e| vortex_err!(Overflow: "Failed to convert data buffer length to u64: {e}"),
+            )?,
         _ => 0,
     };
 
     views_size
         .checked_add(data_size)
-        .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))
+        .ok_or_else(|| vortex_err!(Overflow: "uncompressed size in bytes overflowed u64"))
 }
 
 fn constant_validity_size(
@@ -305,12 +307,12 @@ fn constant_validity_size(
 
 fn checked_len_mul(len: usize, width: usize, name: &str) -> VortexResult<u64> {
     let len = u64::try_from(len)
-        .map_err(|e| vortex_err!("Failed to convert {name} length to u64: {e}"))?;
+        .map_err(|e| vortex_err!(Overflow: "Failed to convert {name} length to u64: {e}"))?;
     let width = u64::try_from(width)
-        .map_err(|e| vortex_err!("Failed to convert {name} byte width to u64: {e}"))?;
+        .map_err(|e| vortex_err!(Overflow: "Failed to convert {name} byte width to u64: {e}"))?;
 
     len.checked_mul(width)
-        .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))
+        .ok_or_else(|| vortex_err!(Overflow: "uncompressed size in bytes overflowed u64"))
 }
 
 fn supports_uncompressed_size_in_bytes(dtype: &DType) -> bool {
@@ -351,7 +353,7 @@ pub(crate) fn validity_uncompressed_size_in_bytes(validity: Mask) -> VortexResul
 
 pub(crate) fn packed_bit_buffer_size_in_bytes(len: usize) -> VortexResult<u64> {
     u64::try_from(len.div_ceil(8))
-        .map_err(|e| vortex_err!("Failed to convert bit buffer length to u64: {e}"))
+        .map_err(|e| vortex_err!(Overflow: "Failed to convert bit buffer length to u64: {e}"))
 }
 
 #[cfg(test)]
@@ -437,7 +439,9 @@ mod tests {
         acc.finish()?
             .as_primitive()
             .typed_value::<u64>()
-            .ok_or_else(|| vortex_err!("uncompressed size result should not be null"))
+            .ok_or_else(
+                || vortex_err!(AssertionFailed: "uncompressed size result should not be null"),
+            )
     }
 
     #[test]

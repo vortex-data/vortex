@@ -219,10 +219,10 @@ impl ArrayRef {
             return Ok(self.clone());
         }
 
-        vortex_ensure!(start <= len, "OutOfBounds: start {start} > length {}", len);
-        vortex_ensure!(stop <= len, "OutOfBounds: stop {stop} > length {}", len);
+        vortex_ensure!(start <= len, OutOfBounds: "OutOfBounds: start {start} > length {}", len);
+        vortex_ensure!(stop <= len, OutOfBounds: "OutOfBounds: stop {stop} > length {}", len);
 
-        vortex_ensure!(start <= stop, "start ({start}) must be <= stop ({stop})");
+        vortex_ensure!(start <= stop, InvalidArgument: "start ({start}) must be <= stop ({stop})");
 
         if start == stop {
             return Ok(Canonical::empty(self.dtype()).into_array());
@@ -376,10 +376,10 @@ impl ArrayRef {
                 array_sum
                     .as_primitive()
                     .as_::<usize>()
-                    .ok_or_else(|| vortex_err!("sum of validity array is null"))?
+                    .ok_or_else(|| vortex_err!(AssertionFailed: "sum of validity array is null"))?
             }
         };
-        vortex_ensure!(count <= len, "Valid count exceeds array length");
+        vortex_ensure!(count <= len, InvalidArgument: "Valid count exceeds array length");
 
         self.statistics()
             .set(Stat::NullCount, Precision::exact(len - count));
@@ -455,8 +455,9 @@ impl ArrayRef {
     ///
     /// Panics if the array is not of the given type.
     pub fn downcast<V: VTable>(self) -> Array<V> {
-        Self::try_downcast(self)
-            .unwrap_or_else(|_| vortex_panic!("Failed to downcast to {}", type_name::<V>()))
+        Self::try_downcast(self).unwrap_or_else(
+            |_| vortex_panic!(MismatchedTypes: "Failed to downcast to {}", type_name::<V>()),
+        )
     }
 
     /// Returns a reference to the typed `ArrayData<V>` if this array matches the given vtable type.
@@ -507,7 +508,7 @@ impl ArrayRef {
         let nslots = slots.len();
         vortex_ensure!(
             slot_idx < nslots,
-            "slot index {} out of bounds for array with {} slots",
+            OutOfBounds: "slot index {} out of bounds for array with {} slots",
             slot_idx,
             nslots
         );
@@ -516,14 +517,14 @@ impl ArrayRef {
             .vortex_expect("with_slot cannot replace an absent slot");
         vortex_ensure!(
             existing.dtype() == replacement.dtype(),
-            "slot {} dtype changed from {} to {} during physical rewrite",
+            AssertionFailed: "slot {} dtype changed from {} to {} during physical rewrite",
             slot_idx,
             existing.dtype(),
             replacement.dtype()
         );
         vortex_ensure!(
             existing.len() == replacement.len(),
-            "slot {} len changed from {} to {} during physical rewrite",
+            AssertionFailed: "slot {} len changed from {} to {} during physical rewrite",
             slot_idx,
             existing.len(),
             replacement.len()
@@ -607,27 +608,27 @@ impl ArrayRef {
         let old_slots = self.slots();
         vortex_ensure!(
             old_slots.len() == slots.len(),
-            "slot count changed from {} to {} during physical rewrite",
+            AssertionFailed: "slot count changed from {} to {} during physical rewrite",
             old_slots.len(),
             slots.len()
         );
         for (idx, (old_slot, new_slot)) in old_slots.iter().zip(slots.iter()).enumerate() {
             vortex_ensure!(
                 old_slot.is_some() == new_slot.is_some(),
-                "slot {} presence changed during physical rewrite",
+                AssertionFailed: "slot {} presence changed during physical rewrite",
                 idx
             );
             if let (Some(old_slot), Some(new_slot)) = (old_slot.as_ref(), new_slot.as_ref()) {
                 vortex_ensure!(
                     old_slot.dtype() == new_slot.dtype(),
-                    "slot {} dtype changed from {} to {} during physical rewrite",
+                    AssertionFailed: "slot {} dtype changed from {} to {} during physical rewrite",
                     idx,
                     old_slot.dtype(),
                     new_slot.dtype()
                 );
                 vortex_ensure!(
                     old_slot.len() == new_slot.len(),
-                    "slot {} len changed from {} to {} during physical rewrite",
+                    AssertionFailed: "slot {} len changed from {} to {} during physical rewrite",
                     idx,
                     old_slot.len(),
                     new_slot.len()
@@ -657,7 +658,7 @@ impl ArrayRef {
         let nbuffers = self.nbuffers();
         vortex_ensure!(
             nbuffers == buffers.len(),
-            "buffer count changed from {} to {} during physical rewrite",
+            AssertionFailed: "buffer count changed from {} to {} during physical rewrite",
             nbuffers,
             buffers.len()
         );
@@ -669,7 +670,7 @@ impl ArrayRef {
         {
             vortex_ensure!(
                 old_buffer.len() == new_buffer.len(),
-                "buffer {} length changed from {} to {} during physical rewrite",
+                AssertionFailed: "buffer {} length changed from {} to {} during physical rewrite",
                 idx,
                 old_buffer.len(),
                 new_buffer.len()

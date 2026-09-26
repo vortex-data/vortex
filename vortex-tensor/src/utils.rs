@@ -29,18 +29,18 @@ use crate::matcher::TensorMatch;
 
 /// Validates that `input_dtype` is a float-valued tensor-like extension dtype.
 pub fn validate_tensor_float_input(input_dtype: &DType) -> VortexResult<TensorMatch<'_>> {
-    let ext = input_dtype
-        .as_extension_opt()
-        .ok_or_else(|| vortex_err!("expected an extension type, got {input_dtype}"))?;
+    let ext = input_dtype.as_extension_opt().ok_or_else(
+        || vortex_err!(MismatchedTypes: "expected an extension type, got {input_dtype}"),
+    )?;
 
-    let tensor_match = ext
-        .metadata_opt::<AnyTensor>()
-        .ok_or_else(|| vortex_err!("expected an `AnyTensor`, got {input_dtype}"))?;
+    let tensor_match = ext.metadata_opt::<AnyTensor>().ok_or_else(
+        || vortex_err!(MismatchedTypes: "expected an `AnyTensor`, got {input_dtype}"),
+    )?;
 
     let ptype = tensor_match.element_ptype();
     vortex_ensure!(
         ptype.is_float(),
-        "expected a float element dtype, got {ptype}",
+        MismatchedTypes: "expected a float element dtype, got {ptype}",
     );
 
     Ok(tensor_match)
@@ -54,7 +54,7 @@ pub fn validate_binary_tensor_float_inputs<'a>(
 ) -> VortexResult<TensorMatch<'a>> {
     vortex_ensure!(
         lhs.eq_ignore_nullability(rhs),
-        "binary tensor expression expects inputs to have the same dtype, got {lhs} and {rhs}"
+        MismatchedTypes: "binary tensor expression expects inputs to have the same dtype, got {lhs} and {rhs}"
     );
     validate_tensor_float_input(lhs)
 }
@@ -123,7 +123,7 @@ pub fn extract_flat_elements(
     let elems: PrimitiveArray = fsl.elements().clone().execute(ctx)?;
     vortex_ensure!(
         !elems.nullability().is_nullable(),
-        "tensor storage elements must be non-nullable, got {}",
+        InvalidArgument: "tensor storage elements must be non-nullable, got {}",
         elems.dtype(),
     );
     Ok(FlatElements {
@@ -172,15 +172,15 @@ impl BinaryTensorOpMetadata {
         session: &VortexSession,
     ) -> VortexResult<Vec<ArrayRef>> {
         let metadata = Self::decode(metadata)
-            .map_err(|e| vortex_err!("Failed to decode BinaryTensorOpMetadata: {e}"))?;
+            .map_err(|e| vortex_err!(Serde: "Failed to decode BinaryTensorOpMetadata: {e}"))?;
         let lhs_pb = metadata
             .lhs_dtype
             .as_ref()
-            .ok_or_else(|| vortex_err!("metadata missing lhs_dtype"))?;
+            .ok_or_else(|| vortex_err!(Serde: "metadata missing lhs_dtype"))?;
         let rhs_pb = metadata
             .rhs_dtype
             .as_ref()
-            .ok_or_else(|| vortex_err!("metadata missing rhs_dtype"))?;
+            .ok_or_else(|| vortex_err!(Serde: "metadata missing rhs_dtype"))?;
 
         let lhs_dtype = DType::from_proto(lhs_pb, session)?;
         let rhs_dtype = DType::from_proto(rhs_pb, session)?;

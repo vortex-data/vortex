@@ -95,17 +95,17 @@ impl PlanVTable for Take {
         _data: &mut Self::PlanData,
     ) -> VortexResult<()> {
         check_child_count("Take", children, 2)?;
-        let codes = children
-            .get(CODES)?
-            .ok_or_else(|| vortex_error::vortex_err!("Take codes child is absent"))?;
-        let values = children
-            .get(VALUES)?
-            .ok_or_else(|| vortex_error::vortex_err!("Take values child is absent"))?;
+        let codes = children.get(CODES)?.ok_or_else(
+            || vortex_error::vortex_err!(AssertionFailed: "Take codes child is absent"),
+        )?;
+        let values = children.get(VALUES)?.ok_or_else(
+            || vortex_error::vortex_err!(AssertionFailed: "Take values child is absent"),
+        )?;
         let dtype = values
             .dtype()
             .union_nullability(codes.dtype().nullability());
         if codes.row_count() != plan.row_count() || &dtype != plan.dtype() {
-            vortex_error::vortex_bail!("Take child shape does not match the plan output");
+            vortex_error::vortex_bail!(MismatchedTypes: "Take child shape does not match the plan output");
         }
         Ok(())
     }
