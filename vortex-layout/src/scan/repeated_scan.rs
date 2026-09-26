@@ -27,9 +27,36 @@ use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::LayoutReaderRef;
 use crate::scan::filter::FilterExpr;
+use crate::scan::limit::LimitBudget;
+use crate::scan::limit::LimitClaim;
 use crate::scan::splits::Splits;
+use crate::scan::tasks::SplitLimit;
 use crate::scan::tasks::TaskContext;
 use crate::scan::tasks::split_exec;
+
+pub(crate) type ScanTasks<A> = Vec<BoxFuture<'static, VortexResult<Option<A>>>>;
+
+/// The split tasks of a scan, along with the shared limit budget when the scan has both a filter
+/// and a limit.
+pub(crate) struct PreparedTasks<A> {
+    pub tasks: ScanTasks<A>,
+    pub limit_budget: Option<Arc<LimitBudget>>,
+}
+
+impl<A: 'static + Send> PreparedTasks<A> {
+    /// Iterate the tasks, stopping once the limit budget, if any, is exhausted.
+    ///
+    /// Tasks yielded before the budget ran out still resolve normally, while the remaining tasks
+    /// are never started.
+    pub fn into_limited_iter(
+        self,
+    ) -> impl Iterator<Item = BoxFuture<'static, VortexResult<Option<A>>>> {
+        let budget = self.limit_budget;
+        self.tasks
+            .into_iter()
+            .take_while(move |_| !budget.as_ref().is_some_and(|b| b.is_exhausted()))
+    }
+}
 
 /// A projected subset (by indices, range, and filter) of rows from a Vortex data source.
 ///
@@ -119,10 +146,27 @@ impl<A: 'static + Send> RepeatedScan<A> {
         }
     }
 
-    pub fn execute(
+    /// Construct a task per row split of the scan.
+    ///
+    /// When the scan is ordered and has both a filter and a limit, each task waits for the tasks
+    /// before it to claim their rows, so all tasks must be driven concurrently (for example by
+    /// spawning them) and the earlier tasks must not be held back.
+    pub fn execute(&self, row_range: Option<Range<u64>>) -> VortexResult<ScanTasks<A>> {
+        Ok(self.execute_tasks(row_range)?.tasks)
+    }
+
+    pub(crate) fn execute_tasks(
         &self,
         row_range: Option<Range<u64>>,
-    ) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
+    ) -> VortexResult<PreparedTasks<A>> {
+        let no_tasks = || PreparedTasks {
+            tasks: Vec::new(),
+            limit_budget: None,
+        };
+        if self.limit == Some(0) {
+            return Ok(no_tasks());
+        }
+
         let selection_range: Option<Range<u64>> = match &self.selection {
             Selection::IncludeByIndex(buf) if !buf.is_empty() => {
                 Some(buf[0]..buf[buf.len() - 1] + 1)
@@ -142,7 +186,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
                     None => Either::Left(vec.iter().copied()),
                     Some(range) => {
                         if range.is_empty() {
-                            return Ok(Vec::new());
+                            return Ok(no_tasks());
                         }
                         let lo = vec.partition_point(|&x| x <= range.start);
                         let hi = vec.partition_point(|&x| x < range.end);
@@ -160,7 +204,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
                 None => Either::Left(ranges.iter().cloned()),
                 Some(range) => {
                     if range.is_empty() {
-                        return Ok(Vec::new());
+                        return Ok(no_tasks());
                     }
                     Either::Right(ranges.iter().filter_map(move |r| {
                         let start = cmp::max(r.start, range.start);
@@ -171,8 +215,6 @@ impl<A: 'static + Send> RepeatedScan<A> {
             }),
         };
 
-        let mut limit = self.limit;
-        let mut tasks = Vec::new();
         let ctx = Arc::new(TaskContext {
             filter: self.filter.clone().map(|f| Arc::new(FilterExpr::new(f))),
             reader: Arc::clone(&self.layout_reader),
@@ -180,19 +222,41 @@ impl<A: 'static + Send> RepeatedScan<A> {
             mapper: Arc::clone(&self.map_fn),
         });
 
+        // Without a filter, each split's row count is known up front and the limit is applied
+        // eagerly. With a filter, splits claim rows from a shared budget after filtering.
+        let mut eager_limit = self.limit.filter(|_| self.filter.is_none());
+        let limit_budget = self
+            .limit
+            .filter(|_| self.filter.is_some())
+            .map(|limit| Arc::new(LimitBudget::new(limit)));
+        let mut claims = limit_budget
+            .as_ref()
+            .map(|budget| LimitClaim::for_splits(budget, self.ordered));
+
+        let mut tasks = Vec::new();
         for range in ranges {
             let row_mask = self.selection.row_mask(&range);
             if row_mask.mask().all_false() {
                 continue;
             }
 
-            tasks.push(split_exec(Arc::clone(&ctx), row_mask, limit.as_mut())?);
-            if limit.is_some_and(|l| l == 0) {
+            let limit = match (eager_limit.as_mut(), claims.as_mut()) {
+                (Some(l), _) => SplitLimit::Eager(l),
+                (None, Some(claims)) => {
+                    SplitLimit::Filtered(claims.next().vortex_expect("claims are unbounded"))
+                }
+                (None, None) => SplitLimit::None,
+            };
+            tasks.push(split_exec(Arc::clone(&ctx), row_mask, limit)?);
+            if eager_limit.is_some_and(|l| l == 0) {
                 break;
             }
         }
 
-        Ok(tasks)
+        Ok(PreparedTasks {
+            tasks,
+            limit_budget,
+        })
     }
 
     pub fn execute_stream(
@@ -204,8 +268,8 @@ impl<A: 'static + Send> RepeatedScan<A> {
         let concurrency = self.concurrency * num_workers;
         let handle = self.session.handle();
 
-        let stream =
-            futures::stream::iter(self.execute(row_range)?).map(move |task| handle.spawn(task));
+        let stream = futures::stream::iter(self.execute_tasks(row_range)?.into_limited_iter())
+            .map(move |task| handle.spawn(task));
 
         let stream = if self.ordered {
             stream.buffered(concurrency).boxed()

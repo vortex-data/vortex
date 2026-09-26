@@ -18,8 +18,21 @@ use vortex_scan::row_mask::RowMask;
 
 use crate::LayoutReader;
 use crate::scan::filter::FilterExpr;
+use crate::scan::limit::LimitClaim;
 
 pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
+
+/// How a split task applies the scan's row limit.
+pub enum SplitLimit<'a> {
+    /// The scan has no limit.
+    None,
+    /// The scan has no filter, so the limit is applied while constructing the task by
+    /// decrementing the remaining row count.
+    Eager(&'a mut u64),
+    /// The scan has a filter, so the task claims rows from a shared budget once its filter has
+    /// been evaluated.
+    Filtered(LimitClaim),
+}
 
 /// Logic for executing a single split reading task.
 /// N.B. read_mask should be evaluated against all_false() before calling this
@@ -33,15 +46,24 @@ pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
 /// The intersected row range is then further reduced via expression-based pruning. After pruning
 /// has eliminated more blocks, the full filter is executed over the remainder of the split.
 ///
+/// If the scan has a limit and a filter, the filtered mask is truncated to the rows claimed from
+/// the shared limit budget. Once the budget is exhausted, pending filter evaluation stops early.
+///
 /// This mask is then provided to the reader to perform a filtered projection over the split data,
 /// finally mapping the Vortex columnar record batches into some result type `A`.
 pub fn split_exec<A: 'static + Send>(
     ctx: Arc<TaskContext<A>>,
     read_mask: RowMask,
-    limit: Option<&mut u64>,
+    limit: SplitLimit<'_>,
 ) -> VortexResult<TaskFuture<Option<A>>> {
     let row_range = read_mask.row_range();
     let row_mask = read_mask.mask().clone();
+
+    let (limit, claim) = match limit {
+        SplitLimit::None => (None, None),
+        SplitLimit::Eager(l) => (Some(l), None),
+        SplitLimit::Filtered(claim) => (None, Some(claim)),
+    };
 
     let filter_mask = match ctx.filter.as_ref() {
         // No filter == immediate mask
@@ -69,6 +91,8 @@ pub fn split_exec<A: 'static + Send>(
             let reader = Arc::clone(&ctx.reader);
             let filter = Arc::clone(filter);
             let row_range = row_range.clone();
+            let budget = claim.as_ref().map(|c| Arc::clone(c.budget()));
+            let is_exhausted = move || budget.as_ref().is_some_and(|b| b.is_exhausted());
 
             MaskFuture::new(row_mask.len(), async move {
                 let mut mask = row_mask;
@@ -78,6 +102,9 @@ pub fn split_exec<A: 'static + Send>(
                 for (idx, conjunct) in filter.conjuncts().iter().enumerate() {
                     if mask.all_false() {
                         return Ok(mask);
+                    }
+                    if is_exhausted() {
+                        return Ok(Mask::new_false(mask.len()));
                     }
 
                     // Store the latest version of the dynamic expression prior to pruning.
@@ -96,6 +123,9 @@ pub fn split_exec<A: 'static + Send>(
                     remaining.set(idx, false);
                     if mask.all_false() {
                         return Ok(mask);
+                    }
+                    if is_exhausted() {
+                        return Ok(Mask::new_false(mask.len()));
                     }
 
                     let conjunct = &filter.conjuncts()[idx];
@@ -131,6 +161,20 @@ pub fn split_exec<A: 'static + Send>(
                 }
 
                 Ok(mask)
+            })
+        }
+    };
+
+    let filter_mask = match claim {
+        None => filter_mask,
+        Some(claim) => {
+            let filtered = filter_mask;
+            MaskFuture::new(filtered.len(), async move {
+                let mask = filtered.await?;
+                let true_count = mask.true_count();
+                let granted = claim.claim(true_count as u64).await;
+                // `granted <= true_count`, so it fits in usize.
+                Ok(mask.limit(usize::try_from(granted).unwrap_or(true_count)))
             })
         }
     };

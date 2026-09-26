@@ -586,12 +586,8 @@ def _scan_file_as_tables(
     store: ObjectStore | None = None,
 ) -> Iterable[pa.Table]:
     projection = None if columns is None else list(columns)
-    # Vortex cannot push a filter and a limit into the same scan. When both are set we scan with
-    # only the filter and let the caller enforce the limit while consuming the lazy reader, which
-    # still stops early once enough rows have been yielded.
-    scan_limit = None if filter is not None else limit
     reader = vx.open(file_name, store=store).to_arrow(
-        projection=projection, expr=filter, limit=scan_limit, batch_size=batch_size
+        projection=projection, expr=filter, limit=limit, batch_size=batch_size
     )
     for batch in reader:
         yield _to_hf_compatible_table(pa.Table.from_batches([batch], schema=reader.schema))
