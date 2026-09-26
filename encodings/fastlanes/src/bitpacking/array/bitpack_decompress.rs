@@ -168,7 +168,7 @@ pub(crate) fn apply_patches_to_uninit_range<S: NativePType, T: NativePType, F: F
 
 pub fn unpack_single(array: ArrayView<'_, BitPacked>, index: usize) -> VortexResult<Scalar> {
     let BitWidthsView::Global(bit_width) = array.bit_widths() else {
-        vortex_bail!("BitPacked array has per-block bit widths");
+        vortex_bail!(NotImplemented: "BitPacked array has per-block bit widths");
     };
     let bit_width = bit_width as usize;
     let ptype = array.dtype().as_ptype();

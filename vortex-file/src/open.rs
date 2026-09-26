@@ -439,7 +439,7 @@ impl VortexOpenOptions {
                 .filter(|end| *end <= initial_read.len())
                 .ok_or_else(|| {
                     vortex_err!(
-                        "Segment at offset {} with length {} is out of bounds of the \
+                        OutOfBounds: "Segment at offset {} with length {} is out of bounds of the \
                          {}-byte initial read",
                         segment.offset,
                         segment.length,
@@ -851,7 +851,7 @@ mod tests {
         let initial_read = ByteBuffer::zeroed(16);
         let Err(err) = VortexOpenOptions::collect_initial_segments(0, &initial_read, &bad_footer)
         else {
-            vortex_bail!("collecting an out-of-bounds segment must return an error");
+            vortex_bail!(AssertionFailed: "collecting an out-of-bounds segment must return an error");
         };
         assert!(
             err.to_string().contains("out of bounds"),
@@ -898,7 +898,7 @@ mod tests {
         let mut deserializer = Footer::deserializer(footer_bytes.freeze(), session.clone())
             .with_size(serialized_footer_size as u64);
         let DeserializeStep::Done(cached_footer) = deserializer.deserialize()? else {
-            vortex_bail!("standalone footer bytes must be sufficient for deserialization");
+            vortex_bail!(Serde: "standalone footer bytes must be sufficient for deserialization");
         };
 
         session

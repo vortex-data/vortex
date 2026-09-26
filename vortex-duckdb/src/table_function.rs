@@ -387,7 +387,9 @@ fn aggregate_output_value(scalar: Scalar, expected: &LogicalTypeRef) -> VortexRe
         Ok(match primitive.ptype() {
             PType::I64 => primitive.typed_value::<i64>().map(i128::from),
             PType::U64 => primitive.typed_value::<u64>().map(i128::from),
-            other => vortex_bail!("expected {expected:?} output type, got {other}"),
+            other => {
+                vortex_bail!(MismatchedTypes: "expected {expected:?} output type, got {other}")
+            }
         })
     };
     match expected.as_type_id() {

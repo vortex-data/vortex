@@ -43,19 +43,19 @@ pub(super) fn serialize(array: ArrayView<'_, FoR>) -> ArraySerialization {
 pub(super) fn deserialize(parts: ArrayDeserialization<'_>) -> VortexResult<ArrayRef> {
     vortex_ensure!(
         parts.buffers.is_empty(),
-        "FoRArray expects 0 buffers, got {}",
+        InvalidArgument: "FoRArray expects 0 buffers, got {}",
         parts.buffers.len()
     );
     vortex_ensure_eq!(
         parts.children.len(),
         2,
-        "Expected 2 children for {}",
+        Serde: "Expected 2 children for {}",
         for_v2_id()
     );
     let metadata = FoRV2Metadata::decode(parts.metadata)?;
     vortex_ensure!(
         usize::try_from(metadata.offset).is_ok_and(|offset| offset < FL_CHUNK_SIZE),
-        "FoR offset must be less than {FL_CHUNK_SIZE}, got {}",
+        Serde: "FoR offset must be less than {FL_CHUNK_SIZE}, got {}",
         metadata.offset
     );
     let offset = u16::try_from(metadata.offset)?;

@@ -134,7 +134,7 @@ impl ChunkedReader {
     fn chunk_offset(&self, idx: usize) -> u64 {
         if idx >= self.layout.chunk_offsets.len() {
             vortex_panic!(
-                "Internal error: Chunk offset {idx} out of bounds (num_children: {}, num_offsets: {}). \
+                AssertionFailed: "Internal error: Chunk offset {idx} out of bounds (num_children: {}, num_offsets: {}). \
                 This indicates a bug in ChunkedReader initialization or chunk_range calculation.",
                 self.layout.nchildren(),
                 self.layout.chunk_offsets.len()
@@ -403,7 +403,7 @@ impl LayoutReader for ChunkedReader {
             // Split the mask over each chunk.
             let chunks: Vec<_> = FuturesOrdered::from_iter(chunk_evals).try_collect().await?;
 
-            vortex_ensure!(!chunks.is_empty(), "Empty chunks were checked earlier");
+            vortex_ensure!(!chunks.is_empty(), AssertionFailed: "Empty chunks were checked earlier");
 
             // If there is only one chunk, we can return it directly.
             if chunks.len() == 1 {

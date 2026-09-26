@@ -40,7 +40,9 @@ impl FillNullKernel for VarBinView {
             DType::Binary(_) => fill_value.as_binary().value().cloned(),
             _ => None,
         }
-        .ok_or_else(|| vortex_err!("Fill value must be a non-null utf8 or binary scalar"))?;
+        .ok_or_else(
+            || vortex_err!(MismatchedTypes: "Fill value must be a non-null utf8 or binary scalar"),
+        )?;
 
         let Validity::Array(is_valid) = array.validity()? else {
             unreachable!("checked in entry point");

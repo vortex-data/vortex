@@ -54,8 +54,20 @@
   - `vortex_panic!` for handling invariant violations
   - `vortex_ensure!` and `vortex_ensure_eq!` for checking conditions. Prefer
     `vortex_ensure_eq!(a, b)` with no message: the error already shows both expressions and values.
-    Add a message only for context the expressions lack, and never repeat the values in it.
-- Add context to errors using `.with_context()`
+    Add a message only for context the expressions lack, and never repeat the values in it. With no
+    message the error is `AssertionFailed`; when the check is on the caller's input rather than an
+    internal invariant, name the kind alone, as in `vortex_ensure_eq!(a, b, InvalidArgument)`.
+- Every message names its `VortexErrorKind`, as in `vortex_bail!(InvalidArgument: "...")`; the
+  macros reject a message without one. Choose the kind by what went wrong, the way Python picks an
+  exception class: `InvalidArgument` (`ValueError`) for a value the callee rejects,
+  `MismatchedTypes` (`TypeError`) for the wrong dtype, `OutOfBounds` (`IndexError`) for a position
+  past the end, `NotFound` (`KeyError`) for a name that resolves to nothing, `Overflow`
+  (`OverflowError`) for a value that does not fit its target, `NotImplemented`, `Serde` for an
+  unreadable wire or file format, `Io` for a failed system or driver call, `AssertionFailed` for a
+  broken internal invariant, and `Other` only when nothing else fits. Never classify by where the
+  failure happened.
+- Add context to an existing error with `.with_context()`, which keeps its kind; do not format it
+  into a new `vortex_err!`, which discards the kind.
 - Include backtraces for better debugging
 - Use `VortexExpect` trait when unwrapping is appropriate with proper error context.
 

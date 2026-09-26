@@ -46,11 +46,9 @@ enum DecimalOperand {
 impl DecimalOperand {
     fn try_new(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         if let Some(constant) = array.as_opt::<Constant>() {
-            let value = constant
-                .scalar()
-                .as_decimal()
-                .decimal_value()
-                .ok_or_else(|| vortex_err!("null constant handled by execute_compare"))?;
+            let value = constant.scalar().as_decimal().decimal_value().ok_or_else(
+                || vortex_err!(AssertionFailed: "null constant handled by execute_compare"),
+            )?;
             return Ok(Self::Constant {
                 value,
                 validity: if constant.scalar().dtype().is_nullable() {

@@ -88,17 +88,17 @@ impl FsstDecodePlan {
                 offsets.last().and_then(ToPrimitive::to_usize),
             )
         });
-        let (first_offset, last_offset) = first_offset.zip(last_offset).ok_or_else(|| {
-            vortex_err!("FSST codes offsets are missing, negative or overflow usize")
-        })?;
+        let (first_offset, last_offset) = first_offset.zip(last_offset).ok_or_else(
+            || vortex_err!(Overflow: "FSST codes offsets are missing, negative or overflow usize"),
+        )?;
         let codes = fsst_array.codes_bytes();
         vortex_ensure!(
             first_offset <= last_offset,
-            "FSST first codes offset {first_offset} exceeds last codes offset {last_offset}"
+            InvalidArgument: "FSST first codes offset {first_offset} exceeds last codes offset {last_offset}"
         );
         vortex_ensure!(
             last_offset <= codes.len(),
-            "FSST last codes offset {last_offset} exceeds codes bytes length {}",
+            InvalidArgument: "FSST last codes offset {last_offset} exceeds codes bytes length {}",
             codes.len()
         );
         let codes = codes.slice(first_offset..last_offset);
@@ -113,13 +113,15 @@ impl FsstDecodePlan {
                 .iter()
                 .try_fold(0usize, |acc, &x| acc.checked_add(x.to_usize()?))
         })
-        .ok_or_else(|| vortex_err!("FSST uncompressed lengths are negative or overflow"))?;
+        .ok_or_else(
+            || vortex_err!(Overflow: "FSST uncompressed lengths are negative or overflow"),
+        )?;
 
         // Stored lengths size the output buffer, so bound them by the codes:
         // symbols emit 1 to 8 bytes; escapes use two code bytes per output byte.
         vortex_ensure!(
             codes.len().div_ceil(2) <= total_size && total_size <= codes.len().saturating_mul(8),
-            "FSST recorded length {total_size} is impossible for {} code bytes",
+            Serde: "FSST recorded length {total_size} is impossible for {} code bytes",
             codes.len()
         );
 
@@ -142,7 +144,7 @@ impl FsstDecodePlan {
         out: &mut [MaybeUninit<u8>],
     ) -> VortexResult<usize> {
         let len = decompressor.decompress_into(self.codes.as_slice(), out);
-        vortex_ensure_eq!(len, self.total_size, "FSST decoded length mismatch");
+        vortex_ensure_eq!(len, self.total_size, Serde: "FSST decoded length mismatch");
         Ok(len)
     }
 }

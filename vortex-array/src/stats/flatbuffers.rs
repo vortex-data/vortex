@@ -167,7 +167,9 @@ impl StatsSet {
                             match fb.max_precision() {
                                 fba::Precision::Exact => Precision::Exact(value),
                                 fba::Precision::Inexact => Precision::Inexact(value),
-                                other => vortex_bail!("Corrupted max_precision field: {other:?}"),
+                                other => {
+                                    vortex_bail!(Serde: "Corrupted max_precision field: {other:?}")
+                                }
                             },
                         );
                     }
@@ -187,7 +189,9 @@ impl StatsSet {
                             match fb.min_precision() {
                                 fba::Precision::Exact => Precision::Exact(value),
                                 fba::Precision::Inexact => Precision::Inexact(value),
-                                other => vortex_bail!("Corrupted min_precision field: {other:?}"),
+                                other => {
+                                    vortex_bail!(Serde: "Corrupted min_precision field: {other:?}")
+                                }
                             },
                         );
                     }
@@ -271,7 +275,7 @@ mod tests {
                 &DType::Primitive(PType::F64, Nullability::Nullable),
             )
             .as_exact()
-            .ok_or_else(|| vortex_err!("sum must be exact after a round trip"))?
+            .ok_or_else(|| vortex_err!(Serde: "sum must be exact after a round trip"))?
             .to_bits())
     }
 

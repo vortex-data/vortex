@@ -63,7 +63,7 @@ impl CudaExecute for DictExecutor {
             DType::Decimal(..) => execute_dict_decimal(dict_array, ctx).await,
             DType::Primitive(..) => execute_dict_prim(dict_array, ctx).await,
             DType::Utf8(..) | DType::Binary(..) => execute_dict_varbinview(dict_array, ctx).await,
-            dt => vortex_bail!("unsupported decompress for DType={dt}"),
+            dt => vortex_bail!(InvalidArgument: "unsupported decompress for DType={dt}"),
         }
     }
 }
@@ -117,7 +117,7 @@ async fn execute_dict_bool_typed<I: DeviceRepr + NativePType>(
     codes: PrimitiveArray,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Canonical> {
-    vortex_ensure!(!codes.is_empty(), "cannot CUDA-decode an empty dictionary");
+    vortex_ensure!(!codes.is_empty(), InvalidArgument: "cannot CUDA-decode an empty dictionary");
     let codes_len = codes.len();
 
     let values_len = values.len();

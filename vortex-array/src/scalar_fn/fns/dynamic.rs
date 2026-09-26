@@ -85,7 +85,7 @@ impl ScalarFnVTable for DynamicComparison {
         let lhs = &arg_dtypes[0];
         if !dynamic.rhs.dtype.eq_ignore_nullability(lhs) {
             vortex_bail!(
-                "Incompatible dtypes for dynamic comparison: expected {} (ignore nullability) but got {}",
+                MismatchedTypes: "Incompatible dtypes for dynamic comparison: expected {} (ignore nullability) but got {}",
                 &dynamic.rhs.dtype,
                 lhs
             );

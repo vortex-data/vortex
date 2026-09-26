@@ -44,7 +44,7 @@ impl Matcher for AnyVector {
         }
 
         let DType::FixedSizeList(element_dtype, list_size, _) = ext_dtype.storage_dtype() else {
-            vortex_panic!("`Vector` type somehow did not have a `FixedSizeList` storage type")
+            vortex_panic!(AssertionFailed: "`Vector` type somehow did not have a `FixedSizeList` storage type")
         };
 
         let dimensions = *list_size;

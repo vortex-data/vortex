@@ -88,7 +88,7 @@ impl PatchesMetadata {
 
     #[inline]
     pub fn len(&self) -> VortexResult<usize> {
-        usize::try_from(self.len).map_err(|_| vortex_err!("len does not fit in usize"))
+        usize::try_from(self.len).map_err(|_| vortex_err!(Overflow: "len does not fit in usize"))
     }
 
     #[inline]
@@ -98,7 +98,8 @@ impl PatchesMetadata {
 
     #[inline]
     pub fn offset(&self) -> VortexResult<usize> {
-        usize::try_from(self.offset).map_err(|_| vortex_err!("offset does not fit in usize"))
+        usize::try_from(self.offset)
+            .map_err(|_| vortex_err!(Overflow: "offset does not fit in usize"))
     }
 
     #[inline]
@@ -106,7 +107,9 @@ impl PatchesMetadata {
         self.chunk_offsets_ptype
             .map(|t| {
                 PType::try_from(t)
-                    .map_err(|e| vortex_err!("invalid i32 value {t} for PType: {}", e))
+                    .map_err(
+                        |e| vortex_err!(InvalidArgument: "invalid i32 value {t} for PType: {}", e),
+                    )
                     .map(|ptype| DType::Primitive(ptype, NonNullable))
             })
             .transpose()
@@ -114,12 +117,12 @@ impl PatchesMetadata {
 
     #[inline]
     pub fn indices_dtype(&self) -> VortexResult<DType> {
-        let ptype = PType::try_from(self.indices_ptype).map_err(|e| {
-            vortex_err!("invalid i32 value {} for PType: {}", self.indices_ptype, e)
+        let ptype = PType::try_from(self.indices_ptype).map_err(|e|  {
+            vortex_err!(InvalidArgument: "invalid i32 value {} for PType: {}", self.indices_ptype, e)
         })?;
         vortex_ensure!(
             ptype.is_unsigned_int(),
-            "Patch indices must be unsigned integers"
+            MismatchedTypes: "Patch indices must be unsigned integers"
         );
         Ok(DType::Primitive(ptype, NonNullable))
     }
@@ -247,18 +250,18 @@ impl Patches {
         values: ArrayRef,
         chunk_offsets: Option<ArrayRef>,
     ) -> VortexResult<Self> {
-        vortex_ensure_eq!(indices.len(), values.len());
+        vortex_ensure_eq!(indices.len(), values.len(), InvalidArgument);
         vortex_ensure!(
             indices.dtype().is_unsigned_int() && !indices.dtype().is_nullable(),
-            "Patch indices must be non-nullable unsigned integers, got {:?}",
+            MismatchedTypes: "Patch indices must be non-nullable unsigned integers, got {:?}",
             indices.dtype()
         );
 
         vortex_ensure!(
             indices.len() <= array_len,
-            "Patch indices must be shorter than the array length"
+            InvalidArgument: "Patch indices must be shorter than the array length"
         );
-        vortex_ensure!(!indices.is_empty(), "Patch indices must not be empty");
+        vortex_ensure!(!indices.is_empty(), InvalidArgument: "Patch indices must not be empty");
 
         // Perform validation of components when they are host-resident.
         // This is not possible to do eagerly when the data is on GPU memory.
@@ -267,10 +270,10 @@ impl Patches {
                 indices.len() - 1,
                 &mut legacy_session().create_execution_ctx(),
             )?)
-            .map_err(|_| vortex_err!("indices must be a number"))?;
+            .map_err(|_| vortex_err!(InvalidArgument: "indices must be a number"))?;
             vortex_ensure!(
                 max - offset < array_len,
-                "Patch indices {max:?}, offset {offset} are longer than the array length {array_len}"
+                OutOfBounds: "Patch indices {max:?}, offset {offset} are longer than the array length {array_len}"
             );
 
             #[cfg(debug_assertions)]
@@ -382,14 +385,14 @@ impl Patches {
     #[allow(clippy::disallowed_methods)]
     pub fn chunk_offset_at(&self, idx: usize) -> VortexResult<usize> {
         let Some(chunk_offsets) = &self.chunk_offsets else {
-            vortex_bail!("chunk_offsets must be set to retrieve offset at index")
+            vortex_bail!(InvalidArgument: "chunk_offsets must be set to retrieve offset at index")
         };
 
         chunk_offsets
             .execute_scalar(idx, &mut legacy_session().create_execution_ctx())?
             .as_primitive()
             .as_::<usize>()
-            .ok_or_else(|| vortex_err!("chunk offset does not fit in usize"))
+            .ok_or_else(|| vortex_err!(Overflow: "chunk offset does not fit in usize"))
     }
 
     /// Returns the number of patches sliced off from the current first chunk.
@@ -408,20 +411,20 @@ impl Patches {
     #[inline]
     pub fn indices_ptype(&self) -> VortexResult<PType> {
         PType::try_from(self.indices.dtype())
-            .map_err(|_| vortex_err!("indices dtype is not primitive"))
+            .map_err(|_| vortex_err!(MismatchedTypes: "indices dtype is not primitive"))
     }
 
     pub fn to_metadata(&self, len: usize, dtype: &DType) -> VortexResult<PatchesMetadata> {
         if self.indices.len() > len {
             vortex_bail!(
-                "Patch indices {} are longer than the array length {}",
+                InvalidArgument: "Patch indices {} are longer than the array length {}",
                 self.indices.len(),
                 len
             );
         }
         if self.values.dtype() != dtype {
             vortex_bail!(
-                "Patch values dtype {} does not match array dtype {}",
+                MismatchedTypes: "Patch values dtype {} does not match array dtype {}",
                 self.values.dtype(),
                 dtype
             );
@@ -487,11 +490,11 @@ impl Patches {
     /// Returns an error if `chunk_offsets` or `offset_within_chunk` are not set.
     fn search_index_chunked(&self, index: usize) -> VortexResult<SearchResult> {
         let Some(chunk_offsets) = &self.chunk_offsets else {
-            vortex_bail!("chunk_offsets is required to be set")
+            vortex_bail!(InvalidArgument: "chunk_offsets is required to be set")
         };
 
         let Some(offset_within_chunk) = self.offset_within_chunk else {
-            vortex_bail!("offset_within_chunk is required to be set")
+            vortex_bail!(InvalidArgument: "offset_within_chunk is required to be set")
         };
 
         if index >= self.array_len() {
@@ -547,7 +550,7 @@ impl Patches {
         usize: TryFrom<O>,
     {
         let Some(offset_within_chunk) = self.offset_within_chunk else {
-            vortex_bail!("offset_within_chunk is required to be set")
+            vortex_bail!(InvalidArgument: "offset_within_chunk is required to be set")
         };
 
         let chunk_idx = {
@@ -565,7 +568,7 @@ impl Patches {
 
         // Patch index offsets are absolute and need to be offset by the first chunk of the current slice.
         let chunk_offset = usize::try_from(chunk_offsets[chunk_idx] - chunk_offsets[0])
-            .map_err(|_| vortex_err!("chunk_offset failed to convert to usize"))?;
+            .map_err(|_| vortex_err!(Overflow: "chunk_offset failed to convert to usize"))?;
 
         let patches_start_idx = chunk_offset
             // Chunk offsets are only sliced off in case the slice is fully
@@ -578,7 +581,7 @@ impl Patches {
 
         let patches_end_idx = if chunk_idx < chunk_offsets.len() - 1 {
             usize::try_from(chunk_offsets[chunk_idx + 1] - chunk_offsets[0])
-                .map_err(|_| vortex_err!("patches_end_idx failed to convert to usize"))?
+                .map_err(|_| vortex_err!(Overflow: "patches_end_idx failed to convert to usize"))?
                 .saturating_sub(offset_within_chunk)
                 .min(indices.len())
         } else {
@@ -607,7 +610,7 @@ impl Patches {
             .execute_scalar(0, &mut legacy_session().create_execution_ctx())?
             .as_primitive()
             .as_::<usize>()
-            .ok_or_else(|| vortex_err!("index does not fit in usize"))?;
+            .ok_or_else(|| vortex_err!(Overflow: "index does not fit in usize"))?;
         Ok(first - self.offset)
     }
 
@@ -622,7 +625,7 @@ impl Patches {
             )?
             .as_primitive()
             .as_::<usize>()
-            .ok_or_else(|| vortex_err!("index does not fit in usize"))?;
+            .ok_or_else(|| vortex_err!(Overflow: "index does not fit in usize"))?;
         Ok(last - self.offset)
     }
 
@@ -630,7 +633,7 @@ impl Patches {
     pub fn filter(&self, mask: &Mask, ctx: &mut ExecutionCtx) -> VortexResult<Option<Self>> {
         if mask.len() != self.array_len {
             vortex_bail!(
-                "Filter mask length {} does not match array length {}",
+                MismatchedTypes: "Filter mask length {} does not match array length {}",
                 mask.len(),
                 self.array_len
             );
@@ -665,7 +668,7 @@ impl Patches {
     pub fn mask(&self, mask: &Mask, ctx: &mut ExecutionCtx) -> VortexResult<Option<Self>> {
         if mask.len() != self.array_len {
             vortex_bail!(
-                "Filter mask length {} does not match array length {}",
+                MismatchedTypes: "Filter mask length {} does not match array length {}",
                 mask.len(),
                 self.array_len
             );
@@ -755,7 +758,7 @@ impl Patches {
                     .execute_scalar(0, &mut legacy_session().create_execution_ctx())?
                     .as_primitive()
                     .as_::<usize>()
-                    .ok_or_else(|| vortex_err!("chunk offset does not fit in usize"))?;
+                    .ok_or_else(|| vortex_err!(Overflow: "chunk offset does not fit in usize"))?;
                 let parent_chunk_base = self.chunk_offset_at(0)?;
                 let parent_within = self.offset_within_chunk.unwrap_or(0);
                 Ok(parent_chunk_base + parent_within + slice_start_idx - new_chunk_base)
@@ -973,7 +976,7 @@ impl Patches {
         let values = f(self.values)?;
         if self.indices.len() != values.len() {
             vortex_bail!(
-                "map_values must preserve length: expected {} received {}",
+                InvalidArgument: "map_values must preserve length: expected {} received {}",
                 self.indices.len(),
                 values.len()
             )
@@ -1058,7 +1061,7 @@ where
 
     for (idx_in_take, &take_idx) in take_indices.iter().enumerate() {
         let ti = usize::try_from(take_idx)
-            .map_err(|_| vortex_err!("Failed to convert index to usize"))?;
+            .map_err(|_| vortex_err!(Overflow: "Failed to convert index to usize"))?;
 
         // If we have to take nulls the take index doesn't matter, make it 0 for consistency
         let is_null = match take_validity.bit_buffer() {
@@ -1073,7 +1076,7 @@ where
             }
         } else if ti >= min_index && ti <= max_index {
             let ti_as_i = I::try_from(ti)
-                .map_err(|_| vortex_err!("take index does not fit in index type"))?;
+                .map_err(|_| vortex_err!(Overflow: "take index does not fit in index type"))?;
             if let Some(&value_index) = sparse_index_to_value_index.get(&ti_as_i) {
                 new_sparse_indices.push(idx_in_take as u64);
                 value_indices.push(value_index as u64);
@@ -1299,7 +1302,7 @@ fn rank_patches_in_mask_bitmap<T: IntegerPType>(
 fn patch_index_to_usize<T: IntegerPType>(patch_index: T, offset: usize) -> VortexResult<usize> {
     Ok(patch_index
         .to_usize()
-        .ok_or_else(|| vortex_err!("patch index does not fit in usize"))?
+        .ok_or_else(|| vortex_err!(Overflow: "patch index does not fit in usize"))?
         - offset)
 }
 

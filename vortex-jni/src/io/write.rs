@@ -137,12 +137,12 @@ mod tests {
             // exits, at which point the attachment is torn down automatically.
             let attached = thread_vm
                 .is_thread_attached()
-                .map_err(|e| vortex_err!("is_thread_attached failed: {e}"))?;
+                .map_err(|e| vortex_err!(Other: "is_thread_attached failed: {e}"))?;
             assert!(attached, "write upcalls should leave the thread attached");
             VortexResult::Ok(())
         })
         .join()
-        .map_err(|_| vortex_err!("writer thread panicked"))??;
+        .map_err(|_| vortex_err!(Other: "writer thread panicked"))??;
 
         let written = with_jvm(vm, |env| {
             let array = env

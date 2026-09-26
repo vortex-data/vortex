@@ -82,10 +82,10 @@ async fn run_filter_timed<T: CubFilterable + DeviceRepr>(
 
     let start_event = ctx
         .new_event(Some(CUevent_flags::CU_EVENT_BLOCKING_SYNC))
-        .map_err(|e| vortex_err!("Failed to create start event: {:?}", e))?;
+        .map_err(|e| vortex_err!(Io: "Failed to create start event: {:?}", e))?;
     start_event
         .record(stream)
-        .map_err(|e| vortex_err!("Failed to record start event: {:?}", e))?;
+        .map_err(|e| vortex_err!(Io: "Failed to record start event: {:?}", e))?;
 
     // Get raw pointers
     let stream_ptr = stream.cu_stream() as cudaStream_t;
@@ -107,7 +107,7 @@ async fn run_filter_timed<T: CubFilterable + DeviceRepr>(
             num_items,
             stream_ptr,
         )
-        .map_err(|e| vortex_err!("Filter kernel execution failed: {}", e))?;
+        .map_err(|e| vortex_err!(Io: "Filter kernel execution failed: {}", e))?;
     }
     drop((
         record_d_input,
@@ -119,15 +119,15 @@ async fn run_filter_timed<T: CubFilterable + DeviceRepr>(
 
     let end_event = ctx
         .new_event(Some(CUevent_flags::CU_EVENT_BLOCKING_SYNC))
-        .map_err(|e| vortex_err!("Failed to create end event: {:?}", e))?;
+        .map_err(|e| vortex_err!(Io: "Failed to create end event: {:?}", e))?;
 
     end_event
         .record(stream)
-        .map_err(|e| vortex_err!("Failed to record end event: {:?}", e))?;
+        .map_err(|e| vortex_err!(Io: "Failed to record end event: {:?}", e))?;
 
     let elapsed_ms = start_event
         .elapsed_ms(&end_event)
-        .map_err(|e| vortex_err!("Failed to get elapsed time: {:?}", e))?;
+        .map_err(|e| vortex_err!(Io: "Failed to get elapsed time: {:?}", e))?;
 
     Ok(Duration::from_secs_f32(elapsed_ms / 1000.0))
 }

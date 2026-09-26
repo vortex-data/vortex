@@ -27,7 +27,7 @@ impl SliceReduce for FSST {
                         .codes()
                         .slice(range.clone())?
                         .try_downcast::<VarBin>()
-                        .map_err(|_| vortex_err!("cannot fail conversion"))?,
+                        .map_err(|_| vortex_err!(AssertionFailed: "cannot fail conversion"))?,
                     array.uncompressed_lengths().slice(range)?,
                 )
             }

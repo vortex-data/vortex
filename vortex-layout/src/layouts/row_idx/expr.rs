@@ -59,7 +59,7 @@ impl ScalarFnVTable for RowIdx {
         _ctx: &mut vortex_array::ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         vortex_bail!(
-            "RowIdxExpr should not be executed directly, use it in the context of a Vortex scan and it will be substituted for a row index array"
+            AssertionFailed: "RowIdxExpr should not be executed directly, use it in the context of a Vortex scan and it will be substituted for a row index array"
         );
     }
 

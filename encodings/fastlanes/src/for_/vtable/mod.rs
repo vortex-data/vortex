@@ -97,7 +97,7 @@ impl VTable for FoR {
     }
 
     fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
-        vortex_panic!("FoRArray buffer index {idx} out of bounds")
+        vortex_panic!(OutOfBounds: "FoRArray buffer index {idx} out of bounds")
     }
 
     fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
@@ -120,7 +120,7 @@ impl VTable for FoR {
         _array: ArrayView<'_, Self>,
         _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
-        vortex_bail!("FoR serialization requires FoRPlugin")
+        vortex_bail!(Serde: "FoR serialization requires FoRPlugin")
     }
 
     fn deserialize(
@@ -132,7 +132,7 @@ impl VTable for FoR {
         _children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
-        vortex_bail!("FoR deserialization requires FoRPlugin")
+        vortex_bail!(Serde: "FoR deserialization requires FoRPlugin")
     }
 
     fn reduce_parent(
@@ -171,7 +171,7 @@ pub struct FoR;
 impl FoR {
     /// Construct a new FoR array from an encoded array and a reference scalar.
     pub fn try_new(encoded: ArrayRef, reference: Scalar) -> VortexResult<FoRArray> {
-        vortex_ensure!(!reference.is_null(), "Reference value cannot be null");
+        vortex_ensure!(!reference.is_null(), InvalidArgument: "Reference value cannot be null");
         let dtype = reference
             .dtype()
             .with_nullability(encoded.dtype().nullability());
@@ -215,20 +215,20 @@ fn validate_parts(
     dtype: &DType,
     len: usize,
 ) -> VortexResult<()> {
-    vortex_ensure!(dtype.is_int(), "FoR requires an integer dtype, got {dtype}");
-    vortex_ensure_eq!(encoded.dtype(), dtype, "FoR encoded dtype mismatch");
-    vortex_ensure_eq!(encoded.len(), len, "FoR encoded length mismatch");
+    vortex_ensure!(dtype.is_int(), MismatchedTypes: "FoR requires an integer dtype, got {dtype}");
+    vortex_ensure_eq!(encoded.dtype(), dtype, MismatchedTypes: "FoR encoded dtype mismatch");
+    vortex_ensure_eq!(encoded.len(), len, InvalidArgument: "FoR encoded length mismatch");
     let references_dtype = dtype.as_nonnullable();
     vortex_ensure_eq!(
         references.dtype(),
         &references_dtype,
-        "FoR references dtype mismatch"
+        MismatchedTypes: "FoR references dtype mismatch"
     );
     let num_chunks = num_chunks(offset, len);
     vortex_ensure_eq!(
         references.len(),
         num_chunks,
-        "FoR expects one reference per chunk"
+        InvalidArgument: "FoR expects one reference per chunk"
     );
     Ok(())
 }

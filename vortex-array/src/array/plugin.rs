@@ -175,7 +175,7 @@ impl<V: VTable> ArrayPlugin for V {
         vortex_ensure_eq!(
             self.id(),
             array.encoding_id(),
-            "array plugin cannot serialize an in-memory array of another encoding",
+            Serde: "array plugin cannot serialize an in-memory array of another encoding",
         );
         Ok(V::serialize(array.as_::<V>(), session)?
             .map(|metadata| ArraySerialization::from_array(self.id(), array, metadata)))
@@ -189,7 +189,7 @@ impl<V: VTable> ArrayPlugin for V {
         vortex_ensure_eq!(
             self.id(),
             parts.serialized_id,
-            "array plugin does not recognize the serialized ID",
+            Serde: "array plugin does not recognize the serialized ID",
         );
         Ok(Array::<V>::try_from_parts(V::deserialize(
             self,

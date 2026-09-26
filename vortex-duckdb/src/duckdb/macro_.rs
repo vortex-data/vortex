@@ -6,21 +6,21 @@ macro_rules! duckdb_try {
     // Pattern: duckdb_try!(function_call)
     ($call:expr) => {
         if $call != $crate::cpp::duckdb_state::DuckDBSuccess {
-            vortex::error::vortex_bail!("DuckDB operation failed");
+            vortex::error::vortex_bail!(Other: "DuckDB operation failed");
         }
     };
 
     // Pattern: duckdb_try!(function_call, "error message")
-    ($call:expr, $msg:expr) => {
+    ($call:expr, $msg:literal) => {
         if $call != $crate::cpp::duckdb_state::DuckDBSuccess {
-            vortex::error::vortex_bail!($msg);
+            vortex::error::vortex_bail!(Other: $msg);
         }
     };
 
     // Pattern: duckdb_try!(function_call, "error message with {}", args...)
-    ($call:expr, $msg:expr, $($args:expr),+) => {
+    ($call:expr, $msg:literal, $($args:expr),+) => {
         if $call != $crate::cpp::duckdb_state::DuckDBSuccess {
-            vortex::error::vortex_bail!($msg, $($args),+);
+            vortex::error::vortex_bail!(Other: $msg, $($args),+);
         }
     };
 }
@@ -66,7 +66,7 @@ macro_rules! lifetime_wrapper {
                 pub unsafe fn own(ptr: $ffi_type) -> Self {
                     if ptr.is_null() {
                         vortex::error::vortex_panic!(
-                            "Attempted to create an owned wrapper from a null pointer"
+                            InvalidArgument: "Attempted to create an owned wrapper from a null pointer"
                         );
                     }
                     Self(unsafe { std::ptr::NonNull::new_unchecked(ptr.cast()) })
@@ -80,7 +80,7 @@ macro_rules! lifetime_wrapper {
                 pub unsafe fn borrow<'a>(ptr: $ffi_type) -> &'a [<$Name Ref>] {
                     if ptr.is_null() {
                         vortex::error::vortex_panic!(
-                            "Attempted to borrow from a null pointer"
+                            InvalidArgument: "Attempted to borrow from a null pointer"
                         );
                     }
                     unsafe { &*(ptr as *const [<$Name Ref>]) }
@@ -95,7 +95,7 @@ macro_rules! lifetime_wrapper {
                 pub unsafe fn borrow_mut<'a>(ptr: $ffi_type) -> &'a mut [<$Name Ref>] {
                     if ptr.is_null() {
                         vortex::error::vortex_panic!(
-                            "Attempted to borrow_mut from a null pointer"
+                            InvalidArgument: "Attempted to borrow_mut from a null pointer"
                         );
                     }
                     unsafe { &mut *(ptr as *mut [<$Name Ref>]) }

@@ -148,7 +148,7 @@ fn take_from_empty_union_is_all_null() -> VortexResult<()> {
         .execute::<Canonical>(&mut array_session().create_execution_ctx())?
         .into_union();
     let via_reduce = <Union as TakeReduce>::take(empty.as_::<Union>(), &indices)?
-        .ok_or_else(|| vortex_err!("Union take must never decline"))?
+        .ok_or_else(|| vortex_err!(AssertionFailed: "Union take must never decline"))?
         .as_::<Union>()
         .into_owned();
 

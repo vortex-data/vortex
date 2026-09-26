@@ -142,7 +142,7 @@ impl Alignment {
     pub fn try_from_exponent(exponent: u8) -> VortexResult<Self> {
         if u32::from(exponent) >= usize::BITS {
             vortex_bail!(
-                "Alignment exponent {exponent} is too large for a {}-bit usize",
+                Overflow: "Alignment exponent {exponent} is too large for a {}-bit usize",
                 usize::BITS
             );
         }
@@ -159,7 +159,7 @@ impl Alignment {
         let alignment = Self::try_from_exponent(exponent)?;
         if alignment > Self::MAX_UNTRUSTED {
             vortex_bail!(
-                "Untrusted alignment {alignment} exceeds the {}-byte maximum",
+                InvalidArgument: "Untrusted alignment {alignment} exceeds the {}-byte maximum",
                 Self::MAX_UNTRUSTED
             );
         }
@@ -212,13 +212,15 @@ impl TryFrom<u32> for Alignment {
 
     fn try_from(value: u32) -> Result<Self, Self::Error> {
         let value = usize::try_from(value)
-            .map_err(|_| vortex_err!("Alignment must fit into usize, got {value}"))?;
+            .map_err(|_| vortex_err!(Overflow: "Alignment must fit into usize, got {value}"))?;
 
         if value == 0 {
-            return Err(vortex_err!("Alignment must be greater than 0"));
+            return Err(vortex_err!(InvalidArgument: "Alignment must be greater than 0"));
         }
         if !value.is_power_of_two() {
-            return Err(vortex_err!("Alignment must be a power of 2, got {value}"));
+            return Err(
+                vortex_err!(InvalidArgument: "Alignment must be a power of 2, got {value}"),
+            );
         }
 
         Ok(Self::new(value))

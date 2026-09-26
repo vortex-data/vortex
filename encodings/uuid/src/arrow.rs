@@ -586,7 +586,7 @@ mod tests {
             .downcast_ref::<RunArray<Int32Type>>()
             .ok_or_else(|| {
                 vortex_err!(
-                    "expected an Int32 run-end array, got {}",
+                    MismatchedTypes: "expected an Int32 run-end array, got {}",
                     exported.data_type()
                 )
             })?;

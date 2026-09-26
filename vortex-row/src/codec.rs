@@ -241,12 +241,12 @@ pub(crate) fn row_width_for_dtype(dtype: &DType) -> VortexResult<RowWidth> {
             // FSL is fixed iff its element type is fixed. Add a sentinel byte for the FSL
             // itself, then `n` copies of the element width.
             RowWidth::Fixed(w) => {
-                let body = w
-                    .checked_mul(*n)
-                    .ok_or_else(|| vortex_error::vortex_err!("FSL row width overflows u32"))?;
-                let total = body
-                    .checked_add(1)
-                    .ok_or_else(|| vortex_error::vortex_err!("FSL row width overflows u32"))?;
+                let body = w.checked_mul(*n).ok_or_else(
+                    || vortex_error::vortex_err!(Overflow: "FSL row width overflows u32"),
+                )?;
+                let total = body.checked_add(1).ok_or_else(
+                    || vortex_error::vortex_err!(Overflow: "FSL row width overflows u32"),
+                )?;
                 Ok(RowWidth::Fixed(total))
             }
             RowWidth::Variable => Ok(RowWidth::Variable),
@@ -258,7 +258,7 @@ pub(crate) fn row_width_for_dtype(dtype: &DType) -> VortexResult<RowWidth> {
                 match row_width_for_dtype(&field_dtype)? {
                     RowWidth::Fixed(w) => {
                         total = total.checked_add(w).ok_or_else(|| {
-                            vortex_error::vortex_err!("Struct row width overflows u32")
+                            vortex_error::vortex_err!(Overflow: "Struct row width overflows u32")
                         })?;
                     }
                     RowWidth::Variable => return Ok(RowWidth::Variable),
@@ -271,10 +271,12 @@ pub(crate) fn row_width_for_dtype(dtype: &DType) -> VortexResult<RowWidth> {
             Ok(RowWidth::Variable)
         }
         DType::Variant(_) => {
-            vortex_bail!("row encoding does not support Variant arrays (no well-defined ordering)")
+            vortex_bail!(InvalidArgument: "row encoding does not support Variant arrays (no well-defined ordering)")
         }
-        DType::Union(..) => vortex_bail!("row encoding does not support Union arrays"),
-        dtype => vortex_bail!("row encoding does not support dtype: {dtype:?}"),
+        DType::Union(..) => {
+            vortex_bail!(InvalidArgument: "row encoding does not support Union arrays")
+        }
+        dtype => vortex_bail!(InvalidArgument: "row encoding does not support dtype: {dtype:?}"),
     }
 }
 
@@ -303,11 +305,11 @@ pub(crate) fn field_size(
         Canonical::List(arr) => add_size_list(arr, field, sizes, ctx)?,
         Canonical::Map(arr) => add_size_map(arr, field, sizes, ctx)?,
         Canonical::Variant(_) => {
-            vortex_bail!("row encoding does not support Variant arrays (no well-defined ordering)")
+            vortex_bail!(InvalidArgument: "row encoding does not support Variant arrays (no well-defined ordering)")
         }
         unsupported => {
             vortex_bail!(
-                "row encoding does not support canonical array: {:?}",
+                InvalidArgument: "row encoding does not support canonical array: {:?}",
                 unsupported.dtype()
             )
         }
@@ -414,11 +416,11 @@ pub(crate) fn field_encode(
         Canonical::List(arr) => encode_list(arr, field, offsets, cursors, out, ctx)?,
         Canonical::Map(arr) => encode_map(arr, field, offsets, cursors, out, ctx)?,
         Canonical::Variant(_) => {
-            vortex_bail!("row encoding does not support Variant arrays (no well-defined ordering)")
+            vortex_bail!(InvalidArgument: "row encoding does not support Variant arrays (no well-defined ordering)")
         }
         unsupported => {
             vortex_bail!(
-                "row encoding does not support canonical array: {:?}",
+                InvalidArgument: "row encoding does not support canonical array: {:?}",
                 unsupported.dtype()
             )
         }
@@ -522,9 +524,9 @@ fn prepare_list(
     let mut total = 0u32;
     for &size in &element_sizes {
         element_offsets.push(total);
-        total = total
-            .checked_add(size)
-            .ok_or_else(|| vortex_error::vortex_err!("list element bytes overflow u32"))?;
+        total = total.checked_add(size).ok_or_else(
+            || vortex_error::vortex_err!(Overflow: "list element bytes overflow u32"),
+        )?;
     }
     Ok(PreparedList {
         mask,
@@ -545,17 +547,18 @@ fn add_size_prepared_list(prepared: &PreparedList, sizes: &mut [u32]) -> VortexR
             let body = prepared.element_sizes[offset..offset + len]
                 .iter()
                 .try_fold(0u32, |sum, &size| sum.checked_add(size))
-                .ok_or_else(|| vortex_error::vortex_err!("list element sizes overflow u32"))?;
-            body.checked_add(
-                u32::try_from(len)
-                    .map_err(|_| vortex_error::vortex_err!("list element count overflows u32"))?,
-            )
+                .ok_or_else(
+                    || vortex_error::vortex_err!(Overflow: "list element sizes overflow u32"),
+                )?;
+            body.checked_add(u32::try_from(len).map_err(
+                |_| vortex_error::vortex_err!(Overflow: "list element count overflows u32"),
+            )?)
             .and_then(|size| size.checked_add(2))
-            .ok_or_else(|| vortex_error::vortex_err!("list row size overflows u32"))?
+            .ok_or_else(|| vortex_error::vortex_err!(Overflow: "list row size overflows u32"))?
         };
         sizes[i] = sizes[i]
             .checked_add(contribution)
-            .ok_or_else(|| vortex_error::vortex_err!("per-row size overflow"))?;
+            .ok_or_else(|| vortex_error::vortex_err!(Overflow: "per-row size overflow"))?;
     }
     Ok(())
 }

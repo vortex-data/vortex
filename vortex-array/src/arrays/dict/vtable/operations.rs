@@ -24,7 +24,7 @@ impl OperationsVTable<Dict> for Dict {
         let dtype = state.array().dtype().clone();
         let code = state
             .slot(DictSlots::CODES)?
-            .ok_or_else(|| vortex_err!("Dict codes slot is missing"))?
+            .ok_or_else(|| vortex_err!(InvalidArgument: "Dict codes slot is missing"))?
             .execute_scalar(index, ctx)?;
         let Some(dict_index) = code.as_primitive().as_::<usize>() else {
             return Ok(Scalar::null(dtype));
@@ -32,7 +32,7 @@ impl OperationsVTable<Dict> for Dict {
 
         Ok(state
             .slot(DictSlots::VALUES)?
-            .ok_or_else(|| vortex_err!("Dict values slot is missing"))?
+            .ok_or_else(|| vortex_err!(InvalidArgument: "Dict values slot is missing"))?
             .execute_scalar(dict_index, ctx)?
             .cast(&dtype)
             .vortex_expect("Array dtype will only differ by nullability"))

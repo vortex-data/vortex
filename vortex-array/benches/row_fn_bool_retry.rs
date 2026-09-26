@@ -81,7 +81,7 @@ impl RowFn for Predicate {
         visitor.visit_deferred_bool::<(i64, i64), bool, true>(
             |(lhs, rhs)| (lhs < rhs, lhs == i64::MAX || rhs == i64::MAX),
             |failed| {
-                vortex_ensure!(!failed, "predicate rejected sentinel");
+                vortex_ensure!(!failed, AssertionFailed: "predicate rejected sentinel");
                 Ok(())
             },
         )

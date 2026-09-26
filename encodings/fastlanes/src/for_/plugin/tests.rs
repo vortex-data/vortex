@@ -53,7 +53,7 @@ fn serde_roundtrip(#[case] array: VortexResult<FoRArray>) -> VortexResult<()> {
     let array = array?;
     let serialization = SESSION
         .array_serialize(array.as_array())?
-        .ok_or_else(|| vortex_err!("FoR must serialize"))?;
+        .ok_or_else(|| vortex_err!(AssertionFailed: "FoR must serialize"))?;
     assert_eq!(serialization.serialized_id, for_v1_id());
     assert_eq!(
         serialization.metadata,
@@ -82,7 +82,7 @@ fn v2_roundtrip(#[case] range: std::ops::Range<usize>) -> VortexResult<()> {
     let array = chunked()?.into_array().slice(range.clone())?;
     let serialization = SESSION
         .array_serialize(&array)?
-        .ok_or_else(|| vortex_err!("FoR must serialize"))?;
+        .ok_or_else(|| vortex_err!(AssertionFailed: "FoR must serialize"))?;
     assert_eq!(serialization.serialized_id, for_v2_id());
     assert_eq!(
         v2::FoRV2Metadata::decode(serialization.metadata.as_slice())?.offset,

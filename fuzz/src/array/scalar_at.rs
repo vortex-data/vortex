@@ -108,7 +108,7 @@ pub fn scalar_at_canonical_array(
             Scalar::extension_ref(array.ext_dtype().clone(), storage_scalar)
         }
         Canonical::Union(_) => {
-            vortex_bail!("TODO(connor)[Union]: support Union arrays in the scalar_at fuzzer")
+            vortex_bail!(NotImplemented: "TODO(connor)[Union]: support Union arrays in the scalar_at fuzzer")
         }
         Canonical::Map(array) => {
             let entries = array.entries_at(index)?.execute::<StructArray>(ctx)?;

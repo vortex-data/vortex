@@ -170,7 +170,7 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
         array: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        vortex_ensure_eq!(array.dtype(), self.element_dtype());
+        vortex_ensure_eq!(array.dtype(), self.element_dtype(), MismatchedTypes);
 
         let curr_offset = self.elements_builder.len();
         let num_elements = array.len();
@@ -204,7 +204,7 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
             // If `elements` is `None`, then the `value` is a null value.
             vortex_ensure!(
                 self.dtype.is_nullable(),
-                "Cannot append null value to non-nullable list builder"
+                InvalidArgument: "Cannot append null value to non-nullable list builder"
             );
             self.append_null();
             return Ok(());
@@ -250,7 +250,7 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
         n: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        vortex_ensure_eq!(array.dtype(), self.element_dtype());
+        vortex_ensure_eq!(array.dtype(), self.element_dtype(), MismatchedTypes);
 
         if n == 0 {
             return Ok(());
@@ -315,7 +315,7 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
     /// the outer `FixedSizeList`.
     pub fn element_dtype(&self) -> &DType {
         let DType::List(element_dtype, ..) = &self.dtype else {
-            vortex_panic!("`ListViewBuilder` has an incorrect dtype: {}", self.dtype);
+            vortex_panic!(AssertionFailed: "`ListViewBuilder` has an incorrect dtype: {}", self.dtype);
         };
 
         element_dtype
@@ -511,7 +511,7 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ArrayBuilder for ListViewBuil
         vortex_ensure_eq!(
             scalar.dtype(),
             self.dtype(),
-            "ListViewBuilder received a scalar with the wrong dtype"
+            MismatchedTypes: "ListViewBuilder received a scalar with the wrong dtype"
         );
 
         let list_scalar = scalar.as_list();

@@ -101,7 +101,7 @@ impl BinaryCombined for Mean {
         count: ArrayRef,
     ) -> VortexResult<ArrayRef> {
         if let DType::Decimal(..) = sum.dtype() {
-            vortex_bail!("grouped mean over decimals is not yet supported");
+            vortex_bail!(NotImplemented: "grouped mean over decimals is not yet supported");
         }
         let target = args.return_dtype.clone();
         let sum = sum.cast(target.clone())?;
@@ -151,7 +151,7 @@ impl BinaryCombined for Mean {
     }
 
     fn serialize(&self, _options: &CombinedOptions<Self>) -> VortexResult<Option<Vec<u8>>> {
-        vortex_bail!("mean is not yet serializable");
+        vortex_bail!(NotImplemented: "mean is not yet serializable");
     }
 }
 

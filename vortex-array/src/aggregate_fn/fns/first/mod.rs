@@ -46,7 +46,7 @@ impl AggregateFnVTable for First {
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
-        vortex_bail!("First is not yet serializable");
+        vortex_bail!(NotImplemented: "First is not yet serializable");
     }
 
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {

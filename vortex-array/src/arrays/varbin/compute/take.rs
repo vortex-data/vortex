@@ -366,9 +366,9 @@ fn take<Index: IntegerPType, Offset: IntegerPType>(
     let mut current_offset = 0usize;
 
     for &idx in indices {
-        let idx = idx
-            .to_usize()
-            .unwrap_or_else(|| vortex_panic!("Failed to convert index to usize: {}", idx));
+        let idx = idx.to_usize().unwrap_or_else(
+            || vortex_panic!(Overflow: "Failed to convert index to usize: {}", idx),
+        );
         let start = offsets[idx];
         let stop = offsets[idx + 1];
 
@@ -381,9 +381,9 @@ fn take<Index: IntegerPType, Offset: IntegerPType>(
     let mut new_data = ByteBufferMut::with_capacity(current_offset);
 
     for idx in indices {
-        let idx = idx
-            .to_usize()
-            .unwrap_or_else(|| vortex_panic!("Failed to convert index to usize: {}", idx));
+        let idx = idx.to_usize().unwrap_or_else(
+            || vortex_panic!(Overflow: "Failed to convert index to usize: {}", idx),
+        );
         let start = offsets[idx]
             .to_usize()
             .vortex_expect("Failed to cast max offset to usize");
@@ -585,14 +585,13 @@ where
     S: UnsignedPType,
     Offset: IntegerPType,
 {
-    let computed_len = starts
-        .len()
-        .checked_mul(length)
-        .ok_or_else(|| vortex_err!("PiecewiseSequenceArray output length overflows usize"))?;
+    let computed_len = starts.len().checked_mul(length).ok_or_else(
+        || vortex_err!(Overflow: "PiecewiseSequenceArray output length overflows usize"),
+    )?;
     vortex_ensure_eq!(
         computed_len,
         output_len,
-        "PiecewiseSequenceArray expanded length does not match declared length",
+        AssertionFailed: "PiecewiseSequenceArray expanded length does not match declared length",
     );
 
     let mut new_offsets = Offsets::with_capacity(out_offset_ptype, output_len + 1);
@@ -610,24 +609,24 @@ where
         let byte_end = offset_range[length].as_();
         vortex_ensure!(
             byte_start <= byte_end && byte_end <= data.len(),
-            "VarBin offsets range {byte_start}..{byte_end} exceeds data length {}",
+            InvalidArgument: "VarBin offsets range {byte_start}..{byte_end} exceeds data length {}",
             data.len()
         );
 
         for &offset in &offset_range[1..] {
             let offset = offset.as_();
-            let relative = offset.checked_sub(byte_start).ok_or_else(|| {
-                vortex_err!("VarBin offsets are not monotonic at offset {offset}")
-            })?;
-            let output_offset = output_bytes.checked_add(relative).ok_or_else(|| {
-                vortex_err!("PiecewiseSequence VarBin output byte length overflow")
-            })?;
+            let relative = offset.checked_sub(byte_start).ok_or_else(
+                || vortex_err!(Serde: "VarBin offsets are not monotonic at offset {offset}"),
+            )?;
+            let output_offset = output_bytes.checked_add(relative).ok_or_else(
+                || vortex_err!(Overflow: "PiecewiseSequence VarBin output byte length overflow"),
+            )?;
             new_offsets.push(output_offset);
         }
 
-        output_bytes = output_bytes
-            .checked_add(byte_end - byte_start)
-            .ok_or_else(|| vortex_err!("PiecewiseSequence VarBin output byte length overflow"))?;
+        output_bytes = output_bytes.checked_add(byte_end - byte_start).ok_or_else(
+            || vortex_err!(Overflow: "PiecewiseSequence VarBin output byte length overflow"),
+        )?;
     }
 
     let mut new_data = ByteBufferMut::with_capacity(output_bytes);
@@ -651,7 +650,7 @@ where
     vortex_ensure_eq!(
         new_data.len(),
         output_bytes,
-        "PiecewiseSequenceArray gathered byte length does not match declared byte length",
+        AssertionFailed: "PiecewiseSequenceArray gathered byte length does not match declared byte length",
     );
 
     let offsets = new_offsets.into_array();
@@ -690,29 +689,29 @@ where
         let byte_end = offset_range[length].as_();
         vortex_ensure!(
             byte_start <= byte_end && byte_end <= data.len(),
-            "VarBin offsets range {byte_start}..{byte_end} exceeds data length {}",
+            InvalidArgument: "VarBin offsets range {byte_start}..{byte_end} exceeds data length {}",
             data.len()
         );
 
         for &offset in &offset_range[1..] {
             let offset = offset.as_();
-            let relative = offset.checked_sub(byte_start).ok_or_else(|| {
-                vortex_err!("VarBin offsets are not monotonic at offset {offset}")
-            })?;
-            let output_offset = output_bytes.checked_add(relative).ok_or_else(|| {
-                vortex_err!("PiecewiseSequence VarBin output byte length overflow")
-            })?;
+            let relative = offset.checked_sub(byte_start).ok_or_else(
+                || vortex_err!(Serde: "VarBin offsets are not monotonic at offset {offset}"),
+            )?;
+            let output_offset = output_bytes.checked_add(relative).ok_or_else(
+                || vortex_err!(Overflow: "PiecewiseSequence VarBin output byte length overflow"),
+            )?;
             new_offsets.push(output_offset);
         }
 
-        output_bytes = output_bytes
-            .checked_add(byte_end - byte_start)
-            .ok_or_else(|| vortex_err!("PiecewiseSequence VarBin output byte length overflow"))?;
+        output_bytes = output_bytes.checked_add(byte_end - byte_start).ok_or_else(
+            || vortex_err!(Overflow: "PiecewiseSequence VarBin output byte length overflow"),
+        )?;
     }
     vortex_ensure_eq!(
         new_offsets.len(),
         output_len + 1,
-        "PiecewiseSequenceArray expanded offsets length does not match declared length plus one",
+        AssertionFailed: "PiecewiseSequenceArray expanded offsets length does not match declared length plus one",
     );
 
     let mut new_data = ByteBufferMut::with_capacity(output_bytes);
@@ -737,7 +736,7 @@ where
     vortex_ensure_eq!(
         new_data.len(),
         output_bytes,
-        "PiecewiseSequenceArray gathered byte length does not match declared byte length",
+        AssertionFailed: "PiecewiseSequenceArray gathered byte length does not match declared byte length",
     );
 
     let offsets = new_offsets.into_array();
@@ -772,9 +771,9 @@ fn take_nullable<Index: IntegerPType, Offset: IntegerPType>(
             new_offsets.push(current_offset);
             continue;
         }
-        let data_idx_usize = data_idx
-            .to_usize()
-            .unwrap_or_else(|| vortex_panic!("Failed to convert index to usize: {}", data_idx));
+        let data_idx_usize = data_idx.to_usize().unwrap_or_else(
+            || vortex_panic!(Overflow: "Failed to convert index to usize: {}", data_idx),
+        );
         if data_validity.value(data_idx_usize) {
             validity_buffer.append(true);
             let start = offsets[data_idx_usize];

@@ -115,7 +115,7 @@ def test_builder_round_trips_through_proto(name: str) -> None:
 
 @pytest.mark.parametrize("name", sorted(NOT_SERIALIZABLE))
 def test_unserializable_builder_reports_clearly(name: str) -> None:
-    with pytest.raises(RuntimeError, match="serial"):
+    with pytest.raises(NotImplementedError, match="serial"):
         _ = BUILDERS[name]().serialize()
 
 

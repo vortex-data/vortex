@@ -104,7 +104,7 @@ pub async fn run_compress_gpu(fuzz: FuzzCompressGpu) -> VortexFuzzResult<bool> {
 
     if !vortex_cuda::cuda_available() {
         return Err(VortexFuzzError::VortexError(
-            vortex_err!("no cuda device to run the fuzzer on"),
+            vortex_err!(Io: "no cuda device to run the fuzzer on"),
             Backtrace::capture(),
         ));
     }

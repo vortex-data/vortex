@@ -146,14 +146,14 @@ impl CoalescedRequest {
     ) -> VortexResult<Self> {
         vortex_ensure!(
             range.start <= range.end,
-            "CoalescedRequest: range.start, {}, must be less than or equal to range.end, {}.",
+            InvalidArgument: "CoalescedRequest: range.start, {}, must be less than or equal to range.end, {}.",
             range.start,
             range.end,
         );
         for req in requests.iter() {
             vortex_ensure!(
                 req.offset >= range.start,
-                "CoalescedRequest: sub-request for length {} at file offset {} precedes coalesced range: {}..{}. {:?}",
+                InvalidArgument: "CoalescedRequest: sub-request for length {} at file offset {} precedes coalesced range: {}..{}. {:?}",
                 req.length,
                 req.offset,
                 range.start,
@@ -162,7 +162,7 @@ impl CoalescedRequest {
             );
             vortex_ensure!(
                 req.offset.saturating_add(req.length as u64) <= range.end,
-                "CoalescedRequest: sub-request for length {} at file offset {} exceeds the coalesced range: {}..{}. {:?}",
+                InvalidArgument: "CoalescedRequest: sub-request for length {} at file offset {} exceeds the coalesced range: {}..{}. {:?}",
                 req.length,
                 req.offset,
                 range.start,

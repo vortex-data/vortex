@@ -189,7 +189,7 @@ fn regex_like(pattern: &str, case_insensitive: bool) -> VortexResult<Regex> {
         .case_insensitive(case_insensitive)
         .dot_matches_new_line(true)
         .build()
-        .map_err(|e| vortex_err!("Unable to build regex from LIKE pattern: {e}"))
+        .map_err(|e| vortex_err!(InvalidArgument: "Unable to build regex from LIKE pattern: {e}"))
 }
 
 #[cfg(test)]

@@ -37,7 +37,7 @@ pub(super) fn to_arrow_bool(
 ) -> VortexResult<ArrowArrayRef> {
     vortex_ensure!(
         matches!(array.dtype(), DType::Bool(_)),
-        "Cannot convert Vortex array with dtype {} to an Arrow Boolean array",
+        MismatchedTypes: "Cannot convert Vortex array with dtype {} to an Arrow Boolean array",
         array.dtype()
     );
     let bool_array = array.execute::<BoolArray>(ctx)?;

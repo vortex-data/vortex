@@ -105,7 +105,7 @@ impl VTable for Delta {
     }
 
     fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
-        vortex_panic!("DeltaArray buffer index {idx} out of bounds")
+        vortex_panic!(OutOfBounds: "DeltaArray buffer index {idx} out of bounds")
     }
 
     fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
@@ -156,23 +156,24 @@ impl VTable for Delta {
     ) -> VortexResult<ArrayParts<Self>> {
         vortex_ensure!(
             buffers.is_empty(),
-            "DeltaArray expects 0 buffers, got {}",
+            InvalidArgument: "DeltaArray expects 0 buffers, got {}",
             buffers.len()
         );
         vortex_ensure!(
             children.len() == 2 || children.len() == 3,
-            "DeltaArray expects 2 or 3 children, got {}",
+            InvalidArgument: "DeltaArray expects 2 or 3 children, got {}",
             children.len()
         );
         let metadata = DeltaMetadata::decode(metadata)?;
         let ptype = PType::try_from(dtype)?;
         let lanes = lane_count(ptype);
 
-        let deltas_len = usize::try_from(metadata.deltas_len)
-            .map_err(|_| vortex_err!("deltas_len {} overflowed usize", metadata.deltas_len))?;
+        let deltas_len = usize::try_from(metadata.deltas_len).map_err(
+            |_| vortex_err!(Overflow: "deltas_len {} overflowed usize", metadata.deltas_len),
+        )?;
         vortex_ensure!(
             deltas_len.is_multiple_of(FL_CHUNK_SIZE),
-            "deltas length must be a multiple of {FL_CHUNK_SIZE}"
+            Serde: "deltas length must be a multiple of {FL_CHUNK_SIZE}"
         );
         let bases_len = deltas_len / FL_CHUNK_SIZE * lanes;
 
@@ -257,42 +258,42 @@ fn validate_parts(
 ) -> VortexResult<()> {
     vortex_ensure!(
         offset <= deltas.len() && len <= deltas.len() - offset,
-        "offset + len, {offset} + {len}, must be less than or equal to the size of deltas: {}",
+        InvalidArgument: "offset + len, {offset} + {len}, must be less than or equal to the size of deltas: {}",
         deltas.len()
     );
     vortex_ensure!(
         !bases.dtype().is_nullable() && !deltas.dtype().is_nullable(),
-        "DeltaArray: bases and deltas must be nonnullable"
+        MismatchedTypes: "DeltaArray: bases and deltas must be nonnullable"
     );
     vortex_ensure!(
         bases.dtype() == deltas.dtype(),
-        "DeltaArray: bases and deltas must have the same dtype, got {} and {}",
+        MismatchedTypes: "DeltaArray: bases and deltas must have the same dtype, got {} and {}",
         bases.dtype(),
         deltas.dtype()
     );
 
     vortex_ensure!(
         bases.dtype().is_int(),
-        "DeltaArray: dtype must be an integer, got {}",
+        MismatchedTypes: "DeltaArray: dtype must be an integer, got {}",
         bases.dtype()
     );
 
     let expected_dtype = bases.dtype().with_nullability(dtype.nullability());
-    vortex_ensure_eq!(dtype, &expected_dtype, "DeltaArray dtype mismatch");
+    vortex_ensure_eq!(dtype, &expected_dtype, MismatchedTypes: "DeltaArray dtype mismatch");
     if let Some(validity) = validity_child {
         vortex_ensure!(
             dtype.is_nullable(),
-            "DeltaArray: validity requires a nullable dtype"
+            MismatchedTypes: "DeltaArray: validity requires a nullable dtype"
         );
         vortex_ensure_eq!(
             validity.dtype(),
             &Validity::DTYPE,
-            "DeltaArray: validity must be nonnullable bool"
+            MismatchedTypes: "DeltaArray: validity must be nonnullable bool"
         );
         vortex_ensure_eq!(
             validity.len(),
             len,
-            "DeltaArray: validity length must equal logical length"
+            InvalidArgument: "DeltaArray: validity length must equal logical length"
         );
     }
 
@@ -300,12 +301,12 @@ fn validate_parts(
 
     vortex_ensure!(
         deltas.len().is_multiple_of(1024),
-        "deltas length ({}) must be a multiple of 1024",
+        InvalidArgument: "deltas length ({}) must be a multiple of 1024",
         deltas.len(),
     );
     vortex_ensure!(
         bases.len() == deltas.len() / FL_CHUNK_SIZE * lanes,
-        "bases length ({}) must equal the number of chunks times LANES ({lanes})",
+        InvalidArgument: "bases length ({}) must equal the number of chunks times LANES ({lanes})",
         bases.len(),
     );
     Ok(())

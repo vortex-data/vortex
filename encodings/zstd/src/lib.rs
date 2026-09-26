@@ -51,11 +51,9 @@ pub fn initialize(session: &VortexSession) {
         session
             .editions()
             .declare_family(&editions::FAMILY)
-            .map_err(|error| vortex_err!("{error}"))
             .vortex_expect("Zstd edition family is valid");
         session
             .register_edition(&editions::DECLARATION)
-            .map_err(|error| vortex_err!("{error}"))
             .vortex_expect("Zstd edition declaration is valid");
     }
 }
@@ -67,12 +65,12 @@ pub(crate) fn validate_frame_content_size(
     index: usize,
 ) -> VortexResult<()> {
     let frame_content_size = zstd::zstd_safe::get_frame_content_size(frame)
-        .map_err(|error| vortex_err!("Invalid zstd frame {index}: {error}"))?
-        .ok_or_else(|| vortex_err!("Zstd frame {index} does not declare a content size"))?;
+        .map_err(|error| vortex_err!(InvalidArgument: "Invalid zstd frame {index}: {error}"))?
+        .ok_or_else(|| vortex_err!(Serde: "Zstd frame {index} does not declare a content size"))?;
     vortex_ensure_eq!(
         metadata_size,
         frame_content_size,
-        "Zstd frame {index} metadata declares a different uncompressed size than its header"
+        Serde: "Zstd frame {index} metadata declares a different uncompressed size than its header"
     );
     Ok(())
 }

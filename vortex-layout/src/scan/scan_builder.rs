@@ -302,7 +302,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
         let dtype = self.dtype()?;
 
         if self.filter.is_some() && self.limit.is_some() {
-            vortex_bail!("Vortex doesn't support scans with both a filter and a limit")
+            vortex_bail!(NotImplemented: "Vortex doesn't support scans with both a filter and a limit")
         }
 
         // Spin up the root layout reader, and wrap it in a FilterLayoutReader to perform
@@ -674,7 +674,7 @@ mod test {
             _expr: &BoundExpression,
             _mask: Mask,
         ) -> VortexResult<MaskFuture> {
-            vortex_bail!("not needed for this test");
+            vortex_bail!(NotImplemented: "not needed for this test");
         }
 
         fn filter_evaluation(
@@ -683,7 +683,7 @@ mod test {
             _expr: &BoundExpression,
             _mask: MaskFuture,
         ) -> VortexResult<MaskFuture> {
-            vortex_bail!("not needed for this test");
+            vortex_bail!(NotImplemented: "not needed for this test");
         }
 
         fn projection_evaluation(
@@ -784,12 +784,15 @@ mod test {
             _mask: MaskFuture,
         ) -> VortexResult<ArrayFuture> {
             let start = usize::try_from(row_range.start)
-                .map_err(|_| vortex_err!("row_range.start must fit in usize"))?;
+                .map_err(|_| vortex_err!(Overflow: "row_range.start must fit in usize"))?;
             let end = usize::try_from(row_range.end)
-                .map_err(|_| vortex_err!("row_range.end must fit in usize"))?;
+                .map_err(|_| vortex_err!(Overflow: "row_range.end must fit in usize"))?;
 
             let values: VortexResult<Vec<i32>> = (start..end)
-                .map(|v| i32::try_from(v).map_err(|_| vortex_err!("split value must fit in i32")))
+                .map(|v| {
+                    i32::try_from(v)
+                        .map_err(|_| vortex_err!(Overflow: "split value must fit in i32"))
+                })
                 .collect();
 
             let array = PrimitiveArray::from_iter(values?).into_array();
@@ -918,7 +921,7 @@ mod test {
             _expr: &BoundExpression,
             _mask: Mask,
         ) -> VortexResult<MaskFuture> {
-            vortex_bail!("not needed for this test");
+            vortex_bail!(NotImplemented: "not needed for this test");
         }
 
         fn filter_evaluation(
@@ -927,7 +930,7 @@ mod test {
             _expr: &BoundExpression,
             _mask: MaskFuture,
         ) -> VortexResult<MaskFuture> {
-            vortex_bail!("not needed for this test");
+            vortex_bail!(NotImplemented: "not needed for this test");
         }
 
         fn projection_evaluation(

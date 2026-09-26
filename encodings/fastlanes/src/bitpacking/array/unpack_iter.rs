@@ -109,7 +109,7 @@ impl<'a, T: BitPacked> BitUnpackedChunks<'a, T> {
         scratch: &'a mut [MaybeUninit<T>; CHUNK_SIZE],
     ) -> VortexResult<Self> {
         let Some(bit_width) = array.global_bit_width else {
-            vortex_bail!("BitPacked array has per-block bit widths");
+            vortex_bail!(NotImplemented: "BitPacked array has per-block bit widths");
         };
         Self::try_new_with_strategy(
             BitPackingStrategy,
@@ -349,11 +349,11 @@ fn validate_packed<T: PhysicalPType>(
 ) -> VortexResult<(usize, usize)> {
     vortex_ensure!(
         offset < CHUNK_SIZE,
-        "Invalid bit-packed offset {offset}, expected < {CHUNK_SIZE}"
+        InvalidArgument: "Invalid bit-packed offset {offset}, expected < {CHUNK_SIZE}"
     );
     let elems_per_chunk = 128 * bit_width / size_of::<T>();
     let num_chunks = (offset + len).div_ceil(CHUNK_SIZE);
-    vortex_ensure_eq!(packed_len, num_chunks * elems_per_chunk);
+    vortex_ensure_eq!(packed_len, num_chunks * elems_per_chunk, InvalidArgument);
     Ok((num_chunks, (offset + len) % CHUNK_SIZE))
 }
 

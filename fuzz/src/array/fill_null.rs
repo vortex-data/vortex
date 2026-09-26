@@ -52,7 +52,7 @@ pub fn fill_null_canonical_array(
         | Canonical::FixedSizeList(_)
         | Canonical::Extension(_) => canonical.into_array().fill_null(fill_value.clone())?,
         Canonical::Union(_) => {
-            vortex_bail!("TODO(connor)[Union]: support Union arrays in the fill_null fuzzer")
+            vortex_bail!(NotImplemented: "TODO(connor)[Union]: support Union arrays in the fill_null fuzzer")
         }
         Canonical::Variant(_) => unreachable!("Variant arrays are not fuzzed"),
     })

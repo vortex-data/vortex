@@ -34,7 +34,7 @@ pub(super) fn take_byte_records<I: UnsignedPType>(
             let output_len = indices
                 .len()
                 .checked_mul(byte_width)
-                .ok_or_else(|| vortex_err!("Fixed-width take output length overflows usize"))?;
+                .ok_or_else(|| vortex_err!(Overflow: "Fixed-width take output length overflows usize"))?;
             let mut result = BufferMut::<u8>::with_capacity_in(output_len, allocator.clone());
             for index in indices {
                 let index = index.as_();

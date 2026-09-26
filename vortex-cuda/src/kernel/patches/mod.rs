@@ -63,7 +63,7 @@ pub(crate) fn ptype_to_chunk_offset_type(ptype: PType) -> VortexResult<ChunkOffs
         PType::U16 => Ok(ChunkOffsetType_CO_U16),
         PType::U32 => Ok(ChunkOffsetType_CO_U32),
         PType::U64 => Ok(ChunkOffsetType_CO_U64),
-        _ => vortex_bail!("Invalid PType for chunk_offsets: {:?}", ptype),
+        _ => vortex_bail!(InvalidArgument: "Invalid PType for chunk_offsets: {:?}", ptype),
     }
 }
 
@@ -124,19 +124,19 @@ pub(crate) async fn execute_patches<
     );
     vortex_ensure!(
         supported,
-        "Applying patches with null values not currently supported on the GPU"
+        NotImplemented: "Applying patches with null values not currently supported on the GPU"
     );
 
     vortex_ensure_eq!(
         indices.ptype(),
         IndicesT::PTYPE,
-        "unexpected PType for patch indices"
+        MismatchedTypes: "unexpected PType for patch indices"
     );
 
     vortex_ensure_eq!(
         values.ptype(),
         ValuesT::PTYPE,
-        "unexpected PType for patch values"
+        MismatchedTypes: "unexpected PType for patch values"
     );
 
     let patches_len = indices.len();
@@ -174,7 +174,7 @@ pub(crate) async fn execute_patches<
     let mut output = ctx.device_alloc::<ValuesT>(target_view.len())?;
     ctx.stream()
         .memcpy_dtod(&target_view, &mut output)
-        .map_err(|err| vortex_err!("Failed to copy CUDA patch target: {err}"))?;
+        .map_err(|err| vortex_err!(Io: "Failed to copy CUDA patch target: {err}"))?;
     ctx.launch_kernel(&kernel_func, patches_len, |args| {
         args.arg(&mut output)
             .arg(&d_patch_indices_view)

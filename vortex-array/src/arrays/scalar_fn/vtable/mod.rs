@@ -87,25 +87,25 @@ impl VTable for ScalarFn {
         vortex_ensure_eq!(
             scalar_fn.id(),
             self.id,
-            "ScalarFnArray data scalar_fn does not match vtable",
+            MismatchedTypes: "ScalarFnArray data scalar_fn does not match vtable",
         );
 
         let missing_children = slots.iter().filter(|slot| slot.is_none()).count();
         vortex_ensure_eq!(
             missing_children,
             0,
-            "ScalarFnArray requires every child slot to be present",
+            InvalidArgument: "ScalarFnArray requires every child slot to be present",
         );
 
         let arity = scalar_fn.signature().arity();
         vortex_ensure!(
             arity.matches(slots.len()),
-            "ScalarFnArray requires {arity} children, got {}",
+            InvalidArgument: "ScalarFnArray requires {arity} children, got {}",
             slots.len()
         );
         vortex_ensure!(
             slots.iter().flatten().all(|c| c.len() == len),
-            "All child arrays must have the same length as the scalar function array"
+            InvalidArgument: "All child arrays must have the same length as the scalar function array"
         );
 
         let child_dtypes = slots
@@ -116,7 +116,7 @@ impl VTable for ScalarFn {
         vortex_ensure_eq!(
             scalar_fn.return_dtype(&child_dtypes)?,
             *dtype,
-            "ScalarFnArray dtype does not match scalar function return dtype",
+            MismatchedTypes: "ScalarFnArray dtype does not match scalar function return dtype",
         );
         Ok(())
     }
@@ -126,7 +126,7 @@ impl VTable for ScalarFn {
     }
 
     fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
-        vortex_panic!("ScalarFnArray buffer index {idx} out of bounds")
+        vortex_panic!(OutOfBounds: "ScalarFnArray buffer index {idx} out of bounds")
     }
 
     fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
@@ -158,7 +158,7 @@ impl VTable for ScalarFn {
         _children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
-        vortex_bail!("Deserialization of ScalarFnVTable metadata is not supported");
+        vortex_bail!(Serde: "Deserialization of ScalarFnVTable metadata is not supported");
     }
 
     fn slot_name(array: ArrayView<'_, Self>, idx: usize) -> String {

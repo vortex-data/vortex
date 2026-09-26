@@ -322,8 +322,8 @@ impl SqlBenchmarkRunner {
                         tracing::debug!(%format, query_idx, "Running query");
                         self.run_query(query_idx, format, iterations, || {
                             execute(&mut ctx, query_idx, format, query.as_str()).unwrap_or_else(
-                                |err| {
-                                    vortex_panic!("query {query_idx} failed: {err}");
+                                |err|  {
+                                    vortex_panic!(AssertionFailed: "query {query_idx} failed: {err}");
                                 },
                             )
                         });
@@ -403,8 +403,8 @@ impl SqlBenchmarkRunner {
                             let start = Instant::now();
                             let (timing, result) = execute(query_idx, &ctx, query.as_str())
                                 .await
-                                .unwrap_or_else(|err| {
-                                    vortex_panic!("query {query_idx} failed: {err}");
+                                .unwrap_or_else(|err|  {
+                                    vortex_panic!(AssertionFailed: "query {query_idx} failed: {err}");
                                 });
                             let elapsed = timing.unwrap_or_else(|| start.elapsed());
                             runs.push(elapsed);

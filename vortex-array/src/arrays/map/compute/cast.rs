@@ -29,7 +29,7 @@ fn prepare_map_cast_target(
 
     if target_map_dtype.keys_sorted() && !array.keys_sorted() {
         vortex_bail!(
-            "Cannot cast {} to {dtype}: source does not assert sorted map keys",
+            MismatchedTypes: "Cannot cast {} to {dtype}: source does not assert sorted map keys",
             array.dtype()
         );
     }

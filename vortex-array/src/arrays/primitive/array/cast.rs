@@ -18,7 +18,7 @@ impl PrimitiveData {
     pub fn as_slice<T: NativePType>(&self) -> &[T] {
         if T::PTYPE != self.ptype() {
             vortex_panic!(
-                "Attempted to get slice of type {} from array of type {}",
+                MismatchedTypes: "Attempted to get slice of type {} from array of type {}",
                 T::PTYPE,
                 self.ptype()
             )

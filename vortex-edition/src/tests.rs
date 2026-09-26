@@ -97,17 +97,17 @@ fn membership_is_transitive() -> VortexResult<()> {
     let alpha = second
         .iter()
         .find(|i| i.component_id.as_str() == "test.alpha")
-        .ok_or_else(|| vortex_err!("test.alpha is a member"))?;
+        .ok_or_else(|| vortex_err!(AssertionFailed: "test.alpha is a member"))?;
     assert_eq!(alpha.since, FIRST);
     let alpha_v2 = second
         .iter()
         .find(|i| i.component_id.as_str() == "test.alpha_v2")
-        .ok_or_else(|| vortex_err!("test.alpha_v2 is a member"))?;
+        .ok_or_else(|| vortex_err!(AssertionFailed: "test.alpha_v2 is a member"))?;
     assert_eq!(alpha_v2.since, SECOND);
     let beta = second
         .iter()
         .find(|i| i.component_id.as_str() == "test.beta")
-        .ok_or_else(|| vortex_err!("test.beta is a member"))?;
+        .ok_or_else(|| vortex_err!(AssertionFailed: "test.beta is a member"))?;
     assert_eq!(beta.since, FIRST);
 
     // The second edition's delta is exactly the members declared at it.

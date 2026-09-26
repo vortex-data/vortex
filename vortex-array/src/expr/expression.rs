@@ -53,7 +53,7 @@ impl Expression {
 
         vortex_ensure!(
             scalar_fn.signature().arity().matches(children.len()),
-            "Expression arity mismatch: expected {} children but got {}",
+            InvalidArgument: "Expression arity mismatch: expected {} children but got {}",
             scalar_fn.signature().arity(),
             children.len()
         );
@@ -120,7 +120,7 @@ impl Expression {
             Self::Root => {
                 vortex_ensure!(
                     children.is_empty(),
-                    "Expression arity mismatch: root expects 0 children but got {}",
+                    InvalidArgument: "Expression arity mismatch: root expects 0 children but got {}",
                     children.len()
                 );
                 Ok(Self::Root)
@@ -128,7 +128,7 @@ impl Expression {
             Self::Scalar { scalar_fn, .. } => {
                 vortex_ensure!(
                     scalar_fn.signature().arity().matches(children.len()),
-                    "Expression arity mismatch: expected {} children but got {}",
+                    InvalidArgument: "Expression arity mismatch: expected {} children but got {}",
                     scalar_fn.signature().arity(),
                     children.len()
                 );

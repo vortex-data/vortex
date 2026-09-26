@@ -70,7 +70,7 @@ impl FoRData {
     pub(crate) fn try_new(offset: u16) -> VortexResult<Self> {
         vortex_ensure!(
             usize::from(offset) < FL_CHUNK_SIZE,
-            "FoR offset must be less than {FL_CHUNK_SIZE}, got {offset}"
+            InvalidArgument: "FoR offset must be less than {FL_CHUNK_SIZE}, got {offset}"
         );
         Ok(Self { offset })
     }

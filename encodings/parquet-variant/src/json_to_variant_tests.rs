@@ -75,7 +75,9 @@ fn assert_variant_i64_rows(array: &ArrayRef, expected: &[Option<i64>]) -> Vortex
             Some(expected) => {
                 let value = variant
                     .value()
-                    .ok_or_else(|| vortex_err!("expected non-null variant at row {idx}"))?
+                    .ok_or_else(
+                        || vortex_err!(InvalidArgument: "expected non-null variant at row {idx}"),
+                    )?
                     .cast(&i64_dtype())?;
                 assert_eq!(value.as_primitive().typed_value::<i64>(), Some(*expected));
             }
@@ -110,14 +112,14 @@ fn converts_json_extension_rows() -> VortexResult<()> {
     let object = row0
         .as_variant()
         .value()
-        .ok_or_else(|| vortex_err!("expected non-null variant"))?;
+        .ok_or_else(|| vortex_err!(InvalidArgument: "expected non-null variant"))?;
     let field = object
         .as_struct()
         .field("a")
-        .ok_or_else(|| vortex_err!("expected field a"))?
+        .ok_or_else(|| vortex_err!(InvalidArgument: "expected field a"))?
         .as_variant()
         .value()
-        .ok_or_else(|| vortex_err!("expected non-null field a"))?
+        .ok_or_else(|| vortex_err!(InvalidArgument: "expected non-null field a"))?
         .cast(&i64_dtype())?;
     assert_eq!(field.as_primitive().typed_value::<i64>(), Some(1));
 
@@ -125,7 +127,7 @@ fn converts_json_extension_rows() -> VortexResult<()> {
     let value = row1
         .as_variant()
         .value()
-        .ok_or_else(|| vortex_err!("expected non-null variant"))?
+        .ok_or_else(|| vortex_err!(InvalidArgument: "expected non-null variant"))?
         .cast(&i64_dtype())?;
     assert_eq!(value.as_primitive().typed_value::<i64>(), Some(2));
     Ok(())
@@ -207,11 +209,11 @@ fn shredding_produces_typed_value_child() -> VortexResult<()> {
     // The canonical form must expose field `a` through the shredded tree.
     let mut ctx = SESSION.create_execution_ctx();
     let Canonical::Variant(canonical) = result.clone().execute::<Canonical>(&mut ctx)? else {
-        vortex_bail!("expected canonical variant array");
+        vortex_bail!(MismatchedTypes: "expected canonical variant array");
     };
     let shredded = canonical
         .shredded()
-        .ok_or_else(|| vortex_err!("expected canonical shredded child"))?
+        .ok_or_else(|| vortex_err!(MismatchedTypes: "expected canonical shredded child"))?
         .clone()
         .execute::<StructArray>(&mut ctx)?;
     assert!(shredded.unmasked_field_by_name_opt("a").is_some());
@@ -292,7 +294,7 @@ fn shredding_root_path_shreds_top_level_values() -> VortexResult<()> {
     let value = row2
         .as_variant()
         .value()
-        .ok_or_else(|| vortex_err!("expected non-null variant"))?;
+        .ok_or_else(|| vortex_err!(InvalidArgument: "expected non-null variant"))?;
     assert_eq!(
         value.as_utf8().value().map(|value| value.to_string()),
         Some("not-a-number".to_string())

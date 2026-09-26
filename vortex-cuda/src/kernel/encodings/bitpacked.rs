@@ -66,7 +66,7 @@ pub(crate) fn bitpacked_slice_view(
     let block_stop = offset_stop.div_ceil(PATCH_CHUNK_SIZE) * PATCH_CHUNK_SIZE;
 
     let BitWidthsView::Global(bit_width) = bp.bit_widths() else {
-        vortex_bail!("CUDA does not support BitPacked arrays with per-block bit widths");
+        vortex_bail!(NotImplemented: "CUDA does not support BitPacked arrays with per-block bit widths");
     };
     let encoded_start = (block_start / 8) * bit_width as usize;
     let encoded_stop = (block_stop / 8) * bit_width as usize;
@@ -122,8 +122,8 @@ impl CudaExecute for BitPackedExecutor {
         array: ArrayRef,
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
-        let (array, patch_range) =
-            Self::try_specialize(array)?.ok_or_else(|| vortex_err!("Expected BitPackedArray"))?;
+        let (array, patch_range) = Self::try_specialize(array)?
+            .ok_or_else(|| vortex_err!(InvalidArgument: "Expected BitPackedArray"))?;
         let ptype = array.ptype(array.dtype());
 
         match_each_integer_ptype!(ptype, |A| {
@@ -178,10 +178,10 @@ where
         validity,
     } = BitPacked::into_parts(array);
     let BitWidths::Global(bit_width) = bit_widths else {
-        vortex_bail!("CUDA does not support BitPacked arrays with per-block bit widths");
+        vortex_bail!(NotImplemented: "CUDA does not support BitPacked arrays with per-block bit widths");
     };
 
-    vortex_ensure!(len > 0, "Non empty array");
+    vortex_ensure!(len > 0, InvalidArgument: "Non empty array");
     let offset = offset as usize;
 
     let device_input = ctx.ensure_on_device(packed).await?;

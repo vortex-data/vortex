@@ -179,7 +179,7 @@ impl BenchmarkDataset {
             ],
             BenchmarkDataset::ClickBench { .. } | BenchmarkDataset::ClickBenchSorted => &["hits"],
             BenchmarkDataset::PublicBi { .. } => {
-                vortex_panic!("PublicBi table names are not implemented")
+                vortex_panic!(NotImplemented: "PublicBi table names are not implemented")
             }
             BenchmarkDataset::SpatialBench { .. } => &["trip", "building", "customer", "zone"],
             BenchmarkDataset::StatPopGen { .. } => &["statpopgen"],

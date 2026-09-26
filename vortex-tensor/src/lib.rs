@@ -21,7 +21,6 @@ use vortex_array::session::ArraySessionExt;
 use vortex_arrow::ArrowSessionExt;
 use vortex_edition::EditionSessionExt;
 use vortex_error::VortexExpect;
-use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::scalar_fns::cosine_similarity::CosineSimilarity;
@@ -84,16 +83,13 @@ pub fn initialize(session: &VortexSession) {
         session
             .editions()
             .declare_family(&editions::FAMILY)
-            .map_err(|error| vortex_err!("{error}"))
             .vortex_expect("tensor edition family is valid");
         session
             .register_edition(&editions::DECLARATION)
-            .map_err(|error| vortex_err!("{error}"))
             .vortex_expect("tensor edition declaration is valid");
     }
     session
         .enable_edition(editions::TENSOR_2026_04)
-        .map_err(|error| vortex_err!("{error}"))
         .vortex_expect("tensor edition is registered");
 }
 

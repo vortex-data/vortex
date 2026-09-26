@@ -40,7 +40,7 @@ impl FieldMask {
                 if let Some(stepped_fp) = fp.step_into() {
                     Ok(FieldMask::Exact(stepped_fp))
                 } else {
-                    vortex_bail!("Cannot step into exact root field path");
+                    vortex_bail!(InvalidArgument: "Cannot step into exact root field path");
                 }
             }
         }
@@ -49,7 +49,9 @@ impl FieldMask {
     /// Returns the first field explicit select mask, if there is one, failing if mask = `All`.
     pub fn starting_field(&self) -> VortexResult<Option<&Field>> {
         match self {
-            FieldMask::All => vortex_bail!("Cannot get starting field from All mask"),
+            FieldMask::All => {
+                vortex_bail!(InvalidArgument: "Cannot get starting field from All mask")
+            }
             // We know that fp is non-empty
             FieldMask::Prefix(fp) | FieldMask::Exact(fp) => Ok(fp.parts().first()),
         }

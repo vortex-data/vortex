@@ -37,8 +37,9 @@ impl dyn FileSystem + '_ {
             return Ok(stream);
         }
 
-        let glob_pattern = glob::Pattern::new(pattern)
-            .map_err(|e| vortex_err!("Invalid glob pattern '{}': {}", pattern, e))?;
+        let glob_pattern = glob::Pattern::new(pattern).map_err(
+            |e| vortex_err!(InvalidArgument: "Invalid glob pattern '{}': {}", pattern, e),
+        )?;
 
         let listing_prefix = glob_list_prefix(pattern).trim_end_matches('/');
 
@@ -77,7 +78,7 @@ fn validate_glob(pattern: &str) -> VortexResult<()> {
     for escape_pattern in ["\\*", "\\?", "\\["] {
         if pattern.contains(escape_pattern) {
             vortex_bail!(
-                "Escaped glob characters are not allowed in patterns. Found '{}' in: {}",
+                InvalidArgument: "Escaped glob characters are not allowed in patterns. Found '{}' in: {}",
                 escape_pattern,
                 pattern
             );
@@ -124,7 +125,7 @@ mod tests {
     #[async_trait]
     impl FileSystem for HeadFileSystem {
         fn list(&self, _prefix: &str) -> BoxStream<'_, VortexResult<FileListing>> {
-            vortex_panic!("list() must not be called for an exact path; glob should use head()")
+            vortex_panic!(AssertionFailed: "list() must not be called for an exact path; glob should use head()")
         }
 
         async fn head(&self, path: &str) -> VortexResult<Option<FileListing>> {
@@ -136,11 +137,11 @@ mod tests {
         }
 
         async fn open_read(&self, _path: &str) -> VortexResult<Arc<dyn VortexReadAt>> {
-            vortex_panic!("open_read() should not be called")
+            vortex_panic!(AssertionFailed: "open_read() should not be called")
         }
 
         async fn delete(&self, _path: &str) -> VortexResult<()> {
-            vortex_panic!("delete() should not be called")
+            vortex_panic!(AssertionFailed: "delete() should not be called")
         }
     }
 

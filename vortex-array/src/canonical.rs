@@ -312,7 +312,7 @@ impl Canonical {
         if let Canonical::Null(a) = self {
             a
         } else {
-            vortex_panic!("Cannot get NullArray from {:?}", &self)
+            vortex_panic!(MismatchedTypes: "Cannot get NullArray from {:?}", &self)
         }
     }
 
@@ -320,7 +320,7 @@ impl Canonical {
         if let Canonical::Null(a) = self {
             a
         } else {
-            vortex_panic!("Cannot unwrap NullArray from {:?}", &self)
+            vortex_panic!(MismatchedTypes: "Cannot unwrap NullArray from {:?}", &self)
         }
     }
 
@@ -328,7 +328,7 @@ impl Canonical {
         if let Canonical::Bool(a) = self {
             a
         } else {
-            vortex_panic!("Cannot get BoolArray from {:?}", &self)
+            vortex_panic!(MismatchedTypes: "Cannot get BoolArray from {:?}", &self)
         }
     }
 
@@ -336,7 +336,7 @@ impl Canonical {
         if let Canonical::Bool(a) = self {
             a
         } else {
-            vortex_panic!("Cannot unwrap BoolArray from {:?}", &self)
+            vortex_panic!(MismatchedTypes: "Cannot unwrap BoolArray from {:?}", &self)
         }
     }
 
@@ -344,7 +344,7 @@ impl Canonical {
         if let Canonical::Primitive(a) = self {
             a
         } else {
-            vortex_panic!("Cannot get PrimitiveArray from {:?}", &self)
+            vortex_panic!(MismatchedTypes: "Cannot get PrimitiveArray from {:?}", &self)
         }
     }
 
@@ -352,7 +352,7 @@ impl Canonical {
         if let Canonical::Primitive(a) = self {
             a
         } else {
-            vortex_panic!("Cannot unwrap PrimitiveArray from {:?}", &self)
+            vortex_panic!(MismatchedTypes: "Cannot unwrap PrimitiveArray from {:?}", &self)
         }
     }
 
@@ -360,7 +360,7 @@ impl Canonical {
         if let Canonical::Decimal(a) = self {
             a
         } else {
-            vortex_panic!("Cannot get DecimalArray from {:?}", &self)
+            vortex_panic!(MismatchedTypes: "Cannot get DecimalArray from {:?}", &self)
         }
     }
 
@@ -368,7 +368,7 @@ impl Canonical {
         if let Canonical::Decimal(a) = self {
             a
         } else {
-            vortex_panic!("Cannot unwrap DecimalArray from {:?}", &self)
+            vortex_panic!(MismatchedTypes: "Cannot unwrap DecimalArray from {:?}", &self)
         }
     }
 
@@ -376,7 +376,7 @@ impl Canonical {
         if let Canonical::VarBinView(a) = self {
             a
         } else {
-            vortex_panic!("Cannot get VarBinViewArray from {:?}", &self)
+            vortex_panic!(MismatchedTypes: "Cannot get VarBinViewArray from {:?}", &self)
         }
     }
 
@@ -384,7 +384,7 @@ impl Canonical {
         if let Canonical::VarBinView(a) = self {
             a
         } else {
-            vortex_panic!("Cannot unwrap VarBinViewArray from {:?}", &self)
+            vortex_panic!(MismatchedTypes: "Cannot unwrap VarBinViewArray from {:?}", &self)
         }
     }
 
@@ -392,7 +392,7 @@ impl Canonical {
         if let Canonical::List(a) = self {
             a
         } else {
-            vortex_panic!("Cannot get ListArray from {:?}", &self)
+            vortex_panic!(MismatchedTypes: "Cannot get ListArray from {:?}", &self)
         }
     }
 
@@ -400,7 +400,7 @@ impl Canonical {
         if let Canonical::List(a) = self {
             a
         } else {
-            vortex_panic!("Cannot unwrap ListArray from {:?}", &self)
+            vortex_panic!(MismatchedTypes: "Cannot unwrap ListArray from {:?}", &self)
         }
     }
 
@@ -408,7 +408,7 @@ impl Canonical {
         if let Canonical::Map(a) = self {
             a
         } else {
-            vortex_panic!("Cannot get MapArray from {:?}", &self)
+            vortex_panic!(MismatchedTypes: "Cannot get MapArray from {:?}", &self)
         }
     }
 
@@ -416,7 +416,7 @@ impl Canonical {
         if let Canonical::Map(a) = self {
             a
         } else {
-            vortex_panic!("Cannot unwrap MapArray from {:?}", &self)
+            vortex_panic!(MismatchedTypes: "Cannot unwrap MapArray from {:?}", &self)
         }
     }
 
@@ -424,7 +424,7 @@ impl Canonical {
         if let Canonical::FixedSizeList(a) = self {
             a
         } else {
-            vortex_panic!("Cannot get FixedSizeListArray from {:?}", &self)
+            vortex_panic!(MismatchedTypes: "Cannot get FixedSizeListArray from {:?}", &self)
         }
     }
 
@@ -432,7 +432,7 @@ impl Canonical {
         if let Canonical::FixedSizeList(a) = self {
             a
         } else {
-            vortex_panic!("Cannot unwrap FixedSizeListArray from {:?}", &self)
+            vortex_panic!(MismatchedTypes: "Cannot unwrap FixedSizeListArray from {:?}", &self)
         }
     }
 
@@ -440,7 +440,7 @@ impl Canonical {
         if let Canonical::Struct(a) = self {
             a
         } else {
-            vortex_panic!("Cannot get StructArray from {:?}", &self)
+            vortex_panic!(MismatchedTypes: "Cannot get StructArray from {:?}", &self)
         }
     }
 
@@ -448,7 +448,7 @@ impl Canonical {
         if let Canonical::Struct(a) = self {
             a
         } else {
-            vortex_panic!("Cannot unwrap StructArray from {:?}", &self)
+            vortex_panic!(MismatchedTypes: "Cannot unwrap StructArray from {:?}", &self)
         }
     }
 
@@ -457,7 +457,7 @@ impl Canonical {
         if let Canonical::Union(a) = self {
             a
         } else {
-            vortex_panic!("Cannot get UnionArray from {:?}", &self)
+            vortex_panic!(MismatchedTypes: "Cannot get UnionArray from {:?}", &self)
         }
     }
 
@@ -466,7 +466,7 @@ impl Canonical {
         if let Canonical::Union(a) = self {
             a
         } else {
-            vortex_panic!("Cannot unwrap UnionArray from {:?}", &self)
+            vortex_panic!(MismatchedTypes: "Cannot unwrap UnionArray from {:?}", &self)
         }
     }
 
@@ -474,7 +474,7 @@ impl Canonical {
         if let Canonical::Extension(a) = self {
             a
         } else {
-            vortex_panic!("Cannot get ExtensionArray from {:?}", &self)
+            vortex_panic!(MismatchedTypes: "Cannot get ExtensionArray from {:?}", &self)
         }
     }
 
@@ -482,7 +482,7 @@ impl Canonical {
         if let Canonical::Extension(a) = self {
             a
         } else {
-            vortex_panic!("Cannot unwrap ExtensionArray from {:?}", &self)
+            vortex_panic!(MismatchedTypes: "Cannot unwrap ExtensionArray from {:?}", &self)
         }
     }
 }
@@ -1006,7 +1006,7 @@ impl<T: NativePType> Executable for Buffer<T> {
                 array.validity()?,
                 Validity::NonNullable | Validity::AllValid
             ),
-            "Cannot execute to native buffer: array is not all-valid."
+            InvalidArgument: "Cannot execute to native buffer: array is not all-valid."
         );
         Ok(array.into_buffer())
     }
@@ -1167,7 +1167,9 @@ impl Executable for VariantArray {
             Ok(variant_array) => Ok(variant_array),
             Err(array) => match Canonical::execute(array, ctx)? {
                 Canonical::Variant(variant_array) => Ok(variant_array),
-                canonical => vortex_panic!("Cannot unwrap VariantArray from {:?}", canonical),
+                canonical => {
+                    vortex_panic!(MismatchedTypes: "Cannot unwrap VariantArray from {:?}", canonical)
+                }
             },
         }
     }
@@ -1455,17 +1457,19 @@ mod tests {
             .execute::<CanonicalValidity>(&mut ctx)?
             .0
         else {
-            return Err(vortex_err!("expected canonical variant"));
+            return Err(vortex_err!(MismatchedTypes: "expected canonical variant"));
         };
 
         let nested_variant = canonical
             .shredded()
             .and_then(|shredded| shredded.as_opt::<Variant>())
-            .ok_or_else(|| vortex_err!("expected nested variant shredded child"))?;
+            .ok_or_else(
+                || vortex_err!(InvalidArgument: "expected nested variant shredded child"),
+            )?;
         let nested_struct = nested_variant
             .shredded()
             .and_then(|shredded| shredded.as_opt::<Struct>())
-            .ok_or_else(|| vortex_err!("expected nested struct shredded child"))?;
+            .ok_or_else(|| vortex_err!(InvalidArgument: "expected nested struct shredded child"))?;
         let value = nested_struct.unmasked_field_by_name("value")?;
 
         assert!(value.is::<Primitive>());

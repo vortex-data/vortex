@@ -129,7 +129,7 @@ fn optimize_owned(
         return Ok((current_array, any_optimizations));
     }
 
-    vortex_bail!("Exceeded maximum optimization iterations (possible infinite loop)");
+    vortex_bail!(AssertionFailed: "Exceeded maximum optimization iterations (possible infinite loop)");
 }
 
 fn try_session_parent_reduce(

@@ -167,7 +167,7 @@ pub(crate) fn nan_scalar(dtype: &DType) -> Scalar {
         PType::F16 => Scalar::primitive(f16::NAN, Nullability::NonNullable),
         PType::F32 => Scalar::primitive(f32::NAN, Nullability::NonNullable),
         PType::F64 => Scalar::primitive(f64::NAN, Nullability::NonNullable),
-        _ => vortex_panic!("NaN scalar requested for non-float dtype {dtype}"),
+        _ => vortex_panic!(AssertionFailed: "NaN scalar requested for non-float dtype {dtype}"),
     }
 }
 
@@ -475,14 +475,14 @@ impl AggregateFnVTable for MinMax {
                 Canonical::Extension(e) => accumulate_extension(args, partial, e, ctx),
                 Canonical::Null(_) => Ok(()),
                 Canonical::Union(_) => {
-                    vortex_bail!("TODO(connor)[Union]: implement min_max for Union arrays")
+                    vortex_bail!(NotImplemented: "TODO(connor)[Union]: implement min_max for Union arrays")
                 }
                 Canonical::Struct(_)
                 | Canonical::List(_)
                 | Canonical::Map(_)
                 | Canonical::FixedSizeList(_)
                 | Canonical::Variant(_) => {
-                    vortex_bail!("Unsupported canonical type for min_max: {}", batch.dtype())
+                    vortex_bail!(InvalidArgument: "Unsupported canonical type for min_max: {}", batch.dtype())
                 }
             },
         }

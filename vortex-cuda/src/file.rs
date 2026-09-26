@@ -133,7 +133,7 @@ fn mark_zone_map_segments(
 ) -> VortexResult<()> {
     if layout.is::<Zoned>() || layout.is::<LegacyStats>() {
         let (Some(data), Some(zones)) = (layout.slot(0)?, layout.slot(1)?) else {
-            vortex_bail!("zone map layout is missing its data or zones child");
+            vortex_bail!(NotFound: "zone map layout is missing its data or zones child");
         };
         mark_layout_segments(zones.as_ref(), control_segments)?;
         mark_zone_map_segments(data.as_ref(), control_segments)?;
@@ -150,7 +150,7 @@ fn mark_layout_segments(layout: &dyn DynLayout, control_segments: &mut [bool]) -
     for id in layout.segment_ids() {
         let idx = usize::try_from(*id)?;
         let Some(is_control) = control_segments.get_mut(idx) else {
-            vortex_bail!("layout references out-of-range segment {id}");
+            vortex_bail!(OutOfBounds: "layout references out-of-range segment {id}");
         };
         *is_control = true;
     }

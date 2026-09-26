@@ -69,7 +69,7 @@ fn make_row_idx_plan(expression: Expression, child: PlanRef) -> VortexResult<Pla
 
 fn child_of(plan: &PlanRef, index: usize) -> VortexResult<PlanRef> {
     plan.child(index)?
-        .ok_or_else(|| vortex_err!("missing child {index}"))
+        .ok_or_else(|| vortex_err!(NotFound: "missing child {index}"))
 }
 
 fn assert_unsupported(error: vortex_error::VortexError) {
@@ -85,11 +85,9 @@ fn assert_unsupported(error: vortex_error::VortexError) {
 fn unsupported_layout_has_no_plan() -> VortexResult<()> {
     let layout = unsupported(3, DType::Null);
 
-    assert_unsupported(
-        lower(&layout)
-            .err()
-            .ok_or_else(|| vortex_err!("unsupported layout unexpectedly produced a plan"))?,
-    );
+    assert_unsupported(lower(&layout).err().ok_or_else(
+        || vortex_err!(InvalidArgument: "unsupported layout unexpectedly produced a plan"),
+    )?);
     Ok(())
 }
 
@@ -136,11 +134,9 @@ fn chunked_plan_lowers_each_chunk_on_access() -> VortexResult<()> {
 
     let plan = make_plan(layout)?;
     assert_eq!(child_of(&plan, 0)?.row_count(), 1);
-    assert_unsupported(
-        child_of(&plan, 1)
-            .err()
-            .ok_or_else(|| vortex_err!("unsupported chunk unexpectedly produced a plan"))?,
-    );
+    assert_unsupported(child_of(&plan, 1).err().ok_or_else(
+        || vortex_err!(InvalidArgument: "unsupported chunk unexpectedly produced a plan"),
+    )?);
     Ok(())
 }
 
@@ -159,11 +155,9 @@ fn struct_plan_lowers_each_field_on_access() -> VortexResult<()> {
 
     let plan = make_plan(layout)?;
     assert_eq!(child_of(&plan, 0)?.row_count(), 1);
-    assert_unsupported(
-        child_of(&plan, 1)
-            .err()
-            .ok_or_else(|| vortex_err!("unsupported field unexpectedly produced a plan"))?,
-    );
+    assert_unsupported(child_of(&plan, 1).err().ok_or_else(
+        || vortex_err!(InvalidArgument: "unsupported field unexpectedly produced a plan"),
+    )?);
     Ok(())
 }
 
@@ -272,7 +266,7 @@ fn with_children_rejects_mismatched_arity() -> VortexResult<()> {
     let error = plan
         .with_children(vec![child_of(&plan, 0)?])
         .err()
-        .ok_or_else(|| vortex_err!("mismatched arity unexpectedly succeeded"))?;
+        .ok_or_else(|| vortex_err!(MismatchedTypes: "mismatched arity unexpectedly succeeded"))?;
     assert!(
         error
             .to_string()
@@ -305,9 +299,9 @@ fn eval_try_new_validates_expression_root_dtype() -> VortexResult<()> {
     let expression = root().bind(&primitive(PType::I32, Nullability::NonNullable))?;
     let child = make_plan(flat(3, primitive(PType::I64, Nullability::NonNullable), 0))?;
 
-    let error = EvalPlan::try_new(expression, child)
-        .err()
-        .ok_or_else(|| vortex_err!("mismatched Eval root dtype unexpectedly succeeded"))?;
+    let error = EvalPlan::try_new(expression, child).err().ok_or_else(
+        || vortex_err!(MismatchedTypes: "mismatched Eval root dtype unexpectedly succeeded"),
+    )?;
     assert!(
         error
             .to_string()
@@ -574,13 +568,13 @@ fn empty_projection_prunes_row_idx_child_fields() -> VortexResult<()> {
     let plan = make_row_idx_plan(projection, make_plan(layout)?)?;
 
     let optimized = optimize(plan)?;
-    let projection = optimized
-        .as_opt::<Eval>()
-        .ok_or_else(|| vortex_err!("optimized plan has no projection expression"))?;
+    let projection = optimized.as_opt::<Eval>().ok_or_else(
+        || vortex_err!(AssertionFailed: "optimized plan has no projection expression"),
+    )?;
     let child = projection.child_plan()?;
-    let empty_struct = child
-        .as_opt::<Pack>()
-        .ok_or_else(|| vortex_err!("empty projection did not prune the RowIdx child"))?;
+    let empty_struct = child.as_opt::<Pack>().ok_or_else(
+        || vortex_err!(AssertionFailed: "empty projection did not prune the RowIdx child"),
+    )?;
 
     assert_eq!(empty_struct.nfields(), 0);
     assert_eq!(empty_struct.children().len(), 0);
@@ -1050,7 +1044,7 @@ fn dictionary_pushdown_rejects_unsafe_expressions() -> VortexResult<()> {
         let plan = make_eval(expression.clone(), make_plan(Arc::clone(&dictionary))?)?.into_plan();
         let optimized = optimize(plan)?;
         let eval = optimized.as_opt::<Eval>().ok_or_else(|| {
-            vortex_err!("Expression unexpectedly pushed into dictionary: {expression}")
+            vortex_err!(AssertionFailed: "Expression unexpectedly pushed into dictionary: {expression}")
         })?;
         assert!(eval.child_plan()?.is::<Take>());
     }
@@ -1075,9 +1069,9 @@ fn nullable_struct_keeps_expression_above_parent_validity() -> VortexResult<()> 
     let plan = make_eval(gt(get_item("a", root()), lit(5_i32)), make_plan(layout)?)?.into_plan();
 
     let optimized = optimize(plan)?;
-    let eval = optimized
-        .as_opt::<Eval>()
-        .ok_or_else(|| vortex_err!("Nullable struct expression unexpectedly pushed down"))?;
+    let eval = optimized.as_opt::<Eval>().ok_or_else(
+        || vortex_err!(AssertionFailed: "Nullable struct expression unexpectedly pushed down"),
+    )?;
     assert!(eval.child_plan()?.is::<Pack>());
     Ok(())
 }

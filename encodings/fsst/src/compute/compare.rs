@@ -53,7 +53,7 @@ fn compare_fsst_constant(
             .as_utf8()
             .is_empty()
             .vortex_expect("RHS should not be null"),
-        _ => vortex_bail!("VarBinArray can only have type of Binary or Utf8"),
+        _ => vortex_bail!(MismatchedTypes: "VarBinArray can only have type of Binary or Utf8"),
     };
     if is_rhs_empty {
         let buffer = match operator {

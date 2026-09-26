@@ -108,7 +108,7 @@ fn parse_op(op: jbyte) -> Result<Operator, JNIError> {
         9 => Operator::Sub,
         10 => Operator::Mul,
         11 => Operator::Div,
-        other => throw_runtime!("unknown binary operator code: {other}"),
+        other => throw_runtime!(InvalidArgument: "unknown binary operator code: {other}"),
     })
 }
 
@@ -124,7 +124,7 @@ fn parse_duplicate_handling(tag: jbyte) -> Result<DuplicateHandling, JNIError> {
     Ok(match tag {
         0 => DuplicateHandling::RightMost,
         1 => DuplicateHandling::Error,
-        other => throw_runtime!("unknown duplicate handling code: {other}"),
+        other => throw_runtime!(InvalidArgument: "unknown duplicate handling code: {other}"),
     })
 }
 
@@ -212,7 +212,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_pack(
             let name: FieldName = s.try_to_string(env)?.into();
 
             let expr_ptr = *expressions.get(idx).ok_or_else(|| -> JNIError {
-                vortex_err!("missing pack expression child").into()
+                vortex_err!(NotFound: "missing pack expression child").into()
             })?;
             let expr = unsafe { expr_ref(expr_ptr) }.clone();
 
@@ -251,7 +251,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_and(
         let exprs = collect_operands(env, &operands)?;
         and_collect(exprs)
             .map(into_raw)
-            .ok_or_else(|| vortex_err!("empty AND expression").into())
+            .ok_or_else(|| vortex_err!(InvalidArgument: "empty AND expression").into())
     })
 }
 
@@ -265,7 +265,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_or(
         let exprs = collect_operands(env, &operands)?;
         or_collect(exprs)
             .map(into_raw)
-            .ok_or_else(|| vortex_err!("empty OR expression").into())
+            .ok_or_else(|| vortex_err!(InvalidArgument: "empty OR expression").into())
     })
 }
 
@@ -320,7 +320,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_spatial(
             6 => SpatialIntersects.try_new_expr(EmptyOptions, operands),
             7 => SpatialLength.try_new_expr(EmptyOptions, operands),
             8 => SpatialMakeLine.try_new_expr(EmptyOptions, operands),
-            other => throw_runtime!("unknown spatial function code: {other}"),
+            other => throw_runtime!(InvalidArgument: "unknown spatial function code: {other}"),
         }?;
         Ok(into_raw(expr))
     })
@@ -521,9 +521,9 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalDecimal(
 ) -> jlong {
     try_or_throw(&mut env, |env| {
         let precision = u8::try_from(precision)
-            .map_err(|_| vortex_err!("decimal precision out of range: {precision}"))?;
-        let scale =
-            i8::try_from(scale).map_err(|_| vortex_err!("decimal scale out of range: {scale}"))?;
+            .map_err(|_| vortex_err!(OutOfBounds: "decimal precision out of range: {precision}"))?;
+        let scale = i8::try_from(scale)
+            .map_err(|_| vortex_err!(OutOfBounds: "decimal scale out of range: {scale}"))?;
         let decimal_dtype = DecimalDType::try_new(precision, scale)?;
         if is_null_flag {
             return Ok(into_raw(lit(Scalar::null(DType::Decimal(
@@ -532,7 +532,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalDecimal(
             )))));
         }
         if unscaled_big_endian.len(env)? > 32 {
-            throw_runtime!("Decimal value must fit with 32 bytes");
+            throw_runtime!(Overflow: "Decimal value must fit with 32 bytes");
         }
 
         let bytes = env.convert_byte_array(&unscaled_big_endian)?;
@@ -552,31 +552,31 @@ fn decimal_value_from_be_bytes(
     dtype: &DecimalDType,
 ) -> Result<DecimalValue, JNIError> {
     if bytes.is_empty() {
-        throw_runtime!("decimal unscaled value must have at least one byte");
+        throw_runtime!(InvalidArgument: "decimal unscaled value must have at least one byte");
     }
     let value = i256_from_twos_complement_be(bytes);
     // Pick the narrowest backing integer that fits the dtype's precision.
     let required_bits = dtype.required_bit_width();
     if required_bits <= 8 {
-        let v =
-            BigCast::from(value).ok_or_else(|| vortex_err!("decimal value does not fit in i8"))?;
+        let v = BigCast::from(value)
+            .ok_or_else(|| vortex_err!(Overflow: "decimal value does not fit in i8"))?;
         Ok(DecimalValue::I8(v))
     } else if required_bits <= 16 {
-        let v =
-            BigCast::from(value).ok_or_else(|| vortex_err!("decimal value does not fit in i16"))?;
+        let v = BigCast::from(value)
+            .ok_or_else(|| vortex_err!(Overflow: "decimal value does not fit in i16"))?;
         Ok(DecimalValue::I16(v))
     } else if required_bits <= 32 {
-        let v =
-            BigCast::from(value).ok_or_else(|| vortex_err!("decimal value does not fit in i32"))?;
+        let v = BigCast::from(value)
+            .ok_or_else(|| vortex_err!(Overflow: "decimal value does not fit in i32"))?;
         Ok(DecimalValue::I32(v))
     } else if required_bits <= 64 {
-        let v =
-            BigCast::from(value).ok_or_else(|| vortex_err!("decimal value does not fit in i64"))?;
+        let v = BigCast::from(value)
+            .ok_or_else(|| vortex_err!(Overflow: "decimal value does not fit in i64"))?;
         Ok(DecimalValue::I64(v))
     } else if required_bits <= 128 {
         let v = value
             .maybe_i128()
-            .ok_or_else(|| vortex_err!("decimal value does not fit in i128"))?;
+            .ok_or_else(|| vortex_err!(Overflow: "decimal value does not fit in i128"))?;
         Ok(DecimalValue::I128(v))
     } else {
         Ok(DecimalValue::I256(value))
@@ -622,12 +622,11 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalDate(
             return Ok(into_raw(lit(Scalar::null(dtype))));
         }
         let storage_value = match unit {
-            TimeUnit::Days => ScalarValue::from(
-                i32::try_from(value)
-                    .map_err(|_| vortex_err!("date value does not fit in i32 days: {value}"))?,
-            ),
+            TimeUnit::Days => ScalarValue::from(i32::try_from(value).map_err(
+                |_| vortex_err!(Overflow: "date value does not fit in i32 days: {value}"),
+            )?),
             TimeUnit::Milliseconds => ScalarValue::from(value),
-            other => throw_runtime!("date does not support time unit {other}"),
+            other => throw_runtime!(InvalidArgument: "date does not support time unit {other}"),
         };
         Ok(into_raw(lit(Scalar::try_new(dtype, Some(storage_value))?)))
     })
@@ -692,10 +691,11 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalTime(
             return Ok(into_raw(lit(Scalar::null(dtype))));
         }
         let storage_value = match unit {
-            TimeUnit::Seconds | TimeUnit::Milliseconds => ScalarValue::from(
-                i32::try_from(value)
-                    .map_err(|_| vortex_err!("time value does not fit in i32 {unit}: {value}"))?,
-            ),
+            TimeUnit::Seconds | TimeUnit::Milliseconds => {
+                ScalarValue::from(i32::try_from(value).map_err(
+                    |_| vortex_err!(Overflow: "time value does not fit in i32 {unit}: {value}"),
+                )?)
+            }
             _ => ScalarValue::from(value),
         };
         Ok(into_raw(lit(Scalar::try_new(dtype, Some(storage_value))?)))
@@ -716,11 +716,11 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalGeometry(
 ) -> jlong {
     try_or_throw(&mut env, |env| {
         if wkb.is_null() {
-            throw_runtime!("geometry literal WKB bytes must not be null");
+            throw_runtime!(InvalidArgument: "geometry literal WKB bytes must not be null");
         }
         let bytes = env.convert_byte_array(&wkb)?;
         let scalar = native_geometry_scalar_from_wkb(&bytes, &ArrowSession::default())?
-            .ok_or_else(|| vortex_err!("unsupported WKB geometry type for a geometry literal"))?;
+            .ok_or_else(|| vortex_err!(InvalidArgument: "unsupported WKB geometry type for a geometry literal"))?;
         Ok(into_raw(lit(scalar)))
     })
 }
@@ -734,8 +734,9 @@ const UUID_BYTE_LEN: usize = 16;
 /// Arrow's canonical UUID type. The metadata records no version constraint, so the dtype is
 /// compatible with any UUID column regardless of the UUID versions it contains.
 fn uuid_dtype(nullability: Nullability) -> Result<DType, JNIError> {
-    let list_size = u32::try_from(UUID_BYTE_LEN)
-        .map_err(|_| vortex_err!("UUID byte length {UUID_BYTE_LEN} does not fit in u32"))?;
+    let list_size = u32::try_from(UUID_BYTE_LEN).map_err(
+        |_| vortex_err!(Overflow: "UUID byte length {UUID_BYTE_LEN} does not fit in u32"),
+    )?;
     let storage_dtype = DType::FixedSizeList(
         Arc::new(DType::Primitive(PType::U8, Nullability::NonNullable)),
         list_size,
@@ -749,7 +750,7 @@ fn uuid_dtype(nullability: Nullability) -> Result<DType, JNIError> {
 fn uuid_scalar(bytes: &[u8]) -> Result<Scalar, JNIError> {
     if bytes.len() != UUID_BYTE_LEN {
         throw_runtime!(
-            "UUID literal must be exactly {UUID_BYTE_LEN} bytes, got {}",
+            InvalidArgument: "UUID literal must be exactly {UUID_BYTE_LEN} bytes, got {}",
             bytes.len()
         );
     }
@@ -788,7 +789,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalUuid(
             )?))));
         }
         if value.is_null() {
-            throw_runtime!("UUID literal bytes must not be null");
+            throw_runtime!(InvalidArgument: "UUID literal bytes must not be null");
         }
         let bytes = env.convert_byte_array(&value)?;
         Ok(into_raw(lit(uuid_scalar(&bytes)?)))
@@ -800,8 +801,9 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalUuid(
 /// SAFETY: `ptr` must satisfy the contract of [`expr_ref`].
 unsafe fn literal_scalar<'a>(ptr: jlong, role: &str) -> Result<&'a Scalar, JNIError> {
     let expr = unsafe { expr_ref(ptr) };
-    expr.as_opt::<Literal>()
-        .ok_or_else(|| vortex_err!("{role} must be a literal expression, got {expr}").into())
+    expr.as_opt::<Literal>().ok_or_else(|| {
+        vortex_err!(InvalidArgument: "{role} must be a literal expression, got {expr}").into()
+    })
 }
 
 /// The dtype of the literal `ptr`, used as a type prototype, with `nullability` applied.
@@ -880,8 +882,9 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalFixedSizeList
     is_null_flag: jboolean,
 ) -> jlong {
     try_or_throw(&mut env, |env| {
-        let size = u32::try_from(size)
-            .map_err(|_| vortex_err!("fixed-size list size must not be negative: {size}"))?;
+        let size = u32::try_from(size).map_err(
+            |_| vortex_err!(InvalidArgument: "fixed-size list size must not be negative: {size}"),
+        )?;
         let element_dtype = unsafe {
             prototype_dtype(
                 element_type,
@@ -1028,7 +1031,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalNull(
             11 => DType::Primitive(PType::U32, Nullability::Nullable),
             12 => DType::Primitive(PType::U64, Nullability::Nullable),
             13 => DType::Primitive(PType::F16, Nullability::Nullable),
-            other => throw_runtime!("unknown null dtype tag: {other}"),
+            other => throw_runtime!(InvalidArgument: "unknown null dtype tag: {other}"),
         };
         Ok(into_raw(lit(Scalar::null(dtype))))
     })

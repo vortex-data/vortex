@@ -82,14 +82,14 @@ impl TryFrom<&DataChunkRef> for String {
             cpp::duckdb_data_chunk_verify(value.as_ptr(), &raw mut err);
             if !err.is_null() {
                 vortex_bail!(
-                    "{}",
+                    InvalidArgument: "{}",
                     CStr::from_ptr(cpp::duckdb_vx_error_value(err)).to_string_lossy()
                 )
             }
         };
         let debug = unsafe { cpp::duckdb_data_chunk_to_string(value.as_ptr(), &raw mut err) };
         if !err.is_null() {
-            vortex_bail!("{}", unsafe {
+            vortex_bail!(InvalidArgument: "{}", unsafe {
                 CStr::from_ptr(cpp::duckdb_vx_error_value(err)).to_string_lossy()
             })
         }

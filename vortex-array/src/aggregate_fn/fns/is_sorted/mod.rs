@@ -249,7 +249,7 @@ impl AggregateFnVTable for IsSorted {
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
-        vortex_bail!("IsSorted is not yet serializable");
+        vortex_bail!(NotImplemented: "IsSorted is not yet serializable");
     }
 
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {

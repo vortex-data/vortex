@@ -91,7 +91,7 @@ impl DType {
     pub fn with_nullability(&self, nullability: Nullability) -> Self {
         match self {
             Null if nullability == Nullability::NonNullable => {
-                vortex_panic!("DType::Null cannot be made non-nullable")
+                vortex_panic!(InvalidArgument: "DType::Null cannot be made non-nullable")
             }
             Null => Null,
             Bool(_) => Bool(nullability),
@@ -210,7 +210,7 @@ impl DType {
         if let Primitive(ptype, _) = self {
             *ptype
         } else {
-            vortex_panic!("DType {self} is not a primitive type")
+            vortex_panic!(MismatchedTypes: "DType {self} is not a primitive type")
         }
     }
 
@@ -448,7 +448,7 @@ impl DType {
         if let Struct(f, _) = self {
             return f;
         }
-        vortex_panic!("DType is not a Struct")
+        vortex_panic!(MismatchedTypes: "DType is not a Struct")
     }
 
     /// Owned version of [Self::as_struct_fields].
@@ -456,7 +456,7 @@ impl DType {
         if let Struct(f, _) = self {
             return f;
         }
-        vortex_panic!("DType is not a Struct")
+        vortex_panic!(MismatchedTypes: "DType is not a Struct")
     }
 
     /// Get the `StructDType` if `self` is a `StructDType`, otherwise `None`
@@ -501,7 +501,7 @@ impl DType {
     /// Downcast a `DType` to an `ExtDType`
     pub fn as_extension(&self) -> &ExtDTypeRef {
         let Extension(ext) = self else {
-            vortex_panic!("DType is not an Extension")
+            vortex_panic!(MismatchedTypes: "DType is not an Extension")
         };
         ext
     }

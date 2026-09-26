@@ -107,9 +107,9 @@ fn assert_decimal_output(
     let compressed = builder.build().compress(&array, &mut ctx)?;
     if let Some(expected_id) = expected_id {
         assert!(compressed.is::<DecimalByteParts>());
-        let serialized = SESSION
-            .array_serialize(&compressed)?
-            .ok_or_else(|| vortex_err!("expected serializable decimal byte parts"))?;
+        let serialized = SESSION.array_serialize(&compressed)?.ok_or_else(
+            || vortex_err!(AssertionFailed: "expected serializable decimal byte parts"),
+        )?;
         assert_eq!(serialized.serialized_id, expected_id);
     } else {
         assert!(compressed.is::<Decimal>());
@@ -208,7 +208,7 @@ fn wide_decimal_parts_roundtrip(
     if compress_children {
         let parts = compressed
             .as_opt::<DecimalByteParts>()
-            .ok_or_else(|| vortex_err!("expected decimal byte parts"))?;
+            .ok_or_else(|| vortex_err!(AssertionFailed: "expected decimal byte parts"))?;
         assert_eq!(parts.lower_parts().len(), lower_part_count);
         assert!(!parts.msp().is_canonical());
         assert!(parts.lower_parts().iter().all(|part| !part.is_canonical()));

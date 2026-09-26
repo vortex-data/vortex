@@ -134,9 +134,9 @@ mod tests {
             casted.dtype(),
             &DType::Primitive(PType::U32, Nullability::Nullable)
         );
-        let reduced = casted
-            .as_opt::<Delta>()
-            .ok_or_else(|| vortex_err!("expected nullability cast to preserve Delta"))?;
+        let reduced = casted.as_opt::<Delta>().ok_or_else(
+            || vortex_err!(AssertionFailed: "expected nullability cast to preserve Delta"),
+        )?;
         assert!(!reduced.deltas().dtype().is_nullable());
         assert!(!reduced.bases().dtype().is_nullable());
         assert_arrays_eq!(

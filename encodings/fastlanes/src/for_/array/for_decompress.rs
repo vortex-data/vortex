@@ -83,7 +83,9 @@ fn fused_decompress_typed<
 ) -> VortexResult<PrimitiveArray> {
     let ref_ = for_
         .constant_reference()
-        .ok_or_else(|| vortex_err!("fused FoR decompression requires a constant reference"))?
+        .ok_or_else(
+            || vortex_err!(NotImplemented: "fused FoR decompression requires a constant reference"),
+        )?
         .as_primitive()
         .as_::<T>()
         .vortex_expect("cannot be null");
@@ -313,7 +315,7 @@ fn unpack_chunks<
 ) -> VortexResult<()> {
     let offset = usize::from(bp.offset());
     let BitWidthsView::Global(bit_width) = bp.bit_widths() else {
-        vortex_bail!("BitPacked array has per-block bit widths");
+        vortex_bail!(NotImplemented: "BitPacked array has per-block bit widths");
     };
     let bit_width = bit_width as usize;
     // SAFETY: `T::Physical` is `T` with the same size and alignment, and the unpack is the same

@@ -149,7 +149,7 @@ fn create_from_fields(
             vortex_ensure_eq!(
                 vortex_fields.len(),
                 fields.len(),
-                "StructArray field count must match the target Arrow type"
+                InvalidArgument: "StructArray field count must match the target Arrow type"
             );
 
             let mut arrow_arrays = Vec::with_capacity(vortex_fields.len());
@@ -160,7 +160,7 @@ fn create_from_fields(
                     exporter.execute_arrow(vx_field.clone(), Some(field.as_ref()), ctx)?;
                 vortex_ensure!(
                     field.is_nullable() || arrow_field.null_count() == 0,
-                    "Cannot convert field '{}' to non-nullable Arrow field because it contains nulls",
+                    InvalidArgument: "Cannot convert field '{}' to non-nullable Arrow field because it contains nulls",
                     field.name()
                 );
                 arrow_arrays.push(arrow_field);

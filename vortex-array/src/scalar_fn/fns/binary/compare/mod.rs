@@ -141,7 +141,7 @@ pub(crate) fn execute_compare(
 
     if lhs.len() != rhs.len() {
         vortex_bail!(
-            "compare operator requires equal lengths, got {} and {}",
+            InvalidArgument: "compare operator requires equal lengths, got {} and {}",
             lhs.len(),
             rhs.len()
         );
@@ -187,7 +187,7 @@ fn compare_arrays(
             && !lhs.dtype().eq_ignore_nullability(rhs.dtype())
         {
             vortex_bail!(
-                "Cannot compare extension dtypes {} and {}",
+                MismatchedTypes: "Cannot compare extension dtypes {} and {}",
                 lhs.dtype(),
                 rhs.dtype()
             );
@@ -199,7 +199,7 @@ fn compare_arrays(
 
     if !lhs.dtype().eq_ignore_nullability(rhs.dtype()) {
         vortex_bail!(
-            "Cannot compare different DTypes {} and {}",
+            MismatchedTypes: "Cannot compare different DTypes {} and {}",
             lhs.dtype(),
             rhs.dtype()
         );
@@ -220,7 +220,7 @@ fn compare_arrays(
             nested::compare_nested(lhs, rhs, op, nullability, ctx)
         }
         DType::Union(..) | DType::Variant(_) | DType::Extension(_) => {
-            vortex_bail!("compare is not supported for dtype {}", lhs.dtype())
+            vortex_bail!(InvalidArgument: "compare is not supported for dtype {}", lhs.dtype())
         }
     }
 }
@@ -252,7 +252,7 @@ pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: CompareOperator) -> Vort
     // We use `partial_cmp` to ensure we do not lose a type mismatch error.
     let ordering = lhs.partial_cmp(rhs).ok_or_else(|| {
         vortex_err!(
-            "Cannot compare scalars with incompatible types: {} and {}",
+            MismatchedTypes: "Cannot compare scalars with incompatible types: {} and {}",
             lhs.dtype(),
             rhs.dtype()
         )

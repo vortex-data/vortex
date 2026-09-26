@@ -45,19 +45,19 @@ impl ExtVTable for DivisibleInt {
     }
 
     fn deserialize_metadata(&self, data: &[u8]) -> VortexResult<Self::Metadata> {
-        vortex_ensure_eq!(data.len(), 8, "divisible int metadata has the wrong length");
-        let bytes: [u8; 8] = data
-            .try_into()
-            .map_err(|_| vortex_error::vortex_err!("divisible int metadata must be 8 bytes"))?;
+        vortex_ensure_eq!(data.len(), 8, Serde: "divisible int metadata has the wrong length");
+        let bytes: [u8; 8] = data.try_into().map_err(
+            |_| vortex_error::vortex_err!(Serde: "divisible int metadata must be 8 bytes"),
+        )?;
         let n = u64::from_le_bytes(bytes);
-        vortex_ensure!(n > 0, "divisor must be greater than 0");
+        vortex_ensure!(n > 0, InvalidArgument: "divisor must be greater than 0");
         Ok(Divisor(n))
     }
 
     fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
         vortex_ensure!(
             matches!(ext_dtype.storage_dtype(), DType::Primitive(PType::U64, _)),
-            "divisible int storage dtype must be u64"
+            MismatchedTypes: "divisible int storage dtype must be u64"
         );
         Ok(())
     }
@@ -69,7 +69,7 @@ impl ExtVTable for DivisibleInt {
         let value = storage_value.as_primitive().cast::<u64>()?;
         let metadata = ext_dtype.metadata();
         if value % metadata.0 != 0 {
-            vortex_bail!("{} is not divisible by {}", value, metadata.0);
+            vortex_bail!(InvalidArgument: "{} is not divisible by {}", value, metadata.0);
         }
         Ok(value)
     }

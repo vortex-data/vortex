@@ -149,7 +149,7 @@ impl ChunkedData {
     pub fn validate(chunks: &[ArrayRef], dtype: &DType) -> VortexResult<()> {
         for chunk in chunks {
             if chunk.dtype() != dtype {
-                vortex_bail!(MismatchedTypes: dtype, chunk.dtype());
+                vortex_bail!(MismatchedTypes: "expected type: {} but instead got {}", dtype, chunk.dtype());
             }
         }
 
@@ -172,7 +172,7 @@ impl Array<Chunked> {
 
         for chunk in chunks {
             if VALIDATE && chunk.dtype() != &dtype {
-                vortex_bail!(MismatchedTypes: &dtype, chunk.dtype());
+                vortex_bail!(MismatchedTypes: "expected type: {} but instead got {}", &dtype, chunk.dtype());
             }
             len += chunk.len();
             chunk_offsets.push(len);

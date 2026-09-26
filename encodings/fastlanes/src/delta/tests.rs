@@ -135,7 +135,7 @@ fn delta_null_patterns(#[case] pattern: usize) -> VortexResult<()> {
             )?;
             let restored_delta = restored
                 .as_opt::<Delta>()
-                .ok_or_else(|| vortex_err!("expected deserialized Delta"))?;
+                .ok_or_else(|| vortex_err!(AssertionFailed: "expected deserialized Delta"))?;
             assert!(!restored_delta.deltas().dtype().is_nullable());
             assert_arrays_eq!(restored, source, &mut ctx);
         }

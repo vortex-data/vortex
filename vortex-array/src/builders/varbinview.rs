@@ -838,7 +838,7 @@ impl ArrayBuilder for VarBinViewBuilder {
         vortex_ensure_eq!(
             scalar.dtype(),
             self.dtype(),
-            "VarBinViewBuilder received a scalar with the wrong dtype"
+            MismatchedTypes: "VarBinViewBuilder received a scalar with the wrong dtype"
         );
 
         match self.dtype() {
@@ -851,7 +851,7 @@ impl ArrayBuilder for VarBinViewBuilder {
                 None => self.append_null(),
             },
             _ => vortex_bail!(
-                "VarBinViewBuilder can only handle Utf8 or Binary scalars, got {:?}",
+                MismatchedTypes: "VarBinViewBuilder can only handle Utf8 or Binary scalars, got {:?}",
                 scalar.dtype()
             ),
         }

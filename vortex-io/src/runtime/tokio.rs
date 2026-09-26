@@ -128,7 +128,7 @@ impl BlockingRuntime for TokioRuntime {
     {
         // Assert that we're not currently inside the Tokio context.
         if tokio::runtime::Handle::try_current().is_ok() {
-            vortex_error::vortex_panic!("block_on cannot be called from within a Tokio runtime");
+            vortex_error::vortex_panic!(InvalidArgument: "block_on cannot be called from within a Tokio runtime");
         }
         let handle = Arc::clone(&self.0);
         tokio::task::block_in_place(move || handle.block_on(fut))
@@ -142,7 +142,7 @@ impl BlockingRuntime for TokioRuntime {
         // Assert that we're not currently inside the Tokio context.
         if tokio::runtime::Handle::try_current().is_ok() {
             vortex_error::vortex_panic!(
-                "block_on_stream cannot be called from within a Tokio runtime"
+                InvalidArgument: "block_on_stream cannot be called from within a Tokio runtime"
             );
         }
         let handle = Arc::clone(&self.0);
