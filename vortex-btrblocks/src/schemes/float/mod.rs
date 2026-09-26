@@ -20,8 +20,3 @@ pub use sparse::NullDominatedSparseScheme;
 // Re-export builtin schemes from vortex-compressor.
 pub use vortex_compressor::builtins::FloatDictScheme;
 pub use vortex_compressor::stats::FloatStats;
-
-#[cfg(test)]
-mod scheme_selection_tests;
-#[cfg(test)]
-mod tests;

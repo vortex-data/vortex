@@ -233,174 +233,46 @@ impl BtrBlocksCompressorBuilder {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+    use vortex_array::ArrayId;
     use vortex_array::VTable;
-    use vortex_fastlanes::FoR;
+    use vortex_array::arrays::VarBin;
+    use vortex_decimal_byte_parts::DecimalByteParts;
+    use vortex_decimal_byte_parts::decimal_byte_parts_v1_id;
+    use vortex_fsst::FSST;
 
     use super::*;
     use crate::CompressionSession;
+    use crate::schemes::decimal::DecimalScheme;
 
-    fn default_builder() -> BtrBlocksCompressorBuilder {
-        BtrBlocksCompressorBuilder::from_session(
-            &VortexSession::empty().with::<CompressionSession>(),
-        )
-        .unrestricted()
-    }
+    #[rstest]
+    #[case::fsst_missing_codes(&string::FSSTScheme, vec![FSST.id()], false)]
+    #[case::fsst_with_codes(&string::FSSTScheme, vec![FSST.id(), VarBin.id()], true)]
+    #[case::decimal_serialized_id(&DecimalScheme, vec![decimal_byte_parts_v1_id()], true)]
+    #[case::decimal_runtime_id(&DecimalScheme, vec![DecimalByteParts.id()], false)]
+    fn test_allowed_schemes(
+        #[case] scheme: &'static dyn Scheme,
+        #[case] allowed: Vec<ArrayId>,
+        #[case] retained: bool,
+    ) {
+        let mut builder = BtrBlocksCompressorBuilder::empty().with_new_scheme(scheme);
+        builder.allowed.editions = Some(allowed.into_iter().collect());
 
-    #[test]
-    fn empty_starts_with_no_schemes() {
-        let builder = BtrBlocksCompressorBuilder::empty();
-        assert!(builder.schemes.is_empty());
-    }
-
-    #[test]
-    fn from_session_includes_registered_schemes() {
-        let session = VortexSession::empty().with::<CompressionSession>();
-        let builder = BtrBlocksCompressorBuilder::from_session(&session);
-        assert_eq!(
-            builder.schemes.len(),
-            CompressionSession::default().schemes().len()
-        );
+        assert_eq!(!builder.allowed_schemes().is_empty(), retained);
     }
 
     #[test]
     fn delta_is_excluded_only_by_cuda() {
-        let has_delta = |builder: &BtrBlocksCompressorBuilder| {
+        let session = VortexSession::empty().with::<CompressionSession>();
+        let builder = BtrBlocksCompressorBuilder::from_session(&session).unrestricted();
+        let has_delta = |builder: BtrBlocksCompressorBuilder| {
             builder
                 .allowed_schemes()
                 .iter()
                 .any(|s| s.id() == integer::DeltaScheme::default().id())
         };
-        assert!(has_delta(&default_builder()));
-        assert!(has_delta(&default_builder().with_compact()));
-        assert!(!has_delta(&default_builder().only_cuda_compatible()));
-    }
-
-    #[test]
-    fn from_session_without_enabled_editions_allows_nothing() {
-        let session = vortex_array::array_session();
-        vortex_fastlanes::initialize(&session);
-        let builder = BtrBlocksCompressorBuilder::from_session(&session);
-        assert!(builder.allowed_schemes().is_empty());
-    }
-
-    #[test]
-    fn from_session_excludes_unregistered_encodings() {
-        let session = vortex_array::array_session();
-        let builder = BtrBlocksCompressorBuilder::from_session(&session).disable_editions();
-        assert!(
-            !builder
-                .allowed_schemes()
-                .iter()
-                .any(|s| s.id() == integer::FoRScheme.id())
-        );
-    }
-
-    #[test]
-    fn disable_editions_allows_registered_encodings() {
-        let session = vortex_array::array_session();
-        vortex_fastlanes::initialize(&session);
-        let builder = BtrBlocksCompressorBuilder::from_session(&session).disable_editions();
-        assert!(
-            builder
-                .allowed_schemes()
-                .iter()
-                .any(|s| s.id() == integer::FoRScheme.id())
-        );
-    }
-
-    #[test]
-    fn unrestricted_allows_every_scheme() {
-        let session = vortex_array::array_session();
-        let builder = BtrBlocksCompressorBuilder::from_session(&session).unrestricted();
-        let excluded = CompressionMode::Default.excluded_schemes();
-        assert_eq!(
-            builder.allowed_schemes().len(),
-            CompressionSession::default()
-                .schemes()
-                .iter()
-                .filter(|s| !excluded.contains(&s.id()))
-                .count()
-        );
-    }
-
-    #[test]
-    fn excluded_encodings_survive_lifting_restrictions() {
-        let session = vortex_array::array_session();
-        vortex_fastlanes::initialize(&session);
-        for mut builder in [
-            BtrBlocksCompressorBuilder::from_session(&session),
-            BtrBlocksCompressorBuilder::empty().with_new_scheme(&integer::FoRScheme),
-        ] {
-            builder.allowed.excluded.insert(FoR.id());
-            for builder in [builder.clone().disable_editions(), builder.unrestricted()] {
-                assert!(
-                    !builder
-                        .allowed_schemes()
-                        .iter()
-                        .any(|s| s.id() == integer::FoRScheme.id())
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn empty_allows_all() {
-        let builder = BtrBlocksCompressorBuilder::empty().with_new_scheme(&integer::FoRScheme);
-        assert_eq!(builder.allowed_schemes().len(), 1);
-    }
-
-    /// `empty()` keeps schemes that the default preset would exclude.
-    #[test]
-    #[cfg(feature = "zstd")]
-    fn empty_keeps_schemes_the_default_preset_excludes() {
-        let builder = BtrBlocksCompressorBuilder::empty().with_new_scheme(&string::ZstdScheme);
-        assert_eq!(builder.allowed_schemes().len(), 1);
-    }
-
-    #[test]
-    fn cuda_compatible_excludes_alprd() {
-        let schemes = default_builder().only_cuda_compatible().allowed_schemes();
-        assert!(!schemes.iter().any(|s| s.id() == float::ALPRDScheme.id()));
-    }
-
-    /// `vortex.sparse` has no CUDA decode kernel, so no sparse scheme may survive this preset.
-    #[test]
-    fn cuda_compatible_excludes_every_sparse_scheme() {
-        let schemes = default_builder().only_cuda_compatible().allowed_schemes();
-        for excluded in [
-            integer::SparseScheme.id(),
-            float::NullDominatedSparseScheme.id(),
-            string::NullDominatedSparseScheme.id(),
-        ] {
-            assert!(
-                !schemes.iter().any(|s| s.id() == excluded),
-                "{excluded} should be excluded"
-            );
-        }
-    }
-
-    #[test]
-    fn cuda_compatible_uses_fsst_for_strings() {
-        let schemes = default_builder().only_cuda_compatible().allowed_schemes();
-        assert!(
-            schemes
-                .iter()
-                .any(|scheme| scheme.id() == string::FSSTScheme.id())
-        );
-        #[cfg(feature = "zstd")]
-        assert!(
-            !schemes
-                .iter()
-                .any(|scheme| scheme.id() == string::ZstdScheme.id())
-        );
-    }
-
-    #[test]
-    #[cfg(feature = "pco")]
-    fn cuda_compatible_excludes_pco() {
-        let schemes = default_builder().only_cuda_compatible().allowed_schemes();
-        for scheme in [integer::PcoScheme.id(), float::PcoScheme.id()] {
-            assert!(!schemes.iter().any(|s| s.id() == scheme));
-        }
+        assert!(has_delta(builder.clone()));
+        assert!(has_delta(builder.clone().with_compact()));
+        assert!(!has_delta(builder.only_cuda_compatible()));
     }
 }

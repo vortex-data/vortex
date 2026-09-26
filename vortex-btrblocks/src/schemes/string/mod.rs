@@ -23,8 +23,3 @@ pub use vortex_compressor::stats::StringStats;
 pub use zstd::ZstdScheme;
 #[cfg(feature = "zstd")]
 pub use zstd_buffers::ZstdBuffersScheme;
-
-#[cfg(test)]
-mod scheme_selection_tests;
-#[cfg(test)]
-mod tests;

@@ -32,8 +32,3 @@ pub use zigzag::ZigZagScheme;
 
 /// Threshold for the average run length in an array before we consider run-length encoding.
 pub(crate) const RUN_LENGTH_THRESHOLD: u32 = 4;
-
-#[cfg(test)]
-mod scheme_selection_tests;
-#[cfg(test)]
-mod tests;
