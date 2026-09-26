@@ -11,11 +11,12 @@ use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
 use crate::RunEnd;
-use crate::array::RunEndArraySlotsExt;
+use crate::compute::windowed_values;
 
 /// RunEnd-specific is_constant kernel.
 ///
-/// If the values array of a run-end array is constant, the entire array is constant.
+/// If every run value the array's logical window covers is the same, the whole array is constant.
+/// Runs outside that window hold no rows, so they must not take part — see [`windowed_values`].
 #[derive(Debug)]
 pub(crate) struct RunEndIsConstantKernel;
 
@@ -34,7 +35,8 @@ impl DynAggregateKernel for RunEndIsConstantKernel {
             return Ok(None);
         };
 
-        let result = is_constant(array.values(), ctx)?;
+        let values = windowed_values(&array, batch.len(), ctx)?;
+        let result = is_constant(&values, ctx)?;
         Ok(Some(IsConstant::make_partial(batch, result, ctx)?))
     }
 }

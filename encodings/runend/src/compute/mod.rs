@@ -12,6 +12,42 @@ pub(crate) mod sum;
 pub(crate) mod take;
 pub(crate) mod take_from;
 
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
+use vortex_array::TypedArrayRef;
+use vortex_error::VortexResult;
+
+use crate::RunEnd;
+use crate::array::RunEndArrayExt;
+use crate::array::RunEndArraySlotsExt;
+
+/// The run values that the array's logical window actually covers.
+///
+/// `offset` and `len` describe a window into the runs, and
+/// [`RunEndData::validate_parts`](crate::RunEndData::validate_parts) only requires the runs to
+/// *cover* that window, so an array may legally carry runs that lie entirely outside it. A kernel
+/// that reads `values()` directly therefore sees values no row of the array holds; slice first.
+///
+/// Returns `values()` untouched when the window already spans every run, which is what a trimming
+/// slice produces and so the common case.
+fn windowed_values(
+    array: &impl TypedArrayRef<RunEnd>,
+    len: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let values = array.values();
+    if len == 0 {
+        return values.slice(0..0);
+    }
+
+    let begin = array.find_physical_index(0, ctx)?;
+    let end = array.find_slice_end_index(len, ctx)?;
+    if begin == 0 && end == values.len() {
+        return Ok(values.clone());
+    }
+    values.slice(begin..end)
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::LazyLock;
