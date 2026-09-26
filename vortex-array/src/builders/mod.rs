@@ -460,9 +460,9 @@ pub fn builder_with_capacity_in(
             capacity,
             allocator,
         )),
-        DType::Union(..) => vortex_panic!("TODO(connor)[Union]: unimplemented"),
+        DType::Union(..) => vortex_panic!(NotImplemented: "TODO(connor)[Union]: unimplemented"),
         DType::Variant(_) => {
-            vortex_panic!("Variant builders are not implemented")
+            vortex_panic!(NotImplemented: "Variant builders are not implemented")
         }
         DType::Extension(ext_dtype) => Box::new(ExtensionBuilder::with_capacity_in(
             ext_dtype.clone(),

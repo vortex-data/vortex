@@ -516,9 +516,9 @@ fn union_from_proto(
 
     let child_value = ScalarValue::from_proto(child_proto, &child_dtype, session)?;
     Scalar::validate(&child_dtype, child_value.as_ref()).map_err(|error| {
-        vortex_err!(
-            Serde: "union type ID {type_id} has invalid child for dtype {child_dtype}: {error}"
-        )
+        error.with_context(format!(
+            "union type ID {type_id} has invalid child for dtype {child_dtype}"
+        ))
     })?;
 
     Ok(ScalarValue::Union(UnionValue::new(type_id, child_value)))
@@ -531,7 +531,7 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_buffer::BufferString;
-    use vortex_error::VortexError;
+    use vortex_error::VortexErrorKind;
     use vortex_error::vortex_panic;
     use vortex_session::VortexSession;
 
@@ -866,10 +866,12 @@ mod tests {
             }))),
         };
 
-        assert!(matches!(
-            ScalarValue::from_proto(&missing_child, &dtype, &session()),
-            Err(VortexError::Serde(..))
-        ));
+        assert_eq!(
+            ScalarValue::from_proto(&missing_child, &dtype, &session())
+                .unwrap_err()
+                .kind(),
+            VortexErrorKind::Serde
+        );
 
         let wrong_child_value = pb::ScalarValue {
             kind: Some(Kind::UnionValue(Box::new(PbUnionValue {
@@ -880,10 +882,12 @@ mod tests {
             }))),
         };
 
-        assert!(matches!(
-            ScalarValue::from_proto(&wrong_child_value, &dtype, &session()),
-            Err(VortexError::Serde(..))
-        ));
+        assert_eq!(
+            ScalarValue::from_proto(&wrong_child_value, &dtype, &session())
+                .unwrap_err()
+                .kind(),
+            VortexErrorKind::Serde
+        );
 
         Ok(())
     }
@@ -985,7 +989,7 @@ mod tests {
                 }
                 _ => {
                     vortex_panic!(
-                        "Expected f16 primitive values, got {scalar_value:?} and {read_back:?}"
+                        AssertionFailed: "Expected f16 primitive values, got {scalar_value:?} and {read_back:?}"
                     )
                 }
             }
@@ -1088,14 +1092,18 @@ mod tests {
                         PValue::U16(v) => *v as u64,
                         PValue::U32(v) => *v as u64,
                         PValue::U64(v) => *v,
-                        _ => vortex_panic!("Unexpected primitive type for {name}: {pv:?}"),
+                        _ => {
+                            vortex_panic!(AssertionFailed: "Unexpected primitive type for {name}: {pv:?}")
+                        }
                     };
                     assert_eq!(
                         v, expected,
                         "ScalarValue {name} value not preserved: expected {expected}, got {v}"
                     );
                 }
-                _ => vortex_panic!("Unexpected type after roundtrip for {name}: {read_back:?}"),
+                _ => {
+                    vortex_panic!(AssertionFailed: "Unexpected type after roundtrip for {name}: {read_back:?}")
+                }
             }
         }
 
@@ -1132,14 +1140,18 @@ mod tests {
                         PValue::I16(v) => *v as i64,
                         PValue::I32(v) => *v as i64,
                         PValue::I64(v) => *v,
-                        _ => vortex_panic!("Unexpected primitive type for {name}: {pv:?}"),
+                        _ => {
+                            vortex_panic!(AssertionFailed: "Unexpected primitive type for {name}: {pv:?}")
+                        }
                     };
                     assert_eq!(
                         v, expected,
                         "ScalarValue {name} value not preserved: expected {expected}, got {v}"
                     );
                 }
-                _ => vortex_panic!("Unexpected type after roundtrip for {name}: {read_back:?}"),
+                _ => {
+                    vortex_panic!(AssertionFailed: "Unexpected type after roundtrip for {name}: {read_back:?}")
+                }
             }
         }
     }

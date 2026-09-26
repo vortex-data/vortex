@@ -245,13 +245,13 @@ pub unsafe extern "C-unwind" fn vx_scalar_new_extension(
         let storage = vx_scalar::as_ref(storage);
         let DType::Extension(ext) = dtype else {
             vortex_bail!(
-                "vx_scalar_new_extension: dtype {} is not an extension type",
+                MismatchedTypes: "vx_scalar_new_extension: dtype {} is not an extension type",
                 dtype
             );
         };
         vortex_ensure!(
             storage.dtype().eq_ignore_nullability(ext.storage_dtype()),
-            "vx_scalar_new_extension: storage scalar dtype {} does not match extension storage dtype {}",
+            MismatchedTypes: "vx_scalar_new_extension: storage scalar dtype {} does not match extension storage dtype {}",
             storage.dtype(),
             ext.storage_dtype()
         );
@@ -422,7 +422,7 @@ pub unsafe extern "C-unwind" fn vx_scalar_new_struct(
     err: *mut *mut vx_error,
 ) -> *mut vx_scalar {
     try_or(err, ptr::null_mut(), || {
-        vortex_ensure!(!struct_dtype.is_null(), "struct dtype is null");
+        vortex_ensure!(!struct_dtype.is_null(), InvalidArgument: "struct dtype is null");
         let values = scalar_values_from_raw(fields, len)?;
         Ok(vx_scalar::new(Scalar::try_new(
             vx_dtype::as_ref(struct_dtype).clone(),
@@ -451,14 +451,14 @@ fn scalar_values_from_raw(
     if len == 0 {
         return Ok(Vec::new());
     }
-    vortex_ensure!(!values.is_null(), "scalar pointer array is null");
+    vortex_ensure!(!values.is_null(), InvalidArgument: "scalar pointer array is null");
 
     unsafe { slice::from_raw_parts(values, len) }
         .iter()
         .enumerate()
         .map(|(idx, value)| {
             if value.is_null() {
-                vortex_bail!("scalar pointer at index {idx} is null");
+                vortex_bail!(InvalidArgument: "scalar pointer at index {idx} is null");
             }
             Ok(vx_scalar::as_ref(*value).clone().into_value())
         })
@@ -469,12 +469,12 @@ fn bytes_from_raw<'a>(ptr: *const u8, len: usize, label: &str) -> VortexResult<&
     if len == 0 {
         return Ok(&[]);
     }
-    vortex_ensure!(!ptr.is_null(), "{label} data pointer is null");
+    vortex_ensure!(!ptr.is_null(), InvalidArgument: "{label} data pointer is null");
     Ok(unsafe { slice::from_raw_parts(ptr, len) })
 }
 
 fn fixed_bytes_from_raw<const N: usize>(ptr: *const u8, label: &str) -> VortexResult<[u8; N]> {
-    vortex_ensure!(!ptr.is_null(), "{label} data pointer is null");
+    vortex_ensure!(!ptr.is_null(), InvalidArgument: "{label} data pointer is null");
     let mut bytes = [0u8; N];
     bytes.copy_from_slice(unsafe { slice::from_raw_parts(ptr, N) });
     Ok(bytes)

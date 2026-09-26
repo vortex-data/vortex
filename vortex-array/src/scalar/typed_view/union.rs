@@ -107,7 +107,7 @@ impl<'a> UnionScalar<'a> {
     /// non-union dtype, a null value for a non-nullable union, an unknown type ID, or a value that
     /// is invalid for the selected variant dtype.
     pub fn try_new(dtype: &'a DType, value: Option<&'a ScalarValue>) -> VortexResult<Self> {
-        vortex_ensure!(dtype.is_union(), "Expected union scalar, found {dtype}");
+        vortex_ensure!(dtype.is_union(), MismatchedTypes: "Expected union scalar, found {dtype}");
 
         Scalar::validate(dtype, value)?;
 
@@ -125,7 +125,7 @@ impl<'a> UnionScalar<'a> {
     /// Panics if `dtype` is not a union dtype or a non-null `value` is not a union value.
     pub(crate) fn new_unchecked(dtype: &'a DType, value: Option<&'a ScalarValue>) -> Self {
         if !dtype.is_union() {
-            vortex_panic!("Expected union scalar, found {dtype}")
+            vortex_panic!(MismatchedTypes: "Expected union scalar, found {dtype}")
         }
 
         Self {

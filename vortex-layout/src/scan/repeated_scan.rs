@@ -109,7 +109,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
         row_range: Option<Range<u64>>,
     ) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
         if self.limit.is_some() {
-            vortex_bail!("Split futures do not support row limits; use a scan stream or iterator");
+            vortex_bail!(NotImplemented: "Split futures do not support row limits; use a scan stream or iterator");
         }
 
         let ctx = self.task_context();
@@ -467,7 +467,7 @@ mod tests {
 
     #[test]
     fn error_ends_before_pending_work() {
-        let arrays = stream::iter([Err::<(), _>(vortex_err!("scan failed"))])
+        let arrays = stream::iter([Err::<(), _>(vortex_err!(Other: "scan failed"))])
             .chain(stream::pending())
             .boxed();
         let mut stream = stop_on_error(arrays);

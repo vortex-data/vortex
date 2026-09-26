@@ -43,7 +43,7 @@ impl ScalarTruncation for ByteBuffer {
     fn from_scalar(value: Scalar) -> VortexResult<Option<Self>> {
         vortex_ensure!(
             value.dtype().is_binary(),
-            "Expected binary scalar, got {}",
+            MismatchedTypes: "Expected binary scalar, got {}",
             value.dtype()
         );
         Ok(value.into_value().map(|b| b.into_binary()))
@@ -79,7 +79,7 @@ impl ScalarTruncation for BufferString {
     fn from_scalar(value: Scalar) -> VortexResult<Option<Self>> {
         vortex_ensure!(
             value.dtype().is_utf8(),
-            "Expected utf8 scalar, got {}",
+            MismatchedTypes: "Expected utf8 scalar, got {}",
             value.dtype()
         );
         Ok(value.into_value().map(|b| b.into_utf8()))

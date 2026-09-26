@@ -90,13 +90,11 @@ fn test_decode_bitpacked_patches() -> VortexResult<()> {
 
     let patched: PatchedArray = deserialized
         .try_downcast()
-        .map_err(|a| vortex_err!("Expected Patched, got {}", a.encoding_id()))?;
+        .map_err(|a| vortex_err!(MismatchedTypes: "Expected Patched, got {}", a.encoding_id()))?;
 
-    let inner_bitpacked: BitPackedArray = patched
-        .inner()
-        .clone()
-        .try_downcast()
-        .map_err(|a| vortex_err!("Expected inner BitPacked, got {}", a.encoding_id()))?;
+    let inner_bitpacked: BitPackedArray = patched.inner().clone().try_downcast().map_err(
+        |a| vortex_err!(MismatchedTypes: "Expected inner BitPacked, got {}", a.encoding_id()),
+    )?;
 
     assert!(
         inner_bitpacked.patches().is_none(),
@@ -141,9 +139,9 @@ fn bitpacked_without_patches_stays_bitpacked() -> VortexResult<()> {
         &SESSION,
     )?;
 
-    let result = deserialized
-        .try_downcast::<BitPacked>()
-        .map_err(|a| vortex_err!("Expected deserialize BitPacked, got {}", a.encoding_id()))?;
+    let result = deserialized.try_downcast::<BitPacked>().map_err(
+        |a| vortex_err!(Serde: "Expected deserialize BitPacked, got {}", a.encoding_id()),
+    )?;
 
     assert!(result.patches().is_none(), "Result should not have patches");
 
@@ -224,7 +222,7 @@ fn serde_roundtrip(
     let view = array.as_::<BitPacked>();
     let serialization = PLUGIN_SESSION
         .array_serialize(&array)?
-        .ok_or_else(|| vortex_err!("BitPacked must serialize"))?;
+        .ok_or_else(|| vortex_err!(AssertionFailed: "BitPacked must serialize"))?;
     assert_eq!(serialization.serialized_id, bitpacked_v1_id());
     let metadata = BitPackedMetadata::decode(serialization.metadata.as_slice())?;
     assert_eq!(metadata.bit_width, u32::from(bit_width));
@@ -271,11 +269,11 @@ fn v2_roundtrip(
         None => bitpack_blocked_to_best_bit_widths(&values, &mut ctx)?,
     };
     let BitWidthsView::Blocked(block_offsets) = array.bit_widths() else {
-        vortex_bail!("expected block offsets");
+        vortex_bail!(AssertionFailed: "expected block offsets");
     };
     let serialization = PLUGIN_SESSION
         .array_serialize(array.as_array())?
-        .ok_or_else(|| vortex_err!("BitPacked must serialize"))?;
+        .ok_or_else(|| vortex_err!(AssertionFailed: "BitPacked must serialize"))?;
     assert_eq!(serialization.serialized_id, bitpacked_v2_id());
     let metadata = BitPackedV2Metadata::decode(serialization.metadata.as_slice())?;
     assert_eq!(metadata.offset, 0);
@@ -298,7 +296,7 @@ fn v2_roundtrip_offset_and_nonzero_base() -> VortexResult<()> {
     let values = drifting();
     let encoded = bitpack_blocked_to_best_bit_widths(&values, &mut ctx)?;
     let BitWidthsView::Blocked(block_offsets) = encoded.bit_widths() else {
-        vortex_bail!("expected block offsets");
+        vortex_bail!(AssertionFailed: "expected block offsets");
     };
     let block_offsets = block_offsets
         .cast(DType::Primitive(PType::U64, Nullability::NonNullable))?
@@ -318,7 +316,7 @@ fn v2_roundtrip_offset_and_nonzero_base() -> VortexResult<()> {
 
     let serialization = PLUGIN_SESSION
         .array_serialize(&array)?
-        .ok_or_else(|| vortex_err!("BitPacked must serialize"))?;
+        .ok_or_else(|| vortex_err!(AssertionFailed: "BitPacked must serialize"))?;
     assert_eq!(
         BitPackedV2Metadata::decode(serialization.metadata.as_slice())?.offset,
         17
@@ -338,7 +336,7 @@ fn v2_rejects_malformed_parts() -> VortexResult<()> {
         &mut PLUGIN_SESSION.create_execution_ctx(),
     )?;
     let BitWidthsView::Blocked(block_offsets) = array.bit_widths() else {
-        vortex_bail!("expected block offsets");
+        vortex_bail!(AssertionFailed: "expected block offsets");
     };
     let metadata = BitPackedV2Metadata {
         offset: 0,
@@ -408,12 +406,10 @@ fn test_decode_blocked_bitpacked_patches() -> VortexResult<()> {
 
     let patched: PatchedArray = deserialized
         .try_downcast()
-        .map_err(|a| vortex_err!("Expected Patched, got {}", a.encoding_id()))?;
-    let inner_bitpacked: BitPackedArray = patched
-        .inner()
-        .clone()
-        .try_downcast()
-        .map_err(|a| vortex_err!("Expected inner BitPacked, got {}", a.encoding_id()))?;
+        .map_err(|a| vortex_err!(MismatchedTypes: "Expected Patched, got {}", a.encoding_id()))?;
+    let inner_bitpacked: BitPackedArray = patched.inner().clone().try_downcast().map_err(
+        |a| vortex_err!(MismatchedTypes: "Expected inner BitPacked, got {}", a.encoding_id()),
+    )?;
     assert!(inner_bitpacked.patches().is_none());
     assert!(!inner_bitpacked.bit_widths().is_global());
     assert_arrays_eq!(patched, values, &mut ctx);

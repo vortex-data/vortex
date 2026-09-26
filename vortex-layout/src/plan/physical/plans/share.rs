@@ -86,9 +86,9 @@ impl PlanVTable for Share {
         check_child_count("Share", children, 1)?;
         let child = children
             .get(0)?
-            .ok_or_else(|| vortex_err!("Share child is absent"))?;
+            .ok_or_else(|| vortex_err!(AssertionFailed: "Share child is absent"))?;
         if child.dtype() != plan.dtype() || child.row_count() != plan.row_count() {
-            vortex_bail!("Share child does not match the share's dtype and row count");
+            vortex_bail!(MismatchedTypes: "Share child does not match the share's dtype and row count");
         }
         Ok(())
     }

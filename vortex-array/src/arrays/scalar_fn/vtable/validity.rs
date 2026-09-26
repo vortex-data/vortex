@@ -81,7 +81,7 @@ impl VTable for ScalarFnValidity {
     }
 
     fn buffer(_array: ArrayView<'_, Self>, _idx: usize) -> BufferHandle {
-        vortex_panic!("ScalarFnValidity has no buffers")
+        vortex_panic!(OutOfBounds: "ScalarFnValidity has no buffers")
     }
 
     fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
@@ -112,7 +112,7 @@ impl VTable for ScalarFnValidity {
         _children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
-        vortex_bail!("ScalarFnValidity deserialize not supported");
+        vortex_bail!(Serde: "ScalarFnValidity deserialize not supported");
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

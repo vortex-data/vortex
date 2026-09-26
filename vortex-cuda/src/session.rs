@@ -135,14 +135,14 @@ impl CudaSession {
         // loaded, so catch any unwind here to uphold this constructor's no-panic contract.
         match catch_unwind(AssertUnwindSafe(|| -> VortexResult<Self> {
             let context = CudaContext::new(0)
-                .map_err(|err| vortex_err!("failed to initialize CUDA device 0: {err}"))?;
+                .map_err(|err| vortex_err!(Io: "failed to initialize CUDA device 0: {err}"))?;
             let this = Self::new(context);
             initialize_cuda(&this);
             Ok(this)
         })) {
             Ok(result) => result,
             Err(_) => Err(vortex_err!(
-                "failed to initialize CUDA: the driver library is unavailable"
+                Io: "failed to initialize CUDA: the driver library is unavailable"
             )),
         }
     }

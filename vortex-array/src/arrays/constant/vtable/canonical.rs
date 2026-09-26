@@ -333,7 +333,7 @@ fn flat_elements(
         DType::Bool(nullability) => {
             let bits = BitBuffer::from_iter(elements.iter().map(|element| match element {
                 Some(ScalarValue::Bool(value)) => *value,
-                Some(_) => vortex_panic!("bool list holds a non-bool element"),
+                Some(_) => vortex_panic!(AssertionFailed: "bool list holds a non-bool element"),
                 None => false,
             }));
             BoolArray::new(bits, element_validity(elements, *nullability)).into_array()
@@ -345,7 +345,7 @@ fn flat_elements(
                     Some(ScalarValue::Primitive(value)) => value
                         .cast::<T>()
                         .vortex_expect("list element of the list's element ptype"),
-                    Some(_) => vortex_panic!("primitive list holds a non-primitive element"),
+                    Some(_) => vortex_panic!(AssertionFailed: "primitive list holds a non-primitive element"),
                     None => T::default(),
                 }
             }));
@@ -362,7 +362,7 @@ fn flat_elements(
                         Some(ScalarValue::Decimal(value)) => value
                             .cast::<T>()
                             .vortex_expect("list element fits the list's decimal type"),
-                        Some(_) => vortex_panic!("decimal list holds a non-decimal element"),
+                        Some(_) => vortex_panic!(AssertionFailed: "decimal list holds a non-decimal element"),
                         None => T::default(),
                     }
                 }));
@@ -385,7 +385,7 @@ fn flat_elements(
                     None => builder.append_null(),
                     Some(ScalarValue::Utf8(value)) => builder.append_value(value.as_bytes()),
                     Some(ScalarValue::Binary(value)) => builder.append_value(value.as_slice()),
-                    Some(_) => vortex_panic!("byte list holds a non-byte element"),
+                    Some(_) => vortex_panic!(AssertionFailed: "byte list holds a non-byte element"),
                 }
             }
             builder.finish()
@@ -1198,7 +1198,7 @@ mod tests {
     fn date_elements() -> ArrayRef {
         let date = Scalar::extension::<Date>(TimeUnit::Days, Scalar::from(Some(42i32)));
         let DType::Extension(ext_dtype) = date.dtype().clone() else {
-            vortex_panic!("a date is an extension value");
+            vortex_panic!(AssertionFailed: "a date is an extension value");
         };
         ExtensionArray::new(
             ext_dtype,

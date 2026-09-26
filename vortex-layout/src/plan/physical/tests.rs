@@ -96,7 +96,7 @@ fn make_row_idx_plan(expression: Expression, child: PlanRef) -> VortexResult<Pla
 
 fn child_of(plan: &PlanRef, index: usize) -> VortexResult<PlanRef> {
     plan.child(index)?
-        .ok_or_else(|| vortex_err!("missing child {index}"))
+        .ok_or_else(|| vortex_err!(NotFound: "missing child {index}"))
 }
 
 fn assert_unsupported(error: vortex_error::VortexError) {
@@ -112,11 +112,9 @@ fn assert_unsupported(error: vortex_error::VortexError) {
 fn unsupported_layout_has_no_plan() -> VortexResult<()> {
     let layout = unsupported(3, DType::Null);
 
-    assert_unsupported(
-        lower(&layout)
-            .err()
-            .ok_or_else(|| vortex_err!("unsupported layout unexpectedly produced a plan"))?,
-    );
+    assert_unsupported(lower(&layout).err().ok_or_else(
+        || vortex_err!(InvalidArgument: "unsupported layout unexpectedly produced a plan"),
+    )?);
     Ok(())
 }
 
@@ -165,11 +163,9 @@ fn chunked_plan_lowers_each_chunk_on_access() -> VortexResult<()> {
 
     let plan = make_plan(layout)?;
     assert_eq!(child_of(&plan, 0)?.row_count(), 1);
-    assert_unsupported(
-        child_of(&plan, 1)
-            .err()
-            .ok_or_else(|| vortex_err!("unsupported chunk unexpectedly produced a plan"))?,
-    );
+    assert_unsupported(child_of(&plan, 1).err().ok_or_else(
+        || vortex_err!(InvalidArgument: "unsupported chunk unexpectedly produced a plan"),
+    )?);
     Ok(())
 }
 
@@ -188,11 +184,9 @@ fn struct_plan_lowers_each_field_on_access() -> VortexResult<()> {
 
     let plan = make_plan(layout)?;
     assert_eq!(child_of(&plan, 0)?.row_count(), 1);
-    assert_unsupported(
-        child_of(&plan, 1)
-            .err()
-            .ok_or_else(|| vortex_err!("unsupported field unexpectedly produced a plan"))?,
-    );
+    assert_unsupported(child_of(&plan, 1).err().ok_or_else(
+        || vortex_err!(InvalidArgument: "unsupported field unexpectedly produced a plan"),
+    )?);
     Ok(())
 }
 
@@ -301,7 +295,7 @@ fn with_children_rejects_mismatched_arity() -> VortexResult<()> {
     let error = plan
         .with_children(vec![child_of(&plan, 0)?])
         .err()
-        .ok_or_else(|| vortex_err!("mismatched arity unexpectedly succeeded"))?;
+        .ok_or_else(|| vortex_err!(MismatchedTypes: "mismatched arity unexpectedly succeeded"))?;
     assert!(
         error
             .to_string()
@@ -334,9 +328,9 @@ fn eval_try_new_validates_expression_root_dtype() -> VortexResult<()> {
     let expression = root().bind(&primitive(PType::I32, Nullability::NonNullable))?;
     let child = make_plan(flat(3, primitive(PType::I64, Nullability::NonNullable), 0))?;
 
-    let error = EvalPlan::try_new(expression, child)
-        .err()
-        .ok_or_else(|| vortex_err!("mismatched Eval root dtype unexpectedly succeeded"))?;
+    let error = EvalPlan::try_new(expression, child).err().ok_or_else(
+        || vortex_err!(MismatchedTypes: "mismatched Eval root dtype unexpectedly succeeded"),
+    )?;
     assert!(
         error
             .to_string()
@@ -622,13 +616,13 @@ fn empty_projection_prunes_row_idx_child_fields() -> VortexResult<()> {
     let plan = make_row_idx_plan(projection, make_plan(layout)?)?;
 
     let optimized = optimize(plan)?;
-    let projection = optimized
-        .as_opt::<Eval>()
-        .ok_or_else(|| vortex_err!("optimized plan has no projection expression"))?;
+    let projection = optimized.as_opt::<Eval>().ok_or_else(
+        || vortex_err!(AssertionFailed: "optimized plan has no projection expression"),
+    )?;
     let child = projection.child_plan()?;
-    let empty_struct = child
-        .as_opt::<Pack>()
-        .ok_or_else(|| vortex_err!("empty projection did not prune the RowIdx child"))?;
+    let empty_struct = child.as_opt::<Pack>().ok_or_else(
+        || vortex_err!(AssertionFailed: "empty projection did not prune the RowIdx child"),
+    )?;
 
     assert_eq!(empty_struct.nfields(), 0);
     assert_eq!(empty_struct.children().len(), 0);
@@ -1156,7 +1150,7 @@ fn dictionary_pushdown_rejects_unsafe_expressions() -> VortexResult<()> {
         let plan = make_eval(expression.clone(), make_plan(Arc::clone(&dictionary))?)?.into_plan();
         let optimized = optimize(plan)?;
         let eval = optimized.as_opt::<Eval>().ok_or_else(|| {
-            vortex_err!("Expression unexpectedly pushed into dictionary: {expression}")
+            vortex_err!(AssertionFailed: "Expression unexpectedly pushed into dictionary: {expression}")
         })?;
         assert!(eval.child_plan()?.is::<Take>());
     }
@@ -1171,9 +1165,9 @@ fn non_strict_expression_pushes_into_dictionary_without_null_codes() -> VortexRe
     )
     .into_layout();
     let optimized = optimize(make_eval(is_null(root()), make_plan(dictionary)?)?.into_plan())?;
-    let take = optimized
-        .as_opt::<Take>()
-        .ok_or_else(|| vortex_err!("is_null was not pushed into the dictionary: {optimized}"))?;
+    let take = optimized.as_opt::<Take>().ok_or_else(
+        || vortex_err!(AssertionFailed: "is_null was not pushed into the dictionary: {optimized}"),
+    )?;
     assert!(take.values()?.is::<Eval>());
     Ok(())
 }
@@ -1196,9 +1190,9 @@ fn nullable_struct_keeps_expression_above_parent_validity() -> VortexResult<()> 
     let plan = make_eval(gt(get_item("a", root()), lit(5_i32)), make_plan(layout)?)?.into_plan();
 
     let optimized = optimize(plan)?;
-    let eval = optimized
-        .as_opt::<Eval>()
-        .ok_or_else(|| vortex_err!("Nullable struct expression unexpectedly pushed down"))?;
+    let eval = optimized.as_opt::<Eval>().ok_or_else(
+        || vortex_err!(AssertionFailed: "Nullable struct expression unexpectedly pushed down"),
+    )?;
     assert!(eval.child_plan()?.is::<Pack>());
     Ok(())
 }
@@ -1207,7 +1201,8 @@ fn nullable_struct_keeps_expression_above_parent_validity() -> VortexResult<()> 
 fn zoned_plan_exposes_data_and_zones() -> VortexResult<()> {
     let dtype = primitive(PType::I32, Nullability::NonNullable);
     let (max, zones_dtype) = max_zones_dtype(&dtype)?;
-    let zone_len = NonZeroUsize::new(3).ok_or_else(|| vortex_err!("zone length is zero"))?;
+    let zone_len =
+        NonZeroUsize::new(3).ok_or_else(|| vortex_err!(AssertionFailed: "zone length is zero"))?;
     let layout = ZonedLayout::try_new(
         flat(5, dtype, 0),
         flat(2, zones_dtype, 1),
@@ -1234,12 +1229,13 @@ fn stats_expression_rewrites_to_zoned_pruning_plan() -> VortexResult<()> {
     let max = Max.bind(NumericalAggregateOpts::skip_nans());
     let max_dtype = max
         .state_dtype(&dtype)
-        .ok_or_else(|| vortex_err!("max does not support {dtype}"))?;
+        .ok_or_else(|| vortex_err!(AssertionFailed: "max does not support {dtype}"))?;
     let zones_dtype = DType::Struct(
         StructFields::from_iter([(max.to_string(), max_dtype.as_nullable())]),
         Nullability::NonNullable,
     );
-    let zone_len = NonZeroUsize::new(3).ok_or_else(|| vortex_err!("zone length is zero"))?;
+    let zone_len =
+        NonZeroUsize::new(3).ok_or_else(|| vortex_err!(AssertionFailed: "zone length is zero"))?;
     let layout = ZonedLayout::try_new(
         flat(5, dtype.clone(), 0),
         flat(2, zones_dtype, 1),
@@ -1252,7 +1248,7 @@ fn stats_expression_rewrites_to_zoned_pruning_plan() -> VortexResult<()> {
     let falsifier = filter
         .bind(&dtype)?
         .falsify(&session)?
-        .ok_or_else(|| vortex_err!("filter has no falsifier"))?;
+        .ok_or_else(|| vortex_err!(AssertionFailed: "filter has no falsifier"))?;
     let source = make_plan(layout)?;
     let plan = EvalPlan::try_new(falsifier.clone(), source.clone())?.into_plan();
 
@@ -1273,7 +1269,7 @@ fn stats_expression_rewrites_to_zoned_pruning_plan() -> VortexResult<()> {
     ");
     let zoned = optimized
         .as_opt::<Zoned>()
-        .ok_or_else(|| vortex_err!("optimized pruning plan is not zoned"))?;
+        .ok_or_else(|| vortex_err!(AssertionFailed: "optimized pruning plan is not zoned"))?;
     assert!(zoned.is_pruning());
     assert_eq!(zoned.pruning_expression(), Some(&falsifier));
     assert!(zoned.data_plan()?.is_none());
@@ -1281,15 +1277,15 @@ fn stats_expression_rewrites_to_zoned_pruning_plan() -> VortexResult<()> {
 
     let mixed_expression = bound_and(falsifier, gt(root(), lit(0_i32)).bind(&dtype)?);
     let mixed = optimize(EvalPlan::try_new(mixed_expression, source)?.into_plan())?;
-    let mixed = mixed
-        .as_opt::<Eval>()
-        .ok_or_else(|| vortex_err!("expression with a data reference was pushed into zones"))?;
+    let mixed = mixed.as_opt::<Eval>().ok_or_else(
+        || vortex_err!(AssertionFailed: "expression with a data reference was pushed into zones"),
+    )?;
     let mixed_child = mixed.child_plan()?;
     assert!(mixed_child.is::<Zoned>());
     assert!(
         !mixed_child
             .as_opt::<Zoned>()
-            .ok_or_else(|| vortex_err!("mixed expression child is not zoned"))?
+            .ok_or_else(|| vortex_err!(AssertionFailed: "mixed expression child is not zoned"))?
             .is_pruning()
     );
     Ok(())
@@ -1301,12 +1297,13 @@ fn pruning_expression_partitions_across_row_idx_and_zoned_struct_field() -> Vort
     let max = Max.bind(NumericalAggregateOpts::skip_nans());
     let max_dtype = max
         .state_dtype(&value_dtype)
-        .ok_or_else(|| vortex_err!("max does not support {value_dtype}"))?;
+        .ok_or_else(|| vortex_err!(AssertionFailed: "max does not support {value_dtype}"))?;
     let zones_dtype = DType::Struct(
         StructFields::from_iter([(max.to_string(), max_dtype.as_nullable())]),
         Nullability::NonNullable,
     );
-    let zone_len = NonZeroUsize::new(3).ok_or_else(|| vortex_err!("zone length is zero"))?;
+    let zone_len =
+        NonZeroUsize::new(3).ok_or_else(|| vortex_err!(AssertionFailed: "zone length is zero"))?;
     let zoned = ZonedLayout::try_new(
         flat(5, value_dtype.clone(), 0),
         flat(2, zones_dtype, 1),
@@ -1333,7 +1330,7 @@ fn pruning_expression_partitions_across_row_idx_and_zoned_struct_field() -> Vort
     let falsifier = filter
         .bind(&struct_dtype)?
         .falsify(&session)?
-        .ok_or_else(|| vortex_err!("filter has no falsifier"))?;
+        .ok_or_else(|| vortex_err!(AssertionFailed: "filter has no falsifier"))?;
 
     let optimized = optimize(plan_row_idx_expression(falsifier, source)?)?;
     insta::assert_snapshot!(optimized.display_tree(), @r"
@@ -1401,7 +1398,8 @@ fn legacy_stats_layout_lowers_to_legacy_stats_plan() -> VortexResult<()> {
 fn zoned_layouts_without_statistics_lower_to_their_data() -> VortexResult<()> {
     let dtype = primitive(PType::I32, Nullability::NonNullable);
     let empty = DType::Struct(StructFields::empty(), Nullability::NonNullable);
-    let zone_len = NonZeroUsize::new(3).ok_or_else(|| vortex_err!("zone length is zero"))?;
+    let zone_len =
+        NonZeroUsize::new(3).ok_or_else(|| vortex_err!(AssertionFailed: "zone length is zero"))?;
     let layouts = [
         legacy_layout(&dtype, 0, &[Stat::Max], legacy_max_zones_dtype(&dtype))?,
         legacy_layout(&dtype, 3, &[], empty.clone())?,
@@ -1447,7 +1445,7 @@ fn max_zones_dtype(dtype: &DType) -> VortexResult<(AggregateFnRef, DType)> {
     let max = Max.bind(NumericalAggregateOpts::skip_nans());
     let max_dtype = max
         .state_dtype(dtype)
-        .ok_or_else(|| vortex_err!("max does not support {dtype}"))?;
+        .ok_or_else(|| vortex_err!(AssertionFailed: "max does not support {dtype}"))?;
     let zones_dtype = DType::Struct(
         StructFields::from_iter([(max.to_string(), max_dtype.as_nullable())]),
         Nullability::NonNullable,
@@ -1464,7 +1462,7 @@ fn legacy_stats_rewrite_to_zoned_over_converted_zones() -> VortexResult<()> {
     let optimized = optimize(legacy.clone())?;
     let zoned = optimized
         .as_opt::<Zoned>()
-        .ok_or_else(|| vortex_err!("legacy stats did not become zoned"))?;
+        .ok_or_else(|| vortex_err!(AssertionFailed: "legacy stats did not become zoned"))?;
     assert!(!zoned.is_pruning());
     assert_eq!(zoned.zone_len(), 3);
     assert_eq!(
@@ -1482,11 +1480,11 @@ fn legacy_stats_rewrite_to_zoned_over_converted_zones() -> VortexResult<()> {
     let falsifier = gt(root(), lit(5_i32))
         .bind(&dtype)?
         .falsify(&SESSION)?
-        .ok_or_else(|| vortex_err!("filter has no falsifier"))?;
+        .ok_or_else(|| vortex_err!(AssertionFailed: "filter has no falsifier"))?;
     let pruning = optimize(EvalPlan::try_new(falsifier, legacy)?.into_plan())?;
-    let pruning = pruning
-        .as_opt::<Zoned>()
-        .ok_or_else(|| vortex_err!("legacy stats predicate did not become a pruning plan"))?;
+    let pruning = pruning.as_opt::<Zoned>().ok_or_else(
+        || vortex_err!(AssertionFailed: "legacy stats predicate did not become a pruning plan"),
+    )?;
     assert!(pruning.is_pruning());
     assert!(pruning.zones_plan()?.is::<Eval>());
     Ok(())
@@ -1518,7 +1516,7 @@ fn converted_legacy_zones_prune() -> VortexResult<()> {
     let falsifier = gt(root(), lit(5_i32))
         .bind(&dtype)?
         .falsify(&SESSION)?
-        .ok_or_else(|| vortex_err!("filter has no falsifier"))?;
+        .ok_or_else(|| vortex_err!(AssertionFailed: "filter has no falsifier"))?;
     // Only the first zone's max proves no row exceeds 5.
     assert_eq!(
         zone_map.prune(&falsifier, &SESSION)?,
@@ -1538,7 +1536,7 @@ fn legacy_stats_under_zoned_are_dropped() -> VortexResult<()> {
     let optimized = optimize(plan)?;
     let zoned = optimized
         .as_opt::<Zoned>()
-        .ok_or_else(|| vortex_err!("zoned plan was rewritten away"))?;
+        .ok_or_else(|| vortex_err!(AssertionFailed: "zoned plan was rewritten away"))?;
     assert!(zoned.data_plan()?.is_some_and(|data| data.is::<Filter>()));
     assert!(PlanRef::ptr_eq(&zoned.zones_plan()?, &zones));
     Ok(())
@@ -1606,11 +1604,11 @@ fn dynamic_predicates_stay_above_dictionary_values() -> VortexResult<()> {
             optimize(make_eval(predicate, make_plan(Arc::clone(&layout))?)?.into_plan())?;
         let eval = optimized
             .as_opt::<Eval>()
-            .ok_or_else(|| vortex_err!("dynamic predicate was pushed down"))?;
+            .ok_or_else(|| vortex_err!(AssertionFailed: "dynamic predicate was pushed down"))?;
         let take = eval
             .child_plan()?
             .as_opt::<Take>()
-            .ok_or_else(|| vortex_err!("dynamic predicate is not over the take"))?
+            .ok_or_else(|| vortex_err!(AssertionFailed: "dynamic predicate is not over the take"))?
             .clone();
         assert!(!take.values()?.is::<Eval>(), "{}", optimized.display_tree());
     }
@@ -1637,11 +1635,11 @@ fn expression_pushes_onto_values_less_nullable_than_the_take() -> VortexResult<(
     assert_eq!(optimized.dtype(), &dtype);
     let take = optimized
         .as_opt::<Take>()
-        .ok_or_else(|| vortex_err!("predicate was not pushed onto the values"))?;
+        .ok_or_else(|| vortex_err!(AssertionFailed: "predicate was not pushed onto the values"))?;
     let values = take.values()?;
     let eval = values
         .as_opt::<Eval>()
-        .ok_or_else(|| vortex_err!("values are not evaluated"))?;
+        .ok_or_else(|| vortex_err!(AssertionFailed: "values are not evaluated"))?;
     assert!(eval.expression().is_root_bound_to(&values_dtype));
     Ok(())
 }
@@ -1662,20 +1660,20 @@ fn zoned_pruning_plan_with_new_zones_proves_them_again() -> VortexResult<()> {
     let falsifier = gt(root(), lit(5_i32))
         .bind(&dtype)?
         .falsify(&SESSION)?
-        .ok_or_else(|| vortex_err!("filter has no falsifier"))?;
+        .ok_or_else(|| vortex_err!(AssertionFailed: "filter has no falsifier"))?;
     let pruning = optimize(EvalPlan::try_new(falsifier, source)?.into_plan())?;
     let pruning = pruning
         .as_opt::<Zoned>()
-        .ok_or_else(|| vortex_err!("predicate did not become a pruning plan"))?;
+        .ok_or_else(|| vortex_err!(AssertionFailed: "predicate did not become a pruning plan"))?;
     let proof = pruning
         .pruned_zones()
-        .ok_or_else(|| vortex_err!("pruning plan has no proof"))?;
+        .ok_or_else(|| vortex_err!(AssertionFailed: "pruning plan has no proof"))?;
 
     let rebuilt = pruning.clone().into_plan().with_children(vec![zones])?;
     let rebuilt_proof = rebuilt
         .as_opt::<Zoned>()
         .and_then(|zoned| zoned.pruned_zones())
-        .ok_or_else(|| vortex_err!("rebuilt plan has no proof"))?;
+        .ok_or_else(|| vortex_err!(AssertionFailed: "rebuilt plan has no proof"))?;
     assert!(!Arc::ptr_eq(proof, rebuilt_proof));
     Ok(())
 }

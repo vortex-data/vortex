@@ -89,11 +89,11 @@ impl VTable for ListView {
     }
 
     fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
-        vortex_panic!("ListViewArray buffer index {idx} out of bounds")
+        vortex_panic!(OutOfBounds: "ListViewArray buffer index {idx} out of bounds")
     }
 
     fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
-        vortex_panic!("ListViewArray buffer_name index {idx} out of bounds")
+        vortex_panic!(OutOfBounds: "ListViewArray buffer_name index {idx} out of bounds")
     }
 
     fn with_buffers(
@@ -125,7 +125,7 @@ impl VTable for ListView {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        vortex_ensure_eq!(slots.len(), ListViewSlots::COUNT);
+        vortex_ensure_eq!(slots.len(), ListViewSlots::COUNT, InvalidArgument);
         let elements = slots[ListViewSlots::ELEMENTS]
             .as_ref()
             .vortex_expect("ListViewArray elements slot");
@@ -137,7 +137,7 @@ impl VTable for ListView {
             .vortex_expect("ListViewArray sizes slot");
         vortex_ensure!(
             offsets.len() == len && sizes.len() == len,
-            "ListViewArray length {} does not match outer length {}",
+            InvalidArgument: "ListViewArray length {} does not match outer length {}",
             offsets.len(),
             len
         );
@@ -146,7 +146,7 @@ impl VTable for ListView {
         vortex_ensure_eq!(
             &actual_dtype,
             dtype,
-            "ListViewArray dtype does not match outer dtype",
+            MismatchedTypes: "ListViewArray dtype does not match outer dtype",
         );
 
         Ok(())
@@ -165,11 +165,11 @@ impl VTable for ListView {
         let metadata = ListViewMetadata::decode(metadata)?;
         vortex_ensure!(
             buffers.is_empty(),
-            "`ListViewArray::build` expects no buffers"
+            InvalidArgument: "`ListViewArray::build` expects no buffers"
         );
 
         let DType::List(element_dtype, _) = dtype else {
-            vortex_bail!("Expected List dtype, got {:?}", dtype);
+            vortex_bail!(MismatchedTypes: "Expected List dtype, got {:?}", dtype);
         };
 
         let validity = if children.len() == 3 {
@@ -179,7 +179,7 @@ impl VTable for ListView {
             Validity::Array(validity)
         } else {
             vortex_bail!(
-                "`ListViewArray::build` expects 3 or 4 children, got {}",
+                InvalidArgument: "`ListViewArray::build` expects 3 or 4 children, got {}",
                 children.len()
             );
         };
@@ -235,7 +235,7 @@ impl VTable for ListView {
         match match_each_list_builder!(&mut *builder, |b| b.append_listview_array(array, ctx)) {
             Some(result) => result,
             None => vortex_bail!(
-                "cannot append a ListView array of dtype {} to a {} builder",
+                MismatchedTypes: "cannot append a ListView array of dtype {} to a {} builder",
                 array.dtype(),
                 builder.dtype()
             ),

@@ -92,7 +92,7 @@ impl Display for DTypePythonRepr<'_> {
                     .join(", "),
                 n.python_repr()
             ),
-            DType::Union(..) => vortex_panic!("TODO(connor)[Union]: unimplemented"),
+            DType::Union(..) => vortex_panic!(NotImplemented: "TODO(connor)[Union]: unimplemented"),
             DType::Variant(_) => write!(f, "variant()"),
             DType::Extension(ext) => {
                 write!(

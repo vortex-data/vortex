@@ -19,12 +19,13 @@ pub(super) fn varbinview_uncompressed_size_in_bytes(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<u64> {
     let views_size = u64::try_from(array.len())
-        .map_err(|e| vortex_err!("Failed to convert varbinview array length to u64: {e}"))?
-        .checked_mul(
-            u64::try_from(size_of::<BinaryView>())
-                .map_err(|e| vortex_err!("Failed to convert binary view width to u64: {e}"))?,
-        )
-        .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))?;
+        .map_err(
+            |e| vortex_err!(Overflow: "Failed to convert varbinview array length to u64: {e}"),
+        )?
+        .checked_mul(u64::try_from(size_of::<BinaryView>()).map_err(
+            |e| vortex_err!(Overflow: "Failed to convert binary view width to u64: {e}"),
+        )?)
+        .ok_or_else(|| vortex_err!(Overflow: "uncompressed size in bytes overflowed u64"))?;
 
     let validity = array
         .as_ref()
@@ -40,7 +41,7 @@ pub(super) fn varbinview_uncompressed_size_in_bytes(
     views_size
         .checked_add(data_size)
         .and_then(|size| size.checked_add(validity_uncompressed_size_in_bytes(validity).ok()?))
-        .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))
+        .ok_or_else(|| vortex_err!(Overflow: "uncompressed size in bytes overflowed u64"))
 }
 
 /// Every byte of every data buffer, referenced or not.
@@ -48,11 +49,10 @@ fn held_data_size(array: &VarBinViewArray) -> VortexResult<u64> {
     let mut size = 0u64;
     for buffer in array.data_buffers().iter() {
         size = size
-            .checked_add(
-                u64::try_from(buffer.len())
-                    .map_err(|e| vortex_err!("Failed to convert data buffer length to u64: {e}"))?,
-            )
-            .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))?;
+            .checked_add(u64::try_from(buffer.len()).map_err(
+                |e| vortex_err!(Overflow: "Failed to convert data buffer length to u64: {e}"),
+            )?)
+            .ok_or_else(|| vortex_err!(Overflow: "uncompressed size in bytes overflowed u64"))?;
     }
     Ok(size)
 }

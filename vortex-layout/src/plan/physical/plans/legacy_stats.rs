@@ -123,9 +123,9 @@ impl PlanVTable for LegacyStats {
         check_child_count("LegacyStats", children, 2)?;
         let data = children
             .get(DATA)?
-            .ok_or_else(|| vortex_err!("LegacyStats data child is absent"))?;
+            .ok_or_else(|| vortex_err!(AssertionFailed: "LegacyStats data child is absent"))?;
         if data.dtype() != plan.dtype() || data.row_count() != plan.row_count() {
-            vortex_bail!("LegacyStats data child shape does not match the plan output");
+            vortex_bail!(MismatchedTypes: "LegacyStats data child shape does not match the plan output");
         }
         Ok(())
     }

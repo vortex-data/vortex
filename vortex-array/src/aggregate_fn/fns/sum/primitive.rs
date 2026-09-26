@@ -43,23 +43,25 @@ fn accumulate_primitive_all(
     match inner {
         SumState::Unsigned(acc) => match_each_native_ptype!(p.ptype(),
             unsigned: |T| { Ok(sum_unsigned_all(acc, p.as_slice::<T>())) },
-            signed: |_T| { vortex_panic!("unsigned sum state with signed input") },
-            floating: |_T| { vortex_panic!("unsigned sum state with float input") }
+            signed: |_T| { vortex_panic!(AssertionFailed: "unsigned sum state with signed input") },
+            floating: |_T| { vortex_panic!(AssertionFailed: "unsigned sum state with float input") }
         ),
         SumState::Signed(acc) => match_each_native_ptype!(p.ptype(),
-            unsigned: |_T| { vortex_panic!("signed sum state with unsigned input") },
+            unsigned: |_T| { vortex_panic!(AssertionFailed: "signed sum state with unsigned input") },
             signed: |T| { Ok(sum_signed_all(acc, p.as_slice::<T>())) },
-            floating: |_T| { vortex_panic!("signed sum state with float input") }
+            floating: |_T| { vortex_panic!(AssertionFailed: "signed sum state with float input") }
         ),
         SumState::Float(acc) => match_each_native_ptype!(p.ptype(),
-            unsigned: |_T| { vortex_panic!("float sum state with unsigned input") },
-            signed: |_T| { vortex_panic!("float sum state with signed input") },
+            unsigned: |_T| { vortex_panic!(AssertionFailed: "float sum state with unsigned input") },
+            signed: |_T| { vortex_panic!(AssertionFailed: "float sum state with signed input") },
             floating: |T| {
                 sum_float_all(acc, p.as_slice::<T>(), skip_nans);
                 Ok(false)
             }
         ),
-        SumState::Decimal(_) => vortex_panic!("decimal sum state with primitive input"),
+        SumState::Decimal(_) => {
+            vortex_panic!(AssertionFailed: "decimal sum state with primitive input")
+        }
     }
 }
 
@@ -147,11 +149,11 @@ fn accumulate_primitive_valid(
                 }
                 Ok(false)
             },
-            signed: |_T| { vortex_panic!("unsigned sum state with signed input") },
-            floating: |_T| { vortex_panic!("unsigned sum state with float input") }
+            signed: |_T| { vortex_panic!(AssertionFailed: "unsigned sum state with signed input") },
+            floating: |_T| { vortex_panic!(AssertionFailed: "unsigned sum state with float input") }
         ),
         SumState::Signed(acc) => match_each_native_ptype!(p.ptype(),
-            unsigned: |_T| { vortex_panic!("signed sum state with unsigned input") },
+            unsigned: |_T| { vortex_panic!(AssertionFailed: "signed sum state with unsigned input") },
             signed: |T| {
                 let values = p.as_slice::<T>();
                 for &(start, end) in slices {
@@ -161,11 +163,11 @@ fn accumulate_primitive_valid(
                 }
                 Ok(false)
             },
-            floating: |_T| { vortex_panic!("signed sum state with float input") }
+            floating: |_T| { vortex_panic!(AssertionFailed: "signed sum state with float input") }
         ),
         SumState::Float(acc) => match_each_native_ptype!(p.ptype(),
-            unsigned: |_T| { vortex_panic!("float sum state with unsigned input") },
-            signed: |_T| { vortex_panic!("float sum state with signed input") },
+            unsigned: |_T| { vortex_panic!(AssertionFailed: "float sum state with unsigned input") },
+            signed: |_T| { vortex_panic!(AssertionFailed: "float sum state with signed input") },
             floating: |T| {
                 let values = p.as_slice::<T>();
                 for &(start, end) in slices {
@@ -174,7 +176,9 @@ fn accumulate_primitive_valid(
                 Ok(false)
             }
         ),
-        SumState::Decimal(_) => vortex_panic!("decimal sum state with primitive input"),
+        SumState::Decimal(_) => {
+            vortex_panic!(AssertionFailed: "decimal sum state with primitive input")
+        }
     }
 }
 

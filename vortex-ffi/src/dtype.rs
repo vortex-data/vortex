@@ -74,9 +74,11 @@ impl From<&DType> for vx_dtype_variant {
             DType::List(..) => vx_dtype_variant::DTYPE_LIST,
             DType::FixedSizeList(..) => vx_dtype_variant::DTYPE_FIXED_SIZE_LIST,
             DType::Struct(..) => vx_dtype_variant::DTYPE_STRUCT,
-            DType::Map(..) => vortex_panic!("Map is not supported in FFI yet"),
-            DType::Union(..) => vortex_panic!("Union is not supported in FFI yet"),
-            DType::Variant(_) => vortex_panic!("Variant is not supported in FFI yet"),
+            DType::Map(..) => vortex_panic!(NotImplemented: "Map is not supported in FFI yet"),
+            DType::Union(..) => vortex_panic!(NotImplemented: "Union is not supported in FFI yet"),
+            DType::Variant(_) => {
+                vortex_panic!(NotImplemented: "Variant is not supported in FFI yet")
+            }
             DType::Extension(_) => vx_dtype_variant::DTYPE_EXTENSION,
         }
     }
@@ -253,7 +255,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_fixed_size_list_size(dtype: *const vx_d
     let dtype_ref = vx_dtype::as_ref(dtype);
     match dtype_ref {
         DType::FixedSizeList(_, size, _) => *size,
-        _ => vortex_panic!("not a fixed-size list dtype"),
+        _ => vortex_panic!(MismatchedTypes: "not a fixed-size list dtype"),
     }
 }
 
@@ -294,7 +296,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_from_arrow_schema(
     err: *mut *mut vx_error,
 ) -> *const vx_dtype {
     try_or_default(err, || {
-        vortex_ensure!(!schema.is_null(), "null arrow schema");
+        vortex_ensure!(!schema.is_null(), InvalidArgument: "null arrow schema");
         let session = vx_session::as_ref(session);
         let ffi_schema = unsafe { ptr::replace(schema, FFI_ArrowSchema::empty()) };
         let arrow_schema = Schema::try_from(&ffi_schema)?;

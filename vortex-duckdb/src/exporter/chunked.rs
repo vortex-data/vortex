@@ -80,7 +80,7 @@ impl ColumnExporter for ChunkedExporter {
         let offset_in_chunk = offset - chunk_start;
         vortex_ensure!(
             offset + len <= chunk_end,
-            "chunked DuckDB export range {offset}..{} crosses chunk boundary at {chunk_end}",
+            InvalidArgument: "chunked DuckDB export range {offset}..{} crosses chunk boundary at {chunk_end}",
             offset + len
         );
 

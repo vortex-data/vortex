@@ -275,7 +275,7 @@ impl AggregateFnVTable for IsConstant {
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
-        vortex_bail!("IsConstant is not yet serializable");
+        vortex_bail!(NotImplemented: "IsConstant is not yet serializable");
     }
 
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
@@ -426,10 +426,10 @@ impl AggregateFnVTable for IsConstant {
                     Canonical::FixedSizeList(f) => check_fixed_size_list_constant(f, ctx)?,
                     Canonical::Null(_) => true,
                     Canonical::Union(_) => {
-                        vortex_bail!("TODO(connor)[Union]: implement IsConstant for Union arrays")
+                        vortex_bail!(NotImplemented: "TODO(connor)[Union]: implement IsConstant for Union arrays")
                     }
                     Canonical::Variant(_) => {
-                        vortex_bail!("Variant arrays don't support IsConstant")
+                        vortex_bail!(NotImplemented: "Variant arrays don't support IsConstant")
                     }
                 };
 

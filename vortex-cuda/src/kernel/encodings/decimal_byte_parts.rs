@@ -32,7 +32,7 @@ impl CudaExecute for DecimalBytePartsExecutor {
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
         let Ok(array) = array.try_downcast::<DecimalByteParts>() else {
-            vortex_bail!("cannot downcast to DecimalBytePartsArray")
+            vortex_bail!(MismatchedTypes: "cannot downcast to DecimalBytePartsArray")
         };
 
         let decimal_dtype = *array
@@ -43,7 +43,7 @@ impl CudaExecute for DecimalBytePartsExecutor {
         // Reassembling lower parts into wide decimals is not implemented on the GPU; the MSP
         // alone is not the value.
         if !array.lower_parts().is_empty() {
-            vortex_bail!("DecimalBytePartsArray with lower parts is not supported on GPU")
+            vortex_bail!(InvalidArgument: "DecimalBytePartsArray with lower parts is not supported on GPU")
         }
 
         let msp = array.msp().clone();

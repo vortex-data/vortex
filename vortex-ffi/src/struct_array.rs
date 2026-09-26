@@ -73,7 +73,7 @@ pub unsafe extern "C" fn vx_struct_column_builder_add_field(
 
         if !builder.fields.is_empty() && field.len() != builder.fields[0].len() {
             vortex_bail!(
-                "Field length mismatch: expected {}, got {}",
+                MismatchedTypes: "Field length mismatch: expected {}, got {}",
                 builder.fields[0].len(),
                 field.len()
             );

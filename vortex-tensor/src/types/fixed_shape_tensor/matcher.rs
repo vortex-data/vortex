@@ -48,7 +48,7 @@ impl Matcher for AnyFixedShapeTensor {
 
         let DType::FixedSizeList(element_dtype, list_size, _) = ext_dtype.storage_dtype() else {
             vortex_panic!(
-                "`FixedShapeTensor` type somehow did not have a `FixedSizeList` storage type"
+                AssertionFailed: "`FixedShapeTensor` type somehow did not have a `FixedSizeList` storage type"
             )
         };
 

@@ -30,9 +30,9 @@ impl<'a> TryFrom<&'a Scalar> for BoolScalar<'a> {
     type Error = VortexError;
 
     fn try_from(value: &'a Scalar) -> VortexResult<Self> {
-        value
-            .as_bool_opt()
-            .ok_or_else(|| vortex_err!("Expected bool scalar, found {}", value.dtype()))
+        value.as_bool_opt().ok_or_else(
+            || vortex_err!(MismatchedTypes: "Expected bool scalar, found {}", value.dtype()),
+        )
     }
 }
 
@@ -40,9 +40,9 @@ impl<'a> TryFrom<&'a Scalar> for PrimitiveScalar<'a> {
     type Error = VortexError;
 
     fn try_from(value: &'a Scalar) -> VortexResult<Self> {
-        value
-            .as_primitive_opt()
-            .ok_or_else(|| vortex_err!("Expected primitive scalar, found {}", value.dtype()))
+        value.as_primitive_opt().ok_or_else(
+            || vortex_err!(MismatchedTypes: "Expected primitive scalar, found {}", value.dtype()),
+        )
     }
 }
 
@@ -50,9 +50,9 @@ impl<'a> TryFrom<&'a Scalar> for DecimalScalar<'a> {
     type Error = VortexError;
 
     fn try_from(value: &'a Scalar) -> VortexResult<Self> {
-        value
-            .as_decimal_opt()
-            .ok_or_else(|| vortex_err!("Expected decimal scalar, found {}", value.dtype()))
+        value.as_decimal_opt().ok_or_else(
+            || vortex_err!(MismatchedTypes: "Expected decimal scalar, found {}", value.dtype()),
+        )
     }
 }
 
@@ -60,9 +60,9 @@ impl<'a> TryFrom<&'a Scalar> for Utf8Scalar<'a> {
     type Error = VortexError;
 
     fn try_from(value: &'a Scalar) -> VortexResult<Self> {
-        value
-            .as_utf8_opt()
-            .ok_or_else(|| vortex_err!("Expected utf8 scalar, found {}", value.dtype()))
+        value.as_utf8_opt().ok_or_else(
+            || vortex_err!(MismatchedTypes: "Expected utf8 scalar, found {}", value.dtype()),
+        )
     }
 }
 
@@ -70,9 +70,9 @@ impl<'a> TryFrom<&'a Scalar> for BinaryScalar<'a> {
     type Error = VortexError;
 
     fn try_from(value: &'a Scalar) -> VortexResult<Self> {
-        value
-            .as_binary_opt()
-            .ok_or_else(|| vortex_err!("Expected binary scalar, found {}", value.dtype()))
+        value.as_binary_opt().ok_or_else(
+            || vortex_err!(MismatchedTypes: "Expected binary scalar, found {}", value.dtype()),
+        )
     }
 }
 
@@ -80,9 +80,9 @@ impl<'a> TryFrom<&'a Scalar> for StructScalar<'a> {
     type Error = VortexError;
 
     fn try_from(value: &'a Scalar) -> VortexResult<Self> {
-        value
-            .as_struct_opt()
-            .ok_or_else(|| vortex_err!("Expected struct scalar, found {}", value.dtype()))
+        value.as_struct_opt().ok_or_else(
+            || vortex_err!(MismatchedTypes: "Expected struct scalar, found {}", value.dtype()),
+        )
     }
 }
 
@@ -90,9 +90,9 @@ impl<'a> TryFrom<&'a Scalar> for ListScalar<'a> {
     type Error = VortexError;
 
     fn try_from(value: &'a Scalar) -> VortexResult<Self> {
-        value
-            .as_list_opt()
-            .ok_or_else(|| vortex_err!("Expected list scalar, found {}", value.dtype()))
+        value.as_list_opt().ok_or_else(
+            || vortex_err!(MismatchedTypes: "Expected list scalar, found {}", value.dtype()),
+        )
     }
 }
 
@@ -100,9 +100,9 @@ impl<'a> TryFrom<&'a Scalar> for MapScalar<'a> {
     type Error = VortexError;
 
     fn try_from(value: &'a Scalar) -> VortexResult<Self> {
-        value
-            .as_map_opt()
-            .ok_or_else(|| vortex_err!("Expected map scalar, found {}", value.dtype()))
+        value.as_map_opt().ok_or_else(
+            || vortex_err!(InvalidArgument: "Expected map scalar, found {}", value.dtype()),
+        )
     }
 }
 
@@ -110,9 +110,9 @@ impl<'a> TryFrom<&'a Scalar> for ExtScalar<'a> {
     type Error = VortexError;
 
     fn try_from(value: &'a Scalar) -> VortexResult<Self> {
-        value
-            .as_extension_opt()
-            .ok_or_else(|| vortex_err!("Expected extension scalar, found {}", value.dtype()))
+        value.as_extension_opt().ok_or_else(
+            || vortex_err!(MismatchedTypes: "Expected extension scalar, found {}", value.dtype()),
+        )
     }
 }
 
@@ -126,9 +126,13 @@ impl TryFrom<&Scalar> for bool {
     fn try_from(value: &Scalar) -> VortexResult<Self> {
         value
             .as_bool_opt()
-            .ok_or_else(|| vortex_err!("Expected bool scalar, found {}", value.dtype()))?
+            .ok_or_else(
+                || vortex_err!(MismatchedTypes: "Expected bool scalar, found {}", value.dtype()),
+            )?
             .value()
-            .ok_or_else(|| vortex_err!("Can't extract present value from null scalar"))
+            .ok_or_else(
+                || vortex_err!(InvalidArgument: "Can't extract present value from null scalar"),
+            )
     }
 }
 
@@ -138,7 +142,9 @@ impl TryFrom<&Scalar> for Option<bool> {
     fn try_from(value: &Scalar) -> VortexResult<Self> {
         Ok(value
             .as_bool_opt()
-            .ok_or_else(|| vortex_err!("Expected bool scalar, found {}", value.dtype()))?
+            .ok_or_else(
+                || vortex_err!(MismatchedTypes: "Expected bool scalar, found {}", value.dtype()),
+            )?
             .value())
     }
 }
@@ -167,14 +173,13 @@ impl<'a> TryFrom<&'a Scalar> for ByteBuffer {
     type Error = VortexError;
 
     fn try_from(scalar: &'a Scalar) -> VortexResult<Self> {
-        let binary = scalar
-            .as_binary_opt()
-            .ok_or_else(|| vortex_err!("Cannot extract buffer from non-buffer scalar"))?;
+        let binary = scalar.as_binary_opt().ok_or_else(
+            || vortex_err!(MismatchedTypes: "Cannot extract buffer from non-buffer scalar"),
+        )?;
 
-        binary
-            .value()
-            .cloned()
-            .ok_or_else(|| vortex_err!("Cannot extract present value from null scalar"))
+        binary.value().cloned().ok_or_else(
+            || vortex_err!(InvalidArgument: "Cannot extract present value from null scalar"),
+        )
     }
 }
 
@@ -184,7 +189,9 @@ impl<'a> TryFrom<&'a Scalar> for Option<ByteBuffer> {
     fn try_from(scalar: &'a Scalar) -> VortexResult<Self> {
         Ok(scalar
             .as_binary_opt()
-            .ok_or_else(|| vortex_err!("Cannot extract buffer from non-buffer scalar"))?
+            .ok_or_else(
+                || vortex_err!(MismatchedTypes: "Cannot extract buffer from non-buffer scalar"),
+            )?
             .value()
             .cloned())
     }
@@ -230,8 +237,9 @@ impl<'a> TryFrom<&'a Scalar> for BufferString {
     type Error = VortexError;
 
     fn try_from(scalar: &'a Scalar) -> VortexResult<Self> {
-        <Option<BufferString>>::try_from(scalar)?
-            .ok_or_else(|| vortex_err!("Can't extract present value from null scalar"))
+        <Option<BufferString>>::try_from(scalar)?.ok_or_else(
+            || vortex_err!(InvalidArgument: "Can't extract present value from null scalar"),
+        )
     }
 }
 
@@ -249,7 +257,9 @@ impl<'a> TryFrom<&'a Scalar> for Option<BufferString> {
     fn try_from(scalar: &'a Scalar) -> Result<Self, Self::Error> {
         Ok(scalar
             .as_utf8_opt()
-            .ok_or_else(|| vortex_err!("Expected utf8 scalar, found {}", scalar.dtype()))?
+            .ok_or_else(
+                || vortex_err!(MismatchedTypes: "Expected utf8 scalar, found {}", scalar.dtype()),
+            )?
             .value()
             .cloned())
     }
@@ -287,9 +297,11 @@ where
     fn try_from(value: &'a Scalar) -> Result<Self, Self::Error> {
         value
             .as_list_opt()
-            .ok_or_else(|| vortex_err!("Expected list scalar, found {}", value.dtype()))?
+            .ok_or_else(
+                || vortex_err!(MismatchedTypes: "Expected list scalar, found {}", value.dtype()),
+            )?
             .elements()
-            .ok_or_else(|| vortex_err!("Expected non-null list"))?
+            .ok_or_else(|| vortex_err!(MismatchedTypes: "Expected non-null list"))?
             .into_iter()
             .map(|e| T::try_from(&e))
             .collect::<VortexResult<Vec<T>>>()

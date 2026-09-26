@@ -61,7 +61,7 @@ impl BlockingPool {
             })
             .is_err()
         {
-            vortex_panic!("cannot spawn blocking work on a shut down runtime");
+            vortex_panic!(InvalidArgument: "cannot spawn blocking work on a shut down runtime");
         }
         state.queued_job_count += 1;
         if state.queued_job_count > state.idle_thread_count {
@@ -83,7 +83,7 @@ impl BlockingPool {
             .spawn(move || worker_loop(receiver, worker_state))
         {
             state.thread_count -= 1;
-            vortex_panic!("failed to spawn a blocking I/O worker: {error}");
+            vortex_panic!(Io: "failed to spawn a blocking I/O worker: {error}");
         }
     }
 }
@@ -210,7 +210,7 @@ mod tests {
 
         assert_eq!(
             recv.recv_timeout(Duration::from_secs(5))
-                .map_err(|error| vortex_err!("blocking job did not finish: {error}"))?,
+                .map_err(|error| vortex_err!(Io: "blocking job did not finish: {error}"))?,
             42
         );
         Ok(())
@@ -227,7 +227,7 @@ mod tests {
         })));
         started_recv
             .recv_timeout(Duration::from_secs(5))
-            .map_err(|error| vortex_err!("first blocking job did not start: {error}"))?;
+            .map_err(|error| vortex_err!(Io: "first blocking job did not start: {error}"))?;
 
         let (ran_send, ran_recv) = mpsc::sync_channel(1);
         pool.spawn(Box::new(move || {
@@ -242,7 +242,7 @@ mod tests {
         let _ = release_send.send(());
         done_recv
             .recv_timeout(Duration::from_secs(5))
-            .map_err(|error| vortex_err!("blocking queue did not drain: {error}"))?;
+            .map_err(|error| vortex_err!(Io: "blocking queue did not drain: {error}"))?;
         assert!(ran_recv.try_recv().is_err());
         Ok(())
     }
@@ -265,7 +265,7 @@ mod tests {
         for _ in 0..2 {
             started_recv
                 .recv_timeout(Duration::from_secs(5))
-                .map_err(|error| vortex_err!("blocking job did not start: {error}"))?;
+                .map_err(|error| vortex_err!(Io: "blocking job did not start: {error}"))?;
         }
         barrier.wait();
         Ok(())
@@ -280,12 +280,12 @@ mod tests {
         })));
         let first_thread = first_recv
             .recv_timeout(Duration::from_secs(5))
-            .map_err(|error| vortex_err!("first blocking job did not finish: {error}"))?;
+            .map_err(|error| vortex_err!(Io: "first blocking job did not finish: {error}"))?;
 
         let deadline = Instant::now() + Duration::from_secs(5);
         while pool.state.lock().idle_thread_count != 1 {
             if Instant::now() >= deadline {
-                return Err(vortex_err!("blocking worker did not become idle"));
+                return Err(vortex_err!(Io: "blocking worker did not become idle"));
             }
             std::thread::yield_now();
         }
@@ -298,7 +298,7 @@ mod tests {
         })));
         let second_thread = started_recv
             .recv_timeout(Duration::from_secs(5))
-            .map_err(|error| vortex_err!("second blocking job did not finish: {error}"))?;
+            .map_err(|error| vortex_err!(Io: "second blocking job did not finish: {error}"))?;
 
         assert_eq!(first_thread, second_thread);
         let state = pool.state.lock();

@@ -481,7 +481,7 @@ mod tests {
         let waker = futures::task::noop_waker();
         let mut context = Context::from_waker(&waker);
         let Poll::Ready(Some(batch)) = batches.as_mut().poll_next(&mut context) else {
-            vortex_panic!("partial batch was not emitted by the current poll");
+            vortex_panic!(AssertionFailed: "partial batch was not emitted by the current poll");
         };
         assert_eq!(batch.len(), 1);
         assert_eq!(batch[0].offset(), 0);

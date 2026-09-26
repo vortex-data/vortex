@@ -136,7 +136,7 @@ impl StatsSet {
     pub(super) fn get_bool(&self, stat: Stat) -> Precision<bool> {
         self.get_ref(stat).map(|v| match v {
             ScalarValue::Bool(b) => *b,
-            _ => vortex_panic!("Failed to get stat {} as bool, found {}", stat, v),
+            _ => vortex_panic!(MismatchedTypes: "Failed to get stat {} as bool, found {}", stat, v),
         })
     }
 
@@ -372,7 +372,7 @@ impl MutTypedStatsSetRef<'_, '_> {
                     .intersection(&m2)
                     .vortex_expect("can always compare scalar")
                     .ok_or_else(|| {
-                        vortex_err!("{:?} bounds ({m1:?}, {m2:?}) do not overlap", S::STAT)
+                        vortex_err!(InvalidArgument: "{:?} bounds ({m1:?}, {m2:?}) do not overlap", S::STAT)
                     })?;
                 if meet != m1 {
                     self.set(
@@ -410,7 +410,7 @@ impl MutTypedStatsSetRef<'_, '_> {
                     .intersection(&m2)
                     .vortex_expect("can always compare boolean")
                     .ok_or_else(|| {
-                        vortex_err!("{:?} bounds ({m1:?}, {m2:?}) do not overlap", S::STAT)
+                        vortex_err!(InvalidArgument: "{:?} bounds ({m1:?}, {m2:?}) do not overlap", S::STAT)
                     })?;
                 if intersection != m1 {
                     self.set(S::STAT, intersection.into_value().map(ScalarValue::from));

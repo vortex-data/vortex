@@ -31,7 +31,7 @@ impl PyStructScalar {
         let scalar = self_.as_scalar_ref();
         let child = scalar
             .field(name)
-            .ok_or_else(|| vortex_err!("No field {name}"))?;
+            .ok_or_else(|| vortex_err!(NotFound: "No field {name}"))?;
         Ok(PyVortex(&child)
             .into_pyobject(self_.py())
             .map(|v| v.into())?)

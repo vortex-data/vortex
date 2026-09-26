@@ -70,7 +70,7 @@ impl VTable for Struct {
             vortex_ensure_eq!(
                 child_row_count,
                 args.row_count,
-                "Struct child {idx} row count does not match parent"
+                InvalidArgument: "Struct child {idx} row count does not match parent"
             );
         }
         Ok(())
@@ -164,12 +164,12 @@ impl Layout<Struct> {
                 continue;
             };
             let Field::Name(field_name) = field else {
-                vortex_bail!("Expected field name, got {field:?}");
+                vortex_bail!(MismatchedTypes: "Expected field name, got {field:?}");
             };
             let idx = self
                 .struct_fields()
                 .find(field_name)
-                .ok_or_else(|| vortex_err!("Field not found: {field_name}"))?;
+                .ok_or_else(|| vortex_err!(NotFound: "Field not found: {field_name}"))?;
             per_child(path.clone().step_into()?, idx)?;
         }
         Ok(())
@@ -178,9 +178,9 @@ impl Layout<Struct> {
     fn validate_children(dtype: &DType, nchildren: usize) -> VortexResult<()> {
         let fields = dtype
             .as_struct_fields_opt()
-            .ok_or_else(|| vortex_err!("Expected struct dtype"))?;
+            .ok_or_else(|| vortex_err!(MismatchedTypes: "Expected struct dtype"))?;
         let expected = fields.nfields() + usize::from(dtype.is_nullable());
-        vortex_ensure_eq!(nchildren, expected);
+        vortex_ensure_eq!(nchildren, expected, InvalidArgument);
         Ok(())
     }
 
@@ -193,7 +193,7 @@ impl Layout<Struct> {
             dtype
                 .as_struct_fields_opt()
                 .and_then(|fields| fields.field_by_index(slot - 1))
-                .ok_or_else(|| vortex_err!("Missing field {}", slot - 1))
+                .ok_or_else(|| vortex_err!(NotFound: "Missing field {}", slot - 1))
         }
     }
 }

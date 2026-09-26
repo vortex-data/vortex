@@ -107,7 +107,7 @@ impl VTable for RunEnd {
         // TODO(ctx): trait fixes - VTable::validate has a fixed signature.
         let mut ctx = legacy_session().create_execution_ctx();
         RunEndData::validate_parts(ends, values, data.offset, len, &mut ctx)?;
-        vortex_ensure_eq!(values.dtype(), dtype);
+        vortex_ensure_eq!(values.dtype(), dtype, MismatchedTypes);
         Ok(())
     }
 
@@ -116,11 +116,11 @@ impl VTable for RunEnd {
     }
 
     fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
-        vortex_panic!("RunEndArray buffer index {idx} out of bounds")
+        vortex_panic!(OutOfBounds: "RunEndArray buffer index {idx} out of bounds")
     }
 
     fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
-        vortex_panic!("RunEndArray buffer_name index {idx} out of bounds")
+        vortex_panic!(OutOfBounds: "RunEndArray buffer_name index {idx} out of bounds")
     }
 
     fn with_buffers(
@@ -304,7 +304,7 @@ impl RunEnd {
             let data = unsafe { RunEndData::new_unchecked(0) };
             Array::try_from_parts(ArrayParts::new(RunEnd, dtype, len, data, slots))
         } else {
-            vortex_bail!("REE can only encode primitive arrays")
+            vortex_bail!(MismatchedTypes: "REE can only encode primitive arrays")
         }
     }
 }
@@ -330,14 +330,14 @@ impl RunEndData {
         // DType validation
         vortex_ensure!(
             ends.dtype().is_unsigned_int(),
-            "run ends must be unsigned integers, was {}",
+            MismatchedTypes: "run ends must be unsigned integers, was {}",
             ends.dtype(),
         );
-        vortex_ensure_eq!(ends.len(), values.len());
+        vortex_ensure_eq!(ends.len(), values.len(), InvalidArgument);
 
         // Handle empty run-ends
         if ends.is_empty() {
-            vortex_ensure_eq!(offset, 0, "non-zero offset provided for empty RunEndArray");
+            vortex_ensure_eq!(offset, 0, InvalidArgument: "non-zero offset provided for empty RunEndArray");
             return Ok(());
         }
 
@@ -371,14 +371,14 @@ impl RunEndData {
         if offset != 0 && length != 0 {
             let first_run_end = usize::try_from(&ends.execute_scalar(0, ctx)?)?;
             if first_run_end < offset {
-                vortex_bail!("First run end {first_run_end} must be >= offset {offset}");
+                vortex_bail!(InvalidArgument: "First run end {first_run_end} must be >= offset {offset}");
             }
         }
 
         let last_run_end = usize::try_from(&ends.execute_scalar(ends.len() - 1, ctx)?)?;
         let min_required_end = offset + length;
         if last_run_end < min_required_end {
-            vortex_bail!("Last run end {last_run_end} must be >= offset+length {min_required_end}");
+            vortex_bail!(InvalidArgument: "Last run end {last_run_end} must be >= offset+length {min_required_end}");
         }
 
         Ok(())
@@ -439,7 +439,7 @@ impl RunEndData {
             // SAFETY: runend_encode handles this
             unsafe { Ok(Self::new_unchecked(0)) }
         } else {
-            vortex_bail!("REE can only encode primitive arrays")
+            vortex_bail!(MismatchedTypes: "REE can only encode primitive arrays")
         }
     }
 
@@ -506,7 +506,7 @@ pub(super) fn run_end_canonicalize(
                 .execute_as::<ListViewArray>("values", ctx)?;
             runend_decode_listview(pends, values, array.offset(), array.len())?.into_array()
         }
-        _ => vortex_bail!("Unsupported RunEnd value type: {}", array.dtype()),
+        _ => vortex_bail!(InvalidArgument: "Unsupported RunEnd value type: {}", array.dtype()),
     })
 }
 

@@ -105,7 +105,7 @@ impl Operator for ScanSource {
         }
         let (_, bytes) = cx
             .take_segment()
-            .ok_or_else(|| vortex_err!("Segment scan ran without its bytes"))?;
+            .ok_or_else(|| vortex_err!(AssertionFailed: "Segment scan ran without its bytes"))?;
         self.done = true;
         let array = decode(&self.plan, bytes, cx.session())?;
         Ok(Step::Final(select(

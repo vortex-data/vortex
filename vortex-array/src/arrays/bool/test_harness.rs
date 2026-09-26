@@ -31,7 +31,7 @@ impl BoolArray {
             .zip(self.to_bit_buffer().iter())
             .map(|(valid, value)| {
                 if !valid {
-                    vortex_panic!("trying to get bool values from an array with null elements")
+                    vortex_panic!(AssertionFailed: "trying to get bool values from an array with null elements")
                 }
 
                 value

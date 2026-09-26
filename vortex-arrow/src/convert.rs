@@ -342,9 +342,9 @@ where
         DataType::Date32 => TemporalArray::new_date(arr, TimeUnit::Days).into(),
         DataType::Date64 => TemporalArray::new_date(arr, TimeUnit::Milliseconds).into(),
         DataType::Duration(_) | DataType::Interval(_) => {
-            vortex_bail!("Arrow {} arrays are not supported", value.data_type())
+            vortex_bail!(InvalidArgument: "Arrow {} arrays are not supported", value.data_type())
         }
-        _ => vortex_panic!("Invalid temporal type: {}", value.data_type()),
+        _ => vortex_panic!(MismatchedTypes: "Invalid temporal type: {}", value.data_type()),
     })
 }
 
@@ -376,7 +376,7 @@ where
     let dtype = match T::DATA_TYPE {
         DataType::Binary | DataType::LargeBinary => DType::Binary(nullable.into()),
         DataType::Utf8 | DataType::LargeUtf8 => DType::Utf8(nullable.into()),
-        dt => vortex_panic!("Invalid data type for ByteArray: {dt}"),
+        dt => vortex_panic!(MismatchedTypes: "Invalid data type for ByteArray: {dt}"),
     };
     let (offsets, referenced) = trim_offsets(value.offsets());
     let bytes = value
@@ -411,7 +411,7 @@ pub fn from_arrow_byte_view<T: ByteViewType>(
     let dtype = match T::DATA_TYPE {
         DataType::BinaryView => DType::Binary(nullable.into()),
         DataType::Utf8View => DType::Utf8(nullable.into()),
-        dt => vortex_panic!("Invalid data type for ByteViewArray: {dt}"),
+        dt => vortex_panic!(MismatchedTypes: "Invalid data type for ByteViewArray: {dt}"),
     };
 
     let views_buffer = Buffer::from_byte_buffer(
@@ -490,7 +490,7 @@ pub(crate) fn remove_nulls(data: arrow_data::ArrayData) -> VortexResult<arrow_da
             vortex_ensure_eq!(
                 data.child_data().len(),
                 1,
-                "List types should have one child"
+                AssertionFailed: "List types should have one child"
             );
             Some(vec![remove_nulls(data.child_data()[0].clone())?])
         }
@@ -501,9 +501,9 @@ pub(crate) fn remove_nulls(data: arrow_data::ArrayData) -> VortexResult<arrow_da
     if let Some(children) = children {
         builder = builder.child_data(children);
     }
-    builder
-        .build()
-        .map_err(|e| vortex_err!("Failed to reconstruct Arrow array without nulls: {e}"))
+    builder.build().map_err(
+        |e| vortex_err!(InvalidArgument: "Failed to reconstruct Arrow array without nulls: {e}"),
+    )
 }
 
 /// Conversion of an Arrow struct array into a Vortex `Struct` array, converting each column.
@@ -546,7 +546,7 @@ pub fn from_arrow_list<O: IntegerPType + OffsetSizeTrait>(
     let elements_are_nullable = match value.data_type() {
         DataType::List(field) => field.is_nullable(),
         DataType::LargeList(field) => field.is_nullable(),
-        dt => vortex_panic!("Invalid data type for ListArray: {dt}"),
+        dt => vortex_panic!(MismatchedTypes: "Invalid data type for ListArray: {dt}"),
     };
 
     let (offsets, referenced) = trim_offsets(value.offsets());
@@ -578,7 +578,7 @@ pub fn from_arrow_list_view<O: OffsetSizeTrait + NativePType>(
     let elements_are_nullable = match array.data_type() {
         DataType::ListView(field) => field.is_nullable(),
         DataType::LargeListView(field) => field.is_nullable(),
-        dt => vortex_panic!("Invalid data type for ListViewArray: {dt}"),
+        dt => vortex_panic!(MismatchedTypes: "Invalid data type for ListViewArray: {dt}"),
     };
 
     let elements = from_arrow_dyn(array.values().as_ref(), elements_are_nullable)?;
@@ -603,7 +603,7 @@ pub fn from_arrow_fixed_size_list(
     nullable: bool,
 ) -> VortexResult<ArrayRef> {
     let DataType::FixedSizeList(field, list_size) = array.data_type() else {
-        vortex_panic!("Invalid data type for ListArray: {}", array.data_type());
+        vortex_panic!(MismatchedTypes: "Invalid data type for ListArray: {}", array.data_type());
     };
 
     Ok(FixedSizeListArray::try_new(
@@ -630,26 +630,26 @@ pub(crate) fn map_from_arrow_parts(
 ) -> VortexResult<ArrayRef> {
     let DType::Struct(struct_dtype, Nullability::NonNullable) = entries.dtype() else {
         vortex_bail!(
-            "Arrow map entries must import as non-nullable struct, got {}",
+            MismatchedTypes: "Arrow map entries must import as non-nullable struct, got {}",
             entries.dtype()
         );
     };
     vortex_ensure_eq!(
         struct_dtype.nfields(),
         2,
-        "Arrow map entries struct must contain exactly two fields"
+        InvalidArgument: "Arrow map entries struct must contain exactly two fields"
     );
 
     let key_dtype = struct_dtype
         .field_by_index(0)
-        .ok_or_else(|| vortex_err!("Arrow map entries struct missing key field"))?;
+        .ok_or_else(|| vortex_err!(NotFound: "Arrow map entries struct missing key field"))?;
     vortex_ensure!(
         !key_dtype.is_nullable(),
-        "Arrow map key field must be non-nullable"
+        InvalidArgument: "Arrow map key field must be non-nullable"
     );
     let value_dtype = struct_dtype
         .field_by_index(1)
-        .ok_or_else(|| vortex_err!("Arrow map entries struct missing value field"))?;
+        .ok_or_else(|| vortex_err!(NotFound: "Arrow map entries struct missing value field"))?;
     let map_dtype = MapDType::try_new(key_dtype, value_dtype, keys_sorted)?;
     let entries_struct = entries.as_::<Struct>();
     let entries = StructArray::try_new(
@@ -680,7 +680,7 @@ pub(crate) fn map_from_arrow_parts(
 /// Conversion of an Arrow map array into a Vortex `Map` array.
 pub fn from_arrow_map(array: &ArrowMapArray, nullable: bool) -> VortexResult<ArrayRef> {
     let DataType::Map(_, keys_sorted) = array.data_type() else {
-        vortex_panic!("Invalid data type for MapArray: {}", array.data_type());
+        vortex_panic!(MismatchedTypes: "Invalid data type for MapArray: {}", array.data_type());
     };
     let entries = from_arrow_struct(array.entries(), false)?;
     map_from_arrow_parts(
@@ -702,7 +702,7 @@ impl FromArrowArray<&ArrowMapArray> for ArrayRef {
 pub fn from_arrow_null(value: &ArrowNullArray, nullable: bool) -> VortexResult<ArrayRef> {
     vortex_ensure!(
         nullable,
-        "Cannot convert an Arrow NullArray into a non-nullable Vortex array"
+        InvalidArgument: "Cannot convert an Arrow NullArray into a non-nullable Vortex array"
     );
     Ok(NullArray::new(value.len()).into_array())
 }
@@ -753,7 +753,7 @@ pub fn nulls(nulls: Option<&NullBuffer>, nullable: bool) -> VortexResult<Validit
         vortex_ensure_eq!(
             null_count,
             0,
-            "Cannot convert an Arrow array containing nulls into a non-nullable Vortex array"
+            InvalidArgument: "Cannot convert an Arrow array containing nulls into a non-nullable Vortex array"
         );
         Ok(Validity::NonNullable)
     }
@@ -878,9 +878,11 @@ pub fn from_arrow_dyn(array: &dyn ArrowArray, nullable: bool) -> VortexResult<Ar
                 nullable,
             )?
             .into_array()),
-            key_dt => vortex_bail!("Unsupported dictionary key type: {key_dt}"),
+            key_dt => vortex_bail!(InvalidArgument: "Unsupported dictionary key type: {key_dt}"),
         },
-        dt => vortex_bail!("Array encoding not implemented for Arrow data type {dt}"),
+        dt => {
+            vortex_bail!(NotImplemented: "Array encoding not implemented for Arrow data type {dt}")
+        }
     }
 }
 

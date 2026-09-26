@@ -22,7 +22,7 @@ impl PyDecimalDType {
     #[getter]
     fn precision(slf: PyRef<Self>) -> PyResult<u8> {
         let DType::Decimal(decimal_dtype, _) = slf.as_ref().deref() else {
-            vortex_panic!("Not a decimal DType");
+            vortex_panic!(MismatchedTypes: "Not a decimal DType");
         };
         Ok(decimal_dtype.precision())
     }
@@ -32,7 +32,7 @@ impl PyDecimalDType {
     #[getter]
     fn scale(slf: PyRef<Self>) -> PyResult<i8> {
         let DType::Decimal(decimal_dtype, _) = slf.as_ref().deref() else {
-            vortex_panic!("Not a decimal DType");
+            vortex_panic!(MismatchedTypes: "Not a decimal DType");
         };
         Ok(decimal_dtype.scale())
     }

@@ -140,7 +140,7 @@ impl Array<ScalarFn> {
     #[inline]
     fn infer_len(slots: &[Option<ArrayRef>]) -> VortexResult<usize> {
         let Some(child) = slots.first().and_then(Option::as_ref) else {
-            vortex_bail!("ScalarFnArray length cannot be inferred without children");
+            vortex_bail!(InvalidArgument: "ScalarFnArray length cannot be inferred without children");
         };
         Ok(child.len())
     }
@@ -150,7 +150,7 @@ impl Array<ScalarFn> {
         let arity = scalar_fn.signature().arity();
         vortex_ensure!(
             arity.matches(child_count),
-            "ScalarFnArray requires {arity} children, got {child_count}"
+            InvalidArgument: "ScalarFnArray requires {arity} children, got {child_count}"
         );
         Ok(())
     }
@@ -160,7 +160,7 @@ impl Array<ScalarFn> {
         for child in slots.iter().flatten() {
             vortex_ensure!(
                 child.len() == len,
-                "ScalarFnArray must have children equal to the array length"
+                InvalidArgument: "ScalarFnArray must have children equal to the array length"
             );
         }
         Ok(())

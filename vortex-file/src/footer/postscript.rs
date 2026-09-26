@@ -116,7 +116,7 @@ impl ReadFlatBuffer for Postscript {
                 .transpose()?,
             layout: PostscriptSegment::read_flatbuffer(
                 &fb.layout()
-                    .ok_or_else(|| vortex_err!("Postscript missing layout segment"))?,
+                    .ok_or_else(|| vortex_err!(NotFound: "Postscript missing layout segment"))?,
             )?,
             statistics: fb
                 .statistics()
@@ -124,7 +124,7 @@ impl ReadFlatBuffer for Postscript {
                 .transpose()?,
             footer: PostscriptSegment::read_flatbuffer(
                 &fb.footer()
-                    .ok_or_else(|| vortex_err!("Postscript missing footer segment"))?,
+                    .ok_or_else(|| vortex_err!(Serde: "Postscript missing footer segment"))?,
             )?,
             metadata,
         })
@@ -149,7 +149,7 @@ fn validate_metadata_entries(metadata: &[PostscriptMetadata]) -> VortexResult<()
 
 fn metadata_count_error(metadata_len: usize) -> VortexError {
     vortex_err!(
-        "Postscript contains {} metadata segments, but Vortex supports at most {} metadata segments; metadata keys must be non-empty and at most {} bytes",
+        InvalidArgument: "Postscript contains {} metadata segments, but Vortex supports at most {} metadata segments; metadata keys must be non-empty and at most {} bytes",
         metadata_len,
         MAX_METADATA_SEGMENTS,
         MAX_METADATA_KEY_BYTES
@@ -158,7 +158,7 @@ fn metadata_count_error(metadata_len: usize) -> VortexError {
 
 fn duplicate_metadata_key_error(key: &str) -> VortexError {
     vortex_err!(
-        "Postscript contains duplicate metadata key {key}; metadata keys must be unique, non-empty, and at most {} bytes, and files may contain at most {} metadata segments",
+        InvalidArgument: "Postscript contains duplicate metadata key {key}; metadata keys must be unique, non-empty, and at most {} bytes, and files may contain at most {} metadata segments",
         MAX_METADATA_KEY_BYTES,
         MAX_METADATA_SEGMENTS
     )
@@ -167,7 +167,7 @@ fn duplicate_metadata_key_error(key: &str) -> VortexError {
 fn validate_metadata_key(key: &str) -> VortexResult<()> {
     if key.is_empty() {
         return Err(vortex_err!(
-            "Postscript metadata key must not be empty; metadata keys must be at most {} bytes and files may contain at most {} metadata segments",
+            InvalidArgument: "Postscript metadata key must not be empty; metadata keys must be at most {} bytes and files may contain at most {} metadata segments",
             MAX_METADATA_KEY_BYTES,
             MAX_METADATA_SEGMENTS
         ));
@@ -176,7 +176,7 @@ fn validate_metadata_key(key: &str) -> VortexResult<()> {
     let key_bytes = key.len();
     if key_bytes > MAX_METADATA_KEY_BYTES {
         return Err(vortex_err!(
-            "Postscript metadata key {key:?} is {key_bytes} bytes, but metadata keys must be at most {} bytes and files may contain at most {} metadata segments",
+            InvalidArgument: "Postscript metadata key {key:?} is {key_bytes} bytes, but metadata keys must be at most {} bytes and files may contain at most {} metadata segments",
             MAX_METADATA_KEY_BYTES,
             MAX_METADATA_SEGMENTS
         ));

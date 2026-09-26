@@ -65,7 +65,7 @@ impl CudaKernelEvents {
     pub fn duration(&self) -> VortexResult<Duration> {
         self.before_launch
             .elapsed_ms(&self.after_launch) // synchronizes
-            .map_err(|e| vortex_err!("failed to get elapsed time: {}", e))
+            .map_err(|e| vortex_err!(Io: "failed to get elapsed time: {}", e))
             .map(|f| Duration::from_secs_f32(f / 1000.0))
     }
 }
@@ -291,7 +291,7 @@ impl CudaExecutionCtx {
         }
         let host_buffer = handle
             .as_host_opt()
-            .ok_or_else(|| vortex_err!("Buffer is not on host"))?
+            .ok_or_else(|| vortex_err!(InvalidArgument: "Buffer is not on host"))?
             .clone();
         self.stream.copy_to_device(host_buffer)?.await
     }
@@ -307,7 +307,7 @@ impl CudaExecutionCtx {
         }
         let host_buffer = handle
             .as_host_opt()
-            .ok_or_else(|| vortex_err!("Buffer is not on host"))?
+            .ok_or_else(|| vortex_err!(InvalidArgument: "Buffer is not on host"))?
             .clone();
         self.stream.copy_to_device_sync(host_buffer.as_ref())
     }
@@ -343,7 +343,7 @@ impl CudaExecutionCtx {
     pub fn synchronize_stream(&self) -> VortexResult<()> {
         self.stream
             .synchronize()
-            .map_err(|e| vortex_err!("cuda error: {e}"))
+            .map_err(|e| vortex_err!(Io: "cuda error: {e}"))
     }
 }
 
@@ -398,16 +398,16 @@ pub(crate) async fn execute_validity_cuda(
         return Ok(validity);
     };
 
-    vortex_ensure_eq!(array.len(), len, "validity array length mismatch");
+    vortex_ensure_eq!(array.len(), len, InvalidArgument: "validity array length mismatch");
     vortex_ensure!(
         matches!(array.dtype(), DType::Bool(Nullability::NonNullable)),
-        "validity array must be non-nullable boolean, got {}",
+        MismatchedTypes: "validity array must be non-nullable boolean, got {}",
         array.dtype()
     );
 
     let canonical = array.execute_cuda(ctx).await?;
     let Canonical::Bool(bool_array) = canonical else {
-        vortex_bail!("CUDA validity execution produced {}", canonical.dtype());
+        vortex_bail!(MismatchedTypes: "CUDA validity execution produced {}", canonical.dtype());
     };
 
     let BoolDataParts { bits, meta } = bool_array.into_data().into_parts(len);
@@ -492,7 +492,7 @@ impl CudaArrayExt for ArrayRef {
 
         if !self.is_host() {
             vortex_bail!(
-                "GPU execution for encoding {} failed ({gpu_error}); CPU fallback with device-resident buffers is not supported",
+                InvalidArgument: "GPU execution for encoding {} failed ({gpu_error}); CPU fallback with device-resident buffers is not supported",
                 self.encoding_id()
             );
         }

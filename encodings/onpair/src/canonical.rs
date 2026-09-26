@@ -76,7 +76,9 @@ impl<'a> OnPairDecodePlan<'a> {
                 .iter()
                 .try_fold(0usize, |acc, &l| acc.checked_add(l.to_usize()?))
         })
-        .ok_or_else(|| vortex_err!("OnPair uncompressed lengths are negative or overflow"))?;
+        .ok_or_else(
+            || vortex_err!(Overflow: "OnPair uncompressed lengths are negative or overflow"),
+        )?;
 
         // `codes_offsets` holds the per-row code boundaries and may itself be a
         // sliced or filtered view of the original. Its first and last entries
@@ -92,11 +94,11 @@ impl<'a> OnPairDecodePlan<'a> {
         let code_end = code_boundary_at(codes_offsets, array.len(), ctx)?;
         vortex_ensure!(
             code_start <= code_end,
-            "OnPair codes_offsets must be nondecreasing"
+            InvalidArgument: "OnPair codes_offsets must be nondecreasing"
         );
         vortex_ensure!(
             code_end <= array.codes().len(),
-            "OnPair codes_offsets end {} exceeds codes len {}",
+            InvalidArgument: "OnPair codes_offsets end {} exceeds codes len {}",
             code_end,
             array.codes().len()
         );
@@ -104,7 +106,7 @@ impl<'a> OnPairDecodePlan<'a> {
         let n_codes = code_end - code_start;
         vortex_ensure!(
             n_codes <= total_size && total_size <= n_codes.saturating_mul(onpair::MAX_TOKEN_SIZE),
-            "OnPair recorded length {total_size} is impossible for {n_codes} codes"
+            Serde: "OnPair recorded length {total_size} is impossible for {n_codes} codes"
         );
 
         // Slice the `codes` child to that window *before* unpacking it, so a sliced
@@ -134,14 +136,14 @@ impl<'a> OnPairDecodePlan<'a> {
         let written = match onpair::try_decode_into(self.codes.as_slice(), self.dict, out) {
             Ok(written) => written,
             Err(_) => {
-                vortex_bail!("OnPair codes decode to more bytes than uncompressed_lengths records")
+                vortex_bail!(Serde: "OnPair codes decode to more bytes than uncompressed_lengths records")
             }
         };
 
         vortex_ensure_eq!(
             written,
             self.total_size,
-            "OnPair codes decoded length must match uncompressed_lengths"
+            Serde: "OnPair codes decoded length must match uncompressed_lengths"
         );
         Ok(written)
     }

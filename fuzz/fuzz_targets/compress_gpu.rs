@@ -22,7 +22,7 @@ fuzz_target!(|fuzz: FuzzCompressGpu| -> Corpus {
         Ok(true) => Corpus::Keep,
         Ok(false) => Corpus::Reject,
         Err(e) => {
-            vortex_panic!("{e}");
+            vortex_panic!(AssertionFailed: "{e}");
         }
     }
 });

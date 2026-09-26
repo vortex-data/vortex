@@ -62,7 +62,7 @@ impl SplitBy {
             SplitBy::LayoutSubSplitting { max_rows } => {
                 vortex_ensure!(
                     max_rows > 0,
-                    "SplitBy::LayoutSubSplitting requires a non-zero max_rows"
+                    InvalidArgument: "SplitBy::LayoutSubSplitting requires a non-zero max_rows"
                 );
                 subdivide_large_spans(
                     layout_boundaries(layout_reader, row_range, field_mask)?,
@@ -291,7 +291,7 @@ mod test {
             _: &BoundExpression,
             _: Mask,
         ) -> VortexResult<MaskFuture> {
-            vortex_bail!("not needed for this test")
+            vortex_bail!(NotImplemented: "not needed for this test")
         }
 
         fn filter_evaluation(
@@ -300,7 +300,7 @@ mod test {
             _: &BoundExpression,
             _: MaskFuture,
         ) -> VortexResult<MaskFuture> {
-            vortex_bail!("not needed for this test")
+            vortex_bail!(NotImplemented: "not needed for this test")
         }
 
         fn projection_evaluation(
@@ -309,7 +309,7 @@ mod test {
             _: &BoundExpression,
             _: MaskFuture,
         ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
-            vortex_bail!("not needed for this test")
+            vortex_bail!(NotImplemented: "not needed for this test")
         }
     }
 

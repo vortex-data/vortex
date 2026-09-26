@@ -47,7 +47,7 @@ impl CudaExecute for ALPExecutor {
     ) -> VortexResult<Canonical> {
         let array = array
             .try_downcast::<ALP>()
-            .map_err(|_| vortex_err!("Expected ALPArray"))?;
+            .map_err(|_| vortex_err!(InvalidArgument: "Expected ALPArray"))?;
 
         match_each_alp_float_ptype!(array.dtype().as_ptype(), |A| {
             decode_alp::<A>(array, ctx).await
@@ -66,7 +66,7 @@ where
     A::ALPInt: NativePType + DeviceRepr + Send + Sync + 'static,
 {
     let array_len = array.encoded().len();
-    vortex_ensure!(array_len > 0, "ALP array must not be empty");
+    vortex_ensure!(array_len > 0, InvalidArgument: "ALP array must not be empty");
 
     // Get the exponent factors from the lookup tables.
     let exponents = array.exponents();

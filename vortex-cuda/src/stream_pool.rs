@@ -76,7 +76,7 @@ impl VortexCudaStreamPool {
         let new_stream = self
             .context
             .new_stream()
-            .map_err(|e| vortex_err!("Failed to create CUDA stream: {}", e))?;
+            .map_err(|e| vortex_err!(Io: "Failed to create CUDA stream: {}", e))?;
 
         // Store it in the slot. If another thread raced us, that's fine -
         // we'll just use our newly created stream this time.

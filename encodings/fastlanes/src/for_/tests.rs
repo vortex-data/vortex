@@ -48,14 +48,14 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 pub(crate) fn global(array: &FoRArray) -> VortexResult<Scalar> {
     match array.references() {
         FoRReferences::Global(reference) => Ok(reference.clone()),
-        FoRReferences::Blocked(_) => vortex_bail!("expected a global reference"),
+        FoRReferences::Blocked(_) => vortex_bail!(AssertionFailed: "expected a global reference"),
     }
 }
 
 /// The blocked references of `array`.
 pub(crate) fn blocked(array: &FoRArray) -> VortexResult<ArrayRef> {
     match array.references() {
-        FoRReferences::Global(_) => vortex_bail!("expected blocked references"),
+        FoRReferences::Global(_) => vortex_bail!(AssertionFailed: "expected blocked references"),
         FoRReferences::Blocked(references) => Ok(references.clone()),
     }
 }

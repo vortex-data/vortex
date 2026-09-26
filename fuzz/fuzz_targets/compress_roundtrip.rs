@@ -14,7 +14,7 @@ fuzz_target!(|fuzz: FuzzCompressRoundtrip| -> Corpus {
         Ok(true) => Corpus::Keep,
         Ok(false) => Corpus::Reject,
         Err(e) => {
-            vortex_panic!("{e}");
+            vortex_panic!(AssertionFailed: "{e}");
         }
     }
 });

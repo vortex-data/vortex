@@ -70,7 +70,7 @@ pub(super) fn short_circuit(
 ) -> VortexResult<Option<ArrayRef>> {
     vortex_ensure!(
         !fill_value.is_null(),
-        "fill_null requires a non-null fill value"
+        InvalidArgument: "fill_null requires a non-null fill value"
     );
 
     // If the array has no nulls, fill_null is a no-op (just cast for nullability).

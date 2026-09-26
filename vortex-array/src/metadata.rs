@@ -40,7 +40,7 @@ impl DeserializeMetadata for EmptyMetadata {
 
     fn deserialize(metadata: &[u8]) -> VortexResult<Self::Output> {
         if !metadata.is_empty() {
-            vortex_bail!("EmptyMetadata should not have metadata bytes")
+            vortex_bail!(AssertionFailed: "EmptyMetadata should not have metadata bytes")
         }
         Ok(EmptyMetadata)
     }

@@ -62,7 +62,7 @@ impl<'a> BoolScalar<'a> {
     /// Returns an error if the data type is not a [`DType::Bool`].
     pub fn try_new(dtype: &'a DType, value: Option<&ScalarValue>) -> VortexResult<Self> {
         if !matches!(dtype, DType::Bool(_)) {
-            vortex_bail!("Expected bool scalar, found {}", dtype)
+            vortex_bail!(MismatchedTypes: "Expected bool scalar, found {}", dtype)
         }
         Ok(Self {
             dtype,
@@ -85,7 +85,7 @@ impl<'a> BoolScalar<'a> {
     pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
         if !matches!(dtype, DType::Bool(..)) {
             vortex_bail!(
-                "Cannot cast bool to {dtype}: boolean scalars can only be cast to boolean types with different nullability"
+                MismatchedTypes: "Cannot cast bool to {dtype}: boolean scalars can only be cast to boolean types with different nullability"
             )
         }
         Ok(Scalar::bool(

@@ -165,9 +165,9 @@ impl StructReader {
     fn field_reader(&self, item: &Item) -> VortexResult<&LayoutReaderRef> {
         let name = match item {
             Item::Validity => {
-                return self
-                    .validity()?
-                    .ok_or_else(|| vortex_err!("Non-nullable struct layout has no validity"));
+                return self.validity()?.ok_or_else(
+                    || vortex_err!(AssertionFailed: "Non-nullable struct layout has no validity"),
+                );
             }
             Item::Field(name) => name,
         };
@@ -176,7 +176,7 @@ impl StructReader {
             .as_ref()
             .and_then(|lookup| lookup.get(name).copied())
             .or_else(|| self.struct_fields().find(name))
-            .ok_or_else(|| vortex_err!("Field {} not found in struct layout", name))?;
+            .ok_or_else(|| vortex_err!(NotFound: "Field {} not found in struct layout", name))?;
         self.field_reader_by_index(idx)
     }
 
@@ -284,7 +284,7 @@ impl StructReader {
         let field_index = |name: &FieldName| {
             fields
                 .find(name)
-                .ok_or_else(|| vortex_err!("Field {name} not found in struct layout"))
+                .ok_or_else(|| vortex_err!(NotFound: "Field {name} not found in struct layout"))
         };
 
         let (names, indices) = if expr.is_root() {
@@ -320,7 +320,7 @@ impl StructReader {
             .map(|idx: usize| -> VortexResult<_> {
                 let dtype = fields
                     .field_by_index(idx)
-                    .ok_or_else(|| vortex_err!("Field index {idx} out of bounds"))?;
+                    .ok_or_else(|| vortex_err!(OutOfBounds: "Field index {idx} out of bounds"))?;
                 Ok((idx, BoundExpression::new_root(dtype)))
             })
             .try_collect()?;
@@ -426,7 +426,7 @@ fn expand_struct_root(
 
             if let Some(field_name) = scalar_fn.as_opt::<GetItem>() {
                 let idx = fields.find(field_name).ok_or_else(|| {
-                    vortex_err!("Field {field_name} not found while expanding struct root")
+                    vortex_err!(NotFound: "Field {field_name} not found while expanding struct root")
                 })?;
                 let child = packed.children()[idx].clone();
                 return Ok(Transformed {
@@ -650,7 +650,7 @@ impl LayoutReader for StructReader {
             ),
             Partitioned::Direct(_) => {
                 vortex_bail!(
-                    "Cannot evaluate struct projection {expr} as a filter over {}",
+                    NotImplemented: "Cannot evaluate struct projection {expr} as a filter over {}",
                     self.name
                 )
             }

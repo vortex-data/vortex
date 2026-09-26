@@ -27,7 +27,7 @@ impl OperationsVTable<FoR> for FoR {
         let array = state.array();
         let encoded_pvalue = state
             .slot(FoRSlots::ENCODED)?
-            .ok_or_else(|| vortex_err!("FoR encoded slot is missing"))?
+            .ok_or_else(|| vortex_err!(InvalidArgument: "FoR encoded slot is missing"))?
             .execute_scalar(index, ctx)?;
         let encoded_pvalue = encoded_pvalue.as_primitive();
         let reference = match array.references() {
@@ -36,7 +36,9 @@ impl OperationsVTable<FoR> for FoR {
                 let chunk = (usize::from(array.offset()) + index) / FL_CHUNK_SIZE;
                 state
                     .slot(FoRSlots::BLOCKED_REFERENCES)?
-                    .ok_or_else(|| vortex_err!("FoR blocked references slot is missing"))?
+                    .ok_or_else(
+                        || vortex_err!(AssertionFailed: "FoR blocked references slot is missing"),
+                    )?
                     .execute_scalar(chunk, ctx)?
             }
         };

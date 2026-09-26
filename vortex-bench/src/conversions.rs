@@ -480,7 +480,8 @@ fn wkb_field_to_little_endian(field: &ArrayRef, ctx: &mut ExecutionCtx) -> Vorte
                 return Ok(None);
             }
             let wkb = values.bytes_at(i);
-            let geometry = read_wkb(wkb.as_slice()).map_err(|e| vortex_err!("invalid WKB: {e}"))?;
+            let geometry = read_wkb(wkb.as_slice())
+                .map_err(|e| vortex_err!(InvalidArgument: "invalid WKB: {e}"))?;
             let mut encoded = Vec::with_capacity(wkb.len());
             write_geometry(
                 &mut encoded,
@@ -489,7 +490,7 @@ fn wkb_field_to_little_endian(field: &ArrayRef, ctx: &mut ExecutionCtx) -> Vorte
                     endianness: Endianness::LittleEndian,
                 },
             )
-            .map_err(|e| vortex_err!("re-encoding WKB as little-endian: {e}"))?;
+            .map_err(|e| vortex_err!(Serde: "re-encoding WKB as little-endian: {e}"))?;
             Ok(Some(encoded))
         })
         .collect::<VortexResult<_>>()?;

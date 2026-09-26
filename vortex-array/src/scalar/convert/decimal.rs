@@ -36,7 +36,7 @@ macro_rules! decimal_scalar_unpack {
                     None => None,
                     Some(DecimalValue::$arm(v)) => Some(v),
                     v => vortex_error::vortex_bail!(
-                        "Cannot extract decimal {:?} as {}",
+                        MismatchedTypes: "Cannot extract decimal {:?} as {}",
                         v,
                         stringify!($T)
                     ),
@@ -49,10 +49,10 @@ macro_rules! decimal_scalar_unpack {
 
             fn try_from(value: DecimalScalar) -> Result<Self, Self::Error> {
                 match value.decimal_value() {
-                    None => vortex_error::vortex_bail!("Cannot extract value from null decimal"),
+                    None => vortex_error::vortex_bail!(InvalidArgument: "Cannot extract value from null decimal"),
                     Some(DecimalValue::$arm(v)) => Ok(v),
                     v => vortex_error::vortex_bail!(
-                        "Cannot extract decimal {:?} as {}",
+                        MismatchedTypes: "Cannot extract decimal {:?} as {}",
                         v,
                         stringify!($T)
                     ),
@@ -96,15 +96,13 @@ impl TryFrom<&Scalar> for DecimalValue {
     type Error = VortexError;
 
     fn try_from(scalar: &Scalar) -> Result<Self, Self::Error> {
-        let decimal_scalar = scalar
-            .as_decimal_opt()
-            .ok_or_else(|| vortex_err!("Expected decimal scalar, found {}", scalar.dtype()))?;
+        let decimal_scalar = scalar.as_decimal_opt().ok_or_else(
+            || vortex_err!(MismatchedTypes: "Expected decimal scalar, found {}", scalar.dtype()),
+        )?;
 
-        decimal_scalar
-            .decimal_value()
-            .as_ref()
-            .cloned()
-            .ok_or_else(|| vortex_err!("Cannot extract DecimalValue from null decimal"))
+        decimal_scalar.decimal_value().as_ref().cloned().ok_or_else(
+            || vortex_err!(InvalidArgument: "Cannot extract DecimalValue from null decimal"),
+        )
     }
 }
 
@@ -122,7 +120,7 @@ impl TryFrom<&Scalar> for Option<DecimalValue> {
     fn try_from(scalar: &Scalar) -> Result<Self, Self::Error> {
         Ok(scalar
             .as_decimal_opt()
-            .ok_or_else(|| vortex_err!("Expected decimal scalar, found {}", scalar.dtype()))?
+            .ok_or_else(|| vortex_err!(MismatchedTypes: "Expected decimal scalar, found {}", scalar.dtype()))?
             .decimal_value())
     }
 }

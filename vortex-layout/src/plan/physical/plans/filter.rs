@@ -80,9 +80,9 @@ impl PlanVTable for Filter {
         check_child_count("Filter", children, 1)?;
         let child = children
             .get(0)?
-            .ok_or_else(|| vortex_err!("Filter child is absent"))?;
+            .ok_or_else(|| vortex_err!(AssertionFailed: "Filter child is absent"))?;
         if child.dtype() != plan.dtype() || child.row_count() != plan.row_count() {
-            vortex_bail!("Filter child does not match the filter's dtype and row count");
+            vortex_bail!(MismatchedTypes: "Filter child does not match the filter's dtype and row count");
         }
         Ok(())
     }

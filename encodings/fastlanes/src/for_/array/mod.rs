@@ -67,7 +67,9 @@ pub trait FoRArrayExt: FoRArraySlotsExt {
         match (&self.global_reference, self.blocked_references()) {
             (Some(reference), None) => FoRReferences::Global(reference),
             (None, Some(references)) => FoRReferences::Blocked(references),
-            _ => vortex_panic!("FoR array must have either a global or blocked references"),
+            _ => {
+                vortex_panic!(AssertionFailed: "FoR array must have either a global or blocked references")
+            }
         }
     }
 
@@ -98,11 +100,11 @@ impl FoRData {
     pub(crate) fn try_new(offset: u16, global_reference: Option<Scalar>) -> VortexResult<Self> {
         vortex_ensure!(
             usize::from(offset) < FL_CHUNK_SIZE,
-            "FoR offset must be less than {FL_CHUNK_SIZE}, got {offset}"
+            InvalidArgument: "FoR offset must be less than {FL_CHUNK_SIZE}, got {offset}"
         );
         vortex_ensure!(
             offset == 0 || global_reference.is_none(),
-            "FoR with a global reference must have offset 0, got {offset}"
+            InvalidArgument: "FoR with a global reference must have offset 0, got {offset}"
         );
         Ok(Self {
             offset,

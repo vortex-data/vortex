@@ -348,7 +348,7 @@ pub fn find_best_bit_width(ptype: PType, bit_width_freq: &[usize]) -> VortexResu
 )]
 fn best_bit_width(bit_width_freq: &[usize], bytes_per_exception: usize) -> VortexResult<u8> {
     if bit_width_freq.len() > u8::MAX as usize {
-        vortex_bail!("Too many bit widths");
+        vortex_bail!(Overflow: "Too many bit widths");
     }
 
     let len: usize = bit_width_freq.iter().sum();
@@ -429,7 +429,7 @@ mod test {
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::PrimitiveBuilder;
     use vortex_buffer::Buffer;
-    use vortex_error::VortexError;
+    use vortex_error::VortexErrorKind;
     use vortex_error::vortex_err;
     use vortex_session::VortexSession;
 
@@ -489,7 +489,7 @@ mod test {
 
         let err = BitPackedData::encode(&array.into_array(), 1024u32.ilog2() as u8, &mut ctx)
             .unwrap_err();
-        assert!(matches!(err, VortexError::InvalidArgument(_, _)));
+        assert_eq!(err.kind(), VortexErrorKind::InvalidArgument);
     }
 
     #[test]
@@ -542,11 +542,11 @@ mod test {
 
         let patches = bitpacked
             .patches()
-            .ok_or_else(|| vortex_err!("expected patches"))?;
+            .ok_or_else(|| vortex_err!(InvalidArgument: "expected patches"))?;
         let chunk_offsets = patches
             .chunk_offsets()
             .as_ref()
-            .ok_or_else(|| vortex_err!("expected chunk offsets"))?
+            .ok_or_else(|| vortex_err!(InvalidArgument: "expected chunk offsets"))?
             .clone()
             .execute::<PrimitiveArray>(&mut ctx)?;
 
@@ -578,11 +578,11 @@ mod test {
 
         let patches = bitpacked
             .patches()
-            .ok_or_else(|| vortex_err!("expected patches"))?;
+            .ok_or_else(|| vortex_err!(InvalidArgument: "expected patches"))?;
         let chunk_offsets = patches
             .chunk_offsets()
             .as_ref()
-            .ok_or_else(|| vortex_err!("expected chunk offsets"))?
+            .ok_or_else(|| vortex_err!(InvalidArgument: "expected chunk offsets"))?
             .clone()
             .execute::<PrimitiveArray>(&mut ctx)?;
 
@@ -610,11 +610,11 @@ mod test {
 
         let patches = bitpacked
             .patches()
-            .ok_or_else(|| vortex_err!("expected patches"))?;
+            .ok_or_else(|| vortex_err!(InvalidArgument: "expected patches"))?;
         let chunk_offsets = patches
             .chunk_offsets()
             .as_ref()
-            .ok_or_else(|| vortex_err!("expected chunk offsets"))?
+            .ok_or_else(|| vortex_err!(InvalidArgument: "expected chunk offsets"))?
             .clone()
             .execute::<PrimitiveArray>(&mut ctx)?;
 
@@ -647,11 +647,11 @@ mod test {
 
         let patches = bitpacked
             .patches()
-            .ok_or_else(|| vortex_err!("expected patches"))?;
+            .ok_or_else(|| vortex_err!(InvalidArgument: "expected patches"))?;
         let chunk_offsets = patches
             .chunk_offsets()
             .as_ref()
-            .ok_or_else(|| vortex_err!("expected chunk offsets"))?
+            .ok_or_else(|| vortex_err!(InvalidArgument: "expected chunk offsets"))?
             .clone()
             .execute::<PrimitiveArray>(&mut ctx)?;
 

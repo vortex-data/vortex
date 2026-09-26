@@ -75,7 +75,7 @@ def test_arrow_indices_apply_filter_then_limit(indexed_file):
 def test_arrow_indices_use_scan_validation(indexed_file, indices):
     file, _ = indexed_file
     indices = vx.array(pa.array(indices, type=pa.uint64()))
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ValueError):
         file.to_arrow(indices=indices)
 
 

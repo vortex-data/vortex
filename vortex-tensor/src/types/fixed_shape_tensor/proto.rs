@@ -67,7 +67,8 @@ pub(crate) fn serialize(metadata: &FixedShapeTensorMetadata) -> Vec<u8> {
 /// For 0-dimensional tensors, all three repeated fields are empty, which correctly produces a
 /// metadata with an empty shape and no names or permutation.
 pub(crate) fn deserialize(bytes: &[u8]) -> VortexResult<FixedShapeTensorMetadata> {
-    let proto = FixedShapeTensorMetadataProto::decode(bytes).map_err(|e| vortex_err!("{e}"))?;
+    let proto =
+        FixedShapeTensorMetadataProto::decode(bytes).map_err(|e| vortex_err!(Serde: "{e}"))?;
 
     let logical_shape = proto
         .logical_shape

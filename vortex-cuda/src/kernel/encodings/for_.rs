@@ -58,12 +58,13 @@ impl CudaExecute for FoRExecutor {
         array: ArrayRef,
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
-        let array = Self::try_specialize(array).ok_or_else(|| vortex_err!("Expected FoRArray"))?;
+        let array = Self::try_specialize(array)
+            .ok_or_else(|| vortex_err!(InvalidArgument: "Expected FoRArray"))?;
 
         // Per-chunk references have no CUDA kernel yet, so decode them on the CPU.
         // TODO(mk): implement CUDA FoR decoding for blocked references.
         let FoRReferences::Global(reference) = array.references() else {
-            vortex_bail!("CUDA FoR decoding requires a global reference")
+            vortex_bail!(NotImplemented: "CUDA FoR decoding requires a global reference")
         };
         let reference = reference.clone();
 
@@ -105,10 +106,10 @@ where
     P: NativePType + DeviceRepr + Send + Sync + 'static,
 {
     let array_len = array.encoded().len();
-    vortex_ensure!(array_len > 0, "FoR encoded array must not be empty");
+    vortex_ensure!(array_len > 0, InvalidArgument: "FoR encoded array must not be empty");
 
     let FoRReferences::Global(reference) = array.references() else {
-        vortex_bail!("CUDA FoR decoding requires a global reference")
+        vortex_bail!(NotImplemented: "CUDA FoR decoding requires a global reference")
     };
     let reference: P = reference
         .as_primitive()

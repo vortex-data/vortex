@@ -140,7 +140,7 @@ pub(crate) mod tests {
             }
             std::thread::sleep(Duration::from_millis(10));
         }
-        vortex_bail!("JNI global reference leaked: weak reference still has a referent")
+        vortex_bail!(AssertionFailed: "JNI global reference leaked: weak reference still has a referent")
     }
 
     #[test]

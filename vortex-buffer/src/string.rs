@@ -82,7 +82,7 @@ impl TryFrom<ByteBuffer> for BufferString {
             )]
             // run validation using `compat` package to get more detailed error message
             let err = simdutf8::compat::from_utf8(value.as_ref()).unwrap_err();
-            vortex_err!("invalid utf-8: {err}")
+            vortex_err!(InvalidArgument: "invalid utf-8: {err}")
         })?;
 
         Ok(Self(value))
@@ -100,7 +100,7 @@ impl TryFrom<&[u8]> for BufferString {
             )]
             // run validation using `compat` package to get more detailed error message
             let err = simdutf8::compat::from_utf8(value).unwrap_err();
-            vortex_err!("invalid utf-8: {err}")
+            vortex_err!(InvalidArgument: "invalid utf-8: {err}")
         })?;
 
         Ok(Self(ByteBuffer::from(value.to_vec())))

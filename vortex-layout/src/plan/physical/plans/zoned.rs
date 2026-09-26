@@ -309,11 +309,11 @@ impl PlanVTable for Zoned {
         }
 
         check_child_count("Zoned", children, 2)?;
-        let data = children
-            .get(DATA)?
-            .ok_or_else(|| vortex_error::vortex_err!("Zoned data child is absent"))?;
+        let data = children.get(DATA)?.ok_or_else(
+            || vortex_error::vortex_err!(AssertionFailed: "Zoned data child is absent"),
+        )?;
         if data.dtype() != plan.dtype() || data.row_count() != plan.row_count() {
-            vortex_error::vortex_bail!("Zoned data child shape does not match the plan output");
+            vortex_error::vortex_bail!(MismatchedTypes: "Zoned data child shape does not match the plan output");
         }
         Ok(())
     }
@@ -344,7 +344,7 @@ impl PlanVTable for Zoned {
     ) -> VortexResult<Option<Chain>> {
         if !plan.is_pruning() {
             let Some(data) = plan.data_plan()? else {
-                vortex_bail!("Zoned plan has no data child");
+                vortex_bail!(AssertionFailed: "Zoned plan has no data child");
             };
             return compiler.compile(&data, rows, mask);
         }
@@ -353,7 +353,7 @@ impl PlanVTable for Zoned {
         }
         let expression = plan
             .pruning_expression()
-            .ok_or_else(|| vortex_err!("Zoned pruning plan has no expression"))?;
+            .ok_or_else(|| vortex_err!(AssertionFailed: "Zoned pruning plan has no expression"))?;
         if let Some(pruned) = pruned_zones(plan)?.get(expression, compiler.session())? {
             return Ok(Some(Chain::new(OnceSource::new(expand_zones(
                 plan, &rows, mask, &pruned,
@@ -363,7 +363,7 @@ impl PlanVTable for Zoned {
         let count = usize::try_from(zones.row_count())?;
         let Some(chain) = compiler.compile(&zones, 0..zones.row_count(), &Mask::new_true(count))?
         else {
-            vortex_bail!("Zoned pruning plan has an empty zone table");
+            vortex_bail!(AssertionFailed: "Zoned pruning plan has an empty zone table");
         };
         let zoned = plan.clone();
         let mask = mask.clone();
@@ -394,7 +394,7 @@ impl PlanVTable for Zoned {
 /// The per-zone results kept on a pruning `plan`.
 fn pruned_zones(plan: &ZonedPlan) -> VortexResult<&Arc<PrunedZones>> {
     plan.pruned_zones()
-        .ok_or_else(|| vortex_err!("Zone pruning needs a pruning plan"))
+        .ok_or_else(|| vortex_err!(AssertionFailed: "Zone pruning needs a pruning plan"))
 }
 
 /// Builds the zone map from the zone table and proves the expression over it, one value per
@@ -404,7 +404,7 @@ fn prune_zones(plan: &ZonedPlan, session: &VortexSession, table: ArrayRef) -> Vo
     let (Some(expression), Some(column_dtype)) =
         (plan.pruning_expression(), plan.pruning_column_dtype())
     else {
-        vortex_bail!("Zone pruning needs a pruning plan");
+        vortex_bail!(AssertionFailed: "Zone pruning needs a pruning plan");
     };
     let zone_map = ZoneMap::try_new(
         column_dtype.clone(),

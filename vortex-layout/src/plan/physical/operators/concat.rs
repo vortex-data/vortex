@@ -48,11 +48,9 @@ impl Operator for ConcatSource {
         Ok(if self.current == self.inlets {
             Step::End
         } else {
-            Step::Final(
-                cx.inlet(self.current)
-                    .take()
-                    .ok_or_else(|| vortex_err!("Concat computed before its inlet was ready"))?,
-            )
+            Step::Final(cx.inlet(self.current).take().ok_or_else(
+                || vortex_err!(AssertionFailed: "Concat computed before its inlet was ready"),
+            )?)
         })
     }
 }

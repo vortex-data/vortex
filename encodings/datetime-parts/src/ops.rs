@@ -29,13 +29,13 @@ impl OperationsVTable<DateTimeParts> for DateTimeParts {
         let array = state.array();
         let DType::Extension(ext) = array.dtype().clone() else {
             vortex_panic!(
-                "DateTimePartsArray must have extension dtype, found {}",
+                MismatchedTypes: "DateTimePartsArray must have extension dtype, found {}",
                 array.dtype()
             );
         };
 
         let Some(options) = ext.metadata_opt::<Timestamp>() else {
-            vortex_panic!(Compute: "must decode TemporalMetadata from extension metadata");
+            vortex_panic!(Serde: "must decode TemporalMetadata from extension metadata");
         };
 
         if !state.is_valid(index, ctx)? {
@@ -87,7 +87,7 @@ fn part_at(
 ) -> VortexResult<i32> {
     Ok(state
         .slot(slot)?
-        .ok_or_else(|| vortex_err!("DateTimeParts {name} slot is missing"))?
+        .ok_or_else(|| vortex_err!(InvalidArgument: "DateTimeParts {name} slot is missing"))?
         .execute_scalar(index, ctx)?
         .as_primitive()
         .as_::<i32>()

@@ -277,7 +277,7 @@ impl<'a> GnomADBuilder<'a> {
         self.POS_builder.append_value(
             record
                 .variant_start()
-                .ok_or_else(|| vortex_err!("pos must not be null"))??
+                .ok_or_else(|| vortex_err!(InvalidArgument: "pos must not be null"))??
                 .get() as u64,
         );
         self.ID_builder.append_value(record.ids().as_ref());
@@ -341,7 +341,7 @@ impl<'a> GnomADBuilder<'a> {
                         .SB_builder
                         .values()
                         .append_option(parse_list_int32_format(value)?),
-                    _ => vortex_bail!("unknown field {field}"),
+                    _ => vortex_bail!(NotFound: "unknown field {field}"),
                 }
             }
         }

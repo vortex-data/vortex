@@ -28,7 +28,7 @@ impl BooleanKernel for Bool {
             let rhs = rhs
                 .scalar()
                 .as_bool_opt()
-                .ok_or_else(|| vortex_err!("expected boolean scalar"))?;
+                .ok_or_else(|| vortex_err!(MismatchedTypes: "expected boolean scalar"))?;
             return kleene_boolean_buffer_scalar(
                 lhs.to_bit_buffer(),
                 lhs.validity()?,

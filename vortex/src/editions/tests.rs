@@ -404,7 +404,7 @@ async fn disabling_editions_allows_uneditioned_components() -> VortexResult<()> 
         .await
         .err()
         .ok_or_else(|| {
-            vortex_err!("writer with no enabled editions accepted an extension dtype")
+            vortex_err!(AssertionFailed: "writer with no enabled editions accepted an extension dtype")
         })?;
     assert!(
         error
@@ -530,10 +530,9 @@ async fn writer_restricts_layouts_to_the_enabled_editions() -> VortexResult<()> 
 
     // Dropping one of them fails the write at the layout it may not emit.
     let session = session_declaring(&members[1..])?;
-    let error = write_with(&session, array)
-        .await
-        .err()
-        .ok_or_else(|| vortex_err!("write emitted layout {} outside its edition", written[0]))?;
+    let error = write_with(&session, array).await.err().ok_or_else(
+        || vortex_err!(AssertionFailed: "write emitted layout {} outside its edition", written[0]),
+    )?;
     assert!(
         error.to_string().contains("not permitted by ctx"),
         "unexpected error: {error}"
@@ -587,7 +586,7 @@ async fn explicit_btrblocks_strategy_is_not_reconfigured() -> VortexResult<()> {
         )
         .await
         .err()
-        .ok_or_else(|| vortex_err!("explicit BtrBlocks strategy was unexpectedly reconfigured"))?;
+        .ok_or_else(|| vortex_err!(AssertionFailed: "explicit BtrBlocks strategy was unexpectedly reconfigured"))?;
     assert!(
         error
             .to_string()
@@ -618,7 +617,9 @@ async fn serialization_context_rejects_unsupported_compressor_output() -> Vortex
         )
         .await
         .err()
-        .ok_or_else(|| vortex_err!("Sequence unexpectedly had a permitted wire variant"))?;
+        .ok_or_else(
+            || vortex_err!(AssertionFailed: "Sequence unexpectedly had a permitted wire variant"),
+        )?;
     assert!(
         error
             .to_string()

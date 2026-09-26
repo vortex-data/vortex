@@ -77,7 +77,7 @@ impl TryFrom<u32> for HashFn {
     fn try_from(value: u32) -> Result<Self, Self::Error> {
         match value {
             0 => Ok(Self::XxHash3_64),
-            _ => Err(vortex_err!("unknown bloom hash function ID: {value}")),
+            _ => Err(vortex_err!(NotFound: "unknown bloom hash function ID: {value}")),
         }
     }
 }

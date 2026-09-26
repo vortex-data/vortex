@@ -17,10 +17,9 @@ impl AggregateFnRef {
     ///
     /// Note: the serialization format is not stable and may change between versions.
     pub fn serialize_proto(&self) -> VortexResult<pb::AggregateFn> {
-        let metadata = self
-            .options()
-            .serialize()?
-            .ok_or_else(|| vortex_err!("Aggregate function '{}' is not serializable", self.id()))?;
+        let metadata = self.options().serialize()?.ok_or_else(
+            || vortex_err!(Serde: "Aggregate function '{}' is not serializable", self.id()),
+        )?;
 
         Ok(pb::AggregateFn {
             id: self.id().to_string(),
@@ -42,12 +41,12 @@ impl AggregateFnRef {
         } else if session.allows_unknown() {
             new_foreign_aggregate_fn(agg_fn_id, proto.metadata().to_vec())
         } else {
-            return Err(vortex_err!("unknown aggregate function id: {}", proto.id));
+            return Err(vortex_err!(NotFound: "unknown aggregate function id: {}", proto.id));
         };
 
         if agg_fn.id() != agg_fn_id {
             vortex_bail!(
-                "Aggregate function ID mismatch: expected {}, got {}",
+                MismatchedTypes: "Aggregate function ID mismatch: expected {}, got {}",
                 agg_fn_id,
                 agg_fn.id()
             );
@@ -144,7 +143,7 @@ mod tests {
             _args: AggregateArgs<'_, Self::Options>,
             _partial: &Self::Partial,
         ) -> VortexResult<Scalar> {
-            vortex_panic!("TestAgg is for serde tests only");
+            vortex_panic!(NotImplemented: "TestAgg is for serde tests only");
         }
 
         fn is_saturated(
@@ -178,7 +177,7 @@ mod tests {
             _args: AggregateArgs<'_, Self::Options>,
             _partial: &Self::Partial,
         ) -> VortexResult<Scalar> {
-            vortex_panic!("TestAgg is for serde tests only");
+            vortex_panic!(NotImplemented: "TestAgg is for serde tests only");
         }
     }
 

@@ -56,17 +56,17 @@ impl MaskedData {
         validity: Validity,
     ) -> VortexResult<Self> {
         if matches!(validity, Validity::NonNullable) {
-            vortex_bail!("MaskedArray must have nullable validity, got {validity:?}")
+            vortex_bail!(InvalidArgument: "MaskedArray must have nullable validity, got {validity:?}")
         }
 
         if !child_all_valid {
-            vortex_bail!("MaskedArray children must not have nulls");
+            vortex_bail!(InvalidArgument: "MaskedArray children must not have nulls");
         }
 
         if let Some(validity_len) = validity.maybe_len()
             && validity_len != child_len
         {
-            vortex_bail!("Validity must be the same length as a MaskedArray's child");
+            vortex_bail!(InvalidArgument: "Validity must be the same length as a MaskedArray's child");
         }
 
         // MaskedArray's nullability is determined solely by its validity, not the child's dtype.

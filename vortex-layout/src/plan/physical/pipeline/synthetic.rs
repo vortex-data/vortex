@@ -194,7 +194,7 @@ impl Operator for RowSource {
         if self.waiting {
             self.waiting = false;
             cx.take_segment()
-                .ok_or_else(|| vortex_err!("RowSource ran without its bytes"))?;
+                .ok_or_else(|| vortex_err!(AssertionFailed: "RowSource ran without its bytes"))?;
         }
         if self.remaining.is_empty() {
             return Ok(Step::End);

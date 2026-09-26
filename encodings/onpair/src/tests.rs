@@ -47,7 +47,7 @@ fn compress_onpair(
     onpair_compress(array, DEFAULT_CONFIG, ctx)?
         .try_downcast::<OnPair>()
         .map_err(|array| {
-            vortex_error::vortex_err!("expected OnPair array, got {}", array.encoding_id())
+            vortex_error::vortex_err!(MismatchedTypes: "expected OnPair array, got {}", array.encoding_id())
         })
 }
 
@@ -433,7 +433,7 @@ fn test_onpair_filter_shares_dict() -> vortex_error::VortexResult<()> {
     );
     let typed = filtered
         .try_downcast::<OnPair>()
-        .map_err(|_| vortex_error::vortex_err!("filter result was not OnPair"))?;
+        .map_err(|_| vortex_error::vortex_err!(AssertionFailed: "filter result was not OnPair"))?;
     // Dict must be byte-identical with the input — no retrain, no copy.
     assert_eq!(typed.dict_bytes().as_slice(), dict_bytes_before.as_slice());
     assert_eq!(typed.dict_offsets().len(), dict_offsets_len_before);
@@ -539,7 +539,7 @@ fn test_onpair_filter_with_narrowed_codes_offsets_u16() -> vortex_error::VortexR
         .expect("OnPair filter must return Some");
     let typed = filtered
         .try_downcast::<OnPair>()
-        .map_err(|_| vortex_error::vortex_err!("filter result was not OnPair"))?;
+        .map_err(|_| vortex_error::vortex_err!(AssertionFailed: "filter result was not OnPair"))?;
     assert_eq!(typed.len(), expected.len());
 
     let canonical = typed.into_array().execute::<VarBinViewArray>(&mut ctx)?;
@@ -691,7 +691,7 @@ fn test_onpair_take_shares_dict() -> vortex_error::VortexResult<()> {
         .expect("OnPair take must return Some");
     let typed = taken
         .try_downcast::<OnPair>()
-        .map_err(|_| vortex_error::vortex_err!("take result was not OnPair"))?;
+        .map_err(|_| vortex_error::vortex_err!(AssertionFailed: "take result was not OnPair"))?;
     assert_eq!(typed.dict_bytes().as_slice(), arr.dict_bytes().as_slice());
     assert_eq!(typed.dict_offsets().len(), arr.dict_offsets().len());
 

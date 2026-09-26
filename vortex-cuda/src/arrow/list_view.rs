@@ -177,7 +177,7 @@ where
     let value_width = values_ptype.byte_width();
     let output_values_bytes = total_values
         .checked_mul(value_width)
-        .ok_or_else(|| vortex_err!("rebuilt list child byte length overflow"))?;
+        .ok_or_else(|| vortex_err!(Overflow: "rebuilt list child byte length overflow"))?;
 
     let output_values = gather_rebuilt_primitive_values::<O, S>(
         &offsets,
@@ -203,7 +203,7 @@ fn new_list_view_status(ctx: &mut CudaExecutionCtx) -> VortexResult<CudaSlice<u3
     let mut status = ctx.device_alloc::<u32>(1)?;
     ctx.stream()
         .memset_zeros(&mut status)
-        .map_err(|err| vortex_err!("Failed to zero list-view rebuild status buffer: {err}"))?;
+        .map_err(|err| vortex_err!(Io: "Failed to zero list-view rebuild status buffer: {err}"))?;
     Ok(status)
 }
 
@@ -212,19 +212,19 @@ fn check_list_view_rebuild_status(
     status: &CudaSlice<u32>,
     ctx: &CudaExecutionCtx,
 ) -> VortexResult<()> {
-    let status = ctx
-        .stream()
-        .clone_dtoh(status)
-        .map_err(|err| vortex_err!("Failed to copy list-view rebuild status to host: {err}"))?[0];
+    let status =
+        ctx.stream().clone_dtoh(status).map_err(
+            |err| vortex_err!(Io: "Failed to copy list-view rebuild status to host: {err}"),
+        )?[0];
     match status {
         0 => Ok(()),
         1 => vortex_bail!(
-            "cannot export device-resident ListViewArray as Arrow List: offsets/sizes are invalid for the child elements"
+            InvalidArgument: "cannot export device-resident ListViewArray as Arrow List: offsets/sizes are invalid for the child elements"
         ),
         2 => vortex_bail!(
-            "cannot export device-resident ListViewArray as Arrow List: offsets exceed i32 range required by cuDF"
+            Overflow: "cannot export device-resident ListViewArray as Arrow List: offsets exceed i32 range required by cuDF"
         ),
-        status => vortex_bail!("unexpected list-view rebuild status {status}"),
+        status => vortex_bail!(AssertionFailed: "unexpected list-view rebuild status {status}"),
     }
 }
 
@@ -366,7 +366,7 @@ async fn export_rebuilt_dict_list_view(
     let canonical_codes = parts.codes.execute_cuda(ctx).await?;
     let Canonical::Primitive(codes) = canonical_codes else {
         vortex_bail!(
-            "cannot export non-contiguous device-resident ListViewArray with dictionary codes of {}: GPU child rebuild only supports primitive dictionary codes",
+            NotImplemented: "cannot export non-contiguous device-resident ListViewArray with dictionary codes of {}: GPU child rebuild only supports primitive dictionary codes",
             canonical_codes.dtype()
         );
     };
@@ -412,7 +412,7 @@ async fn export_rebuilt_primitive_list_view(
     let canonical_elements = elements.execute_cuda(ctx).await?;
     let Canonical::Primitive(elements) = canonical_elements else {
         vortex_bail!(
-            "cannot export non-contiguous device-resident ListViewArray with {} child: GPU child rebuild only supports primitive children",
+            NotImplemented: "cannot export non-contiguous device-resident ListViewArray with {} child: GPU child rebuild only supports primitive children",
             canonical_elements.dtype()
         );
     };
@@ -463,7 +463,7 @@ async fn rebuild_primitive_list_view_child(
 
     vortex_ensure!(
         validity.execute_no_nulls(elements_len, ctx.execution_ctx())?,
-        "cannot export non-contiguous device-resident ListViewArray with nullable {child_name}: GPU child validity rebuild is not implemented"
+        NotImplemented: "cannot export non-contiguous device-resident ListViewArray with nullable {child_name}: GPU child validity rebuild is not implemented"
     );
 
     let values_buffer = ctx.ensure_on_device(buffer).await?;
@@ -496,11 +496,11 @@ async fn primitive_device_buffer(
 ) -> VortexResult<(PType, BufferHandle)> {
     let canonical = array.execute_cuda(ctx).await?;
     let Canonical::Primitive(primitive) = canonical else {
-        vortex_bail!("{name} must be primitive, got {}", canonical.dtype());
+        vortex_bail!(MismatchedTypes: "{name} must be primitive, got {}", canonical.dtype());
     };
 
     let PrimitiveDataParts { ptype, buffer, .. } = primitive.into_data_parts();
-    vortex_ensure!(ptype.is_int(), "{name} must have integer type, got {ptype}");
+    vortex_ensure!(ptype.is_int(), MismatchedTypes: "{name} must have integer type, got {ptype}");
 
     Ok((ptype, ctx.ensure_on_device(buffer).await?))
 }
@@ -536,18 +536,20 @@ where
             .arg(&list_len_u64);
     })?;
 
-    let status = ctx
-        .stream()
-        .clone_dtoh(&status)
-        .map_err(|err| vortex_err!("Failed to copy list-view offsets status to host: {err}"))?[0];
+    let status =
+        ctx.stream().clone_dtoh(&status).map_err(
+            |err| vortex_err!(Io: "Failed to copy list-view offsets status to host: {err}"),
+        )?[0];
     match status {
         0 => Ok(DeviceListViewOffsets::Contiguous(BufferHandle::new_device(
             Arc::new(CudaDeviceBuffer::new(output)),
         ))),
         1 => Ok(DeviceListViewOffsets::RequiresRebuild),
         2 => vortex_bail!(
-            "cannot export device-resident ListViewArray as Arrow List: offsets exceed i32 range required by cuDF"
+            Overflow: "cannot export device-resident ListViewArray as Arrow List: offsets exceed i32 range required by cuDF"
         ),
-        status => vortex_bail!("unexpected list-view offsets kernel status {status}"),
+        status => {
+            vortex_bail!(AssertionFailed: "unexpected list-view offsets kernel status {status}")
+        }
     }
 }

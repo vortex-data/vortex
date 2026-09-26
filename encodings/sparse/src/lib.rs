@@ -224,14 +224,14 @@ impl VTable for Sparse {
                     ScalarValue::to_proto_bytes::<Vec<u8>>(array.fill_value.value()).into();
                 BufferHandle::new_host(fill_value_buffer)
             }
-            _ => vortex_panic!("SparseArray buffer index {idx} out of bounds"),
+            _ => vortex_panic!(OutOfBounds: "SparseArray buffer index {idx} out of bounds"),
         }
     }
 
     fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
         match idx {
             0 => Some("fill_value".to_string()),
-            _ => vortex_panic!("SparseArray buffer_name index {idx} out of bounds"),
+            _ => vortex_panic!(OutOfBounds: "SparseArray buffer_name index {idx} out of bounds"),
         }
     }
 
@@ -268,14 +268,14 @@ impl VTable for Sparse {
         // Once we have the patches metadata, we need to get the fill value from the buffers.
 
         if buffers.len() != 1 {
-            vortex_bail!("Expected 1 buffer, got {}", buffers.len());
+            vortex_bail!(InvalidArgument: "Expected 1 buffer, got {}", buffers.len());
         }
         let scalar_bytes: &[u8] = &buffers[0].clone().try_to_host_sync()?;
 
         let scalar_value = ScalarValue::from_proto_bytes(scalar_bytes, dtype, session)?;
         let fill_value = Scalar::try_new(dtype.clone(), scalar_value)?;
 
-        vortex_ensure_eq!(children.len(), 2, "SparseArray expects 2 children");
+        vortex_ensure_eq!(children.len(), 2, InvalidArgument: "SparseArray expects 2 children");
 
         let patch_indices = children.get(
             0,
@@ -428,7 +428,7 @@ impl Sparse {
         vortex_ensure_eq!(
             values.dtype(),
             &dtype,
-            "sparse values dtype must match fill value dtype"
+            MismatchedTypes: "sparse values dtype must match fill value dtype"
         );
         let patches = Patches::new(len, 0, indices, values, None)?;
         let slots = SparseData::make_slots(&patches);
@@ -477,9 +477,9 @@ impl SparseData {
         dtype: &DType,
         len: usize,
     ) -> VortexResult<()> {
-        vortex_ensure_eq!(fill_value.dtype(), dtype);
-        vortex_ensure_eq!(patches.array_len(), len);
-        vortex_ensure_eq!(patches.values().dtype(), dtype);
+        vortex_ensure_eq!(fill_value.dtype(), dtype, MismatchedTypes);
+        vortex_ensure_eq!(patches.array_len(), len, InvalidArgument);
+        vortex_ensure_eq!(patches.values().dtype(), dtype, MismatchedTypes);
         Ok(())
     }
 
@@ -505,7 +505,11 @@ impl SparseData {
     /// Patch values must already match the fill dtype; callers are expected to construct patches
     /// with the correct dtype rather than relying on this to normalize them.
     fn from_patches(patches: &Patches, fill_value: Scalar) -> VortexResult<Self> {
-        vortex_ensure_eq!(patches.values().dtype(), fill_value.dtype());
+        vortex_ensure_eq!(
+            patches.values().dtype(),
+            fill_value.dtype(),
+            MismatchedTypes
+        );
         Ok(Self::from_patches_unchecked(patches, fill_value))
     }
 
@@ -559,7 +563,7 @@ impl SparseData {
             && !array.dtype().eq_ignore_nullability(fill_value.dtype())
         {
             vortex_bail!(
-                "Array and fill value types must have the same base type. got {} and {}",
+                MismatchedTypes: "Array and fill value types must have the same base type. got {} and {}",
                 array.dtype(),
                 fill_value.dtype()
             )

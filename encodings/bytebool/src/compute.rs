@@ -129,7 +129,7 @@ impl BooleanKernel for ByteBool {
             let rhs = rhs
                 .scalar()
                 .as_bool_opt()
-                .ok_or_else(|| vortex_err!("expected boolean scalar"))?;
+                .ok_or_else(|| vortex_err!(MismatchedTypes: "expected boolean scalar"))?;
             return kleene_boolean_buffer_scalar(
                 lhs_values,
                 lhs.validity()?,
@@ -283,7 +283,9 @@ mod tests {
 
         let and_result =
             <ByteBool as BooleanKernel>::boolean(lhs.as_view(), &rhs, Operator::And, &mut ctx)?
-                .ok_or_else(|| vortex_err!("ByteBool should handle ByteBool boolean AND"))?;
+                .ok_or_else(
+                    || vortex_err!(AssertionFailed: "ByteBool should handle ByteBool boolean AND"),
+                )?;
         assert_arrays_eq!(
             and_result,
             BoolArray::from_iter([Some(false), None, None, Some(false), None]),
@@ -292,7 +294,9 @@ mod tests {
 
         let or_result =
             <ByteBool as BooleanKernel>::boolean(lhs.as_view(), &rhs, Operator::Or, &mut ctx)?
-                .ok_or_else(|| vortex_err!("ByteBool should handle ByteBool boolean OR"))?;
+                .ok_or_else(
+                    || vortex_err!(AssertionFailed: "ByteBool should handle ByteBool boolean OR"),
+                )?;
         assert_arrays_eq!(
             or_result,
             BoolArray::from_iter([None, Some(true), Some(true), Some(false), None]),

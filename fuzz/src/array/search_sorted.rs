@@ -122,11 +122,11 @@ pub fn search_sorted_canonical_array(
                     .decimal_value()
                     .map(|v| {
                         v.cast::<D>().ok_or_else(|| {
-                            vortex_err!("cannot cast value {v} to decimal value type {d}")
+                            vortex_err!(MismatchedTypes: "cannot cast value {v} to decimal value type {d}")
                         })
                     })
                     .transpose()?
-                    .ok_or_else(|| vortex_err!("unexpected null scalar"))?;
+                    .ok_or_else(|| vortex_err!(AssertionFailed: "unexpected null scalar"))?;
                 Ok(linear_search(
                     opt_values.iter().map(|value| value.cmp(&Some(to_find))),
                     side,

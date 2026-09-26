@@ -116,13 +116,13 @@ where
                         if valid {
                             let s = offsets[idx + start].to_usize().ok_or_else(|| {
                                 vortex_err!(
-                                    "Failed to convert offset to usize: {}",
+                                    Overflow: "Failed to convert offset to usize: {}",
                                     offsets[idx + start]
                                 )
                             })?;
                             let e = offsets[idx + start + 1].to_usize().ok_or_else(|| {
                                 vortex_err!(
-                                    "Failed to convert offset to usize: {}",
+                                    Overflow: "Failed to convert offset to usize: {}",
                                     offsets[idx + start + 1]
                                 )
                             })?;
@@ -150,12 +150,12 @@ where
     B: OffsetBuilderPType,
     usize: AsPrimitive<B>,
 {
-    let offset_start = offsets[start]
-        .to_usize()
-        .ok_or_else(|| vortex_err!("Failed to convert offset to usize: {}", offsets[start]))?;
-    let offset_end = offsets[end]
-        .to_usize()
-        .ok_or_else(|| vortex_err!("Failed to convert offset to usize: {}", offsets[end]))?;
+    let offset_start = offsets[start].to_usize().ok_or_else(
+        || vortex_err!(Overflow: "Failed to convert offset to usize: {}", offsets[start]),
+    )?;
+    let offset_end = offsets[end].to_usize().ok_or_else(
+        || vortex_err!(Overflow: "Failed to convert offset to usize: {}", offsets[end]),
+    )?;
     let new_data = &data[offset_start..offset_end];
     let new_offsets = offsets[start..end + 1]
         .iter()
@@ -199,12 +199,12 @@ fn filter_select_var_bin_by_index_primitive_offset<O: IntegerPType, B: OffsetBui
     allocator: &BufferAllocatorRef,
 ) -> VortexResult<VarBinArray> {
     let value_at = |idx: usize| -> VortexResult<&[u8]> {
-        let start = offsets[idx]
-            .to_usize()
-            .ok_or_else(|| vortex_err!("Failed to convert offset to usize: {}", offsets[idx]))?;
-        let end = offsets[idx + 1].to_usize().ok_or_else(|| {
-            vortex_err!("Failed to convert offset to usize: {}", offsets[idx + 1])
-        })?;
+        let start = offsets[idx].to_usize().ok_or_else(
+            || vortex_err!(Overflow: "Failed to convert offset to usize: {}", offsets[idx]),
+        )?;
+        let end = offsets[idx + 1].to_usize().ok_or_else(
+            || vortex_err!(Overflow: "Failed to convert offset to usize: {}", offsets[idx + 1]),
+        )?;
         Ok(&data[start..end])
     };
 

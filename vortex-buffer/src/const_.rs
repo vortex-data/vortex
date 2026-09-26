@@ -59,7 +59,7 @@ impl<T, const A: usize> TryFrom<Buffer<T>> for ConstBuffer<T, A> {
     fn try_from(value: Buffer<T>) -> Result<Self, Self::Error> {
         if !value.alignment().is_aligned_to(Alignment::new(A)) {
             vortex_bail!(
-                "Cannot convert buffer with alignment {} to buffer with alignment {}",
+                MismatchedTypes: "Cannot convert buffer with alignment {} to buffer with alignment {}",
                 value.alignment(),
                 A
             );

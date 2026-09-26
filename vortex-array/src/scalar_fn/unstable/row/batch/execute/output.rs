@@ -69,7 +69,7 @@ pub(crate) fn finalize_kernel_output(
     validate_output(id, result_dtype, expected_len, &values)?;
     vortex_ensure!(
         values.all_valid(ctx)?,
-        "the {id} row kernel must produce only valid rows, got at least one null row",
+        AssertionFailed: "the {id} row kernel must produce only valid rows, got at least one null row",
     );
 
     cast_output_nullability(result_dtype, values)
@@ -85,14 +85,14 @@ fn validate_output(
     vortex_ensure_eq!(
         values.len(),
         expected_len,
-        "the {id} kernel output has the wrong row count",
+        AssertionFailed: "the {id} kernel output has the wrong row count",
     );
     let values_with_result_nullability =
         values.dtype().with_nullability(result_dtype.nullability());
     vortex_ensure_eq!(
         values_with_result_nullability,
         *result_dtype,
-        "the {id} output dtype must match the result dtype except for outer nullability",
+        AssertionFailed: "the {id} output dtype must match the result dtype except for outer nullability",
     );
 
     Ok(())

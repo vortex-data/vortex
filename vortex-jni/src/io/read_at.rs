@@ -135,16 +135,16 @@ impl VortexReadAt for JavaReadable {
                     let _permit = permit;
                     let end = offset
                         .checked_add(length as u64)
-                        .ok_or_else(|| vortex_err!("read {offset}+{length} overflows u64"))?;
+                        .ok_or_else(|| vortex_err!(Overflow: "read {offset}+{length} overflows u64"))?;
                     if end > len {
-                        vortex_bail!("read {offset}..{end} out of bounds for file of length {len}");
+                        vortex_bail!(OutOfBounds: "read {offset}..{end} out of bounds for file of length {len}");
                     }
                     // `java.nio.Buffer` capacities are Java ints.
                     if i32::try_from(length).is_err() {
-                        vortex_bail!("read length {length} exceeds ByteBuffer limit");
+                        vortex_bail!(Overflow: "read length {length} exceeds ByteBuffer limit");
                     }
                     let joffset = i64::try_from(offset)
-                        .map_err(|_| vortex_err!("read offset {offset} exceeds i64"))?;
+                        .map_err(|_| vortex_err!(Overflow: "read offset {offset} exceeds i64"))?;
 
                     let mut buffer = ByteBufferMut::with_capacity_aligned(length, alignment);
                     with_jvm(&vm, |env| {
@@ -176,7 +176,7 @@ impl VortexReadAt for JavaReadable {
                             .i()?;
                         if remaining != 0 {
                             return Err(vortex_err!(
-                                "readFully returned with {remaining} of {length} bytes unfilled"
+                                Io: "readFully returned with {remaining} of {length} bytes unfilled"
                             )
                             .into());
                         }
@@ -252,7 +252,7 @@ impl JavaFileSystem {
     ) -> VortexResult<()> {
         match self.files.entry_ref(&path) {
             EntryRef::Occupied(_) => {
-                vortex_bail!("multiple Java readables normalize to path '{path}'");
+                vortex_bail!(InvalidArgument: "multiple Java readables normalize to path '{path}'");
             }
             EntryRef::Vacant(v) => v.insert(JavaFileEntry { readable, size }),
         };
@@ -294,10 +294,9 @@ impl FileSystem for JavaFileSystem {
     }
 
     async fn open_read(&self, path: &str) -> VortexResult<Arc<dyn VortexReadAt>> {
-        let entry = self
-            .files
-            .get(path)
-            .ok_or_else(|| vortex_err!("no Java readable registered for path '{path}'"))?;
+        let entry = self.files.get(path).ok_or_else(
+            || vortex_err!(NotFound: "no Java readable registered for path '{path}'"),
+        )?;
         Ok(Arc::new(JavaReadable::new(
             self.vm.clone(),
             Arc::clone(&entry.readable),
@@ -308,6 +307,6 @@ impl FileSystem for JavaFileSystem {
     }
 
     async fn delete(&self, path: &str) -> VortexResult<()> {
-        vortex_bail!("delete('{path}') is not supported by a Java-readable file system")
+        vortex_bail!(InvalidArgument: "delete('{path}') is not supported by a Java-readable file system")
     }
 }

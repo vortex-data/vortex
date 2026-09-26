@@ -50,8 +50,9 @@ impl DynAggregateKernel for SequenceMinMaxKernel {
 
         // A sequence's extrema are its first and last values.
         let last = seq.index_value(seq.len() - 1);
-        let (ascending, _) = eval::step_parts(seq.multiplier())
-            .ok_or_else(|| vortex_err!("step {} must be an integer", seq.multiplier()))?;
+        let (ascending, _) = eval::step_parts(seq.multiplier()).ok_or_else(
+            || vortex_err!(MismatchedTypes: "step {} must be an integer", seq.multiplier()),
+        )?;
 
         let (min_pvalue, max_pvalue) = if ascending {
             (seq.base(), last)
@@ -111,7 +112,9 @@ mod tests {
             &mut SESSION.create_execution_ctx(),
             NumericalAggregateOpts::default(),
         )?
-        .ok_or_else(|| vortex_err!("min_max of a non-empty sequence should not be null"))?;
+        .ok_or_else(
+            || vortex_err!(AssertionFailed: "min_max of a non-empty sequence should not be null"),
+        )?;
 
         assert_eq!(min, Scalar::from(60u8));
         assert_eq!(max, Scalar::from(100u8));

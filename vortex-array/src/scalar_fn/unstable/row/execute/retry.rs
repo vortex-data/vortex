@@ -69,7 +69,7 @@ where
         // Keep this validation beside the views so LLVM sees their common length here.
         vortex_ensure!(
             Args::view_lens_match(&views, row_count),
-            "a decoded row input does not address exactly {row_count} rows",
+            AssertionFailed: "a decoded row input does not address exactly {row_count} rows",
         );
 
         // SAFETY: `view_lens_match` checked that these exact retained views address `row_count`
@@ -83,7 +83,7 @@ where
         // LTO.
         vortex_ensure!(
             Args::decoded_lens_match(&columns, row_count),
-            "a decoded row input does not address exactly {row_count} rows",
+            AssertionFailed: "a decoded row input does not address exactly {row_count} rows",
         );
 
         let mut accumulated_failure = Fail::default();

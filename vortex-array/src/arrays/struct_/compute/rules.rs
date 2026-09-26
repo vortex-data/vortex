@@ -95,7 +95,7 @@ impl ArrayParentReduceRule<Struct> for StructGetItemRule {
             .unmasked_field_by_name_opt(field_name)
             .ok_or_else(|| {
                 vortex_err!(
-                    "Field '{}' missing from struct array {}",
+                    NotFound: "Field '{}' missing from struct array {}",
                     field_name,
                     child.struct_fields().names()
                 )

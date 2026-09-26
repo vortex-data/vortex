@@ -143,7 +143,7 @@ impl<T: BenchPrimitive> RowFn for DeferredBool<T> {
             |negative| {
                 vortex_ensure!(
                     !negative,
-                    "deferred-bool benchmark inputs must be nonnegative"
+                    InvalidArgument: "deferred-bool benchmark inputs must be nonnegative"
                 );
                 Ok(())
             },
@@ -173,7 +173,7 @@ impl RowFn for DeferredI64 {
             |overflowed| {
                 vortex_ensure!(
                     !overflowed,
-                    "deferred-i64 benchmark inputs must not overflow"
+                    Overflow: "deferred-i64 benchmark inputs must not overflow"
                 );
                 Ok(())
             },
