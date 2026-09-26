@@ -542,6 +542,27 @@ impl EliasFano {
             .map(|array| array.with_stats_set(Self::stats()))
     }
 
+    /// Assemble an Elias-Fano array without validating it.
+    ///
+    /// # Safety
+    ///
+    /// Caller must ensure the parts satisfy the invariants checked by [`EliasFano::try_new`].
+    pub(crate) unsafe fn new_unchecked(
+        data: EliasFanoData,
+        lower: ArrayRef,
+        len: usize,
+    ) -> EliasFanoArray {
+        let dtype = data.reference_scalar().dtype().clone();
+        let slots: ArraySlots = smallvec![Some(lower)];
+        // SAFETY: upheld by the caller.
+        unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(EliasFano, dtype, len, data).with_slots(slots),
+            )
+        }
+        .with_stats_set(Self::stats())
+    }
+
     /// Statistics that hold for every Elias-Fano array by construction.
     ///
     /// `IsSorted` is required, not a nicety: [`ListArray::new`](vortex_array::arrays::ListArray)

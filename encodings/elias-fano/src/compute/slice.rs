@@ -22,8 +22,8 @@ impl SliceReduce for EliasFano {
             .data()
             .clone()
             .with_first_rank(array.first_rank() + range.start as u64);
-        Ok(Some(
-            EliasFano::try_new(data, array.lower().clone(), range.len())?.into_array(),
-        ))
+        // SAFETY: this is a slice of an already-validated `EliasFanoArray`, so this is still valid.
+        let sliced = unsafe { EliasFano::new_unchecked(data, array.lower().clone(), range.len()) };
+        Ok(Some(sliced.into_array()))
     }
 }
