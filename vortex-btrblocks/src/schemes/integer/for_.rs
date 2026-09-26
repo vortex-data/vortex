@@ -147,11 +147,8 @@ impl Scheme for FoRScheme {
 
         // TODO(connor): This should really be `new_unchecked`.
         let for_compressed = FoR::try_new(compressed, for_array.reference_scalar().clone())?;
-        for_compressed
-            .as_ref()
-            .statistics()
-            .inherit_from(for_array.as_ref().statistics());
-
-        Ok(for_compressed.into_array())
+        Ok(for_compressed
+            .into_array()
+            .with_shared_stats(&for_array.as_ref().statistics().to_array_stats()))
     }
 }

@@ -24,6 +24,7 @@ use vortex_array::match_each_decimal_value_type;
 use vortex_array::match_each_native_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::scalar::Scalar;
+use vortex_array::stats::StatsSet;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
@@ -49,9 +50,8 @@ pub fn runend_encode(
         Validity::AllValid => None,
         Validity::AllInvalid => {
             // We can trivially return an all-null REE array
-            let ends = PrimitiveArray::new(buffer![array.len() as u64], Validity::NonNullable);
-            ends.statistics()
-                .set(Stat::IsStrictSorted, Precision::Exact(true.into()));
+            let ends = PrimitiveArray::new(buffer![array.len() as u64], Validity::NonNullable)
+                .with_stats_set(StatsSet::of(Stat::IsStrictSorted, Precision::exact(true)));
             return (
                 ends,
                 ConstantArray::new(Scalar::null(array.dtype().clone()), 1).into_array(),
@@ -89,10 +89,8 @@ pub fn runend_encode(
 
     let ends = ends
         .narrow(ctx)
-        .vortex_expect("Ends must succeed downcasting");
-
-    ends.statistics()
-        .set(Stat::IsStrictSorted, Precision::Exact(true.into()));
+        .vortex_expect("Ends must succeed downcasting")
+        .with_stats_set(StatsSet::of(Stat::IsStrictSorted, Precision::exact(true)));
 
     (ends, values)
 }

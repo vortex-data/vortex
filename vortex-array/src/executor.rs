@@ -46,7 +46,6 @@ use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::kernels::ParentExecutionKernels;
 use crate::optimizer::kernels::execute_parent_key;
 use crate::stats::ArrayStats;
-use crate::stats::StatsSet;
 use crate::trace_op;
 
 /// Returns the maximum number of iterations to attempt when executing an array before giving up and returning
@@ -470,7 +469,7 @@ impl Executable for ArrayRef {
         trace_op!(record_single_step_phase_none("canonical", &array));
 
         if let Some(reduced) = array.reduce()? {
-            reduced.statistics().inherit_from(array.statistics());
+            let reduced = reduced.with_shared_stats(&array.statistics().handle());
             trace_op!(record_single_step_applied("reduce", &array, &reduced));
             return Ok(reduced);
         }
@@ -479,7 +478,7 @@ impl Executable for ArrayRef {
         for (slot_idx, slot) in array.slots().iter().enumerate() {
             let Some(child) = slot else { continue };
             if let Some(reduced_parent) = child.reduce_parent(&array, slot_idx)? {
-                reduced_parent.statistics().inherit_from(array.statistics());
+                let reduced_parent = reduced_parent.with_shared_stats(&array.statistics().handle());
                 trace_op!(record_single_step_applied(
                     "reduce_parent",
                     &array,
@@ -510,9 +509,8 @@ impl Executable for ArrayRef {
                     array,
                     executed_parent
                 ));
-                executed_parent
-                    .statistics()
-                    .inherit_from(array.statistics());
+                let executed_parent =
+                    executed_parent.with_shared_stats(&array.statistics().handle());
                 trace_op!(record_single_step_applied(
                     "execute_parent",
                     &array,
@@ -614,10 +612,7 @@ fn finalize_done(
         );
     }
 
-    output
-        .statistics()
-        .set_iter(StatsSet::from(stats).into_iter());
-    Ok((output, None))
+    Ok((output.with_shared_stats(&stats), None))
 }
 
 fn execute_parent_for_child(
@@ -684,10 +679,9 @@ fn try_execute_parent(
                 array,
                 executed_parent
             ));
-            executed_parent
-                .statistics()
-                .inherit_from(array.statistics());
-            return Ok(Some(executed_parent));
+            return Ok(Some(
+                executed_parent.with_shared_stats(&array.statistics().handle()),
+            ));
         }
     }
     Ok(None)
@@ -816,6 +810,14 @@ impl ExecutionResult {
     /// Decompose into parts.
     pub fn into_parts(self) -> (ArrayRef, ExecutionStep) {
         (self.array, self.step)
+    }
+
+    /// Replaces the result array, keeping the step.
+    pub(crate) fn map_array(self, f: impl FnOnce(ArrayRef) -> ArrayRef) -> Self {
+        Self {
+            array: f(self.array),
+            step: self.step,
+        }
     }
 }
 

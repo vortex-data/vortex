@@ -32,6 +32,7 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::expr::stats::Stat;
 use vortex_array::legacy_session;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
@@ -354,17 +355,13 @@ impl RunEndData {
 
         #[cfg(debug_assertions)]
         {
-            // Run ends must be strictly sorted for binary search to work correctly.
-            let pre_validation = ends.statistics().to_owned();
-
+            // Run ends must be strictly sorted for binary search to work correctly. Check a copy
+            // without stats, so debug builds do not store stats that release builds lack.
             let is_sorted = ends
+                .without_stats()
                 .statistics()
-                .compute_is_strict_sorted(ctx)
+                .get_as::<bool>(Stat::IsStrictSorted.aggregate_fn(), ctx)
                 .unwrap_or(false);
-
-            // Preserve the original statistics since compute_is_strict_sorted may have mutated them.
-            // We don't want to run with different stats in debug mode and outside.
-            ends.statistics().inherit(pre_validation.iter());
             debug_assert!(is_sorted);
         }
 

@@ -26,7 +26,7 @@ use vortex::array::expr::stats::Stat;
 use vortex::array::expr::stats::StatsProvider;
 use vortex::array::serde::SerializeOptions;
 use vortex::array::serde::SerializedArray;
-use vortex::array::stats::StatsSetRef;
+use vortex::array::stats::StatsSet;
 use vortex::buffer::BufferString;
 use vortex::buffer::ByteBuffer;
 use vortex::compressor::BtrBlocksCompressorBuilder;
@@ -407,17 +407,18 @@ impl CudaFlatLayoutStrategy {
 }
 
 fn truncate_scalar_stat<F: Fn(Scalar) -> Option<(Scalar, bool)>>(
-    statistics: StatsSetRef<'_>,
+    stats: &mut StatsSet,
+    dtype: &DType,
     stat: Stat,
     truncation: F,
 ) {
-    if let Some(sv) = statistics.get(stat).into_inner() {
+    if let Some(sv) = stats.as_typed_ref(dtype).get(stat).into_inner() {
         if let Some((truncated_value, truncated)) = truncation(sv) {
             if truncated && let Some(v) = truncated_value.into_value() {
-                statistics.set(stat, Precision::Inexact(v));
+                stats.set(stat, Precision::Inexact(v));
             }
         } else {
-            statistics.clear(stat)
+            stats.clear(stat)
         }
     }
 }
@@ -439,9 +440,18 @@ impl LayoutStrategy for CudaFlatLayoutStrategy {
         let (sequence_id, chunk) = chunk?;
         let row_count = chunk.len() as u64;
 
-        match chunk.dtype() {
+        // Truncate a copy in the file vocabulary, so the in-memory array keeps its exact stats
+        let dtype = chunk.dtype().clone();
+        let mut stats = chunk
+            .statistics()
+            .iter()
+            .filter_map(|(aggregate, value)| {
+                Some((Stat::from_aggregate_fn(aggregate)?, value.clone()))
+            })
+            .collect::<StatsSet>();
+        match &dtype {
             DType::Utf8(n) => {
-                truncate_scalar_stat(chunk.statistics(), Stat::Min, |v| {
+                truncate_scalar_stat(&mut stats, &dtype, Stat::Min, |v| {
                     lower_bound(
                         BufferString::from_scalar(v)
                             .vortex_expect("utf8 scalar must be a BufferString"),
@@ -449,7 +459,7 @@ impl LayoutStrategy for CudaFlatLayoutStrategy {
                         *n,
                     )
                 });
-                truncate_scalar_stat(chunk.statistics(), Stat::Max, |v| {
+                truncate_scalar_stat(&mut stats, &dtype, Stat::Max, |v| {
                     upper_bound(
                         BufferString::from_scalar(v)
                             .vortex_expect("utf8 scalar must be a BufferString"),
@@ -459,7 +469,7 @@ impl LayoutStrategy for CudaFlatLayoutStrategy {
                 });
             }
             DType::Binary(n) => {
-                truncate_scalar_stat(chunk.statistics(), Stat::Min, |v| {
+                truncate_scalar_stat(&mut stats, &dtype, Stat::Min, |v| {
                     lower_bound(
                         ByteBuffer::from_scalar(v)
                             .vortex_expect("binary scalar must be a ByteBuffer"),
@@ -467,7 +477,7 @@ impl LayoutStrategy for CudaFlatLayoutStrategy {
                         *n,
                     )
                 });
-                truncate_scalar_stat(chunk.statistics(), Stat::Max, |v| {
+                truncate_scalar_stat(&mut stats, &dtype, Stat::Max, |v| {
                     upper_bound(
                         ByteBuffer::from_scalar(v)
                             .vortex_expect("binary scalar must be a ByteBuffer"),
@@ -478,6 +488,7 @@ impl LayoutStrategy for CudaFlatLayoutStrategy {
             }
             _ => {}
         }
+        let chunk = chunk.with_stats_set(stats);
 
         // Scan for constant array buffers before serialization (while data is still on host).
         let host_buffers = extract_constant_buffers(&chunk);

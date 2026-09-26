@@ -332,9 +332,22 @@ impl<V: VTable> Array<V> {
     }
 
     /// Replace the array's statistics set and return the same typed handle.
+    ///
+    /// Seeds in place when this is the only reference, otherwise returns a new node.
     pub fn with_stats_set(self, stats: StatsSet) -> Self {
-        self.statistics().replace(stats);
-        self
+        Self {
+            inner: self.inner.with_stats_set(stats),
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Shares the stats of an array with the same logical values; see
+    /// [`ArrayRef::with_shared_stats`].
+    pub fn with_shared_stats(self, stats: &ArrayStats) -> Self {
+        Self {
+            inner: self.inner.with_shared_stats(stats),
+            _phantom: PhantomData,
+        }
     }
 
     /// Returns a clone of the inner encoding-specific data.

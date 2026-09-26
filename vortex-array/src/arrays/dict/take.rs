@@ -15,13 +15,10 @@ use crate::arrays::ConstantArray;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
-use crate::expr::stats::StatsProviderExt;
 use crate::kernel::ExecuteParentKernel;
 use crate::matcher::Matcher;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::scalar::Scalar;
-use crate::stats::StatsSet;
 use crate::validity::Validity;
 
 pub trait TakeReduce: VTable {
@@ -101,10 +98,9 @@ where
             return Ok(Some(result));
         }
         let result = <V as TakeReduce>::take(array, parent.codes())?;
-        if let Some(taken) = &result {
-            propagate_take_stats(array.array(), taken, parent.codes())?;
-        }
-        Ok(result)
+        result
+            .map(|taken| propagate_take_stats(array.array(), taken, parent.codes()))
+            .transpose()
     }
 }
 
@@ -132,41 +128,47 @@ where
             return Ok(Some(result));
         }
         let result = <V as TakeExecute>::take(array, parent.codes(), ctx)?;
-        if let Some(taken) = &result {
-            propagate_take_stats(array.array(), taken, parent.codes())?;
-        }
-        Ok(result)
+        result
+            .map(|taken| propagate_take_stats(array.array(), taken, parent.codes()))
+            .transpose()
     }
 }
 
 pub(crate) fn propagate_take_stats(
     source: &ArrayRef,
-    target: &ArrayRef,
+    target: ArrayRef,
     indices: &ArrayRef,
-) -> VortexResult<()> {
-    let indices_all_valid = matches!(
+) -> VortexResult<ArrayRef> {
+    // Nothing to propagate from a source without stats
+    if source.statistics().is_empty() {
+        return Ok(target);
+    }
+
+    // Values of the source bound the values taken from it
+    let mut added = [Stat::Min, Stat::Max]
+        .into_iter()
+        .filter_map(|stat| {
+            let value = source
+                .statistics()
+                .get_cached(stat.aggregate_fn())
+                .into_inner()?
+                .into_value()?;
+            Some((stat, Precision::Inexact(value)))
+        })
+        .collect::<SmallVec<[_; 3]>>();
+
+    // Any combination of elements from a constant array is still constant
+    if matches!(
+        source
+            .statistics()
+            .get_cached_as::<bool>(Stat::IsConstant.aggregate_fn()),
+        Precision::Exact(true)
+    ) && matches!(
         indices.validity()?,
         Validity::NonNullable | Validity::AllValid
-    );
-    target.statistics().with_mut_typed_stats_set(|mut st| {
-        if indices_all_valid {
-            let is_constant = source.statistics().get_as::<bool>(Stat::IsConstant);
-            if matches!(is_constant, Precision::Exact(true)) {
-                // Any combination of elements from a constant array is still const
-                st.set(Stat::IsConstant, Precision::exact(true));
-            }
-        }
-        let inexact_min_max = [Stat::Min, Stat::Max]
-            .into_iter()
-            .filter_map(|stat| match source.statistics().get(stat).into_inexact() {
-                Precision::Exact(scalar) | Precision::Inexact(scalar) => {
-                    scalar.into_value().map(|sv| (stat, Precision::Inexact(sv)))
-                }
-                Precision::Absent => None,
-            })
-            .collect::<SmallVec<_>>();
-        st.combine_sets(
-            &(unsafe { StatsSet::new_unchecked(inexact_min_max) }).as_typed_ref(source.dtype()),
-        )
-    })
+    ) {
+        added.push((Stat::IsConstant, Precision::exact(true)));
+    }
+
+    Ok(target.with_added_stats(added))
 }

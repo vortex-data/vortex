@@ -30,11 +30,9 @@ use crate::Canonical;
 use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::aggregate_fn::Accumulator;
 use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
-use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::EmptyOptions;
 use crate::arrays::Constant;
 use crate::arrays::Null;
@@ -45,8 +43,6 @@ use crate::dtype::Nullability;
 use crate::dtype::StructFields;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
-use crate::expr::stats::StatsProviderExt;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::operators::Operator;
 
@@ -90,88 +86,51 @@ fn arrays_value_equal(a: &ArrayRef, b: &ArrayRef, ctx: &mut ExecutionCtx) -> Vor
 /// 4. Is all invalid.
 /// 5. Is all valid AND has minimum and maximum statistics that are equal.
 pub fn is_constant(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
-    // Short-circuit using cached array statistics.
-    if let Precision::Exact(value) = array.statistics().get_as::<bool>(Stat::IsConstant) {
-        return Ok(value);
-    }
-
-    // Empty arrays are not constant.
-    if array.is_empty() {
-        return Ok(false);
-    }
-
-    // Array of length 1 is always constant.
-    if array.len() == 1 {
-        array
-            .statistics()
-            .set(Stat::IsConstant, Precision::Exact(true.into()));
-        return Ok(true);
-    }
-
-    // Constant and null arrays are always constant.
-    if array.is::<Constant>() || array.is::<Null>() {
-        array
-            .statistics()
-            .set(Stat::IsConstant, Precision::Exact(true.into()));
-        return Ok(true);
-    }
-
-    let all_invalid = array.all_invalid(ctx)?;
-    if all_invalid {
-        array
-            .statistics()
-            .set(Stat::IsConstant, Precision::Exact(true.into()));
-        return Ok(true);
-    }
-
-    let all_valid = array.all_valid(ctx)?;
-
-    // If we have some nulls but not all nulls, array can't be constant.
-    if !all_valid && !all_invalid {
-        array
-            .statistics()
-            .set(Stat::IsConstant, Precision::Exact(false.into()));
-        return Ok(false);
-    }
-
-    // We already know here that the array is all valid, so we check for min/max stats.
-    let min_stat = array.statistics().get(Stat::Min);
-    let max_stat = array.statistics().get(Stat::Max);
-
-    if let Precision::Exact(min) = min_stat.as_ref()
-        && let Precision::Exact(max) = max_stat.as_ref()
-        && min == max
-        && (Stat::NaNCount.dtype(array.dtype()).is_none()
-            || array.statistics().get_as::<u64>(Stat::NaNCount) == Precision::exact(0u64))
-    {
-        array
-            .statistics()
-            .set(Stat::IsConstant, Precision::Exact(true.into()));
-        return Ok(true);
-    }
-
-    // Short-circuit for unsupported dtypes.
-    if IsConstant
-        .return_dtype(&EmptyOptions, array.dtype())
-        .is_none()
-    {
-        // Null dtype - vacuously false for empty
-        return Ok(false);
-    }
-
-    // Compute using Accumulator<IsConstant>.
-    let mut acc = Accumulator::try_new(IsConstant, EmptyOptions, array.dtype().clone())?;
-    acc.accumulate(array, ctx)?;
-    let result_scalar = acc.finish()?;
-
-    let result = result_scalar.as_bool().value().unwrap_or(false);
-
-    // Cache the computed is_constant as a statistic.
-    array
+    Ok(array
         .statistics()
-        .set(Stat::IsConstant, Precision::Exact(result.into()));
+        .get(Stat::IsConstant.aggregate_fn(), ctx)?
+        .and_then(|result| result.as_bool().value())
+        .unwrap_or(false))
+}
 
-    Ok(result)
+/// Decides `is_constant` for `batch` from its metadata alone, if that is enough.
+///
+/// Avoids decompressing when the encoding, the validity or the cached extrema already answer.
+pub(crate) fn constant_from_metadata(
+    batch: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<bool>> {
+    if batch.is_empty() {
+        return Ok(Some(false));
+    }
+
+    // A single value, and constant or null encodings, are constant.
+    if batch.len() == 1 || batch.is::<Constant>() || batch.is::<Null>() {
+        return Ok(Some(true));
+    }
+
+    // All null is constant; some nulls is not.
+    if batch.all_invalid(ctx)? {
+        return Ok(Some(true));
+    }
+    if !batch.all_valid(ctx)? {
+        return Ok(Some(false));
+    }
+
+    // All valid with equal extrema is constant, unless NaNs hide behind them.
+    let stats = batch.statistics();
+    let min = stats.get_cached(Stat::Min.aggregate_fn());
+    let max = stats.get_cached(Stat::Max.aggregate_fn());
+    if let Precision::Exact(min) = min
+        && let Precision::Exact(max) = max
+        && min == max
+        && (Stat::NaNCount.dtype(batch.dtype()).is_none()
+            || stats.get_cached_as::<u64>(Stat::NaNCount.aggregate_fn()) == Precision::exact(0u64))
+    {
+        return Ok(Some(true));
+    }
+
+    Ok(None)
 }
 
 /// Compute whether an array is constant.
@@ -277,18 +236,18 @@ impl AggregateFnVTable for IsConstant {
         unimplemented!("IsConstant is not yet serializable");
     }
 
-    fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
-        match input_dtype {
-            DType::Null | DType::Variant(..) => None,
-            _ => Some(DType::Bool(Nullability::NonNullable)),
-        }
+    fn return_dtype(&self, _options: &Self::Options, _input_dtype: &DType) -> Option<DType> {
+        // Metadata and legacy stats can supply a result even without accumulator support.
+        Some(DType::Bool(Nullability::NonNullable))
     }
 
-    fn partial_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
-        match input_dtype {
-            DType::Null | DType::Variant(..) => None,
-            _ => Some(make_is_constant_partial_dtype(input_dtype)),
-        }
+    fn can_compute(&self, _options: &Self::Options, input_dtype: &DType) -> bool {
+        !matches!(input_dtype, DType::Null | DType::Variant(..))
+    }
+
+    fn partial_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType> {
+        self.can_compute(options, input_dtype)
+            .then(|| make_is_constant_partial_dtype(input_dtype))
     }
 
     fn empty_partial(
@@ -364,6 +323,28 @@ impl AggregateFnVTable for IsConstant {
         partial: &Self::Partial,
     ) -> bool {
         !partial.is_constant
+    }
+
+    fn try_accumulate(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+        state: &mut Self::Partial,
+        batch: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
+        // An empty batch adds nothing
+        if batch.is_empty() {
+            return Ok(true);
+        }
+        let Some(is_constant) = constant_from_metadata(batch, ctx)? else {
+            return Ok(false);
+        };
+
+        let partial =
+            self.partial_from_scalar(args, Self::make_partial(batch, is_constant, ctx)?)?;
+        let current = std::mem::replace(state, IsConstantPartial::empty());
+        *state = self.merge_partials(args, current, partial)?;
+        Ok(true)
     }
 
     fn accumulate(
@@ -542,13 +523,15 @@ mod tests {
         let mut ctx = array_session().create_execution_ctx();
 
         let arr = buffer![0, 1].into_array();
-        arr.statistics()
-            .compute_all(&[Stat::Min, Stat::Max], &mut ctx)?;
+        for stat in &[Stat::Min, Stat::Max] {
+            arr.statistics().get(stat.aggregate_fn(), &mut ctx)?;
+        }
         assert!(!is_constant(&arr, &mut ctx)?);
 
         let arr = buffer![0, 0].into_array();
-        arr.statistics()
-            .compute_all(&[Stat::Min, Stat::Max], &mut ctx)?;
+        for stat in &[Stat::Min, Stat::Max] {
+            arr.statistics().get(stat.aggregate_fn(), &mut ctx)?;
+        }
         assert!(is_constant(&arr, &mut ctx)?);
 
         let arr = PrimitiveArray::from_option_iter([Some(0), Some(0)]).into_array();
@@ -561,15 +544,17 @@ mod tests {
         let mut ctx = array_session().create_execution_ctx();
 
         let arr = PrimitiveArray::from_iter([0.0, 0.0, f32::NAN]).into_array();
-        arr.statistics()
-            .compute_all(&[Stat::Min, Stat::Max], &mut ctx)?;
+        for stat in &[Stat::Min, Stat::Max] {
+            arr.statistics().get(stat.aggregate_fn(), &mut ctx)?;
+        }
         assert!(!is_constant(&arr, &mut ctx)?);
 
         let arr =
             PrimitiveArray::from_option_iter([Some(f32::NEG_INFINITY), Some(f32::NEG_INFINITY)])
                 .into_array();
-        arr.statistics()
-            .compute_all(&[Stat::Min, Stat::Max], &mut ctx)?;
+        for stat in &[Stat::Min, Stat::Max] {
+            arr.statistics().get(stat.aggregate_fn(), &mut ctx)?;
+        }
         assert!(is_constant(&arr, &mut ctx)?);
         Ok(())
     }

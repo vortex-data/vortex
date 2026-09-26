@@ -31,6 +31,7 @@ use crate::arrays::ConstantArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
+use crate::expr::stats::Stat;
 use crate::legacy_session;
 use crate::optimizer::ArrayOptimizer;
 use crate::patches::Patches;
@@ -411,7 +412,7 @@ impl Validity {
             Self::Array(is_valid) => {
                 is_valid
                     .statistics()
-                    .compute_min::<bool>(ctx)
+                    .get_as::<bool>(Stat::Min.aggregate_fn(), ctx)
                     .vortex_expect("validity array must support min")
                     .then(|| {
                         // min true => all true

@@ -564,6 +564,7 @@ mod test {
     use itertools::Itertools;
     use smallvec::smallvec;
 
+    use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::array_session;
     use crate::arrays::PrimitiveArray;
@@ -906,12 +907,22 @@ mod test {
             .filter(|s| !matches!(s, Stat::Sum))
             .filter(|s| !matches!(s, Stat::NaNCount))
             .collect_vec();
-        array
-            .statistics()
-            .compute_all(&all_stats, &mut array_session().create_execution_ctx())
-            .unwrap();
+        let array = array.into_array();
+        let mut ctx = array_session().create_execution_ctx();
+        for stat in &all_stats {
+            array
+                .statistics()
+                .get(stat.aggregate_fn(), &mut ctx)
+                .unwrap();
+        }
 
-        let stats = array.statistics().to_owned();
+        let stats = array
+            .statistics()
+            .iter()
+            .filter_map(|(aggregate, value)| {
+                Some((Stat::from_aggregate_fn(aggregate)?, value.clone()))
+            })
+            .collect::<StatsSet>();
         for stat in &all_stats {
             assert!(!stats.get(*stat).is_absent(), "Stat {stat} is missing");
         }

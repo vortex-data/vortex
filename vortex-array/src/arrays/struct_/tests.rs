@@ -20,6 +20,7 @@ use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::expr::stats::Stat;
 use crate::validity::Validity;
 
 #[test]
@@ -164,9 +165,10 @@ fn test_uncompressed_size_in_bytes() -> VortexResult<()> {
         .execute::<Canonical>(&mut array_session().create_execution_ctx())?
         .into_array()
         .nbytes();
-    let uncompressed_size = struct_array
-        .statistics()
-        .compute_uncompressed_size_in_bytes(&mut array_session().create_execution_ctx());
+    let uncompressed_size = struct_array.statistics().get_as::<usize>(
+        Stat::UncompressedSizeInBytes.aggregate_fn(),
+        &mut array_session().create_execution_ctx(),
+    );
 
     assert_eq!(canonical_size, 2);
     assert_eq!(uncompressed_size, Some(4000));

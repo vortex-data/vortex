@@ -22,7 +22,6 @@ use serde::Serialize;
 use tempfile::NamedTempFile;
 use tempfile::TempDir;
 use vortex::array::ArrayRef;
-use vortex::expr::stats::Stat;
 use vortex::utils::aliases::hash_map::HashMap;
 
 use crate::Format;
@@ -147,25 +146,17 @@ impl Uncompressed {
         }
     }
 
-    /// Return the input to the state [`Self::read_arrow`] or a fresh conversion would produce.
+    /// Return the input in the state [`Self::read_arrow`] or a fresh conversion would produce.
     ///
     /// The Vortex writer computes statistics inside the timed region and caches them on the
     /// array, so reusing one array across iterations would let every run after the first skip
-    /// that work. Clearing the cache keeps each iteration's measurement comparable.
-    pub fn reset(&self) {
-        if let Self::Vortex(array) = self {
-            clear_stats(array);
+    /// that work. Stats are write-once, so a Vortex input is rebuilt without them. Returns `None`
+    /// when the input carries no cached state and can be reused as is.
+    pub fn fresh(&self) -> Option<Self> {
+        match self {
+            Self::Vortex(array) => Some(Self::Vortex(array.without_stats())),
+            _ => None,
         }
-    }
-}
-
-/// Clear cached statistics on `array` and every array beneath it.
-fn clear_stats(array: &ArrayRef) {
-    for stat in Stat::all() {
-        array.statistics().clear(stat);
-    }
-    for child in array.children_iter() {
-        clear_stats(child);
     }
 }
 
@@ -242,7 +233,7 @@ pub trait Compressor: Send + Sync {
 /// Run a compression benchmark for the given compressor.
 ///
 /// Compresses the same `input` `iterations` times and returns timing statistics. The input is
-/// [reset](Uncompressed::reset) before every iteration so none of them starts warm.
+/// [refreshed](Uncompressed::fresh) before every iteration so none of them starts warm.
 pub async fn benchmark_compress(
     compressor: &dyn Compressor,
     input: &Uncompressed,
@@ -255,8 +246,8 @@ pub async fn benchmark_compress(
     let mut compressed = None;
 
     for _ in 0..iterations {
-        input.reset();
-        let result = compressor.compress(input).await?;
+        let fresh = input.fresh();
+        let result = compressor.compress(fresh.as_ref().unwrap_or(input)).await?;
 
         fastest = fastest.min(result.elapsed);
         all_runs.push(result.elapsed);

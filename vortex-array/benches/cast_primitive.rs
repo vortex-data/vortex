@@ -45,9 +45,10 @@ fn cast_u16_to_u32(bencher: Bencher, n: usize) {
     }))
     .into_array();
     // Pre-compute min/max so values_fit_in is a cache hit during the benchmark.
-    arr.statistics()
-        .compute_all(&[Stat::Min, Stat::Max], &mut SESSION.create_execution_ctx())
-        .ok();
+    let mut ctx = SESSION.create_execution_ctx();
+    for stat in [Stat::Min, Stat::Max] {
+        arr.statistics().get(stat.aggregate_fn(), &mut ctx).ok();
+    }
     bencher
         .with_inputs(|| (arr.clone(), SESSION.create_execution_ctx()))
         .bench_refs(|(a, ctx)| {

@@ -85,7 +85,7 @@ impl Scheme for BitPackingScheme {
         let primitive_array = primitive_array.into_owned();
         let packed = bitpack_encode(&primitive_array, bw, Some(&histogram), exec_ctx)?;
 
-        let packed_stats = packed.statistics().to_owned();
+        let packed_stats = packed.statistics().to_array_stats();
         let ptype = packed.dtype().as_ptype();
         let mut parts = BitPacked::into_parts(packed);
 
@@ -106,7 +106,7 @@ impl Scheme for BitPackingScheme {
             match patches {
                 None => array,
                 Some(p) => Patched::from_array_and_patches(array, &p, exec_ctx)?
-                    .with_stats_set(packed_stats)
+                    .with_shared_stats(&packed_stats)
                     .into_array(),
             }
         } else {
@@ -126,7 +126,7 @@ impl Scheme for BitPackingScheme {
                 parts.len,
                 parts.offset,
             )?
-            .with_stats_set(packed_stats)
+            .with_shared_stats(&packed_stats)
             .into_array()
         };
 

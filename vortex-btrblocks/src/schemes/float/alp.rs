@@ -93,7 +93,7 @@ impl Scheme for ALPScheme {
             exec_ctx,
         )?;
 
-        let alp_stats = alp_encoded.as_array().statistics().to_owned();
+        let alp_stats = alp_encoded.as_array().statistics().to_array_stats();
         let exponents = alp_encoded.exponents();
 
         if use_experimental_patches() {
@@ -105,7 +105,7 @@ impl Scheme for ALPScheme {
             match patches {
                 None => Ok(alp_array),
                 Some(p) => Ok(Patched::from_array_and_patches(alp_array, &p, exec_ctx)?
-                    .with_stats_set(alp_stats)
+                    .with_shared_stats(&alp_stats)
                     .into_array()),
             }
         } else {

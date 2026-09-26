@@ -169,6 +169,14 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
     /// Returns `None` if the aggregate function cannot be applied to the input dtype.
     fn return_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType>;
 
+    /// Whether the accumulator can compute the aggregate over `input_dtype`.
+    ///
+    /// Narrower than [`Self::return_dtype`] when a result dtype is defined, e.g. for expression
+    /// lowering, but computing it is not implemented yet. Default: whenever a return dtype exists.
+    fn can_compute(&self, options: &Self::Options, input_dtype: &DType) -> bool {
+        self.return_dtype(options, input_dtype).is_some()
+    }
+
     /// If this aggregate should be computed as a default zone statistic for `input_dtype`, return
     /// the bound aggregate to store. Default: not a zone-map default.
     fn zone_stat_default(&self, _input_dtype: &DType) -> Option<AggregateFnRef> {

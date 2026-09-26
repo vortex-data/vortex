@@ -23,9 +23,11 @@ use crate::dtype::Nullability;
 use crate::executor::ExecutionResult;
 use crate::executor::ExecutionStep;
 use crate::scalar::Scalar;
+use crate::stats::ArrayStats;
 use crate::validity::Validity;
 
 mod erased;
+pub(crate) use erased::true_slice_stats;
 pub use erased::*;
 
 mod plugin;
@@ -185,6 +187,11 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
     /// invariants. Callers must re-establish those invariants before handing the array to
     /// anything outside the executor.
     unsafe fn with_slots_unchecked(&self, this: &ArrayRef, slots: ArraySlots) -> ArrayRef;
+
+    /// Returns a copy of this node with `slots` and freshly seeded `stats`.
+    ///
+    /// `slots` must hold the same logical values as the current slots.
+    fn with_stats(&self, this: &ArrayRef, slots: ArraySlots, stats: ArrayStats) -> ArrayRef;
 
     /// Attempt to reduce the array to a simpler representation.
     fn reduce(&self, this: &ArrayRef) -> VortexResult<Option<ArrayRef>>;
@@ -376,7 +383,7 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
     }
 
     fn with_slots(&self, this: &ArrayRef, slots: ArraySlots) -> VortexResult<ArrayRef> {
-        let stats = this.statistics().to_owned();
+        let stats = this.statistics().to_array_stats();
         Ok(Array::<V>::try_from_parts(
             ArrayParts::new(
                 self.vtable.clone(),
@@ -386,16 +393,16 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
             )
             .with_slots(slots),
         )?
-        .with_stats_set(stats)
+        .with_shared_stats(&stats)
         .into_array())
     }
 
     fn with_buffers(&self, this: &ArrayRef, buffers: Vec<BufferHandle>) -> VortexResult<ArrayRef> {
         let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        let stats = this.statistics().to_owned();
+        let stats = this.statistics().to_array_stats();
         Ok(
             Array::<V>::try_from_parts(V::with_buffers(&self.vtable, view, &buffers)?)?
-                .with_stats_set(stats)
+                .with_shared_stats(&stats)
                 .into_array(),
         )
     }
@@ -410,7 +417,23 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
                 this.dtype().clone(),
                 self.data.clone(),
                 slots,
-                this.statistics().to_array_stats(),
+                this.statistics().handle(),
+            )
+        };
+        ArrayRef::from_inner(Arc::new(store))
+    }
+
+    fn with_stats(&self, this: &ArrayRef, slots: ArraySlots, stats: ArrayStats) -> ArrayRef {
+        // SAFETY: the data is unchanged and the caller guarantees the slots hold the same
+        // logical values, so the encoding invariants still hold.
+        let store = unsafe {
+            ArrayInner::<ArrayData<V>>::new_unchecked(
+                self.vtable.clone(),
+                this.len(),
+                this.dtype().clone(),
+                self.data.clone(),
+                slots,
+                stats,
             )
         };
         ArrayRef::from_inner(Arc::new(store))
@@ -488,10 +511,7 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
                 );
             }
 
-            result
-                .array()
-                .statistics()
-                .set_iter(crate::stats::StatsSet::from(stats).into_iter());
+            return Ok(result.map_array(|array| array.with_shared_stats(&stats)));
         }
 
         Ok(result)

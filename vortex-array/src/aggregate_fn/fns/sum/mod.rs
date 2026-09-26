@@ -11,6 +11,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -26,11 +27,9 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::Columnar;
 use crate::ExecutionCtx;
-use crate::aggregate_fn::Accumulator;
 use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
-use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
@@ -39,8 +38,6 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
-use crate::expr::stats::StatsProviderExt;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 
@@ -48,27 +45,10 @@ use crate::scalar::Scalar;
 ///
 /// See [`Sum`] for details.
 pub fn sum(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
-    // Short-circuit using cached array statistics.
-    if let Precision::Exact(sum_scalar) = array.statistics().get(Stat::Sum) {
-        return Ok(sum_scalar);
-    }
-
-    // Compute using Accumulator<Sum>.
-    // TODO(ngates): we may want to wrap this three-step dance up into an extension crate maybe.
-    let mut acc = Accumulator::try_new(
-        Sum,
-        NumericalAggregateOpts::default(),
-        array.dtype().clone(),
-    )?;
-    acc.accumulate(array, ctx)?;
-    let result = acc.finish()?;
-
-    // Cache the computed sum as a statistic (only if non-null, i.e. no overflow).
-    if let Some(val) = result.value().cloned() {
-        array.statistics().set(Stat::Sum, Precision::Exact(val));
-    }
-
-    Ok(result)
+    array
+        .statistics()
+        .get(Stat::Sum.aggregate_fn(), ctx)?
+        .ok_or_else(|| vortex_err!("sum is not supported for {}", array.dtype()))
 }
 
 /// Sum an array, starting from zero.
@@ -233,11 +213,16 @@ impl AggregateFnVTable for Sum {
         if args.options.skip_nans || !matches!(partial.current, Some(SumState::Float(_))) {
             return Ok(false);
         }
-        match batch.statistics().get_as::<u64>(Stat::NaNCount) {
+        match batch
+            .statistics()
+            .get_cached_as::<u64>(Stat::NaNCount.aggregate_fn())
+        {
             Precision::Exact(0) => {
                 // NaN-free batch: the cached NaN-skipping sum (if any) equals the
                 // NaN-including sum.
-                if let Precision::Exact(sum) = batch.statistics().get(Stat::Sum) {
+                if let Precision::Exact(sum) =
+                    batch.statistics().get_cached(Stat::Sum.aggregate_fn())
+                {
                     let sum = if sum.dtype() == args.return_dtype {
                         sum
                     } else {
@@ -484,7 +469,6 @@ mod tests {
     use crate::dtype::i256;
     use crate::expr::stats::Precision;
     use crate::expr::stats::Stat;
-    use crate::expr::stats::StatsProvider;
     use crate::scalar::DecimalValue;
     use crate::scalar::NumericOperator;
     use crate::scalar::Scalar;
@@ -506,7 +490,8 @@ mod tests {
 
         // For non-float types, try statistics short-circuit with accumulator.
         if !matches!(&sum_dtype, DType::Primitive(p, _) if p.is_float())
-            && let Precision::Exact(sum_scalar) = array.statistics().get(Stat::Sum)
+            && let Precision::Exact(sum_scalar) =
+                array.statistics().get_cached(Stat::Sum.aggregate_fn())
         {
             return add_scalars(&sum_dtype, &sum_scalar, accumulator);
         }

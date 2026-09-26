@@ -19,6 +19,7 @@ use vortex_buffer::BitBuffer;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_mask::AllOr;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -360,8 +361,13 @@ where
         .as_ref()
         .validity()?
         .execute_mask(array.as_ref().len(), ctx)?;
-    let null_count = validity.false_count();
-    let value_count = validity.true_count();
+    // Counted through the array's stats, like the other compressor stats, so the count is stored
+    let null_count = array
+        .as_ref()
+        .statistics()
+        .get_as::<usize>(Stat::NullCount.aggregate_fn(), ctx)
+        .ok_or_else(|| vortex_err!("Failed to compute null_count"))?;
+    let value_count = array.as_ref().len() - null_count;
 
     // Initialize loop state.
     let head_idx = validity
@@ -436,12 +442,12 @@ where
     let array_ref = array.as_ref();
     let min = array_ref
         .statistics()
-        .compute_as::<T>(Stat::Min, ctx)
+        .get_as::<T>(Stat::Min.aggregate_fn(), ctx)
         .vortex_expect("min should be computed");
 
     let max = array_ref
         .statistics()
-        .compute_as::<T>(Stat::Max, ctx)
+        .get_as::<T>(Stat::Max.aggregate_fn(), ctx)
         .vortex_expect("max should be computed");
 
     let distinct = count_distinct_values.then(|| {

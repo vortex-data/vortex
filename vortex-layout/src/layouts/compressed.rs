@@ -111,7 +111,9 @@ impl LayoutStrategy for CompressingStrategy {
                     let (sequence_id, chunk) = chunk?;
                     let mut ctx = session.create_execution_ctx();
                     // Compute the stats for the chunk prior to compression
-                    chunk.statistics().compute_all(&stats, &mut ctx)?;
+                    for stat in stats.iter() {
+                        chunk.statistics().get(stat.aggregate_fn(), &mut ctx)?;
+                    }
                     Ok((sequence_id, compressor.compress_chunk(&chunk, &mut ctx)?))
                 })
             })

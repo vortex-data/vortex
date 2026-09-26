@@ -269,6 +269,7 @@ mod test {
     use vortex_array::VortexSessionExecute;
     use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::expr::stats::Stat;
     use vortex_array::scalar::Scalar;
     use vortex_buffer::buffer;
 
@@ -284,16 +285,28 @@ mod test {
         let zigzag = zigzag_encode(array.as_view())?;
 
         assert_eq!(
-            zigzag.statistics().compute_max::<i32>(&mut ctx),
-            array.statistics().compute_max::<i32>(&mut ctx)
+            zigzag
+                .statistics()
+                .get_as::<i32>(Stat::Max.aggregate_fn(), &mut ctx),
+            array
+                .statistics()
+                .get_as::<i32>(Stat::Max.aggregate_fn(), &mut ctx)
         );
         assert_eq!(
-            zigzag.statistics().compute_null_count(&mut ctx),
-            array.statistics().compute_null_count(&mut ctx)
+            zigzag
+                .statistics()
+                .get_as::<usize>(Stat::NullCount.aggregate_fn(), &mut ctx),
+            array
+                .statistics()
+                .get_as::<usize>(Stat::NullCount.aggregate_fn(), &mut ctx)
         );
         assert_eq!(
-            zigzag.statistics().compute_is_constant(&mut ctx),
-            array.statistics().compute_is_constant(&mut ctx)
+            zigzag
+                .statistics()
+                .get_as::<bool>(Stat::IsConstant.aggregate_fn(), &mut ctx),
+            array
+                .statistics()
+                .get_as::<bool>(Stat::IsConstant.aggregate_fn(), &mut ctx)
         );
 
         let sliced = zigzag.slice(0..2)?;
@@ -304,16 +317,28 @@ mod test {
         );
 
         assert_eq!(
-            sliced.statistics().compute_min::<i32>(&mut ctx),
-            array.statistics().compute_min::<i32>(&mut ctx)
+            sliced
+                .statistics()
+                .get_as::<i32>(Stat::Min.aggregate_fn(), &mut ctx),
+            array
+                .statistics()
+                .get_as::<i32>(Stat::Min.aggregate_fn(), &mut ctx)
         );
         assert_eq!(
-            sliced.statistics().compute_null_count(&mut ctx),
-            array.statistics().compute_null_count(&mut ctx)
+            sliced
+                .statistics()
+                .get_as::<usize>(Stat::NullCount.aggregate_fn(), &mut ctx),
+            array
+                .statistics()
+                .get_as::<usize>(Stat::NullCount.aggregate_fn(), &mut ctx)
         );
         assert_eq!(
-            sliced.statistics().compute_is_constant(&mut ctx),
-            array.statistics().compute_is_constant(&mut ctx)
+            sliced
+                .statistics()
+                .get_as::<bool>(Stat::IsConstant.aggregate_fn(), &mut ctx),
+            array
+                .statistics()
+                .get_as::<bool>(Stat::IsConstant.aggregate_fn(), &mut ctx)
         );
         Ok(())
     }

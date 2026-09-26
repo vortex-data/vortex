@@ -16,7 +16,6 @@ use vortex_array::arrays::Dict;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
-use vortex_array::expr::stats::StatsProviderExt;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
@@ -64,15 +63,21 @@ fn test_bitpacking_compressed() -> VortexResult<()> {
     let compressed = btr.compress(&array.into_array(), &mut SESSION.create_execution_ctx())?;
     assert!(compressed.is::<BitPacked>());
     assert_eq!(
-        compressed.statistics().get_as::<u64>(Stat::NullCount),
+        compressed
+            .statistics()
+            .get_cached_as::<u64>(Stat::NullCount.aggregate_fn()),
         Precision::exact(0u64)
     );
     assert_eq!(
-        compressed.statistics().get_as::<u32>(Stat::Min),
+        compressed
+            .statistics()
+            .get_cached_as::<u32>(Stat::Min.aggregate_fn()),
         Precision::exact(0u32)
     );
     assert_eq!(
-        compressed.statistics().get_as::<u32>(Stat::Max),
+        compressed
+            .statistics()
+            .get_cached_as::<u32>(Stat::Max.aggregate_fn()),
         Precision::exact(15u32)
     );
     Ok(())

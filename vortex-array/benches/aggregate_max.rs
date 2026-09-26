@@ -10,6 +10,7 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::array_session;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::expr::stats::Stat;
 use vortex_session::VortexSession;
 
 #[global_allocator]
@@ -36,7 +37,7 @@ fn max_i32(bencher: Bencher) {
                 SESSION.create_execution_ctx(),
             )
         })
-        .bench_refs(|(a, ctx)| a.statistics().compute_max::<i32>(ctx));
+        .bench_refs(|(a, ctx)| a.statistics().get_as::<i32>(Stat::Max.aggregate_fn(), ctx));
 }
 
 #[divan::bench]
@@ -50,7 +51,7 @@ fn max_i64(bencher: Bencher) {
                 SESSION.create_execution_ctx(),
             )
         })
-        .bench_refs(|(a, ctx)| a.statistics().compute_max::<i64>(ctx));
+        .bench_refs(|(a, ctx)| a.statistics().get_as::<i64>(Stat::Max.aggregate_fn(), ctx));
 }
 
 #[divan::bench]
@@ -64,7 +65,7 @@ fn max_f64(bencher: Bencher) {
                 SESSION.create_execution_ctx(),
             )
         })
-        .bench_refs(|(a, ctx)| a.statistics().compute_max::<f64>(ctx));
+        .bench_refs(|(a, ctx)| a.statistics().get_as::<f64>(Stat::Max.aggregate_fn(), ctx));
 }
 
 // Clustered nulls: long valid runs broken up by null blocks (run-based path's best case).
@@ -87,7 +88,7 @@ fn max_i32_nulls_clustered(bencher: Bencher) {
                 SESSION.create_execution_ctx(),
             )
         })
-        .bench_refs(|(a, ctx)| a.statistics().compute_max::<i32>(ctx));
+        .bench_refs(|(a, ctx)| a.statistics().get_as::<i32>(Stat::Max.aggregate_fn(), ctx));
 }
 
 // Scattered nulls: ~50% random nulls producing many short runs (run-based path's worst case).
@@ -104,5 +105,5 @@ fn max_i32_nulls_scattered(bencher: Bencher) {
                 SESSION.create_execution_ctx(),
             )
         })
-        .bench_refs(|(a, ctx)| a.statistics().compute_max::<i32>(ctx));
+        .bench_refs(|(a, ctx)| a.statistics().get_as::<i32>(Stat::Max.aggregate_fn(), ctx));
 }

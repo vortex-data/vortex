@@ -36,7 +36,6 @@ use crate::dtype::PType;
 use crate::dtype::ToI256;
 use crate::dtype::i256;
 use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
 use crate::match_each_decimal_value_type;
 use crate::match_each_integer_ptype;
 use crate::match_each_native_ptype;
@@ -636,8 +635,8 @@ fn values_fit_in(
 /// stats cache, otherwise `None`.
 fn cached_values_fit_in(array: ArrayView<'_, Primitive>, target_dtype: &DType) -> Option<bool> {
     let stats = array.array().statistics();
-    let min = stats.get(Stat::Min).as_exact()?;
-    let max = stats.get(Stat::Max).as_exact()?;
+    let min = stats.get_cached(Stat::Min.aggregate_fn()).as_exact()?;
+    let max = stats.get_cached(Stat::Max.aggregate_fn()).as_exact()?;
     Some(min.cast(target_dtype).is_ok() && max.cast(target_dtype).is_ok())
 }
 
@@ -790,9 +789,9 @@ mod test {
         let source = PrimitiveArray::from_iter([42i32, -7]);
         let source_ptr = source.as_slice::<i32>().as_ptr();
         let source = source.into_array();
-        source
-            .statistics()
-            .compute_all(&[Stat::Min, Stat::Max], &mut ctx)?;
+        for stat in &[Stat::Min, Stat::Max] {
+            source.statistics().get(stat.aggregate_fn(), &mut ctx)?;
+        }
         let casted = source
             .cast(DType::Decimal(
                 DecimalDType::new(9, 0),

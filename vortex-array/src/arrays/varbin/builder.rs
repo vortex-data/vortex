@@ -42,6 +42,7 @@ use crate::expr::stats::Stat;
 use crate::legacy_session;
 use crate::match_each_integer_ptype;
 use crate::scalar::Scalar;
+use crate::stats::StatsSet;
 use crate::validity::Validity;
 
 /// Builder for [`VarBinArray`] values with `O`-typed offsets.
@@ -427,13 +428,14 @@ impl<O: OffsetBuilderPType> VarBinBuilder<O> {
         {
             let offsets_are_sorted = offsets
                 .statistics()
-                .compute_is_sorted(&mut legacy_session().create_execution_ctx())
+                .get_as::<bool>(
+                    Stat::IsSorted.aggregate_fn(),
+                    &mut legacy_session().create_execution_ctx(),
+                )
                 .unwrap_or(false);
             debug_assert!(offsets_are_sorted, "VarBinBuilder offsets must be sorted");
         }
-        offsets
-            .statistics()
-            .set(Stat::IsSorted, Precision::Exact(true.into()));
+        let offsets = offsets.with_stats_set(StatsSet::of(Stat::IsSorted, Precision::exact(true)));
 
         // SAFETY: The builder maintains all invariants:
         // - Offsets are monotonically increasing starting from 0 (guaranteed by builder logic).
@@ -744,7 +746,6 @@ mod tests {
     use crate::dtype::Nullability::Nullable;
     use crate::expr::stats::Precision;
     use crate::expr::stats::Stat;
-    use crate::expr::stats::StatsProviderExt;
     use crate::scalar::Scalar;
 
     #[test]
@@ -1066,7 +1067,7 @@ mod tests {
         let is_sorted = array
             .offsets()
             .statistics()
-            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsSorted));
+            .get_cached_as::<bool>(Stat::IsSorted.aggregate_fn());
         assert_eq!(is_sorted, Precision::Exact(true));
         Ok(())
     }
@@ -1082,7 +1083,7 @@ mod tests {
         let is_sorted = array
             .offsets()
             .statistics()
-            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsSorted));
+            .get_cached_as::<bool>(Stat::IsSorted.aggregate_fn());
         assert_eq!(is_sorted, Precision::Exact(true));
         Ok(())
     }

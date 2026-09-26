@@ -8,7 +8,6 @@ use crate::ArrayRef;
 use crate::display::extractor::TreeContext;
 use crate::display::extractor::TreeExtractor;
 use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
 use crate::validity::Validity;
 
 /// Display wrapper for array statistics in compact format.
@@ -31,7 +30,10 @@ impl fmt::Display for StatsDisplay<'_> {
         };
 
         // Null count or validity fallback
-        if let Some(nc) = stats.get(Stat::NullCount).into_inner() {
+        if let Some(nc) = stats
+            .get_cached(Stat::NullCount.aggregate_fn())
+            .into_inner()
+        {
             if let Ok(n) = usize::try_from(&nc) {
                 sep(f)?;
                 write!(f, "nulls={}", n)?;
@@ -61,7 +63,7 @@ impl fmt::Display for StatsDisplay<'_> {
         }
 
         // NaN count (only if > 0)
-        if let Some(nan) = stats.get(Stat::NaNCount).into_inner()
+        if let Some(nan) = stats.get_cached(Stat::NaNCount.aggregate_fn()).into_inner()
             && let Ok(n) = usize::try_from(&nan)
             && n > 0
         {
@@ -70,34 +72,39 @@ impl fmt::Display for StatsDisplay<'_> {
         }
 
         // Min/Max
-        if let Some(min) = stats.get(Stat::Min).into_inner() {
+        if let Some(min) = stats.get_cached(Stat::Min.aggregate_fn()).into_inner() {
             sep(f)?;
             write!(f, "min={}", min)?;
         }
-        if let Some(max) = stats.get(Stat::Max).into_inner() {
+        if let Some(max) = stats.get_cached(Stat::Max.aggregate_fn()).into_inner() {
             sep(f)?;
             write!(f, "max={}", max)?;
         }
 
         // Sum
-        if let Some(sum) = stats.get(Stat::Sum).into_inner() {
+        if let Some(sum) = stats.get_cached(Stat::Sum.aggregate_fn()).into_inner() {
             sep(f)?;
             write!(f, "sum={}", sum)?;
         }
 
         // Boolean flags (compact)
-        if let Some(c) = stats.get(Stat::IsConstant).into_inner()
+        if let Some(c) = stats
+            .get_cached(Stat::IsConstant.aggregate_fn())
+            .into_inner()
             && bool::try_from(&c).unwrap_or(false)
         {
             sep(f)?;
             f.write_str("const")?;
         }
-        if let Some(s) = stats.get(Stat::IsStrictSorted).into_inner() {
+        if let Some(s) = stats
+            .get_cached(Stat::IsStrictSorted.aggregate_fn())
+            .into_inner()
+        {
             if bool::try_from(&s).unwrap_or(false) {
                 sep(f)?;
                 f.write_str("strict")?;
             }
-        } else if let Some(s) = stats.get(Stat::IsSorted).into_inner()
+        } else if let Some(s) = stats.get_cached(Stat::IsSorted.aggregate_fn()).into_inner()
             && bool::try_from(&s).unwrap_or(false)
         {
             sep(f)?;

@@ -22,6 +22,7 @@ use vortex_error::VortexResult;
 
 use crate::aggregate_fn::Accumulator;
 use crate::aggregate_fn::AccumulatorRef;
+use crate::aggregate_fn::AggregateDTypes;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnSatisfaction;
@@ -41,8 +42,13 @@ pub(super) trait DynAggregateFn: 'static + Send + Sync + super::sealed::Sealed {
 
     fn can_satisfy(&self, requested: &AggregateFnRef) -> AggregateFnSatisfaction;
     fn return_dtype(&self, input_dtype: &DType) -> Option<DType>;
+    fn can_compute(&self, input_dtype: &DType) -> bool;
     fn state_dtype(&self, input_dtype: &DType) -> Option<DType>;
-    fn accumulator(&self, input_dtype: &DType) -> VortexResult<AccumulatorRef>;
+    fn accumulator(
+        &self,
+        this: &AggregateFnRef,
+        input_dtype: &DType,
+    ) -> VortexResult<AccumulatorRef>;
     fn accumulator_grouped(&self, input_dtype: &DType) -> VortexResult<GroupedAccumulatorRef>;
 
     fn options_serialize(&self) -> VortexResult<Option<Vec<u8>>>;
@@ -87,16 +93,27 @@ impl<V: AggregateFnVTable> DynAggregateFn for AggregateFnInner<V> {
         V::return_dtype(&self.vtable, &self.options, input_dtype)
     }
 
+    fn can_compute(&self, input_dtype: &DType) -> bool {
+        V::can_compute(&self.vtable, &self.options, input_dtype)
+    }
+
     fn state_dtype(&self, input_dtype: &DType) -> Option<DType> {
         V::partial_dtype(&self.vtable, &self.options, input_dtype)
     }
 
-    fn accumulator(&self, input_dtype: &DType) -> VortexResult<AccumulatorRef> {
-        Ok(Box::new(Accumulator::try_new(
+    fn accumulator(
+        &self,
+        this: &AggregateFnRef,
+        input_dtype: &DType,
+    ) -> VortexResult<AccumulatorRef> {
+        // Reuse `this` instead of binding the aggregate again
+        let dtypes = AggregateDTypes::try_new(&self.vtable, &self.options, input_dtype.clone())?;
+        Ok(Box::new(Accumulator::from_parts(
             self.vtable.clone(),
             self.options.clone(),
-            input_dtype.clone(),
-        )?))
+            this.clone(),
+            dtypes,
+        )))
     }
 
     fn accumulator_grouped(&self, input_dtype: &DType) -> VortexResult<GroupedAccumulatorRef> {
