@@ -1,0 +1,124 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TTTTTIRR
+SELECT * from
+  (SELECT i_category, i_class, i_brand, s_store_name, s_company_name, d_moy, sum(ss_sales_price) sum_sales, avg(sum(ss_sales_price)) OVER (PARTITION BY i_category, i_brand, s_store_name, s_company_name) avg_monthly_sales
+   FROM item, store_sales, date_dim, store
+   WHERE ss_item_sk = i_item_sk
+     AND ss_sold_date_sk = d_date_sk
+     AND ss_store_sk = s_store_sk
+     AND d_year = 1999
+     AND ((i_category IN ('Books','Electronics','Sports')
+           AND i_class IN ('computers','stereo','football') )
+          OR (i_category IN ('Men','Jewelry','Women')
+              AND i_class IN ('shirts','birdal','dresses')))
+   GROUP BY i_category, i_class, i_brand, s_store_name, s_company_name, d_moy) tmp1
+WHERE CASE
+          WHEN (avg_monthly_sales <> 0) THEN (abs(sum_sales - avg_monthly_sales) / avg_monthly_sales)
+          ELSE NULL
+      END > 0.1
+ORDER BY sum_sales - avg_monthly_sales,
+         s_store_name, 1, 2, 3, 5, 6, 7, 8
+LIMIT 100;
+----
+Women dresses amalgamalg #1 ought Unknown 3 923.47 2408.735833333333
+Women dresses amalgamalg #1 ought Unknown 6 982.71 2408.735833333333
+Men shirts importoimporto #1 ought Unknown 7 1188.25 2423.258333333333
+Women dresses amalgamalg #1 ought Unknown 5 1184.1 2408.735833333333
+Women dresses amalgamalg #1 ought Unknown 1 1354.43 2408.735833333333
+Men shirts importoimporto #1 ought Unknown 3 1406.02 2423.258333333333
+Men shirts importoimporto #1 ought Unknown 5 1411.01 2423.258333333333
+Women dresses amalgamalg #1 ought Unknown 2 1422.83 2408.735833333333
+Women dresses amalgamalg #1 ought Unknown 7 1448.62 2408.735833333333
+Men shirts importoimporto #1 ought Unknown 2 1507.7 2423.258333333333
+Men shirts importoimporto #1 ought Unknown 6 1549.04 2423.258333333333
+Women dresses amalgamalg #2 ought Unknown 2 801.22 1672.928333333333
+Women dresses amalgamalg #1 ought Unknown 4 1540.59 2408.735833333333
+Women dresses amalgamalg #2 ought Unknown 7 883.66 1672.928333333333
+Men shirts importoimporto #2 ought Unknown 5 477.76 1184.171666666667
+Men shirts importoimporto #2 ought Unknown 6 487.48 1184.171666666667
+Women dresses amalgamalg #2 ought Unknown 1 1023.68 1672.928333333333
+Men shirts importoimporto #1 ought Unknown 1 1779.64 2423.258333333333
+Women dresses amalgamalg #2 ought Unknown 3 1052.57 1672.928333333333
+Men shirts importoimporto #2 ought Unknown 7 564.29 1184.171666666667
+Women dresses amalgamalg #2 ought Unknown 5 1092.26 1672.928333333333
+Women dresses amalgamalg #2 ought Unknown 6 1139.04 1672.928333333333
+Men shirts importoimporto #1 ought Unknown 4 1893.82 2423.258333333333
+Men shirts importoimporto #1 ought Unknown 8 2064.33 2423.258333333333
+Women dresses amalgamalg #2 ought Unknown 4 1347.3 1672.928333333333
+Men shirts importoimporto #2 ought Unknown 1 866.84 1184.171666666667
+Jewelry birdal amalgcorp #8 ought Unknown 3 31.01 348.130833333333
+Books computers exportimaxi #3 ought Unknown 7 31.96 346.941666666667
+Men shirts importoimporto #2 ought Unknown 4 871.59 1184.171666666667
+Men shirts importoimporto #2 ought Unknown 2 884.78 1184.171666666667
+Jewelry birdal amalgcorp #8 ought Unknown 4 62.61 348.130833333333
+Books computers exportimaxi #3 ought Unknown 2 69.21 346.941666666667
+Men shirts importoimporto #2 ought Unknown 3 912.7 1184.171666666667
+Jewelry birdal amalgcorp #8 ought Unknown 7 91.82 348.130833333333
+Books computers exportimaxi #3 ought Unknown 10 91.14 346.941666666667
+Sports football corpnameless #5 ought Unknown 3 162.36 393.48
+Jewelry birdal amalgcorp #8 ought Unknown 6 124.78 348.130833333333
+Books computers exportimaxi #5 ought Unknown 4 1.37 224.351666666667
+Sports football corpnameless #1 ought Unknown 9 11.51 233.448181818182
+Sports football corpnameless #1 ought Unknown 6 11.75 233.448181818182
+Books computers exportimaxi #11 ought Unknown 5 13.99 217.664545454545
+Books computers exportimaxi #5 ought Unknown 7 25.81 224.351666666667
+Sports football corpnameless #5 ought Unknown 5 198.53 393.48
+Sports football corpnameless #1 ought Unknown 7 41.26 233.448181818182
+Jewelry birdal amalgcorp #1 ought Unknown 6 4.58 194.534166666667
+Electronics stereo exportiamalgamalg #5 ought Unknown 2 29.1 216.578181818182
+Books computers exportimaxi #5 ought Unknown 3 38.24 224.351666666667
+Books computers exportimaxi #2 ought Unknown 7 12.44 197.853636363636
+Sports football corpnameless #5 ought Unknown 2 210.6 393.48
+Jewelry birdal amalgcorp #2 ought Unknown 11 15.29 196.894545454545
+Electronics stereo exportiamalgamalg #6 ought Unknown 5 35.77 217.23
+Electronics stereo exportiamalgamalg #16 ought Unknown 6 1.07 179.7825
+Books computers exportimaxi #8 ought Unknown 5 17.15 194.200833333333
+Sports football corpnameless #1 ought Unknown 3 56.43 233.448181818182
+Sports football corpnameless #8 ought Unknown 2 21.41 196.005
+Books computers exportimaxi #2 ought Unknown 1 23.44 197.853636363636
+Electronics stereo exportiamalgamalg #6 ought Unknown 3 42.95 217.23
+Books computers exportimaxi #11 ought Unknown 1 44.82 217.664545454545
+Jewelry birdal amalgcorp #2 ought Unknown 5 24.85 196.894545454545
+Sports football corpnameless #5 ought Unknown 7 224.86 393.48
+Books computers exportimaxi #3 ought Unknown 6 179.63 346.941666666667
+Sports football corpnameless #8 ought Unknown 7 30.63 196.005
+Jewelry birdal amalgcorp #1 ought Unknown 4 33.17 194.534166666667
+Jewelry birdal amalgcorp #2 ought Unknown 6 36.29 196.894545454545
+Jewelry birdal amalgcorp #1 ought Unknown 7 36.26 194.534166666667
+Jewelry birdal amalgcorp #5 ought Unknown 6 19.56 177.540909090909
+Books computers exportimaxi #2 ought Unknown 3 40.18 197.853636363636
+Electronics stereo exportiamalgamalg #14 ought Unknown 7 8.7 165.399166666667
+Electronics stereo exportiamalgamalg #6 ought Unknown 1 60.73 217.23
+Jewelry birdal amalgcorp #5 ought Unknown 1 22.45 177.540909090909
+Jewelry birdal amalgcorp #5 ought Unknown 3 22.69 177.540909090909
+Electronics stereo exportiamalgamalg #5 ought Unknown 9 65.06 216.578181818182
+Jewelry birdal amalgcorp #2 ought Unknown 2 46.24 196.894545454545
+Jewelry birdal amalgcorp #5 ought Unknown 7 27.94 177.540909090909
+Books computers exportimaxi #8 ought Unknown 6 46.87 194.200833333333
+Jewelry birdal amalgcorp #8 ought Unknown 5 202.09 348.130833333333
+Electronics stereo exportiamalgamalg #5 ought Unknown 3 71.77 216.578181818182
+Electronics stereo exportiamalgamalg #14 ought Unknown 5 21.66 165.399166666667
+Books computers exportimaxi #11 ought Unknown 3 74.6 217.664545454545
+Books computers exportimaxi #11 ought Unknown 2 83.35 217.664545454545
+Sports football corpnameless #2 ought Unknown 5 41.22 173.356666666667
+Electronics stereo exportiamalgamalg #16 ought Unknown 7 47.79 179.7825
+Sports football corpnameless #1 ought Unknown 2 103.22 233.448181818182
+Electronics stereo exportiamalgamalg #5 ought Unknown 6 90.83 216.578181818182
+Electronics stereo exportiamalgamalg #14 ought Unknown 1 41.92 165.399166666667
+Jewelry birdal amalgcorp #1 ought Unknown 2 74.1 194.534166666667
+Electronics stereo exportiamalgamalg #16 ought Unknown 2 59.96 179.7825
+Sports football corpnameless #2 ought Unknown 7 56.48 173.356666666667
+Electronics stereo exportiamalgamalg #12 ought Unknown 1 42.33 157.264545454545
+Books computers exportimaxi #5 ought Unknown 10 111.05 224.351666666667
+Sports football corpnameless #8 ought Unknown 9 85.51 196.005
+Books computers exportimaxi #3 ought Unknown 3 240.65 346.941666666667
+Jewelry birdal amalgcorp #2 ought Unknown 4 93.76 196.894545454545
+Electronics stereo exportiamalgamalg #16 ought Unknown 5 77.28 179.7825
+Electronics stereo exportiamalgamalg #16 ought Unknown 1 77.8 179.7825
+Sports football corpnameless #5 ought Unknown 4 291.71 393.48
+Electronics stereo exportiamalgamalg #6 ought Unknown 4 115.84 217.23
+Sports football corpnameless #1 ought Unknown 1 132.75 233.448181818182
+Sports football corpnameless #8 ought Unknown 4 95.69 196.005
+Electronics stereo exportiamalgamalg #5 ought Unknown 8 118.38 216.578181818182

@@ -37,12 +37,11 @@ working directory accordingly.
 TPC-H scripts live under `slt/tpch/datafusion/` and `slt/tpch/duckdb/`, TPC-DS scripts under
 `slt/tpcds/datafusion/` and `slt/tpcds/duckdb/`, ClickBench scripts under
 `slt/clickbench/datafusion/` and `slt/clickbench/duckdb/`. Each engine has its own
-`create.slt.no`, `results/q*.slt.no` (`q1` to `q22` for TPC-H, `q0` to `q42` for ClickBench,
-matching the upstream numbering), and `drop.slt.no`. Its `tpch.slt`/`clickbench.slt` runs these
-against Vortex and asserts EXPLAIN output from the matching `plans/q*.slt.no`. Its `parquet.slt`
-runs the same queries against the original Parquet fixtures and checks the same expected results.
-TPC-DS asserts plans only for now: `tpcds.slt` runs `plans/q1.slt.no` to `plans/q99.slt.no`
-against Vortex, without result records or a Parquet comparison.
+`create.slt.no`, `results/q*.slt.no` (`q1` to `q22` for TPC-H, `q1` to `q99` for TPC-DS, `q0` to
+`q42` for ClickBench, matching the upstream numbering), and `drop.slt.no`. Its
+`tpch.slt`/`tpcds.slt`/`clickbench.slt` runs these against Vortex and asserts EXPLAIN output from
+the matching `plans/q*.slt.no`. Its `parquet.slt` runs the same queries against the original
+Parquet fixtures and checks the same expected results.
 DataFusion uses external tables; DuckDB uses views over files. The `FILE_FORMAT` substitution
 variable selects the format in each engine's table setup.
 
