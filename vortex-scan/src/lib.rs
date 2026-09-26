@@ -22,6 +22,7 @@
 //! * We should add a way for the client to negotiate capabilities with the data source, for
 //!   example which encodings it knows about.
 
+pub mod planning;
 pub mod row_mask;
 pub mod selection;
 pub mod strict_sorted_buffer;
