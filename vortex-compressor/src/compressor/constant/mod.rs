@@ -91,6 +91,8 @@ pub(crate) fn is_constant_for_compression(
     })
 }
 
+/// Returns `true` if `matches` holds for every valid index in `mask`, stopping at the first index
+/// where it does not.
 fn all_valid_match(mask: &Mask, mut matches: impl FnMut(usize) -> bool) -> bool {
     match mask {
         Mask::AllTrue(len) => (0..*len).all(matches),
@@ -102,6 +104,11 @@ fn all_valid_match(mask: &Mask, mut matches: impl FnMut(usize) -> bool) -> bool 
     }
 }
 
+/// Returns `true` if every valid value equals the value at `first`, the first valid index.
+///
+/// Views are compared before bytes: identical views, then lengths and prefixes, and for
+/// out-of-line values the buffer location, so the data buffers are only read to confirm values
+/// that share a length and prefix but live at different locations.
 fn is_constant_varbinview(array: ArrayView<'_, VarBinView>, mask: &Mask, first: usize) -> bool {
     let views = array.views();
     let first = &views[first];
