@@ -100,7 +100,7 @@ impl VTable for Delta {
     }
 
     fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
-        vortex_panic!("DeltaArray buffer index {idx} out of bounds")
+        vortex_panic!(OutOfBounds: "DeltaArray buffer index {idx} out of bounds")
     }
 
     fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
@@ -151,12 +151,12 @@ impl VTable for Delta {
     ) -> VortexResult<ArrayParts<Self>> {
         vortex_ensure!(
             buffers.is_empty(),
-            "DeltaArray expects 0 buffers, got {}",
+            InvalidArgument: "DeltaArray expects 0 buffers, got {}",
             buffers.len()
         );
         vortex_ensure!(
             children.len() == 2,
-            "DeltaArray expects 2 children, got {}",
+            InvalidArgument: "DeltaArray expects 2 children, got {}",
             children.len()
         );
         let metadata = DeltaMetadata::decode(metadata)?;
@@ -164,8 +164,9 @@ impl VTable for Delta {
         let lanes = lane_count(ptype);
 
         // Compute the length of the bases array
-        let deltas_len = usize::try_from(metadata.deltas_len)
-            .map_err(|_| vortex_err!("deltas_len {} overflowed usize", metadata.deltas_len))?;
+        let deltas_len = usize::try_from(metadata.deltas_len).map_err(
+            |_| vortex_err!(Overflow: "deltas_len {} overflowed usize", metadata.deltas_len),
+        )?;
         let num_chunks = deltas_len / 1024;
         let remainder_base_size = if deltas_len % 1024 > 0 { 1 } else { 0 };
         let bases_len = num_chunks * lanes + remainder_base_size;
@@ -221,38 +222,38 @@ fn validate_parts(
 ) -> VortexResult<()> {
     vortex_ensure!(
         offset + len <= deltas.len(),
-        "offset + len, {offset} + {len}, must be less than or equal to the size of deltas: {}",
+        InvalidArgument: "offset + len, {offset} + {len}, must be less than or equal to the size of deltas: {}",
         deltas.len()
     );
     vortex_ensure!(
         bases.dtype().eq_ignore_nullability(deltas.dtype()),
-        "DeltaArray: bases and deltas must have the same dtype, got {} and {}",
+        MismatchedTypes: "DeltaArray: bases and deltas must have the same dtype, got {} and {}",
         bases.dtype(),
         deltas.dtype()
     );
 
     vortex_ensure!(
         bases.dtype().is_int(),
-        "DeltaArray: dtype must be an integer, got {}",
+        MismatchedTypes: "DeltaArray: dtype must be an integer, got {}",
         bases.dtype()
     );
 
     let expected_dtype = bases.dtype().with_nullability(deltas.dtype().nullability());
     vortex_ensure!(
         dtype == &expected_dtype,
-        "DeltaArray dtype mismatch: expected {expected_dtype}, got {dtype}"
+        MismatchedTypes: "DeltaArray dtype mismatch: expected {expected_dtype}, got {dtype}"
     );
 
     let lanes = lane_count(bases.dtype().as_ptype());
 
     vortex_ensure!(
         deltas.len().is_multiple_of(1024),
-        "deltas length ({}) must be a multiple of 1024",
+        InvalidArgument: "deltas length ({}) must be a multiple of 1024",
         deltas.len(),
     );
     vortex_ensure!(
         bases.len().is_multiple_of(lanes),
-        "bases length ({}) must be a multiple of LANES ({lanes})",
+        InvalidArgument: "bases length ({}) must be a multiple of LANES ({lanes})",
         bases.len(),
     );
     Ok(())

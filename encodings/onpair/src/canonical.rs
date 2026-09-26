@@ -90,11 +90,11 @@ impl<'a> OnPairDecodePlan<'a> {
         let code_end = code_boundary_at(codes_offsets, array.len(), ctx)?;
         vortex_ensure!(
             code_start <= code_end,
-            "OnPair codes_offsets must be nondecreasing"
+            InvalidArgument: "OnPair codes_offsets must be nondecreasing"
         );
         vortex_ensure!(
             code_end <= array.codes().len(),
-            "OnPair codes_offsets end {} exceeds codes len {}",
+            InvalidArgument: "OnPair codes_offsets end {} exceeds codes len {}",
             code_end,
             array.codes().len()
         );
@@ -126,13 +126,13 @@ impl<'a> OnPairDecodePlan<'a> {
         let written = match onpair::try_decode_into(self.codes.as_slice(), self.dict, out) {
             Ok(written) => written,
             Err(_) => {
-                vortex_bail!("OnPair codes decode to more bytes than uncompressed_lengths records")
+                vortex_bail!(Serde: "OnPair codes decode to more bytes than uncompressed_lengths records")
             }
         };
 
         vortex_ensure!(
             written == self.total_size,
-            "OnPair codes decoded to {written} bytes but uncompressed_lengths records {}",
+            Serde: "OnPair codes decoded to {written} bytes but uncompressed_lengths records {}",
             self.total_size
         );
         Ok(written)

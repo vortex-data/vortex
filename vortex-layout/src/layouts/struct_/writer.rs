@@ -114,14 +114,14 @@ impl LayoutStrategy for StructStrategy {
         let dtype = stream.dtype().clone();
 
         let Some(struct_dtype) = dtype.as_struct_fields_opt() else {
-            vortex_bail!("StructStrategy can only write struct-typed streams, got {dtype}");
+            vortex_bail!(MismatchedTypes: "StructStrategy can only write struct-typed streams, got {dtype}");
         };
 
         // Check for unique field names at write time.
         if HashSet::<_, DefaultHashBuilder>::from_iter(struct_dtype.names().iter()).len()
             != struct_dtype.names().len()
         {
-            vortex_bail!("StructLayout must have unique field names");
+            vortex_bail!(InvalidArgument: "StructLayout must have unique field names");
         }
         let is_nullable = dtype.is_nullable();
 
@@ -183,7 +183,7 @@ impl LayoutStrategy for StructStrategy {
                         for (tx, column) in column_streams_tx.iter().zip_eq(columns) {
                             if tx.send(Ok(column)).await.is_err() {
                                 vortex_bail!(
-                                    "struct column writer finished before all chunks were sent"
+                                    Io: "struct column writer finished before all chunks were sent"
                                 );
                             }
                         }

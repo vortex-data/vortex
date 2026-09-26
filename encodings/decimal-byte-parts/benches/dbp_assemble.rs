@@ -60,7 +60,7 @@ fn dbp_assemble_kernel(bencher: Bencher, (values_type, len): (DecimalType, usize
                 )
             });
         }
-        _ => vortex_panic!("unsupported benchmark storage type: {values_type}"),
+        _ => vortex_panic!(NotImplemented: "unsupported benchmark storage type: {values_type}"),
     }
 }
 
@@ -94,7 +94,7 @@ fn dbp_assemble_kernel_narrow_msp(bencher: Bencher, (values_type, len): (Decimal
                 )
             });
         }
-        _ => vortex_panic!("unsupported benchmark storage type: {values_type}"),
+        _ => vortex_panic!(NotImplemented: "unsupported benchmark storage type: {values_type}"),
     }
 }
 
@@ -146,7 +146,7 @@ mod arrays {
                     buffer![u32::MAX; len].into_array(),
                 ],
             ),
-            _ => vortex_panic!("unsupported benchmark storage type: {values_type}"),
+            _ => vortex_panic!(NotImplemented: "unsupported benchmark storage type: {values_type}"),
         };
         bench_parts(
             bencher,

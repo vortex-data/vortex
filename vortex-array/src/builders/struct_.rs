@@ -92,12 +92,12 @@ impl StructBuilder {
     /// Appends a struct `value` to the builder.
     pub fn append_value(&mut self, struct_scalar: StructScalar) -> VortexResult<()> {
         if !self.dtype.is_nullable() && struct_scalar.is_null() {
-            vortex_bail!("Tried to append a null `StructScalar` to a non-nullable struct builder",);
+            vortex_bail!(InvalidArgument: "Tried to append a null `StructScalar` to a non-nullable struct builder",);
         }
 
         if struct_scalar.struct_fields() != self.struct_fields() {
             vortex_bail!(
-                "Tried to append a `StructScalar` with fields {} to a \
+                MismatchedTypes: "Tried to append a `StructScalar` with fields {} to a \
                     struct builder with fields {}",
                 struct_scalar.struct_fields(),
                 self.struct_fields()
@@ -145,7 +145,7 @@ impl StructBuilder {
     /// The [`StructFields`] of this struct builder.
     pub fn struct_fields(&self) -> &StructFields {
         let DType::Struct(struct_fields, _) = &self.dtype else {
-            vortex_panic!("`StructBuilder` somehow had dtype {}", self.dtype);
+            vortex_panic!(AssertionFailed: "`StructBuilder` somehow had dtype {}", self.dtype);
         };
 
         struct_fields
@@ -206,7 +206,7 @@ impl ArrayBuilder for StructBuilder {
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
         vortex_ensure!(
             scalar.dtype() == self.dtype(),
-            "StructBuilder expected scalar with dtype {}, got {}",
+            MismatchedTypes: "StructBuilder expected scalar with dtype {}, got {}",
             self.dtype(),
             scalar.dtype()
         );

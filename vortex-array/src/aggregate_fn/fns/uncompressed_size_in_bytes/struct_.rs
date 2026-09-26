@@ -19,7 +19,7 @@ pub(super) fn struct_uncompressed_size_in_bytes(
     for field in array.iter_unmasked_fields() {
         size = size
             .checked_add(uncompressed_size_in_bytes_u64(field, ctx)?)
-            .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))?;
+            .ok_or_else(|| vortex_err!(Overflow: "uncompressed size in bytes overflowed u64"))?;
     }
 
     size = size
@@ -29,7 +29,7 @@ pub(super) fn struct_uncompressed_size_in_bytes(
                 .validity()?
                 .execute_mask(array.as_ref().len(), ctx)?,
         )?)
-        .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))?;
+        .ok_or_else(|| vortex_err!(Overflow: "uncompressed size in bytes overflowed u64"))?;
 
     Ok(size)
 }

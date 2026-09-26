@@ -100,7 +100,7 @@ impl<'a> DecimalScalar<'a> {
                     // Convert to i128 for calculation
                     let scaled_value = match_each_decimal_value!(decimal_value, |v| {
                         NumToPrimitive::to_i128(v).ok_or_else(|| {
-                            vortex_err!("Decimal value too large to cast to primitive")
+                            vortex_err!(Overflow: "Decimal value too large to cast to primitive")
                         })
                     })?;
 
@@ -132,7 +132,7 @@ impl<'a> DecimalScalar<'a> {
                 }
             }
             _ => vortex_bail!(
-                "Cannot cast decimal to {dtype}: decimal scalars can only be cast to decimal or primitive numeric types"
+                MismatchedTypes: "Cannot cast decimal to {dtype}: decimal scalars can only be cast to decimal or primitive numeric types"
             ),
         }
     }
@@ -172,7 +172,7 @@ impl<'a> DecimalScalar<'a> {
         // We could have ops between different types but need to add rules for type inference.
         if self.decimal_type != other.decimal_type {
             vortex_bail!(
-                "decimal types must match: {} vs {}",
+                MismatchedTypes: "decimal types must match: {} vs {}",
                 self.decimal_type,
                 other.decimal_type
             );

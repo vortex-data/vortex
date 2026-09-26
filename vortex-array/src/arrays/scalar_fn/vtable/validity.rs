@@ -33,7 +33,7 @@ fn execute_expr(
 ) -> VortexResult<ArrayRef> {
     // Only Expression::Scalar is executable
     let Some(scalar_fn) = expr.as_scalar() else {
-        vortex_bail!("Only Expression::Scalar is executable");
+        vortex_bail!(NotImplemented: "Only Expression::Scalar is executable");
     };
 
     // Handle Literal expression - create a constant array

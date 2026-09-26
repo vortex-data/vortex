@@ -66,7 +66,7 @@ impl TryToDataFusion<ScalarValue> for Scalar {
                             Some(v32) => ScalarValue::Decimal32(Some(v32), precision, scale),
                             None => {
                                 vortex_bail!(
-                                    "invalid ScalarValue {value} for decimal with precision {precision}",
+                                    InvalidArgument: "invalid ScalarValue {value} for decimal with precision {precision}",
                                 )
                             }
                         },
@@ -78,7 +78,7 @@ impl TryToDataFusion<ScalarValue> for Scalar {
                             Some(v64) => ScalarValue::Decimal64(Some(v64), precision, scale),
                             None => {
                                 vortex_bail!(
-                                    "invalid ScalarValue {value} for decimal with precision {precision}",
+                                    InvalidArgument: "invalid ScalarValue {value} for decimal with precision {precision}",
                                 )
                             }
                         },
@@ -90,7 +90,7 @@ impl TryToDataFusion<ScalarValue> for Scalar {
                             Some(v128) => ScalarValue::Decimal128(Some(v128), precision, scale),
                             None => {
                                 vortex_bail!(
-                                    "invalid ScalarValue {value} for decimal with precision {precision}",
+                                    InvalidArgument: "invalid ScalarValue {value} for decimal with precision {precision}",
                                 )
                             }
                         },
@@ -104,7 +104,7 @@ impl TryToDataFusion<ScalarValue> for Scalar {
                             }
                             None => {
                                 vortex_bail!(
-                                    "invalid ScalarValue {value} for decimal with precision {precision}",
+                                    InvalidArgument: "invalid ScalarValue {value} for decimal with precision {precision}",
                                 )
                             }
                         },
@@ -122,19 +122,21 @@ impl TryToDataFusion<ScalarValue> for Scalar {
                     .map(|b| Vec::<u8>::from(b.into_bytes())),
             ),
             dtype @ DType::List(..) => vortex_bail!(
-                "cannot convert Vortex scalar dtype {dtype} to DataFusion ScalarValue: unsupported scalar type"
+                MismatchedTypes: "cannot convert Vortex scalar dtype {dtype} to DataFusion ScalarValue: unsupported scalar type"
             ),
             dtype @ DType::FixedSizeList(..) => vortex_bail!(
-                "cannot convert Vortex scalar dtype {dtype} to DataFusion ScalarValue: unsupported scalar type"
+                MismatchedTypes: "cannot convert Vortex scalar dtype {dtype} to DataFusion ScalarValue: unsupported scalar type"
             ),
             dtype @ DType::Map(..) => vortex_bail!(
-                "cannot convert Vortex scalar dtype {dtype} to DataFusion ScalarValue: unsupported scalar type"
+                MismatchedTypes: "cannot convert Vortex scalar dtype {dtype} to DataFusion ScalarValue: unsupported scalar type"
             ),
             DType::Struct(..) => struct_to_df(self)?,
             dtype @ DType::Union(..) => vortex_bail!(
-                "cannot convert Vortex scalar dtype {dtype} to DataFusion ScalarValue: unsupported scalar type"
+                MismatchedTypes: "cannot convert Vortex scalar dtype {dtype} to DataFusion ScalarValue: unsupported scalar type"
             ),
-            DType::Variant(_) => vortex_bail!("Variant scalars aren't supported with DF"),
+            DType::Variant(_) => {
+                vortex_bail!(NotImplemented: "Variant scalars aren't supported with DF")
+            }
             DType::Extension(ext) => {
                 let storage_scalar = self.as_extension().to_storage_scalar();
 
@@ -335,12 +337,11 @@ fn struct_to_df(scalar: &Scalar) -> VortexResult<ScalarValue> {
             } else {
                 scalar
                     .field_by_idx(idx)
-                    .ok_or_else(|| vortex_err!("missing struct field {name}"))?
+                    .ok_or_else(|| vortex_err!(NotFound: "missing struct field {name}"))?
             };
-            let array = child
-                .try_to_df()?
-                .to_array()
-                .map_err(|e| vortex_err!("failed to build struct field array: {e}"))?;
+            let array = child.try_to_df()?.to_array().map_err(
+                |e| vortex_err!(InvalidArgument: "failed to build struct field array: {e}"),
+            )?;
             Ok((
                 Field::new(name.as_ref(), array.data_type().clone(), nullable),
                 array,
@@ -355,7 +356,7 @@ fn struct_to_df(scalar: &Scalar) -> VortexResult<ScalarValue> {
         StructArray::new_null(fields, 1)
     } else {
         StructArray::try_new(fields, arrays, None)
-            .map_err(|e| vortex_err!("failed to build struct scalar array: {e}"))?
+            .map_err(|e| vortex_err!(InvalidArgument: "failed to build struct scalar array: {e}"))?
     };
     Ok(ScalarValue::Struct(Arc::new(struct_array)))
 }
@@ -384,7 +385,7 @@ fn struct_from_df(array: &StructArray, session: &VortexSession) -> Scalar {
                     .from_arrow_array(ArrowArrayRef::clone(column), field)
                     .and_then(|column| column.execute_scalar(0, &mut ctx))
                     .unwrap_or_else(|e| {
-                        vortex_panic!("cannot convert struct field to a Vortex scalar: {e}")
+                        vortex_panic!(e, "cannot convert struct field to a Vortex scalar")
                     })
             })
             .collect::<Vec<_>>();

@@ -68,9 +68,9 @@ impl ZstdBuffers {
         level: i32,
         session: &VortexSession,
     ) -> VortexResult<ZstdBuffersArray> {
-        let serialization = session
-            .array_serialize(array)?
-            .ok_or_else(|| vortex_err!("[ZstdBuffers]: Array does not support serialization"))?;
+        let serialization = session.array_serialize(array)?.ok_or_else(
+            || vortex_err!(Serde: "[ZstdBuffers]: Array does not support serialization"),
+        )?;
 
         let mut compressed_buffers = Vec::with_capacity(serialization.buffers.len());
         let mut uncompressed_sizes = Vec::with_capacity(serialization.buffers.len());
@@ -112,7 +112,7 @@ impl ZstdBuffers {
             .registry()
             .get(&array.data().inner_encoding_id)
             .ok_or_else(|| {
-                vortex_err!("Unknown inner encoding: {}", array.data().inner_encoding_id)
+                vortex_err!(NotFound: "Unknown inner encoding: {}", array.data().inner_encoding_id)
             })?;
 
         let children: Vec<ArrayRef> = array.slots().iter().flatten().cloned().collect();
@@ -230,14 +230,14 @@ impl ZstdBuffersData {
         vortex_ensure_eq!(
             self.compressed_buffers.len(),
             self.uncompressed_sizes.len(),
-            "zstd_buffers metadata mismatch: {} compressed buffers vs {} sizes",
+            Serde: "zstd_buffers metadata mismatch: {} compressed buffers vs {} sizes",
             self.compressed_buffers.len(),
             self.uncompressed_sizes.len()
         );
         vortex_ensure_eq!(
             self.compressed_buffers.len(),
             self.buffer_alignments.len(),
-            "zstd_buffers metadata mismatch: {} compressed buffers vs {} alignments",
+            Serde: "zstd_buffers metadata mismatch: {} compressed buffers vs {} alignments",
             self.compressed_buffers.len(),
             self.buffer_alignments.len()
         );
@@ -268,7 +268,7 @@ impl ZstdBuffersData {
             // of the unsafe calls below.
             if spare.len() < size {
                 return Err(vortex_err!(
-                    "Insufficient output capacity: expected at least {}, got {}",
+                    MismatchedTypes: "Insufficient output capacity: expected at least {}, got {}",
                     size,
                     spare.len()
                 ));
@@ -280,7 +280,7 @@ impl ZstdBuffersData {
             let written = decompressor.decompress_to_buffer(compressed.as_slice(), dst)?;
             if written != size {
                 return Err(vortex_err!(
-                    "Decompressed size mismatch: expected {}, got {}",
+                    MismatchedTypes: "Decompressed size mismatch: expected {}, got {}",
                     size,
                     written
                 ));

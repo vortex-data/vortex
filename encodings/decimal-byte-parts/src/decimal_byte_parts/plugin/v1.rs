@@ -34,7 +34,7 @@ pub(super) fn serialize(
 ) -> VortexResult<ArraySerialization> {
     vortex_ensure!(
         array.lower_parts().is_empty(),
-        "v1 must not carry lower parts"
+        Serde: "v1 must not carry lower parts"
     );
     let msp = array.msp();
     let metadata = DecimalBytePartsMetadata {
@@ -53,22 +53,22 @@ pub(super) fn serialize(
 pub(super) fn deserialize(parts: ArrayDeserialization<'_>) -> VortexResult<DecimalBytePartsArray> {
     vortex_ensure!(
         parts.serialized_id == decimal_byte_parts_v1_id(),
-        "expected the v1 format"
+        Serde: "expected the v1 format"
     );
     let metadata = DecimalBytePartsMetadata::decode(parts.metadata)?;
     vortex_ensure!(
         parts.dtype.as_decimal_opt().is_some(),
-        "expected a decimal dtype"
+        MismatchedTypes: "expected a decimal dtype"
     );
     vortex_ensure!(
         metadata.lower_part_count == 0,
-        "v1 must not carry lower parts"
+        Serde: "v1 must not carry lower parts"
     );
-    vortex_ensure!(parts.children.len() == 1, "v1 must carry exactly one child");
+    vortex_ensure!(parts.children.len() == 1, Serde: "v1 must carry exactly one child");
     let ptype = PType::try_from(metadata.zeroth_child_ptype)?;
     vortex_ensure!(
         ptype.is_signed_int(),
-        "MSP must have a signed integer dtype"
+        MismatchedTypes: "MSP must have a signed integer dtype"
     );
     let encoded_dtype = DType::Primitive(ptype, parts.dtype.nullability());
     let msp = parts.children.get(0, &encoded_dtype, parts.len)?;

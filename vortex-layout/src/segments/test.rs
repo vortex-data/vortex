@@ -31,7 +31,7 @@ impl SegmentSource for TestSegments {
         async move {
             buffer
                 .map(BufferHandle::new_host)
-                .ok_or_else(|| vortex_err!("Segment not found"))
+                .ok_or_else(|| vortex_err!(NotFound: "Segment not found"))
         }
         .boxed()
     }

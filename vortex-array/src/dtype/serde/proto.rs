@@ -36,12 +36,12 @@ impl DType {
             DtypeType::Primitive(p) => Ok(Self::Primitive(p.r#type().into(), p.nullable.into())),
             DtypeType::Decimal(d) => Ok(Self::Decimal(
                 DecimalDType::try_new(
-                    d.precision
-                        .try_into()
-                        .map_err(|_| vortex_err!("proto precision could not be downcast to u8"))?,
-                    d.scale
-                        .try_into()
-                        .map_err(|_| vortex_err!("proto scale could not be downcast to i8"))?,
+                    d.precision.try_into().map_err(
+                        |_| vortex_err!(Serde: "proto precision could not be downcast to u8"),
+                    )?,
+                    d.scale.try_into().map_err(
+                        |_| vortex_err!(Serde: "proto scale could not be downcast to i8"),
+                    )?,
                 )?,
                 d.nullable.into(),
             )),
@@ -120,7 +120,7 @@ impl DType {
                     .iter()
                     .map(|t| {
                         u8::try_from(*t).map_err(|_| {
-                            vortex_err!("Union type_id {t} somehow does not fit in u8")
+                            vortex_err!(Overflow: "Union type_id {t} somehow does not fit in u8")
                         })
                     })
                     .collect::<VortexResult<Vec<_>>>()?;
@@ -132,9 +132,9 @@ impl DType {
                 #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
                 let id = ExtId::new(e.id.as_str());
                 let storage_dtype = DType::from_proto(
-                    e.storage_dtype
-                        .as_ref()
-                        .ok_or_else(|| vortex_err!("Extension DType missing storage proto"))?,
+                    e.storage_dtype.as_ref().ok_or_else(
+                        || vortex_err!(Serde: "Extension DType missing storage proto"),
+                    )?,
                     session,
                 )?;
                 let ext_dtype = if let Some(vtable) = session.dtypes().registry().get(&id) {

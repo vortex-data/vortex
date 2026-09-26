@@ -16,7 +16,7 @@ use crate::scalar_fn::fns::cast::CastReduce;
 impl CastReduce for Null {
     fn cast(array: ArrayView<'_, Null>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if !dtype.is_nullable() {
-            vortex_bail!("Cannot cast Null to {}", dtype);
+            vortex_bail!(MismatchedTypes: "Cannot cast Null to {}", dtype);
         }
         if dtype == &DType::Null {
             return Ok(Some(array.array().clone()));

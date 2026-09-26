@@ -51,7 +51,7 @@ impl CudaExecute for FilterExecutor {
     ) -> VortexResult<Canonical> {
         let filter_array = array
             .try_downcast::<Filter>()
-            .map_err(|_| vortex_err!("Expected FilterArray"))?;
+            .map_err(|_| vortex_err!(InvalidArgument: "Expected FilterArray"))?;
 
         let child = filter_array.child().clone();
         let mask = filter_array.data().filter_mask().clone();
@@ -106,7 +106,7 @@ async fn filter_sized<T: DeviceRepr + CubFilterable + Debug + Send + Sync + 'sta
     let len = len as i64;
 
     let temp_bytes =
-        T::get_temp_size(len).map_err(|e| vortex_err!("CUB filter_temp_size failed: {}", e))?;
+        T::get_temp_size(len).map_err(|e| vortex_err!(Io: "CUB filter_temp_size failed: {}", e))?;
 
     // Allocate device buffers for input, output, mask, and temp space
     let mut d_temp = ctx.device_alloc::<u8>(temp_bytes.max(1))?;
@@ -121,7 +121,7 @@ async fn filter_sized<T: DeviceRepr + CubFilterable + Debug + Send + Sync + 'sta
         .as_device()
         .as_any()
         .downcast_ref::<CudaDeviceBuffer>()
-        .ok_or_else(|| vortex_err!("Expected CudaDeviceBuffer for input, was {d_input:?}",))?;
+        .ok_or_else(|| vortex_err!(InvalidArgument: "Expected CudaDeviceBuffer for input, was {d_input:?}",))?;
     let d_input_view = d_input_cuda.as_view::<T>();
     let (d_input_ptr, record_d_input) = d_input_view.device_ptr(stream);
 
@@ -130,7 +130,9 @@ async fn filter_sized<T: DeviceRepr + CubFilterable + Debug + Send + Sync + 'sta
         .as_device()
         .as_any()
         .downcast_ref::<CudaDeviceBuffer>()
-        .ok_or_else(|| vortex_err!("Expected CudaDeviceBuffer for packed flags"))?;
+        .ok_or_else(
+            || vortex_err!(InvalidArgument: "Expected CudaDeviceBuffer for packed flags"),
+        )?;
     let d_packed_view = d_packed_cuda.as_view::<u8>();
     let (d_packed_ptr, record_d_packed) = d_packed_view.device_ptr(stream);
 
@@ -151,7 +153,7 @@ async fn filter_sized<T: DeviceRepr + CubFilterable + Debug + Send + Sync + 'sta
             len,
             stream_ptr,
         )
-        .map_err(|e| vortex_err!("CUB filter_bitmask failed: {}", e))
+        .map_err(|e| vortex_err!(Io: "CUB filter_bitmask failed: {}", e))
     })?;
     drop((
         record_d_input,

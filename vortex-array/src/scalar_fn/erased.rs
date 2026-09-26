@@ -97,7 +97,7 @@ impl ScalarFnRef {
         self.try_downcast::<V>()
             .map_err(|this| {
                 vortex_err!(
-                    "Failed to downcast ScalarFnRef {} to {}",
+                    MismatchedTypes: "Failed to downcast ScalarFnRef {} to {}",
                     this.0.id(),
                     type_name::<V>(),
                 )

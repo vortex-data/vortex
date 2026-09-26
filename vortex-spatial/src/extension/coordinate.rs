@@ -49,7 +49,7 @@ impl Dimension {
         let mut strs = [""; 4];
         vortex_ensure!(
             names.len() <= strs.len(),
-            "not a valid GeoArrow coordinate dimension: {names:?}"
+            InvalidArgument: "not a valid GeoArrow coordinate dimension: {names:?}"
         );
         for (slot, name) in strs.iter_mut().zip(names.iter()) {
             *slot = name.as_ref();
@@ -59,7 +59,9 @@ impl Dimension {
             ["x", "y", "z"] => Dimension::Xyz,
             ["x", "y", "m"] => Dimension::Xym,
             ["x", "y", "z", "m"] => Dimension::Xyzm,
-            _ => vortex_bail!("not a valid GeoArrow coordinate dimension: {names:?}"),
+            _ => {
+                vortex_bail!(InvalidArgument: "not a valid GeoArrow coordinate dimension: {names:?}")
+            }
         })
     }
 
@@ -154,7 +156,7 @@ impl Display for Coordinate {
 /// [`Dimension`]. Any of the four GeoArrow dimensions validates.
 pub(crate) fn coordinate_dimension(dtype: &DType) -> VortexResult<Dimension> {
     let DType::Struct(fields, _) = dtype else {
-        vortex_bail!("coordinate storage must be a Struct, was {dtype}");
+        vortex_bail!(MismatchedTypes: "coordinate storage must be a Struct, was {dtype}");
     };
     for (name, field) in fields.names().iter().zip(fields.fields()) {
         vortex_ensure!(
@@ -162,7 +164,7 @@ pub(crate) fn coordinate_dimension(dtype: &DType) -> VortexResult<Dimension> {
                 field,
                 DType::Primitive(PType::F64, Nullability::NonNullable)
             ),
-            "coordinate field {name} must be non-nullable f64, was {field}"
+            MismatchedTypes: "coordinate field {name} must be non-nullable f64, was {field}"
         );
     }
     Dimension::from_field_names(fields.names())
@@ -191,7 +193,7 @@ pub(crate) fn coordinate_from_struct(scalar: &Scalar) -> VortexResult<Coordinate
         f64::try_from(
             &fields
                 .field(name)
-                .ok_or_else(|| vortex_err!("coordinate missing {name}"))?,
+                .ok_or_else(|| vortex_err!(NotFound: "coordinate missing {name}"))?,
         )
     };
     let optional = |name: &str| -> VortexResult<Option<f64>> {

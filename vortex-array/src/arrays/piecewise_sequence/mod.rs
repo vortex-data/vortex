@@ -46,13 +46,13 @@ pub(crate) fn check_index_arrays(
     check_index_array("multipliers", multipliers)?;
     vortex_ensure!(
         starts.len() == lengths.len(),
-        "PiecewiseSequenceArray starts length {} does not match lengths length {}",
+        InvalidArgument: "PiecewiseSequenceArray starts length {} does not match lengths length {}",
         starts.len(),
         lengths.len()
     );
     vortex_ensure!(
         starts.len() == multipliers.len(),
-        "PiecewiseSequenceArray starts length {} does not match multipliers length {}",
+        InvalidArgument: "PiecewiseSequenceArray starts length {} does not match multipliers length {}",
         starts.len(),
         multipliers.len()
     );
@@ -111,12 +111,12 @@ pub(crate) fn constant_unsigned_usize(array: &ConstantArray) -> usize {
 fn check_index_array(name: &str, array: &ArrayRef) -> VortexResult<()> {
     vortex_ensure!(
         array.dtype().is_unsigned_int(),
-        "PiecewiseSequenceArray {name} must have unsigned integer dtype, got {}",
+        MismatchedTypes: "PiecewiseSequenceArray {name} must have unsigned integer dtype, got {}",
         array.dtype()
     );
     vortex_ensure!(
         !array.dtype().is_nullable(),
-        "PiecewiseSequenceArray {name} must be non-nullable, got {}",
+        InvalidArgument: "PiecewiseSequenceArray {name} must be non-nullable, got {}",
         array.dtype()
     );
     Ok(())
@@ -145,23 +145,23 @@ where
         let multiplier: usize = multiplier.as_();
         if length != 0 {
             let last_offset = length - 1;
-            let last_delta = last_offset
-                .checked_mul(multiplier)
-                .ok_or_else(|| vortex_err!("PiecewiseSequenceArray range overflows usize"))?;
-            start
-                .checked_add(last_delta)
-                .ok_or_else(|| vortex_err!("PiecewiseSequenceArray range overflows usize"))?;
+            let last_delta = last_offset.checked_mul(multiplier).ok_or_else(
+                || vortex_err!(Overflow: "PiecewiseSequenceArray range overflows usize"),
+            )?;
+            start.checked_add(last_delta).ok_or_else(
+                || vortex_err!(Overflow: "PiecewiseSequenceArray range overflows usize"),
+            )?;
         }
-        computed_len = computed_len
-            .checked_add(length)
-            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray output length overflows usize"))?;
+        computed_len = computed_len.checked_add(length).ok_or_else(
+            || vortex_err!(Overflow: "PiecewiseSequenceArray output length overflows usize"),
+        )?;
 
         values.extend((0..length).map(|offset| (start + offset * multiplier) as u64));
     }
 
     if computed_len != output_len {
         vortex_bail!(
-            "PiecewiseSequenceArray expanded length {computed_len} does not match declared length {output_len}"
+            AssertionFailed: "PiecewiseSequenceArray expanded length {computed_len} does not match declared length {output_len}"
         );
     }
     Ok(values)

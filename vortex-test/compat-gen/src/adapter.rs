@@ -31,7 +31,7 @@ use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 fn runtime() -> VortexResult<Runtime> {
-    Runtime::new().map_err(|e| vortex_err!("failed to create tokio runtime: {e}"))
+    Runtime::new().map_err(|e| vortex_err!(Io: "failed to create tokio runtime: {e}"))
 }
 
 /// Compute all statistics on every node in the array tree.
@@ -76,7 +76,7 @@ pub fn write_compressed(
         let session = VortexSession::default().with_tokio();
         let mut file = tokio::fs::File::create(path)
             .await
-            .map_err(|e| vortex_err!("failed to create {}: {e}", path.display()))?;
+            .map_err(|e| vortex_err!(Io: "failed to create {}: {e}", path.display()))?;
         let _summary = session
             .write_options()
             .with_strategy(strategy)
@@ -155,8 +155,8 @@ pub fn read_layout_tree(bytes: ByteBuffer) -> VortexResult<()> {
                 &session,
                 &Default::default(),
             )?;
-            let len =
-                usize::try_from(row_count).map_err(|e| vortex_err!("row count overflow: {e}"))?;
+            let len = usize::try_from(row_count)
+                .map_err(|e| vortex_err!(Overflow: "row count overflow: {e}"))?;
             let expr = root().bind(reader.dtype())?;
             reader
                 .projection_evaluation(&(0..row_count), &expr, MaskFuture::new_true(len))?

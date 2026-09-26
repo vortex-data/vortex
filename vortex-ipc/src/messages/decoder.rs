@@ -95,7 +95,7 @@ impl MessageDecoder {
                     let msg_bytes = bytes.copy_to_const_aligned(*msg_length);
                     let msg = root::<fb::Message>(msg_bytes.as_ref())?;
                     if msg.version() != MessageVersion::V0 {
-                        vortex_bail!("Unsupported message version {:?}", msg.version());
+                        vortex_bail!(InvalidArgument: "Unsupported message version {:?}", msg.version());
                     }
 
                     self.state = State::Reading(msg_bytes);
@@ -106,7 +106,7 @@ impl MessageDecoder {
 
                     // Now we read the body
                     let body_length = usize::try_from(msg.body_size()).map_err(|_| {
-                        vortex_err!("body size {} is too large for usize", msg.body_size())
+                        vortex_err!(Overflow: "body size {} is too large for usize", msg.body_size())
                     })?;
                     if bytes.remaining() < body_length {
                         return Ok(PollRead::NeedMore(body_length));
@@ -157,7 +157,7 @@ impl MessageDecoder {
                             return Ok(PollRead::Some(DecoderMessage::DType(dtype)));
                         }
                         _ => {
-                            vortex_bail!("Unsupported message header {:?}", msg.header_type());
+                            vortex_bail!(InvalidArgument: "Unsupported message header {:?}", msg.header_type());
                         }
                     }
                 }
@@ -193,7 +193,7 @@ mod test {
         let mut buffer = BytesMut::from(ipc_bytes.as_ref());
         let (array_parts, ctx, row_count) = match decoder.read_next(&mut buffer).unwrap() {
             PollRead::Some(DecoderMessage::Array(array_parts)) => array_parts,
-            otherwise => vortex_panic!("Expected an array, got {:?}", otherwise),
+            otherwise => vortex_panic!(MismatchedTypes: "Expected an array, got {:?}", otherwise),
         };
 
         // Decode the array parts with the context

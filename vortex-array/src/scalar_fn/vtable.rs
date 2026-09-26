@@ -65,7 +65,7 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
         _metadata: &[u8],
         _session: &VortexSession,
     ) -> VortexResult<Self::Options> {
-        vortex_bail!("Expression {} is not deserializable", self.id());
+        vortex_bail!(Serde: "Expression {} is not deserializable", self.id());
     }
 
     /// Returns the arity of this expression.
@@ -464,7 +464,7 @@ impl ExecutionArgs for VecExecutionArgs {
     fn get(&self, index: usize) -> VortexResult<ArrayRef> {
         self.inputs.get(index).cloned().ok_or_else(|| {
             vortex_err!(
-                "Input index {} out of bounds (num_inputs={})",
+                OutOfBounds: "Input index {} out of bounds (num_inputs={})",
                 index,
                 self.inputs.len()
             )

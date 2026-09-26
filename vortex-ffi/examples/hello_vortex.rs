@@ -79,7 +79,7 @@ pub fn main() -> VortexResult<()> {
         println!("C compilation failed:");
         println!("Stdout: {}", String::from_utf8_lossy(&output.stdout));
         println!("Stderr: {}", String::from_utf8_lossy(&output.stderr));
-        return Err(vortex_err!("C compilation failed"));
+        return Err(vortex_err!(Other: "C compilation failed"));
     }
 
     // Use a fixed path in the working directory instead of temp file
@@ -129,7 +129,7 @@ pub fn main() -> VortexResult<()> {
         println!("✅ FFI example ran successfully! (Exit code issues during cleanup are known)");
     } else if !output.status.success() {
         println!("Command failed with exit code: {:?}", output.status.code());
-        return Err(vortex_err!("C binary execution failed"));
+        return Err(vortex_err!(Other: "C binary execution failed"));
     } else {
         println!("✅ Success!");
     }

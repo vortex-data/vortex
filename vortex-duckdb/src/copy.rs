@@ -98,7 +98,7 @@ fn push_to_writer(global: &CopyFunctionGlobal, array: ArrayRef) -> VortexResult<
     let mut sink = global
         .sink
         .as_ref()
-        .ok_or_else(|| vortex_err!("sink closed early"))?
+        .ok_or_else(|| vortex_err!(Io: "sink closed early"))?
         .clone();
     RUNTIME.block_on(async {
         // send may error with "receiver is gone" which isn't the real error
@@ -110,7 +110,7 @@ fn push_to_writer(global: &CopyFunctionGlobal, array: ArrayRef) -> VortexResult<
             // we can get the real error (i.e invalid path) from here
             task.await?;
         }
-        vortex_bail!("Writer stopped before all data was written")
+        vortex_bail!(Io: "Writer stopped before all data was written")
     })
 }
 
@@ -236,11 +236,11 @@ fn column_stats_from_summary(
     let file_stats = summary
         .footer()
         .statistics()
-        .ok_or_else(|| vortex_err!("written file has no statistics"))?;
+        .ok_or_else(|| vortex_err!(AssertionFailed: "written file has no statistics"))?;
     let stats_sets = file_stats.stats_sets();
     if column_index >= stats_sets.len() {
         vortex_bail!(
-            "column index {column_index} out of range for {} statistics sets",
+            OutOfBounds: "column index {column_index} out of range for {} statistics sets",
             stats_sets.len()
         );
     }

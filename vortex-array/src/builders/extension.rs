@@ -118,7 +118,7 @@ impl ArrayBuilder for ExtensionBuilder {
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
         vortex_ensure!(
             scalar.dtype() == self.dtype(),
-            "ExtensionBuilder expected scalar with dtype {}, got {}",
+            MismatchedTypes: "ExtensionBuilder expected scalar with dtype {}, got {}",
             self.dtype(),
             scalar.dtype()
         );

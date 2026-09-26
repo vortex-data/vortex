@@ -26,7 +26,7 @@ pub fn zigzag_encode(parray: ArrayView<'_, Primitive>) -> VortexResult<ZigZagArr
         PType::I32 => zigzag_encode_primitive::<i32>(parray.into_buffer_mut(), validity),
         PType::I64 => zigzag_encode_primitive::<i64>(parray.into_buffer_mut(), validity),
         _ => vortex_bail!(
-            "ZigZag can only encode signed integers, got {}",
+            MismatchedTypes: "ZigZag can only encode signed integers, got {}",
             parray.ptype()
         ),
     };
@@ -56,7 +56,7 @@ pub fn zigzag_decode(parray: PrimitiveArray) -> PrimitiveArray {
         PType::U32 => zigzag_decode_primitive::<i32>(parray.into_buffer_mut(), validity),
         PType::U64 => zigzag_decode_primitive::<i64>(parray.into_buffer_mut(), validity),
         _ => vortex_panic!(
-            "ZigZag can only decode unsigned integers, got {}",
+            MismatchedTypes: "ZigZag can only decode unsigned integers, got {}",
             parray.ptype()
         ),
     }

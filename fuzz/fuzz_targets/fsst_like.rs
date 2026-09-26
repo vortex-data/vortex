@@ -30,6 +30,6 @@ fuzz_target!(
     match run_fsst_like_fuzz(fuzz_action) {
         Ok(true) => Corpus::Keep,
         Ok(false) => Corpus::Reject,
-        Err(e) => vortex_panic!("{e}"),
+        Err(e) => vortex_panic!(AssertionFailed: "{e}"),
     }
 });

@@ -136,7 +136,7 @@ pub fn deserialize_null_views() -> VortexResult<()> {
 
     let decoded = decoded
         .as_opt::<VarBinView>()
-        .ok_or_else(|| vortex_err!("expected VarBinView"))?;
+        .ok_or_else(|| vortex_err!(MismatchedTypes: "expected VarBinView"))?;
     assert_eq!(decoded.views()[0], views[0]);
     assert_eq!(decoded.views()[1], BinaryView::empty_view());
     Ok(())

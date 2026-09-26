@@ -74,17 +74,17 @@ pub struct DateTimePartsMetadata {
 impl DateTimePartsMetadata {
     pub fn get_days_ptype(&self) -> VortexResult<PType> {
         PType::try_from(self.days_ptype)
-            .map_err(|_| vortex_err!("Invalid PType {}", self.days_ptype))
+            .map_err(|_| vortex_err!(InvalidArgument: "Invalid PType {}", self.days_ptype))
     }
 
     pub fn get_seconds_ptype(&self) -> VortexResult<PType> {
         PType::try_from(self.seconds_ptype)
-            .map_err(|_| vortex_err!("Invalid PType {}", self.seconds_ptype))
+            .map_err(|_| vortex_err!(InvalidArgument: "Invalid PType {}", self.seconds_ptype))
     }
 
     pub fn get_subseconds_ptype(&self) -> VortexResult<PType> {
         PType::try_from(self.subseconds_ptype)
-            .map_err(|_| vortex_err!("Invalid PType {}", self.subseconds_ptype))
+            .map_err(|_| vortex_err!(InvalidArgument: "Invalid PType {}", self.subseconds_ptype))
     }
 }
 
@@ -115,11 +115,11 @@ impl VTable for DateTimeParts {
     }
 
     fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
-        vortex_panic!("DateTimePartsArray buffer index {idx} out of bounds")
+        vortex_panic!(OutOfBounds: "DateTimePartsArray buffer index {idx} out of bounds")
     }
 
     fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
-        vortex_panic!("DateTimePartsArray buffer_name index {idx} out of bounds")
+        vortex_panic!(OutOfBounds: "DateTimePartsArray buffer_name index {idx} out of bounds")
     }
 
     fn with_buffers(
@@ -156,7 +156,7 @@ impl VTable for DateTimeParts {
         let metadata = DateTimePartsMetadata::decode(metadata)?;
         if children.len() != 3 {
             vortex_bail!(
-                "Expected 3 children for datetime-parts encoding, found {}",
+                InvalidArgument: "Expected 3 children for datetime-parts encoding, found {}",
                 children.len()
             )
         }
@@ -309,25 +309,25 @@ impl DateTimePartsData {
         subseconds: &ArrayRef,
         len: usize,
     ) -> VortexResult<()> {
-        vortex_ensure!(days.len() == len, "expected len {len}, got {}", days.len());
+        vortex_ensure!(days.len() == len, InvalidArgument: "expected len {len}, got {}", days.len());
 
         if !days.dtype().is_int() || (dtype.is_nullable() != days.dtype().is_nullable()) {
             vortex_bail!(
-                "Expected integer with nullability {}, got {}",
+                MismatchedTypes: "Expected integer with nullability {}, got {}",
                 dtype.is_nullable(),
                 days.dtype()
             );
         }
         if !seconds.dtype().is_int() || seconds.dtype().is_nullable() {
-            vortex_bail!(MismatchedTypes: "non-nullable integer", seconds.dtype());
+            vortex_bail!(MismatchedTypes: "expected type: non-nullable integer but instead got {}", seconds.dtype());
         }
         if !subseconds.dtype().is_int() || subseconds.dtype().is_nullable() {
-            vortex_bail!(MismatchedTypes: "non-nullable integer", subseconds.dtype());
+            vortex_bail!(MismatchedTypes: "expected type: non-nullable integer but instead got {}", subseconds.dtype());
         }
 
         if len != seconds.len() || len != subseconds.len() {
             vortex_bail!(
-                "Mismatched lengths {} {} {}",
+                MismatchedTypes: "Mismatched lengths {} {} {}",
                 days.len(),
                 seconds.len(),
                 subseconds.len()

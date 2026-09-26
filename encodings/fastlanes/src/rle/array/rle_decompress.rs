@@ -43,7 +43,7 @@ pub fn rle_decompress(array: &RLEArray, ctx: &mut ExecutionCtx) -> VortexResult<
             PType::U8 => rle_decode_typed::<V, u8>(array, &values_idx_offsets, ctx),
             PType::U16 => rle_decode_typed::<V, u16>(array, &values_idx_offsets, ctx),
             _ => vortex_panic!(
-                "Unsupported index type for RLE decoding: {}",
+                AssertionFailed: "Unsupported index type for RLE decoding: {}",
                 array.indices().dtype().as_ptype()
             ),
         }
@@ -68,12 +68,12 @@ where
     // offsets must be non-decreasing and span at most `values.len()` values.
     vortex_ensure!(
         values_idx_offsets.is_sorted(),
-        "RLE values_idx_offsets must be non-decreasing"
+        InvalidArgument: "RLE values_idx_offsets must be non-decreasing"
     );
     if let (Some(&first), Some(&last)) = (values_idx_offsets.first(), values_idx_offsets.last()) {
         vortex_ensure!(
             last - first <= values.len() as u64,
-            "RLE values_idx_offsets span {} values but only {} are present",
+            InvalidArgument: "RLE values_idx_offsets span {} values but only {} are present",
             last - first,
             values.len()
         );
@@ -110,7 +110,7 @@ where
             .vortex_expect("There can be at most 1024 values in RLE chunk");
         vortex_ensure!(
             num_chunk_values > 0,
-            "RLE chunk {chunk_idx} references no values"
+            InvalidArgument: "RLE chunk {chunk_idx} references no values"
         );
 
         // SAFETY: `MaybeUninit<T>` and `T` have the same layout.
@@ -201,7 +201,7 @@ where
         .unwrap_or_default();
     vortex_ensure!(
         max_index < num_chunk_values as usize,
-        "RLE index {max_index} out of bounds for chunk {chunk_idx} with {num_chunk_values} values"
+        OutOfBounds: "RLE index {max_index} out of bounds for chunk {chunk_idx} with {num_chunk_values} values"
     );
     // SAFETY: just checked that every index in the chunk is below `num_chunk_values`,
     // which the caller's offset validation bounds by `chunk_values.len()`.

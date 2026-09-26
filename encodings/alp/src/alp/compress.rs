@@ -39,7 +39,7 @@ macro_rules! match_each_alp_float_ptype {
                 type $enc = f64;
                 $body
             }
-            _ => vortex_panic!("ALP can only encode f32 and f64, got {}", ptype),
+            _ => vortex_panic!(MismatchedTypes: "ALP can only encode f32 and f64, got {}", ptype),
         }
     }};
 }
@@ -52,7 +52,7 @@ pub fn alp_encode(
     let (exponents, encoded, patches) = match parray.ptype() {
         PType::F32 => alp_encode_components_typed::<f32>(parray, exponents, ctx)?,
         PType::F64 => alp_encode_components_typed::<f64>(parray, exponents, ctx)?,
-        _ => vortex_bail!("ALP can only encode f32 and f64"),
+        _ => vortex_bail!(MismatchedTypes: "ALP can only encode f32 and f64"),
     };
 
     // SAFETY: alp_encode_components_typed must return well-formed components

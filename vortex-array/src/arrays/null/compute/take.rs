@@ -27,7 +27,7 @@ impl TakeReduce for Null {
         match_each_integer_ptype!(indices.ptype(), |T| {
             for index in indices.as_slice::<T>() {
                 if (*index as usize) >= array.len() {
-                    vortex_bail!(OutOfBounds: *index as usize, 0, array.len());
+                    vortex_bail!(OutOfBounds: "index {} out of bounds from {} to {}", *index as usize, 0, array.len());
                 }
             }
         });

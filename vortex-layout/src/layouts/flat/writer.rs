@@ -157,7 +157,7 @@ impl LayoutStrategy for FlatLayoutStrategy {
         let segment_id = segment_sink.write(sequence_id, buffers).await?;
 
         let None = stream.next().await else {
-            vortex_bail!("flat layout received stream with more than a single chunk");
+            vortex_bail!(InvalidArgument: "flat layout received stream with more than a single chunk");
         };
         Ok(FlatLayout::new_with_metadata(
             row_count,

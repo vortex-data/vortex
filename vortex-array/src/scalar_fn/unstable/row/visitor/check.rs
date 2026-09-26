@@ -84,7 +84,7 @@ pub(super) fn validate_owned_visit<Args: ElementTuple, Out: OutputElement>(
     let dtype = Out::element_dtype();
     vortex_ensure!(
         !dtype.is_nullable(),
-        "row output elements must declare a non-nullable dtype, got {dtype}",
+        AssertionFailed: "row output elements must declare a non-nullable dtype, got {dtype}",
     );
 
     Ok(dtype)
@@ -103,7 +103,7 @@ where
     let dtype = Sink::storage_dtype(params);
     vortex_ensure!(
         !dtype.is_nullable(),
-        "row output sinks must declare a non-nullable dtype, got {dtype}",
+        AssertionFailed: "row output sinks must declare a non-nullable dtype, got {dtype}",
     );
 
     Ok(dtype)

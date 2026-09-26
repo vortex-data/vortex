@@ -122,7 +122,7 @@ where
 
     if array.len() != 1 {
         vortex_panic!(
-            "Array length mismatch, expected {} got {} for encoding {}",
+            AssertionFailed: "Array length mismatch, expected {} got {} for encoding {}",
             len,
             array.len(),
             array.encoding_id()
@@ -164,7 +164,7 @@ pub fn from_arrow_columnar(
 
     if array.len() != 1 {
         vortex_panic!(
-            "Array length mismatch, expected {} got {} for encoding {}",
+            AssertionFailed: "Array length mismatch, expected {} got {} for encoding {}",
             len,
             array.len(),
             array.encoding_id()

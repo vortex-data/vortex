@@ -61,7 +61,7 @@ impl FlatPrefixDfa {
     ) -> VortexResult<Self> {
         if prefix.len() > Self::MAX_PREFIX_LEN {
             vortex_bail!(
-                "prefix length {} exceeds maximum {} for flat prefix DFA",
+                InvalidArgument: "prefix length {} exceeds maximum {} for flat prefix DFA",
                 prefix.len(),
                 Self::MAX_PREFIX_LEN
             );

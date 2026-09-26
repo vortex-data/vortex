@@ -108,7 +108,7 @@ impl MapDType {
     ) -> VortexResult<Self> {
         vortex_ensure!(
             !key.value()?.is_nullable(),
-            "map key dtype must be non-nullable"
+            InvalidArgument: "map key dtype must be non-nullable"
         );
 
         Ok(Self(Arc::new(MapDTypeInner {

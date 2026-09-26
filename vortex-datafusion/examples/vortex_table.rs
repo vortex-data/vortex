@@ -67,7 +67,7 @@ async fn main() -> anyhow::Result<()> {
     let table_url = ListingTableUrl::parse(
         filepath
             .to_str()
-            .ok_or_else(|| vortex_err!("Path is not valid UTF-8"))?,
+            .ok_or_else(|| vortex_err!(InvalidArgument: "Path is not valid UTF-8"))?,
     )?;
     let config = ListingTableConfig::new(table_url)
         .with_listing_options(ListingOptions::new(format))

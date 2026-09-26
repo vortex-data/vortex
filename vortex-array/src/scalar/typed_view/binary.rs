@@ -69,7 +69,7 @@ impl<'a> BinaryScalar<'a> {
     /// Returns an error if the data type is not a binary type.
     pub fn try_new(dtype: &'a DType, value: Option<&'a ScalarValue>) -> VortexResult<Self> {
         if !matches!(dtype, DType::Binary(..)) {
-            vortex_bail!("Can only construct binary scalar from binary dtype, found {dtype}")
+            vortex_bail!(MismatchedTypes: "Can only construct binary scalar from binary dtype, found {dtype}")
         }
 
         Ok(Self {
@@ -94,7 +94,7 @@ impl<'a> BinaryScalar<'a> {
     pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
         if !matches!(dtype, DType::Binary(..)) {
             vortex_bail!(
-                "Cannot cast binary to {dtype}: binary scalars can only be cast to binary types with different nullability"
+                MismatchedTypes: "Cannot cast binary to {dtype}: binary scalars can only be cast to binary types with different nullability"
             )
         }
         Scalar::try_new(

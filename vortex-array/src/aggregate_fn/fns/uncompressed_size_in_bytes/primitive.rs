@@ -14,12 +14,11 @@ pub(super) fn primitive_uncompressed_size_in_bytes(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<u64> {
     let value_size = u64::try_from(array.len())
-        .map_err(|e| vortex_err!("Failed to convert primitive array length to u64: {e}"))?
-        .checked_mul(
-            u64::try_from(array.ptype().byte_width())
-                .map_err(|e| vortex_err!("Failed to convert primitive byte width to u64: {e}"))?,
-        )
-        .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))?;
+        .map_err(|e| vortex_err!(Overflow: "Failed to convert primitive array length to u64: {e}"))?
+        .checked_mul(u64::try_from(array.ptype().byte_width()).map_err(
+            |e| vortex_err!(Overflow: "Failed to convert primitive byte width to u64: {e}"),
+        )?)
+        .ok_or_else(|| vortex_err!(Overflow: "uncompressed size in bytes overflowed u64"))?;
     let validity_size = validity_uncompressed_size_in_bytes(
         array
             .as_ref()
@@ -29,5 +28,5 @@ pub(super) fn primitive_uncompressed_size_in_bytes(
 
     value_size
         .checked_add(validity_size)
-        .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))
+        .ok_or_else(|| vortex_err!(Overflow: "uncompressed size in bytes overflowed u64"))
 }

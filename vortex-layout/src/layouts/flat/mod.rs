@@ -83,10 +83,10 @@ impl VTable for Flat {
         metadata: &FlatLayoutMetadata,
     ) -> VortexResult<Self::LayoutData> {
         if args.segment_ids.len() != 1 {
-            vortex_bail!("Flat layout must have exactly one segment ID");
+            vortex_bail!(InvalidArgument: "Flat layout must have exactly one segment ID");
         }
         if args.children.nchildren() != 0 {
-            vortex_bail!("Flat layout must not have children");
+            vortex_bail!(InvalidArgument: "Flat layout must not have children");
         }
         Ok(FlatData {
             segment_id: args.segment_ids[0],
@@ -99,11 +99,11 @@ impl VTable for Flat {
     }
 
     fn child_dtype(_layout: &Layout<Self>, idx: usize) -> VortexResult<DType> {
-        vortex_bail!("Flat layout has no child {idx}")
+        vortex_bail!(OutOfBounds: "Flat layout has no child {idx}")
     }
 
     fn child_type(_layout: &Layout<Self>, idx: usize) -> LayoutChildType {
-        vortex_panic!("Flat layout has no child {idx}")
+        vortex_panic!(OutOfBounds: "Flat layout has no child {idx}")
     }
 
     fn new_reader(

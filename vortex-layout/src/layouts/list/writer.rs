@@ -245,7 +245,7 @@ async fn transpose_list_column(
             .is_err()
             || offsets_tx.send(Ok((sp.advance(), offsets))).await.is_err()
         {
-            vortex_bail!("list child writer finished before all chunks were sent");
+            vortex_bail!(Io: "list child writer finished before all chunks were sent");
         }
         if let Some(validity_tx) = &validity_tx {
             let validity = validity
@@ -256,12 +256,12 @@ async fn transpose_list_column(
                 .await
                 .is_err()
             {
-                vortex_bail!("list validity writer finished before all chunks were sent");
+                vortex_bail!(Io: "list validity writer finished before all chunks were sent");
             }
         }
     }
     if !saw_chunk {
-        vortex_bail!("ListLayoutStrategy needs at least one chunk");
+        vortex_bail!(InvalidArgument: "ListLayoutStrategy needs at least one chunk");
     }
     Ok(())
 }

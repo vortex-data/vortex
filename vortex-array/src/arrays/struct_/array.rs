@@ -251,7 +251,7 @@ pub trait StructArrayExt: StructArraySlotsExt {
         let name = name.as_ref();
         self.unmasked_field_by_name_opt(name).ok_or_else(|| {
             vortex_err!(
-                "Field {name} not found in struct array with names {:?}",
+                NotFound: "Field {name} not found in struct array with names {:?}",
                 self.names()
             )
         })
@@ -358,7 +358,7 @@ impl Array<Struct> {
         let len = fields
             .first()
             .map(|f| f.len())
-            .ok_or_else(|| vortex_err!("StructArray cannot be constructed from an empty slice of arrays because the length is unspecified"))?;
+            .ok_or_else(|| vortex_err!(InvalidArgument: "StructArray cannot be constructed from an empty slice of arrays because the length is unspecified"))?;
 
         Self::try_new(FieldNames::from_iter(names), fields, len, validity)
     }
@@ -374,7 +374,7 @@ impl Array<Struct> {
         let len = fields
             .first()
             .map(ArrayRef::len)
-            .ok_or_else(|| vortex_err!("StructArray cannot be constructed from an empty slice of arrays because the length is unspecified"))?;
+            .ok_or_else(|| vortex_err!(InvalidArgument: "StructArray cannot be constructed from an empty slice of arrays because the length is unspecified"))?;
 
         Self::try_new(
             FieldNames::from_iter(names),
@@ -399,7 +399,7 @@ impl Array<Struct> {
             let idx = self
                 .struct_fields()
                 .find(f_name.as_ref())
-                .ok_or_else(|| vortex_err!("Unknown field {f_name}"))?;
+                .ok_or_else(|| vortex_err!(NotFound: "Unknown field {f_name}"))?;
 
             names.push(self.names()[idx].clone());
             children.push(self.unmasked_field(idx).clone());
@@ -492,7 +492,7 @@ impl Array<Struct> {
     {
         let mut it = chunks.into_iter();
         let Some(first) = it.next() else {
-            vortex_bail!("cannot concat empty iterator of arrays");
+            vortex_bail!(InvalidArgument: "cannot concat empty iterator of arrays");
         };
         let first_dtype = first.borrow().dtype().clone();
         let struct_fields = first_dtype.as_struct_fields().clone();
@@ -504,7 +504,7 @@ impl Array<Struct> {
                 let chunk = chunk.borrow();
                 if &first_dtype != chunk.dtype() {
                     vortex_bail!(
-                        "cannot concatenate struct arrays with differing dtypes: {}, {}",
+                        MismatchedTypes: "cannot concatenate struct arrays with differing dtypes: {}, {}",
                         first_dtype,
                         chunk.dtype(),
                     );

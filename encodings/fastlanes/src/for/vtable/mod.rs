@@ -91,7 +91,7 @@ impl VTable for FoR {
     }
 
     fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
-        vortex_panic!("FoRArray buffer index {idx} out of bounds")
+        vortex_panic!(OutOfBounds: "FoRArray buffer index {idx} out of bounds")
     }
 
     fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
@@ -131,12 +131,12 @@ impl VTable for FoR {
     ) -> VortexResult<ArrayParts<Self>> {
         vortex_ensure!(
             buffers.is_empty(),
-            "FoRArray expects 0 buffers, got {}",
+            InvalidArgument: "FoRArray expects 0 buffers, got {}",
             buffers.len()
         );
         if children.len() != 1 {
             vortex_bail!(
-                "Expected 1 child for FoR encoding, found {}",
+                InvalidArgument: "Expected 1 child for FoR encoding, found {}",
                 children.len()
             )
         }
@@ -169,7 +169,7 @@ pub struct FoR;
 impl FoR {
     /// Construct a new FoR array from an encoded array and a reference scalar.
     pub fn try_new(encoded: ArrayRef, reference: Scalar) -> VortexResult<FoRArray> {
-        vortex_ensure!(!reference.is_null(), "Reference value cannot be null");
+        vortex_ensure!(!reference.is_null(), InvalidArgument: "Reference value cannot be null");
         let dtype = reference
             .dtype()
             .with_nullability(encoded.dtype().nullability());
@@ -193,20 +193,20 @@ fn validate_parts(
     dtype: &DType,
     len: usize,
 ) -> VortexResult<()> {
-    vortex_ensure!(dtype.is_int(), "FoR requires an integer dtype, got {dtype}");
+    vortex_ensure!(dtype.is_int(), MismatchedTypes: "FoR requires an integer dtype, got {dtype}");
     vortex_ensure!(
         reference.dtype() == dtype,
-        "FoR reference dtype mismatch: expected {dtype}, got {}",
+        MismatchedTypes: "FoR reference dtype mismatch: expected {dtype}, got {}",
         reference.dtype()
     );
     vortex_ensure!(
         encoded_dtype == dtype,
-        "FoR encoded dtype mismatch: expected {dtype}, got {}",
+        MismatchedTypes: "FoR encoded dtype mismatch: expected {dtype}, got {}",
         encoded_dtype
     );
     vortex_ensure!(
         encoded_len == len,
-        "FoR encoded length mismatch: expected {len}, got {}",
+        InvalidArgument: "FoR encoded length mismatch: expected {len}, got {}",
         encoded_len
     );
     Ok(())

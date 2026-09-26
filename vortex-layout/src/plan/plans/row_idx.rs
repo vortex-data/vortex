@@ -137,18 +137,22 @@ pub fn plan_row_idx_expression(
 
     vortex_ensure!(
         partitioned.partition_annotations.len() == 2,
-        "Row-index expression produced more than two partitions"
+        AssertionFailed: "Row-index expression produced more than two partitions"
     );
     let row_idx_index = partitioned
         .partition_annotations
         .iter()
         .position(|partition| *partition == RowIdxExpressionPartition::RowIdx)
-        .ok_or_else(|| vortex_err!("Row-index expression has no row-index partition"))?;
+        .ok_or_else(
+            || vortex_err!(AssertionFailed: "Row-index expression has no row-index partition"),
+        )?;
     let child_index = partitioned
         .partition_annotations
         .iter()
         .position(|partition| *partition == RowIdxExpressionPartition::Child)
-        .ok_or_else(|| vortex_err!("Row-index expression has no data partition"))?;
+        .ok_or_else(
+            || vortex_err!(AssertionFailed: "Row-index expression has no data partition"),
+        )?;
 
     let row_idx_partition = &partitioned.partitions[row_idx_index];
     let child_partition = &partitioned.partitions[child_index];
@@ -161,7 +165,7 @@ pub fn plan_row_idx_expression(
             .and_then(|scalar_fn| scalar_fn.as_opt::<PackFn>()),
     ) else {
         return Err(vortex_err!(
-            "Row-index expression partitions must be struct packs"
+            MismatchedTypes: "Row-index expression partitions must be struct packs"
         ));
     };
     let row_idx_partition_name = partitioned.partition_names[row_idx_index].clone();
@@ -170,7 +174,7 @@ pub fn plan_row_idx_expression(
 
     let row_idx_expression = if row_idx_partition.children().len() == 1 {
         let Some(value_name) = row_idx_pack.names.get(0) else {
-            return Err(vortex_err!("Row-index expression partition is empty"));
+            return Err(vortex_err!(AssertionFailed: "Row-index expression partition is empty"));
         };
         collapsed.push((row_idx_partition_name, value_name.clone()));
         row_idx_partition.children()[0].clone()
@@ -179,7 +183,7 @@ pub fn plan_row_idx_expression(
     };
     let child_expression = if child_partition.children().len() == 1 {
         let Some(value_name) = child_pack.names.get(0) else {
-            return Err(vortex_err!("Data expression partition is empty"));
+            return Err(vortex_err!(AssertionFailed: "Data expression partition is empty"));
         };
         collapsed.push((child_partition_name, value_name.clone()));
         child_partition.children()[0].clone()

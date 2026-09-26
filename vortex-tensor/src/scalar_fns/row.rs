@@ -37,14 +37,14 @@ use crate::utils::validate_tensor_float_input;
 
 /// Returns the common float element type of tensor row-function arguments.
 pub fn tensor_element_ptype(args: &[DType]) -> VortexResult<PType> {
-    let (first, rest) = args
-        .split_first()
-        .ok_or_else(|| vortex_err!("tensor row function requires at least one input"))?;
+    let (first, rest) = args.split_first().ok_or_else(
+        || vortex_err!(InvalidArgument: "tensor row function requires at least one input"),
+    )?;
 
     for argument in rest {
         vortex_ensure!(
             first.eq_ignore_nullability(argument),
-            "tensor row-function inputs must have the same dtype, got {first} and {argument}",
+            MismatchedTypes: "tensor row-function inputs must have the same dtype, got {first} and {argument}",
         );
     }
 
@@ -85,11 +85,11 @@ fn decode_tensor_storage<T: NativePType>(
         vortex_ensure_eq!(
             stride,
             row_width,
-            "per-row tensor stride must equal its width, got {stride}",
+            InvalidArgument: "per-row tensor stride must equal its width, got {stride}",
         );
         let Some(expected_elements) = row_count.checked_mul(stride) else {
             vortex_bail!(
-                "tensor row storage length must fit usize, got {row_count} rows of width {stride}",
+                Overflow: "tensor row storage length must fit usize, got {row_count} rows of width {stride}",
             );
         };
         expected_elements
@@ -97,7 +97,7 @@ fn decode_tensor_storage<T: NativePType>(
     vortex_ensure_eq!(
         elements.len(),
         expected_elements,
-        "tensor row storage must contain {expected_elements} elements, got {}",
+        InvalidArgument: "tensor row storage must contain {expected_elements} elements, got {}",
         elements.len(),
     );
 
@@ -126,7 +126,7 @@ unsafe impl<T: Float + NativePType> InputElement for TensorRow<T> {
         vortex_ensure_eq!(
             tensor_match.element_ptype(),
             expected_element_ptype,
-            "tensor row input must use {expected_element_ptype} elements, got {dtype}",
+            MismatchedTypes: "tensor row input must use {expected_element_ptype} elements, got {dtype}",
         );
 
         Ok(())
@@ -154,7 +154,7 @@ unsafe impl<T: Float + NativePType> InputElement for TensorRow<T> {
             extension.storage_array().clone()
         } else {
             vortex_bail!(
-                "a tensor batch constant must use the Constant encoding or constant extension \
+                MismatchedTypes: "a tensor batch constant must use the Constant encoding or constant extension \
                  storage, got {}",
                 array.encoding_id()
             );
@@ -164,7 +164,7 @@ unsafe impl<T: Float + NativePType> InputElement for TensorRow<T> {
         vortex_ensure_eq!(
             decoded.elements.len(),
             row_width,
-            "decoded tensor constant must contain {row_width} elements, got {}",
+            InvalidArgument: "decoded tensor constant must contain {row_width} elements, got {}",
             decoded.elements.len(),
         );
 

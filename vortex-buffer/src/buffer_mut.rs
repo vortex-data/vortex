@@ -132,15 +132,16 @@ impl<T> BufferMut<T> {
             .checked_mul(size_of::<T>())
             .vortex_expect("buffer capacity overflow");
         let layout = if size == 0 {
-            Layout::from_size_align(0, actual.as_usize())
-                .unwrap_or_else(|_| vortex_panic!("invalid empty buffer alignment"))
+            Layout::from_size_align(0, actual.as_usize()).unwrap_or_else(
+                |_| vortex_panic!(InvalidArgument: "invalid empty buffer alignment"),
+            )
         } else {
             let allocation_size = size
                 .checked_add(actual.as_usize())
                 .vortex_expect("buffer capacity overflow");
-            Layout::from_size_align(allocation_size, 1).unwrap_or_else(|_| {
-                vortex_panic!("buffer capacity exceeds maximum allocation size")
-            })
+            Layout::from_size_align(allocation_size, 1).unwrap_or_else(
+                |_| vortex_panic!(Overflow: "buffer capacity exceeds maximum allocation size"),
+            )
         };
         let allocation = Allocation::allocate(layout, allocator);
         let offset = allocation.ptr().as_ptr().align_offset(actual.as_usize());
@@ -222,14 +223,16 @@ impl<T> BufferMut<T> {
             .checked_mul(size_of::<T>())
             .vortex_expect("buffer length overflow");
         let layout = if size == 0 {
-            Layout::from_size_align(0, actual_alignment.as_usize())
-                .unwrap_or_else(|_| vortex_panic!("invalid empty buffer alignment"))
+            Layout::from_size_align(0, actual_alignment.as_usize()).unwrap_or_else(
+                |_| vortex_panic!(InvalidArgument: "invalid empty buffer alignment"),
+            )
         } else {
             let allocation_size = size
                 .checked_add(actual_alignment.as_usize())
                 .vortex_expect("buffer length overflow");
-            Layout::from_size_align(allocation_size, 1)
-                .unwrap_or_else(|_| vortex_panic!("buffer length exceeds maximum allocation size"))
+            Layout::from_size_align(allocation_size, 1).unwrap_or_else(
+                |_| vortex_panic!(Overflow: "buffer length exceeds maximum allocation size"),
+            )
         };
         let allocation = Allocation::allocate_zeroed(layout, allocator);
         let offset = allocation
@@ -388,7 +391,7 @@ impl<T> BufferMut<T> {
         T: Copy,
     {
         if !alignment.is_aligned_to(Alignment::of::<T>()) {
-            vortex_panic!("Given alignment is not aligned to type T")
+            vortex_panic!(InvalidArgument: "Given alignment is not aligned to type T")
         }
         let other = other.as_ref();
         let mut buffer = Self::with_capacity_preferred_aligned_in(
@@ -552,7 +555,9 @@ impl<T> BufferMut<T> {
             self.allocation.alignment()
         };
         let new_layout = Layout::from_size_align(new_allocation_bytes, allocation_alignment)
-            .unwrap_or_else(|_| vortex_panic!("buffer capacity exceeds maximum allocation size"));
+            .unwrap_or_else(
+                |_| vortex_panic!(Overflow: "buffer capacity exceeds maximum allocation size"),
+            );
         let initialized_bytes = self.length * size_of::<T>();
 
         // The default global allocator (`is_statically_allocated`) uses allocate-and-copy. Custom
@@ -1069,7 +1074,7 @@ impl<T> FromIterator<T> for BufferMut<T> {
 #[cold]
 #[inline(never)]
 fn misaligned_scalar_type(alignment: Alignment, scalar_align: Alignment) -> ! {
-    vortex_panic!("Alignment {alignment} must align to the scalar type's alignment {scalar_align}")
+    vortex_panic!(InvalidArgument: "Alignment {alignment} must align to the scalar type's alignment {scalar_align}")
 }
 
 #[cfg(test)]

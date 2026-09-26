@@ -102,10 +102,10 @@ pub(crate) fn polygon_storage_dtype(dim: Dimension, nullability: Nullability) ->
 /// Validate `dtype` is `List<List<coordinate-struct>>` and return its [`Dimension`].
 pub(crate) fn polygon_dimension(dtype: &DType) -> VortexResult<Dimension> {
     let DType::List(ring, _) = dtype else {
-        vortex_bail!("polygon storage must be a List of rings, was {dtype}");
+        vortex_bail!(MismatchedTypes: "polygon storage must be a List of rings, was {dtype}");
     };
     let DType::List(coords, _) = ring.as_ref() else {
-        vortex_bail!("polygon ring storage must be a List of coordinates, was {ring}");
+        vortex_bail!(MismatchedTypes: "polygon ring storage must be a List of coordinates, was {ring}");
     };
     coordinate_dimension(coords)
 }
@@ -135,14 +135,13 @@ pub(crate) fn build_polygon_storage(
         for ring in exterior.into_iter().chain(polygon.interiors()) {
             xs.extend(ring.0.iter().map(|coord| coord.x));
             ys.extend(ring.0.iter().map(|coord| coord.y));
-            ring_offsets.push(
-                u64::try_from(xs.len())
-                    .map_err(|_| vortex_err!("spatial: polygon coordinate count exceeds u64"))?,
-            );
+            ring_offsets.push(u64::try_from(xs.len()).map_err(
+                |_| vortex_err!(Overflow: "spatial: polygon coordinate count exceeds u64"),
+            )?);
         }
         polygon_offsets.push(
             u64::try_from(ring_offsets.len() - 1)
-                .map_err(|_| vortex_err!("spatial: polygon ring count exceeds u64"))?,
+                .map_err(|_| vortex_err!(Overflow: "spatial: polygon ring count exceeds u64"))?,
         );
     }
 
@@ -182,8 +181,10 @@ pub(crate) fn polygon_geometries(
         .iter()
         .map(|geometry| -> VortexResult<Geometry<f64>> {
             Ok(geometry
-                .ok_or_else(|| vortex_err!("spatial: null geometry is not supported"))?
-                .map_err(|e| vortex_err!("spatial: geometry access failed: {e}"))?
+                .ok_or_else(
+                    || vortex_err!(InvalidArgument: "spatial: null geometry is not supported"),
+                )?
+                .map_err(|e| vortex_err!(Serde: "spatial: geometry access failed: {e}"))?
                 .to_geometry())
         })
         .collect()
@@ -198,7 +199,7 @@ fn polygon_array(storage: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Pol
     let session = ctx.session().clone();
     let arrow = session.arrow().execute_arrow(storage.clone(), None, ctx)?;
     PolygonArray::try_from((arrow.as_ref(), polygon_type))
-        .map_err(|e| vortex_err!("failed to construct PolygonArray: {e}"))
+        .map_err(|e| vortex_err!(InvalidArgument: "failed to construct PolygonArray: {e}"))
 }
 
 /// A validated `Polygon` array (`try_from` checks the extension type).
@@ -210,7 +211,7 @@ impl TryFrom<ExtensionArray> for PolygonData {
     fn try_from(ext: ExtensionArray) -> Result<Self, Self::Error> {
         vortex_ensure!(
             ext.ext_dtype().is::<Polygon>(),
-            "expected a Polygon extension array"
+            MismatchedTypes: "expected a Polygon extension array"
         );
         Ok(PolygonData(ext))
     }
@@ -288,7 +289,7 @@ impl ArrowExportVTable for Polygon {
 
         // Round-trip through GeoArrow's polygon array; `into_arrow` is concrete, so wrap in `Arc`.
         let polygons = PolygonArray::try_from((arrow_storage.as_ref(), polygon_meta))
-            .map_err(|e| vortex_err!("failed to construct PolygonArray: {e}"))?;
+            .map_err(|e| vortex_err!(InvalidArgument: "failed to construct PolygonArray: {e}"))?;
 
         Ok(ArrowExport::Exported(Arc::new(polygons.into_arrow())))
     }
@@ -308,40 +309,41 @@ impl ArrowImportVTable for Polygon {
         field: &Field,
         session: &ArrowSession,
     ) -> VortexResult<Option<DType>> {
-        let (dimension, metadata) =
-            if let Ok(polygon_meta) = field.try_extension_type::<PolygonType>() {
-                vortex_ensure!(
-                    polygon_meta.coord_type() == CoordType::Separated,
-                    "geoarrow.polygon with interleaved coordinates is not supported; \
-                 re-encode with separated (struct) coordinates"
-                );
-                (
-                    polygon_meta.dimension().into(),
-                    spatial_metadata_from_arrow(polygon_meta.metadata()),
-                )
-            } else {
-                // Infer the dimension from the field names, not the canonical storage check: a literal's
-                // coordinate fields may be nullable, which that check rejects. Peel the two `List` layers
-                // (polygon → rings → coordinates) to reach the struct.
-                if field.extension_type_name() != Some(PolygonType::NAME) {
-                    return Ok(None);
-                }
-                let Ok(DType::List(ring, _)) =
-                    session.from_arrow_datatype(field.data_type(), field.is_nullable().into())
-                else {
-                    return Ok(None);
-                };
-                let DType::List(coords, _) = ring.as_ref() else {
-                    return Ok(None);
-                };
-                let DType::Struct(fields, _) = coords.as_ref() else {
-                    return Ok(None);
-                };
-                let Ok(dimension) = Dimension::from_field_names(fields.names()) else {
-                    return Ok(None);
-                };
-                (dimension, SpatialMetadata::default())
+        let (dimension, metadata) = if let Ok(polygon_meta) =
+            field.try_extension_type::<PolygonType>()
+        {
+            vortex_ensure!(
+                polygon_meta.coord_type() == CoordType::Separated,
+                NotImplemented: "geoarrow.polygon with interleaved coordinates is not supported; \
+             re-encode with separated (struct) coordinates"
+            );
+            (
+                polygon_meta.dimension().into(),
+                spatial_metadata_from_arrow(polygon_meta.metadata()),
+            )
+        } else {
+            // Infer the dimension from the field names, not the canonical storage check: a literal's
+            // coordinate fields may be nullable, which that check rejects. Peel the two `List` layers
+            // (polygon → rings → coordinates) to reach the struct.
+            if field.extension_type_name() != Some(PolygonType::NAME) {
+                return Ok(None);
+            }
+            let Ok(DType::List(ring, _)) =
+                session.from_arrow_datatype(field.data_type(), field.is_nullable().into())
+            else {
+                return Ok(None);
             };
+            let DType::List(coords, _) = ring.as_ref() else {
+                return Ok(None);
+            };
+            let DType::Struct(fields, _) = coords.as_ref() else {
+                return Ok(None);
+            };
+            let Ok(dimension) = Dimension::from_field_names(fields.names()) else {
+                return Ok(None);
+            };
+            (dimension, SpatialMetadata::default())
+        };
 
         let storage_dtype = polygon_storage_dtype(dimension, field.is_nullable().into());
         Ok(Some(DType::Extension(

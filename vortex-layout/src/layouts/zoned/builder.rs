@@ -60,7 +60,7 @@ impl AggregateStatsAccumulator {
         vortex_ensure_eq!(
             partials.len(),
             self.builders.len(),
-            "aggregate partial count must match zone stats builder count"
+            AssertionFailed: "aggregate partial count must match zone stats builder count"
         );
 
         for (builder, value) in self.builders.iter_mut().zip_eq(partials) {

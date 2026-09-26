@@ -116,7 +116,7 @@ impl ScalarFnVTable for Zip {
     fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
         vortex_ensure!(
             matches!(arg_dtypes[2], DType::Bool(_)),
-            "zip requires mask to be a boolean type, got {}",
+            MismatchedTypes: "zip requires mask to be a boolean type, got {}",
             arg_dtypes[2]
         );
         zip_return_dtype(&arg_dtypes[0], &arg_dtypes[1])
@@ -222,7 +222,7 @@ pub(crate) fn zip_impl(
 fn zip_return_dtype(if_true: &DType, if_false: &DType) -> VortexResult<DType> {
     zip_nullability_union(if_true, if_false).ok_or_else(|| {
         vortex_err!(
-            "zip requires if_true and if_false to have the same base type, got {} and {}",
+            InvalidArgument: "zip requires if_true and if_false to have the same base type, got {} and {}",
             if_true,
             if_false
         )

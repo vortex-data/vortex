@@ -82,19 +82,19 @@ impl PatchedData {
     ) -> VortexResult<()> {
         vortex_ensure!(
             slots.inner.dtype() == dtype,
-            "PatchedArray base dtype {} does not match outer dtype {}",
+            MismatchedTypes: "PatchedArray base dtype {} does not match outer dtype {}",
             slots.inner.dtype(),
             dtype
         );
         vortex_ensure!(
             slots.inner.len() == len,
-            "PatchedArray base len {} does not match outer len {}",
+            InvalidArgument: "PatchedArray base len {} does not match outer len {}",
             slots.inner.len(),
             len
         );
         vortex_ensure!(
             slots.patch_indices.len() == slots.patch_values.len(),
-            "PatchedArray patch indices len {} does not match patch values len {}",
+            InvalidArgument: "PatchedArray patch indices len {} does not match patch values len {}",
             slots.patch_indices.len(),
             slots.patch_values.len()
         );
@@ -131,12 +131,12 @@ pub trait PatchedArrayExt: PatchedArraySlotsExt {
         let start = start
             .as_primitive()
             .as_::<usize>()
-            .ok_or_else(|| vortex_err!("could not cast lane_offset to usize"))?;
+            .ok_or_else(|| vortex_err!(Overflow: "could not cast lane_offset to usize"))?;
 
         let stop = stop
             .as_primitive()
             .as_::<usize>()
-            .ok_or_else(|| vortex_err!("could not cast lane_offset to usize"))?;
+            .ok_or_else(|| vortex_err!(Overflow: "could not cast lane_offset to usize"))?;
 
         Ok(start..stop)
     }
@@ -182,22 +182,22 @@ impl Patched {
     ) -> VortexResult<Array<Patched>> {
         vortex_ensure!(
             inner.dtype().eq_with_nullability_superset(patches.dtype()),
-            "array DType must match patches DType"
+            MismatchedTypes: "array DType must match patches DType"
         );
 
         vortex_ensure!(
             inner.dtype().is_primitive(),
-            "Creating PatchedArray from Patches only supported for primitive arrays"
+            NotImplemented: "Creating PatchedArray from Patches only supported for primitive arrays"
         );
 
         vortex_ensure!(
             patches.num_patches() <= u32::MAX as usize,
-            "PatchedArray does not support > u32::MAX patch values"
+            Overflow: "PatchedArray does not support > u32::MAX patch values"
         );
 
         vortex_ensure!(
             patches.values().all_valid(ctx)?,
-            "PatchedArray cannot be built from Patches with nulls"
+            InvalidArgument: "PatchedArray cannot be built from Patches with nulls"
         );
 
         let values_ptype = patches.dtype().as_ptype();

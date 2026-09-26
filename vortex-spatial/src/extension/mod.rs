@@ -85,7 +85,7 @@ pub(crate) fn flatten_coordinates(
 ) -> VortexResult<StructArray> {
     if !is_native_geometry(array.dtype()) {
         vortex_bail!(
-            "spatial: operand is not a native geometry extension type, was {}",
+            MismatchedTypes: "spatial: operand is not a native geometry extension type, was {}",
             array.dtype()
         );
     }
@@ -136,7 +136,7 @@ pub(crate) fn flatten_row_offsets(
             .execute::<Buffer<u64>>(ctx)?;
         for row_offset in &mut row_offsets {
             *row_offset = usize::try_from(offsets[*row_offset])
-                .map_err(|_| vortex_err!("spatial: list offset exceeds usize"))?;
+                .map_err(|_| vortex_err!(Overflow: "spatial: list offset exceeds usize"))?;
         }
         level = list.elements().clone();
     }
@@ -150,7 +150,7 @@ pub(crate) fn geometries(
 ) -> VortexResult<Vec<Geometry<f64>>> {
     let Some(ext) = array.dtype().as_extension_opt() else {
         vortex_bail!(
-            "spatial: operand is not a geometry extension type, was {}",
+            MismatchedTypes: "spatial: operand is not a geometry extension type, was {}",
             array.dtype()
         );
     };
@@ -174,7 +174,7 @@ pub(crate) fn geometries(
     } else if ext.is::<Rect>() {
         rect_geometries(&storage, ctx)
     } else {
-        vortex_bail!("spatial: unsupported geometry extension {}", array.dtype())
+        vortex_bail!(InvalidArgument: "spatial: unsupported geometry extension {}", array.dtype())
     }
 }
 
@@ -185,9 +185,9 @@ pub(crate) fn single_geometry(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Geometry<f64>> {
     let array = ConstantArray::new(scalar.clone(), 1).into_array();
-    geometries(&array, ctx)?
-        .pop()
-        .ok_or_else(|| vortex_err!("spatial: constant operand decoded to no geometry"))
+    geometries(&array, ctx)?.pop().ok_or_else(
+        || vortex_err!(AssertionFailed: "spatial: constant operand decoded to no geometry"),
+    )
 }
 
 /// Decode a WKB geometry literal (DuckDB's wire form for `GEOMETRY` constants) to its native
@@ -202,12 +202,12 @@ pub fn native_geometry_scalar_from_wkb(
         &binary as &dyn arrow_array::Array,
         WkbType::new(Arc::clone(&metadata)),
     ))
-    .map_err(|e| vortex_err!("failed to read WKB literal: {e}"))?;
+    .map_err(|e| vortex_err!(Io: "failed to read WKB literal: {e}"))?;
 
     // Cast the WKB value to `target`, import its native storage as a Vortex array.
     let to_storage = |target: &GeoArrowType| -> VortexResult<ArrayRef> {
-        let native =
-            cast(&wkb, target).map_err(|e| vortex_err!("failed to cast WKB literal: {e}"))?;
+        let native = cast(&wkb, target)
+            .map_err(|e| vortex_err!(Serde: "failed to cast WKB literal: {e}"))?;
         session.from_arrow_array(native.to_array_ref(), false)
     };
 
@@ -311,7 +311,7 @@ pub(crate) fn geoarrow_to_wkb(
     let wkb_type =
         GeoArrowType::WkbView(WkbType::new(geoarrow_metadata(&SpatialMetadata::default())));
     let wkb = cast(geoarrow_array, &wkb_type)
-        .map_err(|e| vortex_err!("failed to cast geometry to WKB: {e}"))?;
+        .map_err(|e| vortex_err!(Serde: "failed to cast geometry to WKB: {e}"))?;
     session.from_arrow_array(wkb.to_array_ref(), false)
 }
 
@@ -388,7 +388,7 @@ mod tests {
         let mut wkb = vec![1u8]; // little-endian byte order
         wkb.extend_from_slice(&3u32.to_le_bytes()); // geometry type: polygon
         wkb.extend_from_slice(&1u32.to_le_bytes()); // one ring
-        let ring_len = u32::try_from(ring.len()).map_err(|e| vortex_err!("{e}"))?;
+        let ring_len = u32::try_from(ring.len()).map_err(|e| vortex_err!(Overflow: "{e}"))?;
         wkb.extend_from_slice(&ring_len.to_le_bytes());
         for (x, y) in ring {
             wkb.extend_from_slice(&f64::to_le_bytes(x));
@@ -409,7 +409,7 @@ mod tests {
         let points = [(0.0, 0.0), (1.0, 1.0)];
         let mut wkb = vec![1u8]; // little-endian byte order
         wkb.extend_from_slice(&2u32.to_le_bytes()); // geometry type: linestring
-        let len = u32::try_from(points.len()).map_err(|e| vortex_err!("{e}"))?;
+        let len = u32::try_from(points.len()).map_err(|e| vortex_err!(Overflow: "{e}"))?;
         wkb.extend_from_slice(&len.to_le_bytes());
         for (x, y) in points {
             wkb.extend_from_slice(&f64::to_le_bytes(x));
@@ -430,7 +430,7 @@ mod tests {
         let points = [(0.0, 0.0), (1.0, 1.0)];
         let mut wkb = vec![1u8]; // little-endian byte order
         wkb.extend_from_slice(&4u32.to_le_bytes()); // geometry type: multipoint
-        let len = u32::try_from(points.len()).map_err(|e| vortex_err!("{e}"))?;
+        let len = u32::try_from(points.len()).map_err(|e| vortex_err!(Overflow: "{e}"))?;
         wkb.extend_from_slice(&len.to_le_bytes());
         for (x, y) in points {
             // each member is a full WKB point
@@ -454,13 +454,13 @@ mod tests {
         let lines = [[(0.0, 0.0), (1.0, 1.0)], [(2.0, 2.0), (3.0, 3.0)]];
         let mut wkb = vec![1u8]; // little-endian byte order
         wkb.extend_from_slice(&5u32.to_le_bytes()); // geometry type: multilinestring
-        let num_lines = u32::try_from(lines.len()).map_err(|e| vortex_err!("{e}"))?;
+        let num_lines = u32::try_from(lines.len()).map_err(|e| vortex_err!(Overflow: "{e}"))?;
         wkb.extend_from_slice(&num_lines.to_le_bytes());
         for line in lines {
             // each member is a full WKB linestring
             wkb.push(1u8);
             wkb.extend_from_slice(&2u32.to_le_bytes());
-            let len = u32::try_from(line.len()).map_err(|e| vortex_err!("{e}"))?;
+            let len = u32::try_from(line.len()).map_err(|e| vortex_err!(Overflow: "{e}"))?;
             wkb.extend_from_slice(&len.to_le_bytes());
             for (x, y) in line {
                 wkb.extend_from_slice(&f64::to_le_bytes(x));

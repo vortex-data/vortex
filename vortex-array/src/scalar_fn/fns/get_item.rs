@@ -107,7 +107,7 @@ impl ScalarFnVTable for GetItem {
             .as_struct_fields_opt()
             .and_then(|st| st.field(field_name))
             .ok_or_else(|| {
-                vortex_err!("Couldn't find the {} field in the input scope", field_name)
+                vortex_err!(NotFound: "Couldn't find the {} field in the input scope", field_name)
             })?;
 
         // Match here to avoid cloning the dtype if nullability doesn't need to change
@@ -139,7 +139,7 @@ impl ScalarFnVTable for GetItem {
                     .field(field_name)
                     .ok_or_else(|| {
                         vortex_err!(
-                            "Field '{}' missing from constant struct array {}",
+                            NotFound: "Field '{}' missing from constant struct array {}",
                             field_name,
                             input.dtype()
                         )

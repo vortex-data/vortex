@@ -108,7 +108,7 @@ macro_rules! box_wrapper {
                 /// Extract an owned reference.
                 pub(crate) fn into_box(ptr: *mut $ffi_ident) -> Box<$T>{
                     if ptr.is_null() {
-                        vortex::error::vortex_panic!("null pointer");
+                        vortex::error::vortex_panic!(InvalidArgument: "null pointer");
                     }
                     unsafe { Box::from_raw(ptr.cast::<$T>()) }
                 }
@@ -173,7 +173,7 @@ pub(crate) unsafe fn to_field_names(
     names: *const vx_view,
     len: usize,
 ) -> VortexResult<Vec<FieldName>> {
-    vortex_ensure!(!names.is_null() || len == 0, "null names pointer");
+    vortex_ensure!(!names.is_null() || len == 0, InvalidArgument: "null names pointer");
     (0..len)
         .map(|i| unsafe { to_field_name(*names.add(i)) })
         .collect()

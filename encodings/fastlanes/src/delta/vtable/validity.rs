@@ -87,7 +87,7 @@ mod tests {
         let sliced = delta.slice(1000..1050)?;
 
         let Validity::Array(validity) = sliced.validity()? else {
-            vortex_bail!("expected array-backed validity")
+            vortex_bail!(MismatchedTypes: "expected array-backed validity")
         };
         assert!(validity.is::<TransposedBool>());
         assert_arrays_eq!(validity, expected_validity(1000..1050), &mut ctx);
@@ -109,7 +109,7 @@ mod tests {
         let sliced = delta.slice(range.clone())?;
 
         let Validity::Array(validity) = sliced.validity()? else {
-            vortex_bail!("expected array-backed validity")
+            vortex_bail!(MismatchedTypes: "expected array-backed validity")
         };
         assert!(validity.is::<TransposedBool>());
         assert_arrays_eq!(validity, expected_validity(range.clone()), &mut ctx);
@@ -126,7 +126,7 @@ mod tests {
         let sliced = delta.slice(100..2400)?.slice(900..1500)?;
 
         let Validity::Array(validity) = sliced.validity()? else {
-            vortex_bail!("expected array-backed validity")
+            vortex_bail!(MismatchedTypes: "expected array-backed validity")
         };
         assert!(validity.is::<TransposedBool>());
         assert_arrays_eq!(validity, expected_validity(1000..1600), &mut ctx);
@@ -148,14 +148,14 @@ mod tests {
         // Rebuild the deltas with a lazily slice-encoded validity, as produced when the deltas
         // child is sliced and the validity encoding has no static slice reduction.
         let Validity::Array(storage_validity) = deltas.validity()? else {
-            vortex_bail!("expected array-backed storage validity")
+            vortex_bail!(MismatchedTypes: "expected array-backed storage validity")
         };
         let lazy_validity = SliceArray::try_new(storage_validity, 0..deltas.len())?.into_array();
         let deltas = PrimitiveArray::new(deltas.to_buffer::<u32>(), Validity::Array(lazy_validity));
         let delta = Delta::try_new(bases.into_array(), deltas.into_array(), 0, primitive.len())?;
 
         let Validity::Array(validity) = delta.validity()? else {
-            vortex_bail!("expected array-backed validity")
+            vortex_bail!(MismatchedTypes: "expected array-backed validity")
         };
         assert_arrays_eq!(
             validity,
@@ -177,7 +177,7 @@ mod tests {
 
         // Rebuild the deltas with the same transposed validity bits in a misaligned buffer.
         let Validity::Array(storage_validity) = deltas.validity()? else {
-            vortex_bail!("expected array-backed storage validity")
+            vortex_bail!(MismatchedTypes: "expected array-backed storage validity")
         };
         let bits = storage_validity
             .execute::<BoolArray>(&mut ctx)?
@@ -187,14 +187,14 @@ mod tests {
         let delta = Delta::try_new(bases.into_array(), deltas.into_array(), 0, primitive.len())?;
 
         let Validity::Array(validity) = delta.validity()? else {
-            vortex_bail!("expected array-backed validity")
+            vortex_bail!(MismatchedTypes: "expected array-backed validity")
         };
         assert_arrays_eq!(validity, expected_validity(0..LEN), &mut ctx);
         assert_arrays_eq!(delta, primitive, &mut ctx);
 
         let sliced = delta.slice(1000..1050)?;
         let Validity::Array(sliced_validity) = sliced.validity()? else {
-            vortex_bail!("expected array-backed validity")
+            vortex_bail!(MismatchedTypes: "expected array-backed validity")
         };
         assert_arrays_eq!(sliced_validity, expected_validity(1000..1050), &mut ctx);
         Ok(())
@@ -214,7 +214,7 @@ mod tests {
         let delta = Delta::try_from_primitive_array(&primitive, &mut ctx)?;
 
         let Validity::Array(validity) = delta.validity()? else {
-            vortex_bail!("expected array-backed validity")
+            vortex_bail!(MismatchedTypes: "expected array-backed validity")
         };
         assert!(validity.is::<TransposedBool>());
         assert_arrays_eq!(validity, expected_validity(0..len as usize), &mut ctx);

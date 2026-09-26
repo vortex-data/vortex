@@ -50,7 +50,7 @@ impl CastReduce for Decimal {
         };
         let DType::Decimal(from_decimal_dtype, _) = array.dtype() else {
             vortex_panic!(
-                "DecimalArray must have decimal dtype, got {:?}",
+                MismatchedTypes: "DecimalArray must have decimal dtype, got {:?}",
                 array.dtype()
             );
         };
@@ -89,7 +89,7 @@ impl CastKernel for Decimal {
     ) -> VortexResult<Option<ArrayRef>> {
         let DType::Decimal(from_decimal_dtype, _) = array.dtype() else {
             vortex_panic!(
-                "DecimalArray must have decimal dtype, got {:?}",
+                MismatchedTypes: "DecimalArray must have decimal dtype, got {:?}",
                 array.dtype()
             );
         };
@@ -307,7 +307,7 @@ where
         .and_then(|value| {
             value.cast::<T>().ok_or_else(|| {
                 vortex_err!(
-                    "decimal value cannot be represented as {} after casting to {}",
+                    InvalidArgument: "decimal value cannot be represented as {} after casting to {}",
                     T::DECIMAL_TYPE,
                     to_decimal_dtype
                 )
@@ -323,7 +323,7 @@ where
                  (from {from_decimal_dtype} to {to_decimal_dtype})"
             );
             vortex_err!(
-                "decimal value cannot be represented as {} after casting from {} to {}",
+                InvalidArgument: "decimal value cannot be represented as {} after casting from {} to {}",
                 T::DECIMAL_TYPE,
                 from_decimal_dtype,
                 to_decimal_dtype
@@ -450,7 +450,7 @@ pub fn upcast_decimal_values(
     // Only allow upcasting (widening)
     if to_values_type < from_values_type {
         vortex_bail!(
-            "Cannot downcast decimal values from {:?} to {:?}. Only upcasting is supported.",
+            InvalidArgument: "Cannot downcast decimal values from {:?} to {:?}. Only upcasting is supported.",
             from_values_type,
             to_values_type
         );

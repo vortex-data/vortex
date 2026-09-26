@@ -52,7 +52,17 @@
   - `vortex_err!` for creating errors
   - `vortex_bail!` for returning errors
   - `vortex_panic!` for handling invariant violations
-- Add context to errors using `.with_context()`
+- Every message names its `VortexErrorKind`, as in `vortex_bail!(InvalidArgument: "...")`; the
+  macros reject a message without one. Choose the kind by what went wrong, the way Python picks an
+  exception class: `InvalidArgument` (`ValueError`) for a value the callee rejects,
+  `MismatchedTypes` (`TypeError`) for the wrong dtype, `OutOfBounds` (`IndexError`) for a position
+  past the end, `NotFound` (`KeyError`) for a name that resolves to nothing, `Overflow`
+  (`OverflowError`) for a value that does not fit its target, `NotImplemented`, `Serde` for an
+  unreadable wire or file format, `Io` for a failed system or driver call, `AssertionFailed` for a
+  broken internal invariant, and `Other` only when nothing else fits. Never classify by where the
+  failure happened.
+- Add context to an existing error with `.with_context()`, which keeps its kind; do not format it
+  into a new `vortex_err!`, which discards the kind.
 - Include backtraces for better debugging
 - Use `VortexExpect` trait when unwrapping is appropriate with proper error context.
 

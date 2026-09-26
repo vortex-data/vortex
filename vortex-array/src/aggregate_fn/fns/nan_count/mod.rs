@@ -6,7 +6,6 @@ mod primitive;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
@@ -39,7 +38,7 @@ pub fn nan_count(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<usize
     // Short-circuit using cached array statistics.
     if let Precision::Exact(nan_count_scalar) = array.statistics().get(Stat::NaNCount) {
         return usize::try_from(&nan_count_scalar)
-            .map_err(|e| vortex_err!("Failed to convert NaN count stat to usize: {e}"));
+            .map_err(|e| e.with_context("Failed to convert NaN count stat to usize"));
     }
 
     // Short-circuit for non-float types.
@@ -181,7 +180,7 @@ impl AggregateFnVTable for NanCount {
             Columnar::Canonical(c) => match c {
                 Canonical::Primitive(p) => accumulate_primitive(partial, p, ctx),
                 _ => vortex_bail!(
-                    "Unsupported canonical type for nan_count: {}",
+                    InvalidArgument: "Unsupported canonical type for nan_count: {}",
                     batch.dtype()
                 ),
             },

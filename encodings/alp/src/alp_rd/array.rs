@@ -121,7 +121,7 @@ impl VTable for ALPRD {
     }
 
     fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
-        vortex_panic!("ALPRDArray buffer index {idx} out of bounds")
+        vortex_panic!(OutOfBounds: "ALPRDArray buffer index {idx} out of bounds")
     }
 
     fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
@@ -174,7 +174,7 @@ impl VTable for ALPRD {
         let metadata = ALPRDMetadata::decode(metadata)?;
         if children.len() < 2 {
             vortex_bail!(
-                "Expected at least 2 children for ALPRD encoding, found {}",
+                InvalidArgument: "Expected at least 2 children for ALPRD encoding, found {}",
                 children.len()
             );
         }
@@ -185,8 +185,9 @@ impl VTable for ALPRD {
             [0..metadata.dict_len as usize]
             .iter()
             .map(|&i| {
-                u16::try_from(i)
-                    .map_err(|_| vortex_err!("left_parts_dictionary code {i} does not fit in u16"))
+                u16::try_from(i).map_err(
+                    |_| vortex_err!(Overflow: "left_parts_dictionary code {i} does not fit in u16"),
+                )
             })
             .try_collect()?;
 
@@ -197,7 +198,7 @@ impl VTable for ALPRD {
             DType::Primitive(PType::F64, _) => {
                 DType::Primitive(PType::U64, Nullability::NonNullable)
             }
-            _ => vortex_bail!("Expected f32 or f64 dtype, got {:?}", dtype),
+            _ => vortex_bail!(MismatchedTypes: "Expected f32 or f64 dtype, got {:?}", dtype),
         };
         let right_parts = children.get(1, &right_parts_dtype, len)?;
 
@@ -222,7 +223,7 @@ impl VTable for ALPRD {
             left_parts_dictionary,
             u8::try_from(metadata.right_bit_width).map_err(|_| {
                 vortex_err!(
-                    "right_bit_width {} out of u8 range",
+                    Overflow: "right_bit_width {} out of u8 range",
                     metadata.right_bit_width
                 )
             })?,
@@ -472,26 +473,26 @@ fn validate_parts(
     left_parts_patches: Option<&Patches>,
 ) -> VortexResult<()> {
     if !dtype.is_float() {
-        vortex_bail!("ALPRDArray given invalid DType ({dtype})");
+        vortex_bail!(InvalidArgument: "ALPRDArray given invalid DType ({dtype})");
     }
 
     vortex_ensure!(
         left_parts.len() == len,
-        "left_parts len {} != outer len {len}",
+        InvalidArgument: "left_parts len {} != outer len {len}",
         left_parts.len(),
     );
     vortex_ensure!(
         right_parts.len() == len,
-        "right_parts len {} != outer len {len}",
+        InvalidArgument: "right_parts len {} != outer len {len}",
         right_parts.len(),
     );
 
     if !left_parts.dtype().is_unsigned_int() {
-        vortex_bail!("left_parts dtype must be uint");
+        vortex_bail!(InvalidArgument: "left_parts dtype must be uint");
     }
     if dtype.is_nullable() != left_parts.dtype().is_nullable() {
         vortex_bail!(
-            "ALPRDArray dtype nullability ({}) must match left_parts dtype nullability ({})",
+            InvalidArgument: "ALPRDArray dtype nullability ({}) must match left_parts dtype nullability ({})",
             dtype,
             left_parts.dtype()
         );
@@ -500,11 +501,11 @@ fn validate_parts(
     let expected_right_parts_dtype = match dtype {
         DType::Primitive(PType::F32, _) => DType::Primitive(PType::U32, Nullability::NonNullable),
         DType::Primitive(PType::F64, _) => DType::Primitive(PType::U64, Nullability::NonNullable),
-        _ => vortex_bail!("Expected f32 or f64 dtype, got {:?}", dtype),
+        _ => vortex_bail!(MismatchedTypes: "Expected f32 or f64 dtype, got {:?}", dtype),
     };
     vortex_ensure!(
         right_parts.dtype() == &expected_right_parts_dtype,
-        "right_parts dtype {} does not match expected {}",
+        MismatchedTypes: "right_parts dtype {} does not match expected {}",
         right_parts.dtype(),
         expected_right_parts_dtype,
     );
@@ -512,7 +513,7 @@ fn validate_parts(
     if let Some(patches) = left_parts_patches {
         vortex_ensure!(
             patches.array_len() == len,
-            "patches array_len {} != outer len {len}",
+            InvalidArgument: "patches array_len {} != outer len {len}",
             patches.array_len(),
         );
         // Left-parts exceptions are always all-valid and are stored as the non-nullable left-parts
@@ -522,7 +523,7 @@ fn validate_parts(
         let expected = left_parts.dtype().as_nonnullable();
         vortex_ensure!(
             patches.dtype() == &expected,
-            "patches dtype {} must be the non-nullable left_parts dtype {}",
+            MismatchedTypes: "patches dtype {} must be the non-nullable left_parts dtype {}",
             patches.dtype(),
             expected,
         );

@@ -239,7 +239,7 @@ impl VortexDataSourceBuilder {
         }
 
         let DType::Struct(fields, ..) = projection.return_dtype(self.data_source.dtype())? else {
-            vortex_bail!("Projection does not evaluate to a struct");
+            vortex_bail!(MismatchedTypes: "Projection does not evaluate to a struct");
         };
 
         // We now compute initial statistics.

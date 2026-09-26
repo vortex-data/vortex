@@ -238,13 +238,13 @@ mod tests {
         let mask = Mask::from_iter((0..100).map(|index| index % 20 == 0));
         let values = mask
             .values()
-            .ok_or_else(|| vortex_err!("expected mask values"))?;
+            .ok_or_else(|| vortex_err!(InvalidArgument: "expected mask values"))?;
         assert!(values.cached_indices().is_none());
         let parent = FilterArray::try_new(array.clone().into_array(), mask.clone())?;
 
         let result = ScalarFilterPushdownRule
             .reduce_parent(array.as_view(), parent.as_view(), 0)?
-            .ok_or_else(|| vortex_err!("expected filter pushdown"))?;
+            .ok_or_else(|| vortex_err!(InvalidArgument: "expected filter pushdown"))?;
 
         assert_eq!(values.cached_indices().is_some(), nchildren > 1);
         let scalar_fn = result.as_::<ScalarFn>();
@@ -280,7 +280,7 @@ mod tests {
 
         let result = ScalarFilterPushdownRule
             .reduce_parent(array.as_view(), parent.as_view(), 0)?
-            .ok_or_else(|| vortex_err!("expected filter pushdown"))?;
+            .ok_or_else(|| vortex_err!(InvalidArgument: "expected filter pushdown"))?;
 
         assert_eq!(result.as_::<ScalarFn>().nchildren(), 0);
         assert_eq!(result.len(), 2);

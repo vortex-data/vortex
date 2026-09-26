@@ -70,7 +70,7 @@ impl ScalarFnVTable for Merge {
             [0x00] => DuplicateHandling::RightMost,
             [0x01] => DuplicateHandling::Error,
             _ => {
-                vortex_bail!("invalid metadata for Merge expression");
+                vortex_bail!(InvalidArgument: "invalid metadata for Merge expression");
             }
         };
         Ok(instance)
@@ -92,10 +92,10 @@ impl ScalarFnVTable for Merge {
 
         for dtype in arg_dtypes {
             let Some(fields) = dtype.as_struct_fields_opt() else {
-                vortex_bail!("merge expects struct input");
+                vortex_bail!(InvalidArgument: "merge expects struct input");
             };
             if dtype.is_nullable() {
-                vortex_bail!("merge expects non-nullable input");
+                vortex_bail!(InvalidArgument: "merge expects non-nullable input");
             }
 
             merge_nullability |= dtype.nullability();
@@ -113,7 +113,7 @@ impl ScalarFnVTable for Merge {
 
         if options == &DuplicateHandling::Error && !duplicate_names.is_empty() {
             vortex_bail!(
-                "merge: duplicate fields in children: {}",
+                InvalidArgument: "merge: duplicate fields in children: {}",
                 duplicate_names.into_iter().format(", ")
             )
         }
@@ -138,7 +138,7 @@ impl ScalarFnVTable for Merge {
         for i in 0..args.num_inputs() {
             let array = args.get(i)?.execute::<StructArray>(ctx)?;
             if array.dtype().is_nullable() {
-                vortex_bail!("merge expects non-nullable input");
+                vortex_bail!(InvalidArgument: "merge expects non-nullable input");
             }
 
             for (field_name, field_array) in array
@@ -159,7 +159,7 @@ impl ScalarFnVTable for Merge {
 
         if options == &DuplicateHandling::Error && !duplicate_names.is_empty() {
             vortex_bail!(
-                "merge: duplicate fields in children: {}",
+                InvalidArgument: "merge: duplicate fields in children: {}",
                 duplicate_names.into_iter().format(", ")
             )
         }
@@ -182,7 +182,7 @@ impl ScalarFnVTable for Merge {
             let child_dtype = child.node_dtype()?;
             if !child_dtype.is_struct() {
                 vortex_bail!(
-                    "Merge child must return a non-nullable struct dtype, got {}",
+                    MismatchedTypes: "Merge child must return a non-nullable struct dtype, got {}",
                     child_dtype
                 )
             }
@@ -203,7 +203,7 @@ impl ScalarFnVTable for Merge {
 
             if options == &DuplicateHandling::Error && !duplicate_names.is_empty() {
                 vortex_bail!(
-                    "merge: duplicate fields in children: {}",
+                    InvalidArgument: "merge: duplicate fields in children: {}",
                     duplicate_names.into_iter().format(", ")
                 )
             }
@@ -295,7 +295,7 @@ mod tests {
         let mut field_path = field_path.iter();
 
         let Some(field) = field_path.next() else {
-            vortex_bail!("empty field path");
+            vortex_bail!(InvalidArgument: "empty field path");
         };
 
         let mut array = array

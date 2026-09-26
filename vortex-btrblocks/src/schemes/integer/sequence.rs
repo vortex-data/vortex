@@ -135,9 +135,9 @@ impl Scheme for SequenceScheme {
         let stats = data.integer_stats(exec_ctx);
 
         if stats.null_count() > 0 {
-            vortex_bail!("sequence encoding does not support nulls");
+            vortex_bail!(InvalidArgument: "sequence encoding does not support nulls");
         }
         sequence_encode(data.array_as_primitive(), exec_ctx)?
-            .ok_or_else(|| vortex_err!("cannot sequence encode array"))
+            .ok_or_else(|| vortex_err!(AssertionFailed: "cannot sequence encode array"))
     }
 }

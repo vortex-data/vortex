@@ -171,7 +171,7 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
     ) -> VortexResult<()> {
         vortex_ensure!(
             array.dtype() == self.element_dtype(),
-            "Array dtype {:?} does not match list element dtype {:?}",
+            MismatchedTypes: "Array dtype {:?} does not match list element dtype {:?}",
             array.dtype(),
             self.element_dtype()
         );
@@ -208,7 +208,7 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
             // If `elements` is `None`, then the `value` is a null value.
             vortex_ensure!(
                 self.dtype.is_nullable(),
-                "Cannot append null value to non-nullable list builder"
+                InvalidArgument: "Cannot append null value to non-nullable list builder"
             );
             self.append_null();
             return Ok(());
@@ -256,7 +256,7 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
     ) -> VortexResult<()> {
         vortex_ensure!(
             array.dtype() == self.element_dtype(),
-            "Array dtype {:?} does not match list element dtype {:?}",
+            MismatchedTypes: "Array dtype {:?} does not match list element dtype {:?}",
             array.dtype(),
             self.element_dtype()
         );
@@ -324,7 +324,7 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
     /// the outer `FixedSizeList`.
     pub fn element_dtype(&self) -> &DType {
         let DType::List(element_dtype, ..) = &self.dtype else {
-            vortex_panic!("`ListViewBuilder` has an incorrect dtype: {}", self.dtype);
+            vortex_panic!(AssertionFailed: "`ListViewBuilder` has an incorrect dtype: {}", self.dtype);
         };
 
         element_dtype
@@ -519,7 +519,7 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ArrayBuilder for ListViewBuil
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
         vortex_ensure!(
             scalar.dtype() == self.dtype(),
-            "ListViewBuilder expected scalar with dtype {}, got {}",
+            MismatchedTypes: "ListViewBuilder expected scalar with dtype {}, got {}",
             self.dtype(),
             scalar.dtype()
         );

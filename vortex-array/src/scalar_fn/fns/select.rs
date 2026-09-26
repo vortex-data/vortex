@@ -78,7 +78,7 @@ impl ScalarFnVTable for Select {
 
         let select_opts = prost_metadata
             .opts
-            .ok_or_else(|| vortex_err!("SelectOpts missing opts field"))?;
+            .ok_or_else(|| vortex_err!(Serde: "SelectOpts missing opts field"))?;
 
         let field_selection = match select_opts {
             Opts::Include(field_names) => FieldSelection::Include(FieldNames::from_iter(
@@ -128,7 +128,7 @@ impl ScalarFnVTable for Select {
         let child_dtype = &arg_dtypes[0];
         let child_struct_dtype = child_dtype
             .as_struct_fields_opt()
-            .ok_or_else(|| vortex_err!("Select child not a struct dtype"))?;
+            .ok_or_else(|| vortex_err!(MismatchedTypes: "Select child not a struct dtype"))?;
 
         let projected = match selection {
             FieldSelection::Include(fields) => child_struct_dtype.project(fields.as_ref())?,
@@ -155,7 +155,7 @@ impl ScalarFnVTable for Select {
             let child_struct_dtype = child
                 .dtype()
                 .as_struct_fields_opt()
-                .ok_or_else(|| vortex_err!("Select child not a struct dtype"))?;
+                .ok_or_else(|| vortex_err!(MismatchedTypes: "Select child not a struct dtype"))?;
             let included = selection.normalize_to_included_fields(child_struct_dtype.names())?;
             let scalar = constant.scalar().as_struct().project(included.as_ref())?;
 
@@ -191,7 +191,7 @@ impl ScalarFnVTable for Select {
 
         let struct_fields = struct_dtype.as_struct_fields_opt().ok_or_else(|| {
             vortex_err!(
-                "Select child must return a struct dtype, however it was a {}",
+                MismatchedTypes: "Select child must return a struct dtype, however it was a {}",
                 struct_dtype
             )
         })?;
@@ -301,7 +301,7 @@ impl FieldSelection {
             .any(|f| !available_fields.iter().contains(f))
         {
             vortex_bail!(
-                "Select fields {:?} must be a subset of child fields {:?}",
+                InvalidArgument: "Select fields {:?} must be a subset of child fields {:?}",
                 self,
                 available_fields
             );

@@ -243,7 +243,7 @@ pub fn nested_case_when(
     }
 
     let Ok(num_when_then_pairs) = u32::try_from(when_then_pairs.len()) else {
-        vortex_panic!("nested_case_when has too many when/then pairs");
+        vortex_panic!(InvalidArgument: "nested_case_when has too many when/then pairs");
     };
     let options = CaseWhenOptions {
         num_when_then_pairs,
@@ -263,7 +263,7 @@ pub fn bound_nested_case_when(
     );
 
     let Ok(num_when_then_pairs) = u32::try_from(when_then_pairs.len()) else {
-        vortex_panic!("nested_case_when has too many when/then pairs");
+        vortex_panic!(InvalidArgument: "nested_case_when has too many when/then pairs");
     };
     let has_else = else_value.is_some();
     let mut children = Vec::with_capacity(when_then_pairs.len() * 2 + usize::from(has_else));

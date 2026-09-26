@@ -191,7 +191,8 @@ pub unsafe extern "C-unwind" fn duckdb_reader_open(
     let path = unsafe { std::slice::from_raw_parts(file_path.cast::<u8>(), file_path_len) };
 
     try_or_null(error, || {
-        let path = str::from_utf8(path).map_err(|_| vortex_err!("invalid utf-8"))?;
+        let path =
+            str::from_utf8(path).map_err(|_| vortex_err!(InvalidArgument: "invalid utf-8"))?;
         let file = reader_open(path)?;
         Ok(Data::from(Box::new(file)).as_ptr())
     })
@@ -242,7 +243,8 @@ pub unsafe extern "C-unwind" fn duckdb_footer_get_cached(
     let bind = unsafe { bind.cast::<BindState>().as_mut() }.vortex_expect("null pointer");
     let path = unsafe { std::slice::from_raw_parts(path.cast::<u8>(), len) };
     try_or_null(error, || {
-        let path = str::from_utf8(path).map_err(|_| vortex_err!("invalid utf-8"))?;
+        let path =
+            str::from_utf8(path).map_err(|_| vortex_err!(InvalidArgument: "invalid utf-8"))?;
         Ok(match footer_get_cached(bind, path)? {
             Some(footer) => {
                 unsafe { *row_count_out = footer.row_count() };

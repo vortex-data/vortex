@@ -96,14 +96,14 @@ impl FromStr for Target {
     fn from_str(target_string: &str) -> Result<Self, Self::Err> {
         let split = target_string.split(":").collect_vec();
         let [engine_str, format_str] = split.as_slice() else {
-            vortex_panic!("invalid target string {}", target_string);
+            vortex_panic!(InvalidArgument: "invalid target string {}", target_string);
         };
 
         Ok(Self {
             engine: Engine::from_str(engine_str, true)
-                .map_err(|e| {
+                .map_err(|e|  {
                     vortex_err!(
-                        "cannot convert str ({}) to an Engine oneof([{}]), got error {}",
+                        MismatchedTypes: "cannot convert str ({}) to an Engine oneof([{}]), got error {}",
                         *engine_str,
                         Engine::value_variants().iter().join(","),
                         e
@@ -111,9 +111,9 @@ impl FromStr for Target {
                 })
                 .vortex_expect("operation should succeed in benchmark"),
             format: Format::from_str(format_str, true)
-                .map_err(|e| {
+                .map_err(|e|  {
                     vortex_err!(
-                        "cannot convert str ({}) to a Format oneof([{}]), got error {}",
+                        MismatchedTypes: "cannot convert str ({}) to a Format oneof([{}]), got error {}",
                         *format_str,
                         Format::value_variants().iter().join(","),
                         e

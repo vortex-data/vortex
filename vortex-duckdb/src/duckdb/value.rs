@@ -34,7 +34,7 @@ impl ValueRef {
 
     pub fn as_string(&self) -> BufferString {
         let ExtractedValue::Varchar(string) = self.extract() else {
-            vortex_panic!("ValueRef is not a string");
+            vortex_panic!(MismatchedTypes: "ValueRef is not a string");
         };
         string
     }
@@ -45,7 +45,9 @@ impl ValueRef {
             return ExtractedValue::Null;
         }
         match self.logical_type().as_type_id() {
-            DUCKDB_TYPE::DUCKDB_TYPE_INVALID => vortex_panic!("Invalid type for DuckDB value"),
+            DUCKDB_TYPE::DUCKDB_TYPE_INVALID => {
+                vortex_panic!(MismatchedTypes: "Invalid type for DuckDB value")
+            }
             DUCKDB_TYPE::DUCKDB_TYPE_SQLNULL => ExtractedValue::Null,
             DUCKDB_TYPE::DUCKDB_TYPE_BOOLEAN => {
                 ExtractedValue::Boolean(unsafe { cpp::duckdb_get_bool(self.as_ptr()) })
@@ -93,7 +95,7 @@ impl ValueRef {
                 let cstr = unsafe { CStr::from_ptr(ptr) };
                 let string = BufferString::from(
                     cstr.to_str()
-                        .map_err(|e| vortex_err!("Invalid UTF-8 string from DuckDB: {e}"))
+                        .map_err(|e|  vortex_err!(InvalidArgument: "Invalid UTF-8 string from DuckDB: {e}"))
                         .vortex_expect("Invalid UTF-8 string from DuckDB"),
                 );
                 unsafe { cpp::duckdb_free(ptr.cast()) };
@@ -279,7 +281,7 @@ impl Value {
         let crs_c = crs
             .map(CString::new)
             .transpose()
-            .map_err(|_| vortex_err!("CRS must not contain NUL bytes"))?;
+            .map_err(|_| vortex_err!(InvalidArgument: "CRS must not contain NUL bytes"))?;
         let crs_ptr = crs_c.as_ref().map_or(ptr::null(), |c| c.as_ptr());
         Ok(unsafe {
             Self::own(cpp::duckdb_vx_value_create_geometry(

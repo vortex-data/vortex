@@ -35,7 +35,7 @@ impl ZipKernel for VarBinView {
         };
 
         if !if_true.dtype().eq_ignore_nullability(if_false.dtype()) {
-            vortex_bail!("input arrays to zip must have the same dtype");
+            vortex_bail!(MismatchedTypes: "input arrays to zip must have the same dtype");
         }
 
         let len = if_true.len();

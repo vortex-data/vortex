@@ -120,7 +120,7 @@ impl CascadingCompressor {
         let entries = self.compress_list_view_array(data_parts.entries, compress_ctx, exec_ctx)?;
         let entries = entries
             .as_opt::<ListView>()
-            .ok_or_else(|| vortex_err!("Compressed map entries became {}", entries.encoding_id()))?
+            .ok_or_else(|| vortex_err!(AssertionFailed: "Compressed map entries became {}", entries.encoding_id()))?
             .into_owned();
 
         Ok(MapArray::try_new(data_parts.map_dtype, entries)?.into_array())

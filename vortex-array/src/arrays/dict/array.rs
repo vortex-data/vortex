@@ -116,7 +116,7 @@ impl DictData {
     /// It is an error to provide a nullable `codes` with non-nullable `values`.
     pub(crate) fn try_new(codes_dtype: &DType) -> VortexResult<Self> {
         if !codes_dtype.is_int() {
-            vortex_bail!(MismatchedTypes: "int", codes_dtype);
+            vortex_bail!(MismatchedTypes: "expected type: int but instead got {}", codes_dtype);
         }
 
         Ok(unsafe { Self::new_unchecked() })
@@ -138,7 +138,7 @@ pub trait DictArrayExt: TypedArrayRef<Dict> + DictArraySlotsExt {
             let referenced_mask = self.compute_referenced_values_mask(true, ctx)?;
             let all_referenced = referenced_mask.true_count() == referenced_mask.len();
 
-            vortex_ensure!(all_referenced, "value in dict not referenced");
+            vortex_ensure!(all_referenced, InvalidArgument: "value in dict not referenced");
         }
 
         Ok(())
@@ -328,7 +328,7 @@ mod test {
             )
             .unwrap();
         let AllOr::Some(indices) = mask.indices() else {
-            vortex_panic!("Expected indices from mask")
+            vortex_panic!(AssertionFailed: "Expected indices from mask")
         };
         assert_eq!(indices, [0, 2, 4]);
     }
@@ -354,7 +354,7 @@ mod test {
             )
             .unwrap();
         let AllOr::Some(indices) = mask.indices() else {
-            vortex_panic!("Expected indices from mask")
+            vortex_panic!(AssertionFailed: "Expected indices from mask")
         };
         assert_eq!(indices, [0]);
     }
@@ -384,7 +384,7 @@ mod test {
             )
             .unwrap();
         let AllOr::Some(indices) = mask.indices() else {
-            vortex_panic!("Expected indices from mask")
+            vortex_panic!(AssertionFailed: "Expected indices from mask")
         };
         assert_eq!(indices, [2, 4]);
     }
@@ -410,7 +410,7 @@ mod test {
             )
             .unwrap();
         let AllOr::Some(indices) = mask.indices() else {
-            vortex_panic!("Expected indices from mask")
+            vortex_panic!(AssertionFailed: "Expected indices from mask")
         };
         assert_eq!(indices, [0, 2, 4]);
     }

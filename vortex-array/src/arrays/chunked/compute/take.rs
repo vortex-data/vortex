@@ -97,7 +97,7 @@ fn take_chunked_via_sort(
     if let Some(&(index, _)) = pairs.last() {
         let index = usize::try_from(index)?;
         if index >= array.len() {
-            vortex_bail!(OutOfBounds: index, 0, array.len());
+            vortex_bail!(OutOfBounds: "index {} out of bounds from {} to {}", index, 0, array.len());
         }
     }
 
@@ -209,7 +209,7 @@ fn take_chunked(
 
         let index = usize::try_from(index)?;
         if index >= array.len() {
-            vortex_bail!(OutOfBounds: index, 0, array.len());
+            vortex_bail!(OutOfBounds: "index {} out of bounds from {} to {}", index, 0, array.len());
         }
 
         let still_sorted = last_index.is_none_or(|last_index| index >= last_index);
@@ -314,8 +314,7 @@ fn take_chunked_sorted(
     }
     if cursor != indices_values.len() {
         vortex_bail!(
-            OutOfBounds: usize::try_from(indices_values[cursor])?, 0, array.as_ref().len()
-        );
+            OutOfBounds: "index {} out of bounds from {} to {}", usize::try_from(indices_values[cursor])?, 0, array.as_ref().len());
     }
 
     if chunks.len() == 1 {
@@ -432,13 +431,13 @@ fn take_piecewise_chunked(
         }
         let end = start
             .checked_add(length)
-            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray range overflows usize"))?;
+            .ok_or_else(|| vortex_err!(Overflow: "PiecewiseSequenceArray range overflows usize"))?;
         if end > array_len {
-            vortex_bail!(OutOfBounds: end - 1, 0, array_len);
+            vortex_bail!(OutOfBounds: "index {} out of bounds from {} to {}", end - 1, 0, array_len);
         }
-        total_len = total_len
-            .checked_add(length)
-            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray output length overflows usize"))?;
+        total_len = total_len.checked_add(length).ok_or_else(
+            || vortex_err!(Overflow: "PiecewiseSequenceArray output length overflows usize"),
+        )?;
 
         // Locate the chunk containing `start`; `<=` skips empty chunks sharing the same offset.
         let mut chunk_idx = chunk_offsets.partition_point(|&offset| offset <= start) - 1;
@@ -480,7 +479,7 @@ fn take_piecewise_chunked(
 
     vortex_ensure!(
         total_len == output_len,
-        "PiecewiseSequenceArray expanded length {total_len} does not match declared length {output_len}"
+        AssertionFailed: "PiecewiseSequenceArray expanded length {total_len} does not match declared length {output_len}"
     );
 
     // Chunks visited in order: the per-chunk gathers already concatenate into the result.

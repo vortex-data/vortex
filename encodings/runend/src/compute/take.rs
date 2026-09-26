@@ -293,7 +293,7 @@ fn prefer_linear_scan(
 
 fn check_index(index: usize, array_len: usize) -> VortexResult<()> {
     if index >= array_len {
-        vortex_bail!(OutOfBounds: index, 0, array_len);
+        vortex_bail!(OutOfBounds: "index {} out of bounds from {} to {}", index, 0, array_len);
     }
     Ok(())
 }

@@ -9,7 +9,6 @@ use vortex_edition::EditionId;
 use vortex_edition::EditionInclusion;
 use vortex_edition::EditionSessionExt;
 use vortex_error::VortexExpect;
-use vortex_error::vortex_err;
 use vortex_layout::session::LayoutSessionExt;
 use vortex_session::VortexSession;
 
@@ -23,7 +22,6 @@ pub fn enable_all_registered_array_encodings(session: &VortexSession) {
             id: TEST_EDITION,
             min_library_version: None,
         })
-        .map_err(|error| vortex_err!("{error}"))
         .vortex_expect("test edition is valid");
     let component_ids = [
         (
@@ -52,7 +50,6 @@ pub fn enable_all_registered_array_encodings(session: &VortexSession) {
         for id in ids {
             editions
                 .declare_inclusion(EditionInclusion::new(kind, &id, TEST_EDITION))
-                .map_err(|error| vortex_err!("{error}"))
                 .vortex_expect("registered component has one test-edition inclusion");
         }
     }
@@ -70,11 +67,9 @@ pub fn enable_all_registered_array_encodings(session: &VortexSession) {
                 id,
                 TEST_EDITION,
             ))
-            .map_err(|error| vortex_err!("{error}"))
             .vortex_expect("default aggregate has one test-edition inclusion");
     }
     session
         .enable_edition(TEST_EDITION)
-        .map_err(|error| vortex_err!("{error}"))
         .vortex_expect("test edition is registered");
 }

@@ -136,14 +136,14 @@ impl Footer {
 
         let segments: Arc<[SegmentSpec]> = fb_footer
             .segment_specs()
-            .ok_or_else(|| vortex_err!("FileLayout missing segment specs"))?
+            .ok_or_else(|| vortex_err!(NotFound: "FileLayout missing segment specs"))?
             .iter()
             .map(SegmentSpec::try_from)
             .try_collect()?;
 
         // Note this assertion is `<=` since we allow zero-length segments
         if !segments.is_sorted_by_key(|segment| segment.offset) {
-            vortex_bail!("Segment offsets are not ordered");
+            vortex_bail!(Serde: "Segment offsets are not ordered");
         }
 
         Ok(Self {
@@ -251,7 +251,7 @@ fn validate_segments_within_file(segments: &[SegmentSpec], file_size: u64) -> Vo
             .is_some_and(|end| end <= file_size);
         if !within_file {
             vortex_bail!(
-                "Segment at offset {} with length {} extends past the end of the \
+                OutOfBounds: "Segment at offset {} with length {} extends past the end of the \
                  {file_size}-byte file",
                 segment.offset,
                 segment.length,

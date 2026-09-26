@@ -67,14 +67,14 @@ fn take_empty_fsl(
         let indices_validity = indices.validity()?.execute_mask(new_len, ctx)?;
         vortex_ensure!(
             indices_validity.all_false(),
-            "cannot take valid indices from an empty FixedSizeList"
+            InvalidArgument: "cannot take valid indices from an empty FixedSizeList"
         );
     }
 
     let list_size = array.list_size() as usize;
     let elements_len = new_len.checked_mul(list_size).ok_or_else(|| {
         vortex_err!(
-            "FixedSizeList take output length overflow: {new_len} lists of size {list_size}"
+            Overflow: "FixedSizeList take output length overflow: {new_len} lists of size {list_size}"
         )
     })?;
     let new_elements = default_elements(array, elements_len, ctx.allocator());
@@ -101,10 +101,10 @@ fn take_non_empty_fsl(
     debug_assert!(!array.is_empty());
 
     let DType::Primitive(ptype, _) = indices.dtype() else {
-        vortex_bail!("Invalid indices dtype: {}", indices.dtype())
+        vortex_bail!(InvalidArgument: "Invalid indices dtype: {}", indices.dtype())
     };
     if !ptype.is_int() {
-        vortex_bail!("Invalid indices dtype: {}", indices.dtype());
+        vortex_bail!(InvalidArgument: "Invalid indices dtype: {}", indices.dtype());
     }
 
     if array.list_size() == 0 {
@@ -140,7 +140,7 @@ fn take_piecewise_fsl(
     let new_len = indices.as_ref().len();
     let elements_len = new_len.checked_mul(list_size).ok_or_else(|| {
         vortex_err!(
-            "FixedSizeList take output length overflow: {new_len} lists of size {list_size}"
+            Overflow: "FixedSizeList take output length overflow: {new_len} lists of size {list_size}"
         )
     })?;
 
@@ -174,19 +174,19 @@ fn take_piecewise_fsl(
         }
         let end = start
             .checked_add(length)
-            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray range overflows usize"))?;
+            .ok_or_else(|| vortex_err!(Overflow: "PiecewiseSequenceArray range overflows usize"))?;
         if end > array_len {
-            vortex_bail!(OutOfBounds: end - 1, 0, array_len);
+            vortex_bail!(OutOfBounds: "index {} out of bounds from {} to {}", end - 1, 0, array_len);
         }
-        total_len = total_len
-            .checked_add(length)
-            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray output length overflows usize"))?;
+        total_len = total_len.checked_add(length).ok_or_else(
+            || vortex_err!(Overflow: "PiecewiseSequenceArray output length overflows usize"),
+        )?;
         element_starts.push(u64::try_from(start * list_size)?);
         element_lengths.push(u64::try_from(length * list_size)?);
     }
     vortex_ensure!(
         total_len == new_len,
-        "PiecewiseSequenceArray expanded length {total_len} does not match declared length {new_len}"
+        AssertionFailed: "PiecewiseSequenceArray expanded length {total_len} does not match declared length {new_len}"
     );
 
     let new_elements =
@@ -231,7 +231,7 @@ fn take_non_empty_degenerate_fsl(
     debug_assert_eq!(array.list_size(), 0);
     vortex_ensure!(
         array.elements().is_empty(),
-        "degenerate list must have empty elements"
+        InvalidArgument: "degenerate list must have empty elements"
     );
 
     let indices_array = indices.clone().execute::<PrimitiveArray>(ctx)?;
@@ -291,7 +291,7 @@ fn take_non_empty_non_degenerate_elements<I: IntegerPType>(
     let new_len = indices.len();
     let elements_len = new_len.checked_mul(list_size).ok_or_else(|| {
         vortex_err!(
-            "FixedSizeList take output length overflow: {new_len} lists of size {list_size}"
+            Overflow: "FixedSizeList take output length overflow: {new_len} lists of size {list_size}"
         )
     })?;
 
@@ -306,7 +306,7 @@ fn take_non_empty_non_degenerate_elements<I: IntegerPType>(
 
             let data_idx: usize = data_idx.as_();
             if data_idx >= array_len {
-                vortex_bail!(OutOfBounds: data_idx, 0, array_len);
+                vortex_bail!(OutOfBounds: "index {} out of bounds from {} to {}", data_idx, 0, array_len);
             }
             Ok((data_idx * list_size) as u64)
         })
@@ -330,7 +330,7 @@ fn bounds_check_valid_indices<I: IntegerPType>(
         if is_index_valid {
             let data_idx = data_idx.as_();
             if data_idx >= array_len {
-                vortex_bail!(OutOfBounds: data_idx, 0, array_len);
+                vortex_bail!(OutOfBounds: "index {} out of bounds from {} to {}", data_idx, 0, array_len);
             }
         }
     }

@@ -72,14 +72,14 @@ mod tests {
         }
 
         fn copy_to_host_sync(&self, _alignment: Alignment) -> VortexResult<ByteBuffer> {
-            vortex_bail!("mask reduction must not copy device values")
+            vortex_bail!(InvalidArgument: "mask reduction must not copy device values")
         }
 
         fn copy_to_host(
             &self,
             _alignment: Alignment,
         ) -> VortexResult<BoxFuture<'static, VortexResult<ByteBuffer>>> {
-            vortex_bail!("mask reduction must not copy device values")
+            vortex_bail!(InvalidArgument: "mask reduction must not copy device values")
         }
 
         fn slice(&self, _range: Range<usize>) -> Arc<dyn DeviceBuffer> {

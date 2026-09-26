@@ -128,7 +128,9 @@ pub fn precision_to_duckdb_storage_size(decimal_dtype: &DecimalDType) -> VortexR
         5..=9 => DecimalType::I32,
         10..=18 => DecimalType::I64,
         19..=38 => DecimalType::I128,
-        decimal_dtype => vortex_bail!("cannot represent decimal in ducdkb {decimal_dtype}"),
+        decimal_dtype => {
+            vortex_bail!(NotImplemented: "cannot represent decimal in ducdkb {decimal_dtype}")
+        }
     })
 }
 

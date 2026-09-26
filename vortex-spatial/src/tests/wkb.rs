@@ -60,7 +60,7 @@ fn wkb_extension_array() -> VortexResult<(Vec<u8>, vortex_array::ArrayRef)> {
     let mut buf = Vec::new();
     // We should always prefer to write little-endian, which is the default option.
     wkb::writer::write_geometry(&mut buf, &test_polygon(), &WriteOptions::default())
-        .map_err(|e| vortex_err!("writing WKB failed: {e}"))?;
+        .map_err(|e| vortex_err!(Serde: "writing WKB failed: {e}"))?;
 
     let mut builder = VarBinBuilder::<i32>::with_capacity_in(
         DType::Binary(Nullability::NonNullable),

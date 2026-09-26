@@ -344,7 +344,7 @@ impl MutTypedStatsSetRef<'_, '_> {
                     .intersection(&m2)
                     .vortex_expect("can always compare scalar")
                     .ok_or_else(|| {
-                        vortex_err!("{:?} bounds ({m1:?}, {m2:?}) do not overlap", S::STAT)
+                        vortex_err!(InvalidArgument: "{:?} bounds ({m1:?}, {m2:?}) do not overlap", S::STAT)
                     })?;
                 if meet != m1 {
                     self.set(
@@ -382,7 +382,7 @@ impl MutTypedStatsSetRef<'_, '_> {
                     .intersection(&m2)
                     .vortex_expect("can always compare boolean")
                     .ok_or_else(|| {
-                        vortex_err!("{:?} bounds ({m1:?}, {m2:?}) do not overlap", S::STAT)
+                        vortex_err!(InvalidArgument: "{:?} bounds ({m1:?}, {m2:?}) do not overlap", S::STAT)
                     })?;
                 if intersection != m1 {
                     self.set(S::STAT, intersection.into_value().map(ScalarValue::from));

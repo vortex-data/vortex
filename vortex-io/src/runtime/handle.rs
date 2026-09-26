@@ -38,7 +38,7 @@ impl Handle {
 
     fn runtime(&self) -> Arc<dyn Executor> {
         self.runtime.upgrade().unwrap_or_else(|| {
-            vortex_panic!("Attempted to use a Handle after its runtime was dropped")
+            vortex_panic!(InvalidArgument: "Attempted to use a Handle after its runtime was dropped")
         })
     }
 

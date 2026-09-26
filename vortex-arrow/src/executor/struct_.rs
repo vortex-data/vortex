@@ -144,7 +144,7 @@ fn create_from_fields(
         Ok(fields) => {
             vortex_ensure!(
                 vortex_fields.len() == fields.len(),
-                "StructArray has {} fields, but target Arrow type has {} fields",
+                InvalidArgument: "StructArray has {} fields, but target Arrow type has {} fields",
                 vortex_fields.len(),
                 fields.len()
             );
@@ -160,7 +160,7 @@ fn create_from_fields(
                 )?;
                 vortex_ensure!(
                     field.is_nullable() || arrow_field.null_count() == 0,
-                    "Cannot convert field '{}' to non-nullable Arrow field because it contains nulls",
+                    InvalidArgument: "Cannot convert field '{}' to non-nullable Arrow field because it contains nulls",
                     field.name()
                 );
                 arrow_arrays.push(arrow_field);

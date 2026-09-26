@@ -254,7 +254,7 @@ Array Array::field(std::string_view name) const {
             return this->field(i);
         }
     }
-    throw VortexException("no field named \"" + std::string(name) + "\"", ErrorCode::InvalidArgument);
+    throw VortexException("no field named \"" + std::string(name) + "\"", ErrorCode::NotFound);
 }
 
 Array Array::slice(size_t begin, size_t end) const {

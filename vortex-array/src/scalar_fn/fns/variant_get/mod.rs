@@ -122,7 +122,7 @@ impl ScalarFnVTable for VariantGet {
         let input_dtype = &arg_dtypes[0];
         vortex_ensure!(
             matches!(input_dtype, DType::Variant(_)),
-            "VariantGet input must be Variant, found {input_dtype}"
+            MismatchedTypes: "VariantGet input must be Variant, found {input_dtype}"
         );
 
         // Missing paths, traversal mismatches, and cast failures all produce nulls.
@@ -367,7 +367,7 @@ impl VariantPathElement {
     pub fn from_proto(value: pb::VariantPathElement) -> VortexResult<Self> {
         match value
             .element
-            .ok_or_else(|| vortex_err!("Variant path element missing value"))?
+            .ok_or_else(|| vortex_err!(NotFound: "Variant path element missing value"))?
         {
             variant_path_element::Element::Field(field) => Ok(Self::field(field)),
             variant_path_element::Element::Index(index) => Ok(Self::index(index)),
@@ -484,7 +484,7 @@ mod tests {
                 .get(pos)
                 .is_some_and(|byte| !matches!(byte, b'.' | b'['))
         {
-            vortex_bail!("Invalid Variant path {path:?}: expected '.' or '[' after '$'");
+            vortex_bail!(InvalidArgument: "Invalid Variant path {path:?}: expected '.' or '[' after '$'");
         }
 
         while pos < path.len() {
@@ -506,7 +506,7 @@ mod tests {
                     pos = next_pos;
                 }
                 _ => {
-                    vortex_bail!("Invalid Variant path {path:?}: expected '.', '[', or end of path")
+                    vortex_bail!(InvalidArgument: "Invalid Variant path {path:?}: expected '.', '[', or end of path")
                 }
             }
         }
@@ -525,7 +525,7 @@ mod tests {
         }
         vortex_ensure!(
             pos > start,
-            "Invalid Variant path {path:?}: expected field name"
+            InvalidArgument: "Invalid Variant path {path:?}: expected field name"
         );
         Ok((&path[start..pos], pos))
     }
@@ -541,15 +541,15 @@ mod tests {
         }
         vortex_ensure!(
             pos > start,
-            "Invalid Variant path {path:?}: expected list index"
+            InvalidArgument: "Invalid Variant path {path:?}: expected list index"
         );
         vortex_ensure!(
             path.as_bytes().get(pos) == Some(&b']'),
-            "Invalid Variant path {path:?}: expected closing ']'"
+            InvalidArgument: "Invalid Variant path {path:?}: expected closing ']'"
         );
-        let index = path[start..pos]
-            .parse()
-            .map_err(|_| vortex_err!("Invalid Variant path {path:?}: list index is too large"))?;
+        let index = path[start..pos].parse().map_err(
+            |_| vortex_err!(Overflow: "Invalid Variant path {path:?}: list index is too large"),
+        )?;
         Ok((index, pos + 1))
     }
 
@@ -828,7 +828,7 @@ mod tests {
             .execute::<VariantArray>(&mut array_session().create_execution_ctx())?;
         let canonical = result.execute::<Canonical>(&mut array_session().create_execution_ctx())?;
         let Canonical::Variant(canonical_variant) = canonical else {
-            vortex_bail!("expected Variant canonical array");
+            vortex_bail!(InvalidArgument: "expected Variant canonical array");
         };
 
         assert_eq!(variant.len(), 2);

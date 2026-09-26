@@ -40,7 +40,7 @@ pub(crate) fn accumulate_decimal(
     };
 
     let SumState::Decimal(value) = inner else {
-        vortex_panic!("expected decimal sum state for decimal input");
+        vortex_panic!(AssertionFailed: "expected decimal sum state for decimal input");
     };
     let dtype = return_dtype
         .as_decimal_opt()

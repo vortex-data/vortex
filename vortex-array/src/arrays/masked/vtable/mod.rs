@@ -83,19 +83,19 @@ impl VTable for Masked {
     ) -> VortexResult<()> {
         vortex_ensure!(
             slots[MaskedSlots::CHILD].is_some(),
-            "MaskedArray child slot must be present"
+            InvalidArgument: "MaskedArray child slot must be present"
         );
         let child = slots[MaskedSlots::CHILD]
             .as_ref()
             .vortex_expect("validated child slot");
-        vortex_ensure!(child.len() == len, "MaskedArray child length mismatch");
+        vortex_ensure!(child.len() == len, InvalidArgument: "MaskedArray child length mismatch");
         vortex_ensure!(
             child.dtype().as_nullable() == *dtype,
-            "MaskedArray dtype does not match child and validity"
+            MismatchedTypes: "MaskedArray dtype does not match child and validity"
         );
         vortex_ensure!(
             child.all_valid(&mut legacy_session().create_execution_ctx())?,
-            "MaskedArray children must not have nulls",
+            InvalidArgument: "MaskedArray children must not have nulls",
         );
         Ok(())
     }
@@ -105,7 +105,7 @@ impl VTable for Masked {
     }
 
     fn buffer(_array: ArrayView<'_, Self>, _idx: usize) -> BufferHandle {
-        vortex_panic!("MaskedArray has no buffers")
+        vortex_panic!(OutOfBounds: "MaskedArray has no buffers")
     }
 
     fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
@@ -140,17 +140,17 @@ impl VTable for Masked {
     ) -> VortexResult<ArrayParts<Self>> {
         if !metadata.is_empty() {
             vortex_bail!(
-                "MaskedArray expects empty metadata, got {} bytes",
+                InvalidArgument: "MaskedArray expects empty metadata, got {} bytes",
                 metadata.len()
             );
         }
         if !buffers.is_empty() {
-            vortex_bail!("Expected 0 buffer, got {}", buffers.len());
+            vortex_bail!(MismatchedTypes: "Expected 0 buffer, got {}", buffers.len());
         }
 
         vortex_ensure!(
             children.len() == 1 || children.len() == 2,
-            "`MaskedArray::build` expects 1 or 2 children, got {}",
+            InvalidArgument: "`MaskedArray::build` expects 1 or 2 children, got {}",
             children.len()
         );
 

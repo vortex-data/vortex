@@ -344,13 +344,13 @@ fn validate_packed<T: PhysicalPType>(
 ) -> VortexResult<(usize, usize)> {
     vortex_ensure!(
         offset < CHUNK_SIZE,
-        "Invalid bit-packed offset {offset}, expected < {CHUNK_SIZE}"
+        InvalidArgument: "Invalid bit-packed offset {offset}, expected < {CHUNK_SIZE}"
     );
     let elems_per_chunk = 128 * bit_width / size_of::<T>();
     let num_chunks = (offset + len).div_ceil(CHUNK_SIZE);
     vortex_ensure!(
         packed_len == num_chunks * elems_per_chunk,
-        "Invalid packed length: got {packed_len}, expected {}",
+        InvalidArgument: "Invalid packed length: got {packed_len}, expected {}",
         num_chunks * elems_per_chunk
     );
     Ok((num_chunks, (offset + len) % CHUNK_SIZE))

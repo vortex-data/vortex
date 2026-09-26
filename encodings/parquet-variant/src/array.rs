@@ -385,11 +385,11 @@ fn parquet_shredded_field_from_logical(
             .as_opt::<ParquetVariant>()
             .ok_or_else(|| {
                 vortex_err!(
-                    "cannot rebuild Parquet shredded field: nested Variant lacks Parquet Variant core storage"
+                    NotImplemented: "cannot rebuild Parquet shredded field: nested Variant lacks Parquet Variant core storage"
                 )
             })?;
         let value = core.value().cloned().ok_or_else(|| {
-            vortex_err!("cannot rebuild Parquet shredded field: partially shredded Variant has no residual value")
+            vortex_err!(InvalidArgument: "cannot rebuild Parquet shredded field: partially shredded Variant has no residual value")
         })?;
         let typed_value = variant
             .shredded()
@@ -536,7 +536,7 @@ mod tests {
         let vortex_arr = ParquetVariant::from_arrow_variant(&arrow_variant, &SESSION.arrow())?;
         let inner = vortex_arr
             .as_opt::<ParquetVariant>()
-            .ok_or_else(|| vortex_err!("expected parquet variant child"))?;
+            .ok_or_else(|| vortex_err!(InvalidArgument: "expected parquet variant child"))?;
 
         let mut ctx = SESSION.create_execution_ctx();
         let roundtripped = inner.to_arrow(&mut ctx)?;
@@ -625,10 +625,10 @@ mod tests {
 
         let parquet_array = vortex_arr
             .as_opt::<ParquetVariant>()
-            .ok_or_else(|| vortex_err!("expected parquet variant array"))?;
+            .ok_or_else(|| vortex_err!(InvalidArgument: "expected parquet variant array"))?;
         let typed_value = parquet_array
             .typed_value()
-            .ok_or_else(|| vortex_err!("expected typed_value child"))?
+            .ok_or_else(|| vortex_err!(MismatchedTypes: "expected typed_value child"))?
             .clone()
             .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())?;
         assert_arrays_eq!(
@@ -710,16 +710,16 @@ mod tests {
         let vortex_arr = ParquetVariant::from_arrow_variant(&arrow_variant, &SESSION.arrow())?;
         let parquet_array = vortex_arr
             .as_opt::<ParquetVariant>()
-            .ok_or_else(|| vortex_err!("expected parquet variant array"))?;
+            .ok_or_else(|| vortex_err!(InvalidArgument: "expected parquet variant array"))?;
         let mut ctx = SESSION.create_execution_ctx();
         let value = parquet_array
             .value()
-            .ok_or_else(|| vortex_err!("expected synthesized value child"))?;
+            .ok_or_else(|| vortex_err!(InvalidArgument: "expected synthesized value child"))?;
         assert!(value.all_invalid(&mut ctx)?);
 
         let typed_value = parquet_array
             .typed_value()
-            .ok_or_else(|| vortex_err!("expected typed_value child"))?
+            .ok_or_else(|| vortex_err!(MismatchedTypes: "expected typed_value child"))?
             .clone()
             .execute::<PrimitiveArray>(&mut ctx)?;
         assert_arrays_eq!(
@@ -751,7 +751,7 @@ mod tests {
         let vortex_arr = ParquetVariant::from_arrow_variant(&arrow_variant, &SESSION.arrow())?;
         let parquet_array = vortex_arr
             .as_opt::<ParquetVariant>()
-            .ok_or_else(|| vortex_err!("expected parquet variant array"))?;
+            .ok_or_else(|| vortex_err!(InvalidArgument: "expected parquet variant array"))?;
         assert!(parquet_array.value().is_some());
         assert!(parquet_array.typed_value().is_some());
 
@@ -824,7 +824,7 @@ mod tests {
         assert!(
             original
                 .as_opt::<ParquetVariant>()
-                .ok_or_else(|| vortex_err!("expected parquet variant"))?
+                .ok_or_else(|| vortex_err!(InvalidArgument: "expected parquet variant"))?
                 .typed_value()
                 .is_some(),
             "fixture must be shredded"
@@ -833,15 +833,15 @@ mod tests {
         // Canonicalize: the forward transform lifts `typed_value` into a logical shredded child.
         let mut ctx = SESSION.create_execution_ctx();
         let Canonical::Variant(canonical) = original.clone().execute::<Canonical>(&mut ctx)? else {
-            return Err(vortex_err!("expected canonical variant"));
+            return Err(vortex_err!(MismatchedTypes: "expected canonical variant"));
         };
         let core = canonical
             .core_storage()
             .as_opt::<ParquetVariant>()
-            .ok_or_else(|| vortex_err!("expected parquet variant core storage"))?;
+            .ok_or_else(|| vortex_err!(InvalidArgument: "expected parquet variant core storage"))?;
         let logical = canonical
             .shredded()
-            .ok_or_else(|| vortex_err!("expected canonical shredded child"))?
+            .ok_or_else(|| vortex_err!(MismatchedTypes: "expected canonical shredded child"))?
             .clone();
 
         // Inverse transform: rebuild a Parquet `typed_value` and reattach it.

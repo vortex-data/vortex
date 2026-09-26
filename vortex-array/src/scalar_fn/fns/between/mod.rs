@@ -287,14 +287,14 @@ impl ScalarFnVTable for Between {
 
         if !arr_dt.eq_ignore_nullability(lower_dt) {
             vortex_bail!(
-                "Array dtype {} does not match lower dtype {}",
+                MismatchedTypes: "Array dtype {} does not match lower dtype {}",
                 arr_dt,
                 lower_dt
             );
         }
         if !arr_dt.eq_ignore_nullability(upper_dt) {
             vortex_bail!(
-                "Array dtype {} does not match upper dtype {}",
+                MismatchedTypes: "Array dtype {} does not match upper dtype {}",
                 arr_dt,
                 upper_dt
             );

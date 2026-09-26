@@ -155,7 +155,7 @@ impl ScalarFnVTable for Binary {
                 ));
             }
             vortex_bail!(
-                "incompatible types for arithmetic operation: {} {}",
+                MismatchedTypes: "incompatible types for arithmetic operation: {} {}",
                 lhs,
                 rhs
             );
@@ -166,13 +166,13 @@ impl ScalarFnVTable for Binary {
             && !lhs.is_extension()
             && !rhs.is_extension()
         {
-            vortex_bail!("Cannot compare different DTypes {} and {}", lhs, rhs);
+            vortex_bail!(MismatchedTypes: "Cannot compare different DTypes {} and {}", lhs, rhs);
         }
 
         if matches!(operator, Operator::And | Operator::Or)
             && !(lhs.is_boolean() && rhs.is_boolean())
         {
-            vortex_bail!("'{operator}' requires bool operands, got {lhs} and {rhs}",);
+            vortex_bail!(MismatchedTypes: "'{operator}' requires bool operands, got {lhs} and {rhs}",);
         }
 
         Ok(DType::Bool((lhs.is_nullable() || rhs.is_nullable()).into()))

@@ -250,7 +250,7 @@ impl ElementTuple for () {
         vortex_ensure_eq!(
             dtypes.len(),
             0,
-            "expected 0 argument dtypes, got {}",
+            InvalidArgument: "expected 0 argument dtypes, got {}",
             dtypes.len(),
         );
         Ok(())
@@ -314,7 +314,7 @@ macro_rules! element_tuple {
                 vortex_ensure_eq!(
                     dtypes.len(),
                     $arity,
-                    "expected {} argument dtypes, got {}",
+                    InvalidArgument: "expected {} argument dtypes, got {}",
                     $arity,
                     dtypes.len(),
                 );

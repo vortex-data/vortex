@@ -134,7 +134,7 @@ impl TakeExecute for Filter {
         }
 
         let DType::Primitive(ptype, nullability) = indices.dtype() else {
-            vortex_bail!("Invalid indices dtype: {}", indices.dtype())
+            vortex_bail!(InvalidArgument: "Invalid indices dtype: {}", indices.dtype())
         };
 
         if should_materialize_big_take(array, indices) {

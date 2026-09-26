@@ -307,7 +307,7 @@ impl VortexReadAt for CountingReadAt {
         async move {
             let start = offset as usize;
             if start + length > data.len() {
-                return Err(vortex_error::vortex_err!("Read out of bounds"));
+                return Err(vortex_error::vortex_err!(OutOfBounds: "Read out of bounds"));
             }
             let mut buffer = ByteBufferMut::with_capacity_aligned(length, alignment);
             unsafe { buffer.set_len(length) };

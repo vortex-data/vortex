@@ -46,10 +46,10 @@ impl<R: AsyncRead + Unpin> AsyncIPCReader<R> {
             Some(msg) => match msg {
                 DecoderMessage::DType(dtype) => dtype,
                 msg => {
-                    vortex_bail!("Expected DType message, got {:?}", msg);
+                    vortex_bail!(MismatchedTypes: "Expected DType message, got {:?}", msg);
                 }
             },
-            None => vortex_bail!("Expected DType message, got EOF"),
+            None => vortex_bail!(MismatchedTypes: "Expected DType message, got EOF"),
         };
 
         let dtype = DType::from_flatbuffer(dtype, session)?;
@@ -86,7 +86,7 @@ impl<R: AsyncRead> Stream for AsyncIPCReader<R> {
                         .and_then(|array| {
                             if array.dtype() != this.dtype {
                                 Err(vortex_err!(
-                                    "Array data type mismatch: expected {:?}, got {:?}",
+                                    MismatchedTypes: "Array data type mismatch: expected {:?}, got {:?}",
                                     this.dtype,
                                     array.dtype()
                                 ))
@@ -96,7 +96,7 @@ impl<R: AsyncRead> Stream for AsyncIPCReader<R> {
                         }),
                 )),
                 Ok(msg) => Poll::Ready(Some(Err(vortex_err!(
-                    "Expected Array message, got {:?}",
+                    MismatchedTypes: "Expected Array message, got {:?}",
                     msg
                 )))),
                 Err(e) => Poll::Ready(Some(Err(e))),
@@ -183,7 +183,9 @@ impl Stream for ArrayStreamIPCBytes {
                 .encoder
                 .encode(EncoderMessage::DType(this.stream.dtype()))
             else {
-                return Poll::Ready(Some(Err(vortex_err!("Failed to encode DType message"))));
+                return Poll::Ready(Some(Err(
+                    vortex_err!(Serde: "Failed to encode DType message"),
+                )));
             };
             this.buffers.extend(buffers);
             this.written_dtype = true;

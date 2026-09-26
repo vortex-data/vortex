@@ -275,7 +275,7 @@ fn constant_union_canonicalizes_to_sparse_union() -> VortexResult<()> {
         let unselected = canonical
             .iter_children()
             .find(|child| child.dtype() == &unselected_dtype)
-            .ok_or_else(|| vortex_err!("No child with dtype {unselected_dtype}"))?;
+            .ok_or_else(|| vortex_err!(NotFound: "No child with dtype {unselected_dtype}"))?;
         assert_eq!(
             unselected.execute_scalar(0, &mut ctx)?,
             Scalar::default_value(&unselected_dtype)

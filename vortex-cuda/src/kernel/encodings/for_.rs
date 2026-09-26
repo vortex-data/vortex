@@ -55,7 +55,8 @@ impl CudaExecute for FoRExecutor {
         array: ArrayRef,
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
-        let array = Self::try_specialize(array).ok_or_else(|| vortex_err!("Expected FoRArray"))?;
+        let array = Self::try_specialize(array)
+            .ok_or_else(|| vortex_err!(InvalidArgument: "Expected FoRArray"))?;
 
         // Fuse FOR + BP => FFOR
         if let Some(bitpacked) = array.encoded().as_opt::<BitPacked>() {
@@ -92,7 +93,7 @@ where
     P: NativePType + DeviceRepr + Send + Sync + 'static,
 {
     let array_len = array.encoded().len();
-    vortex_ensure!(array_len > 0, "FoR encoded array must not be empty");
+    vortex_ensure!(array_len > 0, InvalidArgument: "FoR encoded array must not be empty");
 
     let reference: P = array
         .reference_scalar()

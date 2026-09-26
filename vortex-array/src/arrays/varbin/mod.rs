@@ -24,7 +24,6 @@ pub mod builder;
 
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
-use vortex_error::vortex_err;
 
 use crate::dtype::DType;
 use crate::scalar::Scalar;
@@ -32,7 +31,7 @@ use crate::scalar::Scalar;
 pub fn varbin_scalar(value: ByteBuffer, dtype: &DType) -> Scalar {
     if matches!(dtype, DType::Utf8(_)) {
         Scalar::try_utf8(value, dtype.nullability())
-            .map_err(|err| vortex_err!("Failed to create scalar from utf8 buffer: {}", err))
+            .map_err(|err| err.with_context("Failed to create scalar from utf8 buffer"))
             .vortex_expect("UTF-8 scalar creation should succeed")
     } else {
         Scalar::binary(value, dtype.nullability())

@@ -130,14 +130,14 @@ mod tests {
         }
 
         fn copy_to_host_sync(&self, _alignment: Alignment) -> VortexResult<ByteBuffer> {
-            vortex_bail!("decimal slicing must not copy device values to the host")
+            vortex_bail!(InvalidArgument: "decimal slicing must not copy device values to the host")
         }
 
         fn copy_to_host(
             &self,
             _alignment: Alignment,
         ) -> VortexResult<BoxFuture<'static, VortexResult<ByteBuffer>>> {
-            vortex_bail!("decimal slicing must not copy device values to the host")
+            vortex_bail!(InvalidArgument: "decimal slicing must not copy device values to the host")
         }
 
         fn slice(&self, range: Range<usize>) -> Arc<dyn DeviceBuffer> {
@@ -199,7 +199,7 @@ mod tests {
             .as_device()
             .as_any()
             .downcast_ref::<TestDeviceBuffer>()
-            .ok_or_else(|| vortex_err!("expected TestDeviceBuffer"))?
+            .ok_or_else(|| vortex_err!(InvalidArgument: "expected TestDeviceBuffer"))?
             .0;
         assert_eq!(actual_bytes, &expected_bytes);
         assert_eq!(actual_bytes.as_ptr(), expected_bytes.as_ptr());

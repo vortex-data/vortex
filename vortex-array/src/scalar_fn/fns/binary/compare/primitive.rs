@@ -57,7 +57,7 @@ fn compare_primitive_typed<T: NativePType>(
     let rhs = PrimitiveOperand::<T>::try_new(rhs, ctx)?;
     if lhs.len() != rhs.len() {
         vortex_bail!(
-            "compare operator requires equal lengths, got {} and {}",
+            InvalidArgument: "compare operator requires equal lengths, got {} and {}",
             lhs.len(),
             rhs.len()
         );

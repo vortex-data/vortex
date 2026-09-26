@@ -129,7 +129,7 @@ impl Executor for Sender {
             future,
             task_callback: send,
         }) {
-            vortex_panic!("Executor missing: {}", e);
+            vortex_panic!(AssertionFailed: "Executor missing: {}", e);
         }
         Box::new(LazyAbortHandle {
             task: Mutex::new(recv),
@@ -142,7 +142,7 @@ impl Executor for Sender {
             sync: cpu,
             task_callback: send,
         }) {
-            vortex_panic!("Executor missing: {}", e);
+            vortex_panic!(AssertionFailed: "Executor missing: {}", e);
         }
         Box::new(LazyAbortHandle {
             task: Mutex::new(recv),
@@ -155,7 +155,7 @@ impl Executor for Sender {
             sync: work,
             task_callback: send,
         }) {
-            vortex_panic!("Executor missing: {}", e);
+            vortex_panic!(AssertionFailed: "Executor missing: {}", e);
         }
         Box::new(LazyAbortHandle {
             task: Mutex::new(recv),

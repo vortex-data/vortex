@@ -53,7 +53,7 @@ impl ArrayPlugin for BitPackedPatchedPlugin {
     ) -> VortexResult<ArrayRef> {
         vortex_ensure!(
             parts.serialized_id == self.id(),
-            "BitPacked plugin does not recognize serialized ID {}",
+            Serde: "BitPacked plugin does not recognize serialized ID {}",
             parts.serialized_id,
         );
         let bitpacked = Array::<BitPacked>::try_from_parts(ArrayVTable::deserialize(
@@ -65,7 +65,9 @@ impl ArrayPlugin for BitPackedPatchedPlugin {
             parts.children,
             session,
         )?)
-        .map_err(|_| vortex_err!("BitPacked plugin should only deserialize fastlanes.bitpacked"))?;
+        .map_err(
+            |_| vortex_err!(Serde: "BitPacked plugin should only deserialize fastlanes.bitpacked"),
+        )?;
 
         // Create a new BitPackedArray without the interior patches installed.
         let Some(patches) = bitpacked.patches() else {
@@ -162,15 +164,13 @@ mod tests {
             &SESSION,
         )?;
 
-        let patched: PatchedArray = deserialized
-            .try_downcast()
-            .map_err(|a| vortex_err!("Expected Patched, got {}", a.encoding_id()))?;
+        let patched: PatchedArray = deserialized.try_downcast().map_err(
+            |a| vortex_err!(MismatchedTypes: "Expected Patched, got {}", a.encoding_id()),
+        )?;
 
-        let inner_bitpacked: BitPackedArray = patched
-            .inner()
-            .clone()
-            .try_downcast()
-            .map_err(|a| vortex_err!("Expected inner BitPacked, got {}", a.encoding_id()))?;
+        let inner_bitpacked: BitPackedArray = patched.inner().clone().try_downcast().map_err(
+            |a| vortex_err!(MismatchedTypes: "Expected inner BitPacked, got {}", a.encoding_id()),
+        )?;
 
         assert!(
             inner_bitpacked.patches().is_none(),
@@ -215,9 +215,9 @@ mod tests {
             &SESSION,
         )?;
 
-        let result = deserialized
-            .try_downcast::<BitPacked>()
-            .map_err(|a| vortex_err!("Expected deserialize BitPacked, got {}", a.encoding_id()))?;
+        let result = deserialized.try_downcast::<BitPacked>().map_err(
+            |a| vortex_err!(Serde: "Expected deserialize BitPacked, got {}", a.encoding_id()),
+        )?;
 
         assert!(result.patches().is_none(), "Result should not have patches");
 
