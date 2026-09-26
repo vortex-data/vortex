@@ -174,7 +174,11 @@ impl<A: 'static + Send> RepeatedScan<A> {
         let mut limit = self.limit;
         let mut tasks = Vec::new();
         let ctx = Arc::new(TaskContext {
-            filter: self.filter.clone().map(|f| Arc::new(FilterExpr::new(f))),
+            filter: self
+                .filter
+                .clone()
+                .map(|f| FilterExpr::new(f).map(Arc::new))
+                .transpose()?,
             reader: Arc::clone(&self.layout_reader),
             projection: self.projection.clone(),
             mapper: Arc::clone(&self.map_fn),
