@@ -75,7 +75,7 @@ impl ArrayPlugin for BitPackedPatchedPlugin {
         let packed = bitpacked.packed().clone();
         let ptype = bitpacked.dtype().as_ptype();
         let validity = bitpacked.validity()?;
-        let bw = bitpacked.bit_width;
+        let bw = bitpacked.bit_width();
         let len = bitpacked.len();
         let offset = bitpacked.offset();
 
