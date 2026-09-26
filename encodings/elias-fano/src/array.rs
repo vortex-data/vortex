@@ -137,8 +137,6 @@ impl Display for EliasFanoData {
 
 impl EliasFanoData {
     /// Construct the per-array data, validating what can be checked without the child slot.
-    // There is one parameter per metadata field, which is what makes the two sides easy to line up.
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn try_new(
         upper: ByteBuffer,
         samples: ByteBuffer,
@@ -316,6 +314,8 @@ pub(crate) fn scalar_bits(scalar: &Scalar) -> u64 {
     })
 }
 
+// Narrowing the sign-extended pattern back to the array's width is exact.
+#[expect(clippy::cast_possible_truncation)]
 pub(crate) fn scalar_from_bits(dtype: &DType, bits: u64) -> VortexResult<Scalar> {
     let value = match_each_integer_ptype!(dtype.as_ptype(), |P| {
         ScalarValue::Primitive(PValue::from(bits as P))
@@ -634,7 +634,7 @@ fn validate_parts(
     // length, both sample counts, and every sample's range and order.
     ef::validate_layout(
         data.span(),
-        num_elements as usize,
+        lower.len(),
         data.lower_width(),
         data.upper_len(),
         data.samples_buffer().as_slice(),

@@ -70,7 +70,9 @@ pub fn validate_layout(
     }
 
     // The zero table comes first. The count check above already proves the buffer reaches the seam.
-    let seam = (expected_samples0 as usize) * size_of::<u64>();
+    let seam = usize::try_from(expected_samples0)
+        .map_err(|_| Malformed::SampleCount { expected, found })?
+        * size_of::<u64>();
     let (samples0, samples1) = samples.split_at(seam);
 
     // A sample is fed straight to `select_range` as a window start, which asserts rather than

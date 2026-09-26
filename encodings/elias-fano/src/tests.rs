@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#![expect(clippy::cast_possible_truncation)]
+
 use std::sync::LazyLock;
 
 use rstest::rstest;

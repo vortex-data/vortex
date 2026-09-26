@@ -15,12 +15,8 @@
 //! * `Duplicates` — few distinct values over a wide universe, so each occupied high-part bucket is
 //!   deep. Random data almost never produces this.
 
-#![allow(
-    clippy::cast_possible_truncation,
-    clippy::expect_used,
-    clippy::tests_outside_test_module,
-    clippy::unwrap_used
-)]
+#![expect(clippy::unwrap_used)]
+#![expect(clippy::cast_possible_truncation)]
 
 use std::sync::LazyLock;
 
@@ -89,7 +85,7 @@ fn values(n: usize, shape: Shape) -> Vec<u64> {
 fn encoded(n: usize, shape: Shape) -> EliasFanoArray {
     let array = PrimitiveArray::from_iter(values(n, shape));
     let mut ctx = SESSION.create_execution_ctx();
-    elias_fano_encode(array.as_ref().as_::<Primitive>(), &mut ctx).expect("encode")
+    elias_fano_encode(array.as_ref().as_::<Primitive>(), &mut ctx).unwrap()
 }
 
 /// Probe count held fixed across shapes and row counts, so the reported figure is comparable.

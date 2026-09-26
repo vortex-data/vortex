@@ -142,6 +142,7 @@ fn select_in_range(
 /// little-endian word and folds the ninth in across the shift. Within nine bytes of the end the
 /// slower path assembles whatever is there, since the bytes it cannot read land above `width`.
 #[inline]
+#[expect(clippy::cast_possible_truncation)]
 fn load_bits(bytes: &[u8], at: usize, width: usize) -> u64 {
     debug_assert!(width > 0 && width <= 64, "width {width} out of range");
 

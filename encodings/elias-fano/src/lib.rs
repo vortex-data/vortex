@@ -1,10 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-// Elias-Fano works in sign-extended 64-bit patterns and narrows back to the array's own width on
-// the way out; see `EliasFanoData::reference_bits`. Both halves of that pair are exact.
-#![expect(clippy::cast_possible_truncation)]
-
 //! Elias-Fano encoding for monotonically non-decreasing integer sequences.
 //!
 //! Stores about `log2(u / n) + 2` bits per value for `n` values over a universe of `u`, while still

@@ -67,7 +67,7 @@ pub fn sampled_select(
     end: usize,
     zeros: bool,
 ) -> Option<usize> {
-    let sample = (target >> log_sampling) as usize;
+    let sample = usize::try_from(target >> log_sampling).ok()?;
     let start = if sample == 0 {
         0
     } else {
