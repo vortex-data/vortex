@@ -6,6 +6,7 @@ use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
 
+use num_traits::AsPrimitive;
 use prost::Message;
 use smallvec::smallvec;
 use vortex_array::Array;
@@ -299,18 +300,16 @@ impl EliasFanoData {
 }
 
 /// The two's-complement bit pattern of an integer scalar, sign-extended to 64 bits.
-// The widening is what sign-extends, and it is a no-op only in the `u64` arm the macro also
-// expands to, which is the arm the lint sees.
-#[expect(clippy::unnecessary_cast)]
 pub(crate) fn scalar_bits(scalar: &Scalar) -> u64 {
     let pvalue = scalar
         .as_primitive()
         .pvalue()
         .vortex_expect("Elias-Fano bounds are non-null integers");
     match_each_integer_ptype!(pvalue.ptype(), |P| {
-        pvalue
+        let value: P = pvalue
             .cast::<P>()
-            .vortex_expect("pvalue is already of this ptype") as u64
+            .vortex_expect("pvalue is already of this ptype");
+        value.as_()
     })
 }
 

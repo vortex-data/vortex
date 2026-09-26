@@ -47,8 +47,6 @@ use crate::malformed;
 /// The input must be monotonically non-decreasing; duplicates are fine and cost one set bit each.
 /// Nulls are rejected: the layout has nowhere to put one. `ctx` is taken for symmetry with the
 /// other integer encoders and goes unused.
-// Values widen into the 64-bit element domain here, a no-op in the `u64` arm the lint sees.
-#[expect(clippy::unnecessary_cast)]
 pub fn elias_fano_encode(
     array: ArrayView<'_, Primitive>,
     _ctx: &mut ExecutionCtx,
@@ -69,9 +67,9 @@ pub fn elias_fano_encode(
     }
 
     // Work in sign-extended 64-bit patterns throughout; see `EliasFanoData::reference_bits`.
-    let (reference_bits, max_bits) = match_each_integer_ptype!(array.ptype(), |P| {
+    let (reference_bits, max_bits): (u64, u64) = match_each_integer_ptype!(array.ptype(), |P| {
         let values = array.as_slice::<P>();
-        (values[0] as u64, values[n - 1] as u64)
+        (values[0].as_(), values[n - 1].as_())
     });
 
     let span = max_bits.wrapping_sub(reference_bits);
@@ -81,7 +79,7 @@ pub fn elias_fano_encode(
         ef::encode(
             values
                 .iter()
-                .map(|&value| (value as u64).wrapping_sub(reference_bits)),
+                .map(|&value| AsPrimitive::<u64>::as_(value).wrapping_sub(reference_bits)),
             span,
         )
     })
