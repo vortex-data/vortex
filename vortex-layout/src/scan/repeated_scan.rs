@@ -148,9 +148,9 @@ impl<A: 'static + Send> RepeatedScan<A> {
 
     /// Construct a task per row split of the scan.
     ///
-    /// When the scan is ordered and has both a filter and a limit, each task waits for the tasks
-    /// before it to claim their rows, so all tasks must be driven concurrently (for example by
-    /// spawning them) and the earlier tasks must not be held back.
+    /// When the scan is ordered and has both a filter and a limit, a task near the limit boundary
+    /// may wait for the tasks before it to finish filtering, so the tasks must be driven
+    /// concurrently (for example by spawning them) and earlier tasks must not be held back.
     pub fn execute(&self, row_range: Option<Range<u64>>) -> VortexResult<ScanTasks<A>> {
         Ok(self.execute_tasks(row_range)?.tasks)
     }
@@ -222,29 +222,27 @@ impl<A: 'static + Send> RepeatedScan<A> {
             mapper: Arc::clone(&self.map_fn),
         });
 
+        let row_masks: Vec<_> = ranges
+            .map(|range| self.selection.row_mask(&range))
+            .filter(|row_mask| !row_mask.mask().all_false())
+            .collect();
+
         // Without a filter, each split's row count is known up front and the limit is applied
         // eagerly. With a filter, splits claim rows from a shared budget after filtering.
         let mut eager_limit = self.limit.filter(|_| self.filter.is_none());
-        let limit_budget = self
-            .limit
-            .filter(|_| self.filter.is_some())
-            .map(|limit| Arc::new(LimitBudget::new(limit)));
-        let mut claims = limit_budget
-            .as_ref()
-            .map(|budget| LimitClaim::for_splits(budget, self.ordered));
+        let limit_budget = self.limit.filter(|_| self.filter.is_some()).map(|limit| {
+            let split_rows: Vec<u64> = row_masks
+                .iter()
+                .map(|row_mask| row_mask.mask().true_count() as u64)
+                .collect();
+            LimitBudget::new(limit, self.ordered, &split_rows)
+        });
 
-        let mut tasks = Vec::new();
-        for range in ranges {
-            let row_mask = self.selection.row_mask(&range);
-            if row_mask.mask().all_false() {
-                continue;
-            }
-
-            let limit = match (eager_limit.as_mut(), claims.as_mut()) {
+        let mut tasks = Vec::with_capacity(row_masks.len());
+        for (split, row_mask) in row_masks.into_iter().enumerate() {
+            let limit = match (eager_limit.as_mut(), limit_budget.as_ref()) {
                 (Some(l), _) => SplitLimit::Eager(l),
-                (None, Some(claims)) => {
-                    SplitLimit::Filtered(claims.next().vortex_expect("claims are unbounded"))
-                }
+                (None, Some(budget)) => SplitLimit::Filtered(LimitClaim::new(budget, split)),
                 (None, None) => SplitLimit::None,
             };
             tasks.push(split_exec(Arc::clone(&ctx), row_mask, limit)?);

@@ -371,8 +371,9 @@ impl<A: 'static + Send> ScanBuilder<A> {
 
     /// Constructs a task per row split of the scan, returned as a vector of futures.
     ///
-    /// For an ordered scan with both a filter and a limit, each task waits for the tasks before
-    /// it to claim their rows, so the tasks must be driven concurrently, e.g. by spawning them.
+    /// For an ordered scan with both a filter and a limit, a task near the limit boundary may wait
+    /// for the tasks before it to finish filtering, so the tasks must be driven concurrently, e.g.
+    /// by spawning them.
     pub fn build(self) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
         // The ultimate short circuit
         if self.limit.is_some_and(|l| l == 0) {
