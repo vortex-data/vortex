@@ -15,10 +15,10 @@ use async_lock::Semaphore;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use parking_lot::Mutex;
+use pyo3::buffer::PyBuffer;
 use pyo3::exceptions::PyBufferError;
 use pyo3::exceptions::PyEOFError;
 use pyo3::exceptions::PyTypeError;
-use pyo3::buffer::PyBuffer;
 use pyo3::ffi;
 use pyo3::intern;
 use pyo3::prelude::*;
@@ -190,8 +190,9 @@ impl VortexReadAt for PyReadable {
 
                     let buffer = ByteBufferMut::zeroed_aligned(length, alignment);
                     let buffer = Python::attach(|py| {
-                        read_fully(py, obj.bind(py), protocol, offset, buffer)
-                            .map_err(|err| vortex_err!("Python read of {offset}..{end} failed: {err}"))
+                        read_fully(py, obj.bind(py), protocol, offset, buffer).map_err(|err| {
+                            vortex_err!("Python read of {offset}..{end} failed: {err}")
+                        })
                     })?;
                     Ok(BufferHandle::new_host(buffer.freeze()))
                 })
@@ -231,10 +232,8 @@ fn read_fully(
             let n = match protocol {
                 Protocol::Positional => {
                     let window = window(&view, filled, length)?;
-                    let n = obj.call_method1(
-                        intern!(py, "read_into"),
-                        (offset + filled as u64, &window),
-                    );
+                    let n = obj
+                        .call_method1(intern!(py, "read_into"), (offset + filled as u64, &window));
                     release(&window)?;
                     n?.extract::<usize>()?
                 }

@@ -26,6 +26,12 @@ def path(tmp_path_factory: pytest.TempPathFactory, table: pa.Table) -> Path:
     return path
 
 
+@pytest.fixture(scope="module")
+def expected(path: Path) -> pa.Table:
+    """The file as read through the native path reader, which every Python reader must match."""
+    return vx.open(str(path)).to_arrow().read_all()
+
+
 def read_all(source: object) -> pa.Table:
     return vx.open(source, without_segment_cache=True).to_arrow().read_all()  # ty: ignore[invalid-argument-type]
 
@@ -61,20 +67,20 @@ class PReadFile:
         os.close(self._fd)
 
 
-def test_file_object(path: Path, table: pa.Table) -> None:
+def test_file_object(path: Path, expected: pa.Table) -> None:
     with open(path, "rb") as f:
-        assert read_all(f).equals(table)
+        assert read_all(f).equals(expected)
 
 
-def test_bytes_io(path: Path, table: pa.Table) -> None:
-    assert read_all(io.BytesIO(path.read_bytes())).equals(table)
+def test_bytes_io(path: Path, expected: pa.Table) -> None:
+    assert read_all(io.BytesIO(path.read_bytes())).equals(expected)
 
 
-def test_pathlike(path: Path, table: pa.Table) -> None:
-    assert read_all(path).equals(table)
+def test_pathlike(path: Path, expected: pa.Table) -> None:
+    assert read_all(path).equals(expected)
 
 
-def test_read_only_file_object(path: Path, table: pa.Table) -> None:
+def test_read_only_file_object(path: Path, expected: pa.Table) -> None:
     class ReadOnly:
         def __init__(self, data: bytes) -> None:
             self._inner = io.BytesIO(data)
@@ -86,30 +92,26 @@ def test_read_only_file_object(path: Path, table: pa.Table) -> None:
             # Return at most 1000 bytes to exercise the short-read loop.
             return self._inner.read(min(n, 1000))
 
-    assert read_all(ReadOnly(path.read_bytes())).equals(table)
+    assert read_all(ReadOnly(path.read_bytes())).equals(expected)
 
 
-def test_read_at(path: Path, table: pa.Table) -> None:
+def test_read_at(path: Path, expected: pa.Table) -> None:
     reader = PReadFile(path)
     try:
         assert isinstance(reader, ReadAt)
         vxf = vx.open(reader, without_segment_cache=True)
-        assert len(vxf) == table.num_rows
-        assert (
-            vxf.scan(["index"], expr=vx.expr.column("index") < 10)
-            .read_all()
-            .to_arrow_table()
-            .equals(table.select(["index"]).slice(0, 10))
-        )
+        assert len(vxf) == expected.num_rows
+        filtered = vxf.to_arrow(["index"], expr=vx.expr.column("index") < 10).read_all()
+        assert filtered == pa.table({"index": pa.array(range(10), pa.int64())})
         assert reader.reads > 0
     finally:
         reader.close()
 
 
-def test_read_at_short_reads(path: Path, table: pa.Table) -> None:
+def test_read_at_short_reads(path: Path, expected: pa.Table) -> None:
     reader = PReadFile(path, chunk=777)
     try:
-        assert read_all(reader).equals(table)
+        assert read_all(reader).equals(expected)
     finally:
         reader.close()
 
@@ -120,13 +122,15 @@ def test_file_object_reads_are_serialized(path: Path) -> None:
     lock = threading.Lock()
 
     class Tracking(io.FileIO):
-        def readinto(self, buffer) -> int | None:  # ty: ignore[invalid-method-override]
+        def readinto(self, buffer: memoryview) -> int | None:  # ty: ignore[invalid-method-override]
             nonlocal in_flight, max_in_flight
             with lock:
                 in_flight += 1
                 max_in_flight = max(max_in_flight, in_flight)
             try:
-                return super().readinto(buffer)
+                n = super().readinto(buffer)
+                assert n is None or isinstance(n, int)
+                return n
             finally:
                 with lock:
                     in_flight -= 1
