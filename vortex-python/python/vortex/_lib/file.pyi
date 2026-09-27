@@ -65,4 +65,5 @@ def open(
     *,
     store: ObjectStore | CosStore | HfStore | None = None,
     without_segment_cache: bool = False,
+    concurrency: int | None = None,
 ) -> VortexFile: ...

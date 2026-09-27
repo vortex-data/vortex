@@ -5,6 +5,7 @@ import io
 import os
 import pickle
 import threading
+import time
 from pathlib import Path
 
 import pyarrow as pa
@@ -203,3 +204,29 @@ def test_pickle_is_refused(path: Path) -> None:
         assert vxf.path == str(path)
         with pytest.raises(TypeError, match="Python readable"):
             pickle.dumps(vxf)
+
+
+@pytest.mark.parametrize("concurrency", [1, 4])
+def test_read_at_concurrency_limit(path: Path, concurrency: int) -> None:
+    class Slow(PReadFile):
+        def read_into(self, offset: int, buffer: memoryview) -> int:
+            time.sleep(0.01)
+            return super().read_into(offset, buffer)
+
+    reader = Slow(path)
+    try:
+        vxf = vx.open(reader, without_segment_cache=True, concurrency=concurrency)
+        vxf.to_arrow().read_all()
+        assert 0 < reader.max_in_flight <= concurrency
+    finally:
+        reader.close()
+
+
+def test_concurrency_rejected_for_file_object(path: Path) -> None:
+    with open(path, "rb") as f, pytest.raises(TypeError, match="serialized"):
+        vx.open(f, concurrency=4)
+
+
+def test_concurrency_rejected_for_path(path: Path) -> None:
+    with pytest.raises(TypeError, match="concurrency"):
+        vx.open(str(path), concurrency=4)

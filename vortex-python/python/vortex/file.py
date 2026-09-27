@@ -38,6 +38,7 @@ def open(
     *,
     store: AzureStore | CosStore | GCSStore | HfStore | HTTPStore | LocalStore | MemoryStore | S3Store | None = None,
     without_segment_cache: bool = False,
+    concurrency: int | None = None,
 ) -> VortexFile:
     """
     Lazily open a Vortex file located at the given path or URL, or read through a Python object.
@@ -54,6 +55,9 @@ def open(
         the store is inferred based on the path
     without_segment_cache : :class:`bool`
         If true, disable the segment cache for this file, useful when memory is constrained.
+    concurrency : :class:`int` | None
+        The most reads to have in flight at once through a :class:`vortex.io.ReadAt` reader,
+        192 by default. Not accepted for paths or file objects, whose reads are serialized.
 
     Examples
     --------
@@ -72,7 +76,9 @@ def open(
     See also: :class:`vortex.dataset.VortexDataset`
     """
 
-    return VortexFile(_file.open(path, store=store, without_segment_cache=without_segment_cache))
+    return VortexFile(
+        _file.open(path, store=store, without_segment_cache=without_segment_cache, concurrency=concurrency)
+    )
 
 
 @final

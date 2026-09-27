@@ -15,7 +15,8 @@ class ReadAt(Protocol):
     fsspec and pyarrow files) are accepted too without implementing this protocol, but their reads
     are serialized because each one has to ``seek`` first. Implement :class:`ReadAt` when the
     underlying storage supports positional reads, such as :func:`os.pread` or HTTP range requests,
-    so that Vortex can issue several reads at once.
+    so that Vortex can issue many reads at once: up to 192 by default, set with the ``concurrency``
+    argument of :func:`vortex.open`.
 
     Reads are called from Vortex worker threads, potentially many concurrently, so implementations
     must be safe for concurrent use. Releasing the GIL while waiting on IO lets those reads overlap.

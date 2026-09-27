@@ -19,6 +19,7 @@ use pyo3::buffer::PyBuffer;
 use pyo3::exceptions::PyBufferError;
 use pyo3::exceptions::PyEOFError;
 use pyo3::exceptions::PyTypeError;
+use pyo3::exceptions::PyValueError;
 use pyo3::ffi;
 use pyo3::intern;
 use pyo3::prelude::*;
@@ -34,11 +35,10 @@ use vortex::io::CoalesceConfig;
 use vortex::io::VortexReadAt;
 use vortex::io::runtime::Handle;
 
-/// Concurrent upcalls allowed for an object implementing the positional `read_into` protocol.
-///
-/// Upcalls hold the GIL except where the reader releases it (syscalls, network IO), so a modest
-/// limit is enough to overlap IO latency without parking many blocking threads on the GIL.
-const POSITIONAL_CONCURRENCY: usize = 16;
+/// Default number of concurrent upcalls for an object implementing the positional `read_into`
+/// protocol. Matches the JNI readable and object-store defaults, since the backing storage is
+/// typically remote and readers release the GIL while waiting on it.
+const DEFAULT_CONCURRENCY: usize = 192;
 
 /// How positional reads are forwarded to the Python object.
 #[derive(Clone, Copy, Debug)]
@@ -56,7 +56,8 @@ enum Protocol {
 /// Two shapes of object are accepted:
 ///
 /// - Objects with `size() -> int` and `read_into(offset, buffer) -> int`. These are positional and
-///   stateless, so up to [`POSITIONAL_CONCURRENCY`] reads may be in flight at once.
+///   stateless, so up to `concurrency` reads (default [`DEFAULT_CONCURRENCY`]) may be in
+///   flight at once.
 /// - Binary file objects with `seek` and `readinto` (or `read`). Seeking makes these stateful, so
 ///   reads are serialized. The size is taken from `seek(0, SEEK_END)` at construction time.
 ///
@@ -75,7 +76,14 @@ pub(crate) struct PyReadable {
 
 impl PyReadable {
     /// Wrap `obj`, detecting which read protocol it implements.
-    pub(crate) fn try_new(obj: &Bound<'_, PyAny>, handle: Handle) -> PyResult<Self> {
+    ///
+    /// `concurrency` caps in-flight reads for a positional reader, and is rejected for a file
+    /// object, whose reads must be serialized.
+    pub(crate) fn try_new(
+        obj: &Bound<'_, PyAny>,
+        handle: Handle,
+        concurrency: Option<usize>,
+    ) -> PyResult<Self> {
         let py = obj.py();
         let has = |name| obj.hasattr(name);
 
@@ -99,9 +107,19 @@ impl PyReadable {
             return Err(not_readable(obj));
         };
 
-        let concurrency = match protocol {
-            Protocol::Positional => POSITIONAL_CONCURRENCY,
-            Protocol::ReadInto | Protocol::Read => 1,
+        let concurrency = match (protocol, concurrency) {
+            (Protocol::Positional, None) => DEFAULT_CONCURRENCY,
+            (Protocol::Positional, Some(0)) => {
+                return Err(PyValueError::new_err("concurrency must be at least 1"));
+            }
+            (Protocol::Positional, Some(concurrency)) => concurrency,
+            (Protocol::ReadInto | Protocol::Read, None) => 1,
+            (Protocol::ReadInto | Protocol::Read, Some(_)) => {
+                return Err(PyTypeError::new_err(
+                    "concurrency requires a vortex.io.ReadAt reader; reads from a file object \
+                     are serialized because each one must seek first",
+                ));
+            }
         };
 
         // File objects conventionally expose their path as `name`. `io.FileIO` also allows an

@@ -67,7 +67,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 #[pyfunction]
 fn _reopen(py: Python, path: &str, without_segment_cache: bool) -> PyVortexResult<PyVortexFile> {
     let path = PyString::new(py, path);
-    open(py, path.as_any(), None, without_segment_cache)
+    open(py, path.as_any(), None, without_segment_cache, None)
 }
 
 /// Open a Vortex file for reading.
@@ -76,12 +76,13 @@ fn _reopen(py: Python, path: &str, without_segment_cache: bool) -> PyVortexResul
 /// (see [`PyReadable`]). Callers can optionally configure an object store for a path using one of
 /// the definitions in the `vortex.store` module.
 #[pyfunction]
-#[pyo3(signature = (source, *, store = None, without_segment_cache = false))]
+#[pyo3(signature = (source, *, store = None, without_segment_cache = false, concurrency = None))]
 pub fn open(
     py: Python,
     source: &Bound<PyAny>,
     store: Option<AnyVortexStore>,
     without_segment_cache: bool,
+    concurrency: Option<usize>,
 ) -> PyVortexResult<PyVortexFile> {
     let path = if let Ok(path) = source.cast::<PyString>() {
         Some(path.to_str()?.to_string())
@@ -108,9 +109,19 @@ pub fn open(
     };
 
     let (readable, owned_path) = match &path {
+        Some(_) if concurrency.is_some() => {
+            return Err(PyTypeError::new_err(
+                "`concurrency` applies to a vortex.io.ReadAt reader, not a path or URL",
+            )
+            .into());
+        }
         Some(path) => (None, path.clone()),
         None => {
-            let readable = Arc::new(PyReadable::try_new(source, session().handle())?);
+            let readable = Arc::new(PyReadable::try_new(
+                source,
+                session().handle(),
+                concurrency,
+            )?);
             let name = readable
                 .uri()
                 .map(|uri| uri.to_string())
