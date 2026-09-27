@@ -3,8 +3,9 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator
-from typing import TYPE_CHECKING, final
+from typing import IO, TYPE_CHECKING, final
 
 import pyarrow as pa
 
@@ -14,6 +15,7 @@ from ._lib.dtype import DType
 from ._lib.expr import Expr
 from ._lib.iter import ArrayIterator
 from .dataset import VortexDataset
+from .io import ReadAt
 from .scan import RepeatedScan
 from .store import (
     AzureStore,
@@ -32,20 +34,23 @@ if TYPE_CHECKING:
 
 
 def open(
-    path: str,
+    path: str | os.PathLike[str] | IO[bytes] | ReadAt,
     *,
     store: AzureStore | CosStore | GCSStore | HfStore | HTTPStore | LocalStore | MemoryStore | S3Store | None = None,
     without_segment_cache: bool = False,
 ) -> VortexFile:
     """
-    Lazily open a Vortex file located at the given path or URL.
+    Lazily open a Vortex file located at the given path or URL, or read through a Python object.
 
     Parameters
     ----------
-    path : :class:`str`
-        A local path or URL to the Vortex file.
+    path : :class:`str` | :class:`os.PathLike` | binary file object | :class:`vortex.io.ReadAt`
+        A local path or URL to the Vortex file, or a Python object that performs the IO itself:
+        either a binary file object with ``seek`` and ``readinto`` (or ``read``), or an object
+        implementing :class:`vortex.io.ReadAt`. Vortex does not close a passed-in object; keep it
+        open for as long as the returned file, or anything scanned from it, is in use.
     store :
-        An object store created from the `vortex.store` package. By default
+        An object store created from the `vortex.store` package, for a path or URL only. By default
         the store is inferred based on the path
     without_segment_cache : :class:`bool`
         If true, disable the segment cache for this file, useful when memory is constrained.
@@ -57,6 +62,12 @@ def open(
     >>> import vortex as vx
     >>> vxf = vx.open("data.vortex") # doctest: +SKIP
     >>> array_iterator = vxf.scan() # doctest: +SKIP
+
+    Open a Vortex file through a Python file object, such as one from fsspec:
+
+    >>> import fsspec # doctest: +SKIP
+    >>> with fsspec.open("memory://data.vortex", "rb") as f: # doctest: +SKIP
+    ...     table = vx.open(f).to_arrow().read_all()
 
     See also: :class:`vortex.dataset.VortexDataset`
     """

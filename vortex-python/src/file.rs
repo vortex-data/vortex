@@ -9,6 +9,7 @@ use pyo3::exceptions::PyTypeError;
 use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
+use pyo3::types::PyString;
 use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
 use vortex::array::VortexSessionExecute;
@@ -24,7 +25,9 @@ use vortex::expr::root;
 use vortex::expr::select;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
+use vortex::io::VortexReadAt;
 use vortex::io::runtime::BlockingRuntime;
+use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::layout::scan::split_by::SplitBy;
 use vortex::layout::segments::MokaSegmentCache;
@@ -44,6 +47,7 @@ use crate::io::AnyVortexStore;
 use crate::iter::PyArrayIterator;
 use crate::object_store::resolve::ResolvedStore;
 use crate::object_store::resolve::resolve_store;
+use crate::readable::PyReadable;
 use crate::scan::PyRepeatedScan;
 use crate::session::session;
 
@@ -62,23 +66,59 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 /// Reopen a Vortex file by path. The unpickling half of [`PyVortexFile::__reduce__`].
 #[pyfunction]
 fn _reopen(py: Python, path: &str, without_segment_cache: bool) -> PyVortexResult<PyVortexFile> {
-    open(py, path, None, without_segment_cache)
+    let path = PyString::new(py, path);
+    open(py, path.as_any(), None, without_segment_cache)
 }
 
 /// Open a Vortex file for reading.
 ///
-/// Callers can optionally configure an object store to build from using one of the definitions
-/// in the `vortex.store` crate.
+/// `source` is a path or URL, an `os.PathLike`, or a Python object that performs the IO itself
+/// (see [`PyReadable`]). Callers can optionally configure an object store for a path using one of
+/// the definitions in the `vortex.store` module.
 #[pyfunction]
-#[pyo3(signature = (path, *, store = None, without_segment_cache = false))]
+#[pyo3(signature = (source, *, store = None, without_segment_cache = false))]
 pub fn open(
     py: Python,
-    path: &str,
+    source: &Bound<PyAny>,
     store: Option<AnyVortexStore>,
     without_segment_cache: bool,
 ) -> PyVortexResult<PyVortexFile> {
-    let had_store = store.is_some();
-    let owned_path = path.to_string();
+    let path = if let Ok(path) = source.cast::<PyString>() {
+        Some(path.to_str()?.to_string())
+    } else if source.hasattr(intern!(py, "__fspath__"))? {
+        Some(
+            PyModule::import(py, intern!(py, "os"))?
+                .call_method1(intern!(py, "fspath"), (source,))?
+                .extract::<String>()?,
+        )
+    } else {
+        None
+    };
+
+    let origin = match (&path, &store) {
+        (Some(_), None) => Origin::Path,
+        (Some(_), Some(_)) => Origin::Store,
+        (None, None) => Origin::Readable,
+        (None, Some(_)) => {
+            return Err(PyTypeError::new_err(
+                "`store` can only be combined with a path or URL, not a Python readable",
+            )
+            .into());
+        }
+    };
+
+    let (readable, owned_path) = match &path {
+        Some(path) => (None, path.clone()),
+        None => {
+            let readable = Arc::new(PyReadable::try_new(source, session().handle())?);
+            let name = readable
+                .uri()
+                .map(|uri| uri.to_string())
+                .unwrap_or_default();
+            (Some(readable), name)
+        }
+    };
+
     let vxf = py.detach(move || {
         current_runtime().block_on(async move {
             let mut options = session().open_options();
@@ -87,6 +127,10 @@ pub fn open(
                 options = options.with_segment_cache(Arc::new(MokaSegmentCache::new(256 << 20)));
             }
 
+            if let Some(readable) = readable {
+                return options.open(readable).await;
+            }
+            let path = path.as_deref().unwrap_or_default();
             match resolve_store(path, store.map(|x| x.into_inner()))? {
                 ResolvedStore::ObjectStore(store, path) => {
                     options.open_object_store(&store, path).await
@@ -99,19 +143,29 @@ pub fn open(
     Ok(PyVortexFile {
         vxf,
         path: owned_path,
-        had_store,
+        origin,
         without_segment_cache,
     })
+}
+
+/// Where a [`PyVortexFile`] was opened from, which decides whether it can be pickled.
+#[derive(Clone, Copy)]
+enum Origin {
+    /// A path or URL resolved through the default registry: reopenable by path alone.
+    Path,
+    /// A path within an explicit object store, which is not picklable.
+    Store,
+    /// A Python readable, whose IO state cannot be transferred.
+    Readable,
 }
 
 #[pyclass(name = "VortexFile", module = "vortex", frozen)]
 pub struct PyVortexFile {
     vxf: VortexFile,
     /// The path this file was opened from, retained so that it can be reopened in another process.
+    /// For a Python readable this is its `name`, if it has one, and empty otherwise.
     path: String,
-    /// Whether an explicit object store was passed to [`open`]. Object stores are not picklable, so
-    /// such a file cannot be reopened by path alone.
-    had_store: bool,
+    origin: Origin,
     without_segment_cache: bool,
 }
 
@@ -140,13 +194,24 @@ impl PyVortexFile {
     /// ------
     /// :class:`TypeError`
     ///     If the file was opened with an explicit ``store``, since object stores cannot be
-    ///     pickled. Pass the URL to :func:`vortex.open` in the worker instead.
+    ///     pickled, or from a Python file object or readable. Pass the URL to
+    ///     :func:`vortex.open` in the worker instead.
     fn __reduce__<'py>(slf: PyRef<'py, Self>) -> PyResult<(Bound<'py, PyAny>, (String, bool))> {
-        if slf.had_store {
-            return Err(PyTypeError::new_err(
-                "cannot pickle a VortexFile opened with an explicit store, because object stores \
-                 are not picklable; open it from its URL in the receiving process instead",
-            ));
+        match slf.origin {
+            Origin::Path => {}
+            Origin::Store => {
+                return Err(PyTypeError::new_err(
+                    "cannot pickle a VortexFile opened with an explicit store, because object \
+                     stores are not picklable; open it from its URL in the receiving process \
+                     instead",
+                ));
+            }
+            Origin::Readable => {
+                return Err(PyTypeError::new_err(
+                    "cannot pickle a VortexFile opened from a Python readable; open it again in \
+                     the receiving process instead",
+                ));
+            }
         }
         let py = slf.py();
         let module = PyModule::import(py, "vortex._lib.file")?;

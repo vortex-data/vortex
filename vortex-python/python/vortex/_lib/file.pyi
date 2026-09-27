@@ -1,11 +1,13 @@
 #  SPDX-License-Identifier: Apache-2.0
 #  SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-from typing import final
+import os
+from typing import IO, final
 
 import polars as pl
 import pyarrow as pa
 from typing_extensions import override
+from vortex.io import ReadAt
 
 from vortex.type_aliases import IntoProjection
 
@@ -59,7 +61,7 @@ class VortexFile:
     def splits(self) -> list[tuple[int, int]]: ...
 
 def open(
-    path: str,
+    source: str | os.PathLike[str] | IO[bytes] | ReadAt,
     *,
     store: ObjectStore | CosStore | HfStore | None = None,
     without_segment_cache: bool = False,
