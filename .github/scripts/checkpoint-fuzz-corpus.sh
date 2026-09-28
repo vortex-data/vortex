@@ -4,14 +4,19 @@
 
 set -euo pipefail
 
-if [ "$#" -ne 3 ]; then
-  echo "Usage: $0 <corpus-directory> <object-key> <etag-state-file>" >&2
+if [ "$#" -lt 3 ] || [ "$#" -gt 4 ]; then
+  echo "Usage: $0 <corpus-directory> <object-key> <etag-state-file> [explore|minimize]" >&2
   exit 2
 fi
 
 corpus_dir=$1
 object_key=$2
 etag_file=$3
+mode=${4:-explore}
+case "$mode" in
+  explore|minimize) ;;
+  *) echo "Unknown checkpoint mode: $mode" >&2; exit 2 ;;
+esac
 checkpoint_dir=$(mktemp -d "${TMPDIR:-/tmp}/fuzz-corpus.XXXXXX")
 archive="$checkpoint_dir/corpus.tar.zst"
 file_list="$checkpoint_dir/files"
@@ -66,6 +71,11 @@ for attempt in 1 2 3; do
   if [ "$status" -ne 3 ]; then
     exit "$status"
   fi
+  if [ "$mode" = minimize ]; then
+    # Unioning the remote corpus back in would silently undo minimization.
+    echo "::error::Corpus changed during minimization; rerun against the latest corpus"
+    exit 1
+  fi
   if [ "$attempt" -eq 3 ]; then
     break
   fi
@@ -75,6 +85,7 @@ for attempt in 1 2 3; do
     "s3://vortex-fuzz-corpus/$object_key" "$latest_archive" \
     --etag-output "$latest_etag"
   tar -xf "$latest_archive"
+  rm -f "$latest_archive"
   cp "$latest_etag" "$etag_file"
 done
 

@@ -4,12 +4,11 @@
 
 set -euo pipefail
 
-for fuzz_name in \
-  array_ops \
-  compress_roundtrip \
-  file_io \
-  fsst_like \
-  row_encode; do
+if [ "$#" -eq 0 ]; then
+  set -- array_ops compress_roundtrip file_io fsst_like row_encode
+fi
+
+for fuzz_name in "$@"; do
   corpus_key="${fuzz_name}_corpus.tar.zst"
   corpus_dir="fuzz/corpus/${fuzz_name}"
   mkdir -p "$corpus_dir"
@@ -19,4 +18,6 @@ for fuzz_name in \
   else
     echo "No existing corpus found for $fuzz_name"
   fi
+  rm -f "$corpus_key"
+  du -sh "$corpus_dir"
 done

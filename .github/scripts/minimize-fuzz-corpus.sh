@@ -13,8 +13,16 @@ if [ -n "$EXTRA_FEATURES" ]; then
 fi
 CORPUS_DIR="fuzz/corpus/${FUZZ_NAME}"
 MINIMIZED_DIR="${CORPUS_DIR}_minimized"
+# A previous partial merge must not seed the output corpus.
+rm -rf "$MINIMIZED_DIR"
 mkdir -p "$MINIMIZED_DIR"
 ORIGINAL_COUNT=$(find "$CORPUS_DIR" -type f | wc -l)
+ORIGINAL_BYTES=$(du -sb "$CORPUS_DIR" | cut -f1)
+
+if [[ "$(uname -s)" == Linux ]]; then
+  # Match build-fuzzers.sh: GNU ld overflows ARM64 calls in instrumented binaries.
+  export RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=-fuse-ld=mold"
+fi
 
 cargo "+$NIGHTLY_TOOLCHAIN" fuzz build --release --debug-assertions \
   "${FEATURES_FLAG[@]}" "$FUZZ_TARGET"
@@ -42,6 +50,11 @@ if [ "$ORIGINAL_COUNT" -gt 0 ] && [ "$MINIMIZED_COUNT" -eq 0 ]; then
   exit 1
 fi
 
-echo "Minimized $ORIGINAL_COUNT inputs to $MINIMIZED_COUNT"
+MINIMIZED_BYTES=$(du -sb "$MINIMIZED_DIR" | cut -f1)
+echo "Minimized $ORIGINAL_COUNT inputs ($ORIGINAL_BYTES bytes) to $MINIMIZED_COUNT ($MINIMIZED_BYTES bytes)"
+if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+  echo "### $FUZZ_NAME corpus minimization" >> "$GITHUB_STEP_SUMMARY"
+  echo "$ORIGINAL_COUNT inputs ($ORIGINAL_BYTES bytes) → $MINIMIZED_COUNT inputs ($MINIMIZED_BYTES bytes)" >> "$GITHUB_STEP_SUMMARY"
+fi
 rm -rf "$CORPUS_DIR"
 mv "$MINIMIZED_DIR" "$CORPUS_DIR"

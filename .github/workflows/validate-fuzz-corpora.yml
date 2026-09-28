@@ -24,7 +24,7 @@ jobs:
     timeout-minutes: 120
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner={1}/disk=large/tag=fuzz-validate', github.run_id, inputs.runner)
+          && format('runs-on={0}/runner={1}/volume=200gb/tag=fuzz-validate', github.run_id, inputs.runner)
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
@@ -39,20 +39,18 @@ jobs:
           name: ${{ inputs.fuzzer_artifact }}
 
       - name: Extract fuzzers
-        run: tar -xf cpu-fuzzers.tar.zst
+        run: |
+          tar -xf cpu-fuzzers.tar.zst
+          rm cpu-fuzzers.tar.zst
 
-      - name: Restore corpora
+      - name: Restore and validate corpora without mutation
+        id: validate
         shell: bash
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
           AWS_REGION: "us-east-1"
           AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
-        run: .github/scripts/restore-fuzz-corpora.sh
-
-      - name: Validate corpora without mutation
-        id: validate
-        shell: bash
         run: .github/scripts/validate-fuzz-corpora.sh
         continue-on-error: true
 

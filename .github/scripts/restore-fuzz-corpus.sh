@@ -25,3 +25,6 @@ else
     echo "No existing corpus found, nothing to minimize"
   fi
 fi
+
+rm -f "$CORPUS_KEY"
+du -sh "$CORPUS_DIR"

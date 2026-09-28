@@ -40,7 +40,10 @@ for fuzz_name in \
   file_io \
   fsst_like \
   row_encode; do
+  # Bound peak disk usage to one expanded corpus and its download.
+  .github/scripts/restore-fuzz-corpora.sh "$fuzz_name"
   validate_corpus "$fuzz_name"
+  rm -rf "fuzz/corpus/$fuzz_name"
 done
 
 if [ "$validation_failed" = true ]; then

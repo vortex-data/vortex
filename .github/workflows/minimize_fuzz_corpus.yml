@@ -3,10 +3,12 @@ name: Minimize All Fuzz Corpora
 concurrency:
   group: fuzz
   cancel-in-progress: false
+  # Keep pending minimization runs when another fuzz run is scheduled.
+  queue: max
 
 on:
   schedule:
-    - cron: "0 0 * * 0"  # every Sunday at midnight UTC
+    - cron: "30 0 * * *"  # daily at 00:30 UTC
   workflow_dispatch: { }
 
 jobs:
@@ -17,13 +19,19 @@ jobs:
       matrix:
         fuzz_target: [file_io, array_ops, fsst_like, row_encode, compress_roundtrip]
         extra_features: [""]
+        runner: [arm64-medium]
+        extra_env: [""]
         include:
           - fuzz_target: compress_gpu
             extra_features: "cuda"
+            runner: gpu
+            extra_env: "ASAN_OPTIONS=protect_shadow_gap=0"
     uses: ./.github/workflows/minimize_fuzz_corpus_workflow.yml
     with:
       fuzz_target: ${{ matrix.fuzz_target }}
       extra_features: ${{ matrix.extra_features }}
+      runner: ${{ matrix.runner }}
+      extra_env: ${{ matrix.extra_env }}
     secrets:
       R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
       R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}

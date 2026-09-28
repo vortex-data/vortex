@@ -43,7 +43,7 @@ jobs:
       FUZZ_NAME: ${{ inputs.fuzz_name || inputs.fuzz_target }}
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner={1}/tag={2}-minimize', github.run_id, inputs.runner, inputs.fuzz_name || inputs.fuzz_target)
+          && format('runs-on={0}/runner={1}/volume=200gb/tag={2}-minimize', github.run_id, inputs.runner, inputs.fuzz_name || inputs.fuzz_target)
           || 'ubuntu-latest' }}
     timeout-minutes: 240
     steps:
@@ -111,4 +111,13 @@ jobs:
           AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
         run: >-
           .github/scripts/checkpoint-fuzz-corpus.sh
-          "fuzz/corpus/$FUZZ_NAME" "${FUZZ_NAME}_corpus.tar.zst" "$RUNNER_TEMP/${FUZZ_NAME}.etag"
+          "fuzz/corpus/$FUZZ_NAME" "${FUZZ_NAME}_corpus.tar.zst" "$RUNNER_TEMP/${FUZZ_NAME}.etag" minimize
+
+      - name: Upload minimization log
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        with:
+          name: ${{ inputs.fuzz_name || inputs.fuzz_target }}-minimization-log
+          path: fuzz-minimize.log
+          if-no-files-found: ignore
+          retention-days: 14

@@ -122,7 +122,9 @@ jobs:
 
       - name: Extract precompiled fuzzer
         if: inputs.fuzzer_artifact != ''
-        run: tar -xf cpu-fuzzers.tar.zst
+        run: |
+          tar -xf cpu-fuzzers.tar.zst
+          rm cpu-fuzzers.tar.zst
 
       - name: Restore corpus
         shell: bash
