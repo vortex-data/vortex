@@ -17,6 +17,9 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::expr::gt;
+use vortex_array::expr::lit;
+use vortex_array::expr::root;
 use vortex_array::serde::SerializeOptions;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBufferMut;
@@ -29,11 +32,15 @@ use super::*;
 use crate::LayoutRef;
 use crate::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
+use crate::layouts::dict::DictLayout;
 use crate::layouts::flat::FlatLayout;
 use crate::layouts::struct_::StructLayout;
+use crate::plan::EvalPlan;
 use crate::plan::Filter;
 use crate::plan::SegmentScan;
+use crate::plan::Take;
 use crate::plan::lower;
+use crate::plan::optimize;
 use crate::test::SESSION;
 
 const ROWS: u64 = 20;
@@ -503,5 +510,41 @@ fn bare_scan_is_dense_and_filter_keeps_the_selection(#[case] sel: Sel) -> Vortex
         delivery(Delivery::Fifo),
     )?;
     assert_view(&values, &rows, &mask, kept.pieces)?;
+    Ok(())
+}
+
+/// Executions of a take plan after the first reuse its values, reading only the codes, including
+/// when a predicate has been pushed onto the values.
+#[rstest]
+#[case::values(false)]
+#[case::predicate(true)]
+fn take_values_are_read_once_per_plan(#[case] predicate: bool) -> VortexResult<()> {
+    let mut store = Store::default();
+    let values = VarBinViewArray::from_iter_str(["a", "b", "c"]).into_array();
+    let codes = PrimitiveArray::from_iter((0..ROWS).map(|v| (v % 3) as u8)).into_array();
+    let layout = DictLayout::new(store.flat(&values)?, store.flat(&codes)?).into_layout();
+    let mut plan = lower(&layout)?;
+    let mut expected = values.take(codes)?;
+    if predicate {
+        let expression = gt(root(), lit("a"))
+            .optimize_recursive(plan.dtype())?
+            .bind(plan.dtype())?;
+        expected = expected.apply_bound(&expression)?;
+        plan = optimize(EvalPlan::try_new(expression, plan)?.into_plan())?;
+    }
+    assert!(plan.is::<Take>());
+
+    for (split, rows) in [0..10, 10..ROWS].into_iter().enumerate() {
+        let mask = Mask::new_true(10);
+        let run = run(
+            &store,
+            &plan,
+            rows.clone(),
+            mask.clone(),
+            delivery(Delivery::Fifo),
+        )?;
+        assert_eq!(reads(&run.events), if split == 0 { 2 } else { 1 });
+        assert_view(&expected, &rows, &mask, run.pieces)?;
+    }
     Ok(())
 }

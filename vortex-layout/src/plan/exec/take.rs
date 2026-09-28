@@ -2,7 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::DictArray;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -26,6 +28,11 @@ const VALUES: usize = 1;
 /// The codes run over the selection; the values run over their whole domain. Codes pieces that
 /// arrive before every value has are held, then each becomes a dictionary piece over the joined
 /// values.
+///
+/// The joined values are kept on the plan, so later executions of it skip the values subtree.
+/// Boolean values, which the optimizer produces by pushing a predicate onto the dictionary, are
+/// evaluated before they are kept, so the predicate runs once per dictionary rather than once
+/// per execution.
 pub(crate) struct TakeNode {
     plan: TakePlan,
     selection: Selection,
@@ -66,6 +73,11 @@ impl TakeNode {
             rows,
             self.selection.mask().clone(),
         );
+        if let Some(values) = self.plan.cached_values() {
+            self.joined = Some(values);
+            self.values_open = false;
+            return Ok(true);
+        }
         let values = self.plan.values()?;
         let len = usize::try_from(values.row_count())?;
         cx.spawn(VALUES, values, 0..len as u64, Mask::new_true(len));
@@ -96,7 +108,12 @@ impl ExecNode for TakeNode {
                 .into_iter()
                 .map(|piece| piece.array)
                 .collect();
-            self.joined = Some(join(self.plan.values()?.dtype(), values)?);
+            let mut values = join(self.plan.values()?.dtype(), values)?;
+            if values.dtype().is_boolean() {
+                let mut ctx = cx.session().create_execution_ctx();
+                values = values.execute::<Canonical>(&mut ctx)?.into_array();
+            }
+            self.joined = Some(self.plan.cache_values(values));
         }
         let Some(values) = &self.joined else {
             return Ok(NodeState::Waiting);
