@@ -93,11 +93,11 @@ impl Scheme for DecimalScheme {
         }
     }
 
-    fn refine(&self, allowed: &dyn Fn(&ArrayId) -> bool) -> Option<&'static dyn Scheme> {
-        if allowed(&decimal_byte_parts_v1_id()) && allowed(&decimal_byte_parts_v2_id()) {
-            Some(&DECIMAL_V2)
+    fn refine(&self, allowed: &dyn Fn(&ArrayId) -> bool) -> &dyn Scheme {
+        if allowed(&decimal_byte_parts_v2_id()) {
+            &DECIMAL_V2
         } else {
-            Some(&DECIMAL_V1)
+            &DECIMAL_V1
         }
     }
 
@@ -190,7 +190,7 @@ mod tests {
             (allow_v1 && *id == decimal_byte_parts_v1_id())
                 || (allow_v2 && *id == decimal_byte_parts_v2_id())
         };
-        let refined = scheme.refine(&allowed).unwrap_or(scheme);
+        let refined = scheme.refine(&allowed);
         assert_eq!(refined.id(), scheme.id());
         let expected: &dyn Scheme = if expect_v2 { &DECIMAL_V2 } else { &DECIMAL_V1 };
         assert_eq!(refined.produced_encodings(), expected.produced_encodings());

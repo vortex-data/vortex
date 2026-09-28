@@ -117,7 +117,7 @@ impl fmt::Display for SchemeId {
 /// [`num_children`]: Scheme::num_children
 /// [`descendant_exclusions`]: Scheme::descendant_exclusions
 /// [`ancestor_exclusions`]: Scheme::ancestor_exclusions
-pub trait Scheme: Debug + Send + Sync {
+pub trait Scheme: AsDynScheme + Debug + Send + Sync {
     /// The globally unique name for this scheme (e.g. `"vortex.int.bitpacking"`).
     fn scheme_name(&self) -> &'static str;
 
@@ -137,11 +137,11 @@ pub trait Scheme: Debug + Send + Sync {
 
     /// Returns the variant of this scheme to use given which serialized IDs are `allowed`.
     ///
-    /// `None` keeps this scheme. A variant must share this scheme's [`SchemeId`]. Every ID the
+    /// The default returns `self`. A variant must share this scheme's [`SchemeId`]. Every ID the
     /// variant declares in [`produced_encodings`](Self::produced_encodings) must still be allowed
     /// for it to be used.
-    fn refine(&self, _allowed: &dyn Fn(&ArrayId) -> bool) -> Option<&'static dyn Scheme> {
-        None
+    fn refine(&self, _allowed: &dyn Fn(&ArrayId) -> bool) -> &dyn Scheme {
+        self.as_dyn()
     }
 
     /// Returns the stats generation options this scheme requires. The compressor merges all
@@ -248,3 +248,18 @@ pub trait SchemeExt: Scheme {
 }
 
 impl<T: Scheme + ?Sized> SchemeExt for T {}
+
+/// Upcast of a [`Scheme`] implementor to `&dyn Scheme`.
+///
+/// This trait is automatically implemented for every sized type that implements [`Scheme`]. It
+/// lets default methods such as [`refine`](Scheme::refine) return `self` as a trait object.
+pub trait AsDynScheme {
+    /// Returns `self` as a `&dyn Scheme`.
+    fn as_dyn(&self) -> &dyn Scheme;
+}
+
+impl<T: Scheme> AsDynScheme for T {
+    fn as_dyn(&self) -> &dyn Scheme {
+        self
+    }
+}

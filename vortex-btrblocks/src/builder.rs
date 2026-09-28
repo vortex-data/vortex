@@ -236,7 +236,7 @@ impl BtrBlocksCompressorBuilder {
             .iter()
             .copied()
             .filter(|s| !excluded.contains(&s.id()))
-            .map(|s| s.refine(&allowed).unwrap_or(s))
+            .map(|s| s.refine(&allowed))
             .filter(|s| s.produced_encodings().iter().all(&allowed))
             .collect()
     }
