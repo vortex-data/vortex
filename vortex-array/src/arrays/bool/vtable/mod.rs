@@ -108,10 +108,13 @@ impl VTable for Bool {
         );
         let mut data = array.data().clone();
         data.bits = buffers[0].clone();
-        Ok(
-            ArrayParts::new(self.clone(), array.dtype().clone(), array.len(), data)
-                .with_slots(array.slots().iter().cloned().collect()),
-        )
+        Ok(ArrayParts::new(
+            self.clone(),
+            array.dtype().clone(),
+            array.len(),
+            data,
+            array.slots().iter().cloned().collect(),
+        ))
     }
 
     fn serialize(
@@ -185,7 +188,13 @@ impl VTable for Bool {
         let buffer = buffers[0].clone();
         let slots = BoolData::make_slots(&validity, len);
         let data = BoolData::try_new_from_handle(buffer, metadata.offset as usize, len, validity)?;
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

@@ -169,8 +169,13 @@ impl VTable for Masked {
             child.all_valid(&mut legacy_session().create_execution_ctx())?,
             validity,
         )?;
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data)
-            .with_slots(smallvec![Some(child), validity_slot]))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            smallvec![Some(child), validity_slot],
+        ))
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

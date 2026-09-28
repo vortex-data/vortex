@@ -154,10 +154,13 @@ impl VTable for BitPacked {
         );
         let mut data = array.data().clone();
         data.packed = buffers[0].clone();
-        Ok(
-            ArrayParts::new(self.clone(), array.dtype().clone(), array.len(), data)
-                .with_slots(array.slots().iter().cloned().collect()),
-        )
+        Ok(ArrayParts::new(
+            self.clone(),
+            array.dtype().clone(),
+            array.len(),
+            data,
+            array.slots().iter().cloned().collect(),
+        ))
     }
 
     fn serialize(
@@ -252,7 +255,13 @@ impl VTable for BitPacked {
                 )
             })?,
         )?;
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))
     }
 
     fn append_to_builder(
@@ -320,7 +329,7 @@ impl BitPacked {
             s
         };
         let data = BitPackedData::try_new(packed, patches, bit_width, offset)?;
-        Array::try_from_parts(ArrayParts::new(BitPacked, dtype, len, data).with_slots(slots))
+        Array::try_from_parts(ArrayParts::new(BitPacked, dtype, len, data, slots))
     }
 
     pub fn into_parts(array: BitPackedArray) -> BitPackedDataParts {

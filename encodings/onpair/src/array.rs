@@ -396,9 +396,7 @@ impl OnPair {
             validity: validity_to_child(&validity, len),
         }
         .into_slots();
-        unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(OnPair, dtype, len, data).with_slots(slots))
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(OnPair, dtype, len, data, slots)) }
     }
 }
 
@@ -501,10 +499,13 @@ impl VTable for OnPair {
         // was validated against, so drop the (shared) cell rather than
         // carry a claim we can no longer prove.
         data.dictionary = Arc::new(OnceLock::new());
-        Ok(
-            ArrayParts::new(self.clone(), array.dtype().clone(), array.len(), data)
-                .with_slots(array.slots().iter().cloned().collect()),
-        )
+        Ok(ArrayParts::new(
+            self.clone(),
+            array.dtype().clone(),
+            array.len(),
+            data,
+            array.slots().iter().cloned().collect(),
+        ))
     }
 
     fn serialize(
@@ -596,7 +597,13 @@ impl VTable for OnPair {
             validity: validity_to_child(&validity, len),
         }
         .into_slots();
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

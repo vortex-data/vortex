@@ -270,7 +270,13 @@ impl VTable for ParquetVariant {
             typed_value,
         }
         .into_slots();
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, EmptyArrayData).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            EmptyArrayData,
+            slots,
+        ))
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

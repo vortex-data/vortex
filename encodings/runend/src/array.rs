@@ -166,7 +166,13 @@ impl VTable for RunEnd {
         let offset = usize::try_from(metadata.offset).vortex_expect("Offset must be a valid usize");
         let slots = RunEndSlots { ends, values }.into_slots();
         let data = RunEndData::new(offset);
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -250,11 +256,7 @@ impl RunEnd {
         let dtype = values.dtype().clone();
         let slots = RunEndSlots { ends, values }.into_slots();
         let data = unsafe { RunEndData::new_unchecked(offset) };
-        unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(RunEnd, dtype, length, data).with_slots(slots),
-            )
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(RunEnd, dtype, length, data, slots)) }
     }
 
     /// Build a new [`RunEndArray`] from ends and values.
@@ -268,7 +270,7 @@ impl RunEnd {
         let dtype = values.dtype().clone();
         let slots = RunEndSlots { ends, values }.into_slots();
         let data = RunEndData::new(0);
-        Array::try_from_parts(ArrayParts::new(RunEnd, dtype, len, data).with_slots(slots))
+        Array::try_from_parts(ArrayParts::new(RunEnd, dtype, len, data, slots))
     }
 
     /// Build a new [`RunEndArray`] from ends, values, offset, and length.
@@ -283,7 +285,7 @@ impl RunEnd {
         let dtype = values.dtype().clone();
         let slots = RunEndSlots { ends, values }.into_slots();
         let data = RunEndData::new(offset);
-        Array::try_from_parts(ArrayParts::new(RunEnd, dtype, length, data).with_slots(slots))
+        Array::try_from_parts(ArrayParts::new(RunEnd, dtype, length, data, slots))
     }
 
     /// Build a new [`RunEndArray`] from ends and values (panics on invalid input).
@@ -300,7 +302,7 @@ impl RunEnd {
             let dtype = values.dtype().clone();
             let slots = RunEndSlots { ends, values }.into_slots();
             let data = unsafe { RunEndData::new_unchecked(0) };
-            Array::try_from_parts(ArrayParts::new(RunEnd, dtype, len, data).with_slots(slots))
+            Array::try_from_parts(ArrayParts::new(RunEnd, dtype, len, data, slots))
         } else {
             vortex_bail!("REE can only encode primitive arrays")
         }

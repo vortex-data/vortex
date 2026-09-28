@@ -248,10 +248,13 @@ impl Patched {
         offset: usize,
     ) -> Array<Patched> {
         unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(Patched, dtype, len, PatchedData { n_lanes, offset })
-                    .with_slots(slots),
-            )
+            Array::from_parts_unchecked(ArrayParts::new(
+                Patched,
+                dtype,
+                len,
+                PatchedData { n_lanes, offset },
+                slots,
+            ))
         }
     }
 }

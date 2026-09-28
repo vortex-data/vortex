@@ -142,10 +142,13 @@ impl VTable for VarBin {
         );
         let mut data = array.data().clone();
         data.bytes = buffers[0].clone();
-        Ok(
-            ArrayParts::new(self.clone(), array.dtype().clone(), array.len(), data)
-                .with_slots(array.slots().iter().cloned().collect()),
-        )
+        Ok(ArrayParts::new(
+            self.clone(),
+            array.dtype().clone(),
+            array.len(),
+            data,
+            array.slots().iter().cloned().collect(),
+        ))
     }
 
     fn serialize(
@@ -193,7 +196,13 @@ impl VTable for VarBin {
 
         let data = VarBinData::try_build(offsets.clone(), bytes, dtype.clone(), validity.clone())?;
         let slots = VarBinData::make_slots(offsets, &validity, len);
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

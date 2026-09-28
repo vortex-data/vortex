@@ -184,10 +184,13 @@ impl VTable for Pco {
             .iter()
             .map(|buffer| buffer.clone().try_to_host_sync())
             .collect::<VortexResult<Vec<_>>>()?;
-        Ok(
-            ArrayParts::new(self.clone(), array.dtype().clone(), array.len(), data)
-                .with_slots(array.slots().iter().cloned().collect()),
-        )
+        Ok(ArrayParts::new(
+            self.clone(),
+            array.dtype().clone(),
+            array.len(),
+            data,
+            array.slots().iter().cloned().collect(),
+        ))
     }
 
     fn serialize(
@@ -241,7 +244,13 @@ impl VTable for Pco {
         // publishing the array.
         let data =
             unsafe { PcoData::new_unchecked(chunk_metas, pages, dtype.as_ptype(), metadata, len) };
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -335,9 +344,7 @@ impl Pco {
             validity: validity_to_child(&validity, data.unsliced_n_rows()),
         }
         .into_slots();
-        unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Pco, dtype, len, data).with_slots(slots))
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Pco, dtype, len, data, slots)) }
     }
 
     /// Compress a primitive array using pcodec.

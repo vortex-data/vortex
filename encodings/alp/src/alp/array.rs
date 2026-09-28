@@ -168,7 +168,13 @@ impl VTable for ALP {
             },
             patches,
         );
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -370,10 +376,13 @@ impl ALP {
         let len = encoded.len();
         let slots = ALPData::make_slots(&encoded, patches.as_ref());
         unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(ALP, dtype, len, ALPData::new(exponents, patches))
-                    .with_slots(slots),
-            )
+            Array::from_parts_unchecked(ArrayParts::new(
+                ALP,
+                dtype,
+                len,
+                ALPData::new(exponents, patches),
+                slots,
+            ))
         }
     }
 
@@ -386,7 +395,7 @@ impl ALP {
         let len = encoded.len();
         let slots = ALPData::make_slots(&encoded, patches.as_ref());
         let data = ALPData::new(exponents, patches);
-        Array::try_from_parts(ArrayParts::new(ALP, dtype, len, data).with_slots(slots))
+        Array::try_from_parts(ArrayParts::new(ALP, dtype, len, data, slots))
     }
 
     /// # Safety
@@ -400,9 +409,7 @@ impl ALP {
         let len = encoded.len();
         let slots = ALPData::make_slots(&encoded, patches.as_ref());
         let data = unsafe { ALPData::new_unchecked(exponents, patches) };
-        unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(ALP, dtype, len, data).with_slots(slots))
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(ALP, dtype, len, data, slots)) }
     }
 }
 

@@ -159,9 +159,13 @@ impl DecimalByteParts {
         let len = msp.len();
         let dtype = DType::Decimal(decimal_dtype, msp.dtype().nullability());
         let slots = DecimalBytePartsSlots { msp, lower_parts }.into_slots();
-        Array::try_from_parts(
-            ArrayParts::new(DecimalByteParts, dtype, len, DecimalBytePartsData).with_slots(slots),
-        )
+        Array::try_from_parts(ArrayParts::new(
+            DecimalByteParts,
+            dtype,
+            len,
+            DecimalBytePartsData,
+            slots,
+        ))
     }
 
     /// Construct a [`DecimalBytePartsArray`] from parts whose invariants are already established.
@@ -182,10 +186,13 @@ impl DecimalByteParts {
         // SAFETY: the caller guarantees the part types, lengths, and count. The slot builder
         // fills every required slot, and the length and nullability come from the MSP.
         unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(DecimalByteParts, dtype, len, DecimalBytePartsData)
-                    .with_slots(slots),
-            )
+            Array::from_parts_unchecked(ArrayParts::new(
+                DecimalByteParts,
+                dtype,
+                len,
+                DecimalBytePartsData,
+                slots,
+            ))
         }
     }
 }
@@ -678,8 +685,8 @@ mod tests {
             DType::Decimal(DecimalDType::new(76, 2), Nullability::NonNullable),
             3,
             DecimalBytePartsData,
-        )
-        .with_slots(slots.into_iter().collect());
+            slots.into_iter().collect(),
+        );
         assert!(Array::try_from_parts(parts).is_err());
     }
 

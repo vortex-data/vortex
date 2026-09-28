@@ -98,10 +98,13 @@ impl VTable for Decimal {
     ) -> VortexResult<ArrayParts<Self>> {
         let mut data = array.data().clone();
         data.values = fixed_width::single_buffer(buffers)?;
-        Ok(
-            ArrayParts::new(self.clone(), array.dtype().clone(), array.len(), data)
-                .with_slots(array.slots().iter().cloned().collect()),
-        )
+        Ok(ArrayParts::new(
+            self.clone(),
+            array.dtype().clone(),
+            array.len(),
+            data,
+            array.slots().iter().cloned().collect(),
+        ))
     }
 
     fn serialize(
@@ -176,7 +179,13 @@ impl VTable for Decimal {
             );
             DecimalData::try_new_handle(values, metadata.values_type(), *decimal_dtype)
         })?;
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

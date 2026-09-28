@@ -187,7 +187,13 @@ impl VTable for List {
 
         let data = ListData::try_build(elements.clone(), offsets.clone(), validity.clone())?;
         let slots = ListData::make_slots(&elements, &offsets, &validity, len);
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

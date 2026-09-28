@@ -116,15 +116,13 @@ impl TransposedBool {
         offset: usize,
         len: usize,
     ) -> VortexResult<TransposedBoolArray> {
-        Array::try_from_parts(
-            ArrayParts::new(
-                TransposedBool,
-                DType::Bool(Nullability::NonNullable),
-                len,
-                TransposedBoolData { offset },
-            )
-            .with_slots(smallvec![Some(transposed)]),
-        )
+        Array::try_from_parts(ArrayParts::new(
+            TransposedBool,
+            DType::Bool(Nullability::NonNullable),
+            len,
+            TransposedBoolData { offset },
+            smallvec![Some(transposed)],
+        ))
     }
 }
 
