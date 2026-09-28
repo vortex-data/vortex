@@ -38,7 +38,7 @@ fn sum_i32(bencher: Bencher) {
                 SESSION.create_execution_ctx(),
             )
         })
-        .bench_refs(|(a, ctx)| a.statistics().compute_as::<i64>(Stat::Sum, ctx));
+        .bench_refs(|(a, ctx)| a.statistics().get_as::<i64>(Stat::Sum.aggregate_fn(), ctx));
 }
 
 #[divan::bench]
@@ -66,7 +66,7 @@ fn sum_u32(bencher: Bencher) {
                 SESSION.create_execution_ctx(),
             )
         })
-        .bench_refs(|(a, ctx)| a.statistics().compute_as::<u64>(Stat::Sum, ctx));
+        .bench_refs(|(a, ctx)| a.statistics().get_as::<u64>(Stat::Sum.aggregate_fn(), ctx));
 }
 
 #[divan::bench]
@@ -94,7 +94,7 @@ fn sum_i64(bencher: Bencher) {
                 SESSION.create_execution_ctx(),
             )
         })
-        .bench_refs(|(a, ctx)| a.statistics().compute_as::<i64>(Stat::Sum, ctx));
+        .bench_refs(|(a, ctx)| a.statistics().get_as::<i64>(Stat::Sum.aggregate_fn(), ctx));
 }
 
 #[divan::bench]
@@ -122,7 +122,7 @@ fn sum_f64(bencher: Bencher) {
                 SESSION.create_execution_ctx(),
             )
         })
-        .bench_refs(|(a, ctx)| a.statistics().compute_as::<f64>(Stat::Sum, ctx));
+        .bench_refs(|(a, ctx)| a.statistics().get_as::<f64>(Stat::Sum.aggregate_fn(), ctx));
 }
 
 #[divan::bench]
@@ -158,7 +158,7 @@ fn sum_f64_nulls_clustered(bencher: Bencher) {
                 SESSION.create_execution_ctx(),
             )
         })
-        .bench_refs(|(a, ctx)| a.statistics().compute_as::<f64>(Stat::Sum, ctx));
+        .bench_refs(|(a, ctx)| a.statistics().get_as::<f64>(Stat::Sum.aggregate_fn(), ctx));
 }
 
 #[divan::bench]
@@ -204,7 +204,7 @@ fn sum_i32_nulls_clustered(bencher: Bencher) {
                 SESSION.create_execution_ctx(),
             )
         })
-        .bench_refs(|(a, ctx)| a.statistics().compute_as::<i64>(Stat::Sum, ctx));
+        .bench_refs(|(a, ctx)| a.statistics().get_as::<i64>(Stat::Sum.aggregate_fn(), ctx));
 }
 
 #[divan::bench]
@@ -244,7 +244,7 @@ fn sum_i32_nulls_scattered(bencher: Bencher) {
                 SESSION.create_execution_ctx(),
             )
         })
-        .bench_refs(|(a, ctx)| a.statistics().compute_as::<i64>(Stat::Sum, ctx));
+        .bench_refs(|(a, ctx)| a.statistics().get_as::<i64>(Stat::Sum.aggregate_fn(), ctx));
 }
 
 #[divan::bench]

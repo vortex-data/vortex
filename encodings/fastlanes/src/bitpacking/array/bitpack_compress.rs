@@ -14,6 +14,7 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
+use vortex_array::expr::stats::Stat;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::patches::Patches;
@@ -55,7 +56,11 @@ pub fn bitpack_encode(
     // Check array contains no negative values.
     if array.ptype().is_signed_int() {
         let has_negative_values = match_each_integer_ptype!(array.ptype(), |P| {
-            array.statistics().compute_min::<P>(ctx).unwrap_or_default() < 0
+            array
+                .statistics()
+                .get_as::<P>(Stat::Min.aggregate_fn(), ctx)
+                .unwrap_or_default()
+                < 0
         });
         if has_negative_values {
             vortex_bail!(InvalidArgument: "cannot bitpack_encode array containing negative integers")
@@ -88,8 +93,7 @@ pub fn bitpack_encode(
         array.len(),
         0,
     )?;
-    bitpacked.statistics().inherit_from(array.statistics());
-    Ok(bitpacked)
+    Ok(bitpacked.with_shared_stats(&array.statistics().to_array_stats()))
 }
 
 /// Bitpack an array into the specified bit-width without checking statistics.
@@ -118,8 +122,7 @@ pub unsafe fn bitpack_encode_unchecked(
         0,
     )
     .vortex_expect("bitpacked array construction should succeed");
-    bitpacked.statistics().inherit_from(arr_ref.statistics());
-    Ok(bitpacked)
+    Ok(bitpacked.with_shared_stats(&arr_ref.statistics().to_array_stats()))
 }
 
 /// Bitpack a [PrimitiveArray] to the given width.

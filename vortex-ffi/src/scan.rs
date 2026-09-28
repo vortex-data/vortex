@@ -454,6 +454,7 @@ mod tests {
     use vortex_array::array_session;
     use vortex_array::arrays::struct_::StructArrayExt;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::expr::stats::Stat;
 
     use crate::array::vx_array;
     use crate::array::vx_array_free;
@@ -592,10 +593,14 @@ mod tests {
             {
                 let array = vx_array::as_ref(array);
                 let stats = array.statistics();
-                assert!(stats.compute_is_sorted(&mut ctx).unwrap());
-                assert_eq!(stats.compute_min(&mut ctx), Some(0));
+                assert!(
+                    stats
+                        .get_as::<bool>(Stat::IsSorted.aggregate_fn(), &mut ctx)
+                        .unwrap()
+                );
+                assert_eq!(stats.get_as(Stat::Min.aggregate_fn(), &mut ctx), Some(0));
                 assert_eq!(
-                    stats.compute_max(&mut ctx),
+                    stats.get_as(Stat::Max.aggregate_fn(), &mut ctx),
                     Some(200 * (SAMPLE_ROWS - 1) + 199)
                 );
             }

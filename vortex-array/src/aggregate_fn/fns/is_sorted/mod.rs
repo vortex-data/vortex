@@ -25,11 +25,9 @@ use crate::Canonical;
 use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::aggregate_fn::Accumulator;
 use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
-use crate::aggregate_fn::DynAccumulator;
 use crate::arrays::Constant;
 use crate::arrays::Null;
 use crate::builtins::ArrayBuiltins;
@@ -37,9 +35,7 @@ use crate::dtype::DType;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::StructFields;
-use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProviderExt;
 use crate::scalar::Scalar;
 
 /// Options for the `is_sorted` aggregate function.
@@ -77,86 +73,46 @@ fn is_sorted_impl(array: &ArrayRef, strict: bool, ctx: &mut ExecutionCtx) -> Vor
     } else {
         Stat::IsSorted
     };
-
-    // Short-circuit using cached array statistics.
-    if let Precision::Exact(value) = array.statistics().get_as::<bool>(stat) {
-        return Ok(value);
-    }
-
-    // Arrays with 0 or 1 elements are (strict) sorted.
-    if array.len() <= 1 {
-        return Ok(true);
-    }
-
-    // Constant and null arrays are always sorted, but not strict sorted.
-    if array.is::<Constant>() || array.is::<Null>() {
-        let result = !strict;
-        cache_is_sorted(array, strict, result);
-        return Ok(result);
-    }
-
-    // We don't support sorting struct arrays.
-    if array.dtype().is_struct() {
-        return Ok(false);
-    }
-
-    // Short-circuit for unsupported dtypes.
-    if IsSorted
-        .return_dtype(&IsSortedOptions { strict }, array.dtype())
-        .is_none()
-    {
-        return Ok(false);
-    }
-
-    // Enforce strictness before we even try to check if the array is sorted.
-    if strict {
-        let invalid_count = array.invalid_count(ctx)?;
-        match invalid_count {
-            // We can keep going
-            0 => {}
-            // If we have a potential null value - it has to be the first one.
-            1 => {
-                if !array.is_invalid(0, ctx)? {
-                    cache_is_sorted(array, strict, false);
-                    return Ok(false);
-                }
-            }
-            _ => {
-                cache_is_sorted(array, strict, false);
-                return Ok(false);
-            }
-        }
-    }
-
-    // Compute using Accumulator<IsSorted>.
-    let mut acc =
-        Accumulator::try_new(IsSorted, IsSortedOptions { strict }, array.dtype().clone())?;
-    acc.accumulate(array, ctx)?;
-    let result_scalar = acc.finish()?;
-
-    let result = result_scalar.as_bool().value().unwrap_or(false);
-
-    // Cache the computed result as statistics.
-    cache_is_sorted(array, strict, result);
-
-    Ok(result)
+    Ok(array
+        .statistics()
+        .get(stat.aggregate_fn(), ctx)?
+        .and_then(|result| result.as_bool().value())
+        .unwrap_or(false))
 }
 
-fn cache_is_sorted(array: &ArrayRef, strict: bool, result: bool) {
-    let array_stats = array.statistics();
-    if strict {
-        if result {
-            array_stats.set(Stat::IsSorted, Precision::Exact(true.into()));
-            array_stats.set(Stat::IsStrictSorted, Precision::Exact(true.into()));
-        } else {
-            array_stats.set(Stat::IsStrictSorted, Precision::Exact(false.into()));
-        }
-    } else if result {
-        array_stats.set(Stat::IsSorted, Precision::Exact(true.into()));
-    } else {
-        array_stats.set(Stat::IsSorted, Precision::Exact(false.into()));
-        array_stats.set(Stat::IsStrictSorted, Precision::Exact(false.into()));
+/// Decides `is_sorted` for `batch` from its metadata alone, if that is enough.
+///
+/// Avoids decompressing when the length, the encoding, the dtype or the validity already answer.
+pub(crate) fn sorted_from_metadata(
+    batch: &ArrayRef,
+    strict: bool,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<bool>> {
+    // Zero or one element is (strictly) sorted.
+    if batch.len() <= 1 {
+        return Ok(Some(true));
     }
+
+    // Constant and null arrays are sorted, but not strictly.
+    if batch.is::<Constant>() || batch.is::<Null>() {
+        return Ok(Some(!strict));
+    }
+
+    // Struct arrays have no order.
+    if batch.dtype().is_struct() {
+        return Ok(Some(false));
+    }
+
+    // Strict order allows one null at most, and only in front.
+    if strict {
+        match batch.invalid_count(ctx)? {
+            0 => {}
+            1 if batch.is_invalid(0, ctx)? => {}
+            _ => return Ok(Some(false)),
+        }
+    }
+
+    Ok(None)
 }
 
 /// Aggregate function vtable for `is_sorted`.
@@ -251,40 +207,25 @@ impl AggregateFnVTable for IsSorted {
         unimplemented!("IsSorted is not yet serializable");
     }
 
-    fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
-        match input_dtype {
-            DType::Null
-            | DType::List(..)
-            | DType::FixedSizeList(..)
-            | DType::Map(..)
-            | DType::Struct(..)
-            | DType::Union(..)
-            | DType::Variant(..)
-            | DType::Extension(_) => None,
-            DType::Bool(_)
-            | DType::Primitive(..)
-            | DType::Decimal(..)
-            | DType::Utf8(_)
-            | DType::Binary(_) => Some(DType::Bool(Nullability::NonNullable)),
-        }
+    fn return_dtype(&self, _options: &Self::Options, _input_dtype: &DType) -> Option<DType> {
+        // Metadata and legacy stats can supply a result even without accumulator support.
+        Some(DType::Bool(Nullability::NonNullable))
     }
 
-    fn partial_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
-        match input_dtype {
-            DType::Null
-            | DType::List(..)
-            | DType::FixedSizeList(..)
-            | DType::Map(..)
-            | DType::Struct(..)
-            | DType::Union(..)
-            | DType::Variant(..)
-            | DType::Extension(_) => None,
+    fn can_compute(&self, _options: &Self::Options, input_dtype: &DType) -> bool {
+        matches!(
+            input_dtype,
             DType::Bool(_)
-            | DType::Primitive(..)
-            | DType::Decimal(..)
-            | DType::Utf8(_)
-            | DType::Binary(_) => Some(make_is_sorted_partial_dtype(input_dtype)),
-        }
+                | DType::Primitive(..)
+                | DType::Decimal(..)
+                | DType::Utf8(_)
+                | DType::Binary(_)
+        )
+    }
+
+    fn partial_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType> {
+        self.can_compute(options, input_dtype)
+            .then(|| make_is_sorted_partial_dtype(input_dtype))
     }
 
     fn empty_partial(
@@ -414,6 +355,26 @@ impl AggregateFnVTable for IsSorted {
         !partial.is_sorted
     }
 
+    fn try_accumulate(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+        state: &mut Self::Partial,
+        batch: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
+        let Some(is_sorted) = sorted_from_metadata(batch, args.options.strict, ctx)? else {
+            return Ok(false);
+        };
+
+        let partial = self.partial_from_scalar(
+            args,
+            Self::make_partial(batch, is_sorted, args.options.strict, ctx)?,
+        )?;
+        let current = std::mem::replace(state, IsSortedPartial::empty());
+        *state = self.merge_partials(args, current, partial)?;
+        Ok(true)
+    }
+
     fn accumulate(
         &self,
         args: AggregateArgs<'_, Self::Options>,
@@ -511,7 +472,7 @@ impl AggregateFnVTable for IsSorted {
                     Canonical::Decimal(d) => check_decimal_sorted(d, args.options.strict, ctx)?,
                     Canonical::Extension(e) => check_extension_sorted(e, args.options.strict, ctx)?,
                     Canonical::Null(_) => !args.options.strict,
-                    // Struct, List, FixedSizeList should have been filtered out by return_dtype
+                    // Unsupported accumulator inputs are filtered out by partial_dtype.
                     _ => unreachable!(),
                 };
 

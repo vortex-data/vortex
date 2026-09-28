@@ -169,6 +169,7 @@ mod tests {
     use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
+    use crate::stats::StatsSet;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
@@ -316,9 +317,10 @@ mod tests {
         // the stat rather than a scan.
         let array =
             PrimitiveArray::new(buffer![1.0f64, 2.0, 3.0, 4.0], Validity::NonNullable).into_array();
-        array
-            .statistics()
-            .set(Stat::NaNCount, Precision::Exact(ScalarValue::from(3u64)));
+        let array = array.with_stats_set(StatsSet::of(
+            Stat::NaNCount,
+            Precision::Exact(ScalarValue::from(3u64)),
+        ));
         let mut ctx = SESSION.create_execution_ctx();
         assert_eq!(count(&array, &mut ctx)?, 1);
         Ok(())

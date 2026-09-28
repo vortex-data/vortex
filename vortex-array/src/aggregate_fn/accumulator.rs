@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
+use std::cell::OnceCell;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -21,7 +22,6 @@ use crate::dtype::DType;
 use crate::executor::max_iterations;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
 use crate::scalar::Scalar;
 
 /// Reference-counted type-erased accumulator.
@@ -37,6 +37,9 @@ pub struct Accumulator<V: AggregateFnVTable> {
     aggregate_fn: AggregateFnRef,
     /// The input, partial, and result dtypes lent to every vtable call.
     dtypes: AggregateDTypes,
+    /// The legacy stat slot that holds this aggregate's partial state, if any. Resolved on the
+    /// first batch that carries stats.
+    legacy_stat: OnceCell<Option<Stat>>,
     /// The partial state of the accumulator, with `None` as the empty group.
     partial: Option<V::Partial>,
 }
@@ -54,14 +57,37 @@ impl<V: AggregateFnVTable> Accumulator<V> {
     /// them again for every batch.
     pub fn from_dtypes(vtable: V, options: V::Options, dtypes: AggregateDTypes) -> Self {
         let aggregate_fn = AggregateFn::new(vtable.clone(), options.clone()).erased();
+        Self::from_parts(vtable, options, aggregate_fn, dtypes)
+    }
 
+    /// Build an accumulator for `aggregate_fn`, which must bind `vtable` and `options`.
+    pub(crate) fn from_parts(
+        vtable: V,
+        options: V::Options,
+        aggregate_fn: AggregateFnRef,
+        dtypes: AggregateDTypes,
+    ) -> Self {
         Self {
             vtable,
             options,
             aggregate_fn,
             dtypes,
+            legacy_stat: OnceCell::new(),
             partial: None,
         }
+    }
+
+    /// Returns the legacy stat slot that holds this aggregate's partial state, if any.
+    fn legacy_stat(&self) -> Option<Stat> {
+        *self.legacy_stat.get_or_init(|| {
+            // Slots hold final results, so they only serve as partial state where the two match
+            // (e.g. min, sum), not where the partial carries more (e.g. is_constant's value)
+            Stat::from_aggregate_fn(&self.aggregate_fn).filter(|_| {
+                self.dtypes
+                    .partial_dtype
+                    .eq_ignore_nullability(&self.dtypes.return_dtype)
+            })
+        })
     }
 
     /// The state of a group with no accumulated values.
@@ -164,8 +190,9 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
 
         // 0. Legacy stats bridge: if this aggregate is still cached under a legacy Stat slot,
         //    consume that exact stat before kernel dispatch or decode.
-        if let Some(stat) = Stat::from_aggregate_fn(&self.aggregate_fn)
-            && let Precision::Exact(partial) = batch.statistics().get(stat)
+        if !batch.statistics().is_empty()
+            && let Some(stat) = self.legacy_stat()
+            && let Precision::Exact(partial) = batch.statistics().get_cached(stat.aggregate_fn())
         {
             let partial = if partial.dtype() == &self.dtypes.partial_dtype {
                 partial
@@ -387,6 +414,7 @@ mod tests {
     use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
+    use crate::stats::StatsSet;
 
     /// Mean partial sentinel `{sum: 42.0, count: 1}` — distinguishable from the
     /// natural fan-out result `{sum: 7.0, count: 1}` that `Combined::try_accumulate`
@@ -556,9 +584,10 @@ mod tests {
         let mut ctx = session.create_execution_ctx();
 
         let batch = dict_of_seven();
-        batch
-            .statistics()
-            .set(Stat::Sum, Precision::Exact(ScalarValue::from(11.0f64)));
+        let batch = batch.with_stats_set(StatsSet::of(
+            Stat::Sum,
+            Precision::Exact(ScalarValue::from(11.0f64)),
+        ));
 
         let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
         let mut acc = Accumulator::try_new(Sum, NumericalAggregateOpts::default(), dtype)?;

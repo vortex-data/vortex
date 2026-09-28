@@ -708,7 +708,10 @@ fn stat_expr(expr: &BoundExpression, stat: Stat) -> Option<BoundExpression> {
         return cast_stat(expr.child(0), dtype, stat);
     }
 
-    let aggregate_fn = stat.aggregate_fn()?;
+    if !stat.is_zone_stat() {
+        return None;
+    }
+    let aggregate_fn = stat.aggregate_fn().clone();
     // The aggregate may not support the expression's dtype, e.g. min/max over structs,
     // even when the predicate itself is well-typed. Such stats cannot be lowered later,
     // so do not reference them in the rewrite.
@@ -835,7 +838,7 @@ mod tests {
     static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
     fn stat(expr: Expression, stat: Stat) -> Expression {
-        let aggregate_fn = stat.aggregate_fn().expect("stat should have aggregate fn");
+        let aggregate_fn = stat.aggregate_fn().clone();
         stat_fn(expr, aggregate_fn)
     }
 

@@ -47,7 +47,6 @@ use crate::dtype::PType;
 use crate::dtype::StructFields;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProviderExt;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::operators::Operator;
@@ -230,7 +229,10 @@ impl AggregateFnVTable for SumV2 {
             return Ok(false);
         }
 
-        match batch.statistics().get_as::<u64>(Stat::NaNCount) {
+        match batch
+            .statistics()
+            .get_cached_as::<u64>(Stat::NaNCount.aggregate_fn())
+        {
             Precision::Exact(0) => Ok(false),
             Precision::Exact(_) => {
                 let SumState::Float(sum) = &mut partial.sum else {

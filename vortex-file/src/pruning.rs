@@ -72,7 +72,7 @@ impl StatBinder for FileStatsBinder<'_> {
         aggregate_fn: &AggregateFnRef,
         _stat_dtype: &DType,
     ) -> VortexResult<Option<BoundExpression>> {
-        let Some(stat) = Stat::from_aggregate_fn(aggregate_fn) else {
+        let Some(stat) = Stat::from_aggregate_fn(aggregate_fn).filter(Stat::is_zone_stat) else {
             return Ok(None);
         };
         let Some(field_path) = direct_field_path(input) else {

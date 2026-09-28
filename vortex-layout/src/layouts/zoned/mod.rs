@@ -363,7 +363,8 @@ impl ZonedData {
         match &self.zone_map_schema {
             ZoneMapSchema::LegacyStats(stats) => stats
                 .iter()
-                .filter_map(Stat::aggregate_fn)
+                .filter(|stat| stat.is_zone_stat())
+                .map(|stat| stat.aggregate_fn().clone())
                 .collect::<Vec<_>>()
                 .into(),
             ZoneMapSchema::AggregateFns(aggregate_fns) => Arc::clone(aggregate_fns),
@@ -375,8 +376,8 @@ fn present_aggregates(schema: &ZoneMapSchema) -> Arc<[String]> {
     match schema {
         ZoneMapSchema::LegacyStats(stats) => stats
             .iter()
-            .filter_map(Stat::aggregate_fn)
-            .map(|aggregate_fn| aggregate_fn.to_string())
+            .filter(|stat| stat.is_zone_stat())
+            .map(|stat| stat.aggregate_fn().to_string())
             .collect::<Vec<_>>()
             .into(),
         ZoneMapSchema::AggregateFns(aggregate_fns) => aggregate_fns
@@ -581,6 +582,23 @@ mod tests {
         assert_eq!(
             legacy_stats.as_ref(),
             &[Stat::IsSorted, Stat::IsStrictSorted, Stat::Max]
+        );
+    }
+
+    #[test]
+    fn legacy_stats_exclude_array_only_stats() {
+        let mut serialized = u32::MAX.to_le_bytes().to_vec();
+        serialized.extend(as_stat_bitset_bytes(&[
+            Stat::IsConstant,
+            Stat::IsSorted,
+            Stat::IsStrictSorted,
+            Stat::Max,
+        ]));
+        let deserialized = LegacyStatsMetadata::deserialize(&serialized).unwrap();
+
+        assert_eq!(
+            present_aggregates(&deserialized.zone_map_schema).as_ref(),
+            &[Stat::Max.aggregate_fn().to_string()]
         );
     }
 

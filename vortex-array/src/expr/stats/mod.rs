@@ -4,6 +4,7 @@
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::sync::LazyLock;
 
 use enum_iterator::Sequence;
 use enum_iterator::all;
@@ -142,7 +143,38 @@ impl<T: PartialOrd + Clone> StatType<T> for NaNCount {
     const STAT: Stat = Stat::NaNCount;
 }
 
+/// The aggregate function of each [`Stat`], indexed by its discriminant.
+static STAT_AGGREGATE_FNS: LazyLock<[AggregateFnRef; 9]> = LazyLock::new(|| {
+    // Statistics follow NaN-skipping semantics; request it explicitly rather than the default.
+    let is_sorted = |strict| {
+        aggregate_fn::fns::is_sorted::IsSorted
+            .bind(aggregate_fn::fns::is_sorted::IsSortedOptions { strict })
+    };
+    [
+        aggregate_fn::fns::is_constant::IsConstant.bind(EmptyOptions),
+        is_sorted(false),
+        is_sorted(true),
+        aggregate_fn::fns::max::Max.bind(NumericalAggregateOpts::skip_nans()),
+        aggregate_fn::fns::min::Min.bind(NumericalAggregateOpts::skip_nans()),
+        aggregate_fn::fns::sum::Sum.bind(NumericalAggregateOpts::skip_nans()),
+        aggregate_fn::fns::null_count::NullCount.bind(EmptyOptions),
+        aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes.bind(EmptyOptions),
+        aggregate_fn::fns::nan_count::NanCount.bind(EmptyOptions),
+    ]
+});
+
 impl Stat {
+    /// Whether the statistic is stored in zone maps and used for pruning.
+    ///
+    /// `IsConstant` and `IsSorted` are array stats only: their stored results cannot be
+    /// combined across zones, so zone maps and predicate rewrites never reference them.
+    pub fn is_zone_stat(&self) -> bool {
+        !matches!(
+            self,
+            Self::IsConstant | Self::IsSorted | Self::IsStrictSorted
+        )
+    }
+
     /// Whether the statistic is commutative (i.e., whether merging can be done independently of ordering)
     /// e.g., min/max are commutative, but is_sorted is not
     pub fn is_commutative(&self) -> bool {
@@ -194,21 +226,23 @@ impl Stat {
         })
     }
 
-    /// Return the built-in aggregate function corresponding to this statistic, if one exists.
-    pub fn aggregate_fn(&self) -> Option<AggregateFnRef> {
-        // Statistics follow NaN-skipping semantics; request it explicitly rather than the default.
-        Some(match self {
-            Self::Max => aggregate_fn::fns::max::Max.bind(NumericalAggregateOpts::skip_nans()),
-            Self::Min => aggregate_fn::fns::min::Min.bind(NumericalAggregateOpts::skip_nans()),
-            Self::Sum => aggregate_fn::fns::sum::Sum.bind(NumericalAggregateOpts::skip_nans()),
-            Self::NullCount => aggregate_fn::fns::null_count::NullCount.bind(EmptyOptions),
-            Self::NaNCount => aggregate_fn::fns::nan_count::NanCount.bind(EmptyOptions),
-            Self::UncompressedSizeInBytes => {
-                aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes
-                    .bind(EmptyOptions)
-            }
-            Self::IsConstant | Self::IsSorted | Self::IsStrictSorted => return None,
-        })
+    /// Return the built-in aggregate function this statistic stores the result of.
+    ///
+    /// Returns a static reference, so hot stat lookups never touch a shared reference count.
+    pub fn aggregate_fn(&self) -> &'static AggregateFnRef {
+        &STAT_AGGREGATE_FNS[usize::from(u8::from(*self))]
+    }
+
+    /// Return the statistic whose static key is `aggregate_fn`, comparing pointers only.
+    ///
+    /// Most callers pass the keys from [`Self::aggregate_fn`], so this avoids downcasting.
+    pub(crate) fn static_from_aggregate_fn(aggregate_fn: &AggregateFnRef) -> Option<Self> {
+        let index = STAT_AGGREGATE_FNS
+            .iter()
+            .position(|key| key.ptr_eq(aggregate_fn))?;
+        u8::try_from(index)
+            .ok()
+            .and_then(|i| Self::try_from(i).ok())
     }
 
     /// Return the statistic represented by `aggregate_fn`, if it has a legacy stat slot.
@@ -216,6 +250,10 @@ impl Stat {
     /// Min/max/sum statistics skip NaN values, so NaN-including configurations of those
     /// aggregates have no stat slot.
     pub fn from_aggregate_fn(aggregate_fn: &AggregateFnRef) -> Option<Self> {
+        if let Some(stat) = Self::static_from_aggregate_fn(aggregate_fn) {
+            return Some(stat);
+        }
+
         if let Some(options) = aggregate_fn.as_opt::<aggregate_fn::fns::sum::Sum>() {
             return options.skip_nans.then_some(Self::Sum);
         }
@@ -235,6 +273,16 @@ impl Stat {
             .is::<aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes>()
         {
             return Some(Self::UncompressedSizeInBytes);
+        }
+        if aggregate_fn.is::<aggregate_fn::fns::is_constant::IsConstant>() {
+            return Some(Self::IsConstant);
+        }
+        if let Some(options) = aggregate_fn.as_opt::<aggregate_fn::fns::is_sorted::IsSorted>() {
+            return Some(if options.strict {
+                Self::IsStrictSorted
+            } else {
+                Self::IsSorted
+            });
         }
         None
     }
@@ -277,9 +325,19 @@ mod test {
     fn min_of_nulls_is_not_panic() {
         let min = PrimitiveArray::from_option_iter::<i32, _>([None, None, None, None])
             .statistics()
-            .compute_as::<i64>(Stat::Min, &mut array_session().create_execution_ctx());
+            .get_as::<i64>(
+                Stat::Min.aggregate_fn(),
+                &mut array_session().create_execution_ctx(),
+            );
 
         assert_eq!(min, None);
+    }
+
+    #[test]
+    fn aggregate_fn_round_trips() {
+        for stat in all::<Stat>() {
+            assert_eq!(Stat::from_aggregate_fn(stat.aggregate_fn()), Some(stat));
+        }
     }
 
     #[test]

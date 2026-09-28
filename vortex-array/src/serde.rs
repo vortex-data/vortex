@@ -417,13 +417,11 @@ impl SerializedArray {
         );
 
         // Populate statistics from the serialized array.
-        if let Some(stats) = self.flatbuffer().stats() {
-            decoded
-                .statistics()
-                .set_iter(StatsSet::from_flatbuffer(&stats, dtype, session)?.into_iter());
-        }
-
-        Ok(decoded)
+        let Some(stats) = self.flatbuffer().stats() else {
+            return Ok(decoded);
+        };
+        let stats = StatsSet::from_flatbuffer(&stats, dtype, session)?;
+        Ok(decoded.with_added_stats(stats))
     }
 
     fn decode_foreign(

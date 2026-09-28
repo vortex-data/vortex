@@ -12,7 +12,7 @@ use vortex_array::scalar::ScalarTruncation;
 use vortex_array::scalar::lower_bound;
 use vortex_array::scalar::upper_bound;
 use vortex_array::serde::SerializeOptions;
-use vortex_array::stats::StatsSetRef;
+use vortex_array::stats::StatsSet;
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
@@ -64,17 +64,18 @@ impl FlatLayoutStrategy {
 }
 
 fn truncate_scalar_stat<F: Fn(Scalar) -> Option<(Scalar, bool)>>(
-    statistics: StatsSetRef<'_>,
+    stats: &mut StatsSet,
+    dtype: &DType,
     stat: Stat,
     truncation: F,
 ) {
-    if let Some(sv) = statistics.get(stat).into_inner() {
+    if let Some(sv) = stats.as_typed_ref(dtype).get(stat).into_inner() {
         if let Some((truncated_value, truncated)) = truncation(sv) {
             if truncated && let Some(v) = truncated_value.into_value() {
-                statistics.set(stat, Precision::Inexact(v));
+                stats.set(stat, Precision::Inexact(v));
             }
         } else {
-            statistics.clear(stat)
+            stats.clear(stat)
         }
     }
 }
@@ -102,9 +103,18 @@ impl LayoutStrategy for FlatLayoutStrategy {
 
         let row_count = chunk.len() as u64;
 
-        match chunk.dtype() {
+        // Truncate a copy in the file vocabulary, so the in-memory array keeps its exact stats
+        let dtype = chunk.dtype().clone();
+        let mut stats = chunk
+            .statistics()
+            .iter()
+            .filter_map(|(aggregate, value)| {
+                Some((Stat::from_aggregate_fn(aggregate)?, value.clone()))
+            })
+            .collect::<StatsSet>();
+        match &dtype {
             DType::Utf8(n) => {
-                truncate_scalar_stat(chunk.statistics(), Stat::Min, |v| {
+                truncate_scalar_stat(&mut stats, &dtype, Stat::Min, |v| {
                     lower_bound(
                         BufferString::from_scalar(v)
                             .vortex_expect("utf8 scalar must be a BufferString"),
@@ -112,7 +122,7 @@ impl LayoutStrategy for FlatLayoutStrategy {
                         *n,
                     )
                 });
-                truncate_scalar_stat(chunk.statistics(), Stat::Max, |v| {
+                truncate_scalar_stat(&mut stats, &dtype, Stat::Max, |v| {
                     upper_bound(
                         BufferString::from_scalar(v)
                             .vortex_expect("utf8 scalar must be a BufferString"),
@@ -122,7 +132,7 @@ impl LayoutStrategy for FlatLayoutStrategy {
                 });
             }
             DType::Binary(n) => {
-                truncate_scalar_stat(chunk.statistics(), Stat::Min, |v| {
+                truncate_scalar_stat(&mut stats, &dtype, Stat::Min, |v| {
                     lower_bound(
                         ByteBuffer::from_scalar(v)
                             .vortex_expect("binary scalar must be a ByteBuffer"),
@@ -130,7 +140,7 @@ impl LayoutStrategy for FlatLayoutStrategy {
                         *n,
                     )
                 });
-                truncate_scalar_stat(chunk.statistics(), Stat::Max, |v| {
+                truncate_scalar_stat(&mut stats, &dtype, Stat::Max, |v| {
                     upper_bound(
                         ByteBuffer::from_scalar(v)
                             .vortex_expect("binary scalar must be a ByteBuffer"),
@@ -141,6 +151,7 @@ impl LayoutStrategy for FlatLayoutStrategy {
             }
             _ => {}
         }
+        let chunk = chunk.with_stats_set(stats);
 
         let buffers = chunk.serialize(
             ctx.array_ctx(),
@@ -193,7 +204,6 @@ mod tests {
     use vortex_array::expr::root;
     use vortex_array::expr::stats::Precision;
     use vortex_array::expr::stats::Stat;
-    use vortex_array::expr::stats::StatsProviderExt;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBufferMut;
     use vortex_buffer::buffer;
@@ -247,7 +257,9 @@ mod tests {
                 .unwrap();
 
             assert_eq!(
-                result.statistics().get_as::<bool>(Stat::IsSorted),
+                result
+                    .statistics()
+                    .get_cached_as::<bool>(Stat::IsSorted.aggregate_fn()),
                 Precision::Exact(true)
             );
         })
@@ -269,13 +281,12 @@ mod tests {
             builder.append_value("Another string that's meant to be smaller than the previous value, though still need extra padding");
             let array = builder.finish();
             let mut stats_ctx = session.create_execution_ctx();
-            array.statistics().set_iter(
+            for stat in Stat::all() {
                 array
                     .statistics()
-                    .compute_all(&Stat::all().collect::<Vec<_>>(), &mut stats_ctx)
-                    .vortex_expect("stats computation should succeed for test array")
-                    .into_iter(),
-            );
+                    .get(stat.aggregate_fn(), &mut stats_ctx)
+                    .vortex_expect("stats computation should succeed for test array");
+            }
 
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
@@ -303,7 +314,9 @@ mod tests {
                 .unwrap();
 
             assert_eq!(
-                result.statistics().get_as::<String>(Stat::Min),
+                result
+                    .statistics()
+                    .get_cached_as::<String>(Stat::Min.aggregate_fn()),
                 // The typo is correct, we need this to be truncated.
                 Precision::Inexact(
                     // spellchecker:ignore-next-line
@@ -311,7 +324,9 @@ mod tests {
                 )
             );
             assert_eq!(
-                result.statistics().get_as::<String>(Stat::Max),
+                result
+                    .statistics()
+                    .get_cached_as::<String>(Stat::Max.aggregate_fn()),
                 Precision::Inexact(
                     "Long value to test that the statistics are actually truncated, j".to_string()
                 )

@@ -33,6 +33,7 @@ use crate::arrays::Primitive;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
+use crate::expr::stats::Stat;
 use crate::legacy_session;
 use crate::match_each_integer_ptype;
 use crate::match_each_native_ptype;
@@ -212,7 +213,10 @@ impl ListData {
         let mut ctx = legacy_session().create_execution_ctx();
 
         // Offsets must be sorted (but not strictly sorted, zero-length lists are allowed)
-        if let Some(is_sorted) = offsets.statistics().compute_is_sorted(&mut ctx) {
+        if let Some(is_sorted) = offsets
+            .statistics()
+            .get_as::<bool>(Stat::IsSorted.aggregate_fn(), &mut ctx)
+        {
             vortex_ensure!(is_sorted, InvalidArgument: "offsets must be sorted");
         } else {
             vortex_bail!(InvalidArgument: "offsets must report is_sorted statistic");

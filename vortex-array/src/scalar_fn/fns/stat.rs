@@ -23,8 +23,6 @@ use crate::dtype::DType;
 use crate::expr::display::ExprDisplay;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
-use crate::expr::stats::StatsProviderExt;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 use crate::scalar_fn::Arity;
@@ -148,14 +146,20 @@ fn stat_array(
 ) -> VortexResult<ArrayRef> {
     let value = if aggregate_fn.is::<AllNull>() {
         let len = u64::try_from(len)?;
-        match array.statistics().get_as::<u64>(Stat::NullCount) {
+        match array
+            .statistics()
+            .get_cached_as::<u64>(Stat::NullCount.aggregate_fn())
+        {
             Precision::Exact(count) => Some(count == len),
             Precision::Inexact(count) => (count < len).then_some(false),
             Precision::Absent => None,
         }
         .map(ScalarValue::Bool)
     } else if aggregate_fn.is::<AllNonNull>() {
-        match array.statistics().get_as::<u64>(Stat::NullCount) {
+        match array
+            .statistics()
+            .get_cached_as::<u64>(Stat::NullCount.aggregate_fn())
+        {
             Precision::Exact(count) => Some(count == 0),
             Precision::Inexact(0) => Some(true),
             Precision::Inexact(_) | Precision::Absent => None,
@@ -163,14 +167,20 @@ fn stat_array(
         .map(ScalarValue::Bool)
     } else if aggregate_fn.is::<AllNan>() {
         let len = u64::try_from(len)?;
-        match array.statistics().get_as::<u64>(Stat::NaNCount) {
+        match array
+            .statistics()
+            .get_cached_as::<u64>(Stat::NaNCount.aggregate_fn())
+        {
             Precision::Exact(count) => Some(count == len),
             Precision::Inexact(count) => (count < len).then_some(false),
             Precision::Absent => None,
         }
         .map(ScalarValue::Bool)
     } else if aggregate_fn.is::<AllNonNan>() {
-        match array.statistics().get_as::<u64>(Stat::NaNCount) {
+        match array
+            .statistics()
+            .get_cached_as::<u64>(Stat::NaNCount.aggregate_fn())
+        {
             Precision::Exact(count) => Some(count == 0),
             Precision::Inexact(0) => Some(true),
             Precision::Inexact(_) | Precision::Absent => None,
@@ -179,7 +189,7 @@ fn stat_array(
     } else if let Some(stat) = Stat::from_aggregate_fn(aggregate_fn) {
         array
             .statistics()
-            .with_typed_stats_set(|stats| stats.get(stat))
+            .get_cached(stat.aggregate_fn())
             // We don't mind whether the stat is approxed or not, since these are row-wise bounds.
             .into_inner()
             .and_then(Scalar::into_value)

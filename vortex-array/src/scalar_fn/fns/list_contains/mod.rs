@@ -461,7 +461,7 @@ mod tests {
         LazyLock::new(|| VortexSession::empty().with::<StatsSession>());
 
     fn stat(expr: Expression, stat: Stat) -> Expression {
-        stat_expr(expr, stat.aggregate_fn().unwrap())
+        stat_expr(expr, stat.aggregate_fn().clone())
     }
 
     fn test_array() -> ArrayRef {

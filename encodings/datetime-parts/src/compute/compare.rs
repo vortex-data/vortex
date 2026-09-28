@@ -9,6 +9,7 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::expr::stats::Stat;
 use vortex_array::extension::datetime::Timestamp;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::binary::CompareKernel;
@@ -74,7 +75,11 @@ fn compare_eq(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
     let mut comparison = compare_dtp(lhs.days(), ts_parts.days, CompareOperator::Eq, nullability)?;
-    if comparison.statistics().compute_max::<bool>(ctx) == Some(false) {
+    if comparison
+        .statistics()
+        .get_as::<bool>(Stat::Max.aggregate_fn(), ctx)
+        == Some(false)
+    {
         // All values are different.
         return Ok(Some(comparison));
     }
@@ -87,7 +92,11 @@ fn compare_eq(
     )?
     .binary(comparison, Operator::And)?;
 
-    if comparison.statistics().compute_max::<bool>(ctx) == Some(false) {
+    if comparison
+        .statistics()
+        .get_as::<bool>(Stat::Max.aggregate_fn(), ctx)
+        == Some(false)
+    {
         // All values are different.
         return Ok(Some(comparison));
     }
@@ -115,7 +124,11 @@ fn compare_ne(
         CompareOperator::NotEq,
         nullability,
     )?;
-    if comparison.statistics().compute_min::<bool>(ctx) == Some(true) {
+    if comparison
+        .statistics()
+        .get_as::<bool>(Stat::Min.aggregate_fn(), ctx)
+        == Some(true)
+    {
         // All values are different.
         return Ok(Some(comparison));
     }
@@ -128,7 +141,11 @@ fn compare_ne(
     )?
     .binary(comparison, Operator::Or)?;
 
-    if comparison.statistics().compute_min::<bool>(ctx) == Some(true) {
+    if comparison
+        .statistics()
+        .get_as::<bool>(Stat::Min.aggregate_fn(), ctx)
+        == Some(true)
+    {
         // All values are different.
         return Ok(Some(comparison));
     }
@@ -151,7 +168,11 @@ fn compare_lt(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
     let days_lt = compare_dtp(lhs.days(), ts_parts.days, CompareOperator::Lt, nullability)?;
-    if days_lt.statistics().compute_min::<bool>(ctx) == Some(true) {
+    if days_lt
+        .statistics()
+        .get_as::<bool>(Stat::Min.aggregate_fn(), ctx)
+        == Some(true)
+    {
         // All values on the lhs are smaller.
         return Ok(Some(days_lt));
     }
@@ -166,7 +187,11 @@ fn compare_gt(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
     let days_gt = compare_dtp(lhs.days(), ts_parts.days, CompareOperator::Gt, nullability)?;
-    if days_gt.statistics().compute_min::<bool>(ctx) == Some(true) {
+    if days_gt
+        .statistics()
+        .get_as::<bool>(Stat::Min.aggregate_fn(), ctx)
+        == Some(true)
+    {
         // All values on the lhs are larger.
         return Ok(Some(days_gt));
     }

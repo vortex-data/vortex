@@ -11,43 +11,30 @@ use crate::ArrayRef;
 use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::aggregate_fn::Accumulator;
 use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
-use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::EmptyOptions;
 use crate::dtype::DType;
 use crate::dtype::Nullability::NonNullable;
 use crate::dtype::PType;
-use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
 use crate::scalar::Scalar;
-use crate::scalar::ScalarValue;
+use crate::validity::Validity;
 
 /// Return the number of null values in an array.
 pub fn null_count(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
-    if let Precision::Exact(null_count_scalar) = array.statistics().get(Stat::NullCount) {
-        return usize::try_from(&null_count_scalar)
-            .map_err(|e| vortex_err!("Failed to convert null count stat to usize: {e}"));
+    // Only a validity array needs a pass; storing a count the validity already gives is waste
+    if !matches!(array.validity()?, Validity::Array(_)) {
+        return Ok(array.len() - array.count_valid(ctx)?);
     }
 
-    let mut acc = Accumulator::try_new(NullCount, EmptyOptions, array.dtype().clone())?;
-    acc.accumulate(array, ctx)?;
-    let result = acc.finish()?;
-
-    let count = result
-        .as_primitive()
-        .typed_value::<u64>()
-        .vortex_expect("null_count result should not be null");
-    let count_usize = usize::try_from(count).vortex_expect("Cannot be more nulls than usize::MAX");
-
-    array
+    let count = array
         .statistics()
-        .set(Stat::NullCount, Precision::Exact(ScalarValue::from(count)));
-
-    Ok(count_usize)
+        .get(Stat::NullCount.aggregate_fn(), ctx)?
+        .and_then(|count| count.as_primitive().typed_value::<u64>())
+        .vortex_expect("null_count result should not be null");
+    usize::try_from(count).map_err(|e| vortex_err!("Cannot be more nulls than usize::MAX: {e}"))
 }
 
 /// Count the number of null values in an array.
@@ -136,7 +123,7 @@ impl AggregateFnVTable for NullCount {
         batch: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<bool> {
-        *state += batch.invalid_count(ctx)? as u64;
+        *state += (batch.len() - batch.count_valid(ctx)?) as u64;
         Ok(true)
     }
 
@@ -155,7 +142,10 @@ impl AggregateFnVTable for NullCount {
                     0
                 }
             }
-            Columnar::Canonical(c) => c.clone().into_array().invalid_count(ctx)? as u64,
+            Columnar::Canonical(c) => {
+                let array = c.clone().into_array();
+                (array.len() - array.count_valid(ctx)?) as u64
+            }
         };
         Ok(())
     }
@@ -195,7 +185,6 @@ mod tests {
     use crate::dtype::PType;
     use crate::expr::stats::Precision;
     use crate::expr::stats::Stat;
-    use crate::expr::stats::StatsProviderExt;
 
     #[test]
     fn null_count_with_nulls() -> VortexResult<()> {
@@ -205,7 +194,9 @@ mod tests {
 
         assert_eq!(null_count(&array, &mut ctx)?, 2);
         assert_eq!(
-            array.statistics().get_as::<u64>(Stat::NullCount),
+            array
+                .statistics()
+                .get_cached_as::<u64>(Stat::NullCount.aggregate_fn()),
             Precision::exact(2u64)
         );
         Ok(())

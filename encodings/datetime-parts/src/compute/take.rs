@@ -10,7 +10,6 @@ use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::stats::Stat;
-use vortex_array::expr::stats::StatsProvider;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
@@ -64,7 +63,7 @@ fn take_datetime_parts(
     let seconds_fill = array
         .seconds()
         .statistics()
-        .get(Stat::Min)
+        .get_cached(Stat::Min.aggregate_fn())
         .into_inner()
         .unwrap_or_else(|| Scalar::primitive(0i64, Nullability::NonNullable))
         .cast(array.seconds().dtype())?;
@@ -73,7 +72,7 @@ fn take_datetime_parts(
     let subseconds_fill = array
         .subseconds()
         .statistics()
-        .get(Stat::Min)
+        .get_cached(Stat::Min.aggregate_fn())
         .into_inner()
         .unwrap_or_else(|| Scalar::primitive(0i64, Nullability::NonNullable))
         .cast(array.subseconds().dtype())?;

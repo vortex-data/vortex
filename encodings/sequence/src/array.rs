@@ -546,7 +546,6 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_array::expr::stats::Precision as StatPrecision;
     use vortex_array::expr::stats::Stat;
-    use vortex_array::expr::stats::StatsProviderExt;
     use vortex_array::scalar::PValue;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar::ScalarValue;
@@ -618,12 +617,12 @@ mod tests {
 
         let is_sorted = arr
             .statistics()
-            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsSorted));
+            .get_cached_as::<bool>(Stat::IsSorted.aggregate_fn());
         assert_eq!(is_sorted, StatPrecision::Exact(true));
 
         let is_strict_sorted = arr
             .statistics()
-            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsStrictSorted));
+            .get_cached_as::<bool>(Stat::IsStrictSorted.aggregate_fn());
         assert_eq!(is_strict_sorted, StatPrecision::Exact(true));
         Ok(())
     }
@@ -634,12 +633,12 @@ mod tests {
 
         let is_sorted = arr
             .statistics()
-            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsSorted));
+            .get_cached_as::<bool>(Stat::IsSorted.aggregate_fn());
         assert_eq!(is_sorted, StatPrecision::Exact(true));
 
         let is_strict_sorted = arr
             .statistics()
-            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsStrictSorted));
+            .get_cached_as::<bool>(Stat::IsStrictSorted.aggregate_fn());
         assert_eq!(is_strict_sorted, StatPrecision::Exact(false));
         Ok(())
     }
@@ -650,12 +649,12 @@ mod tests {
 
         let is_sorted = arr
             .statistics()
-            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsSorted));
+            .get_cached_as::<bool>(Stat::IsSorted.aggregate_fn());
         assert_eq!(is_sorted, StatPrecision::Exact(false));
 
         let is_strict_sorted = arr
             .statistics()
-            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsStrictSorted));
+            .get_cached_as::<bool>(Stat::IsStrictSorted.aggregate_fn());
         assert_eq!(is_strict_sorted, StatPrecision::Exact(false));
         Ok(())
     }
@@ -669,11 +668,11 @@ mod tests {
 
         let is_sorted = arr
             .statistics()
-            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsSorted));
+            .get_cached_as::<bool>(Stat::IsSorted.aggregate_fn());
 
         let is_strict_sorted = arr
             .statistics()
-            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsStrictSorted));
+            .get_cached_as::<bool>(Stat::IsStrictSorted.aggregate_fn());
 
         assert_eq!(is_sorted, StatPrecision::Exact(true));
         assert_eq!(is_strict_sorted, StatPrecision::Exact(true));

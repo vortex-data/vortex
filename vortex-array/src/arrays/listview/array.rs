@@ -490,10 +490,10 @@ pub trait ListViewArrayExt: ListViewArraySlotsExt {
             return Ok(0.0);
         }
 
-        // compute_stat short-circuits on a cached exact Sum and otherwise computes
+        // get short-circuits on a cached exact Sum and otherwise computes
         let sizes_sum = sizes
             .statistics()
-            .compute_stat(Stat::Sum, ctx)?
+            .get(Stat::Sum.aggregate_fn(), ctx)?
             .vortex_expect("sizes array has integer ptype elements")
             .as_primitive()
             .as_::<u64>()
@@ -536,7 +536,7 @@ pub trait ListViewArrayExt: ListViewArraySlotsExt {
         let start = self
             .offsets()
             .statistics()
-            .compute_min::<usize>(ctx)
+            .get_as::<usize>(Stat::Min.aggregate_fn(), ctx)
             .vortex_expect("offsets must report a usize min statistic");
 
         // Cast offsets and sizes to the widest integer type so that `offset + size` cannot overflow
@@ -737,7 +737,10 @@ fn validate_zctl(
     // Offsets must be sorted (but not strictly sorted, zero-length lists are allowed), even
     // if there are null views.
     let mut ctx = legacy_session().create_execution_ctx();
-    if let Some(is_sorted) = offsets_primitive.statistics().compute_is_sorted(&mut ctx) {
+    if let Some(is_sorted) = offsets_primitive
+        .statistics()
+        .get_as::<bool>(Stat::IsSorted.aggregate_fn(), &mut ctx)
+    {
         vortex_ensure!(is_sorted, "offsets must be sorted");
     } else {
         vortex_bail!("offsets must report is_sorted statistic");

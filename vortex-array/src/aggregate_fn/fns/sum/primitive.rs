@@ -201,6 +201,7 @@ mod tests {
     use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
+    use crate::stats::StatsSet;
     use crate::validity::Validity;
 
     #[test]
@@ -379,8 +380,10 @@ mod tests {
         // from the stat rather than a scan.
         let arr =
             PrimitiveArray::new(buffer![1.0f64, 2.0, 3.0], Validity::NonNullable).into_array();
-        arr.statistics()
-            .set(Stat::NaNCount, Precision::Exact(ScalarValue::from(1u64)));
+        let arr = arr.with_stats_set(StatsSet::of(
+            Stat::NaNCount,
+            Precision::Exact(ScalarValue::from(1u64)),
+        ));
         let result = sum_with_options(&arr, NumericalAggregateOpts::include_nans())?;
         assert!(result.as_primitive().typed_value::<f64>().unwrap().is_nan());
         Ok(())
@@ -391,10 +394,10 @@ mod tests {
         // With an exact NaNCount of zero, the planted exact Sum stat is usable as-is.
         let arr =
             PrimitiveArray::new(buffer![1.0f64, 2.0, 3.0], Validity::NonNullable).into_array();
-        arr.statistics()
-            .set(Stat::NaNCount, Precision::Exact(ScalarValue::from(0u64)));
-        arr.statistics()
-            .set(Stat::Sum, Precision::Exact(ScalarValue::from(42.0f64)));
+        let arr = arr.with_stats_set(StatsSet::from_iter([
+            (Stat::NaNCount, Precision::Exact(ScalarValue::from(0u64))),
+            (Stat::Sum, Precision::Exact(ScalarValue::from(42.0f64))),
+        ]));
         let result = sum_with_options(&arr, NumericalAggregateOpts::include_nans())?;
         assert_eq!(result.as_primitive().typed_value::<f64>(), Some(42.0));
         Ok(())

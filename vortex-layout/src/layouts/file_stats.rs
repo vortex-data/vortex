@@ -102,7 +102,10 @@ impl StatsAccumulator {
 
     fn push_chunk(&mut self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
         for builder in &mut self.builders {
-            if let Some(value) = array.statistics().compute_stat(builder.stat(), ctx)? {
+            if let Some(value) = array
+                .statistics()
+                .get((builder.stat()).aggregate_fn(), ctx)?
+            {
                 builder.append_scalar(value.cast(&value.dtype().as_nullable())?)?;
             } else {
                 builder.append_null();
@@ -159,7 +162,7 @@ impl StatsAccumulator {
                     continue;
                 }
                 Stat::Min | Stat::Max | Stat::Sum => {
-                    if let Some(s) = values.statistics().compute_stat(stat, ctx)?
+                    if let Some(s) = values.statistics().get(stat.aggregate_fn(), ctx)?
                         && let Some(v) = s.into_value()
                     {
                         let precision = if stat_was_truncated(&stats_table, stat, ctx)? {
@@ -201,7 +204,7 @@ fn stat_was_truncated(
 
     Ok(is_truncated
         .statistics()
-        .compute_stat(Stat::Max, ctx)?
+        .get(Stat::Max.aggregate_fn(), ctx)?
         .is_some_and(|max| max.as_bool().value() == Some(true)))
 }
 

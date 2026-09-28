@@ -42,8 +42,9 @@ fn runtime() -> VortexResult<Runtime> {
 pub fn compute_all_stats(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
     let all_stats: Vec<Stat> = Stat::all().collect();
     for node in array.depth_first_traversal() {
-        let computed = node.statistics().compute_all(&all_stats, ctx)?;
-        node.statistics().set_iter(computed.into_iter());
+        for stat in &all_stats {
+            node.statistics().get(stat.aggregate_fn(), ctx)?;
+        }
     }
     Ok(())
 }

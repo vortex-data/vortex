@@ -5,6 +5,7 @@
 
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::expr::stats::Stat;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -52,7 +53,7 @@ impl StringStats {
     ) -> VortexResult<Self> {
         let null_count = input
             .statistics()
-            .compute_null_count(ctx)
+            .get_as::<usize>(Stat::NullCount.aggregate_fn(), ctx)
             .ok_or_else(|| vortex_err!("Failed to compute null_count"))?;
         let value_count = input.len() - null_count;
         let estimated_distinct_count = opts

@@ -17,15 +17,13 @@ use crate::aggregate_fn::AggregateFnSatisfaction;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::bounded_min::BoundedMin;
-use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::min_max::min_max;
+use crate::aggregate_fn::fns::min_max::minmax_supported_dtype;
 use crate::aggregate_fn::fns::min_max::nan_scalar;
 use crate::aggregate_fn::fns::min_max::scalar_is_nan;
 use crate::dtype::DType;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
-use crate::expr::stats::StatsProviderExt;
 use crate::partial_ord::partial_min;
 use crate::scalar::Scalar;
 
@@ -92,10 +90,9 @@ impl AggregateFnVTable for Min {
         NumericalAggregateOpts::deserialize(metadata)
     }
 
-    fn return_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType> {
-        MinMax
-            .return_dtype(options, input_dtype)
-            .map(|_| input_dtype.as_nullable())
+    fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
+        // Same support as `MinMax`, without building its struct dtype on every call
+        minmax_supported_dtype(input_dtype).then(|| input_dtype.as_nullable())
     }
 
     fn can_satisfy(
@@ -183,11 +180,18 @@ impl AggregateFnVTable for Min {
         if args.options.skip_nans || !args.dtype.is_float() {
             return Ok(false);
         }
-        match batch.statistics().get_as::<u64>(Stat::NaNCount) {
+        match batch
+            .statistics()
+            .get_cached_as::<u64>(Stat::NaNCount.aggregate_fn())
+        {
             Precision::Exact(0) => {
                 // NaN-free batch: the cached NaN-skipping minimum (if any) is valid. `to_scalar`
                 // re-casts to the result dtype, so the cached scalar can merge as-is.
-                if let Some(min) = batch.statistics().get(Stat::Min).as_exact() {
+                if let Some(min) = batch
+                    .statistics()
+                    .get_cached(Stat::Min.aggregate_fn())
+                    .as_exact()
+                {
                     partial.merge(args, min);
                     return Ok(true);
                 }
@@ -257,6 +261,7 @@ mod tests {
     use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
+    use crate::stats::StatsSet;
     use crate::validity::Validity;
 
     #[test]
@@ -317,9 +322,10 @@ mod tests {
         // The array has no NaNs; a planted exact NaNCount stat proves the poisoning came from
         // the stat rather than a scan.
         let batch = PrimitiveArray::new(buffer![1.0f64, 2.0], Validity::NonNullable).into_array();
-        batch
-            .statistics()
-            .set(Stat::NaNCount, Precision::Exact(ScalarValue::from(1u64)));
+        let batch = batch.with_stats_set(StatsSet::of(
+            Stat::NaNCount,
+            Precision::Exact(ScalarValue::from(1u64)),
+        ));
         let mut acc = Accumulator::try_new(
             Min,
             NumericalAggregateOpts::include_nans(),
@@ -343,12 +349,10 @@ mod tests {
         let mut ctx = array_session().create_execution_ctx();
         let array =
             PrimitiveArray::from_option_iter([Some(1.0f64), Some(2.0), Some(3.0)]).into_array();
-        array
-            .statistics()
-            .set(Stat::NaNCount, Precision::Exact(ScalarValue::from(0u64)));
-        array
-            .statistics()
-            .set(Stat::Min, Precision::Exact(ScalarValue::from(1.0f64)));
+        let array = array.with_stats_set(StatsSet::from_iter([
+            (Stat::NaNCount, Precision::Exact(ScalarValue::from(0u64))),
+            (Stat::Min, Precision::Exact(ScalarValue::from(1.0f64))),
+        ]));
         let mut acc = Accumulator::try_new(
             Min,
             NumericalAggregateOpts::include_nans(),
@@ -366,9 +370,10 @@ mod tests {
     fn min_casts_nonnullable_legacy_stat_to_nullable_partial() -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
         let batch = PrimitiveArray::new(buffer![10i32, 20], Validity::NonNullable).into_array();
-        batch
-            .statistics()
-            .set(Stat::Min, Precision::Exact(ScalarValue::from(3i32)));
+        let batch = batch.with_stats_set(StatsSet::of(
+            Stat::Min,
+            Precision::Exact(ScalarValue::from(3i32)),
+        ));
         let mut acc = Accumulator::try_new(
             Min,
             NumericalAggregateOpts::default(),

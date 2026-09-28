@@ -28,6 +28,7 @@ use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::VTable;
 use crate::VortexSessionExecute;
+use crate::aggregate_fn::fns::null_count::null_count;
 use crate::aggregate_fn::fns::sum::sum;
 use crate::array::ArrayData;
 use crate::array::ArrayId;
@@ -45,12 +46,14 @@ use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProviderExt;
 use crate::legacy_session;
 use crate::matcher::Matcher;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
+use crate::stats::ArrayStats;
+use crate::stats::Entry;
+use crate::stats::StatsSet;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 
@@ -233,21 +236,10 @@ impl ArrayRef {
             .optimize()?;
 
         // Propagate some stats from the original array to the sliced array.
-        if !sliced.is::<Constant>() {
-            self.statistics().with_iter(|iter| {
-                sliced.statistics().inherit(iter.filter(|(stat, value)| {
-                    matches!(
-                        stat,
-                        Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted
-                    ) && value
-                        .as_ref()
-                        .as_exact()
-                        .is_some_and(|v| matches!(v, ScalarValue::Bool(true)))
-                }));
-            });
+        if self.statistics().is_empty() || sliced.is::<Constant>() {
+            return Ok(sliced);
         }
-
-        Ok(sliced)
+        Ok(sliced.with_added_stats(true_slice_stats(&self.statistics())))
     }
 
     /// Wraps the array in a [`FilterArray`] such that it is logically filtered by the given mask.
@@ -343,7 +335,10 @@ impl ArrayRef {
         match self.validity()? {
             Validity::NonNullable | Validity::AllValid => Ok(true),
             Validity::AllInvalid => Ok(false),
-            Validity::Array(a) => Ok(a.statistics().compute_min::<bool>(ctx).unwrap_or(false)),
+            Validity::Array(a) => Ok(a
+                .statistics()
+                .get_as::<bool>(Stat::Min.aggregate_fn(), ctx)
+                .unwrap_or(false)),
         }
     }
 
@@ -356,18 +351,23 @@ impl ArrayRef {
         match self.validity()? {
             Validity::NonNullable | Validity::AllValid => Ok(false),
             Validity::AllInvalid => Ok(true),
-            Validity::Array(a) => Ok(!a.statistics().compute_max::<bool>(ctx).unwrap_or(true)),
+            Validity::Array(a) => Ok(!a
+                .statistics()
+                .get_as::<bool>(Stat::Max.aggregate_fn(), ctx)
+                .unwrap_or(true)),
         }
     }
 
     /// Returns the number of valid elements in the array.
     pub fn valid_count(&self, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
-        let len = self.len();
-        if let Precision::Exact(invalid_count) = self.statistics().get_as::<usize>(Stat::NullCount)
-        {
-            return Ok(len - invalid_count);
-        }
+        Ok(self.len() - null_count(self, ctx)?)
+    }
 
+    /// Counts the valid elements from the validity, without storing the count.
+    ///
+    /// The `NullCount` aggregate computes through this, and [`Self::valid_count`] stores it.
+    pub(crate) fn count_valid(&self, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
+        let len = self.len();
         let count = match self.validity()? {
             Validity::NonNullable | Validity::AllValid => len,
             Validity::AllInvalid => 0,
@@ -380,10 +380,6 @@ impl ArrayRef {
             }
         };
         vortex_ensure!(count <= len, "Valid count exceeds array length");
-
-        self.statistics()
-            .set(Stat::NullCount, Precision::exact(len - count));
-
         Ok(count)
     }
 
@@ -424,6 +420,92 @@ impl ArrayRef {
     /// Returns the statistics of the array.
     pub fn statistics(&self) -> StatsSetRef<'_> {
         self.0.stats.to_ref(self)
+    }
+
+    /// Returns this array with its stats replaced by `stats`.
+    ///
+    /// Stats never change once an array is shared, so this seeds in place only when this is the
+    /// only reference, and otherwise returns a new node over the same data.
+    pub fn with_stats_set(self, stats: StatsSet) -> ArrayRef {
+        if stats.is_empty() && self.0.stats.is_empty() {
+            return self;
+        }
+        self.with_array_stats(ArrayStats::from(stats))
+    }
+
+    /// Returns a copy of this array tree with no stored stats on any node.
+    pub fn without_stats(&self) -> ArrayRef {
+        let slots = self
+            .slots()
+            .iter()
+            .map(|slot| slot.as_ref().map(ArrayRef::without_stats))
+            .collect();
+        self.0.data.with_stats(self, slots, ArrayStats::default())
+    }
+
+    /// Returns this array with `stats` added to its stored stats. Stored values win.
+    pub(crate) fn with_added_stats(
+        self,
+        stats: impl IntoIterator<Item = (Stat, Precision<ScalarValue>)>,
+    ) -> ArrayRef {
+        self.with_added_entries(
+            stats
+                .into_iter()
+                .map(|(stat, value)| Entry::builtin(stat.aggregate_fn(), value)),
+        )
+    }
+
+    /// Returns this array with `entries` added to its stored stats. Stored values win.
+    fn with_added_entries(self, entries: impl IntoIterator<Item = Entry>) -> ArrayRef {
+        let entries = entries.into_iter().collect::<Vec<_>>();
+        if entries.is_empty() {
+            return self;
+        }
+
+        // Nothing stored yet: seed in one allocation instead of one node per stat
+        if self.0.stats.is_empty() {
+            return self.with_array_stats(ArrayStats::from_entries(entries));
+        }
+
+        let merged = if self.is_unique() {
+            self.statistics().handle()
+        } else {
+            ArrayStats::from_entries(self.0.stats.entries().cloned().collect())
+        };
+        for entry in entries {
+            merged.insert(entry);
+        }
+        self.with_array_stats(merged)
+    }
+
+    /// Returns this array using the storage of `stats`, taken with
+    /// [`StatsSetRef::to_array_stats`] from an array with the same logical values, so results
+    /// computed on either array serve both. Stats this array already holds are kept and merged.
+    pub fn with_shared_stats(self, stats: &ArrayStats) -> ArrayRef {
+        let current = self.statistics().handle();
+        if stats.is_empty() || current.same_as(stats) {
+            return self;
+        }
+        if !current.is_empty() {
+            let source = stats.entries().cloned().collect::<Vec<_>>();
+            return self.with_added_entries(source);
+        }
+        self.with_array_stats(stats.clone())
+    }
+
+    /// Returns true if no other reference to this node exists. With no weak references, a new
+    /// reference can only be made from `self`, so the answer cannot change under us.
+    fn is_unique(&self) -> bool {
+        Arc::strong_count(&self.0) == 1 && Arc::weak_count(&self.0) == 0
+    }
+
+    fn with_array_stats(mut self, stats: ArrayStats) -> ArrayRef {
+        // Nobody else can observe this node, so seeding it in place is still construction
+        if let Some(inner) = Arc::get_mut(&mut self.0) {
+            inner.stats = stats;
+            return self;
+        }
+        self.0.data.with_stats(&self, self.slots().into(), stats)
     }
 
     /// Does the array match the given matcher.
@@ -847,4 +929,20 @@ impl<V: VTable> Matcher for V {
         // # Safety checked by `downcast_ref`.
         Some(unsafe { ArrayView::new_unchecked(array, &inner.data) })
     }
+}
+
+/// The boolean stats of `source` that a slice of it keeps when true: a slice of a constant,
+/// sorted or strictly sorted array is still constant, sorted or strictly sorted.
+pub(crate) fn true_slice_stats<'a>(
+    source: &'a StatsSetRef<'a>,
+) -> impl Iterator<Item = (Stat, Precision<ScalarValue>)> + 'a {
+    [Stat::IsConstant, Stat::IsSorted, Stat::IsStrictSorted]
+        .into_iter()
+        .filter(|stat| {
+            matches!(
+                source.value(*stat),
+                Some(Precision::Exact(ScalarValue::Bool(true)))
+            )
+        })
+        .map(|stat| (stat, Precision::exact(true)))
 }

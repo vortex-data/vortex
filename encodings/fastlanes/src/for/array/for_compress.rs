@@ -21,7 +21,7 @@ impl FoRData {
         let array_ref = array.clone().into_array();
         let min = array_ref
             .statistics()
-            .compute_stat(Stat::Min, ctx)?
+            .get(Stat::Min.aggregate_fn(), ctx)?
             .ok_or_else(|| vortex_err!("Min stat not found"))?;
 
         let encoded = match_each_integer_ptype!(array.ptype(), |T| {
@@ -58,7 +58,6 @@ mod test {
     use vortex_array::arrays::primitive::PrimitiveArrayExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::stats::StatsProvider;
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
@@ -107,7 +106,7 @@ mod test {
     fn test_zeros() {
         let mut ctx = SESSION.create_execution_ctx();
         let array = PrimitiveArray::new(buffer![0i32; 100], Validity::NonNullable);
-        assert_eq!(array.statistics().len(), 0);
+        assert_eq!(array.statistics().iter().count(), 0);
 
         let dtype = array.dtype().clone();
         let compressed = FoRData::encode(array, &mut ctx).unwrap();

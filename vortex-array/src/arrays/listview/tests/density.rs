@@ -23,6 +23,7 @@ use crate::arrays::listview::tests::common::create_empty_elements_listview;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::scalar::ScalarValue;
+use crate::stats::StatsSet;
 use crate::validity::Validity;
 
 const EPS: f32 = 1e-6;
@@ -110,11 +111,21 @@ fn empty_elements_returns_one() -> VortexResult<()> {
 fn estimate_uses_cached_sum_stat() -> VortexResult<()> {
     let mut ctx = test_execution_ctx();
     let lv = create_basic_listview();
-    // Pre-populate Stat::Sum with a deliberately-wrong 5 so we can prove
+    // Seed Stat::Sum with a deliberately-wrong 5 so we can prove
     // estimate_density reads from the cache instead of computing fresh.
-    lv.sizes()
-        .statistics()
-        .set(Stat::Sum, Precision::Exact(ScalarValue::from(5u64)));
+    let sizes = lv.sizes().clone().with_stats_set(StatsSet::of(
+        Stat::Sum,
+        Precision::Exact(ScalarValue::from(5u64)),
+    ));
+    let lv = unsafe {
+        ListViewArray::new_unchecked(
+            lv.elements().clone(),
+            lv.offsets().clone(),
+            sizes,
+            Validity::NonNullable,
+        )
+        .with_zero_copy_to_list(true)
+    };
 
     let est = lv.upper_bound_density(&mut ctx)?;
     assert!((est - 0.5).abs() < EPS);

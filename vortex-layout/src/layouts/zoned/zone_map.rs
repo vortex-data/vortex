@@ -222,7 +222,7 @@ impl StatBinder for ZoneMapStatsBinder<'_> {
                 .transpose();
         }
 
-        if let Some(stat) = Stat::from_aggregate_fn(aggregate_fn) {
+        if let Some(stat) = Stat::from_aggregate_fn(aggregate_fn).filter(Stat::is_zone_stat) {
             return self
                 .zone_map
                 .stat_field_expr(stat)
@@ -272,8 +272,8 @@ impl ZoneMap {
     }
 
     fn stat_field_expr(&self, stat: Stat) -> Option<Expression> {
-        if let Some(aggregate_fn) = stat.aggregate_fn()
-            && let Some(expr) = self.aggregate_field_expr(&aggregate_fn)
+        if stat.is_zone_stat()
+            && let Some(expr) = self.aggregate_field_expr(stat.aggregate_fn())
         {
             return Some(expr);
         }
@@ -934,9 +934,7 @@ mod tests {
         )
         .unwrap();
 
-        let max_fn = Stat::Max
-            .aggregate_fn()
-            .expect("max should have an aggregate function");
+        let max_fn = Stat::Max.aggregate_fn().clone();
         let predicate = is_null(vortex_array::stats::stat(root(), max_fn));
 
         // Missing StatFn lowers to a nullable null literal, so `is_null(...)` is true for every zone.
@@ -959,9 +957,7 @@ mod tests {
         )
         .unwrap();
 
-        let max_fn = Stat::Max
-            .aggregate_fn()
-            .expect("max should have an aggregate function");
+        let max_fn = Stat::Max.aggregate_fn().clone();
         let predicate = is_null(vortex_array::stats::stat(root(), max_fn));
         let error = prune(&zone_map, &predicate).unwrap_err();
 

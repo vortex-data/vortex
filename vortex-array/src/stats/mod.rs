@@ -23,11 +23,16 @@ mod array;
 pub mod bind;
 pub mod expr;
 pub mod flatbuffers;
+mod lazy_arc;
+mod list;
 pub mod rewrite;
 pub mod session;
 mod stats_set;
 
+pub(crate) use array::min_max_key;
+pub(crate) use array::static_key;
 pub use array::*;
+pub(crate) use list::Entry;
 pub use session::*;
 use vortex_error::VortexExpect;
 

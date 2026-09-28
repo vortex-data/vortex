@@ -201,6 +201,7 @@ mod tests {
     use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
+    use crate::stats::StatsSet;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
@@ -224,10 +225,10 @@ mod tests {
     fn stat_expr_reads_cached_sum() -> VortexResult<()> {
         let array = buffer![1i32, 2, 3].into_array();
         let sum_scalar = Scalar::primitive(6i64, Nullability::Nullable);
-        array.statistics().set(
+        let array = array.with_stats_set(StatsSet::of(
             Stat::Sum,
             Precision::exact(sum_scalar.into_value().vortex_expect("non-null sum")),
-        );
+        ));
 
         let result = array
             .apply(&sum(root()))?
@@ -264,10 +265,10 @@ mod tests {
     fn stat_expr_reads_cached_sum_per_chunk() -> VortexResult<()> {
         let chunk0 = buffer![1i32, 2].into_array();
         let sum_scalar = Scalar::primitive(3i64, Nullability::Nullable);
-        chunk0.statistics().set(
+        let chunk0 = chunk0.with_stats_set(StatsSet::of(
             Stat::Sum,
             Precision::exact(sum_scalar.into_value().vortex_expect("non-null sum")),
-        );
+        ));
         let chunk1 = buffer![4i32, 5, 6].into_array();
         let chunked = ChunkedArray::try_new(
             vec![chunk0, chunk1],
@@ -300,14 +301,14 @@ mod tests {
         let array =
             PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), None]).into_array();
         let null_count_scalar = Scalar::primitive(2u64, Nullability::NonNullable);
-        array.statistics().set(
+        let array = array.with_stats_set(StatsSet::of(
             Stat::NullCount,
             Precision::exact(
                 null_count_scalar
                     .into_value()
                     .vortex_expect("non-null null_count"),
             ),
-        );
+        ));
 
         let result = array
             .apply(&null_count(root()))?
@@ -324,9 +325,10 @@ mod tests {
     #[test]
     fn stat_expr_reads_cached_all_null_from_null_count() -> VortexResult<()> {
         let array = PrimitiveArray::from_option_iter::<i32, _>([None, None, None]).into_array();
-        array
-            .statistics()
-            .set(Stat::NullCount, Precision::exact(ScalarValue::from(3u64)));
+        let array = array.with_stats_set(StatsSet::of(
+            Stat::NullCount,
+            Precision::exact(ScalarValue::from(3u64)),
+        ));
 
         let result = array
             .apply(&all_null(root()))?
@@ -343,9 +345,10 @@ mod tests {
     #[test]
     fn stat_expr_reads_cached_all_null_false_from_inexact_low_null_count() -> VortexResult<()> {
         let array = PrimitiveArray::from_option_iter::<i32, _>([None, Some(2), None]).into_array();
-        array
-            .statistics()
-            .set(Stat::NullCount, Precision::inexact(ScalarValue::from(2u64)));
+        let array = array.with_stats_set(StatsSet::of(
+            Stat::NullCount,
+            Precision::inexact(ScalarValue::from(2u64)),
+        ));
 
         let result = array
             .apply(&all_null(root()))?
@@ -362,9 +365,10 @@ mod tests {
     #[test]
     fn stat_expr_returns_null_for_inexact_full_null_count_as_all_null() -> VortexResult<()> {
         let array = PrimitiveArray::from_option_iter::<i32, _>([None, Some(2), None]).into_array();
-        array
-            .statistics()
-            .set(Stat::NullCount, Precision::inexact(ScalarValue::from(3u64)));
+        let array = array.with_stats_set(StatsSet::of(
+            Stat::NullCount,
+            Precision::inexact(ScalarValue::from(3u64)),
+        ));
 
         let result = array
             .apply(&all_null(root()))?
@@ -381,9 +385,10 @@ mod tests {
     #[test]
     fn stat_expr_reads_cached_all_non_null_from_null_count() -> VortexResult<()> {
         let array = buffer![1i32, 2, 3].into_array();
-        array
-            .statistics()
-            .set(Stat::NullCount, Precision::exact(ScalarValue::from(0u64)));
+        let array = array.with_stats_set(StatsSet::of(
+            Stat::NullCount,
+            Precision::exact(ScalarValue::from(0u64)),
+        ));
 
         let result = array
             .apply(&all_non_null(root()))?
@@ -400,9 +405,10 @@ mod tests {
     #[test]
     fn stat_expr_reads_cached_all_non_null_true_from_inexact_zero_null_count() -> VortexResult<()> {
         let array = buffer![1i32, 2, 3].into_array();
-        array
-            .statistics()
-            .set(Stat::NullCount, Precision::inexact(ScalarValue::from(0u64)));
+        let array = array.with_stats_set(StatsSet::of(
+            Stat::NullCount,
+            Precision::inexact(ScalarValue::from(0u64)),
+        ));
 
         let result = array
             .apply(&all_non_null(root()))?
@@ -420,9 +426,10 @@ mod tests {
     fn stat_expr_returns_null_for_inexact_nonzero_null_count_as_all_non_null() -> VortexResult<()> {
         let array =
             PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), None]).into_array();
-        array
-            .statistics()
-            .set(Stat::NullCount, Precision::inexact(ScalarValue::from(2u64)));
+        let array = array.with_stats_set(StatsSet::of(
+            Stat::NullCount,
+            Precision::inexact(ScalarValue::from(2u64)),
+        ));
 
         let result = array
             .apply(&all_non_null(root()))?
@@ -454,9 +461,10 @@ mod tests {
         let array =
             PrimitiveArray::from_option_iter([Some(f32::NAN), Some(f32::NAN), Some(f32::NAN)])
                 .into_array();
-        array
-            .statistics()
-            .set(Stat::NaNCount, Precision::exact(ScalarValue::from(3u64)));
+        let array = array.with_stats_set(StatsSet::of(
+            Stat::NaNCount,
+            Precision::exact(ScalarValue::from(3u64)),
+        ));
 
         let result = array
             .apply(&all_nan(root()))?
@@ -475,9 +483,10 @@ mod tests {
         let array =
             PrimitiveArray::from_option_iter([Some(f32::NAN), Some(1.0f32), Some(f32::NAN)])
                 .into_array();
-        array
-            .statistics()
-            .set(Stat::NaNCount, Precision::inexact(ScalarValue::from(2u64)));
+        let array = array.with_stats_set(StatsSet::of(
+            Stat::NaNCount,
+            Precision::inexact(ScalarValue::from(2u64)),
+        ));
 
         let result = array
             .apply(&all_nan(root()))?
@@ -496,9 +505,10 @@ mod tests {
         let array =
             PrimitiveArray::from_option_iter([Some(f32::NAN), Some(1.0f32), Some(f32::NAN)])
                 .into_array();
-        array
-            .statistics()
-            .set(Stat::NaNCount, Precision::inexact(ScalarValue::from(3u64)));
+        let array = array.with_stats_set(StatsSet::of(
+            Stat::NaNCount,
+            Precision::inexact(ScalarValue::from(3u64)),
+        ));
 
         let result = array
             .apply(&all_nan(root()))?
@@ -515,9 +525,10 @@ mod tests {
     #[test]
     fn stat_expr_reads_cached_all_non_nan_true_from_inexact_zero_nan_count() -> VortexResult<()> {
         let array = buffer![1.0f32, 2.0, 3.0].into_array();
-        array
-            .statistics()
-            .set(Stat::NaNCount, Precision::inexact(ScalarValue::from(0u64)));
+        let array = array.with_stats_set(StatsSet::of(
+            Stat::NaNCount,
+            Precision::inexact(ScalarValue::from(0u64)),
+        ));
 
         let result = array
             .apply(&all_non_nan(root()))?
@@ -535,9 +546,10 @@ mod tests {
     fn stat_expr_returns_null_for_inexact_nonzero_nan_count_as_all_non_nan() -> VortexResult<()> {
         let array = PrimitiveArray::from_option_iter([Some(1.0f32), Some(f32::NAN), Some(3.0)])
             .into_array();
-        array
-            .statistics()
-            .set(Stat::NaNCount, Precision::inexact(ScalarValue::from(1u64)));
+        let array = array.with_stats_set(StatsSet::of(
+            Stat::NaNCount,
+            Precision::inexact(ScalarValue::from(1u64)),
+        ));
 
         let result = array
             .apply(&all_non_nan(root()))?
@@ -554,21 +566,14 @@ mod tests {
     #[test]
     fn stat_expr_reads_cached_min_and_max() -> VortexResult<()> {
         let array = buffer![3i32, 1, 2].into_array();
-        array
-            .statistics()
-            .set(Stat::Min, Precision::exact(ScalarValue::from(1i32)));
-        array
-            .statistics()
-            .set(Stat::Max, Precision::exact(ScalarValue::from(3i32)));
+        let array = array.with_stats_set(StatsSet::from_iter([
+            (Stat::Min, Precision::exact(ScalarValue::from(1i32))),
+            (Stat::Max, Precision::exact(ScalarValue::from(3i32))),
+        ]));
 
         let min_result = array
             .clone()
-            .apply(&stat(
-                root(),
-                Stat::Min
-                    .aggregate_fn()
-                    .vortex_expect("min should have an aggregate function"),
-            ))?
+            .apply(&stat(root(), Stat::Min.aggregate_fn().clone()))?
             .execute::<Canonical>(&mut SESSION.create_execution_ctx())?
             .into_array();
         let expected_min =
@@ -580,12 +585,7 @@ mod tests {
         );
 
         let max_result = array
-            .apply(&stat(
-                root(),
-                Stat::Max
-                    .aggregate_fn()
-                    .vortex_expect("max should have an aggregate function"),
-            ))?
+            .apply(&stat(root(), Stat::Max.aggregate_fn().clone()))?
             .execute::<Canonical>(&mut SESSION.create_execution_ctx())?
             .into_array();
         let expected_max =

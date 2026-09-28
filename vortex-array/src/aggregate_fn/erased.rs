@@ -40,6 +40,11 @@ impl AggregateFnRef {
         self.0.id()
     }
 
+    /// Returns whether both refer to the same aggregate function instance.
+    pub(crate) fn ptr_eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+
     /// Returns whether the aggregate function is of the given vtable type.
     pub fn is<V: AggregateFnVTable>(&self) -> bool {
         self.0.as_any().is::<AggregateFnInner<V>>()
@@ -87,6 +92,11 @@ impl AggregateFnRef {
         self.0.return_dtype(input_dtype)
     }
 
+    /// Whether the accumulator can compute this aggregate over `input_dtype`.
+    pub fn can_compute(&self, input_dtype: &DType) -> bool {
+        self.0.can_compute(input_dtype)
+    }
+
     /// DType of the intermediate accumulator state.
     ///
     /// Returns `None` if the input dtype is not supported by the aggregate function.
@@ -96,7 +106,7 @@ impl AggregateFnRef {
 
     /// Create an accumulator for streaming aggregation.
     pub fn accumulator(&self, input_dtype: &DType) -> VortexResult<AccumulatorRef> {
-        self.0.accumulator(input_dtype)
+        self.0.accumulator(self, input_dtype)
     }
 
     /// Create a grouped accumulator for grouped streaming aggregation.

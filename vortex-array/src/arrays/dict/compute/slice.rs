@@ -9,6 +9,7 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::ArrayView;
+use crate::array::true_slice_stats;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::Dict;
@@ -16,10 +17,7 @@ use crate::arrays::DictArray;
 use crate::arrays::Primitive;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::arrays::slice::SliceReduce;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
 use crate::scalar::Scalar;
-use crate::scalar::ScalarValue;
 
 impl SliceReduce for Dict {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
@@ -31,8 +29,7 @@ impl SliceReduce for Dict {
             let sliced_code = <Primitive as SliceReduce>::slice(codes, range)?
                 .vortex_expect("Primitive SliceReduce should always return Some");
             // Because we specialize the primitive branch here, we have to make sure to handle the stat inheritance
-            inherit_slice_stats(array.codes(), &sliced_code);
-            sliced_code
+            inherit_slice_stats(array.codes(), sliced_code)
         } else {
             array.codes().slice(range)?
         };
@@ -49,22 +46,11 @@ impl SliceReduce for Dict {
     }
 }
 
-fn inherit_slice_stats(source: &ArrayRef, sliced: &ArrayRef) {
-    source.statistics().with_iter(|iter| {
-        sliced
-            .statistics()
-            .inherit(iter.filter(|(stat, value)| is_inheritable_true_slice_stat(*stat, value)));
-    });
-}
-
-fn is_inheritable_true_slice_stat(stat: Stat, value: &Precision<ScalarValue>) -> bool {
-    matches!(
-        stat,
-        Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted
-    ) && value
-        .as_ref()
-        .as_exact()
-        .is_some_and(|value| matches!(value, ScalarValue::Bool(true)))
+fn inherit_slice_stats(source: &ArrayRef, sliced: ArrayRef) -> ArrayRef {
+    if source.statistics().is_empty() {
+        return sliced;
+    }
+    sliced.with_added_stats(true_slice_stats(&source.statistics()))
 }
 
 fn slice_constant_code(
