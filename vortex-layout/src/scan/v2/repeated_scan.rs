@@ -12,13 +12,19 @@ use itertools::Either;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
+use vortex_array::expr::BoundExpression;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
 use vortex_scan::selection::Selection;
+use vortex_session::VortexSession;
 
+use crate::plan::Eval;
+use crate::plan::EvalPlan;
+use crate::plan::Pack;
 use crate::plan::PlanRef;
+use crate::plan::Zoned;
 use crate::plan::optimize;
 use crate::plan::plan_row_idx_expression;
 use crate::scan::planning::ScanPlans;
@@ -30,6 +36,7 @@ use crate::scan::v2::ScanFile;
 use crate::scan::v2::io::SegmentRanges;
 use crate::scan::v2::io::segment_ranges;
 use crate::scan::v2::lower::lower;
+use crate::scan::v2::lower::lower_with_zones;
 use crate::scan::v2::split::SplitTask;
 use crate::segments::SegmentSource;
 
@@ -57,6 +64,12 @@ pub fn prepare<A: 'static + Send>(
     let root = lower(&file.layout)?;
     let plan = |expression| optimize(plan_row_idx_expression(expression, root.clone())?);
     let filter = parts.filter.clone().map(plan).transpose()?;
+    let pruning = parts
+        .filter
+        .as_ref()
+        .map(|filter| pruning_plan(filter, &file, &parts.session))
+        .transpose()?
+        .flatten();
     let plans = ScanPlans {
         session: parts.session,
         locations: Arc::clone(&file.locations),
@@ -84,6 +97,7 @@ pub fn prepare<A: 'static + Send>(
         };
 
     Ok(RepeatedScanV2 {
+        pruning,
         plans,
         filter,
         ranges: segment_ranges(&file.locations),
@@ -101,6 +115,8 @@ pub fn prepare<A: 'static + Send>(
 ///
 /// The replacement for [`RepeatedScan`](crate::scan::repeated_scan::RepeatedScan).
 pub struct RepeatedScanV2<A: 'static + Send> {
+    /// Proves rows can't match the filter from zone statistics, when the filter allows it.
+    pruning: Option<PlanRef>,
     plans: ScanPlans,
     filter: Option<PlanRef>,
     ranges: SegmentRanges,
@@ -191,6 +207,7 @@ impl<A: 'static + Send> RepeatedScanV2<A> {
             };
             let task = SplitTask {
                 plans: self.plans.clone(),
+                pruning: self.pruning.clone(),
                 filter: self.filter.clone(),
                 segments: Arc::clone(&self.segments),
                 ranges: Arc::clone(&self.ranges),
@@ -206,6 +223,42 @@ impl<A: 'static + Send> RepeatedScanV2<A> {
 
         Ok(tasks)
     }
+}
+
+/// Plans the zone-statistics proof that `filter` is false, over a copy of the file's plan that keeps
+/// its zones.
+///
+/// The filter is falsified into a predicate over statistics, which the optimizer pushes down to
+/// the zoned columns it reads and rewrites into pruning plans over their zone tables. Returns
+/// `None` when the filter cannot be falsified, or when any part of the proof would still read
+/// column data rather than zone statistics.
+fn pruning_plan(
+    filter: &BoundExpression,
+    file: &ScanFile,
+    session: &VortexSession,
+) -> VortexResult<Option<PlanRef>> {
+    let Some(predicate) = filter.falsify(session)? else {
+        return Ok(None);
+    };
+    let root = lower_with_zones(&file.layout)?;
+    let plan = optimize(EvalPlan::try_new(predicate, root)?.into_plan())?;
+    Ok(reads_only_zones(&plan)?.then_some(plan))
+}
+
+/// Whether every leaf of `plan` is a pruning plan over zone statistics.
+fn reads_only_zones(plan: &PlanRef) -> VortexResult<bool> {
+    if let Some(zoned) = plan.as_opt::<Zoned>() {
+        return Ok(zoned.is_pruning());
+    }
+    if !plan.is::<Eval>() && !plan.is::<Pack>() {
+        return Ok(false);
+    }
+    for child in plan.children().iter() {
+        if !reads_only_zones(&child?)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 fn intersect_ranges(left: Option<&Range<u64>>, right: Option<Range<u64>>) -> Option<Range<u64>> {

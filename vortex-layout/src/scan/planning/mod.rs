@@ -5,10 +5,11 @@
 //!
 //! Two ways to evaluate a split live here:
 //!
-//! - Over physical plans: a [`FilterPlanner`] runs the filter plan to a selection and hands it to
-//!   a [`ProjectionPlanner`], which emits a [`ProjectionMorsel`] that runs the projection plan over
-//!   the selected rows. Filter and projection are separate stages, and both execute through the
-//!   plan exec graph. [`plan_split`] composes them for one split.
+//! - Over physical plans: a pruning [`FilterPlanner`] drops rows whose zone statistics prove the
+//!   filter false, a [`FilterPlanner`] runs the filter plan over the rows that remain, and a
+//!   [`ProjectionPlanner`] emits a [`ProjectionMorsel`] that runs the projection plan over the rows
+//!   that survive. Each is a separate stage executing through the plan exec graph; [`plan_split`]
+//!   composes them for one split.
 //! - Over a [`LayoutReader`](crate::LayoutReader): a [`SplitMorsel`] polls the reader's filter and
 //!   projection futures against a [`PollingSegmentSource`].
 //!
@@ -55,10 +56,12 @@ pub struct ScanPlans {
     pub row_offset: u64,
 }
 
-/// The work for one split: filter the rows of `scope` selected by `mask`, then project the rows
-/// that survive. Without a filter, the selected rows are projected directly.
+/// The work for one split: prune the rows of `scope` selected by `mask` with zone statistics,
+/// filter the rows that remain, then project the rows that survive. Each stage is skipped when
+/// its plan is absent.
 pub fn plan_split(
     plans: ScanPlans,
+    pruning: Option<PlanRef>,
     filter: Option<PlanRef>,
     scope: WorkScope,
     mask: Mask,
@@ -67,10 +70,28 @@ pub fn plan_split(
         let plans = plans.clone();
         next_fn(move |selected| Ok(ProjectionPlanner::new(plans.clone(), selected)))
     };
-    let Some(filter) = filter else {
-        return project(SelectedRows { scope, mask });
+    let filter: Next<SelectedRows> = match filter {
+        None => project,
+        Some(filter) => {
+            let plans = plans.clone();
+            next_fn(move |selected: SelectedRows| {
+                Ok(FilterPlanner::new(
+                    plans.clone(),
+                    filter.clone(),
+                    selected.scope,
+                    selected.mask,
+                    Arc::clone(&project),
+                ))
+            })
+        }
+    };
+    let Some(pruning) = pruning else {
+        return filter(SelectedRows { scope, mask });
     };
     Ok(pending(move || {
-        Ok(Box::new(FilterPlanner::new(plans, filter, scope, mask, project)) as Box<dyn Planner>)
+        Ok(
+            Box::new(FilterPlanner::pruning(plans, pruning, scope, mask, filter))
+                as Box<dyn Planner>,
+        )
     }))
 }
