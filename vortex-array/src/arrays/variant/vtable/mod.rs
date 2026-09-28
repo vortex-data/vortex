@@ -3,9 +3,9 @@
 
 mod kernel;
 mod operations;
+mod plugin;
 mod validity;
 
-use prost::Message;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -35,7 +35,6 @@ use crate::dtype::StructFields;
 use crate::proto::dtype as pb;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
-use crate::serde::ArrayChildren;
 
 /// A [`Variant`]-encoded Vortex array.
 pub type VariantArray = Array<Variant>;
@@ -130,62 +129,6 @@ impl VTable for Variant {
         buffers: &[BufferHandle],
     ) -> VortexResult<ArrayParts<Self>> {
         with_empty_buffers(self, array, buffers)
-    }
-
-    fn serialize(
-        array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        let shredded_dtype = array.slots()[VariantSlots::SHREDDED]
-            .as_ref()
-            .map(|shredded| shredded.dtype().try_into())
-            .transpose()?;
-        Ok(Some(
-            VariantMetadataProto { shredded_dtype }.encode_to_vec(),
-        ))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        vortex_ensure!(
-            buffers.is_empty(),
-            "VariantArray expects 0 buffers, got {}",
-            buffers.len()
-        );
-        let proto = VariantMetadataProto::decode(metadata)?;
-        let shredded_dtype = proto
-            .shredded_dtype
-            .as_ref()
-            .map(|dtype| DType::from_proto(dtype, session))
-            .transpose()?;
-        vortex_ensure!(matches!(dtype, DType::Variant(_)), "Expected Variant DType");
-        let expected_children = 1 + usize::from(shredded_dtype.is_some());
-        vortex_ensure!(
-            children.len() == expected_children,
-            "Expected {} children, got {}",
-            expected_children,
-            children.len(),
-        );
-        let core_storage = children.get(0, dtype, len)?;
-        let shredded = shredded_dtype
-            .map(|dtype| children.get(1, &dtype, len))
-            .transpose()?;
-        Ok(
-            ArrayParts::new(self.clone(), dtype.clone(), len, EmptyArrayData).with_slots(
-                VariantSlots {
-                    core_storage,
-                    shredded,
-                }
-                .into_slots(),
-            ),
-        )
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

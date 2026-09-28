@@ -7,7 +7,6 @@ use std::hash::Hash;
 use std::hash::Hasher;
 
 use num_traits::AsPrimitive;
-use prost::Message;
 use smallvec::smallvec;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
@@ -23,7 +22,6 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
-use vortex_array::dtype::Nullability::NonNullable;
 use vortex_array::dtype::PType;
 use vortex_array::expr::stats::Precision as StatPrecision;
 use vortex_array::expr::stats::Stat;
@@ -33,7 +31,6 @@ use vortex_array::proto::scalar::ScalarValue as ProtoScalarValue;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
-use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::OperationsVTable;
@@ -45,13 +42,14 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::compress::sequence_decompress;
 use crate::eval;
 use crate::eval::SequenceValue;
 use crate::rules::RULES;
+
+mod plugin;
 
 /// A [`Sequence`]-encoded Vortex array.
 pub type SequenceArray = Array<Sequence>;
@@ -331,80 +329,6 @@ impl VTable for Sequence {
         buffers: &[BufferHandle],
     ) -> VortexResult<ArrayParts<Self>> {
         vortex_array::vtable::with_empty_buffers(self, array, buffers)
-    }
-
-    fn serialize(
-        array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        let metadata = SequenceMetadata {
-            base: Some((&array.base()).into()),
-            multiplier: Some((&array.multiplier()).into()),
-        };
-
-        Ok(Some(metadata.encode_to_vec()))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        vortex_ensure!(
-            buffers.is_empty(),
-            "SequenceArray expects 0 buffers, got {}",
-            buffers.len()
-        );
-        vortex_ensure!(
-            children.is_empty(),
-            "SequenceArray expects 0 children, got {}",
-            children.len()
-        );
-        let DType::Primitive(output_ptype, _) = dtype else {
-            vortex_bail!(
-                "only primitive dtypes are supported in SequenceArray currently, got {dtype}"
-            );
-        };
-        let metadata = SequenceMetadata::decode(metadata)?;
-
-        let base_metadata = metadata
-            .base
-            .as_ref()
-            .ok_or_else(|| vortex_err!("base required"))?;
-
-        let multiplier_metadata = metadata
-            .multiplier
-            .as_ref()
-            .ok_or_else(|| vortex_err!("multiplier required"))?;
-
-        // We go via Scalar to validate that the value is valid for the ptype.
-        let base = Scalar::from_proto_value(
-            base_metadata,
-            &DType::Primitive(*output_ptype, NonNullable),
-            session,
-        )?
-        .as_primitive()
-        .pvalue()
-        .vortex_expect("sequence array base should be a non-nullable primitive");
-
-        // The serialized step preserves signedness independently of the output ptype.
-        let multiplier_ptype = SequenceData::multiplier_ptype_from_proto(multiplier_metadata)?;
-        let multiplier = Scalar::from_proto_value(
-            multiplier_metadata,
-            &DType::Primitive(multiplier_ptype, NonNullable),
-            session,
-        )?
-        .as_primitive()
-        .pvalue()
-        .vortex_expect("sequence array multiplier should be a non-nullable primitive");
-
-        let data =
-            SequenceData::try_new(base, multiplier, *output_ptype, dtype.nullability(), len)?;
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

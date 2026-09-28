@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
@@ -18,16 +17,14 @@ use crate::array::VTable;
 use crate::array::child_to_validity;
 use crate::array::with_empty_buffers;
 use crate::arrays::struct_::array::StructSlots;
-use crate::arrays::struct_::array::struct_slots_with_capacity;
 use crate::arrays::struct_::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::StructBuilder;
 use crate::dtype::DType;
-use crate::serde::ArrayChildren;
-use crate::validity::Validity;
 mod kernel;
 mod operations;
+mod plugin;
 mod validity;
 
 use vortex_session::registry::CachedId;
@@ -129,62 +126,6 @@ impl VTable for Struct {
         buffers: &[BufferHandle],
     ) -> VortexResult<ArrayParts<Self>> {
         with_empty_buffers(self, array, buffers)
-    }
-
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(vec![]))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-
-        _buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        if !metadata.is_empty() {
-            vortex_bail!(
-                "StructArray expects empty metadata, got {} bytes",
-                metadata.len()
-            );
-        }
-        let DType::Struct(struct_dtype, nullability) = dtype else {
-            vortex_bail!("Expected struct dtype, found {:?}", dtype)
-        };
-
-        let (validity, non_data_children) = if children.len() == struct_dtype.nfields() {
-            (Validity::from(*nullability), 0_usize)
-        } else if children.len() == struct_dtype.nfields() + 1 {
-            let validity = children.get(0, &Validity::DTYPE, len)?;
-            (Validity::Array(validity), 1_usize)
-        } else {
-            vortex_bail!(
-                "Expected {} or {} children, found {}",
-                struct_dtype.nfields(),
-                struct_dtype.nfields() + 1,
-                children.len()
-            );
-        };
-
-        let mut slots = struct_slots_with_capacity(&validity, len, struct_dtype.nfields());
-        for i in 0..struct_dtype.nfields() {
-            let child_dtype = struct_dtype
-                .field_by_index(i)
-                .vortex_expect("no out of bounds");
-            slots.push(Some(children.get(
-                non_data_children + i,
-                &child_dtype,
-                len,
-            )?));
-        }
-
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, EmptyArrayData).with_slots(slots))
     }
 
     fn slot_name(array: ArrayView<'_, Self>, idx: usize) -> String {

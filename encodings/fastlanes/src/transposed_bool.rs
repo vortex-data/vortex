@@ -27,7 +27,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_array::scalar::Scalar;
-use vortex_array::serde::ArrayChildren;
 use vortex_array::smallvec::smallvec;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::OperationsVTable;
@@ -35,10 +34,8 @@ use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::FL_CHUNK_SIZE;
@@ -204,25 +201,6 @@ impl VTable for TransposedBool {
         buffers: &[BufferHandle],
     ) -> VortexResult<ArrayParts<Self>> {
         vortex_array::vtable::with_empty_buffers(self, array, buffers)
-    }
-
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        vortex_bail!("Cannot serialise TransposedBoolArray");
-    }
-
-    fn deserialize(
-        &self,
-        _dtype: &DType,
-        _len: usize,
-        _metadata: &[u8],
-        _buffers: &[BufferHandle],
-        _children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        vortex_bail!("Cannot deserialise TransposedBoolArray");
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

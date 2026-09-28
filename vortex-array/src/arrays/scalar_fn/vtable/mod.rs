@@ -11,10 +11,8 @@ use std::ops::Deref;
 
 use itertools::Itertools;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::ArrayEq;
@@ -45,7 +43,6 @@ use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::VecExecutionArgs;
-use crate::serde::ArrayChildren;
 
 /// A [`ScalarFn`]-encoded Vortex array.
 pub type ScalarFnArray = Array<ScalarFn>;
@@ -136,26 +133,6 @@ impl VTable for ScalarFn {
         buffers: &[BufferHandle],
     ) -> VortexResult<ArrayParts<Self>> {
         with_empty_buffers(self, array, buffers)
-    }
-
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        // Not supported
-        Ok(None)
-    }
-
-    fn deserialize(
-        &self,
-        _dtype: &DType,
-        _len: usize,
-        _metadata: &[u8],
-        _buffers: &[BufferHandle],
-        _children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        vortex_bail!("Deserialization of ScalarFnVTable metadata is not supported");
     }
 
     fn slot_name(array: ArrayView<'_, Self>, idx: usize) -> String {

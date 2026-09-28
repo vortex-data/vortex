@@ -44,15 +44,9 @@ pub fn decimal_byte_parts_v2_id() -> ArrayId {
 /// Each version owns its metadata schema and serde functions. The plugin writes v1 whenever an
 /// array has no lower parts, so such arrays stay readable by older readers, and v2 otherwise.
 /// The v2 format itself accepts any lower part count up to the maximum.
-///
-/// Register this plugin, or call [`crate::initialize`], to enable both formats. Direct registration
-/// of [`DecimalByteParts`] does not support serde.
-#[derive(Clone, Debug)]
-pub struct DecimalBytePartsPlugin;
-
-impl ArrayPlugin for DecimalBytePartsPlugin {
+impl ArrayPlugin for DecimalByteParts {
     fn id(&self) -> ArrayId {
-        VTable::id(&DecimalByteParts)
+        VTable::id(self)
     }
 
     fn serialized_ids(&self) -> Vec<ArrayId> {

@@ -8,7 +8,6 @@ use std::hash::Hash;
 use std::hash::Hasher;
 use std::sync::Arc;
 
-use prost::Message as _;
 use vortex_array::Array;
 use vortex_array::ArrayDeserialization;
 use vortex_array::ArrayEq;
@@ -24,7 +23,6 @@ use vortex_array::ExecutionResult;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
-use vortex_array::serde::ArrayChildren;
 use vortex_array::session::ArraySessionExt;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::OperationsVTable;
@@ -39,8 +37,9 @@ use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
-use crate::ZstdBuffersMetadata;
 use crate::validate_frame_content_size;
+
+mod plugin;
 
 /// A [`ZstdBuffers`]-encoded Vortex array.
 pub type ZstdBuffersArray = Array<ZstdBuffers>;
@@ -443,69 +442,6 @@ impl VTable for ZstdBuffers {
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         format!("child_{idx}")
-    }
-
-    fn serialize(
-        array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        let children: Vec<&ArrayRef> = array.slots().iter().flatten().collect();
-        let child_dtypes = children
-            .iter()
-            .map(|child| child.dtype().try_into())
-            .collect::<VortexResult<Vec<_>>>()?;
-        let child_lens = children.iter().map(|child| child.len() as u64).collect();
-
-        Ok(Some(
-            ZstdBuffersMetadata {
-                inner_encoding_id: array.inner_encoding_id.to_string(),
-                inner_metadata: array.inner_metadata.clone(),
-                uncompressed_sizes: array.uncompressed_sizes.clone(),
-                buffer_alignments: array.buffer_alignments.clone(),
-                child_dtypes,
-                child_lens,
-            }
-            .encode_to_vec(),
-        ))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        let metadata = ZstdBuffersMetadata::decode(metadata)?;
-        let compressed_buffers: Vec<BufferHandle> = buffers.to_vec();
-
-        // Children belong to inner encodings, and serialization doesn't
-        // preserve their dtypes and values. Check dtypes are recovered from
-        // metadata.
-        vortex_ensure_eq!(metadata.child_dtypes.len(), children.len());
-        vortex_ensure_eq!(metadata.child_lens.len(), children.len());
-
-        let slots: ArraySlots = (0..children.len())
-            .map(|i| {
-                let child_dtype = DType::from_proto(&metadata.child_dtypes[i], session)?;
-                let child_len = usize::try_from(metadata.child_lens[i])?;
-                children.get(i, &child_dtype, child_len).map(Some)
-            })
-            .collect::<VortexResult<Vec<_>>>()?
-            .into();
-
-        let data = ZstdBuffersData {
-            inner_encoding_id: array_id_from_string(&metadata.inner_encoding_id),
-            inner_metadata: metadata.inner_metadata.clone(),
-            compressed_buffers,
-            uncompressed_sizes: metadata.uncompressed_sizes.clone(),
-            buffer_alignments: metadata.buffer_alignments.clone(),
-        };
-
-        data.validate()?;
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     // with_slots handles child replacement via the slots mechanism

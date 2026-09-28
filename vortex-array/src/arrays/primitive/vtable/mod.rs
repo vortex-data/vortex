@@ -18,16 +18,14 @@ use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::PrimitiveBuilder;
 use crate::dtype::DType;
-use crate::dtype::PType;
 use crate::match_each_native_ptype;
-use crate::serde::ArrayChildren;
 mod kernel;
 mod operations;
+mod plugin;
 mod validity;
 
 use std::hash::Hasher;
 
-use vortex_buffer::Alignment;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
@@ -93,13 +91,6 @@ impl VTable for Primitive {
         )
     }
 
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(vec![]))
-    }
-
     fn validate(
         &self,
         data: &PrimitiveData,
@@ -128,49 +119,6 @@ impl VTable for Primitive {
         }
 
         Ok(())
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        if !metadata.is_empty() {
-            vortex_bail!(
-                "PrimitiveArray expects empty metadata, got {} bytes",
-                metadata.len()
-            );
-        }
-        let buffer = fixed_width::single_buffer(buffers)?;
-
-        let validity = fixed_width::deserialize_validity(dtype.nullability(), len, children)?;
-
-        let ptype = PType::try_from(dtype)?;
-
-        vortex_ensure!(
-            buffer.is_aligned_to(Alignment::new(ptype.byte_width())),
-            "Misaligned buffer cannot be used to build PrimitiveArray of {ptype}"
-        );
-
-        if buffer.len() != ptype.byte_width() * len {
-            vortex_bail!(
-                "Buffer length {} does not match expected length {} for {}, {}",
-                buffer.len(),
-                ptype.byte_width() * len,
-                ptype.byte_width(),
-                len,
-            );
-        }
-
-        // SAFETY: the buffer length and alignment are checked above.
-        let slots = PrimitiveData::make_slots(&validity, len);
-        let data = unsafe { PrimitiveData::new_unchecked_from_handle(buffer, ptype, validity) };
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

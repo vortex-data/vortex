@@ -28,10 +28,10 @@ use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::ExtensionBuilder;
 use crate::dtype::DType;
-use crate::serde::ArrayChildren;
 
 mod kernel;
 mod operations;
+mod plugin;
 mod validity;
 
 /// An extension array that wraps another array with additional type information.
@@ -142,42 +142,6 @@ impl VTable for Extension {
         buffers: &[BufferHandle],
     ) -> VortexResult<ArrayParts<Self>> {
         with_empty_buffers(self, array, buffers)
-    }
-
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(vec![]))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-
-        _buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        if !metadata.is_empty() {
-            vortex_bail!(
-                "ExtensionArray expects empty metadata, got {} bytes",
-                metadata.len()
-            );
-        }
-        let DType::Extension(ext_dtype) = dtype else {
-            vortex_bail!("Not an extension DType");
-        };
-        if children.len() != 1 {
-            vortex_bail!("Expected 1 child, got {}", children.len());
-        }
-        let storage = children.get(0, ext_dtype.storage_dtype(), len)?;
-        Ok(
-            ArrayParts::new(self.clone(), dtype.clone(), len, EmptyArrayData)
-                .with_slots(ExtensionSlots { storage }.into_slots()),
-        )
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

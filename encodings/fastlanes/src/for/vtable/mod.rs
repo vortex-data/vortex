@@ -20,20 +20,16 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar::ScalarValue;
-use vortex_array::serde::ArrayChildren;
 use vortex_array::smallvec::smallvec;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromChild;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::FoRData;
-use crate::r#for::array::FoRArrayExt;
 use crate::r#for::array::FoRSlots;
 use crate::r#for::array::FoRSlotsView;
 use crate::r#for::array::for_decompress::decompress;
@@ -41,6 +37,7 @@ use crate::r#for::vtable::rules::PARENT_RULES;
 
 mod kernels;
 mod operations;
+mod plugin;
 mod rules;
 mod slice;
 mod validity;
@@ -108,46 +105,6 @@ impl VTable for FoR {
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         FoRSlots::NAMES[idx].to_string()
-    }
-
-    fn serialize(
-        array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        // Note that we **only** serialize the optional scalar value (not including the dtype).
-        Ok(Some(ScalarValue::to_proto_bytes(
-            array.reference_scalar().value(),
-        )))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        vortex_ensure!(
-            buffers.is_empty(),
-            "FoRArray expects 0 buffers, got {}",
-            buffers.len()
-        );
-        if children.len() != 1 {
-            vortex_bail!(
-                "Expected 1 child for FoR encoding, found {}",
-                children.len()
-            )
-        }
-
-        let scalar_value = ScalarValue::from_proto_bytes(metadata, dtype, session)?;
-        let reference = Scalar::try_new(dtype.clone(), scalar_value)?;
-        let encoded = children.get(0, dtype, len)?;
-        let slots = smallvec![Some(encoded)];
-
-        let data = FoRData::try_new(reference)?;
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn reduce_parent(

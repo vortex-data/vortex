@@ -10,7 +10,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::ArrayEq;
@@ -49,11 +48,10 @@ use crate::match_each_native_ptype;
 use crate::match_each_varbin_builder;
 use crate::scalar::DecimalValue;
 use crate::scalar::ListScalar;
-use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
-use crate::serde::ArrayChildren;
 pub(crate) mod canonical;
 mod operations;
+mod plugin;
 mod validity;
 
 /// A [`Constant`]-encoded Vortex array.
@@ -129,45 +127,6 @@ impl VTable for Constant {
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         vortex_panic!("ConstantArray slot_name index {idx} out of bounds")
-    }
-
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        // HACK: Because the scalar is stored in the buffers, we do not need to serialize the
-        // metadata at all.
-        Ok(Some(vec![]))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        _metadata: &[u8],
-
-        buffers: &[BufferHandle],
-        _children: &dyn ArrayChildren,
-        session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        vortex_ensure!(
-            buffers.len() == 1,
-            "Expected 1 buffer, got {}",
-            buffers.len()
-        );
-
-        let buffer = buffers[0].clone().try_to_host_sync()?;
-        let bytes: &[u8] = buffer.as_ref();
-
-        let scalar_value = ScalarValue::from_proto_bytes(bytes, dtype, session)?;
-        let scalar = Scalar::try_new(dtype.clone(), scalar_value)?;
-
-        Ok(ArrayParts::new(
-            self.clone(),
-            dtype.clone(),
-            len,
-            ConstantData::new(scalar),
-        ))
     }
 
     fn reduce_parent(

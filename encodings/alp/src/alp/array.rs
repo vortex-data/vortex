@@ -7,7 +7,6 @@ use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
 
-use prost::Message;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -33,7 +32,6 @@ use vortex_array::patches::PatchesData;
 use vortex_array::patches::PatchesMetadata;
 use vortex_array::require_child;
 use vortex_array::require_patches;
-use vortex_array::serde::ArrayChildren;
 use vortex_array::smallvec::smallvec;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
@@ -43,13 +41,14 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::ALPFloat;
 use crate::alp::Exponents;
 use crate::alp::decompress::execute_decompress;
 use crate::alp::rules::RULES;
+
+mod plugin;
 
 /// A [`ALP`]-encoded Vortex array.
 pub type ALPArray = Array<ALP>;
@@ -109,66 +108,6 @@ impl VTable for ALP {
         buffers: &[BufferHandle],
     ) -> VortexResult<ArrayParts<Self>> {
         vortex_array::vtable::with_empty_buffers(self, array, buffers)
-    }
-
-    fn serialize(
-        array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        let exponents = array.exponents();
-        Ok(Some(
-            ALPMetadata {
-                exp_e: exponents.e as u32,
-                exp_f: exponents.f as u32,
-                patches: array
-                    .patches()
-                    .map(|p| p.to_metadata(array.len(), array.dtype()))
-                    .transpose()?,
-            }
-            .encode_to_vec(),
-        ))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        _buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        let metadata = ALPMetadata::decode(metadata)?;
-        let encoded_ptype = match &dtype {
-            DType::Primitive(PType::F32, n) => DType::Primitive(PType::I32, *n),
-            DType::Primitive(PType::F64, n) => DType::Primitive(PType::I64, *n),
-            d => vortex_bail!(MismatchedTypes: "f32 or f64", d),
-        };
-        let encoded = children.get(0, &encoded_ptype, len)?;
-
-        let patches = metadata
-            .patches
-            .map(|p| {
-                let indices = children.get(1, &p.indices_dtype()?, p.len()?)?;
-                let values = children.get(2, dtype, p.len()?)?;
-                let chunk_offsets = p
-                    .chunk_offsets_dtype()?
-                    .map(|dtype| children.get(3, &dtype, usize::try_from(p.chunk_offsets_len())?))
-                    .transpose()?;
-
-                Patches::new(len, p.offset()?, indices, values, chunk_offsets)
-            })
-            .transpose()?;
-
-        let slots = ALPData::make_slots(&encoded, patches.as_ref());
-        let data = ALPData::new(
-            Exponents {
-                e: u8::try_from(metadata.exp_e)?,
-                f: u8::try_from(metadata.exp_f)?,
-            },
-            patches,
-        );
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

@@ -4,7 +4,6 @@
 use std::hash::Hash;
 use std::hash::Hasher;
 
-use prost::Message;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -19,19 +18,13 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::PType;
-use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable::VTable;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::DeltaData;
-use crate::delta::array::DeltaArrayExt;
-use crate::delta::array::DeltaArraySlotsExt;
 use crate::delta::array::DeltaSlots;
 use crate::delta::array::DeltaSlotsView;
 use crate::delta::array::delta_decompress::delta_decompress;
@@ -39,6 +32,7 @@ use crate::delta::array::lane_count;
 use crate::delta_compress;
 
 mod operations;
+mod plugin;
 mod rules;
 mod slice;
 mod validity;
@@ -125,57 +119,6 @@ impl VTable for Delta {
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         DeltaSlots::NAMES[idx].to_string()
-    }
-
-    fn serialize(
-        array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(
-            DeltaMetadata {
-                deltas_len: array.deltas().len() as u64,
-                offset: array.offset() as u32,
-            }
-            .encode_to_vec(),
-        ))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        vortex_ensure!(
-            buffers.is_empty(),
-            "DeltaArray expects 0 buffers, got {}",
-            buffers.len()
-        );
-        vortex_ensure!(
-            children.len() == 2,
-            "DeltaArray expects 2 children, got {}",
-            children.len()
-        );
-        let metadata = DeltaMetadata::decode(metadata)?;
-        let ptype = PType::try_from(dtype)?;
-        let lanes = lane_count(ptype);
-
-        // Compute the length of the bases array
-        let deltas_len = usize::try_from(metadata.deltas_len)
-            .map_err(|_| vortex_err!("deltas_len {} overflowed usize", metadata.deltas_len))?;
-        let num_chunks = deltas_len / 1024;
-        let remainder_base_size = if deltas_len % 1024 > 0 { 1 } else { 0 };
-        let bases_len = num_chunks * lanes + remainder_base_size;
-
-        let bases = children.get(0, dtype, bases_len)?;
-        let deltas = children.get(1, dtype, deltas_len)?;
-
-        let data = DeltaData::try_new(metadata.offset as usize)?;
-        let slots = DeltaSlots { bases, deltas }.into_slots();
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

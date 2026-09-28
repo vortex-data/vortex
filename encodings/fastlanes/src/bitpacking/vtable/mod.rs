@@ -4,7 +4,6 @@
 use std::hash::Hash;
 use std::hash::Hasher;
 
-use prost::Message;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -27,16 +26,13 @@ use vortex_array::patches::PatchesData;
 use vortex_array::patches::PatchesMetadata;
 use vortex_array::require_patches;
 use vortex_array::require_validity;
-use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::child_to_validity;
 use vortex_array::vtable::validity_to_child;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -52,6 +48,7 @@ use crate::bitpacking::array::PATCH_SLOTS;
 use crate::bitpacking::vtable::rules::RULES;
 mod kernels;
 mod operations;
+mod plugin;
 mod rules;
 mod validity;
 
@@ -158,101 +155,6 @@ impl VTable for BitPacked {
             ArrayParts::new(self.clone(), array.dtype().clone(), array.len(), data)
                 .with_slots(array.slots().iter().cloned().collect()),
         )
-    }
-
-    fn serialize(
-        array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(
-            BitPackedMetadata {
-                bit_width: array.bit_width() as u32,
-                offset: array.offset() as u32,
-                patches: array
-                    .patches()
-                    .map(|p| p.to_metadata(array.len(), array.dtype()))
-                    .transpose()?,
-            }
-            .encode_to_vec(),
-        ))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        let metadata = BitPackedMetadata::decode(metadata)?;
-        if buffers.len() != 1 {
-            vortex_bail!("Expected 1 buffer, got {}", buffers.len());
-        }
-        let packed = buffers[0].clone();
-
-        let load_validity = |child_idx: usize| {
-            if children.len() == child_idx {
-                Ok(Validity::from(dtype.nullability()))
-            } else if children.len() == child_idx + 1 {
-                let validity = children.get(child_idx, &Validity::DTYPE, len)?;
-                Ok(Validity::Array(validity))
-            } else {
-                vortex_bail!(
-                    "Expected {} or {} children, got {}",
-                    child_idx,
-                    child_idx + 1,
-                    children.len()
-                );
-            }
-        };
-
-        let validity_idx = match &metadata.patches {
-            None => 0,
-            Some(patches_meta) if patches_meta.chunk_offsets_dtype()?.is_some() => 3,
-            Some(_) => 2,
-        };
-
-        let validity = load_validity(validity_idx)?;
-
-        let patches = metadata
-            .patches
-            .map(|p| {
-                let indices = children.get(0, &p.indices_dtype()?, p.len()?)?;
-                let values = children.get(1, dtype, p.len()?)?;
-                let chunk_offsets = p
-                    .chunk_offsets_dtype()?
-                    .map(|dtype| children.get(2, &dtype, p.chunk_offsets_len() as usize))
-                    .transpose()?;
-
-                Patches::new(len, p.offset()?, indices, values, chunk_offsets)
-            })
-            .transpose()?;
-
-        let slots = {
-            let mut s = ArraySlots::with_capacity(4);
-            PatchesData::push_slots(&mut s, patches.as_ref());
-            s.push(validity_to_child(&validity, len));
-            s
-        };
-        let data = BitPackedData::try_new(
-            packed,
-            patches,
-            u8::try_from(metadata.bit_width).map_err(|_| {
-                vortex_err!(
-                    "BitPackedMetadata bit_width {} does not fit in u8",
-                    metadata.bit_width
-                )
-            })?,
-            u16::try_from(metadata.offset).map_err(|_| {
-                vortex_err!(
-                    "BitPackedMetadata offset {} does not fit in u16",
-                    metadata.offset
-                )
-            })?,
-        )?;
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn append_to_builder(

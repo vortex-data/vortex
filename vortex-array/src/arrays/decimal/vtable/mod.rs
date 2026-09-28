@@ -3,8 +3,6 @@
 
 use std::hash::Hasher;
 
-use prost::Message;
-use vortex_buffer::Alignment;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -24,11 +22,9 @@ use crate::builders::ArrayBuilder;
 use crate::builders::DecimalBuilder;
 use crate::dtype::DType;
 use crate::dtype::DecimalType;
-use crate::dtype::NativeDecimalType;
-use crate::match_each_decimal_value_type;
-use crate::serde::ArrayChildren;
 mod kernel;
 mod operations;
+mod plugin;
 mod validity;
 
 use std::hash::Hash;
@@ -104,18 +100,6 @@ impl VTable for Decimal {
         )
     }
 
-    fn serialize(
-        array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(
-            DecimalMetadata {
-                values_type: array.values_type() as i32,
-            }
-            .encode_to_vec(),
-        ))
-    }
-
     fn validate(
         &self,
         data: &DecimalData,
@@ -146,37 +130,6 @@ impl VTable for Decimal {
         }
 
         Ok(())
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        let metadata = DecimalMetadata::decode(metadata)?;
-        let values = fixed_width::single_buffer(buffers)?;
-
-        let validity = fixed_width::deserialize_validity(dtype.nullability(), len, children)?;
-
-        let Some(decimal_dtype) = dtype.as_decimal_opt() else {
-            vortex_bail!("Expected Decimal dtype, got {:?}", dtype)
-        };
-
-        let slots = DecimalData::make_slots(&validity, len);
-        let data = match_each_decimal_value_type!(metadata.values_type(), |D| {
-            // Check and reinterpret-cast the buffer
-            vortex_ensure!(
-                values.is_aligned_to(Alignment::of::<D>()),
-                "DecimalArray buffer not aligned for values type {:?}",
-                D::DECIMAL_TYPE
-            );
-            DecimalData::try_new_handle(values, metadata.values_type(), *decimal_dtype)
-        })?;
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

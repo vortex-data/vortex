@@ -17,7 +17,6 @@ use pco::match_number_enum;
 use pco::wrapped::ChunkDecompressor;
 use pco::wrapped::FileCompressor;
 use pco::wrapped::FileDecompressor;
-use prost::Message;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -39,7 +38,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::half;
 use vortex_array::scalar::Scalar;
-use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
@@ -50,15 +48,15 @@ use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
-use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::PcoChunkInfo;
 use crate::PcoMetadata;
 use crate::PcoPageInfo;
+
+mod plugin;
 
 // Overall approach here:
 // Chunk the array into Pco chunks (currently using the default recommended size
@@ -188,60 +186,6 @@ impl VTable for Pco {
             ArrayParts::new(self.clone(), array.dtype().clone(), array.len(), data)
                 .with_slots(array.slots().iter().cloned().collect()),
         )
-    }
-
-    fn serialize(
-        array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(array.metadata.clone().encode_to_vec()))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        let metadata = PcoMetadata::decode(metadata)?;
-        let validity = if children.is_empty() {
-            Validity::from(dtype.nullability())
-        } else if children.len() == 1 {
-            let validity = children.get(0, &Validity::DTYPE, len)?;
-            Validity::Array(validity)
-        } else {
-            vortex_bail!("PcoArray expected 0 or 1 child, got {}", children.len());
-        };
-
-        vortex_ensure!(buffers.len() >= metadata.chunks.len());
-        let chunk_metas = buffers[..metadata.chunks.len()]
-            .iter()
-            .map(|b| b.clone().try_to_host_sync())
-            .collect::<VortexResult<Vec<_>>>()?;
-        let pages = buffers[metadata.chunks.len()..]
-            .iter()
-            .map(|b| b.clone().try_to_host_sync())
-            .collect::<VortexResult<Vec<_>>>()?;
-
-        let expected_n_pages = metadata
-            .chunks
-            .iter()
-            .map(|info| info.pages.len())
-            .sum::<usize>();
-        vortex_ensure!(pages.len() == expected_n_pages);
-
-        let slots = PcoSlots {
-            validity: validity_to_child(&validity, len),
-        }
-        .into_slots();
-        // SAFETY: `Array::try_from_parts`, which consumes these parts, validates the data before
-        // publishing the array.
-        let data =
-            unsafe { PcoData::new_unchecked(chunk_metas, pages, dtype.as_ptype(), metadata, len) };
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

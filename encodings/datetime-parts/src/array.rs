@@ -6,7 +6,6 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hasher;
 
-use prost::Message;
 use vortex_array::AnyCanonical;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
@@ -24,10 +23,8 @@ use vortex_array::arrays::Primitive;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::require_child;
-use vortex_array::serde::ArrayChildren;
 use vortex_array::smallvec::smallvec;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
@@ -37,13 +34,14 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::TemporalParts;
 use crate::canonical::decode_to_temporal;
 use crate::compute::rules::PARENT_RULES;
 use crate::split_temporal;
+
+mod plugin;
 
 /// A [`DateTimeParts`]-encoded Vortex array.
 pub type DateTimePartsArray = Array<DateTimeParts>;
@@ -128,58 +126,6 @@ impl VTable for DateTimeParts {
         buffers: &[BufferHandle],
     ) -> VortexResult<ArrayParts<Self>> {
         vortex_array::vtable::with_empty_buffers(self, array, buffers)
-    }
-
-    fn serialize(
-        array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(
-            DateTimePartsMetadata {
-                days_ptype: PType::try_from(array.days().dtype())? as i32,
-                seconds_ptype: PType::try_from(array.seconds().dtype())? as i32,
-                subseconds_ptype: PType::try_from(array.subseconds().dtype())? as i32,
-            }
-            .encode_to_vec(),
-        ))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        _buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        let metadata = DateTimePartsMetadata::decode(metadata)?;
-        if children.len() != 3 {
-            vortex_bail!(
-                "Expected 3 children for datetime-parts encoding, found {}",
-                children.len()
-            )
-        }
-
-        let days = children.get(
-            0,
-            &DType::Primitive(metadata.get_days_ptype()?, dtype.nullability()),
-            len,
-        )?;
-        let seconds = children.get(
-            1,
-            &DType::Primitive(metadata.get_seconds_ptype()?, Nullability::NonNullable),
-            len,
-        )?;
-        let subseconds = children.get(
-            2,
-            &DType::Primitive(metadata.get_subseconds_ptype()?, Nullability::NonNullable),
-            len,
-        )?;
-
-        let slots = smallvec![Some(days), Some(seconds), Some(subseconds)];
-        let data = DateTimePartsData {};
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

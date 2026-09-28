@@ -18,18 +18,17 @@ use vortex::array::OperationsVTable;
 use vortex::array::VTable;
 use vortex::array::ValidityVTable;
 use vortex::array::buffer::BufferHandle;
-use vortex::array::serde::ArrayChildren;
 use vortex::array::validity::Validity;
 use vortex::array::with_empty_buffers;
 use vortex::dtype::DType;
 use vortex::error::VortexResult;
-use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_panic;
 use vortex::scalar::Scalar;
-use vortex::session::VortexSession;
 
 use crate::arrays::py::PythonArray;
+
+mod plugin;
 
 /// Wrapper struct encapsulating a Python encoding.
 #[derive(Debug, Clone)]
@@ -90,26 +89,6 @@ impl VTable for PythonVTable {
         buffers: &[BufferHandle],
     ) -> VortexResult<ArrayParts<Self>> {
         with_empty_buffers(self, array, buffers)
-    }
-
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(None)
-    }
-
-    fn deserialize(
-        &self,
-        _dtype: &DType,
-        _len: usize,
-        bytes: &[u8],
-        _buffers: &[BufferHandle],
-        _children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        _ = bytes;
-        vortex_bail!("PythonArray deserialization is not supported");
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, _idx: usize) -> String {

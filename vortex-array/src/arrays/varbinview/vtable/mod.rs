@@ -2,14 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hasher;
-use std::mem::size_of;
 use std::sync::Arc;
 
-use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -19,12 +16,10 @@ use crate::ArrayRef;
 use crate::EqMode;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
-use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
-use crate::arrays::varbinview::BinaryView;
 use crate::arrays::varbinview::VarBinViewData;
 use crate::arrays::varbinview::array::VarBinViewSlots;
 use crate::arrays::varbinview::compute::rules::PARENT_RULES;
@@ -35,10 +30,9 @@ use crate::dtype::DType;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::match_each_varbin_builder;
-use crate::serde::ArrayChildren;
-use crate::validity::Validity;
 mod kernel;
 mod operations;
+mod plugin;
 mod validity;
 /// A [`VarBinView`]-encoded Vortex array.
 pub type VarBinViewArray = Array<VarBinView>;
@@ -152,83 +146,6 @@ impl VTable for VarBinView {
             ArrayParts::new(self.clone(), array.dtype().clone(), array.len(), data)
                 .with_slots(array.slots().iter().cloned().collect()),
         )
-    }
-
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(vec![]))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        if !metadata.is_empty() {
-            vortex_bail!(
-                "VarBinViewArray expects empty metadata, got {} bytes",
-                metadata.len()
-            );
-        }
-        let Some((views_handle, data_handles)) = buffers.split_last() else {
-            vortex_bail!("Expected at least 1 buffer, got 0");
-        };
-
-        let validity = if children.is_empty() {
-            Validity::from(dtype.nullability())
-        } else if children.len() == 1 {
-            let validity = children.get(0, &Validity::DTYPE, len)?;
-            Validity::Array(validity)
-        } else {
-            vortex_bail!("Expected 0 or 1 children, got {}", children.len());
-        };
-
-        let views_nbytes = views_handle.len();
-        let expected_views_nbytes = len
-            .checked_mul(size_of::<BinaryView>())
-            .ok_or_else(|| vortex_err!("views byte length overflow for len={len}"))?;
-        if views_nbytes != expected_views_nbytes {
-            vortex_bail!(
-                "Expected views buffer length {} bytes, got {} bytes",
-                expected_views_nbytes,
-                views_nbytes
-            );
-        }
-
-        // If any buffer is on device, skip host validation and use try_new_handle.
-        if buffers.iter().any(|b| b.is_on_device()) {
-            let data = VarBinViewData::try_new_handle(
-                views_handle.clone(),
-                Arc::from(data_handles.to_vec()),
-                dtype.clone(),
-                validity.clone(),
-            )?;
-            let slots = VarBinViewData::make_slots(&validity, len);
-            return Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots));
-        }
-
-        let data_buffers = data_handles
-            .iter()
-            .map(|b| b.as_host().clone())
-            .collect::<Vec<_>>();
-        let views = Buffer::<BinaryView>::from_byte_buffer(views_handle.clone().as_host().clone());
-
-        let data = VarBinViewData::try_new(
-            views,
-            Arc::from(data_buffers),
-            dtype.clone(),
-            validity.clone(),
-            &mut session.create_execution_ctx(),
-        )?;
-        let slots = VarBinViewData::make_slots(&validity, len);
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

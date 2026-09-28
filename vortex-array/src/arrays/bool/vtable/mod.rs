@@ -4,8 +4,6 @@
 use std::hash::Hash;
 use std::hash::Hasher;
 
-use prost::Message;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -26,10 +24,9 @@ use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::BoolBuilder;
 use crate::dtype::DType;
-use crate::serde::ArrayChildren;
-use crate::validity::Validity;
 mod kernel;
 mod operations;
+mod plugin;
 mod validity;
 
 use vortex_session::registry::CachedId;
@@ -114,20 +111,6 @@ impl VTable for Bool {
         )
     }
 
-    fn serialize(
-        array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        let offset = array.meta.offset();
-        assert!(offset < 8, "Offset must be <8, got {offset}");
-        Ok(Some(
-            BoolMetadata {
-                offset: u32::try_from(offset).vortex_expect("checked"),
-            }
-            .encode_to_vec(),
-        ))
-    }
-
     fn validate(
         &self,
         data: &BoolData,
@@ -157,35 +140,6 @@ impl VTable for Bool {
         }
 
         Ok(())
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        let metadata = BoolMetadata::decode(metadata)?;
-        if buffers.len() != 1 {
-            vortex_bail!("Expected 1 buffer, got {}", buffers.len());
-        }
-
-        let validity = if children.is_empty() {
-            Validity::from(dtype.nullability())
-        } else if children.len() == 1 {
-            let validity = children.get(0, &Validity::DTYPE, len)?;
-            Validity::Array(validity)
-        } else {
-            vortex_bail!("Expected 0 or 1 child, got {}", children.len());
-        };
-
-        let buffer = buffers[0].clone();
-        let slots = BoolData::make_slots(&validity, len);
-        let data = BoolData::try_new_from_handle(buffer, metadata.offset as usize, len, validity)?;
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

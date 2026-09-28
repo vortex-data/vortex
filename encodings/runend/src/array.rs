@@ -7,7 +7,6 @@ use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
 
-use prost::Message;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -30,10 +29,8 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::listview::ListViewArraySlotsExt;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::legacy_session;
-use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
@@ -42,7 +39,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::compress::runend_decode_decimal;
@@ -53,6 +49,8 @@ use crate::decompress_bool::runend_decode_bools;
 use crate::ops::find_physical_index;
 use crate::ops::find_slice_end_index;
 use crate::rules::RULES;
+
+mod plugin;
 
 /// A [`RunEnd`]-encoded Vortex array.
 pub type RunEndArray = Array<RunEnd>;
@@ -131,42 +129,6 @@ impl VTable for RunEnd {
         buffers: &[BufferHandle],
     ) -> VortexResult<ArrayParts<Self>> {
         vortex_array::vtable::with_empty_buffers(self, array, buffers)
-    }
-
-    fn serialize(
-        array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(
-            RunEndMetadata {
-                ends_ptype: PType::try_from(array.ends().dtype())
-                    .vortex_expect("Must be a valid PType") as i32,
-                num_runs: array.ends().len() as u64,
-                offset: array.offset() as u64,
-            }
-            .encode_to_vec(),
-        ))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        _buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        let metadata = RunEndMetadata::decode(metadata)?;
-        let ends_dtype = DType::Primitive(metadata.ends_ptype(), Nullability::NonNullable);
-        let runs = usize::try_from(metadata.num_runs).vortex_expect("Must be a valid usize");
-        let ends = children.get(0, &ends_dtype, runs)?;
-
-        let values = children.get(1, dtype, runs)?;
-        let offset = usize::try_from(metadata.offset).vortex_expect("Offset must be a valid usize");
-        let slots = RunEndSlots { ends, values }.into_slots();
-        let data = RunEndData::new(offset);
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

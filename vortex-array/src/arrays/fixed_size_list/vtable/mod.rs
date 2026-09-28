@@ -32,10 +32,9 @@ use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::FixedSizeListBuilder;
 use crate::dtype::DType;
-use crate::serde::ArrayChildren;
-use crate::validity::Validity;
 mod kernel;
 mod operations;
+mod plugin;
 mod validity;
 
 /// A [`FixedSizeList`]-encoded Vortex array.
@@ -98,13 +97,6 @@ impl VTable for FixedSizeList {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(vec![]))
-    }
-
     fn validate(
         &self,
         data: &FixedSizeListData,
@@ -145,54 +137,6 @@ impl VTable for FixedSizeList {
         );
 
         Ok(())
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        if !metadata.is_empty() {
-            vortex_bail!(
-                "FixedSizeListArray expects empty metadata, got {} bytes",
-                metadata.len()
-            );
-        }
-        vortex_ensure!(
-            buffers.is_empty(),
-            "`FixedSizeList::build` expects no buffers"
-        );
-
-        let DType::FixedSizeList(element_dtype, list_size, _) = &dtype else {
-            vortex_bail!("Expected `DType::FixedSizeList`, got {:?}", dtype);
-        };
-
-        let validity = {
-            if children.len() > 2 {
-                vortex_bail!("`FixedSizeList::build` method expected 1 or 2 children")
-            }
-
-            if children.len() == 2 {
-                let validity = children.get(1, &Validity::DTYPE, len)?;
-                Validity::Array(validity)
-            } else {
-                debug_assert_eq!(children.len(), 1);
-                Validity::from(dtype.nullability())
-            }
-        };
-
-        let num_elements = len * (*list_size as usize);
-        let elements = children.get(0, element_dtype.as_ref(), num_elements)?;
-
-        let data =
-            FixedSizeListData::try_build(elements.clone(), *list_size, validity.clone(), len)?;
-        let slots = FixedSizeListData::make_slots(&elements, &validity, len);
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

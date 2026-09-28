@@ -7,7 +7,6 @@ use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
 
-use prost::Message as _;
 use vortex_array::AnyCanonical;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
@@ -43,7 +42,6 @@ use vortex_array::require_opt_child;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::scalar_fn::fns::operators::Operator;
-use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
@@ -52,7 +50,6 @@ use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
@@ -68,6 +65,7 @@ mod canonical;
 mod compute;
 mod kernel;
 mod ops;
+mod plugin;
 mod rules;
 mod slice;
 
@@ -242,64 +240,6 @@ impl VTable for Sparse {
         buffers: &[BufferHandle],
     ) -> VortexResult<ArrayParts<Self>> {
         vortex_array::vtable::unsupported_buffer_replacement(array, buffers)
-    }
-
-    fn serialize(
-        array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        let patches = array.patches().to_metadata(array.len(), array.dtype())?;
-        let metadata = SparseMetadata { patches };
-
-        // Note that we DO NOT serialize the fill value since that is stored in the buffers.
-        Ok(Some(metadata.encode_to_vec()))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        let metadata = SparseMetadata::decode(metadata)?;
-
-        // Once we have the patches metadata, we need to get the fill value from the buffers.
-
-        if buffers.len() != 1 {
-            vortex_bail!("Expected 1 buffer, got {}", buffers.len());
-        }
-        let scalar_bytes: &[u8] = &buffers[0].clone().try_to_host_sync()?;
-
-        let scalar_value = ScalarValue::from_proto_bytes(scalar_bytes, dtype, session)?;
-        let fill_value = Scalar::try_new(dtype.clone(), scalar_value)?;
-
-        vortex_ensure_eq!(
-            children.len(),
-            2,
-            "SparseArray expects 2 children for sparse encoding, found {}",
-            children.len()
-        );
-
-        let patch_indices = children.get(
-            0,
-            &metadata.patches.indices_dtype()?,
-            metadata.patches.len()?,
-        )?;
-        let patch_values = children.get(1, dtype, metadata.patches.len()?)?;
-
-        let patches = Patches::new(
-            len,
-            metadata.patches.offset()?,
-            patch_indices,
-            patch_values,
-            None,
-        )?;
-        let slots = SparseData::make_slots(&patches);
-        let data = SparseData::from_patches(&patches, fill_value)?;
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

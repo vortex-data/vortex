@@ -5,7 +5,7 @@
 //!
 //! A Vortex array encoding is implemented by a small static vtable type plus an associated
 //! `TypedArrayData` value stored in each array instance. The vtable owns behavior such as
-//! validation, serialization, execution, child traversal, scalar access, and validity access.
+//! validation, execution, child traversal, scalar access, and validity access.
 //!
 //! The public [`ArrayRef`] API performs common precondition checks before calling
 //! into these traits. Implementations should focus on encoding-specific work and uphold the
@@ -26,7 +26,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -47,7 +46,6 @@ use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::patches::Patches;
 use crate::scalar::ScalarValue;
-use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 
 /// The array [`VTable`] encapsulates logic for an Array type within Vortex.
@@ -55,8 +53,9 @@ use crate::validity::Validity;
 /// The logic is split across several "VTable" traits to enable easier code organization than
 /// simply lumping everything into a single trait.
 ///
-/// From this [`VTable`] trait, we derive implementations for the sealed `DynArrayData` trait and the
-/// public [`ArrayPlugin`] registry trait.
+/// From this [`VTable`] trait, we derive implementations for the sealed `DynArrayData` trait.
+/// Serialization is not part of the vtable: encodings that support serde implement
+/// [`ArrayPlugin`] separately and register it with the session.
 ///
 /// The functions defined in these vtable traits will typically document their pre- and
 /// post-conditions. The pre-conditions are validated inside the `DynArrayData` and [`ArrayRef`]
@@ -113,31 +112,6 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
         &self,
         array: ArrayView<'_, Self>,
         buffers: &[BufferHandle],
-    ) -> VortexResult<ArrayParts<Self>>;
-
-    /// Serialize encoding metadata into a byte buffer for IPC or file storage.
-    ///
-    /// Return `None` if the array cannot be serialized by this encoding. Buffers and children are
-    /// serialized separately through [`buffer`](Self::buffer), [`nbuffers`](Self::nbuffers), and
-    /// child traversal.
-    fn serialize(
-        array: ArrayView<'_, Self>,
-        session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>>;
-
-    /// Deserialize an array from serialized metadata, buffers, and children.
-    ///
-    /// The returned [`ArrayParts`] are still validated by the generic adapter.
-    /// Deserializers should use the provided `session` to resolve plugin-owned metadata instead of
-    /// relying on global state.
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>>;
 
     /// Writes the array's logical values into a canonical builder.

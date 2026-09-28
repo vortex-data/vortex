@@ -4,12 +4,8 @@
 use std::hash::Hasher;
 
 use num_traits::AsPrimitive;
-use prost::Message;
-use smallvec::smallvec;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
@@ -17,7 +13,6 @@ use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use super::DictData;
-use super::DictMetadata;
 use super::DictOwnedExt;
 use super::DictParts;
 use super::array::DictSlots;
@@ -39,7 +34,6 @@ use crate::array::with_empty_buffers;
 use crate::arrays::ConstantArray;
 use crate::arrays::Primitive;
 use crate::arrays::VarBinView;
-use crate::arrays::dict::DictArrayExt;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::arrays::dict::compute::rules::PARENT_RULES;
 use crate::arrays::dict::execute::take_canonical;
@@ -48,19 +42,17 @@ use crate::builders::ArrayBuilder;
 use crate::builders::VarBinBuilder;
 use crate::builders::VarBinViewBuilder;
 use crate::dtype::DType;
-use crate::dtype::Nullability;
 use crate::dtype::OffsetBuilderPType;
-use crate::dtype::PType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
 use crate::match_each_integer_ptype;
 use crate::match_each_varbin_builder;
 use crate::require_child;
 use crate::scalar::Scalar;
-use crate::serde::ArrayChildren;
 
 mod kernel;
 mod operations;
+mod plugin;
 mod validity;
 
 /// A [`Dict`]-encoded Vortex array.
@@ -133,59 +125,6 @@ impl VTable for Dict {
         buffers: &[BufferHandle],
     ) -> VortexResult<ArrayParts<Self>> {
         with_empty_buffers(self, array, buffers)
-    }
-
-    fn serialize(
-        array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(
-            DictMetadata {
-                codes_ptype: PType::try_from(array.codes().dtype())? as i32,
-                values_len: u32::try_from(array.values().len()).map_err(|_| {
-                    vortex_err!(
-                        "Dictionary values size {} overflowed u32",
-                        array.values().len()
-                    )
-                })?,
-                is_nullable_codes: Some(array.codes().dtype().is_nullable()),
-                all_values_referenced: Some(array.has_all_values_referenced()),
-            }
-            .encode_to_vec(),
-        ))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        _buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        let metadata = DictMetadata::decode(metadata)?;
-        if children.len() != 2 {
-            vortex_bail!(
-                "Expected 2 children for dict encoding, found {}",
-                children.len()
-            )
-        }
-        let codes_nullable = metadata
-            .is_nullable_codes
-            .map(Nullability::from)
-            // If no `is_nullable_codes` metadata use the nullability of the values
-            // (and whole array) as before.
-            .unwrap_or_else(|| dtype.nullability());
-        let codes_dtype = DType::Primitive(metadata.codes_ptype(), codes_nullable);
-        let codes = children.get(0, &codes_dtype, len)?;
-        let values = children.get(1, dtype, metadata.values_len as usize)?;
-        let all_values_referenced = metadata.all_values_referenced.unwrap_or(false);
-
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, unsafe {
-            DictData::new_unchecked().set_all_values_referenced(all_values_referenced)
-        })
-        .with_slots(smallvec![Some(codes), Some(values)]))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

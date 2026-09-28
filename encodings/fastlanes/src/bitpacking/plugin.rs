@@ -6,7 +6,6 @@
 //!
 //! This enables zero-cost backward compatibility with previously written datasets.
 
-use vortex_array::Array;
 use vortex_array::ArrayDeserialization;
 use vortex_array::ArrayId;
 use vortex_array::ArrayPlugin;
@@ -56,16 +55,11 @@ impl ArrayPlugin for BitPackedPatchedPlugin {
             "BitPacked plugin does not recognize serialized ID {}",
             parts.serialized_id,
         );
-        let bitpacked = Array::<BitPacked>::try_from_parts(ArrayVTable::deserialize(
-            &BitPacked,
-            parts.dtype,
-            parts.len,
-            parts.metadata,
-            parts.buffers,
-            parts.children,
-            session,
-        )?)
-        .map_err(|_| vortex_err!("BitPacked plugin should only deserialize fastlanes.bitpacked"))?;
+        let bitpacked = ArrayPlugin::deserialize(&BitPacked, parts, session)?
+            .try_downcast::<BitPacked>()
+            .map_err(|_| {
+                vortex_err!("BitPacked plugin should only deserialize fastlanes.bitpacked")
+            })?;
 
         // Create a new BitPackedArray without the interior patches installed.
         let Some(patches) = bitpacked.patches() else {

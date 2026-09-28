@@ -9,7 +9,6 @@ use std::hash::Hasher;
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_session::VortexSession;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -27,7 +26,6 @@ use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
-use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 
 #[derive(Clone, Debug)]
@@ -132,35 +130,6 @@ impl VTable for ForeignArray {
             ForeignArrayData::new(array.metadata.clone(), buffers.to_vec()),
         )
         .with_slots(array.slots().iter().cloned().collect()))
-    }
-
-    fn serialize(
-        array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(array.metadata.clone()))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        let child_arrays = (0..children.len())
-            .map(|idx| children.get(idx, dtype, len).map(Some))
-            .collect::<VortexResult<ArraySlots>>()?;
-
-        Ok(ArrayParts::new(
-            self.clone(),
-            dtype.clone(),
-            len,
-            ForeignArrayData::new(metadata.to_vec(), buffers.to_vec()),
-        )
-        .with_slots(child_arrays))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

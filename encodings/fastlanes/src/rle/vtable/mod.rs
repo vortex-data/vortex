@@ -4,7 +4,6 @@
 use std::hash::Hash;
 use std::hash::Hasher;
 
-use prost::Message;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -21,23 +20,20 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable::VTable;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::RLEData;
-use crate::rle::array::RLEArrayExt;
-use crate::rle::array::RLEArraySlotsExt;
 use crate::rle::array::RLESlots;
 use crate::rle::array::RLESlotsView;
 use crate::rle::array::rle_decompress::rle_decompress;
 use crate::rle::vtable::rules::RULES;
 
 mod operations;
+mod plugin;
 mod rules;
 mod validity;
 
@@ -131,70 +127,6 @@ impl VTable for RLE {
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         RLESlots::NAMES[idx].to_string()
-    }
-
-    fn serialize(
-        array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(
-            RLEMetadata {
-                values_len: array.values().len() as u64,
-                indices_len: array.indices().len() as u64,
-                indices_ptype: PType::try_from(array.indices().dtype())? as i32,
-                values_idx_offsets_len: array.values_idx_offsets().len() as u64,
-                values_idx_offsets_ptype: PType::try_from(array.values_idx_offsets().dtype())?
-                    as i32,
-                offset: array.offset() as u64,
-            }
-            .encode_to_vec(),
-        ))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        vortex_ensure!(
-            buffers.is_empty(),
-            "RLEArray expects 0 buffers, got {}",
-            buffers.len()
-        );
-        let metadata = RLEMetadata::decode(metadata)?;
-        let values = children.get(
-            0,
-            &DType::Primitive(dtype.as_ptype(), Nullability::NonNullable),
-            usize::try_from(metadata.values_len)?,
-        )?;
-
-        let indices = children.get(
-            1,
-            &DType::Primitive(metadata.indices_ptype(), dtype.nullability()),
-            usize::try_from(metadata.indices_len)?,
-        )?;
-
-        let values_idx_offsets = children.get(
-            2,
-            &DType::Primitive(
-                metadata.values_idx_offsets_ptype(),
-                Nullability::NonNullable,
-            ),
-            usize::try_from(metadata.values_idx_offsets_len)?,
-        )?;
-
-        let slots = RLESlots {
-            values,
-            indices,
-            values_idx_offsets,
-        }
-        .into_slots();
-        let data = RLEData::try_new(metadata.offset as usize)?;
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

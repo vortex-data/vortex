@@ -89,7 +89,6 @@ pub fn initialize(session: &VortexSession) {
     session.arrays().register(Delta);
     session.arrays().register(FoR);
     session.arrays().register(RLE);
-    session.arrays().register(TransposedBool);
     bitpacking::initialize(session);
     r#for::initialize(session);
     rle::initialize(session);

@@ -7,7 +7,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::ArrayParts;
@@ -35,7 +34,6 @@ use crate::dtype::PType;
 use crate::dtype::UnsignedPType;
 use crate::match_each_unsigned_integer_ptype;
 use crate::scalar::Scalar;
-use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 
 /// A [`PiecewiseSequence`]-encoded Vortex index array.
@@ -107,25 +105,6 @@ impl VTable for PiecewiseSequence {
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         PiecewiseSequenceSlots::NAMES[idx].to_string()
-    }
-
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(None)
-    }
-
-    fn deserialize(
-        &self,
-        _dtype: &DType,
-        _len: usize,
-        _metadata: &[u8],
-        _buffers: &[BufferHandle],
-        _children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        vortex_bail!("PiecewiseSequenceArray is not serializable")
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

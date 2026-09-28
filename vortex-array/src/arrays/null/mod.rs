@@ -5,7 +5,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
@@ -26,10 +25,10 @@ use crate::builders::ArrayBuilder;
 use crate::builders::NullBuilder;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
-use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 
 pub(crate) mod compute;
+mod plugin;
 
 /// A [`Null`]-encoded Vortex array.
 pub type NullArray = Array<Null>;
@@ -78,36 +77,6 @@ impl VTable for Null {
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         vortex_panic!("NullArray slot_name index {idx} out of bounds")
-    }
-
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(vec![]))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-
-        _buffers: &[BufferHandle],
-        _children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        vortex_ensure!(
-            metadata.is_empty(),
-            "NullArray expects empty metadata, got {} bytes",
-            metadata.len()
-        );
-        Ok(ArrayParts::new(
-            self.clone(),
-            dtype.clone(),
-            len,
-            EmptyArrayData,
-        ))
     }
 
     fn reduce_parent(

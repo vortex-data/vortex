@@ -244,40 +244,6 @@ fn serialization_requires_v2_permission() -> VortexResult<()> {
     Ok(())
 }
 
-#[test]
-fn bare_vtable_refuses_serde() -> VortexResult<()> {
-    let session = array_session();
-    session.arrays().register(DecimalByteParts);
-    let msp = msp();
-    let array = DecimalByteParts::try_new(msp.clone(), DecimalDType::new(19, 2))?.into_array();
-    let result = session.array_serialize(&array);
-    assert!(
-        result.as_ref().is_err_and(|err| err
-            .to_string()
-            .contains("DecimalByteParts serialization requires DecimalBytePartsPlugin")),
-        "expected unsupported VTable serialization, got {result:?}"
-    );
-
-    let id = VTable::id(&DecimalByteParts);
-    let plugin = session
-        .arrays()
-        .registry()
-        .get(&id)
-        .vortex_expect("registered");
-    let children = vec![msp];
-    let result = plugin.deserialize(
-        ArrayDeserialization::new(id, array.dtype(), array.len(), &[8, 7], &[], &children),
-        &session,
-    );
-    assert!(
-        result.as_ref().is_err_and(|err| err
-            .to_string()
-            .contains("DecimalByteParts deserialization requires DecimalBytePartsPlugin")),
-        "expected unsupported VTable deserialization, got {result:?}"
-    );
-    Ok(())
-}
-
 fn msp() -> ArrayRef {
     buffer![1i64, 2, 3].into_array()
 }
@@ -317,7 +283,8 @@ fn deserialize_with(
     children: Vec<ArrayRef>,
 ) -> VortexResult<ArrayRef> {
     let dtype = DType::Decimal(DecimalDType::new(38, 2), Nullability::NonNullable);
-    DecimalBytePartsPlugin.deserialize(
+    ArrayPlugin::deserialize(
+        &DecimalByteParts,
         ArrayDeserialization::new(serialized_id, &dtype, 3, metadata, &[], &children),
         &array_session(),
     )

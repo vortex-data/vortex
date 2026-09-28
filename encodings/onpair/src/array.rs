@@ -14,7 +14,6 @@ use onpair::CompactDictionary;
 use onpair::CompactDictionaryView;
 use onpair::Dictionary;
 use onpair::DictionaryStorage;
-use prost::Message as _;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -31,12 +30,10 @@ use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::VarBinBuilder;
 use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
 use vortex_array::dtype::OffsetBuilderPType;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_varbin_builder;
-use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
@@ -49,7 +46,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::canonical::OnPairDecodePlan;
@@ -57,6 +53,8 @@ use crate::canonical::canonicalize_onpair;
 use crate::canonical::onpair_decode_bytes;
 use crate::decode::collect_widened;
 use crate::rules::RULES;
+
+mod plugin;
 
 /// An [`OnPair`]-encoded Vortex array.
 pub type OnPairArray = Array<OnPair>;
@@ -505,98 +503,6 @@ impl VTable for OnPair {
             ArrayParts::new(self.clone(), array.dtype().clone(), array.len(), data)
                 .with_slots(array.slots().iter().cloned().collect()),
         )
-    }
-
-    fn serialize(
-        array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        let dict_size = u32::try_from(array.dict_offsets().len().saturating_sub(1))
-            .map_err(|_| vortex_err!("OnPair dict_size exceeds u32"))?;
-        let codes_len = array.codes().len() as u64;
-        Ok(Some(
-            OnPairMetadata {
-                uncompressed_lengths_ptype: array.uncompressed_lengths().dtype().as_ptype().into(),
-                dict_size,
-                codes_len,
-                dict_offsets_ptype: array.dict_offsets().dtype().as_ptype().into(),
-                codes_ptype: array.codes().dtype().as_ptype().into(),
-                codes_offsets_ptype: array.codes_offsets().dtype().as_ptype().into(),
-            }
-            .encode_to_vec(),
-        ))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        if buffers.len() != 1 {
-            vortex_bail!(InvalidArgument: "Expected 1 buffer, got {}", buffers.len());
-        }
-        let metadata = OnPairMetadata::decode(metadata)?;
-        let uncompressed_ptype = metadata.get_uncompressed_lengths_ptype()?;
-
-        // Slot children do not persist their own lengths, so metadata records
-        // the dictionary and code-stream sizes needed to deserialize them.
-        let dict_offsets_len = metadata.dict_size as usize + 1;
-        let codes_len = usize::try_from(metadata.codes_len)
-            .map_err(|_| vortex_err!("codes_len {} overflows usize", metadata.codes_len))?;
-        // The cascading compressor may have narrowed any of these integer
-        // children to a tighter ptype; the recorded ptype tells the framework
-        // exactly which dtype to materialise as.
-        let dict_offsets_ptype = PType::try_from(metadata.dict_offsets_ptype).map_err(|_| {
-            vortex_err!("invalid dict_offsets_ptype {}", metadata.dict_offsets_ptype)
-        })?;
-        let codes_ptype = PType::try_from(metadata.codes_ptype)
-            .map_err(|_| vortex_err!("invalid codes_ptype {}", metadata.codes_ptype))?;
-        let codes_offsets_ptype = PType::try_from(metadata.codes_offsets_ptype).map_err(|_| {
-            vortex_err!(
-                "invalid codes_offsets_ptype {}",
-                metadata.codes_offsets_ptype
-            )
-        })?;
-        let dict_offsets = children.get(
-            0,
-            &DType::Primitive(dict_offsets_ptype, Nullability::NonNullable),
-            dict_offsets_len,
-        )?;
-        let codes = children.get(
-            1,
-            &DType::Primitive(codes_ptype, Nullability::NonNullable),
-            codes_len,
-        )?;
-        let codes_offsets = children.get(
-            2,
-            &DType::Primitive(codes_offsets_ptype, Nullability::NonNullable),
-            len + 1,
-        )?;
-        let uncompressed_lengths = children.get(
-            3,
-            &DType::Primitive(uncompressed_ptype, Nullability::NonNullable),
-            len,
-        )?;
-        let validity = match children.len() {
-            4 => Validity::from(dtype.nullability()),
-            5 => Validity::Array(children.get(4, &Validity::DTYPE, len)?),
-            other => vortex_bail!(InvalidArgument: "Expected 4 or 5 children, got {other}"),
-        };
-
-        let data = OnPairData::new(buffers[0].clone());
-        let slots = OnPairSlots {
-            dict_offsets,
-            codes,
-            codes_offsets,
-            uncompressed_lengths,
-            validity: validity_to_child(&validity, len),
-        }
-        .into_slots();
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

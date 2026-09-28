@@ -18,7 +18,6 @@ use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::array::ValidityVTableFromChild;
 use crate::array::with_empty_buffers;
-use crate::arrays::ListView;
 use crate::arrays::map::MapData;
 use crate::arrays::map::MapSlots;
 use crate::arrays::map::MapSlotsView;
@@ -28,10 +27,10 @@ use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
 use crate::match_each_map_builder;
-use crate::serde::ArrayChildren;
 
 mod kernel;
 mod operations;
+mod plugin;
 mod validity;
 
 /// A [`Map`]-encoded Vortex array.
@@ -98,53 +97,6 @@ impl VTable for Map {
         buffers: &[BufferHandle],
     ) -> VortexResult<ArrayParts<Self>> {
         with_empty_buffers(self, array, buffers)
-    }
-
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(vec![]))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        if !metadata.is_empty() {
-            vortex_bail!(
-                "MapArray expects empty metadata, got {} bytes",
-                metadata.len()
-            );
-        }
-        vortex_ensure!(buffers.is_empty(), "MapArray expects no buffers");
-
-        let DType::Map(map_dtype, nullability) = dtype else {
-            vortex_bail!("Expected map dtype, got {dtype}");
-        };
-        vortex_ensure!(
-            children.len() == MapSlots::COUNT,
-            "MapArray expected {} child, found {}",
-            MapSlots::COUNT,
-            children.len()
-        );
-
-        let expected_entries_dtype =
-            DType::List(std::sync::Arc::new(map_dtype.entries_dtype()), *nullability);
-        let entries = children.get(MapSlots::ENTRIES, &expected_entries_dtype, len)?;
-        vortex_ensure!(
-            entries.is::<ListView>(),
-            "MapArray entries must use vortex.listview encoding, got {}",
-            entries.encoding_id()
-        );
-
-        let slots = MapData::make_slots(entries);
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, MapData).with_slots(slots))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

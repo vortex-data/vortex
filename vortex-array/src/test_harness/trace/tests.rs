@@ -57,7 +57,6 @@ use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::like::Like;
 use crate::scalar_fn::fns::like::LikeOptions;
 use crate::scalar_fn::fns::operators::Operator;
-use crate::serde::ArrayChildren;
 use crate::session::ArraySession;
 use crate::test_harness::trace::TraceOptions;
 use crate::test_harness::trace::TraceResolution;
@@ -176,25 +175,6 @@ impl VTable for StackParent {
         None
     }
 
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(None)
-    }
-
-    fn deserialize(
-        &self,
-        _dtype: &DType,
-        _len: usize,
-        _metadata: &[u8],
-        _buffers: &[BufferHandle],
-        _children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        vortex_bail!("StackParent cannot be deserialized")
-    }
-
     fn with_buffers(
         &self,
         array: ArrayView<'_, Self>,
@@ -283,25 +263,6 @@ impl VTable for StackChild {
 
     fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
         None
-    }
-
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(None)
-    }
-
-    fn deserialize(
-        &self,
-        _dtype: &DType,
-        _len: usize,
-        _metadata: &[u8],
-        _buffers: &[BufferHandle],
-        _children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        vortex_bail!("StackChild cannot be deserialized")
     }
 
     fn with_buffers(

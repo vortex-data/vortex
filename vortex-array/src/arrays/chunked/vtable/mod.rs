@@ -4,14 +4,10 @@
 use std::hash::Hasher;
 
 use itertools::Itertools;
-use smallvec::SmallVec;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::ArrayEq;
@@ -22,14 +18,12 @@ use crate::EqMode;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::IntoArray;
-use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayParts;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::array::with_empty_buffers;
-use crate::arrays::PrimitiveArray;
 use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::chunked::ChunkedData;
 use crate::arrays::chunked::array::ChunkedSlots;
@@ -40,9 +34,9 @@ use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
-use crate::serde::ArrayChildren;
 mod canonical;
 mod operations;
+mod plugin;
 mod validity;
 
 /// A [`Chunked`]-encoded Vortex array.
@@ -162,76 +156,6 @@ impl VTable for Chunked {
         buffers: &[BufferHandle],
     ) -> VortexResult<ArrayParts<Self>> {
         with_empty_buffers(self, array, buffers)
-    }
-
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(vec![]))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        _buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        if !metadata.is_empty() {
-            vortex_bail!(
-                "ChunkedArray expects empty metadata, got {} bytes",
-                metadata.len()
-            );
-        }
-        if children.is_empty() {
-            vortex_bail!("Chunked array needs at least one child");
-        }
-
-        let nchunks = children.len() - 1;
-        let chunk_offsets = children.get(
-            ChunkedSlots::CHUNK_OFFSETS,
-            &DType::Primitive(PType::U64, Nullability::NonNullable),
-            nchunks + 1,
-        )?;
-        let mut ctx = session.create_execution_ctx();
-        let chunk_offsets_buf = chunk_offsets
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)?
-            .to_buffer::<u64>();
-        let chunk_offsets_usize = chunk_offsets_buf
-            .iter()
-            .copied()
-            .map(|offset| {
-                usize::try_from(offset)
-                    .map_err(|_| vortex_err!("chunk offset {offset} exceeds usize range"))
-            })
-            .collect::<VortexResult<Vec<_>>>()?;
-        let mut slots = SmallVec::with_capacity(children.len());
-        slots.push(Some(chunk_offsets));
-        for (idx, (start, end)) in chunk_offsets_usize
-            .iter()
-            .copied()
-            .tuple_windows()
-            .enumerate()
-        {
-            let chunk_len = end - start;
-            slots.push(Some(children.get(
-                idx + ChunkedSlots::CHUNKS_OFFSET,
-                dtype,
-                chunk_len,
-            )?));
-        }
-
-        Ok(ArrayParts::new(
-            self.clone(),
-            dtype.clone(),
-            len,
-            ChunkedData::new(chunk_offsets_usize),
-        )
-        .with_slots(slots))
     }
 
     fn append_to_builder(
