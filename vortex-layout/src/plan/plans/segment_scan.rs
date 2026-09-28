@@ -100,9 +100,11 @@ impl PlanVTable for SegmentScan {
     }
 
     fn exec(plan: &Plan<Self>, rows: Range<u64>, mask: Mask) -> VortexResult<Box<dyn ExecNode>> {
-        Ok(Box::new(SegmentScanNode::new(
+        // A bare scan returns every row; a Filter over it runs the same node with a filter.
+        Ok(Box::new(SegmentScanNode::try_new(
             plan.clone(),
             Selection::try_new(rows, mask)?,
-        )))
+            None,
+        )?))
     }
 }

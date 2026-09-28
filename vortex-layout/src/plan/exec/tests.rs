@@ -31,6 +31,8 @@ use crate::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::flat::FlatLayout;
 use crate::layouts::struct_::StructLayout;
+use crate::plan::Filter;
+use crate::plan::SegmentScan;
 use crate::plan::lower;
 use crate::test::SESSION;
 
@@ -461,5 +463,45 @@ fn state_is_side_effect_free() -> VortexResult<()> {
     for _ in 0..3 {
         assert_eq!(graph.state(), ExecState::NeedsCompute);
     }
+    Ok(())
+}
+
+/// A bare segment scan returns every row of its range whatever it is told to care about, and a
+/// filter over the same scan returns only the selected rows.
+#[rstest]
+#[case::every_other(Sel::EveryOther)]
+#[case::sparse(Sel::Rows(&[1, 4]))]
+#[case::nothing(Sel::None)]
+fn bare_scan_is_dense_and_filter_keeps_the_selection(#[case] sel: Sel) -> VortexResult<()> {
+    let mut store = Store::default();
+    let values = PrimitiveArray::from_iter(0..ROWS as i32).into_array();
+    let filtered = lower(&store.flat(&values)?)?;
+    assert!(filtered.is::<Filter>());
+    let scan = filtered.child_required(0)?;
+    assert!(scan.is::<SegmentScan>());
+
+    let rows = 3..9;
+    let mask = sel.mask(6);
+    let mut ctx = SESSION.create_execution_ctx();
+
+    let dense = run(
+        &store,
+        &scan,
+        rows.clone(),
+        mask.clone(),
+        delivery(Delivery::Fifo),
+    )?;
+    assert_eq!(dense.pieces.len(), 1);
+    assert_eq!(dense.pieces[0].rows, rows);
+    assert_arrays_eq!(dense.pieces[0].array, values.slice(3..9)?, &mut ctx);
+
+    let kept = run(
+        &store,
+        &filtered,
+        rows.clone(),
+        mask.clone(),
+        delivery(Delivery::Fifo),
+    )?;
+    assert_view(&values, &rows, &mask, kept.pieces)?;
     Ok(())
 }
