@@ -1168,8 +1168,10 @@ fn zoned_plan_exposes_data_and_zones() -> VortexResult<()> {
     assert!(plan.is::<Zoned>());
     insta::assert_snapshot!(plan.display_tree(), @"
     root: vortex.plan.zoned(i32, rows=5)
-      data: vortex.plan.segment_scan(i32, rows=5)
-      zones: vortex.plan.segment_scan({}, rows=2)
+      data: vortex.plan.filter(i32, rows=5)
+        child: vortex.plan.segment_scan(i32, rows=5)
+      zones: vortex.plan.filter({}, rows=2)
+        child: vortex.plan.segment_scan({}, rows=2)
     ");
     Ok(())
 }
@@ -1205,14 +1207,17 @@ fn stats_expression_rewrites_to_zoned_pruning_plan() -> VortexResult<()> {
     insta::assert_snapshot!(plan.display_tree(), @r"
     root: vortex.plan.eval(bool?, rows=5) expr=(stat($, vortex.max()) <= 5i32)
       child: vortex.plan.zoned(i32, rows=5)
-        data: vortex.plan.segment_scan(i32, rows=5)
-        zones: vortex.plan.segment_scan({vortex.max()=i32?}, rows=2)
+        data: vortex.plan.filter(i32, rows=5)
+          child: vortex.plan.segment_scan(i32, rows=5)
+        zones: vortex.plan.filter({vortex.max()=i32?}, rows=2)
+          child: vortex.plan.segment_scan({vortex.max()=i32?}, rows=2)
     ");
 
     let optimized = optimize(plan)?;
     insta::assert_snapshot!(optimized.display_tree(), @r"
     root: vortex.plan.zoned(bool?, rows=5) prune=(stat($, vortex.max()) <= 5i32)
-      zones: vortex.plan.segment_scan({vortex.max()=i32?}, rows=2)
+      zones: vortex.plan.filter({vortex.max()=i32?}, rows=2)
+        child: vortex.plan.segment_scan({vortex.max()=i32?}, rows=2)
     ");
     let zoned = optimized
         .as_opt::<Zoned>()
@@ -1285,7 +1290,8 @@ fn pruning_expression_partitions_across_row_idx_and_zoned_struct_field() -> Vort
         row_idx: vortex.plan.eval(bool?, rows=5) expr=(stat($, vortex.max()) <= 11u64)
           child: vortex.plan.row_idx(u64, rows=5)
         child: vortex.plan.zoned(bool?, rows=5) prune=(stat($, vortex.max()) <= 5i32)
-          zones: vortex.plan.segment_scan({vortex.max()=i32?}, rows=2)
+          zones: vortex.plan.filter({vortex.max()=i32?}, rows=2)
+            child: vortex.plan.segment_scan({vortex.max()=i32?}, rows=2)
     ");
     Ok(())
 }
@@ -1318,8 +1324,10 @@ fn legacy_stats_layout_uses_zoned_plan() -> VortexResult<()> {
     assert!(plan.is::<Zoned>());
     insta::assert_snapshot!(plan.display_tree(), @"
     root: vortex.plan.zoned(i32, rows=5)
-      data: vortex.plan.segment_scan(i32, rows=5)
-      zones: vortex.plan.segment_scan({}, rows=2)
+      data: vortex.plan.filter(i32, rows=5)
+        child: vortex.plan.segment_scan(i32, rows=5)
+      zones: vortex.plan.filter({}, rows=2)
+        child: vortex.plan.segment_scan({}, rows=2)
     ");
     Ok(())
 }
