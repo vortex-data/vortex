@@ -6,6 +6,7 @@ use std::iter;
 use std::ops::Range;
 use std::sync::Arc;
 
+use futures::FutureExt;
 use futures::future::BoxFuture;
 use itertools::Either;
 use itertools::Itertools;
@@ -15,23 +16,26 @@ use vortex_array::expr::BoundExpression;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_mask::Mask;
 use vortex_scan::selection::Selection;
+use vortex_session::VortexSession;
 
-use crate::LayoutReaderRef;
 use crate::layouts::row_idx::RowIdx;
-use crate::layouts::row_idx::RowIdxLayoutReader;
-use crate::scan::filter::FilterExpr;
 use crate::scan::scan_builder::ScanBuilder;
 use crate::scan::scan_builder::referenced_field_masks;
 use crate::scan::splits::Splits;
 use crate::scan::splits::attempt_split_ranges;
-use crate::scan::tasks::TaskContext;
-use crate::scan::tasks::split_exec;
+use crate::scan::v2::ScanFile;
+use crate::scan::v2::split::SplitTask;
 
-/// Computes split ranges for `builder` and returns an executable scan.
+/// Computes split ranges for `builder` and returns an executable scan over `file`, the file the
+/// builder's reader was opened over.
 ///
 /// The replacement for [`ScanBuilder::prepare`].
-pub fn prepare<A: 'static + Send>(builder: ScanBuilder<A>) -> VortexResult<RepeatedScanV2<A>> {
+pub fn prepare<A: 'static + Send>(
+    builder: ScanBuilder<A>,
+    file: ScanFile,
+) -> VortexResult<RepeatedScanV2<A>> {
     let dtype = builder.dtype()?;
     let parts = builder.into_parts();
 
@@ -39,17 +43,10 @@ pub fn prepare<A: 'static + Send>(builder: ScanBuilder<A>) -> VortexResult<Repea
         vortex_bail!("Vortex doesn't support scans with both a filter and a limit")
     }
 
-    let mut layout_reader = parts.layout_reader;
+    let layout_reader = parts.layout_reader;
     let mut found_row_idx = parts.projection.contains::<RowIdx>()?;
     if !found_row_idx && let Some(filter) = parts.filter.as_ref() {
         found_row_idx = filter.contains::<RowIdx>()?;
-    }
-    if found_row_idx {
-        layout_reader = Arc::new(RowIdxLayoutReader::new(
-            parts.row_offset,
-            layout_reader,
-            parts.session.clone(),
-        ));
     }
 
     let splits =
@@ -72,7 +69,9 @@ pub fn prepare<A: 'static + Send>(builder: ScanBuilder<A>) -> VortexResult<Repea
         };
 
     Ok(RepeatedScanV2 {
-        layout_reader,
+        session: parts.session,
+        file,
+        row_idx_offset: found_row_idx.then_some(parts.row_offset),
         projection: parts.projection,
         filter: parts.filter,
         row_range: parts.row_range,
@@ -88,7 +87,9 @@ pub fn prepare<A: 'static + Send>(builder: ScanBuilder<A>) -> VortexResult<Repea
 ///
 /// The replacement for [`RepeatedScan`](crate::scan::repeated_scan::RepeatedScan).
 pub struct RepeatedScanV2<A: 'static + Send> {
-    layout_reader: LayoutReaderRef,
+    session: VortexSession,
+    file: ScanFile,
+    row_idx_offset: Option<u64>,
     projection: BoundExpression,
     filter: Option<BoundExpression>,
     row_range: Option<Range<u64>>,
@@ -158,19 +159,34 @@ impl<A: 'static + Send> RepeatedScanV2<A> {
 
         let mut limit = self.limit;
         let mut tasks = Vec::new();
-        let ctx = Arc::new(TaskContext {
-            filter: self.filter.clone().map(|f| Arc::new(FilterExpr::new(f))),
-            reader: Arc::clone(&self.layout_reader),
-            projection: self.projection.clone(),
-            mapper: Arc::clone(&self.map_fn),
-        });
-
         for range in ranges {
             let row_mask = self.selection.row_mask(&range);
             if row_mask.mask().all_false() {
                 continue;
             }
-            tasks.push(split_exec(Arc::clone(&ctx), row_mask, limit.as_mut())?);
+            let mask = match (&self.filter, limit.as_mut()) {
+                (None, Some(0)) => Mask::new_false(row_mask.mask().len()),
+                (None, Some(l)) => {
+                    let true_count = row_mask.mask().true_count();
+                    let mask_limit = usize::try_from(*l)
+                        .map(|l| l.min(true_count))
+                        .unwrap_or(true_count);
+                    *l -= mask_limit as u64;
+                    row_mask.mask().clone().limit(mask_limit)
+                }
+                _ => row_mask.mask().clone(),
+            };
+            let task = SplitTask {
+                session: self.session.clone(),
+                file: self.file.clone(),
+                range: row_mask.row_range(),
+                mask,
+                filter: self.filter.clone(),
+                projection: self.projection.clone(),
+                row_idx_offset: self.row_idx_offset,
+                map_fn: Arc::clone(&self.map_fn),
+            };
+            tasks.push(task.run().boxed());
             if limit.is_some_and(|l| l == 0) {
                 break;
             }

@@ -26,12 +26,14 @@ use crate::LayoutReader;
 use crate::scan::planning::segments::PollingSegmentSource;
 
 /// Evaluates the filter and projection for one split by polling the reader's future, one poll
-/// per compute, and reporting the segments each poll missed as `NeedsIO`. A split with no
-/// matching rows finishes without a batch.
+/// per compute, and reporting the segments each poll missed as `NeedsIO`. Only rows selected by
+/// the initial mask are considered. A split with no matching rows finishes without a batch.
 pub struct SplitMorsel {
     source: Arc<PollingSegmentSource>,
     reader: Arc<dyn LayoutReader>,
     range: Range<u64>,
+    /// Rows of `range` to consider before the filter runs.
+    mask: Mask,
     filter: Option<BoundExpression>,
     projection: BoundExpression,
     /// The reader's future, built on the first compute and polled until ready.
@@ -44,11 +46,13 @@ pub struct SplitMorsel {
 }
 
 impl SplitMorsel {
-    /// Creates a morsel for `range` of `reader`, whose segment source must be `source`.
+    /// Creates a morsel for the rows of `range` selected by `mask`, read through `reader`, whose
+    /// segment source must be `source`.
     pub fn new(
         source: Arc<PollingSegmentSource>,
         reader: Arc<dyn LayoutReader>,
         range: Range<u64>,
+        mask: Mask,
         filter: Option<BoundExpression>,
         projection: BoundExpression,
     ) -> Self {
@@ -56,6 +60,7 @@ impl SplitMorsel {
             source,
             reader,
             range,
+            mask,
             filter,
             projection,
             pending: None,
@@ -71,8 +76,7 @@ impl SplitMorsel {
     }
 
     fn build(&self) -> VortexResult<ArrayFuture> {
-        let len = usize::try_from(self.range.end - self.range.start)?;
-        let mut mask = MaskFuture::ready(Mask::new_true(len));
+        let mut mask = MaskFuture::ready(self.mask.clone());
         if let Some(filter) = &self.filter {
             mask = self.reader.filter_evaluation(&self.range, filter, mask)?;
         }

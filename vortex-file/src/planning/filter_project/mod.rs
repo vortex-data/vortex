@@ -21,9 +21,9 @@ use vortex_io::request::IoRequestId;
 use vortex_io::request::IoResult;
 use vortex_layout::LayoutReader;
 use vortex_layout::scan::planning::PollingSegmentSource;
-use vortex_layout::scan::planning::SegmentLocation;
 use vortex_layout::scan::planning::SplitMorsel;
 use vortex_layout::segments::SegmentSource;
+use vortex_mask::Mask;
 use vortex_scan::planning::planner::Planner;
 use vortex_scan::planning::planner::PlannerOutput;
 use vortex_scan::planning::planner::State;
@@ -32,6 +32,7 @@ use vortex_session::VortexSession;
 
 use crate::VortexFile;
 use crate::planning::OpenedFile;
+use crate::planning::segment_locations;
 
 /// Opens the file's layout on the first compute, then emits one [`SplitMorsel`] per natural
 /// split in file order and finishes.
@@ -73,17 +74,7 @@ impl FilterProject {
 
     fn prepare(&mut self, opened: OpenedFile) -> VortexResult<()> {
         let dtype = opened.footer.dtype().clone();
-        let locations = opened
-            .footer
-            .segment_specs_with_metadata()
-            .iter()
-            .map(|spec| SegmentLocation {
-                offset: spec.offset,
-                length: spec.length,
-                alignment: spec.alignment,
-            })
-            .collect();
-        let source = Arc::new(PollingSegmentSource::new(locations));
+        let source = Arc::new(PollingSegmentSource::new(segment_locations(&opened.footer)));
         let file = VortexFile::new(
             opened.footer,
             Arc::clone(&source) as Arc<dyn SegmentSource>,
@@ -130,6 +121,7 @@ impl Planner for FilterProject {
             return Ok(PlannerOutput::Done);
         };
         self.next_split += 1;
+        let len = usize::try_from(range.end - range.start)?;
         let scope = WorkScope {
             file_ordinal: 0,
             rows: range.clone(),
@@ -140,6 +132,7 @@ impl Planner for FilterProject {
                 Arc::clone(&prepared.source),
                 Arc::clone(&prepared.reader),
                 range,
+                Mask::new_true(len),
                 prepared.filter.clone(),
                 prepared.projection.clone(),
             )),

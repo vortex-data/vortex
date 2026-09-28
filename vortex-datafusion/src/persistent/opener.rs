@@ -41,6 +41,7 @@ use vortex::array::VortexSessionExecute;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
 use vortex::file::OpenOptionsSessionExt;
+use vortex::file::planning;
 use vortex::io::InstrumentedReadAt;
 use vortex::layout::LayoutReader;
 use vortex::layout::scan;
@@ -440,7 +441,7 @@ impl FileOpener for VortexOpener {
                     Ok(RecordBatch::from(arrow.as_struct().clone()))
                 });
             let batches = if scan::v2::enabled() {
-                scan::v2::into_stream(scan_builder).map(|s| s.boxed())
+                scan::v2::into_stream(scan_builder, planning::scan_file(&vxf)).map(|s| s.boxed())
             } else {
                 scan_builder.into_stream().map(|s| s.boxed())
             };
