@@ -3,8 +3,12 @@
 
 use std::borrow::Cow;
 use std::fmt;
+use std::ops::Range;
+use std::sync::Arc;
+use std::sync::OnceLock;
 
 use vortex_array::EmptyMetadata;
+use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::traversal::NodeExt;
@@ -12,6 +16,8 @@ use vortex_array::expr::traversal::Transformed;
 use vortex_array::expr::traversal::TraversalOrder;
 use vortex_array::scalar_fn::fns::stat::StatFn;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_mask::Mask;
 use vortex_session::registry::CachedId;
 
 use crate::plan::Eval;
@@ -22,6 +28,9 @@ use crate::plan::PlanParts;
 use crate::plan::PlanRef;
 use crate::plan::PlanVTable;
 use crate::plan::check_child_count;
+use crate::plan::exec::ExecNode;
+use crate::plan::exec::Selection;
+use crate::plan::exec::ZonePruneNode;
 use crate::plan::optimizer::PlanParentReduceRule;
 
 const DATA: usize = 0;
@@ -30,12 +39,19 @@ const ZONES: usize = 1;
 #[derive(Clone, Debug)]
 struct ZonedPruningState {
     expression: BoundExpression,
+    /// The dtype of the column the zones summarise, which the expression is bound to.
+    column_dtype: DType,
+    /// Which zones the expression proves can be pruned, computed once and shared by every
+    /// execution of this plan.
+    pruned_zones: Arc<OnceLock<Mask>>,
 }
 
 /// Zoned-plan-specific data.
 #[derive(Clone, Debug)]
 pub struct ZonedData {
     zone_len: u64,
+    /// The aggregate functions whose results the zone table stores, in field order.
+    aggregate_fns: Arc<[AggregateFnRef]>,
     pruning: Option<ZonedPruningState>,
 }
 
@@ -56,6 +72,7 @@ impl ZonedPlan {
         row_count: u64,
         children: PlanChildren,
         zone_len: u64,
+        aggregate_fns: Arc<[AggregateFnRef]>,
     ) -> Self {
         PlanParts {
             vtable: Zoned,
@@ -64,17 +81,56 @@ impl ZonedPlan {
             children,
             data: ZonedData {
                 zone_len,
+                aggregate_fns,
                 pruning: None,
             },
         }
         .into_typed()
     }
 
-    /// Creates a zoned plan over `data` summarised by `zones` of `zone_len` rows each.
-    pub fn new(data: PlanRef, zones: PlanRef, zone_len: u64) -> Self {
+    /// Creates a zoned plan over `data` summarised by `zones` of `zone_len` rows each, whose
+    /// fields hold the results of `aggregate_fns`.
+    pub fn new(
+        data: PlanRef,
+        zones: PlanRef,
+        zone_len: u64,
+        aggregate_fns: Arc<[AggregateFnRef]>,
+    ) -> Self {
         let dtype = data.dtype().clone();
         let row_count = data.row_count();
-        Self::from_children(dtype, row_count, vec![data, zones].into(), zone_len)
+        Self::from_children(
+            dtype,
+            row_count,
+            vec![data, zones].into(),
+            zone_len,
+            aggregate_fns,
+        )
+    }
+
+    /// Returns the number of rows each zone summarises.
+    pub fn zone_len(&self) -> u64 {
+        self.data().zone_len
+    }
+
+    /// Returns the aggregate functions whose results the zone table stores.
+    pub fn aggregate_fns(&self) -> &Arc<[AggregateFnRef]> {
+        &self.data().aggregate_fns
+    }
+
+    /// Returns the dtype of the column the zones summarise, when this is a pruning plan.
+    pub fn pruning_column_dtype(&self) -> Option<&DType> {
+        self.data()
+            .pruning
+            .as_ref()
+            .map(|state| &state.column_dtype)
+    }
+
+    /// Returns the cache of pruned zones shared by every execution of this pruning plan.
+    pub(crate) fn pruned_zones(&self) -> Option<&Arc<OnceLock<Mask>>> {
+        self.data()
+            .pruning
+            .as_ref()
+            .map(|state| &state.pruned_zones)
     }
 
     /// Returns the plan producing the summarised data, unless this is a pruning plan.
@@ -108,6 +164,8 @@ impl ZonedPlan {
         let mut data = self.data().clone();
         data.pruning = Some(ZonedPruningState {
             expression: expression.clone(),
+            column_dtype: self.dtype().clone(),
+            pruned_zones: Arc::new(OnceLock::new()),
         });
         Ok(Some(
             PlanParts {
@@ -174,6 +232,20 @@ impl PlanVTable for Zoned {
             ZONES => Cow::Borrowed("zones"),
             _ => Cow::Owned(format!("child[{index}]")),
         }
+    }
+
+    /// A pruning plan runs as a [`ZonePruneNode`]; a data plan runs as its data child.
+    fn exec(plan: &Plan<Self>, rows: Range<u64>, mask: Mask) -> VortexResult<Box<dyn ExecNode>> {
+        if plan.is_pruning() {
+            return Ok(Box::new(ZonePruneNode::new(
+                plan.clone(),
+                Selection::try_new(rows, mask)?,
+            )));
+        }
+        let Some(data) = plan.data_plan()? else {
+            vortex_bail!("Zoned plan has no data child");
+        };
+        data.exec(rows, mask)
     }
 }
 
