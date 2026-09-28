@@ -10699,7 +10699,6 @@ dependencies = [
  "vortex-array-macros",
  "vortex-bench-support",
  "vortex-buffer",
- "vortex-build",
  "vortex-compute",
  "vortex-error",
  "vortex-mask",
@@ -10864,14 +10863,6 @@ dependencies = [
  "tracing",
  "vortex-bench-support",
  "vortex-error",
-]
-
-[[package]]
-name = "vortex-build"
-version = "0.1.0"
-dependencies = [
- "prost-build",
- "protox",
 ]
 
 [[package]]
@@ -12363,6 +12354,8 @@ dependencies = [
  "anyhow",
  "clap",
  "git2",
+ "prost-build",
+ "protox",
  "toml 1.1.6+spec-1.1.0",
  "vortex-edition",
  "vortex-json",

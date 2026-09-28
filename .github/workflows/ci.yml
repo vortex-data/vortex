@@ -867,10 +867,11 @@ jobs:
       - uses: ./.github/actions/setup-flatc
       - name: Install nightly for cbindgen macro expansion
         run: rustup toolchain install $NIGHTLY_TOOLCHAIN
-      - name: "regenerate the FlatBuffers bindings with the pinned flatc"
+      - name: "regenerate the FlatBuffers and Protocol Buffers bindings"
         # Fails on a flatc version mismatch, and the porcelain check below fails on stale bindings.
         run: |
           cargo run --profile ci -p xtask -- generate-flatbuffers
+          cargo run --profile ci -p xtask -- generate-proto
       - name: "regenerate the edition records"
         run: |
           cargo run --profile ci -p xtask -- generate-editions

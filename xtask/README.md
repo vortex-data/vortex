@@ -17,6 +17,11 @@ Regenerates the edition records under `vortex/editions`.
 Regenerates the checked-in FlatBuffers bindings under `<crate>/src/flatbuffers/generated/`.
 Requires the pinned `flatc` release on `PATH`, or at the location in `FLATC`.
 
+### `generate-proto`
+
+Regenerates the checked-in Protocol Buffers bindings under `<crate>/src/proto/generated/`. Pure
+Rust, so no `protoc` is needed.
+
 ### `check-editions`
 
 Checks that frozen edition records never change, comparing against `--base` (default

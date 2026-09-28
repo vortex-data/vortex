@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Bindings generated from this crate's `proto` schemas.
+//! Bindings generated from this crate's `proto` schemas, checked in under `generated/`.
+//! Regenerate with `cargo run -p xtask -- generate-proto`.
 
 /// Data types.
 #[allow(clippy::all)]
@@ -9,7 +10,7 @@
 #[allow(clippy::nursery)]
 #[allow(missing_docs)]
 pub mod dtype {
-    include!(concat!(env!("OUT_DIR"), "/proto/vortex.dtype.rs"));
+    include!("proto/generated/vortex.dtype.rs");
 }
 
 /// Scalar values.
@@ -18,7 +19,7 @@ pub mod dtype {
 #[allow(clippy::nursery)]
 #[allow(missing_docs)]
 pub mod scalar {
-    include!(concat!(env!("OUT_DIR"), "/proto/vortex.scalar.rs"));
+    include!("proto/generated/vortex.scalar.rs");
 }
 
 /// Expressions.
@@ -27,5 +28,5 @@ pub mod scalar {
 #[allow(clippy::nursery)]
 #[allow(missing_docs)]
 pub mod expr {
-    include!(concat!(env!("OUT_DIR"), "/proto/vortex.expr.rs"));
+    include!("proto/generated/vortex.expr.rs");
 }

@@ -17,6 +17,8 @@ use std::process::Command;
 use anyhow::Context;
 use anyhow::bail;
 
+use crate::workspace::schema_owners;
+
 /// The `flatc` release the checked-in bindings are generated with. Generated code is not
 /// source-compatible across `flatc` releases, so regeneration insists on this exact version.
 ///
@@ -39,18 +41,11 @@ const HEADER: &str = "\
 
 ";
 
-/// The FlatBuffers schemas owned by one workspace crate.
-struct Schemas {
-    crate_dir: PathBuf,
-    schemas: Vec<PathBuf>,
-}
-
 pub fn generate_flatbuffers() -> anyhow::Result<()> {
     let flatc = env::var_os("FLATC").map_or_else(|| PathBuf::from("flatc"), PathBuf::from);
     check_version(&flatc)?;
 
-    let root = workspace_root()?;
-    let owners = schema_owners(&root)?;
+    let owners = schema_owners(SCHEMA_DIR, "fbs")?;
     if owners.is_empty() {
         bail!("no `<crate>/flatbuffers/**/*.fbs` schemas found among the workspace members");
     }
@@ -97,52 +92,6 @@ pub fn generate_flatbuffers() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Every workspace member with a `flatbuffers` directory, with the `.fbs` files under it.
-fn schema_owners(root: &Path) -> anyhow::Result<Vec<Schemas>> {
-    let manifest = root.join("Cargo.toml");
-    let manifest: toml::Table = toml::from_str(
-        &fs::read_to_string(&manifest)
-            .with_context(|| format!("failed to read {}", manifest.display()))?,
-    )
-    .with_context(|| format!("failed to parse {}", manifest.display()))?;
-    let members = manifest
-        .get("workspace")
-        .and_then(|w| w.get("members"))
-        .and_then(toml::Value::as_array)
-        .context("Cargo.toml has no `workspace.members`")?;
-
-    let mut owners = Vec::new();
-    for member in members {
-        let member = member
-            .as_str()
-            .with_context(|| format!("workspace member is not a path: {member}"))?;
-        let crate_dir = root.join(member);
-        let schema_dir = crate_dir.join(SCHEMA_DIR);
-        if !schema_dir.is_dir() {
-            continue;
-        }
-        let mut schemas = Vec::new();
-        collect_schemas(&schema_dir, &mut schemas)?;
-        if !schemas.is_empty() {
-            schemas.sort();
-            owners.push(Schemas { crate_dir, schemas });
-        }
-    }
-    Ok(owners)
-}
-
-fn collect_schemas(dir: &Path, schemas: &mut Vec<PathBuf>) -> anyhow::Result<()> {
-    for entry in fs::read_dir(dir).with_context(|| format!("failed to read {}", dir.display()))? {
-        let path = entry?.path();
-        if path.is_dir() {
-            collect_schemas(&path, schemas)?;
-        } else if path.extension().is_some_and(|ext| ext == "fbs") {
-            schemas.push(path);
-        }
-    }
-    Ok(())
-}
-
 fn check_version(flatc: &Path) -> anyhow::Result<()> {
     let output = Command::new(flatc)
         .arg("--version")
@@ -166,11 +115,4 @@ fn check_version(flatc: &Path) -> anyhow::Result<()> {
         );
     }
     Ok(())
-}
-
-fn workspace_root() -> anyhow::Result<PathBuf> {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .map(Path::to_path_buf)
-        .context("xtask lives directly under the workspace root")
 }
