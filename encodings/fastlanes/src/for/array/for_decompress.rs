@@ -2,10 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::iter;
+use std::mem;
 use std::mem::MaybeUninit;
 
 use fastlanes::FoR;
 use itertools::Itertools;
+use num_traits::AsPrimitive;
 use num_traits::PrimInt;
 use num_traits::WrappingAdd;
 use vortex_array::ArrayView;
@@ -32,6 +34,7 @@ use crate::r#for::array::FoRArrayExt;
 use crate::r#for::array::FoRArraySlotsExt;
 use crate::unpack_iter::UnpackStrategy;
 use crate::unpack_iter::UnpackedChunks;
+use crate::unpack_iter::for_each_packed_chunk;
 
 /// FoR unpacking strategy that applies a reference value during unpacking.
 struct FoRStrategy<T> {
@@ -57,9 +60,7 @@ impl<T: PhysicalPType<Physical = T> + FoR> UnpackStrategy<T> for FoRStrategy<T> 
 pub fn decompress(array: &FoRArray, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
     match array.constant_reference() {
         Some(reference) => decompress_one_ref(array, &reference, ctx),
-        None => {
-            match_each_integer_ptype!(array.ptype(), |T| { decompress_many_refs::<T>(array, ctx) })
-        }
+        None => decompress_many_refs(array, ctx),
     }
 }
 
@@ -101,7 +102,24 @@ fn decompress_one_ref(
 }
 
 /// Decompress an array whose chunks have different references.
-fn decompress_many_refs<T: NativePType + WrappingAdd + PrimInt>(
+fn decompress_many_refs(array: &FoRArray, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
+    let ptype = array.ptype();
+
+    // Try to do fused unpack. BitPacked chunks line up with FoR chunks when the offsets match.
+    if ptype.is_unsigned_int()
+        && let Some(bp) = array.encoded().as_opt::<BitPacked>()
+        && bp.offset() == array.offset()
+    {
+        return match_each_unsigned_integer_ptype!(ptype, |T| {
+            fused_decompress_many_refs::<T>(array, bp, ctx)
+        });
+    }
+
+    match_each_integer_ptype!(ptype, |T| { add_references::<T>(array, ctx) })
+}
+
+/// Decode `encoded`, then add each chunk's reference in place.
+fn add_references<T: NativePType + WrappingAdd + PrimInt>(
     array: &FoRArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
@@ -181,6 +199,88 @@ pub(crate) fn fused_decompress<
 
     // SAFETY: We have set a correct validity mask via `append_mask` with `array.len()` values and
     // initialized the same number of values needed via `decode_into`.
+    unsafe {
+        uninit_range.finish();
+    }
+
+    Ok(builder.finish_into_primitive())
+}
+
+/// Unpack each BitPacked chunk and add its chunk's reference in one pass.
+fn fused_decompress_many_refs<
+    T: PhysicalPType<Physical = T> + UnsignedPType + FoR + WrappingAdd,
+>(
+    for_: &FoRArray,
+    bp: ArrayView<'_, BitPacked>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<PrimitiveArray> {
+    let references = for_.references().clone().execute::<PrimitiveArray>(ctx)?;
+    let references = references.as_slice::<T>();
+    let offset = usize::from(for_.offset());
+    let bit_width = bp.bit_width() as usize;
+    let len = bp.len();
+
+    let mut builder =
+        PrimitiveBuilder::<T>::with_capacity_in(for_.dtype().nullability(), len, ctx.allocator());
+    let mut uninit_range = builder.uninit_range(len);
+    unsafe {
+        // Append a dense null Mask.
+        uninit_range.append_mask(&bp.validity()?.execute_mask(len, ctx)?);
+    }
+
+    // SAFETY: the loop below initializes every value in this range.
+    let output = unsafe { uninit_range.slice_uninit_mut(0, len) };
+    let mut scratch = [const { MaybeUninit::<T>::uninit() }; FL_CHUNK_SIZE];
+    for_each_packed_chunk::<T, _>(
+        bp.packed_slice::<T>(),
+        bit_width,
+        offset,
+        len,
+        |packed, range| {
+            let reference = references[range.start / FL_CHUNK_SIZE];
+            // `range` counts from the start of the first chunk, and the output starts at `offset`.
+            let skip = offset.saturating_sub(range.start);
+            let dst = &mut output[range.start + skip - offset..range.end - offset];
+            if dst.len() == FL_CHUNK_SIZE {
+                // SAFETY: `packed` holds one chunk at `bit_width` and `dst` has room for a chunk.
+                unsafe {
+                    FoR::unchecked_unfor_pack(
+                        bit_width,
+                        packed,
+                        reference,
+                        mem::transmute::<&mut [MaybeUninit<T>], &mut [T]>(dst),
+                    );
+                }
+            } else {
+                // SAFETY: as above, with `scratch` as the destination.
+                unsafe {
+                    FoR::unchecked_unfor_pack(
+                        bit_width,
+                        packed,
+                        reference,
+                        mem::transmute::<&mut [MaybeUninit<T>], &mut [T]>(&mut scratch[..]),
+                    );
+                }
+                dst.copy_from_slice(&scratch[skip..range.len()]);
+            }
+        },
+    )?;
+
+    if let Some(patches) = bp.patches() {
+        let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
+        let values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
+        let values = values.as_slice::<T>();
+        match_each_unsigned_integer_ptype!(indices.ptype(), |P| {
+            for (&index, &value) in indices.as_slice::<P>().iter().zip_eq(values) {
+                let index = <P as AsPrimitive<usize>>::as_(index) - patches.offset();
+                let reference = references[(offset + index) / FL_CHUNK_SIZE];
+                uninit_range.set_value(index, value.wrapping_add(&reference));
+            }
+        });
+    }
+
+    // SAFETY: We have set a correct validity mask via `append_mask` with `len` values and
+    // initialized every value in the loop above.
     unsafe {
         uninit_range.finish();
     }

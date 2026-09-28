@@ -9,9 +9,13 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::expr::stats::Stat;
 use vortex_array::match_each_integer_ptype;
+use vortex_array::validity::Validity;
+use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 
+use crate::FL_CHUNK_SIZE;
 use crate::FoR;
 use crate::FoRArray;
 use crate::FoRData;
@@ -28,6 +32,22 @@ impl FoRData {
             compress_primitive::<T>(array, T::try_from(&min)?, ctx)?.into_array()
         });
         FoR::try_new(encoded, min)
+    }
+
+    /// Encode with one reference per chunk: the minimum of the chunk's valid values.
+    ///
+    /// Chunks with no valid values reuse the previous chunk's reference, so the references
+    /// compress into runs.
+    pub fn encode_chunked(array: PrimitiveArray, ctx: &mut ExecutionCtx) -> VortexResult<FoRArray> {
+        let mask = array.validity()?.execute_mask(array.len(), ctx)?;
+        let (encoded, references) = match_each_integer_ptype!(array.ptype(), |T| {
+            let (encoded, references) = compress_chunked::<T>(array.as_slice::<T>(), &mask);
+            (
+                PrimitiveArray::new(encoded, array.validity()?),
+                PrimitiveArray::new(references, Validity::NonNullable),
+            )
+        });
+        FoR::try_new_chunked(encoded.into_array(), references.into_array(), 0)
     }
 }
 
@@ -46,6 +66,52 @@ fn compress_primitive<T: NativePType + WrappingSub + PrimInt>(
         }
     })?;
     Ok(encoded)
+}
+
+fn compress_chunked<T: NativePType + WrappingSub + PrimInt>(
+    values: &[T],
+    mask: &Mask,
+) -> (Buffer<T>, Buffer<T>) {
+    let chunk_min = |chunk: usize| {
+        let start = chunk * FL_CHUNK_SIZE;
+        values[start..(start + FL_CHUNK_SIZE).min(values.len())]
+            .iter()
+            .enumerate()
+            .filter(|&(i, _)| mask.value(start + i))
+            .map(|(_, &v)| v)
+            .min()
+    };
+    let num_chunks = values.len().div_ceil(FL_CHUNK_SIZE);
+    let mins = (0..num_chunks).map(chunk_min).collect::<Vec<_>>();
+
+    // All-null chunks take the previous chunk's reference, or the first valid one at the start.
+    let mut previous = mins
+        .iter()
+        .flatten()
+        .next()
+        .copied()
+        .unwrap_or_else(T::zero);
+    let references = mins
+        .into_iter()
+        .map(|min| {
+            previous = min.unwrap_or(previous);
+            previous
+        })
+        .collect::<Buffer<T>>();
+
+    // Set null values to zero, as in `compress_primitive`.
+    let encoded = values
+        .iter()
+        .enumerate()
+        .map(|(i, &v)| {
+            if mask.value(i) {
+                v.wrapping_sub(&references[i / FL_CHUNK_SIZE])
+            } else {
+                T::zero()
+            }
+        })
+        .collect::<Buffer<T>>();
+    (encoded, references)
 }
 
 #[cfg(test)]

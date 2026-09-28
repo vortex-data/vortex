@@ -178,6 +178,11 @@ impl FoR {
     pub fn encode(array: PrimitiveArray, ctx: &mut ExecutionCtx) -> VortexResult<FoRArray> {
         FoRData::encode(array, ctx)
     }
+
+    /// Encode a primitive array with one Frame of Reference per 1024-element chunk.
+    pub fn encode_chunked(array: PrimitiveArray, ctx: &mut ExecutionCtx) -> VortexResult<FoRArray> {
+        FoRData::encode_chunked(array, ctx)
+    }
 }
 
 fn validate_parts(
