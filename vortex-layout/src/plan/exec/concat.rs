@@ -7,8 +7,8 @@ use vortex_error::vortex_bail;
 use crate::plan::ConcatPlan;
 use crate::plan::exec::ExecNode;
 use crate::plan::exec::Input;
+use crate::plan::exec::NodeState;
 use crate::plan::exec::Piece;
-use crate::plan::exec::Port;
 use crate::plan::exec::StepCx;
 use crate::plan::exec::piece::Selection;
 use crate::plan::exec::piece::empty_piece;
@@ -20,9 +20,8 @@ use crate::plan::exec::piece::empty_piece;
 pub(crate) struct ConcatNode {
     plan: ConcatPlan,
     selection: Selection,
-    pending: Vec<Piece>,
+    started: bool,
     open: usize,
-    closed: bool,
 }
 
 impl ConcatNode {
@@ -30,9 +29,8 @@ impl ConcatNode {
         Self {
             plan,
             selection,
-            pending: Vec::new(),
+            started: false,
             open: 0,
-            closed: false,
         }
     }
 
@@ -44,9 +42,9 @@ impl ConcatNode {
             .unwrap_or_else(|| self.plan.row_count());
         offsets[index]..end
     }
-}
 
-impl ExecNode for ConcatNode {
+    /// Spawns every chunk overlapping the selection's rows, and emits an empty piece for each
+    /// overlapping chunk with nothing selected.
     fn start(&mut self, cx: &mut StepCx<'_>) -> VortexResult<()> {
         let rows = self.selection.rows().clone();
         for index in 0..self.plan.row_offsets().len() {
@@ -57,7 +55,7 @@ impl ExecNode for ConcatNode {
             }
             let mask = self.selection.slice(&local);
             if mask.all_false() {
-                self.pending.push(empty_piece(self.plan.dtype(), local));
+                cx.emit(empty_piece(self.plan.dtype(), local));
                 continue;
             }
             let child = self.plan.child_required(index)?;
@@ -71,38 +69,35 @@ impl ExecNode for ConcatNode {
         }
         Ok(())
     }
+}
 
-    fn is_ready(&self) -> bool {
-        !self.pending.is_empty() || (self.open == 0 && !self.closed)
-    }
-
-    fn on_input(&mut self, port: Port, input: Input) -> VortexResult<()> {
-        match input {
-            Input::Piece(piece) => {
-                let offset = self.plan.row_offsets()[port];
-                self.pending.push(Piece {
-                    rows: piece.rows.start + offset..piece.rows.end + offset,
-                    array: piece.array,
-                });
-            }
-            Input::Closed => {
-                if self.open == 0 {
-                    vortex_bail!("Concat chunk {port} closed twice");
-                }
-                self.open -= 1;
-            }
+impl ExecNode for ConcatNode {
+    fn compute(&mut self, cx: &mut StepCx<'_>) -> VortexResult<NodeState> {
+        if !self.started {
+            self.started = true;
+            self.start(cx)?;
         }
-        Ok(())
-    }
-
-    fn step(&mut self, cx: &mut StepCx<'_>) -> VortexResult<()> {
-        for piece in self.pending.drain(..) {
-            cx.emit(piece);
+        for (port, input) in cx.take_inputs() {
+            match input {
+                Input::Piece(piece) => {
+                    let offset = self.plan.row_offsets()[port];
+                    cx.emit(Piece {
+                        rows: piece.rows.start + offset..piece.rows.end + offset,
+                        array: piece.array,
+                    });
+                }
+                Input::Closed => {
+                    if self.open == 0 {
+                        vortex_bail!("Concat chunk {port} closed twice");
+                    }
+                    self.open -= 1;
+                }
+            }
         }
         if self.open == 0 {
-            self.closed = true;
             cx.close();
+            return Ok(NodeState::Done);
         }
-        Ok(())
+        Ok(NodeState::Waiting)
     }
 }
