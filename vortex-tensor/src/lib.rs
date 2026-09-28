@@ -55,6 +55,7 @@ pub fn initialize(session: &VortexSession) {
 
     let arrow_session = session.arrow();
     arrow_session.register_extension(Vector);
+    arrow_session.register_extension(FixedShapeTensor);
 
     let session_fns = session.scalar_fns();
 

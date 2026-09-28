@@ -7,6 +7,7 @@
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct FixedShapeTensor;
 
+mod arrow;
 mod matcher;
 pub use matcher::AnyFixedShapeTensor;
 pub use matcher::FixedShapeTensorMatcherMetadata;
