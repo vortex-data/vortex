@@ -37,7 +37,7 @@ use crate::segments::SegmentId;
 
 /// Identifies one IO request within an [`ExecGraph`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct IoRequestId(u64);
+pub struct IoRequestId(pub(crate) u64);
 
 /// A read published by a leaf node.
 #[derive(Clone, Debug)]
