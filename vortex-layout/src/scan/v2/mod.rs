@@ -13,9 +13,9 @@
 //! morsel. Both execute physical plans lowered from the file's layout, on the planning driver, and
 //! the file's own segment source serves their reads.
 //!
-//! The driver blocks while it waits for reads, so it runs on the runtime's blocking pool. The
-//! runtime must run blocking work off the threads that drive its futures, as the Tokio and
-//! current-thread runtimes do; the single-thread runtime does not.
+//! The driver blocks while it waits for reads, so it runs on a small pool of driver threads owned
+//! by this module, never on the runtime's threads. The split's future serves the driver's reads
+//! from the file's segment source, on whatever runtime drives the scan.
 //!
 //! [`ScanBuilder`]: crate::scan::scan_builder::ScanBuilder
 //! [`ScanBuilder::prepare`]: crate::scan::scan_builder::ScanBuilder::prepare
@@ -23,6 +23,7 @@
 
 mod io;
 mod lower;
+mod pool;
 mod repeated_scan;
 mod split;
 mod stream;
