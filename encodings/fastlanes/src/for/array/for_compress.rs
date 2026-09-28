@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::mem::MaybeUninit;
+
+use num_traits::AsPrimitive;
 use num_traits::PrimInt;
 use num_traits::WrappingSub;
 use vortex_array::ExecutionCtx;
@@ -73,23 +76,47 @@ fn compress_primitive<T: NativePType + WrappingSub + PrimInt>(
 fn compress_chunked<T: NativePType + WrappingSub + PrimInt>(
     values: &[T],
     mask: &Mask,
-) -> (Buffer<T>, Buffer<T>) {
+) -> (Buffer<T>, Buffer<T>)
+where
+    u8: AsPrimitive<T>,
+{
     // One validity bit per value, 64 values per word. `None` means every value is valid.
     let words: Option<Vec<u64>> = match mask.bit_buffer() {
         AllOr::All => None,
         AllOr::None => Some(vec![0; values.len().div_ceil(64)]),
         AllOr::Some(bits) => Some(bits.chunks().iter_padded().collect()),
     };
-    let mins = values
+
+    // Find each chunk's minimum and subtract it while the chunk is in cache. Null values don't
+    // count towards the minimum and are set to zero, as in `compress_primitive`.
+    let mut encoded = BufferMut::<T>::with_capacity(values.len());
+    let mut mins = Vec::with_capacity(values.len().div_ceil(FL_CHUNK_SIZE));
+    let out = &mut encoded.spare_capacity_mut()[..values.len()];
+    for (chunk_idx, (chunk, out)) in values
         .chunks(FL_CHUNK_SIZE)
+        .zip(out.chunks_mut(FL_CHUNK_SIZE))
         .enumerate()
-        .map(|(chunk_idx, chunk)| match &words {
-            None => Some(chunk.iter().copied().fold(T::max_value(), T::min)),
-            Some(words) => valid_min(chunk, &words[chunk_idx * (FL_CHUNK_SIZE / 64)..]),
-        });
+    {
+        let min = match &words {
+            None => {
+                let min = chunk.iter().copied().fold(T::max_value(), T::min);
+                subtract(chunk, min, out);
+                Some(min)
+            }
+            Some(words) => {
+                let words = &words[chunk_idx * (FL_CHUNK_SIZE / 64)..][..chunk.len().div_ceil(64)];
+                let min = valid_min(chunk, words);
+                // An all-null chunk encodes as zeros whatever its reference.
+                subtract_valid(chunk, words, min.unwrap_or_else(T::zero), out);
+                min
+            }
+        };
+        mins.push(min);
+    }
+    // SAFETY: the loop above initialized every value.
+    unsafe { encoded.set_len(values.len()) };
 
     // All-null chunks take the previous chunk's reference, or the first valid one at the start.
-    let mins = mins.collect::<Vec<_>>();
     let mut previous = mins
         .iter()
         .flatten()
@@ -103,34 +130,72 @@ fn compress_chunked<T: NativePType + WrappingSub + PrimInt>(
             previous
         })
         .collect::<Buffer<T>>();
-
-    // Null values are subtracted too; they decode to arbitrary values under the validity mask.
-    let mut encoded = BufferMut::<T>::with_capacity(values.len());
-    for (chunk, &reference) in values.chunks(FL_CHUNK_SIZE).zip(references.iter()) {
-        encoded.extend(chunk.iter().map(|v| v.wrapping_sub(&reference)));
-    }
     (encoded.freeze(), references)
+}
+
+fn subtract<T: PrimInt + WrappingSub>(values: &[T], reference: T, out: &mut [MaybeUninit<T>]) {
+    for (out, v) in out.iter_mut().zip(values) {
+        out.write(v.wrapping_sub(&reference));
+    }
 }
 
 /// The minimum of the valid `values`, or `None` if none are valid.
 ///
-/// `words` holds one validity bit per value starting at `values[0]`. Invalid values are replaced
-/// by `T::max_value()` with a branchless select so the loop vectorizes.
-fn valid_min<T: PrimInt>(values: &[T], words: &[u64]) -> Option<T> {
+/// `words` holds one validity bit per value. Invalid values are replaced by `T::max_value()`
+/// without branches, so the loop vectorizes.
+fn valid_min<T: PrimInt + WrappingSub + 'static>(values: &[T], words: &[u64]) -> Option<T>
+where
+    u8: AsPrimitive<T>,
+{
     let mut min = T::max_value();
-    let mut valid = 0;
-    for (block, &word) in values.chunks(64).zip(words) {
-        valid |= word;
-        for (i, &v) in block.iter().enumerate() {
-            let v = if (word >> i) & 1 == 1 {
-                v
-            } else {
-                T::max_value()
-            };
-            min = min.min(v);
+    for_each_valid_mask(values, words, |_, v, mask| {
+        min = min.min((v & mask) | (T::max_value() & !mask));
+    });
+    words.iter().any(|&word| word != 0).then_some(min)
+}
+
+/// Subtract `reference` from the valid `values` and write zero for the invalid ones.
+fn subtract_valid<T: PrimInt + WrappingSub + 'static>(
+    values: &[T],
+    words: &[u64],
+    reference: T,
+    out: &mut [MaybeUninit<T>],
+) where
+    u8: AsPrimitive<T>,
+{
+    for_each_valid_mask(values, words, |i, v, mask| {
+        out[i].write(v.wrapping_sub(&reference) & mask);
+    });
+}
+
+/// Calls `f(index, value, mask)` for each value, where `mask` is all ones for valid values and
+/// all zeros for invalid ones.
+///
+/// Full 64-value blocks run a fixed-length loop that reads each value's bit from its byte of the
+/// validity word, so it vectorizes at every integer width.
+#[inline]
+fn for_each_valid_mask<T: PrimInt + WrappingSub + 'static>(
+    values: &[T],
+    words: &[u64],
+    mut f: impl FnMut(usize, T, T),
+) where
+    u8: AsPrimitive<T>,
+{
+    let (blocks, remainder) = values.as_chunks::<64>();
+    for (block_idx, (block, &word)) in blocks.iter().zip(words).enumerate() {
+        let bytes = word.to_le_bytes();
+        for j in 0..64 {
+            let valid: T = ((bytes[j / 8] >> (j % 8)) & 1).as_();
+            f(block_idx * 64 + j, block[j], T::zero().wrapping_sub(&valid));
         }
     }
-    (valid != 0).then_some(min)
+    let start = blocks.len() * 64;
+    if let Some(&word) = words.get(blocks.len()) {
+        for (j, &v) in remainder.iter().enumerate() {
+            let valid: T = (((word >> j) & 1) as u8).as_();
+            f(start + j, v, T::zero().wrapping_sub(&valid));
+        }
+    }
 }
 
 #[cfg(test)]
