@@ -254,13 +254,14 @@ mod tests {
 
     use super::*;
     use crate::CompressionSession;
-    use crate::schemes::decimal::DecimalScheme;
+    use crate::schemes::decimal::DECIMAL_V1;
+    use crate::schemes::decimal::DECIMAL_V2;
 
     #[rstest]
     #[case::fsst_missing_codes(&string::FSSTScheme, vec![FSST.id()], false)]
     #[case::fsst_with_codes(&string::FSSTScheme, vec![FSST.id(), VarBin.id()], true)]
-    #[case::decimal_serialized_id(&DecimalScheme, vec![decimal_byte_parts_v1_id()], true)]
-    #[case::decimal_runtime_id(&DecimalScheme, vec![DecimalByteParts.id()], false)]
+    #[case::decimal_v1_id(&DECIMAL_V1, vec![decimal_byte_parts_v1_id()], true)]
+    #[case::decimal_both_ids(&DECIMAL_V2, vec![decimal_byte_parts_v1_id(), DecimalByteParts.id()], true)]
     fn test_allowed_schemes(
         #[case] scheme: &'static dyn Scheme,
         #[case] allowed: Vec<ArrayId>,

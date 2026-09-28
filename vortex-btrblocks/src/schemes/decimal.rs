@@ -32,10 +32,13 @@ enum DecimalSchemeMode {
     V2,
 }
 
-/// The v1 decimal scheme, which the default [`CompressionSession`](crate::CompressionSession)
-/// registers.
+/// The decimal scheme that only produces v1-compatible DBP arrays (does not compress wide
+/// decimals).
 pub(crate) static DECIMAL_V1: DecimalScheme = DecimalScheme::v1();
-static DECIMAL_V2: DecimalScheme = DecimalScheme::v2();
+
+/// The decimal scheme that produces both v1 and v2 compatible DBP arrays (compresses wide
+/// decimals).
+pub(crate) static DECIMAL_V2: DecimalScheme = DecimalScheme::v2();
 
 /// Compression scheme for decimal arrays via byte-part decomposition.
 ///
@@ -44,8 +47,8 @@ static DECIMAL_V2: DecimalScheme = DecimalScheme::v2();
 /// significant part and up to three unsigned lower parts. Single-part arrays serialize as v1
 /// in either mode, while arrays with lower parts serialize as v2.
 ///
-/// The default uses v1. [`refine`](Scheme::refine) picks v2 when both decimal IDs are allowed
-/// and v1 otherwise.
+/// The default uses v1. [`refine`](Scheme::refine) picks v2 when the v2 ID is allowed and v1
+/// otherwise.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct DecimalScheme {
     mode: DecimalSchemeMode,
@@ -174,13 +177,13 @@ mod tests {
     use crate::Scheme;
     use crate::SchemeExt;
 
-    /// Both variants refine to v2 exactly when both decimal IDs are allowed.
+    /// Both variants refine to v2 exactly when the v2 ID is allowed.
     #[rstest]
     #[case::neither(false, false, false)]
     #[case::v1(true, false, false)]
-    #[case::v2_only(false, true, false)]
+    #[case::v2_only(false, true, true)]
     #[case::both(true, true, true)]
-    fn refine_picks_v2_only_when_both_ids_are_allowed(
+    fn refine_picks_v2_when_v2_id_is_allowed(
         #[case] allow_v1: bool,
         #[case] allow_v2: bool,
         #[case] expect_v2: bool,

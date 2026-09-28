@@ -87,7 +87,7 @@ impl Default for CompressionSession {
                 &binary::ZstdScheme,
                 #[cfg(feature = "zstd")]
                 &binary::ZstdBuffersScheme,
-                // Decimal schemes. `refine` switches to v2 where both decimal IDs are allowed.
+                // Decimal schemes. `refine` switches to v2 where the v2 ID is allowed.
                 &decimal::DECIMAL_V1,
                 // Temporal schemes.
                 &temporal::TemporalScheme,
