@@ -26,6 +26,15 @@ use crate::scan::planning::ScanPlans;
 use crate::scan::planning::graph::GraphStep;
 use crate::scan::planning::graph::ProtocolGraph;
 
+/// Which rows a [`FilterPlanner`] keeps.
+#[derive(Clone, Copy)]
+enum Keep {
+    /// Rows whose value is true.
+    True,
+    /// Rows whose value is not true.
+    False,
+}
+
 /// The rows of a split that survived its filter.
 pub struct SelectedRows {
     /// The split the rows belong to.
@@ -38,9 +47,13 @@ pub struct SelectedRows {
 ///
 /// The filter plan runs over the split's rows and incoming mask, producing one boolean per
 /// selected row. A split where no row survives finishes without a child.
+///
+/// The same stage prunes: built with [`FilterPlanner::pruning`], it runs a pruning plan whose
+/// value is true where zone statistics prove the filter false, and keeps the other rows.
 pub struct FilterPlanner {
     plans: ScanPlans,
     filter: PlanRef,
+    keep: Keep,
     scope: WorkScope,
     mask: Mask,
     next: Next<SelectedRows>,
@@ -58,9 +71,33 @@ impl FilterPlanner {
         mask: Mask,
         next: Next<SelectedRows>,
     ) -> Self {
+        Self::with_keep(plans, filter, Keep::True, scope, mask, next)
+    }
+
+    /// Creates a planner that prunes the rows of `scope` selected by `mask`, dropping the rows for
+    /// which `pruning` is true.
+    pub fn pruning(
+        plans: ScanPlans,
+        pruning: PlanRef,
+        scope: WorkScope,
+        mask: Mask,
+        next: Next<SelectedRows>,
+    ) -> Self {
+        Self::with_keep(plans, pruning, Keep::False, scope, mask, next)
+    }
+
+    fn with_keep(
+        plans: ScanPlans,
+        filter: PlanRef,
+        keep: Keep,
+        scope: WorkScope,
+        mask: Mask,
+        next: Next<SelectedRows>,
+    ) -> Self {
         Self {
             plans,
             filter,
+            keep,
             scope,
             mask,
             next,
@@ -80,7 +117,11 @@ impl FilterPlanner {
         let values = ChunkedArray::try_new(values, self.filter.dtype().clone())?.into_array();
         let mut ctx = self.plans.session.create_execution_ctx();
         let values: Mask = values.null_as_false().execute(&mut ctx)?;
-        Ok(self.mask.intersect_by_rank(&values))
+        let keep = match self.keep {
+            Keep::True => values,
+            Keep::False => !values,
+        };
+        Ok(self.mask.intersect_by_rank(&keep))
     }
 }
 

@@ -23,6 +23,7 @@ use crate::segments::SegmentSource;
 /// Everything one split needs, captured when the scan is executed.
 pub(super) struct SplitTask<A> {
     pub(super) plans: ScanPlans,
+    pub(super) pruning: Option<PlanRef>,
     pub(super) filter: Option<PlanRef>,
     pub(super) segments: Arc<dyn SegmentSource>,
     pub(super) ranges: SegmentRanges,
@@ -32,13 +33,15 @@ pub(super) struct SplitTask<A> {
 }
 
 impl<A> SplitTask<A> {
-    /// Runs the split's filter planner, projection planner, and morsel on the planning driver.
+    /// Runs the split's pruning, filter, and projection planners and its morsel on the planning
+    /// driver.
     ///
     /// The driver blocks while it waits for reads, so it runs on a dedicated driver thread. This
     /// future serves its reads meanwhile, on whatever runtime drives the scan.
     pub(super) async fn run(self) -> VortexResult<Option<A>> {
         let Self {
             plans,
+            pruning,
             filter,
             segments,
             ranges,
@@ -56,7 +59,7 @@ impl<A> SplitTask<A> {
             file_ordinal: 0,
             rows: range,
         };
-        let root = plan_split(plans, filter, scope, mask)?;
+        let root = plan_split(plans, pruning, filter, scope, mask)?;
         let driver = run_on_driver_thread(move || Driver::new(io).run(root));
         let mut batches = pump(segments, reads, completions, driver).await?;
         if batches.len() > 1 {

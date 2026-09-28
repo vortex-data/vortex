@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::collections::BTreeSet;
+use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::sync::Arc;
 
 use futures::TryStreamExt;
 use futures::stream;
+use parking_lot::Mutex;
 use rstest::rstest;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
@@ -31,10 +34,14 @@ use crate::LayoutStrategy;
 use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
 use crate::layouts::flat::writer::FlatLayoutStrategy;
 use crate::layouts::row_idx::row_idx;
+use crate::layouts::zoned::writer::ZonedLayoutOptions;
+use crate::layouts::zoned::writer::ZonedStrategy;
 use crate::scan::planning::SegmentLocation;
 use crate::scan::scan_builder::ScanBuilder;
 use crate::scan::v2;
 use crate::scan::v2::ScanFile;
+use crate::segments::SegmentFuture;
+use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 use crate::segments::TestSegments;
 use crate::sequence::SequenceId;
@@ -243,5 +250,97 @@ async fn filter_with_limit_is_rejected() -> VortexResult<()> {
     let case = case(true, None, Some(10));
     let file = scan_file(&segments, &layout)?;
     assert!(v2::prepare(builder(&session, &segments, &layout, &case)?, file).is_err());
+    Ok(())
+}
+
+/// Records every segment read through it.
+struct RecordingSegments {
+    inner: Arc<dyn SegmentSource>,
+    reads: Mutex<BTreeSet<u32>>,
+}
+
+impl SegmentSource for RecordingSegments {
+    fn request(&self, id: SegmentId) -> SegmentFuture {
+        self.reads.lock().insert(*id);
+        self.inner.request(id)
+    }
+}
+
+/// The ids of the segments below `layout`.
+fn segment_ids(layout: &LayoutRef) -> VortexResult<BTreeSet<u32>> {
+    let mut ids = BTreeSet::new();
+    for layout in layout.depth_first_traversal() {
+        ids.extend(layout?.segment_ids().into_iter().map(|id| *id));
+    }
+    Ok(ids)
+}
+
+/// Pruning drops the zones whose statistics prove the filter false: of four 1000-row zones over
+/// `0..4000`, the first cannot hold a value above 1500, so V2 reads the zone table and the other
+/// three chunks, never the first, and still returns what the default path returns.
+#[tokio::test(flavor = "multi_thread")]
+async fn zone_pruning_reads_only_zones_that_can_match() -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let written = Arc::new(TestSegments::default());
+    let segments: Arc<dyn SegmentSource> = Arc::clone(&written) as _;
+    let (mut sequence_id, eof) = SequenceId::root().split();
+    let chunks = (0..4)
+        .map(|chunk| {
+            let values = Buffer::from_iter(chunk * CHUNK_ROWS..(chunk + 1) * CHUNK_ROWS);
+            Ok((sequence_id.advance(), values.into_array()))
+        })
+        .collect::<Vec<_>>();
+    let layout = ZonedStrategy::new(
+        ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+        FlatLayoutStrategy::default(),
+        ZonedLayoutOptions {
+            block_size: NonZeroUsize::new(CHUNK_ROWS as usize).unwrap_or(NonZeroUsize::MIN),
+            ..Default::default()
+        },
+    )
+    .write_stream(
+        ArrayContext::empty().into(),
+        written,
+        SequentialStreamAdapter::new(DTYPE, stream::iter(chunks)).sendable(),
+        eof,
+        &session,
+    )
+    .await?;
+
+    let data = layout
+        .slot(0)?
+        .ok_or_else(|| vortex_error::vortex_err!("no data"))?;
+    let zones = layout
+        .slot(1)?
+        .ok_or_else(|| vortex_error::vortex_err!("no zones"))?;
+    let data_chunks = data.children()?;
+    let mut expected_reads = segment_ids(&zones)?;
+    for chunk in &data_chunks[1..] {
+        expected_reads.extend(segment_ids(chunk)?);
+    }
+
+    let case = case(true, None, None);
+    let dtype = builder(&session, &segments, &layout, &case)?.dtype()?;
+    let expected = builder(&session, &segments, &layout, &case)?
+        .into_stream()?
+        .try_collect::<Vec<_>>()
+        .await?;
+
+    let recording = Arc::new(RecordingSegments {
+        inner: Arc::clone(&segments),
+        reads: Mutex::default(),
+    });
+    let mut file = scan_file(&segments, &layout)?;
+    file.segments = Arc::clone(&recording) as _;
+    let actual = v2::into_stream(builder(&session, &segments, &layout, &case)?, file)?
+        .try_collect::<Vec<_>>()
+        .await?;
+
+    assert_arrays_eq!(
+        ChunkedArray::try_new(actual, dtype.clone())?,
+        ChunkedArray::try_new(expected, dtype)?,
+        &mut session.create_execution_ctx()
+    );
+    assert_eq!(*recording.reads.lock(), expected_reads);
     Ok(())
 }

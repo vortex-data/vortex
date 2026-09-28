@@ -3,8 +3,11 @@
 
 //! Lowers a file's layout tree into the physical plan the V2 executor runs.
 //!
-//! A copy of the test-only [`plan::lower`](crate::plan::lower) that also lowers zoned layouts, as
-//! their data child: this executor does not prune with zone maps yet.
+//! A copy of the test-only [`plan::lower`](crate::plan::lower) with two modes for zoned layouts:
+//! data plans lower them to their data child, and pruning plans keep them as a
+//! [`ZonedPlan`](crate::plan::ZonedPlan) so pruning proofs can reach the zone statistics.
+
+use std::sync::Arc;
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -34,6 +37,7 @@ use crate::plan::PlanChildren;
 use crate::plan::PlanRef;
 use crate::plan::SegmentScanPlan;
 use crate::plan::TakePlan;
+use crate::plan::ZonedPlan;
 
 /// Lowers `layout` into a physical plan.
 ///
@@ -43,26 +47,50 @@ use crate::plan::TakePlan;
 /// A flat layout lowers to a [`Filter`](crate::plan::Filter) over its segment scan, so the scan
 /// returns only the rows it is executed with.
 pub(crate) fn lower(layout: &LayoutRef) -> VortexResult<PlanRef> {
+    lower_with(layout, Zones::Drop)
+}
+
+/// Lowers `layout` like [`lower`], but keeps each zoned layout as a [`ZonedPlan`] over its data
+/// and zone statistics, so pruning proofs can be pushed down to the zones.
+pub(crate) fn lower_with_zones(layout: &LayoutRef) -> VortexResult<PlanRef> {
+    lower_with(layout, Zones::Keep)
+}
+
+/// What a zoned layout lowers to.
+#[derive(Clone, Copy)]
+enum Zones {
+    /// Its data child: data plans do not read zone statistics.
+    Drop,
+    /// A [`ZonedPlan`] over its data and zones.
+    Keep,
+}
+
+fn lower_with(layout: &LayoutRef, zones: Zones) -> VortexResult<PlanRef> {
     if layout.is::<Zoned>() || layout.is::<LegacyStats>() {
-        let data = layout
-            .slot(0)?
-            .ok_or_else(|| vortex_err!("Zoned layout has no data child"))?;
-        return lower(&data);
+        return match zones {
+            Zones::Drop => {
+                let data = layout
+                    .slot(0)?
+                    .ok_or_else(|| vortex_err!("Zoned layout has no data child"))?;
+                lower_with(&data, zones)
+            }
+            Zones::Keep => Ok(lower_zoned(layout, zones)?.into_plan()),
+        };
     }
     if let Some(layout) = layout.as_opt::<Flat>() {
         return Ok(FilterPlan::new(lower_flat(layout).into_plan()).into_plan());
     }
     if let Some(layout) = layout.as_opt::<Chunked>() {
-        return Ok(lower_chunked(layout)?.into_plan());
+        return Ok(lower_chunked(layout, zones)?.into_plan());
     }
     if let Some(layout) = layout.as_opt::<Struct>() {
-        return Ok(lower_struct(layout)?.into_plan());
+        return Ok(lower_struct(layout, zones)?.into_plan());
     }
     if let Some(layout) = layout.as_opt::<Dict>() {
-        return Ok(lower_dict(layout)?.into_plan());
+        return Ok(lower_dict(layout, zones)?.into_plan());
     }
     if let Some(layout) = layout.as_opt::<List>() {
-        return Ok(lower_list(layout)?.into_plan());
+        return Ok(lower_list(layout, zones)?.into_plan());
     }
     vortex_bail!(
         "No physical plan implementation for layout '{}'",
@@ -80,7 +108,7 @@ fn lower_flat(layout: &FlatLayout) -> SegmentScanPlan {
     )
 }
 
-fn lower_chunked(layout: &ChunkedLayout) -> VortexResult<ConcatPlan> {
+fn lower_chunked(layout: &ChunkedLayout, zones: Zones) -> VortexResult<ConcatPlan> {
     let mut row_offsets = Vec::with_capacity(layout.nchildren());
     let mut row_count = 0u64;
     for index in 0..layout.nchildren() {
@@ -96,12 +124,12 @@ fn lower_chunked(layout: &ChunkedLayout) -> VortexResult<ConcatPlan> {
             layout.dtype().clone(),
             layout.row_count(),
             row_offsets.into(),
-            lazy_children(layout.to_layout(), (0..layout.nchildren()).collect()),
+            lazy_children(layout.to_layout(), (0..layout.nchildren()).collect(), zones),
         )
     })
 }
 
-fn lower_struct(layout: &StructLayout) -> VortexResult<PackPlan> {
+fn lower_struct(layout: &StructLayout, zones: Zones) -> VortexResult<PackPlan> {
     // Struct layout slot 0 is validity and field i is slot i + 1. The plan puts validity last so
     // field indices are identical to their plan-child indices.
     let fields = layout.struct_fields().clone();
@@ -116,12 +144,12 @@ fn lower_struct(layout: &StructLayout) -> VortexResult<PackPlan> {
             fields,
             layout.dtype().nullability(),
             layout.row_count(),
-            lazy_children(layout.to_layout(), slots),
+            lazy_children(layout.to_layout(), slots, zones),
         )
     })
 }
 
-fn lower_dict(layout: &DictLayout) -> VortexResult<TakePlan> {
+fn lower_dict(layout: &DictLayout, zones: Zones) -> VortexResult<TakePlan> {
     // Dict serialization stores values before codes; the plan order is deliberately codes,
     // values because that is the optimizer-facing logical shape.
     // SAFETY: Dict layout construction validates its values and codes slots. The plan reorders
@@ -130,12 +158,12 @@ fn lower_dict(layout: &DictLayout) -> VortexResult<TakePlan> {
         TakePlan::from_children_unchecked(
             layout.dtype().clone(),
             layout.row_count(),
-            lazy_children(layout.to_layout(), vec![1, 0]),
+            lazy_children(layout.to_layout(), vec![1, 0], zones),
         )
     })
 }
 
-fn lower_list(layout: &ListLayout) -> VortexResult<ListPackPlan> {
+fn lower_list(layout: &ListLayout, zones: Zones) -> VortexResult<ListPackPlan> {
     let mut slots = vec![ELEMENTS_CHILD_INDEX, OFFSETS_CHILD_INDEX];
     if layout.dtype().is_nullable() {
         slots.push(VALIDITY_CHILD_INDEX);
@@ -146,12 +174,30 @@ fn lower_list(layout: &ListLayout) -> VortexResult<ListPackPlan> {
         ListPackPlan::from_children_unchecked(
             layout.dtype().clone(),
             layout.row_count(),
-            lazy_children(layout.to_layout(), slots),
+            lazy_children(layout.to_layout(), slots, zones),
         )
     })
 }
 
-fn lazy_children(layout: LayoutRef, slots: Vec<usize>) -> PlanChildren {
+fn lower_zoned(layout: &LayoutRef, zones: Zones) -> VortexResult<ZonedPlan> {
+    // Zoned and legacy stats layouts share a child shape: transparent data, auxiliary zones.
+    let metadata = if let Some(layout) = layout.as_opt::<Zoned>() {
+        layout.data()
+    } else if let Some(layout) = layout.as_opt::<LegacyStats>() {
+        layout.data()
+    } else {
+        vortex_bail!("Zoned plan requires a zoned layout")
+    };
+    Ok(ZonedPlan::from_children(
+        layout.dtype().clone(),
+        layout.row_count(),
+        lazy_children(Arc::clone(layout), vec![0, 1], zones),
+        u64::try_from(metadata.zone_len())?,
+        metadata.aggregate_fns(),
+    ))
+}
+
+fn lazy_children(layout: LayoutRef, slots: Vec<usize>, zones: Zones) -> PlanChildren {
     PlanChildren::lazy(slots.len(), move |index| {
         let slot = slots
             .get(index)
@@ -160,6 +206,6 @@ fn lazy_children(layout: LayoutRef, slots: Vec<usize>) -> PlanChildren {
         let child = layout
             .slot(slot)?
             .ok_or_else(|| vortex_err!("Layout child slot {slot} is absent"))?;
-        lower(&child)
+        lower_with(&child, zones)
     })
 }
