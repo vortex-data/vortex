@@ -13,8 +13,10 @@
 //! [`ExecGraph::set_io_result`].
 
 mod concat;
+mod eval;
 mod pack;
 mod piece;
+mod row_idx;
 mod segment_scan;
 
 use std::collections::VecDeque;
@@ -107,6 +109,7 @@ pub enum NodeState {
 /// Input that arrived for a node, and the effects of running it, applied by the graph afterwards.
 pub struct StepCx<'a> {
     session: &'a VortexSession,
+    row_offset: u64,
     next_io_id: &'a mut u64,
     inputs: Vec<(Port, Input)>,
     io: Vec<(IoRequestId, BufferHandle)>,
@@ -118,9 +121,15 @@ pub struct StepCx<'a> {
 }
 
 impl<'a> StepCx<'a> {
-    fn new(session: &'a VortexSession, next_io_id: &'a mut u64, inbox: Inbox) -> Self {
+    fn new(
+        session: &'a VortexSession,
+        row_offset: u64,
+        next_io_id: &'a mut u64,
+        inbox: Inbox,
+    ) -> Self {
         Self {
             session,
+            row_offset,
             next_io_id,
             inputs: inbox.inputs,
             io: inbox.io,
@@ -135,6 +144,11 @@ impl<'a> StepCx<'a> {
     /// The session used for decoding and expression evaluation.
     pub fn session(&self) -> &VortexSession {
         self.session
+    }
+
+    /// The global row index of the graph's first plan row.
+    pub fn row_offset(&self) -> u64 {
+        self.row_offset
     }
 
     /// Takes the child input that arrived since the previous call, in arrival order.
@@ -226,6 +240,7 @@ enum Status {
 /// A running plan: a flat arena of nodes wired child-to-parent.
 pub struct ExecGraph {
     session: VortexSession,
+    row_offset: u64,
     nodes: Vec<Box<dyn ExecNode>>,
     parents: Vec<Option<(NodeId, Port)>>,
     inboxes: Vec<Inbox>,
@@ -241,7 +256,8 @@ pub struct ExecGraph {
 
 impl ExecGraph {
     /// Builds the graph for `plan` over `rows`, restricted to `mask`, and runs each node's first
-    /// [`ExecNode::compute`].
+    /// [`ExecNode::compute`]. `row_offset` is the global row index of the plan's first row, used
+    /// by row-index plans.
     ///
     /// Construction does no IO. Every leaf's first request is returned by the first
     /// [`compute`](Self::compute).
@@ -250,9 +266,11 @@ impl ExecGraph {
         plan: &PlanRef,
         rows: Range<u64>,
         mask: Mask,
+        row_offset: u64,
     ) -> VortexResult<Self> {
         let mut graph = Self {
             session,
+            row_offset,
             nodes: Vec::new(),
             parents: Vec::new(),
             inboxes: Vec::new(),
@@ -347,7 +365,7 @@ impl ExecGraph {
     fn run(&mut self, node: NodeId) -> VortexResult<bool> {
         let inbox = mem::take(&mut self.inboxes[node]);
         let mut next_io_id = self.next_io_id;
-        let mut cx = StepCx::new(&self.session, &mut next_io_id, inbox);
+        let mut cx = StepCx::new(&self.session, self.row_offset, &mut next_io_id, inbox);
         let state = self.nodes[node].compute(&mut cx)?;
         let effects = Effects::from(cx);
         self.next_io_id = next_io_id;
@@ -425,8 +443,10 @@ impl From<StepCx<'_>> for Effects {
 }
 
 pub(crate) use concat::ConcatNode;
+pub(crate) use eval::EvalNode;
 pub(crate) use pack::PackNode;
 pub(crate) use piece::Selection;
+pub(crate) use row_idx::RowIdxNode;
 pub(crate) use segment_scan::SegmentScanNode;
 
 #[cfg(test)]

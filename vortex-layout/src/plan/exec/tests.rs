@@ -169,7 +169,7 @@ fn run(
     mask: Mask,
     mut pick: impl FnMut(&[IoRequest]) -> usize,
 ) -> VortexResult<Run> {
-    let mut graph = ExecGraph::try_new(SESSION.clone(), plan, rows, mask)?;
+    let mut graph = ExecGraph::try_new(SESSION.clone(), plan, rows, mask, 0)?;
     let mut inflight: Vec<IoRequest> = Vec::new();
     let mut pieces = Vec::new();
     let mut events = Vec::new();
@@ -456,6 +456,7 @@ fn state_is_side_effect_free() -> VortexResult<()> {
         &plan,
         0..ROWS,
         Mask::new_true(ROWS as usize),
+        0,
     )?;
     for _ in 0..3 {
         assert_eq!(graph.state(), ExecState::NeedsCompute);
