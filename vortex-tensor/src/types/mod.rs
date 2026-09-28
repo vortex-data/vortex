@@ -3,5 +3,6 @@
 
 //! Internal homes for tensor extension types.
 
+mod arrow;
 pub mod fixed_shape_tensor;
 pub mod vector;
