@@ -9,18 +9,22 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::marker::PhantomData;
 use std::ops::Deref;
+use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_array::SerializeMetadata;
 use vortex_array::dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 
 use crate::plan::PlanChildren;
 use crate::plan::PlanId;
 use crate::plan::PlanVTable;
 use crate::plan::display::PlanTreeDisplay;
+use crate::plan::exec::ExecNode;
 
 /// The combined allocation behind [`PlanRef`].
 ///
@@ -124,6 +128,22 @@ impl PlanRef {
         // SAFETY: Plan<V> is transparent over PlanRef, and the type check above proves that its
         // erased tail contains PlanData<V>.
         Some(unsafe { &*(std::ptr::from_ref(self).cast::<Plan<V>>()) })
+    }
+
+    /// Builds the exec node that runs this plan over `rows` of its row domain, restricted to
+    /// `mask`.
+    pub fn exec(&self, rows: Range<u64>, mask: Mask) -> VortexResult<Box<dyn ExecNode>> {
+        vortex_ensure!(
+            rows.start <= rows.end && rows.end <= self.row_count(),
+            "Exec rows {rows:?} exceed plan row count {}",
+            self.row_count()
+        );
+        vortex_ensure!(
+            mask.len() as u64 == rows.end - rows.start,
+            "Exec mask length {} does not match rows {rows:?}",
+            mask.len()
+        );
+        self.dyn_plan().dyn_exec(self, rows, mask)
     }
 
     /// Displays this plan and its descendants with the default plan extractors.
@@ -337,6 +357,14 @@ pub trait DynPlan: 'static + Send + Sync + Debug {
 
     /// Serializes operator-specific metadata, or `None` when the operator is not serializable.
     fn dyn_metadata(&self, plan: &PlanRef) -> Option<Vec<u8>>;
+
+    /// Builds the exec node for this operator.
+    fn dyn_exec(
+        &self,
+        plan: &PlanRef,
+        rows: Range<u64>,
+        mask: Mask,
+    ) -> VortexResult<Box<dyn ExecNode>>;
 }
 
 impl<V: PlanVTable> DynPlan for PlanData<V> {
@@ -367,5 +395,14 @@ impl<V: PlanVTable> DynPlan for PlanData<V> {
 
     fn dyn_metadata(&self, plan: &PlanRef) -> Option<Vec<u8>> {
         V::metadata(plan.as_::<V>()).map(SerializeMetadata::serialize)
+    }
+
+    fn dyn_exec(
+        &self,
+        plan: &PlanRef,
+        rows: Range<u64>,
+        mask: Mask,
+    ) -> VortexResult<Box<dyn ExecNode>> {
+        V::exec(plan.as_::<V>(), rows, mask)
     }
 }
