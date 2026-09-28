@@ -37,7 +37,9 @@ use crate::scan::v2::io::SegmentRanges;
 use crate::scan::v2::io::segment_ranges;
 use crate::scan::v2::lower::lower;
 use crate::scan::v2::lower::lower_with_zones;
+use crate::scan::v2::prefetch::plan_segments;
 use crate::scan::v2::split::SplitTask;
+use crate::segments::SegmentFuture;
 use crate::segments::SegmentSource;
 
 /// Computes split ranges for `builder` and returns an executable scan over `file`, the file the
@@ -205,13 +207,15 @@ impl<A: 'static + Send> RepeatedScanV2<A> {
                 }
                 _ => row_mask.mask().clone(),
             };
+            let range = row_mask.row_range();
             let task = SplitTask {
                 plans: self.plans.clone(),
                 pruning: self.pruning.clone(),
                 filter: self.filter.clone(),
                 segments: Arc::clone(&self.segments),
                 ranges: Arc::clone(&self.ranges),
-                range: row_mask.row_range(),
+                registered: self.register(&range)?,
+                range,
                 mask,
                 map_fn: Arc::clone(&self.map_fn),
             };
@@ -259,6 +263,25 @@ fn reads_only_zones(plan: &PlanRef) -> VortexResult<bool> {
         }
     }
     Ok(true)
+}
+
+impl<A: 'static + Send> RepeatedScanV2<A> {
+    /// Registers the segments a split over `range` is likely to read, as the layout reader does
+    /// when it builds a split's futures. Nothing is read until the split asks for a segment, but
+    /// the source can coalesce every registered segment near one that it does read.
+    fn register(&self, range: &Range<u64>) -> VortexResult<Vec<SegmentFuture>> {
+        let mut ids = Vec::new();
+        if let Some(filter) = &self.filter {
+            plan_segments(filter, range.clone(), &mut ids)?;
+        }
+        plan_segments(&self.plans.projection, range.clone(), &mut ids)?;
+        ids.sort_unstable();
+        ids.dedup();
+        Ok(ids
+            .into_iter()
+            .map(|id| self.segments.request(id))
+            .collect())
+    }
 }
 
 fn intersect_ranges(left: Option<&Range<u64>>, right: Option<Range<u64>>) -> Option<Range<u64>> {
