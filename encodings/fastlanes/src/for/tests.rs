@@ -172,7 +172,8 @@ fn encode_chunked_uses_chunk_minimums() -> VortexResult<()> {
     let values = PrimitiveArray::from_option_iter((0..4000u32).map(|i| match i / 1024 {
         0 => Some(500 + i % 10),
         1 => None,
-        2 => Some(9_000 + i % 10),
+        // Null slots hold 0, which must not count towards the minimum.
+        2 => (i % 7 != 0).then_some(9_000 + i % 10),
         _ => Some(3 + i % 10),
     }));
     let encoded = FoR::encode_chunked(values, &mut ctx)?;

@@ -11,8 +11,10 @@ use vortex_array::expr::stats::Stat;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
 use crate::FL_CHUNK_SIZE;
@@ -72,19 +74,22 @@ fn compress_chunked<T: NativePType + WrappingSub + PrimInt>(
     values: &[T],
     mask: &Mask,
 ) -> (Buffer<T>, Buffer<T>) {
-    let chunk_min = |chunk: usize| {
-        let start = chunk * FL_CHUNK_SIZE;
-        values[start..(start + FL_CHUNK_SIZE).min(values.len())]
-            .iter()
-            .enumerate()
-            .filter(|&(i, _)| mask.value(start + i))
-            .map(|(_, &v)| v)
-            .min()
+    // One validity bit per value, 64 values per word. `None` means every value is valid.
+    let words: Option<Vec<u64>> = match mask.bit_buffer() {
+        AllOr::All => None,
+        AllOr::None => Some(vec![0; values.len().div_ceil(64)]),
+        AllOr::Some(bits) => Some(bits.chunks().iter_padded().collect()),
     };
-    let num_chunks = values.len().div_ceil(FL_CHUNK_SIZE);
-    let mins = (0..num_chunks).map(chunk_min).collect::<Vec<_>>();
+    let mins = values
+        .chunks(FL_CHUNK_SIZE)
+        .enumerate()
+        .map(|(chunk_idx, chunk)| match &words {
+            None => Some(chunk.iter().copied().fold(T::max_value(), T::min)),
+            Some(words) => valid_min(chunk, &words[chunk_idx * (FL_CHUNK_SIZE / 64)..]),
+        });
 
     // All-null chunks take the previous chunk's reference, or the first valid one at the start.
+    let mins = mins.collect::<Vec<_>>();
     let mut previous = mins
         .iter()
         .flatten()
@@ -99,19 +104,33 @@ fn compress_chunked<T: NativePType + WrappingSub + PrimInt>(
         })
         .collect::<Buffer<T>>();
 
-    // Set null values to zero, as in `compress_primitive`.
-    let encoded = values
-        .iter()
-        .enumerate()
-        .map(|(i, &v)| {
-            if mask.value(i) {
-                v.wrapping_sub(&references[i / FL_CHUNK_SIZE])
+    // Null values are subtracted too; they decode to arbitrary values under the validity mask.
+    let mut encoded = BufferMut::<T>::with_capacity(values.len());
+    for (chunk, &reference) in values.chunks(FL_CHUNK_SIZE).zip(references.iter()) {
+        encoded.extend(chunk.iter().map(|v| v.wrapping_sub(&reference)));
+    }
+    (encoded.freeze(), references)
+}
+
+/// The minimum of the valid `values`, or `None` if none are valid.
+///
+/// `words` holds one validity bit per value starting at `values[0]`. Invalid values are replaced
+/// by `T::max_value()` with a branchless select so the loop vectorizes.
+fn valid_min<T: PrimInt>(values: &[T], words: &[u64]) -> Option<T> {
+    let mut min = T::max_value();
+    let mut valid = 0;
+    for (block, &word) in values.chunks(64).zip(words) {
+        valid |= word;
+        for (i, &v) in block.iter().enumerate() {
+            let v = if (word >> i) & 1 == 1 {
+                v
             } else {
-                T::zero()
-            }
-        })
-        .collect::<Buffer<T>>();
-    (encoded, references)
+                T::max_value()
+            };
+            min = min.min(v);
+        }
+    }
+    (valid != 0).then_some(min)
 }
 
 #[cfg(test)]
