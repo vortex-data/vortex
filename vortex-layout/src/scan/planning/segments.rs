@@ -18,6 +18,7 @@ use futures::FutureExt;
 use futures::future;
 use parking_lot::Mutex;
 use vortex_array::buffer::BufferHandle;
+use vortex_buffer::Alignment;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_io::request::IoBatch;
@@ -25,12 +26,22 @@ use vortex_io::request::IoIntent;
 use vortex_io::request::IoRequest;
 use vortex_io::request::IoRequestId;
 use vortex_io::request::IoTarget;
-use vortex_layout::segments::SegmentFuture;
-use vortex_layout::segments::SegmentId;
-use vortex_layout::segments::SegmentSource;
 use vortex_utils::aliases::hash_map::HashMap;
 
-use crate::SegmentSpec;
+use crate::segments::SegmentFuture;
+use crate::segments::SegmentId;
+use crate::segments::SegmentSource;
+
+/// Where a segment's bytes live in its source.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SegmentLocation {
+    /// Byte offset of the segment from the start of the source.
+    pub offset: u64,
+    /// Length of the segment in bytes.
+    pub length: u32,
+    /// Alignment the segment's bytes must have once delivered.
+    pub alignment: Alignment,
+}
 
 enum Slot {
     /// Requested, not yet delivered; the wakers of every leaf waiting on it.
@@ -43,23 +54,24 @@ enum Slot {
 /// The miss list is drained by whichever morsel polled last, which is sound under the
 /// single-worker driver because only one morsel computes at a time.
 pub struct PollingSegmentSource {
-    specs: Arc<[SegmentSpec]>,
+    locations: Arc<[SegmentLocation]>,
     slots: Arc<Mutex<HashMap<SegmentId, Slot>>>,
     missed: Mutex<Vec<SegmentId>>,
 }
 
 impl PollingSegmentSource {
-    /// Creates an empty source over the file's segment specs.
-    pub fn new(specs: Arc<[SegmentSpec]>) -> Self {
+    /// Creates an empty source over the locations of every segment it may be asked for,
+    /// indexed by segment id.
+    pub fn new(locations: Arc<[SegmentLocation]>) -> Self {
         Self {
-            specs,
+            locations,
             slots: Arc::new(Mutex::new(HashMap::default())),
             missed: Mutex::new(Vec::new()),
         }
     }
 
     /// Drains the misses recorded since the last call into a batch, one `Fetch` per segment,
-    /// keyed by the segment id. Fails for a segment the footer does not describe.
+    /// keyed by the segment id. Fails for a segment with no known location.
     pub fn take_batch(&self) -> VortexResult<IoBatch> {
         let mut missed: Vec<SegmentId> = self.missed.lock().drain(..).collect();
         missed.sort_unstable();
@@ -67,13 +79,13 @@ impl PollingSegmentSource {
         missed
             .into_iter()
             .map(|id| {
-                let spec = self.spec(id)?;
+                let location = self.location(id)?;
                 Ok(IoRequest {
                     intent: IoIntent::Fetch,
                     request: IoRequestId(*id),
                     target: IoTarget::Range {
-                        offset: spec.offset,
-                        len: spec.length as usize,
+                        offset: location.offset,
+                        len: location.length as usize,
                     },
                 })
             })
@@ -85,7 +97,7 @@ impl PollingSegmentSource {
     /// copied here.
     pub fn deliver(&self, request: IoRequestId, bytes: BufferHandle) -> VortexResult<()> {
         let id = SegmentId::from(request.0);
-        let alignment = self.spec(id)?.alignment;
+        let alignment = self.location(id)?.alignment;
         let bytes = BufferHandle::new_host(bytes.try_into_host_sync()?.aligned(alignment));
         let previous = self.slots.lock().insert(id, Slot::Ready(bytes));
         if let Some(Slot::Wanted(wakers)) = previous {
@@ -94,10 +106,10 @@ impl PollingSegmentSource {
         Ok(())
     }
 
-    fn spec(&self, id: SegmentId) -> VortexResult<&SegmentSpec> {
-        self.specs
+    fn location(&self, id: SegmentId) -> VortexResult<&SegmentLocation> {
+        self.locations
             .get(*id as usize)
-            .ok_or_else(|| vortex_err!("segment {id} is not in the footer"))
+            .ok_or_else(|| vortex_err!("segment {id} has no known location"))
     }
 }
 
