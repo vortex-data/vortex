@@ -13,8 +13,6 @@ mod tests {
     use arrow_buffer::NullBuffer;
     use arrow_schema::DataType;
     use arrow_schema::Field;
-    use base64::Engine;
-    use base64::prelude::BASE64_STANDARD;
     use hegel::TestCase;
     use hegel::generators as gs;
     use prost::Message;
@@ -148,25 +146,47 @@ mod tests {
                 .copied()
                 .map(u32::try_from)
                 .collect::<Result<_, _>>()?,
-            names: names.unwrap_or_default(),
+            names: names.clone().unwrap_or_default(),
             permutation: permutation
-                .unwrap_or_default()
-                .into_iter()
+                .iter()
+                .flatten()
+                .copied()
                 .map(u32::try_from)
                 .collect::<Result<_, _>>()?,
         }
         .encode_to_vec();
+
+        // Arrow metadata lists dimensions in physical order: physical[permutation[i]] = logical[i].
+        let physical = |logical: &[String]| {
+            let mut out = logical.to_vec();
+            for (i, &p) in permutation.iter().flatten().enumerate() {
+                out[p] = logical[i].clone();
+            }
+            out
+        };
+        let shape_json: Vec<String> = shape.iter().map(ToString::to_string).collect();
+        let mut arrow_metadata = format!(r#"{{"shape":[{}]"#, physical(&shape_json).join(","));
+        // Vortex metadata treats empty name and permutation lists as unset.
+        if let Some(names) = names.as_ref().filter(|names| !names.is_empty()) {
+            let quoted: Vec<String> = names.iter().map(|n| format!(r#""{n}""#)).collect();
+            arrow_metadata.push_str(&format!(
+                r#","dim_names":[{}]"#,
+                physical(&quoted).join(",")
+            ));
+        }
+        if let Some(permutation) = permutation.as_ref().filter(|p| !p.is_empty()) {
+            let items: Vec<String> = permutation.iter().map(ToString::to_string).collect();
+            arrow_metadata.push_str(&format!(r#","permutations":[{}]"#, items.join(",")));
+        }
+        arrow_metadata.push('}');
+
         let mut field = Field::new("value", storage.arrow.data_type().clone(), nullable);
         field.metadata_mut().extend([
             (
                 "ARROW:extension:name".into(),
-                "vortex.tensor.fixed_shape_tensor".into(),
+                "arrow.fixed_shape_tensor".into(),
             ),
-            (
-                "ARROW:extension:metadata".into(),
-                BASE64_STANDARD.encode(&wire),
-            ),
-            ("vortex:extension:metadata:encoding".into(), "base64".into()),
+            ("ARROW:extension:metadata".into(), arrow_metadata),
         ]);
         let expected = storage.arrow;
         let tensor =
@@ -176,7 +196,7 @@ mod tests {
         assert_eq!(tensor.dtype().as_extension().serialize_metadata()?, wire);
         check_arrow(tensor.clone(), &field, expected, &mut ctx)?;
         check_canonical_field(&tensor, &field, &mut ctx)?;
-        check_generated(tc, tensor, DefaultExport::Unsupported, &mut ctx)
+        check_generated(tc, tensor, DefaultExport::Supported, &mut ctx)
     }
 
     #[track_caller]
