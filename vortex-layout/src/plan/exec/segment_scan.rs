@@ -10,12 +10,16 @@ use vortex_error::vortex_bail;
 use crate::plan::SegmentScanPlan;
 use crate::plan::exec::ExecNode;
 use crate::plan::exec::IoRequestId;
+use crate::plan::exec::NodeState;
 use crate::plan::exec::Piece;
 use crate::plan::exec::StepCx;
 use crate::plan::exec::piece::Selection;
 use crate::plan::exec::piece::empty_piece;
 
 /// Reads one segment, then emits its selected rows as a single piece.
+///
+/// The first compute publishes the read, and the compute that receives the bytes decodes, slices,
+/// and filters them to the selected rows.
 pub(crate) struct SegmentScanNode {
     plan: SegmentScanPlan,
     selection: Selection,
@@ -25,7 +29,6 @@ pub(crate) struct SegmentScanNode {
 enum ScanState {
     Init,
     Requested(IoRequestId),
-    Loaded(BufferHandle),
     Done,
 }
 
@@ -40,38 +43,42 @@ impl SegmentScanNode {
 }
 
 impl ExecNode for SegmentScanNode {
-    fn start(&mut self, cx: &mut StepCx<'_>) -> VortexResult<()> {
-        if self.selection.mask().all_false() {
-            cx.emit(empty_piece(
-                self.plan.dtype(),
-                self.selection.rows().clone(),
-            ));
-            cx.close();
-            self.state = ScanState::Done;
-        } else {
-            self.state = ScanState::Requested(cx.request(self.plan.segment_id()));
-        }
-        Ok(())
-    }
-
-    fn is_ready(&self) -> bool {
-        matches!(self.state, ScanState::Loaded(_))
-    }
-
-    fn on_io(&mut self, id: IoRequestId, result: BufferHandle) -> VortexResult<()> {
-        match self.state {
-            ScanState::Requested(expected) if expected == id => {
-                self.state = ScanState::Loaded(result);
-                Ok(())
+    fn compute(&mut self, cx: &mut StepCx<'_>) -> VortexResult<NodeState> {
+        match std::mem::replace(&mut self.state, ScanState::Done) {
+            ScanState::Init if self.selection.mask().all_false() => {
+                cx.emit(empty_piece(
+                    self.plan.dtype(),
+                    self.selection.rows().clone(),
+                ));
+                cx.close();
+                Ok(NodeState::Done)
             }
-            _ => vortex_bail!("SegmentScan did not expect {id:?}"),
+            ScanState::Init => {
+                self.state = ScanState::Requested(cx.request(self.plan.segment_id()));
+                Ok(NodeState::Waiting)
+            }
+            ScanState::Requested(expected) => {
+                let mut io = cx.take_io();
+                let Some((id, segment)) = io.pop() else {
+                    self.state = ScanState::Requested(expected);
+                    return Ok(NodeState::Waiting);
+                };
+                if id != expected || !io.is_empty() {
+                    vortex_bail!("SegmentScan did not expect {id:?}");
+                }
+                cx.emit(self.decode(segment, cx)?);
+                cx.close();
+                cx.yield_now();
+                Ok(NodeState::Done)
+            }
+            ScanState::Done => vortex_bail!("SegmentScan computed after it closed"),
         }
     }
+}
 
-    fn step(&mut self, cx: &mut StepCx<'_>) -> VortexResult<()> {
-        let ScanState::Loaded(segment) = std::mem::replace(&mut self.state, ScanState::Done) else {
-            vortex_bail!("SegmentScan stepped before its segment arrived");
-        };
+impl SegmentScanNode {
+    /// Decodes the segment and returns its selected rows.
+    fn decode(&self, segment: BufferHandle, cx: &StepCx<'_>) -> VortexResult<Piece> {
         let serialized = match self.plan.array_tree() {
             Some(tree) => SerializedArray::from_flatbuffer_and_segment(tree.clone(), segment)?,
             None => SerializedArray::try_from(segment)?,
@@ -94,10 +101,6 @@ impl ExecNode for SegmentScanNode {
         if !self.selection.mask().all_true() {
             array = array.filter(self.selection.mask().clone())?;
         }
-
-        cx.emit(Piece { rows, array });
-        cx.close();
-        cx.yield_now();
-        Ok(())
+        Ok(Piece { rows, array })
     }
 }

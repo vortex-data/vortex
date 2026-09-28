@@ -15,8 +15,8 @@ use vortex_error::vortex_bail;
 use crate::plan::PackPlan;
 use crate::plan::exec::ExecNode;
 use crate::plan::exec::Input;
+use crate::plan::exec::NodeState;
 use crate::plan::exec::Piece;
-use crate::plan::exec::Port;
 use crate::plan::exec::StepCx;
 use crate::plan::exec::piece::Selection;
 use crate::plan::exec::piece::empty_piece;
@@ -32,8 +32,7 @@ pub(crate) struct PackNode {
     selection: Selection,
     ports: Vec<BTreeMap<u64, Piece>>,
     open: usize,
-    dirty: bool,
-    closed: bool,
+    started: bool,
 }
 
 impl PackNode {
@@ -44,8 +43,7 @@ impl PackNode {
             selection,
             ports: vec![BTreeMap::new(); nports],
             open: nports,
-            dirty: false,
-            closed: false,
+            started: false,
         }
     }
 
@@ -117,59 +115,50 @@ impl PackNode {
 }
 
 impl ExecNode for PackNode {
-    fn start(&mut self, cx: &mut StepCx<'_>) -> VortexResult<()> {
-        let rows = self.selection.rows().clone();
-        if self.selection.mask().all_false() || self.ports.is_empty() {
-            let piece = if self.ports.is_empty() {
-                self.assemble(rows, Vec::new())?
-            } else {
-                empty_piece(self.plan.dtype(), rows)
-            };
-            cx.emit(piece);
-            cx.close();
-            self.closed = true;
-            return Ok(());
-        }
-        for port in 0..self.ports.len() {
-            cx.spawn(
-                port,
-                self.plan.child_required(port)?,
-                self.selection.rows().clone(),
-                self.selection.mask().clone(),
-            );
-        }
-        Ok(())
-    }
-
-    fn is_ready(&self) -> bool {
-        self.dirty
-    }
-
-    fn on_input(&mut self, port: Port, input: Input) -> VortexResult<()> {
-        match input {
-            Input::Piece(piece) => {
-                self.ports[port].insert(piece.rows.start, piece);
+    fn compute(&mut self, cx: &mut StepCx<'_>) -> VortexResult<NodeState> {
+        if !self.started {
+            self.started = true;
+            let rows = self.selection.rows().clone();
+            if self.selection.mask().all_false() || self.ports.is_empty() {
+                let piece = if self.ports.is_empty() {
+                    self.assemble(rows, Vec::new())?
+                } else {
+                    empty_piece(self.plan.dtype(), rows)
+                };
+                cx.emit(piece);
+                cx.close();
+                return Ok(NodeState::Done);
             }
-            Input::Closed => self.open -= 1,
+            for port in 0..self.ports.len() {
+                cx.spawn(
+                    port,
+                    self.plan.child_required(port)?,
+                    self.selection.rows().clone(),
+                    self.selection.mask().clone(),
+                );
+            }
         }
-        self.dirty = true;
-        Ok(())
-    }
 
-    fn step(&mut self, cx: &mut StepCx<'_>) -> VortexResult<()> {
-        self.dirty = false;
+        for (port, input) in cx.take_inputs() {
+            match input {
+                Input::Piece(piece) => {
+                    self.ports[port].insert(piece.rows.start, piece);
+                }
+                Input::Closed => self.open -= 1,
+            }
+        }
         for rows in self.aligned() {
             let ports = self.take(&rows)?;
             cx.emit(self.assemble(rows, ports)?);
         }
-        if self.open == 0 && !self.closed {
+        if self.open == 0 {
             if self.ports.iter().any(|port| !port.is_empty()) {
                 vortex_bail!("Pack fields closed with unaligned rows left over");
             }
-            self.closed = true;
             cx.close();
+            return Ok(NodeState::Done);
         }
-        Ok(())
+        Ok(NodeState::Waiting)
     }
 }
 
