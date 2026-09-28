@@ -14,7 +14,8 @@
 //! the file's own segment source serves their reads.
 //!
 //! The driver runs inside the split's future, on whichever thread polls it, and the future awaits
-//! the reads it starts from the file's segment source.
+//! the reads it starts from the file's segment source. Every split registers the segments its
+//! plans are likely to read when the scan is executed, so the source can coalesce them.
 //!
 //! [`ScanBuilder`]: crate::scan::scan_builder::ScanBuilder
 //! [`ScanBuilder::prepare`]: crate::scan::scan_builder::ScanBuilder::prepare
@@ -22,6 +23,7 @@
 
 mod io;
 mod lower;
+mod prefetch;
 mod repeated_scan;
 mod split;
 mod stream;

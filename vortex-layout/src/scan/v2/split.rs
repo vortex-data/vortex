@@ -22,6 +22,7 @@ use crate::scan::planning::ScanPlans;
 use crate::scan::planning::plan_split;
 use crate::scan::v2::io::SegmentIoSource;
 use crate::scan::v2::io::SegmentRanges;
+use crate::segments::SegmentFuture;
 use crate::segments::SegmentSource;
 
 /// Everything one split needs, captured when the scan is executed.
@@ -31,6 +32,8 @@ pub(super) struct SplitTask<A> {
     pub(super) filter: Option<PlanRef>,
     pub(super) segments: Arc<dyn SegmentSource>,
     pub(super) ranges: SegmentRanges,
+    /// Registrations of the segments the split is likely to read, held until it finishes.
+    pub(super) registered: Vec<SegmentFuture>,
     pub(super) range: Range<u64>,
     pub(super) mask: Mask,
     pub(super) map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
@@ -49,6 +52,7 @@ impl<A> SplitTask<A> {
             filter,
             segments,
             ranges,
+            registered,
             range,
             mask,
             map_fn,
@@ -57,7 +61,7 @@ impl<A> SplitTask<A> {
             return Ok(None);
         }
 
-        let io = Arc::new(SegmentIoSource::new(segments, ranges));
+        let io = Arc::new(SegmentIoSource::new(segments, ranges, registered));
         let scope = WorkScope {
             file_ordinal: 0,
             rows: range,

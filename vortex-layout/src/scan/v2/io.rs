@@ -25,6 +25,7 @@ use vortex_io::request::IoTarget;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::scan::planning::SegmentLocation;
+use crate::segments::SegmentFuture;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 
@@ -45,18 +46,28 @@ pub(super) fn segment_ranges(locations: &[SegmentLocation]) -> SegmentRanges {
 /// [`poll`](IoSource::poll) takes a finished one if there is any, and the split's future awaits
 /// the next with [`next_completion`](Self::next_completion) when the driver has nothing else to
 /// run. [`wait`](IoSource::wait) is never called. Optional intents are declined.
+///
+/// The split's registrations are held, never polled, until the source is dropped. A source that
+/// shares requests for one segment serves each fetch through its registration, so the bytes are
+/// read once however many of the split's reads name them.
 pub(super) struct SegmentIoSource {
     segments: Arc<dyn SegmentSource>,
     ranges: SegmentRanges,
     reads: Mutex<FuturesUnordered<BoxFuture<'static, Completion>>>,
+    _registered: Mutex<Vec<SegmentFuture>>,
 }
 
 impl SegmentIoSource {
-    pub(super) fn new(segments: Arc<dyn SegmentSource>, ranges: SegmentRanges) -> Self {
+    pub(super) fn new(
+        segments: Arc<dyn SegmentSource>,
+        ranges: SegmentRanges,
+        registered: Vec<SegmentFuture>,
+    ) -> Self {
         Self {
             segments,
             ranges,
             reads: Mutex::new(FuturesUnordered::new()),
+            _registered: Mutex::new(registered),
         }
     }
 
