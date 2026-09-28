@@ -11,7 +11,6 @@ pub(crate) mod compute;
 
 mod plugin;
 pub use plugin::FoRPlugin;
-pub use plugin::for_v1_id;
 
 mod vtable;
 pub use vtable::FoR;
