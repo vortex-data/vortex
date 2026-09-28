@@ -25,6 +25,7 @@ use vortex::io::object_store::ObjectStoreFileSystem;
 use vortex::io::runtime::BlockingRuntime as _;
 use vortex::io::std_file::StdFileSystem;
 use vortex::layout::LayoutReaderRef;
+use vortex::layout::scan;
 use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::mask::Mask;
 use vortex::session::SessionExt as _;
@@ -178,8 +179,11 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
         .with_projection(global.projection.clone())
         .with_some_filter(filter.filter.clone())
         .with_selection(filter.row_selection.clone());
-    let scan = builder.prepare()?;
-    let mut splits = scan.execute(filter.row_range.clone())?;
+    let mut splits = if scan::v2::enabled() {
+        scan::v2::prepare(builder)?.execute(filter.row_range.clone())?
+    } else {
+        builder.prepare()?.execute(filter.row_range.clone())?
+    };
 
     // threads take last element of file.splits so we need to reverse
     splits.reverse();

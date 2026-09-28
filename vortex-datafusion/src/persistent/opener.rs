@@ -43,6 +43,7 @@ use vortex::error::VortexExpect;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::InstrumentedReadAt;
 use vortex::layout::LayoutReader;
+use vortex::layout::scan;
 use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::metrics::Label;
 use vortex::metrics::MetricsRegistry;
@@ -425,7 +426,7 @@ impl FileOpener for VortexOpener {
             }
 
             let stream_target_field = Field::new_struct("", stream_schema.fields().clone(), false);
-            let stream = scan_builder
+            let scan_builder = scan_builder
                 .with_metrics_registry(metrics_registry)
                 .with_ordered(has_output_ordering)
                 .map(move |chunk| {
@@ -437,8 +438,13 @@ impl FileOpener for VortexOpener {
                         &mut ctx,
                     )?;
                     Ok(RecordBatch::from(arrow.as_struct().clone()))
-                })
-                .into_stream()
+                });
+            let batches = if scan::v2::enabled() {
+                scan::v2::into_stream(scan_builder).map(|s| s.boxed())
+            } else {
+                scan_builder.into_stream().map(|s| s.boxed())
+            };
+            let stream = batches
                 .map_err(|e| exec_datafusion_err!("Failed to create Vortex stream: {e}"))?
                 .map_err(move |e: VortexError| {
                     DataFusionError::External(Box::new(e.with_context(format!(
