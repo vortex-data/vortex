@@ -822,7 +822,7 @@ jobs:
           - uses: ./.github/actions/setup-prebuild
             with:
               enable-sccache: "true"
-              targets: "wasm32-wasip1"
+              targets: "wasm32-wasip1,wasm32-unknown-unknown"
           - name: Setup Wasmer
             uses: wasmerio/setup-wasmer@ba7631cb2d521612aa7ac5b13cb76fb77e824a1a  # v3
             with:
@@ -833,6 +833,15 @@ jobs:
         working-directory: ./wasm-test
       - run: wasmer run ./target/wasm32-wasip1/ci/wasm-test.wasm
         working-directory: ./wasm-test
+      - run: RUSTFLAGS='--cfg getrandom_backend="unsupported"' cargo build --profile ci --target wasm32-unknown-unknown
+        working-directory: ./wasm-test
+      - name: "Check wasm32-unknown-unknown does not need wasm-bindgen"
+        # Pure wasm hosts (e.g. wasmtime) cannot provide wasm-bindgen's JS imports.
+        shell: bash
+        working-directory: ./wasm-test
+        run: |
+          ! cargo tree --target wasm32-unknown-unknown -e normal --prefix none \
+            | grep -E '^(wasm-bindgen|js-sys) '
 
   generated-files:
     name: "Generated source files and C API"

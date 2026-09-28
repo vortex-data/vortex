@@ -16,3 +16,7 @@ vortex = { path = "../vortex", default-features = false }
 inherits = "dev"
 debug = "line-tables-only"
 incremental = false
+
+# Pure wasm has no randomness source by default; vortex-layout leaves the choice to us.
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+uuid = { version = "1", features = ["rng-getrandom"] }

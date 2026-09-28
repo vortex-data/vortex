@@ -272,6 +272,7 @@ pub mod encodings {
         pub use vortex_fsst::*;
     }
 
+    #[cfg(feature = "parquet-variant")]
     /// Parquet Variant array encoding.
     pub mod parquet_variant {
         pub use vortex_parquet_variant::*;
@@ -331,6 +332,7 @@ impl VortexSessionDefault for VortexSession {
             .with::<CompressionSession>()
             .with::<RuntimeSession>();
         vortex_arrow::initialize(&session);
+        #[cfg(feature = "parquet-variant")]
         vortex_parquet_variant::initialize(&session);
         editions::register_default_editions(&session);
         editions::enable_default_editions(&session);
