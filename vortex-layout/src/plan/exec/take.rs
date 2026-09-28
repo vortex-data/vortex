@@ -2,10 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::IntoArray;
-use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::DictArray;
+use vortex_array::arrays::SharedArray;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
@@ -30,9 +29,8 @@ const VALUES: usize = 1;
 /// values.
 ///
 /// The joined values are kept on the plan, so later executions of it skip the values subtree.
-/// Boolean values, which the optimizer produces by pushing a predicate onto the dictionary, are
-/// evaluated before they are kept, so the predicate runs once per dictionary rather than once
-/// per execution.
+/// They are kept as a [`SharedArray`], so however many executions use them, including a predicate
+/// the optimizer pushed onto the dictionary, they are canonicalized once.
 pub(crate) struct TakeNode {
     plan: TakePlan,
     selection: Selection,
@@ -108,12 +106,11 @@ impl ExecNode for TakeNode {
                 .into_iter()
                 .map(|piece| piece.array)
                 .collect();
-            let mut values = join(self.plan.values()?.dtype(), values)?;
-            if values.dtype().is_boolean() {
-                let mut ctx = cx.session().create_execution_ctx();
-                values = values.execute::<Canonical>(&mut ctx)?.into_array();
-            }
-            self.joined = Some(self.plan.cache_values(values));
+            let values = join(self.plan.values()?.dtype(), values)?;
+            self.joined = Some(
+                self.plan
+                    .cache_values(SharedArray::new(values).into_array()),
+            );
         }
         let Some(values) = &self.joined else {
             return Ok(NodeState::Waiting);
