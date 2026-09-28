@@ -30,10 +30,12 @@ documentation in `docs/`, and benchmark tooling in `vortex-bench/` and `benchmar
 - `vortex-scan`, `vortex-session`, `vortex-datafusion`, and `vortex-duckdb` contain scan
   and execution integrations.
 - FlatBuffers (`.fbs`) and Protocol Buffers (`.proto`) schemas live in the crate that owns the
-  types they describe (`vortex-array`, `vortex-layout`, `vortex-file`, `vortex-ipc`), and are
-  compiled into `OUT_DIR` by that crate's `build.rs` via `vortex-build`. Generated code is never
-  checked in, and a schema that includes another crate's declares that crate with `depends_on`.
-  Building therefore requires `flatc` on `PATH` (or `FLATC` set); `protoc` is not needed.
+  types they describe (`vortex-array`, `vortex-layout`, `vortex-file`, `vortex-ipc`). Protocol
+  Buffers bindings are compiled into `OUT_DIR` by `build.rs` via `vortex-build`; `protoc` is not
+  needed. FlatBuffers bindings are checked in under `<crate>/src/flatbuffers/generated/` and
+  regenerated with `cargo run -p xtask -- generate-flatbuffers`, which requires the `flatc`
+  release pinned in `xtask/src/generate_flatbuffers.rs` on `PATH` (or `FLATC` set). Never edit
+  the generated files by hand; after changing a `.fbs` schema, regenerate and commit the result.
 - `vortex-python` contains Python bindings. RST-flavored project docs live in `docs/`.
 
 ## Scoped Guidance

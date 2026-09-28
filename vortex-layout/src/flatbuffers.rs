@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Bindings generated from this crate's `flatbuffers` schema.
+//! Bindings generated from this crate's `flatbuffers` schema, checked in under `generated/`.
+//! Regenerate with `cargo run -p xtask -- generate-flatbuffers`.
 
 /// Structures describing the physical layout of Vortex arrays in random access storage.
 ///
@@ -25,5 +26,5 @@
 #[allow(unused_lifetimes)]
 #[allow(unused_qualifications)]
 pub mod layout {
-    include!(concat!(env!("OUT_DIR"), "/flatbuffers/layout.rs"));
+    include!("flatbuffers/generated/layout.rs");
 }

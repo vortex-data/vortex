@@ -86,6 +86,3 @@ runs:
     - name: Install Protoc (for lance-encoding build step)
       if: runner.os != 'Windows'
       uses: ./.github/actions/setup-protoc
-
-    - name: Install flatc (for FlatBuffers code generation)
-      uses: ./.github/actions/setup-flatc

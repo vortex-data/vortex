@@ -11247,7 +11247,6 @@ dependencies = [
  "vortex-array",
  "vortex-btrblocks",
  "vortex-buffer",
- "vortex-build",
  "vortex-bytebool",
  "vortex-datetime-parts",
  "vortex-decimal-byte-parts",
@@ -11363,7 +11362,6 @@ dependencies = [
  "tokio",
  "vortex-array",
  "vortex-buffer",
- "vortex-build",
  "vortex-error",
  "vortex-session",
 ]
@@ -11447,7 +11445,6 @@ dependencies = [
  "vortex-arrow",
  "vortex-btrblocks",
  "vortex-buffer",
- "vortex-build",
  "vortex-error",
  "vortex-io",
  "vortex-mask",

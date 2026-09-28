@@ -2,7 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! FlatBuffers read/write traits, plus bindings generated from this crate's `flatbuffers`
-//! schemas. Schemas owned by other crates generate into those crates instead.
+//! schemas, checked in under `generated/`. Schemas owned by other crates generate into those
+//! crates instead. Regenerate with `cargo run -p xtask -- generate-flatbuffers`.
 
 mod traits;
 
@@ -30,7 +31,7 @@ pub use traits::*;
 #[allow(unused_lifetimes)]
 #[allow(unused_qualifications)]
 pub mod array {
-    include!(concat!(env!("OUT_DIR"), "/flatbuffers/array.rs"));
+    include!("flatbuffers/generated/array.rs");
 }
 
 /// A serialized data type.
@@ -55,5 +56,5 @@ pub mod array {
 #[allow(unused_lifetimes)]
 #[allow(unused_qualifications)]
 pub mod dtype {
-    include!(concat!(env!("OUT_DIR"), "/flatbuffers/dtype.rs"));
+    include!("flatbuffers/generated/dtype.rs");
 }

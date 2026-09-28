@@ -12,8 +12,6 @@ readme = { workspace = true }
 repository = { workspace = true }
 rust-version = { workspace = true }
 
-# Exports the `flatbuffers` schema directory to dependent build scripts.
-links = "vortex-layout"
 version = { workspace = true }
 
 [package.metadata.docs.rs]
@@ -55,9 +53,6 @@ vortex-scan = { workspace = true }
 vortex-sequence = { workspace = true }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true, features = ["dashmap"] }
-
-[build-dependencies]
-vortex-build = { workspace = true }
 
 [dev-dependencies]
 divan = { workspace = true }

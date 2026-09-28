@@ -10,6 +10,7 @@ runs:
     # The generated bindings are not source-compatible across flatc releases (24.x names a
     # `size` field `size_`, for example), so the version has to match exactly. Distro packages
     # lag well behind it, hence the release binary, or a source build where none is published.
+    # Keep in sync with `FLATC_VERSION` in `xtask/src/generate_flatbuffers.rs`.
     - name: Install flatc
       shell: bash
       run: |

@@ -863,9 +863,14 @@ jobs:
       - uses: ./.github/actions/setup-prebuild
         with:
           enable-sccache: "true"
+      # The only job that needs flatc: builds use the checked-in bindings.
       - uses: ./.github/actions/setup-flatc
       - name: Install nightly for cbindgen macro expansion
         run: rustup toolchain install $NIGHTLY_TOOLCHAIN
+      - name: "regenerate the FlatBuffers bindings with the pinned flatc"
+        # Fails on a flatc version mismatch, and the porcelain check below fails on stale bindings.
+        run: |
+          cargo run --profile ci -p xtask -- generate-flatbuffers
       - name: "regenerate the edition records"
         run: |
           cargo run --profile ci -p xtask -- generate-editions

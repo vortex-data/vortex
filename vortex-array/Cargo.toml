@@ -12,7 +12,7 @@ readme = "README.md"
 repository = { workspace = true }
 rust-version = { workspace = true }
 
-# Exports the `flatbuffers` and `proto` schema directories to dependent build scripts.
+# Exports the `proto` schema directory to dependent build scripts.
 links = "vortex-array"
 version = { workspace = true }
 

@@ -24,9 +24,6 @@ vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
 vortex-session = { workspace = true }
 
-[build-dependencies]
-vortex-build = { workspace = true }
-
 [dev-dependencies]
 tokio = { workspace = true, features = ["full"] }
 vortex-array = { workspace = true, features = ["_test-harness"] }

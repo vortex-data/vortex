@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Bindings generated from this crate's `flatbuffers` schema.
+//! Bindings generated from this crate's `flatbuffers` schema, checked in under `generated/`.
+//! Regenerate with `cargo run -p xtask -- generate-flatbuffers`.
 
 /// Where `flatc` resolves the `crate::flatbuffers::deps::*` paths it emits for `message.fbs`'s includes.
 mod deps {
@@ -31,5 +32,5 @@ mod deps {
 #[allow(unused_lifetimes)]
 #[allow(unused_qualifications)]
 pub mod message {
-    include!(concat!(env!("OUT_DIR"), "/flatbuffers/message.rs"));
+    include!("flatbuffers/generated/message.rs");
 }

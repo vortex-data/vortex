@@ -3,11 +3,13 @@
 
 mod check_editions;
 mod generate_editions;
+mod generate_flatbuffers;
 
 use clap::Parser;
 
 use crate::check_editions::check_editions;
 use crate::generate_editions::generate_editions;
+use crate::generate_flatbuffers::generate_flatbuffers;
 
 #[derive(clap::Parser)]
 struct Xtask {
@@ -27,6 +29,9 @@ enum Commands {
     /// Subcommand to regenerate the edition records under `vortex/editions`.
     #[command(name = "generate-editions")]
     Editions,
+    /// Subcommand to regenerate the checked-in FlatBuffers bindings with the pinned `flatc`.
+    #[command(name = "generate-flatbuffers")]
+    FlatBuffers,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -34,6 +39,7 @@ fn main() -> anyhow::Result<()> {
     match cli.command {
         Commands::CheckEditions { base } => check_editions(&base)?,
         Commands::Editions => generate_editions()?,
+        Commands::FlatBuffers => generate_flatbuffers()?,
     }
     Ok(())
 }
