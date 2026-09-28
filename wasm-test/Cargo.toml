@@ -10,7 +10,7 @@ edition = "2024"
 rust-version = "1.86"
 
 [dependencies]
-vortex = { path = "../vortex", default-features = false }
+vortex = { path = "../vortex", default-features = false, features = ["files"] }
 
 [profile.ci]
 inherits = "dev"
