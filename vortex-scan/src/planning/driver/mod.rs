@@ -7,7 +7,9 @@
 //! IO is registered immediately and state is inspected again before parking. Output follows
 //! completion order; FIFO scheduling does not imply row ordering. Waiting work is parked, and
 //! comes back to the run queue when one of its requests completes, in whatever order the source
-//! finishes them. The driver only blocks when the run queue is empty and something is parked.
+//! finishes them. [`Driver::run`] only blocks when the run queue is empty and something is
+//! parked; [`Driver::start`] returns a [`Run`] that never blocks, for callers that wait for IO
+//! themselves.
 
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -15,17 +17,17 @@ use std::sync::Arc;
 use vortex_array::ArrayRef;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_utils::aliases::hash_map::HashMap;
-
 use vortex_io::request::Completion;
 use vortex_io::request::IoBatch;
 use vortex_io::request::IoConsumer;
 use vortex_io::request::IoIntent;
+use vortex_io::request::IoOwnerId;
 use vortex_io::request::IoRequest;
 use vortex_io::request::IoRequestId;
 use vortex_io::request::IoSource;
 use vortex_io::request::IoTarget;
-use vortex_io::request::IoOwnerId;
+use vortex_utils::aliases::hash_map::HashMap;
+
 use crate::planning::morsel::Morsel;
 use crate::planning::morsel::MorselOutput;
 use crate::planning::next::PendingPlanner;
@@ -63,15 +65,6 @@ struct Work {
     registered: HashMap<IoRequestId, IoRequest>,
     /// Ids delivered since the item's last `state()`; any of them re-listed is a protocol error.
     delivered: Vec<IoRequestId>,
-}
-
-/// A run owns service registrations even when it exits through an error.
-struct RunIo<'a>(&'a dyn IoSource);
-
-impl Drop for RunIo<'_> {
-    fn drop(&mut self) {
-        self.0.clear();
-    }
 }
 
 impl Work {
@@ -122,74 +115,125 @@ impl Driver {
 
     /// Runs `root` and everything it spawns, returning batches in emission order.
     pub fn run(&self, root: Box<dyn PendingPlanner>) -> VortexResult<Vec<Batch>> {
-        let _run = RunIo(self.io.as_ref());
-        let mut next_id = 0u64;
-        let mut fresh = || {
-            next_id += 1;
-            IoOwnerId(next_id)
+        let mut run = self.start(root);
+        loop {
+            match run.advance()? {
+                Progress::Done(output) => return Ok(output),
+                Progress::Waiting => run.complete(self.io.wait()?)?,
+            }
+        }
+    }
+
+    /// Starts `root` as a run that its caller advances without blocking.
+    ///
+    /// [`Run::advance`] never calls [`IoSource::wait`], so the caller decides how to wait for the
+    /// next completion, for example by awaiting it on an async runtime, and hands it to
+    /// [`Run::complete`].
+    pub fn start(&self, root: Box<dyn PendingPlanner>) -> Run {
+        let mut run = Run {
+            io: Arc::clone(&self.io),
+            step_limit: self.step_limit,
+            next_id: 0,
+            queue: VecDeque::new(),
+            parked: HashMap::default(),
+            output: Vec::new(),
+            steps: 0,
         };
-        let mut queue = VecDeque::new();
-        queue.push_back(Work::new(
-            fresh(),
+        let id = run.fresh();
+        run.queue.push_back(Work::new(
+            id,
             WorkScope {
                 file_ordinal: 0,
                 rows: 0..0,
             },
             Item::Pending(root),
         ));
-        let mut parked: HashMap<IoOwnerId, Work> = HashMap::default();
-        let mut output = Vec::new();
-        let mut steps = 0usize;
+        run
+    }
+}
 
+/// What a call to [`Run::advance`] left behind.
+pub enum Progress {
+    /// Everything finished; the batches in emission order.
+    Done(Vec<Batch>),
+    /// Every remaining item waits for IO. Pass the next completion to [`Run::complete`].
+    Waiting,
+}
+
+/// A driver run advanced by its caller. See [`Driver::start`].
+///
+/// Dropping a run clears its registrations with the IO source, even when it ends in an error.
+pub struct Run {
+    io: Arc<dyn IoSource>,
+    step_limit: Option<usize>,
+    next_id: u64,
+    queue: VecDeque<Work>,
+    parked: HashMap<IoOwnerId, Work>,
+    output: Vec<Batch>,
+    steps: usize,
+}
+
+impl Drop for Run {
+    fn drop(&mut self) {
+        self.io.clear();
+    }
+}
+
+impl Run {
+    fn fresh(&mut self) -> IoOwnerId {
+        self.next_id += 1;
+        IoOwnerId(self.next_id)
+    }
+
+    /// Runs ready work, taking completions the source already has, until the run finishes or
+    /// everything left waits for IO. Never blocks.
+    pub fn advance(&mut self) -> VortexResult<Progress> {
         loop {
             // Visit each ready item once before checking for IO completions.
-            let visits = queue.len();
+            let visits = self.queue.len();
             for _ in 0..visits {
-                let Some(mut work) = queue.pop_front() else {
+                let Some(mut work) = self.queue.pop_front() else {
                     break;
                 };
-                steps += 1;
+                self.steps += 1;
                 if let Some(limit) = self.step_limit
-                    && steps > limit
+                    && self.steps > limit
                 {
                     vortex_bail!("driver exceeded its step limit of {limit}");
                 }
-                match self.visit(&mut work, &mut fresh, &mut queue, &mut output)? {
+                match self.visit(&mut work)? {
                     After::Drop => self.io.release(work.id),
-                    After::Requeue => queue.push_back(work),
+                    After::Requeue => self.queue.push_back(work),
                     After::Park => {
-                        parked.insert(work.id, work);
+                        self.parked.insert(work.id, work);
                     }
                 }
             }
             if let Some(completion) = self.io.poll()? {
-                Self::complete(completion, &mut queue, &mut parked)?;
+                self.complete(completion)?;
                 continue;
             }
-            if !queue.is_empty() {
+            if !self.queue.is_empty() {
                 continue;
             }
-            if parked.is_empty() {
-                return Ok(output);
+            if self.parked.is_empty() {
+                return Ok(Progress::Done(std::mem::take(&mut self.output)));
             }
-            Self::complete(self.io.wait()?, &mut queue, &mut parked)?;
+            return Ok(Progress::Waiting);
         }
     }
 
-    fn complete(
-        completion: Completion,
-        queue: &mut VecDeque<Work>,
-        parked: &mut HashMap<IoOwnerId, Work>,
-    ) -> VortexResult<()> {
+    /// Delivers a completion from the run's IO source, making its item ready again.
+    pub fn complete(&mut self, completion: Completion) -> VortexResult<()> {
         let Completion {
             owner: id,
             request,
             result,
         } = completion;
         let result = result?;
-        let work = parked.remove(&id).or_else(|| {
-            let index = queue.iter().position(|work| work.id == id)?;
-            queue.remove(index)
+        let work = self.parked.remove(&id).or_else(|| {
+            let index = self.queue.iter().position(|work| work.id == id)?;
+            self.queue.remove(index)
         });
         let Some(mut work) = work else {
             vortex_bail!("completion for unknown work {id:?}");
@@ -206,18 +250,12 @@ impl Driver {
         }
         work.consumer()?.set_io_result(request, result);
         work.delivered.push(request);
-        queue.push_back(work);
+        self.queue.push_back(work);
         Ok(())
     }
 
     /// Visits one item: starts it, submits its batch, or computes once.
-    fn visit(
-        &self,
-        work: &mut Work,
-        fresh: &mut impl FnMut() -> IoOwnerId,
-        queue: &mut VecDeque<Work>,
-        output: &mut Vec<Batch>,
-    ) -> VortexResult<After> {
+    fn visit(&mut self, work: &mut Work) -> VortexResult<After> {
         let state = match &mut work.item {
             Item::Pending(_) => {
                 let Item::Pending(pending) =
@@ -234,7 +272,10 @@ impl Driver {
         match state {
             State::Done => Ok(After::Drop),
             State::NeedsIO(batch) => {
-                if batch.iter().any(|request| request.intent != IoIntent::Fetch) {
+                if batch
+                    .iter()
+                    .any(|request| request.intent != IoIntent::Fetch)
+                {
                     vortex_bail!("State::NeedsIO can only wait for Fetch requests");
                 }
                 self.submit(work, batch)?;
@@ -251,11 +292,15 @@ impl Driver {
                             self.after_publication(work)
                         }
                         PlannerOutput::Planner(scope, child) => {
-                            queue.push_back(Work::new(fresh(), scope, Item::Pending(child)));
+                            let id = self.fresh();
+                            self.queue
+                                .push_back(Work::new(id, scope, Item::Pending(child)));
                             Ok(After::Requeue)
                         }
                         PlannerOutput::Morsel(scope, morsel) => {
-                            queue.push_back(Work::new(fresh(), scope, Item::Morsel(morsel)));
+                            let id = self.fresh();
+                            self.queue
+                                .push_back(Work::new(id, scope, Item::Morsel(morsel)));
                             Ok(After::Requeue)
                         }
                     },
@@ -273,7 +318,7 @@ impl Driver {
                                     work.scope
                                 );
                             }
-                            output.push(Batch {
+                            self.output.push(Batch {
                                 scope: work.scope.clone(),
                                 array,
                             });
@@ -296,7 +341,10 @@ impl Driver {
             State::Done => Ok(After::Drop),
             State::NeedsCompute => Ok(After::Requeue),
             State::NeedsIO(batch) => {
-                if batch.iter().any(|request| request.intent != IoIntent::Fetch) {
+                if batch
+                    .iter()
+                    .any(|request| request.intent != IoIntent::Fetch)
+                {
                     vortex_bail!("State::NeedsIO can only wait for Fetch requests");
                 }
                 self.submit(work, batch)?;
@@ -333,7 +381,8 @@ impl Driver {
                     continue;
                 }
                 if previous.intent == request.intent
-                    || (previous.intent == IoIntent::Prefetch && request.intent == IoIntent::Announce)
+                    || (previous.intent == IoIntent::Prefetch
+                        && request.intent == IoIntent::Announce)
                 {
                     continue;
                 }
