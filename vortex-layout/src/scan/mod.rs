@@ -5,6 +5,7 @@ pub mod arrow;
 mod filter;
 pub mod layout;
 pub mod multi;
+pub mod planning;
 pub mod repeated_scan;
 pub mod scan_builder;
 pub mod split_by;

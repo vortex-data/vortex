@@ -3,8 +3,6 @@
 
 use std::sync::Arc;
 
-use futures::FutureExt;
-use futures::future;
 use rstest::rstest;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
@@ -37,9 +35,7 @@ use vortex_scan::planning::planner::State;
 use vortex_scan::planning::planner::WorkScope;
 
 use super::FilterProject;
-use super::SplitMorsel;
 use crate::planning::OpenedFile;
-use crate::planning::segments::PollingSegmentSource;
 use crate::planning::tests::fixtures::RUNTIME;
 use crate::planning::tests::fixtures::SESSION;
 use crate::planning::tests::fixtures::concat;
@@ -298,30 +294,5 @@ fn partial_delivery_keeps_the_rest_outstanding() -> VortexResult<()> {
     let (out, _) = serve(morsel, &buffer, false)?;
     assert_eq!(out.len(), 1);
     assert_eq!(out[0].len(), 8);
-    Ok(())
-}
-
-#[test]
-fn reader_pending_on_a_non_segment_is_an_error() -> VortexResult<()> {
-    let buffer = default_file()?;
-    let file = open_buffer(&buffer)?;
-    let mut morsel = SplitMorsel {
-        source: Arc::new(PollingSegmentSource::new(
-            file.footer().segment_specs_with_metadata(),
-        )),
-        reader: file.layout_reader()?,
-        range: 0..8,
-        filter: None,
-        projection: root().bind(file.dtype())?,
-        pending: Some(future::pending().boxed()),
-        outstanding: Vec::new(),
-        rounds: 0,
-        done: false,
-    };
-    let err = morsel.compute().err().map(|e| e.to_string());
-    assert!(
-        err.as_deref().is_some_and(|m| m.contains("not a segment")),
-        "{err:?}"
-    );
     Ok(())
 }

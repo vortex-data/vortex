@@ -11,7 +11,6 @@
 pub mod filter_project;
 pub mod footer_open;
 pub mod footer_prune;
-pub mod segments;
 
 use std::sync::Arc;
 
