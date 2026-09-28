@@ -18,6 +18,7 @@ mod pack;
 mod piece;
 mod row_idx;
 mod segment_scan;
+mod take;
 
 use std::collections::VecDeque;
 use std::fmt;
@@ -448,6 +449,7 @@ pub(crate) use pack::PackNode;
 pub(crate) use piece::Selection;
 pub(crate) use row_idx::RowIdxNode;
 pub(crate) use segment_scan::SegmentScanNode;
+pub(crate) use take::TakeNode;
 
 #[cfg(test)]
 mod tests;
