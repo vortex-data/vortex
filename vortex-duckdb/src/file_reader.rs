@@ -15,9 +15,11 @@ use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_panic;
 use vortex::file::Footer;
+use vortex::file::VortexFile;
 use vortex::file::multi::MultiFileSession;
 use vortex::file::multi::open_cached;
 use vortex::file::multi::parse_uri_or_path;
+use vortex::file::planning;
 use vortex::file::v2::FileStatsLayoutReader;
 use vortex::io::compat::Compat;
 use vortex::io::filesystem::FileSystemRef;
@@ -100,6 +102,8 @@ fn resolve_filesystem(url: &Url) -> VortexResult<(FileSystemRef, String)> {
 
 pub struct OpenFileReader {
     pub reader: LayoutReaderRef,
+    /// The opened file, which the `VORTEX_SCAN_V2` executor reads through.
+    file: VortexFile,
     /// File splits stored in inverse order
     pub splits: Vec<Split>,
     pub cache: ConversionCache,
@@ -113,6 +117,7 @@ impl OpenFileReader {
         let file = open_cached(&SESSION, Some(&path), source, None, &|options| options).await?;
         Ok(OpenFileReader {
             reader: file.layout_reader()?,
+            file,
             cache: ConversionCache::default(),
             splits: vec![],
             total_splits: 0,
@@ -180,7 +185,8 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
         .with_some_filter(filter.filter.clone())
         .with_selection(filter.row_selection.clone());
     let mut splits = if scan::v2::enabled() {
-        scan::v2::prepare(builder)?.execute(filter.row_range.clone())?
+        scan::v2::prepare(builder, planning::scan_file(&file.file))?
+            .execute(filter.row_range.clone())?
     } else {
         builder.prepare()?.execute(filter.row_range.clone())?
     };

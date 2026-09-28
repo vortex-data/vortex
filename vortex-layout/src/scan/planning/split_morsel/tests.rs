@@ -16,6 +16,7 @@ use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_io::runtime::single::block_on;
 use vortex_io::session::RuntimeSessionExt;
+use vortex_mask::Mask;
 use vortex_scan::planning::morsel::Morsel;
 
 use super::SplitMorsel;
@@ -63,7 +64,14 @@ fn reader_pending_on_a_non_segment_is_an_error() -> VortexResult<()> {
         &session,
         &Default::default(),
     )?;
-    let mut morsel = SplitMorsel::new(source, reader, 0..8, None, root().bind(&dtype)?);
+    let mut morsel = SplitMorsel::new(
+        source,
+        reader,
+        0..8,
+        Mask::new_true(8),
+        None,
+        root().bind(&dtype)?,
+    );
     morsel.pending = Some(future::pending().boxed());
 
     let err = morsel.compute().err().map(|e| e.to_string());

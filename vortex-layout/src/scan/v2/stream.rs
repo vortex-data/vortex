@@ -19,23 +19,25 @@ use vortex_io::session::RuntimeSessionExt;
 use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::scan::scan_builder::ScanBuilder;
+use crate::scan::v2::ScanFile;
 use crate::scan::v2::prepare;
 
-/// Returns a stream that prepares the scan on first poll and spawns its split tasks.
+/// Returns a stream that prepares the scan over `file` on first poll and spawns its split tasks.
 ///
 /// The replacement for [`ScanBuilder::into_stream`].
 pub fn into_stream<A: 'static + Send>(
     builder: ScanBuilder<A>,
+    file: ScanFile,
 ) -> VortexResult<impl Stream<Item = VortexResult<A>> + Send + 'static + use<A>> {
     Ok(LazyScanStream {
-        state: State::Builder(Some(Box::new(builder))),
+        state: State::Builder(Some(Box::new((builder, file)))),
     })
 }
 
 type Tasks<A> = Vec<BoxFuture<'static, VortexResult<Option<A>>>>;
 
 enum State<A: 'static + Send> {
-    Builder(Option<Box<ScanBuilder<A>>>),
+    Builder(Option<Box<(ScanBuilder<A>, ScanFile)>>),
     Preparing {
         ordered: bool,
         concurrency: usize,
@@ -59,13 +61,13 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
         loop {
             match &mut self.state {
                 State::Builder(builder) => {
-                    let builder = builder.take().vortex_expect("polled after completion");
+                    let (builder, file) = *builder.take().vortex_expect("polled after completion");
                     let ordered = builder.ordered();
                     let num_workers = get_available_parallelism().unwrap_or(1);
                     let concurrency = builder.concurrency() * num_workers;
                     let handle = builder.session().handle();
-                    let task =
-                        handle.spawn_cpu(move || prepare(*builder).and_then(|s| s.execute(None)));
+                    let task = handle
+                        .spawn_cpu(move || prepare(builder, file).and_then(|s| s.execute(None)));
                     self.state = State::Preparing {
                         ordered,
                         concurrency,

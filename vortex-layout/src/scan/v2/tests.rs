@@ -19,18 +19,23 @@ use vortex_array::dtype::PType;
 use vortex_array::expr::gt;
 use vortex_array::expr::lit;
 use vortex_array::expr::root;
+use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_io::runtime::single::block_on;
 use vortex_io::session::RuntimeSessionExt;
+use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
 
 use crate::LayoutRef;
 use crate::LayoutStrategy;
 use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
 use crate::layouts::flat::writer::FlatLayoutStrategy;
+use crate::layouts::row_idx::row_idx;
+use crate::scan::planning::SegmentLocation;
 use crate::scan::scan_builder::ScanBuilder;
 use crate::scan::v2;
+use crate::scan::v2::ScanFile;
 use crate::segments::SegmentSource;
 use crate::segments::TestSegments;
 use crate::sequence::SequenceId;
@@ -65,11 +70,34 @@ async fn write_layout(
     Ok((segments, layout))
 }
 
-#[derive(Clone)]
+/// A [`ScanFile`] over test segments. They have no byte offsets, and the scan fetches them by id,
+/// so every location is a placeholder with the alignment the test segments already have.
+fn scan_file(segments: &Arc<dyn SegmentSource>, layout: &LayoutRef) -> VortexResult<ScanFile> {
+    let mut count = 0;
+    for layout in layout.depth_first_traversal() {
+        for id in layout?.segment_ids() {
+            count = count.max(*id as usize + 1);
+        }
+    }
+    let placeholder = SegmentLocation {
+        offset: 0,
+        length: 0,
+        alignment: Alignment::none(),
+    };
+    Ok(ScanFile {
+        layout: Arc::clone(layout),
+        locations: vec![placeholder; count].into(),
+        segments: Arc::clone(segments),
+    })
+}
+
+#[derive(Clone, Default)]
 struct Case {
     filter: bool,
     row_range: Option<Range<u64>>,
     limit: Option<u64>,
+    rows: Option<&'static [u64]>,
+    row_idx: bool,
 }
 
 fn builder(
@@ -94,10 +122,19 @@ fn builder(
     if let Some(limit) = case.limit {
         builder = builder.with_limit(limit);
     }
+    if let Some(rows) = case.rows {
+        builder = builder.with_row_indices(StrictSortedBuffer::try_new(Buffer::copy_from(rows))?);
+    }
+    if case.row_idx {
+        builder = builder
+            .with_projection(row_idx().bind(&DTYPE)?)
+            .with_row_offset(10_000);
+    }
     Ok(builder)
 }
 
 async fn await_tasks(
+    dtype: DType,
     tasks: Vec<futures::future::BoxFuture<'static, VortexResult<Option<ArrayRef>>>>,
 ) -> VortexResult<ArrayRef> {
     let mut chunks = Vec::new();
@@ -106,7 +143,7 @@ async fn await_tasks(
             chunks.push(chunk);
         }
     }
-    Ok(ChunkedArray::try_new(chunks, DTYPE)?.into_array())
+    Ok(ChunkedArray::try_new(chunks, dtype)?.into_array())
 }
 
 fn case(filter: bool, row_range: Option<Range<u64>>, limit: Option<u64>) -> Case {
@@ -114,6 +151,23 @@ fn case(filter: bool, row_range: Option<Range<u64>>, limit: Option<u64>) -> Case
         filter,
         row_range,
         limit,
+        ..Case::default()
+    }
+}
+
+fn rows(filter: bool, rows: &'static [u64]) -> Case {
+    Case {
+        filter,
+        rows: Some(rows),
+        ..Case::default()
+    }
+}
+
+fn row_idx_case(filter: bool) -> Case {
+    Case {
+        filter,
+        row_idx: true,
+        ..Case::default()
     }
 }
 
@@ -124,22 +178,30 @@ fn case(filter: bool, row_range: Option<Range<u64>>, limit: Option<u64>) -> Case
 #[case::filter_and_row_range(case(true, Some(500..2500), None))]
 #[case::limit(case(false, None, Some(1200)))]
 #[case::limit_and_row_range(case(false, Some(900..3100), Some(1500)))]
+#[case::selection(rows(false, &[0, 5, 999, 1000, 2500, 3999]))]
+#[case::selection_and_filter(rows(true, &[0, 1499, 1501, 2500, 3999]))]
+#[case::row_idx(row_idx_case(false))]
+#[case::row_idx_and_filter(row_idx_case(true))]
 fn stream_matches_default(#[case] case: Case) -> VortexResult<()> {
     block_on(|handle| async move {
         let session = new_session().with_handle(handle);
         let (segments, layout) = write_layout(&session).await?;
+        let dtype = builder(&session, &segments, &layout, &case)?.dtype()?;
 
         let expected = builder(&session, &segments, &layout, &case)?
             .into_stream()?
             .try_collect::<Vec<_>>()
             .await?;
-        let actual = v2::into_stream(builder(&session, &segments, &layout, &case)?)?
-            .try_collect::<Vec<_>>()
-            .await?;
+        let actual = v2::into_stream(
+            builder(&session, &segments, &layout, &case)?,
+            scan_file(&segments, &layout)?,
+        )?
+        .try_collect::<Vec<_>>()
+        .await?;
 
         assert_arrays_eq!(
-            ChunkedArray::try_new(actual, DTYPE)?,
-            ChunkedArray::try_new(expected, DTYPE)?,
+            ChunkedArray::try_new(actual, dtype.clone())?,
+            ChunkedArray::try_new(expected, dtype)?,
             &mut session.create_execution_ctx()
         );
         Ok(())
@@ -160,11 +222,15 @@ fn execute_matches_default(
         let (segments, layout) = write_layout(&session).await?;
 
         let default = builder(&session, &segments, &layout, &case)?.prepare()?;
-        let replacement = v2::prepare(builder(&session, &segments, &layout, &case)?)?;
+        let replacement = v2::prepare(
+            builder(&session, &segments, &layout, &case)?,
+            scan_file(&segments, &layout)?,
+        )?;
         assert_eq!(replacement.dtype(), default.dtype());
+        let dtype = default.dtype().clone();
 
-        let expected = await_tasks(default.execute(execute_range.clone())?).await?;
-        let actual = await_tasks(replacement.execute(execute_range)?).await?;
+        let expected = await_tasks(dtype.clone(), default.execute(execute_range.clone())?).await?;
+        let actual = await_tasks(dtype, replacement.execute(execute_range)?).await?;
         assert_arrays_eq!(actual, expected, &mut session.create_execution_ctx());
         Ok(())
     })
@@ -176,7 +242,8 @@ fn filter_with_limit_is_rejected() -> VortexResult<()> {
         let session = new_session().with_handle(handle);
         let (segments, layout) = write_layout(&session).await?;
         let case = case(true, None, Some(10));
-        assert!(v2::prepare(builder(&session, &segments, &layout, &case)?).is_err());
+        let file = scan_file(&segments, &layout)?;
+        assert!(v2::prepare(builder(&session, &segments, &layout, &case)?, file).is_err());
         Ok(())
     })
 }
