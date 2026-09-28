@@ -111,7 +111,7 @@ jobs:
             -o ${{ env.GRCOV_OUTPUT_FILE }}
           test -s ${{ env.GRCOV_OUTPUT_FILE }}
       - name: Codecov
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f  # v7
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5  # v7
         with:
           name: run-${{ matrix.suite }}
           files: ${{ env.GRCOV_OUTPUT_FILE }}
@@ -151,7 +151,7 @@ jobs:
         working-directory: lang/cpp
         run: ./gcov-report.sh
       - name: Codecov
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f  # v7
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5  # v7
         with:
           name: cxx-api
           files: lang/cpp/coverage.info
