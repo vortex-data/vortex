@@ -306,9 +306,20 @@ impl VortexOpenOptions {
             self.read_footer(&reader).await?
         };
 
+        // With a segment cache, store the segments that the footer read covered, so that a later
+        // open given this footer finds them there, instead of reading them again.
+        let initial = if self.segment_cache.is_some() {
+            for (id, buffer) in initial_segments {
+                segment_cache.put(id, buffer).await?;
+            }
+            HashMap::default()
+        } else {
+            initial_segments
+        };
+
         let segment_cache = Arc::new(InstrumentedSegmentCache::new(
             InitialReadSegmentCache {
-                initial: initial_segments,
+                initial,
                 fallback: segment_cache,
             },
             metrics_registry.as_ref(),

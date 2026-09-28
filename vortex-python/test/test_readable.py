@@ -1,16 +1,20 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+import gc
 import io
 import os
 import pickle
 import threading
 import time
+import weakref
 from pathlib import Path
+from typing import IO
 
+import numpy as np
 import pyarrow as pa
 import pytest
-from vortex.io import ReadAt
+from vortex.io import ReadAt, ReadBytesAt
 
 import vortex as vx
 
@@ -33,8 +37,8 @@ def expected(path: Path) -> pa.Table:
     return vx.open(str(path)).to_arrow().read_all()
 
 
-def read_all(source: object) -> pa.Table:
-    return vx.open(source, without_segment_cache=True).to_arrow().read_all()  # ty: ignore[invalid-argument-type]
+def read_all(source: ReadBytesAt | ReadAt | IO[bytes]) -> pa.Table:
+    return vx.open_readable(source, without_segment_cache=True).to_arrow().read_all()
 
 
 class PReadFile:
@@ -77,8 +81,32 @@ def test_bytes_io(path: Path, expected: pa.Table) -> None:
     assert read_all(io.BytesIO(path.read_bytes())).equals(expected)
 
 
-def test_pathlike(path: Path, expected: pa.Table) -> None:
-    assert read_all(path).equals(expected)
+def test_reopen_with_footer(path: Path, expected: pa.Table) -> None:
+    reader = PReadFile(path)
+    try:
+        footer = vx.open_readable(reader).footer
+        assert footer.row_count == len(expected)
+
+        reads = reader.reads
+        vxf = vx.open_readable(reader, footer=footer, without_segment_cache=True)
+        assert reader.reads == reads
+        assert len(vxf) == len(expected)
+        assert vxf.to_arrow().read_all().equals(expected)
+    finally:
+        reader.close()
+
+
+def test_footer_from_larger_file_is_rejected(path: Path, tmp_path: Path) -> None:
+    footer = vx.open(str(path)).footer
+    small = tmp_path / "small.vortex"
+    vx.io.write(pa.table({"index": pa.array([0], pa.int64())}), str(small))
+    with open(small, "rb") as f, pytest.raises(Exception):
+        vx.open_readable(f, footer=footer)
+
+
+def test_footer_is_not_picklable(path: Path) -> None:
+    with pytest.raises(TypeError):
+        pickle.dumps(vx.open(str(path)).footer)
 
 
 def test_read_only_file_object(path: Path, expected: pa.Table) -> None:
@@ -93,14 +121,15 @@ def test_read_only_file_object(path: Path, expected: pa.Table) -> None:
             # Return at most 1000 bytes to exercise the short-read loop.
             return self._inner.read(min(n, 1000))
 
-    assert read_all(ReadOnly(path.read_bytes())).equals(expected)
+    # A deliberately minimal file object: only `seek` and `read`, which is not a full `IO[bytes]`.
+    assert read_all(ReadOnly(path.read_bytes())).equals(expected)  # ty: ignore[invalid-argument-type]
 
 
 def test_read_at(path: Path, expected: pa.Table) -> None:
     reader = PReadFile(path)
     try:
         assert isinstance(reader, ReadAt)
-        vxf = vx.open(reader, without_segment_cache=True)
+        vxf = vx.open_readable(reader, without_segment_cache=True)
         assert len(vxf) == expected.num_rows
         filtered = vxf.to_arrow(["index"], expr=vx.expr.column("index") < 10).read_all()
         assert filtered == pa.table({"index": pa.array(range(10), pa.int64())})
@@ -188,19 +217,12 @@ def test_retained_buffer_is_an_error(path: Path) -> None:
 
 def test_not_readable() -> None:
     with pytest.raises(TypeError, match="binary file object"):
-        vx.open(object())  # ty: ignore[invalid-argument-type]
-
-
-def test_store_with_readable_is_an_error(path: Path) -> None:
-    from vortex.store import LocalStore
-
-    with open(path, "rb") as f, pytest.raises(TypeError, match="store"):
-        vx.open(f, store=LocalStore())
+        vx.open_readable(object())  # ty: ignore[invalid-argument-type]
 
 
 def test_pickle_is_refused(path: Path) -> None:
     with open(path, "rb") as f:
-        vxf = vx.open(f)
+        vxf = vx.open_readable(f)
         assert vxf.path == str(path)
         with pytest.raises(TypeError, match="Python readable"):
             pickle.dumps(vxf)
@@ -215,7 +237,7 @@ def test_read_at_concurrency_limit(path: Path, concurrency: int) -> None:
 
     reader = Slow(path)
     try:
-        vxf = vx.open(reader, without_segment_cache=True, concurrency=concurrency)
+        vxf = vx.open_readable(reader, without_segment_cache=True, concurrency=concurrency)
         vxf.to_arrow().read_all()
         assert 0 < reader.max_in_flight <= concurrency
     finally:
@@ -224,9 +246,109 @@ def test_read_at_concurrency_limit(path: Path, concurrency: int) -> None:
 
 def test_concurrency_rejected_for_file_object(path: Path) -> None:
     with open(path, "rb") as f, pytest.raises(TypeError, match="serialized"):
-        vx.open(f, concurrency=4)
+        vx.open_readable(f, concurrency=4)
 
 
-def test_concurrency_rejected_for_path(path: Path) -> None:
-    with pytest.raises(TypeError, match="concurrency"):
-        vx.open(str(path), concurrency=4)
+class PReadBytes:
+    """A `ReadBytesAt` that returns read-only NumPy arrays, so tests can see which ones Vortex keeps."""
+
+    def __init__(self, path: Path, *, chunk: int | None = None, misalign: bool = False, writable: bool = False) -> None:
+        self._data = path.read_bytes()
+        self._chunk = chunk
+        self._misalign = misalign
+        self._writable = writable
+        self.returned: list[weakref.ref[np.ndarray]] = []
+
+    def size(self) -> int:
+        return len(self._data)
+
+    def read_at(self, offset: int, length: int) -> np.ndarray:
+        if self._chunk is not None:
+            length = min(length, self._chunk)
+        # Allocate 64-byte aligned memory, then start one byte in to misalign it on request.
+        start = 1 if self._misalign else 0
+        raw = np.empty(length + 64 + start, dtype=np.uint8)
+        base = (-raw.ctypes.data) % 64 + start
+        out = raw[base : base + length]
+        out[:] = np.frombuffer(self._data, dtype=np.uint8, count=length, offset=offset)
+        out.flags.writeable = self._writable
+        self.returned.append(weakref.ref(raw))
+        return out
+
+    def alive(self) -> int:
+        gc.collect()
+        return sum(ref() is not None for ref in self.returned)
+
+
+def test_read_bytes_at(path: Path, expected: pa.Table) -> None:
+    reader = PReadBytes(path)
+    assert isinstance(reader, ReadBytesAt)
+    assert read_all(reader).equals(expected)
+
+
+def test_read_bytes_at_keeps_suitable_buffers(path: Path) -> None:
+    reader = PReadBytes(path)
+    vxf = vx.open_readable(reader, without_segment_cache=True)
+    array = vxf.scan().read_all()
+
+    # The scanned array uses the returned buffers in place, and frees them along with itself.
+    assert reader.alive() > 0
+    del vxf, array
+    assert reader.alive() == 0
+
+
+def test_read_bytes_at_copies_writable_buffers(path: Path) -> None:
+    reader = PReadBytes(path, writable=True)
+    vxf = vx.open_readable(reader, without_segment_cache=True)
+    array = vxf.scan().read_all()
+    assert reader.alive() == 0
+    del vxf, array
+
+
+def test_read_bytes_at_misaligned_buffers(path: Path, expected: pa.Table) -> None:
+    # Coalesced reads may need no alignment, so Vortex can still keep these; it realigns any
+    # slice that needs it.
+    assert read_all(PReadBytes(path, misalign=True)).equals(expected)
+
+
+def test_read_bytes_at_short_reads(path: Path, expected: pa.Table) -> None:
+    reader = PReadBytes(path, chunk=777)
+    assert read_all(reader).equals(expected)
+    assert reader.alive() == 0
+
+
+def test_read_bytes_at_is_preferred_over_read_into(path: Path, expected: pa.Table) -> None:
+    class Both(PReadBytes):
+        def read_into(self, offset: int, buffer: memoryview) -> int:
+            raise AssertionError("read_into must not be called")
+
+    assert read_all(Both(path)).equals(expected)
+
+
+def test_read_bytes_at_eof_is_an_error(path: Path) -> None:
+    class Truncated(PReadBytes):
+        def size(self) -> int:
+            return super().size() + 100
+
+        def read_at(self, offset: int, length: int) -> bytes:
+            return self._data[offset : offset + length]
+
+    with pytest.raises(Exception, match="0 bytes"):
+        read_all(Truncated(path))
+
+
+def test_read_bytes_at_overlong_result_is_an_error(path: Path) -> None:
+    class Overlong(PReadBytes):
+        def read_at(self, offset: int, length: int) -> bytes:
+            return bytes(length + 1)
+
+    with pytest.raises(Exception, match="returned"):
+        read_all(Overlong(path))
+
+
+def test_read_bytes_at_returns_bytes(path: Path, expected: pa.Table) -> None:
+    class Pread(PReadBytes):
+        def read_at(self, offset: int, length: int) -> bytes:
+            return self._data[offset : offset + length]
+
+    assert read_all(Pread(path)).equals(expected)

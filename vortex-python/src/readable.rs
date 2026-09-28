@@ -12,6 +12,7 @@ use std::ffi::c_int;
 use std::sync::Arc;
 
 use async_lock::Semaphore;
+use bytes::Bytes;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use parking_lot::Mutex;
@@ -27,6 +28,7 @@ use pyo3::types::PyMemoryView;
 use pyo3::types::PySlice;
 use vortex::array::buffer::BufferHandle;
 use vortex::buffer::Alignment;
+use vortex::buffer::ByteBuffer;
 use vortex::buffer::ByteBufferMut;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
@@ -43,6 +45,9 @@ const DEFAULT_CONCURRENCY: usize = 192;
 /// How positional reads are forwarded to the Python object.
 #[derive(Clone, Copy, Debug)]
 enum Protocol {
+    /// `read_at(offset, length) -> buffer`: a stateless positional read that returns its own
+    /// buffer, safe to call concurrently. Vortex keeps a suitable buffer without copying it.
+    Owned,
     /// `read_into(offset, buffer) -> int`: a stateless positional read, safe to call concurrently.
     Positional,
     /// `seek(offset)` followed by `readinto(buffer) -> int`: a stateful file object.
@@ -53,13 +58,17 @@ enum Protocol {
 
 /// A [`VortexReadAt`] backed by a Python object.
 ///
-/// Two shapes of object are accepted:
+/// Three shapes of object are accepted:
 ///
+/// - Objects with `size() -> int` and `read_at(offset, length) -> buffer`. These are positional
+///   and stateless. A returned buffer that is read-only, contiguous, complete and suitably aligned
+///   becomes part of the scan without a copy; any other buffer is copied once.
 /// - Objects with `size() -> int` and `read_into(offset, buffer) -> int`. These are positional and
-///   stateless, so up to `concurrency` reads (default [`DEFAULT_CONCURRENCY`]) may be in
-///   flight at once.
+///   stateless too.
 /// - Binary file objects with `seek` and `readinto` (or `read`). Seeking makes these stateful, so
 ///   reads are serialized. The size is taken from `seek(0, SEEK_END)` at construction time.
+///
+/// Up to `concurrency` positional reads (default [`DEFAULT_CONCURRENCY`]) may be in flight at once.
 ///
 /// Every read runs on the runtime's blocking pool and takes the GIL there. The destination is a
 /// Rust allocation exposed to Python through the buffer protocol, so `readinto`-style readers write
@@ -87,7 +96,10 @@ impl PyReadable {
         let py = obj.py();
         let has = |name| obj.hasattr(name);
 
-        let (protocol, len) = if has(intern!(py, "read_into"))? && has(intern!(py, "size"))? {
+        let (protocol, len) = if has(intern!(py, "read_at"))? && has(intern!(py, "size"))? {
+            let len = obj.call_method0(intern!(py, "size"))?.extract::<u64>()?;
+            (Protocol::Owned, len)
+        } else if has(intern!(py, "read_into"))? && has(intern!(py, "size"))? {
             let len = obj.call_method0(intern!(py, "size"))?.extract::<u64>()?;
             (Protocol::Positional, len)
         } else if has(intern!(py, "seek"))? {
@@ -108,16 +120,16 @@ impl PyReadable {
         };
 
         let concurrency = match (protocol, concurrency) {
-            (Protocol::Positional, None) => DEFAULT_CONCURRENCY,
-            (Protocol::Positional, Some(0)) => {
+            (Protocol::Owned | Protocol::Positional, None) => DEFAULT_CONCURRENCY,
+            (Protocol::Owned | Protocol::Positional, Some(0)) => {
                 return Err(PyValueError::new_err("concurrency must be at least 1"));
             }
-            (Protocol::Positional, Some(concurrency)) => concurrency,
+            (Protocol::Owned | Protocol::Positional, Some(concurrency)) => concurrency,
             (Protocol::ReadInto | Protocol::Read, None) => 1,
             (Protocol::ReadInto | Protocol::Read, Some(_)) => {
                 return Err(PyTypeError::new_err(
-                    "concurrency requires a vortex.io.ReadAt reader; reads from a file object \
-                     are serialized because each one must seek first",
+                    "concurrency requires a vortex.io.ReadAt or vortex.io.ReadBytesAt reader; reads \
+                     from a file object are serialized because each one must seek first",
                 ));
             }
         };
@@ -148,8 +160,9 @@ fn not_readable(obj: &Bound<'_, PyAny>) -> PyErr {
         .map(|n| n.to_string())
         .unwrap_or_else(|_| "<unknown>".to_string());
     PyTypeError::new_err(format!(
-        "expected a path, a binary file object with `seek` and `readinto` (or `read`), or an \
-         object with `size()` and `read_into(offset, buffer)`; got {type_name}"
+        "expected a vortex.io.ReadBytesAt (`size()` and `read_at(offset, length)`), a \
+         vortex.io.ReadAt (`size()` and `read_into(offset, buffer)`) or a binary file object with \
+         `seek` and `readinto` (or `read`); got {type_name}"
     ))
 }
 
@@ -186,37 +199,136 @@ impl VortexReadAt for PyReadable {
         let semaphore = Arc::clone(&self.semaphore);
 
         async move {
+            // Reject an invalid range before it waits for a permit or occupies a blocking thread.
+            let end = offset
+                .checked_add(length as u64)
+                .ok_or_else(|| vortex_err!("read {offset}+{length} overflows u64"))?;
+            if end > len {
+                vortex_bail!("read {offset}..{end} out of bounds for file of length {len}");
+            }
+
             // Take a permit before occupying a blocking thread. For file objects the single permit
             // also keeps each `seek` paired with its read, and is taken without the GIL, so a
             // waiter never holds the GIL that the current reader needs to finish.
-            let permit = match semaphore.try_acquire_arc() {
-                Some(permit) => permit,
-                None => semaphore.acquire_arc().await,
-            };
+            let permit = semaphore.acquire_arc().await;
 
             handle
                 .spawn_blocking(move || {
                     // Keep the permit with the blocking work: dropping the read future cannot
                     // interrupt an upcall that has already started.
                     let _permit = permit;
-                    let end = offset
-                        .checked_add(length as u64)
-                        .ok_or_else(|| vortex_err!("read {offset}+{length} overflows u64"))?;
-                    if end > len {
-                        vortex_bail!("read {offset}..{end} out of bounds for file of length {len}");
-                    }
 
-                    let buffer = ByteBufferMut::zeroed_aligned(length, alignment);
                     let buffer = Python::attach(|py| {
-                        read_fully(py, obj.bind(py), protocol, offset, buffer).map_err(|err| {
-                            vortex_err!("Python read of {offset}..{end} failed: {err}")
-                        })
+                        let obj = obj.bind(py);
+                        if matches!(protocol, Protocol::Owned) {
+                            read_owned(py, obj, offset, length, alignment)
+                        } else {
+                            let buffer = ByteBufferMut::zeroed_aligned(length, alignment);
+                            read_fully(py, obj, protocol, offset, buffer).map(|b| b.freeze())
+                        }
+                        .map_err(|err| vortex_err!("Python read of {offset}..{end} failed: {err}"))
                     })?;
-                    Ok(BufferHandle::new_host(buffer.freeze()))
+                    Ok(BufferHandle::new_host(buffer))
                 })
                 .await
         }
         .boxed()
+    }
+}
+
+/// Read `offset..offset + length` through `read_at`, keeping the returned buffer if possible.
+///
+/// The first buffer is kept without a copy when it is read-only, C-contiguous, exactly `length`
+/// bytes long and aligned to `alignment`. Otherwise, its bytes and those of any further reads for a
+/// short remainder are copied once into a new aligned allocation.
+fn read_owned(
+    py: Python<'_>,
+    obj: &Bound<'_, PyAny>,
+    offset: u64,
+    length: usize,
+    alignment: Alignment,
+) -> PyResult<ByteBuffer> {
+    if length == 0 {
+        return Ok(ByteBuffer::empty_aligned(alignment));
+    }
+
+    let first = read_at_call(py, obj, offset, length)?;
+
+    if first.len_bytes() == length
+        && first.readonly()
+        && first.is_c_contiguous()
+        && alignment.is_ptr_aligned(first.buf_ptr().cast::<u8>().cast_const())
+    {
+        return Ok(ByteBuffer::from_bytes_aligned(
+            Bytes::from_owner(PyBufferOwner(first)),
+            alignment,
+        ));
+    }
+
+    let mut buffer = ByteBufferMut::zeroed_aligned(length, alignment);
+    let mut filled = copy_chunk(py, &first, &mut buffer, 0)?;
+    drop(first);
+
+    while filled < length {
+        let chunk = read_at_call(py, obj, offset + filled as u64, length - filled)?;
+        filled += copy_chunk(py, &chunk, &mut buffer, filled)?;
+    }
+
+    Ok(buffer.freeze())
+}
+
+/// Call `read_at(offset, length)` and check that the result is no longer than requested.
+fn read_at_call(
+    py: Python<'_>,
+    obj: &Bound<'_, PyAny>,
+    offset: u64,
+    length: usize,
+) -> PyResult<PyBuffer<u8>> {
+    let result = obj.call_method1(intern!(py, "read_at"), (offset, length))?;
+    let chunk = PyBuffer::<u8>::get(&result)?;
+    let n = chunk.len_bytes();
+    if n > length {
+        return Err(PyBufferError::new_err(format!(
+            "read_at({offset}, {length}) returned {n} bytes"
+        )));
+    }
+
+    Ok(chunk)
+}
+
+/// Copy `chunk` into `buffer` at `filled`, returning its length. An empty chunk is an early EOF.
+fn copy_chunk(
+    py: Python<'_>,
+    chunk: &PyBuffer<u8>,
+    buffer: &mut ByteBufferMut,
+    filled: usize,
+) -> PyResult<usize> {
+    let n = chunk.len_bytes();
+    if n == 0 {
+        return Err(PyEOFError::new_err(format!(
+            "reader returned 0 bytes with {} of {} still to read",
+            buffer.len() - filled,
+            buffer.len()
+        )));
+    }
+
+    // `read_at_call` has checked that `n` fits in the remainder of `buffer`.
+    chunk.copy_to_slice(py, &mut buffer.as_mut_slice()[filled..filled + n])?;
+    Ok(n)
+}
+
+/// Keeps a Python buffer export alive for as long as Vortex uses its bytes.
+///
+/// The export pins the memory of its object, which is released when this drops. `PyBuffer` takes
+/// the GIL to do that, and does nothing once the interpreter has finalized.
+struct PyBufferOwner(PyBuffer<u8>);
+
+impl AsRef<[u8]> for PyBufferOwner {
+    fn as_ref(&self) -> &[u8] {
+        // SAFETY: `read_owned` only wraps a non-empty, C-contiguous, read-only export. The export
+        // keeps `len_bytes` bytes at `buf_ptr` valid until it is released when `self` drops, and a
+        // read-only export promises that the exporter does not change them.
+        unsafe { std::slice::from_raw_parts(self.0.buf_ptr().cast::<u8>(), self.0.len_bytes()) }
     }
 }
 
@@ -262,16 +374,19 @@ fn read_fully(
                     // `readinto` returns `None` for a non-blocking stream with no data ready.
                     n?.extract::<Option<usize>>()?.unwrap_or(0)
                 }
+                Protocol::Owned => unreachable!("`read_at` readers are read by `read_owned`"),
                 Protocol::Read => {
                     let chunk = obj.call_method1(intern!(py, "read"), (length - filled,))?;
                     let chunk = PyBuffer::<u8>::get(&chunk)?;
                     let n = chunk.len_bytes();
+                    // Check before the copy below, which must not write past the buffer.
                     if n > length - filled {
                         return Err(PyBufferError::new_err(format!(
                             "read({}) returned {n} bytes",
                             length - filled
                         )));
                     }
+
                     let mut state = dst.get().state.lock();
                     let buffer = state
                         .buffer
