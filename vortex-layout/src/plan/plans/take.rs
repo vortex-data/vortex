@@ -2,12 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::borrow::Cow;
+use std::ops::Range;
 
 use vortex_array::EmptyMetadata;
 use vortex_array::dtype::DType;
 use vortex_array::expr::ExactBoundExpr;
 use vortex_array::expr::label_bound_tree;
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 use vortex_session::registry::CachedId;
 
 use crate::plan::Eval;
@@ -19,6 +21,9 @@ use crate::plan::PlanParts;
 use crate::plan::PlanRef;
 use crate::plan::PlanVTable;
 use crate::plan::check_child_count;
+use crate::plan::exec::ExecNode;
+use crate::plan::exec::Selection;
+use crate::plan::exec::TakeNode;
 use crate::plan::optimizer::PlanParentReduceRule;
 
 const CODES: usize = 0;
@@ -116,6 +121,13 @@ impl PlanVTable for Take {
             VALUES => Cow::Borrowed("values"),
             _ => Cow::Owned(format!("child[{index}]")),
         }
+    }
+
+    fn exec(plan: &Plan<Self>, rows: Range<u64>, mask: Mask) -> VortexResult<Box<dyn ExecNode>> {
+        Ok(Box::new(TakeNode::new(
+            plan.clone(),
+            Selection::try_new(rows, mask)?,
+        )))
     }
 }
 
