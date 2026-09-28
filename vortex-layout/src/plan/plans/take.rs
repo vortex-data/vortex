@@ -2,8 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::borrow::Cow;
+use std::fmt;
 use std::ops::Range;
+use std::sync::Arc;
 
+use parking_lot::Mutex;
+use vortex_array::ArrayRef;
 use vortex_array::EmptyMetadata;
 use vortex_array::dtype::DType;
 use vortex_array::expr::ExactBoundExpr;
@@ -36,6 +40,26 @@ pub struct Take;
 /// A plan that indexes one child by another.
 pub type TakePlan = Plan<Take>;
 
+/// The values of a [`TakePlan`], once any execution of the plan has produced them.
+///
+/// The values run over their whole domain whatever rows the take is executed with, so they
+/// depend only on the plan. Every execution of the plan, across splits and across the filter
+/// and projection of a scan, shares one copy: later executions skip reading and decoding them,
+/// and see the same array, which lets consumers that cache per dictionary recognise it. A plan
+/// rebuilt with new children starts empty.
+#[derive(Clone, Default)]
+pub struct TakeData {
+    values: Arc<Mutex<Option<ArrayRef>>>,
+}
+
+impl fmt::Debug for TakeData {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TakeData")
+            .field("values_cached", &self.values.lock().is_some())
+            .finish()
+    }
+}
+
 impl TakePlan {
     /// Creates a take from potentially unresolved children without validation.
     ///
@@ -53,7 +77,7 @@ impl TakePlan {
             dtype,
             row_count,
             children,
-            data: (),
+            data: TakeData::default(),
         }
         .into_typed()
     }
@@ -79,10 +103,20 @@ impl TakePlan {
     pub fn values(&self) -> VortexResult<PlanRef> {
         self.child_required(VALUES)
     }
+
+    /// The values an earlier execution of this plan produced, if any.
+    pub(crate) fn cached_values(&self) -> Option<ArrayRef> {
+        self.data().values.lock().clone()
+    }
+
+    /// Records the values for later executions, keeping the first when two race.
+    pub(crate) fn cache_values(&self, values: ArrayRef) -> ArrayRef {
+        self.data().values.lock().get_or_insert(values).clone()
+    }
 }
 
 impl PlanVTable for Take {
-    type PlanData = ();
+    type PlanData = TakeData;
     type Metadata = EmptyMetadata;
 
     fn id(&self) -> PlanId {
@@ -97,9 +131,11 @@ impl PlanVTable for Take {
     fn with_children(
         plan: &Plan<Self>,
         children: &PlanChildren,
-        _data: &mut Self::PlanData,
+        data: &mut Self::PlanData,
     ) -> VortexResult<()> {
         check_child_count("Take", children, 2)?;
+        // New children may produce different values.
+        *data = TakeData::default();
         let codes = children
             .get(CODES)?
             .ok_or_else(|| vortex_error::vortex_err!("Take codes child is absent"))?;
