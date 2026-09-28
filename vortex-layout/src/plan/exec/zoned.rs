@@ -1,0 +1,146 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use std::sync::Arc;
+
+use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::StructArray;
+use vortex_array::validity::Validity;
+use vortex_buffer::BitBuffer;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
+use vortex_mask::Mask;
+
+use crate::layouts::zoned::zone_map::ZoneMap;
+use crate::plan::ZonedPlan;
+use crate::plan::exec::ExecNode;
+use crate::plan::exec::Input;
+use crate::plan::exec::NodeState;
+use crate::plan::exec::Piece;
+use crate::plan::exec::StepCx;
+use crate::plan::exec::piece::Selection;
+use crate::plan::exec::piece::empty_piece;
+use crate::plan::exec::piece::join;
+
+/// Evaluates a pruning proof over a column's zone table and returns, for every selected row,
+/// whether the proof holds for the row's zone.
+///
+/// The zone table is read and the proof evaluated once per plan: the per-zone result is cached on
+/// the plan, so every later execution only expands it to its rows and issues no reads.
+pub(crate) struct ZonePruneNode {
+    plan: ZonedPlan,
+    selection: Selection,
+    started: bool,
+    zones: Vec<Piece>,
+}
+
+impl ZonePruneNode {
+    pub(crate) fn new(plan: ZonedPlan, selection: Selection) -> Self {
+        Self {
+            plan,
+            selection,
+            started: false,
+            zones: Vec::new(),
+        }
+    }
+
+    /// Evaluates the proof over the joined zone table, one value per zone.
+    fn prune(&mut self, cx: &StepCx<'_>) -> VortexResult<Mask> {
+        let zones_plan = self.plan.zones_plan()?;
+        self.zones.sort_by_key(|piece| piece.rows.start);
+        let zones = std::mem::take(&mut self.zones)
+            .into_iter()
+            .map(|piece| piece.array)
+            .collect();
+        let table = join(zones_plan.dtype(), zones)?;
+        let table = table.execute::<StructArray>(&mut cx.session().create_execution_ctx())?;
+        let (Some(expression), Some(column_dtype)) = (
+            self.plan.pruning_expression(),
+            self.plan.pruning_column_dtype(),
+        ) else {
+            vortex_bail!("ZonePruneNode needs a pruning plan");
+        };
+        let zone_map = ZoneMap::try_new(
+            column_dtype.clone(),
+            table,
+            Arc::clone(self.plan.aggregate_fns()),
+            self.plan.zone_len(),
+            self.plan.row_count(),
+        )?;
+        zone_map.prune(expression, cx.session())
+    }
+
+    /// Expands the per-zone result to one value per selected row.
+    fn expand(&self, pruned: &Mask) -> VortexResult<Piece> {
+        let rows = self.selection.rows().clone();
+        let mask = self.selection.mask();
+        let zone_len = self.plan.zone_len();
+        let zone_of = |index: usize| {
+            usize::try_from((rows.start + index as u64) / zone_len)
+                .vortex_expect("zone index must fit in usize")
+        };
+        let bits: BitBuffer = (0..mask.len())
+            .filter(|&index| mask.value(index))
+            .map(|index| pruned.value(zone_of(index)))
+            .collect();
+        let validity = if self.plan.dtype().is_nullable() {
+            Validity::AllValid
+        } else {
+            Validity::NonNullable
+        };
+        Ok(Piece {
+            rows,
+            array: BoolArray::try_new(bits, validity)?.into_array(),
+        })
+    }
+}
+
+impl ExecNode for ZonePruneNode {
+    fn compute(&mut self, cx: &mut StepCx<'_>) -> VortexResult<NodeState> {
+        if !self.started {
+            self.started = true;
+            if self.selection.mask().all_false() {
+                cx.emit(empty_piece(
+                    self.plan.dtype(),
+                    self.selection.rows().clone(),
+                ));
+                cx.close();
+                return Ok(NodeState::Done);
+            }
+            let cache = self
+                .plan
+                .pruned_zones()
+                .ok_or_else(|| vortex_err!("ZonePruneNode needs a pruning plan"))?;
+            if let Some(pruned) = cache.get() {
+                cx.emit(self.expand(pruned)?);
+                cx.close();
+                return Ok(NodeState::Done);
+            }
+            let zones = self.plan.zones_plan()?;
+            let count = usize::try_from(zones.row_count())?;
+            cx.spawn(0, zones, 0..count as u64, Mask::new_true(count));
+        }
+        for (_, input) in cx.take_inputs() {
+            match input {
+                Input::Piece(piece) => self.zones.push(piece),
+                Input::Closed => {
+                    let pruned = self.prune(cx)?;
+                    let cache = self
+                        .plan
+                        .pruned_zones()
+                        .ok_or_else(|| vortex_err!("ZonePruneNode needs a pruning plan"))?;
+                    // Another execution may have filled the cache first; both results agree.
+                    let pruned = cache.get_or_init(|| pruned);
+                    cx.emit(self.expand(pruned)?);
+                    cx.close();
+                    return Ok(NodeState::Done);
+                }
+            }
+        }
+        Ok(NodeState::Waiting)
+    }
+}
