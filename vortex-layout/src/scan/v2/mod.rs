@@ -8,13 +8,21 @@
 //! [`ScanBuilder::into_stream`]. Both return the same types as the calls they replace, and also
 //! take the [`ScanFile`] the builder's reader was opened over.
 //!
-//! Each split runs as a [`SplitMorsel`](crate::scan::planning::SplitMorsel): the planning protocol
-//! decides which segments the split needs, and the file's own segment source fetches them.
+//! Each split runs as a [`FilterPlanner`](crate::scan::planning::FilterPlanner), which hands the
+//! rows that survive to a [`ProjectionPlanner`](crate::scan::planning::ProjectionPlanner) and its
+//! morsel. Both execute physical plans lowered from the file's layout, on the planning driver, and
+//! the file's own segment source serves their reads.
+//!
+//! The driver blocks while it waits for reads, so it runs on the runtime's blocking pool. The
+//! runtime must run blocking work off the threads that drive its futures, as the Tokio and
+//! current-thread runtimes do; the single-thread runtime does not.
 //!
 //! [`ScanBuilder`]: crate::scan::scan_builder::ScanBuilder
 //! [`ScanBuilder::prepare`]: crate::scan::scan_builder::ScanBuilder::prepare
 //! [`ScanBuilder::into_stream`]: crate::scan::scan_builder::ScanBuilder::into_stream
 
+mod io;
+mod lower;
 mod repeated_scan;
 mod split;
 mod stream;

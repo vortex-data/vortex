@@ -12,24 +12,34 @@ use itertools::Either;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
-use vortex_array::expr::BoundExpression;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
 use vortex_scan::selection::Selection;
-use vortex_session::VortexSession;
 
-use crate::layouts::row_idx::RowIdx;
+use crate::plan::PlanRef;
+use crate::plan::optimize;
+use crate::plan::plan_row_idx_expression;
+use crate::scan::planning::ScanPlans;
 use crate::scan::scan_builder::ScanBuilder;
 use crate::scan::scan_builder::referenced_field_masks;
 use crate::scan::splits::Splits;
 use crate::scan::splits::attempt_split_ranges;
 use crate::scan::v2::ScanFile;
+use crate::scan::v2::io::SegmentRanges;
+use crate::scan::v2::io::segment_ranges;
+use crate::scan::v2::lower::lower;
 use crate::scan::v2::split::SplitTask;
+use crate::segments::SegmentSource;
 
 /// Computes split ranges for `builder` and returns an executable scan over `file`, the file the
 /// builder's reader was opened over.
+///
+/// The file's layout is lowered once into a physical plan, and the filter and projection are
+/// planned and optimized over it. Every split then runs those plans through the planning
+/// protocol, and never calls the layout reader's evaluation methods. The builder's reader is only
+/// used to choose the splits.
 ///
 /// The replacement for [`ScanBuilder::prepare`].
 pub fn prepare<A: 'static + Send>(
@@ -44,10 +54,15 @@ pub fn prepare<A: 'static + Send>(
     }
 
     let layout_reader = parts.layout_reader;
-    let mut found_row_idx = parts.projection.contains::<RowIdx>()?;
-    if !found_row_idx && let Some(filter) = parts.filter.as_ref() {
-        found_row_idx = filter.contains::<RowIdx>()?;
-    }
+    let root = lower(&file.layout)?;
+    let plan = |expression| optimize(plan_row_idx_expression(expression, root.clone())?);
+    let filter = parts.filter.clone().map(plan).transpose()?;
+    let plans = ScanPlans {
+        session: parts.session,
+        locations: Arc::clone(&file.locations),
+        projection: plan(parts.projection.clone())?,
+        row_offset: parts.row_offset,
+    };
 
     let splits =
         if let Some(ranges) = attempt_split_ranges(&parts.selection, parts.row_range.as_ref()) {
@@ -69,11 +84,10 @@ pub fn prepare<A: 'static + Send>(
         };
 
     Ok(RepeatedScanV2 {
-        session: parts.session,
-        file,
-        row_idx_offset: found_row_idx.then_some(parts.row_offset),
-        projection: parts.projection,
-        filter: parts.filter,
+        plans,
+        filter,
+        ranges: segment_ranges(&file.locations),
+        segments: file.segments,
         row_range: parts.row_range,
         selection: parts.selection,
         splits,
@@ -87,11 +101,10 @@ pub fn prepare<A: 'static + Send>(
 ///
 /// The replacement for [`RepeatedScan`](crate::scan::repeated_scan::RepeatedScan).
 pub struct RepeatedScanV2<A: 'static + Send> {
-    session: VortexSession,
-    file: ScanFile,
-    row_idx_offset: Option<u64>,
-    projection: BoundExpression,
-    filter: Option<BoundExpression>,
+    plans: ScanPlans,
+    filter: Option<PlanRef>,
+    ranges: SegmentRanges,
+    segments: Arc<dyn SegmentSource>,
     row_range: Option<Range<u64>>,
     selection: Selection,
     splits: Splits,
@@ -177,13 +190,12 @@ impl<A: 'static + Send> RepeatedScanV2<A> {
                 _ => row_mask.mask().clone(),
             };
             let task = SplitTask {
-                session: self.session.clone(),
-                file: self.file.clone(),
+                plans: self.plans.clone(),
+                filter: self.filter.clone(),
+                segments: Arc::clone(&self.segments),
+                ranges: Arc::clone(&self.ranges),
                 range: row_mask.row_range(),
                 mask,
-                filter: self.filter.clone(),
-                projection: self.projection.clone(),
-                row_idx_offset: self.row_idx_offset,
                 map_fn: Arc::clone(&self.map_fn),
             };
             tasks.push(task.run().boxed());

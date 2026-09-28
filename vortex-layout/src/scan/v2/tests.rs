@@ -22,7 +22,6 @@ use vortex_array::expr::root;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
-use vortex_io::runtime::single::block_on;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
@@ -71,7 +70,8 @@ async fn write_layout(
 }
 
 /// A [`ScanFile`] over test segments. They have no byte offsets, and the scan fetches them by id,
-/// so every location is a placeholder with the alignment the test segments already have.
+/// so each location is a placeholder whose offset is its id, with the alignment the test segments
+/// already have.
 fn scan_file(segments: &Arc<dyn SegmentSource>, layout: &LayoutRef) -> VortexResult<ScanFile> {
     let mut count = 0;
     for layout in layout.depth_first_traversal() {
@@ -79,14 +79,16 @@ fn scan_file(segments: &Arc<dyn SegmentSource>, layout: &LayoutRef) -> VortexRes
             count = count.max(*id as usize + 1);
         }
     }
-    let placeholder = SegmentLocation {
-        offset: 0,
-        length: 0,
-        alignment: Alignment::none(),
-    };
+    let locations = (0..count as u64)
+        .map(|offset| SegmentLocation {
+            offset,
+            length: 0,
+            alignment: Alignment::none(),
+        })
+        .collect();
     Ok(ScanFile {
         layout: Arc::clone(layout),
-        locations: vec![placeholder; count].into(),
+        locations,
         segments: Arc::clone(segments),
     })
 }
@@ -182,30 +184,29 @@ fn row_idx_case(filter: bool) -> Case {
 #[case::selection_and_filter(rows(true, &[0, 1499, 1501, 2500, 3999]))]
 #[case::row_idx(row_idx_case(false))]
 #[case::row_idx_and_filter(row_idx_case(true))]
-fn stream_matches_default(#[case] case: Case) -> VortexResult<()> {
-    block_on(|handle| async move {
-        let session = new_session().with_handle(handle);
-        let (segments, layout) = write_layout(&session).await?;
-        let dtype = builder(&session, &segments, &layout, &case)?.dtype()?;
+#[tokio::test(flavor = "multi_thread")]
+async fn stream_matches_default(#[case] case: Case) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = write_layout(&session).await?;
+    let dtype = builder(&session, &segments, &layout, &case)?.dtype()?;
 
-        let expected = builder(&session, &segments, &layout, &case)?
-            .into_stream()?
-            .try_collect::<Vec<_>>()
-            .await?;
-        let actual = v2::into_stream(
-            builder(&session, &segments, &layout, &case)?,
-            scan_file(&segments, &layout)?,
-        )?
+    let expected = builder(&session, &segments, &layout, &case)?
+        .into_stream()?
         .try_collect::<Vec<_>>()
         .await?;
+    let actual = v2::into_stream(
+        builder(&session, &segments, &layout, &case)?,
+        scan_file(&segments, &layout)?,
+    )?
+    .try_collect::<Vec<_>>()
+    .await?;
 
-        assert_arrays_eq!(
-            ChunkedArray::try_new(actual, dtype.clone())?,
-            ChunkedArray::try_new(expected, dtype)?,
-            &mut session.create_execution_ctx()
-        );
-        Ok(())
-    })
+    assert_arrays_eq!(
+        ChunkedArray::try_new(actual, dtype.clone())?,
+        ChunkedArray::try_new(expected, dtype)?,
+        &mut session.create_execution_ctx()
+    );
+    Ok(())
 }
 
 #[rstest]
@@ -213,37 +214,34 @@ fn stream_matches_default(#[case] case: Case) -> VortexResult<()> {
 #[case::execute_range(case(true, None, None), Some(700..3300))]
 #[case::both_ranges(case(false, Some(500..2500), None), Some(2000..4000))]
 #[case::empty_range(case(true, None, None), Some(1200..1200))]
-fn execute_matches_default(
+#[tokio::test(flavor = "multi_thread")]
+async fn execute_matches_default(
     #[case] case: Case,
     #[case] execute_range: Option<Range<u64>>,
 ) -> VortexResult<()> {
-    block_on(|handle| async move {
-        let session = new_session().with_handle(handle);
-        let (segments, layout) = write_layout(&session).await?;
+    let session = new_session().with_tokio();
+    let (segments, layout) = write_layout(&session).await?;
 
-        let default = builder(&session, &segments, &layout, &case)?.prepare()?;
-        let replacement = v2::prepare(
-            builder(&session, &segments, &layout, &case)?,
-            scan_file(&segments, &layout)?,
-        )?;
-        assert_eq!(replacement.dtype(), default.dtype());
-        let dtype = default.dtype().clone();
+    let default = builder(&session, &segments, &layout, &case)?.prepare()?;
+    let replacement = v2::prepare(
+        builder(&session, &segments, &layout, &case)?,
+        scan_file(&segments, &layout)?,
+    )?;
+    assert_eq!(replacement.dtype(), default.dtype());
+    let dtype = default.dtype().clone();
 
-        let expected = await_tasks(dtype.clone(), default.execute(execute_range.clone())?).await?;
-        let actual = await_tasks(dtype, replacement.execute(execute_range)?).await?;
-        assert_arrays_eq!(actual, expected, &mut session.create_execution_ctx());
-        Ok(())
-    })
+    let expected = await_tasks(dtype.clone(), default.execute(execute_range.clone())?).await?;
+    let actual = await_tasks(dtype, replacement.execute(execute_range)?).await?;
+    assert_arrays_eq!(actual, expected, &mut session.create_execution_ctx());
+    Ok(())
 }
 
-#[test]
-fn filter_with_limit_is_rejected() -> VortexResult<()> {
-    block_on(|handle| async move {
-        let session = new_session().with_handle(handle);
-        let (segments, layout) = write_layout(&session).await?;
-        let case = case(true, None, Some(10));
-        let file = scan_file(&segments, &layout)?;
-        assert!(v2::prepare(builder(&session, &segments, &layout, &case)?, file).is_err());
-        Ok(())
-    })
+#[tokio::test(flavor = "multi_thread")]
+async fn filter_with_limit_is_rejected() -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = write_layout(&session).await?;
+    let case = case(true, None, Some(10));
+    let file = scan_file(&segments, &layout)?;
+    assert!(v2::prepare(builder(&session, &segments, &layout, &case)?, file).is_err());
+    Ok(())
 }
