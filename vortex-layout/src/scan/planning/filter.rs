@@ -110,11 +110,17 @@ impl FilterPlanner {
     /// The incoming mask narrowed to the rows whose filter value is true.
     fn selected(&mut self) -> VortexResult<Mask> {
         self.pieces.sort_by_key(|piece| piece.rows.start);
-        let values: Vec<ArrayRef> = std::mem::take(&mut self.pieces)
+        let mut values: Vec<ArrayRef> = std::mem::take(&mut self.pieces)
             .into_iter()
             .map(|piece| piece.array)
             .collect();
-        let values = ChunkedArray::try_new(values, self.filter.dtype().clone())?.into_array();
+        // A lone piece executes through its own kernels; wrapped in a chunked array it would go
+        // through the generic builder instead.
+        let values = if values.len() == 1 {
+            values.remove(0)
+        } else {
+            ChunkedArray::try_new(values, self.filter.dtype().clone())?.into_array()
+        };
         let mut ctx = self.plans.session.create_execution_ctx();
         let values: Mask = values.null_as_false().execute(&mut ctx)?;
         let keep = match self.keep {
