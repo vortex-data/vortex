@@ -29,9 +29,11 @@ impl BoolOperand {
             let value = constant
                 .scalar()
                 .as_bool_opt()
-                .ok_or_else(|| vortex_err!("expected boolean scalar"))?
+                .ok_or_else(|| vortex_err!(MismatchedTypes: "expected boolean scalar"))?
                 .value()
-                .ok_or_else(|| vortex_err!("null constant handled by execute_compare"))?;
+                .ok_or_else(
+                    || vortex_err!(AssertionFailed: "null constant handled by execute_compare"),
+                )?;
             return Ok(Self::Constant {
                 value,
                 validity: if constant.scalar().dtype().is_nullable() {

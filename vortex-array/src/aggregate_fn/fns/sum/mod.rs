@@ -156,7 +156,7 @@ impl AggregateFnVTable for Sum {
     ) -> VortexResult<Self::Partial> {
         vortex_ensure!(
             scalar.dtype().eq_ignore_nullability(args.return_dtype),
-            "Sum partial has dtype {}, expected {}",
+            MismatchedTypes: "Sum partial has dtype {}, expected {}",
             scalar.dtype(),
             args.return_dtype
         );
@@ -289,7 +289,9 @@ impl AggregateFnVTable for Sum {
                 }
                 Canonical::Bool(b) => accumulate_bool(&mut inner, b, ctx),
                 Canonical::Decimal(d) => accumulate_decimal(&mut inner, args.return_dtype, d, ctx),
-                _ => vortex_bail!("Unsupported canonical type for sum: {}", batch.dtype()),
+                _ => {
+                    vortex_bail!(InvalidArgument: "Unsupported canonical type for sum: {}", batch.dtype())
+                }
             },
             Columnar::Constant(_) => unreachable!(),
         };
@@ -349,7 +351,7 @@ pub(crate) fn make_zero_state(return_dtype: &DType) -> SumState {
             PType::F16 | PType::F32 | PType::F64 => SumState::Float(0.0),
         },
         DType::Decimal(decimal, _) => SumState::Decimal(DecimalValue::zero(decimal)),
-        _ => vortex_panic!("Unsupported sum type"),
+        _ => vortex_panic!(NotImplemented: "Unsupported sum type"),
     }
 }
 
@@ -364,7 +366,7 @@ fn sum_state_from_scalar(scalar: &Scalar, return_dtype: &DType) -> VortexResult<
         }
         DType::Primitive(..) => SumState::Float(f64::try_from(scalar)?),
         DType::Decimal(..) => SumState::Decimal(DecimalValue::try_from(scalar)?),
-        _ => vortex_bail!("Unsupported sum type {}", return_dtype),
+        _ => vortex_bail!(InvalidArgument: "Unsupported sum type {}", return_dtype),
     })
 }
 
@@ -395,7 +397,7 @@ pub(crate) fn checked_add_sum_states(
                 Some(_) | None => true,
             }
         }
-        _ => vortex_bail!("Mismatched sum partial states"),
+        _ => vortex_bail!(MismatchedTypes: "Mismatched sum partial states"),
     })
 }
 
@@ -501,7 +503,7 @@ mod tests {
         }
 
         let sum_dtype = Stat::Sum.dtype(array.dtype()).ok_or_else(|| {
-            vortex_error::vortex_err!("Sum not supported for dtype: {}", array.dtype())
+            vortex_error::vortex_err!(InvalidArgument: "Sum not supported for dtype: {}", array.dtype())
         })?;
 
         // For non-float types, try statistics short-circuit with accumulator.

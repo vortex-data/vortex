@@ -23,15 +23,15 @@ pub(super) fn list_view_uncompressed_size_in_bytes(
     };
 
     let view_buffer_size = u64::try_from(array.len())
-        .map_err(|e| vortex_err!("Failed to convert list array length to u64: {e}"))?
+        .map_err(|e| vortex_err!(Overflow: "Failed to convert list array length to u64: {e}"))?
         .checked_mul(8)
-        .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))?;
+        .ok_or_else(|| vortex_err!(Overflow: "uncompressed size in bytes overflowed u64"))?;
 
     // ListView stores both offsets and sizes as u64 view buffers.
     size = size
         .checked_add(view_buffer_size)
         .and_then(|size| size.checked_add(view_buffer_size))
-        .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))?;
+        .ok_or_else(|| vortex_err!(Overflow: "uncompressed size in bytes overflowed u64"))?;
     size = size
         .checked_add(validity_uncompressed_size_in_bytes(
             array
@@ -39,7 +39,7 @@ pub(super) fn list_view_uncompressed_size_in_bytes(
                 .validity()?
                 .execute_mask(array.as_ref().len(), ctx)?,
         )?)
-        .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))?;
+        .ok_or_else(|| vortex_err!(Overflow: "uncompressed size in bytes overflowed u64"))?;
 
     Ok(size)
 }

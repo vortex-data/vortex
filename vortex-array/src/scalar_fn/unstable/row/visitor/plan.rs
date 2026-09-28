@@ -226,20 +226,20 @@ impl BatchPlan {
         vortex_ensure_eq!(
             actual.policy,
             self.policy,
-            "row dispatch must select the planned nullable execution policy: planned {:?}, got {:?}",
+            AssertionFailed: "row dispatch must select the planned nullable execution policy: planned {:?}, got {:?}",
             self.policy,
             actual.policy,
         );
         vortex_ensure_eq!(
             actual.storage_dtype,
             self.storage_dtype,
-            "row dispatch must select the planned storage dtype: planned {}, got {}",
+            AssertionFailed: "row dispatch must select the planned storage dtype: planned {}, got {}",
             self.storage_dtype,
             actual.storage_dtype,
         );
         vortex_ensure!(
             actual.output_label == self.output_label,
-            "row dispatch must declare the planned output dtype: planned {}, got {}",
+            AssertionFailed: "row dispatch must declare the planned output dtype: planned {}, got {}",
             self.output_dtype(),
             actual.output_dtype(),
         );
@@ -265,7 +265,7 @@ fn validate_output_label(
 ) -> VortexResult<Option<ExtDTypeRef>> {
     vortex_ensure!(
         !output_dtype.is_nullable(),
-        "a declared row output dtype must be non-nullable, got {output_dtype}",
+        AssertionFailed: "a declared row output dtype must be non-nullable, got {output_dtype}",
     );
 
     if output_dtype == *storage_dtype {
@@ -274,14 +274,14 @@ fn validate_output_label(
 
     let DType::Extension(output_label) = output_dtype else {
         vortex_bail!(
-            "a declared row output dtype must be an extension dtype over the storage dtype \
+            InvalidArgument: "a declared row output dtype must be an extension dtype over the storage dtype \
              {storage_dtype}, got {output_dtype}",
         );
     };
     vortex_ensure_eq!(
         *output_label.storage_dtype(),
         *storage_dtype,
-        "a declared row extension output dtype must store {storage_dtype}, got {}",
+        AssertionFailed: "a declared row extension output dtype must store {storage_dtype}, got {}",
         output_label.storage_dtype(),
     );
 

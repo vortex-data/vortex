@@ -1075,7 +1075,7 @@ fn test_slice_aggregate_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx) {
                 );
             }
             (None, None) => {} // Both empty, OK
-            _ => vortex_panic!("min_max results don't match"),
+            _ => vortex_panic!(AssertionFailed: "min_max results don't match"),
         }
     }
 

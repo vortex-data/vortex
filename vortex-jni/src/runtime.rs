@@ -23,7 +23,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeRuntime_setWorkerThreads(
 ) {
     try_or_throw(&mut env, |_| {
         if n < 0 {
-            throw_runtime!("worker thread count must be non-negative");
+            throw_runtime!(InvalidArgument: "worker thread count must be non-negative");
         }
         POOL.set_workers(n as usize);
         Ok(())

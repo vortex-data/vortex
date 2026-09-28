@@ -85,7 +85,7 @@ impl VTable for Bool {
     fn buffer(array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         match idx {
             0 => array.bits.clone(),
-            _ => vortex_panic!("BoolArray buffer index {idx} out of bounds"),
+            _ => vortex_panic!(OutOfBounds: "BoolArray buffer index {idx} out of bounds"),
         }
     }
 
@@ -103,7 +103,7 @@ impl VTable for Bool {
     ) -> VortexResult<ArrayParts<Self>> {
         vortex_ensure!(
             buffers.len() == 1,
-            "Expected 1 buffer, got {}",
+            InvalidArgument: "Expected 1 buffer, got {}",
             buffers.len()
         );
         let mut data = array.data().clone();
@@ -136,11 +136,11 @@ impl VTable for Bool {
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         let DType::Bool(nullability) = dtype else {
-            vortex_bail!("Expected bool dtype, got {dtype:?}");
+            vortex_bail!(MismatchedTypes: "Expected bool dtype, got {dtype:?}");
         };
         vortex_ensure!(
             data.bits.len() * 8 >= data.meta.offset() + len,
-            "BoolArray buffer with offset {} cannot back outer length {} (buffer bits = {})",
+            InvalidArgument: "BoolArray buffer with offset {} cannot back outer length {} (buffer bits = {})",
             data.meta.offset(),
             len,
             data.bits.len() * 8
@@ -150,7 +150,7 @@ impl VTable for Bool {
         if let Some(validity_len) = validity.maybe_len() {
             vortex_ensure!(
                 validity_len == len,
-                "BoolArray validity len {} does not match outer length {}",
+                InvalidArgument: "BoolArray validity len {} does not match outer length {}",
                 validity_len,
                 len
             );
@@ -170,7 +170,7 @@ impl VTable for Bool {
     ) -> VortexResult<ArrayParts<Self>> {
         let metadata = BoolMetadata::decode(metadata)?;
         if buffers.len() != 1 {
-            vortex_bail!("Expected 1 buffer, got {}", buffers.len());
+            vortex_bail!(InvalidArgument: "Expected 1 buffer, got {}", buffers.len());
         }
 
         let validity = if children.is_empty() {
@@ -179,7 +179,7 @@ impl VTable for Bool {
             let validity = children.get(0, &Validity::DTYPE, len)?;
             Validity::Array(validity)
         } else {
-            vortex_bail!("Expected 0 or 1 child, got {}", children.len());
+            vortex_bail!(MismatchedTypes: "Expected 0 or 1 child, got {}", children.len());
         };
 
         let buffer = buffers[0].clone();
@@ -198,7 +198,7 @@ impl VTable for Bool {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let Some(builder) = builder.as_any_mut().downcast_mut::<BoolBuilder>() else {
-            vortex_bail!("append_to_builder for Bool requires a BoolBuilder");
+            vortex_bail!(InvalidArgument: "append_to_builder for Bool requires a BoolBuilder");
         };
         builder.append_bool_array(&array.into_owned(), ctx)
     }

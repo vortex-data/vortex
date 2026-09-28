@@ -19,7 +19,7 @@ pub(crate) fn accumulate_bool(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<bool> {
     let SumState::Unsigned(acc) = inner else {
-        vortex_panic!("expected unsigned sum state for bool input");
+        vortex_panic!(AssertionFailed: "expected unsigned sum state for bool input");
     };
 
     let mask = b.as_ref().validity()?.execute_mask(b.as_ref().len(), ctx)?;

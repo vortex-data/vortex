@@ -133,7 +133,7 @@ impl DecimalValue {
             let factor = decimal_scale_factor(scale_delta as u32)?;
             value.checked_mul(&factor).ok_or_else(|| {
                 vortex_err!(
-                    "Rescaling decimal from scale {} to {} overflows",
+                    Overflow: "Rescaling decimal from scale {} to {} overflows",
                     from_scale,
                     to_scale
                 )
@@ -143,7 +143,7 @@ impl DecimalValue {
             let remainder = value % factor;
             if remainder != i256::ZERO {
                 vortex_bail!(
-                    "Rescaling decimal value {} from scale {} to {} would lose precision",
+                    InvalidArgument: "Rescaling decimal value {} from scale {} to {} would lose precision",
                     value,
                     from_scale,
                     to_scale
@@ -174,7 +174,7 @@ impl DecimalValue {
         let decimal_value = Self::I256(value);
         decimal_value.normalize(decimal_dtype).ok_or_else(|| {
             vortex_err!(
-                "decimal value {} does not fit in precision of {}",
+                Overflow: "decimal value {} does not fit in precision of {}",
                 decimal_value,
                 decimal_dtype
             )
@@ -240,7 +240,7 @@ impl DecimalValue {
 fn decimal_scale_factor(exp: u32) -> VortexResult<i256> {
     i256::from_i128(10).checked_pow(exp).ok_or_else(|| {
         vortex_err!(
-            "decimal scale factor 10^{} cannot be represented in i256",
+            InvalidArgument: "decimal scale factor 10^{} cannot be represented in i256",
             exp
         )
     })

@@ -123,7 +123,7 @@ impl BoundExpression {
     fn try_new_vec(scalar_fn: ScalarFnRef, children: Vec<BoundExpression>) -> VortexResult<Self> {
         vortex_ensure!(
             scalar_fn.signature().arity().matches(children.len()),
-            "Expression arity mismatch: expected {} children but got {}",
+            InvalidArgument: "Expression arity mismatch: expected {} children but got {}",
             scalar_fn.signature().arity(),
             children.len()
         );
@@ -150,7 +150,7 @@ impl BoundExpression {
         let BoundExpression::Scalar { scalar_fn, .. } = &self else {
             vortex_ensure!(
                 children.is_empty(),
-                "Root expression cannot have {} children",
+                InvalidArgument: "Root expression cannot have {} children",
                 children.len()
             );
             return Ok(self);

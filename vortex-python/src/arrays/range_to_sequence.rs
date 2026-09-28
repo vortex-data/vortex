@@ -23,7 +23,7 @@ pub fn sequence_array_from_range<T: NativePType + TryFrom<isize> + Into<PValue>>
     dtype: DType,
 ) -> VortexResult<ArrayRef> {
     if step == 0 {
-        vortex_bail!("Step must not be zero");
+        vortex_bail!(InvalidArgument: "Step must not be zero");
     }
 
     // A `Sequence` holds at least one element, so an empty range returns a primitive array
@@ -39,13 +39,13 @@ pub fn sequence_array_from_range<T: NativePType + TryFrom<isize> + Into<PValue>>
     }
     let Ok(start) = T::try_from(start) else {
         vortex_bail!(
-            "Start, {}, does not fit in requested dtype: {}",
+            Overflow: "Start, {}, does not fit in requested dtype: {}",
             start,
             dtype
         );
     };
     let Ok(step) = T::try_from(step) else {
-        vortex_bail!("Step, {}, does not fit in requested dtype: {}", step, dtype);
+        vortex_bail!(Overflow: "Step, {}, does not fit in requested dtype: {}", step, dtype);
     };
 
     Ok(Sequence::try_new_typed::<T>(start, step, dtype.nullability(), len)?.into_array())

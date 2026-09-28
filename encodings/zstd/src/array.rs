@@ -193,7 +193,7 @@ impl VTable for Zstd {
         let mut data = array.data().clone();
         if data.dictionary.is_some() {
             let Some((dictionary, frames)) = buffers.split_first() else {
-                vortex_bail!("Expected dictionary buffer");
+                vortex_bail!(MismatchedTypes: "Expected dictionary buffer");
             };
             data.dictionary = Some(dictionary.clone().try_to_host_sync()?);
             data.frames = frames
@@ -235,7 +235,7 @@ impl VTable for Zstd {
             let validity = children.get(0, &Validity::DTYPE, len)?;
             Validity::Array(validity)
         } else {
-            vortex_bail!("ZstdArray expected 0 or 1 child, got {}", children.len());
+            vortex_bail!(MismatchedTypes: "ZstdArray expected 0 or 1 child, got {}", children.len());
         };
 
         let (dictionary_buffer, compressed_buffers) = if metadata.dictionary_size == 0 {
@@ -386,7 +386,7 @@ fn append_to_varbinview(
             try_reconstruct_views(&value_bytes, next_buffer_index, MAX_BUFFER_LEN)?;
         vortex_ensure!(
             valid_views.len() == mask.true_count(),
-            "Corrupt zstd metadata: the decompressed frames hold {} values for the {} valid rows \
+            Serde: "Corrupt zstd metadata: the decompressed frames hold {} values for the {} valid rows \
              of the slice",
             valid_views.len(),
             mask.true_count()
@@ -664,7 +664,7 @@ fn walk_views(
             buffers.push(buffer.slice(segment_start..offset));
             segment_start = offset;
             let Some(next_index) = buf_index.checked_add(1) else {
-                error = Some(vortex_err!("Zstd values need more than u32::MAX buffers"));
+                error = Some(vortex_err!(Overflow: "Zstd values need more than u32::MAX buffers"));
                 break;
             };
             buf_index = next_index;
@@ -672,14 +672,14 @@ fn walk_views(
 
         let Ok(local_offset) = u32::try_from(value_data_offset - segment_start) else {
             error = Some(vortex_err!(
-                "Zstd value offset {} does not fit in u32; max_buffer_len {max_buffer_len} is too large",
+                Overflow: "Zstd value offset {} does not fit in u32; max_buffer_len {max_buffer_len} is too large",
                 value_data_offset - segment_start
             ));
             break;
         };
         let Some(value) = buffer.get(value_data_offset..value_data_offset + str_len) else {
             error = Some(vortex_err!(
-                "Corrupt zstd value: {str_len} bytes at offset {value_data_offset} run past the \
+                Serde: "Corrupt zstd value: {str_len} bytes at offset {value_data_offset} run past the \
                  end of the {} byte frame buffer",
                 buffer.len()
             ));
@@ -703,7 +703,7 @@ fn slice_views(
 ) -> VortexResult<Buffer<BinaryView>> {
     vortex_ensure!(
         range.end <= views.len(),
-        "Corrupt zstd metadata: values {}..{} are out of bounds of the {} values held by the \
+        Serde: "Corrupt zstd metadata: values {}..{} are out of bounds of the {} values held by the \
          decompressed frames",
         range.start,
         range.end,
@@ -776,7 +776,7 @@ impl DecompressedSlice {
             .checked_sub(self.n_skipped_values)
             .ok_or_else(|| {
                 vortex_err!(
-                    "Corrupt zstd metadata: skipped frames hold {} values, past the first \
+                    Serde: "Corrupt zstd metadata: skipped frames hold {} values, past the first \
                      requested value {}",
                     self.n_skipped_values,
                     self.value_idx_start
@@ -787,7 +787,7 @@ impl DecompressedSlice {
             .checked_sub(self.n_skipped_values)
             .ok_or_else(|| {
                 vortex_err!(
-                    "Corrupt zstd metadata: skipped frames hold {} values, past the last \
+                    Serde: "Corrupt zstd metadata: skipped frames hold {} values, past the last \
                      requested value {}",
                     self.n_skipped_values,
                     self.value_idx_stop
@@ -795,7 +795,7 @@ impl DecompressedSlice {
             })?;
         vortex_ensure!(
             start <= end,
-            "Corrupt zstd metadata: value range {start}..{end} is not ascending"
+            Serde: "Corrupt zstd metadata: value range {start}..{end} is not ascending"
         );
         Ok(start..end)
     }
@@ -820,7 +820,7 @@ impl DecompressedSlice {
         };
         vortex_ensure!(
             from <= to && to <= buffer.len(),
-            "Corrupt zstd metadata: values {from}..{to} are out of bounds of the {} byte frame \
+            Serde: "Corrupt zstd metadata: values {from}..{to} are out of bounds of the {} byte frame \
              buffer",
             buffer.len()
         );
@@ -835,7 +835,7 @@ impl DecompressedSlice {
         let buffer = self.bytes.as_slice();
         let bytes = buffer.get(range.clone()).ok_or_else(|| {
             vortex_err!(
-                "Corrupt zstd metadata: values {}..{} are out of bounds of the {} byte frame \
+                Serde: "Corrupt zstd metadata: values {}..{} are out of bounds of the {} byte frame \
                  buffer",
                 range.start,
                 range.end,
@@ -844,11 +844,11 @@ impl DecompressedSlice {
         })?;
         // Every value carries a length prefix, so the region must be at least that large.
         let prefix_bytes = n_values.checked_mul(size_of::<ViewLen>()).ok_or_else(|| {
-            vortex_err!("Corrupt zstd metadata: value count {n_values} overflows a byte count")
+            vortex_err!(Serde: "Corrupt zstd metadata: value count {n_values} overflows a byte count")
         })?;
         let num_bytes = bytes.len().checked_sub(prefix_bytes).ok_or_else(|| {
             vortex_err!(
-                "Corrupt zstd metadata: {n_values} values do not fit in the {} bytes holding them",
+                Serde: "Corrupt zstd metadata: {n_values} values do not fit in the {} bytes holding them",
                 bytes.len()
             )
         })?;
@@ -866,7 +866,7 @@ fn zstd_value_offset(buffer: &[u8], mut offset: usize, count: usize) -> VortexRe
     }
     vortex_ensure!(
         offset <= buffer.len(),
-        "Corrupt zstd values: walking {count} values ended at offset {offset}, past the end of \
+        Serde: "Corrupt zstd values: walking {count} values ended at offset {offset}, past the end of \
          the {} byte frame buffer",
         buffer.len()
     );
@@ -881,7 +881,7 @@ fn zstd_value_len(buffer: &[u8], offset: usize) -> VortexResult<usize> {
         .and_then(|rest| rest.first_chunk::<{ size_of::<ViewLen>() }>())
         .ok_or_else(|| {
             vortex_err!(
-                "Corrupt zstd values: length prefix at offset {offset} runs past the end of the \
+                Serde: "Corrupt zstd values: length prefix at offset {offset} runs past the end of the \
                  {} byte frame buffer",
                 buffer.len()
             )
@@ -947,30 +947,30 @@ impl ZstdData {
                 dtype,
                 DType::Primitive(..) | DType::Binary(_) | DType::Utf8(_)
             ),
-            "Unsupported dtype for Zstd array: {dtype}"
+            MismatchedTypes: "Unsupported dtype for Zstd array: {dtype}"
         );
         vortex_ensure!(
             self.slice_start <= self.slice_stop,
-            "Invalid slice range {}..{}",
+            InvalidArgument: "Invalid slice range {}..{}",
             self.slice_start,
             self.slice_stop
         );
         vortex_ensure!(
             self.slice_stop <= self.unsliced_n_rows,
-            "Slice stop {} exceeds unsliced row count {}",
+            InvalidArgument: "Slice stop {} exceeds unsliced row count {}",
             self.slice_stop,
             self.unsliced_n_rows
         );
         vortex_ensure!(
             self.slice_stop - self.slice_start == len,
-            "Slice length {} does not match array length {}",
+            InvalidArgument: "Slice length {} does not match array length {}",
             self.slice_stop - self.slice_start,
             len
         );
         if let Some(validity_len) = validity.maybe_len() {
             vortex_ensure!(
                 validity_len == self.unsliced_n_rows,
-                "Validity length {} does not match unsliced row count {}",
+                InvalidArgument: "Validity length {} does not match unsliced row count {}",
                 validity_len,
                 self.unsliced_n_rows
             );
@@ -979,18 +979,18 @@ impl ZstdData {
         match &self.dictionary {
             Some(dictionary) => vortex_ensure!(
                 usize::try_from(self.metadata.dictionary_size)? == dictionary.len(),
-                "Dictionary size metadata {} does not match buffer size {}",
+                Serde: "Dictionary size metadata {} does not match buffer size {}",
                 self.metadata.dictionary_size,
                 dictionary.len()
             ),
             None => vortex_ensure!(
                 self.metadata.dictionary_size == 0,
-                "Dictionary metadata present without dictionary buffer"
+                Serde: "Dictionary metadata present without dictionary buffer"
             ),
         }
         vortex_ensure!(
             self.frames.len() == self.metadata.frames.len(),
-            "Frame count {} does not match metadata frame count {}",
+            Serde: "Frame count {} does not match metadata frame count {}",
             self.frames.len(),
             self.metadata.frames.len()
         );
@@ -1298,8 +1298,9 @@ impl ZstdData {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Self> {
         let canonical = array.execute::<Canonical>(ctx)?;
-        Self::from_canonical(&canonical, level, values_per_frame, ctx)?
-            .ok_or_else(|| vortex_err!("Zstd can only encode Primitive and VarBinView arrays"))
+        Self::from_canonical(&canonical, level, values_per_frame, ctx)?.ok_or_else(
+            || vortex_err!(MismatchedTypes: "Zstd can only encode Primitive and VarBinView arrays"),
+        )
     }
 
     fn byte_width(dtype: &DType) -> usize {
@@ -1340,14 +1341,14 @@ impl ZstdData {
             let frame_uncompressed_size =
                 usize::try_from(frame_meta.uncompressed_size).map_err(|_| {
                     vortex_err!(
-                        "Zstd frame uncompressed size {} does not fit in a usize",
+                        Overflow: "Zstd frame uncompressed size {} does not fit in a usize",
                         frame_meta.uncompressed_size
                     )
                 })?;
             let frame_n_values = if frame_meta.n_values != 0 {
                 usize::try_from(frame_meta.n_values).map_err(|_| {
                     vortex_err!(
-                        "Zstd frame value count {} does not fit in a usize",
+                        Overflow: "Zstd frame value count {} does not fit in a usize",
                         frame_meta.n_values
                     )
                 })?
@@ -1361,23 +1362,23 @@ impl ZstdData {
                 // value, so that case is still recoverable; anything else is not.
                 vortex_ensure!(
                     self.frames.len() == 1,
-                    "Zstd frame metadata for a variable-width array is missing its value count"
+                    Serde: "Zstd frame metadata for a variable-width array is missing its value count"
                 );
                 unsliced_mask.true_count()
             };
 
             // Bounding the running total also bounds the two accumulators below, which partition
             // it between the frames we keep and the ones we skip.
-            let value_idx_stop = value_idx_start.checked_add(frame_n_values).ok_or_else(|| {
-                vortex_err!("Corrupt zstd metadata: frame value counts overflow a usize")
-            })?;
+            let value_idx_stop = value_idx_start.checked_add(frame_n_values).ok_or_else(
+                || vortex_err!(Serde: "Corrupt zstd metadata: frame value counts overflow a usize"),
+            )?;
             if value_idx_stop > slice_value_idx_start {
                 // we need this frame
                 frames_to_decompress.push(frame);
                 uncompressed_size_to_decompress = uncompressed_size_to_decompress
                     .checked_add(frame_uncompressed_size)
                     .ok_or_else(|| {
-                        vortex_err!("Corrupt zstd metadata: frame sizes overflow a usize")
+                        vortex_err!(Serde: "Corrupt zstd metadata: frame sizes overflow a usize")
                     })?;
                 n_buffered_values += frame_n_values;
             } else {
@@ -1410,7 +1411,7 @@ impl ZstdData {
         }
         if uncompressed_start != uncompressed_size_to_decompress {
             vortex_bail!(
-                "Zstd metadata or frames were corrupt; expected {} bytes but decompressed {}",
+                Serde: "Zstd metadata or frames were corrupt; expected {} bytes but decompressed {}",
                 uncompressed_size_to_decompress,
                 uncompressed_start
             );
@@ -1434,7 +1435,7 @@ impl ZstdData {
         if !dtype.is_nullable() && !matches!(slice_validity, Validity::NonNullable) {
             vortex_ensure!(
                 matches!(slice_validity, Validity::AllValid),
-                "ZSTD array expects to be non-nullable but there are nulls after decompression"
+                Serde: "ZSTD array expects to be non-nullable but there are nulls after decompression"
             );
 
             slice_validity = Validity::NonNullable;
@@ -1473,7 +1474,7 @@ impl ZstdData {
                     .map(|(byte_start, byte_stop)| byte_start..byte_stop)
                     .ok_or_else(|| {
                         vortex_err!(
-                            "Corrupt zstd metadata: values {start}..{end} of {} bytes each are \
+                            Serde: "Corrupt zstd metadata: values {start}..{end} of {} bytes each are \
                              out of bounds of the {} byte frame buffer",
                             slice.byte_width,
                             slice.bytes.len()
@@ -1536,7 +1537,7 @@ impl ZstdData {
                     }
                 }
             }
-            _ => vortex_bail!("Unsupported dtype for Zstd array: {}", dtype),
+            _ => vortex_bail!(MismatchedTypes: "Unsupported dtype for Zstd array: {}", dtype),
         }
     }
 

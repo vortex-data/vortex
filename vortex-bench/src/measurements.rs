@@ -74,7 +74,9 @@ impl Div<MeasurementValue> for MeasurementValue {
             (MeasurementValue::Int(a), MeasurementValue::Int(b)) => {
                 MeasurementValue::Float(a as f64 / b as f64)
             }
-            _ => vortex_panic!("Can't divide two measurement values of different kinds"),
+            _ => {
+                vortex_panic!(MismatchedTypes: "Can't divide two measurement values of different kinds")
+            }
         }
     }
 }
@@ -99,7 +101,9 @@ impl Add<MeasurementValue> for MeasurementValue {
                 MeasurementValue::Float(a + b)
             }
             (MeasurementValue::Int(a), MeasurementValue::Int(b)) => MeasurementValue::Int(a + b),
-            _ => vortex_panic!("Can't subtract two measurement values of different kinds"),
+            _ => {
+                vortex_panic!(MismatchedTypes: "Can't subtract two measurement values of different kinds")
+            }
         }
     }
 }
@@ -113,7 +117,9 @@ impl Sub<MeasurementValue> for MeasurementValue {
                 MeasurementValue::Float(a - b)
             }
             (MeasurementValue::Int(a), MeasurementValue::Int(b)) => MeasurementValue::Int(a - b),
-            _ => vortex_panic!("Can't subtract two measurement values of different kinds"),
+            _ => {
+                vortex_panic!(MismatchedTypes: "Can't subtract two measurement values of different kinds")
+            }
         }
     }
 }
@@ -178,7 +184,7 @@ impl TimingMeasurement {
     pub fn mean_time(&self) -> Duration {
         let len = self.runs.len();
         if len == 0 {
-            vortex_panic!("cannot have no runs");
+            vortex_panic!(InvalidArgument: "cannot have no runs");
         }
 
         let total_nanos: u128 = self.runs.iter().map(|d| d.as_nanos()).sum();
@@ -194,7 +200,7 @@ impl TimingMeasurement {
     pub fn median_time(&self) -> Duration {
         let len = self.runs.len();
         if len == 0 {
-            vortex_panic!("cannot have no runs");
+            vortex_panic!(InvalidArgument: "cannot have no runs");
         }
 
         let mut sorted_runs = self.runs.clone();
@@ -253,7 +259,7 @@ impl QueryMeasurement {
     pub fn median_run(&self) -> Duration {
         let len = self.runs.len();
         if len == 0 {
-            vortex_panic!("cannot have no runs");
+            vortex_panic!(InvalidArgument: "cannot have no runs");
         }
 
         let mut sorted_runs = self.runs.clone();
@@ -356,7 +362,7 @@ impl ToJson for CompressionTimingMeasurement {
             Format::Parquet => (format!("parquet_rs-zstd {}", self.name), Engine::Vortex),
             Format::Lance => (format!("lance {}", self.name), Engine::Vortex),
             _ => vortex_panic!(
-                "CompressionTimingMeasurement only supports arrow-ipc, vortex, lance, and parquet formats"
+                NotImplemented: "CompressionTimingMeasurement only supports arrow-ipc, vortex, lance, and parquet formats"
             ),
         };
 

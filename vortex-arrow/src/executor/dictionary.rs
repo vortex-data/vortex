@@ -111,7 +111,7 @@ fn zeroed_codes_array(codes_type: &DataType, len: usize) -> VortexResult<ArrowAr
         DataType::UInt16 => Arc::new(PrimitiveArray::<UInt16Type>::from_value(0, len)),
         DataType::UInt32 => Arc::new(PrimitiveArray::<UInt32Type>::from_value(0, len)),
         DataType::UInt64 => Arc::new(PrimitiveArray::<UInt64Type>::from_value(0, len)),
-        _ => vortex_bail!("Unsupported dictionary codes type: {:?}", codes_type),
+        _ => vortex_bail!(InvalidArgument: "Unsupported dictionary codes type: {:?}", codes_type),
     })
 }
 
@@ -146,7 +146,7 @@ fn make_dict_array(
         DataType::UInt64 => Arc::new(unsafe {
             DictionaryArray::new_unchecked(codes.as_primitive::<UInt64Type>().clone(), values)
         }),
-        _ => vortex_bail!("Unsupported dictionary codes type: {:?}", codes_type),
+        _ => vortex_bail!(InvalidArgument: "Unsupported dictionary codes type: {:?}", codes_type),
     })
 }
 

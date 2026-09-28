@@ -98,7 +98,7 @@ impl VTable for ParquetVariant {
     ) -> VortexResult<()> {
         vortex_ensure!(
             slots.len() == ParquetVariantSlots::COUNT,
-            "ParquetVariantArray expects {} slots, got {}",
+            InvalidArgument: "ParquetVariantArray expects {} slots, got {}",
             ParquetVariantSlots::COUNT,
             slots.len()
         );
@@ -108,50 +108,50 @@ impl VTable for ParquetVariant {
         );
         let metadata = slots[ParquetVariantSlots::METADATA]
             .as_ref()
-            .ok_or_else(|| vortex_err!("ParquetVariantArray metadata slot"))?;
+            .ok_or_else(|| vortex_err!(NotFound: "ParquetVariantArray metadata slot"))?;
         let value = slots[ParquetVariantSlots::VALUE].as_ref();
         let typed_value = slots[ParquetVariantSlots::TYPED_VALUE].as_ref();
 
         vortex_ensure!(
             matches!(dtype, DType::Variant(_)),
-            "Expected Variant DType, found {dtype}"
+            MismatchedTypes: "Expected Variant DType, found {dtype}"
         );
         vortex_ensure!(
             value.is_some() || typed_value.is_some(),
-            "at least one of value or typed_value must be present"
+            InvalidArgument: "at least one of value or typed_value must be present"
         );
         vortex_ensure_eq!(
             dtype.nullability(),
             validity.nullability(),
-            "variant dtype nullability must match validity nullability"
+            InvalidArgument: "variant dtype nullability must match validity nullability"
         );
         vortex_ensure_eq!(
             metadata.dtype(),
             &DType::Binary(Nullability::NonNullable),
-            "metadata dtype must be non-nullable binary"
+            MismatchedTypes: "metadata dtype must be non-nullable binary"
         );
         vortex_ensure_eq!(
             metadata.len(),
             len,
-            "metadata length must match array length"
+            InvalidArgument: "metadata length must match array length"
         );
 
         if let Some(validity_len) = validity.maybe_len() {
-            vortex_ensure_eq!(validity_len, len, "validity length must match array length");
+            vortex_ensure_eq!(validity_len, len, InvalidArgument: "validity length must match array length");
         }
         if let Some(value) = value {
             vortex_ensure!(
                 matches!(value.dtype(), DType::Binary(_)),
-                "value dtype must be binary, found {}",
+                MismatchedTypes: "value dtype must be binary, found {}",
                 value.dtype()
             );
-            vortex_ensure_eq!(value.len(), len, "value length must match array length");
+            vortex_ensure_eq!(value.len(), len, InvalidArgument: "value length must match array length");
         }
         if let Some(typed_value) = typed_value {
             vortex_ensure_eq!(
                 typed_value.len(),
                 len,
-                "typed_value length must match array length"
+                InvalidArgument: "typed_value length must match array length"
             );
         }
         Ok(())
@@ -162,7 +162,7 @@ impl VTable for ParquetVariant {
     }
 
     fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
-        vortex_panic!("ParquetVariantArray buffer index {idx} out of bounds")
+        vortex_panic!(OutOfBounds: "ParquetVariantArray buffer index {idx} out of bounds")
     }
 
     fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
@@ -210,7 +210,7 @@ impl VTable for ParquetVariant {
     ) -> VortexResult<ArrayParts<Self>> {
         vortex_ensure!(
             buffers.is_empty(),
-            "ParquetVariantArray expects 0 buffers, got {}",
+            InvalidArgument: "ParquetVariantArray expects 0 buffers, got {}",
             buffers.len()
         );
 
@@ -220,17 +220,17 @@ impl VTable for ParquetVariant {
             None => None,
         };
 
-        vortex_ensure!(matches!(dtype, DType::Variant(_)), "Expected Variant DType");
+        vortex_ensure!(matches!(dtype, DType::Variant(_)), MismatchedTypes: "Expected Variant DType");
         let has_typed_value = typed_value_dtype.is_some();
         vortex_ensure!(
             proto.has_value || has_typed_value,
-            "At least one of value or typed_value must be present"
+            InvalidArgument: "At least one of value or typed_value must be present"
         );
 
         let expected_children = 1 + proto.has_value as usize + has_typed_value as usize;
         vortex_ensure!(
             children.len() == expected_children || children.len() == expected_children + 1,
-            "Expected {} or {} children, got {}",
+            InvalidArgument: "Expected {} or {} children, got {}",
             expected_children,
             expected_children + 1,
             children.len()
@@ -255,8 +255,9 @@ impl VTable for ParquetVariant {
 
         let typed_value = if has_typed_value {
             // typed_value can be any type — primitive, list, struct, etc.
-            let dtype = typed_value_dtype
-                .ok_or_else(|| vortex_err!("typed_value_dtype missing for typed_value child"))?;
+            let dtype = typed_value_dtype.ok_or_else(
+                || vortex_err!(NotFound: "typed_value_dtype missing for typed_value child"),
+            )?;
             let tv = children.get(child_idx, &dtype, len)?;
             Some(tv)
         } else {
@@ -406,12 +407,10 @@ mod tests {
         vortex_file::register_default_encodings(&session);
         session.arrays().register(ParquetVariant);
         let editions = session.editions();
-        editions
-            .declare_edition(Edition {
-                id: TEST_EDITION,
-                min_library_version: None,
-            })
-            .map_err(|error| vortex_err!("{error}"))?;
+        editions.declare_edition(Edition {
+            id: TEST_EDITION,
+            min_library_version: None,
+        })?;
         let component_ids = [
             (
                 ComponentKind::Array,
@@ -437,9 +436,7 @@ mod tests {
         ];
         for (kind, ids) in component_ids {
             for id in ids {
-                editions
-                    .declare_inclusion(EditionInclusion::new(kind, &id, TEST_EDITION))
-                    .map_err(|error| vortex_err!("{error}"))?;
+                editions.declare_inclusion(EditionInclusion::new(kind, &id, TEST_EDITION))?;
             }
         }
         for id in [
@@ -450,17 +447,13 @@ mod tests {
             "vortex.nan_count",
             "vortex.null_count",
         ] {
-            editions
-                .declare_inclusion(EditionInclusion::new(
-                    ComponentKind::Aggregate,
-                    id,
-                    TEST_EDITION,
-                ))
-                .map_err(|error| vortex_err!("{error}"))?;
+            editions.declare_inclusion(EditionInclusion::new(
+                ComponentKind::Aggregate,
+                id,
+                TEST_EDITION,
+            ))?;
         }
-        session
-            .enable_edition(TEST_EDITION)
-            .map_err(|error| vortex_err!("{error}"))?;
+        session.enable_edition(TEST_EDITION)?;
         Ok(session)
     }
 
@@ -480,17 +473,17 @@ mod tests {
             .into_array()
             .execute::<Canonical>(&mut ctx)?
         else {
-            return Err(vortex_err!("expected canonical variant"));
+            return Err(vortex_err!(MismatchedTypes: "expected canonical variant"));
         };
 
         let core_storage = variant
             .core_storage()
             .as_opt::<ParquetVariant>()
-            .ok_or_else(|| vortex_err!("expected parquet variant core storage"))?;
+            .ok_or_else(|| vortex_err!(InvalidArgument: "expected parquet variant core storage"))?;
         assert!(core_storage.typed_value().is_none());
         let shredded = variant
             .shredded()
-            .ok_or_else(|| vortex_err!("expected canonical shredded child"))?;
+            .ok_or_else(|| vortex_err!(MismatchedTypes: "expected canonical shredded child"))?;
         assert_eq!(
             shredded.dtype(),
             &DType::Primitive(PType::I32, Nullability::Nullable)
@@ -591,10 +584,10 @@ mod tests {
         assert!(array.array_eq(&decoded, EqMode::Value));
         let decoded_pv = decoded
             .as_opt::<ParquetVariant>()
-            .ok_or_else(|| vortex_err!("expected parquet variant array"))?;
+            .ok_or_else(|| vortex_err!(InvalidArgument: "expected parquet variant array"))?;
         let typed = decoded_pv
             .typed_value()
-            .ok_or_else(|| vortex_err!("expected typed_value child"))?;
+            .ok_or_else(|| vortex_err!(MismatchedTypes: "expected typed_value child"))?;
         assert_eq!(typed.dtype(), &DType::Variant(Nullability::NonNullable));
         Ok(())
     }
@@ -614,7 +607,7 @@ mod tests {
         assert_eq!(decoded.dtype(), &DType::Variant(Nullability::Nullable));
         let decoded_pv = decoded
             .as_opt::<ParquetVariant>()
-            .ok_or_else(|| vortex_err!("expected parquet variant array"))?;
+            .ok_or_else(|| vortex_err!(InvalidArgument: "expected parquet variant array"))?;
         assert!(decoded_pv.value().is_some());
         assert!(decoded_pv.typed_value().is_none());
         Ok(())
@@ -638,10 +631,10 @@ mod tests {
         assert!(array.array_eq(&decoded, EqMode::Value));
         let decoded_pv = decoded
             .as_opt::<ParquetVariant>()
-            .ok_or_else(|| vortex_err!("expected parquet variant array"))?;
+            .ok_or_else(|| vortex_err!(InvalidArgument: "expected parquet variant array"))?;
         let typed = decoded_pv
             .typed_value()
-            .ok_or_else(|| vortex_err!("expected typed_value child"))?;
+            .ok_or_else(|| vortex_err!(MismatchedTypes: "expected typed_value child"))?;
         assert_eq!(
             typed.dtype(),
             &DType::Primitive(PType::I32, Nullability::NonNullable)

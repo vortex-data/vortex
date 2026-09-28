@@ -242,7 +242,7 @@ mod tests {
         assert_eq!(deltas.len(), padded_len);
 
         let Validity::Array(storage) = deltas.validity()? else {
-            vortex_bail!("expected array-backed storage validity")
+            vortex_bail!(MismatchedTypes: "expected array-backed storage validity")
         };
         let sequential =
             untranspose_bitbuffer(storage.execute::<BoolArray>(&mut ctx)?.into_bit_buffer());
@@ -281,7 +281,7 @@ mod tests {
 
         let (_bases, deltas) = delta_compress(&array, &mut ctx)?;
         let Validity::Array(storage) = deltas.validity()? else {
-            vortex_bail!("expected array-backed storage validity")
+            vortex_bail!(MismatchedTypes: "expected array-backed storage validity")
         };
         let bits = storage.execute::<BoolArray>(&mut ctx)?.into_bit_buffer();
 
@@ -309,7 +309,7 @@ mod tests {
         );
         let (bases, deltas) = delta_compress(&array, &mut ctx)?;
         let Validity::Array(storage_validity) = deltas.validity()? else {
-            vortex_bail!("test input should have array-backed validity")
+            vortex_bail!(AssertionFailed: "test input should have array-backed validity")
         };
         assert!(storage_validity.is::<Bool>());
 

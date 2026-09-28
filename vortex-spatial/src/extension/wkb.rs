@@ -71,7 +71,7 @@ impl TryFrom<ExtensionArray> for WellKnownBinaryData {
     fn try_from(ext: ExtensionArray) -> Result<Self, Self::Error> {
         vortex_ensure!(
             ext.ext_dtype().is::<WellKnownBinary>(),
-            "array extension dtype {} is not a WKB",
+            MismatchedTypes: "array extension dtype {} is not a WKB",
             ext.ext_dtype()
         );
 
@@ -99,7 +99,7 @@ impl<'a> Wkb<'a> {
     /// validation on the structure of the WKB.
     pub fn try_from_bytes(bytes: &'a [u8]) -> VortexResult<Self> {
         wkb::reader::Wkb::try_new(bytes)
-            .map_err(|e| vortex_err!("failed parsing WKB: {e}"))
+            .map_err(|e| vortex_err!(Serde: "failed parsing WKB: {e}"))
             .map(Wkb)
     }
 }
@@ -150,7 +150,7 @@ impl ExtVTable for WellKnownBinary {
     fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
         vortex_ensure!(
             ext_dtype.storage_dtype().is_binary(),
-            "vortex.st.wkb must have binary storage type, was {}",
+            MismatchedTypes: "vortex.st.wkb must have binary storage type, was {}",
             ext_dtype.storage_dtype()
         );
 
@@ -229,17 +229,21 @@ impl ArrowExportVTable for WellKnownBinary {
         let arrow_ref: ArrowArrayRef = match target.data_type() {
             DataType::Binary => Arc::new(
                 GenericWkbArray::<i32>::try_from((arrow_storage.as_ref(), wkb_meta))
-                    .map_err(|e| vortex_err!("failed to construct WkbArray: {e}"))?
+                    .map_err(|e| vortex_err!(InvalidArgument: "failed to construct WkbArray: {e}"))?
                     .into_arrow(),
             ),
             DataType::LargeBinary => Arc::new(
                 GenericWkbArray::<i64>::try_from((arrow_storage.as_ref(), wkb_meta))
-                    .map_err(|e| vortex_err!("failed to construct LargeWkbArray: {e}"))?
+                    .map_err(
+                        |e| vortex_err!(InvalidArgument: "failed to construct LargeWkbArray: {e}"),
+                    )?
                     .into_arrow(),
             ),
             DataType::BinaryView => Arc::new(
                 WkbViewArray::try_from((arrow_storage.as_ref(), wkb_meta))
-                    .map_err(|e| vortex_err!("failed to construct WkbViewArray: {e}"))?
+                    .map_err(
+                        |e| vortex_err!(InvalidArgument: "failed to construct WkbViewArray: {e}"),
+                    )?
                     .into_arrow(),
             ),
             _ => unreachable!("target data type was validated above"),

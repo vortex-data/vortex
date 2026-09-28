@@ -16,7 +16,6 @@ use vortex::editions::CORE_2026_08_3;
 use vortex::editions::EditionSessionExt;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
-use vortex::error::vortex_err;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::CurrentThreadRuntime;
 use vortex::io::session::RuntimeSessionExt;
@@ -53,7 +52,6 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::default().with_handle(RUNTIME.handle());
     session
         .enable_edition(CORE_2026_08_3)
-        .map_err(|error| vortex_err!("{error}"))
         .vortex_expect("DuckDB-supported draft core edition is registered");
     vortex_spatial::initialize(&session);
     session

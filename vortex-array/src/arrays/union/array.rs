@@ -105,7 +105,7 @@ pub trait UnionArrayExt: UnionArraySlotsExt {
         let name = name.as_ref();
         self.child_by_name_opt(name).ok_or_else(|| {
             vortex_err!(
-                "Variant {name} not found in union array with names {:?}",
+                NotFound: "Variant {name} not found in union array with names {:?}",
                 self.variants().names()
             )
         })
@@ -144,7 +144,7 @@ impl Array<Union> {
     ) -> VortexResult<Self> {
         vortex_ensure!(
             matches!(type_ids.dtype(), DType::Primitive(PType::U8, _)),
-            "UnionArray type_ids must be u8, got {}",
+            MismatchedTypes: "UnionArray type_ids must be u8, got {}",
             type_ids.dtype()
         );
 
@@ -186,9 +186,9 @@ impl Array<Union> {
     ///
     /// Returns an error if `scalar` does not have a union dtype.
     pub fn constant(scalar: &Scalar, len: usize) -> VortexResult<Self> {
-        let union = scalar
-            .as_union_opt()
-            .ok_or_else(|| vortex_err!("Expected a union scalar, got {}", scalar.dtype()))?;
+        let union = scalar.as_union_opt().ok_or_else(
+            || vortex_err!(MismatchedTypes: "Expected a union scalar, got {}", scalar.dtype()),
+        )?;
         let variants = union.variants().clone();
         let nullability = union.nullability();
 

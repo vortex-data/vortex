@@ -66,7 +66,7 @@ fn bench_split(bencher: Bencher, values_type: DecimalType, len: usize, validity:
                 )
             });
         }
-        _ => vortex_panic!("unsupported benchmark storage type: {values_type}"),
+        _ => vortex_panic!(NotImplemented: "unsupported benchmark storage type: {values_type}"),
     }
 }
 

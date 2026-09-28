@@ -86,7 +86,7 @@ fn resolve_store(
     if url.scheme() == "file" {
         let path = url
             .to_file_path()
-            .map_err(|_| vortex_err!("invalid file URL: {url_or_path}"))?;
+            .map_err(|_| vortex_err!(InvalidArgument: "invalid file URL: {url_or_path}"))?;
         Ok(ResolvedStore::Path(path))
     } else {
         let (store, path) = make_object_store(&url, properties)?;
@@ -148,7 +148,7 @@ impl NativeWriter {
             .from_arrow_record_batch(batch, self.arrow_schema.as_ref())?;
         if !vortex_batch.dtype().eq(&self.write_schema) {
             return Err(vortex_err!(
-                "write schema mismatch: expected {}, got {}",
+                MismatchedTypes: "write schema mismatch: expected {}, got {}",
                 self.write_schema,
                 vortex_batch.dtype()
             ));
@@ -156,7 +156,7 @@ impl NativeWriter {
         let mut sender = self.sender.clone();
         RUNTIME
             .block_on(async move { sender.send(Ok(vortex_batch)).await })
-            .map_err(|e| vortex_err!("failed to send batch: {e}"))
+            .map_err(|e| vortex_err!(Io: "failed to send batch: {e}"))
     }
 
     fn bytes_written(&self) -> u64 {
@@ -172,13 +172,14 @@ impl NativeWriter {
         let handle = self
             .handle
             .take()
-            .ok_or_else(|| vortex_err!("writer already closed"))?;
+            .ok_or_else(|| vortex_err!(InvalidArgument: "writer already closed"))?;
         RUNTIME.block_on(handle)
     }
 }
 
 fn checked_jlong(value: u64, name: &str) -> VortexResult<jlong> {
-    jlong::try_from(value).map_err(|_| vortex_err!("{name} exceeds Java long range: {value}"))
+    jlong::try_from(value)
+        .map_err(|_| vortex_err!(Overflow: "{name} exceeds Java long range: {value}"))
 }
 
 fn exact_count_jlong(
@@ -254,7 +255,7 @@ fn scalar_to_java<'local>(
         ScalarValue::Decimal(value) => {
             let DType::Decimal(decimal_dtype, _) = scalar.dtype() else {
                 return Err(JNIError::Vortex(vortex_err!(
-                    "decimal statistic has non-decimal dtype {}",
+                    MismatchedTypes: "decimal statistic has non-decimal dtype {}",
                     scalar.dtype()
                 )));
             };
@@ -272,7 +273,7 @@ fn scalar_to_java<'local>(
         ScalarValue::Binary(value) => Ok(env.byte_array_from_slice(value.as_slice())?.into()),
         ScalarValue::Tuple(_) | ScalarValue::Union(_) | ScalarValue::Variant(_) => {
             Err(JNIError::Vortex(vortex_err!(
-                "cannot return nested scalar write statistic with dtype {} to Java",
+                NotImplemented: "cannot return nested scalar write statistic with dtype {} to Java",
                 scalar.dtype()
             )))
         }
@@ -287,7 +288,7 @@ fn write_summary_to_java<'local>(
     let file_stats = summary.footer().statistics();
     let columns = env.new_object_array(
         i32::try_from(column_sizes.len())
-            .map_err(|_| vortex_err!("column count exceeds Java array range"))?,
+            .map_err(|_| vortex_err!(Overflow: "column count exceeds Java array range"))?,
         jni::jni_str!("dev/vortex/api/VortexColumnStatistics"),
         JObject::null(),
     )?;
@@ -322,10 +323,9 @@ fn write_summary_to_java<'local>(
                 jni::jni_str!("dev/vortex/api/VortexColumnStatistics"),
                 jni::jni_sig!("(IJJJJLjava/lang/Object;Ljava/lang/Object;)V"),
                 &[
-                    JValue::Int(
-                        i32::try_from(column_index)
-                            .map_err(|_| vortex_err!("column index exceeds Java int range"))?,
-                    ),
+                    JValue::Int(i32::try_from(column_index).map_err(
+                        |_| vortex_err!(Overflow: "column index exceeds Java int range"),
+                    )?),
                     JValue::Long(checked_jlong(compressed_size, "compressed column size")?),
                     JValue::Long(checked_jlong(summary.row_count(), "row count")?),
                     JValue::Long(null_count),
@@ -362,10 +362,10 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_create(
 ) -> jlong {
     try_or_throw(&mut env, |env| {
         if session_ptr == 0 {
-            throw_runtime!("null session pointer");
+            throw_runtime!(InvalidArgument: "null session pointer");
         }
         if arrow_schema_addr == 0 {
-            throw_runtime!("null arrow schema address");
+            throw_runtime!(InvalidArgument: "null arrow schema address");
         }
         let session = unsafe { session_ref(session_ptr) };
 
@@ -446,13 +446,13 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_createStream(
 ) -> jlong {
     try_or_throw(&mut env, |env| {
         if session_ptr == 0 {
-            throw_runtime!("null session pointer");
+            throw_runtime!(InvalidArgument: "null session pointer");
         }
         if arrow_schema_addr == 0 {
-            throw_runtime!("null arrow schema address");
+            throw_runtime!(InvalidArgument: "null arrow schema address");
         }
         if writable.is_null() {
-            throw_runtime!("null writable");
+            throw_runtime!(InvalidArgument: "null writable");
         }
         let session = unsafe { session_ref(session_ptr) };
 
@@ -511,8 +511,12 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_writeBatch(
             unsafe { FFI_ArrowArray::from_raw(arrow_array_addr as *mut FFI_ArrowArray) };
         let ffi_schema = unsafe { &*(arrow_schema_addr as *const FFI_ArrowSchema) };
 
-        let array_data = unsafe { arrow_array::ffi::from_ffi(ffi_array, ffi_schema) }
-            .map_err(|e| JNIError::Vortex(vortex_err!("failed to import Arrow FFI data: {e}")))?;
+        let array_data =
+            unsafe { arrow_array::ffi::from_ffi(ffi_array, ffi_schema) }.map_err(|e| {
+                JNIError::Vortex(
+                    vortex_err!(InvalidArgument: "failed to import Arrow FFI data: {e}"),
+                )
+            })?;
 
         let batch = RecordBatch::from(StructArray::from(array_data));
         writer.write_record_batch(batch)?;

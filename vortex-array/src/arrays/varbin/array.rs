@@ -192,13 +192,15 @@ impl VarBinData {
         // Check offsets are non-nullable integer
         vortex_ensure!(
             offsets.dtype().is_int() && !offsets.dtype().is_nullable(),
-            MismatchedTypes: "non nullable int", offsets.dtype()
+            MismatchedTypes: "expected type: non nullable int but instead got {}",
+            offsets.dtype()
         );
 
         // Check dtype is Binary or Utf8
         vortex_ensure!(
             matches!(dtype, DType::Binary(_) | DType::Utf8(_)),
-            MismatchedTypes: "utf8 or binary", dtype
+            MismatchedTypes: "expected type: utf8 or binary but instead got {}",
+            dtype
         );
 
         // Check nullability matches
@@ -219,7 +221,7 @@ impl VarBinData {
         if let Some(validity_len) = validity.maybe_len() {
             vortex_ensure!(
                 validity_len == offsets.len() - 1,
-                "Validity length {} doesn't match array length {}",
+                InvalidArgument: "Validity length {} doesn't match array length {}",
                 validity_len,
                 offsets.len() - 1
             );
@@ -246,7 +248,7 @@ impl VarBinData {
                 #[expect(clippy::unwrap_used)]
                 // run validation using `compat` package to get more detailed error message
                 let err = simdutf8::compat::from_utf8(string_bytes).unwrap_err();
-                vortex_err!("invalid utf-8: {err} at index {i}")
+                vortex_err!(InvalidArgument: "invalid utf-8: {err} at index {i}")
             })?;
             Ok(())
         };

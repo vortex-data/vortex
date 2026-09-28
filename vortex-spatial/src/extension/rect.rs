@@ -140,7 +140,7 @@ pub(crate) fn box_storage_dtype(dim: Dimension, nullability: Nullability) -> DTy
 /// [`Dimension`].
 pub(crate) fn box_dimension(dtype: &DType) -> VortexResult<Dimension> {
     let DType::Struct(fields, _) = dtype else {
-        vortex_bail!("box storage must be a Struct, was {dtype}");
+        vortex_bail!(MismatchedTypes: "box storage must be a Struct, was {dtype}");
     };
     for (name, field) in fields.names().iter().zip(fields.fields()) {
         vortex_ensure!(
@@ -148,11 +148,12 @@ pub(crate) fn box_dimension(dtype: &DType) -> VortexResult<Dimension> {
                 field,
                 DType::Primitive(PType::F64, Nullability::NonNullable)
             ),
-            "box field {name} must be non-nullable f64, was {field}"
+            MismatchedTypes: "box field {name} must be non-nullable f64, was {field}"
         );
     }
-    box_dimension_from_names(fields.names())
-        .ok_or_else(|| vortex_err!("not a valid geoarrow.box dimension: {:?}", fields.names()))
+    box_dimension_from_names(fields.names()).ok_or_else(
+        || vortex_err!(InvalidArgument: "not a valid geoarrow.box dimension: {:?}", fields.names()),
+    )
 }
 
 /// Build a native [`Rect`] array from canonical min/max ordinate columns.
@@ -186,7 +187,7 @@ fn rect_array(storage: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<RectAr
     let session = ctx.session().clone();
     let arrow = session.arrow().execute_arrow(storage.clone(), None, ctx)?;
     RectArray::try_from((arrow.as_ref(), box_type))
-        .map_err(|e| vortex_err!("failed to construct RectArray: {e}"))
+        .map_err(|e| vortex_err!(InvalidArgument: "failed to construct RectArray: {e}"))
 }
 
 /// Decode `Rect` storage to `geo_types` (2D [`Geometry::Rect`]), for the spatial scalar functions.
@@ -198,8 +199,10 @@ pub(crate) fn rect_geometries(
         .iter()
         .map(|geometry| -> VortexResult<Geometry<f64>> {
             Ok(geometry
-                .ok_or_else(|| vortex_err!("spatial: null geometry is not supported"))?
-                .map_err(|e| vortex_err!("spatial: geometry access failed: {e}"))?
+                .ok_or_else(
+                    || vortex_err!(InvalidArgument: "spatial: null geometry is not supported"),
+                )?
+                .map_err(|e| vortex_err!(Serde: "spatial: geometry access failed: {e}"))?
                 .to_geometry())
         })
         .collect()
@@ -264,7 +267,7 @@ impl ArrowExportVTable for Rect {
 
         // Round-trip through GeoArrow's rect array; `into_arrow` is concrete, so wrap in `Arc`.
         let rects = RectArray::try_from((arrow_storage.as_ref(), box_meta))
-            .map_err(|e| vortex_err!("failed to construct RectArray: {e}"))?;
+            .map_err(|e| vortex_err!(InvalidArgument: "failed to construct RectArray: {e}"))?;
 
         Ok(ArrowExport::Exported(Arc::new(rects.into_arrow())))
     }

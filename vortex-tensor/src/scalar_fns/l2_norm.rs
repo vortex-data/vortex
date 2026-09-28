@@ -128,11 +128,11 @@ impl ScalarFnArrayVTable for L2Norm {
         session: &VortexSession,
     ) -> VortexResult<ScalarFnArrayParts<Self>> {
         let metadata = L2NormMetadata::decode(metadata)
-            .map_err(|error| vortex_err!("failed to decode L2Norm metadata: {error}"))?;
+            .map_err(|error| vortex_err!(Serde: "failed to decode L2Norm metadata: {error}"))?;
         let input_pb = metadata
             .input_dtype
             .as_ref()
-            .ok_or_else(|| vortex_err!("L2Norm metadata must contain input_dtype"))?;
+            .ok_or_else(|| vortex_err!(Serde: "L2Norm metadata must contain input_dtype"))?;
         let input_dtype = DType::from_proto(input_pb, session)?;
         let child = children.get(0, &input_dtype, len)?;
         Ok(ScalarFnArrayParts {

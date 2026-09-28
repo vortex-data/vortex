@@ -319,11 +319,11 @@ fn test_ext_scalar_with_metadata() {
         }
 
         fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
-            vortex_bail!("not implemented")
+            vortex_bail!(NotImplemented: "not implemented")
         }
 
         fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
-            vortex_bail!("not implemented")
+            vortex_bail!(NotImplemented: "not implemented")
         }
 
         fn validate_dtype(_ext_dtype: &ExtDType<Self>) -> VortexResult<()> {

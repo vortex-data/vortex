@@ -223,12 +223,13 @@ impl ScalarFnArrayVTable for L2Normalize {
         children: &dyn ArrayChildren,
         session: &VortexSession,
     ) -> VortexResult<ScalarFnArrayParts<Self>> {
-        let metadata = L2NormalizeMetadata::decode(metadata)
-            .map_err(|error| vortex_err!("failed to decode L2Normalize metadata: {error}"))?;
+        let metadata = L2NormalizeMetadata::decode(metadata).map_err(
+            |error| vortex_err!(Serde: "failed to decode L2Normalize metadata: {error}"),
+        )?;
         let input_dtype = metadata
             .input_dtype
             .as_ref()
-            .ok_or_else(|| vortex_err!("L2Normalize metadata must contain input_dtype"))?;
+            .ok_or_else(|| vortex_err!(Serde: "L2Normalize metadata must contain input_dtype"))?;
         let input_dtype = DType::from_proto(input_dtype, session)?;
         l2_normalize_dtype(&input_dtype)?;
         let child = children.get(0, &input_dtype, len)?;

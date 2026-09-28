@@ -112,7 +112,7 @@ where
     // `zip` truncates to the shorter input.
     vortex_ensure!(
         rows.len() == branches.len(),
-        "interleave selectors differ in length: array_indices {}, row_indices {}",
+        InvalidArgument: "interleave selectors differ in length: array_indices {}, row_indices {}",
         branches.len(),
         rows.len()
     );
@@ -120,10 +120,10 @@ where
     let mut output = BufferMut::with_capacity_in(branches.len(), allocator.clone());
     output.try_extend_trusted(branches.iter().zip(rows).map(|(branch, row)| {
         let Some(source) = values.get((*branch).as_()) else {
-            vortex_bail!("interleave array index out of bounds");
+            vortex_bail!(OutOfBounds: "interleave array index out of bounds");
         };
         let row = (*row).as_();
-        vortex_ensure!(row < source.len, "interleave row index out of bounds");
+        vortex_ensure!(row < source.len, OutOfBounds: "interleave row index out of bounds");
         Ok(source.data[row & source.row_mask])
     }))?;
     Ok(output.freeze())

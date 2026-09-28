@@ -53,7 +53,7 @@ impl StringStats {
         let null_count = input
             .statistics()
             .compute_null_count(ctx)
-            .ok_or_else(|| vortex_err!("Failed to compute null_count"))?;
+            .ok_or_else(|| vortex_err!(AssertionFailed: "Failed to compute null_count"))?;
         let value_count = input.len() - null_count;
         let estimated_distinct_count = opts
             .count_distinct_values

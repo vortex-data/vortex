@@ -103,13 +103,13 @@ impl PlanRuleSet {
             {
                 vortex_error::vortex_ensure!(
                     reduced.row_count() == plan.row_count(),
-                    "Plan rewrite from {rule:?} changed row count from {} to {}",
+                    AssertionFailed: "Plan rewrite from {rule:?} changed row count from {} to {}",
                     plan.row_count(),
                     reduced.row_count()
                 );
                 vortex_error::vortex_ensure!(
                     reduced.dtype() == plan.dtype(),
-                    "Plan rewrite from {rule:?} changed dtype from {} to {}",
+                    AssertionFailed: "Plan rewrite from {rule:?} changed dtype from {} to {}",
                     plan.dtype(),
                     reduced.dtype()
                 );
@@ -238,13 +238,13 @@ impl PlanParentRuleSet {
             {
                 vortex_error::vortex_ensure!(
                     reduced.row_count() == parent.row_count(),
-                    "Plan rewrite from {rule:?} changed row count from {} to {}",
+                    AssertionFailed: "Plan rewrite from {rule:?} changed row count from {} to {}",
                     parent.row_count(),
                     reduced.row_count()
                 );
                 vortex_error::vortex_ensure!(
                     reduced.dtype() == parent.dtype(),
-                    "Plan rewrite from {rule:?} changed dtype from {} to {}",
+                    AssertionFailed: "Plan rewrite from {rule:?} changed dtype from {} to {}",
                     parent.dtype(),
                     reduced.dtype()
                 );

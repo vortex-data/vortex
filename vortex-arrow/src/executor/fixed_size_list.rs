@@ -25,7 +25,7 @@ pub(super) fn to_arrow_fixed_list(
 ) -> VortexResult<arrow_array::ArrayRef> {
     vortex_ensure!(
         matches!(array.dtype(), DType::FixedSizeList(..)),
-        "Cannot convert Vortex array with dtype {} to an Arrow FixedSizeList array",
+        MismatchedTypes: "Cannot convert Vortex array with dtype {} to an Arrow FixedSizeList array",
         array.dtype()
     );
 
@@ -47,7 +47,7 @@ fn list_to_list(
 ) -> VortexResult<arrow_array::ArrayRef> {
     vortex_ensure!(
         Ok(list_size) == i32::try_from(array.list_size()),
-        "Cannot convert FixedSizeList with list size {} to Arrow array with list size {}",
+        InvalidArgument: "Cannot convert FixedSizeList with list size {} to Arrow array with list size {}",
         array.list_size(),
         list_size
     );
@@ -59,7 +59,7 @@ fn list_to_list(
     )?;
     vortex_ensure!(
         elements_field.is_nullable() || elements.null_count() == 0,
-        "Cannot convert FixedSizeListArray to non-nullable Arrow array when elements are nullable"
+        InvalidArgument: "Cannot convert FixedSizeListArray to non-nullable Arrow array when elements are nullable"
     );
 
     let null_buffer = to_arrow_null_buffer(array.validity()?, array.len(), ctx)?;

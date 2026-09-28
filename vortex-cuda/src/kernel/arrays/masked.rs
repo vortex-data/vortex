@@ -37,7 +37,7 @@ impl CudaExecute for MaskedExecutor {
     ) -> VortexResult<Canonical> {
         let masked = array
             .try_downcast::<Masked>()
-            .map_err(|_| vortex_err!("Expected MaskedArray"))?;
+            .map_err(|_| vortex_err!(InvalidArgument: "Expected MaskedArray"))?;
 
         let len = masked.len();
         let validity = masked.masked_validity();
@@ -46,7 +46,7 @@ impl CudaExecute for MaskedExecutor {
         // output validity. Combining two device-resident bitmaps would need a CPU compute pass.
         if matches!(masked.child().validity()?, Validity::Array(_)) {
             vortex_bail!(
-                "MaskedArray child carries a per-element validity bitmap, which cannot be combined with the mask on the GPU"
+                InvalidArgument: "MaskedArray child carries a per-element validity bitmap, which cannot be combined with the mask on the GPU"
             );
         }
 

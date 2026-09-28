@@ -60,7 +60,7 @@ where
 {
     if !matches!(array.dtype(), DType::Utf8(_) | DType::Binary(_)) {
         vortex_bail!(
-            "Cannot convert Vortex array with dtype {} to Arrow byte array type {}",
+            MismatchedTypes: "Cannot convert Vortex array with dtype {} to Arrow byte array type {}",
             array.dtype(),
             T::DATA_TYPE
         );
@@ -138,7 +138,7 @@ fn validate_live_values_utf8<T: ByteArrayType>(
     let value_at = |index: usize, start: usize, end: usize| -> VortexResult<&[u8]> {
         values
             .get(start..end)
-            .ok_or_else(|| vortex_err!("Offsets {start}..{end} at index {index} are out of bounds"))
+            .ok_or_else(|| vortex_err!(OutOfBounds: "Offsets {start}..{end} at index {index} are out of bounds"))
     };
 
     let Some(nulls) = nulls.filter(|nulls| nulls.null_count() > 0) else {
@@ -151,7 +151,7 @@ fn validate_live_values_utf8<T: ByteArrayType>(
         let start = first.as_usize();
         let bytes = value_at(0, start, last.as_usize())?;
         let validated = utf8_from_bytes(bytes)
-            .map_err(|err| vortex_err!("Encountered non UTF-8 data: {err}"))?;
+            .map_err(|err| vortex_err!(InvalidArgument: "Encountered non UTF-8 data: {err}"))?;
         for (index, offset) in offsets.iter().enumerate() {
             let boundary = offset
                 .as_usize()
@@ -159,7 +159,7 @@ fn validate_live_values_utf8<T: ByteArrayType>(
                 .filter(|boundary| validated.is_char_boundary(*boundary));
             vortex_ensure!(
                 boundary.is_some(),
-                "Offset {} at index {index} does not fall on a UTF-8 character boundary",
+                InvalidArgument: "Offset {} at index {index} does not fall on a UTF-8 character boundary",
                 offset.as_usize()
             );
         }
@@ -172,7 +172,7 @@ fn validate_live_values_utf8<T: ByteArrayType>(
         }
         let bytes = value_at(index, window[0].as_usize(), window[1].as_usize())?;
         utf8_from_bytes(bytes)
-            .map_err(|err| vortex_err!("Encountered non UTF-8 data at index {index}: {err}"))?;
+            .map_err(|err|  vortex_err!(InvalidArgument: "Encountered non UTF-8 data at index {index}: {err}"))?;
     }
     Ok(())
 }

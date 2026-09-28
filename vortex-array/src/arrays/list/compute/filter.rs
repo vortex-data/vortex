@@ -219,7 +219,7 @@ mod tests {
     #[test]
     fn element_mask_excludes_unselected_prefix_and_suffix() -> VortexResult<()> {
         let Mask::Values(selection) = Mask::from_indices(5, [2]) else {
-            vortex_bail!("a partially selective mask uses Mask::Values")
+            vortex_bail!(AssertionFailed: "a partially selective mask uses Mask::Values")
         };
 
         let offsets = [10u32, 20010, 40010, 60010, 80010, 100010];
@@ -236,7 +236,7 @@ mod tests {
     #[test]
     fn element_mask_retains_gaps_between_selected_lists() -> VortexResult<()> {
         let Mask::Values(selection) = Mask::from_indices(5, [1, 3]) else {
-            vortex_bail!("a partially selective mask uses Mask::Values")
+            vortex_bail!(AssertionFailed: "a partially selective mask uses Mask::Values")
         };
 
         let offsets = [10u32, 20010, 40010, 60010, 80010, 100010];
@@ -253,7 +253,7 @@ mod tests {
     #[test]
     fn element_range_preserves_complete_range_for_short_lists() -> VortexResult<()> {
         let Mask::Values(selection) = Mask::from_indices(5, [2]) else {
-            vortex_bail!("a partially selective mask uses Mask::Values")
+            vortex_bail!(AssertionFailed: "a partially selective mask uses Mask::Values")
         };
 
         let offsets = [10u32, 20, 30, 40, 50, 60];
@@ -270,7 +270,7 @@ mod tests {
     #[test]
     fn element_range_requires_minimum_savings() -> VortexResult<()> {
         let Mask::Values(selection) = Mask::from_indices(2, [0]) else {
-            vortex_bail!("a partially selective mask uses Mask::Values")
+            vortex_bail!(AssertionFailed: "a partially selective mask uses Mask::Values")
         };
 
         let offsets = [0u32, 512, 1024];
@@ -284,7 +284,7 @@ mod tests {
     #[test]
     fn element_range_requires_sufficient_savings_ratio() -> VortexResult<()> {
         let Mask::Values(selection) = Mask::from_slices(100, vec![(0, 96)]) else {
-            vortex_bail!("a partially selective mask uses Mask::Values")
+            vortex_bail!(AssertionFailed: "a partially selective mask uses Mask::Values")
         };
         let offsets = (0..=100).map(|index| index * 1000).collect::<Vec<u32>>();
 
@@ -298,7 +298,7 @@ mod tests {
     #[test]
     fn element_range_crops_at_sufficient_savings_ratio() -> VortexResult<()> {
         let Mask::Values(selection) = Mask::from_slices(100, vec![(0, 95)]) else {
-            vortex_bail!("a partially selective mask uses Mask::Values")
+            vortex_bail!(AssertionFailed: "a partially selective mask uses Mask::Values")
         };
         let offsets = (0..=100).map(|index| index * 1000).collect::<Vec<u32>>();
 
@@ -312,7 +312,7 @@ mod tests {
     #[test]
     fn element_mask_preserves_complete_range_for_edge_spanning_selection() -> VortexResult<()> {
         let Mask::Values(selection) = Mask::from_indices(5, [0, 4]) else {
-            vortex_bail!("a partially selective mask uses Mask::Values")
+            vortex_bail!(AssertionFailed: "a partially selective mask uses Mask::Values")
         };
 
         let offsets = [10u32, 20010, 40010, 60010, 80010, 100010];

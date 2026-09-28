@@ -55,11 +55,11 @@ impl CudaExecute for RunEndExecutor {
         array: ArrayRef,
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
-        let array =
-            Self::try_specialize(array).ok_or_else(|| vortex_err!("Expected RunEndArray"))?;
+        let array = Self::try_specialize(array)
+            .ok_or_else(|| vortex_err!(InvalidArgument: "Expected RunEndArray"))?;
 
         if !array.dtype().is_primitive() {
-            vortex_bail!("RunEndExecutor only supports primitive types")
+            vortex_bail!(NotImplemented: "RunEndExecutor only supports primitive types")
         }
 
         let offset = array.offset();
@@ -103,10 +103,10 @@ async fn decode_runend_typed<V: DeviceRepr + NativePType, E: DeviceRepr + Native
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Canonical> {
     let num_runs = ends.len();
-    vortex_ensure!(num_runs > 0, "run-end array must have at least one run");
+    vortex_ensure!(num_runs > 0, InvalidArgument: "run-end array must have at least one run");
     vortex_ensure!(
         output_len > 0,
-        "run-end output length must be greater than zero"
+        InvalidArgument: "run-end output length must be greater than zero"
     );
 
     let PrimitiveDataParts {
@@ -397,7 +397,7 @@ mod tests {
             .execute(runend_array.clone().into_array(), &mut cuda_ctx)
             .await?;
         let Validity::Array(validity) = gpu_result.clone().into_primitive().validity()? else {
-            vortex_bail!("expected expanded validity bitmap");
+            vortex_bail!(InvalidArgument: "expected expanded validity bitmap");
         };
         let bits = &validity.buffer_handles()[0];
         let logical_bytes = runend_array.len().div_ceil(8);

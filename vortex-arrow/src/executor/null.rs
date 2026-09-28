@@ -23,7 +23,7 @@ pub(super) fn to_arrow_null(
 ) -> VortexResult<ArrowArrayRef> {
     vortex_ensure!(
         matches!(array.dtype(), DType::Null),
-        "Cannot convert Vortex array with dtype {} to an Arrow Null array",
+        MismatchedTypes: "Cannot convert Vortex array with dtype {} to an Arrow Null array",
         array.dtype()
     );
     let null_array = array.execute::<NullArray>(ctx)?;

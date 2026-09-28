@@ -36,12 +36,11 @@ impl Database {
     ///
     /// Creates a new file in case the path does not exist.
     pub fn open<P: AsRef<Path>>(path: P) -> VortexResult<Self> {
-        let path_str = path
-            .as_ref()
-            .to_str()
-            .ok_or_else(|| vortex_err!("Invalid path: path contains non-UTF8 characters"))?;
+        let path_str = path.as_ref().to_str().ok_or_else(
+            || vortex_err!(InvalidArgument: "Invalid path: path contains non-UTF8 characters"),
+        )?;
         let path_cstr = CString::new(path_str)
-            .map_err(|_| vortex_err!("Invalid path: path contains null bytes"))?;
+            .map_err(|_| vortex_err!(InvalidArgument: "Invalid path: path contains null bytes"))?;
 
         let mut ptr: duckdb_database = ptr::null_mut();
         duckdb_try!(
@@ -63,8 +62,9 @@ impl DatabaseRef {
     }
 
     pub fn register_version_function(&self, version: &str) -> VortexResult<()> {
-        let version = CString::new(version)
-            .map_err(|_| vortex_err!("Invalid version: string contains null bytes"))?;
+        let version = CString::new(version).map_err(
+            |_| vortex_err!(InvalidArgument: "Invalid version: string contains null bytes"),
+        )?;
         duckdb_try!(
             unsafe { cpp::duckdb_vx_register_version_function(self.as_ptr(), version.as_ptr()) },
             "Failed to register vortex_version function"

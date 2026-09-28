@@ -41,7 +41,7 @@ impl SplitRange {
     /// Constructs a split range, returning an error if the local row range is invalid.
     pub fn try_new(row_offset: u64, row_range: Range<u64>) -> VortexResult<Self> {
         if row_range.start > row_range.end {
-            vortex_bail!("Invalid split range {:?}", row_range);
+            vortex_bail!(InvalidArgument: "Invalid split range {:?}", row_range);
         }
 
         Ok(Self {
@@ -84,7 +84,7 @@ impl SplitRange {
     pub fn check_bounds(&self, row_count: u64) -> VortexResult<()> {
         if self.row_range.end > row_count {
             vortex_bail!(
-                "Split range {:?} is out of bounds for row count {}",
+                OutOfBounds: "Split range {:?} is out of bounds for row count {}",
                 self.row_range,
                 row_count
             );
@@ -364,7 +364,7 @@ impl LazyReaderChildren {
     /// Return the child reader at `idx`, constructing it on first access.
     pub fn get(&self, idx: usize) -> VortexResult<&LayoutReaderRef> {
         if idx >= self.cache.len() {
-            vortex_bail!("Child index out of bounds: {} of {}", idx, self.cache.len());
+            vortex_bail!(OutOfBounds: "Child index out of bounds: {} of {}", idx, self.cache.len());
         }
 
         self.cache[idx].get_or_try_init(|| {

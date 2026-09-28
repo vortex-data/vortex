@@ -33,7 +33,7 @@ pub(super) fn to_arrow_list_view<O: OffsetSizeTrait + IntegerPType>(
 ) -> VortexResult<arrow_array::ArrayRef> {
     vortex_ensure!(
         matches!(array.dtype(), DType::List(..)),
-        "Cannot convert Vortex array with dtype {} to an Arrow list-view array",
+        MismatchedTypes: "Cannot convert Vortex array with dtype {} to an Arrow list-view array",
         array.dtype()
     );
 
@@ -90,13 +90,13 @@ fn list_view_to_list_view<O: OffsetSizeTrait + IntegerPType>(
     )?;
     vortex_ensure!(
         elements_field.is_nullable() || elements.null_count() == 0,
-        "Elements field is non-nullable but elements array contains nulls"
+        InvalidArgument: "Elements field is non-nullable but elements array contains nulls"
     );
     // The unchecked construction below needs the views in bounds of the *exported* elements, so
     // confirm the export preserved the length the Vortex invariant was checked against.
     vortex_ensure!(
         elements.len() == n_elements,
-        "Arrow export changed the elements length: {n_elements} became {}",
+        AssertionFailed: "Arrow export changed the elements length: {n_elements} became {}",
         elements.len()
     );
 

@@ -141,14 +141,14 @@ impl AggregateFnVTable for BoundedMax {
     ) -> VortexResult<Self::Options> {
         vortex_ensure!(
             metadata.len() == size_of::<u64>(),
-            "BoundedMax options expected {} bytes, got {}",
+            Serde: "BoundedMax options expected {} bytes, got {}",
             size_of::<u64>(),
             metadata.len()
         );
         let mut bytes = [0u8; size_of::<u64>()];
         bytes.copy_from_slice(metadata);
         let max_bytes = usize::try_from(u64::from_le_bytes(bytes))?;
-        vortex_ensure!(max_bytes > 0, "BoundedMax requires max_bytes > 0");
+        vortex_ensure!(max_bytes > 0, InvalidArgument: "BoundedMax requires max_bytes > 0");
         Ok(BoundedMaxOptions {
             max_bytes: NonZeroUsize::new(max_bytes).vortex_expect("checked non-zero max_bytes"),
         })
@@ -208,18 +208,18 @@ impl AggregateFnVTable for BoundedMax {
         } else {
             let Some(fields) = scalar.as_struct_opt() else {
                 vortex_bail!(
-                    "BoundedMax partial must be a struct, got {}",
+                    MismatchedTypes: "BoundedMax partial must be a struct, got {}",
                     scalar.dtype()
                 );
             };
             let Some(bound) = fields.field_by_idx(0) else {
-                vortex_bail!("BoundedMax partial is missing its bound field");
+                vortex_bail!(NotFound: "BoundedMax partial is missing its bound field");
             };
             let Some(unknown) = fields
                 .field_by_idx(1)
                 .and_then(|unknown| unknown.as_bool().value())
             else {
-                vortex_bail!("BoundedMax partial is missing its non-null unknown field");
+                vortex_bail!(NotFound: "BoundedMax partial is missing its non-null unknown field");
             };
 
             if unknown {

@@ -112,7 +112,7 @@ pub trait DataSource: 'static + Send + Sync {
         session: &VortexSession,
     ) -> VortexResult<PartitionRef> {
         let _ = (data, session);
-        vortex_bail!("DataSource does not support deserialization")
+        vortex_bail!(Serde: "DataSource does not support deserialization")
     }
 
     /// Returns a scan over the source.

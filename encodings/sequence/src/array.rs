@@ -126,14 +126,14 @@ impl SequenceData {
         length: usize,
     ) -> VortexResult<()> {
         let DType::Primitive(ptype, _) = dtype else {
-            vortex_bail!("only primitive dtypes are supported in SequenceArray currently");
+            vortex_bail!(NotImplemented: "only primitive dtypes are supported in SequenceArray currently");
         };
 
         if !ptype.is_int() {
-            vortex_bail!("only integer ptypes are supported in SequenceArray currently")
+            vortex_bail!(NotImplemented: "only integer ptypes are supported in SequenceArray currently")
         }
 
-        vortex_ensure!(length > 0, "SequenceArray length must be greater than zero");
+        vortex_ensure!(length > 0, InvalidArgument: "SequenceArray length must be greater than zero");
 
         Self::narrowed_base(base, *ptype)?;
         Self::ensure_last_expressible(base, multiplier, *ptype, length)
@@ -148,7 +148,7 @@ impl SequenceData {
     ) -> VortexResult<()> {
         let steps = (length - 1) as u64;
         let (ascending, magnitude) = eval::step_parts(multiplier)
-            .ok_or_else(|| vortex_err!("step {multiplier} must be an integer"))?;
+            .ok_or_else(|| vortex_err!(MismatchedTypes: "step {multiplier} must be an integer"))?;
         if steps == 0 || magnitude == 0 {
             return Ok(());
         }
@@ -170,7 +170,7 @@ impl SequenceData {
 
         vortex_ensure!(
             steps <= room / magnitude,
-            "final value not expressible, base = {base:?}, multiplier = {multiplier:?}, len = {length}"
+            Overflow: "final value not expressible, base = {base:?}, multiplier = {multiplier:?}, len = {length}"
         );
         Ok(())
     }
@@ -181,16 +181,18 @@ impl SequenceData {
         match multiplier
             .kind
             .as_ref()
-            .ok_or_else(|| vortex_err!("multiplier value missing kind"))?
+            .ok_or_else(|| vortex_err!(Serde: "multiplier value missing kind"))?
         {
             Kind::Int64Value(_) => Ok(PType::I64),
             Kind::Uint64Value(_) => Ok(PType::U64),
-            _ => vortex_bail!("only integer ptypes are supported in SequenceArray currently"),
+            _ => {
+                vortex_bail!(NotImplemented: "only integer ptypes are supported in SequenceArray currently")
+            }
         }
     }
 
     fn narrowed_base(base: PValue, ptype: PType) -> VortexResult<PValue> {
-        vortex_ensure!(base.ptype().is_int(), "base {base} must be an integer");
+        vortex_ensure!(base.ptype().is_int(), MismatchedTypes: "base {base} must be an integer");
         match_each_integer_ptype!(ptype, |P| { Ok(PValue::from(base.cast::<P>()?)) })
     }
 
@@ -209,7 +211,7 @@ impl SequenceData {
                 let v: i64 = v.as_();
                 PValue::from(v)
             },
-            float: |v| { vortex_bail!("step {v} must be an integer") }
+            float: |v| { vortex_bail!(MismatchedTypes: "step {v} must be an integer") }
         );
 
         Ok((base, multiplier))
@@ -244,7 +246,7 @@ impl SequenceData {
     pub(crate) fn wrapping_parts<O: SequenceValue>(&self) -> VortexResult<(O, O)> {
         eval::wrapping_parts(self.base, self.multiplier).ok_or_else(|| {
             vortex_err!(
-                "SequenceArray values must be integers, got base {:?} and step {:?}",
+                MismatchedTypes: "SequenceArray values must be integers, got base {:?} and step {:?}",
                 self.base,
                 self.multiplier
             )
@@ -318,11 +320,11 @@ impl VTable for Sequence {
     }
 
     fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
-        vortex_panic!("SequenceArray buffer index {idx} out of bounds")
+        vortex_panic!(OutOfBounds: "SequenceArray buffer index {idx} out of bounds")
     }
 
     fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
-        vortex_panic!("SequenceArray buffer_name index {idx} out of bounds")
+        vortex_panic!(OutOfBounds: "SequenceArray buffer_name index {idx} out of bounds")
     }
 
     fn with_buffers(
@@ -356,17 +358,17 @@ impl VTable for Sequence {
     ) -> VortexResult<ArrayParts<Self>> {
         vortex_ensure!(
             buffers.is_empty(),
-            "SequenceArray expects 0 buffers, got {}",
+            InvalidArgument: "SequenceArray expects 0 buffers, got {}",
             buffers.len()
         );
         vortex_ensure!(
             children.is_empty(),
-            "SequenceArray expects 0 children, got {}",
+            InvalidArgument: "SequenceArray expects 0 children, got {}",
             children.len()
         );
         let DType::Primitive(output_ptype, _) = dtype else {
             vortex_bail!(
-                "only primitive dtypes are supported in SequenceArray currently, got {dtype}"
+                NotImplemented: "only primitive dtypes are supported in SequenceArray currently, got {dtype}"
             );
         };
         let metadata = SequenceMetadata::decode(metadata)?;
@@ -374,12 +376,12 @@ impl VTable for Sequence {
         let base_metadata = metadata
             .base
             .as_ref()
-            .ok_or_else(|| vortex_err!("base required"))?;
+            .ok_or_else(|| vortex_err!(Serde: "base required"))?;
 
         let multiplier_metadata = metadata
             .multiplier
             .as_ref()
-            .ok_or_else(|| vortex_err!("multiplier required"))?;
+            .ok_or_else(|| vortex_err!(Serde: "multiplier required"))?;
 
         // We go via Scalar to validate that the value is valid for the ptype.
         let base = Scalar::from_proto_value(
@@ -716,9 +718,9 @@ mod tests {
             &SESSION,
         )?;
 
-        let decoded_sequence = decoded
-            .as_opt::<Sequence>()
-            .ok_or_else(|| vortex_err!("decoded array should still be a SequenceArray"))?;
+        let decoded_sequence = decoded.as_opt::<Sequence>().ok_or_else(
+            || vortex_err!(AssertionFailed: "decoded array should still be a SequenceArray"),
+        )?;
         assert_eq!(decoded_sequence.ptype(), output_ptype);
         assert_eq!(decoded_sequence.multiplier(), array.multiplier());
         assert_eq!(decoded.dtype(), &dtype);

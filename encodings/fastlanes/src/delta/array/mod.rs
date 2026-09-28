@@ -103,7 +103,7 @@ impl<T: TypedArrayRef<Delta>> DeltaArrayExt for T {}
 
 impl DeltaData {
     pub fn try_new(offset: usize) -> VortexResult<Self> {
-        vortex_ensure!(offset < 1024, "offset must be less than 1024: {offset}");
+        vortex_ensure!(offset < 1024, InvalidArgument: "offset must be less than 1024: {offset}");
         Ok(Self { offset })
     }
 }

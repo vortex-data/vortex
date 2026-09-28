@@ -154,7 +154,7 @@ impl<'a> PrimitiveScalar<'a> {
     pub fn try_typed_value<T: NativePType>(&self) -> VortexResult<Option<T>> {
         vortex_ensure!(
             self.ptype == T::PTYPE,
-            "Attempting to read {} scalar as {}",
+            MismatchedTypes: "Attempting to read {} scalar as {}",
             self.ptype,
             T::PTYPE
         );
@@ -181,7 +181,7 @@ impl<'a> PrimitiveScalar<'a> {
                 *decimal_dtype,
                 *nullability,
             )),
-            _ => vortex_bail!("Cannot cast primitive scalar to {dtype}"),
+            _ => vortex_bail!(MismatchedTypes: "Cannot cast primitive scalar to {dtype}"),
         }
     }
 
@@ -223,7 +223,7 @@ impl<'a> PrimitiveScalar<'a> {
     pub fn as_<T: FromPrimitiveOrF16>(&self) -> Option<T> {
         self.as_opt::<T>().unwrap_or_else(|| {
             vortex_panic!(
-                "cast {} to {}: value out of range",
+                Overflow: "cast {} to {}: value out of range",
                 self.ptype,
                 type_name::<T>()
             )
@@ -290,7 +290,7 @@ fn pvalue_to_decimal(pvalue: PValue, decimal_dtype: DecimalDType) -> VortexResul
         PValue::I32(v) => i256::from_i128(i128::from(v)),
         PValue::I64(v) => i256::from_i128(i128::from(v)),
         PValue::F16(_) | PValue::F32(_) | PValue::F64(_) => {
-            vortex_bail!("Cannot cast floating primitive {pvalue} to decimal {decimal_dtype}")
+            vortex_bail!(MismatchedTypes: "Cannot cast floating primitive {pvalue} to decimal {decimal_dtype}")
         }
     };
 
@@ -346,7 +346,7 @@ impl<'a> PrimitiveScalar<'a> {
         op: NumericOperator,
     ) -> Option<PrimitiveScalar<'a>> {
         if !self.dtype().eq_ignore_nullability(other.dtype()) {
-            vortex_panic!("types must match: {} {}", self.dtype(), other.dtype());
+            vortex_panic!(MismatchedTypes: "types must match: {} {}", self.dtype(), other.dtype());
         }
         let result_dtype = if self.dtype().is_nullable() {
             self.dtype()

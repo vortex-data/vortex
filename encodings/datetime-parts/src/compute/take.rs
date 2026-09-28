@@ -49,16 +49,16 @@ fn take_datetime_parts(
     // If they became nullable due to nullable indices, we need to fill nulls.
     // But first, we need to check that the types are consistent.
     if !taken_days.dtype().is_nullable() {
-        vortex_panic!("Mismatched types: days is not nullable, seconds is nullable");
+        vortex_panic!(MismatchedTypes: "Mismatched types: days is not nullable, seconds is nullable");
     }
     if !taken_seconds.dtype().is_nullable() {
-        vortex_panic!("Mismatched types: seconds is not nullable, days is nullable");
+        vortex_panic!(MismatchedTypes: "Mismatched types: seconds is not nullable, days is nullable");
     }
     if !taken_subseconds.dtype().is_nullable() {
-        vortex_panic!("Mismatched types: subseconds is not nullable, days & seconds are nullable");
+        vortex_panic!(MismatchedTypes: "Mismatched types: subseconds is not nullable, days & seconds are nullable");
     }
     if !indices.dtype().is_nullable() {
-        vortex_panic!("Mismatched types: indices are not nullable, days & seconds are nullable");
+        vortex_panic!(MismatchedTypes: "Mismatched types: indices are not nullable, days & seconds are nullable");
     }
 
     let seconds_fill = array

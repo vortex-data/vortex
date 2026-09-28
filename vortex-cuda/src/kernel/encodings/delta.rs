@@ -59,7 +59,7 @@ impl CudaExecute for DeltaExecutor {
     ) -> VortexResult<Canonical> {
         let delta = array
             .try_downcast::<Delta>()
-            .map_err(|_| vortex_err!("Expected DeltaArray"))?;
+            .map_err(|_| vortex_err!(InvalidArgument: "Expected DeltaArray"))?;
         decode_delta(delta, ctx).await
     }
 }
@@ -96,11 +96,11 @@ async fn decode_delta(array: DeltaArray, ctx: &mut CudaExecutionCtx) -> VortexRe
     let offset = array.offset();
     vortex_ensure!(
         deltas_len % FL_CHUNK == 0,
-        "Delta deltas child must be padded to a multiple of {FL_CHUNK}, got {deltas_len}"
+        InvalidArgument: "Delta deltas child must be padded to a multiple of {FL_CHUNK}, got {deltas_len}"
     );
     vortex_ensure!(
         offset + len <= deltas_len,
-        "Delta slice {offset}..{} exceeds its {deltas_len} decoded values",
+        InvalidArgument: "Delta slice {offset}..{} exceeds its {deltas_len} decoded values",
         offset + len
     );
     let num_chunks = deltas_len / FL_CHUNK;
@@ -108,7 +108,7 @@ async fn decode_delta(array: DeltaArray, ctx: &mut CudaExecutionCtx) -> VortexRe
     let required_bases = num_chunks * lanes;
     vortex_ensure!(
         bases.len() >= required_bases,
-        "Delta needs {required_bases} bases for {num_chunks} chunks, got {}",
+        InvalidArgument: "Delta needs {required_bases} bases for {num_chunks} chunks, got {}",
         bases.len()
     );
 

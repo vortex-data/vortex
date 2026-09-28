@@ -125,7 +125,7 @@ impl ExecuteParentKernel<ParquetVariant> for VariantGetKernel {
             // Import through the same `as_type` field the cast targeted, so an extension target
             // dtype comes back as that extension rather than as its bare storage type.
             let as_type = as_type.ok_or_else(|| {
-                vortex_err!("a non-variant target dtype must produce an as_type field")
+                vortex_err!(AssertionFailed: "a non-variant target dtype must produce an as_type field")
             })?;
             session.arrow().from_arrow_array(arrow_output, &as_type)?
         };
@@ -133,7 +133,7 @@ impl ExecuteParentKernel<ParquetVariant> for VariantGetKernel {
         vortex_ensure_eq!(
             output.dtype(),
             parent.dtype(),
-            "VariantGet output dtype must match parent dtype"
+            MismatchedTypes: "VariantGet output dtype must match parent dtype"
         );
         Ok(Some(output))
     }
@@ -207,8 +207,9 @@ pub(crate) fn to_parquet_variant_path(path: &VariantPath) -> VortexResult<PqVari
                 name.as_ref().to_owned(),
             ))),
             VariantPathElement::Index(index) => {
-                let index = usize::try_from(*index)
-                    .map_err(|_| vortex_err!("VariantGet path index {index} is too large"))?;
+                let index = usize::try_from(*index).map_err(
+                    |_| vortex_err!(Overflow: "VariantGet path index {index} is too large"),
+                )?;
                 Ok(PqVariantPathElement::index(index))
             }
         })
@@ -369,7 +370,7 @@ mod tests {
 
         let arrow = SESSION.arrow();
         let as_type = to_arrow_as_type(Some(&uuid), &arrow)?
-            .ok_or_else(|| vortex_err!("expected an as_type field"))?;
+            .ok_or_else(|| vortex_err!(InvalidArgument: "expected an as_type field"))?;
 
         assert_eq!(as_type.data_type(), &DataType::FixedSizeBinary(16));
         assert_eq!(as_type.extension_type_name(), Some(ArrowUuid::NAME));
@@ -392,7 +393,7 @@ mod tests {
             )),
             &arrow,
         )?
-        .ok_or_else(|| vortex_err!("expected an as_type field"))?;
+        .ok_or_else(|| vortex_err!(InvalidArgument: "expected an as_type field"))?;
         assert_eq!(as_type.data_type(), &DataType::Int32);
         assert_eq!(as_type.extension_type_name(), None);
         assert!(as_type.is_nullable());
@@ -455,7 +456,7 @@ mod tests {
                 .get(pos)
                 .is_some_and(|byte| !matches!(byte, b'.' | b'['))
         {
-            vortex_bail!("Invalid Variant path {path:?}: expected '.' or '[' after '$'");
+            vortex_bail!(InvalidArgument: "Invalid Variant path {path:?}: expected '.' or '[' after '$'");
         }
 
         while pos < path.len() {
@@ -477,7 +478,7 @@ mod tests {
                     pos = next_pos;
                 }
                 _ => {
-                    vortex_bail!("Invalid Variant path {path:?}: expected '.', '[', or end of path")
+                    vortex_bail!(InvalidArgument: "Invalid Variant path {path:?}: expected '.', '[', or end of path")
                 }
             }
         }
@@ -496,7 +497,7 @@ mod tests {
         }
         vortex_ensure!(
             pos > start,
-            "Invalid Variant path {path:?}: expected field name"
+            InvalidArgument: "Invalid Variant path {path:?}: expected field name"
         );
         Ok((&path[start..pos], pos))
     }
@@ -512,15 +513,15 @@ mod tests {
         }
         vortex_ensure!(
             pos > start,
-            "Invalid Variant path {path:?}: expected list index"
+            InvalidArgument: "Invalid Variant path {path:?}: expected list index"
         );
         vortex_ensure!(
             path.as_bytes().get(pos) == Some(&b']'),
-            "Invalid Variant path {path:?}: expected closing ']'"
+            InvalidArgument: "Invalid Variant path {path:?}: expected closing ']'"
         );
-        let index = path[start..pos]
-            .parse()
-            .map_err(|_| vortex_err!("Invalid Variant path {path:?}: list index is too large"))?;
+        let index = path[start..pos].parse().map_err(
+            |_| vortex_err!(Overflow: "Invalid Variant path {path:?}: list index is too large"),
+        )?;
         Ok((index, pos + 1))
     }
 
@@ -866,7 +867,7 @@ mod tests {
         let parquet_array = ParquetVariant::from_arrow_variant(&arrow_variant, &SESSION.arrow())?;
         let mut ctx = SESSION.create_execution_ctx();
         let Canonical::Variant(canonical) = parquet_array.execute::<Canonical>(&mut ctx)? else {
-            return Err(vortex_err!("expected canonical variant array"));
+            return Err(vortex_err!(MismatchedTypes: "expected canonical variant array"));
         };
         Ok(canonical.into_array())
     }
@@ -908,9 +909,9 @@ mod tests {
             let variant = scalar.as_variant();
             match expected {
                 Some(expected) => {
-                    let value = variant
-                        .value()
-                        .ok_or_else(|| vortex_err!("expected non-null variant scalar"))?;
+                    let value = variant.value().ok_or_else(
+                        || vortex_err!(InvalidArgument: "expected non-null variant scalar"),
+                    )?;
                     let value =
                         value.cast(&VortexDType::Primitive(PType::I32, Nullability::Nullable))?;
                     assert_eq!(value.as_primitive().typed_value::<i32>(), Some(*expected));
@@ -934,17 +935,17 @@ mod tests {
             let object = scalar
                 .as_variant()
                 .value()
-                .ok_or_else(|| vortex_err!("expected non-null variant object"))?
+                .ok_or_else(|| vortex_err!(InvalidArgument: "expected non-null variant object"))?
                 .as_struct();
 
             match expected_a[idx] {
                 Some(expected) => {
                     let value = object
                         .field("a")
-                        .ok_or_else(|| vortex_err!("expected field a"))?
+                        .ok_or_else(|| vortex_err!(InvalidArgument: "expected field a"))?
                         .as_variant()
                         .value()
-                        .ok_or_else(|| vortex_err!("expected non-null field a"))?
+                        .ok_or_else(|| vortex_err!(InvalidArgument: "expected non-null field a"))?
                         .cast(&VortexDType::Primitive(PType::I32, Nullability::Nullable))?;
                     assert_eq!(value.as_primitive().typed_value::<i32>(), Some(expected));
                 }
@@ -953,11 +954,11 @@ mod tests {
 
             let field_b = object
                 .field("b")
-                .ok_or_else(|| vortex_err!("expected field b"))?;
+                .ok_or_else(|| vortex_err!(InvalidArgument: "expected field b"))?;
             let value = field_b
                 .as_variant()
                 .value()
-                .ok_or_else(|| vortex_err!("expected non-null field b"))?;
+                .ok_or_else(|| vortex_err!(InvalidArgument: "expected non-null field b"))?;
             assert_eq!(
                 value.as_utf8().value().map(|value| value.as_str()),
                 Some(expected_b[idx])
@@ -992,7 +993,7 @@ mod tests {
         let typed_value = executed
             .as_::<ParquetVariant>()
             .typed_value()
-            .ok_or_else(|| vortex_err!("expected typed_value child"))?
+            .ok_or_else(|| vortex_err!(MismatchedTypes: "expected typed_value child"))?
             .clone()
             .execute::<PrimitiveArray>(&mut ctx)?;
 
@@ -1072,13 +1073,13 @@ mod tests {
         let core_storage = canonical_variant
             .core_storage()
             .as_opt::<ParquetVariant>()
-            .ok_or_else(|| vortex_err!("expected parquet variant core storage"))?;
+            .ok_or_else(|| vortex_err!(InvalidArgument: "expected parquet variant core storage"))?;
         assert!(core_storage.typed_value().is_none());
         assert!(core_storage.value().is_some());
 
         let shredded = canonical_variant
             .shredded()
-            .ok_or_else(|| vortex_err!("expected canonical shredded child"))?
+            .ok_or_else(|| vortex_err!(MismatchedTypes: "expected canonical shredded child"))?
             .clone()
             .execute::<VortexStructArray>(&mut SESSION.create_execution_ctx())?;
         assert_eq!(
@@ -1178,14 +1179,14 @@ mod tests {
 
         let mut ctx = SESSION.create_execution_ctx();
         let Canonical::Variant(canonical) = parquet_array.execute::<Canonical>(&mut ctx)? else {
-            return Err(vortex_err!("expected canonical variant array"));
+            return Err(vortex_err!(MismatchedTypes: "expected canonical variant array"));
         };
 
         assert!(canonical.shredded().is_some());
         let core_storage = canonical
             .core_storage()
             .as_opt::<ParquetVariant>()
-            .ok_or_else(|| vortex_err!("expected parquet variant core storage"))?;
+            .ok_or_else(|| vortex_err!(InvalidArgument: "expected parquet variant core storage"))?;
         assert!(core_storage.typed_value().is_none());
         assert!(core_storage.value().is_some());
 

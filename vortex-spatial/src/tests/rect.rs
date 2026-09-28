@@ -86,7 +86,7 @@ fn roundtrips_through_arrow() -> VortexResult<()> {
     let ext = reimported
         .dtype()
         .as_extension_opt()
-        .ok_or_else(|| vortex_err!("expected Extension dtype"))?;
+        .ok_or_else(|| vortex_err!(MismatchedTypes: "expected Extension dtype"))?;
     assert!(ext.is::<Rect>());
     assert_eq!(ext.metadata::<Rect>().crs.as_deref(), Some("EPSG:4326"));
 
@@ -94,13 +94,13 @@ fn roundtrips_through_arrow() -> VortexResult<()> {
         let scalar = reimported.execute_scalar(row, &mut ctx)?;
         let storage = scalar
             .as_extension_opt()
-            .ok_or_else(|| vortex_err!("expected extension scalar"))?
+            .ok_or_else(|| vortex_err!(MismatchedTypes: "expected extension scalar"))?
             .to_storage_scalar();
         f64::try_from(
             &storage
                 .as_struct()
                 .field(name)
-                .ok_or_else(|| vortex_err!("missing {name}"))?,
+                .ok_or_else(|| vortex_err!(NotFound: "missing {name}"))?,
         )
     };
     assert_eq!(corner(0, "xmin")?, 0.0);

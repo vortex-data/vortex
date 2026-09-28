@@ -65,11 +65,11 @@ impl QueryResultRef {
 
             let name_ptr = cpp::duckdb_column_name(self.as_ptr(), col_idx as u64);
             if name_ptr.is_null() {
-                vortex_bail!("Invalid column index: {}", col_idx);
+                vortex_bail!(InvalidArgument: "Invalid column index: {}", col_idx);
             }
             CStr::from_ptr(name_ptr)
                 .to_str()
-                .map_err(|_| vortex_err!("Invalid UTF-8 in column name"))
+                .map_err(|_| vortex_err!(InvalidArgument: "Invalid UTF-8 in column name"))
         }
     }
 

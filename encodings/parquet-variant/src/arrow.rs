@@ -126,16 +126,16 @@ pub(crate) fn parquet_variant_for_export(
         return Ok(executed);
     }
 
-    let variant = executed
-        .as_opt::<Variant>()
-        .ok_or_else(|| vortex_err!("cannot export Variant without ParquetVariant storage"))?;
+    let variant = executed.as_opt::<Variant>().ok_or_else(
+        || vortex_err!(NotImplemented: "cannot export Variant without ParquetVariant storage"),
+    )?;
     let core_storage = variant
         .core_storage()
         .clone()
         .execute_until::<ParquetVariant>(ctx)?;
-    let parquet_core = core_storage
-        .as_opt::<ParquetVariant>()
-        .ok_or_else(|| vortex_err!("cannot export Variant without ParquetVariant core storage"))?;
+    let parquet_core = core_storage.as_opt::<ParquetVariant>().ok_or_else(
+        || vortex_err!(NotImplemented: "cannot export Variant without ParquetVariant core storage"),
+    )?;
     let Some(shredded) = variant.shredded() else {
         return Ok(core_storage);
     };

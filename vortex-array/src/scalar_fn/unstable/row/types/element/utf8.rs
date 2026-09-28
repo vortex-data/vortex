@@ -161,13 +161,13 @@ fn decode_utf8(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Utf8Valu
 fn decode_constant_utf8(array: &ArrayRef) -> VortexResult<Utf8Values> {
     let Some(constant) = array.as_opt::<Constant>() else {
         vortex_bail!(
-            "a Utf8 batch constant must use the Constant encoding, got {}",
+            MismatchedTypes: "a Utf8 batch constant must use the Constant encoding, got {}",
             array.encoding_id()
         );
     };
     let scalar = constant.scalar();
     let Some(ScalarValue::Utf8(value)) = scalar.value() else {
-        vortex_bail!("a Utf8 batch constant must contain a non-null value, got {scalar}");
+        vortex_bail!(InvalidArgument: "a Utf8 batch constant must contain a non-null value, got {scalar}");
     };
 
     Ok(Utf8Values::single(value.inner().clone()))
@@ -217,7 +217,7 @@ unsafe impl InputElement for Utf8Column {
     fn validate(dtype: &DType) -> VortexResult<()> {
         vortex_ensure!(
             matches!(dtype, DType::Utf8(_)),
-            "expected a Utf8 column, got {dtype}"
+            MismatchedTypes: "expected a Utf8 column, got {dtype}"
         );
 
         Ok(())

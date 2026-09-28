@@ -63,7 +63,7 @@ pub(crate) fn check_child_count(
 ) -> VortexResult<()> {
     if children.len() != expected {
         vortex_bail!(
-            "{name} expects {expected} children but got {}",
+            InvalidArgument: "{name} expects {expected} children but got {}",
             children.len()
         );
     }

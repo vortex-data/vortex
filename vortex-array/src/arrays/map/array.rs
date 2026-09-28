@@ -170,19 +170,19 @@ pub(super) fn validate_entries(
 ) -> VortexResult<()> {
     vortex_ensure!(
         entries.is::<ListView>(),
-        "MapArray entries must use vortex.listview encoding, got {}",
+        MismatchedTypes: "MapArray entries must use vortex.listview encoding, got {}",
         entries.encoding_id()
     );
     vortex_ensure!(
         entries.len() == len,
-        "MapArray entries length {} does not match outer length {len}",
+        InvalidArgument: "MapArray entries length {} does not match outer length {len}",
         entries.len()
     );
 
     let expected_dtype = expected_entries_dtype(map_dtype, nullability);
     vortex_ensure!(
         entries.dtype() == &expected_dtype,
-        "MapArray entries dtype {} does not match expected {expected_dtype}",
+        MismatchedTypes: "MapArray entries dtype {} does not match expected {expected_dtype}",
         entries.dtype()
     );
 

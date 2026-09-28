@@ -62,11 +62,11 @@ use crate::scalar_fn::execute::dispatch_unary;
 fn collect_dtype(dtypes: &[DType]) -> VortexResult<ExtDTypeRef> {
     vortex_ensure!(
         dtypes.len() == 1,
-        "spatial: collect requires exactly one list operand, got {}",
+        InvalidArgument: "spatial: collect requires exactly one list operand, got {}",
         dtypes.len()
     );
     let DType::List(element_dtype, nullability) = &dtypes[0] else {
-        vortex_bail!("spatial: collect operand {} is not a list", dtypes[0]);
+        vortex_bail!(MismatchedTypes: "spatial: collect operand {} is not a list", dtypes[0]);
     };
     // Execution ignores null list elements, so the result's element storage is non-nullable.
     let multi_storage = |element: &ExtDTypeRef| {
@@ -92,7 +92,7 @@ fn collect_dtype(dtypes: &[DType]) -> VortexResult<ExtDTypeRef> {
         )?
         .erased()),
         _ => vortex_bail!(
-            "spatial: collect list element {element_dtype} is not a native Point, LineString, \
+            MismatchedTypes: "spatial: collect list element {element_dtype} is not a native Point, LineString, \
              or Polygon"
         ),
     }
@@ -133,12 +133,13 @@ fn compact_row_views(
             .filter(|end| *end <= element_mask.len())
             .ok_or_else(|| {
                 vortex_err!(
-                    "spatial: collect row at element {start} exceeds the {} list elements",
+                    OutOfBounds: "spatial: collect row at element {start} exceeds the {} list elements",
                     element_mask.len()
                 )
             })?;
-        let valid = u64::try_from(count_valid(element_mask, start, end))
-            .map_err(|_| vortex_err!("spatial: collect valid element count exceeds u64"))?;
+        let valid = u64::try_from(count_valid(element_mask, start, end)).map_err(
+            |_| vortex_err!(Overflow: "spatial: collect valid element count exceeds u64"),
+        )?;
         compact_offsets.push(offset);
         compact_sizes.push(valid);
         offset += valid;
@@ -516,7 +517,7 @@ mod tests {
         let result = SpatialCollect::try_new(input)?.into_array();
         let Columnar::Constant(constant) = result.clone().execute::<Columnar>(&mut ctx)? else {
             return Err(vortex_err!(
-                "collect of a constant list should remain constant"
+                AssertionFailed: "collect of a constant list should remain constant"
             ));
         };
         assert_eq!(constant.len(), 3);

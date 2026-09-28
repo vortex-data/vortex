@@ -323,7 +323,7 @@ pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<Arr
                     let data = Buffer::from_iter(vector_i128_values(vector, len));
                     DecimalArray::try_new(data, decimal_dtype, validity)
                 }
-                _ => vortex_bail!("Unsupported decimal precision: {precision}"),
+                _ => vortex_bail!(InvalidArgument: "Unsupported decimal precision: {precision}"),
             }
             .map(|a| a.into_array())
         }
@@ -392,7 +392,9 @@ pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<Arr
             StructArray::try_new(names, children, len, vector.validity_ref(len).to_validity())
                 .map(|a| a.into_array())
         }
-        type_id => vortex_bail!("{type_id:?} flat Vector to Vortex array not supported"),
+        type_id => {
+            vortex_bail!(InvalidArgument: "{type_id:?} flat Vector to Vortex array not supported")
+        }
     }
 }
 
@@ -1039,14 +1041,14 @@ mod tests {
             &point!(x: 1.0_f64, y: 2.0_f64),
             &WriteOptions::default(),
         )
-        .map_err(|e| vortex::error::vortex_err!("writing WKB point: {e}"))?;
+        .map_err(|e| vortex::error::vortex_err!(Serde: "writing WKB point: {e}"))?;
         let mut wkb_b: Vec<u8> = Vec::new();
         write_point(
             &mut wkb_b,
             &point!(x: 3.5_f64, y: -4.25_f64),
             &WriteOptions::default(),
         )
-        .map_err(|e| vortex::error::vortex_err!("writing WKB point: {e}"))?;
+        .map_err(|e| vortex::error::vortex_err!(Serde: "writing WKB point: {e}"))?;
 
         let len = 3;
         let logical_type = LogicalType::geometry_type(Some("EPSG:4326"))?;

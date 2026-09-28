@@ -24,7 +24,7 @@ impl Executable for Mask {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         if !matches!(array.dtype(), DType::Bool(Nullability::NonNullable)) {
             vortex_bail!(
-                "Mask array must have boolean(NonNullable) dtype, not {}",
+                MismatchedTypes: "Mask array must have boolean(NonNullable) dtype, not {}",
                 array.dtype()
             );
         }
@@ -69,7 +69,7 @@ impl NullAsFalse {
     pub fn execute(self, ctx: &mut ExecutionCtx) -> VortexResult<Mask> {
         let array = self.0;
         if !matches!(array.dtype(), DType::Bool(_)) {
-            vortex_bail!("Mask array must have boolean dtype, not {}", array.dtype());
+            vortex_bail!(MismatchedTypes: "Mask array must have boolean dtype, not {}", array.dtype());
         }
         // Non-nullable input needs no coercion; defer to the strict `Mask` execution.
         if !array.dtype().is_nullable() {

@@ -130,7 +130,7 @@ pub(super) fn check_bounds(array: &ArrayRef, index: usize) -> VortexResult<()> {
 #[cold]
 #[inline(never)]
 fn out_of_bounds(index: usize, len: usize) -> VortexError {
-    vortex_err!(OutOfBounds: index, 0, len)
+    vortex_err!(OutOfBounds: "index {index} out of bounds from 0 to {len}")
 }
 
 /// The encoding state type of `V`'s operations vtable.
@@ -257,7 +257,7 @@ pub(super) fn child_of(parent: &ArrayRef, slot: usize) -> VortexResult<Option<&A
     Ok(parent
         .slots()
         .get(slot)
-        .ok_or_else(|| vortex_err!("Probe slot {slot} is out of bounds"))?
+        .ok_or_else(|| vortex_err!(OutOfBounds: "Probe slot {slot} is out of bounds"))?
         .as_ref())
 }
 #[cfg(test)]
@@ -300,14 +300,16 @@ mod tests {
         let array = struct_of_two_fields()?;
         let typed = array
             .as_opt::<Struct>()
-            .ok_or_else(|| vortex_err!("expected a struct"))?;
+            .ok_or_else(|| vortex_err!(MismatchedTypes: "expected a struct"))?;
         let mut state = ProbeState::once(typed);
 
         assert!(state.slot(5).is_err());
         // Slot 0 is the struct's absent validity.
         assert!(state.slot(0)?.is_none());
         {
-            let mut field = state.slot(2)?.ok_or_else(|| vortex_err!("missing field"))?;
+            let mut field = state
+                .slot(2)?
+                .ok_or_else(|| vortex_err!(NotFound: "missing field"))?;
             assert!(matches!(field, ArrayProbe::Once(_)));
             assert_eq!(field.array().len(), 2);
             assert_eq!(field.execute_scalar(1, &mut ctx)?, Scalar::from(4i64));
@@ -318,7 +320,7 @@ mod tests {
         assert!(retained.is_none());
         let mut field = children
             .slot(1)?
-            .ok_or_else(|| vortex_err!("missing field"))?;
+            .ok_or_else(|| vortex_err!(NotFound: "missing field"))?;
         assert_eq!(field.execute_scalar(1, &mut ctx)?, Scalar::from(2i32));
         Ok(())
     }

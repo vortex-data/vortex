@@ -53,7 +53,7 @@ pub fn lower(layout: &LayoutRef) -> VortexResult<PlanRef> {
         return Ok(lower_list(layout)?.into_plan());
     }
     vortex_bail!(
-        "No physical plan implementation for layout '{}'",
+        NotImplemented: "No physical plan implementation for layout '{}'",
         layout.encoding_id()
     )
 }
@@ -75,7 +75,7 @@ fn lower_chunked(layout: &ChunkedLayout) -> VortexResult<ConcatPlan> {
         row_offsets.push(row_count);
         row_count = row_count
             .checked_add(layout.child_row_count(index))
-            .ok_or_else(|| vortex_err!("Chunked row count overflow"))?;
+            .ok_or_else(|| vortex_err!(Overflow: "Chunked row count overflow"))?;
     }
     // SAFETY: Chunked layout construction validates that every child has the parent dtype and
     // that their row counts sum to the parent; offsets were computed with checked addition above.
@@ -144,10 +144,10 @@ fn lazy_children(layout: LayoutRef, slots: Vec<usize>) -> PlanChildren {
         let slot = slots
             .get(index)
             .copied()
-            .ok_or_else(|| vortex_err!("Missing plan child slot {index}"))?;
+            .ok_or_else(|| vortex_err!(NotFound: "Missing plan child slot {index}"))?;
         let child = layout
             .slot(slot)?
-            .ok_or_else(|| vortex_err!("Layout child slot {slot} is absent"))?;
+            .ok_or_else(|| vortex_err!(AssertionFailed: "Layout child slot {slot} is absent"))?;
         lower(&child)
     })
 }

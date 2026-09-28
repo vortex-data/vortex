@@ -66,7 +66,7 @@ impl<T: ArrowNativeType, R: ArrowNativeType> MapEach<T, R> for Arrow<ScalarBuffe
             self.0
                 .into_inner()
                 .into_vec::<T>()
-                .map_err(|_| vortex_err!("Failed to convert Arrow buffer into a mut vec"))
+                .map_err(|_| vortex_err!(InvalidArgument: "Failed to convert Arrow buffer into a mut vec"))
                 .vortex_expect("Failed to convert Arrow buffer into a mut vec")
                 .into_iter()
                 .map(f)

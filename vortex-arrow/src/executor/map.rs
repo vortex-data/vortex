@@ -38,7 +38,7 @@ pub(super) fn to_arrow_map(
 
     vortex_ensure!(
         !keys_sorted || array.keys_sorted(),
-        "Cannot convert unsorted Vortex map to Arrow MapArray with keys_sorted=true"
+        InvalidArgument: "Cannot convert unsorted Vortex map to Arrow MapArray with keys_sorted=true"
     );
 
     let entries = array.entries().clone();
@@ -46,7 +46,7 @@ pub(super) fn to_arrow_map(
     let entries_list = to_arrow_list::<i32>(entries, entries_field, ctx)?;
     vortex_ensure!(
         entries_list.data_type() == &entries_list_type,
-        "Arrow Map entries converted to {}, expected {entries_list_type}",
+        AssertionFailed: "Arrow Map entries converted to {}, expected {entries_list_type}",
         entries_list.data_type()
     );
 

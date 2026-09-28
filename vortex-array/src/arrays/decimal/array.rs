@@ -360,7 +360,7 @@ impl DecimalData {
     pub fn buffer<T: NativeDecimalType>(&self) -> Buffer<T> {
         if self.values_type != T::DECIMAL_TYPE {
             vortex_panic!(
-                "Cannot extract Buffer<{:?}> for DecimalArray with values_type {:?}",
+                MismatchedTypes: "Cannot extract Buffer<{:?}> for DecimalArray with values_type {:?}",
                 T::DECIMAL_TYPE,
                 self.values_type,
             );
@@ -603,7 +603,7 @@ where
 {
     if !ValuesDVT::DECIMAL_TYPE.is_compatible_decimal_value_type(decimal_dtype) {
         vortex_panic!(
-            "patch_typed: {:?} cannot represent every value in {}.",
+            Overflow: "patch_typed: {:?} cannot represent every value in {}.",
             ValuesDVT::DECIMAL_TYPE,
             decimal_dtype
         )

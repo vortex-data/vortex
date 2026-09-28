@@ -447,7 +447,9 @@ impl MaterializedPlan {
             PType::U16 | PType::I16 => PType::U16,
             PType::U32 | PType::I32 | PType::F32 => PType::U32,
             PType::U64 | PType::I64 | PType::F64 => PType::U64,
-            other => vortex_bail!("dynamic dispatch does not support PType {:?}", other),
+            other => {
+                vortex_bail!(InvalidArgument: "dynamic dispatch does not support PType {:?}", other)
+            }
         };
         match_each_unsigned_integer_ptype!(unsigned_ptype, |T| {
             self.execute_typed::<T>(output_ptype, len, ctx)
@@ -477,7 +479,7 @@ impl MaterializedPlan {
         let device_plan = Arc::new(
             ctx.stream()
                 .clone_htod(self.dispatch_plan.as_bytes())
-                .map_err(|e| vortex_err!("copy plan to device: {e}"))?,
+                .map_err(|e| vortex_err!(Io: "copy plan to device: {e}"))?,
         );
 
         let cuda_function = ctx.load_function("dynamic_dispatch", &[T::PTYPE])?;
@@ -600,7 +602,7 @@ mod tests {
     ) -> VortexResult<MaterializedPlan> {
         match DispatchPlan::new(array, CudaDispatchMode::DynDispatchOnly)? {
             DispatchPlan::Fused(plan) => plan.materialize(ctx).await,
-            _ => vortex_bail!("array encoding not fusable"),
+            _ => vortex_bail!(NotImplemented: "array encoding not fusable"),
         }
     }
 
@@ -729,7 +731,7 @@ mod tests {
             cuda_ctx
                 .stream()
                 .clone_htod(data)
-                .map_err(|e| vortex_err!("htod: {e}"))?,
+                .map_err(|e| vortex_err!(Io: "htod: {e}"))?,
         );
         let (ptr, _) = device_buf.device_ptr(cuda_ctx.stream());
         Ok((ptr, device_buf))
@@ -795,7 +797,7 @@ mod tests {
             cuda_ctx
                 .stream()
                 .clone_htod(plan.as_bytes())
-                .map_err(|e| vortex_err!("copy plan to device: {e}"))?,
+                .map_err(|e| vortex_err!(Io: "copy plan to device: {e}"))?,
         );
         let (plan_ptr, record_plan) = device_plan.device_ptr(cuda_ctx.stream());
         let array_len_u64 = output_len as u64;
@@ -803,7 +805,7 @@ mod tests {
         cuda_ctx
             .stream()
             .synchronize()
-            .map_err(|e| vortex_err!("sync: {e}"))?;
+            .map_err(|e| vortex_err!(Io: "sync: {e}"))?;
 
         let cuda_function = cuda_ctx
             .load_function("dynamic_dispatch", &[PType::U32])
@@ -822,14 +824,14 @@ mod tests {
         unsafe {
             launch_builder
                 .launch(config)
-                .map_err(|e| vortex_err!("kernel launch: {e}"))?;
+                .map_err(|e| vortex_err!(Io: "kernel launch: {e}"))?;
         }
         drop(record_plan);
 
         cuda_ctx
             .stream()
             .clone_dtoh(&output)
-            .map_err(|e| vortex_err!("copy back: {e}"))
+            .map_err(|e| vortex_err!(Io: "copy back: {e}"))
     }
 
     fn run_dispatch_plan_f32(
@@ -2343,7 +2345,7 @@ mod tests {
             cuda_ctx
                 .stream()
                 .clone_htod(&i8_values)
-                .map_err(|e| vortex_err!("htod: {e}"))?,
+                .map_err(|e| vortex_err!(Io: "htod: {e}"))?,
         );
         let (input_ptr, _) = device_buf.device_ptr(cuda_ctx.stream());
 
@@ -2381,7 +2383,7 @@ mod tests {
             cuda_ctx
                 .stream()
                 .clone_htod(&i16_values)
-                .map_err(|e| vortex_err!("htod: {e}"))?,
+                .map_err(|e| vortex_err!(Io: "htod: {e}"))?,
         );
         let (input_ptr, _) = device_buf.device_ptr(cuda_ctx.stream());
 

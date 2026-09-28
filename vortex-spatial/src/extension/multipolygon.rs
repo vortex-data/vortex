@@ -97,13 +97,13 @@ pub(crate) fn multipolygon_storage_dtype(dim: Dimension, nullability: Nullabilit
 /// Validate `dtype` is `List<List<List<coordinate-struct>>>` and return its [`Dimension`].
 pub(crate) fn multipolygon_dimension(dtype: &DType) -> VortexResult<Dimension> {
     let DType::List(polygon, _) = dtype else {
-        vortex_bail!("multipolygon storage must be a List of polygons, was {dtype}");
+        vortex_bail!(MismatchedTypes: "multipolygon storage must be a List of polygons, was {dtype}");
     };
     let DType::List(ring, _) = polygon.as_ref() else {
-        vortex_bail!("multipolygon polygon storage must be a List of rings, was {polygon}");
+        vortex_bail!(MismatchedTypes: "multipolygon polygon storage must be a List of rings, was {polygon}");
     };
     let DType::List(coords, _) = ring.as_ref() else {
-        vortex_bail!("multipolygon ring storage must be a List of coordinates, was {ring}");
+        vortex_bail!(MismatchedTypes: "multipolygon ring storage must be a List of coordinates, was {ring}");
     };
     coordinate_dimension(coords)
 }
@@ -124,8 +124,10 @@ pub(crate) fn multipolygon_geometries(
         .iter()
         .map(|geometry| -> VortexResult<Geometry<f64>> {
             Ok(geometry
-                .ok_or_else(|| vortex_err!("spatial: null geometry is not supported"))?
-                .map_err(|e| vortex_err!("spatial: geometry access failed: {e}"))?
+                .ok_or_else(
+                    || vortex_err!(InvalidArgument: "spatial: null geometry is not supported"),
+                )?
+                .map_err(|e| vortex_err!(Serde: "spatial: geometry access failed: {e}"))?
                 .to_geometry())
         })
         .collect()
@@ -143,7 +145,7 @@ fn multipolygon_array(
     let session = ctx.session().clone();
     let arrow = session.arrow().execute_arrow(storage.clone(), None, ctx)?;
     MultiPolygonArray::try_from((arrow.as_ref(), multipolygon_type))
-        .map_err(|e| vortex_err!("failed to construct MultiPolygonArray: {e}"))
+        .map_err(|e| vortex_err!(InvalidArgument: "failed to construct MultiPolygonArray: {e}"))
 }
 
 /// A validated `MultiPolygon` array (`try_from` checks the extension type).
@@ -155,7 +157,7 @@ impl TryFrom<ExtensionArray> for MultiPolygonData {
     fn try_from(ext: ExtensionArray) -> Result<Self, Self::Error> {
         vortex_ensure!(
             ext.ext_dtype().is::<MultiPolygon>(),
-            "expected a MultiPolygon extension array"
+            MismatchedTypes: "expected a MultiPolygon extension array"
         );
         Ok(MultiPolygonData(ext))
     }
@@ -232,8 +234,9 @@ impl ArrowExportVTable for MultiPolygon {
             .execute_arrow(storage, Some(&storage_field), ctx)?;
 
         let multipolygons =
-            MultiPolygonArray::try_from((arrow_storage.as_ref(), multipolygon_meta))
-                .map_err(|e| vortex_err!("failed to construct MultiPolygonArray: {e}"))?;
+            MultiPolygonArray::try_from((arrow_storage.as_ref(), multipolygon_meta)).map_err(
+                |e| vortex_err!(InvalidArgument: "failed to construct MultiPolygonArray: {e}"),
+            )?;
 
         Ok(ArrowExport::Exported(Arc::new(multipolygons.into_arrow())))
     }
@@ -251,42 +254,43 @@ impl ArrowImportVTable for MultiPolygon {
         field: &Field,
         session: &ArrowSession,
     ) -> VortexResult<Option<DType>> {
-        let (dimension, metadata) =
-            if let Ok(multipolygon_meta) = field.try_extension_type::<MultiPolygonType>() {
-                vortex_ensure!(
-                    multipolygon_meta.coord_type() == CoordType::Separated,
-                    "geoarrow.multipolygon with interleaved coordinates is not supported; \
-                 re-encode with separated (struct) coordinates"
-                );
-                (
-                    multipolygon_meta.dimension().into(),
-                    spatial_metadata_from_arrow(multipolygon_meta.metadata()),
-                )
-            } else {
-                // Literal: peel the three `List` layers to the coordinate struct and read its
-                // dimension from the field names (the canonical check rejects nullable coordinates).
-                if field.extension_type_name() != Some(MultiPolygonType::NAME) {
-                    return Ok(None);
-                }
-                let Ok(DType::List(polygon, _)) =
-                    session.from_arrow_datatype(field.data_type(), field.is_nullable().into())
-                else {
-                    return Ok(None);
-                };
-                let DType::List(ring, _) = polygon.as_ref() else {
-                    return Ok(None);
-                };
-                let DType::List(coords, _) = ring.as_ref() else {
-                    return Ok(None);
-                };
-                let DType::Struct(fields, _) = coords.as_ref() else {
-                    return Ok(None);
-                };
-                let Ok(dimension) = Dimension::from_field_names(fields.names()) else {
-                    return Ok(None);
-                };
-                (dimension, SpatialMetadata::default())
+        let (dimension, metadata) = if let Ok(multipolygon_meta) =
+            field.try_extension_type::<MultiPolygonType>()
+        {
+            vortex_ensure!(
+                multipolygon_meta.coord_type() == CoordType::Separated,
+                NotImplemented: "geoarrow.multipolygon with interleaved coordinates is not supported; \
+             re-encode with separated (struct) coordinates"
+            );
+            (
+                multipolygon_meta.dimension().into(),
+                spatial_metadata_from_arrow(multipolygon_meta.metadata()),
+            )
+        } else {
+            // Literal: peel the three `List` layers to the coordinate struct and read its
+            // dimension from the field names (the canonical check rejects nullable coordinates).
+            if field.extension_type_name() != Some(MultiPolygonType::NAME) {
+                return Ok(None);
+            }
+            let Ok(DType::List(polygon, _)) =
+                session.from_arrow_datatype(field.data_type(), field.is_nullable().into())
+            else {
+                return Ok(None);
             };
+            let DType::List(ring, _) = polygon.as_ref() else {
+                return Ok(None);
+            };
+            let DType::List(coords, _) = ring.as_ref() else {
+                return Ok(None);
+            };
+            let DType::Struct(fields, _) = coords.as_ref() else {
+                return Ok(None);
+            };
+            let Ok(dimension) = Dimension::from_field_names(fields.names()) else {
+                return Ok(None);
+            };
+            (dimension, SpatialMetadata::default())
+        };
 
         let storage_dtype = multipolygon_storage_dtype(dimension, field.is_nullable().into());
         Ok(Some(DType::Extension(

@@ -22,7 +22,7 @@ impl FoRData {
         let min = array_ref
             .statistics()
             .compute_stat(Stat::Min, ctx)?
-            .ok_or_else(|| vortex_err!("Min stat not found"))?;
+            .ok_or_else(|| vortex_err!(NotFound: "Min stat not found"))?;
 
         let encoded = match_each_integer_ptype!(array.ptype(), |T| {
             compress_primitive::<T>(array, T::try_from(&min)?, ctx)?.into_array()

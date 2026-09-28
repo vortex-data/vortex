@@ -89,10 +89,10 @@ fn run_timed<T: DeviceRepr + NativePType>(
     let ctx = stream.context();
     let start_event = ctx
         .new_event(Some(CUevent_flags::CU_EVENT_BLOCKING_SYNC))
-        .map_err(|e| vortex_err!("{e:?}"))?;
+        .map_err(|e| vortex_err!(Io: "{e:?}"))?;
     start_event
         .record(stream)
-        .map_err(|e| vortex_err!("{e:?}"))?;
+        .map_err(|e| vortex_err!(Io: "{e:?}"))?;
 
     let mut launch_builder = cuda_ctx.stream().launch_builder(&cuda_function);
     launch_builder.arg(output_buf);
@@ -109,7 +109,7 @@ fn run_timed<T: DeviceRepr + NativePType>(
     unsafe {
         launch_builder
             .launch(config)
-            .map_err(|e| vortex_err!("kernel launch failed: {e}"))?;
+            .map_err(|e| vortex_err!(Io: "kernel launch failed: {e}"))?;
     }
     drop(record_plan);
 
@@ -117,12 +117,14 @@ fn run_timed<T: DeviceRepr + NativePType>(
     let ctx = stream.context();
     let end_event = ctx
         .new_event(Some(CUevent_flags::CU_EVENT_BLOCKING_SYNC))
-        .map_err(|e| vortex_err!("{e:?}"))?;
-    end_event.record(stream).map_err(|e| vortex_err!("{e:?}"))?;
+        .map_err(|e| vortex_err!(Io: "{e:?}"))?;
+    end_event
+        .record(stream)
+        .map_err(|e| vortex_err!(Io: "{e:?}"))?;
 
     let elapsed_ms = start_event
         .elapsed_ms(&end_event)
-        .map_err(|e| vortex_err!("{e:?}"))?;
+        .map_err(|e| vortex_err!(Io: "{e:?}"))?;
 
     Ok(Duration::from_secs_f32(elapsed_ms / 1000.0))
 }
@@ -533,11 +535,11 @@ mod standalone {
             let ctx = stream.context();
             let start_event = ctx
                 .new_event(Some(CUevent_flags::CU_EVENT_BLOCKING_SYNC))
-                .map_err(|e| vortex_err!("{e:?}"))
+                .map_err(|e| vortex_err!(Io: "{e:?}"))
                 .unwrap();
             start_event
                 .record(stream)
-                .map_err(|e| vortex_err!("{e:?}"))
+                .map_err(|e| vortex_err!(Io: "{e:?}"))
                 .unwrap();
 
             {
@@ -617,16 +619,16 @@ mod standalone {
             let ctx = stream.context();
             let end_event = ctx
                 .new_event(Some(CUevent_flags::CU_EVENT_BLOCKING_SYNC))
-                .map_err(|e| vortex_err!("{e:?}"))
+                .map_err(|e| vortex_err!(Io: "{e:?}"))
                 .unwrap();
             end_event
                 .record(stream)
-                .map_err(|e| vortex_err!("{e:?}"))
+                .map_err(|e| vortex_err!(Io: "{e:?}"))
                 .unwrap();
 
             let elapsed_ms = start_event
                 .elapsed_ms(&end_event)
-                .map_err(|e| vortex_err!("{e:?}"))
+                .map_err(|e| vortex_err!(Io: "{e:?}"))
                 .unwrap();
 
             Duration::from_secs_f32(elapsed_ms / 1000.0)

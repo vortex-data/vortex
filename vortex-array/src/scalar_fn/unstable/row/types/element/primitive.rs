@@ -38,12 +38,12 @@ unsafe impl<T: NativePType> InputElement for T {
     fn validate(dtype: &DType) -> VortexResult<()> {
         let expected = T::PTYPE;
         let DType::Primitive(ptype, _) = dtype else {
-            vortex_bail!("expected a {expected} column, got {dtype}");
+            vortex_bail!(MismatchedTypes: "expected a {expected} column, got {dtype}");
         };
         vortex_ensure_eq!(
             *ptype,
             expected,
-            "expected a {expected} column, got {dtype}"
+            MismatchedTypes: "expected a {expected} column, got {dtype}"
         );
         Ok(())
     }
@@ -55,14 +55,14 @@ unsafe impl<T: NativePType> InputElement for T {
     fn decode_constant(array: ArrayRef, _ctx: &mut ExecutionCtx) -> VortexResult<Self::Constant> {
         let Some(constant) = array.as_opt::<Constant>() else {
             vortex_bail!(
-                "a primitive batch constant must use the Constant encoding, got {}",
+                MismatchedTypes: "a primitive batch constant must use the Constant encoding, got {}",
                 array.encoding_id()
             );
         };
         let scalar = constant.scalar();
         let Some(ScalarValue::Primitive(value)) = scalar.value() else {
             vortex_bail!(
-                "a primitive batch constant must contain a non-null {} value, got {scalar}",
+                InvalidArgument: "a primitive batch constant must contain a non-null {} value, got {scalar}",
                 T::PTYPE
             );
         };

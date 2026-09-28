@@ -77,7 +77,7 @@ impl ZoneMap {
     ) -> VortexResult<Self> {
         let expected_dtype = aggregate_stats_table_dtype(&column_dtype, &aggregate_fns);
         if &expected_dtype != array.dtype() {
-            vortex_bail!("Array dtype does not match expected zone map dtype: {expected_dtype}");
+            vortex_bail!(MismatchedTypes: "Array dtype does not match expected zone map dtype: {expected_dtype}");
         }
 
         // SAFETY: We checked that the array matches the expected stats-table schema.
@@ -118,7 +118,7 @@ impl ZoneMap {
     ) -> VortexResult<Self> {
         let expected_dtype = legacy_stats_table_dtype(&column_dtype, &stats);
         if &expected_dtype != array.dtype() {
-            vortex_bail!("Array dtype does not match expected zone map dtype: {expected_dtype}");
+            vortex_bail!(MismatchedTypes: "Array dtype does not match expected zone map dtype: {expected_dtype}");
         }
 
         // SAFETY: We checked that the array matches the expected legacy stats-table schema.
@@ -181,7 +181,7 @@ impl StatBinder for ZoneMapStatsBinder<'_> {
         }
         vortex_ensure!(
             input.dtype() == &self.zone_map.column_dtype,
-            "Stats predicate root dtype {} does not match zone-map column dtype {}",
+            MismatchedTypes: "Stats predicate root dtype {} does not match zone-map column dtype {}",
             input.dtype(),
             self.zone_map.column_dtype
         );
@@ -319,7 +319,7 @@ fn row_count_array(zone_len: u64, row_count: u64, num_zones: usize) -> VortexRes
     let leading_rows = zone_len.saturating_mul((num_zones as u64) - 1);
     let Some(last_zone_len) = row_count.checked_sub(leading_rows) else {
         vortex_bail!(
-            "Zone map declares {num_zones} zones of {zone_len} rows, which is more than the \
+            Serde: "Zone map declares {num_zones} zones of {zone_len} rows, which is more than the \
              {row_count} rows of the layout"
         );
     };

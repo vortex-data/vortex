@@ -168,14 +168,14 @@ pub(crate) fn deserialize_row_encoding_options(
 ) -> vortex_error::VortexResult<RowEncodingOptions> {
     if bytes.len() < 4 {
         vortex_error::vortex_bail!(
-            "RowEncodingOptions metadata must contain a 4-byte length prefix"
+            Serde: "RowEncodingOptions metadata must contain a 4-byte length prefix"
         );
     }
     let n = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize;
     let expected = 4 + 2 * n;
     if bytes.len() != expected {
         vortex_error::vortex_bail!(
-            "RowEncodingOptions metadata wrong size: got {}, expected {}",
+            InvalidArgument: "RowEncodingOptions metadata wrong size: got {}, expected {}",
             bytes.len(),
             expected
         );

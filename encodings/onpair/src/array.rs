@@ -100,8 +100,9 @@ pub struct OnPairMetadata {
 impl OnPairMetadata {
     /// Decode the recorded [`PType`] of the `uncompressed_lengths` slot child.
     pub fn get_uncompressed_lengths_ptype(&self) -> VortexResult<PType> {
-        PType::try_from(self.uncompressed_lengths_ptype)
-            .map_err(|_| vortex_err!("Invalid PType {}", self.uncompressed_lengths_ptype))
+        PType::try_from(self.uncompressed_lengths_ptype).map_err(
+            |_| vortex_err!(InvalidArgument: "Invalid PType {}", self.uncompressed_lengths_ptype),
+        )
     }
 }
 
@@ -411,7 +412,7 @@ fn validate_parts(
 ) -> VortexResult<()> {
     vortex_ensure!(
         matches!(dtype, DType::Binary(_) | DType::Utf8(_)),
-        "OnPair arrays must be Binary or Utf8, found {dtype}"
+        MismatchedTypes: "OnPair arrays must be Binary or Utf8, found {dtype}"
     );
 
     if !dict_offsets.dtype().is_int() || dict_offsets.dtype().is_nullable() {
@@ -474,14 +475,14 @@ impl VTable for OnPair {
     fn buffer(array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         match idx {
             0 => array.dict_bytes_handle().clone(),
-            _ => vortex_panic!("OnPairArray buffer index {idx} out of bounds"),
+            _ => vortex_panic!(OutOfBounds: "OnPairArray buffer index {idx} out of bounds"),
         }
     }
 
     fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
         match idx {
             0 => Some("dict_bytes".to_string()),
-            _ => vortex_panic!("OnPairArray buffer_name index {idx} out of bounds"),
+            _ => vortex_panic!(OutOfBounds: "OnPairArray buffer_name index {idx} out of bounds"),
         }
     }
 
@@ -492,7 +493,7 @@ impl VTable for OnPair {
     ) -> VortexResult<ArrayParts<Self>> {
         vortex_ensure!(
             buffers.len() == 1,
-            "Expected 1 buffer, got {}",
+            InvalidArgument: "Expected 1 buffer, got {}",
             buffers.len()
         );
         let mut data = array.data().clone();
@@ -512,7 +513,7 @@ impl VTable for OnPair {
         _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
         let dict_size = u32::try_from(array.dict_offsets().len().saturating_sub(1))
-            .map_err(|_| vortex_err!("OnPair dict_size exceeds u32"))?;
+            .map_err(|_| vortex_err!(Overflow: "OnPair dict_size exceeds u32"))?;
         let codes_len = array.codes().len() as u64;
         Ok(Some(
             OnPairMetadata {
@@ -545,19 +546,21 @@ impl VTable for OnPair {
         // Slot children do not persist their own lengths, so metadata records
         // the dictionary and code-stream sizes needed to deserialize them.
         let dict_offsets_len = metadata.dict_size as usize + 1;
-        let codes_len = usize::try_from(metadata.codes_len)
-            .map_err(|_| vortex_err!("codes_len {} overflows usize", metadata.codes_len))?;
+        let codes_len = usize::try_from(metadata.codes_len).map_err(
+            |_| vortex_err!(Overflow: "codes_len {} overflows usize", metadata.codes_len),
+        )?;
         // The cascading compressor may have narrowed any of these integer
         // children to a tighter ptype; the recorded ptype tells the framework
         // exactly which dtype to materialise as.
         let dict_offsets_ptype = PType::try_from(metadata.dict_offsets_ptype).map_err(|_| {
-            vortex_err!("invalid dict_offsets_ptype {}", metadata.dict_offsets_ptype)
+            vortex_err!(InvalidArgument: "invalid dict_offsets_ptype {}", metadata.dict_offsets_ptype)
         })?;
-        let codes_ptype = PType::try_from(metadata.codes_ptype)
-            .map_err(|_| vortex_err!("invalid codes_ptype {}", metadata.codes_ptype))?;
+        let codes_ptype = PType::try_from(metadata.codes_ptype).map_err(
+            |_| vortex_err!(InvalidArgument: "invalid codes_ptype {}", metadata.codes_ptype),
+        )?;
         let codes_offsets_ptype = PType::try_from(metadata.codes_offsets_ptype).map_err(|_| {
             vortex_err!(
-                "invalid codes_offsets_ptype {}",
+                InvalidArgument: "invalid codes_offsets_ptype {}",
                 metadata.codes_offsets_ptype
             )
         })?;
@@ -623,7 +626,7 @@ impl VTable for OnPair {
         // canonicalize-then-append fallback — it would decode to a `VarBinView` only for
         // `VarBinView::append_to_builder` to reject the same remainder.
         let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() else {
-            vortex_bail!("append_to_builder for OnPair requires a variable-binary builder")
+            vortex_bail!(InvalidArgument: "append_to_builder for OnPair requires a variable-binary builder")
         };
 
         // Decode the whole code stream into a new buffer, which the builder adopts as a data

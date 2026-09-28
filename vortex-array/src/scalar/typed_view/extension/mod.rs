@@ -53,7 +53,7 @@ impl<'a> ExtScalar<'a> {
     /// been verified to be valid for the extension type.
     pub(crate) fn new_unchecked(dtype: &'a DType, value: Option<&'a ScalarValue>) -> Self {
         let DType::Extension(ext_dtype) = dtype else {
-            vortex_panic!("Expected extension scalar, found {}", dtype)
+            vortex_panic!(MismatchedTypes: "Expected extension scalar, found {}", dtype)
         };
 
         Self {
@@ -88,7 +88,7 @@ impl<'a> ExtScalar<'a> {
     pub(crate) fn cast(&self, target_dtype: &DType) -> VortexResult<Scalar> {
         if self.value.is_none() && !target_dtype.is_nullable() {
             vortex_bail!(
-                "cannot cast extension dtype with id {} and storage type {} to {}",
+                MismatchedTypes: "cannot cast extension dtype with id {} and storage type {} to {}",
                 self.ext_dtype.id(),
                 self.ext_dtype.storage_dtype(),
                 target_dtype
@@ -112,7 +112,7 @@ impl<'a> ExtScalar<'a> {
         }
 
         vortex_bail!(
-            "cannot cast extension dtype with id {} and storage type {} to {}",
+            MismatchedTypes: "cannot cast extension dtype with id {} and storage type {} to {}",
             self.ext_dtype.id(),
             self.ext_dtype.storage_dtype(),
             target_dtype

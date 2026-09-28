@@ -68,13 +68,13 @@ impl VTable for Map {
     ) -> VortexResult<()> {
         vortex_ensure!(
             slots.len() == MapSlots::COUNT,
-            "MapArray expected {} slot, found {}",
+            InvalidArgument: "MapArray expected {} slot, found {}",
             MapSlots::COUNT,
             slots.len()
         );
 
         let DType::Map(map_dtype, nullability) = dtype else {
-            vortex_bail!("Expected map dtype, got {dtype}");
+            vortex_bail!(MismatchedTypes: "Expected map dtype, got {dtype}");
         };
         let slots = MapSlotsView::from_slots(slots);
         validate_entries(map_dtype, *nullability, len, slots.entries)
@@ -85,7 +85,7 @@ impl VTable for Map {
     }
 
     fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
-        vortex_panic!("MapArray buffer index {idx} out of bounds")
+        vortex_panic!(OutOfBounds: "MapArray buffer index {idx} out of bounds")
     }
 
     fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
@@ -118,18 +118,18 @@ impl VTable for Map {
     ) -> VortexResult<ArrayParts<Self>> {
         if !metadata.is_empty() {
             vortex_bail!(
-                "MapArray expects empty metadata, got {} bytes",
+                InvalidArgument: "MapArray expects empty metadata, got {} bytes",
                 metadata.len()
             );
         }
-        vortex_ensure!(buffers.is_empty(), "MapArray expects no buffers");
+        vortex_ensure!(buffers.is_empty(), InvalidArgument: "MapArray expects no buffers");
 
         let DType::Map(map_dtype, nullability) = dtype else {
-            vortex_bail!("Expected map dtype, got {dtype}");
+            vortex_bail!(MismatchedTypes: "Expected map dtype, got {dtype}");
         };
         vortex_ensure!(
             children.len() == MapSlots::COUNT,
-            "MapArray expected {} child, found {}",
+            InvalidArgument: "MapArray expected {} child, found {}",
             MapSlots::COUNT,
             children.len()
         );
@@ -139,7 +139,7 @@ impl VTable for Map {
         let entries = children.get(MapSlots::ENTRIES, &expected_entries_dtype, len)?;
         vortex_ensure!(
             entries.is::<ListView>(),
-            "MapArray entries must use vortex.listview encoding, got {}",
+            MismatchedTypes: "MapArray entries must use vortex.listview encoding, got {}",
             entries.encoding_id()
         );
 
@@ -163,7 +163,7 @@ impl VTable for Map {
         match match_each_map_builder!(&mut *builder, |b| b.append_map_array(array, ctx)) {
             Some(result) => result,
             None => vortex_bail!(
-                "cannot append a Map array of dtype {} to a {} builder",
+                MismatchedTypes: "cannot append a Map array of dtype {} to a {} builder",
                 array.dtype(),
                 builder.dtype()
             ),

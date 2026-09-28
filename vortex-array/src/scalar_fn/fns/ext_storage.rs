@@ -58,7 +58,7 @@ impl ScalarFnVTable for ExtStorage {
 
     fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
         let DType::Extension(ext_dtype) = &arg_dtypes[0] else {
-            vortex_bail!("ext_storage() requires Extension, got {}", arg_dtypes[0]);
+            vortex_bail!(InvalidArgument: "ext_storage() requires Extension, got {}", arg_dtypes[0]);
         };
 
         Ok(ext_dtype.storage_dtype().clone())
@@ -73,7 +73,7 @@ impl ScalarFnVTable for ExtStorage {
         let input = args.get(0)?;
 
         if !matches!(input.dtype(), DType::Extension(_)) {
-            vortex_bail!("ext_storage() requires Extension, got {}", input.dtype());
+            vortex_bail!(InvalidArgument: "ext_storage() requires Extension, got {}", input.dtype());
         }
 
         if let Some(scalar) = input.as_constant() {

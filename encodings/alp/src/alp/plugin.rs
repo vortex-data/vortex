@@ -54,7 +54,7 @@ impl ArrayPlugin for ALPPatchedPlugin {
     ) -> VortexResult<ArrayRef> {
         vortex_ensure!(
             parts.serialized_id == self.id(),
-            "ALP plugin does not recognize serialized ID {}",
+            Serde: "ALP plugin does not recognize serialized ID {}",
             parts.serialized_id,
         );
         let alp_array = Array::<ALP>::try_from_parts(ArrayVTable::deserialize(
@@ -66,7 +66,7 @@ impl ArrayPlugin for ALPPatchedPlugin {
             parts.children,
             session,
         )?)
-        .map_err(|_| vortex_err!("ALP plugin should only deserialize vortex.alp"))?;
+        .map_err(|_| vortex_err!(Serde: "ALP plugin should only deserialize vortex.alp"))?;
 
         // Check if there are interior patches to externalize.
         let Some(patches) = alp_array.patches() else {
@@ -161,15 +161,13 @@ mod tests {
             &SESSION,
         )?;
 
-        let patched: PatchedArray = deserialized
-            .try_downcast()
-            .map_err(|a| vortex_err!("Expected Patched, got {}", a.encoding_id()))?;
+        let patched: PatchedArray = deserialized.try_downcast().map_err(
+            |a| vortex_err!(MismatchedTypes: "Expected Patched, got {}", a.encoding_id()),
+        )?;
 
-        let inner_alp: ALPArray = patched
-            .inner()
-            .clone()
-            .try_downcast()
-            .map_err(|a| vortex_err!("Expected inner ALP, got {}", a.encoding_id()))?;
+        let inner_alp: ALPArray = patched.inner().clone().try_downcast().map_err(
+            |a| vortex_err!(MismatchedTypes: "Expected inner ALP, got {}", a.encoding_id()),
+        )?;
 
         assert!(
             inner_alp.patches().is_none(),
@@ -213,9 +211,9 @@ mod tests {
             &SESSION,
         )?;
 
-        let result = deserialized
-            .try_downcast::<ALP>()
-            .map_err(|a| vortex_err!("Expected deserialized ALP, got {}", a.encoding_id()))?;
+        let result = deserialized.try_downcast::<ALP>().map_err(
+            |a| vortex_err!(Serde: "Expected deserialized ALP, got {}", a.encoding_id()),
+        )?;
 
         assert!(result.patches().is_none(), "Result should not have patches");
 

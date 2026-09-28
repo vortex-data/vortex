@@ -77,6 +77,6 @@ fn make_scalar(dtype: &DType, value: &[u8]) -> Scalar {
             let value = unsafe { str::from_utf8_unchecked(value) };
             Scalar::utf8(value, NonNullable)
         }
-        _ => vortex_panic!("cannot make Scalar from bytes with dtype {dtype}"),
+        _ => vortex_panic!(MismatchedTypes: "cannot make Scalar from bytes with dtype {dtype}"),
     }
 }

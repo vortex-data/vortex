@@ -35,7 +35,7 @@ where
 
     vortex_ensure!(
         ends.len() == values.len(),
-        "Arrow run-end array has {} run ends but {} values",
+        InvalidArgument: "Arrow run-end array has {} run ends but {} values",
         ends.len(),
         values.len()
     );

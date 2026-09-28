@@ -40,7 +40,7 @@ impl SliceData {
     fn try_new(child_len: usize, range: Range<usize>) -> VortexResult<Self> {
         if range.end > child_len {
             vortex_panic!(
-                "SliceArray range out of bounds: range {:?} exceeds child array length {}",
+                OutOfBounds: "SliceArray range out of bounds: range {:?} exceeds child array length {}",
                 range,
                 child_len
             );

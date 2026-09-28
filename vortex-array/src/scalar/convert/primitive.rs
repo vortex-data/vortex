@@ -67,10 +67,10 @@ macro_rules! primitive_scalar {
                 match value.value() {
                     Some(ScalarValue::Primitive(pv)) => pv.cast::<$T>(),
                     Some(_) => Err(vortex_err!(
-                        "Expected primitive scalar, found {}",
+                        MismatchedTypes: "Expected primitive scalar, found {}",
                         value.dtype()
                     )),
-                    None => Err(vortex_err!("Can't extract present value from null scalar")),
+                    None => Err(vortex_err!(InvalidArgument: "Can't extract present value from null scalar")),
                 }
             }
         }
@@ -167,13 +167,13 @@ impl TryFrom<&Scalar> for usize {
     type Error = VortexError;
 
     fn try_from(value: &Scalar) -> Result<Self, Self::Error> {
-        let prim_scalar = value
-            .as_primitive_opt()
-            .ok_or_else(|| vortex_err!("Expected primitive scalar, found {}", value.dtype()))?;
+        let prim_scalar = value.as_primitive_opt().ok_or_else(
+            || vortex_err!(MismatchedTypes: "Expected primitive scalar, found {}", value.dtype()),
+        )?;
 
         let prim = prim_scalar
             .as_::<u64>()
-            .ok_or_else(|| vortex_err!("cannot convert Null to usize"))?;
+            .ok_or_else(|| vortex_err!(Overflow: "cannot convert Null to usize"))?;
 
         Ok(usize::try_from(prim)?)
     }
@@ -183,9 +183,9 @@ impl TryFrom<&Scalar> for Option<usize> {
     type Error = VortexError;
 
     fn try_from(value: &Scalar) -> Result<Self, Self::Error> {
-        let prim_scalar = value
-            .as_primitive_opt()
-            .ok_or_else(|| vortex_err!("Expected primitive scalar, found {}", value.dtype()))?;
+        let prim_scalar = value.as_primitive_opt().ok_or_else(
+            || vortex_err!(MismatchedTypes: "Expected primitive scalar, found {}", value.dtype()),
+        )?;
 
         Ok(prim_scalar.as_::<u64>().map(usize::try_from).transpose()?)
     }

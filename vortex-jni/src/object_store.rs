@@ -55,8 +55,9 @@ pub(crate) fn make_object_store(
     // OpenDAL schemes take the services' own property names (e.g. `secret_id`), not environment
     // names, and mount at the URL authority, which makes the authority-keyed cache sound.
     if vortex_cloud::opendal::supports_scheme(url.scheme()) {
-        let path = Path::from_url_path(url.path())
-            .map_err(|e| vortex_err!("cannot parse url path as object_store Path: {e}"))?;
+        let path = Path::from_url_path(url.path()).map_err(
+            |e| vortex_err!(InvalidArgument: "cannot parse url path as object_store Path: {e}"),
+        )?;
         let cache_key = url_cache_key(url, properties);
         {
             if let Some(cached) = OPENDAL_STORES.lock().get(&cache_key) {
@@ -131,7 +132,7 @@ mod tests {
     use super::*;
 
     fn parse(url: &str) -> VortexResult<Url> {
-        Url::parse(url).map_err(|e| vortex_err!("{e}"))
+        Url::parse(url).map_err(|e| vortex_err!(InvalidArgument: "{e}"))
     }
 
     #[test]
@@ -178,7 +179,7 @@ mod tests {
         assert_eq!(path.as_ref(), "dir/data file.vortex");
 
         let mut debug_str = String::new();
-        write!(&mut debug_str, "{store:?}").map_err(|e| vortex_err!("{e}"))?;
+        write!(&mut debug_str, "{store:?}").map_err(|e| vortex_err!(AssertionFailed: "{e}"))?;
         assert!(debug_str.contains("eu-central-9"), "{debug_str}");
         assert!(debug_str.contains("localhost:9000"), "{debug_str}");
         Ok(())

@@ -213,7 +213,7 @@ impl VTable for Pco {
             let validity = children.get(0, &Validity::DTYPE, len)?;
             Validity::Array(validity)
         } else {
-            vortex_bail!("PcoArray expected 0 or 1 child, got {}", children.len());
+            vortex_bail!(MismatchedTypes: "PcoArray expected 0 or 1 child, got {}", children.len());
         };
 
         vortex_ensure!(buffers.len() >= metadata.chunks.len());
@@ -306,7 +306,10 @@ pub(crate) fn vortex_err_from_pco(err: PcoError) -> VortexError {
     match err.kind {
         Io(io_kind) => VortexError::from(std::io::Error::new(io_kind, err.message)),
         InvalidArgument => vortex_err!(InvalidArgument: "{}", err.message),
-        other => vortex_err!("Pco {:?} error: {}", other, err.message),
+        kind @ (Corruption | InsufficientData) => {
+            vortex_err!(Serde: "Pco {:?} error: {}", kind, err.message)
+        }
+        other => vortex_err!(Other: "Pco {:?} error: {}", other, err.message),
     }
 }
 
@@ -401,39 +404,39 @@ impl PcoData {
         let _ = number_type_from_ptype(self.ptype);
         vortex_ensure!(
             dtype.as_ptype() == self.ptype,
-            "expected ptype {}, got {}",
+            MismatchedTypes: "expected ptype {}, got {}",
             self.ptype,
             dtype.as_ptype()
         );
         vortex_ensure!(
             dtype.nullability() == validity.nullability(),
-            "expected nullability {}, got {}",
+            InvalidArgument: "expected nullability {}, got {}",
             validity.nullability(),
             dtype.nullability()
         );
         vortex_ensure!(
             self.slice_start <= self.slice_stop && self.slice_stop <= self.unsliced_n_rows,
-            "invalid slice range {}..{} for {} rows",
+            InvalidArgument: "invalid slice range {}..{} for {} rows",
             self.slice_start,
             self.slice_stop,
             self.unsliced_n_rows
         );
         vortex_ensure!(
             self.slice_stop - self.slice_start == len,
-            "expected len {len}, got {}",
+            InvalidArgument: "expected len {len}, got {}",
             self.slice_stop - self.slice_start
         );
         if let Some(validity_len) = validity.maybe_len() {
             vortex_ensure!(
                 validity_len == self.unsliced_n_rows,
-                "expected validity len {}, got {}",
+                InvalidArgument: "expected validity len {}, got {}",
                 self.unsliced_n_rows,
                 validity_len
             );
         }
         vortex_ensure!(
             self.chunk_metas.len() == self.metadata.chunks.len(),
-            "expected {} chunk metas, got {}",
+            InvalidArgument: "expected {} chunk metas, got {}",
             self.metadata.chunks.len(),
             self.chunk_metas.len()
         );
@@ -445,7 +448,7 @@ impl PcoData {
                     .iter()
                     .map(|chunk| chunk.pages.len())
                     .sum::<usize>(),
-            "page count does not match metadata"
+            InvalidArgument: "page count does not match metadata"
         );
 
         let mut n_values = 0usize;
@@ -455,33 +458,33 @@ impl PcoData {
                 let page_n_values = page.n_values as usize;
                 vortex_ensure!(
                     page_n_values != 0,
-                    "Pco chunk {chunk_idx} contains an empty page"
+                    InvalidArgument: "Pco chunk {chunk_idx} contains an empty page"
                 );
-                chunk_n_values = chunk_n_values.checked_add(page_n_values).ok_or_else(|| {
-                    vortex_err!("Pco chunk {chunk_idx} value count overflows usize")
-                })?;
+                chunk_n_values = chunk_n_values.checked_add(page_n_values).ok_or_else(
+                    || vortex_err!(Overflow: "Pco chunk {chunk_idx} value count overflows usize"),
+                )?;
             }
             vortex_ensure!(
                 chunk_n_values <= VALUES_PER_CHUNK,
-                "Pco chunk {chunk_idx} contains {chunk_n_values} values, exceeding the maximum of {VALUES_PER_CHUNK}"
+                InvalidArgument: "Pco chunk {chunk_idx} contains {chunk_n_values} values, exceeding the maximum of {VALUES_PER_CHUNK}"
             );
             n_values = n_values
                 .checked_add(chunk_n_values)
-                .ok_or_else(|| vortex_err!("Pco value count overflows usize"))?;
+                .ok_or_else(|| vortex_err!(Overflow: "Pco value count overflows usize"))?;
         }
         vortex_ensure!(
             n_values <= self.unsliced_n_rows,
-            "Pco contains {n_values} values for only {} rows",
+            InvalidArgument: "Pco contains {n_values} values for only {} rows",
             self.unsliced_n_rows
         );
         if validity.definitely_no_nulls() {
             vortex_ensure!(
                 n_values == self.unsliced_n_rows,
-                "Pco contains {n_values} values for {} non-null rows",
+                InvalidArgument: "Pco contains {n_values} values for {} non-null rows",
                 self.unsliced_n_rows
             );
         } else if validity.definitely_all_null() {
-            vortex_ensure!(n_values == 0, "Pco contains values for an all-null array");
+            vortex_ensure!(n_values == 0, InvalidArgument: "Pco contains values for an all-null array");
         }
         Ok(())
     }
@@ -616,7 +619,7 @@ impl PcoData {
     ) -> VortexResult<Self> {
         let parray = array.try_downcast::<Primitive>().map_err(|a| {
             vortex_err!(
-                "Pco can only encode primitive arrays, got {}",
+                MismatchedTypes: "Pco can only encode primitive arrays, got {}",
                 a.encoding_id()
             )
         })?;
@@ -694,7 +697,7 @@ impl PcoData {
                     let page: &[u8] = self
                         .pages
                         .get(page_idx)
-                        .ok_or_else(|| vortex_err!("Missing Pco page {page_idx}"))?
+                        .ok_or_else(|| vortex_err!(NotFound: "Missing Pco page {page_idx}"))?
                         .as_ref();
 
                     let mut cd = match chunk_decompressor.take() {
@@ -730,7 +733,7 @@ impl PcoData {
         let value_stop = value_offset + slice_n_values;
         vortex_ensure!(
             value_stop <= decompressed_values.len(),
-            "Pco contains {} decompressed values, but the requested range ends at {value_stop}",
+            InvalidArgument: "Pco contains {} decompressed values, but the requested range ends at {value_stop}",
             decompressed_values.len()
         );
         Ok(decompressed_values

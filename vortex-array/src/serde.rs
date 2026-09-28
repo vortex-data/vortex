@@ -110,8 +110,9 @@ impl ArrayRef {
                 u16::try_from(padding).vortex_expect("padding fits into u16"),
                 buffer.alignment().exponent(),
                 Compression::None,
-                u32::try_from(buffer.len())
-                    .map_err(|_| vortex_err!("All buffers must fit into u32 for serialization"))?,
+                u32::try_from(buffer.len()).map_err(
+                    |_| vortex_err!(Overflow: "All buffers must fit into u32 for serialization"),
+                )?,
             ));
 
             pos += buffer.len();
@@ -148,7 +149,7 @@ impl ArrayRef {
         // Finally, we write down the u32 length for the flatbuffer.
         buffers.push(ByteBuffer::from(
             u32::try_from(fb_length)
-                .map_err(|_| vortex_err!("Array metadata flatbuffer must fit into u32 for serialization. Array encoding tree is too large."))?
+                .map_err(|_| vortex_err!(Overflow: "Array metadata flatbuffer must fit into u32 for serialization. Array encoding tree is too large."))?
                 .to_le_bytes()
                 .to_vec(),
         ));
@@ -170,7 +171,7 @@ impl ArraySerializationTree {
     fn try_new(session: &VortexSession, source: &ArrayRef) -> VortexResult<Self> {
         let Some(serialization) = session.array_serialize(source)? else {
             vortex_bail!(
-                "Array {} does not support serialization",
+                Serde: "Array {} does not support serialization",
                 source.encoding_id()
             );
         };
@@ -228,7 +229,7 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
         let n_buffers_recursive = array.nbuffers_recursive();
         if n_buffers_recursive > u16::MAX as usize {
             vortex_bail!(
-                "Array and all descendent arrays can have at most u16::MAX buffers: {}",
+                Serde: "Array and all descendent arrays can have at most u16::MAX buffers: {}",
                 n_buffers_recursive
             );
         };
@@ -250,7 +251,7 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
     ) -> VortexResult<WIPOffset<fba::ArrayNode<'fb>>> {
         let encoding_idx = self.ctx.intern(&array.serialized_id).ok_or_else(|| {
             vortex_err!(
-                "Serialized array ID {} not permitted by ctx",
+                Serde: "Serialized array ID {} not permitted by ctx",
                 array.serialized_id
             )
         })?;
@@ -259,7 +260,7 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
 
         // Assign buffer indices for all child arrays.
         let nbuffers = u16::try_from(array.buffers.len())
-            .map_err(|_| vortex_err!("Array can have at most u16::MAX buffers"))?;
+            .map_err(|_| vortex_err!(Serde: "Array can have at most u16::MAX buffers"))?;
         let mut child_buffer_idx = buffer_idx + nbuffers;
 
         let children = array
@@ -272,7 +273,7 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
                 child_buffer_idx = u16::try_from(child.nbuffers_recursive())
                     .ok()
                     .and_then(|nbuffers| nbuffers.checked_add(child_buffer_idx))
-                    .ok_or_else(|| vortex_err!("Too many buffers (u16) for Array"))?;
+                    .ok_or_else(|| vortex_err!(Serde: "Too many buffers (u16) for Array"))?;
 
                 Ok(msg)
             })
@@ -364,12 +365,12 @@ impl SerializedArray {
         let encoding_idx = self.flatbuffer().encoding();
         let encoding_id = ctx
             .resolve(encoding_idx)
-            .ok_or_else(|| vortex_err!("Unknown encoding index: {}", encoding_idx))?;
+            .ok_or_else(|| vortex_err!(NotFound: "Unknown encoding index: {}", encoding_idx))?;
         let Some(plugin) = session.arrays().registry().get(&encoding_id) else {
             if session.allows_unknown() {
                 return self.decode_foreign(encoding_id, dtype, len, ctx);
             }
-            vortex_bail!("Unknown encoding: {}", encoding_id);
+            vortex_bail!(NotFound: "Unknown encoding: {}", encoding_id);
         };
 
         let children = SerializedArrayChildren {
@@ -437,9 +438,9 @@ impl SerializedArray {
             .map(|idx| {
                 let child = self.child(idx);
                 let child_encoding_idx = child.flatbuffer().encoding();
-                let child_encoding_id = ctx
-                    .resolve(child_encoding_idx)
-                    .ok_or_else(|| vortex_err!("Unknown encoding index: {}", child_encoding_idx))?;
+                let child_encoding_id = ctx.resolve(child_encoding_idx).ok_or_else(
+                    || vortex_err!(NotFound: "Unknown encoding index: {}", child_encoding_idx),
+                )?;
                 child
                     .decode_foreign(child_encoding_id, dtype, len, ctx)
                     .map(Some)
@@ -484,7 +485,7 @@ impl SerializedArray {
             .vortex_expect("Expected array to have children");
         if idx >= children.len() {
             vortex_panic!(
-                "Invalid child index {} for array with {} children",
+                OutOfBounds: "Invalid child index {} for array with {} children",
                 idx,
                 children.len()
             );
@@ -504,14 +505,14 @@ impl SerializedArray {
         let buffer_idx = self
             .flatbuffer()
             .buffers()
-            .ok_or_else(|| vortex_err!("Array has no buffers"))?
+            .ok_or_else(|| vortex_err!(Serde: "Array has no buffers"))?
             .get(idx);
         self.buffers
             .get(buffer_idx as usize)
             .cloned()
             .ok_or_else(|| {
                 vortex_err!(
-                    "Invalid buffer index {} for array with {} buffers",
+                    InvalidArgument: "Invalid buffer index {} for array with {} buffers",
                     buffer_idx,
                     self.nbuffers()
                 )
@@ -539,7 +540,7 @@ impl SerializedArray {
             self.buffers.get(start..start + count).map_or_else(
                 || {
                     vortex_bail!(
-                        "buffer indices {}..{} out of range for {} buffers",
+                        OutOfBounds: "buffer indices {}..{} out of range for {} buffers",
                         start,
                         start + count,
                         self.buffers.len()
@@ -575,7 +576,7 @@ impl SerializedArray {
         let fb_array = root::<fba::Array>(fb_buffer.as_ref())?;
         let fb_root = fb_array
             .root()
-            .ok_or_else(|| vortex_err!("Array must have a root node"))?;
+            .ok_or_else(|| vortex_err!(Serde: "Array must have a root node"))?;
         let flatbuffer_loc = fb_root._tab.loc();
         Ok((fb_buffer, flatbuffer_loc))
     }
@@ -678,10 +679,10 @@ impl SerializedArray {
                 let start = offset
                     .checked_add(fb_buf.padding() as usize)
                     .ok_or_else(|| {
-                        vortex_err!("Buffer {idx} offset overflows when adding its padding")
+                        vortex_err!(Overflow: "Buffer {idx} offset overflows when adding its padding")
                     })?;
                 let end = start.checked_add(buffer_len).ok_or_else(|| {
-                    vortex_err!("Buffer {idx} offset overflows when adding its length")
+                    vortex_err!(Overflow: "Buffer {idx} offset overflows when adding its length")
                 })?;
 
                 // The alignment exponent comes from the flatbuffer and may be corrupt, so validate
@@ -695,7 +696,7 @@ impl SerializedArray {
                     // `VortexError` rather than panicking when slicing (see issue #8819).
                     if end > segment.len() {
                         vortex_bail!(
-                            "Buffer {idx} at offset {start} with length {buffer_len} is out of \
+                            OutOfBounds: "Buffer {idx} at offset {start} with length {buffer_len} is out of \
                              bounds of the {}-byte segment",
                             segment.len(),
                         );
@@ -740,7 +741,7 @@ impl TryFrom<ByteBuffer> for SerializedArray {
     fn try_from(value: ByteBuffer) -> Result<Self, Self::Error> {
         // The final 4 bytes contain the length of the flatbuffer.
         if value.len() < 4 {
-            vortex_bail!("SerializedArray buffer is too short");
+            vortex_bail!(Serde: "SerializedArray buffer is too short");
         }
 
         // We align each buffer individually, so we remove alignment requirements on the buffer.
@@ -748,7 +749,7 @@ impl TryFrom<ByteBuffer> for SerializedArray {
 
         let fb_length = u32::try_from_le_bytes(&value.as_slice()[value.len() - 4..])? as usize;
         if value.len() < 4 + fb_length {
-            vortex_bail!("SerializedArray buffer is too short for flatbuffer");
+            vortex_bail!(Serde: "SerializedArray buffer is too short for flatbuffer");
         }
 
         let fb_offset = value.len() - 4 - fb_length;
@@ -816,7 +817,7 @@ mod tests {
         ) -> VortexResult<Option<ArraySerialization>> {
             vortex_ensure!(
                 array.encoding_id() == self.id(),
-                "versioned primitive serializer received {}",
+                Serde: "versioned primitive serializer received {}",
                 array.encoding_id(),
             );
 
@@ -841,12 +842,12 @@ mod tests {
             vortex_ensure!(
                 parts.serialized_id == old_primitive_id()
                     || parts.serialized_id == new_primitive_id(),
-                "versioned primitive deserializer does not recognize {}",
+                Serde: "versioned primitive deserializer does not recognize {}",
                 parts.serialized_id,
             );
             vortex_ensure!(
                 parts.serialized_id != old_primitive_id() || parts.len <= 4,
-                "old primitive wire ID cannot represent length {}",
+                Serde: "old primitive wire ID cannot represent length {}",
                 parts.len,
             );
             Ok(Array::<Primitive>::try_from_parts(ArrayVTable::deserialize(
@@ -1033,7 +1034,7 @@ mod tests {
 
         let Some(err) = SerializedArray::from_flatbuffer_and_segment(array_tree, truncated).err()
         else {
-            vortex_bail!("out-of-bounds buffer must be rejected");
+            vortex_bail!(AssertionFailed: "out-of-bounds buffer must be rejected");
         };
         assert!(
             err.to_string().contains("out of bounds"),
@@ -1067,7 +1068,7 @@ mod tests {
         let segment = BufferHandle::new_host(ByteBuffer::from(vec![0u8; 4]));
         let Some(err) = SerializedArray::from_flatbuffer_and_segment(array_tree, segment).err()
         else {
-            vortex_bail!("excessive buffer alignment must be rejected");
+            vortex_bail!(InvalidArgument: "excessive buffer alignment must be rejected");
         };
         assert!(
             err.to_string().contains("exceeds"),

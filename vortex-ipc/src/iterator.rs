@@ -41,10 +41,10 @@ impl<R: Read> SyncIPCReader<R> {
                     })
                 }
                 msg => {
-                    vortex_bail!("Expected DType message, got {:?}", msg);
+                    vortex_bail!(MismatchedTypes: "Expected DType message, got {:?}", msg);
                 }
             },
-            None => vortex_bail!("Expected DType message, got EOF"),
+            None => vortex_bail!(MismatchedTypes: "Expected DType message, got EOF"),
         }
     }
 }
@@ -67,7 +67,7 @@ impl<R: Read> Iterator for SyncIPCReader<R> {
                         .and_then(|array| {
                             if array.dtype() != self.dtype() {
                                 Err(vortex_err!(
-                                    "Array data type mismatch: expected {:?}, got {:?}",
+                                    MismatchedTypes: "Array data type mismatch: expected {:?}, got {:?}",
                                     self.dtype(),
                                     array.dtype()
                                 ))
@@ -76,7 +76,7 @@ impl<R: Read> Iterator for SyncIPCReader<R> {
                             }
                         }),
                 ),
-                msg => Some(Err(vortex_err!("Expected Array message, got {:?}", msg))),
+                msg => Some(Err(vortex_err!(MismatchedTypes: "Expected Array message, got {:?}", msg))),
             },
             Err(e) => Some(Err(e)),
         }

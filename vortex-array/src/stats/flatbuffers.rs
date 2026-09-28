@@ -143,7 +143,9 @@ impl StatsSet {
                             match fb.max_precision() {
                                 fba::Precision::Exact => Precision::Exact(value),
                                 fba::Precision::Inexact => Precision::Inexact(value),
-                                other => vortex_bail!("Corrupted max_precision field: {other:?}"),
+                                other => {
+                                    vortex_bail!(Serde: "Corrupted max_precision field: {other:?}")
+                                }
                             },
                         );
                     }
@@ -163,7 +165,9 @@ impl StatsSet {
                             match fb.min_precision() {
                                 fba::Precision::Exact => Precision::Exact(value),
                                 fba::Precision::Inexact => Precision::Inexact(value),
-                                other => vortex_bail!("Corrupted min_precision field: {other:?}"),
+                                other => {
+                                    vortex_bail!(Serde: "Corrupted min_precision field: {other:?}")
+                                }
                             },
                         );
                     }

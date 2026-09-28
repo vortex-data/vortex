@@ -129,7 +129,7 @@ impl VortexReadAt for PooledObjectStoreReadAt {
         async move {
             let end = offset.checked_add(length as u64).ok_or_else(|| {
                 vortex_err!(
-                    "Object store read range overflow: offset={}, length={}",
+                    Overflow: "Object store read range overflow: offset={}, length={}",
                     offset,
                     length
                 )
@@ -168,7 +168,7 @@ impl VortexReadAt for PooledObjectStoreReadAt {
                         let end = filled + bytes.len();
                         vortex_ensure!(
                             end <= length,
-                            "Object store stream returned more bytes than expected (expected {} bytes, got at least {} bytes, range: {:?})",
+                            Io: "Object store stream returned more bytes than expected (expected {} bytes, got at least {} bytes, range: {:?})",
                             length,
                             end,
                             range
@@ -179,7 +179,7 @@ impl VortexReadAt for PooledObjectStoreReadAt {
 
                     vortex_ensure!(
                         filled == length,
-                        "Object store stream returned {} bytes but expected {} bytes (range: {:?})",
+                        Io: "Object store stream returned {} bytes but expected {} bytes (range: {:?})",
                         filled,
                         length,
                         range
@@ -250,8 +250,9 @@ impl VortexReadAt for PooledByteBufferReadAt {
         let pool = Arc::clone(&self.pool);
 
         async move {
-            let offset = usize::try_from(offset)
-                .map_err(|_| vortex_err!("Byte buffer read offset overflow: offset={}", offset))?;
+            let offset = usize::try_from(offset).map_err(
+                |_| vortex_err!(Overflow: "Byte buffer read offset overflow: offset={}", offset),
+            )?;
             let src = &buffer.as_ref()[offset..offset + length];
 
             let mut target = pool.get(length)?;

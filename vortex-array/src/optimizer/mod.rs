@@ -130,7 +130,7 @@ fn try_optimize(
         return Ok(any_optimizations.then_some(current_array));
     }
 
-    vortex_bail!("Exceeded maximum optimization iterations (possible infinite loop)");
+    vortex_bail!(AssertionFailed: "Exceeded maximum optimization iterations (possible infinite loop)");
 }
 
 fn try_session_parent_reduce(

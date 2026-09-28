@@ -67,7 +67,7 @@ impl<'a> MapScalar<'a> {
     /// Returns an error when `dtype` is not [`DType::Map`].
     pub fn try_new(dtype: &'a DType, value: Option<&'a ScalarValue>) -> VortexResult<Self> {
         if !dtype.is_map() {
-            vortex_bail!("Expected map scalar, found {dtype}")
+            vortex_bail!(InvalidArgument: "Expected map scalar, found {dtype}")
         }
 
         Ok(Self {
@@ -145,20 +145,20 @@ impl<'a> MapScalar<'a> {
     /// returns an error for direct null-map casts; callers should use [`Scalar::cast`] so null
     /// handling and sortedness checks stay centralized.
     pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
-        let target = dtype
-            .as_map_opt()
-            .ok_or_else(|| vortex_err!("Cannot cast map to {dtype}: target must be a map"))?;
+        let target = dtype.as_map_opt().ok_or_else(
+            || vortex_err!(MismatchedTypes: "Cannot cast map to {dtype}: target must be a map"),
+        )?;
 
         if target.keys_sorted() && !self.map_dtype().keys_sorted() {
             vortex_bail!(
-                "Cannot cast {} to {dtype}: source does not assert sorted map keys",
+                MismatchedTypes: "Cannot cast {} to {dtype}: source does not assert sorted map keys",
                 self.dtype
             );
         }
 
         let Some(entries) = self.entries else {
             vortex_bail!(
-                "Cannot cast null map {} to {dtype}: Scalar::cast should handle nulls first",
+                MismatchedTypes: "Cannot cast null map {} to {dtype}: Scalar::cast should handle nulls first",
                 self.dtype
             );
         };

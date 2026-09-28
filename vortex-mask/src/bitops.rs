@@ -15,7 +15,7 @@ impl BitAnd for &Mask {
 
     fn bitand(self, rhs: Self) -> Self::Output {
         if self.len() != rhs.len() {
-            vortex_panic!("Masks must have the same length");
+            vortex_panic!(InvalidArgument: "Masks must have the same length");
         }
 
         match (self.bit_buffer(), rhs.bit_buffer()) {
@@ -34,7 +34,7 @@ impl BitAnd<&Mask> for Mask {
     /// Owned-left AND: can reuse the left buffer in-place when possible.
     fn bitand(self, rhs: &Mask) -> Self::Output {
         if self.len() != rhs.len() {
-            vortex_panic!("Masks must have the same length");
+            vortex_panic!(InvalidArgument: "Masks must have the same length");
         }
 
         match (self.bit_buffer(), rhs.bit_buffer()) {
@@ -53,7 +53,7 @@ impl BitOr for &Mask {
 
     fn bitor(self, rhs: Self) -> Self::Output {
         if self.len() != rhs.len() {
-            vortex_panic!("Masks must have the same length");
+            vortex_panic!(InvalidArgument: "Masks must have the same length");
         }
 
         match (self.bit_buffer(), rhs.bit_buffer()) {
@@ -72,7 +72,7 @@ impl BitOr<&Mask> for Mask {
     /// Owned-left OR: can reuse the left buffer in-place when possible.
     fn bitor(self, rhs: &Mask) -> Self::Output {
         if self.len() != rhs.len() {
-            vortex_panic!("Masks must have the same length");
+            vortex_panic!(InvalidArgument: "Masks must have the same length");
         }
 
         match (self.bit_buffer(), rhs.bit_buffer()) {
@@ -90,7 +90,7 @@ impl Mask {
     /// Computes `self & !rhs` (AND NOT), equivalent to set difference.
     pub fn bitand_not(self, rhs: &Mask) -> Mask {
         if self.len() != rhs.len() {
-            vortex_panic!("Masks must have the same length");
+            vortex_panic!(InvalidArgument: "Masks must have the same length");
         }
         match (self.bit_buffer(), rhs.bit_buffer()) {
             (AllOr::None, _) | (_, AllOr::All) => Mask::new_false(self.len()),

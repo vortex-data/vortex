@@ -51,7 +51,7 @@ pub fn assemble_decimal(
 ) -> VortexResult<ArrayRef> {
     vortex_ensure!(
         msp.dtype().is_signed_int(),
-        "MSP must have a signed integer dtype"
+        MismatchedTypes: "MSP must have a signed integer dtype"
     );
 
     let validity = msp.validity()?;
@@ -62,19 +62,19 @@ pub fn assemble_decimal(
 
     vortex_ensure!(
         lower_parts.len() <= MAX_LOWER_PARTS,
-        "at most {MAX_LOWER_PARTS} lower parts are supported, got {}",
+        InvalidArgument: "at most {MAX_LOWER_PARTS} lower parts are supported, got {}",
         lower_parts.len()
     );
     let len = msp.len();
     for (idx, part) in lower_parts.iter().enumerate() {
         vortex_ensure!(
             part.dtype().is_unsigned_int() && !part.dtype().is_nullable(),
-            "lower part {idx} must have a non-nullable unsigned integer dtype, got {}",
+            MismatchedTypes: "lower part {idx} must have a non-nullable unsigned integer dtype, got {}",
             part.dtype()
         );
         vortex_ensure!(
             part.len() == len,
-            "lower part {idx} has len {}, expected {len}",
+            InvalidArgument: "lower part {idx} has len {}, expected {len}",
             part.len()
         );
     }
@@ -157,7 +157,9 @@ fn assemble_wide_decimal_from_arrays(
                 validity,
             )
             .into_array(),
-            _ => vortex_bail!("expected between one and {MAX_LOWER_PARTS} lower parts"),
+            _ => {
+                vortex_bail!(InvalidArgument: "expected between one and {MAX_LOWER_PARTS} lower parts")
+            }
         }
     }))
 }

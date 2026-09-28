@@ -46,7 +46,7 @@ pub(crate) fn new_exporter(
         .to_buffer::<u8>();
     vortex_ensure!(
         bytes.len() == len * UUID_BYTE_LEN,
-        "UUID storage has {} bytes, expected {}",
+        InvalidArgument: "UUID storage has {} bytes, expected {}",
         bytes.len(),
         len * UUID_BYTE_LEN
     );

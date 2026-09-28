@@ -82,7 +82,7 @@ impl<V: ScalarFnVTable + ScalarFnArrayVTable> ArrayPlugin for ScalarFnArrayPlugi
     ) -> VortexResult<ArrayRef> {
         vortex_ensure!(
             parts.serialized_id == self.id(),
-            "scalar function array plugin {} does not recognize serialized ID {}",
+            Serde: "scalar function array plugin {} does not recognize serialized ID {}",
             self.id(),
             parts.serialized_id,
         );

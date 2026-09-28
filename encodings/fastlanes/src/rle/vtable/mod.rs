@@ -106,7 +106,7 @@ impl VTable for RLE {
     }
 
     fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
-        vortex_panic!("RLEArray buffer index {idx} out of bounds")
+        vortex_panic!(OutOfBounds: "RLEArray buffer index {idx} out of bounds")
     }
 
     fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
@@ -162,7 +162,7 @@ impl VTable for RLE {
     ) -> VortexResult<ArrayParts<Self>> {
         vortex_ensure!(
             buffers.is_empty(),
-            "RLEArray expects 0 buffers, got {}",
+            InvalidArgument: "RLEArray expects 0 buffers, got {}",
             buffers.len()
         );
         let metadata = RLEMetadata::decode(metadata)?;
@@ -272,44 +272,44 @@ fn validate_parts(
             values.dtype(),
             DType::Primitive(_, Nullability::NonNullable)
         ),
-        "RLE values must be a non-nullable primitive type, got {}",
+        MismatchedTypes: "RLE values must be a non-nullable primitive type, got {}",
         values.dtype()
     );
 
     vortex_ensure!(
         matches!(indices.dtype().as_ptype(), PType::U8 | PType::U16),
-        "RLE indices must be u8 or u16, got {}",
+        MismatchedTypes: "RLE indices must be u8 or u16, got {}",
         indices.dtype()
     );
 
     vortex_ensure!(
         values_idx_offsets.dtype().is_unsigned_int() && !values_idx_offsets.dtype().is_nullable(),
-        "RLE value idx offsets must be non-nullable unsigned integer, got {}",
+        MismatchedTypes: "RLE value idx offsets must be non-nullable unsigned integer, got {}",
         values_idx_offsets.dtype()
     );
 
     vortex_ensure!(
         indices.len().is_multiple_of(crate::FL_CHUNK_SIZE),
-        "RLE indices length must be a multiple of {}, got {}",
+        InvalidArgument: "RLE indices length must be a multiple of {}, got {}",
         crate::FL_CHUNK_SIZE,
         indices.len()
     );
 
     vortex_ensure!(
         offset + length <= indices.len(),
-        "RLE offset + length, {offset} + {length}, must not exceed the indices length {}",
+        InvalidArgument: "RLE offset + length, {offset} + {length}, must not exceed the indices length {}",
         indices.len()
     );
 
     vortex_ensure!(
         indices.len().div_ceil(crate::FL_CHUNK_SIZE) == values_idx_offsets.len(),
-        "RLE must have one value idx offset per chunk, got {}",
+        InvalidArgument: "RLE must have one value idx offset per chunk, got {}",
         values_idx_offsets.len()
     );
 
     vortex_ensure!(
         indices.len() >= values.len(),
-        "RLE must have at least as many indices as values, got {} indices and {} values",
+        InvalidArgument: "RLE must have at least as many indices as values, got {} indices and {} values",
         indices.len(),
         values.len()
     );
@@ -317,7 +317,7 @@ fn validate_parts(
     let expected_dtype = DType::Primitive(values.dtype().as_ptype(), indices.dtype().nullability());
     vortex_ensure!(
         dtype == &expected_dtype,
-        "RLE dtype mismatch: expected {expected_dtype}, got {dtype}"
+        MismatchedTypes: "RLE dtype mismatch: expected {expected_dtype}, got {dtype}"
     );
 
     Ok(())

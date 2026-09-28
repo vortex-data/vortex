@@ -104,7 +104,7 @@ impl<'a> ListScalar<'a> {
     pub fn try_new(dtype: &'a DType, value: Option<&'a ScalarValue>) -> VortexResult<Self> {
         let element_dtype = dtype
             .as_any_size_list_element_opt()
-            .ok_or_else(|| vortex_err!("Expected list scalar, found {}", dtype))?;
+            .ok_or_else(|| vortex_err!(MismatchedTypes: "Expected list scalar, found {}", dtype))?;
 
         Ok(Self {
             dtype,
@@ -146,7 +146,9 @@ impl<'a> ListScalar<'a> {
     pub fn element_dtype(&self) -> &DType {
         self.dtype
             .as_any_size_list_element_opt()
-            .unwrap_or_else(|| vortex_panic!("`ListScalar` somehow had dtype {}", self.dtype))
+            .unwrap_or_else(
+                || vortex_panic!(AssertionFailed: "`ListScalar` somehow had dtype {}", self.dtype),
+            )
             .as_ref()
     }
 
@@ -189,7 +191,7 @@ impl<'a> ListScalar<'a> {
             .as_any_size_list_element_opt()
             .ok_or_else(|| {
                 vortex_err!(
-                    "Cannot cast {} to {}: list can only be cast to a list or fixed-size list",
+                    MismatchedTypes: "Cannot cast {} to {}: list can only be cast to a list or fixed-size list",
                     self.dtype(),
                     dtype
                 )
@@ -200,7 +202,7 @@ impl<'a> ListScalar<'a> {
             && *size as usize != self.len()
         {
             vortex_bail!(
-                "tried to cast to a `FixedSizeList[{size}]` but had {} elements",
+                InvalidArgument: "tried to cast to a `FixedSizeList[{size}]` but had {} elements",
                 self.len()
             )
         }
@@ -209,7 +211,7 @@ impl<'a> ListScalar<'a> {
             dtype.clone(),
             Some(ScalarValue::Tuple(
                 self.elements
-                    .ok_or_else(|| vortex_err!("nullness should be handled in Scalar::cast"))?
+                    .ok_or_else(|| vortex_err!(AssertionFailed: "nullness should be handled in Scalar::cast"))?
                     .iter()
                     .map(|element| {
                         // Recursively cast the elements of the list.

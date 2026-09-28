@@ -79,7 +79,9 @@ impl ScalarFnVTable for ListLength {
             DType::List(_, nullable) | DType::FixedSizeList(_, _, nullable) => {
                 Ok(DType::Primitive(PType::U64, *nullable))
             }
-            other => vortex_bail!("list_length() requires List or FixedSizeList, got {other}"),
+            other => {
+                vortex_bail!(InvalidArgument: "list_length() requires List or FixedSizeList, got {other}")
+            }
         }
     }
 
@@ -150,7 +152,7 @@ pub(crate) fn list_length(
         (lengths, l.list_validity())
     } else {
         let dtype = any_list.dtype();
-        vortex_bail!("list_length() requires List, ListView, or FixedSizeList but got {dtype}")
+        vortex_bail!(InvalidArgument: "list_length() requires List, ListView, or FixedSizeList but got {dtype}")
     };
 
     // Cast to `U64`

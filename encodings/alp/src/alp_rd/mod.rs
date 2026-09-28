@@ -146,7 +146,7 @@ where
     T::UINT: NativePType,
 {
     if left_parts.len() != right_parts.len() {
-        vortex_panic!("alp_rd_decode: left_parts.len != right_parts.len");
+        vortex_panic!(AssertionFailed: "alp_rd_decode: left_parts.len != right_parts.len");
     }
 
     if let Some(patches) = left_parts_patches {

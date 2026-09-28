@@ -49,14 +49,14 @@ use crate::scalar_fn::execute::dispatch_unary;
 fn validate_length_operands(dtypes: &[DType]) -> VortexResult<()> {
     vortex_ensure!(
         dtypes.len() == 1,
-        "spatial: length requires exactly one lineal operand, got {}",
+        InvalidArgument: "spatial: length requires exactly one lineal operand, got {}",
         dtypes.len()
     );
     vortex_ensure!(
         dtypes[0].as_extension_opt().is_some_and(|extension| {
             extension.is::<LineString>() || extension.is::<MultiLineString>()
         }),
-        "spatial: length operand {} is not a native LineString or MultiLineString",
+        MismatchedTypes: "spatial: length operand {} is not a native LineString or MultiLineString",
         dtypes[0]
     );
     Ok(())
@@ -69,7 +69,8 @@ fn list_offsets(list: &ListArray, ctx: &mut ExecutionCtx) -> VortexResult<Vec<us
         .execute::<Buffer<u64>>(ctx)?
         .iter()
         .map(|&offset| {
-            usize::try_from(offset).map_err(|_| vortex_err!("spatial: list offset exceeds usize"))
+            usize::try_from(offset)
+                .map_err(|_| vortex_err!(Overflow: "spatial: list offset exceeds usize"))
         })
         .collect()
 }
@@ -330,7 +331,9 @@ mod tests {
             .into_array()
             .execute::<Columnar>(&mut ctx)?;
         let Columnar::Constant(lengths) = result else {
-            return Err(vortex_err!("length of a constant should remain constant"));
+            return Err(
+                vortex_err!(AssertionFailed: "length of a constant should remain constant"),
+            );
         };
         assert_eq!(lengths.len(), 3);
         assert_eq!(f64::try_from(lengths.scalar())?, 9.0);
@@ -349,7 +352,7 @@ mod tests {
             .execute::<Columnar>(&mut ctx)?;
         let Columnar::Constant(lengths) = result else {
             return Err(vortex_err!(
-                "length of a null constant should remain constant"
+                AssertionFailed: "length of a null constant should remain constant"
             ));
         };
         assert_eq!(lengths.len(), 2);

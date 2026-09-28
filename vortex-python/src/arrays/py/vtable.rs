@@ -66,9 +66,9 @@ impl VTable for PythonVTable {
         len: usize,
         _slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        vortex_ensure!(data.vtable.id == self.id, "PythonArray vtable id mismatch");
-        vortex_ensure!(&data.dtype == dtype, "PythonArray dtype mismatch");
-        vortex_ensure!(data.len == len, "PythonArray len mismatch");
+        vortex_ensure!(data.vtable.id == self.id, MismatchedTypes: "PythonArray vtable id mismatch");
+        vortex_ensure!(&data.dtype == dtype, MismatchedTypes: "PythonArray dtype mismatch");
+        vortex_ensure!(data.len == len, InvalidArgument: "PythonArray len mismatch");
         Ok(())
     }
 
@@ -77,7 +77,7 @@ impl VTable for PythonVTable {
     }
 
     fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
-        vortex_panic!("PythonArray buffer index {idx} out of bounds")
+        vortex_panic!(OutOfBounds: "PythonArray buffer index {idx} out of bounds")
     }
 
     fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
@@ -109,11 +109,11 @@ impl VTable for PythonVTable {
         _session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
         _ = bytes;
-        vortex_bail!("PythonArray deserialization is not supported");
+        vortex_bail!(Serde: "PythonArray deserialization is not supported");
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, _idx: usize) -> String {
-        vortex_panic!("PythonArray has no slots")
+        vortex_panic!(OutOfBounds: "PythonArray has no slots")
     }
 
     fn execute(_array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

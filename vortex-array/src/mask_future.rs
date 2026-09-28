@@ -33,7 +33,7 @@ impl MaskFuture {
                 .inspect(move |r| {
                     if let Ok(mask) = r
                         && mask.len() != len {
-                            vortex_panic!("MaskFuture created with future that returned mask of incorrect length (expected {}, got {})", len, mask.len());
+                            vortex_panic!(AssertionFailed: "MaskFuture created with future that returned mask of incorrect length (expected {}, got {})", len, mask.len());
                         }
                 })
                 .map_err(Arc::new)

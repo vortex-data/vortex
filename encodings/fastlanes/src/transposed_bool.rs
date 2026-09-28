@@ -147,11 +147,11 @@ impl VTable for TransposedBool {
     ) -> VortexResult<()> {
         vortex_ensure!(
             dtype == &DType::Bool(Nullability::NonNullable),
-            "TransposedBoolArray must have non-nullable boolean dtype, got {dtype}"
+            MismatchedTypes: "TransposedBoolArray must have non-nullable boolean dtype, got {dtype}"
         );
         vortex_ensure!(
             slots.len() == 1,
-            "TransposedBoolArray expects one slot, got {}",
+            InvalidArgument: "TransposedBoolArray expects one slot, got {}",
             slots.len()
         );
         let transposed = slots[TRANSPOSED_SLOT]
@@ -159,26 +159,25 @@ impl VTable for TransposedBool {
             .vortex_expect("TransposedBoolArray transposed slot");
         vortex_ensure!(
             transposed.dtype() == &DType::Bool(Nullability::NonNullable),
-            "TransposedBoolArray transposed child must be a non-nullable boolean array, got {}",
+            MismatchedTypes: "TransposedBoolArray transposed child must be a non-nullable boolean array, got {}",
             transposed.dtype()
         );
         vortex_ensure!(
             transposed.len().is_multiple_of(FL_CHUNK_SIZE),
-            "TransposedBoolArray transposed child length {} must be a multiple of {FL_CHUNK_SIZE}",
+            InvalidArgument: "TransposedBoolArray transposed child length {} must be a multiple of {FL_CHUNK_SIZE}",
             transposed.len()
         );
         vortex_ensure!(
             data.offset < FL_CHUNK_SIZE,
-            "TransposedBoolArray offset {} must be less than {FL_CHUNK_SIZE}",
+            InvalidArgument: "TransposedBoolArray offset {} must be less than {FL_CHUNK_SIZE}",
             data.offset
         );
-        let end = data
-            .offset
-            .checked_add(len)
-            .ok_or_else(|| vortex_error::vortex_err!("TransposedBoolArray range end overflow"))?;
+        let end = data.offset.checked_add(len).ok_or_else(
+            || vortex_error::vortex_err!(Overflow: "TransposedBoolArray range end overflow"),
+        )?;
         vortex_ensure!(
             end <= transposed.len(),
-            "TransposedBoolArray range {}..{} exceeds transposed child length {}",
+            InvalidArgument: "TransposedBoolArray range {}..{} exceeds transposed child length {}",
             data.offset,
             end,
             transposed.len()
@@ -191,7 +190,7 @@ impl VTable for TransposedBool {
     }
 
     fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
-        vortex_panic!("TransposedBoolArray buffer index {idx} out of bounds")
+        vortex_panic!(OutOfBounds: "TransposedBoolArray buffer index {idx} out of bounds")
     }
 
     fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
@@ -210,7 +209,7 @@ impl VTable for TransposedBool {
         _array: ArrayView<'_, Self>,
         _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
-        vortex_bail!("Cannot serialise TransposedBoolArray");
+        vortex_bail!(NotImplemented: "Cannot serialise TransposedBoolArray");
     }
 
     fn deserialize(
@@ -222,13 +221,13 @@ impl VTable for TransposedBool {
         _children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
-        vortex_bail!("Cannot deserialise TransposedBoolArray");
+        vortex_bail!(NotImplemented: "Cannot deserialise TransposedBoolArray");
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         match idx {
             TRANSPOSED_SLOT => "transposed".to_string(),
-            _ => vortex_panic!("TransposedBoolArray slot index {idx} out of bounds"),
+            _ => vortex_panic!(OutOfBounds: "TransposedBoolArray slot index {idx} out of bounds"),
         }
     }
 

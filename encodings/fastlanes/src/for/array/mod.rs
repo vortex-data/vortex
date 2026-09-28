@@ -47,10 +47,10 @@ impl Display for FoRData {
 
 impl FoRData {
     pub(crate) fn try_new(reference: Scalar) -> VortexResult<Self> {
-        vortex_ensure!(!reference.is_null(), "Reference value cannot be null");
+        vortex_ensure!(!reference.is_null(), InvalidArgument: "Reference value cannot be null");
         vortex_ensure!(
             reference.dtype().is_int(),
-            "FoR requires an integer reference dtype, got {}",
+            MismatchedTypes: "FoR requires an integer reference dtype, got {}",
             reference.dtype()
         );
         Ok(Self { reference })

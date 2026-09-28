@@ -147,11 +147,11 @@ impl ScalarFnVTable for Like {
         let pattern = &arg_dtypes[1];
 
         if !input.is_utf8() {
-            vortex_bail!("LIKE expression requires UTF8 input dtype, got {}", input);
+            vortex_bail!(InvalidArgument: "LIKE expression requires UTF8 input dtype, got {}", input);
         }
         if !pattern.is_utf8() {
             vortex_bail!(
-                "LIKE expression requires UTF8 pattern dtype, got {}",
+                InvalidArgument: "LIKE expression requires UTF8 pattern dtype, got {}",
                 pattern
             );
         }
@@ -257,8 +257,9 @@ pub(crate) fn execute_like(
         let compiled = match &cached {
             Some((bytes, compiled)) if *bytes == pattern_bytes => compiled,
             _ => {
-                let pattern_str = std::str::from_utf8(pattern_bytes)
-                    .map_err(|e| vortex_err!("LIKE pattern is not valid UTF-8: {e}"))?;
+                let pattern_str = std::str::from_utf8(pattern_bytes).map_err(
+                    |e| vortex_err!(InvalidArgument: "LIKE pattern is not valid UTF-8: {e}"),
+                )?;
                 let compiled = LikePattern::compile(
                     pattern_str,
                     options.case_insensitive,

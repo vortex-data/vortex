@@ -106,7 +106,7 @@ fn execute_row_encode(
 ) -> VortexResult<ArrayRef> {
     let nrows = args.row_count();
     if u32::try_from(nrows).is_err() {
-        vortex_bail!("row-encoded input has {} rows, exceeds u32::MAX", nrows);
+        vortex_bail!(Overflow: "row-encoded input has {} rows, exceeds u32::MAX", nrows);
     }
 
     // ===== Phase 1: classify + size pass =====
@@ -126,10 +126,10 @@ fn execute_row_encode(
         .checked_mul(u64::from(fixed_per_row))
         .and_then(|t| t.checked_add(var_total))
         .ok_or_else(|| {
-            vortex_error::vortex_err!("row-encoded total bytes overflow u64 (nrows * fixed + var)")
+            vortex_error::vortex_err!(Overflow: "row-encoded total bytes overflow u64 (nrows * fixed + var)")
         })?;
     if total > u32::MAX as u64 {
-        vortex_bail!("row-encoded output size {} bytes exceeds u32::MAX", total);
+        vortex_bail!(Overflow: "row-encoded output size {} bytes exceeds u32::MAX", total);
     }
     let total_len =
         usize::try_from(total).vortex_expect("validated row-encoded output size must fit usize");

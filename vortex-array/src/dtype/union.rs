@@ -171,36 +171,36 @@ impl UnionVariants {
         vortex_ensure_eq!(
             names.len(),
             n_dtypes,
-            "length mismatch between names ({}) and dtypes ({})",
+            InvalidArgument: "length mismatch between names ({}) and dtypes ({})",
             names.len(),
             n_dtypes
         );
         vortex_ensure_eq!(
             names.len(),
             type_ids.len(),
-            "length mismatch between names ({}) and type_ids ({})",
+            InvalidArgument: "length mismatch between names ({}) and type_ids ({})",
             names.len(),
             type_ids.len()
         );
         vortex_ensure!(
             !names.is_empty(),
-            "union must have at least one variant (for now)"
+            InvalidArgument: "union must have at least one variant (for now)"
         );
 
         vortex_ensure!(
             type_ids.iter().all_unique(),
-            "type_ids must be distinct, got {:?}",
+            InvalidArgument: "type_ids must be distinct, got {:?}",
             type_ids
         );
         vortex_ensure!(
             type_ids.len() <= u8::MAX as usize + 1,
-            "union supports at most {} variants, got {}",
+            InvalidArgument: "union supports at most {} variants, got {}",
             u8::MAX as usize + 1,
             type_ids.len()
         );
         vortex_ensure!(
             names.iter().all_unique(),
-            "union variant names must be distinct, got {:?}",
+            InvalidArgument: "union variant names must be distinct, got {:?}",
             names
         );
 
@@ -235,7 +235,7 @@ impl UnionVariants {
         const MAX_VARIANTS: usize = u8::MAX as usize + 1;
         vortex_ensure!(
             names.len() <= MAX_VARIANTS,
-            "union supports at most {} consecutive variants, got {}",
+            InvalidArgument: "union supports at most {} consecutive variants, got {}",
             MAX_VARIANTS,
             names.len()
         );

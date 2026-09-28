@@ -80,8 +80,9 @@ pub struct FSSTMetadata {
 
 impl FSSTMetadata {
     pub fn get_uncompressed_lengths_ptype(&self) -> VortexResult<PType> {
-        PType::try_from(self.uncompressed_lengths_ptype)
-            .map_err(|_| vortex_err!("Invalid PType {}", self.uncompressed_lengths_ptype))
+        PType::try_from(self.uncompressed_lengths_ptype).map_err(
+            |_| vortex_err!(InvalidArgument: "Invalid PType {}", self.uncompressed_lengths_ptype),
+        )
     }
 }
 
@@ -156,7 +157,7 @@ impl VTable for FSST {
                     .into_byte_buffer(),
             ),
             2 => array.codes_bytes_handle().clone(),
-            _ => vortex_panic!("FSSTArray buffer index {idx} out of bounds"),
+            _ => vortex_panic!(OutOfBounds: "FSSTArray buffer index {idx} out of bounds"),
         }
     }
 
@@ -165,7 +166,7 @@ impl VTable for FSST {
             0 => Some("symbols".to_string()),
             1 => Some("symbol_lengths".to_string()),
             2 => Some("compressed_codes".to_string()),
-            _ => vortex_panic!("FSSTArray buffer_name index {idx} out of bounds"),
+            _ => vortex_panic!(OutOfBounds: "FSSTArray buffer_name index {idx} out of bounds"),
         }
     }
 
@@ -176,7 +177,7 @@ impl VTable for FSST {
     ) -> VortexResult<ArrayParts<Self>> {
         vortex_ensure!(
             buffers.len() == 3,
-            "Expected 3 buffers, got {}",
+            InvalidArgument: "Expected 3 buffers, got {}",
             buffers.len()
         );
         let symbols = Buffer::<Symbol>::from_byte_buffer(buffers[0].clone().try_to_host_sync()?);
@@ -280,7 +281,7 @@ impl VTable for FSST {
                 let validity = children.get(2, &Validity::DTYPE, len)?;
                 Validity::Array(validity)
             } else {
-                vortex_bail!("Expected 2 or 3 children, got {}", children.len());
+                vortex_bail!(MismatchedTypes: "Expected 2 or 3 children, got {}", children.len());
             };
 
             FSSTData::validate_parts(
@@ -305,7 +306,7 @@ impl VTable for FSST {
         }
 
         vortex_bail!(
-            "InvalidArgument: Expected 2 or 3 buffers, got {}",
+            MismatchedTypes: "InvalidArgument: Expected 2 or 3 buffers, got {}",
             buffers.len()
         );
     }
@@ -334,7 +335,7 @@ impl VTable for FSST {
         // canonicalize-then-append fallback — it would decode to a `VarBinView` only for
         // `VarBinView::append_to_builder` to reject the same remainder.
         let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() else {
-            vortex_bail!("append_to_builder for FSST requires a variable-binary builder")
+            vortex_bail!(InvalidArgument: "append_to_builder for FSST requires a variable-binary builder")
         };
 
         // Decompress the whole block of data into a new buffer, which the builder adopts as a
@@ -662,7 +663,7 @@ impl FSST {
             .as_opt::<VarBin>()
             .ok_or_else(|| {
                 vortex_err!(
-                    "Expected VarBinArray for codes, got {}",
+                    MismatchedTypes: "Expected VarBinArray for codes, got {}",
                     codes.encoding_id()
                 )
             })?
@@ -804,7 +805,7 @@ impl FSSTData {
     ) -> VortexResult<()> {
         vortex_ensure!(
             matches!(dtype, DType::Binary(_) | DType::Utf8(_)),
-            "FSST arrays must be Binary or Utf8, found {dtype}"
+            MismatchedTypes: "FSST arrays must be Binary or Utf8, found {dtype}"
         );
 
         if symbols.len() > FSST_SYMBOL_TABLE_LEN {
@@ -1077,7 +1078,7 @@ mod test {
         let sliced = fsst_array
             .slice(1..3)?
             .try_downcast::<FSST>()
-            .map_err(|_| vortex_err!("slice must return an FSST array"))?;
+            .map_err(|_| vortex_err!(AssertionFailed: "slice must return an FSST array"))?;
         let sliced_compressor_ptr = sliced.compressor() as *const Compressor;
 
         assert_eq!(compressor_ptr, sliced_compressor_ptr);
@@ -1181,7 +1182,7 @@ mod test {
         let padded = deserialized
             .clone()
             .try_downcast::<FSST>()
-            .map_err(|_| vortex_err!("deserialize must return an FSST array"))?;
+            .map_err(|_| vortex_err!(Serde: "deserialize must return an FSST array"))?;
         assert_eq!(padded.padded_symbols().len(), FSST_SYMBOL_TABLE_LEN);
         assert_eq!(padded.n_symbols(), fsst_array.symbols().len());
 

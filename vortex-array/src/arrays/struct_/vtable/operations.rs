@@ -29,7 +29,7 @@ impl OperationsVTable<Struct> for Struct {
             let slot = StructSlots::FIELDS_OFFSET + field;
             let value = state
                 .slot(slot)?
-                .ok_or_else(|| vortex_err!("Struct field slot {slot} is absent"))?
+                .ok_or_else(|| vortex_err!(AssertionFailed: "Struct field slot {slot} is absent"))?
                 .execute_scalar(index, ctx)?;
             field_values.push(value.into_value());
         }

@@ -42,8 +42,9 @@ impl Date {
     ///
     /// Note that only Milliseconds and Days time units are supported for Date.
     pub fn try_new(time_unit: TimeUnit, nullability: Nullability) -> VortexResult<ExtDType<Self>> {
-        let ptype = date_ptype(&time_unit)
-            .ok_or_else(|| vortex_err!("Date type does not support time unit {}", time_unit))?;
+        let ptype = date_ptype(&time_unit).ok_or_else(
+            || vortex_err!(InvalidArgument: "Date type does not support time unit {}", time_unit),
+        )?;
         ExtDType::try_new(time_unit, DType::Primitive(ptype, nullability))
     }
 
@@ -89,19 +90,20 @@ impl ExtVTable for Date {
     }
 
     fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::Metadata> {
-        vortex_ensure!(!metadata.is_empty(), "Date metadata must not be empty");
+        vortex_ensure!(!metadata.is_empty(), Serde: "Date metadata must not be empty");
         let tag = metadata[0];
         TimeUnit::try_from(tag)
     }
 
     fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
         let metadata = ext_dtype.metadata();
-        let ptype = date_ptype(metadata)
-            .ok_or_else(|| vortex_err!("Date type does not support time unit {}", metadata))?;
+        let ptype = date_ptype(metadata).ok_or_else(
+            || vortex_err!(InvalidArgument: "Date type does not support time unit {}", metadata),
+        )?;
 
         vortex_ensure!(
             ext_dtype.storage_dtype().as_ptype() == ptype,
-            "Date storage dtype for {} must be {}",
+            MismatchedTypes: "Date storage dtype for {} must be {}",
             metadata,
             ptype
         );
@@ -119,7 +121,7 @@ impl ExtVTable for Date {
                 storage_value.as_primitive().cast::<i64>()?,
             )),
             TimeUnit::Days => Ok(DateValue::Days(storage_value.as_primitive().cast::<i32>()?)),
-            _ => vortex_bail!("Date type does not support time unit {}", metadata),
+            _ => vortex_bail!(InvalidArgument: "Date type does not support time unit {}", metadata),
         }
     }
 }

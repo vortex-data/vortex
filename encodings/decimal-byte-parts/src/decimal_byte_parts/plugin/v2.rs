@@ -65,17 +65,17 @@ pub(super) fn deserialize(parts: ArrayDeserialization<'_>) -> VortexResult<Decim
     let metadata = DecimalBytePartsV2Metadata::decode(parts.metadata)?;
     vortex_ensure!(
         parts.dtype.as_decimal_opt().is_some(),
-        "expected a decimal dtype"
+        MismatchedTypes: "expected a decimal dtype"
     );
 
     let lower_part_count = metadata.lower_part_ptypes.len();
     vortex_ensure!(
         lower_part_count <= MAX_LOWER_PARTS,
-        "v2 carries at most {MAX_LOWER_PARTS} lower parts, got {lower_part_count}"
+        Serde: "v2 carries at most {MAX_LOWER_PARTS} lower parts, got {lower_part_count}"
     );
     vortex_ensure!(
         parts.children.len() == 1 + lower_part_count,
-        "expected {} children, got {}",
+        Serde: "expected {} children, got {}",
         1 + lower_part_count,
         parts.children.len()
     );
@@ -83,18 +83,19 @@ pub(super) fn deserialize(parts: ArrayDeserialization<'_>) -> VortexResult<Decim
     let msp_ptype = PType::try_from(metadata.msp_ptype)?;
     vortex_ensure!(
         msp_ptype.is_signed_int(),
-        "MSP must have a signed integer dtype, got {msp_ptype}"
+        MismatchedTypes: "MSP must have a signed integer dtype, got {msp_ptype}"
     );
     let msp_dtype = DType::Primitive(msp_ptype, parts.dtype.nullability());
 
     let mut slots = ArraySlots::with_capacity(parts.children.len());
     slots.push(Some(parts.children.get(0, &msp_dtype, parts.len)?));
     for (idx, raw_ptype) in metadata.lower_part_ptypes.into_iter().enumerate() {
-        let ptype = PType::try_from(raw_ptype)
-            .map_err(|_| vortex_err!("invalid PType {raw_ptype} for lower part {idx}"))?;
+        let ptype = PType::try_from(raw_ptype).map_err(
+            |_| vortex_err!(InvalidArgument: "invalid PType {raw_ptype} for lower part {idx}"),
+        )?;
         vortex_ensure!(
             ptype.is_unsigned_int(),
-            "lower part {idx} must have an unsigned integer dtype, got {ptype}"
+            MismatchedTypes: "lower part {idx} must have an unsigned integer dtype, got {ptype}"
         );
         slots.push(Some(parts.children.get(
             1 + idx,

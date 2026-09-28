@@ -149,7 +149,7 @@ where
     pub fn replace_partitions(&mut self, partitions: Box<[BoundExpression]>) -> VortexResult<()> {
         vortex_ensure!(
             partitions.len() == self.partition_names.len(),
-            "Expected {} partitions, got {}",
+            InvalidArgument: "Expected {} partitions, got {}",
             self.partition_names.len(),
             partitions.len()
         );

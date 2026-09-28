@@ -37,8 +37,9 @@ impl Time {
     ///
     /// Note that Days units are not supported for Time.
     pub fn try_new(time_unit: TimeUnit, nullability: Nullability) -> VortexResult<ExtDType<Self>> {
-        let ptype = time_ptype(&time_unit)
-            .ok_or_else(|| vortex_err!("Time type does not support time unit {}", time_unit))?;
+        let ptype = time_ptype(&time_unit).ok_or_else(
+            || vortex_err!(InvalidArgument: "Time type does not support time unit {}", time_unit),
+        )?;
         ExtDType::try_new(time_unit, DType::Primitive(ptype, nullability))
     }
 
@@ -90,19 +91,20 @@ impl ExtVTable for Time {
     }
 
     fn deserialize_metadata(&self, data: &[u8]) -> VortexResult<Self::Metadata> {
-        vortex_ensure!(!data.is_empty(), "Time metadata must not be empty");
+        vortex_ensure!(!data.is_empty(), Serde: "Time metadata must not be empty");
         let tag = data[0];
         TimeUnit::try_from(tag)
     }
 
     fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
         let metadata = ext_dtype.metadata();
-        let ptype = time_ptype(metadata)
-            .ok_or_else(|| vortex_err!("Time type does not support time unit {}", metadata))?;
+        let ptype = time_ptype(metadata).ok_or_else(
+            || vortex_err!(InvalidArgument: "Time type does not support time unit {}", metadata),
+        )?;
 
         vortex_ensure!(
             ext_dtype.storage_dtype().as_ptype() == ptype,
-            "Time storage dtype for {} must be {}",
+            MismatchedTypes: "Time storage dtype for {} must be {}",
             metadata,
             ptype
         );
@@ -118,13 +120,15 @@ impl ExtVTable for Time {
 
         let (span, value) = match *ext_dtype.metadata() {
             TimeUnit::Seconds => {
-                let v = i32::try_from(length_of_time)
-                    .map_err(|e| vortex_err!("Time seconds value out of i32 range: {e}"))?;
+                let v = i32::try_from(length_of_time).map_err(
+                    |e| vortex_err!(Overflow: "Time seconds value out of i32 range: {e}"),
+                )?;
                 (Span::new().seconds(v), TimeValue::Seconds(v))
             }
             TimeUnit::Milliseconds => {
-                let v = i32::try_from(length_of_time)
-                    .map_err(|e| vortex_err!("Time milliseconds value out of i32 range: {e}"))?;
+                let v = i32::try_from(length_of_time).map_err(
+                    |e| vortex_err!(Overflow: "Time milliseconds value out of i32 range: {e}"),
+                )?;
                 (Span::new().milliseconds(v), TimeValue::Milliseconds(v))
             }
             TimeUnit::Microseconds => (
@@ -135,13 +139,15 @@ impl ExtVTable for Time {
                 Span::new().nanoseconds(length_of_time),
                 TimeValue::Nanoseconds(length_of_time),
             ),
-            d @ TimeUnit::Days => vortex_bail!("Time type does not support time unit {d}"),
+            d @ TimeUnit::Days => {
+                vortex_bail!(InvalidArgument: "Time type does not support time unit {d}")
+            }
         };
 
         // Validate the storage value is within the valid range for Time.
         jiff::civil::Time::MIN
             .checked_add(span)
-            .map_err(|e| vortex_err!("Invalid time scalar: {}", e))?;
+            .map_err(|e| vortex_err!(InvalidArgument: "Invalid time scalar: {}", e))?;
 
         Ok(value)
     }

@@ -85,14 +85,14 @@ impl VTable for ByteBool {
     fn buffer(array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         match idx {
             0 => array.buffer().clone(),
-            _ => vortex_panic!("ByteBoolArray buffer index {idx} out of bounds"),
+            _ => vortex_panic!(OutOfBounds: "ByteBoolArray buffer index {idx} out of bounds"),
         }
     }
 
     fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
         match idx {
             0 => Some("values".to_string()),
-            _ => vortex_panic!("ByteBoolArray buffer_name index {idx} out of bounds"),
+            _ => vortex_panic!(OutOfBounds: "ByteBoolArray buffer_name index {idx} out of bounds"),
         }
     }
 
@@ -103,7 +103,7 @@ impl VTable for ByteBool {
     ) -> VortexResult<ArrayParts<Self>> {
         vortex_ensure!(
             buffers.len() == 1,
-            "Expected 1 buffer, got {}",
+            InvalidArgument: "Expected 1 buffer, got {}",
             buffers.len()
         );
         let data = ByteBoolData::new(buffers[0].clone());
@@ -131,7 +131,7 @@ impl VTable for ByteBool {
     ) -> VortexResult<ArrayParts<Self>> {
         if !metadata.is_empty() {
             vortex_bail!(
-                "ByteBoolArray expects empty metadata, got {} bytes",
+                InvalidArgument: "ByteBoolArray expects empty metadata, got {} bytes",
                 metadata.len()
             );
         }
@@ -141,11 +141,11 @@ impl VTable for ByteBool {
             let validity = children.get(0, &Validity::DTYPE, len)?;
             Validity::Array(validity)
         } else {
-            vortex_bail!("Expected 0 or 1 child, got {}", children.len());
+            vortex_bail!(MismatchedTypes: "Expected 0 or 1 child, got {}", children.len());
         };
 
         if buffers.len() != 1 {
-            vortex_bail!("Expected 1 buffer, got {}", buffers.len());
+            vortex_bail!(InvalidArgument: "Expected 1 buffer, got {}", buffers.len());
         }
         let buffer = buffers[0].clone();
 
@@ -262,15 +262,15 @@ impl ByteBoolData {
         let expected_dtype = DType::Bool(validity.nullability());
         vortex_ensure!(
             dtype == &expected_dtype,
-            "expected dtype {expected_dtype}, got {dtype}"
+            MismatchedTypes: "expected dtype {expected_dtype}, got {dtype}"
         );
         vortex_ensure!(
             buffer.len() == len,
-            "expected len {len}, got {}",
+            InvalidArgument: "expected len {len}, got {}",
             buffer.len()
         );
         if let Some(vlen) = validity.maybe_len() {
-            vortex_ensure!(vlen == len, "expected validity len {len}, got {vlen}");
+            vortex_ensure!(vlen == len, InvalidArgument: "expected validity len {len}, got {vlen}");
         }
         Ok(())
     }

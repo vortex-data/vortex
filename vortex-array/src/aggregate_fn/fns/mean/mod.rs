@@ -101,7 +101,7 @@ impl BinaryCombined for Mean {
         count: ArrayRef,
     ) -> VortexResult<ArrayRef> {
         if let DType::Decimal(..) = sum.dtype() {
-            vortex_bail!("grouped mean over decimals is not yet supported");
+            vortex_bail!(NotImplemented: "grouped mean over decimals is not yet supported");
         }
         let target = args.return_dtype.clone();
         let sum = sum.cast(target.clone())?;

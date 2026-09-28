@@ -106,19 +106,19 @@ impl VTable for Extension {
         vortex_ensure_eq!(
             storage.len(),
             len,
-            "ExtensionArray length {} does not match outer length {len}",
+            InvalidArgument: "ExtensionArray length {} does not match outer length {len}",
             storage.len(),
         );
 
         let ext_dtype = dtype
             .as_extension_opt()
-            .ok_or_else(|| vortex_err!("not an extension dtype"))?;
+            .ok_or_else(|| vortex_err!(MismatchedTypes: "not an extension dtype"))?;
 
         let actual_dtype = DType::Extension(ext_dtype.clone());
         vortex_ensure_eq!(
             &actual_dtype,
             dtype,
-            "ExtensionArray dtype {actual_dtype} does not match outer dtype {dtype}",
+            MismatchedTypes: "ExtensionArray dtype {actual_dtype} does not match outer dtype {dtype}",
         );
 
         Ok(())
@@ -129,7 +129,7 @@ impl VTable for Extension {
     }
 
     fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
-        vortex_panic!("ExtensionArray buffer index {idx} out of bounds")
+        vortex_panic!(OutOfBounds: "ExtensionArray buffer index {idx} out of bounds")
     }
 
     fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
@@ -163,15 +163,15 @@ impl VTable for Extension {
     ) -> VortexResult<ArrayParts<Self>> {
         if !metadata.is_empty() {
             vortex_bail!(
-                "ExtensionArray expects empty metadata, got {} bytes",
+                InvalidArgument: "ExtensionArray expects empty metadata, got {} bytes",
                 metadata.len()
             );
         }
         let DType::Extension(ext_dtype) = dtype else {
-            vortex_bail!("Not an extension DType");
+            vortex_bail!(MismatchedTypes: "Not an extension DType");
         };
         if children.len() != 1 {
-            vortex_bail!("Expected 1 child, got {}", children.len());
+            vortex_bail!(MismatchedTypes: "Expected 1 child, got {}", children.len());
         }
         let storage = children.get(0, ext_dtype.storage_dtype(), len)?;
         Ok(
@@ -194,7 +194,7 @@ impl VTable for Extension {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let Some(builder) = builder.as_any_mut().downcast_mut::<ExtensionBuilder>() else {
-            vortex_bail!("append_to_builder for Extension requires an ExtensionBuilder");
+            vortex_bail!(InvalidArgument: "append_to_builder for Extension requires an ExtensionBuilder");
         };
         builder.append_extension_array(&array.into_owned(), ctx)
     }

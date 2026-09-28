@@ -147,7 +147,7 @@ fn validate_temporal_extension(array: &ArrayRef, target: &DataType) -> VortexRes
     };
     let Some(temporal) = ext.metadata_opt::<AnyTemporal>() else {
         vortex_bail!(
-            "Cannot convert extension {} to Arrow type {target}",
+            MismatchedTypes: "Cannot convert extension {} to Arrow type {target}",
             ext.id()
         );
     };
@@ -171,18 +171,18 @@ fn validate_temporal_extension(array: &ArrayRef, target: &DataType) -> VortexRes
             let src_arrow_unit = crate::dtype::to_arrow_time_unit(*unit)?;
             if src_arrow_unit != *arrow_unit {
                 vortex_bail!(
-                    "Cannot convert Timestamp({unit}) to Arrow Timestamp({arrow_unit:?}): unit mismatch"
+                    MismatchedTypes: "Cannot convert Timestamp({unit}) to Arrow Timestamp({arrow_unit:?}): unit mismatch"
                 );
             }
             if src_tz != tgt_tz {
                 vortex_bail!(
-                    "Cannot convert Timestamp(tz={src_tz:?}) to Arrow Timestamp(tz={tgt_tz:?}): timezone mismatch"
+                    MismatchedTypes: "Cannot convert Timestamp(tz={src_tz:?}) to Arrow Timestamp(tz={tgt_tz:?}): timezone mismatch"
                 );
             }
             Ok(())
         }
         (temporal, target) => vortex_bail!(
-            "Cannot convert {} to Arrow type {target}",
+            MismatchedTypes: "Cannot convert {} to Arrow type {target}",
             match temporal {
                 TemporalMetadata::Date(unit) => format!("Date({unit})"),
                 TemporalMetadata::Time(unit) => format!("Time({unit})"),

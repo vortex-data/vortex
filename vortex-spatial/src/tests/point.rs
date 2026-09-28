@@ -92,7 +92,7 @@ fn exports_to_struct() -> VortexResult<()> {
     let ordinates = |name: &str| -> VortexResult<Vec<f64>> {
         Ok(points
             .column_by_name(name)
-            .ok_or_else(|| vortex_err!("missing {name} column"))?
+            .ok_or_else(|| vortex_err!(NotFound: "missing {name} column"))?
             .as_primitive::<Float64Type>()
             .values()
             .to_vec())
@@ -176,7 +176,7 @@ fn roundtrips_through_arrow() -> VortexResult<()> {
     let ext = reimported
         .dtype()
         .as_extension_opt()
-        .ok_or_else(|| vortex_err!("expected Extension dtype"))?;
+        .ok_or_else(|| vortex_err!(MismatchedTypes: "expected Extension dtype"))?;
     assert_eq!(ext.metadata::<Point>().crs.as_deref(), Some("EPSG:4326"));
 
     assert_eq!(

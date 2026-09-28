@@ -44,18 +44,23 @@ impl OperationsVTable<OnPair> for OnPair {
             .execute_scalar(index, ctx)?
             .as_primitive()
             .as_::<usize>()
-            .ok_or_else(|| vortex_err!("OnPair uncompressed_lengths[{index}] is null"))?;
+            .ok_or_else(
+                || vortex_err!(AssertionFailed: "OnPair uncompressed_lengths[{index}] is null"),
+            )?;
         let mut buf: Vec<u8> = Vec::with_capacity(len);
-        let written =
-            match onpair::try_decode_into(codes.as_slice(), dict, buf.spare_capacity_mut()) {
-                Ok(written) => written,
-                Err(_) => vortex_panic!(
-                    "OnPair row {index} decodes to more bytes than uncompressed_lengths records"
-                ),
-            };
+        let written = match onpair::try_decode_into(
+            codes.as_slice(),
+            dict,
+            buf.spare_capacity_mut(),
+        ) {
+            Ok(written) => written,
+            Err(_) => vortex_panic!(
+                AssertionFailed: "OnPair row {index} decodes to more bytes than uncompressed_lengths records"
+            ),
+        };
         if written != len {
             vortex_panic!(
-                "OnPair row {index} decoded to {written} bytes but uncompressed_lengths records {len}"
+                AssertionFailed: "OnPair row {index} decoded to {written} bytes but uncompressed_lengths records {len}"
             );
         }
         // SAFETY: `try_decode_into` initialised exactly `written` bytes.

@@ -43,7 +43,7 @@ pub(super) fn accumulate_canonical(
         | Canonical::Union(_)
         | Canonical::Map(_) => {
             vortex_bail!(
-                "Unsupported canonical type for bloom filter: {}",
+                InvalidArgument: "Unsupported canonical type for bloom filter: {}",
                 canonical.dtype()
             )
         }

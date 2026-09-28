@@ -153,14 +153,14 @@ impl VTable for StackParent {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        vortex_ensure!(dtype == &test_dtype(), "unexpected stack parent dtype");
-        vortex_ensure!(len == 3, "unexpected stack parent length");
-        vortex_ensure!(slots.len() == 1, "stack parent must have one child slot");
+        vortex_ensure!(dtype == &test_dtype(), AssertionFailed: "unexpected stack parent dtype");
+        vortex_ensure!(len == 3, AssertionFailed: "unexpected stack parent length");
+        vortex_ensure!(slots.len() == 1, AssertionFailed: "stack parent must have one child slot");
         let Some(child) = &slots[0] else {
-            vortex_bail!("stack parent child slot is missing");
+            vortex_bail!(InvalidArgument: "stack parent child slot is missing");
         };
-        vortex_ensure!(child.dtype() == dtype, "stack parent child dtype mismatch");
-        vortex_ensure!(child.len() == len, "stack parent child length mismatch");
+        vortex_ensure!(child.dtype() == dtype, AssertionFailed: "stack parent child dtype mismatch");
+        vortex_ensure!(child.len() == len, AssertionFailed: "stack parent child length mismatch");
         Ok(())
     }
 
@@ -169,7 +169,7 @@ impl VTable for StackParent {
     }
 
     fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
-        vortex_panic!("StackParent buffer index {idx} out of bounds")
+        vortex_panic!(OutOfBounds: "StackParent buffer index {idx} out of bounds")
     }
 
     fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
@@ -192,7 +192,7 @@ impl VTable for StackParent {
         _children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
-        vortex_bail!("StackParent cannot be deserialized")
+        vortex_bail!(Serde: "StackParent cannot be deserialized")
     }
 
     fn with_buffers(
@@ -206,13 +206,13 @@ impl VTable for StackParent {
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         match idx {
             0 => "child".to_string(),
-            _ => vortex_panic!("StackParent slot index {idx} out of bounds"),
+            _ => vortex_panic!(OutOfBounds: "StackParent slot index {idx} out of bounds"),
         }
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let Some(child) = array.slots()[0].as_ref() else {
-            vortex_bail!("stack parent child slot is missing");
+            vortex_bail!(InvalidArgument: "stack parent child slot is missing");
         };
         if !child.is::<Primitive>() {
             return Ok(ExecutionResult::execute_slot::<Primitive>(array, 0));
@@ -267,9 +267,9 @@ impl VTable for StackChild {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        vortex_ensure!(dtype == &test_dtype(), "unexpected stack child dtype");
-        vortex_ensure!(len == 3, "unexpected stack child length");
-        vortex_ensure!(slots.is_empty(), "stack child must not have slots");
+        vortex_ensure!(dtype == &test_dtype(), AssertionFailed: "unexpected stack child dtype");
+        vortex_ensure!(len == 3, AssertionFailed: "unexpected stack child length");
+        vortex_ensure!(slots.is_empty(), AssertionFailed: "stack child must not have slots");
         Ok(())
     }
 
@@ -278,7 +278,7 @@ impl VTable for StackChild {
     }
 
     fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
-        vortex_panic!("StackChild buffer index {idx} out of bounds")
+        vortex_panic!(OutOfBounds: "StackChild buffer index {idx} out of bounds")
     }
 
     fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
@@ -301,7 +301,7 @@ impl VTable for StackChild {
         _children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
-        vortex_bail!("StackChild cannot be deserialized")
+        vortex_bail!(Serde: "StackChild cannot be deserialized")
     }
 
     fn with_buffers(
@@ -313,7 +313,7 @@ impl VTable for StackChild {
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        vortex_panic!("StackChild slot index {idx} out of bounds")
+        vortex_panic!(OutOfBounds: "StackChild slot index {idx} out of bounds")
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

@@ -85,25 +85,25 @@ impl VTable for Chunked {
     ) -> VortexResult<()> {
         vortex_ensure!(
             !slots.is_empty(),
-            "ChunkedArray must have at least a chunk offsets slot"
+            InvalidArgument: "ChunkedArray must have at least a chunk offsets slot"
         );
         let chunk_offsets = slots[ChunkedSlots::CHUNK_OFFSETS]
             .as_ref()
             .vortex_expect("validated chunk offsets slot");
         vortex_ensure!(
             chunk_offsets.dtype() == &DType::Primitive(PType::U64, Nullability::NonNullable),
-            "ChunkedArray chunk offsets must be non-nullable u64, found {}",
+            MismatchedTypes: "ChunkedArray chunk offsets must be non-nullable u64, found {}",
             chunk_offsets.dtype()
         );
         vortex_ensure!(
             chunk_offsets.len() == data.chunk_offsets.len(),
-            "ChunkedArray chunk offsets slot length {} does not match cached offsets length {}",
+            InvalidArgument: "ChunkedArray chunk offsets slot length {} does not match cached offsets length {}",
             chunk_offsets.len(),
             data.chunk_offsets.len()
         );
         vortex_ensure!(
             data.chunk_offsets.len() == slots.len() - ChunkedSlots::CHUNKS_OFFSET + 1,
-            "ChunkedArray chunk offsets length {} does not match {} chunks",
+            InvalidArgument: "ChunkedArray chunk offsets length {} does not match {} chunks",
             data.chunk_offsets.len(),
             slots.len() - ChunkedSlots::CHUNKS_OFFSET
         );
@@ -113,7 +113,7 @@ impl VTable for Chunked {
                 .copied()
                 .vortex_expect("chunked arrays always have a leading 0 offset")
                 == len,
-            "ChunkedArray length {} does not match outer length {}",
+            InvalidArgument: "ChunkedArray length {} does not match outer length {}",
             data.chunk_offsets.last().copied().unwrap_or_default(),
             len
         );
@@ -129,13 +129,13 @@ impl VTable for Chunked {
                 .vortex_expect("validated chunk slot");
             vortex_ensure!(
                 chunk.dtype() == dtype,
-                "ChunkedArray chunk dtype {} does not match outer dtype {}",
+                MismatchedTypes: "ChunkedArray chunk dtype {} does not match outer dtype {}",
                 chunk.dtype(),
                 dtype
             );
             vortex_ensure!(
                 chunk.len() == end - start,
-                "ChunkedArray chunk {} len {} does not match offsets span {}",
+                InvalidArgument: "ChunkedArray chunk {} len {} does not match offsets span {}",
                 idx,
                 chunk.len(),
                 end - start
@@ -149,11 +149,11 @@ impl VTable for Chunked {
     }
 
     fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
-        vortex_panic!("ChunkedArray buffer index {idx} out of bounds")
+        vortex_panic!(OutOfBounds: "ChunkedArray buffer index {idx} out of bounds")
     }
 
     fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
-        vortex_panic!("ChunkedArray buffer_name index {idx} out of bounds")
+        vortex_panic!(OutOfBounds: "ChunkedArray buffer_name index {idx} out of bounds")
     }
 
     fn with_buffers(
@@ -182,12 +182,12 @@ impl VTable for Chunked {
     ) -> VortexResult<ArrayParts<Self>> {
         if !metadata.is_empty() {
             vortex_bail!(
-                "ChunkedArray expects empty metadata, got {} bytes",
+                InvalidArgument: "ChunkedArray expects empty metadata, got {} bytes",
                 metadata.len()
             );
         }
         if children.is_empty() {
-            vortex_bail!("Chunked array needs at least one child");
+            vortex_bail!(InvalidArgument: "Chunked array needs at least one child");
         }
 
         let nchunks = children.len() - 1;
@@ -206,7 +206,7 @@ impl VTable for Chunked {
             .copied()
             .map(|offset| {
                 usize::try_from(offset)
-                    .map_err(|_| vortex_err!("chunk offset {offset} exceeds usize range"))
+                    .map_err(|_| vortex_err!(Overflow: "chunk offset {offset} exceeds usize range"))
             })
             .collect::<VortexResult<Vec<_>>>()?;
         let mut slots = SmallVec::with_capacity(children.len());

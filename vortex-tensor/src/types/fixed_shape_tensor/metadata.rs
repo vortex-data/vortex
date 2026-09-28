@@ -57,7 +57,7 @@ impl FixedShapeTensorMetadata {
             vortex_ensure_eq!(
                 names.len(),
                 self.logical_shape.len(),
-                "dim_names length ({}) must match logical_shape length ({})",
+                InvalidArgument: "dim_names length ({}) must match logical_shape length ({})",
                 names.len(),
                 self.logical_shape.len()
             );
@@ -77,7 +77,7 @@ impl FixedShapeTensorMetadata {
             vortex_ensure_eq!(
                 permutation.len(),
                 self.logical_shape.len(),
-                "permutation length ({}) must match logical_shape length ({})",
+                InvalidArgument: "permutation length ({}) must match logical_shape length ({})",
                 permutation.len(),
                 self.logical_shape.len()
             );
@@ -87,10 +87,10 @@ impl FixedShapeTensorMetadata {
             for &p in &permutation {
                 vortex_ensure!(
                     p < permutation.len(),
-                    "permutation index {p} is out of range for {} dimensions",
+                    OutOfBounds: "permutation index {p} is out of range for {} dimensions",
                     permutation.len()
                 );
-                vortex_ensure!(!seen[p], "permutation contains duplicate index {p}");
+                vortex_ensure!(!seen[p], InvalidArgument: "permutation contains duplicate index {p}");
                 seen[p] = true;
             }
 

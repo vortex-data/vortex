@@ -425,12 +425,12 @@ where
         let length: usize = size.as_();
         start.checked_add(length).ok_or_else(|| {
             vortex_err!(
-                "ListView rebuild element range overflow for start {start} and length {length}"
+                Overflow: "ListView rebuild element range overflow for start {start} and length {length}"
             )
         })?;
         elements_len = elements_len
             .checked_add(length)
-            .ok_or_else(|| vortex_err!("ListView rebuild elements length overflow"))?;
+            .ok_or_else(|| vortex_err!(Overflow: "ListView rebuild elements length overflow"))?;
 
         new_offsets.push(n_elements);
         new_sizes.push(size);

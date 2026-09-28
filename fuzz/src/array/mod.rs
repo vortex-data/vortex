@@ -141,35 +141,35 @@ impl ExpectedValue {
     pub fn array(self) -> ArrayRef {
         match self {
             ExpectedValue::Array(array) => array,
-            _ => vortex_panic!("expected array"),
+            _ => vortex_panic!(AssertionFailed: "expected array"),
         }
     }
 
     pub fn search(self) -> SearchResult {
         match self {
             ExpectedValue::Search(s) => s,
-            _ => vortex_panic!("expected search"),
+            _ => vortex_panic!(AssertionFailed: "expected search"),
         }
     }
 
     pub fn scalar(self) -> Scalar {
         match self {
             ExpectedValue::Scalar(s) => s,
-            _ => vortex_panic!("expected scalar"),
+            _ => vortex_panic!(AssertionFailed: "expected scalar"),
         }
     }
 
     pub fn min_max(self) -> Option<MinMaxResult> {
         match self {
             ExpectedValue::MinMax(m) => m,
-            _ => vortex_panic!("expected min_max"),
+            _ => vortex_panic!(AssertionFailed: "expected min_max"),
         }
     }
 
     pub fn scalar_vec(self) -> Vec<Scalar> {
         match self {
             ExpectedValue::ScalarVec(v) => v,
-            _ => vortex_panic!("expected scalar_vec"),
+            _ => vortex_panic!(AssertionFailed: "expected scalar_vec"),
         }
     }
 }
@@ -653,7 +653,7 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> VortexFuzzResult<bool> {
                     .vortex_expect("compare operation should succeed in fuzz test");
                 if let Err(e) = assert_array_eq(&expected.array(), &compare_result, i, &mut ctx) {
                     vortex_panic!(
-                        "Failed to compare {}with {op} {v}\nError: {e}",
+                        AssertionFailed: "Failed to compare {}with {op} {v}\nError: {e}",
                         current_array.display_tree()
                     )
                 }
@@ -665,7 +665,7 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> VortexFuzzResult<bool> {
                     .vortex_expect("cast operation should succeed in fuzz test");
                 if let Err(e) = assert_array_eq(&expected.array(), &cast_result, i, &mut ctx) {
                     vortex_panic!(
-                        "Failed to cast {} to dtype {to}\nError: {e}",
+                        AssertionFailed: "Failed to cast {} to dtype {to}\nError: {e}",
                         current_array.display_tree()
                     )
                 }

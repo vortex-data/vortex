@@ -3,7 +3,6 @@
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
@@ -30,7 +29,7 @@ use crate::scalar::ScalarValue;
 pub fn null_count(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
     if let Precision::Exact(null_count_scalar) = array.statistics().get(Stat::NullCount) {
         return usize::try_from(&null_count_scalar)
-            .map_err(|e| vortex_err!("Failed to convert null count stat to usize: {e}"));
+            .map_err(|e| e.with_context("Failed to convert null count stat to usize"));
     }
 
     let mut acc = Accumulator::try_new(NullCount, EmptyOptions, array.dtype().clone())?;

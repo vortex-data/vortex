@@ -106,7 +106,7 @@ impl FsstDecodePlan {
         let len = decompressor.decompress_into(self.codes.as_slice(), out);
         vortex_ensure!(
             len == self.total_size,
-            "FSST decoded {len} bytes, expected {}",
+            Serde: "FSST decoded {len} bytes, expected {}",
             self.total_size
         );
         Ok(len)

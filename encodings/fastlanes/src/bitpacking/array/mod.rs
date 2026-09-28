@@ -131,10 +131,10 @@ impl BitPackedData {
         bit_width: u8,
         offset: u16,
     ) -> VortexResult<Self> {
-        vortex_ensure!(bit_width <= 64, "Unsupported bit width {bit_width}");
+        vortex_ensure!(bit_width <= 64, InvalidArgument: "Unsupported bit width {bit_width}");
         vortex_ensure!(
             offset < 1024,
-            "Offset must be less than the full block i.e., 1024, got {offset}"
+            InvalidArgument: "Offset must be less than the full block i.e., 1024, got {offset}"
         );
 
         Ok(Self {
@@ -154,13 +154,17 @@ impl BitPackedData {
         length: usize,
         offset: u16,
     ) -> VortexResult<()> {
-        vortex_ensure!(ptype.is_int(), MismatchedTypes: "integer", ptype);
-        vortex_ensure!(bit_width <= 64, "Unsupported bit width {bit_width}");
+        vortex_ensure!(
+            ptype.is_int(),
+            MismatchedTypes: "expected type: integer but instead got {}",
+            ptype
+        );
+        vortex_ensure!(bit_width <= 64, InvalidArgument: "Unsupported bit width {bit_width}");
 
         if let Some(validity_len) = validity.maybe_len() {
             vortex_ensure!(
                 validity_len == length,
-                "BitPackedArray validity length {validity_len} != array length {length}",
+                InvalidArgument: "BitPackedArray validity length {validity_len} != array length {length}",
             );
         }
 
@@ -174,7 +178,7 @@ impl BitPackedData {
             (length + offset as usize).div_ceil(1024) * (128 * bit_width as usize);
         vortex_ensure!(
             packed.len() == expected_packed_len,
-            "Expected {} packed bytes, got {}",
+            InvalidArgument: "Expected {} packed bytes, got {}",
             expected_packed_len,
             packed.len()
         );
@@ -186,14 +190,14 @@ impl BitPackedData {
         // Ensure that array and patches have same ptype
         vortex_ensure!(
             patches.dtype().eq_ignore_nullability(ptype.into()),
-            "Patches DType {} does not match BitPackedArray dtype {}",
+            MismatchedTypes: "Patches DType {} does not match BitPackedArray dtype {}",
             patches.dtype().as_nonnullable(),
             ptype
         );
 
         vortex_ensure!(
             patches.array_len() == len,
-            "BitPackedArray patches length {} != expected {len}",
+            InvalidArgument: "BitPackedArray patches length {} != expected {len}",
             patches.array_len(),
         );
 

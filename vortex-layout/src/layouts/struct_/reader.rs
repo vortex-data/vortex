@@ -135,7 +135,7 @@ impl StructReader {
             .as_ref()
             .and_then(|lookup| lookup.get(name).copied())
             .or_else(|| self.struct_fields().find(name))
-            .ok_or_else(|| vortex_err!("Field {} not found in struct layout", name))?;
+            .ok_or_else(|| vortex_err!(NotFound: "Field {} not found in struct layout", name))?;
         self.field_reader_by_index(idx)
     }
 
@@ -278,7 +278,7 @@ fn expand_struct_root(
 
             if let Some(field_name) = scalar_fn.as_opt::<GetItem>() {
                 let idx = fields.find(field_name).ok_or_else(|| {
-                    vortex_err!("Field {field_name} not found while expanding struct root")
+                    vortex_err!(NotFound: "Field {field_name} not found while expanding struct root")
                 })?;
                 return Ok(Transformed {
                     value: expanded_root.children()[idx].clone(),

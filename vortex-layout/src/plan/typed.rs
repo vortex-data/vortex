@@ -87,7 +87,7 @@ impl PlanRef {
     /// Returns the child at `index`, or an error when the index is out of bounds.
     pub fn child_required(&self, index: usize) -> VortexResult<PlanRef> {
         self.child(index)?
-            .ok_or_else(|| vortex_err!("Missing plan child {index}"))
+            .ok_or_else(|| vortex_err!(NotFound: "Missing plan child {index}"))
     }
 
     /// Rebuilds this plan with `children` stored outside its erased operator data.

@@ -83,7 +83,7 @@ unsafe impl InputElement for GeometryRow {
     fn validate(dtype: &DType) -> VortexResult<()> {
         vortex_ensure!(
             is_native_geometry(dtype),
-            "spatial: operand {dtype} is not a native geometry type"
+            MismatchedTypes: "spatial: operand {dtype} is not a native geometry type"
         );
         Ok(())
     }
@@ -96,7 +96,7 @@ unsafe impl InputElement for GeometryRow {
         let mut geometries = Self::decode(array.slice(0..1)?, ctx)?;
         vortex_ensure!(
             geometries.len() == 1,
-            "a geometry batch constant must decode to one value, got {}",
+            AssertionFailed: "a geometry batch constant must decode to one value, got {}",
             geometries.len(),
         );
 

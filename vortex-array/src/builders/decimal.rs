@@ -191,7 +191,7 @@ impl DecimalBuilder {
     /// The [`DecimalDType`] of this builder.
     pub fn decimal_dtype(&self) -> &DecimalDType {
         let DType::Decimal(decimal_dtype, _) = &self.dtype else {
-            vortex_panic!("`DecimalBuilder` somehow had dtype {}", self.dtype);
+            vortex_panic!(AssertionFailed: "`DecimalBuilder` somehow had dtype {}", self.dtype);
         };
 
         decimal_dtype
@@ -228,7 +228,7 @@ impl ArrayBuilder for DecimalBuilder {
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
         vortex_ensure!(
             scalar.dtype() == self.dtype(),
-            "DecimalBuilder expected scalar with dtype {}, got {}",
+            MismatchedTypes: "DecimalBuilder expected scalar with dtype {}, got {}",
             self.dtype(),
             scalar.dtype()
         );
@@ -268,7 +268,7 @@ impl DecimalBuffer {
                 <T as BigCast>::from(value)
                     .ok_or_else(|| {
                         vortex_err!(
-                            "decimal conversion failure {:?}, type: {:?} to {:?}",
+                            Overflow: "decimal conversion failure {:?}, type: {:?} to {:?}",
                             value,
                             V::DECIMAL_TYPE,
                             T::DECIMAL_TYPE,
