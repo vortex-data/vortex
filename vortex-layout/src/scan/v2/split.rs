@@ -7,17 +7,21 @@ use std::sync::Arc;
 use vortex_array::ArrayRef;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_io::request::IoSource;
 use vortex_mask::Mask;
 use vortex_scan::planning::driver::Driver;
+use vortex_scan::planning::driver::Progress;
+use vortex_scan::planning::driver::Run;
 use vortex_scan::planning::planner::WorkScope;
 
 use crate::plan::PlanRef;
+use crate::scan::planning::FilterPlanner;
+use crate::scan::planning::ProjectionMorsel;
+use crate::scan::planning::ProjectionPlanner;
 use crate::scan::planning::ScanPlans;
 use crate::scan::planning::plan_split;
+use crate::scan::v2::io::SegmentIoSource;
 use crate::scan::v2::io::SegmentRanges;
-use crate::scan::v2::io::pump;
-use crate::scan::v2::io::segment_io;
-use crate::scan::v2::pool::run_on_driver_thread;
 use crate::segments::SegmentSource;
 
 /// Everything one split needs, captured when the scan is executed.
@@ -36,8 +40,8 @@ impl<A> SplitTask<A> {
     /// Runs the split's pruning, filter, and projection planners and its morsel on the planning
     /// driver.
     ///
-    /// The driver blocks while it waits for reads, so it runs on a dedicated driver thread. This
-    /// future serves its reads meanwhile, on whatever runtime drives the scan.
+    /// The driver runs inside this future, on whichever thread polls it, and the future awaits
+    /// its reads between steps. Nothing is handed to another thread.
     pub(super) async fn run(self) -> VortexResult<Option<A>> {
         let Self {
             plans,
@@ -53,18 +57,43 @@ impl<A> SplitTask<A> {
             return Ok(None);
         }
 
-        let (io, reads, completions) = segment_io(ranges);
-        let io = Arc::new(io);
+        let io = Arc::new(SegmentIoSource::new(segments, ranges));
         let scope = WorkScope {
             file_ordinal: 0,
             rows: range,
         };
         let root = plan_split(plans, pruning, filter, scope, mask)?;
-        let driver = run_on_driver_thread(move || Driver::new(io).run(root));
-        let mut batches = pump(segments, reads, completions, driver).await?;
+        let mut run = SplitRun(Driver::new(Arc::clone(&io) as Arc<dyn IoSource>).start(root));
+        let mut batches = loop {
+            match run.0.advance()? {
+                Progress::Done(batches) => break batches,
+                Progress::Waiting => {
+                    let completion = io.next_completion().await?;
+                    run.0.complete(completion)?;
+                }
+            }
+        };
         if batches.len() > 1 {
             vortex_bail!("A split produced {} batches instead of one", batches.len());
         }
         batches.pop().map(|batch| map_fn(batch.array)).transpose()
     }
 }
+
+/// A split's driver run, carried by the split's future across awaits.
+struct SplitRun(Run);
+
+// SAFETY: A `Run` is not `Send` only because the protocol lets planners and morsels hold
+// thread-local state, and it stores them as `Box<dyn Planner>` and `Box<dyn Morsel>`. The run of a
+// split only ever holds what `plan_split` builds, the `FilterPlanner`, `ProjectionPlanner` and
+// `ProjectionMorsel` asserted `Send` below, and it is owned by one future and never shared, so
+// moving it between threads with that future is sound. Any planner `plan_split` gains must be
+// added to the assertion.
+unsafe impl Send for SplitRun {}
+
+const _: () = {
+    const fn assert_send<T: Send>() {}
+    assert_send::<FilterPlanner>();
+    assert_send::<ProjectionPlanner>();
+    assert_send::<ProjectionMorsel>();
+};

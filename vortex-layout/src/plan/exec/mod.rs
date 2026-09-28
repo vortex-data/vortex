@@ -92,7 +92,7 @@ pub enum Input {
 /// is spawned, again whenever input has arrived for it, and again when it last returned
 /// [`NodeState::Ready`]. Input that arrived since the previous call is taken from the
 /// [`StepCx`]; everything the node produces is recorded there too.
-pub trait ExecNode {
+pub trait ExecNode: Send {
     /// Consumes pending input, does work, and reports when the node needs to run again.
     fn compute(&mut self, cx: &mut StepCx<'_>) -> VortexResult<NodeState>;
 }

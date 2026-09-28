@@ -5,9 +5,10 @@ use rstest::rstest;
 use vortex_array::assert_arrays_eq;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
+use vortex_io::request::IoTarget;
 
 use super::*;
-use vortex_io::request::IoTarget;
+use crate::planning::next::pending;
 use crate::planning::tests::scripted::Log;
 use crate::planning::tests::scripted::MorselStep;
 use crate::planning::tests::scripted::PlannerStep;
@@ -315,7 +316,7 @@ fn lying_source_fails_before_delivery() -> VortexResult<()> {
 
 #[test]
 fn start_failure_propagates() -> VortexResult<()> {
-    let root = crate::planning::next::pending(|| vortex_error::vortex_bail!("cannot start root"));
+    let root = pending(|| vortex_bail!("cannot start root"));
     let err = driver(&source()).run(root).err().map(|e| e.to_string());
     assert!(
         err.as_deref()
@@ -431,7 +432,11 @@ fn optional_publication_does_not_park_or_receive_bytes(
     assert_eq!(submitted.len(), 1);
     assert_eq!(submitted[0].1.intent, intent);
     assert!(source.performed().is_empty());
-    assert!(!log.events().iter().any(|event| event.starts_with("deliver")));
+    assert!(
+        !log.events()
+            .iter()
+            .any(|event| event.starts_with("deliver"))
+    );
     Ok(())
 }
 
@@ -445,7 +450,10 @@ fn optional_requests_cannot_be_wait_dependencies() -> VortexResult<()> {
         vec![PlannerStep::Io(vec![optional])],
         &Log::default(),
     );
-    let error = driver(&source).run(root).err().map(|error| error.to_string());
+    let error = driver(&source)
+        .run(root)
+        .err()
+        .map(|error| error.to_string());
     assert!(error.is_some_and(|error| error.contains("only wait for Fetch")));
     assert!(source.submissions().is_empty());
     Ok(())
