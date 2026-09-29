@@ -16,15 +16,23 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
+use vortex_array::arrays::VarBinArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability::NonNullable;
 use vortex_array::dtype::PType;
+use vortex_array::expr::Expression;
 use vortex_array::expr::and;
+use vortex_array::expr::byte_length;
+use vortex_array::expr::cast;
+use vortex_array::expr::eq;
 use vortex_array::expr::gt;
+use vortex_array::expr::like;
 use vortex_array::expr::lit;
 use vortex_array::expr::lt;
+use vortex_array::expr::not_eq;
 use vortex_array::expr::root;
+use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
@@ -35,6 +43,9 @@ use vortex_session::VortexSession;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
 use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
+use crate::layouts::dict::Dict;
+use crate::layouts::dict::writer::DictLayoutOptions;
+use crate::layouts::dict::writer::DictStrategy;
 use crate::layouts::flat::writer::FlatLayoutStrategy;
 use crate::layouts::row_idx::row_idx;
 use crate::layouts::zoned::writer::ZonedLayoutOptions;
@@ -370,5 +381,91 @@ async fn zone_pruning_reads_only_zones_that_can_match() -> VortexResult<()> {
         &mut session.create_execution_ctx()
     );
     assert_eq!(*recording.reads.lock(), expected_reads);
+    Ok(())
+}
+
+const WORDS: [&str; 4] = ["", "apple", "banana", "cherry"];
+
+/// Four chunks of dictionary-encoded strings cycling through [`WORDS`].
+async fn write_dict_layout(
+    session: &VortexSession,
+) -> VortexResult<(Arc<dyn SegmentSource>, LayoutRef)> {
+    let segments = Arc::new(TestSegments::default());
+    let (mut sequence_id, eof) = SequenceId::root().split();
+    let chunks = (0..4)
+        .map(|chunk| {
+            let words = (0..CHUNK_ROWS).map(|row| WORDS[((row * 7 + chunk) % 4) as usize]);
+            let values = VarBinArray::from_iter_nonnull(words, DType::Utf8(NonNullable));
+            Ok((sequence_id.advance(), values.into_array()))
+        })
+        .collect::<Vec<_>>();
+    let layout = DictStrategy::new(
+        ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+        FlatLayoutStrategy::default(),
+        ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+        DictLayoutOptions::default(),
+        Arc::new(BtrBlocksCompressor::default()),
+    )
+    .write_stream(
+        ArrayContext::empty().into(),
+        Arc::<TestSegments>::clone(&segments),
+        SequentialStreamAdapter::new(DType::Utf8(NonNullable), stream::iter(chunks)).sendable(),
+        eof,
+        session,
+    )
+    .await?;
+    Ok((segments, layout))
+}
+
+/// Expressions over dictionary values run on shared canonical values when the scan also reads
+/// the values whole, and on the encoded values otherwise, including the negative-cost part of a
+/// projection split off from the rest; each returns what the default path returns.
+#[rstest]
+#[case::values_read_whole(root(), Some(eq(root(), lit("apple"))))]
+#[case::byte_length_split(
+    cast(byte_length(root()), DType::Primitive(PType::I64, NonNullable)),
+    Some(not_eq(root(), lit("")))
+)]
+#[case::byte_length_whole(byte_length(root()), Some(like(root(), lit("%an%"))))]
+#[case::no_filter(byte_length(root()), None)]
+#[tokio::test(flavor = "multi_thread")]
+async fn dictionary_expressions_match_default(
+    #[case] projection: Expression,
+    #[case] filter: Option<Expression>,
+) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = write_dict_layout(&session).await?;
+    assert!(
+        layout
+            .depth_first_traversal()
+            .any(|layout| layout.is_ok_and(|layout| layout.is::<Dict>())),
+        "the strings must be dictionary encoded"
+    );
+    let dtype = DType::Utf8(NonNullable);
+    let builder = || -> VortexResult<ScanBuilder<ArrayRef>> {
+        let reader = layout.new_reader(
+            "".into(),
+            Arc::clone(&segments),
+            &session,
+            &Default::default(),
+        )?;
+        let builder =
+            ScanBuilder::new(session.clone(), reader).with_projection(projection.bind(&dtype)?);
+        Ok(match &filter {
+            Some(filter) => builder.with_filter(filter.bind(&dtype)?),
+            None => builder,
+        })
+    };
+    let result_dtype = builder()?.dtype()?;
+
+    let expected = builder()?.into_stream()?.try_collect::<Vec<_>>().await?;
+    let actual = v2::into_stream(builder()?, scan_file(&segments, &layout)?)?
+        .try_collect::<Vec<_>>()
+        .await?;
+    assert_arrays_eq!(
+        ChunkedArray::try_new(actual, result_dtype.clone())?,
+        ChunkedArray::try_new(expected, result_dtype)?,
+        &mut session.create_execution_ctx()
+    );
     Ok(())
 }
