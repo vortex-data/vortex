@@ -9,6 +9,7 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::aggregate_fn::AggregateFnSatisfaction;
 use vortex_array::aggregate_fn::fns::all_nan::AllNan;
 use vortex_array::aggregate_fn::fns::all_non_nan::AllNonNan;
@@ -151,12 +152,12 @@ impl ZoneMap {
         let applied = array.apply_bound(&predicate)?;
 
         if !contains_row_count(&applied) {
-            return applied.null_as_false().execute(&mut ctx);
+            return applied.fill_null(false)?.execute::<Mask>(&mut ctx);
         }
 
         let row_count_array = row_count_array(self.zone_len, self.row_count, num_zones)?;
         let substituted = substitute_row_count(applied, &row_count_array)?;
-        substituted.null_as_false().execute(&mut ctx)
+        substituted.fill_null(false)?.execute::<Mask>(&mut ctx)
     }
 
     fn lower_stats(&self, predicate: BoundExpression) -> VortexResult<BoundExpression> {
