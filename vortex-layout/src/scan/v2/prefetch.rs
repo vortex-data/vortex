@@ -18,6 +18,7 @@ use crate::plan::Filter;
 use crate::plan::Pack;
 use crate::plan::PlanRef;
 use crate::plan::SegmentScan;
+use crate::plan::Share;
 use crate::plan::Take;
 use crate::segments::SegmentId;
 
@@ -55,6 +56,10 @@ pub(super) fn plan_segments(
             let values = take.values()?;
             let len = values.row_count();
             plan_segments(&values, 0..len, segments)?;
+        }
+    } else if let Some(share) = plan.as_opt::<Share>() {
+        if share.cached().is_none() {
+            plan_segments(&share.child_plan()?, rows, segments)?;
         }
     } else if plan.is::<Pack>() || plan.is::<Filter>() || plan.is::<Eval>() {
         for child in plan.children().iter() {

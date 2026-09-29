@@ -22,6 +22,7 @@
 //! [`ScanBuilder::into_stream`]: crate::scan::scan_builder::ScanBuilder::into_stream
 
 mod conjuncts;
+mod file;
 mod io;
 mod lower;
 mod prefetch;
