@@ -58,6 +58,11 @@ impl PlanRef {
         Arc::ptr_eq(&lhs.0, &rhs.0)
     }
 
+    /// The address of the plan, identifying it as [`ptr_eq`](Self::ptr_eq) does.
+    pub(crate) fn addr(&self) -> usize {
+        Arc::as_ptr(&self.0).cast::<()>() as usize
+    }
+
     /// Returns the operator ID.
     pub fn id(&self) -> PlanId {
         self.0.id

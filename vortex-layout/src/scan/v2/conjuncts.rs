@@ -62,16 +62,7 @@ pub(super) fn group_conjuncts(conjuncts: &[BoundExpression]) -> VortexResult<Vec
 /// only values the column contains. Only used for filter conjuncts; projections still filter
 /// first, since a projection may be invalid on rows the filter removed.
 pub(super) fn filter_after_eval(plan: PlanRef) -> VortexResult<PlanRef> {
-    let children = plan
-        .children()
-        .iter()
-        .map(|child| filter_after_eval(child?))
-        .collect::<VortexResult<Vec<_>>>()?;
-    let plan = if children.is_empty() {
-        plan
-    } else {
-        plan.with_children(children)?
-    };
+    let plan = map_children(plan, filter_after_eval)?;
     let Some(eval) = plan.as_opt::<Eval>() else {
         return Ok(plan);
     };
@@ -81,6 +72,27 @@ pub(super) fn filter_after_eval(plan: PlanRef) -> VortexResult<PlanRef> {
     };
     let evaluated = EvalPlan::try_new(eval.expression().clone(), filter.child_plan()?)?;
     Ok(FilterPlan::new(evaluated.into_plan()).into_plan())
+}
+
+/// Rebuilds `plan` over its children mapped by `f`, keeping `plan` itself when no child changed,
+/// so plans shared between the filter and the projection stay shared.
+pub(super) fn map_children(
+    plan: PlanRef,
+    mut f: impl FnMut(PlanRef) -> VortexResult<PlanRef>,
+) -> VortexResult<PlanRef> {
+    let mut changed = false;
+    let mut children = Vec::with_capacity(plan.child_count());
+    for child in plan.children().iter() {
+        let child = child?;
+        let mapped = f(child.clone())?;
+        changed |= !PlanRef::ptr_eq(&child, &mapped);
+        children.push(mapped);
+    }
+    if changed {
+        plan.with_children(children)
+    } else {
+        Ok(plan)
+    }
 }
 
 /// Union-find over conjunct indices, where each set is rooted at its lowest member.

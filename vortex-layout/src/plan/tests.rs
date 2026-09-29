@@ -16,6 +16,8 @@ use vortex_array::dtype::StructFields;
 use vortex_array::expr::Expression;
 use vortex_array::expr::and;
 use vortex_array::expr::bound::and as bound_and;
+use vortex_array::expr::byte_length;
+use vortex_array::expr::cast;
 use vortex_array::expr::checked_add;
 use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
@@ -1094,6 +1096,31 @@ fn multi_field_struct_expression_keeps_cross_field_refinement() -> VortexResult<
         optimized.display_tree().to_string(),
         optimize(optimized.clone())?.display_tree().to_string()
     );
+    Ok(())
+}
+
+#[test]
+fn negative_cost_part_of_expression_pushes_into_dictionary_values() -> VortexResult<()> {
+    let dictionary = DictLayout::new(
+        flat(2, DType::Utf8(Nullability::NonNullable), 0),
+        flat(3, primitive(PType::U8, Nullability::NonNullable), 1),
+    )
+    .into_layout();
+    let expression = cast(
+        byte_length(root()),
+        primitive(PType::I64, Nullability::NonNullable),
+    );
+    let optimized = optimize(make_eval(expression, make_plan(dictionary)?)?.into_plan())?;
+
+    insta::assert_snapshot!(optimized.display_tree(), @"
+    root: vortex.plan.eval(i64, rows=3) expr=cast($ as i64)
+      child: vortex.plan.take(u64, rows=3)
+        codes: vortex.plan.filter(u8, rows=3)
+          child: vortex.plan.segment_scan(u8, rows=3)
+        values: vortex.plan.eval(u64, rows=2) expr=vortex.byte_length($)
+          child: vortex.plan.filter(utf8, rows=2)
+            child: vortex.plan.segment_scan(utf8, rows=2)
+    ");
     Ok(())
 }
 

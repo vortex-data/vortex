@@ -4,6 +4,7 @@
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::DictArray;
+use vortex_array::arrays::Shared;
 use vortex_array::arrays::SharedArray;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -107,10 +108,12 @@ impl ExecNode for TakeNode {
                 .map(|piece| piece.array)
                 .collect();
             let values = join(self.plan.values()?.dtype(), values)?;
-            self.joined = Some(
-                self.plan
-                    .cache_values(SharedArray::new(values).into_array()),
-            );
+            let values = if values.is::<Shared>() {
+                values
+            } else {
+                SharedArray::new(values).into_array()
+            };
+            self.joined = Some(self.plan.cache_values(values));
         }
         let Some(values) = &self.joined else {
             return Ok(NodeState::Waiting);

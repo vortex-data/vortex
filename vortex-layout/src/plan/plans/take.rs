@@ -10,8 +10,11 @@ use parking_lot::Mutex;
 use vortex_array::ArrayRef;
 use vortex_array::EmptyMetadata;
 use vortex_array::dtype::DType;
+use vortex_array::expr::BoundExpression;
+use vortex_array::expr::BoundLabels;
 use vortex_array::expr::ExactBoundExpr;
 use vortex_array::expr::label_bound_tree;
+use vortex_array::scalar_fn::is_negative_cost;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_session::registry::CachedId;
@@ -24,6 +27,7 @@ use crate::plan::PlanId;
 use crate::plan::PlanParts;
 use crate::plan::PlanRef;
 use crate::plan::PlanVTable;
+use crate::plan::Share;
 use crate::plan::check_child_count;
 use crate::plan::exec::ExecNode;
 use crate::plan::exec::Selection;
@@ -167,9 +171,23 @@ impl PlanVTable for Take {
     }
 }
 
-/// Pushes a strict, infallible boolean expression onto the dictionary values of a [`Take`].
+/// Pushes an expression, or the part of it that reads the values, onto the dictionary values of
+/// a [`Take`].
+///
+/// Evaluating over values rather than codes is only sound for strict, infallible expressions:
+/// otherwise per-row behaviour is not preserved.
+///
+/// A boolean expression is pushed whole onto the values as they are, so it stays above any
+/// [`Share`] of them. Otherwise the largest part holding every read of the values and built only
+/// from negative-cost functions, such as the byte length in `cast(byte_length($))`, is pushed
+/// beneath the share, since it is cheaper over the encoded values than canonicalizing them; the
+/// rest stays above the take.
 #[derive(Debug)]
 pub(crate) struct ExpressionTakeRule;
+
+/// Per expression node: whether it reads the root, and whether it is strict, infallible, and built
+/// only from negative-cost functions.
+type Labels = BoundLabels<(bool, bool, bool, bool)>;
 
 impl PlanParentReduceRule<Take> for ExpressionTakeRule {
     type Parent = Eval;
@@ -181,11 +199,6 @@ impl PlanParentReduceRule<Take> for ExpressionTakeRule {
         _child_idx: usize,
     ) -> VortexResult<Option<PlanRef>> {
         let expression = parent.expression();
-        if !expression.dtype().is_boolean() {
-            return Ok(None);
-        }
-        // Evaluating over values rather than codes is only sound when the expression reads the
-        // root, is strict, and cannot fail: otherwise per-row behaviour is not preserved.
         let labels = label_bound_tree(
             expression,
             |node| match node.as_scalar() {
@@ -193,20 +206,99 @@ impl PlanParentReduceRule<Take> for ExpressionTakeRule {
                     false,
                     scalar_fn.signature().is_strict(),
                     scalar_fn.signature().is_infallible(),
+                    is_negative_cost(scalar_fn.id()),
                 ),
-                None => (true, true, true),
+                None => (true, true, true, true),
             },
-            |acc, &child| (acc.0 | child.0, acc.1 & child.1, acc.2 & child.2),
+            |acc, &child| {
+                (
+                    acc.0 | child.0,
+                    acc.1 & child.1,
+                    acc.2 & child.2,
+                    acc.3 & child.3,
+                )
+            },
         );
-        let (references_root, is_strict, is_infallible) = labels
-            .get(&ExactBoundExpr(expression.clone()))
-            .copied()
-            .unwrap_or((false, false, false));
-        if !references_root || !is_strict || !is_infallible {
-            return Ok(None);
+        let label = |node: &BoundExpression| {
+            labels
+                .get(&ExactBoundExpr(node.clone()))
+                .copied()
+                .unwrap_or((false, false, false, false))
+        };
+
+        let (references_root, is_strict, is_infallible, is_negative_cost) = label(expression);
+        if references_root && is_strict && is_infallible && !is_negative_cost {
+            if !expression.dtype().is_boolean() {
+                return Ok(None);
+            }
+            let values = EvalPlan::try_new(expression.clone(), child.values()?)?.into_plan();
+            return Ok(Some(TakePlan::new(child.codes()?, values).into_plan()));
         }
 
-        let values = EvalPlan::try_new(expression.clone(), child.values()?)?.into_plan();
-        Ok(Some(TakePlan::new(child.codes()?, values).into_plan()))
+        let Some(inner) = negative_cost_part(expression, &labels) else {
+            return Ok(None);
+        };
+        let values = child.values()?;
+        let values = match values.as_opt::<Share>() {
+            Some(share) => share.child_plan()?,
+            None => values,
+        };
+        let values = EvalPlan::try_new(inner.clone(), values)?.into_plan();
+        let take = TakePlan::new(child.codes()?, values).into_plan();
+        let outer = replace(
+            expression,
+            &inner,
+            &BoundExpression::new_root(take.dtype().clone()),
+        )?;
+        if outer.dtype() != expression.dtype() {
+            return Ok(None);
+        }
+        if outer.is_root() {
+            return Ok(Some(take));
+        }
+        Ok(Some(EvalPlan::try_new(outer, take)?.into_plan()))
     }
+}
+
+/// The largest strict, infallible, negative-cost part of `expression` holding every read of the
+/// root, unless that is the bare root.
+fn negative_cost_part(expression: &BoundExpression, labels: &Labels) -> Option<BoundExpression> {
+    let (references_root, is_strict, is_infallible, is_negative_cost) =
+        labels.get(&ExactBoundExpr(expression.clone())).copied()?;
+    if !references_root {
+        return None;
+    }
+    if is_strict && is_infallible && is_negative_cost {
+        return (!expression.is_root()).then(|| expression.clone());
+    }
+    let mut reading = expression.children().iter().filter(|child| {
+        labels
+            .get(&ExactBoundExpr((*child).clone()))
+            .is_some_and(|label| label.0)
+    });
+    let child = reading.next()?;
+    if reading.next().is_some() {
+        return None;
+    }
+    negative_cost_part(child, labels)
+}
+
+/// `expression` with each occurrence of `needle` replaced by `replacement`.
+fn replace(
+    expression: &BoundExpression,
+    needle: &BoundExpression,
+    replacement: &BoundExpression,
+) -> VortexResult<BoundExpression> {
+    if ExactBoundExpr(expression.clone()) == ExactBoundExpr(needle.clone()) {
+        return Ok(replacement.clone());
+    }
+    if expression.children().is_empty() {
+        return Ok(expression.clone());
+    }
+    let children = expression
+        .children()
+        .iter()
+        .map(|child| replace(child, needle, replacement))
+        .collect::<VortexResult<Vec<_>>>()?;
+    expression.clone().with_children(children)
 }

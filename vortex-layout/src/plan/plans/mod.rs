@@ -8,6 +8,7 @@ mod list_pack;
 mod pack;
 mod row_idx;
 mod segment_scan;
+mod share;
 mod take;
 mod zoned;
 
@@ -37,6 +38,9 @@ pub use row_idx::row_idx_dtype;
 pub use segment_scan::SegmentScan;
 pub use segment_scan::SegmentScanData;
 pub use segment_scan::SegmentScanPlan;
+pub use share::Share;
+pub use share::ShareData;
+pub use share::SharePlan;
 pub(crate) use take::ExpressionTakeRule;
 pub use take::Take;
 pub use take::TakeData;

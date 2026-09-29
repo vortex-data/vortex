@@ -19,6 +19,7 @@ mod pack;
 mod piece;
 mod row_idx;
 mod segment_scan;
+mod share;
 mod take;
 mod zoned;
 
@@ -494,6 +495,7 @@ pub(crate) use pack::PackNode;
 pub(crate) use piece::Selection;
 pub(crate) use row_idx::RowIdxNode;
 pub(crate) use segment_scan::SegmentScanNode;
+pub(crate) use share::ShareNode;
 pub(crate) use take::TakeNode;
 pub(crate) use zoned::ZonePruneNode;
 

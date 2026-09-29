@@ -36,6 +36,7 @@ use crate::plan::PackPlan;
 use crate::plan::PlanChildren;
 use crate::plan::PlanRef;
 use crate::plan::SegmentScanPlan;
+use crate::plan::SharePlan;
 use crate::plan::TakePlan;
 use crate::plan::ZonedPlan;
 
@@ -150,17 +151,18 @@ fn lower_struct(layout: &StructLayout, zones: Zones) -> VortexResult<PackPlan> {
 }
 
 fn lower_dict(layout: &DictLayout, zones: Zones) -> VortexResult<TakePlan> {
-    // Dict serialization stores values before codes; the plan order is deliberately codes,
-    // values because that is the optimizer-facing logical shape.
-    // SAFETY: Dict layout construction validates its values and codes slots. The plan reorders
-    // those slots to [codes, values] while preserving the derived output dtype and row domain.
-    Ok(unsafe {
-        TakePlan::from_children_unchecked(
-            layout.dtype().clone(),
-            layout.row_count(),
-            lazy_children(layout.to_layout(), vec![1, 0], zones),
-        )
-    })
+    // The values are shared, so an expression pushed onto them runs over values canonicalized
+    // once, and the projection of the same dictionary reuses them, as the V1 dictionary reader does.
+    // Dict serialization stores values before codes; the plan order is codes, values.
+    let layout = layout.to_layout();
+    let slot = |slot| {
+        layout
+            .slot(slot)?
+            .ok_or_else(|| vortex_err!("Dict layout slot {slot} is absent"))
+    };
+    let codes = lower_with(&slot(1)?, zones)?;
+    let values = SharePlan::new(lower_with(&slot(0)?, zones)?).into_plan();
+    Ok(TakePlan::new(codes, values))
 }
 
 fn lower_list(layout: &ListLayout, zones: Zones) -> VortexResult<ListPackPlan> {

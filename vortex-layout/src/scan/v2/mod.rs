@@ -26,6 +26,7 @@ mod io;
 mod lower;
 mod prefetch;
 mod repeated_scan;
+mod share;
 mod split;
 mod stream;
 

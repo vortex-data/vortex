@@ -43,6 +43,7 @@ use crate::scan::v2::io::segment_ranges;
 use crate::scan::v2::lower::lower;
 use crate::scan::v2::lower::lower_with_zones;
 use crate::scan::v2::prefetch::plan_segments;
+use crate::scan::v2::share::unshare_unread;
 use crate::scan::v2::split::SplitTask;
 use crate::segments::SegmentFuture;
 use crate::segments::SegmentSource;
@@ -75,16 +76,18 @@ pub fn prepare<A: 'static + Send>(
         .clone()
         .map(|filter| {
             let conjuncts = group_conjuncts(FilterExpr::new(filter).conjuncts())?;
-            let filter = Arc::new(FilterExpr::from_conjuncts(conjuncts));
-            let plans = filter
-                .conjuncts()
-                .iter()
-                .cloned()
-                .map(|conjunct| filter_after_eval(plan(conjunct)?))
-                .collect::<VortexResult<Vec<_>>>()?;
-            VortexResult::Ok(FilterPlans::conjuncts(filter, plans))
+            VortexResult::Ok(Arc::new(FilterExpr::from_conjuncts(conjuncts)))
         })
         .transpose()?;
+    // The projection comes first, then one plan per conjunct.
+    let mut all_plans = vec![plan(parts.projection.clone())?];
+    for conjunct in filter.iter().flat_map(|filter| filter.conjuncts()) {
+        all_plans.push(filter_after_eval(plan(conjunct.clone())?)?);
+    }
+    let mut all_plans = unshare_unread(all_plans)?;
+    let conjunct_plans = all_plans.split_off(1);
+    let projection = all_plans.remove(0);
+    let filter = filter.map(|filter| FilterPlans::conjuncts(filter, conjunct_plans));
     let pruning = parts
         .filter
         .as_ref()
@@ -94,7 +97,7 @@ pub fn prepare<A: 'static + Send>(
     let plans = ScanPlans {
         session: parts.session,
         locations: Arc::clone(&file.locations),
-        projection: plan(parts.projection.clone())?,
+        projection,
         row_offset: parts.row_offset,
         decoded: DecodeCache::default(),
     };
