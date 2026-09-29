@@ -160,9 +160,7 @@ async def minimize(binary: Path, corpus: Path, work_dir: Path, artifacts: Path, 
         return False
     if len(merges) > 1:
         inputs = [merge.output for merge in merges]
-        final = Merge(
-            "final", inputs, work_dir / "final", sum(len(corpus_files(path)) for path in inputs)
-        )
+        final = Merge("final", inputs, work_dir / "final", sum(len(corpus_files(path)) for path in inputs))
         if final.total == 0 or not await run_phase([final], binary, artifacts, env):
             print("::error::Final merge failed or all shards were empty; retaining original corpus")
             return False
@@ -200,9 +198,7 @@ def main() -> None:
         parser.error("--shards must be positive")
     if not args.binary.is_file() or not args.corpus.is_dir():
         parser.error("the compiled binary and corpus directory must exist")
-    success = asyncio.run(
-        minimize(args.binary.resolve(), args.corpus, args.work_dir, args.artifacts, args.shards)
-    )
+    success = asyncio.run(minimize(args.binary.resolve(), args.corpus, args.work_dir, args.artifacts, args.shards))
     raise SystemExit(0 if success else 1)
 
 

@@ -59,7 +59,7 @@ def test_publish_only_complete_coverage_union(minimizer, tmp_path, monkeypatch, 
     (work / "stale-output").write_bytes(b"must not survive")
     phases = []
 
-    async def fake_phase(merges, *_args) -> bool:
+    async def fake_phase(merges, *_args: object) -> bool:
         phases.append([merge.name for merge in merges])
         assert not (work / "stale-output").exists()
         for merge in merges:
