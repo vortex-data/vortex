@@ -11165,6 +11165,7 @@ dependencies = [
  "rstest",
  "vortex-alp",
  "vortex-array",
+ "vortex-bench-support",
  "vortex-buffer",
  "vortex-error",
  "vortex-fastlanes",

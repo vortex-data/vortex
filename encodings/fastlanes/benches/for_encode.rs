@@ -4,6 +4,10 @@
 //! Compare `FoR::encode`, which subtracts one reference from every value, against
 //! `FoR::encode_chunked`, which subtracts a reference per 1024-element chunk.
 //!
+//! Every benchmark carries `#[cpu_features]`, so it is measured on each walltime CPU-feature leg
+//! rather than in simulation: the loops under test are auto-vectorized, so the build decides
+//! their speed.
+//!
 //! Run with `cargo bench -p vortex-fastlanes --bench for_encode`.
 
 #![expect(clippy::unwrap_used)]
@@ -37,14 +41,19 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     session
 });
 
-const LENS: &[usize] = &[1024, 16 * 1024];
+/// Bytes of values per input array.
+const INPUT_BYTES: &[usize] = &[256 * 1024, 512 * 1024];
 
 type Encode = fn(PrimitiveArray, &mut ExecutionCtx) -> VortexResult<FoRArray>;
 
 /// Values that step up by 1000 every chunk, with a small spread within each chunk.
 fn values<T: NativePType + TryFrom<usize>>(len: usize) -> Buffer<T> {
     (0..len)
-        .map(|i| T::try_from((i / 1024) * 1000 + (i * 7919) % 100).ok().unwrap())
+        .map(|i| {
+            T::try_from((i / 1024) * 1000 + (i * 7919) % 100)
+                .ok()
+                .unwrap()
+        })
         .collect()
 }
 
@@ -58,10 +67,11 @@ fn validity(len: usize, nullable: bool) -> Validity {
 
 fn run<T: NativePType + TryFrom<usize>>(
     bencher: Bencher,
-    len: usize,
+    bytes: usize,
     nullable: bool,
     encode: Encode,
 ) {
+    let len = bytes / size_of::<T>();
     let buffer = values::<T>(len);
     let validity = validity(len, nullable);
     bencher
@@ -71,22 +81,26 @@ fn run<T: NativePType + TryFrom<usize>>(
         .bench_local_values(|array| encode(array, &mut SESSION.create_execution_ctx()).unwrap());
 }
 
-#[divan::bench(types = [u32, i64], args = LENS)]
-fn encode<T: NativePType + TryFrom<usize>>(bencher: Bencher, len: usize) {
-    run::<T>(bencher, len, false, FoR::encode);
+#[vortex_bench_support::cpu_features]
+#[divan::bench(types = [u32, i64], args = INPUT_BYTES)]
+fn encode<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usize) {
+    run::<T>(bencher, bytes, false, FoR::encode);
 }
 
-#[divan::bench(types = [u32, i64], args = LENS)]
-fn encode_chunked<T: NativePType + TryFrom<usize>>(bencher: Bencher, len: usize) {
-    run::<T>(bencher, len, false, FoR::encode_chunked);
+#[vortex_bench_support::cpu_features]
+#[divan::bench(types = [u32, i64], args = INPUT_BYTES)]
+fn encode_chunked<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usize) {
+    run::<T>(bencher, bytes, false, FoR::encode_chunked);
 }
 
-#[divan::bench(types = [u32, i64], args = LENS)]
-fn encode_nullable<T: NativePType + TryFrom<usize>>(bencher: Bencher, len: usize) {
-    run::<T>(bencher, len, true, FoR::encode);
+#[vortex_bench_support::cpu_features]
+#[divan::bench(types = [u32, i64], args = INPUT_BYTES)]
+fn encode_nullable<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usize) {
+    run::<T>(bencher, bytes, true, FoR::encode);
 }
 
-#[divan::bench(types = [u32, i64], args = LENS)]
-fn encode_chunked_nullable<T: NativePType + TryFrom<usize>>(bencher: Bencher, len: usize) {
-    run::<T>(bencher, len, true, FoR::encode_chunked);
+#[vortex_bench_support::cpu_features]
+#[divan::bench(types = [u32, i64], args = INPUT_BYTES)]
+fn encode_chunked_nullable<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usize) {
+    run::<T>(bencher, bytes, true, FoR::encode_chunked);
 }

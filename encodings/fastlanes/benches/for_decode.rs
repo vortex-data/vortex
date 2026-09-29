@@ -7,6 +7,10 @@
 //! Every chunk spans the same range of values, so both encodings pack at the same bit width and
 //! the difference between them is the cost of the per-chunk references.
 //!
+//! Every benchmark carries `#[cpu_features]`, so it is measured on each walltime CPU-feature leg
+//! rather than in simulation: the loops under test are auto-vectorized, so the build decides
+//! their speed.
+//!
 //! Run with `cargo bench -p vortex-fastlanes --bench for_decode`.
 
 #![expect(clippy::unwrap_used)]
@@ -41,7 +45,8 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     session
 });
 
-const LENS: &[usize] = &[1024, 16 * 1024];
+/// Bytes of values per input array.
+const INPUT_BYTES: &[usize] = &[256 * 1024, 512 * 1024];
 
 /// Enough bits for the values' spread above their minimum.
 const BIT_WIDTH: u8 = 7;
@@ -75,10 +80,11 @@ fn for_array<T: NativePType + TryFrom<usize>>(
 
 fn run<T: NativePType + TryFrom<usize>>(
     bencher: Bencher,
-    len: usize,
+    bytes: usize,
     chunked: bool,
     bitpacked: bool,
 ) {
+    let len = bytes / size_of::<T>();
     let array = for_array::<T>(len, chunked, bitpacked);
     bencher
         .counter(ItemsCount::new(len))
@@ -86,22 +92,26 @@ fn run<T: NativePType + TryFrom<usize>>(
         .bench_refs(|(array, ctx)| (*array).clone().execute::<PrimitiveArray>(ctx).unwrap());
 }
 
-#[divan::bench(types = [u32, i64], args = LENS)]
-fn decode<T: NativePType + TryFrom<usize>>(bencher: Bencher, len: usize) {
-    run::<T>(bencher, len, false, false);
+#[vortex_bench_support::cpu_features]
+#[divan::bench(types = [u32, i64], args = INPUT_BYTES)]
+fn decode<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usize) {
+    run::<T>(bencher, bytes, false, false);
 }
 
-#[divan::bench(types = [u32, i64], args = LENS)]
-fn decode_chunked<T: NativePType + TryFrom<usize>>(bencher: Bencher, len: usize) {
-    run::<T>(bencher, len, true, false);
+#[vortex_bench_support::cpu_features]
+#[divan::bench(types = [u32, i64], args = INPUT_BYTES)]
+fn decode_chunked<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usize) {
+    run::<T>(bencher, bytes, true, false);
 }
 
-#[divan::bench(types = [u32, i64], args = LENS)]
-fn decode_bitpacked<T: NativePType + TryFrom<usize>>(bencher: Bencher, len: usize) {
-    run::<T>(bencher, len, false, true);
+#[vortex_bench_support::cpu_features]
+#[divan::bench(types = [u32, i64], args = INPUT_BYTES)]
+fn decode_bitpacked<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usize) {
+    run::<T>(bencher, bytes, false, true);
 }
 
-#[divan::bench(types = [u32, i64], args = LENS)]
-fn decode_bitpacked_chunked<T: NativePType + TryFrom<usize>>(bencher: Bencher, len: usize) {
-    run::<T>(bencher, len, true, true);
+#[vortex_bench_support::cpu_features]
+#[divan::bench(types = [u32, i64], args = INPUT_BYTES)]
+fn decode_bitpacked_chunked<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usize) {
+    run::<T>(bencher, bytes, true, true);
 }
