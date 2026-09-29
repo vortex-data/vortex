@@ -40,7 +40,7 @@ of parallelism.
 ## Filter and Projection Pushdown
 
 The integration converts DataFusion physical expressions into Vortex expressions using an
-`ExpressionConvertor` trait. Supported predicates (comparisons, LIKE, IS NULL, IN lists, casts)
+`ExpressionConverter` trait. Supported predicates (comparisons, LIKE, IS NULL, IN lists, casts)
 are pushed into the Vortex scan where they participate in pruning and filter evaluation at the
 layout level. Unsupported predicates remain in the DataFusion plan and are evaluated after the
 scan.
@@ -52,7 +52,7 @@ efficiently is pushed into the per-file scan for row-level filtering.
 Projection pushdown maps DataFusion's requested column indices to Vortex field names and passes
 them as a projection expression to the scan. Only the requested columns are read from storage.
 
-The integration supports pluggable expression conversion via a custom `ExpressionConvertor`,
+The integration supports pluggable expression conversion via a custom `ExpressionConverter`,
 allowing engine-specific rewrites or schema adaptation when file schemas diverge from the table
 schema.
 

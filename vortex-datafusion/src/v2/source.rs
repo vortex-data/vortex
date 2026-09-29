@@ -105,7 +105,7 @@ use vortex::dtype::Nullability;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::expr::Expression;
-use vortex::expr::and as vx_and;
+use vortex::expr::and_collect;
 use vortex::expr::get_item;
 use vortex::expr::pack;
 use vortex::expr::root;
@@ -118,10 +118,9 @@ use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_utils::parallelism::get_available_parallelism;
 
-use crate::convert::exprs::DefaultExpressionConvertor;
-use crate::convert::exprs::ExpressionConvertor;
+use crate::convert::exprs::DefaultExpressionConverter;
+use crate::convert::exprs::ExpressionConverter;
 use crate::convert::exprs::ProcessedProjection;
-use crate::convert::exprs::make_vortex_predicate;
 use crate::convert::stats::stats_set_to_df;
 
 /// Builder for [`VortexDataSource`].
@@ -545,17 +544,18 @@ impl DataSource for VortexDataSource {
             projection
         );
 
-        let convertor = DefaultExpressionConvertor::default();
+        let converter = DefaultExpressionConverter::new(self.session.clone());
         let input_schema = self.initial_schema.as_ref();
         let projected_schema = projection.project_schema(input_schema)?;
 
-        // Use the shared ExpressionConvertor to split the projection into a Vortex
+        // Use the shared ExpressionConverter to split the projection into a Vortex
         // scan_projection and a leftover DataFusion projection for expressions that
         // can't be pushed down (e.g., unsupported scalar functions, decimal binary).
         let ProcessedProjection {
             scan_projection,
             leftover_projection,
-        } = convertor.split_projection(projection.clone(), input_schema, &projected_schema)?;
+            ..
+        } = converter.split_projection(projection.clone(), input_schema, &projected_schema)?;
 
         // Compose with the initial projection so the scan operates on the original
         // source columns, not the initial projection's output columns.
@@ -602,15 +602,28 @@ impl DataSource for VortexDataSource {
             ));
         }
 
-        let convertor = DefaultExpressionConvertor::default();
-        let input_schema = self.initial_schema.as_ref();
+        let converter = DefaultExpressionConverter::new(self.session.clone());
+        let filters = filters
+            .into_iter()
+            .map(|filter| {
+                let filter = match &self.leftover_projection {
+                    Some(projection) => projection.unproject_expr(&filter)?,
+                    None => filter,
+                };
+                reassign_expr_columns(filter, &self.projected_schema)
+            })
+            .collect::<DFResult<Vec<_>>>()?;
 
         // Classify each filter: pushable filters are passed into the ScanRequest in open(),
         // so we can safely claim PushedDown::Yes for them.
-        let pushdown_results: Vec<PushedDown> = filters
+        let converted = filters
+            .iter()
+            .map(|expr| converter.try_convert(expr, &self.projected_schema))
+            .collect::<DFResult<Vec<_>>>()?;
+        let pushdown_results: Vec<PushedDown> = converted
             .iter()
             .map(|expr| {
-                if convertor.can_be_pushed_down(expr, input_schema) {
+                if expr.is_some() {
                     PushedDown::Yes
                 } else {
                     PushedDown::No
@@ -625,29 +638,14 @@ impl DataSource for VortexDataSource {
             ));
         }
 
-        // Collect the pushable filter expressions.
-        let pushable: Vec<Arc<dyn PhysicalExpr>> = filters
-            .iter()
-            .zip(pushdown_results.iter())
-            .filter_map(|(expr, pushed)| match pushed {
-                PushedDown::Yes => Some(Arc::clone(expr)),
-                PushedDown::No => None,
-            })
-            .collect();
-
-        // Convert to Vortex conjunction.
-        let vortex_pred = make_vortex_predicate(&convertor, &pushable)?;
-
-        // Combine with existing filter.
-        let new_filter = match (&self.filter, vortex_pred) {
-            (Some(existing), Some(new_pred)) => Some(vx_and(existing.clone(), new_pred)),
-            (Some(existing), None) => Some(existing.clone()),
-            (None, Some(new_pred)) => Some(new_pred),
-            (None, None) => None,
-        };
-
+        // Rewrite the pushed filters over the scan's source columns and conjoin them with any
+        // existing filter.
+        let pushed = converted
+            .into_iter()
+            .flatten()
+            .map(|expr| replace(expr, &root(), self.projected_projection.clone()));
         let mut this = self.clone();
-        this.filter = new_filter;
+        this.filter = and_collect(self.filter.iter().cloned().chain(pushed));
         Ok(
             FilterPushdownPropagation::with_parent_pushdown_result(pushdown_results)
                 .with_updated_node(Arc::new(this) as _),

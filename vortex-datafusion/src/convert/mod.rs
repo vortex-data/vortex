@@ -4,7 +4,7 @@
 //! Utilities and interface to convert DataFusion types to Vortex types.
 //!
 //! Currently includes:
-//! [`ExpressionConvertor`] - Controls the rewrite of DataFusion expressions to Vortex expressions, and whether they can
+//! [`ExpressionConverter`] - Controls the rewrite of DataFusion expressions to Vortex expressions, and whether they can
 //! be pushed into the underlying scan. A default implementation is provided.
 //! [`FromDataFusion`] - Converts a DataFusion type into a Vortex type infallible.
 //! [TryToDataFusion] - Fallibly converts a Vortex type to a DataFusion type.
@@ -16,8 +16,8 @@ mod scalars;
 pub(crate) mod schema;
 pub(crate) mod stats;
 
-pub use exprs::DefaultExpressionConvertor;
-pub use exprs::ExpressionConvertor;
+pub use exprs::DefaultExpressionConverter;
+pub use exprs::ExpressionConverter;
 pub use exprs::ProcessedProjection;
 pub use scalars::scalar_from_df;
 

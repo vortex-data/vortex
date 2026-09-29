@@ -39,8 +39,8 @@ use vortex_utils::aliases::dash_map::DashMap;
 use super::opener::NaturalSplits;
 use super::opener::VortexOpener;
 use crate::VortexTableOptions;
-use crate::convert::exprs::DefaultExpressionConvertor;
-use crate::convert::exprs::ExpressionConvertor;
+use crate::convert::exprs::DefaultExpressionConverter;
+use crate::convert::exprs::ExpressionConverter;
 use crate::persistent::reader::DefaultVortexReaderFactory;
 use crate::persistent::reader::VortexReaderFactory;
 
@@ -129,23 +129,25 @@ use crate::persistent::reader::VortexReaderFactory;
 ///
 /// - `full_predicate`, which is used by DataFusion's `FilePruner` to skip whole
 ///   files before they are opened,
-/// - `vortex_predicate`, which contains only the expressions Vortex can evaluate
-///   during the scan.
+/// - `vortex_predicate`, which contains accepted exact filters. After per-file
+///   adaptation, these run either natively or as DataFusion residual filters.
 ///
 /// Projection handling depends on
 /// [`VortexTableOptions::projection_pushdown`]:
 ///
 /// - when disabled, `VortexSource` still prunes unreferenced top-level columns,
 ///   but DataFusion applies the full projection after the scan,
-/// - when enabled, the scan can evaluate a Vortex-native projection and leave
-///   only unsupported expressions for DataFusion.
+/// - when enabled, the default converter evaluates fully supported projections
+///   natively. Otherwise, DataFusion evaluates the full projection over raw columns.
 ///
 /// Predicate handling depends on [`VortexTableOptions::predicate_pushdown`]:
 ///
 /// - when disabled, `VortexSource` still keeps the full predicate for
 ///   DataFusion file pruning, but reports filters as not pushed down so
 ///   DataFusion evaluates them after the scan,
-/// - when enabled, supported filters are pushed into the Vortex scan.
+/// - when enabled, supported filters are pushed into the Vortex scan. If file
+///   adaptation requires residual filtering, DataFusion filters raw scan batches
+///   before the final projection and limit.
 ///
 /// # Observability
 ///
@@ -187,8 +189,7 @@ pub struct VortexSource {
     /// Combined predicate expression containing all filters from DataFusion query planning.
     /// Used with FilePruner to skip files based on statistics and partition values.
     pub(crate) full_predicate: Option<PhysicalExprRef>,
-    /// Subset of predicates that can be pushed down into Vortex scan operations.
-    /// These are expressions that Vortex can efficiently evaluate during scanning.
+    /// Accepted exact predicates, evaluated natively or as per-file residuals.
     pub(crate) vortex_predicate: Option<PhysicalExprRef>,
     /// DataFusion-native metrics exposed through `DataSourceExec`.
     df_metrics: ExecutionPlanMetricsSet,
@@ -198,7 +199,7 @@ pub struct VortexSource {
     layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
     /// Shared full-file natural splits keyed by path.
     natural_splits: Arc<DashMap<Path, Arc<NaturalSplits>>>,
-    expression_convertor: Arc<dyn ExpressionConvertor>,
+    expression_converter: Arc<dyn ExpressionConverter>,
     pub(crate) vortex_reader_factory: Option<Arc<dyn VortexReaderFactory>>,
     pub(crate) ordered: bool,
     vx_metrics_registry: Arc<dyn MetricsRegistry>,
@@ -220,7 +221,7 @@ impl VortexSource {
         let full_schema = table_schema.table_schema();
         let indices = (0..full_schema.fields().len()).collect::<Vec<_>>();
         let projection = ProjectionExprs::from_indices(&indices, full_schema);
-        let expression_convertor = Arc::new(DefaultExpressionConvertor::new(session.clone()));
+        let expression_converter = Arc::new(DefaultExpressionConverter::new(session.clone()));
 
         Self {
             session,
@@ -231,7 +232,7 @@ impl VortexSource {
             df_metrics: Default::default(),
             layout_readers: Arc::new(DashMap::default()),
             natural_splits: Arc::new(DashMap::default()),
-            expression_convertor,
+            expression_converter,
             vortex_reader_factory: None,
             vx_metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             file_metadata_cache: None,
@@ -259,16 +260,16 @@ impl VortexSource {
         self
     }
 
-    /// Sets the [`ExpressionConvertor`] used to translate DataFusion expressions
+    /// Sets the [`ExpressionConverter`] used to translate DataFusion expressions
     /// into Vortex expressions.
     ///
     /// Override this when the default converter is insufficient for an engine
     /// integration or for a custom schema-adaptation strategy.
-    pub fn with_expression_convertor(
+    pub fn with_expression_converter(
         mut self,
-        expr_convertor: Arc<dyn ExpressionConvertor>,
+        expr_converter: Arc<dyn ExpressionConverter>,
     ) -> Self {
-        self.expression_convertor = expr_convertor;
+        self.expression_converter = expr_converter;
         self
     }
 
@@ -356,7 +357,7 @@ impl VortexSource {
             layout_readers: Arc::clone(&self.layout_readers),
             natural_splits: Arc::clone(&self.natural_splits),
             has_output_ordering: !base_config.output_ordering.is_empty() || self.ordered,
-            expression_convertor: Arc::clone(&self.expression_convertor),
+            expression_converter: Arc::clone(&self.expression_converter),
             file_metadata_cache: self.file_metadata_cache.clone(),
             projection_pushdown: self.options.projection_pushdown,
             scan_concurrency: self.options.scan_concurrency,
@@ -473,15 +474,16 @@ impl FileSource for VortexSource {
             .into_iter()
             .map(|expr| {
                 if self
-                    .expression_convertor
-                    .can_be_pushed_down(&expr, self.table_schema.file_schema())
+                    .expression_converter
+                    .try_convert(&expr, self.table_schema.table_schema())?
+                    .is_some()
                 {
-                    PushedDownPredicate::supported(expr)
+                    Ok(PushedDownPredicate::supported(expr))
                 } else {
-                    PushedDownPredicate::unsupported(expr)
+                    Ok(PushedDownPredicate::unsupported(expr))
                 }
             })
-            .collect::<Vec<_>>();
+            .collect::<DFResult<Vec<_>>>()?;
 
         if supported_filters
             .iter()
@@ -568,17 +570,17 @@ mod tests {
     use super::*;
     use crate::convert::exprs::ProcessedProjection;
 
-    struct TrackingExpressionConvertor {
-        inner: DefaultExpressionConvertor,
+    struct TrackingExpressionConverter {
+        inner: DefaultExpressionConverter,
     }
 
-    impl ExpressionConvertor for TrackingExpressionConvertor {
-        fn can_be_pushed_down(&self, expr: &PhysicalExprRef, schema: &Schema) -> bool {
-            self.inner.can_be_pushed_down(expr, schema)
-        }
-
-        fn convert(&self, expr: &dyn PhysicalExpr) -> DFResult<vortex::expr::Expression> {
-            self.inner.convert(expr)
+    impl ExpressionConverter for TrackingExpressionConverter {
+        fn try_convert(
+            &self,
+            expr: &PhysicalExprRef,
+            schema: &Schema,
+        ) -> DFResult<Option<vortex::expr::Expression>> {
+            self.inner.try_convert(expr, schema)
         }
 
         fn split_projection(
@@ -662,14 +664,14 @@ mod tests {
     }
 
     #[test]
-    fn create_vortex_opener_preserves_expression_convertor() -> anyhow::Result<()> {
+    fn create_vortex_opener_preserves_expression_converter() -> anyhow::Result<()> {
         let file_schema = Arc::new(Schema::new(vec![Field::new("a", DataType::Int32, false)]));
-        let expression_convertor = Arc::new(TrackingExpressionConvertor {
-            inner: DefaultExpressionConvertor::default(),
-        }) as Arc<dyn ExpressionConvertor>;
+        let expression_converter = Arc::new(TrackingExpressionConverter {
+            inner: DefaultExpressionConverter::default(),
+        }) as Arc<dyn ExpressionConverter>;
 
         let source = VortexSource::new(TableSchema::from(file_schema), VortexSession::default())
-            .with_expression_convertor(Arc::clone(&expression_convertor));
+            .with_expression_converter(Arc::clone(&expression_converter));
 
         let config = FileScanConfigBuilder::new(
             ObjectStoreUrl::local_filesystem(),
@@ -684,8 +686,8 @@ mod tests {
         )?;
 
         assert!(Arc::ptr_eq(
-            &opener.expression_convertor,
-            &expression_convertor
+            &opener.expression_converter,
+            &expression_converter
         ));
         Ok(())
     }
