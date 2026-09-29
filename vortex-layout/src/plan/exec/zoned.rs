@@ -25,12 +25,14 @@ use crate::plan::exec::StepCx;
 use crate::plan::exec::piece::Selection;
 use crate::plan::exec::piece::empty_piece;
 use crate::plan::exec::piece::join;
+use crate::plan::plans::PrunedZones;
 
 /// Evaluates a pruning proof over a column's zone table and returns, for every selected row,
 /// whether the proof holds for the row's zone.
 ///
-/// The zone table is read and the proof evaluated once per plan: the per-zone result is cached on
-/// the plan, so every later execution only expands it to its rows and issues no reads.
+/// The zone table is read once per plan and kept on it with the per-zone result, so every later
+/// execution only expands the result to its rows and issues no reads. A proof with dynamic
+/// comparisons is proven again over the kept zones when one of them changes.
 pub(crate) struct ZonePruneNode {
     plan: ZonedPlan,
     selection: Selection,
@@ -48,7 +50,8 @@ impl ZonePruneNode {
         }
     }
 
-    /// Evaluates the proof over the joined zone table, one value per zone.
+    /// Builds the zone map from the joined zone table and proves the expression over it, one
+    /// value per zone, keeping both on the plan.
     fn prune(&mut self, cx: &StepCx<'_>) -> VortexResult<Mask> {
         let zones_plan = self.plan.zones_plan()?;
         self.zones.sort_by_key(|piece| piece.rows.start);
@@ -71,7 +74,14 @@ impl ZonePruneNode {
             self.plan.zone_len(),
             self.plan.row_count(),
         )?;
-        zone_map.prune(expression, cx.session())
+        self.pruned_zones()?
+            .init(zone_map, expression, cx.session())
+    }
+
+    fn pruned_zones(&self) -> VortexResult<&Arc<PrunedZones>> {
+        self.plan
+            .pruned_zones()
+            .ok_or_else(|| vortex_err!("ZonePruneNode needs a pruning plan"))
     }
 
     /// Expands the per-zone result to one value per selected row.
@@ -120,12 +130,12 @@ impl ExecNode for ZonePruneNode {
                 cx.close();
                 return Ok(NodeState::Done);
             }
-            let cache = self
+            let expression = self
                 .plan
-                .pruned_zones()
+                .pruning_expression()
                 .ok_or_else(|| vortex_err!("ZonePruneNode needs a pruning plan"))?;
-            if let Some(pruned) = cache.get() {
-                cx.emit(self.expand(pruned)?);
+            if let Some(pruned) = self.pruned_zones()?.get(expression, cx.session())? {
+                cx.emit(self.expand(&pruned)?);
                 cx.close();
                 return Ok(NodeState::Done);
             }
@@ -138,13 +148,7 @@ impl ExecNode for ZonePruneNode {
                 Input::Piece(piece) => self.zones.push(piece),
                 Input::Closed => {
                     let pruned = self.prune(cx)?;
-                    let cache = self
-                        .plan
-                        .pruned_zones()
-                        .ok_or_else(|| vortex_err!("ZonePruneNode needs a pruning plan"))?;
-                    // Another execution may have filled the cache first; both results agree.
-                    let pruned = cache.get_or_init(|| pruned);
-                    cx.emit(self.expand(pruned)?);
+                    cx.emit(self.expand(&pruned)?);
                     cx.close();
                     return Ok(NodeState::Done);
                 }

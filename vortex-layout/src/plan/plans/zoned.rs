@@ -5,8 +5,8 @@ use std::borrow::Cow;
 use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
-use std::sync::OnceLock;
 
+use parking_lot::RwLock;
 use vortex_array::EmptyMetadata;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::dtype::DType;
@@ -14,12 +14,15 @@ use vortex_array::expr::BoundExpression;
 use vortex_array::expr::traversal::NodeExt;
 use vortex_array::expr::traversal::Transformed;
 use vortex_array::expr::traversal::TraversalOrder;
+use vortex_array::scalar_fn::fns::dynamic::DynamicExprUpdates;
 use vortex_array::scalar_fn::fns::stat::StatFn;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use crate::layouts::zoned::zone_map::ZoneMap;
 use crate::plan::Eval;
 use crate::plan::Plan;
 use crate::plan::PlanChildren;
@@ -41,9 +44,84 @@ struct ZonedPruningState {
     expression: BoundExpression,
     /// The dtype of the column the zones summarise, which the expression is bound to.
     column_dtype: DType,
-    /// Which zones the expression proves can be pruned, computed once and shared by every
-    /// execution of this plan.
-    pruned_zones: Arc<OnceLock<Mask>>,
+    /// Which zones the expression proves can be pruned, shared by every execution of this plan.
+    pruned_zones: Arc<PrunedZones>,
+}
+
+/// Which zones a pruning expression proves can be pruned, shared by every execution of a plan.
+///
+/// The zone table is read once and kept. An expression with dynamic comparisons, such as a top-N
+/// bound an engine tightens during the scan, is proven again over the kept zones whenever one of
+/// them changes, as the default scan's zoned reader does.
+pub(crate) struct PrunedZones {
+    updates: Option<DynamicExprUpdates>,
+    /// The zones, and the pruned zones as of an update version.
+    state: RwLock<Option<(ZoneMap, u64, Mask)>>,
+}
+
+impl PrunedZones {
+    fn new(expression: &BoundExpression) -> Self {
+        Self {
+            updates: DynamicExprUpdates::new(expression),
+            state: RwLock::new(None),
+        }
+    }
+
+    fn version(&self) -> u64 {
+        self.updates.as_ref().map_or(0, DynamicExprUpdates::version)
+    }
+
+    /// The pruned zones, proven again if a dynamic comparison changed, or `None` before any
+    /// execution read the zones.
+    pub(crate) fn get(
+        &self,
+        expression: &BoundExpression,
+        session: &VortexSession,
+    ) -> VortexResult<Option<Mask>> {
+        let version = self.version();
+        {
+            let state = self.state.read();
+            match &*state {
+                None => return Ok(None),
+                Some((_, proven, pruned)) if *proven >= version => return Ok(Some(pruned.clone())),
+                Some(_) => {}
+            }
+        }
+        let mut state = self.state.write();
+        let Some((zones, proven, pruned)) = state.as_mut() else {
+            return Ok(None);
+        };
+        if *proven < version {
+            *pruned = zones.prune(expression, session)?;
+            *proven = version;
+        }
+        Ok(Some(pruned.clone()))
+    }
+
+    /// Proves `expression` over `zones` and keeps both, unless another execution did first.
+    pub(crate) fn init(
+        &self,
+        zones: ZoneMap,
+        expression: &BoundExpression,
+        session: &VortexSession,
+    ) -> VortexResult<Mask> {
+        let version = self.version();
+        let pruned = zones.prune(expression, session)?;
+        let mut state = self.state.write();
+        if state.is_none() {
+            *state = Some((zones, version, pruned.clone()));
+        }
+        Ok(pruned)
+    }
+}
+
+impl fmt::Debug for PrunedZones {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PrunedZones")
+            .field("dynamic", &self.updates.is_some())
+            .field("read", &self.state.read().is_some())
+            .finish()
+    }
 }
 
 /// Zoned-plan-specific data.
@@ -126,7 +204,7 @@ impl ZonedPlan {
     }
 
     /// Returns the cache of pruned zones shared by every execution of this pruning plan.
-    pub(crate) fn pruned_zones(&self) -> Option<&Arc<OnceLock<Mask>>> {
+    pub(crate) fn pruned_zones(&self) -> Option<&Arc<PrunedZones>> {
         self.data()
             .pruning
             .as_ref()
@@ -165,7 +243,7 @@ impl ZonedPlan {
         data.pruning = Some(ZonedPruningState {
             expression: expression.clone(),
             column_dtype: self.dtype().clone(),
-            pruned_zones: Arc::new(OnceLock::new()),
+            pruned_zones: Arc::new(PrunedZones::new(&expression)),
         });
         Ok(Some(
             PlanParts {

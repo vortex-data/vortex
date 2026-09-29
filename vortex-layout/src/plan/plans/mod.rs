@@ -46,6 +46,7 @@ pub use take::Take;
 pub use take::TakeData;
 pub use take::TakePlan;
 pub(crate) use zoned::ExpressionZonedRule;
+pub(crate) use zoned::PrunedZones;
 pub use zoned::Zoned;
 pub use zoned::ZonedData;
 pub use zoned::ZonedPlan;

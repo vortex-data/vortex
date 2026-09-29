@@ -14,7 +14,9 @@ use vortex_array::expr::BoundExpression;
 use vortex_array::expr::BoundLabels;
 use vortex_array::expr::ExactBoundExpr;
 use vortex_array::expr::label_bound_tree;
+use vortex_array::scalar_fn::fns::dynamic::DynamicComparison;
 use vortex_array::scalar_fn::is_negative_cost;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_session::registry::CachedId;
@@ -51,9 +53,34 @@ pub type TakePlan = Plan<Take>;
 /// and projection of a scan, shares one copy: later executions skip reading and decoding them,
 /// and see the same array, which lets consumers that cache per dictionary recognise it. A plan
 /// rebuilt with new children starts empty.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct TakeData {
     values: Arc<Mutex<Option<ArrayRef>>>,
+    /// Whether the values may be kept. Values evaluated with a dynamic comparison change as the
+    /// engine updates it, so each execution evaluates them again.
+    cacheable: bool,
+}
+
+impl Default for TakeData {
+    fn default() -> Self {
+        Self {
+            values: Default::default(),
+            cacheable: true,
+        }
+    }
+}
+
+impl TakeData {
+    fn for_values(values: &PlanRef) -> VortexResult<Self> {
+        let dynamic = match values.as_opt::<Eval>() {
+            Some(eval) => eval.expression().contains::<DynamicComparison>()?,
+            None => false,
+        };
+        Ok(Self {
+            values: Default::default(),
+            cacheable: !dynamic,
+        })
+    }
 }
 
 impl fmt::Debug for TakeData {
@@ -94,8 +121,15 @@ impl TakePlan {
             .dtype()
             .union_nullability(codes.dtype().nullability());
         let row_count = codes.row_count();
-        // SAFETY: Parent metadata is derived from the ordered children immediately above.
-        unsafe { Self::from_children_unchecked(dtype, row_count, vec![codes, values].into()) }
+        let data = TakeData::for_values(&values).vortex_expect("expression traversal cannot fail");
+        PlanParts {
+            vtable: Take,
+            dtype,
+            row_count,
+            children: vec![codes, values].into(),
+            data,
+        }
+        .into_typed()
     }
 
     /// Returns the plan producing indices.
@@ -113,8 +147,12 @@ impl TakePlan {
         self.data().values.lock().clone()
     }
 
-    /// Records the values for later executions, keeping the first when two race.
+    /// Records the values for later executions, keeping the first when two race, unless the
+    /// values may not be kept.
     pub(crate) fn cache_values(&self, values: ArrayRef) -> ArrayRef {
+        if !self.data().cacheable {
+            return values;
+        }
         self.data().values.lock().get_or_insert(values).clone()
     }
 }
@@ -138,14 +176,14 @@ impl PlanVTable for Take {
         data: &mut Self::PlanData,
     ) -> VortexResult<()> {
         check_child_count("Take", children, 2)?;
-        // New children may produce different values.
-        *data = TakeData::default();
         let codes = children
             .get(CODES)?
             .ok_or_else(|| vortex_error::vortex_err!("Take codes child is absent"))?;
         let values = children
             .get(VALUES)?
             .ok_or_else(|| vortex_error::vortex_err!("Take values child is absent"))?;
+        // New children may produce different values.
+        *data = TakeData::for_values(&values)?;
         let dtype = values
             .dtype()
             .union_nullability(codes.dtype().nullability());
@@ -174,7 +212,8 @@ impl PlanVTable for Take {
 /// Pushes an expression, or the part of it that reads the values, onto the dictionary values of
 /// a [`Take`].
 ///
-/// Evaluating over values rather than codes is only sound for strict, infallible expressions:
+/// Evaluating over values rather than codes is only sound for infallible expressions, since values
+/// no selected row references are evaluated too, and, when codes may be null, strict ones:
 /// otherwise per-row behaviour is not preserved.
 ///
 /// A boolean expression is pushed whole onto the values as they are, so it stays above any
@@ -199,12 +238,14 @@ impl PlanParentReduceRule<Take> for ExpressionTakeRule {
         _child_idx: usize,
     ) -> VortexResult<Option<PlanRef>> {
         let expression = parent.expression();
+        // Strictness keeps a null code null. Without null codes every row takes its value's result.
+        let codes_nullable = child.codes()?.dtype().is_nullable();
         let labels = label_bound_tree(
             expression,
             |node| match node.as_scalar() {
                 Some(scalar_fn) => (
                     false,
-                    scalar_fn.signature().is_strict(),
+                    scalar_fn.signature().is_strict() || !codes_nullable,
                     scalar_fn.signature().is_infallible(),
                     is_negative_cost(scalar_fn.id()),
                 ),

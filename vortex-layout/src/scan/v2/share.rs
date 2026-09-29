@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::scalar_fn::fns::dynamic::DynamicComparison;
 use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_set::HashSet;
 
+use crate::plan::Eval;
 use crate::plan::PlanRef;
 use crate::plan::Share;
 use crate::plan::Take;
@@ -23,10 +25,16 @@ pub(super) fn unshare_unread(plans: Vec<PlanRef>) -> VortexResult<Vec<PlanRef>> 
     plans.into_iter().map(|plan| unshare(plan, &read)).collect()
 }
 
-/// Records the shares that a take reads whole in `plan`.
+/// Records the shares that a take reads whole in `plan`, or evaluates a dynamic comparison over:
+/// a take evaluates that again on every execution, so the values under it stay shared.
 fn collect_read(plan: &PlanRef, read: &mut HashSet<usize>) -> VortexResult<()> {
     if let Some(take) = plan.as_opt::<Take>() {
-        let values = take.values()?;
+        let mut values = take.values()?;
+        if let Some(eval) = values.as_opt::<Eval>()
+            && eval.expression().contains::<DynamicComparison>()?
+        {
+            values = eval.child_plan()?;
+        }
         if values.is::<Share>() {
             read.insert(values.addr());
         }
