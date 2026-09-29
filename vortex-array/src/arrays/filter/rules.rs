@@ -8,6 +8,7 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::array::ArrayView;
+use crate::array::ParentView;
 use crate::arrays::Filter;
 use crate::arrays::Struct;
 use crate::arrays::StructArray;
@@ -63,7 +64,7 @@ impl ArrayParentReduceRule<Filter> for FilterGetItemRule {
 struct TrivialFilterRule;
 
 impl ArrayReduceRule<Filter> for TrivialFilterRule {
-    fn reduce(&self, array: ArrayView<'_, Filter>) -> VortexResult<Option<ArrayRef>> {
+    fn reduce(&self, array: ParentView<'_, Filter>) -> VortexResult<Option<ArrayRef>> {
         match array.filter_mask() {
             Mask::AllTrue(_) => Ok(Some(array.child().clone())),
             Mask::AllFalse(_) => Ok(Some(Canonical::empty(array.dtype()).into_array())),
@@ -77,7 +78,7 @@ impl ArrayReduceRule<Filter> for TrivialFilterRule {
 struct FilterStructRule;
 
 impl ArrayReduceRule<Filter> for FilterStructRule {
-    fn reduce(&self, array: ArrayView<'_, Filter>) -> VortexResult<Option<ArrayRef>> {
+    fn reduce(&self, array: ParentView<'_, Filter>) -> VortexResult<Option<ArrayRef>> {
         let mask = array.filter_mask();
         let Some(struct_array) = array.child().as_opt::<Struct>() else {
             return Ok(None);

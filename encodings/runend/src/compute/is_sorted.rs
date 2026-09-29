@@ -34,7 +34,7 @@ impl DynAggregateKernel for RunEndIsSortedKernel {
             return Ok(None);
         };
 
-        let Some(array) = batch.as_opt::<RunEnd>() else {
+        let Some(array) = batch.as_typed::<RunEnd>() else {
             return Ok(None);
         };
 

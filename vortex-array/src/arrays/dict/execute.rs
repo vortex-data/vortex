@@ -47,19 +47,27 @@ pub(crate) fn take_canonical(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Canonical> {
     Ok(match values {
-        CanonicalView::Null(a) => Canonical::Null(take_null(a, codes)),
-        CanonicalView::Bool(a) => Canonical::Bool(take_bool(a, codes, ctx)?),
-        CanonicalView::Primitive(a) => Canonical::Primitive(take_primitive(a, codes, ctx)),
-        CanonicalView::Decimal(a) => Canonical::Decimal(take_decimal(a, codes, ctx)),
-        CanonicalView::VarBinView(a) => Canonical::VarBinView(take_varbinview(a, codes, ctx)),
-        CanonicalView::List(a) => Canonical::List(take_listview(a, codes, ctx)),
-        CanonicalView::Map(a) => Canonical::Map(take_map(a, codes, ctx)),
-        CanonicalView::FixedSizeList(a) => {
-            Canonical::FixedSizeList(take_fixed_size_list(a, codes, ctx))
+        CanonicalView::Null(a) => Canonical::Null(take_null(a.materialize_view(), codes)),
+        CanonicalView::Bool(a) => Canonical::Bool(take_bool(a.materialize_view(), codes, ctx)?),
+        CanonicalView::Primitive(a) => {
+            Canonical::Primitive(take_primitive(a.materialize_view(), codes, ctx))
         }
-        CanonicalView::Struct(a) => Canonical::Struct(take_struct(a, codes)),
-        CanonicalView::Union(a) => Canonical::Union(take_union(a, codes)),
-        CanonicalView::Extension(a) => Canonical::Extension(take_extension(a, codes, ctx)),
+        CanonicalView::Decimal(a) => {
+            Canonical::Decimal(take_decimal(a.materialize_view(), codes, ctx))
+        }
+        CanonicalView::VarBinView(a) => {
+            Canonical::VarBinView(take_varbinview(a.materialize_view(), codes, ctx))
+        }
+        CanonicalView::List(a) => Canonical::List(take_listview(a.materialize_view(), codes, ctx)),
+        CanonicalView::Map(a) => Canonical::Map(take_map(a.materialize_view(), codes, ctx)),
+        CanonicalView::FixedSizeList(a) => {
+            Canonical::FixedSizeList(take_fixed_size_list(a.materialize_view(), codes, ctx))
+        }
+        CanonicalView::Struct(a) => Canonical::Struct(take_struct(a.materialize_view(), codes)),
+        CanonicalView::Union(a) => Canonical::Union(take_union(a.materialize_view(), codes)),
+        CanonicalView::Extension(a) => {
+            Canonical::Extension(take_extension(a.materialize_view(), codes, ctx))
+        }
         CanonicalView::Variant(a) => {
             let indices = codes.array().clone();
             let taken_core_storage = a.core_storage().take(indices.clone())?;

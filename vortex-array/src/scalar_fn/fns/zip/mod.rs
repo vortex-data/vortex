@@ -560,8 +560,7 @@ mod tests {
             .unwrap()
             .execute::<ArrayRef>(&mut ctx)
             .unwrap();
-        let zipped = zipped.as_opt::<VarBinView>().unwrap();
-        assert_eq!(zipped.data_buffers().len(), 2);
+        assert_eq!(zipped.as_::<VarBinView>().data_buffers().len(), 2);
 
         let true_value = |i: usize| {
             if i.is_multiple_of(2) {
@@ -584,6 +583,6 @@ mod tests {
                 false_value(i)
             }
         }));
-        assert_arrays_eq!(zipped.array().clone(), expected, &mut ctx);
+        assert_arrays_eq!(zipped, expected, &mut ctx);
     }
 }

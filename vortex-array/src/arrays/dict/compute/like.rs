@@ -11,7 +11,7 @@ use crate::array::ArrayView;
 use crate::arrays::ConstantArray;
 use crate::arrays::dict::DictArrayExt;
 use crate::arrays::dict::DictArraySlotsExt;
-use crate::optimizer::ArrayOptimizer;
+use crate::arrays::scalar_fn::ScalarFnFactoryExt;
 use crate::scalar_fn::fns::like::Like;
 use crate::scalar_fn::fns::like::LikeOptions;
 use crate::scalar_fn::fns::like::LikeReduce;
@@ -29,9 +29,12 @@ impl LikeReduce for Dict {
         if let Some(pattern) = pattern.as_constant() {
             let pattern = ConstantArray::new(pattern, array.values().len()).into_array();
 
-            let values = Like::try_new(array.values().clone(), pattern, options)?
-                .into_array()
-                .optimize()?;
+            let parts = Like.try_new_array_parts(
+                pattern.len(),
+                options,
+                [array.values().clone(), pattern],
+            )?;
+            let values = parts.optimize()?;
 
             // SAFETY: LIKE preserves the len of the values, so codes are still pointing at
             //  valid positions.

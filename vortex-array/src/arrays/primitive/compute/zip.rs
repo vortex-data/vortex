@@ -33,7 +33,7 @@ impl ZipKernel for Primitive {
         mask: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Some(if_false) = if_false.as_opt::<Primitive>() else {
+        let Some(if_false) = if_false.as_typed::<Primitive>() else {
             return Ok(None);
         };
 

@@ -301,7 +301,7 @@ mod tests {
         let typed = array
             .as_opt::<Struct>()
             .ok_or_else(|| vortex_err!("expected a struct"))?;
-        let mut state = ProbeState::once(typed);
+        let mut state = ProbeState::once(typed.materialize_view());
 
         assert!(state.slot(5).is_err());
         // Slot 0 is the struct's absent validity.

@@ -49,7 +49,7 @@ impl CastReduce for Map {
         };
 
         let Some(entries) = <ListView as CastReduce>::cast(
-            array.entries().as_::<ListView>(),
+            array.entries().as_::<ListView>().materialize_view(),
             &target_entries_dtype,
         )?
         else {
@@ -72,7 +72,7 @@ impl CastKernel for Map {
         };
 
         let Some(entries) = <ListView as CastKernel>::cast(
-            array.entries().as_::<ListView>(),
+            array.entries().as_::<ListView>().materialize_view(),
             &target_entries_dtype,
             ctx,
         )?

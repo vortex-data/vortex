@@ -18,6 +18,7 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Dict;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::dict::DictArraySlotsExt;
+use vortex_array::matcher::AsParent;
 use vortex_array::matcher::Matcher;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
@@ -29,10 +30,10 @@ use crate::ArrowArrayExecutor;
 struct ArrowDictExportable;
 
 impl Matcher for ArrowDictExportable {
-    type Match<'a> = &'a ArrayRef;
+    type Match<'a> = ();
 
-    fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
-        (array.is::<Dict>() || array.is::<Constant>()).then_some(array)
+    fn try_match<'a, P: AsParent>(parent: &'a P) -> Option<Self::Match<'a>> {
+        (parent.is::<Dict>() || parent.is::<Constant>()).then_some(())
     }
 }
 

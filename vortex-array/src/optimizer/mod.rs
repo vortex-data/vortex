@@ -22,6 +22,7 @@ use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::array::ParentRef;
 use crate::optimizer::kernels::ArrayKernels;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::trace_op;
@@ -59,27 +60,26 @@ pub trait ArrayOptimizer {
 
 impl ArrayOptimizer for ArrayRef {
     fn optimize(&self) -> VortexResult<ArrayRef> {
-        Ok(try_optimize(self, None)?.unwrap_or_else(|| self.clone()))
+        Ok(optimize_owned(self.clone(), None)?.0)
     }
 
     fn optimize_ctx(&self, session: &VortexSession) -> VortexResult<ArrayRef> {
-        Ok(try_optimize(self, Some(session))?.unwrap_or_else(|| self.clone()))
+        Ok(optimize_owned(self.clone(), Some(session))?.0)
     }
 
     fn optimize_recursive(&self, session: &VortexSession) -> VortexResult<ArrayRef> {
-        Ok(try_optimize_recursive(self, session)?.unwrap_or_else(|| self.clone()))
+        Ok(try_optimize_recursive(self.clone(), session)?.0)
     }
 }
 
-fn try_optimize(
-    array: &ArrayRef,
+pub(crate) fn optimize_owned(
+    mut current_array: ArrayRef,
     session: Option<&VortexSession>,
-) -> VortexResult<Option<ArrayRef>> {
-    let mut current_array = array.clone();
+) -> VortexResult<(ArrayRef, bool)> {
     let mut any_optimizations = false;
     let session_kernels = session.map(|session| session.kernels());
 
-    trace_op!(record_optimize_start(array, session.is_some()));
+    trace_op!(record_optimize_start(&current_array, session.is_some()));
 
     for _ in 0..=MAX_OPTIMIZER_REWRITE_PASS {
         trace_op!(record_optimize_loop_start(&current_array));
@@ -95,6 +95,7 @@ fn try_optimize(
 
         // Try children in order; the first parent rewrite restarts the fixpoint loop.
         let mut reduced_parent = None;
+        let parent_ref = ParentRef::from_array_ref(&current_array);
         for (slot_idx, slot) in current_array.slots().iter().enumerate() {
             let Some(child) = slot else {
                 continue;
@@ -109,7 +110,7 @@ fn try_optimize(
                 break;
             }
 
-            if let Some(new_array) = child.reduce_parent(&current_array, slot_idx)? {
+            if let Some(new_array) = child.reduce_parent(&parent_ref, slot_idx)? {
                 reduced_parent = Some(new_array);
                 break;
             }
@@ -127,7 +128,7 @@ fn try_optimize(
 
         trace_op!(record_optimize_done(&current_array, any_optimizations));
 
-        return Ok(any_optimizations.then_some(current_array));
+        return Ok((current_array, any_optimizations));
     }
 
     vortex_bail!("Exceeded maximum optimization iterations (possible infinite loop)");
@@ -145,11 +146,13 @@ fn try_session_parent_reduce(
         return Ok(None);
     };
 
+    let parent_ref = ParentRef::from_array_ref(parent);
+
     #[allow(clippy::unused_enumerate_index)]
     for (_kernel_idx, reduce_parent) in reduce_parent_fns.iter().enumerate() {
-        if let Some(new_array) = reduce_parent(child, parent, slot_idx)? {
+        if let Some(new_array) = reduce_parent(child, &parent_ref, slot_idx)? {
             trace_op!(record_session_parent_reduce_applied(
-                parent,
+                &parent_ref,
                 child,
                 slot_idx,
                 _kernel_idx,
@@ -160,7 +163,7 @@ fn try_session_parent_reduce(
         }
 
         trace_op!(record_session_parent_reduce_declined(
-            parent,
+            &parent_ref,
             child,
             slot_idx,
             _kernel_idx,
@@ -171,35 +174,29 @@ fn try_session_parent_reduce(
 }
 
 fn try_optimize_recursive(
-    array: &ArrayRef,
+    current_array: ArrayRef,
     session: &VortexSession,
-) -> VortexResult<Option<ArrayRef>> {
-    let mut current_array = array.clone();
-    let mut any_optimizations = false;
+) -> VortexResult<(ArrayRef, bool)> {
+    trace_op!(record_optimize_recursive_start(&current_array));
 
-    trace_op!(record_optimize_recursive_start(array));
-
-    if let Some(new_array) = try_optimize(&current_array, Some(session))? {
-        current_array = new_array;
-        any_optimizations = true;
-    }
+    let (mut current_array, mut any_optimizations) = optimize_owned(current_array, Some(session))?;
 
     let mut new_slots = SmallVec::with_capacity(current_array.slots().len());
     let mut any_slot_optimized = false;
     for slot in current_array.slots() {
         match slot {
             Some(child) => {
-                if let Some(new_child) = try_optimize_recursive(child, session)? {
+                let (new_child, new_slot_optimized) =
+                    try_optimize_recursive(child.clone(), session)?;
+                if new_slot_optimized {
                     trace_op!(record_optimize_recursive_slot(
                         new_slots.len(),
                         child,
                         &new_child,
                     ));
-                    new_slots.push(Some(new_child));
-                    any_slot_optimized = true;
-                } else {
-                    new_slots.push(Some(child.clone()));
                 }
+                new_slots.push(Some(new_child));
+                any_slot_optimized |= new_slot_optimized;
             }
             None => new_slots.push(None),
         }
@@ -212,9 +209,5 @@ fn try_optimize_recursive(
         any_optimizations = true;
     }
 
-    if any_optimizations {
-        Ok(Some(current_array))
-    } else {
-        Ok(None)
-    }
+    Ok((current_array, any_optimizations))
 }

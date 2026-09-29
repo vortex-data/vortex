@@ -203,14 +203,14 @@ pub(super) fn make_struct_slots(
 /// [`StructArraySlotsExt`] supertrait; this trait layers struct-specific lookups on top.
 pub trait StructArrayExt: StructArraySlotsExt {
     fn nullability(&self) -> crate::dtype::Nullability {
-        match self.as_ref().dtype() {
+        match self.dtype() {
             DType::Struct(_, nullability) => *nullability,
             _ => unreachable!("StructArrayExt requires a struct dtype"),
         }
     }
 
     fn names(&self) -> &FieldNames {
-        self.as_ref().dtype().as_struct_fields().names()
+        self.dtype().as_struct_fields().names()
     }
 
     fn struct_validity(&self) -> Validity {
@@ -258,7 +258,7 @@ pub trait StructArrayExt: StructArraySlotsExt {
     }
 
     fn struct_fields(&self) -> &StructFields {
-        self.as_ref().dtype().as_struct_fields()
+        self.dtype().as_struct_fields()
     }
 }
 impl<T: TypedArrayRef<Struct>> StructArrayExt for T {}
@@ -409,7 +409,7 @@ impl Array<Struct> {
             FieldNames::from(names.as_slice()),
             children,
             self.len(),
-            self.validity()?,
+            self.struct_validity(),
         )
     }
 
@@ -479,7 +479,7 @@ impl Array<Struct> {
 
         let children = self.iter_unmasked_fields().cloned().chain(once(array));
 
-        Self::try_new_with_dtype(children, new_fields, self.len(), self.validity()?)
+        Self::try_new_with_dtype(children, new_fields, self.len(), self.struct_validity())
     }
 
     pub fn remove_column_owned(&self, name: impl Into<FieldName>) -> Option<(Self, ArrayRef)> {

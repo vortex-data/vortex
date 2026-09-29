@@ -25,6 +25,7 @@ use vortex_array::ArrayView;
 use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
+use vortex_array::ParentRef;
 use vortex_array::array_slots;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
@@ -645,7 +646,7 @@ impl VTable for OnPair {
 
     fn reduce_parent(
         array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
+        parent: &ParentRef<'_>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array, parent, child_idx)
@@ -702,8 +703,8 @@ pub trait OnPairArrayExt: OnPairArraySlotsExt {
     /// the outer dtype's nullability.
     fn array_validity(&self) -> Validity {
         child_to_validity(
-            self.as_ref().slots()[OnPairSlots::VALIDITY].as_ref(),
-            self.as_ref().dtype().nullability(),
+            self.slots()[OnPairSlots::VALIDITY].as_ref(),
+            self.dtype().nullability(),
         )
     }
 }

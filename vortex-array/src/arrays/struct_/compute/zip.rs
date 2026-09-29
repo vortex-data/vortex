@@ -25,7 +25,7 @@ impl ZipKernel for Struct {
         mask: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Some(if_false) = if_false.as_opt::<Struct>() else {
+        let Some(if_false) = if_false.as_typed::<Struct>() else {
             return Ok(None);
         };
         assert_eq!(
