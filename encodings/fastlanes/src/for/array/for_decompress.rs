@@ -321,3 +321,58 @@ fn decompress_primitive<T: NativePType + WrappingAdd + PrimInt>(
         .map_each_in_place(move |v| v.wrapping_add(&min))
         .freeze()
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::LazyLock;
+
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
+    use vortex_array::assert_arrays_eq;
+    use vortex_session::VortexSession;
+
+    use super::*;
+    use crate::BitPackedData;
+    use crate::FoR;
+    use crate::FoRData;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = array_session();
+        crate::initialize(&session);
+        session
+    });
+
+    #[test]
+    fn test_decompress() {
+        let mut ctx = SESSION.create_execution_ctx();
+        // Create a range offset by a million.
+        let array = PrimitiveArray::from_iter((0u32..100_000).step_by(1024).map(|v| v + 1_000_000));
+        let compressed = FoRData::encode(array.clone(), &mut ctx).unwrap();
+        assert_arrays_eq!(compressed, array, &mut ctx);
+    }
+
+    #[test]
+    fn test_decompress_fused() {
+        let mut ctx = SESSION.create_execution_ctx();
+        // Create a range offset by a million.
+        let expect = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7 + 10));
+        let array = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7));
+        let bp = BitPackedData::encode(&array.into_array(), 3, &mut ctx).unwrap();
+        let compressed = FoR::try_new(bp.into_array(), 10u32.into()).unwrap();
+        assert_arrays_eq!(compressed, expect, &mut ctx);
+    }
+
+    #[test]
+    fn test_decompress_fused_patches() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // Create a range offset by a million.
+        let expect = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7 + 10));
+        let array = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7));
+        let bp = BitPackedData::encode(&array.into_array(), 2, &mut ctx)?;
+        let compressed = FoR::try_new(bp.clone().into_array(), 10u32.into())?;
+        let decompressed = fused_decompress::<u32>(&compressed, bp.as_view(), &mut ctx)?;
+        assert_arrays_eq!(decompressed, expect, &mut ctx);
+        Ok(())
+    }
+}
