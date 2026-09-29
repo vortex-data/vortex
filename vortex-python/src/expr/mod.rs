@@ -141,8 +141,9 @@ impl PyExpr {
 /// A Python value that can be coerced into an [`Expression`].
 ///
 /// Accepts an existing [`PyExpr`], or any Python value convertible to a Vortex scalar (including
-/// `None`, `bool`, `int`, `float`, `str`, `bytes`, `list`, `dict`, and `vortex.Scalar`), which is
-/// wrapped in a literal expression.
+/// `None`, `bool`, `int`, `float`, `str`, `bytes`, `list`, `dict`, `decimal.Decimal`,
+/// `datetime.date`, `datetime.datetime`, `datetime.time`, `uuid.UUID`, and `vortex.Scalar`),
+/// which is wrapped in a literal expression.
 pub struct PyIntoExpr(Expression);
 
 impl PyIntoExpr {
