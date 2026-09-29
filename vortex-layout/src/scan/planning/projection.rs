@@ -138,7 +138,11 @@ impl Morsel for ProjectionMorsel {
                 self.selected.mask.clone(),
                 self.plans.row_offset,
             )?;
-            self.graph = Some(ProtocolGraph::new(graph, Arc::clone(&self.plans.locations)));
+            self.graph = Some(ProtocolGraph::new(
+                graph,
+                Arc::clone(&self.plans.locations),
+                0,
+            ));
             return Ok(MorselOutput::Continue);
         };
         if graph.state() == State::Done {

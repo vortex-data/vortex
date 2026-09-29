@@ -25,6 +25,7 @@ mod split_morsel;
 use std::sync::Arc;
 
 pub use filter::FilterPlanner;
+pub use filter::FilterPlans;
 pub use filter::SelectedRows;
 pub use projection::ProjectionMorsel;
 pub use projection::ProjectionPlanner;
@@ -62,7 +63,7 @@ pub struct ScanPlans {
 pub fn plan_split(
     plans: ScanPlans,
     pruning: Option<PlanRef>,
-    filter: Option<PlanRef>,
+    filter: Option<FilterPlans>,
     scope: WorkScope,
     mask: Mask,
 ) -> VortexResult<Box<dyn PendingPlanner>> {
