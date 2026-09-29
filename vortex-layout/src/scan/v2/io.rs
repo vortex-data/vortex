@@ -9,9 +9,13 @@ use std::task::Waker;
 
 use futures::FutureExt;
 use futures::StreamExt;
+use futures::TryFutureExt;
 use futures::future::BoxFuture;
+use futures::future::Shared;
 use futures::stream::FuturesUnordered;
 use parking_lot::Mutex;
+use vortex_array::buffer::BufferHandle;
+use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -50,10 +54,15 @@ pub(super) fn segment_ranges(locations: &[SegmentLocation]) -> SegmentRanges {
 /// The split's registrations are held, never polled, until the source is dropped. A source that
 /// shares requests for one segment serves each fetch through its registration, so the bytes are
 /// read once however many of the split's reads name them.
+/// A read started ahead of the fetch that needs it.
+type Prefetched = Shared<BoxFuture<'static, Result<BufferHandle, Arc<VortexError>>>>;
+
 pub(super) struct SegmentIoSource {
     segments: Arc<dyn SegmentSource>,
     ranges: SegmentRanges,
     reads: Mutex<FuturesUnordered<BoxFuture<'static, Completion>>>,
+    /// Reads started by prefetches, which later fetches of the same segment wait on.
+    prefetched: Mutex<HashMap<SegmentId, Prefetched>>,
     _registered: Mutex<Vec<SegmentFuture>>,
 }
 
@@ -67,6 +76,7 @@ impl SegmentIoSource {
             segments,
             ranges,
             reads: Mutex::new(FuturesUnordered::new()),
+            prefetched: Mutex::default(),
             _registered: Mutex::new(registered),
         }
     }
@@ -87,8 +97,9 @@ impl SegmentIoSource {
 impl IoSource for SegmentIoSource {
     fn submit(&self, owner: IoOwnerId, batch: IoBatch) -> VortexResult<()> {
         let reads = self.reads.lock();
+        let mut prefetched = self.prefetched.lock();
         for request in batch {
-            if request.intent != IoIntent::Fetch {
+            if request.intent == IoIntent::Announce {
                 continue;
             }
             let IoTarget::Range { offset, len } = request.target else {
@@ -101,7 +112,32 @@ impl IoSource for SegmentIoSource {
                 .ranges
                 .get(&(offset, len))
                 .ok_or_else(|| vortex_err!("No segment at bytes {offset}+{len}"))?;
-            let bytes = self.segments.request(segment);
+            if request.intent == IoIntent::Prefetch {
+                prefetched.entry(segment).or_insert_with(|| {
+                    let read = self
+                        .segments
+                        .request(segment)
+                        .map_err(Arc::new)
+                        .boxed()
+                        .shared();
+                    // Polling registers the read as wanted, so the source starts it now.
+                    drop(
+                        read.clone()
+                            .poll_unpin(&mut Context::from_waker(Waker::noop())),
+                    );
+                    read
+                });
+                continue;
+            }
+            let bytes = match prefetched.get(&segment) {
+                Some(read) => read
+                    .clone()
+                    .map_err(move |err| {
+                        vortex_err!("prefetched read of segment {segment} failed: {err}")
+                    })
+                    .boxed(),
+                None => self.segments.request(segment),
+            };
             let id = request.request;
             reads.push(
                 async move {
@@ -135,5 +171,80 @@ impl IoSource for SegmentIoSource {
 
     fn clear(&self) {
         self.reads.lock().clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
+    use futures::FutureExt;
+    use futures::future;
+    use vortex_array::buffer::BufferHandle;
+    use vortex_buffer::Alignment;
+    use vortex_buffer::ByteBuffer;
+    use vortex_error::VortexResult;
+    use vortex_io::request::IoIntent;
+    use vortex_io::request::IoOwnerId;
+    use vortex_io::request::IoRequest;
+    use vortex_io::request::IoRequestId;
+    use vortex_io::request::IoSource;
+    use vortex_io::request::IoTarget;
+
+    use super::SegmentIoSource;
+    use super::segment_ranges;
+    use crate::scan::planning::SegmentLocation;
+    use crate::segments::SegmentFuture;
+    use crate::segments::SegmentId;
+    use crate::segments::SegmentSource;
+
+    /// Serves four bytes per segment and counts the reads it is asked for.
+    #[derive(Default)]
+    struct CountingSegments(AtomicUsize);
+
+    impl SegmentSource for CountingSegments {
+        fn request(&self, id: SegmentId) -> SegmentFuture {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            let bytes = ByteBuffer::from(vec![u8::try_from(*id).unwrap_or(u8::MAX); 4]);
+            future::ready(Ok(BufferHandle::new_host(bytes))).boxed()
+        }
+    }
+
+    fn request(intent: IoIntent, id: u32) -> IoRequest {
+        IoRequest {
+            intent,
+            request: IoRequestId(id),
+            target: IoTarget::Range { offset: 0, len: 4 },
+        }
+    }
+
+    /// A fetch of a prefetched segment waits on the prefetch's read rather than reading again,
+    /// and only the fetch is delivered.
+    #[tokio::test]
+    async fn fetch_reuses_a_prefetched_read() -> VortexResult<()> {
+        let segments = Arc::new(CountingSegments::default());
+        let location = SegmentLocation {
+            offset: 0,
+            length: 4,
+            alignment: Alignment::none(),
+        };
+        let io = SegmentIoSource::new(
+            Arc::clone(&segments) as _,
+            segment_ranges(&[location]),
+            Vec::new(),
+        );
+
+        io.submit(IoOwnerId(0), vec![request(IoIntent::Prefetch, 0)])?;
+        assert_eq!(segments.0.load(Ordering::Relaxed), 1);
+        io.submit(IoOwnerId(0), vec![request(IoIntent::Fetch, 1)])?;
+        assert_eq!(segments.0.load(Ordering::Relaxed), 1);
+
+        let completion = io.next_completion().await?;
+        assert_eq!(completion.request, IoRequestId(1));
+        assert!(completion.result.is_ok());
+        assert!(io.poll()?.is_none());
+        Ok(())
     }
 }
