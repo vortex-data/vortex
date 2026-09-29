@@ -14,6 +14,8 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
 use crate::scalar_fn::ScalarFnId;
+use crate::scalar_fn::unstable::row::RowOutput;
+use crate::validity::Validity;
 
 impl RowFnExecutionArgs {
     pub(super) fn all_null(&self) -> ArrayRef {
@@ -37,18 +39,19 @@ impl RowFnExecutionArgs {
         cast_output_nullability(&self.result_dtype, values)
     }
 
-    /// Validate the unlabelled output from a row function before batch validity is attached.
-    pub(super) fn validate_kernel_output(
+    /// Validate unlabelled output and attach batch validity during typed array construction.
+    pub(super) fn finish_kernel_output(
         &self,
-        values: ArrayRef,
+        values: RowOutput,
         expected_len: usize,
+        validity: Validity,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        finalize_kernel_output(
+        values.finish(
             self.id,
             self.plan.storage_dtype(),
             expected_len,
-            values,
+            validity,
             ctx,
         )
     }
@@ -82,18 +85,28 @@ fn validate_output(
     expected_len: usize,
     values: &ArrayRef,
 ) -> VortexResult<()> {
+    validate_output_metadata(id, result_dtype, expected_len, values.dtype(), values.len())
+}
+
+/// Check the dtype and length before constructing a typed output or accepting an arbitrary array.
+pub(crate) fn validate_output_metadata(
+    id: ScalarFnId,
+    result_dtype: &DType,
+    expected_len: usize,
+    dtype: &DType,
+    len: usize,
+) -> VortexResult<()> {
     vortex_ensure_eq!(
-        values.len(),
+        len,
         expected_len,
         "the {id} kernel output must contain {expected_len} rows, got {}",
-        values.len(),
+        len,
     );
-    let values_with_result_nullability =
-        values.dtype().with_nullability(result_dtype.nullability());
+    let values_with_result_nullability = dtype.with_nullability(result_dtype.nullability());
     vortex_ensure!(
         values_with_result_nullability == *result_dtype,
         "the {id} output dtype must match {result_dtype} except for outer nullability, got {}",
-        values.dtype(),
+        dtype,
     );
 
     Ok(())

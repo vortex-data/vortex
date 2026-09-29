@@ -13,6 +13,7 @@ use vortex_error::vortex_ensure_eq;
 use vortex_mask::MaskValuesRef;
 use vortex_session::VortexSession;
 
+use super::RowOutput;
 use super::batch::BorrowedRowFnArgs;
 use super::batch::RowFnExecutionArgs;
 use super::batch::finalize_kernel_output;
@@ -33,6 +34,7 @@ use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::unstable::row::execute::DenseAttempt;
+use crate::validity::Validity;
 
 impl<F: RowFn> ScalarFnVTable for F {
     type Options = F::Options;
@@ -145,7 +147,14 @@ fn execute_nullary_rows<F: RowFn>(
 
     // A nullary function has no input validity to propagate, so its kernel output is the finished
     // column and this path labels it directly.
-    let values = plan.relabel_output(execute_row_kernel(function, options, args, ctx)?)?;
+    let values = execute_row_kernel(function, options, args, ctx)?.finish(
+        RowFn::id(function),
+        plan.storage_dtype(),
+        row_count,
+        Validity::NonNullable,
+        ctx,
+    )?;
+    let values = plan.relabel_output(values)?;
 
     finalize_kernel_output(RowFn::id(function), &result_dtype, row_count, values, ctx)
 }
@@ -167,7 +176,7 @@ fn execute_row_kernel<F: RowFn>(
     options: &F::Options,
     args: BorrowedRowFnArgs<'_>,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
+) -> VortexResult<RowOutput> {
     function.dispatch(
         options,
         args.dtypes(),
@@ -194,7 +203,7 @@ fn try_execute_valid_rows<F: RowFn>(
     args: BorrowedRowFnArgs<'_>,
     valid: MaskValuesRef,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<Option<ArrayRef>> {
+) -> VortexResult<Option<RowOutput>> {
     function.dispatch(
         options,
         args.dtypes(),
@@ -209,7 +218,7 @@ fn execute_filtered_rows<F: RowFn>(
     args: BorrowedRowFnArgs<'_>,
     valid: MaskValuesRef,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
+) -> VortexResult<RowOutput> {
     function.dispatch(
         options,
         args.dtypes(),

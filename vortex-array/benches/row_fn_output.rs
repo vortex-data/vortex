@@ -16,16 +16,19 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::array_session;
+use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::scalar_fn::EmptyOptions;
+use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::VecExecutionArgs;
 use vortex_array::scalar_fn::unstable::row::RowFn;
 use vortex_array::scalar_fn::unstable::row::RowVisitor;
 use vortex_array::scalar_fn::unstable::row::execute_rows;
+use vortex_array::validity::Validity;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -215,6 +218,58 @@ fn deferred_i64(bencher: Bencher, &shape: &InputShape) {
     bench_row_fn(bencher, &DeferredI64, make_args::<i64>(shape));
 }
 
+#[derive(Clone, Copy, Debug)]
+enum InputValidity {
+    NonNullable,
+    AllValid,
+    AllTrueArray,
+    Partial,
+}
+
+const VALIDITY_CASES: &[InputValidity] = &[
+    InputValidity::NonNullable,
+    InputValidity::AllValid,
+    InputValidity::AllTrueArray,
+    InputValidity::Partial,
+];
+
+#[vortex_bench_support::cpu_features]
+#[divan::bench(args = VALIDITY_CASES, consts = [64, 8192, 65536])]
+fn bool_validity<const ROWS: usize>(bencher: Bencher, &validity: &InputValidity) {
+    bench_row_fn(
+        bencher,
+        &InfallibleBool::<i64>(PhantomData),
+        make_nullable_args::<ROWS>(validity),
+    );
+}
+
+#[vortex_bench_support::cpu_features]
+#[divan::bench(args = VALIDITY_CASES, consts = [64, 8192, 65536])]
+fn primitive_validity<const ROWS: usize>(bencher: Bencher, &validity: &InputValidity) {
+    bench_row_fn(bencher, &DeferredI64, make_nullable_args::<ROWS>(validity));
+}
+
+fn make_nullable_args<const ROWS: usize>(validity: InputValidity) -> VecExecutionArgs {
+    let validity = match validity {
+        InputValidity::NonNullable => Validity::NonNullable,
+        InputValidity::AllValid => Validity::AllValid,
+        InputValidity::AllTrueArray => {
+            Validity::Array(BoolArray::from_iter((0..ROWS).map(|_| true)).into_array())
+        }
+        InputValidity::Partial => Validity::Array(
+            BoolArray::from_iter((0..ROWS).map(|index| !index.is_multiple_of(8))).into_array(),
+        ),
+    };
+    let column = PrimitiveArray::new(
+        (0..ROWS)
+            .map(|index| (index % 1024) as i64)
+            .collect::<Vec<_>>(),
+        validity,
+    )
+    .into_array();
+    VecExecutionArgs::new(vec![column.clone(), column], ROWS)
+}
+
 fn make_args<T: BenchPrimitive>(shape: InputShape) -> VecExecutionArgs {
     let args = match shape {
         InputShape::PerRowPerRow => vec![T::per_row(0), T::per_row(1)],
@@ -231,7 +286,7 @@ fn bench_row_fn<F: RowFn<Options = EmptyOptions>>(
     args: VecExecutionArgs,
 ) {
     bencher
-        .counter(ItemsCount::new(ROWS))
+        .counter(ItemsCount::new(args.row_count()))
         .with_inputs(|| (&args, SESSION.create_execution_ctx()))
         .bench_refs(|(args, ctx)| {
             execute_rows(function, &EmptyOptions, *args, ctx)

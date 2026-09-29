@@ -18,13 +18,13 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_mask::MaskValuesRef;
 
-use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::unstable::row::FailureEvidence;
 use crate::scalar_fn::unstable::row::IndexedElementTuple;
 use crate::scalar_fn::unstable::row::OutputBuffer;
 use crate::scalar_fn::unstable::row::OutputElement;
+use crate::scalar_fn::unstable::row::RowOutput;
 use crate::scalar_fn::unstable::row::types::decoded_source;
 use crate::scalar_fn::unstable::row::visitor::assert_owned_output_needs_no_drop;
 
@@ -42,7 +42,7 @@ pub(crate) fn execute_owned_infallible<Args, Out, Prepared>(
     ctx: &mut ExecutionCtx,
     prepare: impl FnOnce(Args::ConstElems<'_>) -> Prepared,
     apply: impl Fn(&Prepared, Args::Elems<'_>) -> Out,
-) -> VortexResult<ArrayRef>
+) -> VortexResult<RowOutput>
 where
     Args: IndexedElementTuple,
     Out: OutputElement,
@@ -57,7 +57,7 @@ where
         vortex_bail!("a decoded row input does not address exactly {row_count} rows");
     };
 
-    Ok(Out::build_from(
+    Ok(Out::build_output(
         source,
         |elements| apply(&prepared, elements),
         ctx.allocator(),
@@ -71,7 +71,7 @@ pub(crate) fn execute_owned_infallible_valid_rows<Args, Out, Prepared>(
     ctx: &mut ExecutionCtx,
     prepare: impl FnOnce(Args::ConstElems<'_>) -> Prepared,
     apply: impl Fn(&Prepared, Args::Elems<'_>) -> Out,
-) -> VortexResult<Option<ArrayRef>>
+) -> VortexResult<Option<RowOutput>>
 where
     Args: IndexedElementTuple,
     Out: OutputElement,
@@ -93,7 +93,7 @@ pub(crate) fn execute_owned_infallible_filtered<Args, Out, Prepared>(
     ctx: &mut ExecutionCtx,
     prepare: impl FnOnce(Args::ConstElems<'_>) -> Prepared,
     apply: impl Fn(&Prepared, Args::Elems<'_>) -> Out,
-) -> VortexResult<ArrayRef>
+) -> VortexResult<RowOutput>
 where
     Args: IndexedElementTuple,
     Out: OutputElement,
@@ -122,7 +122,7 @@ pub(crate) fn execute_owned_filtered<Args, Out, Prepared, Fail>(
     prepare: impl FnOnce(Args::ConstElems<'_>) -> Prepared,
     apply: impl Fn(&Prepared, Args::Elems<'_>) -> (Out, Fail),
     finish_failure: impl FnOnce(Fail) -> VortexResult<()>,
-) -> VortexResult<ArrayRef>
+) -> VortexResult<RowOutput>
 where
     Args: IndexedElementTuple,
     Out: OutputElement,
@@ -188,7 +188,7 @@ where
     finish_failure(failure)?;
 
     // SAFETY: every output slot contains either its placeholder or the row result.
-    Ok(unsafe { values.finish(valid_rows.len(), ctx.allocator()) })
+    Ok(unsafe { values.finish_output(valid_rows.len(), ctx.allocator()) })
 }
 
 /// Decode nullable inputs, then store outputs and combine failure evidence for valid rows.
@@ -199,7 +199,7 @@ pub(crate) fn execute_owned_valid_rows<Args, Out, Prepared, Fail>(
     prepare: impl FnOnce(Args::ConstElems<'_>) -> Prepared,
     apply: impl Fn(&Prepared, Args::Elems<'_>) -> (Out, Fail),
     finish_failure: impl FnOnce(Fail) -> VortexResult<()>,
-) -> VortexResult<Option<ArrayRef>>
+) -> VortexResult<Option<RowOutput>>
 where
     Args: IndexedElementTuple,
     Out: OutputElement,
@@ -264,7 +264,9 @@ where
     finish_failure(failure)?;
 
     // SAFETY: every output slot contains either its placeholder or the row result.
-    Ok(Some(unsafe { values.finish(row_count, ctx.allocator()) }))
+    Ok(Some(unsafe {
+        values.finish_output(row_count, ctx.allocator())
+    }))
 }
 
 /// Decode every input column, then store outputs and combine per-row failure evidence.
@@ -274,7 +276,7 @@ pub(crate) fn execute_owned<Args, Out, Prepared, Fail>(
     prepare: impl FnOnce(Args::ConstElems<'_>) -> Prepared,
     apply: impl Fn(&Prepared, Args::Elems<'_>) -> (Out, Fail),
     finish_failure: impl FnOnce(Fail) -> VortexResult<()>,
-) -> VortexResult<ArrayRef>
+) -> VortexResult<RowOutput>
 where
     Args: IndexedElementTuple,
     Out: OutputElement,
@@ -300,5 +302,5 @@ where
     finish_failure(failure)?;
 
     // SAFETY: normal completion of `map_checked_into` initializes every output slot.
-    Ok(unsafe { values.finish(row_count, ctx.allocator()) })
+    Ok(unsafe { values.finish_output(row_count, ctx.allocator()) })
 }

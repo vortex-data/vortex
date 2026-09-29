@@ -22,7 +22,6 @@ use super::check::assert_sink_visit_contract;
 use super::check::validate_owned_visit;
 use super::check::validate_sink_visit;
 use super::row_visitor::private;
-use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::dtype::DType;
 use crate::scalar_fn::ExecutionArgs;
@@ -32,6 +31,7 @@ use crate::scalar_fn::unstable::row::IndexedElementTuple;
 use crate::scalar_fn::unstable::row::OutputElement;
 use crate::scalar_fn::unstable::row::OutputSink;
 use crate::scalar_fn::unstable::row::RowFn;
+use crate::scalar_fn::unstable::row::RowOutput;
 use crate::scalar_fn::unstable::row::SinkResult;
 use crate::scalar_fn::unstable::row::execute::execute_owned;
 use crate::scalar_fn::unstable::row::execute::execute_owned_bool;
@@ -87,7 +87,7 @@ impl<'args, 'ctx, F: RowFn> ExecuteRows<'args, 'ctx, F> {
 impl<F: RowFn> private::Sealed for ExecuteRows<'_, '_, F> {}
 
 impl<F: RowFn> RowVisitor for ExecuteRows<'_, '_, F> {
-    type VisitResult = ArrayRef;
+    type VisitResult = RowOutput;
 
     fn with_output_dtype(mut self, dtype: DType) -> Self {
         self.output_dtype = Some(dtype);
@@ -154,6 +154,7 @@ impl<F: RowFn> RowVisitor for ExecuteRows<'_, '_, F> {
         execute_sink::<Args, Prepared, Sink, ApplyResult>(
             self.args, &params, self.ctx, prepare, apply,
         )
+        .map(RowOutput::from_array)
     }
 
     fn visit_prepared_deferred<Args, Out, Prepared, Fail>(
@@ -262,7 +263,7 @@ impl<'args, 'ctx, F: RowFn> ExecuteValidRows<'args, 'ctx, F> {
 impl<F: RowFn> private::Sealed for ExecuteValidRows<'_, '_, F> {}
 
 impl<F: RowFn> RowVisitor for ExecuteValidRows<'_, '_, F> {
-    type VisitResult = Option<ArrayRef>;
+    type VisitResult = Option<RowOutput>;
 
     fn with_output_dtype(mut self, dtype: DType) -> Self {
         self.output_dtype = Some(dtype);
@@ -322,6 +323,7 @@ impl<F: RowFn> RowVisitor for ExecuteValidRows<'_, '_, F> {
             prepare,
             apply,
         )
+        .map(|values| values.map(RowOutput::from_array))
     }
 
     fn visit_prepared_deferred<Args, Out, Prepared, Fail>(
@@ -421,7 +423,7 @@ impl<'args, 'ctx, F: RowFn> ExecuteFilteredRows<'args, 'ctx, F> {
 impl<F: RowFn> private::Sealed for ExecuteFilteredRows<'_, '_, F> {}
 
 impl<F: RowFn> RowVisitor for ExecuteFilteredRows<'_, '_, F> {
-    type VisitResult = ArrayRef;
+    type VisitResult = RowOutput;
 
     fn with_output_dtype(mut self, dtype: DType) -> Self {
         self.output_dtype = Some(dtype);
@@ -481,6 +483,7 @@ impl<F: RowFn> RowVisitor for ExecuteFilteredRows<'_, '_, F> {
             prepare,
             apply,
         )
+        .map(RowOutput::from_array)
     }
 
     fn visit_prepared_deferred<Args, Out, Prepared, Fail>(

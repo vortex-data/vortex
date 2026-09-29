@@ -6,6 +6,7 @@ use std::mem::MaybeUninit;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
+use vortex_compute::lane_kernels::IndexedSourceExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
@@ -22,6 +23,7 @@ use crate::scalar::ScalarValue;
 use crate::scalar_fn::unstable::row::InputElement;
 use crate::scalar_fn::unstable::row::OutputBuffer;
 use crate::scalar_fn::unstable::row::OutputElement;
+use crate::scalar_fn::unstable::row::RowOutput;
 use crate::validity::Validity;
 
 // SAFETY: the view is a native slice, and its reported length is the slice length.
@@ -112,6 +114,19 @@ impl<T: NativePType> OutputElement for T {
     fn with_capacity(rows: usize, allocator: &BufferAllocatorRef) -> Self::Buffer {
         allocator.with_capacity(rows)
     }
+
+    fn build_output<S, F>(source: S, apply: F, allocator: &BufferAllocatorRef) -> RowOutput
+    where
+        S: vortex_compute::lane_kernels::IndexedSource,
+        F: Fn(S::Item) -> Self,
+    {
+        let len = source.len();
+        let mut values = Self::with_capacity(len, allocator);
+        source.map_into(&mut values.slots()[..len], apply);
+
+        // SAFETY: normal completion of `map_into` initializes every output slot exactly once.
+        unsafe { values.finish_output(len, allocator) }
+    }
 }
 
 // SAFETY: clearing the length preserves the contents and exposes the same allocation each time.
@@ -127,5 +142,12 @@ unsafe impl<T: NativePType> OutputBuffer<T> for BufferMut<T> {
         unsafe { self.set_len(len) };
 
         PrimitiveArray::new(self.freeze(), Validity::NonNullable).into_array()
+    }
+
+    unsafe fn finish_output(mut self, len: usize, _allocator: &BufferAllocatorRef) -> RowOutput {
+        // SAFETY: the caller initialized the first `len` slots of this buffer's spare capacity.
+        unsafe { self.set_len(len) };
+
+        RowOutput::primitive(self.freeze())
     }
 }

@@ -22,6 +22,7 @@ use crate::scalar::ScalarValue;
 use crate::scalar_fn::unstable::row::InputElement;
 use crate::scalar_fn::unstable::row::OutputBuffer;
 use crate::scalar_fn::unstable::row::OutputElement;
+use crate::scalar_fn::unstable::row::RowOutput;
 use crate::validity::Validity;
 
 // SAFETY: the view is a bit buffer, and its reported length is the buffer length.
@@ -123,6 +124,25 @@ impl OutputElement for bool {
 
         BoolArray::new(values, Validity::NonNullable).into_array()
     }
+
+    fn build_output<S, F>(source: S, apply: F, allocator: &BufferAllocatorRef) -> RowOutput
+    where
+        S: IndexedSource,
+        F: Fn(S::Item) -> Self,
+    {
+        let len = source.len();
+        let values = BitBuffer::collect_bool_in(
+            len,
+            |index| {
+                // SAFETY: `collect_bool_in` only invokes this closure with `index < len`, and
+                // `len` is `source.len()`.
+                apply(unsafe { source.get_unchecked(index) })
+            },
+            allocator.clone(),
+        );
+
+        RowOutput::boolean(values)
+    }
 }
 
 // SAFETY: clearing the length preserves the contents and exposes the same allocation each time.
@@ -147,5 +167,21 @@ unsafe impl OutputBuffer<bool> for BufferMut<bool> {
             allocator.clone(),
         );
         BoolArray::new(packed, Validity::NonNullable).into_array()
+    }
+
+    unsafe fn finish_output(mut self, len: usize, allocator: &BufferAllocatorRef) -> RowOutput {
+        // SAFETY: the caller initialized the first `len` slots of this buffer's spare capacity.
+        unsafe { self.set_len(len) };
+
+        let values = self.as_slice();
+        let packed = BitBuffer::collect_bool_multiversioned_in(
+            values.len(),
+            |index| {
+                // SAFETY: the collector only requests indices below `values.len()`.
+                unsafe { *values.get_unchecked(index) }
+            },
+            allocator.clone(),
+        );
+        RowOutput::boolean(packed)
     }
 }

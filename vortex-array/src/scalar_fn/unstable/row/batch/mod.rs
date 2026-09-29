@@ -25,6 +25,7 @@ pub(super) use args::BorrowedRowFnArgs;
 
 mod execute;
 pub(super) use execute::finalize_kernel_output;
+pub(super) use execute::validate_output_metadata;
 
 mod planning;
 

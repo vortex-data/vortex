@@ -13,6 +13,7 @@ use vortex_compute::lane_kernels::IndexedSourceExt;
 
 use crate::ArrayRef;
 use crate::dtype::DType;
+use crate::scalar_fn::unstable::row::RowOutput;
 
 /// An owned row value that can be built into an all-valid column.
 ///
@@ -66,12 +67,27 @@ pub trait OutputElement: 'static + Sized + Default {
         // SAFETY: normal completion of `map_into` initializes every output slot exactly once.
         unsafe { values.finish(row_count, allocator) }
     }
+
+    /// Map rows into storage whose first array construction can include batch validity.
+    ///
+    /// All requirements of [`build_from`](Self::build_from) apply, including callback order,
+    /// allocator routing, and the prohibition on value-dependent errors or panics. The default
+    /// preserves existing overrides and validates their array at the batch boundary.
+    fn build_output<S, F>(source: S, apply: F, allocator: &BufferAllocatorRef) -> RowOutput
+    where
+        S: IndexedSource,
+        F: Fn(S::Item) -> Self,
+    {
+        RowOutput::from_array(Self::build_from(source, apply, allocator))
+    }
 }
 
 /// Engine-owned storage for collecting independent row values.
 ///
-/// The executor initializes a prefix of [`slots`](Self::slots), then calls [`finish`](Self::finish).
-/// Dropping the buffer instead abandons the output, including after an error or unwind.
+/// The executor initializes a prefix of [`slots`](Self::slots), then calls
+/// [`finish_output`](Self::finish_output) to retain storage until batch validity is available.
+/// [`finish`](Self::finish) remains the all-valid array interface. Dropping the buffer instead
+/// abandons the output, including after an error or unwind.
 ///
 /// # Safety
 ///
@@ -94,4 +110,17 @@ pub unsafe trait OutputBuffer<T>: Sized {
     /// The first `len` slots must exist and contain initialized values. Violating this requirement
     /// can cause undefined behavior.
     unsafe fn finish(self, len: usize, allocator: &BufferAllocatorRef) -> ArrayRef;
+
+    /// Retain initialized output until batch execution can attach its validity.
+    ///
+    /// This has the value and allocator requirements of [`finish`](Self::finish). The default
+    /// preserves existing implementations and their validation boundary.
+    ///
+    /// # Safety
+    ///
+    /// The requirements of [`finish`](Self::finish) apply.
+    unsafe fn finish_output(self, len: usize, allocator: &BufferAllocatorRef) -> RowOutput {
+        // SAFETY: forwarded from this method's contract.
+        RowOutput::from_array(unsafe { self.finish(len, allocator) })
+    }
 }

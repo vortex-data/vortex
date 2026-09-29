@@ -15,6 +15,7 @@ use super::args::BorrowedRowFnArgs;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::arrays::Constant;
+use crate::scalar_fn::unstable::row::RowOutput;
 use crate::scalar_fn::unstable::row::execute::DenseAttempt;
 use crate::scalar_fn::unstable::row::types::batch_const;
 use crate::validity::Validity;
@@ -26,6 +27,7 @@ mod valid_only;
 
 mod output;
 pub(crate) use output::finalize_kernel_output;
+pub(crate) use output::validate_output_metadata;
 
 impl RowFnExecutionArgs {
     /// Apply constant folding and null handling around `kernel`.
@@ -36,7 +38,7 @@ impl RowFnExecutionArgs {
     /// and dtype.
     pub(crate) fn execute(
         &self,
-        kernel: impl Fn(BorrowedRowFnArgs<'_>, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
+        kernel: impl Fn(BorrowedRowFnArgs<'_>, &mut ExecutionCtx) -> VortexResult<RowOutput>,
         execute_dense_attempt: impl FnOnce(
             BorrowedRowFnArgs<'_>,
             &mut ExecutionCtx,
@@ -45,12 +47,12 @@ impl RowFnExecutionArgs {
             BorrowedRowFnArgs<'_>,
             MaskValuesRef,
             &mut ExecutionCtx,
-        ) -> VortexResult<Option<ArrayRef>>,
+        ) -> VortexResult<Option<RowOutput>>,
         execute_filtered_rows: impl FnOnce(
             BorrowedRowFnArgs<'_>,
             MaskValuesRef,
             &mut ExecutionCtx,
-        ) -> VortexResult<ArrayRef>,
+        ) -> VortexResult<RowOutput>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         // Strictness: an all-null batch has no observable row work. Keep the literal-constant

@@ -13,13 +13,13 @@ use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
-use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::unstable::row::FailureEvidence;
 use crate::scalar_fn::unstable::row::IndexedElementTuple;
 use crate::scalar_fn::unstable::row::OutputBuffer;
 use crate::scalar_fn::unstable::row::OutputElement;
+use crate::scalar_fn::unstable::row::RowOutput;
 use crate::scalar_fn::unstable::row::visitor::assert_owned_output_needs_no_drop;
 
 /// The result of attempting dense execution for a deferred row kernel.
@@ -27,7 +27,7 @@ pub(in crate::scalar_fn::unstable::row) enum DenseAttempt {
     /// Dense values whose reduced failure evidence was accepted.
     ///
     /// Batch execution must still validate these values and attach input validity.
-    Values(ArrayRef),
+    Values(RowOutput),
 
     /// An error produced from the reduced failure evidence.
     ///
@@ -104,7 +104,7 @@ where
     match finish_failure(failure_evidence) {
         Ok(()) => {
             // SAFETY: normal completion of either path initializes every output slot.
-            let output = unsafe { values.finish(row_count, ctx.allocator()) };
+            let output = unsafe { values.finish_output(row_count, ctx.allocator()) };
 
             Ok(DenseAttempt::Values(output))
         }

@@ -25,6 +25,9 @@ mod execute;
 
 mod batch;
 
+mod output;
+pub use output::RowOutput;
+
 mod row_fn;
 pub use row_fn::RowFn;
 

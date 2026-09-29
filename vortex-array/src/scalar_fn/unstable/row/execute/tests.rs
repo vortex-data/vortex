@@ -3,11 +3,13 @@
 
 //! Verifies ownership of RowFn output allocations independently of input decoding.
 
+use std::cell::RefCell;
 use std::mem::MaybeUninit;
 use std::ops::BitOrAssign;
 
 use rstest::rstest;
 use vortex_buffer::BufferAllocatorRef;
+use vortex_compute::lane_kernels::IndexedSource;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -71,7 +73,7 @@ fn collect_owned<Out: OutputElement, Fail: FailureEvidence>(
     ctx: &mut ExecutionCtx,
     apply: impl Fn(i64) -> Out,
 ) -> VortexResult<ArrayRef> {
-    match traversal {
+    let output = match traversal {
         Traversal::Infallible => execute_owned_infallible::<(i64,), Out, ()>(
             args,
             ctx,
@@ -112,7 +114,9 @@ fn collect_owned<Out: OutputElement, Fail: FailureEvidence>(
             |_| (),
             |_, (value,)| apply(value),
         ),
-    }
+    }?;
+
+    Ok(output.into_nonnullable_array())
 }
 
 fn canonical_args(traversal: Traversal, constant: bool) -> VecExecutionArgs {
@@ -235,6 +239,7 @@ fn packed_boolean_payload_uses_allocator(
         }
         _ => vortex_bail!("this test traversal requires packed Boolean output"),
     };
+    let output = output.into_nonnullable_array();
     tracker.assert_owns(output.as_::<Bool>().to_bit_buffer().inner().as_slice());
     assert_eq!(tracker.live_allocations(), 1);
     Ok(())
@@ -370,8 +375,8 @@ fn empty_outputs_and_zero_width_rows_do_not_allocate_payloads() -> VortexResult<
         |_, _, row| row.write("unused"),
     )?;
 
-    assert!(primitive.is_empty());
-    assert!(boolean.is_empty());
+    assert!(primitive.into_nonnullable_array().is_empty());
+    assert!(boolean.into_nonnullable_array().is_empty());
     assert!(scalar.is_empty());
     assert!(strings.is_empty());
     assert_eq!(lists.len(), 3);
@@ -492,5 +497,67 @@ fn zero_sized_output_uses_its_own_storage(#[case] traversal: Traversal) -> Vorte
     assert_arrays_eq!(&output, &expected, &mut ctx);
     tracker.assert_owns(output.as_::<Primitive>().as_slice::<i64>());
 
+    Ok(())
+}
+
+#[derive(Default)]
+struct BuildOverride(i64);
+
+impl OutputElement for BuildOverride {
+    type Buffer = Vec<MaybeUninit<Self>>;
+
+    fn element_dtype() -> DType {
+        <i64 as OutputElement>::element_dtype()
+    }
+
+    fn with_capacity(_rows: usize, _allocator: &BufferAllocatorRef) -> Self::Buffer {
+        panic!("the custom build_from override must handle dense collection")
+    }
+
+    fn build_from<S, F>(source: S, apply: F, allocator: &BufferAllocatorRef) -> ArrayRef
+    where
+        S: IndexedSource,
+        F: Fn(S::Item) -> Self,
+    {
+        let mut values = allocator.with_capacity(source.len());
+        for index in 0..source.len() {
+            // SAFETY: this traversal visits each index below the source length exactly once.
+            values.push(apply(unsafe { source.get_unchecked(index) }).0);
+        }
+
+        PrimitiveArray::new(values.freeze(), Validity::NonNullable).into_array()
+    }
+}
+
+// SAFETY: vector moves preserve slot contents and capacity, and these values need no destruction.
+unsafe impl OutputBuffer<BuildOverride> for Vec<MaybeUninit<BuildOverride>> {
+    fn slots(&mut self) -> &mut [MaybeUninit<BuildOverride>] {
+        self.as_mut_slice()
+    }
+
+    unsafe fn finish(self, _len: usize, _allocator: &BufferAllocatorRef) -> ArrayRef {
+        panic!("the custom build_from override does not use output slots")
+    }
+}
+
+#[test]
+fn custom_build_from_override_keeps_callback_order() -> VortexResult<()> {
+    let visited = RefCell::new(Vec::new());
+    let (allocator, tracker) = tracking_allocator();
+    let mut ctx = array_session().create_execution_ctx();
+    let output = BuildOverride::build_output(
+        [1_i64, 2, 3].as_slice(),
+        |value| {
+            visited.borrow_mut().push(value);
+            BuildOverride(value * 2)
+        },
+        &allocator,
+    )
+    .into_nonnullable_array();
+    let expected = PrimitiveArray::from_iter([2_i64, 4, 6]).into_array();
+
+    assert_eq!(visited.into_inner(), [1, 2, 3]);
+    assert_arrays_eq!(&output, &expected, &mut ctx);
+    tracker.assert_owns(output.as_::<Primitive>().as_slice::<i64>());
     Ok(())
 }

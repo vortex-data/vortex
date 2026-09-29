@@ -10,15 +10,14 @@ use super::super::RowFnExecutionArgs;
 use super::super::args::BorrowedRowFnArgs;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
-use crate::builtins::ArrayBuiltins;
+use crate::scalar_fn::unstable::row::RowOutput;
 use crate::scalar_fn::unstable::row::execute::DenseAttempt;
-use crate::validity::Validity;
 
 impl RowFnExecutionArgs {
     /// Run every stored payload, then attach the input validity without materializing its mask.
     pub(super) fn execute_dense(
         &self,
-        kernel: impl Fn(BorrowedRowFnArgs<'_>, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
+        kernel: impl Fn(BorrowedRowFnArgs<'_>, &mut ExecutionCtx) -> VortexResult<RowOutput>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let values = kernel(self.execution_args(&self.inputs, self.row_count), ctx)?;
@@ -41,12 +40,12 @@ impl RowFnExecutionArgs {
             BorrowedRowFnArgs<'_>,
             MaskValuesRef,
             &mut ExecutionCtx,
-        ) -> VortexResult<Option<ArrayRef>>,
+        ) -> VortexResult<Option<RowOutput>>,
         execute_filtered_rows: impl FnOnce(
             BorrowedRowFnArgs<'_>,
             MaskValuesRef,
             &mut ExecutionCtx,
-        ) -> VortexResult<ArrayRef>,
+        ) -> VortexResult<RowOutput>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let attempt =
@@ -67,12 +66,12 @@ impl RowFnExecutionArgs {
             BorrowedRowFnArgs<'_>,
             MaskValuesRef,
             &mut ExecutionCtx,
-        ) -> VortexResult<Option<ArrayRef>>,
+        ) -> VortexResult<Option<RowOutput>>,
         execute_filtered_rows: impl FnOnce(
             BorrowedRowFnArgs<'_>,
             MaskValuesRef,
             &mut ExecutionCtx,
-        ) -> VortexResult<ArrayRef>,
+        ) -> VortexResult<RowOutput>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let valid_rows = match self.validity.execute_mask(self.row_count, ctx)? {
@@ -98,19 +97,12 @@ impl RowFnExecutionArgs {
 
     fn finalize_dense_output(
         &self,
-        values: ArrayRef,
+        values: RowOutput,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let values = self.validate_kernel_output(values, self.row_count, ctx)?;
+        let values =
+            self.finish_kernel_output(values, self.row_count, self.validity.clone(), ctx)?;
 
-        match self.validity.clone() {
-            Validity::NonNullable | Validity::AllValid => {
-                self.finalize_output(values, self.row_count)
-            }
-            Validity::Array(valid) => self.finalize_output(values.mask(valid)?, self.row_count),
-            Validity::AllInvalid => {
-                unreachable!("all-invalid validity is handled before dense row execution")
-            }
-        }
+        self.finalize_output(values, self.row_count)
     }
 }

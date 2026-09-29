@@ -22,13 +22,16 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::array_session;
+use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::FixedSizeListArray;
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBinViewArray;
+use crate::arrays::bool::BoolArrayExt;
 use crate::arrays::varbinview::BinaryView;
 use crate::assert_arrays_eq;
 use crate::buffer::BufferHandle;
@@ -50,6 +53,7 @@ use crate::scalar_fn::unstable::row::OutputBuffer;
 use crate::scalar_fn::unstable::row::OutputElement;
 use crate::scalar_fn::unstable::row::OutputSink;
 use crate::scalar_fn::unstable::row::RowFn;
+use crate::scalar_fn::unstable::row::RowOutput;
 use crate::scalar_fn::unstable::row::RowVisitor;
 use crate::scalar_fn::unstable::row::Utf8Column;
 use crate::scalar_fn::unstable::row::Utf8Sink;
@@ -708,9 +712,13 @@ fn test_finalize_kernel_output_rejects_nested_dtype_mismatch() -> VortexResult<(
     Ok(())
 }
 
-#[test]
-fn test_kernel_output_rejects_nulls_at_function_boundary() -> VortexResult<()> {
-    let input = PrimitiveArray::new(vec![1_i64, 2], Validity::NonNullable).into_array();
+#[rstest]
+#[case::dense(Validity::NonNullable)]
+#[case::hidden_null(Validity::from_iter([false, true]))]
+fn test_kernel_output_rejects_nulls_at_function_boundary(
+    #[case] validity: Validity,
+) -> VortexResult<()> {
+    let input = PrimitiveArray::new(vec![1_i64, 2], validity).into_array();
     let args = VecExecutionArgs::new(vec![input], 2);
     let mut ctx = array_session().create_execution_ctx();
     let execution = execute_rows(&InvalidKernelOutput, &EmptyOptions, &args, &mut ctx);
@@ -1527,5 +1535,62 @@ fn constant_output_retains_execution_allocator_payload() -> VortexResult<()> {
     assert_eq!(value.as_str(), "an external UTF-8 payload");
     assert_eq!(output.len(), 3);
     tracker.assert_owns(value.inner().as_slice());
+    Ok(())
+}
+
+#[rstest]
+#[case::all_true([true, true, true])]
+#[case::partially_valid([true, false, true])]
+fn typed_output_retains_lazy_validity(#[case] bits: [bool; 3]) -> VortexResult<()> {
+    let mask = BoolArray::from_iter(bits).into_array();
+    let input = PrimitiveArray::new(vec![1_i64, 2, 3], Validity::Array(mask.clone())).into_array();
+    let args = VecExecutionArgs::new(vec![input], 3);
+    let (allocator, tracker) = tracking_allocator();
+    let mut ctx = array_session()
+        .create_execution_ctx()
+        .with_allocator(allocator);
+
+    let primitive = execute_rows(
+        &DeclaredOutput { declared: None },
+        &EmptyOptions,
+        &args,
+        &mut ctx,
+    )?;
+    let boolean = execute_rows(&PackedPositive, &EmptyOptions, &args, &mut ctx)?;
+
+    assert!(primitive.is::<Primitive>());
+    assert!(boolean.is::<Bool>());
+    for output in [&primitive, &boolean] {
+        let Validity::Array(actual_mask) = output.validity()? else {
+            vortex_bail!("typed finalization must preserve array-backed validity");
+        };
+        assert!(ArrayRef::ptr_eq(&actual_mask, &mask));
+    }
+    tracker.assert_owns(primitive.as_::<Primitive>().as_slice::<i64>());
+    tracker.assert_owns(boolean.as_::<Bool>().to_bit_buffer().inner().as_slice());
+    assert_eq!(tracker.live_allocations(), 2);
+    Ok(())
+}
+
+#[rstest]
+#[case::length(PrimitiveArray::from_iter([1_i64]).into_array(), "must contain 2 rows")]
+#[case::dtype(BoolArray::from_iter([true, false]).into_array(), "output dtype must match")]
+#[case::hidden_null(PrimitiveArray::from_option_iter([None, Some(2_i64)]).into_array(), "must produce only valid rows")]
+fn arbitrary_output_is_validated_before_masking(
+    #[case] values: ArrayRef,
+    #[case] message: &str,
+) -> VortexResult<()> {
+    static ID: CachedId = CachedId::new("test.arbitrary_output");
+    let mut ctx = array_session().create_execution_ctx();
+    let validity = Validity::from_iter([false, true]);
+
+    let error = RowOutput::from_array(values)
+        .finish(*ID, &DType::from(i64::PTYPE), 2, validity, &mut ctx)
+        .expect_err("arbitrary output must satisfy the kernel output contract");
+
+    assert!(
+        error.to_string().contains(message),
+        "unexpected error: {error}"
+    );
     Ok(())
 }

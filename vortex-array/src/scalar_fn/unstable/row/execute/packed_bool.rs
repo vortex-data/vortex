@@ -3,8 +3,8 @@
 
 //! Direct packed Boolean collection for infallible and deferred row computations.
 //!
-//! These executors share the indexed input decoding used by owned outputs, but construct a
-//! canonical [`BoolArray`] without first collecting one byte per row.
+//! These executors share the indexed input decoding used by owned outputs, but construct
+//! packed output storage without first collecting one byte per row.
 //!
 //! [`execute_owned_bool`] reports rejected failure evidence as a terminal error.
 //! [`execute_bool_dense_attempt`] hands it back as a [`DenseAttempt::DeferredError`] so that batch
@@ -18,22 +18,19 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use super::DenseAttempt;
-use crate::ArrayRef;
 use crate::ExecutionCtx;
-use crate::IntoArray;
-use crate::arrays::BoolArray;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::unstable::row::FailureEvidence;
 use crate::scalar_fn::unstable::row::IndexedElementTuple;
+use crate::scalar_fn::unstable::row::RowOutput;
 use crate::scalar_fn::unstable::row::types::decoded_source;
-use crate::validity::Validity;
 
 /// Decode every input column, then pack infallible Boolean outputs.
 pub(crate) fn execute_owned_infallible_bool<Args, const MULTIVERSIONED: bool>(
     args: &dyn ExecutionArgs,
     ctx: &mut ExecutionCtx,
     apply: impl Fn(Args::Elems<'_>) -> bool,
-) -> VortexResult<ArrayRef>
+) -> VortexResult<RowOutput>
 where
     Args: IndexedElementTuple,
 {
@@ -55,7 +52,7 @@ where
         BitBuffer::collect_bool_in(row_count, collect, ctx.allocator().clone())
     };
 
-    Ok(BoolArray::new(values, Validity::NonNullable).into_array())
+    Ok(RowOutput::boolean(values))
 }
 
 /// Decode every input column, then pack Boolean outputs while combining failure evidence.
@@ -65,7 +62,7 @@ pub(crate) fn execute_owned_bool<Args, Prepared, Fail, const MULTIVERSIONED: boo
     prepare: impl FnOnce(Args::ConstElems<'_>) -> Prepared,
     apply: impl Fn(&Prepared, Args::Elems<'_>) -> (bool, Fail),
     finish_failure: impl FnOnce(Fail) -> VortexResult<()>,
-) -> VortexResult<ArrayRef>
+) -> VortexResult<RowOutput>
 where
     Args: IndexedElementTuple,
     Fail: FailureEvidence,
@@ -104,7 +101,7 @@ where
 
     finish_failure(failure)?;
 
-    Ok(BoolArray::new(values, Validity::NonNullable).into_array())
+    Ok(RowOutput::boolean(values))
 }
 
 /// Pack a dense Boolean attempt and report rejected failure evidence to the batch executor.
@@ -168,9 +165,7 @@ where
     };
 
     match finish_failure(state.failure) {
-        Ok(()) => Ok(DenseAttempt::Values(
-            BoolArray::new(values, Validity::NonNullable).into_array(),
-        )),
+        Ok(()) => Ok(DenseAttempt::Values(RowOutput::boolean(values))),
         Err(error) => Ok(DenseAttempt::DeferredError(error)),
     }
 }

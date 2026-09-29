@@ -29,7 +29,8 @@ use super::super::args::BorrowedRowFnArgs;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::builtins::ArrayBuiltins;
+use crate::scalar_fn::unstable::row::RowOutput;
+use crate::validity::Validity;
 
 impl RowFnExecutionArgs {
     /// Filter the batch to valid rows, then execute the kernel into the original row domain.
@@ -39,7 +40,7 @@ impl RowFnExecutionArgs {
             BorrowedRowFnArgs<'_>,
             MaskValuesRef,
             &mut ExecutionCtx,
-        ) -> VortexResult<ArrayRef>,
+        ) -> VortexResult<RowOutput>,
         valid: &MaskValuesRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
@@ -54,9 +55,9 @@ impl RowFnExecutionArgs {
 
         let filtered_args = self.execution_args(&filtered_inputs, filtered_len);
         let values = execute_filtered_rows(filtered_args, MaskValuesRef::clone(valid), ctx)?;
-        let values = self.validate_kernel_output(values, self.row_count, ctx)?;
+        let validity = Validity::Array(valid.as_ref().into_array());
+        let values = self.finish_kernel_output(values, self.row_count, validity, ctx)?;
 
-        let mask = valid.as_ref().into_array();
-        self.finalize_output(values.mask(mask)?, self.row_count)
+        self.finalize_output(values, self.row_count)
     }
 }

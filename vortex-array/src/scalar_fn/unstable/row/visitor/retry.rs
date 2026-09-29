@@ -28,6 +28,7 @@ use crate::scalar_fn::unstable::row::IndexedElementTuple;
 use crate::scalar_fn::unstable::row::OutputElement;
 use crate::scalar_fn::unstable::row::OutputSink;
 use crate::scalar_fn::unstable::row::RowFn;
+use crate::scalar_fn::unstable::row::RowOutput;
 use crate::scalar_fn::unstable::row::SinkResult;
 use crate::scalar_fn::unstable::row::batch::BorrowedRowFnArgs;
 use crate::scalar_fn::unstable::row::execute::DenseAttempt;
@@ -123,7 +124,7 @@ impl<F: RowFn> RowVisitor for ExecuteDenseWithRetry<'_, '_, '_, F> {
         execute_sink::<Args, Prepared, Sink, ApplyResult>(
             self.args, &params, self.ctx, prepare, apply,
         )
-        .map(DenseAttempt::Values)
+        .map(|values| DenseAttempt::Values(RowOutput::from_array(values)))
     }
 
     fn visit_prepared_deferred<Args, Out, Prepared, Fail>(

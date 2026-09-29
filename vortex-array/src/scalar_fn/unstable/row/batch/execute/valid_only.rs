@@ -10,23 +10,24 @@ use super::super::args::BorrowedRowFnArgs;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::builtins::ArrayBuiltins;
+use crate::scalar_fn::unstable::row::RowOutput;
+use crate::validity::Validity;
 
 impl RowFnExecutionArgs {
     /// Resolve validity and try direct valid-row execution before filtered execution.
     pub(super) fn execute_valid_only(
         &self,
-        kernel: impl Fn(BorrowedRowFnArgs<'_>, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
+        kernel: impl Fn(BorrowedRowFnArgs<'_>, &mut ExecutionCtx) -> VortexResult<RowOutput>,
         try_valid_rows: impl FnOnce(
             BorrowedRowFnArgs<'_>,
             MaskValuesRef,
             &mut ExecutionCtx,
-        ) -> VortexResult<Option<ArrayRef>>,
+        ) -> VortexResult<Option<RowOutput>>,
         execute_filtered_rows: impl FnOnce(
             BorrowedRowFnArgs<'_>,
             MaskValuesRef,
             &mut ExecutionCtx,
-        ) -> VortexResult<ArrayRef>,
+        ) -> VortexResult<RowOutput>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let validity = self.validity.clone().execute_mask(self.row_count, ctx)?;
@@ -35,7 +36,12 @@ impl RowFnExecutionArgs {
             // An empty mask is both all-valid and all-null. Preserve the all-valid behavior.
             Mask::AllTrue(_) | Mask::AllFalse(0) => {
                 let values = kernel(self.execution_args(&self.inputs, self.row_count), ctx)?;
-                let values = self.validate_kernel_output(values, self.row_count, ctx)?;
+                let values = self.finish_kernel_output(
+                    values,
+                    self.row_count,
+                    Validity::from(self.result_dtype.nullability()),
+                    ctx,
+                )?;
 
                 return self.finalize_output(values, self.row_count);
             }
@@ -57,7 +63,7 @@ impl RowFnExecutionArgs {
             BorrowedRowFnArgs<'_>,
             MaskValuesRef,
             &mut ExecutionCtx,
-        ) -> VortexResult<Option<ArrayRef>>,
+        ) -> VortexResult<Option<RowOutput>>,
         valid: &MaskValuesRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -69,10 +75,9 @@ impl RowFnExecutionArgs {
         else {
             return Ok(None);
         };
-        let values = self.validate_kernel_output(values, valid.len(), ctx)?;
+        let validity = Validity::Array(valid.as_ref().into_array());
+        let values = self.finish_kernel_output(values, valid.len(), validity, ctx)?;
 
-        let mask = valid.as_ref().into_array();
-        self.finalize_output(values.mask(mask)?, valid.len())
-            .map(Some)
+        self.finalize_output(values, valid.len()).map(Some)
     }
 }
