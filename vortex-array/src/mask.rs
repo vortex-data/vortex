@@ -109,5 +109,4 @@ mod tests {
         assert_eq!(mask, Mask::new_false(4));
         Ok(())
     }
-
 }

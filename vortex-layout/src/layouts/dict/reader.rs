@@ -278,7 +278,10 @@ impl LayoutReader for DictReader {
             let mask = mask.await?;
 
             let mut ctx = session.create_execution_ctx();
-            let dict_mask = values.take(codes)?.fill_null(false)?.execute::<Mask>(&mut ctx)?;
+            let dict_mask = values
+                .take(codes)?
+                .fill_null(false)?
+                .execute::<Mask>(&mut ctx)?;
 
             Ok(mask.bitand(&dict_mask))
         }))

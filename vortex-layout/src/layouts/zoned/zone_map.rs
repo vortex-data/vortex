@@ -6,10 +6,11 @@
 use std::sync::Arc;
 
 use vortex_array::ArrayRef;
+use vortex_array::Columnar;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
-use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::aggregate_fn::AggregateFnSatisfaction;
 use vortex_array::aggregate_fn::fns::all_nan::AllNan;
 use vortex_array::aggregate_fn::fns::all_non_nan::AllNonNan;
@@ -17,6 +18,7 @@ use vortex_array::aggregate_fn::fns::all_non_null::AllNonNull;
 use vortex_array::aggregate_fn::fns::all_null::AllNull;
 use vortex_array::aggregate_fn::fns::bounded_max::BOUNDED_MAX_BOUND;
 use vortex_array::aggregate_fn::fns::bounded_max::BoundedMax;
+use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
@@ -152,18 +154,44 @@ impl ZoneMap {
         let applied = array.apply_bound(&predicate)?;
 
         if !contains_row_count(&applied) {
-            return applied.fill_null(false)?.execute::<Mask>(&mut ctx);
+            return null_as_false_mask(applied, &mut ctx);
         }
 
         let row_count_array = row_count_array(self.zone_len, self.row_count, num_zones)?;
         let substituted = substitute_row_count(applied, &row_count_array)?;
-        substituted.fill_null(false)?.execute::<Mask>(&mut ctx)
+        null_as_false_mask(substituted, &mut ctx)
     }
 
     fn lower_stats(&self, predicate: BoundExpression) -> VortexResult<BoundExpression> {
         let binder = ZoneMapStatsBinder { zone_map: self };
         bind_stats(predicate, &binder)
     }
+}
+
+/// This is equivalent to fill_null(false)?.execute::<Mask>(ctx).
+/// However, prune work is very fast, and fill_null + optimize calls
+/// dominate the runtime.
+fn null_as_false_mask(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Mask> {
+    if !array.dtype().is_nullable() {
+        return array.execute::<Mask>(ctx);
+    }
+    let len = array.len();
+    Ok(match array.execute::<Columnar>(ctx)? {
+        Columnar::Constant(c) => Mask::new(len, c.scalar().as_bool().value().unwrap_or(false)),
+        Columnar::Canonical(c) => {
+            let bool = c.into_array().execute::<BoolArray>(ctx)?;
+            match bool.as_ref().validity()? {
+                Validity::NonNullable | Validity::AllValid => {
+                    Mask::from_buffer(bool.into_bit_buffer())
+                }
+                Validity::AllInvalid => Mask::new_false(len),
+                Validity::Array(v) => {
+                    let validity_bits = v.execute::<BoolArray>(ctx)?.into_bit_buffer();
+                    Mask::from_buffer(bool.into_bit_buffer() & &validity_bits)
+                }
+            }
+        }
+    })
 }
 
 struct ZoneMapStatsBinder<'a> {
