@@ -21,6 +21,7 @@
 //! [`ScanBuilder::prepare`]: crate::scan::scan_builder::ScanBuilder::prepare
 //! [`ScanBuilder::into_stream`]: crate::scan::scan_builder::ScanBuilder::into_stream
 
+mod conjuncts;
 mod io;
 mod lower;
 mod prefetch;

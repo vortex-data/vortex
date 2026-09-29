@@ -55,7 +55,11 @@ fn bound_conjuncts(expr: &BoundExpression) -> Vec<BoundExpression> {
 
 impl FilterExpr {
     pub fn new(expr: BoundExpression) -> Self {
-        let conjuncts = bound_conjuncts(&expr);
+        Self::from_conjuncts(bound_conjuncts(&expr))
+    }
+
+    /// Builds a filter from conjuncts that are already split, without splitting them further.
+    pub(crate) fn from_conjuncts(conjuncts: Vec<BoundExpression>) -> Self {
         let num_conjuncts = conjuncts.len();
 
         let dynamic_conjuncts = conjuncts.iter().map(DynamicExprUpdates::new).collect_vec();
