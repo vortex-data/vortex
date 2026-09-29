@@ -21,6 +21,7 @@ use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -133,15 +134,39 @@ fn add_references<T: NativePType + WrappingAdd + PrimInt>(
 
     // The first chunk may be partial when the array was sliced.
     let first_len = (FL_CHUNK_SIZE - usize::from(array.offset())).min(array.len());
-    let mut values = encoded.into_buffer_mut::<T>();
-    let (first, rest) = values.as_mut_slice().split_at_mut(first_len);
-    let chunks = iter::once(first).chain(rest.chunks_mut(FL_CHUNK_SIZE));
-    for (chunk, &reference) in chunks.zip_eq(references) {
-        for value in chunk {
-            *value = value.wrapping_add(&reference);
+    let values = match encoded.into_buffer::<T>().try_into_mut() {
+        Ok(mut values) => {
+            for (chunk, &reference) in chunks_mut(&mut values, first_len).zip_eq(references) {
+                for value in chunk {
+                    *value = value.wrapping_add(&reference);
+                }
+            }
+            values
         }
-    }
+        // Add the references while copying out of a shared buffer, rather than copying first.
+        Err(encoded) => {
+            let len = encoded.len();
+            let mut values = BufferMut::<T>::with_capacity_in(len, ctx.allocator().clone());
+            let (first, rest) = encoded.split_at(first_len);
+            let inputs = iter::once(first).chain(rest.chunks(FL_CHUNK_SIZE));
+            let outputs = chunks_mut(&mut values.spare_capacity_mut()[..len], first_len);
+            for ((output, input), &reference) in outputs.zip(inputs).zip_eq(references) {
+                for (output, value) in output.iter_mut().zip(input) {
+                    output.write(value.wrapping_add(&reference));
+                }
+            }
+            // SAFETY: the loop above initialized every value.
+            unsafe { values.set_len(len) };
+            values
+        }
+    };
     Ok(PrimitiveArray::new(values.freeze(), validity))
+}
+
+/// Split `values` into FoR chunks, the first of which holds `first_len` values.
+fn chunks_mut<V>(values: &mut [V], first_len: usize) -> impl Iterator<Item = &mut [V]> {
+    let (first, rest) = values.split_at_mut(first_len);
+    iter::once(first).chain(rest.chunks_mut(FL_CHUNK_SIZE))
 }
 
 pub(crate) fn fused_decompress<

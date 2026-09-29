@@ -75,3 +75,7 @@ required-features = ["_test-harness"]
 [[bench]]
 name = "for_encode"
 harness = false
+
+[[bench]]
+name = "for_decode"
+harness = false
