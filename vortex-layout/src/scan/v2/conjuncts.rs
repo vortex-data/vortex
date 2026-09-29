@@ -8,6 +8,12 @@ use vortex_array::expr::analysis::referenced_field_paths;
 use vortex_array::expr::bound::and as bound_and;
 use vortex_error::VortexResult;
 
+use crate::plan::Eval;
+use crate::plan::EvalPlan;
+use crate::plan::Filter;
+use crate::plan::FilterPlan;
+use crate::plan::PlanRef;
+
 /// Merges conjuncts that read a common field back into one conjunct each.
 ///
 /// Evaluating two conjuncts separately reads and decodes their shared columns twice, so the
@@ -45,6 +51,36 @@ pub(super) fn group_conjuncts(conjuncts: &[BoundExpression]) -> VortexResult<Vec
         .into_iter()
         .filter_map(|group| group.into_iter().reduce(bound_and))
         .collect())
+}
+
+/// Moves each filter above the predicate evaluated over it, so the predicate runs over every row
+/// of a segment and its result is filtered, rather than filtering the segment first.
+///
+/// The default scan evaluates filter predicates the same way: filtering decoded data first would
+/// decompress it, while a predicate over the whole encoded segment can run on its encoding and
+/// hand the filter a lazy result. Rows outside the selection hold real data, so the predicate sees
+/// only values the column contains. Only used for filter conjuncts; projections still filter
+/// first, since a projection may be invalid on rows the filter removed.
+pub(super) fn filter_after_eval(plan: PlanRef) -> VortexResult<PlanRef> {
+    let children = plan
+        .children()
+        .iter()
+        .map(|child| filter_after_eval(child?))
+        .collect::<VortexResult<Vec<_>>>()?;
+    let plan = if children.is_empty() {
+        plan
+    } else {
+        plan.with_children(children)?
+    };
+    let Some(eval) = plan.as_opt::<Eval>() else {
+        return Ok(plan);
+    };
+    let child = eval.child_plan()?;
+    let Some(filter) = child.as_opt::<Filter>() else {
+        return Ok(plan);
+    };
+    let evaluated = EvalPlan::try_new(eval.expression().clone(), filter.child_plan()?)?;
+    Ok(FilterPlan::new(evaluated.into_plan()).into_plan())
 }
 
 /// Union-find over conjunct indices, where each set is rooted at its lowest member.
@@ -86,10 +122,20 @@ mod tests {
     use vortex_array::expr::gt;
     use vortex_array::expr::lit;
     use vortex_array::expr::lt;
+    use vortex_array::expr::root;
     use vortex_error::VortexResult;
+    use vortex_session::registry::ReadContext;
 
+    use super::filter_after_eval;
     use super::group_conjuncts;
+    use crate::plan::Eval;
+    use crate::plan::EvalPlan;
+    use crate::plan::Filter;
+    use crate::plan::FilterPlan;
+    use crate::plan::SegmentScan;
+    use crate::plan::SegmentScanPlan;
     use crate::scan::filter::FilterExpr;
+    use crate::segments::SegmentId;
 
     fn dtype() -> DType {
         let i32 = DType::Primitive(PType::I32, NonNullable);
@@ -122,6 +168,33 @@ mod tests {
         assert!(
             groups[1].contains("$.c") && !groups[1].contains("$.a"),
             "{groups:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn moves_filters_above_the_predicate() -> VortexResult<()> {
+        let dtype = DType::Primitive(PType::I32, NonNullable);
+        let scan = SegmentScanPlan::new(
+            dtype.clone(),
+            10,
+            SegmentId::from(0),
+            ReadContext::new([]),
+            None,
+        )
+        .into_plan();
+        let filtered = FilterPlan::new(scan).into_plan();
+        let predicate = gt(root(), lit(5)).bind(&dtype)?;
+        let plan = EvalPlan::try_new(predicate, filtered)?.into_plan();
+
+        let rewritten = filter_after_eval(plan)?;
+        assert!(rewritten.is::<Filter>(), "{}", rewritten.display_tree());
+        let eval = rewritten.child_required(0)?;
+        assert!(eval.is::<Eval>(), "{}", rewritten.display_tree());
+        assert!(
+            eval.child_required(0)?.is::<SegmentScan>(),
+            "{}",
+            rewritten.display_tree()
         );
         Ok(())
     }

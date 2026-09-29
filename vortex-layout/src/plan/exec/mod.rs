@@ -14,6 +14,7 @@
 
 mod concat;
 mod eval;
+mod filter;
 mod pack;
 mod piece;
 mod row_idx;
@@ -488,6 +489,7 @@ impl From<StepCx<'_>> for Effects {
 
 pub(crate) use concat::ConcatNode;
 pub(crate) use eval::EvalNode;
+pub(crate) use filter::FilterNode;
 pub(crate) use pack::PackNode;
 pub(crate) use piece::Selection;
 pub(crate) use row_idx::RowIdxNode;

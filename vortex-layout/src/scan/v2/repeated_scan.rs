@@ -36,6 +36,7 @@ use crate::scan::scan_builder::referenced_field_masks;
 use crate::scan::splits::Splits;
 use crate::scan::splits::attempt_split_ranges;
 use crate::scan::v2::ScanFile;
+use crate::scan::v2::conjuncts::filter_after_eval;
 use crate::scan::v2::conjuncts::group_conjuncts;
 use crate::scan::v2::io::SegmentRanges;
 use crate::scan::v2::io::segment_ranges;
@@ -79,7 +80,7 @@ pub fn prepare<A: 'static + Send>(
                 .conjuncts()
                 .iter()
                 .cloned()
-                .map(plan)
+                .map(|conjunct| filter_after_eval(plan(conjunct)?))
                 .collect::<VortexResult<Vec<_>>>()?;
             VortexResult::Ok(FilterPlans::conjuncts(filter, plans))
         })
