@@ -6,6 +6,7 @@ use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::sync::Arc;
 
+use futures::FutureExt;
 use futures::TryStreamExt;
 use futures::stream;
 use parking_lot::Mutex;
@@ -253,16 +254,24 @@ async fn filter_with_limit_is_rejected() -> VortexResult<()> {
     Ok(())
 }
 
-/// Records every segment read through it.
+/// Records every segment whose read is awaited.
+///
+/// A scan also registers segments it may read, so the source can coalesce them. Registration
+/// alone reads nothing, so only awaited reads are recorded.
 struct RecordingSegments {
     inner: Arc<dyn SegmentSource>,
-    reads: Mutex<BTreeSet<u32>>,
+    reads: Arc<Mutex<BTreeSet<u32>>>,
 }
 
 impl SegmentSource for RecordingSegments {
     fn request(&self, id: SegmentId) -> SegmentFuture {
-        self.reads.lock().insert(*id);
-        self.inner.request(id)
+        let read = self.inner.request(id);
+        let reads = Arc::clone(&self.reads);
+        async move {
+            reads.lock().insert(*id);
+            read.await
+        }
+        .boxed()
     }
 }
 
@@ -328,7 +337,7 @@ async fn zone_pruning_reads_only_zones_that_can_match() -> VortexResult<()> {
 
     let recording = Arc::new(RecordingSegments {
         inner: Arc::clone(&segments),
-        reads: Mutex::default(),
+        reads: Arc::default(),
     });
     let mut file = scan_file(&segments, &layout)?;
     file.segments = Arc::clone(&recording) as _;
