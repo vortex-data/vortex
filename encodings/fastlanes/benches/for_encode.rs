@@ -42,7 +42,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 });
 
 /// Bytes of values per input array.
-const INPUT_BYTES: &[usize] = &[256 * 1024, 512 * 1024];
+const INPUT_BYTES: &[usize] = &[512 * 1024];
 
 type Encode = fn(PrimitiveArray, &mut ExecutionCtx) -> VortexResult<FoRArray>;
 
@@ -82,25 +82,25 @@ fn run<T: NativePType + TryFrom<usize>>(
 }
 
 #[vortex_bench_support::cpu_features]
-#[divan::bench(types = [u32, i64], args = INPUT_BYTES)]
+#[divan::bench(types = [i64], args = INPUT_BYTES)]
 fn encode<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usize) {
     run::<T>(bencher, bytes, false, FoR::encode);
 }
 
 #[vortex_bench_support::cpu_features]
-#[divan::bench(types = [u32, i64], args = INPUT_BYTES)]
+#[divan::bench(types = [i64], args = INPUT_BYTES)]
 fn encode_chunked<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usize) {
     run::<T>(bencher, bytes, false, FoR::encode_chunked);
 }
 
 #[vortex_bench_support::cpu_features]
-#[divan::bench(types = [u32, i64], args = INPUT_BYTES)]
+#[divan::bench(types = [i64], args = INPUT_BYTES)]
 fn encode_nullable<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usize) {
     run::<T>(bencher, bytes, true, FoR::encode);
 }
 
 #[vortex_bench_support::cpu_features]
-#[divan::bench(types = [u32, i64], args = INPUT_BYTES)]
+#[divan::bench(types = [i64], args = INPUT_BYTES)]
 fn encode_chunked_nullable<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usize) {
     run::<T>(bencher, bytes, true, FoR::encode_chunked);
 }

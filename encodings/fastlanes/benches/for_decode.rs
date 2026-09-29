@@ -46,7 +46,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 });
 
 /// Bytes of values per input array.
-const INPUT_BYTES: &[usize] = &[256 * 1024, 512 * 1024];
+const INPUT_BYTES: &[usize] = &[512 * 1024];
 
 /// Enough bits for the values' spread above their minimum.
 const BIT_WIDTH: u8 = 7;
@@ -93,25 +93,25 @@ fn run<T: NativePType + TryFrom<usize>>(
 }
 
 #[vortex_bench_support::cpu_features]
-#[divan::bench(types = [u32, i64], args = INPUT_BYTES)]
+#[divan::bench(types = [i64], args = INPUT_BYTES)]
 fn decode<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usize) {
     run::<T>(bencher, bytes, false, false);
 }
 
 #[vortex_bench_support::cpu_features]
-#[divan::bench(types = [u32, i64], args = INPUT_BYTES)]
+#[divan::bench(types = [i64], args = INPUT_BYTES)]
 fn decode_chunked<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usize) {
     run::<T>(bencher, bytes, true, false);
 }
 
 #[vortex_bench_support::cpu_features]
-#[divan::bench(types = [u32, i64], args = INPUT_BYTES)]
+#[divan::bench(types = [i64], args = INPUT_BYTES)]
 fn decode_bitpacked<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usize) {
     run::<T>(bencher, bytes, false, true);
 }
 
 #[vortex_bench_support::cpu_features]
-#[divan::bench(types = [u32, i64], args = INPUT_BYTES)]
+#[divan::bench(types = [i64], args = INPUT_BYTES)]
 fn decode_bitpacked_chunked<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usize) {
     run::<T>(bencher, bytes, true, true);
 }
