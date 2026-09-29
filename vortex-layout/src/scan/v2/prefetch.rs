@@ -26,7 +26,7 @@ use crate::segments::SegmentId;
 ///
 /// This is a hint, not a promise: it follows plans whose children cover the same rows, or a known
 /// part of them, and stops at any other plan, such as a list whose elements cover other rows.
-pub(super) fn plan_segments(
+pub(crate) fn plan_segments(
     plan: &PlanRef,
     rows: Range<u64>,
     segments: &mut Vec<SegmentId>,

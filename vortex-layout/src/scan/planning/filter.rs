@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
 use std::sync::Arc;
 
 use bit_vec::BitVec;
@@ -10,9 +11,15 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
+use vortex_io::request::IoBatch;
 use vortex_io::request::IoConsumer;
+use vortex_io::request::IoIntent;
+use vortex_io::request::IoRequest;
 use vortex_io::request::IoRequestId;
 use vortex_io::request::IoResult;
+use vortex_io::request::IoTarget;
+use vortex_mask::AllOr;
 use vortex_mask::Mask;
 use vortex_scan::planning::next::Next;
 use vortex_scan::planning::planner::Planner;
@@ -27,6 +34,7 @@ use crate::scan::filter::FilterExpr;
 use crate::scan::planning::ScanPlans;
 use crate::scan::planning::graph::GraphStep;
 use crate::scan::planning::graph::ProtocolGraph;
+use crate::scan::v2::prefetch::plan_segments;
 
 /// Which rows a [`FilterPlanner`] keeps.
 #[derive(Clone, Copy)]
@@ -122,8 +130,14 @@ pub struct FilterPlanner {
     pieces: Vec<Piece>,
     /// The protocol id the next plan's first request gets; ids never repeat within the planner.
     next_io_id: u32,
+    /// Whether the planner has asked for its reads ahead of evaluating the plans.
+    prefetched: bool,
     done: bool,
 }
+
+/// The most row ranges a split's reads are prefetched for one by one; a more scattered selection
+/// prefetches the range spanning it.
+const MAX_PREFETCH_RANGES: usize = 64;
 
 impl FilterPlanner {
     /// Creates a planner that filters the rows of `scope` selected by `mask`.
@@ -176,8 +190,61 @@ impl FilterPlanner {
             running: None,
             pieces: Vec::new(),
             next_io_id: 0,
+            // Pruning runs before any reads are known to be needed, so it prefetches nothing.
+            prefetched: matches!(keep, Keep::False),
             done: false,
         }
+    }
+
+    /// Prefetches every segment the plans and the projection read over the selected rows, so the
+    /// reads of later plans and of the projection overlap the evaluation of earlier ones, as the
+    /// default scan's split futures do by polling every read up front.
+    fn prefetch(&mut self) -> VortexResult<IoBatch> {
+        let start = self.scope.rows.start;
+        let ranges: Vec<Range<u64>> = match self.mask.slices() {
+            AllOr::All => vec![self.scope.rows.clone()],
+            AllOr::None => Vec::new(),
+            AllOr::Some(slices) if slices.len() <= MAX_PREFETCH_RANGES => slices
+                .iter()
+                .map(|&(begin, end)| start + begin as u64..start + end as u64)
+                .collect(),
+            AllOr::Some(slices) => {
+                let first = slices.first().map_or(0, |slice| slice.0);
+                let last = slices.last().map_or(0, |slice| slice.1);
+                let spanning = start + first as u64..start + last as u64;
+                vec![spanning]
+            }
+        };
+        let mut ids = Vec::new();
+        for range in ranges {
+            for plan in self.filters.plans.iter().chain([&self.plans.projection]) {
+                plan_segments(plan, range.clone(), &mut ids)?;
+            }
+        }
+        ids.sort_unstable();
+        ids.dedup();
+        ids.into_iter()
+            .map(|id| {
+                let location = self
+                    .plans
+                    .locations
+                    .get(*id as usize)
+                    .ok_or_else(|| vortex_err!("segment {id} has no known location"))?;
+                let request = IoRequestId(self.next_io_id);
+                self.next_io_id = self
+                    .next_io_id
+                    .checked_add(1)
+                    .ok_or_else(|| vortex_err!("FilterPlanner ran out of request ids"))?;
+                Ok(IoRequest {
+                    intent: IoIntent::Prefetch,
+                    request,
+                    target: IoTarget::Range {
+                        offset: location.offset,
+                        len: location.length as usize,
+                    },
+                })
+            })
+            .collect()
     }
 
     /// Starts the next plan over the rows still selected, or finishes: without a child when no
@@ -265,6 +332,13 @@ impl Planner for FilterPlanner {
     fn compute(&mut self) -> VortexResult<PlannerOutput> {
         if self.done {
             vortex_bail!("FilterPlanner: compute called after Done");
+        }
+        if !self.prefetched {
+            self.prefetched = true;
+            let batch = self.prefetch()?;
+            if !batch.is_empty() {
+                return Ok(PlannerOutput::NeedsIO(batch));
+            }
         }
         let Some((index, input, graph)) = self.running.as_mut() else {
             return self.start_next();

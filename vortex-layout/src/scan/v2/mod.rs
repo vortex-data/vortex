@@ -25,7 +25,7 @@ mod conjuncts;
 mod file;
 mod io;
 mod lower;
-mod prefetch;
+pub(crate) mod prefetch;
 mod repeated_scan;
 mod share;
 mod split;
