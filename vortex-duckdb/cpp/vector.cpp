@@ -113,7 +113,7 @@ extern "C" duckdb_value duckdb_vx_vector_get_value(duckdb_vector ffi_vector, idx
     return reinterpret_cast<duckdb_value>(value.release());
 }
 
-void duckdb_vector_flatten(duckdb_vector vector, unsigned long len) {
+void duckdb_vector_flatten(duckdb_vector vector, idx_t len) {
     auto dvector = reinterpret_cast<Vector *>(vector);
     dvector->Flatten(len);
 }
@@ -131,7 +131,11 @@ void duckdb_vx_vector_set_all_valid(duckdb_vector ffi_vector) {
     case FSST_VECTOR:
         return FSSTVector::Validity(vector).Reset();
     default:
+#if defined(_MSC_VER) && !defined(__clang__)
+        __assume(false);
+#else
         __builtin_unreachable();
+#endif
     }
 }
 
