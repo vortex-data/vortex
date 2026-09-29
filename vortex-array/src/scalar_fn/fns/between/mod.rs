@@ -348,7 +348,6 @@ mod tests {
     use crate::arrays::BoolArray;
     use crate::arrays::DecimalArray;
     use crate::arrays::PrimitiveArray;
-    use crate::arrays::ScalarFn;
     use crate::arrays::StructArray;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
@@ -362,7 +361,6 @@ mod tests {
     use crate::expr::root;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
-    use crate::scalar_fn::fns::is_not_null::IsNotNull;
     use crate::test_harness::to_int_indices;
     use crate::validity::Validity;
 
@@ -393,8 +391,10 @@ mod tests {
         let Validity::Array(validity) = lazy.validity()? else {
             vortex_bail!("non-lazy validity");
         };
-        let scalar_fn = validity.as_::<ScalarFn>();
-        assert!(scalar_fn.scalar_fn().is::<IsNotNull>());
+        assert_eq!(
+            validity.encoding_id().to_string(),
+            "vortex.scalar_fn_validity"
+        );
         assert_arrays_eq!(validity, BoolArray::from_iter([true, false, true]), ctx);
         Ok(())
     }

@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 mod operations;
+mod validity;
+
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::marker::PhantomData;
 use std::ops::Deref;
 
 use itertools::Itertools;
+use validity::ValidityArray;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -40,7 +43,6 @@ use crate::scalar_fn::ReduceNode;
 use crate::scalar_fn::ReduceNodeValidity;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::VecExecutionArgs;
-use crate::scalar_fn::fns::is_not_null::IsNotNull;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 
@@ -246,10 +248,7 @@ impl ValidityVTable<ScalarFn> for ScalarFn {
         let node = ArrayReduceNode::new(view.as_ref());
         Ok(Validity::Array(match node.validity()? {
             ReduceNodeValidity::Reduced(reduced) => reduced.into_array(),
-            // We get validity only after evaluating this node. To avoid
-            // infinite recursion, IsNotNull(x) -> x.validity() symbolically
-            // rewrites only in the Reduced() case.
-            ReduceNodeValidity::Irreducible => IsNotNull::new(view.as_ref().clone()).into_array(),
+            ReduceNodeValidity::Irreducible => ValidityArray::new(node.into_array()).into_array(),
         }))
     }
 }

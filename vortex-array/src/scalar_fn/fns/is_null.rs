@@ -22,7 +22,6 @@ use crate::scalar_fn::ReduceNode;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
-use crate::scalar_fn::fns::is_not_null::lazy_child_or_execute_step;
 use crate::scalar_fn::fns::is_not_null::reduce_null;
 use crate::validity::Validity;
 
@@ -78,14 +77,13 @@ impl ScalarFnVTable for IsNull {
         &self,
         _data: &Self::Options,
         args: &dyn ExecutionArgs,
-        ctx: &mut ExecutionCtx,
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let child = args.get(0)?;
         if let Some(scalar) = child.as_constant() {
             return Ok(ConstantArray::new(scalar.is_null(), args.row_count()).into_array());
         }
 
-        let child = lazy_child_or_execute_step(child, ctx)?;
         match child.validity()? {
             Validity::NonNullable | Validity::AllValid => {
                 Ok(ConstantArray::new(false, args.row_count()).into_array())

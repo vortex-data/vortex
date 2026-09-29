@@ -11,9 +11,6 @@ use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
-use crate::IntoArray;
-use crate::arrays::ConstantArray;
-use crate::arrays::ScalarFn;
 use crate::arrays::ScalarFnArray;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -32,7 +29,6 @@ use crate::scalar_fn::fns::is_null::IsNull;
 use crate::scalar_fn::fns::not::Not;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::scalar_fn::is_not_null_node;
-use crate::validity::Validity;
 
 /// In array context, reduce
 ///
@@ -109,20 +105,6 @@ pub(crate) fn reduce_null<T: ReduceNode>(is_null: bool, node: &T) -> VortexResul
     Ok(Some(node.new_node(Binary.bind(combine), &[left, right])?))
 }
 
-/// If we get a scalar function child, at this point we have done all symbolic
-/// reductions. Execute child one step and return. For every other child,
-/// return the child itself.
-pub(crate) fn lazy_child_or_execute_step(
-    child: ArrayRef,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    if child.is::<ScalarFn>() {
-        child.execute::<ArrayRef>(ctx)
-    } else {
-        Ok(child)
-    }
-}
-
 /// Expression that checks for non-null values.
 #[derive(Clone)]
 pub struct IsNotNull;
@@ -186,16 +168,9 @@ impl ScalarFnVTable for IsNotNull {
         &self,
         _data: &Self::Options,
         args: &dyn ExecutionArgs,
-        ctx: &mut ExecutionCtx,
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let child = lazy_child_or_execute_step(args.get(0)?, ctx)?;
-        match child.validity()? {
-            Validity::NonNullable | Validity::AllValid => {
-                Ok(ConstantArray::new(true, args.row_count()).into_array())
-            }
-            Validity::AllInvalid => Ok(ConstantArray::new(false, args.row_count()).into_array()),
-            Validity::Array(a) => Ok(a),
-        }
+        Ok(args.get(0)?.validity()?.to_array(args.row_count()))
     }
 
     fn reduce<T: ReduceNode>(&self, _options: &Self::Options, node: &T) -> VortexResult<Option<T>> {
