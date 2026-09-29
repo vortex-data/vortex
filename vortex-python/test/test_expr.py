@@ -84,6 +84,8 @@ BUILDERS: dict[str, Callable[[], Expr]] = {
     "merge": lambda: ve.merge([ve.select(["name"]), ve.select(["age"])]),
     "merge_rightmost": lambda: ve.merge([ve.select(["name"]), ve.select(["name"])], duplicate_handling="rightmost"),
     "list_contains": lambda: ve.list_contains(ve.column("scores"), 5),
+    "list_contains_sql": lambda: ve.list_contains(ve.column("scores"), 5, sql_null_semantics=True),
+    "in_list": lambda: ve.in_list(ve.column("age"), [25, 30]),
     "list_length": lambda: ve.list_length(ve.column("scores")),
     "list_sum": lambda: ve.list_sum(ve.column("scores")),
     "list_sum_nans": lambda: ve.list_sum(ve.column("scores"), skip_nans=False),
@@ -207,6 +209,46 @@ def test_arithmetic_and_list_functions(people: vx.VortexFile) -> None:
     assert column_values(people, ve.byte_length(ve.column("name"))) == [5, 3, 6, 7]
     assert column_values(people, ve.fill_null(ve.column("age"), 0)) == [30, 25, 0, 57]
     assert column_values(people, ve.get_item("city", ve.column("nested"))) == ["Paris", "Berlin", "Paris", "Lima"]
+
+
+@pytest.mark.parametrize(
+    "values,default,sql",
+    [
+        ([30, 57], [True, False, None, True], [True, False, None, True]),
+        ([30, None], [True, False, None, False], [True, None, None, None]),
+        ([None, 30], [True, False, None, False], [True, None, None, None]),
+        ([None], [False, False, None, False], [None, None, None, None]),
+        ([], [False, False, False, False], [False, False, None, False]),
+        (None, [None, None, None, None], [None, None, None, None]),
+    ],
+)
+def test_list_membership_null_semantics(
+    people: vx.VortexFile,
+    values: list[int | None] | None,
+    default: list[bool | None],
+    sql: list[bool | None],
+):
+    members = ve.literal(vx.list_(vx.int_(64, nullable=True), nullable=True), values)
+    age = ve.column("age")
+    assert column_values(people, ve.list_contains(members, age)) == default
+    assert column_values(people, ve.list_contains(members, age, sql_null_semantics=True)) == sql
+    expr = ve.in_list(age, members)
+    assert column_values(people, expr) == sql
+    assert column_values(people, ve.deserialize(expr.serialize())) == sql
+    assert column_values(people, ~expr) == [None if value is None else not value for value in sql]
+
+
+@pytest.mark.parametrize("members", [[30, None], [None, 30]])
+def test_in_list_python_list_filter(people: vx.VortexFile, members: list[int | None]):
+    expr = ve.in_list(ve.column("age"), members)
+    assert names(people, expr) == ["Alice"]
+    assert names(people, ~expr) == []
+    assert names(people, ~ve.in_list(ve.column("age"), [30])) == ["Bob", "Charlie"]
+
+
+def test_in_list_large_set_and_strings(people: vx.VortexFile):
+    assert names(people, ve.in_list(ve.column("age"), list(range(1000)))) == ["Alice", "Bob", "Charlie"]
+    assert names(people, ve.in_list(ve.column("name"), ["Alice", "Charlie"])) == ["Alice", "Charlie"]
 
 
 def test_case_when_semantics(people: vx.VortexFile) -> None:

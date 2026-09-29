@@ -40,6 +40,8 @@ public final class NativeExpression {
     public static native long between(
             long valuePointer, long lowerPointer, long upperPointer, boolean lowerStrict, boolean upperStrict);
 
+    public static native long listContains(long listPointer, long needlePointer, boolean sqlNullSemantics);
+
     public static native long literalBool(boolean value, boolean isNull);
 
     public static native long literalI8(byte value, boolean isNull);
@@ -57,6 +59,10 @@ public final class NativeExpression {
     public static native long literalString(String value);
 
     public static native long literalBinary(byte[] value);
+
+    public static native long literalList(long[] elementPointers);
+
+    public static native long literalEmptyList(byte elementDTypeTag, boolean isNull);
 
     public static native long literalDecimal(byte[] unscaledBigEndian, int precision, int scale, boolean isNull);
 

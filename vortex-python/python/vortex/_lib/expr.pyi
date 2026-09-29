@@ -3,14 +3,14 @@
 
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import date, datetime
-from typing import Literal, TypeAlias, final
+from typing import Any, Literal, TypeAlias, final
 
 from typing_extensions import override
 
 from .dtype import DType
-from .scalar import ScalarPyType
+from .scalar import Scalar, ScalarPyType
 
-IntoExpr: TypeAlias = Expr | bool | int | float | str | bytes | date | datetime | None
+IntoExpr: TypeAlias = Expr | Scalar | ScalarPyType | list[Any] | dict[str, Any] | date | datetime
 """A value accepted anywhere an expression is expected. Non-``Expr`` values become literals."""
 
 VariantPath: TypeAlias = str | int | Sequence[str | int]
@@ -46,7 +46,7 @@ class Expr:
 # Leaves and scope
 def root() -> Expr: ...
 def column(name: str) -> Expr: ...
-def literal(dtype: DType, value: ScalarPyType) -> Expr: ...
+def literal(dtype: DType, value: object) -> Expr: ...
 def get_item(field: str, child: IntoExpr | None = None) -> Expr: ...
 
 # Boolean logic
@@ -103,7 +103,8 @@ def merge(
 ) -> Expr: ...
 
 # Lists
-def list_contains(child: IntoExpr, value: IntoExpr) -> Expr: ...
+def list_contains(child: IntoExpr, value: IntoExpr, *, sql_null_semantics: bool = False) -> Expr: ...
+def in_list(value: IntoExpr, list: IntoExpr) -> Expr: ...
 def list_length(child: IntoExpr) -> Expr: ...
 def list_sum(child: IntoExpr, *, skip_nans: bool = True) -> Expr: ...
 

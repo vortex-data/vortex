@@ -46,6 +46,57 @@ public final class ExpressionTest {
     }
 
     @Test
+    public void literalListComposesWithListContains() {
+        Expression set = Expression.literalList(Expression.literal(1L), Expression.literal(2L));
+        assertNotNull(Expression.listContains(set, Expression.column("id")));
+        assertNotNull(Expression.in(Expression.column("id"), set));
+        assertNotNull(Expression.notIn(Expression.column("id"), set));
+    }
+
+    @Test
+    public void literalListUnifiesElementNullability() {
+        // A null element makes the element type nullable rather than rejecting the set; the non-null elements are
+        // cast up to it.
+        assertNotNull(Expression.literalList(
+                Expression.literal(1L), Expression.nullLiteral(Expression.DType.I64), Expression.literal(3L)));
+    }
+
+    @Test
+    public void literalListRequiresAtLeastOneElement() {
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, Expression::literalList);
+        assertTrue(
+                exception.getMessage().contains("literalEmptyList"),
+                () -> "unexpected message: " + exception.getMessage());
+    }
+
+    @Test
+    public void literalListRejectsMixedElementTypes() {
+        RuntimeException exception = assertThrows(
+                RuntimeException.class,
+                () -> Expression.literalList(Expression.literal(1L), Expression.literal("two")));
+        assertTrue(
+                exception.getMessage().contains("must share a dtype"),
+                () -> "unexpected message: " + exception.getMessage());
+    }
+
+    @Test
+    public void literalListRejectsNonLiteralElements() {
+        RuntimeException exception = assertThrows(
+                RuntimeException.class, () -> Expression.literalList(Expression.literal(1L), Expression.column("id")));
+        assertTrue(
+                exception.getMessage().contains("must themselves be literals"),
+                () -> "unexpected message: " + exception.getMessage());
+    }
+
+    @Test
+    public void emptyAndNullListLiteralsAcceptEveryNullLiteralDType() {
+        for (Expression.DType dtype : Expression.DType.values()) {
+            assertNotNull(Expression.literalEmptyList(dtype), () -> "native side rejected empty list of " + dtype);
+            assertNotNull(Expression.nullLiteralList(dtype), () -> "native side rejected null list of " + dtype);
+        }
+    }
+
+    @Test
     public void mergeComposes() {
         // Default duplicate handling (ERROR).
         assertNotNull(Expression.merge(Expression.column("a"), Expression.column("b")));
