@@ -11,7 +11,18 @@ if [[ "$(uname -s)" == Linux ]]; then
   export RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=-fuse-ld=mold"
 fi
 
-cargo "+$NIGHTLY_TOOLCHAIN" fuzz build --release --debug-assertions
+FEATURES_FLAG=()
+if [ -n "${EXTRA_FEATURES:-}" ]; then
+  FEATURES_FLAG=(--features "$EXTRA_FEATURES")
+fi
+TARGET_FLAG=()
+if [ -n "${FUZZ_TARGET:-}" ]; then
+  TARGET_FLAG=("$FUZZ_TARGET")
+fi
+BUILD_START=$SECONDS
+cargo "+$NIGHTLY_TOOLCHAIN" fuzz build --release --debug-assertions \
+  "${FEATURES_FLAG[@]}" "${TARGET_FLAG[@]}"
+echo "Fuzzer compilation took $((SECONDS - BUILD_START))s"
 
 copy_fuzzer() {
   local target=$1
@@ -25,8 +36,10 @@ copy_fuzzer() {
   install -m 755 "$binary" "fuzz-binaries/$output_name"
 }
 
-for target in array_ops compress_roundtrip file_io fsst_like row_encode; do
+TARGETS=(array_ops compress_roundtrip file_io fsst_like row_encode)
+if [ -n "${FUZZ_TARGET:-}" ]; then
+  TARGETS=("$FUZZ_TARGET")
+fi
+for target in "${TARGETS[@]}"; do
   copy_fuzzer "$target"
 done
-
-tar -acf cpu-fuzzers.tar.zst fuzz-binaries

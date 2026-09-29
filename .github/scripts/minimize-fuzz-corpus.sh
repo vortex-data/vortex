@@ -4,57 +4,10 @@
 
 set -euo pipefail
 
-# The workflow accepts space-separated KEY=VALUE pairs.
-read -r -a FUZZ_ENV <<< "$EXTRA_ENV"
-
-FEATURES_FLAG=()
-if [ -n "$EXTRA_FEATURES" ]; then
-  FEATURES_FLAG=(--features "$EXTRA_FEATURES")
-fi
-CORPUS_DIR="fuzz/corpus/${FUZZ_NAME}"
-MINIMIZED_DIR="${CORPUS_DIR}_minimized"
-# A previous partial merge must not seed the output corpus.
-rm -rf "$MINIMIZED_DIR"
-mkdir -p "$MINIMIZED_DIR"
-ORIGINAL_COUNT=$(find "$CORPUS_DIR" -type f | wc -l)
-ORIGINAL_BYTES=$(du -sb "$CORPUS_DIR" | cut -f1)
-
-if [[ "$(uname -s)" == Linux ]]; then
-  # Match build-fuzzers.sh: GNU ld overflows ARM64 calls in instrumented binaries.
-  export RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=-fuse-ld=mold"
-fi
-
-cargo "+$NIGHTLY_TOOLCHAIN" fuzz build --release --debug-assertions \
-  "${FEATURES_FLAG[@]}" "$FUZZ_TARGET"
-FUZZ_BINARY=$(find target -type f \
-  -path "*/release/$FUZZ_TARGET" -perm -u+x -print -quit)
-if [ -z "$FUZZ_BINARY" ]; then
-  echo "::error::Unable to find compiled fuzzer $FUZZ_TARGET"
-  exit 1
-fi
-
-set +e
-env "${FUZZ_ENV[@]}" "$FUZZ_BINARY" \
-  -merge=1 "$MINIMIZED_DIR" "$CORPUS_DIR" -rss_limit_mb=0 \
+python3 -u scripts/minimize_fuzz_corpus.py \
+  --binary "fuzz-binaries/$FUZZ_TARGET" \
+  --corpus "fuzz/corpus/$FUZZ_NAME" \
+  --work-dir "fuzz/minimize/$FUZZ_NAME" \
+  --artifacts "fuzz/artifacts/$FUZZ_NAME" \
+  --shards "${MINIMIZE_SHARDS:-8}" \
   2>&1 | tee fuzz-minimize.log
-MERGE_STATUS=${PIPESTATUS[0]}
-set -e
-MINIMIZED_COUNT=$(find "$MINIMIZED_DIR" -type f | wc -l)
-
-if [ "$MERGE_STATUS" -ne 0 ] || grep -Fq "caused a failure" fuzz-minimize.log; then
-  echo "::error::Corpus minimization encountered failing inputs"
-  exit 1
-fi
-if [ "$ORIGINAL_COUNT" -gt 0 ] && [ "$MINIMIZED_COUNT" -eq 0 ]; then
-  echo "::error::Refusing to replace a non-empty corpus with an empty corpus"
-  exit 1
-fi
-
-MINIMIZED_BYTES=$(du -sb "$MINIMIZED_DIR" | cut -f1)
-echo "Minimized $ORIGINAL_COUNT inputs ($ORIGINAL_BYTES bytes) to $MINIMIZED_COUNT ($MINIMIZED_BYTES bytes)"
-if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
-  echo "### $FUZZ_NAME corpus minimization" >> "$GITHUB_STEP_SUMMARY"
-  echo "$ORIGINAL_COUNT inputs ($ORIGINAL_BYTES bytes) → $MINIMIZED_COUNT inputs ($MINIMIZED_BYTES bytes)" >> "$GITHUB_STEP_SUMMARY"
-fi
-rm -rf "$CORPUS_DIR"
-mv "$MINIMIZED_DIR" "$CORPUS_DIR"

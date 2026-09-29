@@ -1,37 +1,38 @@
 name: Minimize All Fuzz Corpora
 
-concurrency:
-  group: fuzz
-  cancel-in-progress: false
-  # Keep pending minimization runs when another fuzz run is scheduled.
-  queue: max
-
 on:
   schedule:
     - cron: "30 0 * * *"  # daily at 00:30 UTC
   workflow_dispatch: { }
 
 jobs:
+  build_cpu_fuzzers:
+    uses: ./.github/workflows/build-fuzzers.yml
+
   minimize:
     name: "Minimize ${{ matrix.fuzz_target }} Fuzz Corpus"
+    needs: build_cpu_fuzzers
     strategy:
       fail-fast: false
       matrix:
         fuzz_target: [file_io, array_ops, fsst_like, row_encode, compress_roundtrip]
-        extra_features: [""]
-        runner: [arm64-medium]
-        extra_env: [""]
-        include:
-          - fuzz_target: compress_gpu
-            extra_features: "cuda"
-            runner: gpu
-            extra_env: "ASAN_OPTIONS=protect_shadow_gap=0"
     uses: ./.github/workflows/minimize_fuzz_corpus_workflow.yml
     with:
       fuzz_target: ${{ matrix.fuzz_target }}
-      extra_features: ${{ matrix.extra_features }}
-      runner: ${{ matrix.runner }}
-      extra_env: ${{ matrix.extra_env }}
+      shards: 8
+      fuzzer_artifact: ${{ needs.build_cpu_fuzzers.outputs.artifact_name }}
+    secrets:
+      R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+      R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+
+  minimize_gpu:
+    uses: ./.github/workflows/minimize_fuzz_corpus_workflow.yml
+    with:
+      fuzz_target: compress_gpu
+      runner: gpu
+      extra_features: "cuda"
+      extra_env: "ASAN_OPTIONS=protect_shadow_gap=0"
+      shards: 1
     secrets:
       R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
       R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}

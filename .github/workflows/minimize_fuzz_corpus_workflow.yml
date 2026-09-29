@@ -27,6 +27,16 @@ on:
         required: false
         type: string
         default: ""
+      shards:
+        description: "Concurrent minimization shards (use one for GPU)"
+        required: false
+        type: number
+        default: 8
+      fuzzer_artifact:
+        description: "Precompiled CPU fuzzers; builds locally when omitted"
+        required: false
+        type: string
+        default: ""
     secrets:
       R2_FUZZ_ACCESS_KEY_ID:
         required: true
@@ -39,6 +49,10 @@ env:
 jobs:
   minimize:
     name: "Minimize ${{ inputs.fuzz_name || inputs.fuzz_target }}"
+    concurrency:
+      group: fuzz-corpus-${{ inputs.fuzz_name || inputs.fuzz_target }}
+      cancel-in-progress: false
+      queue: max
     env:
       FUZZ_NAME: ${{ inputs.fuzz_name || inputs.fuzz_target }}
     runs-on: >-
@@ -57,30 +71,28 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
-      - uses: ./.github/actions/setup-prebuild
-        if: >-
-          github.repository == 'vortex-data/vortex' &&
-          contains(fromJSON('["arm64-fuzz", "arm64-medium"]'), inputs.runner)
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
-          enable-sccache: "false"
-
-      - uses: ./.github/actions/setup-rust
-        if: >-
-          github.repository != 'vortex-data/vortex' ||
-          !contains(fromJSON('["arm64-fuzz", "arm64-medium"]'), inputs.runner)
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
-          enable-sccache: "false"
-
       - uses: ./.github/actions/setup-fuzz-llvm
 
-      - name: Install cargo-fuzz
-        uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
+      - name: Build or restore fuzzer
+        if: inputs.fuzzer_artifact == ''
+        uses: ./.github/actions/build-fuzzers
         with:
-          tool: cargo-fuzz
+          toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
+          runner: ${{ inputs.runner }}
+          fuzz_target: ${{ inputs.fuzz_target }}
+          extra_features: ${{ inputs.extra_features }}
+
+      - name: Download precompiled fuzzers
+        if: inputs.fuzzer_artifact != ''
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8
+        with:
+          name: ${{ inputs.fuzzer_artifact }}
+
+      - name: Extract precompiled fuzzers
+        if: inputs.fuzzer_artifact != ''
+        run: |
+          tar -xf cpu-fuzzers.tar.zst
+          rm cpu-fuzzers.tar.zst
 
       - name: Restore corpus
         id: corpus
@@ -97,8 +109,8 @@ jobs:
         shell: bash
         env:
           FUZZ_TARGET: ${{ inputs.fuzz_target }}
-          EXTRA_FEATURES: ${{ inputs.extra_features }}
           EXTRA_ENV: ${{ inputs.extra_env }}
+          MINIMIZE_SHARDS: ${{ inputs.shards }}
         run: .github/scripts/minimize-fuzz-corpus.sh
 
       - name: Persist corpus
@@ -118,6 +130,9 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
         with:
           name: ${{ inputs.fuzz_name || inputs.fuzz_target }}-minimization-log
-          path: fuzz-minimize.log
+          path: |
+            fuzz-minimize.log
+            fuzz/minimize/${{ env.FUZZ_NAME }}/**/*.log
+            fuzz/artifacts/${{ env.FUZZ_NAME }}/
           if-no-files-found: ignore
           retention-days: 14

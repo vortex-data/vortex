@@ -19,6 +19,11 @@ env:
 jobs:
   build:
     name: "Build CPU fuzzers"
+    concurrency:
+      # Avoid two workflows compiling the same commit before either fills the cache.
+      group: fuzz-build-${{ github.sha }}-${{ inputs.runner }}
+      cancel-in-progress: false
+      queue: max
     timeout-minutes: 120
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
@@ -31,21 +36,13 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
-      - uses: ./.github/actions/setup-prebuild
+      - uses: ./.github/actions/build-fuzzers
         with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
           toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
-          components: ""
-          enable-sccache: "false"
+          runner: ${{ inputs.runner }}
 
-      - name: Install cargo-fuzz
-        uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
-        with:
-          tool: cargo-fuzz
-
-      - name: Build fuzzers
-        shell: bash
-        run: .github/scripts/build-fuzzers.sh
+      - name: Package fuzzers
+        run: tar -acf cpu-fuzzers.tar.zst fuzz-binaries
 
       - name: Set artifact name
         id: artifact

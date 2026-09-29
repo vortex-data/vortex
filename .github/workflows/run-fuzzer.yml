@@ -64,11 +64,14 @@ env:
 jobs:
   fuzz:
     name: "Run ${{ inputs.fuzz_name || inputs.fuzz_target }}"
+    concurrency:
+      # Exploration and minimization share this lock for each stored corpus.
+      group: fuzz-corpus-${{ inputs.fuzz_name || inputs.fuzz_target }}
+      cancel-in-progress: false
+      queue: max
     env:
       FUZZ_NAME: ${{ inputs.fuzz_name || inputs.fuzz_target }}
       FUZZ_TARGET: ${{ inputs.fuzz_target }}
-      FUZZER_ARTIFACT: ${{ inputs.fuzzer_artifact }}
-      EXTRA_FEATURES: ${{ inputs.extra_features }}
       EXTRA_ENV: ${{ inputs.extra_env }}
       FUZZ_JOBS: ${{ inputs.jobs }}
       MAX_TIME: ${{ inputs.max_time }}
@@ -86,33 +89,16 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
-      - uses: ./.github/actions/setup-prebuild
-        if: >-
-          inputs.fuzzer_artifact == '' &&
-          github.repository == 'vortex-data/vortex' &&
-          contains(fromJSON('["arm64-fuzz", "arm64-medium"]'), inputs.runner)
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
-          enable-sccache: "false"
-
-      - uses: ./.github/actions/setup-rust
-        if: >-
-          inputs.fuzzer_artifact == '' &&
-          (github.repository != 'vortex-data/vortex' ||
-          !contains(fromJSON('["arm64-fuzz", "arm64-medium"]'), inputs.runner))
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
-          enable-sccache: "false"
-
       - uses: ./.github/actions/setup-fuzz-llvm
 
-      - name: Install cargo-fuzz
+      - name: Build or restore fuzzer
         if: inputs.fuzzer_artifact == ''
-        uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
+        uses: ./.github/actions/build-fuzzers
         with:
-          tool: cargo-fuzz
+          toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
+          runner: ${{ inputs.runner }}
+          fuzz_target: ${{ inputs.fuzz_target }}
+          extra_features: ${{ inputs.extra_features }}
 
       - name: Download precompiled fuzzer
         if: inputs.fuzzer_artifact != ''
@@ -151,7 +137,7 @@ jobs:
         run: .github/scripts/check-fuzz-crashes.sh
 
       - name: Reproduce crash for full output
-        if: steps.check.outputs.crashes_found == 'true' && inputs.jobs > 1
+        if: steps.check.outputs.crashes_found == 'true'
         env:
           FIRST_CRASH: ${{ steps.check.outputs.first_crash }}
         run: .github/scripts/reproduce-fuzz-crash.sh

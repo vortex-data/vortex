@@ -1,12 +1,5 @@
 name: Fuzz
 
-concurrency:
-  # Exploration and minimization update the same corpus objects.
-  group: fuzz
-  cancel-in-progress: false
-  # Keep pending minimization runs when another fuzz run is scheduled.
-  queue: max
-
 on:
   schedule:
     - cron: "0 */3 * * *"  # every 3 hours

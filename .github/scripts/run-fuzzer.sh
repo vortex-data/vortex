@@ -36,32 +36,16 @@ stop_checkpoint_loop() {
 }
 trap stop_checkpoint_loop EXIT
 
-FEATURES_FLAG=()
-if [ -n "$EXTRA_FEATURES" ]; then
-  FEATURES_FLAG=(--features "$EXTRA_FEATURES")
-fi
-FORK_FLAG=()
-if [ "$FUZZ_JOBS" -gt 1 ]; then
-  # Skip fork mode's initial full-corpus merge before starting workers.
-  # Coverage and NEW_FUNC then reflect this run, not novelty against every saved seed.
-  FORK_FLAG=("-fork=$FUZZ_JOBS" "-keep_seed=1")
-fi
+# Fork mode replays the saved corpus to establish coverage, then replaces failed
+# workers without ending exploration. Artifacts still fail the job after the budget.
+FORK_FLAGS=("-fork=$FUZZ_JOBS" -ignore_crashes=1 -ignore_timeouts=1 -ignore_ooms=1)
 
 set +e
-if [ -n "$FUZZER_ARTIFACT" ]; then
-  env "${FUZZ_ENV[@]}" RUST_BACKTRACE=1 \
-    "$GITHUB_WORKSPACE/fuzz-binaries/$FUZZ_NAME" "$CORPUS_DIR" \
-    "${FORK_FLAG[@]}" "-max_total_time=$MAX_TIME" -rss_limit_mb=0 -print_final_stats=1 \
-    -artifact_prefix="fuzz/artifacts/${FUZZ_NAME}/" \
-    2>&1 | tee fuzz_output.log
-else
-  env "${FUZZ_ENV[@]}" RUST_BACKTRACE=1 \
-    cargo "+$NIGHTLY_TOOLCHAIN" fuzz run --release --debug-assertions \
-    "${FEATURES_FLAG[@]}" \
-    "$FUZZ_TARGET" "$CORPUS_DIR" -- \
-    "${FORK_FLAG[@]}" "-max_total_time=$MAX_TIME" -rss_limit_mb=0 -print_final_stats=1 \
-    2>&1 | tee fuzz_output.log
-fi
+env "${FUZZ_ENV[@]}" RUST_BACKTRACE=1 \
+  "$GITHUB_WORKSPACE/fuzz-binaries/$FUZZ_TARGET" "$CORPUS_DIR" \
+  "${FORK_FLAGS[@]}" "-max_total_time=$MAX_TIME" -rss_limit_mb=0 -print_final_stats=1 \
+  -artifact_prefix="fuzz/artifacts/${FUZZ_NAME}/" \
+  2>&1 | tee fuzz_output.log
 FUZZ_STATUS=${PIPESTATUS[0]}
 set -e
 
