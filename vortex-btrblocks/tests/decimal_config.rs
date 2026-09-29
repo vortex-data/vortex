@@ -44,6 +44,7 @@ use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
 static DECIMAL_V2: DecimalScheme = DecimalScheme::v2();
+static FOR_V1: FoRScheme = FoRScheme::v1();
 
 /// Registers the decimal and fastlanes encodings, and enables no editions.
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
@@ -197,7 +198,7 @@ fn wide_decimal_parts_roundtrip(
     let mut builder = BtrBlocksCompressorBuilder::empty().with_new_scheme(&DECIMAL_V2);
     if compress_children {
         builder = builder
-            .with_new_scheme(&FoRScheme)
+            .with_new_scheme(&FOR_V1)
             .with_new_scheme(&BitPackingScheme);
     }
     let mut ctx = SESSION.create_execution_ctx();
