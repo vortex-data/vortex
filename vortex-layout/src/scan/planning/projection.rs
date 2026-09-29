@@ -137,6 +137,7 @@ impl Morsel for ProjectionMorsel {
                 self.selected.scope.rows.clone(),
                 self.selected.mask.clone(),
                 self.plans.row_offset,
+                self.plans.decoded.clone(),
             )?;
             self.graph = Some(ProtocolGraph::new(
                 graph,

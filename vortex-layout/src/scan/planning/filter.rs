@@ -206,6 +206,7 @@ impl FilterPlanner {
             self.scope.rows.clone(),
             self.mask.clone(),
             self.plans.row_offset,
+            self.plans.decoded.clone(),
         )?;
         self.running = Some((
             index,

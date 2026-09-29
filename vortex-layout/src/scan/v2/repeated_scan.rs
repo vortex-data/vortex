@@ -25,6 +25,7 @@ use crate::plan::EvalPlan;
 use crate::plan::Pack;
 use crate::plan::PlanRef;
 use crate::plan::Zoned;
+use crate::plan::exec::DecodeCache;
 use crate::plan::optimize;
 use crate::plan::plan_row_idx_expression;
 use crate::scan::filter::FilterExpr;
@@ -94,6 +95,7 @@ pub fn prepare<A: 'static + Send>(
         locations: Arc::clone(&file.locations),
         projection: plan(parts.projection.clone())?,
         row_offset: parts.row_offset,
+        decoded: DecodeCache::default(),
     };
 
     let splits =

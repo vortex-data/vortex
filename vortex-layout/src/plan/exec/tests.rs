@@ -176,9 +176,21 @@ fn run(
     plan: &PlanRef,
     rows: Range<u64>,
     mask: Mask,
-    mut pick: impl FnMut(&[IoRequest]) -> usize,
+    pick: impl FnMut(&[IoRequest]) -> usize,
 ) -> VortexResult<Run> {
-    let mut graph = ExecGraph::try_new(SESSION.clone(), plan, rows, mask, 0)?;
+    run_with(store, plan, rows, mask, pick, DecodeCache::default())
+}
+
+/// Like [`run`], sharing `decoded` with other graphs.
+fn run_with(
+    store: &Store,
+    plan: &PlanRef,
+    rows: Range<u64>,
+    mask: Mask,
+    mut pick: impl FnMut(&[IoRequest]) -> usize,
+    decoded: DecodeCache,
+) -> VortexResult<Run> {
+    let mut graph = ExecGraph::try_new(SESSION.clone(), plan, rows, mask, 0, decoded)?;
     let mut inflight: Vec<IoRequest> = Vec::new();
     let mut pieces = Vec::new();
     let mut events = Vec::new();
@@ -466,6 +478,7 @@ fn state_is_side_effect_free() -> VortexResult<()> {
         0..ROWS,
         Mask::new_true(ROWS as usize),
         0,
+        DecodeCache::default(),
     )?;
     for _ in 0..3 {
         assert_eq!(graph.state(), ExecState::NeedsCompute);
@@ -546,5 +559,39 @@ fn take_values_are_read_once_per_plan(#[case] predicate: bool) -> VortexResult<(
         assert_eq!(reads(&run.events), if split == 0 { 2 } else { 1 });
         assert_view(&expected, &rows, &mask, run.pieces)?;
     }
+    Ok(())
+}
+
+/// A graph sharing a decode cache with one that already ran over the same plan reads nothing and
+/// returns the same rows, even under a different selection.
+#[test]
+fn shared_decode_cache_skips_reads() -> VortexResult<()> {
+    let mut store = Store::default();
+    let (plan, expected) = fixture(&mut store)?;
+    let decoded = DecodeCache::default();
+
+    let rows = 0..ROWS;
+    let all = Mask::new_true(ROWS as usize);
+    let first = run_with(
+        &store,
+        &plan,
+        rows.clone(),
+        all,
+        delivery(Delivery::Fifo),
+        decoded.clone(),
+    )?;
+    assert!(reads(&first.events) > 0);
+
+    let mask = Sel::EveryOther.mask(ROWS as usize);
+    let second = run_with(
+        &store,
+        &plan,
+        rows.clone(),
+        mask.clone(),
+        delivery(Delivery::Fifo),
+        decoded,
+    )?;
+    assert_eq!(reads(&second.events), 0);
+    assert_view(&expected, &rows, &mask, second.pieces)?;
     Ok(())
 }
