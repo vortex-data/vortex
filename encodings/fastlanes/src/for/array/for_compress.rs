@@ -174,18 +174,20 @@ where
 }
 
 /// The minimum of the valid `values`, or `None` if none are valid.
-///
-/// `words` holds one validity bit per value. Invalid values are replaced by `T::max_value()`
-/// without branches, so the loop vectorizes.
+#[inline]
 fn valid_min<T: PrimInt + WrappingSub + 'static>(values: &[T], words: &[u64]) -> Option<T>
 where
     u8: AsPrimitive<T>,
 {
+    if words.iter().all(|&word| word == 0) {
+        return None;
+    }
     let mut min = T::max_value();
     for_each_valid_mask(values, words, |_, v, mask| {
-        min = min.min((v & mask) | (T::max_value() & !mask));
+        min = min.min(select(mask, v, T::max_value()));
     });
-    words.iter().any(|&word| word != 0).then_some(min)
+
+    Some(min)
 }
 
 /// Subtract `reference` from the valid `values` and write zero for the invalid ones.
@@ -202,11 +204,19 @@ fn subtract_valid<T: PrimInt + WrappingSub + 'static>(
     });
 }
 
-/// Calls `f(index, value, mask)` for each value, where `mask` is all ones for valid values and
-/// all zeros for invalid ones.
+/// Calls `f(index, value, mask)` for each value, where `mask` is all ones for a valid value and
+/// all zeros for a null.
 ///
-/// Full 64-value blocks run a fixed-length loop that reads each value's bit from its byte of the
-/// validity word, so it vectorizes at every integer width.
+/// Callers combine each value with its mask using bitwise operations instead of branching on
+/// validity, which keeps their loops vectorized.
+///
+/// `words` holds one validity bit per value, least significant bit first, 64 values per word.
+/// Each full 64-value block is a `[T; 64]` walked by a fixed `0..64` loop, so it unrolls and
+/// vectorizes with no bounds checks. The remainder, fewer than 64 values, uses the word after the
+/// full blocks and runs at most once per array.
+///
+/// Each bit is read from its byte of the word rather than by shifting the whole `u64`, which keeps
+/// the vectorized loop in 8-bit lanes.
 #[inline]
 fn for_each_valid_mask<T: PrimInt + WrappingSub + 'static>(
     values: &[T],
@@ -217,19 +227,30 @@ fn for_each_valid_mask<T: PrimInt + WrappingSub + 'static>(
 {
     let (blocks, remainder) = values.as_chunks::<64>();
     for (block_idx, (block, &word)) in blocks.iter().zip(words).enumerate() {
+        // Value `j`'s validity is bit `j % 8` of byte `j / 8`.
         let bytes = word.to_le_bytes();
         for j in 0..64 {
+            // Shift the bit to the bottom and clear the rest: `1` if valid, `0` if null.
             let valid: T = ((bytes[j / 8] >> (j % 8)) & 1).as_();
+            // Create all zero or one mask by subtracting from zero.
             f(block_idx * 64 + j, block[j], T::zero().wrapping_sub(&valid));
         }
     }
+    // The remainder reads its bits the same way, from the word after the full blocks.
     let start = blocks.len() * 64;
     if let Some(&word) = words.get(blocks.len()) {
+        let bytes = word.to_le_bytes();
         for (j, &v) in remainder.iter().enumerate() {
-            let valid: T = (((word >> j) & 1) as u8).as_();
+            let valid: T = ((bytes[j / 8] >> (j % 8)) & 1).as_();
             f(start + j, v, T::zero().wrapping_sub(&valid));
         }
     }
+}
+
+/// `a` where `mask` is all ones and `b` where it is all zeros.
+#[inline]
+fn select<T: PrimInt>(mask: T, a: T, b: T) -> T {
+    (a & mask) | (b & !mask)
 }
 
 #[cfg(test)]
