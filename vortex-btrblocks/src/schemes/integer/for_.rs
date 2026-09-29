@@ -8,7 +8,6 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::VTable;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_compressor::builtins::BinaryDictScheme;
 use vortex_compressor::builtins::FloatDictScheme;
@@ -23,6 +22,7 @@ use vortex_error::VortexResult;
 use vortex_fastlanes::FoR;
 use vortex_fastlanes::FoRArrayExt;
 use vortex_fastlanes::FoRArraySlotsExt;
+use vortex_fastlanes::for_v1_id;
 
 use super::BitPackingScheme;
 use crate::ArrayAndStats;
@@ -45,7 +45,8 @@ impl Scheme for FoRScheme {
     }
 
     fn produced_encodings(&self) -> Vec<ArrayId> {
-        vec![FoR.id()]
+        // Single-reference arrays serialize under the frozen v1 ID.
+        vec![for_v1_id()]
     }
 
     /// Dict codes always start at 0, so FoR (which subtracts the min) is a no-op.

@@ -30,7 +30,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
-use vortex_session::registry::CachedId;
 
 use crate::FoRData;
 use crate::r#for::array::FoRSlots;
@@ -38,6 +37,7 @@ use crate::r#for::array::FoRSlotsView;
 use crate::r#for::array::for_decompress::decompress;
 use crate::r#for::array::num_chunks;
 use crate::r#for::vtable::rules::PARENT_RULES;
+use crate::for_v2_id;
 
 mod kernels;
 mod operations;
@@ -71,8 +71,7 @@ impl VTable for FoR {
     type ValidityVTable = ValidityVTableFromChild;
 
     fn id(&self) -> ArrayId {
-        static ID: CachedId = CachedId::new("fastlanes.for");
-        *ID
+        for_v2_id()
     }
 
     fn validate(

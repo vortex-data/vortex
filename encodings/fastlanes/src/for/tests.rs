@@ -12,7 +12,6 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::compute::conformance::consistency::test_array_consistency;
 use vortex_array::dtype::NativePType;
-use vortex_array::session::ArraySessionExt;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
@@ -132,13 +131,6 @@ fn constant_references_keep_the_scalar_reference() -> VortexResult<()> {
     assert_eq!(array.constant_reference(), Some(7u32.into()));
     let sliced = array.into_array().slice(1500..1600)?;
     assert_eq!(sliced.as_::<FoR>().constant_reference(), Some(7u32.into()));
-    Ok(())
-}
-
-#[test]
-fn varying_references_do_not_serialize_as_v1() -> VortexResult<()> {
-    let (array, _) = unsigned()?;
-    assert!(SESSION.array_serialize(array.as_array()).is_err());
     Ok(())
 }
 
