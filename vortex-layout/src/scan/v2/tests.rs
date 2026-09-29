@@ -20,8 +20,10 @@ use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability::NonNullable;
 use vortex_array::dtype::PType;
+use vortex_array::expr::and;
 use vortex_array::expr::gt;
 use vortex_array::expr::lit;
+use vortex_array::expr::lt;
 use vortex_array::expr::root;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
@@ -108,6 +110,8 @@ struct Case {
     limit: Option<u64>,
     rows: Option<&'static [u64]>,
     row_idx: bool,
+    /// Adds a second conjunct to the filter, `$ < below`.
+    below: Option<i32>,
 }
 
 fn builder(
@@ -124,7 +128,12 @@ fn builder(
     )?;
     let mut builder = ScanBuilder::new(session.clone(), reader);
     if case.filter {
-        builder = builder.with_filter(gt(root(), lit(1500_i32)).bind(&DTYPE)?);
+        let filter = gt(root(), lit(1500_i32));
+        let filter = match case.below {
+            Some(below) => and(filter, lt(root(), lit(below))),
+            None => filter,
+        };
+        builder = builder.with_filter(filter.bind(&DTYPE)?);
     }
     if let Some(row_range) = case.row_range.clone() {
         builder = builder.with_row_range(row_range);
@@ -173,6 +182,14 @@ fn rows(filter: bool, rows: &'static [u64]) -> Case {
     }
 }
 
+fn conjuncts(below: i32) -> Case {
+    Case {
+        filter: true,
+        below: Some(below),
+        ..Case::default()
+    }
+}
+
 fn row_idx_case(filter: bool) -> Case {
     Case {
         filter,
@@ -192,6 +209,8 @@ fn row_idx_case(filter: bool) -> Case {
 #[case::selection_and_filter(rows(true, &[0, 1499, 1501, 2500, 3999]))]
 #[case::row_idx(row_idx_case(false))]
 #[case::row_idx_and_filter(row_idx_case(true))]
+#[case::two_conjuncts(conjuncts(3000))]
+#[case::conjuncts_matching_nothing(conjuncts(1000))]
 #[tokio::test(flavor = "multi_thread")]
 async fn stream_matches_default(#[case] case: Case) -> VortexResult<()> {
     let session = new_session().with_tokio();

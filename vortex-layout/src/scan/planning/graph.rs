@@ -44,16 +44,29 @@ pub(crate) struct ProtocolGraph {
     /// Published and undelivered requests, with the graph request and segment each one answers.
     outstanding: HashMap<request::IoRequestId, (exec::IoRequestId, SegmentId)>,
     batch: IoBatch,
+    /// The protocol id the next published request gets.
+    next_id: u32,
 }
 
 impl ProtocolGraph {
-    pub(crate) fn new(graph: ExecGraph, locations: Arc<[SegmentLocation]>) -> Self {
+    /// Wraps `graph`, numbering its requests from `first_id`.
+    ///
+    /// Request ids must be unique over an owner's lifetime, so an owner that runs several graphs
+    /// starts each where the previous one's [`next_id`](Self::next_id) left off.
+    pub(crate) fn new(graph: ExecGraph, locations: Arc<[SegmentLocation]>, first_id: u32) -> Self {
         Self {
             graph,
             locations,
             outstanding: HashMap::default(),
             batch: Vec::new(),
+            next_id: first_id,
         }
+    }
+
+    /// The protocol id the next request would get: the first id a following graph of the same
+    /// owner may use.
+    pub(crate) fn next_id(&self) -> u32 {
+        self.next_id
     }
 
     /// The owner's protocol state while the graph is running.
@@ -73,7 +86,11 @@ impl ProtocolGraph {
                 let mut batch = Vec::with_capacity(requests.len());
                 for graph_request in requests {
                     let location = self.location(graph_request.segment_id)?;
-                    let id = request::IoRequestId(u32::try_from(graph_request.id.0)?);
+                    let id = request::IoRequestId(self.next_id);
+                    self.next_id = self
+                        .next_id
+                        .checked_add(1)
+                        .ok_or_else(|| vortex_err!("ProtocolGraph ran out of request ids"))?;
                     self.outstanding
                         .insert(id, (graph_request.id, graph_request.segment_id));
                     batch.push(request::IoRequest {

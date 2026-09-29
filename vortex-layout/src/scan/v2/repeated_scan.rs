@@ -27,6 +27,8 @@ use crate::plan::PlanRef;
 use crate::plan::Zoned;
 use crate::plan::optimize;
 use crate::plan::plan_row_idx_expression;
+use crate::scan::filter::FilterExpr;
+use crate::scan::planning::FilterPlans;
 use crate::scan::planning::ScanPlans;
 use crate::scan::scan_builder::ScanBuilder;
 use crate::scan::scan_builder::referenced_field_masks;
@@ -65,7 +67,20 @@ pub fn prepare<A: 'static + Send>(
     let layout_reader = parts.layout_reader;
     let root = lower(&file.layout)?;
     let plan = |expression| optimize(plan_row_idx_expression(expression, root.clone())?);
-    let filter = parts.filter.clone().map(plan).transpose()?;
+    let filter = parts
+        .filter
+        .clone()
+        .map(|filter| {
+            let filter = Arc::new(FilterExpr::new(filter));
+            let plans = filter
+                .conjuncts()
+                .iter()
+                .cloned()
+                .map(plan)
+                .collect::<VortexResult<Vec<_>>>()?;
+            VortexResult::Ok(FilterPlans::conjuncts(filter, plans))
+        })
+        .transpose()?;
     let pruning = parts
         .filter
         .as_ref()
@@ -120,7 +135,7 @@ pub struct RepeatedScanV2<A: 'static + Send> {
     /// Proves rows can't match the filter from zone statistics, when the filter allows it.
     pruning: Option<PlanRef>,
     plans: ScanPlans,
-    filter: Option<PlanRef>,
+    filter: Option<FilterPlans>,
     ranges: SegmentRanges,
     segments: Arc<dyn SegmentSource>,
     row_range: Option<Range<u64>>,
@@ -271,7 +286,7 @@ impl<A: 'static + Send> RepeatedScanV2<A> {
     /// the source can coalesce every registered segment near one that it does read.
     fn register(&self, range: &Range<u64>) -> VortexResult<Vec<SegmentFuture>> {
         let mut ids = Vec::new();
-        if let Some(filter) = &self.filter {
+        for filter in self.filter.iter().flat_map(FilterPlans::plans) {
             plan_segments(filter, range.clone(), &mut ids)?;
         }
         plan_segments(&self.plans.projection, range.clone(), &mut ids)?;

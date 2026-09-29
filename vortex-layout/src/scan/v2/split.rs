@@ -16,6 +16,7 @@ use vortex_scan::planning::planner::WorkScope;
 
 use crate::plan::PlanRef;
 use crate::scan::planning::FilterPlanner;
+use crate::scan::planning::FilterPlans;
 use crate::scan::planning::ProjectionMorsel;
 use crate::scan::planning::ProjectionPlanner;
 use crate::scan::planning::ScanPlans;
@@ -29,7 +30,7 @@ use crate::segments::SegmentSource;
 pub(super) struct SplitTask<A> {
     pub(super) plans: ScanPlans,
     pub(super) pruning: Option<PlanRef>,
-    pub(super) filter: Option<PlanRef>,
+    pub(super) filter: Option<FilterPlans>,
     pub(super) segments: Arc<dyn SegmentSource>,
     pub(super) ranges: SegmentRanges,
     /// Registrations of the segments the split is likely to read, held until it finishes.
