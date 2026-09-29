@@ -43,6 +43,7 @@ use vortex_scan::planning::planner::WorkScope;
 use vortex_session::VortexSession;
 
 use crate::plan::PlanRef;
+use crate::plan::exec::DecodeCache;
 
 /// What every split of a scan shares: the projection plan and where its segments live.
 #[derive(Clone)]
@@ -55,6 +56,9 @@ pub struct ScanPlans {
     pub projection: PlanRef,
     /// The global row index of the root row domain's first row.
     pub row_offset: u64,
+    /// Segments already decoded by the graphs of one split. [`plan_split`] gives each split its
+    /// own.
+    pub decoded: DecodeCache,
 }
 
 /// The work for one split: prune the rows of `scope` selected by `mask` with zone statistics,
@@ -67,6 +71,12 @@ pub fn plan_split(
     scope: WorkScope,
     mask: Mask,
 ) -> VortexResult<Box<dyn PendingPlanner>> {
+    // The split's pruning, filter, and projection graphs share one cache, so a segment several of
+    // them read is fetched and decoded once.
+    let plans = ScanPlans {
+        decoded: DecodeCache::default(),
+        ..plans
+    };
     let project: Next<SelectedRows> = {
         let plans = plans.clone();
         next_fn(move |selected| Ok(ProjectionPlanner::new(plans.clone(), selected)))

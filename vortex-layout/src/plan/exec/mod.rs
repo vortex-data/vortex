@@ -25,7 +25,9 @@ use std::collections::VecDeque;
 use std::fmt;
 use std::mem;
 use std::ops::Range;
+use std::sync::Arc;
 
+use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
 use vortex_array::ArrayRef;
 use vortex_array::buffer::BufferHandle;
@@ -108,10 +110,28 @@ pub enum NodeState {
     Done,
 }
 
+/// Decoded segments shared by the graphs that read one row range, so a segment several of them
+/// read is fetched and decoded once.
+///
+/// A segment decodes the same way wherever it appears, so entries are keyed by segment id alone.
+#[derive(Clone, Default)]
+pub struct DecodeCache(Arc<Mutex<FxHashMap<SegmentId, ArrayRef>>>);
+
+impl DecodeCache {
+    fn get(&self, id: SegmentId) -> Option<ArrayRef> {
+        self.0.lock().get(&id).cloned()
+    }
+
+    fn insert(&self, id: SegmentId, array: ArrayRef) {
+        self.0.lock().insert(id, array);
+    }
+}
+
 /// Input that arrived for a node, and the effects of running it, applied by the graph afterwards.
 pub struct StepCx<'a> {
     session: &'a VortexSession,
     row_offset: u64,
+    decoded: &'a DecodeCache,
     next_io_id: &'a mut u64,
     inputs: Vec<(Port, Input)>,
     io: Vec<(IoRequestId, BufferHandle)>,
@@ -126,12 +146,14 @@ impl<'a> StepCx<'a> {
     fn new(
         session: &'a VortexSession,
         row_offset: u64,
+        decoded: &'a DecodeCache,
         next_io_id: &'a mut u64,
         inbox: Inbox,
     ) -> Self {
         Self {
             session,
             row_offset,
+            decoded,
             next_io_id,
             inputs: inbox.inputs,
             io: inbox.io,
@@ -151,6 +173,16 @@ impl<'a> StepCx<'a> {
     /// The global row index of the graph's first plan row.
     pub fn row_offset(&self) -> u64 {
         self.row_offset
+    }
+
+    /// The whole decoded array of `segment`, if a graph sharing this one's cache decoded it.
+    pub fn decoded(&self, segment: SegmentId) -> Option<ArrayRef> {
+        self.decoded.get(segment)
+    }
+
+    /// Shares the whole decoded array of `segment` with the graphs sharing this one's cache.
+    pub fn store_decoded(&self, segment: SegmentId, array: ArrayRef) {
+        self.decoded.insert(segment, array);
     }
 
     /// Takes the child input that arrived since the previous call, in arrival order.
@@ -243,6 +275,7 @@ enum Status {
 pub struct ExecGraph {
     session: VortexSession,
     row_offset: u64,
+    decoded: DecodeCache,
     nodes: Vec<Box<dyn ExecNode>>,
     parents: Vec<Option<(NodeId, Port)>>,
     inboxes: Vec<Inbox>,
@@ -259,7 +292,8 @@ pub struct ExecGraph {
 impl ExecGraph {
     /// Builds the graph for `plan` over `rows`, restricted to `mask`, and runs each node's first
     /// [`ExecNode::compute`]. `row_offset` is the global row index of the plan's first row, used
-    /// by row-index plans.
+    /// by row-index plans. Segments found in `decoded` are neither read nor decoded again, and
+    /// segments the graph decodes are added to it.
     ///
     /// Construction does no IO. Every leaf's first request is returned by the first
     /// [`compute`](Self::compute).
@@ -269,10 +303,12 @@ impl ExecGraph {
         rows: Range<u64>,
         mask: Mask,
         row_offset: u64,
+        decoded: DecodeCache,
     ) -> VortexResult<Self> {
         let mut graph = Self {
             session,
             row_offset,
+            decoded,
             nodes: Vec::new(),
             parents: Vec::new(),
             inboxes: Vec::new(),
@@ -367,7 +403,13 @@ impl ExecGraph {
     fn run(&mut self, node: NodeId) -> VortexResult<bool> {
         let inbox = mem::take(&mut self.inboxes[node]);
         let mut next_io_id = self.next_io_id;
-        let mut cx = StepCx::new(&self.session, self.row_offset, &mut next_io_id, inbox);
+        let mut cx = StepCx::new(
+            &self.session,
+            self.row_offset,
+            &self.decoded,
+            &mut next_io_id,
+            inbox,
+        );
         let state = self.nodes[node].compute(&mut cx)?;
         let effects = Effects::from(cx);
         self.next_io_id = next_io_id;
