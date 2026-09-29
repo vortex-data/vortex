@@ -1129,7 +1129,7 @@ fn dictionary_pushdown_rejects_unsafe_expressions() -> VortexResult<()> {
     let value_dtype = primitive(PType::I32, Nullability::NonNullable);
     let dictionary = DictLayout::new(
         flat(2, value_dtype, 0),
-        flat(3, primitive(PType::U8, Nullability::NonNullable), 1),
+        flat(3, primitive(PType::U8, Nullability::Nullable), 1),
     )
     .into_layout();
 
@@ -1145,6 +1145,21 @@ fn dictionary_pushdown_rejects_unsafe_expressions() -> VortexResult<()> {
         })?;
         assert!(eval.child_plan()?.is::<Take>());
     }
+    Ok(())
+}
+
+#[test]
+fn non_strict_expression_pushes_into_dictionary_without_null_codes() -> VortexResult<()> {
+    let dictionary = DictLayout::new(
+        flat(2, primitive(PType::I32, Nullability::Nullable), 0),
+        flat(3, primitive(PType::U8, Nullability::NonNullable), 1),
+    )
+    .into_layout();
+    let optimized = optimize(make_eval(is_null(root()), make_plan(dictionary)?)?.into_plan())?;
+    let take = optimized
+        .as_opt::<Take>()
+        .ok_or_else(|| vortex_err!("is_null was not pushed into the dictionary: {optimized}"))?;
+    assert!(take.values()?.is::<Eval>());
     Ok(())
 }
 

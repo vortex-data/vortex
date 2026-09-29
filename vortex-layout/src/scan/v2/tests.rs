@@ -25,6 +25,7 @@ use vortex_array::expr::Expression;
 use vortex_array::expr::and;
 use vortex_array::expr::byte_length;
 use vortex_array::expr::cast;
+use vortex_array::expr::dynamic;
 use vortex_array::expr::eq;
 use vortex_array::expr::gt;
 use vortex_array::expr::like;
@@ -32,6 +33,7 @@ use vortex_array::expr::lit;
 use vortex_array::expr::lt;
 use vortex_array::expr::not_eq;
 use vortex_array::expr::root;
+use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
@@ -315,12 +317,10 @@ fn segment_ids(layout: &LayoutRef) -> VortexResult<BTreeSet<u32>> {
     Ok(ids)
 }
 
-/// Pruning drops the zones whose statistics prove the filter false: of four 1000-row zones over
-/// `0..4000`, the first cannot hold a value above 1500, so V2 reads the zone table and the other
-/// three chunks, never the first, and still returns what the default path returns.
-#[tokio::test(flavor = "multi_thread")]
-async fn zone_pruning_reads_only_zones_that_can_match() -> VortexResult<()> {
-    let session = new_session().with_tokio();
+/// Four 1000-row chunks of `0..4000`, one zone each.
+async fn write_zoned_layout(
+    session: &VortexSession,
+) -> VortexResult<(Arc<dyn SegmentSource>, LayoutRef)> {
     let written = Arc::new(TestSegments::default());
     let segments: Arc<dyn SegmentSource> = Arc::clone(&written) as _;
     let (mut sequence_id, eof) = SequenceId::root().split();
@@ -343,9 +343,19 @@ async fn zone_pruning_reads_only_zones_that_can_match() -> VortexResult<()> {
         written,
         SequentialStreamAdapter::new(DTYPE, stream::iter(chunks)).sendable(),
         eof,
-        &session,
+        session,
     )
     .await?;
+    Ok((segments, layout))
+}
+
+/// Pruning drops the zones whose statistics prove the filter false: of four 1000-row zones over
+/// `0..4000`, the first cannot hold a value above 1500, so V2 reads the zone table and the other
+/// three chunks, never the first, and still returns what the default path returns.
+#[tokio::test(flavor = "multi_thread")]
+async fn zone_pruning_reads_only_zones_that_can_match() -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = write_zoned_layout(&session).await?;
 
     let data = layout
         .slot(0)?
@@ -495,5 +505,65 @@ async fn scans_over_one_reader_share_the_file() -> VortexResult<()> {
         &shared,
         &shared_file(&reader()?, scan_file(&segments, &layout)?)?
     ));
+    Ok(())
+}
+
+/// Zone pruning follows a dynamic comparison the engine tightens during the scan: with no bound
+/// every zone is read, and once the bound is above 2500 a later execution skips the two zones
+/// below it, without reading the zone table again.
+#[tokio::test(flavor = "multi_thread")]
+async fn zone_pruning_follows_dynamic_comparisons() -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = write_zoned_layout(&session).await?;
+    let data = layout
+        .slot(0)?
+        .ok_or_else(|| vortex_error::vortex_err!("no data"))?;
+    let data_chunks = data.children()?;
+
+    let bound = Arc::new(Mutex::new(None::<i32>));
+    let filter = {
+        let bound = Arc::clone(&bound);
+        dynamic(
+            CompareOperator::Gt,
+            move || bound.lock().map(Into::into),
+            DTYPE,
+            true,
+            root(),
+        )
+    };
+    let recording = Arc::new(RecordingSegments {
+        inner: Arc::clone(&segments),
+        reads: Arc::default(),
+    });
+    let mut file = scan_file(&segments, &layout)?;
+    file.segments = Arc::clone(&recording) as _;
+    let reader = layout.new_reader(
+        "".into(),
+        Arc::clone(&segments),
+        &session,
+        &Default::default(),
+    )?;
+    let scan = v2::prepare(
+        ScanBuilder::new(session.clone(), reader).with_filter(filter.bind(&DTYPE)?),
+        file,
+    )?;
+
+    let everything = await_tasks(DTYPE, scan.execute(None)?).await?;
+    assert_eq!(everything.len(), 4000);
+    for chunk in &data_chunks {
+        assert!(segment_ids(chunk)?.is_subset(&recording.reads.lock()));
+    }
+
+    *bound.lock() = Some(2500);
+    recording.reads.lock().clear();
+    let above = await_tasks(DTYPE, scan.execute(None)?).await?;
+    assert_arrays_eq!(
+        above,
+        Buffer::from_iter(2501..4000).into_array(),
+        &mut session.create_execution_ctx()
+    );
+    let mut expected_reads = segment_ids(&data_chunks[2])?;
+    expected_reads.extend(segment_ids(&data_chunks[3])?);
+    assert_eq!(*recording.reads.lock(), expected_reads);
     Ok(())
 }
