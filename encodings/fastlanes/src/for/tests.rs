@@ -7,6 +7,7 @@ use rstest::rstest;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::Constant;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::compute::conformance::consistency::test_array_consistency;
@@ -155,6 +156,7 @@ fn drifting_u32(len: u32) -> PrimitiveArray {
 #[case::signed(PrimitiveArray::from_iter((0..3000i64).map(|i| (1 - (i / 1024) * 2) * 1_000_000_000 + i)))]
 #[case::extremes(PrimitiveArray::from_iter((0..2048).map(|i| if i < 1024 { i8::MIN } else { i8::MAX })))]
 #[case::nullable(PrimitiveArray::from_option_iter((0..3000i32).map(|i| (i % 3 != 0).then_some(i * 7))))]
+#[case::nullable_whole_words(PrimitiveArray::from_option_iter((0..2048u32).map(|i| (i % 3 != 0).then_some(i))))]
 #[case::null_chunk(PrimitiveArray::from_option_iter((0..3000u16).map(|i| (!(1024..2048).contains(&i)).then_some(i))))]
 #[case::all_null(PrimitiveArray::from_option_iter((0..2000).map(|_| None::<u64>)))]
 fn encode_chunked_roundtrip(#[case] array: PrimitiveArray) -> VortexResult<()> {
@@ -183,6 +185,19 @@ fn encode_chunked_uses_chunk_minimums() -> VortexResult<()> {
         PrimitiveArray::from_iter([500u32, 500, 9_000, 3]),
         &mut ctx
     );
+    Ok(())
+}
+
+#[test]
+fn encode_chunked_all_null_is_constant() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let values = PrimitiveArray::from_option_iter((0..2000).map(|_| None::<u64>));
+    let encoded = FoR::encode_chunked(values.clone(), &mut ctx)?;
+    assert!(encoded.encoded().is::<Constant>());
+    assert!(encoded.constant_reference().is_some());
+    // A constant reference serializes in the single-reference format.
+    assert!(SESSION.array_serialize(encoded.as_array()).is_ok());
+    assert_arrays_eq!(encoded, values, &mut ctx);
     Ok(())
 }
 
