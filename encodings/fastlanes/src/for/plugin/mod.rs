@@ -31,7 +31,7 @@ pub fn for_v1_id() -> ArrayId {
 
 /// The in-memory FoR ID, and the serialized ID for arrays whose chunks have different references.
 pub fn for_v2_id() -> ArrayId {
-    static ID: CachedId = CachedId::new("fastlanes.for_v2");
+    static ID: CachedId = CachedId::new("fastlanes.for.v2");
     *ID
 }
 
@@ -39,7 +39,7 @@ pub fn for_v2_id() -> ArrayId {
 ///
 /// Arrays with constant references serialize as `fastlanes.for`, which stores the reference in
 /// its metadata. Arrays whose chunks have different references serialize as
-/// `fastlanes.for_v2`, which stores them as a child.
+/// `fastlanes.for.v2`, which stores them as a child.
 ///
 /// Register this plugin, or call [`crate::initialize`], to enable serde. Direct registration of
 /// [`FoR`] does not support serde.

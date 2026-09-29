@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Serde for `fastlanes.for_v2`, which stores one reference per chunk as a child.
+//! Serde for `fastlanes.for.v2`, which stores one reference per chunk as a child.
 
 use prost::Message as _;
 use vortex_array::ArrayDeserialization;
@@ -19,7 +19,7 @@ use crate::r#for::array::FoRArrayExt;
 use crate::r#for::array::FoRArraySlotsExt;
 use crate::r#for::array::num_chunks;
 
-/// Metadata for `fastlanes.for_v2`. The references are the second child.
+/// Metadata for `fastlanes.for.v2`. The references are the second child.
 #[derive(Clone, prost::Message)]
 pub(super) struct FoRV2Metadata {
     /// The position of the first element within the first chunk.
