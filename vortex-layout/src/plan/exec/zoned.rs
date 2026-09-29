@@ -8,7 +8,7 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
-use vortex_buffer::BitBuffer;
+use vortex_buffer::BitBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -75,27 +75,36 @@ impl ZonePruneNode {
     }
 
     /// Expands the per-zone result to one value per selected row.
+    ///
+    /// Every row of a zone shares the zone's value, so the rows are filled a zone at a time and
+    /// the selection is applied once at the end.
     fn expand(&self, pruned: &Mask) -> VortexResult<Piece> {
         let rows = self.selection.rows().clone();
-        let mask = self.selection.mask();
         let zone_len = self.plan.zone_len();
-        let zone_of = |index: usize| {
-            usize::try_from((rows.start + index as u64) / zone_len)
-                .vortex_expect("zone index must fit in usize")
-        };
-        let bits: BitBuffer = (0..mask.len())
-            .filter(|&index| mask.value(index))
-            .map(|index| pruned.value(zone_of(index)))
-            .collect();
+        let mut bits = BitBufferMut::with_capacity(self.selection.mask().len());
+        let mut row = rows.start;
+        while row < rows.end {
+            let zone =
+                usize::try_from(row / zone_len).vortex_expect("zone index must fit in usize");
+            let zone_end = ((row / zone_len) + 1) * zone_len;
+            let end = zone_end.min(rows.end);
+            bits.append_n(
+                pruned.value(zone),
+                usize::try_from(end - row).vortex_expect("zone rows must fit in usize"),
+            );
+            row = end;
+        }
         let validity = if self.plan.dtype().is_nullable() {
             Validity::AllValid
         } else {
             Validity::NonNullable
         };
-        Ok(Piece {
-            rows,
-            array: BoolArray::try_new(bits, validity)?.into_array(),
-        })
+        let mut array = BoolArray::try_new(bits.freeze(), validity)?.into_array();
+        let mask = self.selection.mask();
+        if !mask.all_true() {
+            array = array.filter(mask.clone())?;
+        }
+        Ok(Piece { rows, array })
     }
 }
 
