@@ -54,6 +54,7 @@ use crate::scan::planning::SegmentLocation;
 use crate::scan::scan_builder::ScanBuilder;
 use crate::scan::v2;
 use crate::scan::v2::ScanFile;
+use crate::scan::v2::file::shared_file;
 use crate::segments::SegmentFuture;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
@@ -467,5 +468,32 @@ async fn dictionary_expressions_match_default(
         ChunkedArray::try_new(expected, result_dtype)?,
         &mut session.create_execution_ctx()
     );
+    Ok(())
+}
+
+/// Scans over one layout reader share its lowered file, and with it what executions learn, such
+/// as dictionary values; scans over another reader of the same layout do not.
+#[tokio::test(flavor = "multi_thread")]
+async fn scans_over_one_reader_share_the_file() -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = write_layout(&session).await?;
+    let reader = || {
+        layout.new_reader(
+            "".into(),
+            Arc::clone(&segments),
+            &session,
+            &Default::default(),
+        )
+    };
+    let first = reader()?;
+    let shared = shared_file(&first, scan_file(&segments, &layout)?)?;
+    assert!(Arc::ptr_eq(
+        &shared,
+        &shared_file(&first, scan_file(&segments, &layout)?)?
+    ));
+    assert!(!Arc::ptr_eq(
+        &shared,
+        &shared_file(&reader()?, scan_file(&segments, &layout)?)?
+    ));
     Ok(())
 }

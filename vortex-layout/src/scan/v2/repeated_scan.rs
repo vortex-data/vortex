@@ -38,10 +38,9 @@ use crate::scan::splits::attempt_split_ranges;
 use crate::scan::v2::ScanFile;
 use crate::scan::v2::conjuncts::filter_after_eval;
 use crate::scan::v2::conjuncts::group_conjuncts;
+use crate::scan::v2::file::shared_file;
 use crate::scan::v2::io::SegmentRanges;
 use crate::scan::v2::io::segment_ranges;
-use crate::scan::v2::lower::lower;
-use crate::scan::v2::lower::lower_with_zones;
 use crate::scan::v2::prefetch::plan_segments;
 use crate::scan::v2::share::unshare_unread;
 use crate::scan::v2::split::SplitTask;
@@ -69,7 +68,8 @@ pub fn prepare<A: 'static + Send>(
     }
 
     let layout_reader = parts.layout_reader;
-    let root = lower(&file.layout)?;
+    let shared = shared_file(&layout_reader, file)?;
+    let root = shared.root.clone();
     let plan = |expression| optimize(plan_row_idx_expression(expression, root.clone())?);
     let filter = parts
         .filter
@@ -91,12 +91,12 @@ pub fn prepare<A: 'static + Send>(
     let pruning = parts
         .filter
         .as_ref()
-        .map(|filter| pruning_plan(filter, &file, &parts.session))
+        .map(|filter| pruning_plan(filter, &shared.zones, &parts.session))
         .transpose()?
         .flatten();
     let plans = ScanPlans {
         session: parts.session,
-        locations: Arc::clone(&file.locations),
+        locations: Arc::clone(&shared.file.locations),
         projection,
         row_offset: parts.row_offset,
         decoded: DecodeCache::default(),
@@ -125,8 +125,8 @@ pub fn prepare<A: 'static + Send>(
         pruning,
         plans,
         filter,
-        ranges: segment_ranges(&file.locations),
-        segments: file.segments,
+        ranges: segment_ranges(&shared.file.locations),
+        segments: Arc::clone(&shared.file.segments),
         row_range: parts.row_range,
         selection: parts.selection,
         splits,
@@ -261,14 +261,13 @@ impl<A: 'static + Send> RepeatedScanV2<A> {
 /// column data rather than zone statistics.
 fn pruning_plan(
     filter: &BoundExpression,
-    file: &ScanFile,
+    zones: &PlanRef,
     session: &VortexSession,
 ) -> VortexResult<Option<PlanRef>> {
     let Some(predicate) = filter.falsify(session)? else {
         return Ok(None);
     };
-    let root = lower_with_zones(&file.layout)?;
-    let plan = optimize(EvalPlan::try_new(predicate, root)?.into_plan())?;
+    let plan = optimize(EvalPlan::try_new(predicate, zones.clone())?.into_plan())?;
     Ok(reads_only_zones(&plan)?.then_some(plan))
 }
 
