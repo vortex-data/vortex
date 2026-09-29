@@ -21,6 +21,7 @@ use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::fill_null::FillNullReduceAdaptor;
+use crate::scalar_fn::fns::list_contains::ListContains;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<Chunked> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&CastReduceAdaptor(Chunked)),
@@ -61,6 +62,10 @@ impl ArrayParentReduceRule<Chunked> for ChunkedUnaryScalarFnPushDownRule {
 }
 
 /// Push down non-unary scalar functions through chunked arrays where other siblings are constant.
+///
+/// [`ListContains`] is not pushed down. Its execution prepares a constant list once as a set, and
+/// its chunked kernel then probes each chunk against that one set. A push-down would give each
+/// chunk its own copy of the list, and so its own set to prepare.
 #[derive(Debug)]
 struct ChunkedConstantScalarFnPushDownRule;
 impl ArrayParentReduceRule<Chunked> for ChunkedConstantScalarFnPushDownRule {
@@ -72,6 +77,10 @@ impl ArrayParentReduceRule<Chunked> for ChunkedConstantScalarFnPushDownRule {
         parent: ArrayView<'_, ScalarFn>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
+        if parent.scalar_fn().is::<ListContains>() {
+            return Ok(None);
+        }
+
         for (idx, child) in parent.iter_children().enumerate() {
             if idx == child_idx {
                 continue;

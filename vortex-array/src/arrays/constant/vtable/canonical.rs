@@ -43,6 +43,7 @@ use crate::match_each_decimal_value_type;
 use crate::match_each_native_ptype;
 use crate::match_smallest_list_offset_type;
 use crate::scalar::DecimalValue;
+use crate::scalar::ListScalar;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
 
@@ -273,25 +274,7 @@ fn constant_canonical_list_array(
 
     // Since "canonicalize" only applies to the top level array, we can simply have 1 scalar in our
     // child `elements` and have all list views point to that scalar.
-    let elements = if let Some(elements) = list.elements() {
-        // Extract the list elements out of the scalar into a new array.
-        let mut builder = builder_with_capacity_in(
-            list.dtype()
-                .as_list_element_opt()
-                .vortex_expect("list scalar somehow did not have a list DType"),
-            list.len(),
-            allocator,
-        );
-        for scalar in &elements {
-            builder
-                .append_scalar(scalar)
-                .vortex_expect("list element scalar was invalid");
-        }
-        builder.finish()
-    } else {
-        // Otherwise all values are null, and we don't need to store anything in our `elements`.
-        Canonical::empty(list.element_dtype()).into_array()
-    };
+    let elements = list_scalar_elements(&list, allocator);
 
     let validity = if scalar.dtype().is_nullable() {
         if list.is_null() {
@@ -320,6 +303,31 @@ fn constant_canonical_list_array(
     // The elements array contains `len` copies of the same value, offsets are all 0,
     // and sizes are all equal to the list length. The validity matches the scalar's nullability.
     unsafe { ListViewArray::new_unchecked(elements, offsets, sizes, validity) }
+}
+
+/// The elements of a list scalar as an array, one row per element; empty for a null list.
+pub(crate) fn list_scalar_elements(list: &ListScalar, allocator: &BufferAllocatorRef) -> ArrayRef {
+    let element_dtype = list.element_dtype();
+    let Some(elements) = list.element_values() else {
+        return Canonical::empty(element_dtype).into_array();
+    };
+
+    let mut builder = builder_with_capacity_in(element_dtype, elements.len(), allocator);
+    for element in elements {
+        match element {
+            Some(element) => {
+                builder
+                    .append_scalar(&unsafe {
+                        Scalar::new_unchecked(element_dtype.clone(), Some(element.clone()))
+                    })
+                    .vortex_expect("list element scalar was invalid");
+            }
+            None => {
+                builder.append_null();
+            }
+        }
+    }
+    builder.finish()
 }
 
 /// Creates a [`FixedSizeListArray`] whose every row holds the same list.

@@ -60,7 +60,7 @@ fn random_i64(len: usize) -> (Vec<i64>, Vec<i64>) {
 
 fn bench_in_set(bencher: Bencher, set: Scalar, needles: ArrayRef) {
     let session = vortex_array::array_session();
-    // Optimized as a scan optimizes it, so the set arrives normalized.
+    // Optimized as a scan optimizes it.
     let expr = list_contains(lit(set), root())
         .bind(needles.dtype())
         .unwrap()

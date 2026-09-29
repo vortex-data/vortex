@@ -6,6 +6,7 @@ mod cast;
 mod fill_null;
 mod filter;
 pub(crate) mod kernel;
+mod list_contains;
 mod mask;
 pub(crate) mod rules;
 mod slice;

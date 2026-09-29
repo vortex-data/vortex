@@ -13,6 +13,8 @@ use crate::arrays::filter::FilterExecuteAdaptor;
 use crate::arrays::slice::SliceExecuteAdaptor;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::fns::list_contains::ListContains;
+use crate::scalar_fn::fns::list_contains::ListContainsElementExecuteAdaptor;
 use crate::scalar_fn::fns::mask::Mask;
 use crate::scalar_fn::fns::mask::MaskExecuteAdaptor;
 use crate::scalar_fn::fns::zip::Zip;
@@ -25,4 +27,9 @@ pub(crate) fn initialize(session: &VortexSession) {
     kernels.register_execute_parent_kernel(Slice.id(), Chunked, SliceExecuteAdaptor(Chunked));
     kernels.register_execute_parent_kernel(Dict.id(), Chunked, TakeExecuteAdaptor(Chunked));
     kernels.register_execute_parent_kernel(Zip.id(), Chunked, ZipExecuteAdaptor(Chunked));
+    kernels.register_execute_parent_kernel(
+        ListContains.id(),
+        Chunked,
+        ListContainsElementExecuteAdaptor(Chunked),
+    );
 }
