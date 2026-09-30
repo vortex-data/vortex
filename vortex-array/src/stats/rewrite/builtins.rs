@@ -104,7 +104,7 @@ impl StatsRewriteRule for LiteralStatsRewrite {
         expr: &BoundExpression,
         _session: &VortexSession,
     ) -> VortexResult<Option<BoundExpression>> {
-        Ok(literal_truth(expr).map(|value| lit(value)))
+        Ok(literal_truth(expr).map(lit))
     }
 }
 
