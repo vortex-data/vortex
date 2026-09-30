@@ -526,6 +526,7 @@ mod test {
     use vortex_array::expr::lit;
     use vortex_array::expr::root;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_bail;
     use vortex_error::vortex_err;
     use vortex_io::runtime::BlockingRuntime;
     use vortex_io::runtime::single::SingleThreadRuntime;
