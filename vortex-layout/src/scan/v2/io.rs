@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::future;
 use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
@@ -44,16 +43,51 @@ pub(super) fn segment_ranges(locations: &[SegmentLocation]) -> SegmentRanges {
     Arc::new(ranges.collect())
 }
 
-/// Serves a split's range requests from a file's segment source, without blocking.
+/// The IO a scan's splits read through: one [`SplitIo`] per split's driver run.
+///
+/// A file opened for reading provides one that drives the file's coalescing reads directly. Any
+/// other segment source is served by [`SegmentScanIo`].
+pub trait ScanIo: Send + Sync {
+    /// A fresh source for one split's driver run.
+    fn split_io(&self) -> Arc<dyn SplitIo>;
+}
+
+/// One split's IO: the protocol's [`IoSource`], which the split can also wait on without blocking.
+pub trait SplitIo: IoSource {
+    /// The next completed fetch, registering `cx` to be woken when one completes.
+    fn poll_completion(&self, cx: &mut Context<'_>) -> Poll<VortexResult<Completion>>;
+}
+
+/// Serves splits from any [`SegmentSource`], by segment id.
+pub(super) struct SegmentScanIo {
+    segments: Arc<dyn SegmentSource>,
+    ranges: SegmentRanges,
+}
+
+impl SegmentScanIo {
+    pub(super) fn new(segments: Arc<dyn SegmentSource>, ranges: SegmentRanges) -> Self {
+        Self { segments, ranges }
+    }
+}
+
+impl ScanIo for SegmentScanIo {
+    fn split_io(&self) -> Arc<dyn SplitIo> {
+        Arc::new(SegmentIoSource::new(
+            Arc::clone(&self.segments),
+            Arc::clone(&self.ranges),
+        ))
+    }
+}
+
+/// Serves a split's range requests from a segment source, without blocking.
 ///
 /// Each requested range names one segment. [`submit`](IoSource::submit) starts its read at once,
 /// [`poll`](IoSource::poll) takes a finished one if there is any, and the split's future awaits
-/// the next with [`next_completion`](Self::next_completion) when the driver has nothing else to
+/// the next with [`poll_completion`](SplitIo::poll_completion) when the driver has nothing else to
 /// run. [`wait`](IoSource::wait) is never called. Optional intents are declined.
 ///
-/// The split's registrations are held, never polled, until the source is dropped. A source that
-/// shares requests for one segment serves each fetch through its registration, so the bytes are
-/// read once however many of the split's reads name them.
+/// An announcement requests the segment and holds the request, never polled, until the source is
+/// dropped, so a source that coalesces registered requests can fold it into a nearby read.
 /// A read started ahead of the fetch that needs it.
 type Prefetched = Shared<BoxFuture<'static, Result<BufferHandle, Arc<VortexError>>>>;
 
@@ -63,34 +97,31 @@ pub(super) struct SegmentIoSource {
     reads: Mutex<FuturesUnordered<BoxFuture<'static, Completion>>>,
     /// Reads started by prefetches, which later fetches of the same segment wait on.
     prefetched: Mutex<HashMap<SegmentId, Prefetched>>,
-    _registered: Mutex<Vec<SegmentFuture>>,
+    /// Announced segments, requested and never polled.
+    announced: Mutex<Vec<SegmentFuture>>,
 }
 
 impl SegmentIoSource {
-    pub(super) fn new(
-        segments: Arc<dyn SegmentSource>,
-        ranges: SegmentRanges,
-        registered: Vec<SegmentFuture>,
-    ) -> Self {
+    pub(super) fn new(segments: Arc<dyn SegmentSource>, ranges: SegmentRanges) -> Self {
         Self {
             segments,
             ranges,
             reads: Mutex::new(FuturesUnordered::new()),
             prefetched: Mutex::default(),
-            _registered: Mutex::new(registered),
+            announced: Mutex::default(),
         }
     }
+}
 
-    /// Waits for the next read to finish.
-    pub(super) async fn next_completion(&self) -> VortexResult<Completion> {
-        future::poll_fn(|cx| match self.reads.lock().poll_next_unpin(cx) {
+impl SplitIo for SegmentIoSource {
+    fn poll_completion(&self, cx: &mut Context<'_>) -> Poll<VortexResult<Completion>> {
+        match self.reads.lock().poll_next_unpin(cx) {
             Poll::Ready(Some(completion)) => Poll::Ready(Ok(completion)),
             Poll::Ready(None) => Poll::Ready(Err(vortex_err!(
                 "The split's driver is waiting with no reads in flight"
             ))),
             Poll::Pending => Poll::Pending,
-        })
-        .await
+        }
     }
 }
 
@@ -99,9 +130,6 @@ impl IoSource for SegmentIoSource {
         let reads = self.reads.lock();
         let mut prefetched = self.prefetched.lock();
         for request in batch {
-            if request.intent == IoIntent::Announce {
-                continue;
-            }
             let IoTarget::Range { offset, len } = request.target else {
                 vortex_bail!(
                     "SegmentIoSource only serves byte ranges, not {:?}",
@@ -112,6 +140,12 @@ impl IoSource for SegmentIoSource {
                 .ranges
                 .get(&(offset, len))
                 .ok_or_else(|| vortex_err!("No segment at bytes {offset}+{len}"))?;
+            if request.intent == IoIntent::Announce {
+                if !prefetched.contains_key(&segment) {
+                    self.announced.lock().push(self.segments.request(segment));
+                }
+                continue;
+            }
             if request.intent == IoIntent::Prefetch {
                 prefetched.entry(segment).or_insert_with(|| {
                     let read = self
@@ -164,7 +198,7 @@ impl IoSource for SegmentIoSource {
     }
 
     fn wait(&self) -> VortexResult<Completion> {
-        vortex_bail!("SegmentIoSource is awaited through next_completion, not waited on")
+        vortex_bail!("SegmentIoSource is awaited through poll_completion, not waited on")
     }
 
     fn release(&self, _owner: IoOwnerId) {}
@@ -194,6 +228,7 @@ mod tests {
     use vortex_io::request::IoTarget;
 
     use super::SegmentIoSource;
+    use super::SplitIo;
     use super::segment_ranges;
     use crate::scan::planning::SegmentLocation;
     use crate::segments::SegmentFuture;
@@ -230,18 +265,14 @@ mod tests {
             length: 4,
             alignment: Alignment::none(),
         };
-        let io = SegmentIoSource::new(
-            Arc::clone(&segments) as _,
-            segment_ranges(&[location]),
-            Vec::new(),
-        );
+        let io = SegmentIoSource::new(Arc::clone(&segments) as _, segment_ranges(&[location]));
 
         io.submit(IoOwnerId(0), vec![request(IoIntent::Prefetch, 0)])?;
         assert_eq!(segments.0.load(Ordering::Relaxed), 1);
         io.submit(IoOwnerId(0), vec![request(IoIntent::Fetch, 1)])?;
         assert_eq!(segments.0.load(Ordering::Relaxed), 1);
 
-        let completion = io.next_completion().await?;
+        let completion = std::future::poll_fn(|cx| io.poll_completion(cx)).await?;
         assert_eq!(completion.request, IoRequestId(1));
         assert!(completion.result.is_ok());
         assert!(io.poll()?.is_none());

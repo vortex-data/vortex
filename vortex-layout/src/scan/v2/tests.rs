@@ -116,6 +116,7 @@ fn scan_file(segments: &Arc<dyn SegmentSource>, layout: &LayoutRef) -> VortexRes
         layout: Arc::clone(layout),
         locations,
         segments: Arc::clone(segments),
+        io: None,
     })
 }
 

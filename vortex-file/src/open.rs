@@ -318,12 +318,14 @@ impl VortexOpenOptions {
         let metrics = RequestMetrics::new(metrics_registry.as_ref(), self.labels);
 
         // Create a segment source backed by the VortexRead implementation.
-        let segment_source = Arc::new(SharedSegmentSource::new(FileSegmentSource::open(
+        let file_source = FileSegmentSource::open(
             footer.segment_specs_with_metadata(),
             reader,
             self.session.handle(),
             metrics,
-        )));
+        );
+        let scan_io = file_source.scan_io();
+        let segment_source = Arc::new(SharedSegmentSource::new(file_source));
 
         // Wrap up the segment source to first resolve segments from the initial read cache.
         let segment_source: Arc<dyn SegmentSource> = Arc::new(SegmentCacheSourceAdapter::new(
@@ -336,8 +338,9 @@ impl VortexOpenOptions {
         } else {
             Arc::new(HashMap::new())
         };
-        let file =
-            VortexFile::new(footer, segment_source, self.session.clone()).with_metadata(metadata);
+        let file = VortexFile::new(footer, segment_source, self.session.clone())
+            .with_metadata(metadata)
+            .with_scan_io(scan_io);
         Ok(if self.cache_layout_reader {
             file.with_caching()
         } else {

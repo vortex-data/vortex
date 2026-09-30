@@ -49,6 +49,7 @@ use crate::read::IoRequest;
 use crate::read::IoRequestStream;
 use crate::read::ReadRequest;
 use crate::read::RequestId;
+use crate::segments::FileScanIo;
 
 #[derive(Debug)]
 /// Events sent from segment futures to the coalescing read driver.
@@ -88,7 +89,7 @@ pub enum ReadEvent {
 /// reader is always woken when the driver finishes — even if another reader polled the driver more
 /// recently and was then dropped. Its output is `()`; a driver panic is carried out of band in
 /// [`DriverPanic`] so it can be re-raised on the reader side.
-type SharedDriver = Shared<BoxFuture<'static, ()>>;
+pub(crate) type SharedDriver = Shared<BoxFuture<'static, ()>>;
 
 /// Slot holding the driver's panic payload, if it panicked while driving reads. The first reader to
 /// observe completion takes the payload and re-raises it; later readers report a graceful error.
@@ -405,6 +406,24 @@ impl SegmentSource for FileSegmentSource {
 
         // One allocation: we only box the returned SegmentFuture, not the inner ReadFuture.
         fut.boxed()
+    }
+}
+
+impl FileSegmentSource {
+    /// A service that serves a scan's protocol requests through this source's read driver, so
+    /// they coalesce with each other and with this source's own reads.
+    pub fn scan_io(&self) -> FileScanIo {
+        let alignments = self
+            .segments
+            .iter()
+            .map(|spec| ((spec.offset, spec.length as usize), spec.alignment))
+            .collect();
+        FileScanIo::new(
+            self.events.clone(),
+            self.driver.clone(),
+            Arc::clone(&self.next_id),
+            Arc::new(alignments),
+        )
     }
 }
 
