@@ -19,6 +19,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::NumericalAggregateOpts;
+use crate::aggregate_fn::fns::is_sorted::is_sorted;
 use crate::aggregate_fn::fns::min_max::min_max;
 use crate::array::Array;
 use crate::array::ArrayParts;
@@ -212,11 +213,7 @@ impl ListData {
         let mut ctx = legacy_session().create_execution_ctx();
 
         // Offsets must be sorted (but not strictly sorted, zero-length lists are allowed)
-        if let Some(is_sorted) = offsets.statistics().compute_is_sorted(&mut ctx) {
-            vortex_ensure!(is_sorted, InvalidArgument: "offsets must be sorted");
-        } else {
-            vortex_bail!(InvalidArgument: "offsets must report is_sorted statistic");
-        }
+        vortex_ensure!(is_sorted(offsets, &mut ctx)?, InvalidArgument: "offsets must be sorted");
 
         // Validate that offsets min is non-negative, and max does not exceed the length of
         // the elements array.

@@ -232,10 +232,6 @@ impl Scheme for FoRScheme {
                 FoR::try_new_chunked(compressed, references, for_array.offset())?
             }
         };
-        for_compressed
-            .as_ref()
-            .statistics()
-            .inherit_from(for_array.as_ref().statistics());
 
         Ok(for_compressed.into_array())
     }

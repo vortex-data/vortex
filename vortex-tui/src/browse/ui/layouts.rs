@@ -8,7 +8,6 @@ use humansize::make_format;
 use itertools::Itertools;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Constraint;
-use ratatui::layout::Direction;
 use ratatui::layout::Layout;
 use ratatui::layout::Rect;
 use ratatui::style::Color;
@@ -206,41 +205,10 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
             buf,
         );
     } else {
-        let header = ["Name", "Value"]
-            .into_iter()
-            .map(Cell::from)
-            .collect::<Row>()
-            .style(Style::new().bold())
-            .height(1);
-
-        let rows = array.statistics().with_iter(|iter| {
-            iter.map(|(stat, value)| {
-                let value = value.clone().into_scalar(
-                    stat.dtype(array.dtype())
-                        .vortex_expect("stat invalid for dtype"),
-                );
-                let stat = Cell::from(Text::from(format!("{stat}")));
-                let value = Cell::from(Text::from(format!("{value}")));
-                Row::new(vec![stat, value])
-            })
-            .collect::<Vec<_>>()
-        });
-
-        let layout = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints(vec![Constraint::Percentage(70), Constraint::Percentage(30)])
-            .split(widget_area);
-        let table = Table::new(rows, [Constraint::Min(6), Constraint::Min(6)]).header(header);
         // Tree-display the active array with scroll support
         let tree = Paragraph::new(array.display_tree().to_string())
             .wrap(Wrap { trim: false })
             .scroll((app.tree_scroll_offset, 0));
-
-        let stats_container = Block::new()
-            .title("Statistics")
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(Color::DarkGray));
 
         let tree_container = Block::new()
             .title("Encoding Tree Display")
@@ -248,14 +216,11 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(Color::DarkGray));
 
-        let tree_inner = tree_container.inner(layout[0]);
-        let stats_inner = stats_container.inner(layout[1]);
+        let tree_inner = tree_container.inner(widget_area);
 
-        tree_container.render(layout[0], buf);
-        stats_container.render(layout[1], buf);
+        tree_container.render(widget_area, buf);
 
         Widget::render(tree, tree_inner, buf);
-        Widget::render(table, stats_inner, buf);
 
         // Split view, show information about the child arrays (metadata, count, etc.)
     };

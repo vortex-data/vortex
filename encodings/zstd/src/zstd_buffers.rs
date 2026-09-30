@@ -97,7 +97,6 @@ impl ZstdBuffers {
             ArrayParts::new(ZstdBuffers, array.dtype().clone(), array.len(), data)
                 .with_slots(slots),
         )?;
-        compressed.statistics().inherit_from(array.statistics());
         Ok(compressed)
     }
 
@@ -562,9 +561,6 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::expr::stats::Precision;
-    use vortex_array::expr::stats::Stat;
-    use vortex_array::expr::stats::StatsProvider;
     use vortex_array::serde::SerializeOptions;
     use vortex_array::serde::SerializedArray;
     use vortex_array::session::ArraySessionExt;
@@ -655,17 +651,6 @@ mod tests {
         let mut ctx = session.create_execution_ctx();
         let decoded = decoded.execute::<ArrayRef>(&mut ctx)?;
         assert_arrays_eq!(input, decoded, &mut ctx);
-        Ok(())
-    }
-
-    #[test]
-    fn test_compress_inherits_stats() -> VortexResult<()> {
-        let input = make_primitive_array();
-        input.statistics().set(Stat::Min, Precision::exact(0i32));
-
-        let compressed = ZstdBuffers::compress(&input, 3, &array_session())?;
-
-        assert!(!compressed.statistics().get(Stat::Min).is_absent());
         Ok(())
     }
 

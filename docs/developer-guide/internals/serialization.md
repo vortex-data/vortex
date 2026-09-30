@@ -16,7 +16,9 @@ The FlatBuffer contains an `ArrayNode` tree where each node records:
 - Array-specific metadata bytes.
 - References to child `ArrayNode`s.
 - Indices into the buffer table.
-- Optional statistics (min, max, null count, sort order, etc.).
+
+The historical `ArrayNode.stats` field is omitted by new writers and ignored by readers.
+File summaries and zone maps remain available for pruning.
 
 The buffer table records each buffer's padding, alignment exponent, compression, and length.
 Buffers are laid out contiguously after the metadata, with padding inserted to satisfy each

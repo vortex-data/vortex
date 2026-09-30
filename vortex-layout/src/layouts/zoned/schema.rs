@@ -11,7 +11,7 @@ use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
-use vortex_array::expr::stats::Stat;
+use vortex_array::stats::compat::LegacyStat;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -97,7 +97,10 @@ pub(crate) fn aggregate_stats_table_dtype(
     )
 }
 
-pub(crate) fn legacy_stats_table_dtype(column_dtype: &DType, present_stats: &[Stat]) -> DType {
+pub(crate) fn legacy_stats_table_dtype(
+    column_dtype: &DType,
+    present_stats: &[LegacyStat],
+) -> DType {
     assert!(present_stats.is_sorted(), "Stats must be sorted");
     DType::Struct(
         StructFields::from_iter(
@@ -117,11 +120,11 @@ pub(crate) fn legacy_stats_table_dtype(column_dtype: &DType, present_stats: &[St
                         .map(|dtype| (stat, dtype.as_nullable()))
                 })
                 .flat_map(|(stat, dtype)| match stat {
-                    Stat::Max => vec![
+                    LegacyStat::Max => vec![
                         (stat.name(), dtype),
                         (MAX_IS_TRUNCATED, DType::Bool(Nullability::NonNullable)),
                     ],
-                    Stat::Min => vec![
+                    LegacyStat::Min => vec![
                         (stat.name(), dtype),
                         (MIN_IS_TRUNCATED, DType::Bool(Nullability::NonNullable)),
                     ],
@@ -222,17 +225,17 @@ mod tests {
     fn stats_table_dtype_adds_truncation_flags() {
         let dtype = legacy_stats_table_dtype(
             &DType::Primitive(PType::I32, Nullability::NonNullable),
-            &[Stat::Max, Stat::Min, Stat::Sum],
+            &[LegacyStat::Max, LegacyStat::Min, LegacyStat::Sum],
         );
 
         assert_eq!(
             dtype.as_struct_fields().names().as_ref(),
             &[
-                Stat::Max.name(),
+                LegacyStat::Max.name(),
                 MAX_IS_TRUNCATED,
-                Stat::Min.name(),
+                LegacyStat::Min.name(),
                 MIN_IS_TRUNCATED,
-                Stat::Sum.name(),
+                LegacyStat::Sum.name(),
             ]
         );
     }
@@ -240,14 +243,14 @@ mod tests {
     #[test]
     fn stats_table_dtype_uses_storage_dtype_for_extensions() {
         let dtype = DType::Extension(Date::new(TimeUnit::Days, Nullability::NonNullable).erased());
-        let stats_dtype = legacy_stats_table_dtype(&dtype, &[Stat::Max, Stat::Min]);
+        let stats_dtype = legacy_stats_table_dtype(&dtype, &[LegacyStat::Max, LegacyStat::Min]);
 
         assert_eq!(
             stats_dtype.as_struct_fields().names().as_ref(),
             &[
-                Stat::Max.name(),
+                LegacyStat::Max.name(),
                 MAX_IS_TRUNCATED,
-                Stat::Min.name(),
+                LegacyStat::Min.name(),
                 MIN_IS_TRUNCATED,
             ]
         );

@@ -45,8 +45,6 @@ use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::kernels::ParentExecutionKernels;
 use crate::optimizer::kernels::execute_parent_key;
-use crate::stats::ArrayStats;
-use crate::stats::StatsSet;
 use crate::trace_op;
 
 /// Returns the maximum number of iterations to attempt when executing an array before giving up and returning
@@ -268,7 +266,6 @@ impl ArrayRef {
 
             let expected_len = current_array.len();
             let expected_dtype = current_array.dtype().clone();
-            let stats = current_array.statistics().to_array_stats();
             let encoding_id = current_array.encoding_id();
             trace_op!(record_execute_encoding(&current_array));
             let result = current_array.execute_encoding_unchecked(ctx)?;
@@ -321,7 +318,6 @@ impl ArrayRef {
                         current_builder,
                         expected_len,
                         expected_dtype,
-                        stats,
                         encoding_id,
                     )?;
                     if had_builder {
@@ -470,7 +466,6 @@ impl Executable for ArrayRef {
         trace_op!(record_single_step_phase_none("canonical", &array));
 
         if let Some(reduced) = array.reduce()? {
-            reduced.statistics().inherit_from(array.statistics());
             trace_op!(record_single_step_applied("reduce", &array, &reduced));
             return Ok(reduced);
         }
@@ -479,7 +474,6 @@ impl Executable for ArrayRef {
         for (slot_idx, slot) in array.slots().iter().enumerate() {
             let Some(child) = slot else { continue };
             if let Some(reduced_parent) = child.reduce_parent(&array, slot_idx)? {
-                reduced_parent.statistics().inherit_from(array.statistics());
                 trace_op!(record_single_step_applied(
                     "reduce_parent",
                     &array,
@@ -510,9 +504,6 @@ impl Executable for ArrayRef {
                     array,
                     executed_parent
                 ));
-                executed_parent
-                    .statistics()
-                    .inherit_from(array.statistics());
                 trace_op!(record_single_step_applied(
                     "execute_parent",
                     &array,
@@ -535,7 +526,7 @@ impl Executable for ArrayRef {
                 let child = array.slots()[i].clone().vortex_expect("valid slot index");
                 let executed_child = child.execute::<ArrayRef>(ctx)?;
                 // SAFETY: execution of a child slot produces a logically equivalent array in a
-                // different physical representation, preserving parent values and statistics.
+                // different physical representation, preserving parent values.
                 unsafe { array.with_slot(i, executed_child) }
             }
             ExecutionStep::AppendChild(_) => {
@@ -592,7 +583,6 @@ fn finalize_done(
     mut builder: Option<Box<dyn ArrayBuilder>>,
     expected_len: usize,
     expected_dtype: DType,
-    stats: ArrayStats,
     encoding_id: ArrayId,
 ) -> VortexResult<(ArrayRef, Option<Box<dyn ArrayBuilder>>)> {
     let output = if let Some(mut builder) = builder.take() {
@@ -614,9 +604,6 @@ fn finalize_done(
         );
     }
 
-    output
-        .statistics()
-        .set_iter(StatsSet::from(stats).into_iter());
     Ok((output, None))
 }
 
@@ -684,9 +671,6 @@ fn try_execute_parent(
                 array,
                 executed_parent
             ));
-            executed_parent
-                .statistics()
-                .inherit_from(array.statistics());
             return Ok(Some(executed_parent));
         }
     }

@@ -7,6 +7,8 @@ use num_traits::PrimInt;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::aggregate_fn::fns::min_max::min_max;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
@@ -55,7 +57,8 @@ pub fn bitpack_encode(
     // Check array contains no negative values.
     if array.ptype().is_signed_int() {
         let has_negative_values = match_each_integer_ptype!(array.ptype(), |P| {
-            array.statistics().compute_min::<P>(ctx).unwrap_or_default() < 0
+            min_max(array.as_ref(), ctx, NumericalAggregateOpts::skip_nans())?
+                .is_some_and(|r| r.min.as_primitive().as_::<P>().unwrap_or_default() < 0)
         });
         if has_negative_values {
             vortex_bail!(InvalidArgument: "cannot bitpack_encode array containing negative integers")
@@ -88,7 +91,6 @@ pub fn bitpack_encode(
         array.len(),
         0,
     )?;
-    bitpacked.statistics().inherit_from(array.statistics());
     Ok(bitpacked)
 }
 
@@ -107,7 +109,6 @@ pub unsafe fn bitpack_encode_unchecked(
     // SAFETY: non-negativity of input checked by caller.
     let packed = unsafe { bitpack_unchecked(&array, bit_width) };
 
-    let arr_ref = array.clone().into_array();
     let bitpacked = BitPacked::try_new(
         BufferHandle::new_host(packed),
         array.ptype(),
@@ -118,7 +119,6 @@ pub unsafe fn bitpack_encode_unchecked(
         0,
     )
     .vortex_expect("bitpacked array construction should succeed");
-    bitpacked.statistics().inherit_from(arr_ref.statistics());
     Ok(bitpacked)
 }
 

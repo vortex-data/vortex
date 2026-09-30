@@ -19,9 +19,6 @@ use crate::aggregate_fn::session::AggregateFnSessionExt;
 use crate::columnar::AnyColumnar;
 use crate::dtype::DType;
 use crate::executor::max_iterations;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
 use crate::scalar::Scalar;
 
 /// Reference-counted type-erased accumulator.
@@ -161,30 +158,6 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
             self.dtypes.dtype,
             batch.dtype()
         );
-
-        // 0. Legacy stats bridge: if this aggregate is still cached under a legacy Stat slot,
-        //    consume that exact stat before kernel dispatch or decode.
-        if let Some(stat) = Stat::from_aggregate_fn(&self.aggregate_fn)
-            && let Precision::Exact(partial) = batch.statistics().get(stat)
-        {
-            let partial = if partial.dtype() == &self.dtypes.partial_dtype {
-                partial
-            } else {
-                vortex_ensure!(
-                    partial
-                        .dtype()
-                        .eq_ignore_nullability(&self.dtypes.partial_dtype),
-                    "Aggregate {} read legacy stat {} with dtype {}, expected {}",
-                    self.aggregate_fn,
-                    stat,
-                    partial.dtype(),
-                    self.dtypes.partial_dtype,
-                );
-                partial.cast(&self.dtypes.partial_dtype)?
-            };
-            self.fold_partial_scalar(partial)?;
-            return Ok(());
-        }
 
         let session = ctx.session().clone();
 
@@ -383,10 +356,7 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::expr::stats::Precision;
-    use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
-    use crate::scalar::ScalarValue;
 
     /// Mean partial sentinel `{sum: 42.0, count: 1}` — distinguishable from the
     /// natural fan-out result `{sum: 7.0, count: 1}` that `Combined::try_accumulate`
@@ -543,28 +513,6 @@ mod tests {
             s.field("count").unwrap().as_primitive().as_::<u64>(),
             Some(1)
         );
-        Ok(())
-    }
-
-    #[test]
-    fn cached_sum_precedes_encoding_kernel() -> VortexResult<()> {
-        static KERNEL: SentinelSumPartialKernel = SentinelSumPartialKernel;
-        let session = fresh_session();
-        session
-            .get::<AggregateFnSession>()
-            .register_aggregate_kernel(Dict.id(), Some(Sum.id()), &KERNEL);
-        let mut ctx = session.create_execution_ctx();
-
-        let batch = dict_of_seven();
-        batch
-            .statistics()
-            .set(Stat::Sum, Precision::Exact(ScalarValue::from(11.0f64)));
-
-        let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
-        let mut acc = Accumulator::try_new(Sum, NumericalAggregateOpts::default(), dtype)?;
-        acc.accumulate(&batch, &mut ctx)?;
-
-        assert_eq!(acc.finish()?.as_primitive().as_::<f64>(), Some(11.0));
         Ok(())
     }
 

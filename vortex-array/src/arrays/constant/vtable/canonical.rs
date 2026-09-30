@@ -400,8 +400,6 @@ mod tests {
     use std::sync::Arc;
     use std::sync::LazyLock;
 
-    use enum_iterator::all;
-    use itertools::Itertools;
     use rstest::rstest;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
@@ -410,6 +408,7 @@ mod tests {
     use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::aggregate_fn::fns::sum::sum;
     use crate::arrays::Chunked;
     use crate::arrays::Constant;
     use crate::arrays::ConstantArray;
@@ -431,8 +430,6 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::half::f16;
-    use crate::expr::stats::Stat;
-    use crate::expr::stats::StatsProvider;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 
@@ -465,28 +462,13 @@ mod tests {
     }
 
     #[test]
-    fn test_canonicalize_propagates_stats() -> VortexResult<()> {
+    fn test_canonicalize_preserves_aggregate_results() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let scalar = Scalar::bool(true, Nullability::NonNullable);
         let const_array = ConstantArray::new(scalar, 4).into_array();
-        let stats = const_array
-            .statistics()
-            .compute_all(&all::<Stat>().collect_vec(), &mut ctx)?;
+        let before = sum(&const_array, &mut ctx)?;
         let canonical = const_array.execute::<Canonical>(&mut ctx)?.into_array();
-        let canonical_stats = canonical.statistics();
-
-        let stats_ref = stats.as_typed_ref(canonical.dtype());
-
-        for stat in all::<Stat>() {
-            if stat.dtype(canonical.dtype()).is_none() {
-                continue;
-            }
-            assert_eq!(
-                canonical_stats.get(stat),
-                stats_ref.get(stat),
-                "stat mismatch {stat}"
-            );
-        }
+        assert_eq!(before, sum(&canonical, &mut ctx)?);
         Ok(())
     }
 

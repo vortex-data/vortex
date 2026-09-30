@@ -29,14 +29,11 @@ use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::dtype::DType;
 use crate::legacy_session;
-use crate::stats::ArrayStats;
-use crate::stats::StatsSet;
-use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 
 /// The combined allocation behind [`ArrayRef`].
 ///
-/// Stores common metadata (len, dtype, encoding_id, slots, stats) together with the
+/// Stores common metadata (len, dtype, encoding_id, slots) together with the
 /// encoding-specific `data` (a concrete [`ArrayData<V>`] erased to `dyn DynArrayData`).
 ///
 /// `ArrayRef` stores `Arc<ArrayInner<dyn DynArrayData>>` — a single 16-byte fat pointer.
@@ -47,7 +44,6 @@ pub(crate) struct ArrayInner<D: ?Sized> {
     pub(crate) encoding_id: ArrayId,
     pub(crate) dtype: DType,
     pub(crate) slots: ArraySlots,
-    pub(crate) stats: ArrayStats,
     pub(crate) data: D, // must be last for unsized coercion
 }
 
@@ -125,7 +121,6 @@ impl<V: VTable> ArrayInner<ArrayData<V>> {
             encoding_id: new.vtable.id(),
             dtype: new.dtype,
             slots: new.slots,
-            stats: ArrayStats::default(),
             data: ArrayData {
                 vtable: new.vtable,
                 data: new.data,
@@ -143,14 +138,12 @@ impl<V: VTable> ArrayInner<ArrayData<V>> {
         dtype: DType,
         data: V::TypedArrayData,
         slots: ArraySlots,
-        stats: ArrayStats,
     ) -> Self {
         ArrayInner {
             len,
             encoding_id: vtable.id(),
             dtype,
             slots,
-            stats,
             data: ArrayData { vtable, data },
         }
     }
@@ -236,7 +229,6 @@ impl<V: VTable> Array<V> {
                 new.dtype,
                 new.data,
                 new.slots,
-                ArrayStats::default(),
             )
         };
         let inner = ArrayRef::from_inner(Arc::new(store));
@@ -291,11 +283,6 @@ impl<V: VTable> Array<V> {
         self.inner.encoding_id()
     }
 
-    /// Returns this array's statistics set.
-    pub fn statistics(&self) -> StatsSetRef<'_> {
-        self.inner.statistics()
-    }
-
     /// Returns a reference to the encoding-specific data.
     pub fn data(&self) -> &V::TypedArrayData {
         &self.downcast_inner().data
@@ -329,12 +316,6 @@ impl<V: VTable> Array<V> {
                 _phantom: PhantomData,
             }),
         }
-    }
-
-    /// Replace the array's statistics set and return the same typed handle.
-    pub fn with_stats_set(self, stats: StatsSet) -> Self {
-        self.statistics().replace(stats);
-        self
     }
 
     /// Returns a clone of the inner encoding-specific data.

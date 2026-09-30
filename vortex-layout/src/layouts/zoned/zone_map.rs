@@ -10,12 +10,16 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::AggregateFnSatisfaction;
+use vortex_array::aggregate_fn::AggregateFnVTableExt;
+use vortex_array::aggregate_fn::EmptyOptions as AggregateEmptyOptions;
 use vortex_array::aggregate_fn::fns::all_nan::AllNan;
 use vortex_array::aggregate_fn::fns::all_non_nan::AllNonNan;
 use vortex_array::aggregate_fn::fns::all_non_null::AllNonNull;
 use vortex_array::aggregate_fn::fns::all_null::AllNull;
 use vortex_array::aggregate_fn::fns::bounded_max::BOUNDED_MAX_BOUND;
 use vortex_array::aggregate_fn::fns::bounded_max::BoundedMax;
+use vortex_array::aggregate_fn::fns::nan_count::NanCount;
+use vortex_array::aggregate_fn::fns::null_count::NullCount;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
@@ -27,7 +31,6 @@ use vortex_array::expr::eq;
 use vortex_array::expr::get_item;
 use vortex_array::expr::lit;
 use vortex_array::expr::root;
-use vortex_array::expr::stats::Stat;
 use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::internal::row_count::RowCount;
@@ -35,6 +38,7 @@ use vortex_array::scalar_fn::internal::row_count::contains_row_count;
 use vortex_array::scalar_fn::internal::row_count::substitute_row_count;
 use vortex_array::stats::bind::StatBinder;
 use vortex_array::stats::bind::bind_stats;
+use vortex_array::stats::compat::LegacyStat;
 use vortex_array::validity::Validity;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
@@ -104,7 +108,7 @@ impl ZoneMap {
     ///
     /// This remains as a compatibility wrapper around the zoned schema helper.
     #[deprecated(note = "use aggregate-function zoned stats instead")]
-    pub fn dtype_for_stats_table(column_dtype: &DType, present_stats: &[Stat]) -> DType {
+    pub fn dtype_for_stats_table(column_dtype: &DType, present_stats: &[LegacyStat]) -> DType {
         legacy_stats_table_dtype(column_dtype, present_stats)
     }
 
@@ -112,7 +116,7 @@ impl ZoneMap {
     fn try_new_legacy(
         column_dtype: DType,
         array: StructArray,
-        stats: Arc<[Stat]>,
+        stats: Arc<[LegacyStat]>,
         zone_len: u64,
         row_count: u64,
     ) -> VortexResult<Self> {
@@ -186,14 +190,14 @@ impl StatBinder for ZoneMapStatsBinder<'_> {
             self.zone_map.column_dtype
         );
 
-        if let Some(stat_expr) = self.zone_map.aggregate_field_expr(aggregate_fn) {
+        if let Some(stat_expr) = self.zone_map.stat_field_expr(aggregate_fn) {
             return Ok(Some(self.bind_target(stat_expr)?));
         }
 
         if aggregate_fn.is::<AllNull>() {
             return self
                 .zone_map
-                .stat_field_expr(Stat::NullCount)
+                .stat_field_expr(&NullCount.bind(AggregateEmptyOptions))
                 .map(|null_count| self.bind_target(eq(null_count, row_count_expr())))
                 .transpose();
         }
@@ -201,7 +205,7 @@ impl StatBinder for ZoneMapStatsBinder<'_> {
         if aggregate_fn.is::<AllNonNull>() {
             return self
                 .zone_map
-                .stat_field_expr(Stat::NullCount)
+                .stat_field_expr(&NullCount.bind(AggregateEmptyOptions))
                 .map(|null_count| self.bind_target(eq(null_count, lit(0u64))))
                 .transpose();
         }
@@ -209,7 +213,7 @@ impl StatBinder for ZoneMapStatsBinder<'_> {
         if aggregate_fn.is::<AllNan>() {
             return self
                 .zone_map
-                .stat_field_expr(Stat::NaNCount)
+                .stat_field_expr(&NanCount.bind(AggregateEmptyOptions))
                 .map(|nan_count| self.bind_target(eq(nan_count, row_count_expr())))
                 .transpose();
         }
@@ -217,16 +221,8 @@ impl StatBinder for ZoneMapStatsBinder<'_> {
         if aggregate_fn.is::<AllNonNan>() {
             return self
                 .zone_map
-                .stat_field_expr(Stat::NaNCount)
+                .stat_field_expr(&NanCount.bind(AggregateEmptyOptions))
                 .map(|nan_count| self.bind_target(eq(nan_count, lit(0u64))))
-                .transpose();
-        }
-
-        if let Some(stat) = Stat::from_aggregate_fn(aggregate_fn) {
-            return self
-                .zone_map
-                .stat_field_expr(stat)
-                .map(|expr| self.bind_target(expr))
                 .transpose();
         }
 
@@ -271,17 +267,13 @@ impl ZoneMap {
         approximate
     }
 
-    fn stat_field_expr(&self, stat: Stat) -> Option<Expression> {
-        if let Some(aggregate_fn) = stat.aggregate_fn()
-            && let Some(expr) = self.aggregate_field_expr(&aggregate_fn)
-        {
-            return Some(expr);
-        }
-
-        self.legacy_stat_field_expr(stat)
+    fn stat_field_expr(&self, aggregate: &AggregateFnRef) -> Option<Expression> {
+        self.aggregate_field_expr(aggregate).or_else(|| {
+            self.legacy_stat_field_expr(LegacyStat::from_aggregate_fn(aggregate)?)
+        })
     }
 
-    fn legacy_stat_field_expr(&self, stat: Stat) -> Option<Expression> {
+    fn legacy_stat_field_expr(&self, stat: LegacyStat) -> Option<Expression> {
         if self.array.unmasked_field_by_name_opt(stat.name()).is_some() {
             return Some(get_item(stat.name(), root()));
         }
@@ -370,6 +362,8 @@ mod tests {
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
+    use vortex_array::arrays::VarBinArray;
+    use vortex_array::arrays::bool::BoolArrayExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::DecimalDType;
@@ -387,17 +381,19 @@ mod tests {
     use vortex_array::expr::lt;
     use vortex_array::expr::not_eq;
     use vortex_array::expr::root;
-    use vortex_array::expr::stats::Stat;
     use vortex_array::stats::all_nan;
     use vortex_array::stats::all_non_nan;
     use vortex_array::stats::all_non_null;
     use vortex_array::stats::all_null;
+    use vortex_array::stats::compat::LegacyStat;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
+    use crate::layouts::zoned::MAX_IS_TRUNCATED;
+    use crate::layouts::zoned::MIN_IS_TRUNCATED;
     use crate::layouts::zoned::zone_map::ZoneMap;
     use crate::test::SESSION;
 
@@ -487,6 +483,57 @@ mod tests {
         );
     }
 
+    #[rstest]
+    #[case::above(false, "aab", true)]
+    #[case::below(true, "aaa", true)]
+    #[case::within(false, "aaa500", false)]
+    #[case::truncated_boundary(false, "aaa999", false)]
+    fn legacy_string_pruning_agrees_with_full_evaluation(
+        #[case] below: bool,
+        #[case] threshold: &'static str,
+        #[case] first_zone_pruned: bool,
+    ) -> VortexResult<()> {
+        let dtype = DType::Utf8(Nullability::NonNullable);
+        let zone_map = ZoneMap::try_new_legacy(
+            dtype.clone(),
+            StructArray::from_fields(&[
+                ("max", VarBinArray::from(vec![Some("aab"), None]).into_array()),
+                (MAX_IS_TRUNCATED, BoolArray::from_iter([true, false]).into_array()),
+                ("min", VarBinArray::from(vec![Some("aaa"), None]).into_array()),
+                (MIN_IS_TRUNCATED, BoolArray::from_iter([true, false]).into_array()),
+            ])?,
+            Arc::new([LegacyStat::Max, LegacyStat::Min]),
+            2,
+            4,
+        )?;
+        let expr = if below {
+            lt(root(), lit(threshold))
+        } else {
+            gt(root(), lit(threshold))
+        };
+        let mask = zone_map.prune(&falsify(&expr, dtype.clone()), &SESSION)?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let expr = expr.bind(&dtype)?;
+        for (zone, values) in [["aaa123", "aaa999"], ["zzz123", "zzz999"]]
+            .into_iter()
+            .enumerate()
+        {
+            let evaluated = VarBinArray::from(Vec::from(values))
+                .into_array()
+                .apply_bound(&expr)?
+                .execute::<BoolArray>(&mut ctx)?;
+            if mask.value(zone) {
+                assert_eq!(evaluated.to_mask_fill_null_false(&mut ctx).true_count(), 0);
+            }
+        }
+        assert_arrays_eq!(
+            mask.into_array(),
+            BoolArray::from_iter([first_zone_pruned, false]),
+            &mut ctx
+        );
+        Ok(())
+    }
+
     #[test]
     fn bounded_display_names_satisfy_min_max_rewrites() {
         let bounded_max = BoundedMax.bind(BoundedMaxOptions {
@@ -554,7 +601,7 @@ mod tests {
                 PrimitiveArray::new(buffer![0u64, 0, 2], Validity::AllValid).into_array(),
             )])
             .unwrap(),
-            Arc::new([Stat::NullCount]),
+            Arc::new([LegacyStat::NullCount]),
             4,
             10,
         )
@@ -595,7 +642,7 @@ mod tests {
         let zone_map = ZoneMap::try_new_legacy(
             PType::U64.into(),
             StructArray::from_fields(&[("null_count", null_counts)]).unwrap(),
-            Arc::new([Stat::NullCount]),
+            Arc::new([LegacyStat::NullCount]),
             zone_len,
             row_count,
         )
@@ -623,7 +670,7 @@ mod tests {
                 PrimitiveArray::new::<u64>(buffer![], Validity::AllValid).into_array(),
             )])
             .unwrap(),
-            Arc::new([Stat::NullCount]),
+            Arc::new([LegacyStat::NullCount]),
             4,
             0,
         )
@@ -645,7 +692,7 @@ mod tests {
                 PrimitiveArray::new(buffer![0u64, 4, 2], Validity::AllValid).into_array(),
             )])
             .unwrap(),
-            Arc::new([Stat::NullCount]),
+            Arc::new([LegacyStat::NullCount]),
             4,
             10,
         )
@@ -671,7 +718,7 @@ mod tests {
                 PrimitiveArray::new(buffer![0u64, 4, 2], Validity::AllValid).into_array(),
             )])
             .unwrap(),
-            Arc::new([Stat::NullCount]),
+            Arc::new([LegacyStat::NullCount]),
             4,
             10,
         )
@@ -694,7 +741,7 @@ mod tests {
                 PrimitiveArray::new(buffer![0u64, 4, 2], Validity::AllValid).into_array(),
             )])
             .unwrap(),
-            Arc::new([Stat::NullCount]),
+            Arc::new([LegacyStat::NullCount]),
             4,
             10,
         )
@@ -896,7 +943,7 @@ mod tests {
                 ),
             ])
             .unwrap(),
-            Arc::new([Stat::Max, Stat::Min, Stat::NaNCount]),
+            Arc::new([LegacyStat::Max, LegacyStat::Min, LegacyStat::NaNCount]),
             4,
             8,
         )
@@ -934,9 +981,7 @@ mod tests {
         )
         .unwrap();
 
-        let max_fn = Stat::Max
-            .aggregate_fn()
-            .expect("max should have an aggregate function");
+        let max_fn = Max.bind(NumericalAggregateOpts::skip_nans());
         let predicate = is_null(vortex_array::stats::stat(root(), max_fn));
 
         // Missing StatFn lowers to a nullable null literal, so `is_null(...)` is true for every zone.
@@ -959,9 +1004,7 @@ mod tests {
         )
         .unwrap();
 
-        let max_fn = Stat::Max
-            .aggregate_fn()
-            .expect("max should have an aggregate function");
+        let max_fn = Max.bind(NumericalAggregateOpts::skip_nans());
         let predicate = is_null(vortex_array::stats::stat(root(), max_fn));
         let error = prune(&zone_map, &predicate).unwrap_err();
 
@@ -982,7 +1025,7 @@ mod tests {
                 PrimitiveArray::new(buffer![0u64, 4, 0], Validity::AllValid).into_array(),
             )])
             .unwrap(),
-            Arc::new([Stat::NullCount]),
+            Arc::new([LegacyStat::NullCount]),
             4,
             12,
         )

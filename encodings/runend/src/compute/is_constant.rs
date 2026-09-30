@@ -10,8 +10,8 @@ use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
+use super::logical_values;
 use crate::RunEnd;
-use crate::array::RunEndArraySlotsExt;
 
 /// RunEnd-specific is_constant kernel.
 ///
@@ -34,7 +34,8 @@ impl DynAggregateKernel for RunEndIsConstantKernel {
             return Ok(None);
         };
 
-        let result = is_constant(array.values(), ctx)?;
+        // An empty batch contributes the identity state, which make_partial represents as null.
+        let result = array.is_empty() || is_constant(&logical_values(array, ctx)?, ctx)?;
         Ok(Some(IsConstant::make_partial(batch, result, ctx)?))
     }
 }

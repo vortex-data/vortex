@@ -35,8 +35,6 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::ToI256;
 use crate::dtype::i256;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
 use crate::match_each_decimal_value_type;
 use crate::match_each_integer_ptype;
 use crate::match_each_native_ptype;
@@ -103,7 +101,7 @@ impl CastKernel for Primitive {
                 && new_ptype.is_int()
                 && src_ptype.byte_width() == new_ptype.byte_width());
         if same_rep {
-            if !values_fit_in(array, new_ptype, ctx, true) {
+            if !values_fit_in(array, new_ptype, ctx) {
                 vortex_bail!(
                     Compute: "Cannot cast {} to {} — values exceed target range",
                     src_ptype, new_ptype,
@@ -174,15 +172,12 @@ where
     S: IntegerPType + NativeDecimalType + ToI256,
 {
     let values = array.as_slice::<S>();
-    let target_dtype = DType::Decimal(decimal_dtype, Nullability::NonNullable);
-    if !cached_values_fit_in(array, &target_dtype).unwrap_or(false) {
-        let valid_values = source_validity.execute_mask(array.len(), ctx)?;
-        validate_unscaled_signed_integer_values_to_decimal(values, decimal_dtype, &valid_values)
-            .map_err(|idx| primitive_to_decimal_cast_error(values[idx], decimal_dtype))?;
-    }
+    let valid_values = source_validity.execute_mask(array.len(), ctx)?;
+    validate_unscaled_signed_integer_values_to_decimal(values, decimal_dtype, &valid_values)
+        .map_err(|idx| primitive_to_decimal_cast_error(values[idx], decimal_dtype))?;
 
     // SAFETY: `S::DECIMAL_TYPE` has the same physical representation as the source ptype, and
-    // either exact min/max statistics or the validation above prove every valid value fits.
+    // the validation above proves every valid value fits.
     Ok(unsafe {
         DecimalArray::new_unchecked_handle(
             array.buffer_handle().clone(),
@@ -506,10 +501,7 @@ where
         false
     }
 
-    // Skip the fallible kernel when type widening or (cached) min/max prove every value fits.
-    let target_dtype = DType::Primitive(T::PTYPE, Nullability::NonNullable);
-    let infallible = casts_losslessly_to(F::PTYPE, T::PTYPE)
-        || cached_values_fit_in(array, &target_dtype).unwrap_or(false);
+    let infallible = casts_losslessly_to(F::PTYPE, T::PTYPE);
 
     let len = array.len();
 
@@ -605,44 +597,26 @@ fn reinterpret(
 }
 
 /// Returns `true` if all valid values in `array` are representable as `target_ptype`.
-///
-/// Cached min/max statistics are consulted first. If either bound is missing, the function either
-/// computes them with a single pass (when `compute` is `true`) or returns `false` so the caller
-/// can fall back to a slower path (when `compute` is `false`).
 fn values_fit_in(
     array: ArrayView<'_, Primitive>,
     target_ptype: PType,
     ctx: &mut ExecutionCtx,
-    compute: bool,
 ) -> bool {
     let target_dtype = DType::Primitive(target_ptype, Nullability::NonNullable);
-    if let Some(fits) = cached_values_fit_in(array, &target_dtype) {
-        return fits;
-    }
-    if !compute {
-        return false;
-    }
     aggregate_fn::fns::min_max::min_max(
         array.array(),
         ctx,
         aggregate_fn::NumericalAggregateOpts::default(),
     )
-    .ok()
-    .flatten()
-    .is_none_or(|mm| mm.min.cast(&target_dtype).is_ok() && mm.max.cast(&target_dtype).is_ok())
-}
-
-/// Cached-only check: returns `Some(fits)` if both `Min` and `Max` are present as `Exact` in the
-/// stats cache, otherwise `None`.
-fn cached_values_fit_in(array: ArrayView<'_, Primitive>, target_dtype: &DType) -> Option<bool> {
-    let stats = array.array().statistics();
-    let min = stats.get(Stat::Min).as_exact()?;
-    let max = stats.get(Stat::Max).as_exact()?;
-    Some(min.cast(target_dtype).is_ok() && max.cast(target_dtype).is_ok())
+    .is_ok_and(|result| {
+        result.is_none_or(|mm| {
+            mm.min.cast(&target_dtype).is_ok() && mm.max.cast(&target_dtype).is_ok()
+        })
+    })
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use rstest::rstest;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
@@ -665,7 +639,6 @@ mod test {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::i256;
-    use crate::expr::stats::Stat;
     use crate::validity::Validity;
 
     #[test]
@@ -780,27 +753,6 @@ mod test {
 
         assert_eq!(casted.buffer::<i32>().as_ptr(), source_ptr);
         assert_eq!(casted.buffer::<i32>().as_ref(), &[42, -7]);
-        Ok(())
-    }
-
-    #[test]
-    fn cast_same_width_signed_integer_to_decimal_reuses_buffer_with_cached_bounds()
-    -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
-        let source = PrimitiveArray::from_iter([42i32, -7]);
-        let source_ptr = source.as_slice::<i32>().as_ptr();
-        let source = source.into_array();
-        source
-            .statistics()
-            .compute_all(&[Stat::Min, Stat::Max], &mut ctx)?;
-        let casted = source
-            .cast(DType::Decimal(
-                DecimalDType::new(9, 0),
-                Nullability::NonNullable,
-            ))?
-            .execute::<DecimalArray>(&mut ctx)?;
-
-        assert_eq!(casted.buffer::<i32>().as_ptr(), source_ptr);
         Ok(())
     }
 

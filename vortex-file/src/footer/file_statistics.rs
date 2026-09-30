@@ -1,11 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! This module defines the file statistics component of the Vortex file footer.
-//!
-//! File statistics provide metadata about the data in the file, such as min/max values,
-//! null counts, and other statistical information that can be used for query optimization
-//! and data exploration.
+//! Finalized aggregate summaries stored in the file footer.
+
 use std::sync::Arc;
 
 use flatbuffers::FlatBufferBuilder;
@@ -14,22 +11,23 @@ use itertools::Itertools;
 use vortex_array::dtype::DType;
 use vortex_array::flatbuffers::FlatBufferRoot;
 use vortex_array::flatbuffers::WriteFlatBuffer;
-use vortex_array::stats::StatsSet;
+use vortex_array::stats::AggregateResults;
+use vortex_array::stats::compat::read_summary;
+use vortex_array::stats::compat::write_summary;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_session::VortexSession;
 
 use crate::flatbuffers::footer as fb;
 
-/// Contains statistical information about the data in a Vortex file.
+/// Finalized aggregate results for each top-level field, or for a single non-struct column.
 ///
-/// This struct wraps an array of `StatsSet` objects, each containing statistics
-/// for a field or column in the file. These statistics can be used for query
-/// optimization and data exploration.
+/// Results preserve exact values, bounds, and missing metadata. They are not mergeable partial
+/// states. Each field's lookup keys include the aggregate function and its options.
 #[derive(Clone, Debug)]
 pub struct FileStatistics {
-    /// An array of statistics sets, one for each field or column in the file.
-    stats: Arc<[StatsSet]>,
+    /// Finalized results, one collection per field or column.
+    stats: Arc<[AggregateResults]>,
     /// An array of `DType`s, one for each field or column in the file.
     dtypes: Arc<[DType]>,
 }
@@ -40,7 +38,7 @@ impl FileStatistics {
     /// # Panics
     ///
     /// Panics if `stats` and `dtypes` have different lengths.
-    pub fn new(stats: Arc<[StatsSet]>, dtypes: Arc<[DType]>) -> Self {
+    pub fn new(stats: Arc<[AggregateResults]>, dtypes: Arc<[DType]>) -> Self {
         assert_eq!(
             stats.len(),
             dtypes.len(),
@@ -53,12 +51,12 @@ impl FileStatistics {
     /// Creates a new [`FileStatistics`] from the given statistics and file dtype.
     ///
     /// If the [`DType`] of the file is a [`DType::Struct`], then there must be the same number of
-    /// stats as struct fields. Otherwise, there must be only 1 statistic.
+    /// result collections as struct fields. Otherwise, there must be one collection.
     ///
     /// # Panics
     ///
     /// Panics if the number of stats doesn't match the expected number based on the dtype.
-    pub fn new_with_dtype(stats: Arc<[StatsSet]>, file_dtype: &DType) -> Self {
+    pub fn new_with_dtype(stats: Arc<[AggregateResults]>, file_dtype: &DType) -> Self {
         if let DType::Struct(struct_fields, _) = file_dtype {
             assert_eq!(
                 stats.len(),
@@ -86,7 +84,7 @@ impl FileStatistics {
     /// Creates [`FileStatistics`] from a flatbuffers [`fb::FileStatistics<'a>`].
     ///
     /// If the [`DType`] of the file is a [`DType::Struct`], then there must be the same number of
-    /// file stats in the flatbuffer. Otherwise, there must be only 1 statistic.
+    /// field summaries in the flatbuffer. Otherwise, there must be one summary.
     pub fn from_flatbuffer<'a>(
         fb: &fb::FileStatistics<'a>,
         file_dtype: &DType,
@@ -97,35 +95,33 @@ impl FileStatistics {
         if let DType::Struct(struct_fields, _) = file_dtype {
             vortex_ensure_eq!(field_stats.len(), struct_fields.nfields());
 
-            let stats_sets: Arc<[StatsSet]> = field_stats
+            let fields: Arc<[AggregateResults]> = field_stats
                 .into_iter()
                 .zip(struct_fields.fields())
-                .map(|(array_stat, field_dtype)| {
-                    StatsSet::from_flatbuffer(&array_stat, &field_dtype, session)
-                })
+                .map(|(array_stat, field_dtype)| read_summary(&array_stat, &field_dtype, session))
                 .try_collect()?;
 
             let dtypes = struct_fields.fields().collect();
 
             Ok(Self {
-                stats: stats_sets,
+                stats: fields,
                 dtypes,
             })
         } else {
             vortex_ensure_eq!(field_stats.len(), 1);
 
             let array_stat = field_stats.get(0);
-            let stats_set = StatsSet::from_flatbuffer(&array_stat, file_dtype, session)?;
+            let results = read_summary(&array_stat, file_dtype, session)?;
 
             Ok(Self {
-                stats: Arc::new([stats_set]),
+                stats: Arc::new([results]),
                 dtypes: Arc::new([file_dtype.clone()]),
             })
         }
     }
 
-    /// Returns a reference to the statistics sets.
-    pub fn stats_sets(&self) -> &Arc<[StatsSet]> {
+    /// Returns the finalized aggregate results for each field.
+    pub fn fields(&self) -> &Arc<[AggregateResults]> {
         &self.stats
     }
 
@@ -139,14 +135,14 @@ impl FileStatistics {
     /// # Panics
     ///
     /// Panics if `field_idx` is out of bounds.
-    pub fn get(&self, field_idx: usize) -> (&StatsSet, &DType) {
+    pub fn get(&self, field_idx: usize) -> (&AggregateResults, &DType) {
         (&self.stats[field_idx], &self.dtypes[field_idx])
     }
 }
 
 impl<'a> IntoIterator for &'a FileStatistics {
-    type Item = (&'a StatsSet, &'a DType);
-    type IntoIter = std::iter::Zip<std::slice::Iter<'a, StatsSet>, std::slice::Iter<'a, DType>>;
+    type Item = (&'a AggregateResults, &'a DType);
+    type IntoIter = std::iter::Zip<std::slice::Iter<'a, AggregateResults>, std::slice::Iter<'a, DType>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.stats.iter().zip(self.dtypes.iter())
@@ -163,9 +159,8 @@ impl WriteFlatBuffer for FileStatistics {
         fbb: &mut FlatBufferBuilder<'fb>,
     ) -> VortexResult<WIPOffset<Self::Target<'fb>>> {
         let field_stats = self
-            .stats_sets()
-            .iter()
-            .map(|s| s.write_flatbuffer(fbb))
+            .into_iter()
+            .map(|(results, dtype)| write_summary(results, dtype, fbb))
             .collect::<VortexResult<Vec<_>>>()?;
         let field_stats = fbb.create_vector(field_stats.as_slice());
 

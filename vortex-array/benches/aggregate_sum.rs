@@ -8,10 +8,10 @@ use mimalloc::MiMalloc;
 use rand::prelude::*;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::fns::sum::sum;
 use vortex_array::aggregate_fn::fns::sum_v2::sum_v2;
 use vortex_array::array_session;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::expr::stats::Stat;
 use vortex_session::VortexSession;
 
 #[global_allocator]
@@ -38,7 +38,7 @@ fn sum_i32(bencher: Bencher) {
                 SESSION.create_execution_ctx(),
             )
         })
-        .bench_refs(|(a, ctx)| a.statistics().compute_as::<i64>(Stat::Sum, ctx));
+        .bench_refs(|(a, ctx)| sum(a, ctx));
 }
 
 #[divan::bench]
@@ -66,7 +66,7 @@ fn sum_u32(bencher: Bencher) {
                 SESSION.create_execution_ctx(),
             )
         })
-        .bench_refs(|(a, ctx)| a.statistics().compute_as::<u64>(Stat::Sum, ctx));
+        .bench_refs(|(a, ctx)| sum(a, ctx));
 }
 
 #[divan::bench]
@@ -94,7 +94,7 @@ fn sum_i64(bencher: Bencher) {
                 SESSION.create_execution_ctx(),
             )
         })
-        .bench_refs(|(a, ctx)| a.statistics().compute_as::<i64>(Stat::Sum, ctx));
+        .bench_refs(|(a, ctx)| sum(a, ctx));
 }
 
 #[divan::bench]
@@ -122,7 +122,7 @@ fn sum_f64(bencher: Bencher) {
                 SESSION.create_execution_ctx(),
             )
         })
-        .bench_refs(|(a, ctx)| a.statistics().compute_as::<f64>(Stat::Sum, ctx));
+        .bench_refs(|(a, ctx)| sum(a, ctx));
 }
 
 #[divan::bench]
@@ -158,7 +158,7 @@ fn sum_f64_nulls_clustered(bencher: Bencher) {
                 SESSION.create_execution_ctx(),
             )
         })
-        .bench_refs(|(a, ctx)| a.statistics().compute_as::<f64>(Stat::Sum, ctx));
+        .bench_refs(|(a, ctx)| sum(a, ctx));
 }
 
 #[divan::bench]
@@ -204,7 +204,7 @@ fn sum_i32_nulls_clustered(bencher: Bencher) {
                 SESSION.create_execution_ctx(),
             )
         })
-        .bench_refs(|(a, ctx)| a.statistics().compute_as::<i64>(Stat::Sum, ctx));
+        .bench_refs(|(a, ctx)| sum(a, ctx));
 }
 
 #[divan::bench]
@@ -244,7 +244,7 @@ fn sum_i32_nulls_scattered(bencher: Bencher) {
                 SESSION.create_execution_ctx(),
             )
         })
-        .bench_refs(|(a, ctx)| a.statistics().compute_as::<i64>(Stat::Sum, ctx));
+        .bench_refs(|(a, ctx)| sum(a, ctx));
 }
 
 #[divan::bench]

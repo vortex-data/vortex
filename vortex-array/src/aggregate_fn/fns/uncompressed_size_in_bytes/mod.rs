@@ -53,11 +53,7 @@ use crate::dtype::DType;
 use crate::dtype::DecimalType;
 use crate::dtype::Nullability::NonNullable;
 use crate::dtype::PType;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
 use crate::scalar::Scalar;
-use crate::scalar::ScalarValue;
 
 /// Return the uncompressed size of an array in bytes.
 ///
@@ -70,11 +66,6 @@ pub fn uncompressed_size_in_bytes(array: &ArrayRef, ctx: &mut ExecutionCtx) -> V
 }
 
 fn uncompressed_size_in_bytes_u64(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<u64> {
-    if let Precision::Exact(size_scalar) = array.statistics().get(Stat::UncompressedSizeInBytes) {
-        return u64::try_from(&size_scalar)
-            .map_err(|e| vortex_err!("Failed to convert uncompressed size stat to u64: {e}"));
-    }
-
     let mut acc =
         Accumulator::try_new(UncompressedSizeInBytes, EmptyOptions, array.dtype().clone())?;
     acc.accumulate(array, ctx)?;
@@ -84,11 +75,6 @@ fn uncompressed_size_in_bytes_u64(array: &ArrayRef, ctx: &mut ExecutionCtx) -> V
         .as_primitive()
         .typed_value::<u64>()
         .vortex_expect("uncompressed_size_in_bytes result should not be null");
-
-    array.statistics().set(
-        Stat::UncompressedSizeInBytes,
-        Precision::Exact(ScalarValue::from(size)),
-    );
 
     Ok(size)
 }
@@ -394,13 +380,9 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::UnionVariants;
-    use crate::expr::stats::Precision;
-    use crate::expr::stats::Stat;
-    use crate::expr::stats::StatsProvider;
     use crate::extension::datetime::Date;
     use crate::extension::datetime::TimeUnit;
     use crate::scalar::Scalar;
-    use crate::scalar::ScalarValue;
     use crate::validity::Validity;
 
     /// The size the array occupies once rebuilt through the canonical builders, which is the
@@ -647,12 +629,7 @@ mod tests {
         let array = VariantArray::try_new(child, None)?.into_array();
         let mut ctx = array_session().create_execution_ctx();
 
-        assert_eq!(
-            array
-                .statistics()
-                .compute_uncompressed_size_in_bytes(&mut ctx),
-            None
-        );
+        assert!(uncompressed_size_in_bytes(&array, &mut ctx).is_err());
         Ok(())
     }
 
@@ -680,32 +657,6 @@ mod tests {
         .into_array();
 
         assert_eq!(aggregate(&chunked)?, expected);
-        Ok(())
-    }
-
-    #[test]
-    fn uses_cached_exact_stat() -> VortexResult<()> {
-        let array = ConstantArray::new(42i32, 10).into_array();
-        array.statistics().set(
-            Stat::UncompressedSizeInBytes,
-            Precision::Exact(ScalarValue::from(123u64)),
-        );
-
-        assert_eq!(aggregate(&array)?, 123);
-        Ok(())
-    }
-
-    #[test]
-    fn helper_caches_result() -> VortexResult<()> {
-        let array = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::NonNullable).into_array();
-        let mut ctx = array_session().create_execution_ctx();
-
-        let size = uncompressed_size_in_bytes(&array, &mut ctx)?;
-
-        assert_eq!(
-            array.statistics().get(Stat::UncompressedSizeInBytes),
-            Precision::exact(u64::try_from(size)?)
-        );
         Ok(())
     }
 

@@ -605,6 +605,10 @@ mod tests {
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::aggregate_fn::AggregateFnVTableExt;
+    use crate::aggregate_fn::NumericalAggregateOpts;
+    use crate::aggregate_fn::fns::max::Max;
+    use crate::aggregate_fn::fns::min::Min;
     use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ConstantArray;
@@ -617,7 +621,6 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType::I32;
     use crate::dtype::StructFields;
-    use crate::expr::Expression;
     use crate::expr::and;
     use crate::expr::col;
     use crate::expr::get_item;
@@ -629,20 +632,15 @@ mod tests {
     use crate::expr::lt;
     use crate::expr::or;
     use crate::expr::root;
-    use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
     use crate::scalar_fn::fns::list_contains::ListContains;
     use crate::scalar_fn::fns::list_contains::ListContainsOptions;
     use crate::stats::StatsSession;
-    use crate::stats::stat as stat_expr;
+    use crate::stats::stat;
     use crate::validity::Validity;
 
     static STATS_SESSION: LazyLock<VortexSession> =
         LazyLock::new(|| VortexSession::empty().with::<StatsSession>());
-
-    fn stat(expr: Expression, stat: Stat) -> Expression {
-        stat_expr(expr, stat.aggregate_fn().unwrap())
-    }
 
     fn test_array() -> ArrayRef {
         ListArray::try_new(
@@ -801,24 +799,17 @@ mod tests {
             Nullability::NonNullable,
         );
 
+        let min = stat(col("a"), Min.bind(NumericalAggregateOpts::skip_nans()));
+        let max = stat(col("a"), Max.bind(NumericalAggregateOpts::skip_nans()));
         assert_eq!(
             expr.bind(&scope)?.falsify(&STATS_SESSION)?,
             Some(
                 and(
                     and(
-                        or(
-                            lt(stat(col("a"), Stat::Max), lit(1i32)),
-                            gt(stat(col("a"), Stat::Min), lit(1i32)),
-                        ),
-                        or(
-                            lt(stat(col("a"), Stat::Max), lit(2i32)),
-                            gt(stat(col("a"), Stat::Min), lit(2i32)),
-                        )
+                        or(lt(max.clone(), lit(1i32)), gt(min.clone(), lit(1i32))),
+                        or(lt(max.clone(), lit(2i32)), gt(min.clone(), lit(2i32))),
                     ),
-                    or(
-                        lt(stat(col("a"), Stat::Max), lit(3i32)),
-                        gt(stat(col("a"), Stat::Min), lit(3i32)),
-                    )
+                    or(lt(max, lit(3i32)), gt(min, lit(3i32))),
                 )
                 .bind(&scope)?
             )

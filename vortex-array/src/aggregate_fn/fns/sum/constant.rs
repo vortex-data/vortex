@@ -93,6 +93,9 @@ mod tests {
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::aggregate_fn::AggregateFnVTable;
+    use crate::aggregate_fn::NumericalAggregateOpts;
+    use crate::aggregate_fn::fns::sum::Sum;
     use crate::aggregate_fn::fns::sum::sum;
     use crate::array_session;
     use crate::arrays::ConstantArray;
@@ -102,7 +105,6 @@ mod tests {
     use crate::dtype::Nullability::Nullable;
     use crate::dtype::PType;
     use crate::dtype::i256;
-    use crate::expr::stats::Stat;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
 
@@ -174,7 +176,10 @@ mod tests {
             result.as_decimal().decimal_value(),
             Some(DecimalValue::I256(i256::from_i128(500)))
         );
-        assert_eq!(result.dtype(), &Stat::Sum.dtype(array.dtype()).unwrap());
+        let dtype = Sum
+            .return_dtype(&NumericalAggregateOpts::skip_nans(), array.dtype())
+            .unwrap();
+        assert_eq!(result.dtype(), &dtype);
         Ok(())
     }
 

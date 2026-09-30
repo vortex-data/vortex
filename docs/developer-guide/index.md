@@ -9,6 +9,7 @@ maxdepth: 2
 
 extending/index
 language-bindings
+aggregate-statistics-migration
 benchmarking
 ```
 

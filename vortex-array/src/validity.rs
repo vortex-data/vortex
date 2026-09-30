@@ -25,6 +25,8 @@ use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
+use crate::aggregate_fn::NumericalAggregateOpts;
+use crate::aggregate_fn::fns::min_max::min_max;
 use crate::arrays::BoolArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ConstantArray;
@@ -408,23 +410,18 @@ impl Validity {
             Self::NonNullable => Some(Self::NonNullable),
             Self::AllValid => Some(Self::NonNullable),
             Self::AllInvalid => None,
-            Self::Array(is_valid) => {
-                is_valid
-                    .statistics()
-                    .compute_min::<bool>(ctx)
-                    .vortex_expect("validity array must support min")
-                    .then(|| {
-                        // min true => all true
-                        Self::NonNullable
-                    })
-            }
+            Self::Array(is_valid) => min_max(&is_valid, ctx, NumericalAggregateOpts::default())
+                .ok()
+                .flatten()
+                .filter(|r| r.min.as_bool().value() == Some(true))
+                .map(|_| Self::NonNullable),
         }
     }
 
     /// Convert into a non-nullable variant without running execution.
     ///
-    /// This is the cheap counterpart to [`Self::into_non_nullable`]: it inspects already-computed
-    /// statistics rather than triggering execution.
+    /// This is the cheap counterpart to [`Self::into_non_nullable`]: it inspects the validity
+    /// representation without executing a validity array.
     ///
     /// Return values:
     /// - `Ok(Some(NonNullable))` — the cast is provably safe.
@@ -479,8 +476,7 @@ impl Validity {
     /// Use this from `CastReduce` rules — they run inside the optimizer where execution is not
     /// available. The pairing with [`Self::cast_nullability`] is symmetric: every encoding that
     /// implements `CastReduce` and inspects validity should also implement `CastKernel` so that
-    /// the harder cases (where statistics are not yet cached) can still be handled at execution
-    /// time.
+    /// validity arrays can still be handled at execution time.
     ///
     /// Return values:
     /// - `Ok(Some(_))` — the cast is provably safe and the new [`Validity`] is returned.

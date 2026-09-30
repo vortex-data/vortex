@@ -18,6 +18,8 @@ use crate::ArrayRef;
 use crate::ArraySlots;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::aggregate_fn::NumericalAggregateOpts;
+use crate::aggregate_fn::fns::min_max::min_max;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
@@ -116,7 +118,8 @@ pub trait BoolArrayExt: TypedArrayRef<Bool> {
         let all_valid = match &BoolArrayExt::validity(self) {
             Validity::NonNullable | Validity::AllValid => true,
             Validity::AllInvalid => false,
-            Validity::Array(a) => a.statistics().compute_min::<bool>(ctx).unwrap_or(false),
+            Validity::Array(a) => min_max(a, ctx, NumericalAggregateOpts::default())?
+                .is_some_and(|r| r.min.as_bool().value().unwrap_or(false)),
         };
         Ok(all_valid.then(|| Mask::from_buffer(self.to_bit_buffer())))
     }

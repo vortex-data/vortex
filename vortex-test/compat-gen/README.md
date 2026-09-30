@@ -151,3 +151,21 @@ generates fixtures, then cleans up.
 | Variable | Description |
 |----------|-------------|
 | `VORTEX_COMPAT_BIN` | Path to pre-built `vortex-compat` binary. Skips `cargo run`. |
+
+## Comparing two readers
+
+To test a format-preserving change in both directions, provide prebuilt `vortex-compat` binaries:
+
+```bash
+python scripts/compare_readers.py \
+  --baseline /path/to/baseline/vortex-compat \
+  --candidate /path/to/candidate/vortex-compat \
+  --output /tmp/reader-comparison
+```
+
+Both binaries must support the selected file edition and the same fixture names. Use `--exclude`
+with comma-separated fixture name substrings when needed. The output directory must be new.
+
+The script generates a corpus with each writer, then checks both corpora with both readers in
+`exact` mode. It records binary hashes, commands, exit codes, and each command's output. It leaves
+the published corpus unchanged. This command does not measure query performance.

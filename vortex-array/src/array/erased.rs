@@ -28,6 +28,8 @@ use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::VTable;
 use crate::VortexSessionExecute;
+use crate::aggregate_fn::NumericalAggregateOpts;
+use crate::aggregate_fn::fns::min_max::min_max;
 use crate::aggregate_fn::fns::sum::sum;
 use crate::array::ArrayData;
 use crate::array::ArrayId;
@@ -43,15 +45,10 @@ use crate::arrays::SliceArray;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProviderExt;
 use crate::legacy_session;
 use crate::matcher::Matcher;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
-use crate::scalar::ScalarValue;
-use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 
 /// A depth-first pre-order iterator over an Array.
@@ -228,26 +225,9 @@ impl ArrayRef {
             return Ok(Canonical::empty(self.dtype()).into_array());
         }
 
-        let sliced = SliceArray::try_new(self.clone(), range)?
+        SliceArray::try_new(self.clone(), range)?
             .into_array()
-            .optimize()?;
-
-        // Propagate some stats from the original array to the sliced array.
-        if !sliced.is::<Constant>() {
-            self.statistics().with_iter(|iter| {
-                sliced.statistics().inherit(iter.filter(|(stat, value)| {
-                    matches!(
-                        stat,
-                        Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted
-                    ) && value
-                        .as_ref()
-                        .as_exact()
-                        .is_some_and(|v| matches!(v, ScalarValue::Bool(true)))
-                }));
-            });
-        }
-
-        Ok(sliced)
+            .optimize()
     }
 
     /// Wraps the array in a [`FilterArray`] such that it is logically filtered by the given mask.
@@ -343,7 +323,8 @@ impl ArrayRef {
         match self.validity()? {
             Validity::NonNullable | Validity::AllValid => Ok(true),
             Validity::AllInvalid => Ok(false),
-            Validity::Array(a) => Ok(a.statistics().compute_min::<bool>(ctx).unwrap_or(false)),
+            Validity::Array(a) => Ok(min_max(&a, ctx, NumericalAggregateOpts::default())?
+                .is_some_and(|r| r.min.as_bool().value().unwrap_or(false))),
         }
     }
 
@@ -356,18 +337,14 @@ impl ArrayRef {
         match self.validity()? {
             Validity::NonNullable | Validity::AllValid => Ok(false),
             Validity::AllInvalid => Ok(true),
-            Validity::Array(a) => Ok(!a.statistics().compute_max::<bool>(ctx).unwrap_or(true)),
+            Validity::Array(a) => Ok(min_max(&a, ctx, NumericalAggregateOpts::default())?
+                .is_some_and(|r| !r.max.as_bool().value().unwrap_or(true))),
         }
     }
 
     /// Returns the number of valid elements in the array.
     pub fn valid_count(&self, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
         let len = self.len();
-        if let Precision::Exact(invalid_count) = self.statistics().get_as::<usize>(Stat::NullCount)
-        {
-            return Ok(len - invalid_count);
-        }
-
         let count = match self.validity()? {
             Validity::NonNullable | Validity::AllValid => len,
             Validity::AllInvalid => 0,
@@ -380,9 +357,6 @@ impl ArrayRef {
             }
         };
         vortex_ensure!(count <= len, "Valid count exceeds array length");
-
-        self.statistics()
-            .set(Stat::NullCount, Precision::exact(len - count));
 
         Ok(count)
     }
@@ -419,11 +393,6 @@ impl ArrayRef {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         self.0.data.append_to_builder(self, builder, ctx)
-    }
-
-    /// Returns the statistics of the array.
-    pub fn statistics(&self) -> StatsSetRef<'_> {
-        self.0.stats.to_ref(self)
     }
 
     /// Does the array match the given matcher.
@@ -495,7 +464,6 @@ impl ArrayRef {
     ///
     /// If this returns `Ok`, the caller must guarantee that the replacement slot represents the
     /// same logical values as the original slot. Only the physical representation may change.
-    /// Existing parent statistics are preserved and must remain valid.
     ///
     /// Takes ownership to allow in-place mutation when the refcount is 1.
     pub unsafe fn with_slot(
@@ -601,8 +569,7 @@ impl ArrayRef {
     /// # Safety
     ///
     /// If this returns `Ok`, the caller must guarantee that each replacement slot represents the
-    /// same logical values as the original slot. Only physical representation may change. Existing
-    /// parent statistics are preserved and must remain valid.
+    /// same logical values as the original slot. Only physical representation may change.
     pub unsafe fn with_slots(self, slots: ArraySlots) -> VortexResult<ArrayRef> {
         let old_slots = self.slots();
         vortex_ensure!(
@@ -647,8 +614,7 @@ impl ArrayRef {
     ///
     /// If this returns `Ok`, the caller must guarantee that the replacement buffers represent the
     /// same logical values as the original buffers. Only the buffer handle implementation,
-    /// placement, or backing storage may change. Existing statistics are preserved and must remain
-    /// valid.
+    /// placement, or backing storage may change.
     pub unsafe fn with_buffers(
         self,
         buffers: impl IntoIterator<Item = BufferHandle>,
@@ -700,7 +666,7 @@ impl ArrayRef {
     ///
     /// This is for the iterative executor only. It may operate on suspended executor-private
     /// arrays whose slots temporarily contain `None`, so the executor itself must interpret
-    /// `Done`, enforce any `len`/`dtype` invariants, and transfer statistics.
+    /// `Done` and enforce any `len`/`dtype` invariants.
     pub(crate) fn execute_encoding_unchecked(
         self,
         ctx: &mut ExecutionCtx,

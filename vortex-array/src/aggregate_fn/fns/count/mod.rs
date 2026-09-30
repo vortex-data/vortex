@@ -106,7 +106,6 @@ impl AggregateFnVTable for Count {
         let mut count = batch.valid_count(ctx)? as u64;
         // NaN values are excluded from the count of a float input when they are skipped.
         if args.options.skip_nans && args.dtype.is_float() {
-            // `nan_count` shortcircuits on an exact `Stat::NaNCount` before scanning the batch.
             count = count.saturating_sub(nan_count(batch, ctx)? as u64);
         }
         *state += count;
@@ -165,10 +164,7 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::expr::stats::Precision;
-    use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
-    use crate::scalar::ScalarValue;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
@@ -307,20 +303,6 @@ mod tests {
             count_with_options(&array, &mut ctx, NumericalAggregateOpts::include_nans())?,
             3
         );
-        Ok(())
-    }
-
-    #[test]
-    fn count_float_shortcircuits_on_exact_nan_count_stat() -> VortexResult<()> {
-        // The array has no NaNs; a planted exact NaNCount stat proves the count is derived from
-        // the stat rather than a scan.
-        let array =
-            PrimitiveArray::new(buffer![1.0f64, 2.0, 3.0, 4.0], Validity::NonNullable).into_array();
-        array
-            .statistics()
-            .set(Stat::NaNCount, Precision::Exact(ScalarValue::from(3u64)));
-        let mut ctx = SESSION.create_execution_ctx();
-        assert_eq!(count(&array, &mut ctx)?, 1);
         Ok(())
     }
 

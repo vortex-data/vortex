@@ -3,19 +3,7 @@
 
 use async_trait::async_trait;
 use futures::StreamExt;
-use vortex_array::dtype::DType;
-use vortex_array::expr::stats::Precision;
-use vortex_array::expr::stats::Stat;
-use vortex_array::expr::stats::StatsProvider;
-use vortex_array::scalar::Scalar;
-use vortex_array::scalar::ScalarTruncation;
-use vortex_array::scalar::lower_bound;
-use vortex_array::scalar::upper_bound;
 use vortex_array::serde::SerializeOptions;
-use vortex_array::stats::StatsSetRef;
-use vortex_buffer::BufferString;
-use vortex_buffer::ByteBuffer;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
@@ -36,15 +24,12 @@ use crate::sequence::SequencePointer;
 pub struct FlatLayoutStrategy {
     /// Whether to include padding for memory-mapped reads.
     pub include_padding: bool,
-    /// Maximum length of variable length statistics
-    pub max_variable_length_statistics_size: usize,
 }
 
 impl Default for FlatLayoutStrategy {
     fn default() -> Self {
         Self {
             include_padding: true,
-            max_variable_length_statistics_size: 64,
         }
     }
 }
@@ -54,28 +39,6 @@ impl FlatLayoutStrategy {
     pub fn with_include_padding(mut self, include_padding: bool) -> Self {
         self.include_padding = include_padding;
         self
-    }
-
-    /// Set the maximum length of variable length statistics.
-    pub fn with_max_variable_length_statistics_size(mut self, size: usize) -> Self {
-        self.max_variable_length_statistics_size = size;
-        self
-    }
-}
-
-fn truncate_scalar_stat<F: Fn(Scalar) -> Option<(Scalar, bool)>>(
-    statistics: StatsSetRef<'_>,
-    stat: Stat,
-    truncation: F,
-) {
-    if let Some(sv) = statistics.get(stat).into_inner() {
-        if let Some((truncated_value, truncated)) = truncation(sv) {
-            if truncated && let Some(v) = truncated_value.into_value() {
-                statistics.set(stat, Precision::Inexact(v));
-            }
-        } else {
-            statistics.clear(stat)
-        }
     }
 }
 
@@ -101,46 +64,6 @@ impl LayoutStrategy for FlatLayoutStrategy {
         let (sequence_id, chunk) = chunk?;
 
         let row_count = chunk.len() as u64;
-
-        match chunk.dtype() {
-            DType::Utf8(n) => {
-                truncate_scalar_stat(chunk.statistics(), Stat::Min, |v| {
-                    lower_bound(
-                        BufferString::from_scalar(v)
-                            .vortex_expect("utf8 scalar must be a BufferString"),
-                        self.max_variable_length_statistics_size,
-                        *n,
-                    )
-                });
-                truncate_scalar_stat(chunk.statistics(), Stat::Max, |v| {
-                    upper_bound(
-                        BufferString::from_scalar(v)
-                            .vortex_expect("utf8 scalar must be a BufferString"),
-                        self.max_variable_length_statistics_size,
-                        *n,
-                    )
-                });
-            }
-            DType::Binary(n) => {
-                truncate_scalar_stat(chunk.statistics(), Stat::Min, |v| {
-                    lower_bound(
-                        ByteBuffer::from_scalar(v)
-                            .vortex_expect("binary scalar must be a ByteBuffer"),
-                        self.max_variable_length_statistics_size,
-                        *n,
-                    )
-                });
-                truncate_scalar_stat(chunk.statistics(), Stat::Max, |v| {
-                    upper_bound(
-                        ByteBuffer::from_scalar(v)
-                            .vortex_expect("binary scalar must be a ByteBuffer"),
-                        self.max_variable_length_statistics_size,
-                        *n,
-                    )
-                });
-            }
-            _ => {}
-        }
 
         let buffers = chunk.serialize(
             ctx.array_ctx(),
@@ -179,25 +102,18 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::fns::is_sorted::is_sorted;
     use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::struct_::StructArrayExt;
-    use vortex_array::builders::ArrayBuilder;
-    use vortex_array::builders::VarBinViewBuilder;
-    use vortex_array::dtype::DType;
     use vortex_array::dtype::FieldName;
     use vortex_array::dtype::FieldNames;
-    use vortex_array::dtype::Nullability;
     use vortex_array::expr::root;
-    use vortex_array::expr::stats::Precision;
-    use vortex_array::expr::stats::Stat;
-    use vortex_array::expr::stats::StatsProviderExt;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBufferMut;
     use vortex_buffer::buffer;
-    use vortex_error::VortexExpect;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
     use vortex_mask::AllOr;
@@ -210,11 +126,8 @@ mod tests {
     use crate::test::SESSION;
     use crate::test::new_session;
 
-    // Currently, flat layouts do not force compute stats during write, they only retain
-    // pre-computed stats.
-    #[should_panic]
     #[test]
-    fn flat_stats() {
+    fn aggregates_after_roundtrip() {
         block_on(|handle| async {
             let session = new_session().with_handle(handle);
             let ctx = ArrayContext::empty();
@@ -246,76 +159,7 @@ mod tests {
                 .await
                 .unwrap();
 
-            assert_eq!(
-                result.statistics().get_as::<bool>(Stat::IsSorted),
-                Precision::Exact(true)
-            );
-        })
-    }
-
-    #[test]
-    fn truncates_variable_size_stats() {
-        block_on(|handle| async {
-            let session = new_session().with_handle(handle);
-            let ctx = ArrayContext::empty();
-            let segments = Arc::new(TestSegments::default());
-            let (ptr, eof) = SequenceId::root().split();
-            let mut builder = VarBinViewBuilder::with_capacity_in(
-                DType::Utf8(Nullability::NonNullable),
-                2,
-                vortex_buffer::BufferAllocatorRef::statically_allocated(),
-            );
-            builder.append_value("Long value to test that the statistics are actually truncated, it needs a bit of extra padding though");
-            builder.append_value("Another string that's meant to be smaller than the previous value, though still need extra padding");
-            let array = builder.finish();
-            let mut stats_ctx = session.create_execution_ctx();
-            array.statistics().set_iter(
-                array
-                    .statistics()
-                    .compute_all(&Stat::all().collect::<Vec<_>>(), &mut stats_ctx)
-                    .vortex_expect("stats computation should succeed for test array")
-                    .into_iter(),
-            );
-
-            let layout = FlatLayoutStrategy::default()
-                .write_stream(
-                    ctx.into(),
-                    Arc::<TestSegments>::clone(&segments),
-                    array.into_array().to_array_stream().sequenced(ptr),
-                    eof,
-                    &session,
-                )
-                .await
-                .unwrap();
-
-            let reader = layout
-                .new_reader("".into(), segments, &SESSION, &Default::default())
-                .unwrap();
-            let expr = root().bind(reader.dtype()).unwrap();
-            let result = reader
-                .projection_evaluation(
-                    &(0..layout.row_count()),
-                    &expr,
-                    MaskFuture::new_true(layout.row_count().try_into().unwrap()),
-                )
-                .unwrap()
-                .await
-                .unwrap();
-
-            assert_eq!(
-                result.statistics().get_as::<String>(Stat::Min),
-                // The typo is correct, we need this to be truncated.
-                Precision::Inexact(
-                    // spellchecker:ignore-next-line
-                    "Another string that's meant to be smaller than the previous valu".to_string()
-                )
-            );
-            assert_eq!(
-                result.statistics().get_as::<String>(Stat::Max),
-                Precision::Inexact(
-                    "Long value to test that the statistics are actually truncated, j".to_string()
-                )
-            );
+            assert!(is_sorted(&result, &mut session.create_execution_ctx()).unwrap());
         })
     }
 

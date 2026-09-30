@@ -37,9 +37,6 @@ use crate::dtype::DType;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::StructFields;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProviderExt;
 use crate::scalar::Scalar;
 
 /// Options for the `is_sorted` aggregate function.
@@ -72,17 +69,6 @@ pub fn is_strict_sorted(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResul
 }
 
 fn is_sorted_impl(array: &ArrayRef, strict: bool, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
-    let stat = if strict {
-        Stat::IsStrictSorted
-    } else {
-        Stat::IsSorted
-    };
-
-    // Short-circuit using cached array statistics.
-    if let Precision::Exact(value) = array.statistics().get_as::<bool>(stat) {
-        return Ok(value);
-    }
-
     // Arrays with 0 or 1 elements are (strict) sorted.
     if array.len() <= 1 {
         return Ok(true);
@@ -90,9 +76,7 @@ fn is_sorted_impl(array: &ArrayRef, strict: bool, ctx: &mut ExecutionCtx) -> Vor
 
     // Constant and null arrays are always sorted, but not strict sorted.
     if array.is::<Constant>() || array.is::<Null>() {
-        let result = !strict;
-        cache_is_sorted(array, strict, result);
-        return Ok(result);
+        return Ok(!strict);
     }
 
     // We don't support sorting struct arrays.
@@ -117,12 +101,10 @@ fn is_sorted_impl(array: &ArrayRef, strict: bool, ctx: &mut ExecutionCtx) -> Vor
             // If we have a potential null value - it has to be the first one.
             1 => {
                 if !array.is_invalid(0, ctx)? {
-                    cache_is_sorted(array, strict, false);
                     return Ok(false);
                 }
             }
             _ => {
-                cache_is_sorted(array, strict, false);
                 return Ok(false);
             }
         }
@@ -136,27 +118,7 @@ fn is_sorted_impl(array: &ArrayRef, strict: bool, ctx: &mut ExecutionCtx) -> Vor
 
     let result = result_scalar.as_bool().value().unwrap_or(false);
 
-    // Cache the computed result as statistics.
-    cache_is_sorted(array, strict, result);
-
     Ok(result)
-}
-
-fn cache_is_sorted(array: &ArrayRef, strict: bool, result: bool) {
-    let array_stats = array.statistics();
-    if strict {
-        if result {
-            array_stats.set(Stat::IsSorted, Precision::Exact(true.into()));
-            array_stats.set(Stat::IsStrictSorted, Precision::Exact(true.into()));
-        } else {
-            array_stats.set(Stat::IsStrictSorted, Precision::Exact(false.into()));
-        }
-    } else if result {
-        array_stats.set(Stat::IsSorted, Precision::Exact(true.into()));
-    } else {
-        array_stats.set(Stat::IsSorted, Precision::Exact(false.into()));
-        array_stats.set(Stat::IsStrictSorted, Precision::Exact(false.into()));
-    }
 }
 
 /// Aggregate function vtable for `is_sorted`.

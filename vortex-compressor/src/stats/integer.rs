@@ -8,10 +8,11 @@ use std::hash::Hash;
 use num_traits::PrimInt;
 use rustc_hash::FxBuildHasher;
 use vortex_array::ExecutionCtx;
+use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::aggregate_fn::fns::min_max::min_max;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::NativeValue;
 use vortex_array::dtype::IntegerPType;
-use vortex_array::expr::stats::Stat;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
@@ -363,16 +364,18 @@ where
     let null_count = validity.false_count();
     let value_count = validity.true_count();
 
-    let array_ref = array.as_ref();
-    let min = array_ref
-        .statistics()
-        .compute_as::<T>(Stat::Min, ctx)
-        .vortex_expect("min should be computed");
-
-    let max = array_ref
-        .statistics()
-        .compute_as::<T>(Stat::Max, ctx)
-        .vortex_expect("max should be computed");
+    let bounds = min_max(array.as_ref(), ctx, NumericalAggregateOpts::skip_nans())?
+        .vortex_expect("non-null integer input has extrema");
+    let min = bounds
+        .min
+        .as_primitive()
+        .as_::<T>()
+        .vortex_expect("minimum has input type");
+    let max = bounds
+        .max
+        .as_primitive()
+        .as_::<T>()
+        .vortex_expect("maximum has input type");
 
     // Initialize loop state.
     let head_idx = validity

@@ -58,8 +58,7 @@ impl Array<Variant> {
             "VariantArray core_storage dtype must be Variant, found {dtype}"
         );
         let len = core_storage.len();
-        let stats = core_storage.statistics().to_owned();
-        Ok(Array::try_from_parts(
+        Array::try_from_parts(
             ArrayParts::new(Variant, dtype, len, EmptyArrayData).with_slots(
                 VariantSlots {
                     core_storage,
@@ -67,8 +66,7 @@ impl Array<Variant> {
                 }
                 .into_slots(),
             ),
-        )?
-        .with_stats_set(stats))
+        )
     }
 }
 

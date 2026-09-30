@@ -9,14 +9,13 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::Nullability;
-use vortex_array::expr::stats::Stat;
-use vortex_array::expr::stats::StatsProvider;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
 use crate::DateTimeParts;
 use crate::array::DateTimePartsArraySlotsExt;
+
 fn take_datetime_parts(
     array: ArrayView<DateTimeParts>,
     indices: &ArrayRef,
@@ -61,21 +60,11 @@ fn take_datetime_parts(
         vortex_panic!("Mismatched types: indices are not nullable, days & seconds are nullable");
     }
 
-    let seconds_fill = array
-        .seconds()
-        .statistics()
-        .get(Stat::Min)
-        .into_inner()
-        .unwrap_or_else(|| Scalar::primitive(0i64, Nullability::NonNullable))
-        .cast(array.seconds().dtype())?;
+    let seconds_fill =
+        Scalar::primitive(0i64, Nullability::NonNullable).cast(array.seconds().dtype())?;
     let taken_seconds = taken_seconds.fill_null(seconds_fill)?;
 
-    let subseconds_fill = array
-        .subseconds()
-        .statistics()
-        .get(Stat::Min)
-        .into_inner()
-        .unwrap_or_else(|| Scalar::primitive(0i64, Nullability::NonNullable))
+    let subseconds_fill = Scalar::primitive(0i64, Nullability::NonNullable)
         .cast(array.subseconds().dtype())?;
     let taken_subseconds = taken_subseconds.fill_null(subseconds_fill)?;
 
@@ -100,12 +89,16 @@ mod tests {
     use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::take::test_take_conformance;
     use vortex_array::extension::datetime::TimeUnit;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
 
+    use super::take_datetime_parts;
     use crate::DateTimeParts;
     use crate::DateTimePartsArray;
+    use crate::array::DateTimePartsArraySlotsExt;
 
     #[rstest]
     #[case(DateTimeParts::try_from_temporal(TemporalArray::new_timestamp(
@@ -140,5 +133,31 @@ mod tests {
             &array.into_array(),
             &mut array_session().create_execution_ctx(),
         );
+    }
+
+    #[test]
+    fn nullable_indices_keep_time_parts_nonnullable() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let temporal = TemporalArray::new_timestamp(
+            buffer![86_401_001i64, 172_802_002].into_array(),
+            TimeUnit::Milliseconds,
+            None,
+        );
+        let array = DateTimeParts::try_from_temporal(temporal, &mut ctx)?;
+        let indices = PrimitiveArray::from_option_iter([Some(1u32), None, Some(0)]).into_array();
+        let taken = take_datetime_parts(array.as_view(), &indices, &mut ctx)?;
+        let parts = taken.as_::<DateTimeParts>();
+        assert!(!parts.seconds().dtype().is_nullable());
+        assert!(!parts.subseconds().dtype().is_nullable());
+
+        let expected = TemporalArray::new_timestamp(
+            PrimitiveArray::from_option_iter([Some(172_802_002i64), None, Some(86_401_001)])
+                .into_array(),
+            TimeUnit::Milliseconds,
+            None,
+        )
+        .into_array();
+        assert_arrays_eq!(taken, expected, &mut ctx);
+        Ok(())
     }
 }

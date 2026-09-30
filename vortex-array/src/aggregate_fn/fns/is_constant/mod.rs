@@ -43,10 +43,6 @@ use crate::dtype::DType;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::StructFields;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
-use crate::expr::stats::StatsProviderExt;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::operators::Operator;
 
@@ -81,97 +77,31 @@ fn arrays_value_equal(a: &ArrayRef, b: &ArrayRef, ctx: &mut ExecutionCtx) -> Vor
     Ok(eq_result.true_count() == valid_count)
 }
 
-/// Compute whether an array has constant values.
+/// Return whether every value is equal, including nulls.
 ///
-/// An array is constant IFF at least one of the following conditions apply:
-/// 1. It has at least one element (**Note** - an empty array isn't constant).
-/// 2. It's encoded as a [`ConstantArray`](crate::arrays::ConstantArray) or [`NullArray`](crate::arrays::NullArray)
-/// 3. Has an exact statistic attached to it, saying its constant.
-/// 4. Is all invalid.
-/// 5. Is all valid AND has minimum and maximum statistics that are equal.
+/// Empty arrays are not constant. Mixed null and non-null values are not constant.
 pub fn is_constant(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
-    // Short-circuit using cached array statistics.
-    if let Precision::Exact(value) = array.statistics().get_as::<bool>(Stat::IsConstant) {
-        return Ok(value);
-    }
-
-    // Empty arrays are not constant.
     if array.is_empty() {
         return Ok(false);
     }
-
-    // Array of length 1 is always constant.
-    if array.len() == 1 {
-        array
-            .statistics()
-            .set(Stat::IsConstant, Precision::Exact(true.into()));
+    if array.len() == 1 || array.is::<Constant>() || array.is::<Null>() {
         return Ok(true);
     }
 
-    // Constant and null arrays are always constant.
-    if array.is::<Constant>() || array.is::<Null>() {
-        array
-            .statistics()
-            .set(Stat::IsConstant, Precision::Exact(true.into()));
+    let invalid_count = array.invalid_count(ctx)?;
+    if invalid_count == array.len() {
         return Ok(true);
     }
-
-    let all_invalid = array.all_invalid(ctx)?;
-    if all_invalid {
-        array
-            .statistics()
-            .set(Stat::IsConstant, Precision::Exact(true.into()));
-        return Ok(true);
+    if invalid_count != 0 {
+        return Ok(false);
     }
-
-    let all_valid = array.all_valid(ctx)?;
-
-    // If we have some nulls but not all nulls, array can't be constant.
-    if !all_valid && !all_invalid {
-        array
-            .statistics()
-            .set(Stat::IsConstant, Precision::Exact(false.into()));
+    if IsConstant.return_dtype(&EmptyOptions, array.dtype()).is_none() {
         return Ok(false);
     }
 
-    // We already know here that the array is all valid, so we check for min/max stats.
-    let min_stat = array.statistics().get(Stat::Min);
-    let max_stat = array.statistics().get(Stat::Max);
-
-    if let Precision::Exact(min) = min_stat.as_ref()
-        && let Precision::Exact(max) = max_stat.as_ref()
-        && min == max
-        && (Stat::NaNCount.dtype(array.dtype()).is_none()
-            || array.statistics().get_as::<u64>(Stat::NaNCount) == Precision::exact(0u64))
-    {
-        array
-            .statistics()
-            .set(Stat::IsConstant, Precision::Exact(true.into()));
-        return Ok(true);
-    }
-
-    // Short-circuit for unsupported dtypes.
-    if IsConstant
-        .return_dtype(&EmptyOptions, array.dtype())
-        .is_none()
-    {
-        // Null dtype - vacuously false for empty
-        return Ok(false);
-    }
-
-    // Compute using Accumulator<IsConstant>.
     let mut acc = Accumulator::try_new(IsConstant, EmptyOptions, array.dtype().clone())?;
     acc.accumulate(array, ctx)?;
-    let result_scalar = acc.finish()?;
-
-    let result = result_scalar.as_bool().value().unwrap_or(false);
-
-    // Cache the computed is_constant as a statistic.
-    array
-        .statistics()
-        .set(Stat::IsConstant, Precision::Exact(result.into()));
-
-    Ok(result)
+    Ok(acc.finish()?.as_bool().value().unwrap_or(false))
 }
 
 /// Compute whether an array is constant.
@@ -491,7 +421,6 @@ mod tests {
     use crate::dtype::MapDType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 
@@ -538,17 +467,13 @@ mod tests {
 
     // Tests migrated from compute/is_constant.rs
     #[test]
-    fn is_constant_min_max_no_nan() -> VortexResult<()> {
+    fn is_constant_without_nan() -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
 
         let arr = buffer![0, 1].into_array();
-        arr.statistics()
-            .compute_all(&[Stat::Min, Stat::Max], &mut ctx)?;
         assert!(!is_constant(&arr, &mut ctx)?);
 
         let arr = buffer![0, 0].into_array();
-        arr.statistics()
-            .compute_all(&[Stat::Min, Stat::Max], &mut ctx)?;
         assert!(is_constant(&arr, &mut ctx)?);
 
         let arr = PrimitiveArray::from_option_iter([Some(0), Some(0)]).into_array();
@@ -557,19 +482,15 @@ mod tests {
     }
 
     #[test]
-    fn is_constant_min_max_with_nan() -> VortexResult<()> {
+    fn is_constant_with_nan() -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
 
         let arr = PrimitiveArray::from_iter([0.0, 0.0, f32::NAN]).into_array();
-        arr.statistics()
-            .compute_all(&[Stat::Min, Stat::Max], &mut ctx)?;
         assert!(!is_constant(&arr, &mut ctx)?);
 
         let arr =
             PrimitiveArray::from_option_iter([Some(f32::NEG_INFINITY), Some(f32::NEG_INFINITY)])
                 .into_array();
-        arr.statistics()
-            .compute_all(&[Stat::Min, Stat::Max], &mut ctx)?;
         assert!(is_constant(&arr, &mut ctx)?);
         Ok(())
     }

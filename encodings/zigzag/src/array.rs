@@ -264,9 +264,13 @@ impl ValidityChild<ZigZag> for ZigZag {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::NumericalAggregateOpts;
+    use vortex_array::aggregate_fn::fns::is_constant::is_constant;
+    use vortex_array::aggregate_fn::fns::min_max::min_max;
+    use vortex_array::aggregate_fn::fns::null_count::null_count;
     use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::scalar::Scalar;
@@ -276,24 +280,25 @@ mod test {
     use crate::zigzag_encode;
 
     #[test]
-    fn test_compute_statistics() -> VortexResult<()> {
+    fn test_aggregate_results() -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
         let array = buffer![1i32, -5i32, 2, 3, 4, 5, 6, 7, 8, 9, 10]
             .into_array()
             .execute::<PrimitiveArray>(&mut ctx)?;
         let zigzag = zigzag_encode(array.as_view())?;
+        let options = NumericalAggregateOpts::skip_nans();
 
         assert_eq!(
-            zigzag.statistics().compute_max::<i32>(&mut ctx),
-            array.statistics().compute_max::<i32>(&mut ctx)
+            min_max(zigzag.as_ref(), &mut ctx, options)?.map(|r| r.max),
+            min_max(array.as_ref(), &mut ctx, options)?.map(|r| r.max)
         );
         assert_eq!(
-            zigzag.statistics().compute_null_count(&mut ctx),
-            array.statistics().compute_null_count(&mut ctx)
+            null_count(zigzag.as_ref(), &mut ctx)?,
+            null_count(array.as_ref(), &mut ctx)?
         );
         assert_eq!(
-            zigzag.statistics().compute_is_constant(&mut ctx),
-            array.statistics().compute_is_constant(&mut ctx)
+            is_constant(zigzag.as_ref(), &mut ctx)?,
+            is_constant(array.as_ref(), &mut ctx)?
         );
 
         let sliced = zigzag.slice(0..2)?;
@@ -304,16 +309,16 @@ mod test {
         );
 
         assert_eq!(
-            sliced.statistics().compute_min::<i32>(&mut ctx),
-            array.statistics().compute_min::<i32>(&mut ctx)
+            min_max(sliced.as_ref(), &mut ctx, options)?.map(|r| r.min),
+            min_max(array.as_ref(), &mut ctx, options)?.map(|r| r.min)
         );
         assert_eq!(
-            sliced.statistics().compute_null_count(&mut ctx),
-            array.statistics().compute_null_count(&mut ctx)
+            null_count(sliced.as_ref(), &mut ctx)?,
+            null_count(array.as_ref(), &mut ctx)?
         );
         assert_eq!(
-            sliced.statistics().compute_is_constant(&mut ctx),
-            array.statistics().compute_is_constant(&mut ctx)
+            is_constant(sliced.as_ref(), &mut ctx)?,
+            is_constant(array.as_ref(), &mut ctx)?
         );
         Ok(())
     }

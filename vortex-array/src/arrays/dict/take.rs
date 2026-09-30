@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use smallvec::SmallVec;
 use vortex_error::VortexResult;
 
 use super::Dict;
@@ -13,16 +12,10 @@ use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::ConstantArray;
 use crate::arrays::dict::DictArraySlotsExt;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
-use crate::expr::stats::StatsProviderExt;
 use crate::kernel::ExecuteParentKernel;
 use crate::matcher::Matcher;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::scalar::Scalar;
-use crate::stats::StatsSet;
-use crate::validity::Validity;
 
 pub trait TakeReduce: VTable {
     /// Take elements from an array at the given indices without reading buffers.
@@ -100,11 +93,7 @@ where
         if let Some(result) = short_circuit::<V>(array, parent.codes()) {
             return Ok(Some(result));
         }
-        let result = <V as TakeReduce>::take(array, parent.codes())?;
-        if let Some(taken) = &result {
-            propagate_take_stats(array.array(), taken, parent.codes())?;
-        }
-        Ok(result)
+        <V as TakeReduce>::take(array, parent.codes())
     }
 }
 
@@ -131,42 +120,7 @@ where
         if let Some(result) = short_circuit::<V>(array, parent.codes()) {
             return Ok(Some(result));
         }
-        let result = <V as TakeExecute>::take(array, parent.codes(), ctx)?;
-        if let Some(taken) = &result {
-            propagate_take_stats(array.array(), taken, parent.codes())?;
-        }
-        Ok(result)
+        <V as TakeExecute>::take(array, parent.codes(), ctx)
     }
 }
 
-pub(crate) fn propagate_take_stats(
-    source: &ArrayRef,
-    target: &ArrayRef,
-    indices: &ArrayRef,
-) -> VortexResult<()> {
-    let indices_all_valid = matches!(
-        indices.validity()?,
-        Validity::NonNullable | Validity::AllValid
-    );
-    target.statistics().with_mut_typed_stats_set(|mut st| {
-        if indices_all_valid {
-            let is_constant = source.statistics().get_as::<bool>(Stat::IsConstant);
-            if matches!(is_constant, Precision::Exact(true)) {
-                // Any combination of elements from a constant array is still const
-                st.set(Stat::IsConstant, Precision::exact(true));
-            }
-        }
-        let inexact_min_max = [Stat::Min, Stat::Max]
-            .into_iter()
-            .filter_map(|stat| match source.statistics().get(stat).into_inexact() {
-                Precision::Exact(scalar) | Precision::Inexact(scalar) => {
-                    scalar.into_value().map(|sv| (stat, Precision::Inexact(sv)))
-                }
-                Precision::Absent => None,
-            })
-            .collect::<SmallVec<_>>();
-        st.combine_sets(
-            &(unsafe { StatsSet::new_unchecked(inexact_min_max) }).as_typed_ref(source.dtype()),
-        )
-    })
-}

@@ -14,7 +14,7 @@ use crate::display::extractors::BufferExtractor;
 use crate::display::extractors::EncodingSummaryExtractor;
 use crate::display::extractors::MetadataExtractor;
 use crate::display::extractors::NbytesExtractor;
-use crate::display::extractors::StatsExtractor;
+use crate::display::extractors::ValidityExtractor;
 
 /// Composable tree display builder.
 ///
@@ -54,13 +54,13 @@ impl TreeDisplay {
         }
     }
 
-    /// Create a tree display with all built-in extractors: encoding summary, nbytes, stats,
+    /// Create a tree display with all built-in extractors: encoding summary, nbytes, validity,
     /// metadata, and buffers.
     pub fn default_display(array: ArrayRef) -> Self {
         Self::new(array)
             .with(EncodingSummaryExtractor)
             .with(NbytesExtractor)
-            .with(StatsExtractor)
+            .with(ValidityExtractor)
             .with(MetadataExtractor)
             .with(BufferExtractor { show_percent: true })
     }

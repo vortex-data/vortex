@@ -26,6 +26,8 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 #[cfg(debug_assertions)]
 use crate::VortexSessionExecute;
+#[cfg(debug_assertions)]
+use crate::aggregate_fn::fns::is_sorted::is_sorted;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBin;
 use crate::arrays::VarBinArray;
@@ -36,8 +38,6 @@ use crate::arrays::varbinview::VarBinViewArrayExt;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
 use crate::dtype::OffsetBuilderPType;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
 #[cfg(debug_assertions)]
 use crate::legacy_session;
 use crate::match_each_integer_ptype;
@@ -421,19 +421,15 @@ impl<O: OffsetBuilderPType> VarBinBuilder<O> {
 
         let validity = Validity::from_bit_buffer(nulls, self.dtype.nullability());
 
-        // The builder adds offsets in monotonically increasing order. Store this statistic to
-        // prevent VarBinArray::validate from recomputing it after deserialization.
         #[cfg(debug_assertions)]
         {
-            let offsets_are_sorted = offsets
-                .statistics()
-                .compute_is_sorted(&mut legacy_session().create_execution_ctx())
-                .unwrap_or(false);
+            let offsets_are_sorted = is_sorted(
+                offsets.as_ref(),
+                &mut legacy_session().create_execution_ctx(),
+            )
+            .unwrap_or(false);
             debug_assert!(offsets_are_sorted, "VarBinBuilder offsets must be sorted");
         }
-        offsets
-            .statistics()
-            .set(Stat::IsSorted, Precision::Exact(true.into()));
 
         // SAFETY: The builder maintains all invariants:
         // - Offsets are monotonically increasing starting from 0 (guaranteed by builder logic).
@@ -742,9 +738,6 @@ mod tests {
     use crate::builders::ArrayBuilder;
     use crate::dtype::DType;
     use crate::dtype::Nullability::Nullable;
-    use crate::expr::stats::Precision;
-    use crate::expr::stats::Stat;
-    use crate::expr::stats::StatsProviderExt;
     use crate::scalar::Scalar;
 
     #[test]
@@ -1052,7 +1045,8 @@ mod tests {
     }
 
     #[test]
-    fn offsets_have_is_sorted_stat() -> VortexResult<()> {
+    fn offsets_are_sorted() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         let mut builder = VarBinBuilder::<i32>::with_capacity_in(
             DType::Utf8(Nullable),
             0,
@@ -1063,27 +1057,20 @@ mod tests {
         builder.append_value(b"bbb");
         let array = builder.finish_into_varbin();
 
-        let is_sorted = array
-            .offsets()
-            .statistics()
-            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsSorted));
-        assert_eq!(is_sorted, Precision::Exact(true));
+        assert!(crate::aggregate_fn::fns::is_sorted::is_sorted(array.offsets(), &mut ctx)?);
         Ok(())
     }
 
     #[test]
-    fn empty_builder_offsets_have_is_sorted_stat() -> VortexResult<()> {
+    fn empty_builder_offsets_are_sorted() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         let mut builder = VarBinBuilder::<i32>::new_in(
             DType::Utf8(Nullable),
             vortex_buffer::BufferAllocatorRef::static_ref(),
         );
         let array = builder.finish_into_varbin();
 
-        let is_sorted = array
-            .offsets()
-            .statistics()
-            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsSorted));
-        assert_eq!(is_sorted, Precision::Exact(true));
+        assert!(crate::aggregate_fn::fns::is_sorted::is_sorted(array.offsets(), &mut ctx)?);
         Ok(())
     }
 

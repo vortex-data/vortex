@@ -37,7 +37,6 @@ use crate::flatbuffers::WriteFlatBuffer;
 use crate::flatbuffers::array as fba;
 use crate::flatbuffers::array::Compression;
 use crate::session::ArraySessionExt;
-use crate::stats::StatsSet;
 
 /// Options for serializing an array.
 #[derive(Default, Debug)]
@@ -159,7 +158,6 @@ impl ArrayRef {
 
 #[derive(Clone, Debug)]
 struct ArraySerializationTree {
-    source: ArrayRef,
     serialized_id: ArrayId,
     metadata: Vec<u8>,
     buffers: Vec<ByteBuffer>,
@@ -181,7 +179,6 @@ impl ArraySerializationTree {
             .collect::<VortexResult<Vec<_>>>()?;
 
         Ok(Self {
-            source: source.clone(),
             serialized_id: serialization.serialized_id,
             metadata: serialization.metadata,
             buffers: serialization.buffers,
@@ -280,7 +277,6 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
         let children = Some(fbb.create_vector(&children));
 
         let buffers = Some(fbb.create_vector_from_iter((0..nbuffers).map(|i| i + buffer_idx)));
-        let stats = Some(array.source.statistics().write_flatbuffer(fbb)?);
 
         Ok(fba::ArrayNode::create(
             fbb,
@@ -289,7 +285,7 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
                 metadata,
                 children,
                 buffers,
-                stats,
+                stats: None,
             },
         ))
     }
@@ -415,13 +411,6 @@ impl SerializedArray {
             encoding_id,
             decoded.encoding_id(),
         );
-
-        // Populate statistics from the serialized array.
-        if let Some(stats) = self.flatbuffer().stats() {
-            decoded
-                .statistics()
-                .set_iter(StatsSet::from_flatbuffer(&stats, dtype, session)?.into_iter());
-        }
 
         Ok(decoded)
     }
@@ -782,9 +771,12 @@ mod tests {
     use crate::ArraySerialization;
     use crate::ArrayVTable;
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
     use crate::array_session;
     use crate::arrays::Primitive;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::StructArray;
+    use crate::assert_arrays_eq;
 
     static SERIALIZER_CALLS: AtomicUsize = AtomicUsize::new(0);
 
@@ -1074,6 +1066,94 @@ mod tests {
             "unexpected error: {err}"
         );
 
+        Ok(())
+    }
+
+    fn with_legacy_hints<'fb>(
+        node: fba::ArrayNode<'_>,
+        builder: &mut FlatBufferBuilder<'fb>,
+    ) -> WIPOffset<fba::ArrayNode<'fb>> {
+        let children = node.children().map(|children| {
+            let children = children
+                .iter()
+                .map(|child| with_legacy_hints(child, builder))
+                .collect::<Vec<_>>();
+            builder.create_vector(&children)
+        });
+        let metadata = node
+            .metadata()
+            .map(|metadata| builder.create_vector(metadata.bytes()));
+        let buffers = node
+            .buffers()
+            .map(|buffers| builder.create_vector(&buffers.iter().collect::<Vec<_>>()));
+        let stats = fba::ArrayStats::create(
+            builder,
+            &fba::ArrayStatsArgs {
+                null_count: Some(u64::MAX),
+                is_constant: Some(true),
+                ..Default::default()
+            },
+        );
+        fba::ArrayNode::create(
+            builder,
+            &fba::ArrayNodeArgs {
+                encoding: node.encoding(),
+                metadata,
+                children,
+                buffers,
+                stats: Some(stats),
+            },
+        )
+    }
+
+    fn assert_no_node_hints(node: fba::ArrayNode<'_>) {
+        assert!(node.stats().is_none());
+        if let Some(children) = node.children() {
+            for child in children {
+                assert_no_node_hints(child);
+            }
+        }
+    }
+
+    #[test]
+    fn node_hints_are_omitted_and_historical_hints_are_ignored() -> VortexResult<()> {
+        let session = array_session();
+        let ctx = ArrayContext::empty();
+        let array = StructArray::from_fields(&[(
+            "values",
+            PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]).into_array(),
+        )])?
+        .into_array();
+        let serialized = SerializedArray::try_from(serialize_blob(&array, &ctx, &session)?)?;
+        assert_no_node_hints(serialized.flatbuffer());
+
+        let mut builder = FlatBufferBuilder::new();
+        let root = with_legacy_hints(serialized.flatbuffer(), &mut builder);
+        let original = flatbuffers::root::<fba::Array>(serialized.flatbuffer.as_ref())?;
+        let buffers = original.buffers().map(|buffers| {
+            builder.create_vector(&buffers.iter().copied().collect::<Vec<_>>())
+        });
+        let wire = fba::Array::create(
+            &mut builder,
+            &fba::ArrayArgs {
+                root: Some(root),
+                buffers,
+            },
+        );
+        builder.finish_minimal(wire);
+        let historical = SerializedArray::from_flatbuffer_with_buffers(
+            ByteBuffer::copy_from(builder.finished_data()),
+            serialized.buffers.to_vec(),
+        )?;
+        let decoded = historical.decode(
+            array.dtype(),
+            array.len(),
+            &ReadContext::new(ctx.to_ids()),
+            &session,
+        )?;
+        let mut exec_ctx = session.create_execution_ctx();
+        assert_eq!(decoded.invalid_count(&mut exec_ctx)?, 0);
+        assert_arrays_eq!(decoded, array, &mut exec_ctx);
         Ok(())
     }
 }

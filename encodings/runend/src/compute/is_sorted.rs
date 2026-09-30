@@ -13,8 +13,8 @@ use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
+use super::logical_values;
 use crate::RunEnd;
-use crate::array::RunEndArraySlotsExt;
 
 /// RunEnd-specific is_sorted kernel.
 ///
@@ -50,7 +50,7 @@ impl DynAggregateKernel for RunEndIsSortedKernel {
                 ctx,
             )?
         } else {
-            is_sorted(array.values(), ctx)?
+            is_sorted(&logical_values(array, ctx)?, ctx)?
         };
 
         Ok(Some(IsSorted::make_partial(

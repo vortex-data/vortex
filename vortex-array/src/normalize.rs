@@ -85,7 +85,7 @@ impl ArrayRef {
 
         if any_slot_changed {
             // SAFETY: normalization only rewrites child slots to logically equivalent allowed
-            // encodings, preserving parent logical values and statistics.
+            // encodings, preserving parent logical values.
             normalized = unsafe { normalized.with_slots(normalized_slots) }?;
         }
 

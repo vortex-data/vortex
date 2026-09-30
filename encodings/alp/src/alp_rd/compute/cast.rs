@@ -94,8 +94,8 @@ mod tests {
         let encoder = RDEncoder::new(&values);
         let alprd = encoder.encode(arr.as_view());
 
-        // Cast to NonNullable should fail since we have nulls. The failure surfaces during
-        // execution since the reduce path defers when the validity stat is not cached.
+        // Cast to NonNullable should fail since we have nulls. The reduce path defers
+        // validity arrays to execution.
         let result = alprd
             .clone()
             .into_array()

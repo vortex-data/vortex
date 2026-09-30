@@ -45,9 +45,6 @@ use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::StructFields;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProviderExt;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::operators::Operator;
@@ -217,31 +214,6 @@ impl AggregateFnVTable for SumV2 {
         partial: &Self::Partial,
     ) -> bool {
         partial.is_overflow || matches!(&partial.sum, SumState::Float(value) if value.is_nan())
-    }
-
-    fn try_accumulate(
-        &self,
-        args: AggregateArgs<'_, Self::Options>,
-        partial: &mut Self::Partial,
-        batch: &ArrayRef,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<bool> {
-        if args.options.skip_nans || !matches!(&partial.sum, SumState::Float(_)) {
-            return Ok(false);
-        }
-
-        match batch.statistics().get_as::<u64>(Stat::NaNCount) {
-            Precision::Exact(0) => Ok(false),
-            Precision::Exact(_) => {
-                let SumState::Float(sum) = &mut partial.sum else {
-                    unreachable!("checked float sum state")
-                };
-                *sum = f64::NAN;
-                partial.is_empty = false;
-                Ok(true)
-            }
-            _ => Ok(false),
-        }
     }
 
     fn accumulate(

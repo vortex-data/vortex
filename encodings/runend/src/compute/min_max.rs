@@ -11,8 +11,8 @@ use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
+use super::logical_values;
 use crate::RunEnd;
-use crate::array::RunEndArraySlotsExt;
 
 /// RunEnd-specific min/max kernel.
 ///
@@ -37,7 +37,13 @@ impl DynAggregateKernel for RunEndMinMaxKernel {
         };
 
         let struct_dtype = make_minmax_dtype(batch.dtype());
-        match min_max(run_end.values(), ctx, *options)? {
+        if run_end.is_empty() {
+            return Ok(Some(Scalar::null(struct_dtype)));
+        }
+
+        let values = logical_values(run_end, ctx)?;
+
+        match min_max(&values, ctx, *options)? {
             Some(result) => Ok(Some(Scalar::struct_(
                 struct_dtype,
                 vec![result.min, result.max],

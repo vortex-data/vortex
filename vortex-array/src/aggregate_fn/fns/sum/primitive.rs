@@ -197,10 +197,7 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::Nullability::Nullable;
     use crate::dtype::PType;
-    use crate::expr::stats::Precision;
-    use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
-    use crate::scalar::ScalarValue;
     use crate::validity::Validity;
 
     #[test]
@@ -370,33 +367,6 @@ mod tests {
             PrimitiveArray::new(buffer![1.0f64, 2.0, 3.0], Validity::NonNullable).into_array();
         let result = sum_with_options(&arr, NumericalAggregateOpts::include_nans())?;
         assert_eq!(result.as_primitive().typed_value::<f64>(), Some(6.0));
-        Ok(())
-    }
-
-    #[test]
-    fn sum_not_skipping_shortcircuits_on_exact_nan_count_stat() -> VortexResult<()> {
-        // The array has no NaNs; a planted exact NaNCount stat proves the NaN poisoning came
-        // from the stat rather than a scan.
-        let arr =
-            PrimitiveArray::new(buffer![1.0f64, 2.0, 3.0], Validity::NonNullable).into_array();
-        arr.statistics()
-            .set(Stat::NaNCount, Precision::Exact(ScalarValue::from(1u64)));
-        let result = sum_with_options(&arr, NumericalAggregateOpts::include_nans())?;
-        assert!(result.as_primitive().typed_value::<f64>().unwrap().is_nan());
-        Ok(())
-    }
-
-    #[test]
-    fn sum_not_skipping_uses_cached_sum_when_nan_free() -> VortexResult<()> {
-        // With an exact NaNCount of zero, the planted exact Sum stat is usable as-is.
-        let arr =
-            PrimitiveArray::new(buffer![1.0f64, 2.0, 3.0], Validity::NonNullable).into_array();
-        arr.statistics()
-            .set(Stat::NaNCount, Precision::Exact(ScalarValue::from(0u64)));
-        arr.statistics()
-            .set(Stat::Sum, Precision::Exact(ScalarValue::from(42.0f64)));
-        let result = sum_with_options(&arr, NumericalAggregateOpts::include_nans())?;
-        assert_eq!(result.as_primitive().typed_value::<f64>(), Some(42.0));
         Ok(())
     }
 

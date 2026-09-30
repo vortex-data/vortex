@@ -37,10 +37,6 @@ use crate::dtype::DecimalDType;
 use crate::dtype::MAX_PRECISION;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
-use crate::expr::stats::StatsProviderExt;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 
@@ -48,27 +44,13 @@ use crate::scalar::Scalar;
 ///
 /// See [`Sum`] for details.
 pub fn sum(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
-    // Short-circuit using cached array statistics.
-    if let Precision::Exact(sum_scalar) = array.statistics().get(Stat::Sum) {
-        return Ok(sum_scalar);
-    }
-
-    // Compute using Accumulator<Sum>.
-    // TODO(ngates): we may want to wrap this three-step dance up into an extension crate maybe.
     let mut acc = Accumulator::try_new(
         Sum,
         NumericalAggregateOpts::default(),
         array.dtype().clone(),
     )?;
     acc.accumulate(array, ctx)?;
-    let result = acc.finish()?;
-
-    // Cache the computed sum as a statistic (only if non-null, i.e. no overflow).
-    if let Some(val) = result.value().cloned() {
-        array.statistics().set(Stat::Sum, Precision::Exact(val));
-    }
-
-    Ok(result)
+    acc.finish()
 }
 
 /// Sum an array, starting from zero.
@@ -218,44 +200,6 @@ impl AggregateFnVTable for Sum {
             None => true,
             Some(SumState::Float(v)) => v.is_nan(),
             Some(_) => false,
-        }
-    }
-
-    fn try_accumulate(
-        &self,
-        args: AggregateArgs<'_, Self::Options>,
-        partial: &mut Self::Partial,
-        batch: &ArrayRef,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<bool> {
-        // NaN-aware shortcircuits only apply to NaN-including float sums; everything else takes
-        // the default dispatch path.
-        if args.options.skip_nans || !matches!(partial.current, Some(SumState::Float(_))) {
-            return Ok(false);
-        }
-        match batch.statistics().get_as::<u64>(Stat::NaNCount) {
-            Precision::Exact(0) => {
-                // NaN-free batch: the cached NaN-skipping sum (if any) equals the
-                // NaN-including sum.
-                if let Precision::Exact(sum) = batch.statistics().get(Stat::Sum) {
-                    let sum = if sum.dtype() == args.return_dtype {
-                        sum
-                    } else {
-                        sum.cast(args.return_dtype)?
-                    };
-                    merge_sum_result(partial, args.return_dtype, sum)?;
-                    return Ok(true);
-                }
-                Ok(false)
-            }
-            Precision::Exact(_) => {
-                // At least one NaN value: the sum is NaN without scanning the batch.
-                if let Some(SumState::Float(acc)) = partial.current.as_mut() {
-                    *acc = f64::NAN;
-                }
-                Ok(true)
-            }
-            _ => Ok(false),
         }
     }
 
@@ -482,9 +426,6 @@ mod tests {
     use crate::dtype::Nullability::Nullable;
     use crate::dtype::PType;
     use crate::dtype::i256;
-    use crate::expr::stats::Precision;
-    use crate::expr::stats::Stat;
-    use crate::expr::stats::StatsProvider;
     use crate::scalar::DecimalValue;
     use crate::scalar::NumericOperator;
     use crate::scalar::Scalar;
@@ -500,18 +441,12 @@ mod tests {
             return sum(array, &mut ctx);
         }
 
-        let sum_dtype = Stat::Sum.dtype(array.dtype()).ok_or_else(|| {
-            vortex_error::vortex_err!("Sum not supported for dtype: {}", array.dtype())
-        })?;
+        let sum_dtype = Sum
+            .return_dtype(&NumericalAggregateOpts::default(), array.dtype())
+            .ok_or_else(|| {
+                vortex_error::vortex_err!("Sum not supported for dtype: {}", array.dtype())
+            })?;
 
-        // For non-float types, try statistics short-circuit with accumulator.
-        if !matches!(&sum_dtype, DType::Primitive(p, _) if p.is_float())
-            && let Precision::Exact(sum_scalar) = array.statistics().get(Stat::Sum)
-        {
-            return add_scalars(&sum_dtype, &sum_scalar, accumulator);
-        }
-
-        // Compute array sum from zero (also caches stats).
         let array_sum = sum(array, &mut ctx)?;
 
         // Combine with the accumulator.

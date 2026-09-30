@@ -21,8 +21,6 @@ use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::LayoutStrategy;
 use vortex::layout::layouts::flat::Flat;
 use vortex::layout::layouts::flat::writer::FlatLayoutStrategy;
-use vortex_array::ExecutionCtx;
-use vortex_array::expr::stats::Stat;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_buffer::ByteBuffer;
@@ -32,20 +30,6 @@ use vortex_session::VortexSession;
 
 fn runtime() -> VortexResult<Runtime> {
     Runtime::new().map_err(|e| vortex_err!("failed to create tokio runtime: {e}"))
-}
-
-/// Compute all statistics on every node in the array tree.
-///
-/// The flat layout writer does not compute stats itself — it only serializes stats already
-/// cached on each array node. This function walks the entire tree and forces computation of
-/// all stats so they are present in the serialized output.
-pub fn compute_all_stats(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
-    let all_stats: Vec<Stat> = Stat::all().collect();
-    for node in array.depth_first_traversal() {
-        let computed = node.statistics().compute_all(&all_stats, ctx)?;
-        node.statistics().set_iter(computed.into_iter());
-    }
-    Ok(())
 }
 
 /// Write a sequence of array chunks as a `.vortex` file with no compression.

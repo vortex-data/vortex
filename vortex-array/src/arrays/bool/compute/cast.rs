@@ -106,8 +106,7 @@ mod tests {
 
     #[test]
     fn try_cast_bool_fail() {
-        // When the validity array's min stat is not cached, the reduce rule defers and the
-        // failure surfaces during execution via the kernel (cast_nullability -> compute_min).
+        // The reduce rule defers validity arrays to the kernel, which rejects nulls at execution.
         let bool = BoolArray::from_iter(vec![Some(true), Some(false), None]);
         let mut ctx = SESSION.create_execution_ctx();
         let result = bool

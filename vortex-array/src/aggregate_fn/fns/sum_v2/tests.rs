@@ -37,11 +37,8 @@ use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::Nullability::Nullable;
 use crate::dtype::PType;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
 use crate::proto::expr as pb;
 use crate::scalar::Scalar;
-use crate::scalar::ScalarValue;
 use crate::validity::Validity;
 
 fn sum_with_options(array: &ArrayRef, options: NumericalAggregateOpts) -> VortexResult<Scalar> {
@@ -159,11 +156,8 @@ fn all_nan_is_nonempty_zero_when_skipped() -> VortexResult<()> {
 }
 
 #[test]
-fn ignores_ambiguous_legacy_sum_stat() -> VortexResult<()> {
+fn all_null_input_returns_null() -> VortexResult<()> {
     let array = PrimitiveArray::from_option_iter([None::<i32>, None]).into_array();
-    array
-        .statistics()
-        .set(Stat::Sum, Precision::Exact(ScalarValue::from(42i64)));
 
     assert!(sum_v2(&array, &mut array_session().create_execution_ctx())?.is_null());
     Ok(())

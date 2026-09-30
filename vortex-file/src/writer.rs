@@ -19,13 +19,14 @@ use itertools::Itertools;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
+use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
-use vortex_array::expr::stats::Stat;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::iter::ArrayIteratorExt;
 use vortex_array::session::ArraySessionExt;
-use vortex_array::stats::PRUNING_STATS;
+use vortex_array::stats::compat::validate_selection;
+use vortex_array::stats::default_file_aggregates;
 use vortex_array::stream::ArrayStream;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
@@ -84,7 +85,7 @@ pub struct VortexWriteOptions {
     buffered_bytes: BufferedBytesTracker,
     exclude_dtype: bool,
     max_variable_length_statistics_size: usize,
-    file_statistics: Vec<Stat>,
+    file_statistics: Vec<AggregateFnRef>,
     metadata: HashMap<String, ByteBuffer>,
 }
 
@@ -106,7 +107,7 @@ impl VortexWriteOptions {
             buffered_bytes: BufferedBytesTracker::new(),
             session,
             exclude_dtype: false,
-            file_statistics: PRUNING_STATS.to_vec(),
+            file_statistics: default_file_aggregates(),
             max_variable_length_statistics_size: 64,
             metadata: HashMap::default(),
         }
@@ -154,10 +155,12 @@ impl VortexWriteOptions {
         self
     }
 
-    /// Configure which statistics to compute at the file level.
+    /// Select aggregate functions whose finalized results are stored in the file footer.
     ///
-    /// Pass an empty vector to omit file-level statistics.
-    pub fn with_file_statistics(mut self, file_statistics: Vec<Stat>) -> Self {
+    /// Defaults to [`default_file_aggregates`]. Pass an empty vector to omit file summaries.
+    /// Unsupported functions or options are rejected before writing bytes. The existing footer
+    /// representation supports only NaN-skipping numerical aggregates.
+    pub fn with_file_statistics(mut self, file_statistics: Vec<AggregateFnRef>) -> Self {
         self.file_statistics = file_statistics;
         self
     }
@@ -235,6 +238,7 @@ impl VortexWriteOptions {
         stream: SendableArrayStream,
     ) -> VortexResult<WriteSummary> {
         validate_metadata_segments(&self.metadata)?;
+        validate_selection(&self.file_statistics)?;
 
         let enforce_editions = !self.disable_editions;
         // The array context is built here, rather than when the options were constructed, so that
@@ -278,7 +282,7 @@ impl VortexWriteOptions {
             self.file_statistics.clone().into(),
             self.max_variable_length_statistics_size,
             &self.session,
-        );
+        )?;
 
         // First, write the magic bytes.
         write.write_all(ByteBuffer::copy_from(MAGIC_BYTES)).await?;
@@ -324,7 +328,7 @@ impl VortexWriteOptions {
             None
         } else {
             Some(FileStatistics::new_with_dtype(
-                file_stats.stats_sets().into(),
+                file_stats.results()?.into(),
                 &dtype,
             ))
         };

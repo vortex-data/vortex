@@ -201,8 +201,7 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
     ///
     /// This is the checked entry point. If the encoding reports
     /// [`ExecutionStep::Done`](ExecutionStep::Done), implementations must validate that the
-    /// returned array preserves this array's logical `len` and `dtype`, and must transfer this
-    /// array's statistics to the returned array.
+    /// returned array preserves this array's logical `len` and `dtype`.
     fn execute(&self, this: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult>;
 
     /// Execute the array by taking a single encoding-specific execution step without applying
@@ -210,12 +209,11 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
     ///
     /// This exists for the iterative executor, which may call into `execute` on suspended
     /// executor-private arrays whose slots temporarily contain `None`. In that mode the executor
-    /// itself is responsible for deciding when a `Done` result represents a real logical array,
-    /// enforcing any `len`/`dtype` invariants, and transferring statistics.
+    /// itself is responsible for deciding when a `Done` result represents a real logical array
+    /// and enforcing any `len`/`dtype` invariants.
     ///
     /// # Safety
-    /// The `array` returned should have it's `DType` and len checked
-    /// (optionally it should have its stats propagated from `this`).
+    /// The caller must check that the returned array preserves the input's logical dtype and length.
     unsafe fn execute_unchecked(
         &self,
         this: ArrayRef,
@@ -376,7 +374,6 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
     }
 
     fn with_slots(&self, this: &ArrayRef, slots: ArraySlots) -> VortexResult<ArrayRef> {
-        let stats = this.statistics().to_owned();
         Ok(Array::<V>::try_from_parts(
             ArrayParts::new(
                 self.vtable.clone(),
@@ -386,16 +383,13 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
             )
             .with_slots(slots),
         )?
-        .with_stats_set(stats)
         .into_array())
     }
 
     fn with_buffers(&self, this: &ArrayRef, buffers: Vec<BufferHandle>) -> VortexResult<ArrayRef> {
         let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        let stats = this.statistics().to_owned();
         Ok(
             Array::<V>::try_from_parts(V::with_buffers(&self.vtable, view, &buffers)?)?
-                .with_stats_set(stats)
                 .into_array(),
         )
     }
@@ -410,7 +404,6 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
                 this.dtype().clone(),
                 self.data.clone(),
                 slots,
-                this.statistics().to_array_stats(),
             )
         };
         ArrayRef::from_inner(Arc::new(store))
@@ -471,27 +464,19 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
     fn execute(&self, this: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let len = this.len();
         let dtype = this.dtype().clone();
-        let stats = this.statistics().to_array_stats();
         let result = unsafe { self.execute_unchecked(this, ctx)? };
 
-        if matches!(result.step(), ExecutionStep::Done) {
-            if cfg!(debug_assertions) {
-                vortex_ensure!(
-                    result.array().len() == len,
-                    "Result length mismatch for {:?}",
-                    self.vtable
-                );
-                vortex_ensure!(
-                    result.array().dtype() == &dtype,
-                    "Executed canonical dtype mismatch for {:?}",
-                    self.vtable
-                );
-            }
-
-            result
-                .array()
-                .statistics()
-                .set_iter(crate::stats::StatsSet::from(stats).into_iter());
+        if cfg!(debug_assertions) && matches!(result.step(), ExecutionStep::Done) {
+            vortex_ensure!(
+                result.array().len() == len,
+                "Result length mismatch for {:?}",
+                self.vtable
+            );
+            vortex_ensure!(
+                result.array().dtype() == &dtype,
+                "Executed canonical dtype mismatch for {:?}",
+                self.vtable
+            );
         }
 
         Ok(result)

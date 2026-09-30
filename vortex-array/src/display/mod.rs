@@ -15,7 +15,7 @@ pub use extractors::BufferExtractor;
 pub use extractors::EncodingSummaryExtractor;
 pub use extractors::MetadataExtractor;
 pub use extractors::NbytesExtractor;
-pub use extractors::StatsExtractor;
+pub use extractors::ValidityExtractor;
 use itertools::Itertools as _;
 pub use tree_display::TreeDisplay;
 
@@ -274,6 +274,7 @@ pub enum DisplayOptions {
     TreeDisplay {
         buffers: bool,
         metadata: bool,
+        /// Include byte sizes and structural validity without computing aggregates.
         stats: bool,
     },
     /// Display values in a formatted table with columns.
@@ -559,7 +560,7 @@ impl ArrayRef {
                 let extractors: [(bool, Box<dyn TreeExtractor<ArrayRef, TreeContext>>); 5] = [
                     (true, Box::new(EncodingSummaryExtractor)),
                     (*stats, Box::new(NbytesExtractor)),
-                    (*stats, Box::new(StatsExtractor)),
+                    (*stats, Box::new(ValidityExtractor)),
                     (*metadata, Box::new(MetadataExtractor)),
                     (
                         *buffers,
