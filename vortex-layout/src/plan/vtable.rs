@@ -14,6 +14,7 @@ use vortex_mask::Mask;
 use vortex_session::registry::Id;
 
 use crate::plan::PlanChildren;
+use crate::plan::exec::ExecContext;
 use crate::plan::exec::ExecNode;
 use crate::plan::typed::Plan;
 
@@ -74,12 +75,17 @@ pub trait PlanVTable: 'static + Clone + Sized + Send + Sync + Debug {
     }
 
     /// Builds the push-based exec node that runs this plan over `rows` of its row domain,
-    /// restricted to `mask`.
+    /// restricted to `mask`, with the graph's `ctx`.
     ///
     /// Construction does no IO. Children are spawned and requests published when the graph
     /// starts the node.
-    fn exec(plan: &Plan<Self>, rows: Range<u64>, mask: Mask) -> VortexResult<Box<dyn ExecNode>> {
-        drop((rows, mask));
+    fn exec(
+        plan: &Plan<Self>,
+        rows: Range<u64>,
+        mask: Mask,
+        ctx: &ExecContext,
+    ) -> VortexResult<Box<dyn ExecNode>> {
+        drop((rows, mask, ctx));
         vortex_bail!("Plan {} has no exec implementation", plan.vtable().id())
     }
 }

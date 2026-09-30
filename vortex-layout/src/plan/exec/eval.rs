@@ -4,8 +4,8 @@
 use vortex_error::VortexResult;
 
 use crate::plan::EvalPlan;
+use crate::plan::exec::Event;
 use crate::plan::exec::ExecNode;
-use crate::plan::exec::Input;
 use crate::plan::exec::NodeState;
 use crate::plan::exec::Piece;
 use crate::plan::exec::StepCx;
@@ -42,18 +42,16 @@ impl ExecNode for EvalNode {
                 self.selection.mask().clone(),
             );
         }
-        for (_, input) in cx.take_inputs() {
-            match input {
-                Input::Piece(piece) => cx.emit(Piece {
+        for event in cx.events() {
+            match event {
+                Event::Piece(_, piece) => cx.emit(Piece {
                     rows: piece.rows,
                     array: piece.array.apply_bound(self.plan.expression())?,
                 }),
-                Input::Closed => {
-                    cx.close();
-                    return Ok(NodeState::Done);
-                }
+                Event::Closed(_) => return Ok(NodeState::Done),
+                event => return Err(event.unexpected("Eval")),
             }
         }
-        Ok(NodeState::Waiting)
+        Ok(NodeState::Wait)
     }
 }

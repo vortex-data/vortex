@@ -19,6 +19,7 @@ use crate::plan::PlanRef;
 use crate::plan::PlanVTable;
 use crate::plan::SegmentScan;
 use crate::plan::check_child_count;
+use crate::plan::exec::ExecContext;
 use crate::plan::exec::ExecNode;
 use crate::plan::exec::FilterNode;
 use crate::plan::exec::SegmentScanNode;
@@ -97,12 +98,18 @@ impl PlanVTable for Filter {
     /// Runs fused with a segment-scan child, as one [`SegmentScanNode`] that keeps the selected
     /// rows itself; over any other child, as a [`FilterNode`] that filters the child's whole
     /// pieces.
-    fn exec(plan: &Plan<Self>, rows: Range<u64>, mask: Mask) -> VortexResult<Box<dyn ExecNode>> {
+    fn exec(
+        plan: &Plan<Self>,
+        rows: Range<u64>,
+        mask: Mask,
+        ctx: &ExecContext,
+    ) -> VortexResult<Box<dyn ExecNode>> {
         let child = plan.child_plan()?;
         let Some(scan) = child.as_opt::<SegmentScan>() else {
             return Ok(Box::new(FilterNode::new(
                 plan.clone(),
                 Selection::try_new(rows, mask)?,
+                ctx.session().clone(),
             )));
         };
         let filter = Some(mask.clone());
@@ -110,6 +117,7 @@ impl PlanVTable for Filter {
             scan.clone(),
             Selection::try_new(rows, mask)?,
             filter,
+            ctx.clone(),
         )?))
     }
 }

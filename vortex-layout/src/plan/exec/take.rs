@@ -7,12 +7,11 @@ use vortex_array::arrays::DictArray;
 use vortex_array::arrays::Shared;
 use vortex_array::arrays::SharedArray;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_mask::Mask;
 
 use crate::plan::TakePlan;
+use crate::plan::exec::Event;
 use crate::plan::exec::ExecNode;
-use crate::plan::exec::Input;
 use crate::plan::exec::NodeState;
 use crate::plan::exec::Piece;
 use crate::plan::exec::StepCx;
@@ -63,7 +62,6 @@ impl TakeNode {
         let rows = self.selection.rows().clone();
         if self.selection.mask().all_false() {
             cx.emit(empty_piece(self.plan.dtype(), rows));
-            cx.close();
             return Ok(false);
         }
         cx.spawn(
@@ -92,13 +90,13 @@ impl ExecNode for TakeNode {
                 return Ok(NodeState::Done);
             }
         }
-        for (port, input) in cx.take_inputs() {
-            match (port, input) {
-                (CODES, Input::Piece(piece)) => self.codes.push(piece),
-                (CODES, Input::Closed) => self.codes_open = false,
-                (VALUES, Input::Piece(piece)) => self.values.push(piece),
-                (VALUES, Input::Closed) => self.values_open = false,
-                (port, _) => vortex_bail!("Take has no input port {port}"),
+        for event in cx.events() {
+            match event {
+                Event::Piece(CODES, piece) => self.codes.push(piece),
+                Event::Closed(CODES) => self.codes_open = false,
+                Event::Piece(VALUES, piece) => self.values.push(piece),
+                Event::Closed(VALUES) => self.values_open = false,
+                event => return Err(event.unexpected("Take")),
             }
         }
         if self.joined.is_none() && !self.values_open {
@@ -116,7 +114,7 @@ impl ExecNode for TakeNode {
             self.joined = Some(self.plan.cache_values(values));
         }
         let Some(values) = &self.joined else {
-            return Ok(NodeState::Waiting);
+            return Ok(NodeState::Wait);
         };
         for piece in self.codes.drain(..) {
             cx.emit(Piece {
@@ -125,9 +123,8 @@ impl ExecNode for TakeNode {
             });
         }
         if self.codes_open {
-            return Ok(NodeState::Waiting);
+            return Ok(NodeState::Wait);
         }
-        cx.close();
         Ok(NodeState::Done)
     }
 }

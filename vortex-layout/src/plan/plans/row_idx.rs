@@ -33,6 +33,7 @@ use crate::plan::PlanParts;
 use crate::plan::PlanRef;
 use crate::plan::PlanVTable;
 use crate::plan::check_child_count;
+use crate::plan::exec::ExecContext;
 use crate::plan::exec::ExecNode;
 use crate::plan::exec::RowIdxNode;
 use crate::plan::exec::Selection;
@@ -92,8 +93,16 @@ impl PlanVTable for RowIdx {
         check_child_count("RowIdx", children, 0)
     }
 
-    fn exec(_plan: &Plan<Self>, rows: Range<u64>, mask: Mask) -> VortexResult<Box<dyn ExecNode>> {
-        Ok(Box::new(RowIdxNode::new(Selection::try_new(rows, mask)?)))
+    fn exec(
+        _plan: &Plan<Self>,
+        rows: Range<u64>,
+        mask: Mask,
+        ctx: &ExecContext,
+    ) -> VortexResult<Box<dyn ExecNode>> {
+        Ok(Box::new(RowIdxNode::new(
+            Selection::try_new(rows, mask)?,
+            ctx.row_offset(),
+        )))
     }
 }
 

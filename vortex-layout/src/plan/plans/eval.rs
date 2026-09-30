@@ -20,6 +20,7 @@ use crate::plan::PlanRef;
 use crate::plan::PlanVTable;
 use crate::plan::check_child_count;
 use crate::plan::exec::EvalNode;
+use crate::plan::exec::ExecContext;
 use crate::plan::exec::ExecNode;
 use crate::plan::exec::Selection;
 use crate::plan::optimizer::PlanReduceRule;
@@ -119,7 +120,12 @@ impl PlanVTable for Eval {
         }
     }
 
-    fn exec(plan: &Plan<Self>, rows: Range<u64>, mask: Mask) -> VortexResult<Box<dyn ExecNode>> {
+    fn exec(
+        plan: &Plan<Self>,
+        rows: Range<u64>,
+        mask: Mask,
+        _ctx: &ExecContext,
+    ) -> VortexResult<Box<dyn ExecNode>> {
         Ok(Box::new(EvalNode::new(
             plan.clone(),
             Selection::try_new(rows, mask)?,
