@@ -1412,11 +1412,13 @@ async fn write_nullable_top_level_struct() -> VortexResult<()> {
     .into_array();
 
     let mut writer = vec![];
-    let error = SESSION
+    let Err(error) = SESSION
         .write_options()
         .write(&mut writer, array.to_array_stream())
         .await
-        .unwrap_err();
+    else {
+        panic!("writing a nullable top-level struct must fail");
+    };
 
     assert!(
         error
