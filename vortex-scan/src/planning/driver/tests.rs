@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+use std::task::Waker;
+
 use rstest::rstest;
 use vortex_array::assert_arrays_eq;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
-use vortex_io::request::IoTarget;
+use vortex_io::request::IoRequest;
 
 use super::*;
 use crate::planning::next::pending;
@@ -22,7 +25,7 @@ fn request(id: u32, offset: u64) -> IoRequest {
     IoRequest {
         intent: IoIntent::Fetch,
         request: IoRequestId(id),
-        target: IoTarget::Range { offset, len: 4 },
+        target: IoTarget::range(offset, 4),
     }
 }
 
@@ -138,15 +141,13 @@ fn needs_io_delivers_every_request_in_order() -> VortexResult<()> {
     assert!(batches.is_empty());
     assert_eq!(
         source.performed(),
-        vec![
-            IoTarget::Range { offset: 4, len: 4 },
-            IoTarget::Range { offset: 0, len: 4 },
-        ]
+        vec![IoTarget::range(4, 4), IoTarget::range(0, 4)]
     );
     assert_eq!(
         log.events(),
         vec![
             "start root",
+            "publish root",
             "deliver root 0 bytes",
             "deliver root 1 bytes",
             "compute root",
@@ -155,28 +156,29 @@ fn needs_io_delivers_every_request_in_order() -> VortexResult<()> {
     Ok(())
 }
 
+/// A fetch published while CPU work is left is performed once, and delivered when the planner
+/// gets round to waiting for it.
 #[test]
-fn compute_needs_io_is_registered_once() -> VortexResult<()> {
+fn fetch_published_ahead_is_delivered_when_awaited() -> VortexResult<()> {
     let log = Log::default();
     let source = source();
     let root = ScriptedPlanner::pending(
         "root",
         vec![
             PlannerStep::NeedsIO(vec![request(0, 0)]),
-            PlannerStep::Io(vec![request(0, 0)]),
+            PlannerStep::Continue,
+            PlannerStep::Await(vec![IoRequestId(0)]),
             PlannerStep::Done,
         ],
         &log,
     );
     driver(&source).run(root)?;
-    assert_eq!(
-        source.performed(),
-        vec![IoTarget::Range { offset: 0, len: 4 }]
-    );
+    assert_eq!(source.performed(), vec![IoTarget::range(0, 4)]);
     assert_eq!(
         log.events(),
         vec![
             "start root",
+            "compute root",
             "compute root",
             "deliver root 0 bytes",
             "compute root",
@@ -212,7 +214,7 @@ fn continue_requeues() -> VortexResult<()> {
 fn io_failure_propagates_after_two_performs() -> VortexResult<()> {
     let log = Log::default();
     let source = source();
-    source.fail(IoTarget::Range { offset: 4, len: 4 }, "disk on fire");
+    source.fail(IoTarget::range(4, 4), "disk on fire");
     let root = ScriptedPlanner::pending(
         "root",
         vec![
@@ -245,16 +247,14 @@ fn completions_out_of_order_within_one_batch() -> VortexResult<()> {
     driver(&source).run(root)?;
     assert_eq!(
         source.performed(),
-        vec![
-            IoTarget::Range { offset: 0, len: 4 },
-            IoTarget::Range { offset: 4, len: 4 },
-        ],
+        vec![IoTarget::range(0, 4), IoTarget::range(4, 4)],
         "submitted in request order"
     );
     assert_eq!(
         log.events(),
         vec![
             "start root",
+            "publish root",
             "deliver root 1 bytes",
             "deliver root 0 bytes",
             "compute root",
@@ -299,7 +299,7 @@ fn completions_out_of_order_across_parked_items() -> VortexResult<()> {
 fn lying_source_fails_before_delivery() -> VortexResult<()> {
     let log = Log::default();
     let source = source();
-    source.answer_with_size(IoTarget::Range { offset: 0, len: 4 }, 4);
+    source.answer_with_size(IoTarget::range(0, 4), 4);
     let root = ScriptedPlanner::pending(
         "root",
         vec![PlannerStep::Io(vec![request(0, 0)]), PlannerStep::Done],
@@ -310,7 +310,7 @@ fn lying_source_fails_before_delivery() -> VortexResult<()> {
         err.as_deref().is_some_and(|m| m.contains("answered")),
         "{err:?}"
     );
-    assert_eq!(log.events(), vec!["start root"]);
+    assert_eq!(log.events(), vec!["start root", "publish root"]);
     Ok(())
 }
 
@@ -336,7 +336,6 @@ fn morsel_needs_io_midway() -> VortexResult<()> {
                 scope(0..4),
                 vec![
                     MorselStep::Compute(MorselOutput::Batch(array_of(1))),
-                    MorselStep::Compute(MorselOutput::NeedsIO(vec![request(0, 0)])),
                     MorselStep::Io(vec![request(0, 0)]),
                     MorselStep::Compute(MorselOutput::Batch(array_of(2))),
                     MorselStep::Compute(MorselOutput::Done),
@@ -353,36 +352,28 @@ fn morsel_needs_io_midway() -> VortexResult<()> {
     Ok(())
 }
 
-#[test]
-fn relisted_delivered_id_is_a_protocol_error() -> VortexResult<()> {
-    let log = Log::default();
-    let root = ScriptedPlanner::pending(
-        "root",
-        vec![
-            PlannerStep::Io(vec![request(0, 0)]),
-            PlannerStep::Io(vec![request(0, 0)]),
-            PlannerStep::Done,
-        ],
-        &log,
-    );
-    let err = driver(&source()).run(root).err().map(|e| e.to_string());
-    assert!(
-        err.as_deref()
-            .is_some_and(|m| m.contains("delivered on the previous visit")),
-        "{err:?}"
-    );
-    Ok(())
-}
-
 #[rstest]
 #[case::empty_batch(
-    PlannerStep::Morsel(scope(0..1), vec![MorselStep::Compute(MorselOutput::Batch(array_of(0)))]),
+    vec![PlannerStep::Morsel(scope(0..1), vec![MorselStep::Compute(MorselOutput::Batch(array_of(0)))])],
     "empty batch"
 )]
-#[case::empty_io(PlannerStep::Io(vec![]), "empty batch")]
-fn protocol_errors(#[case] step: PlannerStep, #[case] message: &str) -> VortexResult<()> {
+#[case::empty_io(vec![PlannerStep::Io(vec![])], "empty batch")]
+#[case::republished_fetch(
+    vec![
+        PlannerStep::NeedsIO(vec![request(0, 0)]),
+        PlannerStep::NeedsIO(vec![request(0, 0)]),
+    ],
+    "published while it is outstanding"
+)]
+#[case::waiting_for_nothing(vec![PlannerStep::Wait], "waits with no outstanding fetch")]
+#[case::still_waiting_after_the_last_delivery(
+    vec![PlannerStep::Io(vec![request(0, 0)]), PlannerStep::Wait],
+    "waits with no outstanding fetch"
+)]
+fn protocol_errors(#[case] mut steps: Vec<PlannerStep>, #[case] message: &str) -> VortexResult<()> {
     let log = Log::default();
-    let root = ScriptedPlanner::pending("root", vec![step, PlannerStep::Done], &log);
+    steps.push(PlannerStep::Done);
+    let root = ScriptedPlanner::pending("root", steps, &log);
     let err = driver(&source()).run(root).err().map(|e| e.to_string());
     assert!(
         err.as_deref().is_some_and(|m| m.contains(message)),
@@ -454,8 +445,8 @@ fn optional_requests_cannot_be_wait_dependencies() -> VortexResult<()> {
         .run(root)
         .err()
         .map(|error| error.to_string());
-    assert!(error.is_some_and(|error| error.contains("only wait for Fetch")));
-    assert!(source.submissions().is_empty());
+    assert!(error.is_some_and(|error| error.contains("waits with no outstanding fetch")));
+    assert!(source.performed().is_empty());
     Ok(())
 }
 
@@ -476,5 +467,192 @@ fn optional_registration_can_be_promoted_to_fetch() -> VortexResult<()> {
     driver(&source).run(root)?;
     assert_eq!(source.submissions().len(), 2);
     assert_eq!(source.performed().len(), 1);
+    Ok(())
+}
+
+const _: () = {
+    const fn assert_send<T: Send>() {}
+    assert_send::<Run>();
+};
+
+fn ready_root(name: &'static str, log: &Log, rows: Range<u64>) -> Box<dyn PendingPlanner> {
+    ScriptedPlanner::pending(
+        name,
+        vec![one_batch_morsel(scope(rows), 1), PlannerStep::Done],
+        log,
+    )
+}
+
+fn reading_root(name: &'static str, log: &Log, rows: Range<u64>) -> Box<dyn PendingPlanner> {
+    ScriptedPlanner::pending(
+        name,
+        vec![
+            PlannerStep::Io(vec![request(0, 0)]),
+            one_batch_morsel(scope(rows), 2),
+            PlannerStep::Done,
+        ],
+        log,
+    )
+}
+
+/// Drains `run` until it waits or idles, describing what it handed back.
+fn drain(run: &mut Run) -> VortexResult<Vec<String>> {
+    let mut events = Vec::new();
+    loop {
+        events.push(match run.advance()? {
+            Progress::Batch(batch) => format!("batch {:?} {:?}", batch.root, batch.scope.rows),
+            Progress::RootDone(root) => format!("done {root:?}"),
+            Progress::Waiting => {
+                events.push("waiting".to_string());
+                return Ok(events);
+            }
+            Progress::Idle => {
+                events.push("idle".to_string());
+                return Ok(events);
+            }
+        });
+    }
+}
+
+/// Roots run side by side: a root with ready work finishes while another waits for its read, and
+/// each root reads through, and finally clears, its own session.
+#[test]
+fn roots_finish_independently() -> VortexResult<()> {
+    let log = Log::default();
+    let (reading_io, ready_io) = (source(), source());
+    let mut run = Run::new().with_step_limit(1_000);
+    let reading = run.admit(
+        reading_root("reading", &log, 0..2),
+        scope(0..2),
+        Arc::clone(&reading_io) as Arc<dyn IoSource>,
+    );
+    let ready = run.admit(
+        ready_root("ready", &log, 2..3),
+        scope(2..3),
+        Arc::clone(&ready_io) as Arc<dyn IoSource>,
+    );
+    assert_eq!((reading, ready), (RootId(0), RootId(1)));
+    assert_eq!(run.live_roots(), 2);
+
+    assert_eq!(
+        drain(&mut run)?,
+        vec!["batch RootId(1) 2..3", "done RootId(1)", "waiting"]
+    );
+    assert_eq!(run.live_roots(), 1);
+    assert_eq!((reading_io.clears(), ready_io.clears()), (0, 1));
+    assert!(ready_io.submissions().is_empty());
+
+    run.complete(reading_io.wait()?)?;
+    assert_eq!(
+        drain(&mut run)?,
+        vec!["batch RootId(0) 0..2", "done RootId(0)", "idle"]
+    );
+    assert_eq!(run.live_roots(), 0);
+    assert_eq!(reading_io.clears(), 1);
+    Ok(())
+}
+
+#[test]
+fn poll_completion_delivers_from_every_waiting_root() -> VortexResult<()> {
+    let log = Log::default();
+    let sources = [source(), source()];
+    let mut run = Run::new().with_step_limit(1_000);
+    for (index, io) in sources.iter().enumerate() {
+        let rows = index as u64..index as u64 + 1;
+        run.admit(
+            reading_root("root", &log, rows.clone()),
+            scope(rows),
+            Arc::clone(io) as Arc<dyn IoSource>,
+        );
+    }
+    assert_eq!(drain(&mut run)?, vec!["waiting"]);
+    let mut cx = Context::from_waker(Waker::noop());
+    assert!(matches!(run.poll_completion(&mut cx), Poll::Ready(Ok(()))));
+    let mut events = drain(&mut run)?;
+    events.sort();
+    assert_eq!(
+        events,
+        vec![
+            "batch RootId(0) 0..1",
+            "batch RootId(1) 1..2",
+            "done RootId(0)",
+            "done RootId(1)",
+            "idle",
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+fn cancel_drops_a_roots_work_and_clears_its_session() -> VortexResult<()> {
+    let log = Log::default();
+    let (cancelled_io, kept_io) = (source(), source());
+    let mut run = Run::new().with_step_limit(1_000);
+    let cancelled = run.admit(
+        reading_root("cancelled", &log, 0..2),
+        scope(0..2),
+        Arc::clone(&cancelled_io) as Arc<dyn IoSource>,
+    );
+    run.admit(
+        reading_root("kept", &log, 2..4),
+        scope(2..4),
+        Arc::clone(&kept_io) as Arc<dyn IoSource>,
+    );
+    assert_eq!(drain(&mut run)?, vec!["waiting"]);
+
+    run.cancel(cancelled);
+    assert_eq!(run.live_roots(), 1);
+    assert_eq!(cancelled_io.clears(), 1);
+    run.complete(kept_io.wait()?)?;
+    assert_eq!(
+        drain(&mut run)?,
+        vec!["batch RootId(1) 2..4", "done RootId(1)", "idle"]
+    );
+    assert!(
+        !log.events()
+            .contains(&"deliver cancelled 0 bytes".to_string())
+    );
+    Ok(())
+}
+
+#[test]
+fn dropping_a_run_clears_every_live_session() -> VortexResult<()> {
+    let log = Log::default();
+    let io = source();
+    let mut run = Run::new();
+    run.admit(
+        reading_root("root", &log, 0..2),
+        scope(0..2),
+        Arc::clone(&io) as Arc<dyn IoSource>,
+    );
+    assert_eq!(drain(&mut run)?, vec!["waiting"]);
+    drop(run);
+    assert_eq!(io.clears(), 1);
+    Ok(())
+}
+
+/// Waiting for M fetches costs the driver one delivery each, not a visit that re-lists the rest.
+#[test]
+fn a_waiting_item_is_not_revisited_per_delivery() -> VortexResult<()> {
+    const FETCHES: u32 = 64;
+    let log = Log::default();
+    let io = RecordingIoSource::default();
+    let batch: Vec<IoRequest> = (0..FETCHES)
+        .map(|id| {
+            io.canned_bytes(u64::from(id) * 4, buffer![0u8; 4].into_byte_buffer());
+            request(id, u64::from(id) * 4)
+        })
+        .collect();
+    let io = Arc::new(io);
+    let root = ScriptedPlanner::pending(
+        "root",
+        vec![PlannerStep::Io(batch), PlannerStep::Done],
+        &log,
+    );
+    // Start, publish, and the final compute: the deliveries in between cost no visit.
+    Driver::new(Arc::clone(&io) as Arc<dyn IoSource>)
+        .with_step_limit(3)
+        .run(root)?;
+    assert_eq!(io.performed().len(), FETCHES as usize);
     Ok(())
 }

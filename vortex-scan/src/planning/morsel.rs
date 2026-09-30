@@ -7,22 +7,23 @@ use std::fmt;
 
 use vortex_array::ArrayRef;
 use vortex_error::VortexResult;
-
 use vortex_io::request::IoBatch;
 use vortex_io::request::IoConsumer;
+
 pub use crate::planning::planner::State;
 
 /// What one morsel `compute()` produced.
 ///
 /// A `Batch` is never empty; a morsel that finds no rows returns `Done`. Returning `NeedsIO`
-/// registers the batch immediately; the next `state()` determines whether the morsel waits.
-/// Optional requests need no delivery. After `Done` the morsel is dropped without further calls.
+/// registers the batch immediately, and each request in it exactly once; the next `state()`
+/// determines whether the morsel waits. Optional requests need no delivery. After `Done` the
+/// morsel is dropped without further calls.
 pub enum MorselOutput {
     /// The morsel has finished.
     Done,
     /// A CPU-only checkpoint; the driver requeues the morsel.
     Continue,
-    /// The morsel discovered a batch of IO it needs.
+    /// Requests the morsel publishes: fetches it needs, and optional hints.
     NeedsIO(IoBatch),
     /// One non-empty array of selected rows, in input-row order.
     Batch(ArrayRef),
@@ -42,8 +43,9 @@ impl fmt::Debug for MorselOutput {
 /// A morsel produces arrays for an authorised piece of work.
 ///
 /// `state()` is called before every `compute()`, and `compute()` only when `state()` is
-/// `NeedsCompute`. Batches preserve selected input-row order within and across calls.
-pub trait Morsel: IoConsumer {
+/// `NeedsCompute`. Batches preserve selected input-row order within and across calls. A morsel
+/// moves between threads with the run that owns it.
+pub trait Morsel: IoConsumer + Send {
     /// Reports what the morsel needs next without doing work.
     fn state(&self) -> State;
 

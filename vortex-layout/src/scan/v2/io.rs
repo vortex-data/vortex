@@ -23,6 +23,7 @@ use vortex_io::request::IoBatch;
 use vortex_io::request::IoIntent;
 use vortex_io::request::IoOwnerId;
 use vortex_io::request::IoResult;
+use vortex_io::request::IoService;
 use vortex_io::request::IoSource;
 use vortex_io::request::IoTarget;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -43,22 +44,10 @@ pub(super) fn segment_ranges(locations: &[SegmentLocation]) -> SegmentRanges {
     Arc::new(ranges.collect())
 }
 
-/// The IO a scan's splits read through: one [`SplitIo`] per split's driver run.
-///
-/// A file opened for reading provides one that drives the file's coalescing reads directly. Any
-/// other segment source is served by [`SegmentScanIo`].
-pub trait ScanIo: Send + Sync {
-    /// A fresh source for one split's driver run.
-    fn split_io(&self) -> Arc<dyn SplitIo>;
-}
-
-/// One split's IO: the protocol's [`IoSource`], which the split can also wait on without blocking.
-pub trait SplitIo: IoSource {
-    /// The next completed fetch, registering `cx` to be woken when one completes.
-    fn poll_completion(&self, cx: &mut Context<'_>) -> Poll<VortexResult<Completion>>;
-}
-
 /// Serves splits from any [`SegmentSource`], by segment id.
+///
+/// A file opened for reading provides an [`IoService`] that drives the file's coalescing reads
+/// directly. Any other segment source is served by this one.
 pub(super) struct SegmentScanIo {
     segments: Arc<dyn SegmentSource>,
     ranges: SegmentRanges,
@@ -70,8 +59,8 @@ impl SegmentScanIo {
     }
 }
 
-impl ScanIo for SegmentScanIo {
-    fn split_io(&self) -> Arc<dyn SplitIo> {
+impl IoService for SegmentScanIo {
+    fn session(&self) -> Arc<dyn IoSource> {
         Arc::new(SegmentIoSource::new(
             Arc::clone(&self.segments),
             Arc::clone(&self.ranges),
@@ -83,8 +72,8 @@ impl ScanIo for SegmentScanIo {
 ///
 /// Each requested range names one segment. [`submit`](IoSource::submit) starts its read at once,
 /// [`poll`](IoSource::poll) takes a finished one if there is any, and the split's future awaits
-/// the next with [`poll_completion`](SplitIo::poll_completion) when the driver has nothing else to
-/// run. [`wait`](IoSource::wait) is never called. Optional intents are declined.
+/// the next with [`poll_completion`](IoSource::poll_completion) when the driver has nothing else
+/// to run. [`wait`](IoSource::wait) is never called.
 ///
 /// An announcement requests the segment and holds the request, never polled, until the source is
 /// dropped, so a source that coalesces registered requests can fold it into a nearby read.
@@ -113,24 +102,12 @@ impl SegmentIoSource {
     }
 }
 
-impl SplitIo for SegmentIoSource {
-    fn poll_completion(&self, cx: &mut Context<'_>) -> Poll<VortexResult<Completion>> {
-        match self.reads.lock().poll_next_unpin(cx) {
-            Poll::Ready(Some(completion)) => Poll::Ready(Ok(completion)),
-            Poll::Ready(None) => Poll::Ready(Err(vortex_err!(
-                "The split's driver is waiting with no reads in flight"
-            ))),
-            Poll::Pending => Poll::Pending,
-        }
-    }
-}
-
 impl IoSource for SegmentIoSource {
     fn submit(&self, owner: IoOwnerId, batch: IoBatch) -> VortexResult<()> {
         let reads = self.reads.lock();
         let mut prefetched = self.prefetched.lock();
         for request in batch {
-            let IoTarget::Range { offset, len } = request.target else {
+            let IoTarget::Range { offset, len, .. } = request.target else {
                 vortex_bail!(
                     "SegmentIoSource only serves byte ranges, not {:?}",
                     request.target
@@ -197,6 +174,16 @@ impl IoSource for SegmentIoSource {
         }
     }
 
+    fn poll_completion(&self, cx: &mut Context<'_>) -> Poll<VortexResult<Completion>> {
+        match self.reads.lock().poll_next_unpin(cx) {
+            Poll::Ready(Some(completion)) => Poll::Ready(Ok(completion)),
+            Poll::Ready(None) => Poll::Ready(Err(vortex_err!(
+                "The split's driver is waiting with no reads in flight"
+            ))),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+
     fn wait(&self) -> VortexResult<Completion> {
         vortex_bail!("SegmentIoSource is awaited through poll_completion, not waited on")
     }
@@ -228,7 +215,6 @@ mod tests {
     use vortex_io::request::IoTarget;
 
     use super::SegmentIoSource;
-    use super::SplitIo;
     use super::segment_ranges;
     use crate::scan::planning::SegmentLocation;
     use crate::segments::SegmentFuture;
@@ -251,7 +237,7 @@ mod tests {
         IoRequest {
             intent,
             request: IoRequestId(id),
-            target: IoTarget::Range { offset: 0, len: 4 },
+            target: IoTarget::range(0, 4),
         }
     }
 

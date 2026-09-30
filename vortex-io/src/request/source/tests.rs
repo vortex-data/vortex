@@ -6,6 +6,7 @@ use std::sync::LazyLock;
 use futures::future::BoxFuture;
 use rstest::rstest;
 use vortex_array::buffer::BufferHandle;
+use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::buffer;
 
@@ -17,7 +18,7 @@ fn request(intent: IoIntent) -> IoRequest {
     IoRequest {
         intent,
         request: IoRequestId(0),
-        target: IoTarget::Range { offset: 0, len: 4 },
+        target: IoTarget::range(0, 4),
     }
 }
 
@@ -35,7 +36,7 @@ fn optional_hints_can_be_declined(#[case] intent: IoIntent) -> VortexResult<()> 
 #[test]
 fn registration_does_not_read_and_delivery_keeps_its_identity() -> VortexResult<()> {
     let read = Arc::new(RecordingReadAt::new(buffer![7u8; 4].into_byte_buffer()));
-    let source = ReadAtIoSource::new(read.clone(), Arc::new(RUNTIME.clone()));
+    let source = ReadAtIoSource::new(Arc::clone(&read) as _, Arc::new(RUNTIME.clone()));
     source.submit(IoOwnerId(3), vec![request(IoIntent::Fetch)])?;
     assert!(read.reads().is_empty());
     let completion = source.wait()?;
@@ -57,6 +58,31 @@ fn retirement_and_run_cleanup_cancel_queued_reads() -> VortexResult<()> {
     assert_eq!(source.queued.lock()[0].0, IoOwnerId(2));
     source.clear();
     assert!(source.queued.lock().is_empty());
+    Ok(())
+}
+
+#[test]
+fn a_range_is_read_at_its_alignment() -> VortexResult<()> {
+    let read = Arc::new(RecordingReadAt::new(buffer![7u8; 16].into_byte_buffer()));
+    let source = ReadAtIoSource::new(Arc::clone(&read) as _, Arc::new(RUNTIME.clone()));
+    let alignment = Alignment::new(8);
+    source.submit(
+        IoOwnerId(0),
+        vec![IoRequest {
+            intent: IoIntent::Fetch,
+            request: IoRequestId(0),
+            target: IoTarget::Range {
+                offset: 3,
+                len: 8,
+                alignment,
+            },
+        }],
+    )?;
+    let IoResult::Bytes(bytes) = source.wait()?.result? else {
+        vortex_bail!("expected bytes");
+    };
+    assert!(bytes.try_into_host_sync()?.is_aligned(alignment));
+    assert_eq!(read.alignments(), vec![alignment]);
     Ok(())
 }
 
@@ -86,15 +112,24 @@ impl VortexReadAt for PanickingReadAt {
 struct RecordingReadAt {
     buffer: ByteBuffer,
     reads: Mutex<Vec<(u64, usize)>>,
+    alignments: Mutex<Vec<Alignment>>,
 }
 
 impl RecordingReadAt {
     fn new(buffer: ByteBuffer) -> Self {
-        Self { buffer, reads: Mutex::default() }
+        Self {
+            buffer,
+            reads: Mutex::default(),
+            alignments: Mutex::default(),
+        }
     }
 
     fn reads(&self) -> Vec<(u64, usize)> {
         self.reads.lock().clone()
+    }
+
+    fn alignments(&self) -> Vec<Alignment> {
+        self.alignments.lock().clone()
     }
 }
 
@@ -114,6 +149,7 @@ impl VortexReadAt for RecordingReadAt {
         alignment: Alignment,
     ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
         self.reads.lock().push((offset, len));
+        self.alignments.lock().push(alignment);
         self.buffer.read_at(offset, len, alignment)
     }
 }

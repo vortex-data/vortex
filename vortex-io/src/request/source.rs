@@ -5,23 +5,24 @@
 
 use std::collections::VecDeque;
 use std::sync::Arc;
+use std::task::Context;
+use std::task::Poll;
 
 use parking_lot::Mutex;
-use vortex_buffer::Alignment;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use crate::VortexReadAt;
-use crate::runtime::BlockingRuntime;
 
 use super::Completion;
 use super::IoBatch;
 use super::IoIntent;
+use super::IoOwnerId;
 use super::IoRequest;
 use super::IoResult;
 use super::IoSource;
 use super::IoTarget;
-use super::IoOwnerId;
+use crate::VortexReadAt;
+use crate::runtime::BlockingRuntime;
 
 /// A simple source that registers batches and performs one fetch per `wait()`.
 /// Optional hints are declined. Shared reads, prefetching, and priority scheduling
@@ -46,7 +47,7 @@ impl<R: BlockingRuntime> ReadAtIoSource<R> {
 impl<R: BlockingRuntime + Send + Sync> IoSource for ReadAtIoSource<R> {
     fn submit(&self, work: IoOwnerId, batch: IoBatch) -> VortexResult<()> {
         for request in &batch {
-            if let IoTarget::Range { offset, len } = &request.target
+            if let IoTarget::Range { offset, len, .. } = &request.target
                 && offset.checked_add(*len as u64).is_none()
             {
                 vortex_bail!("ReadAtIoSource: range overflow for {:?}", request.request);
@@ -65,6 +66,11 @@ impl<R: BlockingRuntime + Send + Sync> IoSource for ReadAtIoSource<R> {
         Ok(None)
     }
 
+    /// Performs the next queued read on the polling thread: this source has no background IO.
+    fn poll_completion(&self, _cx: &mut Context<'_>) -> Poll<VortexResult<Completion>> {
+        Poll::Ready(self.wait())
+    }
+
     fn wait(&self) -> VortexResult<Completion> {
         let (work, request) = self
             .queued
@@ -73,9 +79,13 @@ impl<R: BlockingRuntime + Send + Sync> IoSource for ReadAtIoSource<R> {
             .ok_or_else(|| vortex_err!("ReadAtIoSource: wait with nothing outstanding"))?;
         let result = match request.target {
             IoTarget::Size => self.runtime.block_on(self.read.size()).map(IoResult::Size),
-            IoTarget::Range { offset, len } => self
+            IoTarget::Range {
+                offset,
+                len,
+                alignment,
+            } => self
                 .runtime
-                .block_on(self.read.read_at(offset, len, Alignment::none()))
+                .block_on(self.read.read_at(offset, len, alignment))
                 .map(IoResult::Bytes),
         };
         Ok(Completion {

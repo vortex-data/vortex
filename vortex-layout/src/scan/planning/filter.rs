@@ -18,7 +18,6 @@ use vortex_io::request::IoIntent;
 use vortex_io::request::IoRequest;
 use vortex_io::request::IoRequestId;
 use vortex_io::request::IoResult;
-use vortex_io::request::IoTarget;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 use vortex_scan::planning::next::Next;
@@ -238,10 +237,7 @@ impl FilterPlanner {
                 Ok(IoRequest {
                     intent: IoIntent::Prefetch,
                     request,
-                    target: IoTarget::Range {
-                        offset: location.offset,
-                        len: location.length as usize,
-                    },
+                    target: location.target(),
                 })
             })
             .collect()

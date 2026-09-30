@@ -36,10 +36,9 @@ use vortex_io::request::IoBatch;
 use vortex_io::request::IoIntent;
 use vortex_io::request::IoOwnerId;
 use vortex_io::request::IoResult;
+use vortex_io::request::IoService;
 use vortex_io::request::IoSource;
 use vortex_io::request::IoTarget;
-use vortex_layout::scan::v2::ScanIo;
-use vortex_layout::scan::v2::SplitIo;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::read::ReadRequest;
@@ -61,8 +60,6 @@ pub struct FileScanIo {
     /// source may be dropped while the scan's splits still read.
     _driver: SharedDriver,
     next_id: Arc<AtomicUsize>,
-    /// The alignment of each segment's bytes, by byte range, so the driver reads it aligned.
-    alignments: Arc<HashMap<(u64, usize), Alignment>>,
 }
 
 impl FileScanIo {
@@ -70,19 +67,17 @@ impl FileScanIo {
         events: mpsc::UnboundedSender<ReadEvent>,
         driver: SharedDriver,
         next_id: Arc<AtomicUsize>,
-        alignments: Arc<HashMap<(u64, usize), Alignment>>,
     ) -> Self {
         Self {
             events,
             _driver: driver,
             next_id,
-            alignments,
         }
     }
 }
 
-impl ScanIo for FileScanIo {
-    fn split_io(&self) -> Arc<dyn SplitIo> {
+impl IoService for FileScanIo {
+    fn session(&self) -> Arc<dyn IoSource> {
         Arc::new(FileSplitIo {
             io: self.clone(),
             state: Mutex::default(),
@@ -112,16 +107,10 @@ struct Read {
 }
 
 impl FileSplitIo {
-    /// Registers a read of `offset..offset + len` with the driver.
-    fn register(&self, offset: u64, len: usize) -> VortexResult<Read> {
+    /// Registers a read of `offset..offset + len`, aligned to `alignment`, with the driver.
+    fn register(&self, offset: u64, len: usize, alignment: Alignment) -> VortexResult<Read> {
         let id = self.io.next_id.fetch_add(1, Ordering::Relaxed);
         let (callback, receiver) = oneshot::channel();
-        let alignment = self
-            .io
-            .alignments
-            .get(&(offset, len))
-            .copied()
-            .unwrap_or_else(Alignment::none);
         self.io
             .events
             .unbounded_send(ReadEvent::Request(ReadRequest {
@@ -165,12 +154,17 @@ impl IoSource for FileSplitIo {
     fn submit(&self, owner: IoOwnerId, batch: IoBatch) -> VortexResult<()> {
         let mut state = self.state.lock();
         for request in batch {
-            let IoTarget::Range { offset, len } = request.target else {
+            let IoTarget::Range {
+                offset,
+                len,
+                alignment,
+            } = request.target
+            else {
                 vortex_bail!("a split's IO serves byte ranges, not {:?}", request.target);
             };
             let read = match state.reads.remove(&(offset, len)) {
                 Some(read) => read,
-                None => self.register(offset, len)?,
+                None => self.register(offset, len, alignment)?,
             };
             let mut read = read;
             if request.intent != IoIntent::Announce {
@@ -206,6 +200,16 @@ impl IoSource for FileSplitIo {
         }
     }
 
+    fn poll_completion(&self, cx: &mut Context<'_>) -> Poll<VortexResult<Completion>> {
+        match self.state.lock().fetches.poll_next_unpin(cx) {
+            Poll::Ready(Some(completion)) => Poll::Ready(Ok(completion)),
+            Poll::Ready(None) => Poll::Ready(Err(vortex_err!(
+                "the split's driver is waiting with no fetch in flight"
+            ))),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+
     fn wait(&self) -> VortexResult<Completion> {
         vortex_bail!("a split's IO is awaited through poll_completion, not waited on")
     }
@@ -217,18 +221,6 @@ impl IoSource for FileSplitIo {
         state.fetches = FuturesUnordered::new();
         for (_, read) in state.reads.drain() {
             withdraw(&self.io.events, read);
-        }
-    }
-}
-
-impl SplitIo for FileSplitIo {
-    fn poll_completion(&self, cx: &mut Context<'_>) -> Poll<VortexResult<Completion>> {
-        match self.state.lock().fetches.poll_next_unpin(cx) {
-            Poll::Ready(Some(completion)) => Poll::Ready(Ok(completion)),
-            Poll::Ready(None) => Poll::Ready(Err(vortex_err!(
-                "the split's driver is waiting with no fetch in flight"
-            ))),
-            Poll::Pending => Poll::Pending,
         }
     }
 }

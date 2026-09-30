@@ -9,10 +9,10 @@ use vortex_error::VortexResult;
 
 use crate::planning::planner::Planner;
 
-/// Owned, unstarted work that can move to a worker.
+/// Owned, unstarted work.
 ///
-/// `start()` runs at most once, on the worker that will own the live planner. Substantial
-/// planning belongs in the planner's `compute()`, not here.
+/// `start()` runs at most once, on the worker whose run admitted the work. Substantial planning
+/// belongs in the planner's `compute()`, not here.
 pub trait PendingPlanner: Send {
     /// Consumes the pending work and constructs the live planner.
     fn start(self: Box<Self>) -> VortexResult<Box<dyn Planner>>;
@@ -62,18 +62,15 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::cell::Cell;
-    use std::rc::Rc;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
 
     use vortex_error::vortex_bail;
-    use vortex_error::vortex_err;
-
-    use super::*;
     use vortex_io::request::IoConsumer;
     use vortex_io::request::IoRequestId;
     use vortex_io::request::IoResult;
+
+    use super::*;
     use crate::planning::planner::PlannerOutput;
     use crate::planning::planner::State;
 
@@ -122,40 +119,4 @@ mod tests {
         );
         Ok(())
     }
-
-    struct LocalPlanner(Rc<Cell<bool>>);
-
-    impl IoConsumer for LocalPlanner {
-        fn set_io_result(&mut self, _request: IoRequestId, _result: IoResult) {}
-    }
-
-    impl Planner for LocalPlanner {
-        fn state(&self) -> State {
-            if self.0.get() {
-                State::Done
-            } else {
-                State::NeedsCompute
-            }
-        }
-
-        fn compute(&mut self) -> VortexResult<PlannerOutput> {
-            self.0.set(true);
-            Ok(PlannerOutput::Done)
-        }
-    }
-
-    #[test]
-    fn pending_moves_to_worker_before_constructing_local_state() -> VortexResult<()> {
-        let pending = pending(|| Ok(Box::new(LocalPlanner(Rc::new(Cell::new(false))))));
-        std::thread::spawn(move || -> VortexResult<()> {
-            let mut planner = pending.start()?;
-            assert_eq!(planner.state(), State::NeedsCompute);
-            assert!(matches!(planner.compute()?, PlannerOutput::Done));
-            assert_eq!(planner.state(), State::Done);
-            Ok(())
-        })
-        .join()
-        .map_err(|_| vortex_err!("planner worker panicked"))?
-    }
-
 }

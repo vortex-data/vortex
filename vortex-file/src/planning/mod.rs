@@ -1,14 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Composable footer opening, file-statistics pruning, and filter-and-project over natural
-//! splits.
+//! Composable footer opening and file-statistics pruning.
 //!
 //! These stages use the explicit planning protocol independently of the existing
-//! file-opening and scan entry points. Survivors pass to a caller-supplied continuation, and
-//! [`plan_scan`] composes the whole chain for one file.
+//! file-opening and scan entry points. Survivors pass to a caller-supplied continuation;
+//! [`plan_file`] composes the chain for one file.
 
-pub mod filter_project;
 pub mod footer_open;
 pub mod footer_prune;
 
@@ -16,9 +14,9 @@ use std::sync::Arc;
 
 use vortex_array::expr::Expression;
 use vortex_io::VortexReadAt;
+use vortex_io::request::IoService;
 use vortex_layout::scan::planning::SegmentLocation;
 use vortex_layout::scan::v2::ScanFile;
-use vortex_layout::scan::v2::ScanIo;
 use vortex_scan::planning::next::Next;
 use vortex_scan::planning::next::PendingPlanner;
 use vortex_scan::planning::next::next_fn;
@@ -28,7 +26,6 @@ use vortex_session::VortexSession;
 
 use crate::Footer;
 use crate::VortexFile;
-use crate::planning::filter_project::FilterProject;
 use crate::planning::footer_open::DEFAULT_INITIAL_READ_SIZE;
 use crate::planning::footer_open::FooterOpen;
 use crate::planning::footer_prune::FooterPrune;
@@ -74,7 +71,7 @@ pub fn scan_file(file: &VortexFile) -> ScanFile {
         segments: file.segment_source(),
         io: file
             .scan_io()
-            .map(|io| Arc::new(io.clone()) as Arc<dyn ScanIo>),
+            .map(|io| Arc::new(io.clone()) as Arc<dyn IoService>),
     }
 }
 
@@ -105,29 +102,6 @@ pub fn plan_file(
             after_open,
         )) as Box<dyn Planner>)
     })
-}
-
-/// Composes footer opening, file-statistics pruning, and filter-and-project for one file.
-/// Every surviving natural split becomes one morsel whose data reads go through the protocol.
-pub fn plan_scan(
-    source: FileSource,
-    filter: Option<Expression>,
-    projection: Expression,
-    session: VortexSession,
-) -> Box<dyn PendingPlanner> {
-    let leaf: Next<OpenedFile> = {
-        let filter = filter.clone();
-        let session = session.clone();
-        next_fn(move |opened| {
-            Ok(FilterProject::new(
-                opened,
-                filter.clone(),
-                projection.clone(),
-                session.clone(),
-            ))
-        })
-    };
-    plan_file(source, filter, session, leaf)
 }
 
 #[cfg(test)]

@@ -10,12 +10,13 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
+use std::task::Context;
+use std::task::Poll;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use parking_lot::Mutex;
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
@@ -23,9 +24,7 @@ use vortex_array::array_session;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::buffer::BufferHandle;
-use vortex_array::dtype::DType;
 use vortex_array::dtype::session::DTypeSessionExt;
-use vortex_array::expr::Expression;
 use vortex_array::session::ArraySessionExt;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
@@ -353,47 +352,6 @@ pub fn ctx() -> ExecutionCtx {
     array_session().create_execution_ctx()
 }
 
-/// Writes the given chunks with a chunk-preserving strategy and asserts, through
-/// `VortexFile::splits`, that the natural splits equal the chunk ranges.
-pub fn write_chunked_test_file(columns: &[(&str, Vec<ArrayRef>)]) -> VortexResult<ByteBuffer> {
-    let array = zip_chunks(columns)?;
-    let buffer = write_with(chunk_preserving_strategy(), array)?;
-    let mut expected = Vec::new();
-    let mut start = 0u64;
-    for chunk in &columns[0].1 {
-        let end = start + chunk.len() as u64;
-        expected.push(start..end);
-        start = end;
-    }
-    assert_eq!(open_buffer(&buffer)?.splits()?, expected);
-    Ok(buffer)
-}
-
-/// Runs the existing scan over `buffer` with the same query, the reference for parity tests.
-pub fn reference_scan(
-    buffer: &ByteBuffer,
-    filter: Option<Expression>,
-    projection: Expression,
-) -> VortexResult<Vec<ArrayRef>> {
-    let file = open_buffer(buffer)?;
-    let filter = filter.map(|f| f.bind(file.dtype())).transpose()?;
-    let projection = projection.bind(file.dtype())?;
-    file.scan()?
-        .with_some_filter(filter)
-        .with_projection(projection)
-        .into_array_iter(&*RUNTIME)?
-        .collect()
-}
-
-/// Concatenates batches into one canonical array of `dtype`, so chunking does not affect
-/// comparison.
-pub fn concat(batches: Vec<ArrayRef>, dtype: &DType) -> VortexResult<ArrayRef> {
-    Ok(ChunkedArray::try_new(batches, dtype.clone())?
-        .into_array()
-        .execute::<Canonical>(&mut SESSION.create_execution_ctx())?
-        .into_array())
-}
-
 /// An [`IoSource`] over a real [`VortexReadAt`] that performs each fetch at submission and
 /// hands completions back newest first, so concurrently parked items complete in reverse
 /// submission order. Deterministic, unlike a source that races real reads.
@@ -434,8 +392,12 @@ impl IoSource for LifoReadAtIoSource {
             self.submitted.lock().push(owner);
             let result = match request.target {
                 IoTarget::Size => RUNTIME.block_on(self.read.size()).map(IoResult::Size),
-                IoTarget::Range { offset, len } => RUNTIME
-                    .block_on(self.read.read_at(offset, len, Alignment::none()))
+                IoTarget::Range {
+                    offset,
+                    len,
+                    alignment,
+                } => RUNTIME
+                    .block_on(self.read.read_at(offset, len, alignment))
                     .map(IoResult::Bytes),
             };
             self.ready.lock().push(Completion {
@@ -449,6 +411,10 @@ impl IoSource for LifoReadAtIoSource {
 
     fn poll(&self) -> VortexResult<Option<Completion>> {
         Ok(None)
+    }
+
+    fn poll_completion(&self, _cx: &mut Context<'_>) -> Poll<VortexResult<Completion>> {
+        Poll::Ready(self.wait())
     }
 
     fn wait(&self) -> VortexResult<Completion> {
