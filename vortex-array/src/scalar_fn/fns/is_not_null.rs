@@ -53,8 +53,6 @@ pub(crate) fn reduce_null<T: ReduceNode>(is_null: bool, node: &T) -> VortexResul
         return Ok(Some(node.new_constant((!is_null).into())));
     }
 
-    // Irreducible's validity is IsNotNull(self), if we rewrite it here, we'll
-    // get into infinite recursion
     if let ReduceNodeValidity::Reduced(validity) = child.validity()? {
         return Ok(Some(if is_null {
             validity.new_node(Not.bind(EmptyOptions), std::slice::from_ref(&validity))?

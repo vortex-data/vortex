@@ -83,6 +83,11 @@ fn execute_scalar_once(
     index: usize,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Scalar> {
+    // For some scalar functions executing validity is equal to executing the
+    // function itself. Thus execute_is_valid_once + probe_scalar_once do
+    // two evaluations instead of one. probe_scalar_once for such functions
+    // already gives you the nullable scalar, so skip the first check
+    // TODO(myrrc) this should be removed once we no longer probe validity here
     if !array.is::<ScalarFn>() && !execute_is_valid_once(array, index, ctx)? {
         return Ok(Scalar::null(array.dtype().clone()));
     }
