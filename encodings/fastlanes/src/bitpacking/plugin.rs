@@ -444,7 +444,7 @@ mod tests {
         8,
         0..3000,
     )]
-    #[case::sliced(PrimitiveArray::from_iter(0i32..=2048).into_array(), 9, 700..1900)]
+    #[case::sliced(PrimitiveArray::from_iter(0u32..3000).into_array(), 12, 700..1900)]
     fn serde_roundtrip(
         #[case] values: ArrayRef,
         #[case] bit_width: u8,
