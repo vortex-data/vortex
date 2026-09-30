@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::request::IoConsumer;
@@ -15,6 +16,7 @@ use vortex_scan::planning::morsel::MorselOutput;
 use vortex_scan::planning::planner::Planner;
 use vortex_scan::planning::planner::PlannerOutput;
 use vortex_scan::planning::planner::State;
+use vortex_scan::planning::planner::WorkScope;
 
 use crate::plan::exec::ExecGraph;
 use crate::plan::exec::Piece;
@@ -22,23 +24,40 @@ use crate::scan::planning::ScanPlans;
 use crate::scan::planning::SelectedRows;
 use crate::scan::planning::graph::GraphStep;
 use crate::scan::planning::graph::ProtocolGraph;
+use crate::scan::v2::splits::projection_splits;
 
-/// Turns a split's selected rows into the morsel that projects them.
+/// Turns a filter split's selected rows into the morsels that project them.
 ///
-/// Emits one [`ProjectionMorsel`] per selection and finishes. It is the place to divide a
-/// selection into several morsels, for example by bytes.
+/// The rows are cut into projection splits where the projection's chunks start, and each split
+/// with a selected row becomes one [`ProjectionMorsel`], so a morsel reads at most one chunk of
+/// every column. The planner finishes once it has handed out every morsel.
 pub struct ProjectionPlanner {
     plans: ScanPlans,
-    selected: Option<SelectedRows>,
+    /// The projection splits not yet handed out, last first.
+    pending: Vec<SelectedRows>,
 }
 
 impl ProjectionPlanner {
     /// Creates a planner for `selected`.
     pub fn new(plans: ScanPlans, selected: SelectedRows) -> Self {
-        Self {
-            plans,
-            selected: Some(selected),
-        }
+        let SelectedRows { scope, mask } = selected;
+        let start = scope.rows.start;
+        let index = |row: u64| usize::try_from(row - start).vortex_expect("split row fits usize");
+        let mut pending = projection_splits(&plans.projection_starts, scope.rows.clone())
+            .into_iter()
+            .filter_map(|rows| {
+                let mask = mask.slice(index(rows.start)..index(rows.end));
+                (!mask.all_false()).then(|| SelectedRows {
+                    scope: WorkScope {
+                        file_ordinal: scope.file_ordinal,
+                        rows,
+                    },
+                    mask,
+                })
+            })
+            .collect::<Vec<_>>();
+        pending.reverse();
+        Self { plans, pending }
     }
 }
 
@@ -48,15 +67,15 @@ impl IoConsumer for ProjectionPlanner {
 
 impl Planner for ProjectionPlanner {
     fn state(&self) -> State {
-        if self.selected.is_some() {
-            State::NeedsCompute
-        } else {
+        if self.pending.is_empty() {
             State::Done
+        } else {
+            State::NeedsCompute
         }
     }
 
     fn compute(&mut self) -> VortexResult<PlannerOutput> {
-        let Some(selected) = self.selected.take() else {
+        let Some(selected) = self.pending.pop() else {
             vortex_bail!("ProjectionPlanner: compute called after Done");
         };
         let scope = selected.scope.clone();

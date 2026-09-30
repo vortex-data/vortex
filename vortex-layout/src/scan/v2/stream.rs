@@ -34,7 +34,7 @@ pub fn into_stream<A: 'static + Send>(
     })
 }
 
-type Tasks<A> = Vec<BoxFuture<'static, VortexResult<Option<A>>>>;
+type Tasks<A> = Vec<BoxFuture<'static, VortexResult<Vec<A>>>>;
 
 enum State<A: 'static + Send> {
     Builder(Option<Box<(ScanBuilder<A>, ScanFile)>>),
@@ -66,8 +66,9 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
                     let num_workers = get_available_parallelism().unwrap_or(1);
                     let concurrency = builder.concurrency() * num_workers;
                     let handle = builder.session().handle();
-                    let task = handle
-                        .spawn_cpu(move || prepare(builder, file).and_then(|s| s.execute(None)));
+                    let task = handle.spawn_cpu(move || {
+                        prepare(builder, file).and_then(|s| s.execute_batches(None))
+                    });
                     self.state = State::Preparing {
                         ordered,
                         concurrency,
@@ -90,9 +91,15 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
                         } else {
                             stream.buffer_unordered(concurrency).boxed()
                         };
+                        // A task returns one batch per projection split of its filter split.
                         self.state = State::Stream(
                             stream
-                                .filter_map(|chunk| async move { chunk.transpose() })
+                                .flat_map(|batches| {
+                                    futures::stream::iter(match batches {
+                                        Ok(batches) => batches.into_iter().map(Ok).collect(),
+                                        Err(err) => vec![Err(err)],
+                                    })
+                                })
                                 .boxed(),
                         );
                     }

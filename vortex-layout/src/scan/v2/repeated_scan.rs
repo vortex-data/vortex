@@ -11,14 +11,22 @@ use futures::future::BoxFuture;
 use itertools::Either;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::arrays::ChunkedArray;
+use vortex_array::arrays::Struct;
+use vortex_array::arrays::StructArray;
+use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
 use vortex_array::expr::BoundExpression;
+use vortex_array::validity::Validity;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
 use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
+use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::plan::Eval;
 use crate::plan::EvalPlan;
@@ -32,7 +40,6 @@ use crate::scan::filter::FilterExpr;
 use crate::scan::planning::FilterPlans;
 use crate::scan::planning::ScanPlans;
 use crate::scan::scan_builder::ScanBuilder;
-use crate::scan::scan_builder::referenced_field_masks;
 use crate::scan::splits::Splits;
 use crate::scan::splits::attempt_split_ranges;
 use crate::scan::v2::ScanFile;
@@ -44,6 +51,9 @@ use crate::scan::v2::io::segment_ranges;
 use crate::scan::v2::prefetch::plan_segments;
 use crate::scan::v2::share::unshare_unread;
 use crate::scan::v2::split::SplitTask;
+use crate::scan::v2::splits::chunk_starts;
+use crate::scan::v2::splits::filter_split_boundaries;
+use crate::scan::v2::splits::max_split_rows;
 use crate::segments::SegmentFuture;
 use crate::segments::SegmentSource;
 
@@ -87,6 +97,14 @@ pub fn prepare<A: 'static + Send>(
     let mut all_plans = unshare_unread(all_plans)?;
     let conjunct_plans = all_plans.split_off(1);
     let projection = all_plans.remove(0);
+    // Filter splits are sized by the chunks of the columns the filter reads, or of those the
+    // projection reads when there is no filter, and each is cut into projection splits.
+    let projection_starts: Arc<[u64]> = chunk_starts([&projection])?.into();
+    let filter_starts = if conjunct_plans.is_empty() {
+        Arc::clone(&projection_starts)
+    } else {
+        chunk_starts(&conjunct_plans)?.into()
+    };
     let filter = filter.map(|filter| FilterPlans::conjuncts(filter, conjunct_plans));
     let pruning = parts
         .filter
@@ -98,28 +116,25 @@ pub fn prepare<A: 'static + Send>(
         session: parts.session,
         locations: Arc::clone(&shared.file.locations),
         projection,
+        projection_starts,
         row_offset: parts.row_offset,
         decoded: DecodeCache::default(),
     };
 
-    let splits =
-        if let Some(ranges) = attempt_split_ranges(&parts.selection, parts.row_range.as_ref()) {
-            Splits::Ranges(ranges)
-        } else if let Some(boundaries) = parts.natural_splits {
-            Splits::Natural(boundaries)
-        } else {
-            let field_mask = referenced_field_masks(&parts.projection, parts.filter.as_ref())?;
-            let split_range = parts
-                .row_range
-                .clone()
-                .unwrap_or_else(|| 0..layout_reader.row_count());
-            Splits::Natural(
-                parts
-                    .split_by
-                    .splits(layout_reader.as_ref(), &split_range, &field_mask)?
-                    .into(),
+    let splits = match attempt_split_ranges(&parts.selection, parts.row_range.as_ref()) {
+        Some(ranges) => Splits::Ranges(ranges),
+        None => Splits::Natural(
+            filter_split_boundaries(
+                &filter_starts,
+                0..shared.root.row_count(),
+                max_split_rows(
+                    shared.root.row_count(),
+                    get_available_parallelism().unwrap_or(1),
+                ),
             )
-        };
+            .into(),
+        ),
+    };
 
     Ok(RepeatedScanV2 {
         pruning,
@@ -136,7 +151,40 @@ pub fn prepare<A: 'static + Send>(
     })
 }
 
-/// A prepared scan that turns row ranges into one task per split.
+/// Joins a filter split's batches into one array without copying them: a struct whose fields are
+/// chunked over the batches when every batch is a struct of the scan's non-nullable struct dtype,
+/// and a chunked array otherwise.
+fn join_batches(mut batches: Vec<ArrayRef>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    if batches.len() <= 1 {
+        return Ok(batches.pop());
+    }
+    if let DType::Struct(fields, Nullability::NonNullable) = dtype
+        && let Some(structs) = batches
+            .iter()
+            .map(|batch| batch.as_opt::<Struct>().map(|batch| batch.into_owned()))
+            .collect::<Option<Vec<StructArray>>>()
+    {
+        let len = structs.iter().map(|batch| batch.len()).sum();
+        let columns = (0..fields.nfields())
+            .map(|index| {
+                let chunks = structs
+                    .iter()
+                    .map(|batch| batch.unmasked_field(index).clone())
+                    .collect::<Vec<_>>();
+                let dtype = chunks[0].dtype().clone();
+                Ok(ChunkedArray::try_new(chunks, dtype)?.into_array())
+            })
+            .collect::<VortexResult<Vec<_>>>()?;
+        let array =
+            StructArray::try_new(fields.names().clone(), columns, len, Validity::NonNullable)?;
+        return Ok(Some(array.into_array()));
+    }
+    Ok(Some(
+        ChunkedArray::try_new(batches, dtype.clone())?.into_array(),
+    ))
+}
+
+/// A prepared scan that turns row ranges into one task per filter split.
 ///
 /// The replacement for [`RepeatedScan`](crate::scan::repeated_scan::RepeatedScan).
 pub struct RepeatedScanV2<A: 'static + Send> {
@@ -160,11 +208,56 @@ impl<A: 'static + Send> RepeatedScanV2<A> {
         &self.dtype
     }
 
-    /// Returns one task per split of `row_range` that has selected rows.
+    /// Returns one task per filter split of `row_range` that has selected rows.
+    ///
+    /// A task returns its projection splits' batches as one array, whose fields are chunked over
+    /// them, so nothing is copied.
     pub fn execute(
         &self,
         row_range: Option<Range<u64>>,
     ) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
+        let dtype = self.plans.projection.dtype().clone();
+        Ok(self
+            .split_tasks(row_range)?
+            .into_iter()
+            .map(|task| {
+                let map_fn = Arc::clone(&self.map_fn);
+                let dtype = dtype.clone();
+                async move {
+                    join_batches(task.run().await?, &dtype)?
+                        .map(|array| map_fn(array))
+                        .transpose()
+                }
+                .boxed()
+            })
+            .collect())
+    }
+
+    /// Returns one task per filter split of `row_range` that has selected rows, each returning
+    /// one batch per projection split with selected rows, in row order.
+    pub fn execute_batches(
+        &self,
+        row_range: Option<Range<u64>>,
+    ) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Vec<A>>>>> {
+        Ok(self
+            .split_tasks(row_range)?
+            .into_iter()
+            .map(|task| {
+                let map_fn = Arc::clone(&self.map_fn);
+                async move {
+                    task.run()
+                        .await?
+                        .into_iter()
+                        .map(|array| map_fn(array))
+                        .collect()
+                }
+                .boxed()
+            })
+            .collect())
+    }
+
+    /// The filter splits of `row_range` that have selected rows.
+    fn split_tasks(&self, row_range: Option<Range<u64>>) -> VortexResult<Vec<SplitTask>> {
         let selection_range: Option<Range<u64>> = match &self.selection {
             Selection::IncludeByIndex(buf) if !buf.is_empty() => {
                 Some(buf[0]..buf[buf.len() - 1] + 1)
@@ -240,9 +333,8 @@ impl<A: 'static + Send> RepeatedScanV2<A> {
                 registered: self.register(&range)?,
                 range,
                 mask,
-                map_fn: Arc::clone(&self.map_fn),
             };
-            tasks.push(task.run().boxed());
+            tasks.push(task);
             if limit.is_some_and(|l| l == 0) {
                 break;
             }

@@ -29,6 +29,7 @@ pub(crate) mod prefetch;
 mod repeated_scan;
 mod share;
 mod split;
+pub(crate) mod splits;
 mod stream;
 
 use std::env;

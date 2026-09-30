@@ -16,6 +16,7 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
+use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
@@ -27,6 +28,7 @@ use vortex_array::expr::byte_length;
 use vortex_array::expr::cast;
 use vortex_array::expr::dynamic;
 use vortex_array::expr::eq;
+use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
 use vortex_array::expr::like;
 use vortex_array::expr::lit;
@@ -565,5 +567,76 @@ async fn zone_pruning_follows_dynamic_comparisons() -> VortexResult<()> {
     let mut expected_reads = segment_ids(&data_chunks[2])?;
     expected_reads.extend(segment_ids(&data_chunks[3])?);
     assert_eq!(*recording.reads.lock(), expected_reads);
+    Ok(())
+}
+
+/// Four 1000-row chunks of a struct `{a, b}` with `a` over `0..4000` and `b = 2a`.
+async fn write_struct_layout(
+    session: &VortexSession,
+) -> VortexResult<(Arc<dyn SegmentSource>, LayoutRef)> {
+    let segments = Arc::new(TestSegments::default());
+    let (mut sequence_id, eof) = SequenceId::root().split();
+    let chunks = (0..4)
+        .map(|chunk| {
+            let a = Buffer::from_iter(chunk * CHUNK_ROWS..(chunk + 1) * CHUNK_ROWS);
+            let b =
+                Buffer::from_iter((chunk * CHUNK_ROWS..(chunk + 1) * CHUNK_ROWS).map(|a| 2 * a));
+            let array = StructArray::from_fields(&[("a", a.into_array()), ("b", b.into_array())])?;
+            Ok((sequence_id.advance(), array.into_array()))
+        })
+        .collect::<VortexResult<Vec<_>>>()?;
+    let dtype = chunks[0].1.dtype().clone();
+    let layout = ChunkedLayoutStrategy::new(FlatLayoutStrategy::default())
+        .write_stream(
+            ArrayContext::empty().into(),
+            Arc::<TestSegments>::clone(&segments),
+            SequentialStreamAdapter::new(dtype, stream::iter(chunks.into_iter().map(Ok)))
+                .sendable(),
+            eof,
+            session,
+        )
+        .await?;
+    Ok((segments, layout))
+}
+
+/// A filter split spanning several chunks returns one batch per projection split; `execute`
+/// joins them into one struct whose fields are chunked over the batches, and both it and the
+/// stream return what the default path returns.
+#[tokio::test(flavor = "multi_thread")]
+async fn struct_projection_splits_match_default() -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = write_struct_layout(&session).await?;
+    let builder = || -> VortexResult<ScanBuilder<ArrayRef>> {
+        let reader = layout.new_reader(
+            "".into(),
+            Arc::clone(&segments),
+            &session,
+            &Default::default(),
+        )?;
+        let filter = gt(get_item("a", root()), lit(1500_i32)).bind(layout.dtype())?;
+        Ok(ScanBuilder::new(session.clone(), reader).with_filter(filter))
+    };
+    let dtype = builder()?.dtype()?;
+    let expected = await_tasks(dtype.clone(), builder()?.prepare()?.execute(None)?).await?;
+
+    let scan = v2::prepare(builder()?, scan_file(&segments, &layout)?)?;
+    let tasks = scan.execute(None)?;
+    assert_eq!(tasks.len(), 1, "4000 rows make one filter split");
+    let joined = await_tasks(dtype.clone(), tasks).await?;
+    assert_arrays_eq!(joined, expected, &mut session.create_execution_ctx());
+
+    let streamed = v2::into_stream(builder()?, scan_file(&segments, &layout)?)?
+        .try_collect::<Vec<_>>()
+        .await?;
+    assert_eq!(
+        streamed.len(),
+        3,
+        "the three chunks with a > 1500 are projection splits"
+    );
+    assert_arrays_eq!(
+        ChunkedArray::try_new(streamed, dtype)?,
+        expected,
+        &mut session.create_execution_ctx()
+    );
     Ok(())
 }
