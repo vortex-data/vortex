@@ -29,6 +29,7 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::FileStatistics;
 use crate::footer::Footer;
 use crate::pruning::can_prune_file_stats;
+use crate::segments::FileScanIo;
 use crate::v2::FileStatsLayoutReader;
 
 /// Represents a Vortex file, providing access to its metadata and content.
@@ -48,6 +49,8 @@ pub struct VortexFile {
     metadata: Arc<HashMap<String, ByteBuffer>>,
     /// None id LayoutReader caching is turned off
     layout_reader_cache: Option<OnceLock<Arc<dyn LayoutReader>>>,
+    /// Serves protocol reads through the file's read driver, when the file reads through one.
+    scan_io: Option<FileScanIo>,
 }
 
 fn layout_reader(
@@ -84,7 +87,19 @@ impl VortexFile {
             session,
             metadata: Arc::new(HashMap::new()),
             layout_reader_cache: None,
+            scan_io: None,
         }
+    }
+
+    pub(crate) fn with_scan_io(mut self, scan_io: FileScanIo) -> Self {
+        self.scan_io = Some(scan_io);
+        self
+    }
+
+    /// The service that serves protocol reads through the file's read driver, when the file was
+    /// opened over one.
+    pub fn scan_io(&self) -> Option<&FileScanIo> {
+        self.scan_io.as_ref()
     }
 
     pub(crate) fn with_metadata(mut self, metadata: Arc<HashMap<String, ByteBuffer>>) -> Self {
@@ -103,6 +118,7 @@ impl VortexFile {
             session: self.session,
             metadata: self.metadata,
             layout_reader_cache: Some(OnceLock::new()),
+            scan_io: self.scan_io,
         }
     }
 
@@ -158,6 +174,8 @@ impl VortexFile {
     /// replacement source.
     pub fn with_segment_source(mut self, segment_source: Arc<dyn SegmentSource>) -> Self {
         self.segment_source = segment_source;
+        // Reads now go to the replacement, which the old read driver knows nothing of.
+        self.scan_io = None;
         if self.layout_reader_cache.is_some() {
             self.layout_reader_cache = Some(OnceLock::new());
         }

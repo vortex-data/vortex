@@ -23,7 +23,7 @@
 
 mod conjuncts;
 mod file;
-mod io;
+pub(crate) mod io;
 mod lower;
 pub(crate) mod prefetch;
 mod repeated_scan;
@@ -36,6 +36,8 @@ use std::env;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
+pub use io::ScanIo;
+pub use io::SplitIo;
 pub use repeated_scan::RepeatedScanV2;
 pub use repeated_scan::prepare;
 pub use stream::into_stream;
@@ -64,6 +66,9 @@ pub struct ScanFile {
     pub locations: Arc<[SegmentLocation]>,
     /// Fetches segment bytes by id.
     pub segments: Arc<dyn SegmentSource>,
+    /// Serves the splits' reads, when the file provides a service for them; otherwise they are
+    /// served from `segments`.
+    pub io: Option<Arc<dyn ScanIo>>,
 }
 
 #[cfg(test)]

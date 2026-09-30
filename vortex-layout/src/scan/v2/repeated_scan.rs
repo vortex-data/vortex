@@ -23,6 +23,12 @@ use vortex_array::validity::Validity;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
+use vortex_io::request::IoBatch;
+use vortex_io::request::IoIntent;
+use vortex_io::request::IoRequest;
+use vortex_io::request::IoRequestId;
+use vortex_io::request::IoTarget;
 use vortex_mask::Mask;
 use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
@@ -46,7 +52,8 @@ use crate::scan::v2::ScanFile;
 use crate::scan::v2::conjuncts::filter_after_eval;
 use crate::scan::v2::conjuncts::group_conjuncts;
 use crate::scan::v2::file::shared_file;
-use crate::scan::v2::io::SegmentRanges;
+use crate::scan::v2::io::ScanIo;
+use crate::scan::v2::io::SegmentScanIo;
 use crate::scan::v2::io::segment_ranges;
 use crate::scan::v2::prefetch::plan_segments;
 use crate::scan::v2::share::unshare_unread;
@@ -54,8 +61,6 @@ use crate::scan::v2::split::SplitTask;
 use crate::scan::v2::splits::chunk_starts;
 use crate::scan::v2::splits::filter_split_boundaries;
 use crate::scan::v2::splits::max_split_rows;
-use crate::segments::SegmentFuture;
-use crate::segments::SegmentSource;
 
 /// Computes split ranges for `builder` and returns an executable scan over `file`, the file the
 /// builder's reader was opened over.
@@ -142,8 +147,12 @@ pub fn prepare<A: 'static + Send>(
         pruning,
         plans,
         filter,
-        ranges: segment_ranges(&shared.file.locations),
-        segments: Arc::clone(&shared.file.segments),
+        io: shared.file.io.clone().unwrap_or_else(|| {
+            Arc::new(SegmentScanIo::new(
+                Arc::clone(&shared.file.segments),
+                segment_ranges(&shared.file.locations),
+            ))
+        }),
         row_range: parts.row_range,
         selection: parts.selection,
         splits,
@@ -194,8 +203,8 @@ pub struct RepeatedScanV2<A: 'static + Send> {
     pruning: Option<PlanRef>,
     plans: ScanPlans,
     filter: Option<FilterPlans>,
-    ranges: SegmentRanges,
-    segments: Arc<dyn SegmentSource>,
+    /// Serves the splits' reads.
+    io: Arc<dyn ScanIo>,
     row_range: Option<Range<u64>>,
     selection: Selection,
     splits: Splits,
@@ -330,9 +339,8 @@ impl<A: 'static + Send> RepeatedScanV2<A> {
                 plans: self.plans.clone(),
                 pruning: self.pruning.clone(),
                 filter: self.filter.clone(),
-                segments: Arc::clone(&self.segments),
-                ranges: Arc::clone(&self.ranges),
-                registered: self.register(&range)?,
+                io: Arc::clone(&self.io),
+                announce: self.announce(&range)?,
                 range,
                 mask,
             };
@@ -382,10 +390,10 @@ fn reads_only_zones(plan: &PlanRef) -> VortexResult<bool> {
 }
 
 impl<A: 'static + Send> RepeatedScanV2<A> {
-    /// Registers the segments a split over `range` is likely to read, as the layout reader does
-    /// when it builds a split's futures. Nothing is read until the split asks for a segment, but
-    /// the source can coalesce every registered segment near one that it does read.
-    fn register(&self, range: &Range<u64>) -> VortexResult<Vec<SegmentFuture>> {
+    /// Announces the segments a split over `range` is likely to read, as the layout reader
+    /// registers them when it builds a split's futures. An announcement reads nothing itself, but
+    /// the IO service can coalesce every announced segment near one that it does read.
+    fn announce(&self, range: &Range<u64>) -> VortexResult<IoBatch> {
         let mut ids = Vec::new();
         for filter in self.filter.iter().flat_map(FilterPlans::plans) {
             plan_segments(filter, range.clone(), &mut ids)?;
@@ -393,10 +401,24 @@ impl<A: 'static + Send> RepeatedScanV2<A> {
         plan_segments(&self.plans.projection, range.clone(), &mut ids)?;
         ids.sort_unstable();
         ids.dedup();
-        Ok(ids
-            .into_iter()
-            .map(|id| self.segments.request(id))
-            .collect())
+        ids.into_iter()
+            .enumerate()
+            .map(|(index, id)| {
+                let location = self
+                    .plans
+                    .locations
+                    .get(*id as usize)
+                    .ok_or_else(|| vortex_err!("segment {id} has no known location"))?;
+                Ok(IoRequest {
+                    intent: IoIntent::Announce,
+                    request: IoRequestId(u32::try_from(index)?),
+                    target: IoTarget::Range {
+                        offset: location.offset,
+                        len: location.length as usize,
+                    },
+                })
+            })
+            .collect()
     }
 }
 

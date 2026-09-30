@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::future;
 use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_array::ArrayRef;
 use vortex_error::VortexResult;
+use vortex_io::request::IoBatch;
+use vortex_io::request::IoOwnerId;
 use vortex_io::request::IoSource;
 use vortex_mask::Mask;
 use vortex_scan::planning::driver::Driver;
@@ -20,20 +23,16 @@ use crate::scan::planning::ProjectionMorsel;
 use crate::scan::planning::ProjectionPlanner;
 use crate::scan::planning::ScanPlans;
 use crate::scan::planning::plan_split;
-use crate::scan::v2::io::SegmentIoSource;
-use crate::scan::v2::io::SegmentRanges;
-use crate::segments::SegmentFuture;
-use crate::segments::SegmentSource;
+use crate::scan::v2::io::ScanIo;
 
 /// Everything one filter split needs, captured when the scan is executed.
 pub(super) struct SplitTask {
     pub(super) plans: ScanPlans,
     pub(super) pruning: Option<PlanRef>,
     pub(super) filter: Option<FilterPlans>,
-    pub(super) segments: Arc<dyn SegmentSource>,
-    pub(super) ranges: SegmentRanges,
-    /// Registrations of the segments the split is likely to read, held until it finishes.
-    pub(super) registered: Vec<SegmentFuture>,
+    pub(super) io: Arc<dyn ScanIo>,
+    /// Announcements of the segments the split is likely to read.
+    pub(super) announce: IoBatch,
     pub(super) range: Range<u64>,
     pub(super) mask: Mask,
 }
@@ -50,9 +49,8 @@ impl SplitTask {
             plans,
             pruning,
             filter,
-            segments,
-            ranges,
-            registered,
+            io,
+            announce,
             range,
             mask,
         } = self;
@@ -60,7 +58,10 @@ impl SplitTask {
             return Ok(Vec::new());
         }
 
-        let io = Arc::new(SegmentIoSource::new(segments, ranges, registered));
+        let io = io.split_io();
+        if !announce.is_empty() {
+            io.submit(ANNOUNCER, announce)?;
+        }
         let scope = WorkScope {
             file_ordinal: 0,
             rows: range,
@@ -71,7 +72,7 @@ impl SplitTask {
             match run.0.advance()? {
                 Progress::Done(batches) => break batches,
                 Progress::Waiting => {
-                    let completion = io.next_completion().await?;
+                    let completion = future::poll_fn(|cx| io.poll_completion(cx)).await?;
                     run.0.complete(completion)?;
                 }
             }
@@ -81,6 +82,10 @@ impl SplitTask {
         Ok(batches.into_iter().map(|batch| batch.array).collect())
     }
 }
+
+/// The owner of a split's announcements, which no driver work item uses: the driver numbers its
+/// work from zero.
+const ANNOUNCER: IoOwnerId = IoOwnerId(u64::MAX);
 
 /// A split's driver run, carried by the split's future across awaits.
 struct SplitRun(Run);

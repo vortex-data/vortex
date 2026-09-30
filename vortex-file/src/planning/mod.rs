@@ -18,6 +18,7 @@ use vortex_array::expr::Expression;
 use vortex_io::VortexReadAt;
 use vortex_layout::scan::planning::SegmentLocation;
 use vortex_layout::scan::v2::ScanFile;
+use vortex_layout::scan::v2::ScanIo;
 use vortex_scan::planning::next::Next;
 use vortex_scan::planning::next::PendingPlanner;
 use vortex_scan::planning::next::next_fn;
@@ -71,6 +72,9 @@ pub fn scan_file(file: &VortexFile) -> ScanFile {
         layout: Arc::clone(file.footer().layout()),
         locations: segment_locations(file.footer()),
         segments: file.segment_source(),
+        io: file
+            .scan_io()
+            .map(|io| Arc::new(io.clone()) as Arc<dyn ScanIo>),
     }
 }
 
