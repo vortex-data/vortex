@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::slice;
+
 use rstest::rstest;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
@@ -183,7 +185,7 @@ fn overflowing_sum_stays_null_across_chunks() -> VortexResult<()> {
     let first = buffer![i64::MAX, 1].into_array();
     let second = buffer![2i64].into_array();
     let sum = Sum.bind(NumericalAggregateOpts::skip_nans());
-    let mut acc = FieldAccumulator::new(first.dtype(), &[sum.clone()], 64)?;
+    let mut acc = FieldAccumulator::new(first.dtype(), slice::from_ref(&sum), 64)?;
     let mut ctx = array_session().create_execution_ctx();
     acc.push_chunk(&first, &mut ctx)?;
     acc.push_chunk(&second, &mut ctx)?;
@@ -207,7 +209,7 @@ fn flags_include_chunk_boundaries(
 ) -> VortexResult<()> {
     let first = PrimitiveArray::from_iter(first).into_array();
     let second = PrimitiveArray::from_iter(second).into_array();
-    let mut acc = FieldAccumulator::new(first.dtype(), &[aggregate.clone()], 64)?;
+    let mut acc = FieldAccumulator::new(first.dtype(), slice::from_ref(&aggregate), 64)?;
     let mut ctx = array_session().create_execution_ctx();
     acc.push_chunk(&first, &mut ctx)?;
     acc.push_chunk(&second, &mut ctx)?;

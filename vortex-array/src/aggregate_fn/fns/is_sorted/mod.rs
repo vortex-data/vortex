@@ -463,19 +463,25 @@ impl AggregateFnVTable for IsSorted {
                     }
                 }
 
-                // Check within-batch sortedness.
-                let batch_is_sorted = match c {
-                    Canonical::Primitive(p) => check_primitive_sorted(p, args.options.strict, ctx)?,
-                    Canonical::Bool(b) => check_bool_sorted(b, args.options.strict, ctx)?,
-                    Canonical::VarBinView(v) => {
-                        check_varbinview_sorted(v, args.options.strict, ctx)?
-                    }
-                    Canonical::Decimal(d) => check_decimal_sorted(d, args.options.strict, ctx)?,
-                    Canonical::Extension(e) => check_extension_sorted(e, args.options.strict, ctx)?,
-                    Canonical::Null(_) => !args.options.strict,
-                    // Struct, List, FixedSizeList should have been filtered out by return_dtype
-                    _ => unreachable!(),
-                };
+                // A singleton is sorted even when its only value is null. The boundary check
+                // above still rejects repeated nulls across batches when strict sorting is required.
+                let batch_is_sorted = c.len() == 1
+                    || match c {
+                        Canonical::Primitive(p) => {
+                            check_primitive_sorted(p, args.options.strict, ctx)?
+                        }
+                        Canonical::Bool(b) => check_bool_sorted(b, args.options.strict, ctx)?,
+                        Canonical::VarBinView(v) => {
+                            check_varbinview_sorted(v, args.options.strict, ctx)?
+                        }
+                        Canonical::Decimal(d) => check_decimal_sorted(d, args.options.strict, ctx)?,
+                        Canonical::Extension(e) => {
+                            check_extension_sorted(e, args.options.strict, ctx)?
+                        }
+                        Canonical::Null(_) => !args.options.strict,
+                        // Struct, List, FixedSizeList should have been filtered out by return_dtype
+                        _ => unreachable!(),
+                    };
 
                 if !batch_is_sorted {
                     partial.is_sorted = false;
@@ -545,6 +551,7 @@ mod tests {
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
 
+    use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::Accumulator;
@@ -558,12 +565,43 @@ mod tests {
     use crate::aggregate_fn::fns::is_sorted::is_strict_sorted;
     use crate::array_session;
     use crate::arrays::BoolArray;
+    use crate::arrays::DecimalArray;
     use crate::arrays::PrimitiveArray;
     use crate::dtype::DType;
+    use crate::dtype::DecimalDType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
+
+    #[rstest]
+    #[case::primitive(PrimitiveArray::from_option_iter([None::<i32>]).into_array())]
+    #[case::boolean(BoolArray::from_iter([None]).into_array())]
+    #[case::decimal(DecimalArray::new(
+        buffer![0i128], DecimalDType::new(19, 2), Validity::AllInvalid,
+    ).into_array())]
+    fn singleton_null_is_sorted_but_preserves_chunk_boundaries(
+        #[case] array: ArrayRef,
+        #[values(false, true)] strict: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let mut acc =
+            Accumulator::try_new(IsSorted, IsSortedOptions { strict }, array.dtype().clone())?;
+
+        acc.accumulate(&array, &mut ctx)?;
+        assert_eq!(
+            acc.final_scalar()?,
+            Scalar::bool(true, Nullability::NonNullable)
+        );
+
+        acc.accumulate(&array, &mut ctx)?;
+        assert_eq!(
+            acc.final_scalar()?,
+            Scalar::bool(!strict, Nullability::NonNullable)
+        );
+
+        Ok(())
+    }
 
     // Tests migrated from compute/is_sorted.rs
     #[test]
@@ -665,9 +703,6 @@ mod tests {
     // Tests migrated from arrays/decimal/compute/is_sorted.rs
     #[test]
     fn test_decimal_is_sorted() -> VortexResult<()> {
-        use crate::arrays::DecimalArray;
-        use crate::dtype::DecimalDType;
-
         let mut ctx = array_session().create_execution_ctx();
         let dtype = DecimalDType::new(19, 2);
         // "100.00" and "200.00" at scale 2.
@@ -688,9 +723,6 @@ mod tests {
 
     #[test]
     fn test_decimal_is_strict_sorted() -> VortexResult<()> {
-        use crate::arrays::DecimalArray;
-        use crate::dtype::DecimalDType;
-
         let mut ctx = array_session().create_execution_ctx();
         // "100.00", "200.00" and "300.00" at scale 2.
         let i100 = 10_000i128;
