@@ -101,10 +101,11 @@ pub fn prepare<A: 'static + Send>(
     // projection reads when there is no filter, and each is cut into projection splits.
     let projection_starts: Arc<[u64]> = chunk_starts([&projection])?.into();
     let filter_starts = if conjunct_plans.is_empty() {
-        Arc::clone(&projection_starts)
+        projection_starts.to_vec()
     } else {
-        chunk_starts(&conjunct_plans)?.into()
+        chunk_starts(&conjunct_plans)?
     };
+    let all_starts = chunk_starts(conjunct_plans.iter().chain([&projection]))?;
     let filter = filter.map(|filter| FilterPlans::conjuncts(filter, conjunct_plans));
     let pruning = parts
         .filter
@@ -126,6 +127,7 @@ pub fn prepare<A: 'static + Send>(
         None => Splits::Natural(
             filter_split_boundaries(
                 &filter_starts,
+                &all_starts,
                 0..shared.root.row_count(),
                 max_split_rows(
                     shared.root.row_count(),
