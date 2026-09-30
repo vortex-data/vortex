@@ -4,6 +4,7 @@
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
@@ -19,10 +20,24 @@ impl CastReduce for FoR {
             return Ok(None);
         }
 
+        // References are always non-nullable.
+        let casted_references = match array.constant_reference() {
+            // A reference can be out of the target's range while the values are not, e.g. after
+            // filtering away the values below zero. Decline, so the decoded values are cast.
+            Some(reference) => match reference.cast(&dtype.as_nonnullable()) {
+                Ok(reference) => {
+                    ConstantArray::new(reference, array.references().len()).into_array()
+                }
+                Err(_) => return Ok(None),
+            },
+            // Casting per-chunk references would only fail on decode if one is out of range, so
+            // only push down a nullability change, which leaves them as they are.
+            None if dtype.as_ptype() == array.ptype() => array.references().clone(),
+            None => return Ok(None),
+        };
+
         // For type changes between integers, cast the components
         let casted_child = array.encoded().cast(dtype.clone())?;
-        // References are always non-nullable.
-        let casted_references = array.references().cast(dtype.as_nonnullable())?;
 
         Ok(Some(
             FoR::try_new_chunked(casted_child, casted_references, array.offset())?.into_array(),
@@ -46,12 +61,15 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::scalar::Scalar;
+    use vortex_array::scalar_fn::fns::cast::CastReduce;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use crate::FoR;
     use crate::FoRArray;
+    use crate::FoRArrayExt;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = vortex_array::array_session();
@@ -100,6 +118,55 @@ mod tests {
             casted.dtype(),
             &DType::Primitive(PType::I64, Nullability::Nullable)
         );
+    }
+
+    /// Values 5..10 with the reference -5, as remains after filtering away the values below zero.
+    #[test]
+    fn cast_reference_out_of_range() -> VortexResult<()> {
+        let array = for_arr(
+            buffer![10i32, 11, 12, 13, 14].into_array(),
+            Scalar::from(-5i32),
+        );
+        let dtype = DType::Primitive(PType::U32, Nullability::NonNullable);
+        assert!(<FoR as CastReduce>::cast(array.as_view(), &dtype)?.is_none());
+        assert_arrays_eq!(
+            array.into_array().cast(dtype)?,
+            PrimitiveArray::from_iter([5u32, 6, 7, 8, 9]),
+            &mut SESSION.create_execution_ctx()
+        );
+        Ok(())
+    }
+
+    /// A slice keeps the references of the chunks it overlaps, which can be out of the target's
+    /// range while the sliced values are not.
+    #[test]
+    fn cast_per_chunk_references_out_of_range() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = PrimitiveArray::from_iter((0..2048i32).map(|i| i - 5));
+        let array = FoR::encode_chunked(values, &mut ctx)?.into_array();
+        assert!(array.as_::<FoR>().constant_reference().is_none());
+        let sliced = array.slice(10..2048)?;
+        let dtype = DType::Primitive(PType::U32, Nullability::NonNullable);
+        assert!(<FoR as CastReduce>::cast(sliced.as_::<FoR>(), &dtype)?.is_none());
+        assert_arrays_eq!(
+            sliced.cast(dtype)?,
+            PrimitiveArray::from_iter(5u32..2043),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn cast_per_chunk_references_nullability() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = PrimitiveArray::from_iter((0..2048i32).map(|i| (i / 1024) * 1_000 + i % 10));
+        let array = FoR::encode_chunked(values.clone(), &mut ctx)?;
+        let dtype = DType::Primitive(PType::I32, Nullability::Nullable);
+        let cast = <FoR as CastReduce>::cast(array.as_view(), &dtype)?
+            .expect("a nullability change is pushed down");
+        assert_eq!(cast.dtype(), &dtype);
+        assert_arrays_eq!(cast, values.into_array().cast(dtype)?, &mut ctx);
+        Ok(())
     }
 
     #[rstest]
