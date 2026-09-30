@@ -96,10 +96,7 @@ impl StatsRewriteRule for LiteralStatsRewrite {
         expr: &BoundExpression,
         _session: &VortexSession,
     ) -> VortexResult<Option<BoundExpression>> {
-        Ok(match literal_truth(expr) {
-            Some(value) => Some(lit(!value)),
-            _ => None
-        })
+        Ok(literal_truth(expr).map(|value| lit(!value)))
     }
 
     fn satisfy(
@@ -107,10 +104,7 @@ impl StatsRewriteRule for LiteralStatsRewrite {
         expr: &BoundExpression,
         _session: &VortexSession,
     ) -> VortexResult<Option<BoundExpression>> {
-        Ok(match literal_truth(expr) {
-            Some(value) => Some(lit(value)),
-            _ => None,
-        })
+        Ok(literal_truth(expr).map(|value| lit(value)))
     }
 }
 
