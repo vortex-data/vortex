@@ -54,6 +54,10 @@ pub struct ScanPlans {
     pub locations: Arc<[SegmentLocation]>,
     /// The optimized projection plan, over the scan's root row domain.
     pub projection: PlanRef,
+    /// Where the chunks the projection reads start, over the root row domain, sorted. A split's
+    /// projection is cut at each of these, so every projection split reads at most one chunk of
+    /// every column.
+    pub projection_starts: Arc<[u64]>,
     /// The global row index of the root row domain's first row.
     pub row_offset: u64,
     /// Segments already decoded by the graphs of one split. [`plan_split`] gives each split its

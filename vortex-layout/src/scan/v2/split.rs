@@ -6,7 +6,6 @@ use std::sync::Arc;
 
 use vortex_array::ArrayRef;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_io::request::IoSource;
 use vortex_mask::Mask;
 use vortex_scan::planning::driver::Driver;
@@ -26,8 +25,8 @@ use crate::scan::v2::io::SegmentRanges;
 use crate::segments::SegmentFuture;
 use crate::segments::SegmentSource;
 
-/// Everything one split needs, captured when the scan is executed.
-pub(super) struct SplitTask<A> {
+/// Everything one filter split needs, captured when the scan is executed.
+pub(super) struct SplitTask {
     pub(super) plans: ScanPlans,
     pub(super) pruning: Option<PlanRef>,
     pub(super) filter: Option<FilterPlans>,
@@ -37,16 +36,16 @@ pub(super) struct SplitTask<A> {
     pub(super) registered: Vec<SegmentFuture>,
     pub(super) range: Range<u64>,
     pub(super) mask: Mask,
-    pub(super) map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
 }
 
-impl<A> SplitTask<A> {
-    /// Runs the split's pruning, filter, and projection planners and its morsel on the planning
-    /// driver.
+impl SplitTask {
+    /// Runs the filter split's pruning, filter, and projection planners and its projection
+    /// morsels on the planning driver, and returns one batch per projection split with selected
+    /// rows, in row order.
     ///
     /// The driver runs inside this future, on whichever thread polls it, and the future awaits
     /// its reads between steps. Nothing is handed to another thread.
-    pub(super) async fn run(self) -> VortexResult<Option<A>> {
+    pub(super) async fn run(self) -> VortexResult<Vec<ArrayRef>> {
         let Self {
             plans,
             pruning,
@@ -56,10 +55,9 @@ impl<A> SplitTask<A> {
             registered,
             range,
             mask,
-            map_fn,
         } = self;
         if mask.all_false() {
-            return Ok(None);
+            return Ok(Vec::new());
         }
 
         let io = Arc::new(SegmentIoSource::new(segments, ranges, registered));
@@ -78,10 +76,9 @@ impl<A> SplitTask<A> {
                 }
             }
         };
-        if batches.len() > 1 {
-            vortex_bail!("A split produced {} batches instead of one", batches.len());
-        }
-        batches.pop().map(|batch| map_fn(batch.array)).transpose()
+        // Morsels finish in whatever order their reads arrive.
+        batches.sort_by_key(|batch| batch.scope.rows.start);
+        Ok(batches.into_iter().map(|batch| batch.array).collect())
     }
 }
 
