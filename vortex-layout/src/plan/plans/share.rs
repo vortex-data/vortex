@@ -22,6 +22,7 @@ use crate::plan::PlanParts;
 use crate::plan::PlanRef;
 use crate::plan::PlanVTable;
 use crate::plan::check_child_count;
+use crate::plan::exec::ExecContext;
 use crate::plan::exec::ExecNode;
 use crate::plan::exec::Selection;
 use crate::plan::exec::ShareNode;
@@ -121,7 +122,12 @@ impl PlanVTable for Share {
         }
     }
 
-    fn exec(plan: &Plan<Self>, rows: Range<u64>, mask: Mask) -> VortexResult<Box<dyn ExecNode>> {
+    fn exec(
+        plan: &Plan<Self>,
+        rows: Range<u64>,
+        mask: Mask,
+        _ctx: &ExecContext,
+    ) -> VortexResult<Box<dyn ExecNode>> {
         Ok(Box::new(ShareNode::new(
             plan.clone(),
             Selection::try_new(rows, mask)?,

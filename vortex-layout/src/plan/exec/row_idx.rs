@@ -17,18 +17,23 @@ use crate::plan::exec::piece::Selection;
 /// row offset plus its plan row.
 pub(crate) struct RowIdxNode {
     selection: Selection,
+    /// The global row index of the graph's first plan row.
+    row_offset: u64,
 }
 
 impl RowIdxNode {
-    pub(crate) fn new(selection: Selection) -> Self {
-        Self { selection }
+    pub(crate) fn new(selection: Selection, row_offset: u64) -> Self {
+        Self {
+            selection,
+            row_offset,
+        }
     }
 }
 
 impl ExecNode for RowIdxNode {
     fn compute(&mut self, cx: &mut StepCx<'_>) -> VortexResult<NodeState> {
         let rows = self.selection.rows().clone();
-        let offset = cx.row_offset();
+        let offset = self.row_offset;
         let indices = Buffer::from_iter(rows.start + offset..rows.end + offset).into_array();
         let array = if self.selection.mask().all_true() {
             indices
@@ -36,7 +41,6 @@ impl ExecNode for RowIdxNode {
             indices.filter(self.selection.mask().clone())?
         };
         cx.emit(Piece { rows, array });
-        cx.close();
         Ok(NodeState::Done)
     }
 }

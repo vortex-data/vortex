@@ -13,8 +13,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::plan::PackPlan;
+use crate::plan::exec::Event;
 use crate::plan::exec::ExecNode;
-use crate::plan::exec::Input;
 use crate::plan::exec::NodeState;
 use crate::plan::exec::Piece;
 use crate::plan::exec::StepCx;
@@ -126,7 +126,6 @@ impl ExecNode for PackNode {
                     empty_piece(self.plan.dtype(), rows)
                 };
                 cx.emit(piece);
-                cx.close();
                 return Ok(NodeState::Done);
             }
             for port in 0..self.ports.len() {
@@ -139,12 +138,13 @@ impl ExecNode for PackNode {
             }
         }
 
-        for (port, input) in cx.take_inputs() {
-            match input {
-                Input::Piece(piece) => {
+        for event in cx.events() {
+            match event {
+                Event::Piece(port, piece) => {
                     self.ports[port].insert(piece.rows.start, piece);
                 }
-                Input::Closed => self.open -= 1,
+                Event::Closed(_) => self.open -= 1,
+                event => return Err(event.unexpected("Pack")),
             }
         }
         for rows in self.aligned() {
@@ -155,10 +155,9 @@ impl ExecNode for PackNode {
             if self.ports.iter().any(|port| !port.is_empty()) {
                 vortex_bail!("Pack fields closed with unaligned rows left over");
             }
-            cx.close();
             return Ok(NodeState::Done);
         }
-        Ok(NodeState::Waiting)
+        Ok(NodeState::Wait)
     }
 }
 

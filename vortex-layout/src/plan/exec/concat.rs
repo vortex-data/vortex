@@ -5,8 +5,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::plan::ConcatPlan;
+use crate::plan::exec::Event;
 use crate::plan::exec::ExecNode;
-use crate::plan::exec::Input;
 use crate::plan::exec::NodeState;
 use crate::plan::exec::Piece;
 use crate::plan::exec::StepCx;
@@ -77,27 +77,27 @@ impl ExecNode for ConcatNode {
             self.started = true;
             self.start(cx)?;
         }
-        for (port, input) in cx.take_inputs() {
-            match input {
-                Input::Piece(piece) => {
+        for event in cx.events() {
+            match event {
+                Event::Piece(port, piece) => {
                     let offset = self.plan.row_offsets()[port];
                     cx.emit(Piece {
                         rows: piece.rows.start + offset..piece.rows.end + offset,
                         array: piece.array,
                     });
                 }
-                Input::Closed => {
+                Event::Closed(port) => {
                     if self.open == 0 {
                         vortex_bail!("Concat chunk {port} closed twice");
                     }
                     self.open -= 1;
                 }
+                event => return Err(event.unexpected("Concat")),
             }
         }
         if self.open == 0 {
-            cx.close();
             return Ok(NodeState::Done);
         }
-        Ok(NodeState::Waiting)
+        Ok(NodeState::Wait)
     }
 }

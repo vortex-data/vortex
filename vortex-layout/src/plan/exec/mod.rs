@@ -11,6 +11,19 @@
 //! Nodes never talk to the IO service. They publish requests through [`StepCx::request`], the
 //! graph returns them from [`ExecGraph::compute`], and the owner delivers results through
 //! [`ExecGraph::set_io_result`].
+//!
+//! A node follows the same model as the planners that own its graph: it is built from
+//! construction-time data, it is handed what arrived for it, and it reports what happens next.
+//!
+//! | Exec node              | Planner                         |
+//! |------------------------|---------------------------------|
+//! | [`ExecContext`]        | construction-time data          |
+//! | [`Event`]s             | [`set_io_result`] deliveries    |
+//! | [`NodeState::Wait`]    | `NeedsIO`: waits on deliveries  |
+//! | [`NodeState::Yield`]   | `Continue`: requeued            |
+//! | [`NodeState::Done`]    | `Done`                          |
+//!
+//! [`set_io_result`]: vortex_io::request::IoConsumer::set_io_result
 
 mod concat;
 mod eval;
@@ -33,6 +46,7 @@ use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
 use vortex_array::ArrayRef;
 use vortex_array::buffer::BufferHandle;
+use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
@@ -81,35 +95,70 @@ impl fmt::Debug for Piece {
 /// Index of an input port on a node, equal to the child's plan index.
 pub type Port = usize;
 
-/// Input pushed into a node's port.
+/// Something that arrived for a node since its previous [`ExecNode::compute`].
 #[derive(Debug)]
-pub enum Input {
+pub enum Event {
     /// A piece produced by the child on this port.
-    Piece(Piece),
+    Piece(Port, Piece),
     /// The child on this port will produce no more pieces.
-    Closed,
+    Closed(Port),
+    /// The bytes of a segment this node requested.
+    Delivered(IoRequestId, BufferHandle),
+}
+
+impl Event {
+    /// The error for an event `node` cannot receive, such as a delivery to a node that never
+    /// requests IO.
+    pub(crate) fn unexpected(&self, node: &str) -> VortexError {
+        vortex_err!("{node} did not expect {self:?}")
+    }
 }
 
 /// One running plan operator inside an [`ExecGraph`].
 ///
 /// A node has a single entry point. The graph calls [`compute`](Self::compute) once when the node
-/// is spawned, again whenever input has arrived for it, and again when it last returned
-/// [`NodeState::Ready`]. Input that arrived since the previous call is taken from the
-/// [`StepCx`]; everything the node produces is recorded there too.
+/// is spawned, again whenever an [`Event`] has arrived for it, and again when it last returned
+/// [`NodeState::Yield`]. The events are taken from the [`StepCx`]; everything the node produces
+/// is recorded there too.
 pub trait ExecNode: Send {
-    /// Consumes pending input, does work, and reports when the node needs to run again.
+    /// Consumes what arrived, does work, and reports what happens to the node next.
     fn compute(&mut self, cx: &mut StepCx<'_>) -> VortexResult<NodeState>;
 }
 
-/// When a node needs to run again.
+/// What happens to a node after a [`compute`](ExecNode::compute).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NodeState {
-    /// Run again only once new input or an IO result arrives.
-    Waiting,
-    /// Run again even without new input, for example after yielding with work left.
-    Ready,
-    /// The node has closed and will not be run again.
+    /// Run again once an event arrives: a child's piece or close, or a requested delivery.
+    Wait,
+    /// Run again without waiting for an event, after other work: CPU work is left.
+    Yield,
+    /// Finished: the node's output closes and it never runs again.
     Done,
+}
+
+/// What every node of a graph is built with.
+#[derive(Clone)]
+pub struct ExecContext {
+    session: VortexSession,
+    row_offset: u64,
+    decoded: DecodeCache,
+}
+
+impl ExecContext {
+    /// The session used for decoding and expression evaluation.
+    pub fn session(&self) -> &VortexSession {
+        &self.session
+    }
+
+    /// The global row index of the graph's first plan row.
+    pub fn row_offset(&self) -> u64 {
+        self.row_offset
+    }
+
+    /// Decoded segments shared by the graphs reading the same rows.
+    pub fn decoded(&self) -> &DecodeCache {
+        &self.decoded
+    }
 }
 
 /// Decoded segments shared by the graphs that read one row range, so a segment several of them
@@ -120,81 +169,40 @@ pub enum NodeState {
 pub struct DecodeCache(Arc<Mutex<FxHashMap<SegmentId, ArrayRef>>>);
 
 impl DecodeCache {
-    fn get(&self, id: SegmentId) -> Option<ArrayRef> {
+    /// The whole decoded array of `id`, if a graph sharing this cache decoded it.
+    pub(crate) fn get(&self, id: SegmentId) -> Option<ArrayRef> {
         self.0.lock().get(&id).cloned()
     }
 
-    fn insert(&self, id: SegmentId, array: ArrayRef) {
+    /// Shares the whole decoded array of `id` with the graphs sharing this cache.
+    pub(crate) fn insert(&self, id: SegmentId, array: ArrayRef) {
         self.0.lock().insert(id, array);
     }
 }
 
-/// Input that arrived for a node, and the effects of running it, applied by the graph afterwards.
+/// What arrived for a node, and the effects of running it, applied by the graph afterwards.
 pub struct StepCx<'a> {
-    session: &'a VortexSession,
-    row_offset: u64,
-    decoded: &'a DecodeCache,
     next_io_id: &'a mut u64,
-    inputs: Vec<(Port, Input)>,
-    io: Vec<(IoRequestId, BufferHandle)>,
+    events: Vec<Event>,
     spawned: Vec<(Port, PlanRef, Range<u64>, Mask)>,
     requests: IoBatch,
     emitted: Vec<Piece>,
-    closed: bool,
-    yielded: bool,
 }
 
 impl<'a> StepCx<'a> {
-    fn new(
-        session: &'a VortexSession,
-        row_offset: u64,
-        decoded: &'a DecodeCache,
-        next_io_id: &'a mut u64,
-        inbox: Inbox,
-    ) -> Self {
+    fn new(next_io_id: &'a mut u64, events: Vec<Event>) -> Self {
         Self {
-            session,
-            row_offset,
-            decoded,
             next_io_id,
-            inputs: inbox.inputs,
-            io: inbox.io,
+            events,
             spawned: Vec::new(),
             requests: Vec::new(),
             emitted: Vec::new(),
-            closed: false,
-            yielded: false,
         }
     }
 
-    /// The session used for decoding and expression evaluation.
-    pub fn session(&self) -> &VortexSession {
-        self.session
-    }
-
-    /// The global row index of the graph's first plan row.
-    pub fn row_offset(&self) -> u64 {
-        self.row_offset
-    }
-
-    /// The whole decoded array of `segment`, if a graph sharing this one's cache decoded it.
-    pub fn decoded(&self, segment: SegmentId) -> Option<ArrayRef> {
-        self.decoded.get(segment)
-    }
-
-    /// Shares the whole decoded array of `segment` with the graphs sharing this one's cache.
-    pub fn store_decoded(&self, segment: SegmentId, array: ArrayRef) {
-        self.decoded.insert(segment, array);
-    }
-
-    /// Takes the child input that arrived since the previous call, in arrival order.
-    pub fn take_inputs(&mut self) -> Vec<(Port, Input)> {
-        mem::take(&mut self.inputs)
-    }
-
-    /// Takes the results of this node's requests that arrived since the previous call.
-    pub fn take_io(&mut self) -> Vec<(IoRequestId, BufferHandle)> {
-        mem::take(&mut self.io)
+    /// Takes what arrived since the previous call, in arrival order.
+    pub fn events(&mut self) -> Vec<Event> {
+        mem::take(&mut self.events)
     }
 
     /// Spawns `plan` over `rows` of its own domain, restricted to `mask`, feeding `port`.
@@ -202,7 +210,7 @@ impl<'a> StepCx<'a> {
         self.spawned.push((port, plan, rows, mask));
     }
 
-    /// Publishes a read of `segment_id` and returns the id its result is delivered under.
+    /// Publishes a read of `segment_id` and returns the id its bytes are delivered under.
     pub fn request(&mut self, segment_id: SegmentId) -> IoRequestId {
         let id = IoRequestId(*self.next_io_id);
         *self.next_io_id += 1;
@@ -213,29 +221,6 @@ impl<'a> StepCx<'a> {
     /// Pushes a piece to the parent.
     pub fn emit(&mut self, piece: Piece) {
         self.emitted.push(piece);
-    }
-
-    /// Tells the parent this node will emit nothing more.
-    pub fn close(&mut self) {
-        self.closed = true;
-    }
-
-    /// Gives the worker back after this call.
-    pub fn yield_now(&mut self) {
-        self.yielded = true;
-    }
-}
-
-/// Input waiting for a node's next [`ExecNode::compute`].
-#[derive(Default)]
-struct Inbox {
-    inputs: Vec<(Port, Input)>,
-    io: Vec<(IoRequestId, BufferHandle)>,
-}
-
-impl Inbox {
-    fn is_empty(&self) -> bool {
-        self.inputs.is_empty() && self.io.is_empty()
     }
 }
 
@@ -275,12 +260,11 @@ enum Status {
 
 /// A running plan: a flat arena of nodes wired child-to-parent.
 pub struct ExecGraph {
-    session: VortexSession,
-    row_offset: u64,
-    decoded: DecodeCache,
+    ctx: ExecContext,
     nodes: Vec<Box<dyn ExecNode>>,
     parents: Vec<Option<(NodeId, Port)>>,
-    inboxes: Vec<Inbox>,
+    /// Events that arrived for each node since its last compute.
+    inboxes: Vec<Vec<Event>>,
     status: Vec<Status>,
     /// Ready nodes, run last-in first-out so a woken parent runs before its child's next call.
     ready: Vec<NodeId>,
@@ -308,9 +292,11 @@ impl ExecGraph {
         decoded: DecodeCache,
     ) -> VortexResult<Self> {
         let mut graph = Self {
-            session,
-            row_offset,
-            decoded,
+            ctx: ExecContext {
+                session,
+                row_offset,
+                decoded,
+            },
             nodes: Vec::new(),
             parents: Vec::new(),
             inboxes: Vec::new(),
@@ -371,7 +357,7 @@ impl ExecGraph {
             .io_routes
             .remove(&id)
             .ok_or_else(|| vortex_err!("Unknown IO request {id:?}"))?;
-        self.inboxes[node].io.push((id, result));
+        self.inboxes[node].push(Event::Delivered(id, result));
         self.enqueue(node);
         Ok(())
     }
@@ -392,26 +378,25 @@ impl ExecGraph {
         mask: Mask,
     ) -> VortexResult<()> {
         let id = self.nodes.len();
-        self.nodes.push(plan.exec(rows, mask)?);
+        self.nodes.push(plan.exec(rows, mask, &self.ctx)?);
         self.parents.push(parent);
-        self.inboxes.push(Inbox::default());
+        self.inboxes.push(Vec::new());
         self.status.push(Status::Queued);
         self.run(id)?;
         Ok(())
     }
 
-    /// Runs one node's compute with its pending input and applies the effects. Returns whether
-    /// the node yielded.
+    /// Runs one node's compute with the events that arrived for it and applies the effects.
+    /// Returns whether control goes back to the owner: when the node yields, and after a node
+    /// handles a delivery, since decoding and evaluating newly read data is the costly work
+    /// between reads that other owners' work should interleave with.
     fn run(&mut self, node: NodeId) -> VortexResult<bool> {
-        let inbox = mem::take(&mut self.inboxes[node]);
+        let events = mem::take(&mut self.inboxes[node]);
+        let delivered = events
+            .iter()
+            .any(|event| matches!(event, Event::Delivered(..)));
         let mut next_io_id = self.next_io_id;
-        let mut cx = StepCx::new(
-            &self.session,
-            self.row_offset,
-            &self.decoded,
-            &mut next_io_id,
-            inbox,
-        );
+        let mut cx = StepCx::new(&mut next_io_id, events);
         let state = self.nodes[node].compute(&mut cx)?;
         let effects = Effects::from(cx);
         self.next_io_id = next_io_id;
@@ -419,17 +404,16 @@ impl ExecGraph {
         // Settle the node before waking its parent, so a re-queued node runs after the parent.
         self.status[node] = match state {
             NodeState::Done => Status::Done,
-            NodeState::Waiting | NodeState::Ready => Status::Idle,
+            NodeState::Wait | NodeState::Yield => Status::Idle,
         };
-        if state == NodeState::Ready || !self.inboxes[node].is_empty() {
+        if state == NodeState::Yield || !self.inboxes[node].is_empty() {
             self.enqueue(node);
         }
-        let yielded = effects.yielded;
-        self.apply(node, effects)?;
-        Ok(yielded)
+        self.apply(node, effects, state == NodeState::Done)?;
+        Ok(state == NodeState::Yield || delivered)
     }
 
-    fn apply(&mut self, node: NodeId, effects: Effects) -> VortexResult<()> {
+    fn apply(&mut self, node: NodeId, effects: Effects, done: bool) -> VortexResult<()> {
         for (port, plan, rows, mask) in effects.spawned {
             self.spawn(Some((node, port)), &plan, rows, mask)?;
         }
@@ -438,22 +422,26 @@ impl ExecGraph {
             self.new_io.push(request);
         }
         for piece in effects.emitted {
-            self.deliver(node, Input::Piece(piece));
+            self.deliver(node, Some(piece));
         }
-        if effects.closed {
-            self.deliver(node, Input::Closed);
+        if done {
+            self.deliver(node, None);
         }
         Ok(())
     }
 
-    fn deliver(&mut self, from: NodeId, input: Input) {
+    /// Passes a piece, or the close when `piece` is `None`, from `from` to its parent.
+    fn deliver(&mut self, from: NodeId, piece: Option<Piece>) {
         match self.parents[from] {
-            None => match input {
-                Input::Piece(piece) => self.outputs.push_back(piece),
-                Input::Closed => self.root_closed = true,
+            None => match piece {
+                Some(piece) => self.outputs.push_back(piece),
+                None => self.root_closed = true,
             },
             Some((parent, port)) => {
-                self.inboxes[parent].inputs.push((port, input));
+                self.inboxes[parent].push(match piece {
+                    Some(piece) => Event::Piece(port, piece),
+                    None => Event::Closed(port),
+                });
                 self.enqueue(parent);
             }
         }
@@ -472,8 +460,6 @@ struct Effects {
     spawned: Vec<(Port, PlanRef, Range<u64>, Mask)>,
     requests: IoBatch,
     emitted: Vec<Piece>,
-    closed: bool,
-    yielded: bool,
 }
 
 impl From<StepCx<'_>> for Effects {
@@ -482,8 +468,6 @@ impl From<StepCx<'_>> for Effects {
             spawned: cx.spawned,
             requests: cx.requests,
             emitted: cx.emitted,
-            closed: cx.closed,
-            yielded: cx.yielded,
         }
     }
 }

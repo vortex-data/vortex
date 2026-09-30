@@ -31,6 +31,7 @@ use crate::plan::PlanParts;
 use crate::plan::PlanRef;
 use crate::plan::PlanVTable;
 use crate::plan::check_child_count;
+use crate::plan::exec::ExecContext;
 use crate::plan::exec::ExecNode;
 use crate::plan::exec::Selection;
 use crate::plan::exec::ZonePruneNode;
@@ -313,17 +314,23 @@ impl PlanVTable for Zoned {
     }
 
     /// A pruning plan runs as a [`ZonePruneNode`]; a data plan runs as its data child.
-    fn exec(plan: &Plan<Self>, rows: Range<u64>, mask: Mask) -> VortexResult<Box<dyn ExecNode>> {
+    fn exec(
+        plan: &Plan<Self>,
+        rows: Range<u64>,
+        mask: Mask,
+        ctx: &ExecContext,
+    ) -> VortexResult<Box<dyn ExecNode>> {
         if plan.is_pruning() {
             return Ok(Box::new(ZonePruneNode::new(
                 plan.clone(),
                 Selection::try_new(rows, mask)?,
+                ctx.session().clone(),
             )));
         }
         let Some(data) = plan.data_plan()? else {
             vortex_bail!("Zoned plan has no data child");
         };
-        data.exec(rows, mask)
+        data.exec(rows, mask, ctx)
     }
 }
 

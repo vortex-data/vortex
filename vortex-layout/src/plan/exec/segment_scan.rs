@@ -11,6 +11,8 @@ use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 
 use crate::plan::SegmentScanPlan;
+use crate::plan::exec::Event;
+use crate::plan::exec::ExecContext;
 use crate::plan::exec::ExecNode;
 use crate::plan::exec::IoRequestId;
 use crate::plan::exec::NodeState;
@@ -35,6 +37,7 @@ pub(crate) struct SegmentScanNode {
     plan: SegmentScanPlan,
     selection: Selection,
     filter: Option<Mask>,
+    ctx: ExecContext,
     state: ScanState,
 }
 
@@ -49,6 +52,7 @@ impl SegmentScanNode {
         plan: SegmentScanPlan,
         selection: Selection,
         filter: Option<Mask>,
+        ctx: ExecContext,
     ) -> VortexResult<Self> {
         if let Some(filter) = &filter {
             vortex_ensure!(
@@ -62,6 +66,7 @@ impl SegmentScanNode {
             plan,
             selection,
             filter,
+            ctx,
             state: ScanState::Init,
         })
     }
@@ -75,32 +80,33 @@ impl ExecNode for SegmentScanNode {
                     self.plan.dtype(),
                     self.selection.rows().clone(),
                 ));
-                cx.close();
                 Ok(NodeState::Done)
             }
             ScanState::Init => {
-                if let Some(array) = cx.decoded(self.plan.segment_id()) {
+                if let Some(array) = self.ctx.decoded().get(self.plan.segment_id()) {
                     cx.emit(self.select(array)?);
-                    cx.close();
                     return Ok(NodeState::Done);
                 }
                 self.state = ScanState::Requested(cx.request(self.plan.segment_id()));
-                Ok(NodeState::Waiting)
+                Ok(NodeState::Wait)
             }
             ScanState::Requested(expected) => {
-                let mut io = cx.take_io();
-                let Some((id, segment)) = io.pop() else {
+                let mut events = cx.events();
+                let Some(event) = events.pop() else {
                     self.state = ScanState::Requested(expected);
-                    return Ok(NodeState::Waiting);
+                    return Ok(NodeState::Wait);
                 };
-                if id != expected || !io.is_empty() {
+                let Event::Delivered(id, segment) = event else {
+                    return Err(event.unexpected("SegmentScan"));
+                };
+                if id != expected || !events.is_empty() {
                     vortex_bail!("SegmentScan did not expect {id:?}");
                 }
-                let array = self.decode(segment, cx)?;
-                cx.store_decoded(self.plan.segment_id(), array.clone());
+                let array = self.decode(segment)?;
+                self.ctx
+                    .decoded()
+                    .insert(self.plan.segment_id(), array.clone());
                 cx.emit(self.select(array)?);
-                cx.close();
-                cx.yield_now();
                 Ok(NodeState::Done)
             }
             ScanState::Done => vortex_bail!("SegmentScan computed after it closed"),
@@ -110,7 +116,7 @@ impl ExecNode for SegmentScanNode {
 
 impl SegmentScanNode {
     /// Decodes the whole segment.
-    fn decode(&self, segment: BufferHandle, cx: &StepCx<'_>) -> VortexResult<ArrayRef> {
+    fn decode(&self, segment: BufferHandle) -> VortexResult<ArrayRef> {
         let serialized = match self.plan.array_tree() {
             Some(tree) => SerializedArray::from_flatbuffer_and_segment(tree.clone(), segment)?,
             None => SerializedArray::try_from(segment)?,
@@ -121,7 +127,7 @@ impl SegmentScanNode {
             self.plan.dtype(),
             row_count,
             self.plan.array_ctx(),
-            cx.session(),
+            self.ctx.session(),
         )
     }
 

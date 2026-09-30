@@ -8,8 +8,8 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::plan::SharePlan;
+use crate::plan::exec::Event;
 use crate::plan::exec::ExecNode;
-use crate::plan::exec::Input;
 use crate::plan::exec::NodeState;
 use crate::plan::exec::Piece;
 use crate::plan::exec::StepCx;
@@ -42,7 +42,6 @@ impl ShareNode {
             array = array.filter(self.selection.mask().clone())?;
         }
         cx.emit(Piece { rows, array });
-        cx.close();
         Ok(NodeState::Done)
     }
 }
@@ -62,10 +61,10 @@ impl ExecNode for ShareNode {
                 Mask::new_true(len),
             );
         }
-        for (_, input) in cx.take_inputs() {
-            match input {
-                Input::Piece(piece) => self.pieces.push(piece),
-                Input::Closed => {
+        for event in cx.events() {
+            match event {
+                Event::Piece(_, piece) => self.pieces.push(piece),
+                Event::Closed(_) => {
                     self.pieces.sort_by_key(|piece| piece.rows.start);
                     let arrays = std::mem::take(&mut self.pieces)
                         .into_iter()
@@ -75,8 +74,9 @@ impl ExecNode for ShareNode {
                     let value = self.plan.cache(SharedArray::new(value).into_array());
                     return self.emit(cx, &value);
                 }
+                event => return Err(event.unexpected("Share")),
             }
         }
-        Ok(NodeState::Waiting)
+        Ok(NodeState::Wait)
     }
 }

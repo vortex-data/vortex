@@ -5,10 +5,11 @@ use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::plan::FilterPlan;
+use crate::plan::exec::Event;
 use crate::plan::exec::ExecNode;
-use crate::plan::exec::Input;
 use crate::plan::exec::NodeState;
 use crate::plan::exec::Piece;
 use crate::plan::exec::StepCx;
@@ -24,14 +25,16 @@ const EXPR_EVAL_THRESHOLD: f64 = 0.2;
 pub(crate) struct FilterNode {
     plan: FilterPlan,
     selection: Selection,
+    session: VortexSession,
     started: bool,
 }
 
 impl FilterNode {
-    pub(crate) fn new(plan: FilterPlan, selection: Selection) -> Self {
+    pub(crate) fn new(plan: FilterPlan, selection: Selection, session: VortexSession) -> Self {
         Self {
             plan,
             selection,
+            session,
             started: false,
         }
     }
@@ -48,9 +51,9 @@ impl ExecNode for FilterNode {
                 self.selection.mask().clone(),
             );
         }
-        for (_, input) in cx.take_inputs() {
-            match input {
-                Input::Piece(piece) => {
+        for event in cx.events() {
+            match event {
+                Event::Piece(_, piece) => {
                     let mask = self.selection.slice(&piece.rows);
                     let array = if mask.all_true() {
                         piece.array
@@ -61,7 +64,7 @@ impl ExecNode for FilterNode {
                         // result is filtered, as the default scan's flat reader does. Filtering
                         // lazily would push the filter back through the predicate onto the
                         // encoded input, which for some encodings costs more than the predicate.
-                        let mut ctx = cx.session().create_execution_ctx();
+                        let mut ctx = self.session.create_execution_ctx();
                         piece
                             .array
                             .execute::<Canonical>(&mut ctx)?
@@ -75,12 +78,10 @@ impl ExecNode for FilterNode {
                         array,
                     });
                 }
-                Input::Closed => {
-                    cx.close();
-                    return Ok(NodeState::Done);
-                }
+                Event::Closed(_) => return Ok(NodeState::Done),
+                event => return Err(event.unexpected("Filter")),
             }
         }
-        Ok(NodeState::Waiting)
+        Ok(NodeState::Wait)
     }
 }

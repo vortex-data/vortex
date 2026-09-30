@@ -14,11 +14,12 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
 
 use crate::layouts::zoned::zone_map::ZoneMap;
 use crate::plan::ZonedPlan;
+use crate::plan::exec::Event;
 use crate::plan::exec::ExecNode;
-use crate::plan::exec::Input;
 use crate::plan::exec::NodeState;
 use crate::plan::exec::Piece;
 use crate::plan::exec::StepCx;
@@ -36,15 +37,17 @@ use crate::plan::plans::PrunedZones;
 pub(crate) struct ZonePruneNode {
     plan: ZonedPlan,
     selection: Selection,
+    session: VortexSession,
     started: bool,
     zones: Vec<Piece>,
 }
 
 impl ZonePruneNode {
-    pub(crate) fn new(plan: ZonedPlan, selection: Selection) -> Self {
+    pub(crate) fn new(plan: ZonedPlan, selection: Selection, session: VortexSession) -> Self {
         Self {
             plan,
             selection,
+            session,
             started: false,
             zones: Vec::new(),
         }
@@ -52,7 +55,7 @@ impl ZonePruneNode {
 
     /// Builds the zone map from the joined zone table and proves the expression over it, one
     /// value per zone, keeping both on the plan.
-    fn prune(&mut self, cx: &StepCx<'_>) -> VortexResult<Mask> {
+    fn prune(&mut self) -> VortexResult<Mask> {
         let zones_plan = self.plan.zones_plan()?;
         self.zones.sort_by_key(|piece| piece.rows.start);
         let zones = std::mem::take(&mut self.zones)
@@ -60,7 +63,7 @@ impl ZonePruneNode {
             .map(|piece| piece.array)
             .collect();
         let table = join(zones_plan.dtype(), zones)?;
-        let table = table.execute::<StructArray>(&mut cx.session().create_execution_ctx())?;
+        let table = table.execute::<StructArray>(&mut self.session.create_execution_ctx())?;
         let (Some(expression), Some(column_dtype)) = (
             self.plan.pruning_expression(),
             self.plan.pruning_column_dtype(),
@@ -75,7 +78,7 @@ impl ZonePruneNode {
             self.plan.row_count(),
         )?;
         self.pruned_zones()?
-            .init(zone_map, expression, cx.session())
+            .init(zone_map, expression, &self.session)
     }
 
     fn pruned_zones(&self) -> VortexResult<&Arc<PrunedZones>> {
@@ -127,33 +130,31 @@ impl ExecNode for ZonePruneNode {
                     self.plan.dtype(),
                     self.selection.rows().clone(),
                 ));
-                cx.close();
                 return Ok(NodeState::Done);
             }
             let expression = self
                 .plan
                 .pruning_expression()
                 .ok_or_else(|| vortex_err!("ZonePruneNode needs a pruning plan"))?;
-            if let Some(pruned) = self.pruned_zones()?.get(expression, cx.session())? {
+            if let Some(pruned) = self.pruned_zones()?.get(expression, &self.session)? {
                 cx.emit(self.expand(&pruned)?);
-                cx.close();
                 return Ok(NodeState::Done);
             }
             let zones = self.plan.zones_plan()?;
             let count = usize::try_from(zones.row_count())?;
             cx.spawn(0, zones, 0..count as u64, Mask::new_true(count));
         }
-        for (_, input) in cx.take_inputs() {
-            match input {
-                Input::Piece(piece) => self.zones.push(piece),
-                Input::Closed => {
-                    let pruned = self.prune(cx)?;
+        for event in cx.events() {
+            match event {
+                Event::Piece(_, piece) => self.zones.push(piece),
+                Event::Closed(_) => {
+                    let pruned = self.prune()?;
                     cx.emit(self.expand(&pruned)?);
-                    cx.close();
                     return Ok(NodeState::Done);
                 }
+                event => return Err(event.unexpected("ZonePrune")),
             }
         }
-        Ok(NodeState::Waiting)
+        Ok(NodeState::Wait)
     }
 }

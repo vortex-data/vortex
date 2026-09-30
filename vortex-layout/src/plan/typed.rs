@@ -24,6 +24,7 @@ use crate::plan::PlanChildren;
 use crate::plan::PlanId;
 use crate::plan::PlanVTable;
 use crate::plan::display::PlanTreeDisplay;
+use crate::plan::exec::ExecContext;
 use crate::plan::exec::ExecNode;
 
 /// The combined allocation behind [`PlanRef`].
@@ -136,8 +137,13 @@ impl PlanRef {
     }
 
     /// Builds the exec node that runs this plan over `rows` of its row domain, restricted to
-    /// `mask`.
-    pub fn exec(&self, rows: Range<u64>, mask: Mask) -> VortexResult<Box<dyn ExecNode>> {
+    /// `mask`, with the graph's `ctx`.
+    pub fn exec(
+        &self,
+        rows: Range<u64>,
+        mask: Mask,
+        ctx: &ExecContext,
+    ) -> VortexResult<Box<dyn ExecNode>> {
         vortex_ensure!(
             rows.start <= rows.end && rows.end <= self.row_count(),
             "Exec rows {rows:?} exceed plan row count {}",
@@ -148,7 +154,7 @@ impl PlanRef {
             "Exec mask length {} does not match rows {rows:?}",
             mask.len()
         );
-        self.dyn_plan().dyn_exec(self, rows, mask)
+        self.dyn_plan().dyn_exec(self, rows, mask, ctx)
     }
 
     /// Displays this plan and its descendants with the default plan extractors.
@@ -369,6 +375,7 @@ pub trait DynPlan: 'static + Send + Sync + Debug {
         plan: &PlanRef,
         rows: Range<u64>,
         mask: Mask,
+        ctx: &ExecContext,
     ) -> VortexResult<Box<dyn ExecNode>>;
 }
 
@@ -407,7 +414,8 @@ impl<V: PlanVTable> DynPlan for PlanData<V> {
         plan: &PlanRef,
         rows: Range<u64>,
         mask: Mask,
+        ctx: &ExecContext,
     ) -> VortexResult<Box<dyn ExecNode>> {
-        V::exec(plan.as_::<V>(), rows, mask)
+        V::exec(plan.as_::<V>(), rows, mask, ctx)
     }
 }
