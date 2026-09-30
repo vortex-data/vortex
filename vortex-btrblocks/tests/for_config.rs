@@ -64,14 +64,17 @@ static CORE_SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     session
 });
 
-/// Values that step up by a million every chunk: per-chunk references pack to 7 bits instead of
-/// the 22 bits one reference needs.
+/// Values from a billion that step up by a million every chunk. One reference needs 23 bits and
+/// plain BitPacking 30, so FoR is estimated to pay off, and per-chunk references then pack to 7.
 fn drifting() -> ArrayRef {
-    PrimitiveArray::from_iter((0..8192u32).map(|i| 1_000_000 + (i / 1024) * 1_000_000 + i % 100))
-        .into_array()
+    PrimitiveArray::from_iter(
+        (0..8192u32).map(|i| 1_000_000_000 + (i / 1024) * 1_000_000 + i % 100),
+    )
+    .into_array()
 }
 
-/// Values clustered around one base: per-chunk references pack no narrower than one reference.
+/// Values clustered around one base: every chunk has the same minimum, so the references compress
+/// to a constant and the array serializes as `fastlanes.for`.
 fn clustered() -> ArrayRef {
     PrimitiveArray::from_iter((0..8192u32).map(|i| 1_000_000 + i % 100)).into_array()
 }
@@ -110,13 +113,28 @@ fn for_only() -> BtrBlocksCompressorBuilder {
 #[rstest]
 #[case::drifting(drifting(), true)]
 #[case::clustered(clustered(), false)]
-fn v2_uses_chunk_references_when_narrower(
+fn v2_serializes_varying_references_as_v2(
     #[case] array: ArrayRef,
     #[case] expect_v2: bool,
 ) -> VortexResult<()> {
     let ids = compress_roundtrip(for_only(), &array)?;
     assert!(ids.contains(&for_v1_id()) != expect_v2);
     assert_eq!(ids.contains(&for_v2_id()), expect_v2);
+    Ok(())
+}
+
+/// FoR is estimated as single-reference FoR, which is conservative for v2. Here one reference needs
+/// 23 bits, as many as plain BitPacking, so FoR is skipped even though per-chunk references would
+/// pack to 7.
+#[test]
+fn estimate_skips_arrays_only_chunk_references_narrow() -> VortexResult<()> {
+    let array = PrimitiveArray::from_iter(
+        (0..8192u32).map(|i| 1_000_000 + (i / 1024) * 1_000_000 + i % 100),
+    )
+    .into_array();
+    let ids = compress_roundtrip(for_only(), &array)?;
+    assert!(!ids.contains(&for_v1_id()));
+    assert!(!ids.contains(&for_v2_id()));
     Ok(())
 }
 

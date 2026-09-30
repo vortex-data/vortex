@@ -9,8 +9,6 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::primitive::PrimitiveArrayExt;
-use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_compressor::builtins::BinaryDictScheme;
 use vortex_compressor::builtins::FloatDictScheme;
 use vortex_compressor::builtins::IntDictScheme;
@@ -18,13 +16,10 @@ use vortex_compressor::builtins::StringDictScheme;
 use vortex_compressor::scheme::AncestorExclusion;
 use vortex_compressor::scheme::ChildSelection;
 use vortex_compressor::scheme::CompressionEstimate;
-use vortex_compressor::scheme::DeferredEstimate;
-use vortex_compressor::scheme::EstimateScore;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_fastlanes::FoR;
-use vortex_fastlanes::FoRArray;
 use vortex_fastlanes::FoRArrayExt;
 use vortex_fastlanes::FoRArraySlotsExt;
 use vortex_fastlanes::for_v1_id;
@@ -52,10 +47,9 @@ pub(crate) static FOR_V2: FoRScheme = FoRScheme::v2();
 /// Frame of Reference encoding.
 ///
 /// The v1 mode subtracts one reference, the array's minimum. The v2 mode subtracts one reference
-/// per 1024-element chunk when that packs to a narrower bit width than one reference, and
-/// otherwise produces the same single-reference arrays as v1. Single-reference arrays serialize
-/// as `fastlanes.for` in either mode, while per-chunk references serialize as
-/// `fastlanes.for.v2`.
+/// per 1024-element chunk, the chunk's minimum. Arrays with a single reference, including v2
+/// arrays whose references compress to a constant, serialize as `fastlanes.for`, while per-chunk
+/// references serialize as `fastlanes.for.v2`.
 ///
 /// The default uses v1. [`refine`](Scheme::refine) picks v2 when the v2 ID is allowed and v1
 /// otherwise.
@@ -151,11 +145,12 @@ impl Scheme for FoRScheme {
         if compress_ctx.finished_cascading() {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
-        if self.mode == FoRSchemeMode::V2 {
-            return CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
-                estimate_v2,
-            )));
-        }
+
+        // Both modes estimate single-reference FoR. This is conservative for v2: per-chunk
+        // references never pack wider than one reference, since each chunk's range lies within the
+        // array's, so the ratio can understate v2. It also skips arrays where only per-chunk
+        // references would help, such as those whose minimum is zero, or whose single-reference
+        // width is no narrower than plain BitPacking.
         let stats = data.integer_stats(exec_ctx);
 
         // Only apply when the min is not already zero.
@@ -207,17 +202,7 @@ impl Scheme for FoRScheme {
         let primitive = data.array().clone().execute::<PrimitiveArray>(exec_ctx)?;
         let for_array = match self.mode {
             FoRSchemeMode::V1 => FoR::encode(primitive, exec_ctx)?,
-            FoRSchemeMode::V2 => {
-                // Per-chunk references only pay off when they pack to a narrower width.
-                let chunked = FoR::encode_chunked(primitive.clone(), exec_ctx)?;
-                let global = global_bit_width(data, exec_ctx);
-                let chunked_width = encoded_bit_width(&chunked, exec_ctx)?;
-                if global.is_some_and(|global| chunked_width < global) {
-                    chunked
-                } else {
-                    FoR::encode(primitive, exec_ctx)?
-                }
-            }
+            FoRSchemeMode::V2 => FoR::encode_chunked(primitive, exec_ctx)?,
         };
         let biased = for_array
             .encoded()
@@ -254,79 +239,6 @@ impl Scheme for FoRScheme {
 
         Ok(for_compressed.into_array())
     }
-}
-
-/// Estimates v2 from the widest chunk after subtracting each chunk's minimum.
-///
-/// Sampling can't estimate this: samples stitch short runs from across the array, so no sampled
-/// chunk resembles a real one.
-fn estimate_v2(
-    _compressor: &CascadingCompressor,
-    data: &ArrayAndStats,
-    best_so_far: Option<EstimateScore>,
-    _compress_ctx: CompressorContext,
-    exec_ctx: &mut ExecutionCtx,
-) -> VortexResult<EstimateVerdict> {
-    let primitive = data.array().clone().execute::<PrimitiveArray>(exec_ctx)?;
-    let full_width: u32 = primitive.ptype().bit_width().try_into()?;
-
-    // The best case packs to one bit per value.
-    let threshold = best_so_far.and_then(EstimateScore::finite_ratio);
-    if threshold.is_some_and(|t| f64::from(full_width) <= t) {
-        return Ok(EstimateVerdict::Skip);
-    }
-
-    // If max-min == 0, we should be compressing this as a constant array.
-    let Some(global) = global_bit_width(data, exec_ctx) else {
-        return Ok(EstimateVerdict::Skip);
-    };
-    let chunked = encoded_bit_width(&FoR::encode_chunked(primitive, exec_ctx)?, exec_ctx)?;
-    let width = chunked.min(global);
-
-    // A single reference of zero is a no-op.
-    let stats = data.integer_stats(exec_ctx);
-    if width == global && stats.erased().min_is_zero() {
-        return Ok(EstimateVerdict::Skip);
-    }
-
-    // As in v1, skip when plain BitPacking (only non-negative values) is as narrow.
-    if let Some(max_log) = stats
-        .erased()
-        .max_ilog2()
-        .filter(|_| !stats.erased().min_is_negative())
-        && width > max_log
-    {
-        return Ok(EstimateVerdict::Skip);
-    }
-
-    Ok(EstimateVerdict::Ratio(
-        f64::from(full_width) / f64::from(width.max(1)),
-    ))
-}
-
-/// The bit width of `max - min` over the whole array, or `None` if it is constant.
-fn global_bit_width(data: &ArrayAndStats, exec_ctx: &mut ExecutionCtx) -> Option<u32> {
-    data.integer_stats(exec_ctx)
-        .erased()
-        .max_minus_min()
-        .checked_ilog2()
-        .map(|l| l + 1)
-}
-
-/// The bit width of the widest encoded value, which is the widest chunk's range.
-///
-/// Encoded values are non-negative offsets from their chunk's reference once reinterpreted as
-/// unsigned, and nulls encode as zero.
-fn encoded_bit_width(for_array: &FoRArray, exec_ctx: &mut ExecutionCtx) -> VortexResult<u32> {
-    let encoded = for_array
-        .encoded()
-        .clone()
-        .execute::<PrimitiveArray>(exec_ctx)?;
-    let unsigned = encoded.reinterpret_cast(encoded.ptype().to_unsigned());
-    Ok(match_each_unsigned_integer_ptype!(unsigned.ptype(), |T| {
-        let max = unsigned.as_slice::<T>().iter().copied().max().unwrap_or(0);
-        T::BITS - max.leading_zeros()
-    }))
 }
 
 #[cfg(test)]
