@@ -21,6 +21,8 @@ use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::OperationsVTable;
+use crate::array::ProbeState;
+use crate::array::RepeatedArrayProbe;
 use crate::array::VTable;
 use crate::array::ValidityVTable;
 use crate::array::with_empty_buffers;
@@ -124,15 +126,41 @@ impl VTable for Shared {
             .map(ExecutionResult::done)
     }
 }
+
+/// A probe over whichever array [`SharedArrayExt::current_array_ref`] resolves to. The source
+/// can be replaced by the computed result between reads, so the retained probe is rebuilt when
+/// the array it was built over is no longer the current one.
+#[derive(Default)]
+pub struct SharedProbeState {
+    current: Option<RepeatedArrayProbe>,
+}
+
 impl OperationsVTable<Shared> for Shared {
-    type ProbeState = ();
+    type ProbeState = SharedProbeState;
+
+    fn probe_scalar(
+        state: &mut ProbeState<'_, Shared>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        let array = state.array();
+        let current = array.current_array_ref();
+        let Some(retained) = state.retained() else {
+            return current.probe().execute_scalar(index, ctx);
+        };
+        let probe = match &mut retained.current {
+            Some(probe) if ArrayRef::ptr_eq(probe.array(), current) => probe,
+            slot => slot.insert(RepeatedArrayProbe::new(current.clone())),
+        };
+        probe.execute_scalar(index, ctx)
+    }
 
     fn scalar_at(
         array: ArrayView<'_, Shared>,
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        array.current_array_ref().execute_scalar(index, ctx)
+        Self::probe_scalar(&mut ProbeState::once(array), index, ctx)
     }
 }
 

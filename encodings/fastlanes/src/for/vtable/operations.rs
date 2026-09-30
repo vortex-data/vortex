@@ -3,25 +3,31 @@
 
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
+use vortex_array::ProbeState;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 
 use super::FoR;
 use crate::FL_CHUNK_SIZE;
 use crate::r#for::array::FoRArrayExt;
-use crate::r#for::array::FoRArraySlotsExt;
+use crate::r#for::array::FoRSlots;
 impl OperationsVTable<FoR> for FoR {
     type ProbeState = ();
 
-    fn scalar_at(
-        array: ArrayView<'_, FoR>,
+    fn probe_scalar(
+        state: &mut ProbeState<'_, FoR>,
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let encoded_pvalue = array.encoded().execute_scalar(index, ctx)?;
+        let array = state.array();
+        let encoded_pvalue = state
+            .slot(FoRSlots::ENCODED)?
+            .ok_or_else(|| vortex_err!("FoR encoded slot is missing"))?
+            .execute_scalar(index, ctx)?;
         let encoded_pvalue = encoded_pvalue.as_primitive();
         let chunk = (usize::from(array.offset()) + index) / FL_CHUNK_SIZE;
         let reference = array.references().execute_scalar(chunk, ctx)?;
@@ -40,6 +46,14 @@ impl OperationsVTable<FoR> for FoR {
                 .map(|v| Scalar::primitive::<P>(v, array.dtype().nullability()))
                 .unwrap_or_else(|| Scalar::null(array.dtype().clone()))
         }))
+    }
+
+    fn scalar_at(
+        array: ArrayView<'_, FoR>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        Self::probe_scalar(&mut ProbeState::once(array), index, ctx)
     }
 }
 
