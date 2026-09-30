@@ -15,3 +15,4 @@ pub(crate) mod compute;
 mod vtable;
 
 pub use vtable::Constant;
+pub(crate) use vtable::canonical::list_scalar_elements;

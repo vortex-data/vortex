@@ -20,11 +20,8 @@ use crate::scalar_fn::fns::list_contains::ListContainsOptions;
 /// Check list-contains without reading buffers (metadata-only).
 ///
 /// This trait dispatches on the **element** (needle) child at index 1 of the `ListContains`
-/// expression. `Self::Array` is the concrete element encoding, while the list (haystack) is
-/// passed as an opaque `&ArrayRef`.
-///
-/// A future `ListContainsListReduce` could dispatch on the list side (child 0) for encodings
-/// with specialized list representations.
+/// expression. `Self` is the concrete element encoding, while the list (haystack) is passed as an
+/// opaque `&ArrayRef`.
 ///
 /// Return `None` if the operation cannot be resolved from metadata alone.
 pub trait ListContainsElementReduce: VTable {
@@ -40,6 +37,19 @@ pub trait ListContainsElementReduce: VTable {
 /// Like [`ListContainsElementReduce`], this dispatches on the **element** (needle) child at
 /// index 1. Unlike the reduce variant, implementations may read and execute on buffers via
 /// the provided [`ExecutionCtx`].
+///
+/// For a needle that is not canonical, execution prepares a constant list into a
+/// [`PreparedSetArray`] and runs the kernels again. Thus a kernel can get the prepared set with
+/// `list.as_opt::<PreparedSet>()`, and probe its own values with [`PreparedSetData::contains`].
+/// For example, a dictionary probes only its values. A single value, such as the fill value of a
+/// sparse needle, is probed with [`PreparedSetData::contains_scalar`]. A kernel that finds its
+/// matches in another way makes its result with [`PreparedSetData::result_from_bits`], which applies
+/// the same null semantics.
+///
+/// [`PreparedSetArray`]: crate::scalar_fn::fns::list_contains::PreparedSetArray
+/// [`PreparedSetData::contains`]: crate::scalar_fn::fns::list_contains::PreparedSetData::contains
+/// [`PreparedSetData::contains_scalar`]: crate::scalar_fn::fns::list_contains::PreparedSetData::contains_scalar
+/// [`PreparedSetData::result_from_bits`]: crate::scalar_fn::fns::list_contains::PreparedSetData::result_from_bits
 pub trait ListContainsElementKernel: VTable {
     fn list_contains(
         list: &ArrayRef,
