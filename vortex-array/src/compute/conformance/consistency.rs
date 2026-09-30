@@ -1293,8 +1293,8 @@ fn test_cast_slice_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx) {
             };
             vec![DType::Struct(fields.clone(), opposite)]
         }
-        DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
-        DType::Variant(_) => unimplemented!(),
+        DType::Union(..) => vortex_panic!("TODO(connor)[Union]: unimplemented"),
+        DType::Variant(_) => vortex_panic!("Variant conformance casting is not implemented"),
         DType::Extension(_) => vec![], // Extension types typically only cast to themselves
     };
 

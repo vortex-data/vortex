@@ -117,7 +117,7 @@ impl VTable for PythonVTable {
     }
 
     fn execute(_array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        todo!()
+        vortex_bail!("PythonArray execution is not supported");
     }
 }
 
@@ -129,12 +129,12 @@ impl OperationsVTable<PythonVTable> for PythonVTable {
         _index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        todo!()
+        vortex_bail!("PythonArray scalar_at is not supported");
     }
 }
 
 impl ValidityVTable<PythonVTable> for PythonVTable {
     fn validity(_array: ArrayView<'_, PythonVTable>) -> VortexResult<Validity> {
-        todo!()
+        vortex_bail!("PythonArray validity is not supported");
     }
 }

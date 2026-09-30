@@ -855,7 +855,7 @@ mod tests {
         #[values(true, false)] exact: bool,
     ) -> VortexResult<()> {
         let session = VortexSession::default();
-        let scalar = scalar_from_df(&value, &session);
+        let scalar = scalar_from_df(&value, &session)?;
         let value = scalar
             .value()
             .cloned()
@@ -891,7 +891,7 @@ mod tests {
         #[values(Stat::Min, Stat::Max)] stat: Stat,
     ) -> VortexResult<()> {
         let session = VortexSession::default();
-        let scalar = scalar_from_df(&value, &session);
+        let scalar = scalar_from_df(&value, &session)?;
         let value = scalar
             .value()
             .cloned()

@@ -673,7 +673,7 @@ mod test {
             _expr: &BoundExpression,
             _mask: Mask,
         ) -> VortexResult<MaskFuture> {
-            unimplemented!("not needed for this test");
+            vortex_bail!("not needed for this test");
         }
 
         fn filter_evaluation(
@@ -682,7 +682,7 @@ mod test {
             _expr: &BoundExpression,
             _mask: MaskFuture,
         ) -> VortexResult<MaskFuture> {
-            unimplemented!("not needed for this test");
+            vortex_bail!("not needed for this test");
         }
 
         fn projection_evaluation(
@@ -917,7 +917,7 @@ mod test {
             _expr: &BoundExpression,
             _mask: Mask,
         ) -> VortexResult<MaskFuture> {
-            unimplemented!("not needed for this test");
+            vortex_bail!("not needed for this test");
         }
 
         fn filter_evaluation(
@@ -926,7 +926,7 @@ mod test {
             _expr: &BoundExpression,
             _mask: MaskFuture,
         ) -> VortexResult<MaskFuture> {
-            unimplemented!("not needed for this test");
+            vortex_bail!("not needed for this test");
         }
 
         fn projection_evaluation(

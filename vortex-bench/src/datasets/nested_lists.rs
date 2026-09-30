@@ -53,7 +53,7 @@ impl BenchDataset for NestedListsData {
             Format::OnDiskVortex => nested_lists_vortex().await,
             Format::VortexCompact => nested_lists_vortex_compact().await,
             Format::Parquet => nested_lists_parquet().await,
-            other => unimplemented!("Random access bench not implemented for {other}"),
+            other => anyhow::bail!("Random access bench not implemented for {other}"),
         }
     }
 }

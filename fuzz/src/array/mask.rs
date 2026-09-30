@@ -27,6 +27,7 @@ use vortex_array::match_each_decimal_value_type;
 use vortex_array::validity::Validity;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
@@ -164,7 +165,7 @@ pub fn mask_canonical_array(
             ExtensionArray::new(ext_dtype, masked_storage).into_array()
         }
         Canonical::Union(_) => {
-            todo!("TODO(connor)[Union]: support Union arrays in the mask fuzzer")
+            vortex_bail!("TODO(connor)[Union]: support Union arrays in the mask fuzzer")
         }
         Canonical::Variant(_) => unreachable!("Variant arrays are not fuzzed"),
     })

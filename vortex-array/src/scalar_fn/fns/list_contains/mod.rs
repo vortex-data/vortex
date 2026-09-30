@@ -288,13 +288,17 @@ fn compute_list_contains(
 
     if let Some(value_scalar) = value.as_constant() {
         return list_contains_scalar(array, &value_scalar, nullability, options, ctx);
+    } else if let Some(list_scalar) = array.as_constant() {
+        constant_list_scalar_contains(&list_scalar.as_list(), value, nullability)
+    } else {
+        vortex_bail!("unsupported list contains with list and element as arrays")
     }
 
     if let Some(list_scalar) = array.as_constant() {
         return constant_list_scalar_contains(&list_scalar.as_list(), value, nullability, options);
     }
 
-    todo!("unsupported list contains with list and element as arrays")
+    vortex_bail!("unsupported list contains with list and element as arrays")
 }
 
 /// There is a constant list scalar (haystack) being compared to an array of needles.

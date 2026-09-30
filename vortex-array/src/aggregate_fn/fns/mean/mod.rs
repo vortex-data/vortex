@@ -151,7 +151,7 @@ impl BinaryCombined for Mean {
     }
 
     fn serialize(&self, _options: &CombinedOptions<Self>) -> VortexResult<Option<Vec<u8>>> {
-        unimplemented!("mean is not yet serializable");
+        vortex_bail!("mean is not yet serializable");
     }
 }
 

@@ -130,7 +130,7 @@ impl AggregateFnVTable for AllNonDistinct {
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
-        unimplemented!("AllNonDistinct is not yet serializable");
+        vortex_bail!("AllNonDistinct is not yet serializable");
     }
 
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {

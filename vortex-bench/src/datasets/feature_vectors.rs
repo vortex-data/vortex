@@ -54,7 +54,7 @@ impl BenchDataset for FeatureVectorsData {
             Format::OnDiskVortex => feature_vectors_vortex().await,
             Format::VortexCompact => feature_vectors_vortex_compact().await,
             Format::Parquet => feature_vectors_parquet().await,
-            other => unimplemented!("Random access bench not implemented for {other}"),
+            other => anyhow::bail!("Random access bench not implemented for {other}"),
         }
     }
 }

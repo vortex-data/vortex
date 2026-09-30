@@ -98,17 +98,17 @@ pub fn make_object_store(
     }
 }
 
-pub fn format_to_df_format(format: Format) -> Arc<dyn FileFormat> {
-    match format {
+pub fn format_to_df_format(format: Format) -> anyhow::Result<Arc<dyn FileFormat>> {
+    Ok(match format {
         Format::Csv => Arc::new(CsvFormat::default()) as _,
         Format::Parquet => Arc::new(ParquetFormat::new()),
         Format::OnDiskVortex | Format::VortexCompact | Format::VortexSpatialNative => Arc::new(
             VortexFormat::new_with_options(SESSION.clone(), vortex_table_options()),
         ),
         Format::ArrowIpc | Format::OnDiskDuckDB | Format::Lance => {
-            unimplemented!("Format {format} cannot be turned into a DataFusion `FileFormat`")
+            anyhow::bail!("Format {format} cannot be turned into a DataFusion `FileFormat`")
         }
-    }
+    })
 }
 
 fn vortex_table_options() -> VortexTableOptions {

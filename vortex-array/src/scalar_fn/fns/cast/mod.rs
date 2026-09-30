@@ -220,9 +220,9 @@ fn cast_canonical(
         CanonicalView::FixedSizeList(a) => <FixedSizeList as CastKernel>::cast(a, dtype, ctx),
         CanonicalView::Struct(a) => struct_cast(a, dtype, ctx),
         CanonicalView::Union(_) => {
-            todo!(
-                "TODO(connor)[Union]: implement Union casting with conformance coverage for outer \
-                 nullability changes, including validation of nullable-to-nonnullable casts"
+            vortex_bail!(
+                "TODO(connor)[Union]: implement Union casting with conformance coverage for \
+                 outer nullability changes, including validation of nullable-to-nonnullable casts"
             )
         }
         CanonicalView::Extension(a) => <Extension as CastReduce>::cast(a, dtype),

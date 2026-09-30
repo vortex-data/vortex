@@ -9,6 +9,7 @@ use vortex::array::IntoArray;
 use vortex::array::arrays::Slice;
 use vortex::array::arrays::slice::SliceArraySlotsExt;
 use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 
 use crate::CudaExecutionCtx;
@@ -61,7 +62,7 @@ impl CudaExecute for SliceExecutor {
                 .into_array()
                 .slice(range)?
                 .execute::<Canonical>(ctx.execution_ctx()),
-            c => todo!("Slice kernel not implemented for {}", c.dtype()),
+            c => vortex_bail!("Slice kernel not implemented for {}", c.dtype()),
         }
     }
 }

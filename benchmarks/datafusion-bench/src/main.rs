@@ -252,7 +252,7 @@ async fn register_benchmark_tables<B: Benchmark + ?Sized>(
         register_v2_tables(session, benchmark, format).await
     } else {
         let benchmark_base = benchmark.data_url().join(&format!("{}/", format.name()))?;
-        let file_format = format_to_df_format(format);
+        let file_format = format_to_df_format(format)?;
 
         for table in benchmark.table_specs().iter() {
             let pattern = benchmark.pattern(table.name, format);

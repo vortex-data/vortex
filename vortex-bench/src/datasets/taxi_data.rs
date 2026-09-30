@@ -68,7 +68,7 @@ impl BenchDataset for TaxiData {
             Format::OnDiskVortex => taxi_data_vortex().await,
             Format::VortexCompact => taxi_data_vortex_compact().await,
             Format::Parquet => taxi_data_parquet().await,
-            other => unimplemented!("Random access bench not implemented for {other}"),
+            other => anyhow::bail!("Random access bench not implemented for {other}"),
         }
     }
 }

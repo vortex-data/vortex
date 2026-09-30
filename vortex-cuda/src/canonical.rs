@@ -31,6 +31,7 @@ use vortex::buffer::BitBuffer;
 use vortex::buffer::Buffer;
 use vortex::buffer::ByteBuffer;
 use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
 
 /// Copy a canonical child array to the host.
 async fn child_into_host(child: ArrayRef) -> VortexResult<ArrayRef> {
@@ -221,7 +222,7 @@ impl CanonicalCudaExt for Canonical {
                     host_storage,
                 )))
             }
-            c => todo!("{} not implemented", c.dtype()),
+            c => vortex_bail!("into_host is not implemented for {}", c.dtype()),
         }
     }
 }

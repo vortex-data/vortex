@@ -41,6 +41,7 @@ use std::any::Any;
 use std::sync::Arc;
 
 use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -459,9 +460,9 @@ pub fn builder_with_capacity_in(
             capacity,
             allocator,
         )),
-        DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
+        DType::Union(..) => vortex_panic!("TODO(connor)[Union]: unimplemented"),
         DType::Variant(_) => {
-            unimplemented!()
+            vortex_panic!("Variant builders are not implemented")
         }
         DType::Extension(ext_dtype) => Box::new(ExtensionBuilder::with_capacity_in(
             ext_dtype.clone(),

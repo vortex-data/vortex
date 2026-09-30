@@ -16,6 +16,7 @@ use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
 use crate::Canonical;
@@ -800,7 +801,7 @@ fn create_test_scalars_for_dtype(dtype: &DType, count: usize) -> Vec<Scalar> {
                     .collect();
                 Scalar::struct_(DType::Struct(fields.clone(), *n), field_values)
             }
-            DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
+            DType::Union(..) => vortex_panic!("TODO(connor)[Union]: unimplemented"),
             DType::Variant(_) => continue,
             DType::Extension(ext_dtype) => {
                 // Create extension scalars with storage values.

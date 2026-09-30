@@ -24,6 +24,7 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
 /// Apply fill_null on the canonical form of the array to get a consistent baseline.
 /// This implementation manually fills null values for each canonical type
@@ -51,7 +52,7 @@ pub fn fill_null_canonical_array(
         | Canonical::FixedSizeList(_)
         | Canonical::Extension(_) => canonical.into_array().fill_null(fill_value.clone())?,
         Canonical::Union(_) => {
-            todo!("TODO(connor)[Union]: support Union arrays in the fill_null fuzzer")
+            vortex_bail!("TODO(connor)[Union]: support Union arrays in the fill_null fuzzer")
         }
         Canonical::Variant(_) => unreachable!("Variant arrays are not fuzzed"),
     })

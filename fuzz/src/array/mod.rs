@@ -519,7 +519,7 @@ fn actions_for_dtype(dtype: &DType) -> HashSet<ActionType> {
                 })
         }
         DType::Map(..) => [Compress, Slice, Take, Filter, Mask, ScalarAt].into(),
-        DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
+        DType::Union(..) => vortex_panic!("TODO(connor)[Union]: unimplemented"),
         // Currently, no support at all
         DType::Variant(_) => unreachable!("Variant dtype shouldn't be fuzzed"),
         DType::Extension(_) => {
