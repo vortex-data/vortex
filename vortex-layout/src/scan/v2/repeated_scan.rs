@@ -23,13 +23,9 @@ use vortex_array::validity::Validity;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
-use vortex_io::request::IoBatch;
-use vortex_io::request::IoIntent;
-use vortex_io::request::IoRequest;
-use vortex_io::request::IoRequestId;
-use vortex_io::request::IoTarget;
+use vortex_io::request::IoService;
 use vortex_mask::Mask;
+use vortex_scan::planning::planner::WorkScope;
 use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
 use vortex_utils::parallelism::get_available_parallelism;
@@ -45,6 +41,7 @@ use crate::plan::plan_row_idx_expression;
 use crate::scan::filter::FilterExpr;
 use crate::scan::planning::FilterPlans;
 use crate::scan::planning::ScanPlans;
+use crate::scan::planning::plan_split;
 use crate::scan::scan_builder::ScanBuilder;
 use crate::scan::splits::Splits;
 use crate::scan::splits::attempt_split_ranges;
@@ -52,12 +49,10 @@ use crate::scan::v2::ScanFile;
 use crate::scan::v2::conjuncts::filter_after_eval;
 use crate::scan::v2::conjuncts::group_conjuncts;
 use crate::scan::v2::file::shared_file;
-use crate::scan::v2::io::ScanIo;
 use crate::scan::v2::io::SegmentScanIo;
 use crate::scan::v2::io::segment_ranges;
-use crate::scan::v2::prefetch::plan_segments;
 use crate::scan::v2::share::unshare_unread;
-use crate::scan::v2::split::SplitTask;
+use crate::scan::v2::split::SplitPlan;
 use crate::scan::v2::splits::chunk_starts;
 use crate::scan::v2::splits::filter_split_boundaries;
 use crate::scan::v2::splits::max_split_rows;
@@ -204,7 +199,7 @@ pub struct RepeatedScanV2<A: 'static + Send> {
     plans: ScanPlans,
     filter: Option<FilterPlans>,
     /// Serves the splits' reads.
-    io: Arc<dyn ScanIo>,
+    io: Arc<dyn IoService>,
     row_range: Option<Range<u64>>,
     selection: Selection,
     splits: Splits,
@@ -219,6 +214,22 @@ impl<A: 'static + Send> RepeatedScanV2<A> {
         &self.dtype
     }
 
+    /// The service the scan's splits read through: one session per planning run root.
+    pub fn io(&self) -> &Arc<dyn IoService> {
+        &self.io
+    }
+
+    /// Converts a projected array into the scan's output.
+    pub fn map(&self, array: ArrayRef) -> VortexResult<A> {
+        (self.map_fn)(array)
+    }
+
+    /// Joins the batches of one filter split, in row order, into one array without copying them.
+    /// Returns `None` when there are none.
+    pub fn join(&self, batches: Vec<ArrayRef>) -> VortexResult<Option<ArrayRef>> {
+        join_batches(batches, self.plans.projection.dtype())
+    }
+
     /// Returns one task per filter split of `row_range` that has selected rows.
     ///
     /// A task returns its projection splits' batches as one array, whose fields are chunked over
@@ -229,13 +240,14 @@ impl<A: 'static + Send> RepeatedScanV2<A> {
     ) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
         let dtype = self.plans.projection.dtype().clone();
         Ok(self
-            .split_tasks(row_range)?
+            .split_plans(row_range)?
             .into_iter()
-            .map(|task| {
+            .map(|split| {
+                let io = Arc::clone(&self.io);
                 let map_fn = Arc::clone(&self.map_fn);
                 let dtype = dtype.clone();
                 async move {
-                    join_batches(task.run().await?, &dtype)?
+                    join_batches(split.run(io).await?, &dtype)?
                         .map(|array| map_fn(array))
                         .transpose()
                 }
@@ -251,12 +263,14 @@ impl<A: 'static + Send> RepeatedScanV2<A> {
         row_range: Option<Range<u64>>,
     ) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Vec<A>>>>> {
         Ok(self
-            .split_tasks(row_range)?
+            .split_plans(row_range)?
             .into_iter()
-            .map(|task| {
+            .map(|split| {
+                let io = Arc::clone(&self.io);
                 let map_fn = Arc::clone(&self.map_fn);
                 async move {
-                    task.run()
+                    split
+                        .run(io)
                         .await?
                         .into_iter()
                         .map(|array| map_fn(array))
@@ -267,8 +281,9 @@ impl<A: 'static + Send> RepeatedScanV2<A> {
             .collect())
     }
 
-    /// The filter splits of `row_range` that have selected rows.
-    fn split_tasks(&self, row_range: Option<Range<u64>>) -> VortexResult<Vec<SplitTask>> {
+    /// The filter splits of `row_range` that have selected rows, in row order, each ready to be
+    /// admitted to a planning run that reads through a session of [`io`](Self::io).
+    pub fn split_plans(&self, row_range: Option<Range<u64>>) -> VortexResult<Vec<SplitPlan>> {
         let selection_range: Option<Range<u64>> = match &self.selection {
             Selection::IncludeByIndex(buf) if !buf.is_empty() => {
                 Some(buf[0]..buf[buf.len() - 1] + 1)
@@ -316,7 +331,7 @@ impl<A: 'static + Send> RepeatedScanV2<A> {
         };
 
         let mut limit = self.limit;
-        let mut tasks = Vec::new();
+        let mut splits = Vec::new();
         for range in ranges {
             let row_mask = self.selection.row_mask(&range);
             if row_mask.mask().all_false() {
@@ -334,23 +349,28 @@ impl<A: 'static + Send> RepeatedScanV2<A> {
                 }
                 _ => row_mask.mask().clone(),
             };
-            let range = row_mask.row_range();
-            let task = SplitTask {
-                plans: self.plans.clone(),
-                pruning: self.pruning.clone(),
-                filter: self.filter.clone(),
-                io: Arc::clone(&self.io),
-                announce: self.announce(&range)?,
-                range,
-                mask,
-            };
-            tasks.push(task);
+            if !mask.all_false() {
+                let scope = WorkScope {
+                    file_ordinal: 0,
+                    rows: row_mask.row_range(),
+                };
+                splits.push(SplitPlan {
+                    root: plan_split(
+                        self.plans.clone(),
+                        self.pruning.clone(),
+                        self.filter.clone(),
+                        scope.clone(),
+                        mask,
+                    )?,
+                    scope,
+                });
+            }
             if limit.is_some_and(|l| l == 0) {
                 break;
             }
         }
 
-        Ok(tasks)
+        Ok(splits)
     }
 }
 
@@ -387,39 +407,6 @@ fn reads_only_zones(plan: &PlanRef) -> VortexResult<bool> {
         }
     }
     Ok(true)
-}
-
-impl<A: 'static + Send> RepeatedScanV2<A> {
-    /// Announces the segments a split over `range` is likely to read, as the layout reader
-    /// registers them when it builds a split's futures. An announcement reads nothing itself, but
-    /// the IO service can coalesce every announced segment near one that it does read.
-    fn announce(&self, range: &Range<u64>) -> VortexResult<IoBatch> {
-        let mut ids = Vec::new();
-        for filter in self.filter.iter().flat_map(FilterPlans::plans) {
-            plan_segments(filter, range.clone(), &mut ids)?;
-        }
-        plan_segments(&self.plans.projection, range.clone(), &mut ids)?;
-        ids.sort_unstable();
-        ids.dedup();
-        ids.into_iter()
-            .enumerate()
-            .map(|(index, id)| {
-                let location = self
-                    .plans
-                    .locations
-                    .get(*id as usize)
-                    .ok_or_else(|| vortex_err!("segment {id} has no known location"))?;
-                Ok(IoRequest {
-                    intent: IoIntent::Announce,
-                    request: IoRequestId(u32::try_from(index)?),
-                    target: IoTarget::Range {
-                        offset: location.offset,
-                        len: location.length as usize,
-                    },
-                })
-            })
-            .collect()
-    }
 }
 
 fn intersect_ranges(left: Option<&Range<u64>>, right: Option<Range<u64>>) -> Option<Range<u64>> {

@@ -7,6 +7,7 @@ use rstest::rstest;
 use vortex_array::IntoArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::buffer;
+use vortex_io::request::IoBatch;
 use vortex_io::request::IoIntent;
 use vortex_io::request::IoOwnerId;
 use vortex_io::request::IoRequest;
@@ -37,18 +38,16 @@ fn io_source(read: &Arc<dyn VortexReadAt>) -> ReadAtIoSource<CurrentThreadRuntim
     ReadAtIoSource::new(Arc::clone(read), Arc::new(RUNTIME.clone()))
 }
 
-/// Delivers every request the stage currently reports through a read-at source.
-fn serve(stage: &mut FooterOpen, read: &Arc<dyn VortexReadAt>) -> VortexResult<State> {
-    let state = stage.state();
-    if let State::NeedsIO(batch) = &state {
-        let source = io_source(read);
-        source.submit(IoOwnerId(0), batch.clone())?;
-        for _ in batch {
-            let completion = source.wait()?;
-            stage.set_io_result(completion.request, completion.result?);
-        }
+/// Performs `batch` through a read-at source and delivers the results to the stage.
+fn serve(stage: &mut FooterOpen, read: &Arc<dyn VortexReadAt>, batch: IoBatch) -> VortexResult<()> {
+    let source = io_source(read);
+    let requests = batch.len();
+    source.submit(IoOwnerId(0), batch)?;
+    for _ in 0..requests {
+        let completion = source.wait()?;
+        stage.set_io_result(completion.request, completion.result?);
     }
-    Ok(state)
+    Ok(())
 }
 
 fn open(
@@ -71,12 +70,13 @@ fn run_to_child(
     read: &Arc<dyn VortexReadAt>,
 ) -> VortexResult<PlannerOutput> {
     for _ in 0..16 {
-        match serve(stage, read)? {
+        match stage.state() {
             State::Done => vortex_bail!("stage finished without emitting"),
-            State::NeedsIO(_) => continue,
+            State::Waiting => vortex_bail!("stage waits after every request was delivered"),
             State::NeedsCompute => match stage.compute()? {
                 output @ PlannerOutput::Planner(..) => return Ok(output),
-                PlannerOutput::NeedsIO(_) | PlannerOutput::Continue => continue,
+                PlannerOutput::NeedsIO(batch) => serve(stage, read, batch)?,
+                PlannerOutput::Continue => continue,
                 other => vortex_bail!("unexpected output {other:?}"),
             },
         }
@@ -115,11 +115,14 @@ fn known_size_reads_the_tail_only() -> VortexResult<()> {
     let read: Arc<dyn VortexReadAt> = Arc::clone(&recording) as Arc<dyn VortexReadAt>;
     let (next, _) = recording_child();
     let mut stage = open(Arc::clone(&read), Some(size), None, next);
-    let State::NeedsIO(batch) = stage.state() else {
+    assert_eq!(stage.state(), State::NeedsCompute);
+    let PlannerOutput::NeedsIO(batch) = stage.compute()? else {
         vortex_bail!("expected a tail request");
     };
     assert_eq!(batch.len(), 1);
-    assert_eq!(batch[0].target, IoTarget::Range { offset: 0, len });
+    assert_eq!(batch[0].target, IoTarget::range(0, len));
+    assert_eq!(stage.state(), State::Waiting);
+    serve(&mut stage, &read, batch)?;
     run_to_child(&mut stage, &read)?;
     assert_eq!(recording.size_calls(), 0);
     assert_eq!(recording.reads(), vec![(0, len)]);
@@ -133,7 +136,7 @@ fn unknown_size_asks_for_size_then_tail() -> VortexResult<()> {
     let read: Arc<dyn VortexReadAt> = Arc::new(buffer);
     let (next, _) = recording_child();
     let mut stage = open(Arc::clone(&read), None, None, next);
-    let State::NeedsIO(batch) = stage.state() else {
+    let PlannerOutput::NeedsIO(batch) = stage.compute()? else {
         vortex_bail!("expected a size request");
     };
     assert_eq!(
@@ -144,23 +147,21 @@ fn unknown_size_asks_for_size_then_tail() -> VortexResult<()> {
             target: IoTarget::Size
         }]
     );
-    serve(&mut stage, &read)?;
+    assert_eq!(stage.state(), State::Waiting);
+    serve(&mut stage, &read, batch)?;
     assert_eq!(stage.state(), State::NeedsCompute);
-    let PlannerOutput::NeedsIO(published) = stage.compute()? else {
+    let PlannerOutput::NeedsIO(batch) = stage.compute()? else {
         vortex_bail!("expected the tail request to be published");
     };
-    let State::NeedsIO(batch) = stage.state() else {
-        vortex_bail!("expected a tail request");
-    };
-    assert_eq!(batch, published);
     assert_eq!(
         batch,
         vec![IoRequest {
             intent: IoIntent::Fetch,
             request: IoRequestId(1),
-            target: IoTarget::Range { offset: 0, len }
+            target: IoTarget::range(0, len)
         }]
     );
+    assert_eq!(stage.state(), State::Waiting);
     Ok(())
 }
 
@@ -196,15 +197,20 @@ fn large_footer_needs_a_second_range() -> VortexResult<()> {
 #[rstest]
 #[case::known_size(true)]
 #[case::unknown_size(false)]
-fn ids_are_stable_until_delivered(#[case] known_size: bool) -> VortexResult<()> {
+fn waits_until_its_request_is_delivered(#[case] known_size: bool) -> VortexResult<()> {
     let buffer = small_file()?;
     let size = known_size.then_some(buffer.len() as u64);
+    let read: Arc<dyn VortexReadAt> = Arc::new(buffer);
     let (next, _) = recording_child();
-    let stage = open(Arc::new(buffer), size, None, next);
-    let first = stage.state();
-    assert!(matches!(first, State::NeedsIO(_)));
-    assert_eq!(stage.state(), first);
-    assert_eq!(stage.state(), first);
+    let mut stage = open(Arc::clone(&read), size, None, next);
+    assert_eq!(stage.state(), State::NeedsCompute);
+    let PlannerOutput::NeedsIO(batch) = stage.compute()? else {
+        vortex_bail!("expected a request");
+    };
+    assert_eq!(stage.state(), State::Waiting);
+    assert_eq!(stage.state(), State::Waiting);
+    serve(&mut stage, &read, batch)?;
+    assert_eq!(stage.state(), State::NeedsCompute);
     Ok(())
 }
 
@@ -219,6 +225,7 @@ fn bad_delivery_is_a_driver_bug(#[case] id: IoRequestId, #[case] result: IoResul
     let (next, _) = recording_child();
     let buffer = small_file().expect("fixture file");
     let mut stage = open(Arc::new(buffer), None, None, next);
+    drop(stage.compute().expect("the size request"));
     stage.set_io_result(id, result);
 }
 

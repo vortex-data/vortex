@@ -14,8 +14,12 @@
 //! the file's own segment source serves their reads.
 //!
 //! The driver runs inside the split's future, on whichever thread polls it, and the future awaits
-//! the reads it starts from the file's segment source. Every split registers the segments its
-//! plans are likely to read when the scan is executed, so the source can coalesce them.
+//! the reads it starts from the file's segment source. Every split announces the segments its
+//! plans are likely to read when it starts, so the source can coalesce them.
+//!
+//! A caller that drives the planning protocol itself takes the splits as [`SplitPlan`]s from
+//! [`RepeatedScanV2::split_plans`] and admits them to its own run, reading through
+//! [`RepeatedScanV2::io`].
 //!
 //! [`ScanBuilder`]: crate::scan::scan_builder::ScanBuilder
 //! [`ScanBuilder::prepare`]: crate::scan::scan_builder::ScanBuilder::prepare
@@ -36,11 +40,11 @@ use std::env;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
-pub use io::ScanIo;
-pub use io::SplitIo;
 pub use repeated_scan::RepeatedScanV2;
 pub use repeated_scan::prepare;
+pub use split::SplitPlan;
 pub use stream::into_stream;
+use vortex_io::request::IoService;
 
 use crate::LayoutRef;
 use crate::scan::planning::SegmentLocation;
@@ -68,7 +72,7 @@ pub struct ScanFile {
     pub segments: Arc<dyn SegmentSource>,
     /// Serves the splits' reads, when the file provides a service for them; otherwise they are
     /// served from `segments`.
-    pub io: Option<Arc<dyn ScanIo>>,
+    pub io: Option<Arc<dyn IoService>>,
 }
 
 #[cfg(test)]

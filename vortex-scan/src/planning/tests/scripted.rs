@@ -8,6 +8,8 @@
 
 use std::ops::Range;
 use std::sync::Arc;
+use std::task::Context;
+use std::task::Poll;
 
 use parking_lot::Mutex;
 use vortex_array::ArrayRef;
@@ -20,18 +22,18 @@ use vortex_array::buffer::BufferHandle;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_utils::aliases::hash_map::HashMap;
-
 use vortex_io::request::Completion;
 use vortex_io::request::IoBatch;
 use vortex_io::request::IoConsumer;
 use vortex_io::request::IoIntent;
+use vortex_io::request::IoOwnerId;
 use vortex_io::request::IoRequest;
 use vortex_io::request::IoRequestId;
 use vortex_io::request::IoResult;
 use vortex_io::request::IoSource;
 use vortex_io::request::IoTarget;
-use vortex_io::request::IoOwnerId;
+use vortex_utils::aliases::hash_map::HashMap;
+
 use crate::planning::morsel::Morsel;
 use crate::planning::morsel::MorselOutput;
 use crate::planning::next::PendingPlanner;
@@ -55,27 +57,57 @@ impl Log {
     }
 }
 
-/// One scripted planner step. `Io` is a batch to report from `state()`; everything else is the
-/// output of one `compute()`.
+/// One scripted planner step. Every step but `Await` and `Wait` is the output of one `compute()`.
 pub enum PlannerStep {
     Done,
     Continue,
+    /// Publishes the batch and goes straight on to the next step.
     NeedsIO(IoBatch),
     Planner(WorkScope, Vec<PlannerStep>),
     Morsel(WorkScope, Vec<MorselStep>),
+    /// Publishes the batch, then waits until every request in it is delivered.
     Io(IoBatch),
+    /// Waits for requests an earlier `NeedsIO` step published.
+    Await(Vec<IoRequestId>),
+    /// Reports `Waiting` without having published anything.
+    Wait,
 }
 
 /// One scripted morsel step.
 pub enum MorselStep {
     Compute(MorselOutput),
+    /// Publishes the batch, then waits until every request in it is delivered.
     Io(IoBatch),
+}
+
+/// The ids a waiting step still expects.
+struct Pending(Vec<IoRequestId>);
+
+impl Pending {
+    fn of(batch: &IoBatch) -> Self {
+        Self(batch.iter().map(|request| request.request).collect())
+    }
+
+    /// Removes a delivered id and returns whether the step has everything it waited for.
+    fn deliver(&mut self, name: &str, position: usize, request: IoRequestId) -> bool {
+        let index = self
+            .0
+            .iter()
+            .position(|pending| *pending == request)
+            .unwrap_or_else(|| {
+                panic!("{name}: delivery of unknown request {request:?} at step {position}")
+            });
+        self.0.remove(index);
+        self.0.is_empty()
+    }
 }
 
 pub struct ScriptedPlanner {
     name: &'static str,
     script: Vec<PlannerStep>,
     position: usize,
+    /// What the step at `position` waits for, once it has published or received something.
+    pending: Option<Pending>,
     log: Log,
 }
 
@@ -85,6 +117,7 @@ impl ScriptedPlanner {
             name,
             script,
             position: 0,
+            pending: None,
             log: log.clone(),
         }
     }
@@ -101,10 +134,6 @@ impl ScriptedPlanner {
             Ok(Box::new(planner) as Box<dyn Planner>)
         })
     }
-
-    fn head(&self) -> Option<&PlannerStep> {
-        self.script.get(self.position)
-    }
 }
 
 impl IoConsumer for ScriptedPlanner {
@@ -116,23 +145,19 @@ impl IoConsumer for ScriptedPlanner {
             result.kind()
         ));
         let position = self.position;
-        let Some(PlannerStep::Io(batch)) = self.script.get_mut(position) else {
+        if let Some(PlannerStep::Await(ids)) = self.script.get(position)
+            && self.pending.is_none()
+        {
+            self.pending = Some(Pending(ids.clone()));
+        }
+        let Some(pending) = self.pending.as_mut() else {
             panic!(
                 "{}: unexpected delivery at script step {position}",
                 self.name
             );
         };
-        let index = batch
-            .iter()
-            .position(|pending| pending.request == request)
-            .unwrap_or_else(|| {
-                panic!(
-                    "{}: delivery of unknown request {request:?} at step {position}",
-                    self.name
-                )
-            });
-        batch.remove(index);
-        if batch.is_empty() {
+        if pending.deliver(self.name, position, request) {
+            self.pending = None;
             self.position += 1;
         }
     }
@@ -140,16 +165,28 @@ impl IoConsumer for ScriptedPlanner {
 
 impl Planner for ScriptedPlanner {
     fn state(&self) -> State {
-        match self.head() {
+        match self.script.get(self.position) {
             None => State::Done,
-            Some(PlannerStep::Io(batch)) => State::NeedsIO(batch.clone()),
+            Some(PlannerStep::Io(_)) if self.pending.is_none() => State::NeedsCompute,
+            Some(PlannerStep::Io(_) | PlannerStep::Await(_) | PlannerStep::Wait) => State::Waiting,
             Some(_) => State::NeedsCompute,
         }
     }
 
     fn compute(&mut self) -> VortexResult<PlannerOutput> {
-        self.log.push(format!("compute {}", self.name));
         let position = self.position;
+        if let Some(PlannerStep::Io(batch)) = self.script.get(position) {
+            assert!(
+                self.pending.is_none(),
+                "{}: compute called while script step {position} waits for IO",
+                self.name
+            );
+            self.log.push(format!("publish {}", self.name));
+            // A batch with nothing to wait for is left for the driver to reject.
+            self.pending = Some(Pending::of(batch));
+            return Ok(PlannerOutput::NeedsIO(batch.clone()));
+        }
+        self.log.push(format!("compute {}", self.name));
         self.position += 1;
         let Some(slot) = self.script.get_mut(position) else {
             panic!("{}: compute past the end of the script", self.name);
@@ -166,8 +203,8 @@ impl Planner for ScriptedPlanner {
                 scope,
                 Box::new(ScriptedMorsel::new("morsel", script, &self.log)),
             ),
-            PlannerStep::Io(_) => panic!(
-                "{}: compute called while script step {position} needs IO",
+            PlannerStep::Io(_) | PlannerStep::Await(_) | PlannerStep::Wait => panic!(
+                "{}: compute called while script step {position} waits for IO",
                 self.name
             ),
         })
@@ -178,6 +215,7 @@ pub struct ScriptedMorsel {
     name: &'static str,
     script: Vec<MorselStep>,
     position: usize,
+    pending: Option<Pending>,
     log: Log,
 }
 
@@ -187,6 +225,7 @@ impl ScriptedMorsel {
             name,
             script,
             position: 0,
+            pending: None,
             log: log.clone(),
         }
     }
@@ -201,23 +240,14 @@ impl IoConsumer for ScriptedMorsel {
             result.kind()
         ));
         let position = self.position;
-        let Some(MorselStep::Io(batch)) = self.script.get_mut(position) else {
+        let Some(pending) = self.pending.as_mut() else {
             panic!(
                 "{}: unexpected delivery at script step {position}",
                 self.name
             );
         };
-        let index = batch
-            .iter()
-            .position(|pending| pending.request == request)
-            .unwrap_or_else(|| {
-                panic!(
-                    "{}: delivery of unknown request {request:?} at step {position}",
-                    self.name
-                )
-            });
-        batch.remove(index);
-        if batch.is_empty() {
+        if pending.deliver(self.name, position, request) {
+            self.pending = None;
             self.position += 1;
         }
     }
@@ -227,21 +257,30 @@ impl Morsel for ScriptedMorsel {
     fn state(&self) -> State {
         match self.script.get(self.position) {
             None => State::Done,
-            Some(MorselStep::Io(batch)) => State::NeedsIO(batch.clone()),
-            Some(MorselStep::Compute(_)) => State::NeedsCompute,
+            Some(MorselStep::Io(_)) if self.pending.is_some() => State::Waiting,
+            Some(_) => State::NeedsCompute,
         }
     }
 
     fn compute(&mut self) -> VortexResult<MorselOutput> {
-        self.log.push(format!("compute {}", self.name));
         let position = self.position;
-        self.position += 1;
         match self.script.get_mut(position) {
-            Some(MorselStep::Compute(output)) => Ok(std::mem::replace(output, MorselOutput::Done)),
-            Some(MorselStep::Io(_)) => panic!(
-                "{}: compute called while script step {position} needs IO",
-                self.name
-            ),
+            Some(MorselStep::Io(batch)) => {
+                assert!(
+                    self.pending.is_none(),
+                    "{}: compute called while script step {position} waits for IO",
+                    self.name
+                );
+                let batch = batch.clone();
+                self.log.push(format!("publish {}", self.name));
+                self.pending = Some(Pending::of(&batch));
+                Ok(MorselOutput::NeedsIO(batch))
+            }
+            Some(MorselStep::Compute(output)) => {
+                self.log.push(format!("compute {}", self.name));
+                self.position += 1;
+                Ok(std::mem::replace(output, MorselOutput::Done))
+            }
             None => panic!("{}: compute past the end of the script", self.name),
         }
     }
@@ -265,7 +304,7 @@ pub enum Order {
 
 /// An [`IoSource`] answering from canned buffers. Every submission is resolved at once and
 /// held until `wait`, which hands completions back in the configured [`Order`]. It records the
-/// targets in submission order.
+/// targets in submission order, and how often it was cleared.
 #[derive(Default)]
 pub struct RecordingIoSource {
     canned: Mutex<HashMap<IoTarget, Canned>>,
@@ -273,6 +312,7 @@ pub struct RecordingIoSource {
     ready: Mutex<Vec<Completion>>,
     order: Order,
     submissions: Mutex<Vec<(IoOwnerId, IoRequest)>>,
+    clears: Mutex<usize>,
 }
 
 impl RecordingIoSource {
@@ -285,10 +325,9 @@ impl RecordingIoSource {
 
     /// Answers a range at `offset` with `bytes`.
     pub fn canned_bytes(&self, offset: u64, bytes: ByteBuffer) {
-        let len = bytes.len();
         self.canned
             .lock()
-            .insert(IoTarget::Range { offset, len }, Canned::Bytes(bytes));
+            .insert(IoTarget::range(offset, bytes.len()), Canned::Bytes(bytes));
     }
 
     /// Answers `target` with a size regardless of what it asked for, to test the driver's check.
@@ -309,16 +348,21 @@ impl RecordingIoSource {
     pub fn performed(&self) -> Vec<IoTarget> {
         self.performed.lock().clone()
     }
+
+    /// How many times the source was cleared.
+    pub fn clears(&self) -> usize {
+        *self.clears.lock()
+    }
 }
 
 impl IoSource for RecordingIoSource {
     fn submit(&self, work: IoOwnerId, batch: Vec<IoRequest>) -> VortexResult<()> {
         for request in batch {
-            self.submissions.lock().push((work, request.clone()));
+            self.submissions.lock().push((work, request));
             if request.intent != IoIntent::Fetch {
                 continue;
             }
-            self.performed.lock().push(request.target.clone());
+            self.performed.lock().push(request.target);
             let result = match self.canned.lock().get(&request.target) {
                 Some(Canned::Bytes(bytes)) => {
                     Ok(IoResult::Bytes(BufferHandle::new_host(bytes.clone())))
@@ -340,11 +384,18 @@ impl IoSource for RecordingIoSource {
         Ok(None)
     }
 
+    fn poll_completion(&self, _cx: &mut Context<'_>) -> Poll<VortexResult<Completion>> {
+        Poll::Ready(self.wait())
+    }
+
     fn release(&self, work: IoOwnerId) {
-        self.ready.lock().retain(|completion| completion.owner != work);
+        self.ready
+            .lock()
+            .retain(|completion| completion.owner != work);
     }
 
     fn clear(&self) {
+        *self.clears.lock() += 1;
         self.ready.lock().clear();
     }
 

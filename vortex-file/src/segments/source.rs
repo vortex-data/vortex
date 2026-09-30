@@ -413,16 +413,10 @@ impl FileSegmentSource {
     /// A service that serves a scan's protocol requests through this source's read driver, so
     /// they coalesce with each other and with this source's own reads.
     pub fn scan_io(&self) -> FileScanIo {
-        let alignments = self
-            .segments
-            .iter()
-            .map(|spec| ((spec.offset, spec.length as usize), spec.alignment))
-            .collect();
         FileScanIo::new(
             self.events.clone(),
             self.driver.clone(),
             Arc::clone(&self.next_id),
-            Arc::new(alignments),
         )
     }
 }

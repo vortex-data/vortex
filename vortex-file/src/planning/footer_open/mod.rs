@@ -36,8 +36,8 @@ pub const DEFAULT_INITIAL_READ_SIZE: usize = MAX_POSTSCRIPT_SIZE as usize + EOF_
 /// Opens a file: discovers its size if unknown, reads and parses the footer unless one was
 /// supplied, validates the footer against the size, and hands an [`OpenedFile`] to `next`.
 ///
-/// One request is outstanding at a time and its id stays stable across repeated `state()`
-/// calls until delivered. A delivery the stage did not ask for is a driver bug and panics.
+/// One request is outstanding at a time, published by the compute that discovers it. A delivery
+/// the stage did not ask for is a driver bug and panics.
 pub struct FooterOpen {
     read: Arc<dyn VortexReadAt>,
     initial_read_size: usize,
@@ -48,8 +48,12 @@ pub struct FooterOpen {
 }
 
 enum Phase {
-    /// Footer and size are both known; the next compute emits the child.
-    Cached { size: u64, footer: Footer },
+    /// Nothing is requested yet: the next compute emits the child when the footer and size are
+    /// both known, and asks for whichever is missing otherwise.
+    Start {
+        size: Option<u64>,
+        footer: Option<Footer>,
+    },
     /// The source length is in flight.
     NeedSize { footer: Option<Footer> },
     /// The initial tail read is in flight.
@@ -72,36 +76,24 @@ impl FooterOpen {
         session: VortexSession,
         next: Next<OpenedFile>,
     ) -> Self {
-        let mut stage = Self {
+        Self {
             read: source.read,
             initial_read_size,
             session,
             next,
-            phase: Phase::Emitted,
+            phase: Phase::Start {
+                size: source.size,
+                footer: source.footer,
+            },
             io: IoSlot::default(),
-        };
-        stage.phase = match (source.footer, source.size) {
-            (Some(footer), Some(size)) => Phase::Cached { size, footer },
-            (footer, None) => {
-                stage.io.issue(IoTarget::Size);
-                Phase::NeedSize { footer }
-            }
-            (None, Some(size)) => {
-                stage.issue_tail(size);
-                Phase::NeedTail { size }
-            }
-        };
-        stage
+        }
     }
 
     /// Mirrors `VortexOpenOptions::read_footer`: at least the minimum tail, at most the file.
     fn issue_tail(&mut self, size: u64) -> IoBatch {
         let len = self.initial_read_size.max(DEFAULT_INITIAL_READ_SIZE);
         let len = usize::try_from(size).map_or(len, |size| len.min(size));
-        self.io.issue(IoTarget::Range {
-            offset: size - len as u64,
-            len,
-        })
+        self.io.issue(IoTarget::range(size - len as u64, len))
     }
 
     fn emit(&mut self, size: u64, footer: Footer) -> VortexResult<PlannerOutput> {
@@ -126,7 +118,7 @@ impl FooterOpen {
         let size = *size;
         match deserializer.deserialize()? {
             DeserializeStep::NeedMoreData { offset, len } => Ok(PlannerOutput::NeedsIO(
-                self.io.issue(IoTarget::Range { offset, len }),
+                self.io.issue(IoTarget::range(offset, len)),
             )),
             DeserializeStep::NeedFileSize => {
                 vortex_bail!(
@@ -162,17 +154,32 @@ impl IoConsumer for FooterOpen {
 impl Planner for FooterOpen {
     fn state(&self) -> State {
         if matches!(self.phase, Phase::Emitted) {
-            return State::Done;
-        }
-        match self.io.batch() {
-            Some(batch) => State::NeedsIO(batch),
-            None => State::NeedsCompute,
+            State::Done
+        } else if self.io.is_waiting() {
+            State::Waiting
+        } else {
+            State::NeedsCompute
         }
     }
 
     fn compute(&mut self) -> VortexResult<PlannerOutput> {
         match std::mem::replace(&mut self.phase, Phase::Emitted) {
-            Phase::Cached { size, footer } => self.emit(size, footer),
+            Phase::Start {
+                size: Some(size),
+                footer: Some(footer),
+            } => self.emit(size, footer),
+            Phase::Start { size: None, footer } => {
+                self.phase = Phase::NeedSize { footer };
+                Ok(PlannerOutput::NeedsIO(self.io.issue(IoTarget::Size)))
+            }
+            Phase::Start {
+                size: Some(size),
+                footer: None,
+            } => {
+                let batch = self.issue_tail(size);
+                self.phase = Phase::NeedTail { size };
+                Ok(PlannerOutput::NeedsIO(batch))
+            }
             Phase::NeedSize { footer } => {
                 let size = self.take_size()?;
                 match footer {
