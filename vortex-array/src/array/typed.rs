@@ -224,11 +224,7 @@ impl<V: VTable> Array<V> {
     pub unsafe fn from_parts_unchecked(new: ArrayParts<V>) -> Self {
         let store = unsafe {
             ArrayInner::<ArrayData<V>>::new_unchecked(
-                new.vtable,
-                new.len,
-                new.dtype,
-                new.data,
-                new.slots,
+                new.vtable, new.len, new.dtype, new.data, new.slots,
             )
         };
         let inner = ArrayRef::from_inner(Arc::new(store));

@@ -142,7 +142,8 @@ impl FileStatistics {
 
 impl<'a> IntoIterator for &'a FileStatistics {
     type Item = (&'a AggregateResults, &'a DType);
-    type IntoIter = std::iter::Zip<std::slice::Iter<'a, AggregateResults>, std::slice::Iter<'a, DType>>;
+    type IntoIter =
+        std::iter::Zip<std::slice::Iter<'a, AggregateResults>, std::slice::Iter<'a, DType>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.stats.iter().zip(self.dtypes.iter())

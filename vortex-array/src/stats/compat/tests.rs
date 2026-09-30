@@ -36,10 +36,15 @@ fn every_historical_field_keeps_its_value_and_precision() -> VortexResult<()> {
     let session = array_session();
     let dtype = DType::from(PType::F64);
     let mut builder = FlatBufferBuilder::new();
-    let min =
-        builder.create_vector(&ScalarValue::to_proto_bytes::<Vec<u8>>(Some(&(-1.0f64).into())));
-    let max = builder.create_vector(&ScalarValue::to_proto_bytes::<Vec<u8>>(Some(&9.0f64.into())));
-    let sum = builder.create_vector(&ScalarValue::to_proto_bytes::<Vec<u8>>(Some(&12.0f64.into())));
+    let min = builder.create_vector(&ScalarValue::to_proto_bytes::<Vec<u8>>(Some(
+        &(-1.0f64).into(),
+    )));
+    let max = builder.create_vector(&ScalarValue::to_proto_bytes::<Vec<u8>>(Some(
+        &9.0f64.into(),
+    )));
+    let sum = builder.create_vector(&ScalarValue::to_proto_bytes::<Vec<u8>>(Some(
+        &12.0f64.into(),
+    )));
     let root = fba::ArrayStats::create(
         &mut builder,
         &fba::ArrayStatsArgs {
@@ -118,8 +123,9 @@ fn missing_fields_remain_missing() -> VortexResult<()> {
 #[test]
 fn incompatible_scalar_is_rejected() -> VortexResult<()> {
     let mut builder = FlatBufferBuilder::new();
-    let min =
-        builder.create_vector(&ScalarValue::to_proto_bytes::<Vec<u8>>(Some(&"invalid".into())));
+    let min = builder.create_vector(&ScalarValue::to_proto_bytes::<Vec<u8>>(Some(
+        &"invalid".into(),
+    )));
     let root = fba::ArrayStats::create(
         &mut builder,
         &fba::ArrayStatsArgs {
@@ -141,8 +147,8 @@ fn extension_extrema_preserve_logical_type(#[case] nullability: Nullability) -> 
     let ext = Date::new(TimeUnit::Days, nullability).erased();
     let dtype = DType::Extension(ext.clone());
     let aggregate = LegacyStat::Min.finalized_fn();
-    let value =
-        Scalar::extension_ref(ext, Scalar::primitive(3i32, nullability)).cast(&dtype.as_nullable())?;
+    let value = Scalar::extension_ref(ext, Scalar::primitive(3i32, nullability))
+        .cast(&dtype.as_nullable())?;
     let results = AggregateResults::try_new(
         &dtype,
         [(aggregate.clone(), Precision::Exact(value.clone()))],
@@ -249,10 +255,8 @@ fn exact_null_sum_survives_footer_encoding() -> VortexResult<()> {
     let dtype = DType::from(PType::I64);
     let sum = Sum.bind(NumericalAggregateOpts::skip_nans());
     let value = Scalar::null(dtype.as_nullable());
-    let results = AggregateResults::try_new(
-        &dtype,
-        [(sum.clone(), Precision::Exact(value.clone()))],
-    )?;
+    let results =
+        AggregateResults::try_new(&dtype, [(sum.clone(), Precision::Exact(value.clone()))])?;
     let mut builder = FlatBufferBuilder::new();
     let root = write_summary(&results, &dtype, &mut builder)?;
     builder.finish_minimal(root);
@@ -269,7 +273,10 @@ fn inexact_counts_cannot_be_written_as_exact() -> VortexResult<()> {
     let dtype = DType::from(PType::I32);
     let results = AggregateResults::try_new(
         &dtype,
-        [(NullCount.bind(EmptyOptions), Precision::Inexact(3u64.into()))],
+        [(
+            NullCount.bind(EmptyOptions),
+            Precision::Inexact(3u64.into()),
+        )],
     )?;
     assert!(write_summary(&results, &dtype, &mut FlatBufferBuilder::new()).is_err());
     Ok(())

@@ -851,10 +851,7 @@ mod tests {
             (Precision::Inexact(value), DFPrecision::Inexact(expected))
         };
 
-        assert_eq!(
-            scalar_stat_to_df(value, &target_dtype),
-            expected
-        );
+        assert_eq!(scalar_stat_to_df(value, &target_dtype), expected);
         Ok(())
     }
 

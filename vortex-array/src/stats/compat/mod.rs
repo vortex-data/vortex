@@ -10,14 +10,13 @@ mod legacy_stat;
 pub use legacy_stat::LegacyStat;
 
 mod footer;
-pub use footer::read_summary;
-pub use footer::validate_selection;
-pub use footer::write_summary;
-
 use arrow_buffer::BooleanBufferBuilder;
 use arrow_buffer::MutableBuffer;
 use arrow_buffer::bit_iterator::BitIterator;
 use enum_iterator::last;
+pub use footer::read_summary;
+pub use footer::validate_selection;
+pub use footer::write_summary;
 use vortex_error::VortexExpect;
 
 /// Encode the field-presence bitset used by legacy zone-map metadata.

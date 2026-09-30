@@ -343,8 +343,8 @@ mod tests {
     /// statistics the footer carries (empty means none at all).
     fn write_summary(file_statistics: Vec<AggregateFnRef>) -> VortexResult<WriteSummary> {
         RUNTIME.block_on(async {
-            let array = StructArray::from_fields(&[("i", buffer![1u32, 2, 3].into_array())])?
-                .into_array();
+            let array =
+                StructArray::from_fields(&[("i", buffer![1u32, 2, 3].into_array())])?.into_array();
             let mut buf = ByteBufferMut::empty();
             let mut writer = SESSION
                 .write_options()

@@ -1400,10 +1400,7 @@ async fn file_take() -> VortexResult<()> {
 }
 
 #[tokio::test]
-#[should_panic(
-    expected = "FileStatsAccumulator temporarily does not support nullable top-level structs"
-)]
-async fn write_nullable_top_level_struct() {
+async fn write_nullable_top_level_struct() -> VortexResult<()> {
     let ages = PrimitiveArray::from_option_iter([Some(25), Some(31), None, Some(57), None]);
 
     let array = StructArray::try_new(
@@ -1411,16 +1408,24 @@ async fn write_nullable_top_level_struct() {
         vec![ages.into_array()],
         5,
         Validity::AllValid,
-    )
-    .unwrap()
+    )?
     .into_array();
 
     let mut writer = vec![];
-    SESSION
+    let error = SESSION
         .write_options()
         .write(&mut writer, array.to_array_stream())
         .await
-        .unwrap();
+        .unwrap_err();
+
+    assert!(
+        error
+            .to_string()
+            .contains("File summaries require a non-nullable top-level struct")
+    );
+    assert!(writer.is_empty());
+
+    Ok(())
 }
 
 async fn round_trip(
@@ -2150,7 +2155,10 @@ async fn write_summary_matches_footer_results() -> VortexResult<()> {
     let written = summary.footer().statistics().unwrap();
     assert_eq!(
         written.fields()[0].get(&Sum.bind(NumericalAggregateOpts::skip_nans())),
-        Precision::Exact(Scalar::null(DType::Primitive(PType::I64, Nullability::Nullable)))
+        Precision::Exact(Scalar::null(DType::Primitive(
+            PType::I64,
+            Nullability::Nullable
+        )))
     );
     assert_eq!(
         written.fields()[1].get(&Min.bind(NumericalAggregateOpts::skip_nans())),

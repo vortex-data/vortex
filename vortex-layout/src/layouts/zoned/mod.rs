@@ -580,7 +580,11 @@ mod tests {
         assert!(legacy_stats.is_sorted());
         assert_eq!(
             legacy_stats.as_ref(),
-            &[LegacyStat::IsSorted, LegacyStat::IsStrictSorted, LegacyStat::Max]
+            &[
+                LegacyStat::IsSorted,
+                LegacyStat::IsStrictSorted,
+                LegacyStat::Max
+            ]
         );
     }
 

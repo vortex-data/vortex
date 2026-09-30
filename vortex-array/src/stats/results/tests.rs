@@ -44,7 +44,10 @@ fn missing_differs_from_an_exact_null() -> VortexResult<()> {
     )?;
     assert_eq!(results.iter().count(), 1);
     assert_eq!(results.get(&sum), Precision::Exact(value));
-    assert_eq!(results.get(&NullCount.bind(EmptyOptions)), Precision::Absent);
+    assert_eq!(
+        results.get(&NullCount.bind(EmptyOptions)),
+        Precision::Absent
+    );
     Ok(())
 }
 
@@ -61,10 +64,8 @@ fn duplicate_and_incompatible_results_are_rejected() {
 fn sortedness_is_a_final_result() -> VortexResult<()> {
     let dtype = DType::from(PType::I32);
     let sorted = IsSorted.bind(IsSortedOptions { strict: false });
-    let results = AggregateResults::try_new(
-        &dtype,
-        [(sorted.clone(), Precision::Exact(true.into()))],
-    )?;
+    let results =
+        AggregateResults::try_new(&dtype, [(sorted.clone(), Precision::Exact(true.into()))])?;
     let value = results.get(&sorted).as_exact().unwrap();
     assert_eq!(value.dtype(), &DType::Bool(Nullability::NonNullable));
     assert_ne!(sorted.state_dtype(&dtype), sorted.return_dtype(&dtype));

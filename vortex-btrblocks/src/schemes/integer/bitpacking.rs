@@ -104,8 +104,7 @@ impl Scheme for BitPackingScheme {
 
             match patches {
                 None => array,
-                Some(p) => Patched::from_array_and_patches(array, &p, exec_ctx)?
-                    .into_array(),
+                Some(p) => Patched::from_array_and_patches(array, &p, exec_ctx)?.into_array(),
             }
         } else {
             // Compress patches and place back into BitPackedArray.

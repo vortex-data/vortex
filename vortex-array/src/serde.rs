@@ -33,7 +33,6 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::TryFromBytes;
 use crate::flatbuffers::FlatBuffer;
-use crate::flatbuffers::WriteFlatBuffer;
 use crate::flatbuffers::array as fba;
 use crate::flatbuffers::array::Compression;
 use crate::session::ArraySessionExt;
@@ -1130,9 +1129,9 @@ mod tests {
         let mut builder = FlatBufferBuilder::new();
         let root = with_legacy_hints(serialized.flatbuffer(), &mut builder);
         let original = flatbuffers::root::<fba::Array>(serialized.flatbuffer.as_ref())?;
-        let buffers = original.buffers().map(|buffers| {
-            builder.create_vector(&buffers.iter().copied().collect::<Vec<_>>())
-        });
+        let buffers = original
+            .buffers()
+            .map(|buffers| builder.create_vector(&buffers.iter().copied().collect::<Vec<_>>()));
         let wire = fba::Array::create(
             &mut builder,
             &fba::ArrayArgs {

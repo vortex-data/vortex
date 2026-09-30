@@ -196,13 +196,20 @@ mod tests {
         }
         .bind(array.dtype())?;
         let mut ctx = session.create_execution_ctx();
-        let full = array.clone().apply_bound(&expr)?.execute::<BoolArray>(&mut ctx)?;
+        let full = array
+            .clone()
+            .apply_bound(&expr)?
+            .execute::<BoolArray>(&mut ctx)?;
         assert_eq!(full.to_mask_fill_null_false(&mut ctx).true_count(), matches);
 
         let dtype = DType::Utf8(Nullability::NonNullable);
         let fields = array.dtype().as_struct_fields();
         for (min, max, can_prune) in [
-            (Precision::Exact("aaa123"), Precision::Exact("aaa999"), matches == 0),
+            (
+                Precision::Exact("aaa123"),
+                Precision::Exact("aaa999"),
+                matches == 0,
+            ),
             (Precision::Inexact("aaa"), Precision::Inexact("aab"), false),
             (Precision::Absent, Precision::Absent, false),
         ] {
@@ -220,7 +227,10 @@ mod tests {
                 ],
             )?;
             let stats = FileStatistics::new(Arc::from([results]), Arc::from([dtype.clone()]));
-            assert_eq!(can_prune_file_stats(&expr, 2, &stats, fields, &session)?, can_prune);
+            assert_eq!(
+                can_prune_file_stats(&expr, 2, &stats, fields, &session)?,
+                can_prune
+            );
         }
         Ok(())
     }

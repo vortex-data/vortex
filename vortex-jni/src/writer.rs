@@ -613,7 +613,10 @@ mod tests {
         )?;
         assert_eq!(exact_count_jlong(Some(&exact), &aggregate)?, 3);
         assert_eq!(exact_count_jlong(Some(&inexact), &aggregate)?, -1);
-        assert_eq!(exact_count_jlong(Some(&AggregateResults::default()), &aggregate)?, -1);
+        assert_eq!(
+            exact_count_jlong(Some(&AggregateResults::default()), &aggregate)?,
+            -1
+        );
         assert_eq!(exact_count_jlong(None, &aggregate)?, -1);
         Ok(())
     }

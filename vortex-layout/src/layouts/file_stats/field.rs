@@ -56,7 +56,8 @@ impl FieldAccumulator {
         }
 
         let supports_extrema = supports_min_max(storage_dtype);
-        let fuse_min_max = supports_extrema && aggregates.contains(&min) && aggregates.contains(&max);
+        let fuse_min_max =
+            supports_extrema && aggregates.contains(&min) && aggregates.contains(&max);
         let min_max = fuse_min_max
             .then(|| {
                 Accumulator::try_new(MinMax, NumericalAggregateOpts::skip_nans(), dtype.clone())
@@ -83,7 +84,11 @@ impl FieldAccumulator {
         })
     }
 
-    pub(super) fn push_chunk(&mut self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
+    pub(super) fn push_chunk(
+        &mut self,
+        array: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         if array.is_empty() {
             return Ok(());
         }

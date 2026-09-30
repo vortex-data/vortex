@@ -78,16 +78,18 @@ impl ColumnStatisticsAggregate {
             _ => None,
         };
 
-        let max_string_length =
-            match stats.get(&UncompressedSizeInBytes.bind(EmptyOptions)).as_exact() {
-                Some(value) => {
-                    // DuckDB's string length is u32
-                    #[allow(clippy::cast_possible_truncation)]
-                    let size = value.as_primitive().as_::<u64>().vortex_expect("not a u64") as u32;
-                    Some(size)
-                }
-                None => None,
-            };
+        let max_string_length = match stats
+            .get(&UncompressedSizeInBytes.bind(EmptyOptions))
+            .as_exact()
+        {
+            Some(value) => {
+                // DuckDB's string length is u32
+                #[allow(clippy::cast_possible_truncation)]
+                let size = value.as_primitive().as_::<u64>().vortex_expect("not a u64") as u32;
+                Some(size)
+            }
+            None => None,
+        };
 
         let has_null = match stats.get(&NullCount.bind(EmptyOptions)) {
             Precision::Exact(cnt) => cnt.as_primitive().as_::<u64>().vortex_expect("not a u64") > 0,

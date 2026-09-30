@@ -103,8 +103,9 @@ impl Scheme for ALPScheme {
 
             match patches {
                 None => Ok(alp_array),
-                Some(p) => Ok(Patched::from_array_and_patches(alp_array, &p, exec_ctx)?
-                    .into_array()),
+                Some(p) => {
+                    Ok(Patched::from_array_and_patches(alp_array, &p, exec_ctx)?.into_array())
+                }
             }
         } else {
             let patches = alp_encoded

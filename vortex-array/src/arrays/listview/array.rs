@@ -734,7 +734,10 @@ fn validate_zctl(
     // Offsets must be sorted (but not strictly sorted, zero-length lists are allowed), even
     // if there are null views.
     let mut ctx = legacy_session().create_execution_ctx();
-    vortex_ensure!(is_sorted(offsets_primitive.as_ref(), &mut ctx)?, "offsets must be sorted");
+    vortex_ensure!(
+        is_sorted(offsets_primitive.as_ref(), &mut ctx)?,
+        "offsets must be sorted"
+    );
 
     // Validate that offset[i] + size[i] <= offset[i+1] for all items
     // This ensures views are non-overlapping and properly ordered for zero-copy-to-list

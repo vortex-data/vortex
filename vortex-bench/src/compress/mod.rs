@@ -219,8 +219,7 @@ pub trait Compressor: Send + Sync {
 
 /// Run a compression benchmark for the given compressor.
 ///
-/// Compresses the same `input` `iterations` times and returns timing statistics. The input is
-/// [reset](Uncompressed::reset) before every iteration so none of them starts warm.
+/// Compresses the same `input` `iterations` times and returns timing statistics.
 pub async fn benchmark_compress(
     compressor: &dyn Compressor,
     input: &Uncompressed,

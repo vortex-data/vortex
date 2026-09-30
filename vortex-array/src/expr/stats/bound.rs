@@ -20,12 +20,6 @@ use crate::partial_ord::partial_min;
 pub struct LowerBound<T>(pub(crate) Precision<T>);
 
 impl<T> LowerBound<T> {
-    pub(crate) fn min_value(self) -> Option<T> {
-        self.0.into_inner()
-    }
-}
-
-impl<T> LowerBound<T> {
     pub fn is_exact(&self) -> bool {
         self.0.is_exact()
     }
@@ -148,12 +142,6 @@ impl<T: PartialOrd> PartialOrd<T> for LowerBound<T> {
 /// Interpret the value as an upper bound, see `LowerBound` for more details.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UpperBound<T>(pub(crate) Precision<T>);
-
-impl<T> UpperBound<T> {
-    pub(crate) fn max_value(self) -> Option<T> {
-        self.0.into_inner()
-    }
-}
 
 impl<T: PartialOrd + Clone> StatBound<T> for UpperBound<T> {
     fn lift(value: Precision<T>) -> Self {

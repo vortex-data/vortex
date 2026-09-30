@@ -64,8 +64,8 @@ fn take_datetime_parts(
         Scalar::primitive(0i64, Nullability::NonNullable).cast(array.seconds().dtype())?;
     let taken_seconds = taken_seconds.fill_null(seconds_fill)?;
 
-    let subseconds_fill = Scalar::primitive(0i64, Nullability::NonNullable)
-        .cast(array.subseconds().dtype())?;
+    let subseconds_fill =
+        Scalar::primitive(0i64, Nullability::NonNullable).cast(array.subseconds().dtype())?;
     let taken_subseconds = taken_subseconds.fill_null(subseconds_fill)?;
 
     Ok(DateTimeParts::try_new(dtype, taken_days, taken_seconds, taken_subseconds)?.into_array())

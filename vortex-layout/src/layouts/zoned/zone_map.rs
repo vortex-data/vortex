@@ -268,9 +268,8 @@ impl ZoneMap {
     }
 
     fn stat_field_expr(&self, aggregate: &AggregateFnRef) -> Option<Expression> {
-        self.aggregate_field_expr(aggregate).or_else(|| {
-            self.legacy_stat_field_expr(LegacyStat::from_aggregate_fn(aggregate)?)
-        })
+        self.aggregate_field_expr(aggregate)
+            .or_else(|| self.legacy_stat_field_expr(LegacyStat::from_aggregate_fn(aggregate)?))
     }
 
     fn legacy_stat_field_expr(&self, stat: LegacyStat) -> Option<Expression> {
@@ -497,10 +496,22 @@ mod tests {
         let zone_map = ZoneMap::try_new_legacy(
             dtype.clone(),
             StructArray::from_fields(&[
-                ("max", VarBinArray::from(vec![Some("aab"), None]).into_array()),
-                (MAX_IS_TRUNCATED, BoolArray::from_iter([true, false]).into_array()),
-                ("min", VarBinArray::from(vec![Some("aaa"), None]).into_array()),
-                (MIN_IS_TRUNCATED, BoolArray::from_iter([true, false]).into_array()),
+                (
+                    "max",
+                    VarBinArray::from(vec![Some("aab"), None]).into_array(),
+                ),
+                (
+                    MAX_IS_TRUNCATED,
+                    BoolArray::from_iter([true, false]).into_array(),
+                ),
+                (
+                    "min",
+                    VarBinArray::from(vec![Some("aaa"), None]).into_array(),
+                ),
+                (
+                    MIN_IS_TRUNCATED,
+                    BoolArray::from_iter([true, false]).into_array(),
+                ),
             ])?,
             Arc::new([LegacyStat::Max, LegacyStat::Min]),
             2,

@@ -24,6 +24,7 @@ use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::expr::stats::Precision;
 use vortex_array::extension::datetime::Date;
 use vortex_array::extension::datetime::TimeUnit;
@@ -58,7 +59,10 @@ fn combines_chunks() -> VortexResult<()> {
         results.get(&Sum.bind(NumericalAggregateOpts::skip_nans())),
         Precision::Exact(Scalar::primitive(8i64, Nullability::Nullable))
     );
-    assert_eq!(results.get(&NullCount.bind(EmptyOptions)), Precision::Exact(0u64.into()));
+    assert_eq!(
+        results.get(&NullCount.bind(EmptyOptions)),
+        Precision::Exact(0u64.into())
+    );
     assert_eq!(results.get(&NanCount.bind(EmptyOptions)), Precision::Absent);
     Ok(())
 }
@@ -82,9 +86,15 @@ fn all_null_input_has_known_results() -> VortexResult<()> {
         Min.bind(NumericalAggregateOpts::skip_nans()),
         Max.bind(NumericalAggregateOpts::skip_nans()),
     ] {
-        assert_eq!(results.get(&aggregate), Precision::Exact(Scalar::null(array.dtype().clone())));
+        assert_eq!(
+            results.get(&aggregate),
+            Precision::Exact(Scalar::null(array.dtype().clone()))
+        );
     }
-    assert_eq!(results.get(&NullCount.bind(EmptyOptions)), Precision::Exact(2u64.into()));
+    assert_eq!(
+        results.get(&NullCount.bind(EmptyOptions)),
+        Precision::Exact(2u64.into())
+    );
     assert_eq!(
         results.get(&Sum.bind(NumericalAggregateOpts::skip_nans())),
         Precision::Exact(Scalar::primitive(0i64, Nullability::Nullable))
@@ -133,10 +143,8 @@ fn extension_extrema_keep_the_logical_type(
 
     for aggregate in aggregates {
         let value = if aggregate.is::<Min>() { -1i32 } else { 3i32 };
-        let expected = Scalar::extension_ref(
-            ext.clone(),
-            Scalar::primitive(value, Nullability::Nullable),
-        );
+        let expected =
+            Scalar::extension_ref(ext.clone(), Scalar::primitive(value, Nullability::Nullable));
         assert_eq!(results.get(&aggregate), Precision::Exact(expected));
     }
 
@@ -159,8 +167,14 @@ fn nulls_and_nans_do_not_contribute_to_extrema_or_sum() -> VortexResult<()> {
             Precision::Exact(Scalar::primitive(3.0f64, Nullability::Nullable))
         );
     }
-    assert_eq!(results.get(&NullCount.bind(EmptyOptions)), Precision::Exact(1u64.into()));
-    assert_eq!(results.get(&NanCount.bind(EmptyOptions)), Precision::Exact(1u64.into()));
+    assert_eq!(
+        results.get(&NullCount.bind(EmptyOptions)),
+        Precision::Exact(1u64.into())
+    );
+    assert_eq!(
+        results.get(&NanCount.bind(EmptyOptions)),
+        Precision::Exact(1u64.into())
+    );
     Ok(())
 }
 
@@ -175,7 +189,10 @@ fn overflowing_sum_stays_null_across_chunks() -> VortexResult<()> {
     acc.push_chunk(&second, &mut ctx)?;
     assert_eq!(
         acc.results()?.get(&sum),
-        Precision::Exact(Scalar::null(DType::Primitive(PType::I64, Nullability::Nullable)))
+        Precision::Exact(Scalar::null(DType::Primitive(
+            PType::I64,
+            Nullability::Nullable
+        )))
     );
     Ok(())
 }
@@ -194,7 +211,10 @@ fn flags_include_chunk_boundaries(
     let mut ctx = array_session().create_execution_ctx();
     acc.push_chunk(&first, &mut ctx)?;
     acc.push_chunk(&second, &mut ctx)?;
-    assert_eq!(acc.results()?.get(&aggregate), Precision::Exact(false.into()));
+    assert_eq!(
+        acc.results()?.get(&aggregate),
+        Precision::Exact(false.into())
+    );
     Ok(())
 }
 
@@ -210,7 +230,10 @@ fn truncates_final_bounds(#[case] dtype: DType) -> VortexResult<()> {
     builder.append_value("aaa123");
     builder.append_value("zzz999");
     let mut acc = FieldAccumulator::new(&dtype, &default_file_aggregates(), 3)?;
-    acc.push_chunk(&builder.finish(), &mut array_session().create_execution_ctx())?;
+    acc.push_chunk(
+        &builder.finish(),
+        &mut array_session().create_execution_ctx(),
+    )?;
     let results = acc.results()?;
     let expected = |s: &str| {
         if dtype.is_utf8() {
@@ -245,8 +268,15 @@ fn omits_maximum_when_truncation_has_no_upper_bound() -> VortexResult<()> {
         acc.push_chunk(&builder.finish(), &mut ctx)?;
     }
     let results = acc.results()?;
-    assert_eq!(results.get(&Max.bind(NumericalAggregateOpts::skip_nans())), Precision::Absent);
+    assert_eq!(
+        results.get(&Max.bind(NumericalAggregateOpts::skip_nans())),
+        Precision::Absent
+    );
     assert!(results.iter().all(|(aggregate, _)| !aggregate.is::<Max>()));
-    assert!(results.get(&Min.bind(NumericalAggregateOpts::skip_nans())).is_exact());
+    assert!(
+        results
+            .get(&Min.bind(NumericalAggregateOpts::skip_nans()))
+            .is_exact()
+    );
     Ok(())
 }

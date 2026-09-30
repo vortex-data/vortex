@@ -13,7 +13,6 @@ use std::ops::Range;
 
 use itertools::Itertools as _;
 use vortex_buffer::BitBuffer;
-use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;

@@ -1057,7 +1057,10 @@ mod tests {
         builder.append_value(b"bbb");
         let array = builder.finish_into_varbin();
 
-        assert!(crate::aggregate_fn::fns::is_sorted::is_sorted(array.offsets(), &mut ctx)?);
+        assert!(crate::aggregate_fn::fns::is_sorted::is_sorted(
+            array.offsets(),
+            &mut ctx
+        )?);
         Ok(())
     }
 
@@ -1070,7 +1073,10 @@ mod tests {
         );
         let array = builder.finish_into_varbin();
 
-        assert!(crate::aggregate_fn::fns::is_sorted::is_sorted(array.offsets(), &mut ctx)?);
+        assert!(crate::aggregate_fn::fns::is_sorted::is_sorted(
+            array.offsets(),
+            &mut ctx
+        )?);
         Ok(())
     }
 

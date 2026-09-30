@@ -95,7 +95,10 @@ pub fn is_constant(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<boo
     if invalid_count != 0 {
         return Ok(false);
     }
-    if IsConstant.return_dtype(&EmptyOptions, array.dtype()).is_none() {
+    if IsConstant
+        .return_dtype(&EmptyOptions, array.dtype())
+        .is_none()
+    {
         return Ok(false);
     }
 

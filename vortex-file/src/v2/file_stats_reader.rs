@@ -237,7 +237,10 @@ mod tests {
         let dtype = DType::Primitive(PType::I32, Nullability::Nullable);
         let stats = AggregateResults::try_new(
             &dtype,
-            [(NullCount.bind(EmptyOptions), Precision::Exact(null_count.into()))],
+            [(
+                NullCount.bind(EmptyOptions),
+                Precision::Exact(null_count.into()),
+            )],
         )?;
         Ok(FileStatistics::new(Arc::from([stats]), Arc::from([dtype])))
     }

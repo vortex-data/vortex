@@ -203,7 +203,10 @@ mod tests {
         let root = bound_expr::root(input_dtype.clone());
         let bound = bound::sum(root.clone());
         assert_eq!(bound.children(), &[root]);
-        assert_eq!(bound.dtype(), &DType::Primitive(PType::I64, Nullability::Nullable));
+        assert_eq!(
+            bound.dtype(),
+            &DType::Primitive(PType::I64, Nullability::Nullable)
+        );
         assert_eq!(bound, sum(crate::expr::root()).bind(&input_dtype)?);
         Ok(())
     }
@@ -238,7 +241,10 @@ mod tests {
     fn unresolved_stats_preserve_chunk_alignment() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let array = ChunkedArray::try_new(
-            vec![buffer![1i32, 2].into_array(), buffer![3i32, 4, 5].into_array()],
+            vec![
+                buffer![1i32, 2].into_array(),
+                buffer![3i32, 4, 5].into_array(),
+            ],
             dtype,
         )?
         .into_array();
@@ -248,7 +254,11 @@ mod tests {
             Scalar::null(DType::Primitive(PType::I64, Nullability::Nullable)),
             5,
         );
-        assert_arrays_eq!(result, expected, &mut array_session().create_execution_ctx());
+        assert_arrays_eq!(
+            result,
+            expected,
+            &mut array_session().create_execution_ctx()
+        );
         Ok(())
     }
 

@@ -942,7 +942,10 @@ mod tests {
     fn nan_guarded(expr: Expression, value_predicate: Expression) -> Expression {
         or(
             and(
-                eq(stat(expr.clone(), NanCount.bind(AggregateEmptyOptions)), lit(0u64)),
+                eq(
+                    stat(expr.clone(), NanCount.bind(AggregateEmptyOptions)),
+                    lit(0u64),
+                ),
                 value_predicate.clone(),
             ),
             and(
@@ -955,23 +958,14 @@ mod tests {
     #[test]
     fn rewrites_comparison_falsifier() -> VortexResult<()> {
         let expr = gt(col("a"), lit(10));
-        assert_rewrite_eq!(
-            falsify(&expr)?,
-            Some(lt_eq(max_stat(col("a")), lit(10)))
-        );
+        assert_rewrite_eq!(falsify(&expr)?, Some(lt_eq(max_stat(col("a")), lit(10))));
 
         let expr = eq(col("a"), col("b"));
         assert_rewrite_eq!(
             falsify(&expr)?,
             Some(or(
-                gt(
-                    min_stat(col("a")),
-                    max_stat(col("b")),
-                ),
-                gt(
-                    min_stat(col("b")),
-                    max_stat(col("a")),
-                ),
+                gt(min_stat(col("a")), max_stat(col("b")),),
+                gt(min_stat(col("b")), max_stat(col("a")),),
             ))
         );
 
@@ -979,14 +973,8 @@ mod tests {
         assert_rewrite_eq!(
             falsify(&expr)?,
             Some(or(
-                gt(
-                    min_stat(col("s")),
-                    max_stat(col("t")),
-                ),
-                gt(
-                    min_stat(col("t")),
-                    max_stat(col("s")),
-                ),
+                gt(min_stat(col("s")), max_stat(col("t")),),
+                gt(min_stat(col("t")), max_stat(col("s")),),
             ))
         );
         Ok(())
@@ -1079,7 +1067,10 @@ mod tests {
         assert_rewrite_eq!(
             falsify(&is_null(col("a")))?,
             Some(or(
-                eq(stat(col("a"), NullCount.bind(AggregateEmptyOptions)), lit(0u64)),
+                eq(
+                    stat(col("a"), NullCount.bind(AggregateEmptyOptions)),
+                    lit(0u64)
+                ),
                 all_non_null(&col("a")),
             ))
         );
@@ -1113,7 +1104,10 @@ mod tests {
         assert_rewrite_eq!(
             satisfy(&is_not_null(col("a")))?,
             Some(or(
-                eq(stat(col("a"), NullCount.bind(AggregateEmptyOptions)), lit(0u64)),
+                eq(
+                    stat(col("a"), NullCount.bind(AggregateEmptyOptions)),
+                    lit(0u64)
+                ),
                 all_non_null(&col("a")),
             ))
         );
@@ -1125,7 +1119,10 @@ mod tests {
         assert_rewrite_eq!(
             falsify(&is_nan(col("f")))?,
             Some(or(
-                eq(stat(col("f"), NanCount.bind(AggregateEmptyOptions)), lit(0u64)),
+                eq(
+                    stat(col("f"), NanCount.bind(AggregateEmptyOptions)),
+                    lit(0u64)
+                ),
                 all_non_nan(&col("f")),
             ))
         );
@@ -1134,7 +1131,13 @@ mod tests {
         assert_rewrite_eq!(
             falsify(&is_nan(get_item("x", col("n"))))?,
             Some(or(
-                eq(stat(get_item("x", col("n")), NanCount.bind(AggregateEmptyOptions)), lit(0u64)),
+                eq(
+                    stat(
+                        get_item("x", col("n")),
+                        NanCount.bind(AggregateEmptyOptions)
+                    ),
+                    lit(0u64)
+                ),
                 all_non_nan(&get_item("x", col("n"))),
             ))
         );

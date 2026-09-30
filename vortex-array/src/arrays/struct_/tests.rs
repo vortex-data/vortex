@@ -165,8 +165,10 @@ fn test_uncompressed_size_in_bytes() -> VortexResult<()> {
         .execute::<Canonical>(&mut array_session().create_execution_ctx())?
         .into_array()
         .nbytes();
-    let uncompressed_size =
-        uncompressed_size_in_bytes(&struct_array, &mut array_session().create_execution_ctx())?;
+    let uncompressed_size = uncompressed_size_in_bytes(
+        struct_array.as_ref(),
+        &mut array_session().create_execution_ctx(),
+    )?;
 
     assert_eq!(canonical_size, 2);
     assert_eq!(uncompressed_size, 4000);
