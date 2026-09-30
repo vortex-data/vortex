@@ -219,7 +219,7 @@ impl Mask {
         );
         let buffer = BitBuffer::from_indices(len, indices.iter().copied());
         debug_assert_eq!(buffer.len(), len);
-        let true_count = buffer.true_count();
+        let true_count = indices.len();
 
         if true_count == 0 {
             return Self::AllFalse(len);
