@@ -14,11 +14,13 @@ use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::PrimitiveBuilder;
+use vortex_array::builders::UninitRange;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PhysicalPType;
 use vortex_array::dtype::UnsignedPType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
+use vortex_array::patches::Patches;
 use vortex_array::scalar::Scalar;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
@@ -31,33 +33,9 @@ use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::FL_CHUNK_SIZE;
 use crate::FoRArray;
-use crate::bitpack_decompress;
 use crate::r#for::array::FoRArrayExt;
 use crate::r#for::array::FoRArraySlotsExt;
-use crate::unpack_iter::UnpackStrategy;
-use crate::unpack_iter::UnpackedChunks;
 use crate::unpack_iter::for_each_packed_chunk;
-
-/// FoR unpacking strategy that applies a reference value during unpacking.
-struct FoRStrategy<T> {
-    reference: T,
-}
-
-impl<T: PhysicalPType<Physical = T> + FoR> UnpackStrategy<T> for FoRStrategy<T> {
-    #[allow(clippy::inline_always)]
-    #[inline(always)]
-    unsafe fn unpack_chunk(
-        &self,
-        bit_width: usize,
-        chunk: &[T::Physical],
-        dst: &mut [T::Physical],
-    ) {
-        // SAFETY: Caller ensures chunk and dst have correct sizes.
-        unsafe {
-            FoR::unchecked_unfor_pack(bit_width, chunk, self.reference, dst);
-        }
-    }
-}
 
 pub fn decompress(array: &FoRArray, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
     match array.constant_reference() {
@@ -106,52 +84,7 @@ fn fused_decompress_typed<T: PhysicalPType<Physical = T> + UnsignedPType + FoR +
         .as_::<T>()
         .vortex_expect("cannot be null");
 
-    let strategy = FoRStrategy { reference: ref_ };
-    let mut scratch = [const { MaybeUninit::<T>::uninit() }; FL_CHUNK_SIZE];
-
-    // Create [`UnpackedChunks`] with FoR strategy.
-    let mut unpacked = UnpackedChunks::try_new_with_strategy(
-        strategy,
-        bp.packed_slice::<T>(),
-        bp.bit_width() as usize,
-        bp.offset() as usize,
-        bp.len(),
-        &mut scratch,
-    )?;
-
-    let mut builder = PrimitiveBuilder::<T>::with_capacity_in(
-        for_.dtype().nullability(),
-        bp.len(),
-        ctx.allocator(),
-    );
-    let mut uninit_range = builder.uninit_range(bp.len());
-    unsafe {
-        // Append a dense null Mask.
-        uninit_range.append_mask(&bp.validity()?.execute_mask(bp.as_ref().len(), ctx)?);
-    }
-
-    // SAFETY: `decode_into` will initialize all values in this range.
-    let uninit_slice = unsafe { uninit_range.slice_uninit_mut(0, bp.len()) };
-
-    // Decode all chunks (initial, full, and trailer) in one call.
-    unpacked.decode_into(uninit_slice);
-
-    if let Some(patches) = bp.patches() {
-        bitpack_decompress::apply_patches_to_uninit_range(
-            &mut uninit_range,
-            &patches,
-            ctx,
-            |v: T| v.wrapping_add(&ref_),
-        )?;
-    };
-
-    // SAFETY: We have set a correct validity mask via `append_mask` with `array.len()` values and
-    // initialized the same number of values needed via `decode_into`.
-    unsafe {
-        uninit_range.finish();
-    }
-
-    Ok(builder.finish_into_primitive())
+    fused_unpack(for_, bp, |_| ref_, ctx)
 }
 
 /// Decode `encoded`, then add `reference` to every value.
@@ -303,10 +236,20 @@ fn fused_decompress_many_refs_typed<
 ) -> VortexResult<PrimitiveArray> {
     let references = for_.references().clone().execute::<PrimitiveArray>(ctx)?;
     let references = references.as_slice::<T>();
-    let offset = usize::from(for_.offset());
-    let bit_width = bp.bit_width() as usize;
-    let len = bp.len();
+    fused_unpack(for_, bp, |chunk| references[chunk], ctx)
+}
 
+/// Unpack each BitPacked chunk and add its reference in one pass.
+///
+/// `chunk_reference` maps the index of a chunk, counted from the first chunk of `bp`, to its
+/// reference.
+fn fused_unpack<T: PhysicalPType<Physical = T> + UnsignedPType + FoR + WrappingAdd>(
+    for_: &FoRArray,
+    bp: ArrayView<'_, BitPacked>,
+    chunk_reference: impl Fn(usize) -> T,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<PrimitiveArray> {
+    let len = bp.len();
     let mut builder =
         PrimitiveBuilder::<T>::with_capacity_in(for_.dtype().nullability(), len, ctx.allocator());
     let mut uninit_range = builder.uninit_range(len);
@@ -315,64 +258,107 @@ fn fused_decompress_many_refs_typed<
         uninit_range.append_mask(&bp.validity()?.execute_mask(len, ctx)?);
     }
 
-    // SAFETY: the loop below initializes every value in this range.
+    // SAFETY: `unpack_chunks` initializes every value in this range.
     let output = unsafe { uninit_range.slice_uninit_mut(0, len) };
-    let mut scratch = [const { MaybeUninit::<T>::uninit() }; FL_CHUNK_SIZE];
-    for_each_packed_chunk::<T, _>(
-        bp.packed_slice::<T>(),
-        bit_width,
-        offset,
-        len,
-        |packed, range| {
-            let reference = references[range.start / FL_CHUNK_SIZE];
-            // `range` counts from the start of the first chunk, and the output starts at `offset`.
-            let skip = offset.saturating_sub(range.start);
-            let dst = &mut output[range.start + skip - offset..range.end - offset];
-            if dst.len() == FL_CHUNK_SIZE {
-                // SAFETY: `packed` holds one chunk at `bit_width` and `dst` has room for a chunk.
-                unsafe {
-                    FoR::unchecked_unfor_pack(
-                        bit_width,
-                        packed,
-                        reference,
-                        mem::transmute::<&mut [MaybeUninit<T>], &mut [T]>(dst),
-                    );
-                }
-            } else {
-                // SAFETY: as above, with `scratch` as the destination.
-                unsafe {
-                    FoR::unchecked_unfor_pack(
-                        bit_width,
-                        packed,
-                        reference,
-                        mem::transmute::<&mut [MaybeUninit<T>], &mut [T]>(&mut scratch[..]),
-                    );
-                }
-                dst.copy_from_slice(&scratch[skip..range.len()]);
-            }
-        },
-    )?;
+    unpack_chunks(bp, &chunk_reference, output)?;
 
     if let Some(patches) = bp.patches() {
-        let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
-        let values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
-        let values = values.as_slice::<T>();
-        match_each_unsigned_integer_ptype!(indices.ptype(), |P| {
-            for (&index, &value) in indices.as_slice::<P>().iter().zip_eq(values) {
-                let index = <P as AsPrimitive<usize>>::as_(index) - patches.offset();
-                let reference = references[(offset + index) / FL_CHUNK_SIZE];
-                uninit_range.set_value(index, value.wrapping_add(&reference));
-            }
-        });
+        let offset = usize::from(bp.offset());
+        apply_patches(&mut uninit_range, &patches, offset, &chunk_reference, ctx)?;
     }
 
     // SAFETY: We have set a correct validity mask via `append_mask` with `len` values and
-    // initialized every value in the loop above.
+    // initialized every value in `unpack_chunks`.
     unsafe {
         uninit_range.finish();
     }
 
     Ok(builder.finish_into_primitive())
+}
+
+/// Unpack each chunk of `bp` into `output` and add the chunk's reference.
+///
+/// Full chunks unpack straight into `output`. A partial first or last chunk unpacks into a scratch
+/// chunk, and only its values in `output` are copied over.
+fn unpack_chunks<T: PhysicalPType<Physical = T> + UnsignedPType + FoR>(
+    bp: ArrayView<'_, BitPacked>,
+    chunk_reference: impl Fn(usize) -> T,
+    output: &mut [MaybeUninit<T>],
+) -> VortexResult<()> {
+    let offset = usize::from(bp.offset());
+    let bit_width = bp.bit_width() as usize;
+    let mut scratch = [const { MaybeUninit::<T>::uninit() }; FL_CHUNK_SIZE];
+    for_each_packed_chunk::<T, _>(
+        bp.packed_slice::<T>(),
+        bit_width,
+        offset,
+        bp.len(),
+        |packed, range| {
+            let reference = chunk_reference(range.start / FL_CHUNK_SIZE);
+            // `range` counts from the start of the first chunk, and the output starts at `offset`.
+            let skip = offset.saturating_sub(range.start);
+            let dst = &mut output[range.start + skip - offset..range.end - offset];
+            if dst.len() == FL_CHUNK_SIZE {
+                // SAFETY: `packed` holds one chunk at `bit_width` and `dst` has room for a chunk.
+                unsafe { unfor_pack_into(bit_width, packed, reference, dst) };
+            } else {
+                // SAFETY: as above, with `scratch` as the destination.
+                unsafe { unfor_pack_into(bit_width, packed, reference, &mut scratch) };
+                dst.copy_from_slice(&scratch[skip..range.len()]);
+            }
+        },
+    )
+}
+
+/// Unpack one chunk into `dst` and add `reference` to every value.
+///
+/// # Safety
+///
+/// `packed` must hold one chunk at `bit_width`, and `dst` must have room for a full chunk.
+#[inline]
+unsafe fn unfor_pack_into<T: FoR>(
+    bit_width: usize,
+    packed: &[T],
+    reference: T,
+    dst: &mut [MaybeUninit<T>],
+) {
+    // SAFETY: the caller guarantees the sizes, and the unpack initializes every value of `dst`.
+    unsafe {
+        T::unchecked_unfor_pack(
+            bit_width,
+            packed,
+            reference,
+            mem::transmute::<&mut [MaybeUninit<T>], &mut [T]>(dst),
+        );
+    }
+}
+
+/// Write each patch value plus the reference of the chunk it falls in.
+///
+/// `offset` is the position of the first value within the first chunk, as in `fused_unpack`.
+fn apply_patches<T: NativePType + WrappingAdd>(
+    uninit_range: &mut UninitRange<T>,
+    patches: &Patches,
+    offset: usize,
+    chunk_reference: impl Fn(usize) -> T,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    assert_eq!(patches.array_len(), uninit_range.len());
+
+    let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
+    let values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
+
+    assert!(values.all_valid(ctx)?, "Patch values must be all valid");
+
+    let values = values.as_slice::<T>();
+    match_each_unsigned_integer_ptype!(indices.ptype(), |P| {
+        for (&index, &value) in indices.as_slice::<P>().iter().zip_eq(values) {
+            let index = <P as AsPrimitive<usize>>::as_(index) - patches.offset();
+            let reference = chunk_reference((offset + index) / FL_CHUNK_SIZE);
+            uninit_range.set_value(index, value.wrapping_add(&reference));
+        }
+    });
+    Ok(())
 }
 
 #[cfg(test)]
