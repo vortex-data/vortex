@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Compare decoding a FoR array with one reference against one with a reference per 1024-element
-//! chunk, over both a primitive child and a BitPacked child, which decode through a fused unpack.
-//!
-//! Every chunk spans the same range of values, so both encodings pack at the same bit width and
-//! the difference between them is the cost of the per-chunk references.
+//! Benchmarks decoding a FoR array with a reference per 1024-element chunk, over a primitive child
+//! and over a BitPacked child. An unsigned BitPacked child decodes through a fused unpack, and a
+//! signed one through BitPacked decoding followed by adding the references in place.
 //!
 //! Every benchmark carries `#[cpu_features]`, so it is measured on each walltime CPU-feature leg
 //! rather than in simulation: the loops under test are auto-vectorized, so the build decides
@@ -57,18 +55,10 @@ fn values<T: NativePType + TryFrom<usize>>(len: usize) -> Buffer<T> {
         .collect()
 }
 
-fn for_array<T: NativePType + TryFrom<usize>>(
-    len: usize,
-    chunked: bool,
-    bitpacked: bool,
-) -> ArrayRef {
+fn for_array<T: NativePType + TryFrom<usize>>(len: usize, bitpacked: bool) -> ArrayRef {
     let mut ctx = SESSION.create_execution_ctx();
     let array = PrimitiveArray::new(values::<T>(len), Validity::NonNullable);
-    let for_array = if chunked {
-        FoR::encode_chunked(array, &mut ctx).unwrap()
-    } else {
-        FoR::encode(array, &mut ctx).unwrap()
-    };
+    let for_array = FoR::encode_chunked(array, &mut ctx).unwrap();
     if !bitpacked {
         return for_array.into_array();
     }
@@ -78,14 +68,9 @@ fn for_array<T: NativePType + TryFrom<usize>>(
         .into_array()
 }
 
-fn run<T: NativePType + TryFrom<usize>>(
-    bencher: Bencher,
-    bytes: usize,
-    chunked: bool,
-    bitpacked: bool,
-) {
+fn run<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usize, bitpacked: bool) {
     let len = bytes / size_of::<T>();
-    let array = for_array::<T>(len, chunked, bitpacked);
+    let array = for_array::<T>(len, bitpacked);
     bencher
         .counter(ItemsCount::new(len))
         .with_inputs(|| (&array, SESSION.create_execution_ctx()))
@@ -94,24 +79,12 @@ fn run<T: NativePType + TryFrom<usize>>(
 
 #[vortex_bench_support::cpu_features]
 #[divan::bench(types = [i64], args = INPUT_BYTES)]
-fn decode<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usize) {
-    run::<T>(bencher, bytes, false, false);
-}
-
-#[vortex_bench_support::cpu_features]
-#[divan::bench(types = [i64], args = INPUT_BYTES)]
 fn decode_chunked<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usize) {
-    run::<T>(bencher, bytes, true, false);
+    run::<T>(bencher, bytes, false);
 }
 
 #[vortex_bench_support::cpu_features]
-#[divan::bench(types = [i64], args = INPUT_BYTES)]
-fn decode_bitpacked<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usize) {
-    run::<T>(bencher, bytes, false, true);
-}
-
-#[vortex_bench_support::cpu_features]
-#[divan::bench(types = [i64], args = INPUT_BYTES)]
+#[divan::bench(types = [u32, i64], args = INPUT_BYTES)]
 fn decode_bitpacked_chunked<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usize) {
-    run::<T>(bencher, bytes, true, true);
+    run::<T>(bencher, bytes, true);
 }
