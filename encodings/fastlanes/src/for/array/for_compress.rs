@@ -37,7 +37,7 @@ impl FoRData {
             .ok_or_else(|| vortex_err!("Min stat not found"))?;
 
         let encoded = match_each_integer_ptype!(array.ptype(), |T| {
-            compress_primitive::<T>(array, T::try_from(&min)?, ctx)?.into_array()
+            encode_primitive::<T>(array, T::try_from(&min)?, ctx)?.into_array()
         });
         FoR::try_new(encoded, min)
     }
@@ -53,7 +53,7 @@ impl FoRData {
     }
 }
 
-fn compress_primitive<T: NativePType + WrappingSub + PrimInt>(
+fn encode_primitive<T: NativePType + WrappingSub + PrimInt>(
     parray: PrimitiveArray,
     min: T,
     ctx: &mut ExecutionCtx,
@@ -81,8 +81,8 @@ where
     let mask = validity.execute_mask(array.len(), ctx)?;
     let values = array.as_slice::<T>();
     let (encoded, references) = match mask.bit_buffer() {
-        AllOr::All => compress_chunked_all_valid(values),
-        AllOr::Some(bits) => compress_chunked_nullable(values, bits),
+        AllOr::All => encode_chunked_all_valid(values),
+        AllOr::Some(bits) => encode_chunked_mixed_validity(values, bits),
         // Every value is null, so constants stand in for both children.
         AllOr::None => {
             let dtype = array.dtype();
@@ -100,7 +100,7 @@ where
 }
 
 /// Find each all-valid chunk's minimum and subtract it from each value while the chunk is in cache.
-fn compress_chunked_all_valid<T: PrimInt + WrappingSub>(values: &[T]) -> (Buffer<T>, Buffer<T>) {
+fn encode_chunked_all_valid<T: PrimInt + WrappingSub>(values: &[T]) -> (Buffer<T>, Buffer<T>) {
     let mut encoded = BufferMut::<T>::with_capacity(values.len());
     let out = &mut encoded.spare_capacity_mut()[..values.len()];
     let references = values
@@ -125,7 +125,7 @@ fn subtract<T: PrimInt + WrappingSub>(values: &[T], reference: T, out: &mut [May
 
 /// Find each mixed-validity chunk's minimum and subtract it from each non-null value while the chunk is in cache.
 /// The minimum is the minimum non-null value.
-fn compress_chunked_nullable<T: PrimInt + WrappingSub + 'static>(
+fn encode_chunked_mixed_validity<T: PrimInt + WrappingSub + 'static>(
     values: &[T],
     bits: &BitBuffer,
 ) -> (Buffer<T>, Buffer<T>)

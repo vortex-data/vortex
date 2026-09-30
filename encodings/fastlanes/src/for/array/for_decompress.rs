@@ -21,6 +21,7 @@ use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -71,107 +72,29 @@ fn decompress_one_ref(
     reference: &Scalar,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
-    let ptype = array.ptype();
-
     // Try to do fused unpack.
-    if ptype.is_unsigned_int()
+    if array.ptype().is_unsigned_int()
         && let Some(bp) = array.encoded().as_opt::<BitPacked>()
     {
-        return match_each_unsigned_integer_ptype!(ptype, |T| {
-            fused_decompress::<T>(array, bp, ctx)
-        });
+        return fused_decompress(array, bp, ctx);
     }
 
-    // TODO(ngates): Do we need this to be into_encoded() somehow?
-    let encoded = array.encoded().clone().execute::<PrimitiveArray>(ctx)?;
-    let validity = encoded.validity()?;
-
-    Ok(match_each_integer_ptype!(ptype, |T| {
-        let min = reference
-            .as_primitive()
-            .typed_value::<T>()
-            .vortex_expect("reference must be non-null");
-        if min == 0 {
-            encoded
-        } else {
-            PrimitiveArray::new(
-                decompress_primitive(encoded.into_buffer::<T>(), min),
-                validity,
-            )
-        }
-    }))
+    // Otherwise execute array and add references.
+    add_reference(array, reference, ctx)
 }
 
-/// Decompress an array whose chunks have different references.
-fn decompress_many_refs(array: &FoRArray, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
-    let ptype = array.ptype();
-
-    // Try to do fused unpack. BitPacked chunks line up with FoR chunks when the offsets match.
-    if ptype.is_unsigned_int()
-        && let Some(bp) = array.encoded().as_opt::<BitPacked>()
-        && bp.offset() == array.offset()
-    {
-        return match_each_unsigned_integer_ptype!(ptype, |T| {
-            fused_decompress_many_refs::<T>(array, bp, ctx)
-        });
-    }
-
-    match_each_integer_ptype!(ptype, |T| { add_references::<T>(array, ctx) })
-}
-
-/// Decode `encoded`, then add each chunk's reference in place.
-fn add_references<T: NativePType + WrappingAdd + PrimInt>(
-    array: &FoRArray,
+/// Unpack a BitPacked child and add the constant reference in one pass.
+pub(crate) fn fused_decompress(
+    for_: &FoRArray,
+    bp: ArrayView<'_, BitPacked>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
-    let encoded = array.encoded().clone().execute::<PrimitiveArray>(ctx)?;
-    if encoded.is_empty() {
-        return Ok(encoded);
-    }
-    let validity = encoded.validity()?;
-    let references = array.references().clone().execute::<PrimitiveArray>(ctx)?;
-    let references = references.as_slice::<T>();
-
-    // The first chunk may be partial when the array was sliced.
-    let first_len = (FL_CHUNK_SIZE - usize::from(array.offset())).min(array.len());
-    let values = match encoded.into_buffer::<T>().try_into_mut() {
-        Ok(mut values) => {
-            for (chunk, &reference) in chunks_mut(&mut values, first_len).zip_eq(references) {
-                for value in chunk {
-                    *value = value.wrapping_add(&reference);
-                }
-            }
-            values
-        }
-        // Add the references while copying out of a shared buffer, rather than copying first.
-        Err(encoded) => {
-            let len = encoded.len();
-            let mut values = BufferMut::<T>::with_capacity_in(len, ctx.allocator().clone());
-            let (first, rest) = encoded.split_at(first_len);
-            let inputs = iter::once(first).chain(rest.chunks(FL_CHUNK_SIZE));
-            let outputs = chunks_mut(&mut values.spare_capacity_mut()[..len], first_len);
-            for ((output, input), &reference) in outputs.zip(inputs).zip_eq(references) {
-                for (output, value) in output.iter_mut().zip(input) {
-                    output.write(value.wrapping_add(&reference));
-                }
-            }
-            // SAFETY: the loop above initialized every value.
-            unsafe { values.set_len(len) };
-            values
-        }
-    };
-    Ok(PrimitiveArray::new(values.freeze(), validity))
+    match_each_unsigned_integer_ptype!(for_.ptype(), |T| {
+        fused_decompress_typed::<T>(for_, bp, ctx)
+    })
 }
 
-/// Split `values` into FoR chunks, the first of which holds `first_len` values.
-fn chunks_mut<V>(values: &mut [V], first_len: usize) -> impl Iterator<Item = &mut [V]> {
-    let (first, rest) = values.split_at_mut(first_len);
-    iter::once(first).chain(rest.chunks_mut(FL_CHUNK_SIZE))
-}
-
-pub(crate) fn fused_decompress<
-    T: PhysicalPType<Physical = T> + UnsignedPType + FoR + WrappingAdd,
->(
+fn fused_decompress_typed<T: PhysicalPType<Physical = T> + UnsignedPType + FoR + WrappingAdd>(
     for_: &FoRArray,
     bp: ArrayView<'_, BitPacked>,
     ctx: &mut ExecutionCtx,
@@ -231,8 +154,147 @@ pub(crate) fn fused_decompress<
     Ok(builder.finish_into_primitive())
 }
 
+/// Decode `encoded`, then add `reference` to every value.
+fn add_reference(
+    array: &FoRArray,
+    reference: &Scalar,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<PrimitiveArray> {
+    match_each_integer_ptype!(array.ptype(), |T| {
+        add_reference_typed::<T>(array, reference, ctx)
+    })
+}
+
+fn add_reference_typed<T: NativePType + WrappingAdd + PrimInt>(
+    array: &FoRArray,
+    reference: &Scalar,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<PrimitiveArray> {
+    // TODO(ngates): Do we need this to be into_encoded() somehow?
+    let encoded = array.encoded().clone().execute::<PrimitiveArray>(ctx)?;
+    let min = reference
+        .as_primitive()
+        .typed_value::<T>()
+        .vortex_expect("reference must be non-null");
+    if min == T::zero() {
+        return Ok(encoded);
+    }
+    let validity = encoded.validity()?;
+    Ok(PrimitiveArray::new(
+        decompress_primitive(encoded.into_buffer::<T>(), min),
+        validity,
+    ))
+}
+
+fn decompress_primitive<T: NativePType + WrappingAdd + PrimInt>(
+    values: Buffer<T>,
+    min: T,
+) -> Buffer<T> {
+    values
+        .map_each_in_place(move |v| v.wrapping_add(&min))
+        .freeze()
+}
+
+/// Decompress an array whose chunks have different references.
+fn decompress_many_refs(array: &FoRArray, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
+    // Try to do fused unpack. BitPacked chunks line up with FoR chunks when the offsets match.
+    if array.ptype().is_unsigned_int()
+        && let Some(bp) = array.encoded().as_opt::<BitPacked>()
+        && bp.offset() == array.offset()
+    {
+        return fused_decompress_many_refs(array, bp, ctx);
+    }
+
+    add_references(array, ctx)
+}
+
+/// Decode `encoded`, then add each chunk's reference in place.
+fn add_references(array: &FoRArray, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
+    match_each_integer_ptype!(array.ptype(), |T| { add_references_typed::<T>(array, ctx) })
+}
+
+fn add_references_typed<T: NativePType + WrappingAdd + PrimInt>(
+    array: &FoRArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<PrimitiveArray> {
+    let encoded = array.encoded().clone().execute::<PrimitiveArray>(ctx)?;
+    if encoded.is_empty() {
+        return Ok(encoded);
+    }
+    let validity = encoded.validity()?;
+    let references = array.references().clone().execute::<PrimitiveArray>(ctx)?;
+    let references = references.as_slice::<T>();
+
+    // The first chunk may be partial when the array was sliced.
+    let first_len = (FL_CHUNK_SIZE - usize::from(array.offset())).min(array.len());
+    let values = match encoded.into_buffer::<T>().try_into_mut() {
+        // Try to add references in place if we hold only strong reference.
+        Ok(mut values) => {
+            add_references_in_place(&mut values, first_len, references);
+            values
+        }
+        // Otherwise add the references and encoded values in a new buffer.
+        Err(encoded) => {
+            add_references_copied(&encoded, first_len, references, ctx.allocator().clone())
+        }
+    };
+    Ok(PrimitiveArray::new(values.freeze(), validity))
+}
+
+/// Add each chunk's reference to `values`, whose first chunk holds `first_len` values.
+fn add_references_in_place<T: NativePType + WrappingAdd>(
+    values: &mut [T],
+    first_len: usize,
+    references: &[T],
+) {
+    for (chunk, &reference) in chunks_mut(values, first_len).zip_eq(references) {
+        for value in chunk {
+            *value = value.wrapping_add(&reference);
+        }
+    }
+}
+
+/// Copy `encoded`, whose first chunk holds `first_len` values, into a new buffer, adding each
+/// chunk's reference on the way.
+fn add_references_copied<T: NativePType + WrappingAdd>(
+    encoded: &[T],
+    first_len: usize,
+    references: &[T],
+    allocator: BufferAllocatorRef,
+) -> BufferMut<T> {
+    let len = encoded.len();
+    let mut values = BufferMut::<T>::with_capacity_in(len, allocator);
+    let (first, rest) = encoded.split_at(first_len);
+    let inputs = iter::once(first).chain(rest.chunks(FL_CHUNK_SIZE));
+    let outputs = chunks_mut(&mut values.spare_capacity_mut()[..len], first_len);
+    for ((output, input), &reference) in outputs.zip(inputs).zip_eq(references) {
+        for (output, value) in output.iter_mut().zip(input) {
+            output.write(value.wrapping_add(&reference));
+        }
+    }
+    // SAFETY: the loop above initialized every value.
+    unsafe { values.set_len(len) };
+    values
+}
+
+/// Split `values` into FoR chunks, the first of which holds `first_len` values.
+fn chunks_mut<V>(values: &mut [V], first_len: usize) -> impl Iterator<Item = &mut [V]> {
+    let (first, rest) = values.split_at_mut(first_len);
+    iter::once(first).chain(rest.chunks_mut(FL_CHUNK_SIZE))
+}
+
 /// Unpack each BitPacked chunk and add its chunk's reference in one pass.
-fn fused_decompress_many_refs<
+fn fused_decompress_many_refs(
+    for_: &FoRArray,
+    bp: ArrayView<'_, BitPacked>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<PrimitiveArray> {
+    match_each_unsigned_integer_ptype!(for_.ptype(), |T| {
+        fused_decompress_many_refs_typed::<T>(for_, bp, ctx)
+    })
+}
+
+fn fused_decompress_many_refs_typed<
     T: PhysicalPType<Physical = T> + UnsignedPType + FoR + WrappingAdd,
 >(
     for_: &FoRArray,
@@ -313,15 +375,6 @@ fn fused_decompress_many_refs<
     Ok(builder.finish_into_primitive())
 }
 
-fn decompress_primitive<T: NativePType + WrappingAdd + PrimInt>(
-    values: Buffer<T>,
-    min: T,
-) -> Buffer<T> {
-    values
-        .map_each_in_place(move |v| v.wrapping_add(&min))
-        .freeze()
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::LazyLock;
@@ -371,7 +424,7 @@ mod tests {
         let array = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7));
         let bp = BitPackedData::encode(&array.into_array(), 2, &mut ctx)?;
         let compressed = FoR::try_new(bp.clone().into_array(), 10u32.into())?;
-        let decompressed = fused_decompress::<u32>(&compressed, bp.as_view(), &mut ctx)?;
+        let decompressed = fused_decompress(&compressed, bp.as_view(), &mut ctx)?;
         assert_arrays_eq!(decompressed, expect, &mut ctx);
         Ok(())
     }
