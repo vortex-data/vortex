@@ -4,8 +4,8 @@
 //! Splits a scan from its plans rather than from the layout reader.
 //!
 //! A scan splits twice. The filter runs over filter splits, cut where the chunks of the columns the
-//! filter reads start, or of those the projection reads when the scan has no filter, and capped in
-//! size so every thread has several splits to run. Under each filter split, the projection runs
+//! filter reads start, or of those the projection reads when the scan has no filter, and cut
+//! further at other columns' chunk starts when too large to give every thread several splits. Under each filter split, the projection runs
 //! over one or more projection splits, cut where the chunks of the columns the projection reads
 //! start, so each projection split reads at most one chunk of every column.
 
@@ -77,14 +77,38 @@ fn collect_starts(plan: &PlanRef, offset: u64, starts: &mut Vec<u64>) -> VortexR
 
 /// The filter splits of `rows`, as every cut including `rows.start` and `rows.end`.
 ///
-/// Rows are cut at `starts`, dropping a cut closer than a quarter of `max_rows` to the previous
-/// one, so misaligned chunks of different columns do not leave slivers. Any split longer than
-/// `max_rows` is then divided into equal parts no longer than it.
-pub(super) fn filter_split_boundaries(starts: &[u64], rows: Range<u64>, max_rows: u64) -> Vec<u64> {
+/// Rows are cut at `filter_starts`, the chunk starts of the columns the filter reads. A split
+/// longer than `max_rows` is cut further at `finer_starts`, the chunk starts of every column the
+/// scan reads, so a scan with coarse filter chunks still gives every thread several splits. No
+/// split is cut inside a chunk, which every split reading it would decode again. A cut closer than
+/// a quarter of `max_rows` to its neighbour is dropped, so misaligned chunks of different columns
+/// do not leave slivers.
+pub(super) fn filter_split_boundaries(
+    filter_starts: &[u64],
+    finer_starts: &[u64],
+    rows: Range<u64>,
+    max_rows: u64,
+) -> Vec<u64> {
     if rows.is_empty() {
         return Vec::new();
     }
     let min_rows = max_rows / 4;
+    let cuts = cut_at(filter_starts, rows.clone(), min_rows);
+    let mut boundaries = vec![rows.start];
+    for (start, end) in cuts.into_iter().tuple_windows() {
+        if end - start > max_rows {
+            let finer = cut_at(finer_starts, start..end, min_rows);
+            boundaries.extend(&finer[1..]);
+        } else {
+            boundaries.push(end);
+        }
+    }
+    boundaries
+}
+
+/// `rows` cut at every one of `starts` inside it that is at least `min_rows` from the cut before
+/// and from `rows.end`, as every cut including `rows.start` and `rows.end`.
+fn cut_at(starts: &[u64], rows: Range<u64>, min_rows: u64) -> Vec<u64> {
     let mut cuts = vec![rows.start];
     for &start in starts {
         let previous = cuts[cuts.len() - 1];
@@ -97,14 +121,7 @@ pub(super) fn filter_split_boundaries(starts: &[u64], rows: Range<u64>, max_rows
         cuts.pop();
     }
     cuts.push(rows.end);
-
-    let mut boundaries = vec![rows.start];
-    for (start, end) in cuts.into_iter().tuple_windows() {
-        let parts = (end - start).div_ceil(max_rows.max(1));
-        boundaries.extend((1..parts).map(|part| start + (end - start) * part / parts));
-        boundaries.push(end);
-    }
-    boundaries
+    cuts
 }
 
 /// The projection splits of `rows`: cut at every one of `starts` inside it.
@@ -127,20 +144,26 @@ mod tests {
     use super::*;
 
     #[rstest]
-    #[case::divided_when_no_starts(&[], 0..150_000, 65_536, vec![0, 50_000, 100_000, 150_000])]
-    #[case::at_starts(&[40_000, 80_000], 0..120_000, 65_536, vec![0, 40_000, 80_000, 120_000])]
-    #[case::drops_slivers(&[40_000, 41_000, 80_000], 0..120_000, 65_536, vec![0, 40_000, 80_000, 120_000])]
-    #[case::folds_short_tail(&[40_000, 115_000], 0..120_000, 131_072, vec![0, 40_000, 120_000])]
-    #[case::divides_long_splits(&[40_000], 0..120_000, 65_536, vec![0, 40_000, 80_000, 120_000])]
-    #[case::only_inside_rows(&[10_000, 50_000, 200_000], 20_000..100_000, 65_536, vec![20_000, 50_000, 100_000])]
-    #[case::empty(&[10], 5..5, 65_536, vec![])]
+    #[case::whole_when_no_starts(&[], &[], 0..150_000, 65_536, vec![0, 150_000])]
+    #[case::at_starts(&[40_000, 80_000], &[], 0..120_000, 65_536, vec![0, 40_000, 80_000, 120_000])]
+    #[case::drops_slivers(&[40_000, 41_000, 80_000], &[], 0..120_000, 65_536, vec![0, 40_000, 80_000, 120_000])]
+    #[case::folds_short_tail(&[40_000, 115_000], &[], 0..120_000, 131_072, vec![0, 40_000, 120_000])]
+    #[case::long_split_cut_at_finer_starts(&[40_000], &[40_000, 60_000, 80_000, 100_000], 0..120_000, 65_536, vec![0, 40_000, 60_000, 80_000, 100_000, 120_000])]
+    #[case::short_split_ignores_finer_starts(&[60_000], &[30_000, 60_000, 90_000], 0..120_000, 65_536, vec![0, 60_000, 120_000])]
+    #[case::never_inside_a_chunk(&[], &[], 0..1_000_000, 65_536, vec![0, 1_000_000])]
+    #[case::only_inside_rows(&[10_000, 50_000, 200_000], &[], 20_000..100_000, 65_536, vec![20_000, 50_000, 100_000])]
+    #[case::empty(&[10], &[], 5..5, 65_536, vec![])]
     fn filter_splits(
-        #[case] starts: &[u64],
+        #[case] filter_starts: &[u64],
+        #[case] finer_starts: &[u64],
         #[case] rows: Range<u64>,
         #[case] max_rows: u64,
         #[case] expected: Vec<u64>,
     ) {
-        assert_eq!(filter_split_boundaries(starts, rows, max_rows), expected);
+        assert_eq!(
+            filter_split_boundaries(filter_starts, finer_starts, rows, max_rows),
+            expected
+        );
     }
 
     #[rstest]
