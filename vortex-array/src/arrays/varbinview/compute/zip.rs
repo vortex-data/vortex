@@ -19,6 +19,7 @@ use crate::arrays::varbinview::BinaryView;
 use crate::arrays::varbinview::VarBinViewArrayExt;
 use crate::builders::DeduplicatedBuffers;
 use crate::builders::LazyBitBufferBuilder;
+use crate::builtins::ArrayBuiltins;
 use crate::scalar_fn::fns::zip::ZipKernel;
 
 // A dedicated VarBinView zip kernel that builds the result directly by adjusting views and validity,
@@ -57,7 +58,7 @@ impl ZipKernel for VarBinView {
         let true_validity = if_true.varbinview_validity().execute_mask(len, ctx)?;
         let false_validity = if_false.varbinview_validity().execute_mask(len, ctx)?;
 
-        let mask = mask.clone().null_as_false().execute(ctx)?;
+        let mask = mask.clone().fill_null(false)?.execute::<Mask>(ctx)?;
         let if_false_view = if_false;
         match mask.slices() {
             AllOr::All => push_range(

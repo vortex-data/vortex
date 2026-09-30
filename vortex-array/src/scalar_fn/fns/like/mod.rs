@@ -31,8 +31,6 @@ use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::BinaryView;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
-use crate::expr::Expression;
-use crate::expr::and;
 use crate::expr::display::ExprDisplay;
 use crate::proto::expr as pb;
 use crate::scalar::Scalar;
@@ -171,17 +169,6 @@ impl ScalarFnVTable for Like {
         let pattern = args.get(1)?;
 
         execute_like(&child, &pattern, *options, ctx)
-    }
-
-    fn validity(
-        &self,
-        _options: &Self::Options,
-        expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
-        tracing::warn!("Computing validity for LIKE expression");
-        let child_validity = expression.child(0).validity()?;
-        let pattern_validity = expression.child(1).validity()?;
-        Ok(Some(and(child_validity, pattern_validity)))
     }
 
     fn is_strict(&self, _instance: &Self::Options) -> bool {

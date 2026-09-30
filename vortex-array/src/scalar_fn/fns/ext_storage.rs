@@ -13,7 +13,6 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::dtype::DType;
-use crate::expr::Expression;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::EmptyOptions;
@@ -83,14 +82,6 @@ impl ScalarFnVTable for ExtStorage {
 
         let input = input.execute::<ExtensionArray>(ctx)?;
         Ok(input.storage_array().clone())
-    }
-
-    fn validity(
-        &self,
-        _options: &Self::Options,
-        expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
-        Ok(Some(expression.child(0).validity()?))
     }
 
     fn is_strict(&self, _options: &Self::Options) -> bool {

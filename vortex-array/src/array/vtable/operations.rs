@@ -27,8 +27,9 @@ pub trait OperationsVTable<V: VTable> {
 
     /// Read the non-null scalar at `index` of the array in `state`.
     ///
-    /// Bounds and validity have been checked; the row is non-null. `state` carries the typed
-    /// view of the array and, for a read through a
+    /// Caller must check bounds and validity before calling this function and
+    /// ensure target row is non-NULL.
+    /// `state` carries the typed view of the array and, for a read through a
     /// [`RepeatedArrayProbe`](crate::RepeatedArrayProbe), the state that probe keeps. Read
     /// children through [`ProbeState::slot`], which follows the read's policy without the
     /// encoding having to know it. Take encoding state from [`ProbeState::retained`]. The scalar must retain the source's

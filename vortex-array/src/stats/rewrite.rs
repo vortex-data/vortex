@@ -152,21 +152,22 @@ mod tests {
     use crate::dtype::PType;
     use crate::expr::BoundExpression;
     use crate::expr::lit;
+    use crate::expr::not;
     use crate::expr::or;
     use crate::scalar_fn::ScalarFnId;
     use crate::scalar_fn::ScalarFnVTable;
-    use crate::scalar_fn::fns::literal::Literal;
+    use crate::scalar_fn::fns::not::Not;
     use crate::stats::session::StatsSessionExt;
 
     #[derive(Debug)]
-    struct StaticLiteralRule {
+    struct StaticNotRule {
         falsifier: Option<BoundExpression>,
         satisfier: Option<BoundExpression>,
     }
 
-    impl StatsRewriteRule for StaticLiteralRule {
+    impl StatsRewriteRule for StaticNotRule {
         fn scalar_fn_id(&self) -> ScalarFnId {
-            Literal.id()
+            Not.id()
         }
 
         fn falsify(
@@ -190,17 +191,17 @@ mod tests {
     fn combines_multiple_falsifiers_with_or() -> VortexResult<()> {
         let session = crate::array_session();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        session.stats().register_rewrite(StaticLiteralRule {
+        session.stats().register_rewrite(StaticNotRule {
             falsifier: Some(lit(false).bind(&dtype)?),
             satisfier: None,
         });
-        session.stats().register_rewrite(StaticLiteralRule {
+        session.stats().register_rewrite(StaticNotRule {
             falsifier: Some(lit(true).bind(&dtype)?),
             satisfier: None,
         });
 
         assert_eq!(
-            lit(true).bind(&dtype)?.falsify(&session)?,
+            not(lit(true)).bind(&dtype)?.falsify(&session)?,
             Some(or(lit(false), lit(true)).bind(&dtype)?)
         );
         Ok(())
@@ -210,17 +211,17 @@ mod tests {
     fn combines_multiple_satisfiers_with_or() -> VortexResult<()> {
         let session = crate::array_session();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        session.stats().register_rewrite(StaticLiteralRule {
+        session.stats().register_rewrite(StaticNotRule {
             falsifier: None,
             satisfier: Some(lit(false).bind(&dtype)?),
         });
-        session.stats().register_rewrite(StaticLiteralRule {
+        session.stats().register_rewrite(StaticNotRule {
             falsifier: None,
             satisfier: Some(lit(true).bind(&dtype)?),
         });
 
         assert_eq!(
-            lit(true).bind(&dtype)?.satisfy(&session)?,
+            not(lit(true)).bind(&dtype)?.satisfy(&session)?,
             Some(or(lit(false), lit(true)).bind(&dtype)?)
         );
         Ok(())
@@ -231,7 +232,7 @@ mod tests {
         let session = crate::array_session();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
 
-        let expr = lit(true).bind(&dtype)?;
+        let expr = not(lit(true)).bind(&dtype)?;
         assert_eq!(expr.falsify(&session)?, None);
         assert_eq!(expr.satisfy(&session)?, None);
         Ok(())

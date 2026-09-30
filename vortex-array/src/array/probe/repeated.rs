@@ -8,10 +8,13 @@ use vortex_error::vortex_err;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::array::probe::ArrayProbe;
 use crate::array::probe::array::check_bounds;
 use crate::array::probe::array::check_dtype;
 use crate::array::probe::array::child_of;
+use crate::arrays::BoolArray;
+use crate::arrays::ScalarFn;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
 
@@ -55,7 +58,10 @@ impl RepeatedArrayProbe {
 
     /// Read the scalar at `index`, including its nullness, reusing retained preparation.
     pub fn execute_scalar(&mut self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
-        if !self.execute_is_valid(index, ctx)? {
+        // Probing validity of a lazy ScalarFn can recurse back into this scalar
+        // so we need to avoid calling execute_is_valid. See
+        // execute_scalar_once in probe/array.rs.
+        if !self.array.is::<ScalarFn>() && !self.execute_is_valid(index, ctx)? {
             return Ok(Scalar::null(self.array.dtype().clone()));
         }
         let result =
@@ -85,6 +91,13 @@ impl RepeatedArrayProbe {
                     return Ok(false);
                 }
                 Validity::Array(array) => {
+                    // ScalarFn's validity mask is lazy but we don't want to
+                    // reevaluate it for every new probe request
+                    let array = if self.array.is::<ScalarFn>() {
+                        array.execute::<BoolArray>(ctx)?.into_array()
+                    } else {
+                        array
+                    };
                     self.validity = Some(Box::new(RepeatedArrayProbe::new(array)));
                 }
             }

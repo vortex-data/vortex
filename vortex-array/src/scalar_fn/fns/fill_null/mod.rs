@@ -16,22 +16,24 @@ use crate::ArrayRef;
 use crate::CanonicalView;
 use crate::ColumnarView;
 use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::arrays::Bool;
 use crate::arrays::Decimal;
 use crate::arrays::Primitive;
 use crate::arrays::ScalarFnArray;
-use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::expr::BoundExpression;
-use crate::expr::Expression;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
+use crate::scalar_fn::ReduceNode;
+use crate::scalar_fn::ReduceNodeValidity;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::is_not_null_node;
 
 /// An expression that replaces null values in the input with a fill value.
 #[derive(Clone)]
@@ -112,7 +114,8 @@ impl ScalarFnVTable for FillNull {
         );
 
         let Some(columnar) = input.as_opt::<AnyColumnar>() else {
-            return input.execute::<ArrayRef>(ctx)?.fill_null(fill_scalar);
+            let input = input.execute::<ArrayRef>(ctx)?;
+            return Ok(FillNull::try_new(input, fill_value)?.into_array());
         };
 
         match columnar {
@@ -133,14 +136,16 @@ impl ScalarFnVTable for FillNull {
         Ok(None)
     }
 
-    fn validity(
+    fn validity<T: ReduceNode>(
         &self,
         _options: &Self::Options,
-        expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
+        node: &T,
+    ) -> VortexResult<ReduceNodeValidity<T>> {
         // After fill_null, the result validity depends on the fill value's nullability.
         // If fill_value is non-nullable, the result is always valid.
-        Ok(Some(expression.child(1).validity()?))
+        Ok(ReduceNodeValidity::Reduced(is_not_null_node(
+            &node.child(1),
+        )?))
     }
 
     fn is_strict(&self, _options: &Self::Options) -> bool {
@@ -163,10 +168,7 @@ fn fill_null_canonical(
 ) -> VortexResult<ArrayRef> {
     let arr = canonical.to_array_ref();
     if let Some(result) = short_circuit(&arr, fill_value)? {
-        // The short circuit can return a lazy `ScalarFn`, so this forces it for now.
-        // TODO(aduffy): Remove this once we have better driver check. We're also implicitly
-        //  relying on the fact that Cast execution will do an optimize on its result.
-        return result.execute::<ArrayRef>(ctx);
+        return Ok(result);
     }
     match canonical {
         CanonicalView::Bool(a) => <Bool as FillNullKernel>::fill_null(a, fill_value, ctx)?

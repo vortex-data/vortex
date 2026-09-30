@@ -24,7 +24,6 @@ use crate::arrays::varbinview::VarBinViewArrayExt;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
-use crate::expr::Expression;
 use crate::kernel::ExecuteParentKernel;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
@@ -121,14 +120,6 @@ impl ScalarFnVTable for ByteLength {
             DType::Utf8(_) | DType::Binary(_) => byte_length(&input, nullability, ctx),
             other => vortex_bail!("byte_length() requires Utf8 or Binary, got {other}"),
         }
-    }
-
-    fn validity(
-        &self,
-        _: &Self::Options,
-        expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
-        Ok(Some(expression.child(0).validity()?))
     }
 
     fn is_strict(&self, _options: &Self::Options) -> bool {

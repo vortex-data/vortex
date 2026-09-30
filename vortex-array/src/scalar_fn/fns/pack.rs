@@ -21,13 +21,13 @@ use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::StructFields;
-use crate::expr::Expression;
 use crate::expr::display::ExprDisplay;
-use crate::expr::lit;
 use crate::proto::expr as pb;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
+use crate::scalar_fn::ReduceNode;
+use crate::scalar_fn::ReduceNodeValidity;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::validity::Validity;
@@ -127,12 +127,12 @@ impl ScalarFnVTable for Pack {
         ))
     }
 
-    fn validity(
+    fn validity<T: ReduceNode>(
         &self,
         _options: &Self::Options,
-        _expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
-        Ok(Some(lit(true)))
+        node: &T,
+    ) -> VortexResult<ReduceNodeValidity<T>> {
+        Ok(ReduceNodeValidity::Reduced(node.new_constant(true.into())))
     }
 
     fn execute(

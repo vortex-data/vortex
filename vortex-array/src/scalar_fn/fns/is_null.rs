@@ -18,9 +18,12 @@ use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
+use crate::scalar_fn::ReduceNode;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::fns::is_not_null::lazy_child_or_execute_step;
+use crate::scalar_fn::fns::is_not_null::reduce_null;
 use crate::validity::Validity;
 
 /// Expression that checks for null values.
@@ -75,13 +78,14 @@ impl ScalarFnVTable for IsNull {
         &self,
         _data: &Self::Options,
         args: &dyn ExecutionArgs,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let child = args.get(0)?;
         if let Some(scalar) = child.as_constant() {
             return Ok(ConstantArray::new(scalar.is_null(), args.row_count()).into_array());
         }
 
+        let child = lazy_child_or_execute_step(child, ctx)?;
         match child.validity()? {
             Validity::NonNullable | Validity::AllValid => {
                 Ok(ConstantArray::new(false, args.row_count()).into_array())
@@ -89,6 +93,10 @@ impl ScalarFnVTable for IsNull {
             Validity::AllInvalid => Ok(ConstantArray::new(true, args.row_count()).into_array()),
             Validity::Array(a) => a.not(),
         }
+    }
+
+    fn reduce<T: ReduceNode>(&self, _options: &Self::Options, node: &T) -> VortexResult<Option<T>> {
+        reduce_null(true, node)
     }
 
     fn is_strict(&self, _instance: &Self::Options) -> bool {
