@@ -106,6 +106,8 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
             return ve.literal(_dtype.decimal(precision=precision, scale=scale), value)
         elif len(scalar) == 1 and next(iter(scalar)) in _LITERAL_TYPES:
             dtype, value = next(iter(scalar.items()))
+        elif "Date" in scalar:
+            return ve.literal(_dtype.date("days"), scalar["Date"])
         else:
             raise ValueError(f"Cannot convert to Vortex: unsupported Polars scalar value type {scalar}")
 
