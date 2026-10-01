@@ -129,3 +129,20 @@ def test_polars_is_between(tmp_path, closed, expected):
     actual = vx.open(str(path)).to_polars().filter(expr).collect()
     assert_frame_equal(actual, expected_frame)
     assert actual["id"].to_list() == expected
+
+
+@pytest.mark.parametrize(
+    "arrow_type, threshold",
+    [(pa.uint8(), 50), (pa.uint16(), 500), (pa.uint32(), 500), (pa.uint64(), 500)],
+)
+def test_unsigned_predicate_pushdown(tmp_path, arrow_type, threshold):
+    table = pa.table(
+        {
+            "id": [0, 1, 2],
+            "value": pa.array([threshold - 1, threshold, threshold + 1], type=arrow_type),
+        }
+    )
+    path = tmp_path / "unsigned.vortex"
+    vx.io.write(vx.array(table), str(path))
+    result = vx.open(str(path)).to_polars().filter(pl.col("value") >= threshold).collect()
+    assert result["id"].to_list() == [1, 2]

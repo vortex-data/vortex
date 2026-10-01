@@ -104,6 +104,8 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
         elif "Decimal" in scalar:
             value, precision, scale = scalar["Decimal"]
             return ve.literal(_dtype.decimal(precision=precision, scale=scale), value)
+        elif len(scalar) == 1 and next(iter(scalar)) in _LITERAL_TYPES:
+            dtype, value = next(iter(scalar.items()))
         else:
             raise ValueError(f"Cannot convert to Vortex: unsupported Polars scalar value type {scalar}")
 
