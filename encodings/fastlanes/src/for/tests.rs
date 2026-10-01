@@ -7,6 +7,12 @@ use rstest::rstest;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::AggregateFnVTableExt;
+use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
+use vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions;
+use vortex_array::aggregate_fn::fns::is_sorted::is_sorted;
+use vortex_array::aggregate_fn::fns::is_sorted::is_strict_sorted;
+use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
@@ -22,6 +28,7 @@ use crate::FoR;
 use crate::FoRArray;
 use crate::FoRArrayExt;
 use crate::FoRArraySlotsExt;
+use crate::r#for::compute::is_sorted::FoRIsSortedKernel;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = vortex_array::array_session();
@@ -238,5 +245,71 @@ fn fused_decode_sliced(
     );
     assert_eq!(usize::from(sliced_for.offset()), start % FL_CHUNK_SIZE);
     assert_arrays_eq!(sliced, expected.into_array().slice(start..end)?, &mut ctx);
+    Ok(())
+}
+
+/// Per-chunk references over `encoded`, whose chunks hold `FL_CHUNK_SIZE` values each.
+fn per_chunk_u32(
+    encoded: impl IntoIterator<Item = u32>,
+    references: &[u32],
+) -> VortexResult<FoRArray> {
+    FoR::try_new_chunked(
+        PrimitiveArray::from_iter(encoded).into_array(),
+        PrimitiveArray::from_iter(references.iter().copied()).into_array(),
+        0,
+    )
+}
+
+#[rstest]
+#[case::sorted(per_chunk_u32((0..3000).map(|i| i % 1024), &[0, 5000, 9000]))]
+// The last value of chunk 0 equals the first of chunk 1: sorted, but not strictly.
+#[case::equal_at_boundary(per_chunk_u32((0..2048).map(|i| i % 1024), &[0, 1023]))]
+#[case::unsorted_at_boundary(per_chunk_u32((0..2048).map(|i| i % 1024), &[0, 1000]))]
+#[case::unsorted_within_chunk(per_chunk_u32((0..2048).map(|i| (i * 7) % 1024), &[0, 5000]))]
+#[case::signed_wrapping(signed_wrapping().map(|(array, _)| array))]
+#[case::encoded(FoR::encode_chunked(
+    PrimitiveArray::from_iter((0..5000i64).map(|i| (i / 1024) * 1_000_000 + i)),
+    &mut SESSION.create_execution_ctx(),
+))]
+fn is_sorted_per_chunk(
+    #[case] array: VortexResult<FoRArray>,
+    #[values(false, true)] strict: bool,
+    #[values((0, None), (100, Some(2000)))] slice: (usize, Option<usize>),
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let array = array?.into_array();
+    let array = array.slice(slice.0..slice.1.unwrap_or(array.len()))?;
+    assert!(array.as_::<FoR>().constant_reference().is_none());
+
+    let aggregate = IsSorted.bind(IsSortedOptions { strict });
+    assert!(
+        FoRIsSortedKernel
+            .aggregate(&aggregate, &array, &mut ctx)?
+            .is_some()
+    );
+    let decoded = array
+        .clone()
+        .execute::<PrimitiveArray>(&mut ctx)?
+        .into_array();
+    let check = if strict { is_strict_sorted } else { is_sorted };
+    assert_eq!(check(&array, &mut ctx)?, check(&decoded, &mut ctx)?);
+    Ok(())
+}
+
+#[test]
+fn is_sorted_per_chunk_declines_nulls() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let (array, expected) = nullable()?;
+    let array = array.into_array();
+    let aggregate = IsSorted.bind(IsSortedOptions { strict: false });
+    assert!(
+        FoRIsSortedKernel
+            .aggregate(&aggregate, &array, &mut ctx)?
+            .is_none()
+    );
+    assert_eq!(
+        is_sorted(&array, &mut ctx)?,
+        is_sorted(&expected.into_array(), &mut ctx)?
+    );
     Ok(())
 }
