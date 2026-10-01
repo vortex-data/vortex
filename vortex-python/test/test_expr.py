@@ -260,3 +260,13 @@ def test_deserialize_rejects_garbage() -> None:
 def test_serialize_is_stable() -> None:
     expr = ve.column("age") > 21
     assert expr.serialize() == expr.serialize()
+
+@pytest.mark.parametrize("value", [1_705_320_000_000_000_123, None])
+def test_replace_time_zone_constant(value):
+    dtype = vx.timestamp("ns", nullable=value is None)
+    expression = ve.replace_time_zone(ve.literal(dtype, value), "America/New_York")
+    expected_value = None if value is None else value + 18_000_000_000_000
+    expected = pa.array([expected_value] * 3, type=pa.timestamp("ns", tz="America/New_York"))
+    actual = vx.array(pa.array([0, 1, 2])).apply(expression).to_arrow_array()
+    assert actual.equals(expected)
+

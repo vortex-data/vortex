@@ -51,6 +51,8 @@ use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::scalar_fn::fns::pack::Pack;
 use crate::scalar_fn::fns::pack::PackOptions;
+use crate::scalar_fn::fns::replace_time_zone::ReplaceTimeZone;
+use crate::scalar_fn::fns::replace_time_zone::ReplaceTimeZoneOptions;
 use crate::scalar_fn::fns::select::FieldSelection;
 use crate::scalar_fn::fns::select::Select;
 use crate::scalar_fn::fns::variant_get::VariantGet;
@@ -1265,6 +1267,29 @@ pub fn bound_list_sum_opts(
         .vortex_expect("list-sum expressions require a numeric list child")
 }
 
+/// Reinterpret timestamp wall times in `options.time_zone`, preserving the time unit.
+///
+/// `ambiguous` is a UTF-8 expression containing `raise`, `earliest`, `latest`, or `null`.
+/// Removing the timezone preserves wall time in a timezone-naive timestamp.
+pub fn replace_time_zone(
+    input: Expression,
+    ambiguous: Expression,
+    options: ReplaceTimeZoneOptions,
+) -> Expression {
+    ReplaceTimeZone.new_expr(options, [input, ambiguous])
+}
+
+/// Create a bound timezone replacement expression.
+pub fn bound_replace_time_zone(
+    input: BoundExpression,
+    ambiguous: BoundExpression,
+    options: ReplaceTimeZoneOptions,
+) -> BoundExpression {
+    ReplaceTimeZone
+        .try_new_bound_expr(options, [input, ambiguous])
+        .vortex_expect("timezone replacement requires a timestamp and a UTF-8 ambiguity policy")
+}
+
 /// Constructors for expressions whose children have already been bound and type-checked.
 ///
 /// These mirror the constructors in [`crate::expr`] and panic when the supplied children do not
@@ -1313,6 +1338,7 @@ pub mod bound {
     pub use super::bound_or as or;
     pub use super::bound_or_collect as or_collect;
     pub use super::bound_pack as pack;
+    pub use super::bound_replace_time_zone as replace_time_zone;
     pub use super::bound_root as root;
     pub use super::bound_select as select;
     pub use super::bound_select_exclude as select_exclude;
