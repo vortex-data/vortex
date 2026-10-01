@@ -1102,13 +1102,12 @@ where
 /// is a new set of `Patches` with the indices relative to the provided `mask` rank, and the
 /// patch values.
 ///
-/// We search for each element of the smaller side in the larger side, so the cost is
-/// logarithmic in the size of the larger side. We never build the mask indices here:
+/// We search the larger side for each element of the smaller side, without building the mask
+/// indices:
 ///
-/// * More patches than mask indices: gallop through the patches for each mask index. The mask
-///   indices come from the mask cache, or from a walk over the set bits of the mask bitmap.
-/// * Otherwise, with cached mask indices: gallop through the mask indices for each patch.
-/// * Otherwise: look up each patch in the mask bitmap and count the set bits before it.
+/// * More patches than mask indices: gallop through the patches.
+/// * Cached mask indices: gallop through the mask indices.
+/// * Otherwise: rank each patch in the mask bitmap.
 fn filter_patches_with_mask<T: IntegerPType>(
     patch_indices: &[T],
     offset: usize,
@@ -1120,7 +1119,7 @@ fn filter_patches_with_mask<T: IntegerPType>(
     let patch_count = patch_indices.len();
     let expected_matches = true_count.min(patch_count);
 
-    // The position of each kept patch in the mask rank, and in the original patches.
+    // The mask rank and the original position of each kept patch.
     let mut new_patch_indices =
         BufferMut::<u64>::with_capacity_in(expected_matches, allocator.clone());
     let mut kept_patches = Vec::with_capacity(expected_matches);
@@ -1160,9 +1159,8 @@ fn filter_patches_with_mask<T: IntegerPType>(
     let new_patch_values =
         patch_values.filter(Mask::from_indices(patch_values.len(), kept_patches))?;
 
-    // SAFETY: each kept patch adds one index and one value, so their lengths are equal. The
-    // indices are non-nullable `u64` positions in the mask rank. They are strictly increasing
-    // because the mask indices are, and each one is smaller than `true_count`.
+    // SAFETY: there is one index and one value per kept patch. The indices are strictly
+    // increasing non-nullable `u64` mask ranks below `true_count`.
     Ok(Some(unsafe {
         Patches::new_unchecked(
             true_count,
@@ -1178,9 +1176,7 @@ fn filter_patches_with_mask<T: IntegerPType>(
 
 /// Returns the first position at or after `start` whose value is not less than `needle`.
 ///
-/// The search doubles its step until it passes `needle`, then does a binary search in the last
-/// step. The cost is logarithmic in the distance from `start` to the result, which makes a
-/// sequence of searches with increasing needles cheap when the needles are sparse.
+/// The cost is logarithmic in the distance from `start` to the result.
 fn gallop_lower_bound<T: Ord>(values: &[T], start: usize, needle: &T) -> usize {
     let mut low = start;
     let mut high = start;
@@ -1198,9 +1194,7 @@ fn gallop_lower_bound<T: Ord>(values: &[T], start: usize, needle: &T) -> usize {
 
 /// Finds the patch of each mask index, for masks that are sparser than the patches.
 ///
-/// Only the mask indices up to the last patch can match, so we do not visit the mask indices
-/// after it. The search compares values in the patch index type, so the patches do not need
-/// conversion.
+/// Mask indices after the last patch cannot match, so we skip them.
 fn gallop_patches_for_mask_indices<T: IntegerPType>(
     patch_indices: &[T],
     offset: usize,
@@ -1217,8 +1211,7 @@ fn gallop_patches_for_mask_indices<T: IntegerPType>(
     let mut mask_position = 0;
 
     let mut visit = |mask_index: usize| {
-        // The needle is at most the last patch index, so it fits in `T`, and the search always
-        // stops at a patch.
+        // At most the last patch index, so it fits in `T` and the search stays in bounds.
         let needle = <T as NumCast>::from(mask_index + offset)
             .vortex_expect("mask index is at most the last patch index");
 
@@ -1276,11 +1269,9 @@ fn gallop_mask_indices_for_patches<T: IntegerPType>(
     Ok(())
 }
 
-/// Finds the mask position of each patch from the mask bitmap, for patches that are not
-/// sparser than the mask. This does not create the mask indices.
+/// Finds the mask position of each patch from the mask bitmap, without building the mask indices.
 ///
-/// The mask position of a kept patch is the number of set bits before it. We count only the bits
-/// between two adjacent patches, so the total count work is one pass over the mask words.
+/// The mask position is the number of set bits before the patch, counted between adjacent patches.
 fn rank_patches_in_mask_bitmap<T: IntegerPType>(
     patch_indices: &[T],
     offset: usize,
@@ -1806,8 +1797,7 @@ mod test {
         );
     }
 
-    /// Covers each filter algorithm: gallop over the patches with cached mask indices or with the
-    /// mask bitmap, gallop over cached mask indices, and rank in the mask bitmap.
+    /// Covers each filter algorithm.
     #[rstest]
     #[case::sparse_mask((0..1000).step_by(2).collect(), (0..1000).step_by(97).collect())]
     #[case::sparse_patches((0..1000).step_by(97).collect(), (0..1000).step_by(2).collect())]
