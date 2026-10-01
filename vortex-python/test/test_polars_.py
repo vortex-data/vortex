@@ -276,7 +276,10 @@ def test_replace_time_zone_columns(tmp_path, unit, scale, source_zone, target_zo
     )
     reference, frame = _time_zone_scan(tmp_path, values)
     expression = pl.col("dt").dt.replace_time_zone(target_zone)
-    threshold = datetime(2024, 7, 15, 12, tzinfo=None if target_zone is None else ZoneInfo(target_zone))
+    threshold = pl.lit(
+        datetime(2024, 7, 15, 12, tzinfo=None if target_zone is None else ZoneInfo(target_zone)),
+        dtype=pl.Datetime(unit, target_zone),
+    )
     expected_frame = reference.filter(expression >= threshold).collect()
     actual = frame.filter(expression >= threshold).collect()
     assert_frame_equal(actual, expected_frame)
