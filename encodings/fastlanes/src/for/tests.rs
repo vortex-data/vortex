@@ -7,6 +7,11 @@ use rstest::rstest;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::AggregateFnVTableExt;
+use vortex_array::aggregate_fn::EmptyOptions;
+use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
+use vortex_array::aggregate_fn::fns::is_constant::is_constant;
+use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
@@ -22,6 +27,7 @@ use crate::FoR;
 use crate::FoRArray;
 use crate::FoRArrayExt;
 use crate::FoRArraySlotsExt;
+use crate::r#for::compute::is_constant::FoRIsConstantKernel;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = vortex_array::array_session();
@@ -238,5 +244,57 @@ fn fused_decode_sliced(
     );
     assert_eq!(usize::from(sliced_for.offset()), start % FL_CHUNK_SIZE);
     assert_arrays_eq!(sliced, expected.into_array().slice(start..end)?, &mut ctx);
+    Ok(())
+}
+
+/// The kernel's verdict, or `None` if it declines.
+fn is_constant_kernel(array: &FoRArray) -> VortexResult<Option<bool>> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let array = array.clone().into_array();
+    let aggregate = IsConstant.bind(EmptyOptions);
+    let Some(partial) = FoRIsConstantKernel.aggregate(&aggregate, &array, &mut ctx)? else {
+        return Ok(None);
+    };
+    let mut accumulator = aggregate.accumulator(array.dtype())?;
+    accumulator.combine_partials(partial)?;
+    Ok(accumulator.finish()?.as_bool().value())
+}
+
+#[rstest]
+// Different references, and different first values: not constant.
+#[case::differs(unsigned().map(|(array, _)| array), Some(false), false)]
+// Equal references in a primitive array: decided on the encoded values.
+#[case::equal_references(
+    FoR::try_new_chunked(
+        PrimitiveArray::from_iter([4u32; 3000]).into_array(),
+        PrimitiveArray::from_iter([3u32; 3]).into_array(),
+        0,
+    ),
+    Some(true),
+    true
+)]
+// Different references that cancel out: the kernel declines.
+#[case::references_cancel_out(
+    FoR::try_new_chunked(
+        PrimitiveArray::from_iter((0..2048u32).map(|i| if i < 1024 { 10u32 } else { 5 })).into_array(),
+        PrimitiveArray::from_iter([0u32, 5]).into_array(),
+        0,
+    ),
+    None,
+    true
+)]
+// The first value is null: the kernel declines.
+#[case::first_null(nullable().map(|(array, _)| array), None, false)]
+fn is_constant_per_chunk(
+    #[case] array: VortexResult<FoRArray>,
+    #[case] kernel: Option<bool>,
+    #[case] constant: bool,
+) -> VortexResult<()> {
+    let array = array?;
+    assert_eq!(is_constant_kernel(&array)?, kernel);
+    assert_eq!(
+        is_constant(&array.into_array(), &mut SESSION.create_execution_ctx())?,
+        constant
+    );
     Ok(())
 }
