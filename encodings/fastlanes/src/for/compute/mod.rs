@@ -6,16 +6,23 @@ mod compare;
 pub(crate) mod is_constant;
 pub(crate) mod is_sorted;
 
+use num_traits::AsPrimitive;
+use num_traits::WrappingAdd;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::arrays::filter::FilterReduce;
+use vortex_array::dtype::NativePType;
+use vortex_array::match_each_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::FL_CHUNK_SIZE;
 use crate::FoR;
+use crate::bitpacking::compute::take::UNPACK_CHUNK_THRESHOLD;
 use crate::r#for::array::FoRArrayExt;
 use crate::r#for::array::FoRArraySlotsExt;
 
@@ -23,16 +30,67 @@ impl TakeExecute for FoR {
     fn take(
         array: ArrayView<'_, Self>,
         indices: &ArrayRef,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        // TODO(mk): support many references.
         let Some(reference) = array.constant_reference() else {
-            return Ok(None);
+            // With enough indices, decoding everything and then taking is faster, as for BitPacked.
+            if indices.len() * UNPACK_CHUNK_THRESHOLD > array.len() {
+                return Ok(None);
+            }
+            let taken = array.encoded().take(indices.clone())?;
+            return take_per_chunk(array, taken, indices, ctx).map(Some);
         };
         Ok(Some(
             FoR::try_new(array.encoded().take(indices.clone())?, reference)?.into_array(),
         ))
     }
+}
+
+/// Take from an array with per-chunk references.
+///
+/// The taken values no longer line up with chunks, so each one gets its reference added here,
+/// looked up from the chunk its index points into.
+fn take_per_chunk(
+    array: ArrayView<'_, FoR>,
+    taken: ArrayRef,
+    indices: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let taken = taken.execute::<PrimitiveArray>(ctx)?;
+    let references = array.references().clone().execute::<PrimitiveArray>(ctx)?;
+    // Every index is null, so there is nothing to add.
+    if references.is_empty() {
+        return Ok(taken.into_array());
+    }
+    let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
+    let offset = usize::from(array.offset());
+    match_each_integer_ptype!(array.ptype(), |T| {
+        match_each_integer_ptype!(indices.ptype(), |I| {
+            add_references_at::<T, I>(taken, indices.as_slice::<I>(), &references, offset)
+        })
+    })
+}
+
+fn add_references_at<T, I>(
+    taken: PrimitiveArray,
+    indices: &[I],
+    references: &PrimitiveArray,
+    offset: usize,
+) -> VortexResult<ArrayRef>
+where
+    T: NativePType + WrappingAdd,
+    I: NativePType + AsPrimitive<usize>,
+{
+    let references = references.as_slice::<T>();
+    let last = references.len() - 1;
+    let validity = taken.validity()?;
+    let mut values = taken.into_buffer_mut::<T>();
+    for (value, index) in values.iter_mut().zip(indices) {
+        // A null index can hold any value, so clamp it to a valid chunk. Its value stays null.
+        let chunk = (index.as_().saturating_add(offset) / FL_CHUNK_SIZE).min(last);
+        *value = value.wrapping_add(&references[chunk]);
+    }
+    Ok(PrimitiveArray::new(values.freeze(), validity).into_array())
 }
 
 impl FilterReduce for FoR {
