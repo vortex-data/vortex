@@ -14,8 +14,8 @@ use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
 use crate::FoR;
-use crate::r#for::array::FoRArrayExt;
-use crate::r#for::array::FoRArraySlotsExt;
+use crate::for_::array::FoRArrayExt;
+use crate::for_::array::FoRArraySlotsExt;
 
 #[derive(Debug)]
 pub(crate) struct FoRIsSortedKernel;
@@ -73,7 +73,7 @@ mod test {
     use vortex_buffer::buffer;
 
     use crate::FoRData;
-    use crate::r#for::array::FoRArraySlotsExt;
+    use crate::for_::array::FoRArraySlotsExt;
 
     #[test]
     fn test_sorted() {

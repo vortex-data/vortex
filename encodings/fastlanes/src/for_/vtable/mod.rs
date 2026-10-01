@@ -35,13 +35,13 @@ use vortex_session::VortexSession;
 
 use crate::BitPacked;
 use crate::FoRData;
-use crate::r#for::array::FoRArrayExt;
-use crate::r#for::array::FoRArraySlotsExt;
-use crate::r#for::array::FoRSlots;
-use crate::r#for::array::FoRSlotsView;
-use crate::r#for::array::for_decompress::decompress;
-use crate::r#for::array::num_chunks;
-use crate::r#for::vtable::rules::PARENT_RULES;
+use crate::for_::array::FoRArrayExt;
+use crate::for_::array::FoRArraySlotsExt;
+use crate::for_::array::FoRSlots;
+use crate::for_::array::FoRSlotsView;
+use crate::for_::array::for_decompress::decompress;
+use crate::for_::array::num_chunks;
+use crate::for_::vtable::rules::PARENT_RULES;
 use crate::for_v2_id;
 
 mod kernels;

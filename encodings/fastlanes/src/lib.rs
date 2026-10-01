@@ -28,7 +28,7 @@
 
 pub use bitpacking::*;
 pub use delta::*;
-pub use r#for::*;
+pub use for_::*;
 pub use rle::*;
 pub use transposed_bool::*;
 use vortex_array::ExecutionCtx;
@@ -42,7 +42,7 @@ use vortex_error::VortexResult;
 pub mod bit_transpose;
 mod bitpacking;
 mod delta;
-mod r#for;
+mod for_;
 mod rle;
 mod transposed_bool;
 
@@ -66,8 +66,8 @@ pub(crate) const fn untranspose_idx(idx: usize) -> usize {
 }
 
 use bitpacking::compute::is_constant::BitPackedIsConstantKernel;
-use r#for::compute::is_constant::FoRIsConstantKernel;
-use r#for::compute::is_sorted::FoRIsSortedKernel;
+use for_::compute::is_constant::FoRIsConstantKernel;
+use for_::compute::is_sorted::FoRIsSortedKernel;
 use vortex_array::ArrayVTable;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
@@ -91,7 +91,7 @@ pub fn initialize(session: &VortexSession) {
     session.arrays().register(RLE);
     session.arrays().register(TransposedBool);
     bitpacking::initialize(session);
-    r#for::initialize(session);
+    for_::initialize(session);
     rle::initialize(session);
 
     // Register the encoding-specific aggregate kernels.

@@ -15,9 +15,9 @@ use vortex_error::vortex_ensure;
 use super::for_v2_id;
 use crate::FL_CHUNK_SIZE;
 use crate::FoR;
-use crate::r#for::array::FoRArrayExt;
-use crate::r#for::array::FoRArraySlotsExt;
-use crate::r#for::array::num_chunks;
+use crate::for_::array::FoRArrayExt;
+use crate::for_::array::FoRArraySlotsExt;
+use crate::for_::array::num_chunks;
 
 /// Metadata for `fastlanes.for.v2`. The references are the second child.
 #[derive(Clone, prost::Message)]
