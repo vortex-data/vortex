@@ -1126,24 +1126,13 @@ fn filter_patches_with_mask<T: IntegerPType>(
     let mut kept_patches = Vec::with_capacity(expected_matches);
 
     if patch_count > true_count {
-        let mut gallop = PatchGallop {
+        gallop_patches_for_mask_indices(
             patch_indices,
             offset,
-            patch_position: 0,
-            mask_position: 0,
-            new_patch_indices: &mut new_patch_indices,
-            kept_patches: &mut kept_patches,
-        };
-
-        // `NoMoreMatches` only stops the search early, so the result is not an error.
-        let _ = match mask.cached_indices() {
-            Some(mask_indices) => mask_indices
-                .iter()
-                .try_for_each(|&mask_index| gallop.next_mask_index(mask_index)),
-            None => mask
-                .bit_buffer()
-                .try_for_each_set_index(|mask_index| gallop.next_mask_index(mask_index)),
-        };
+            mask,
+            &mut new_patch_indices,
+            &mut kept_patches,
+        )?;
     } else {
         match mask.cached_indices() {
             Some(mask_indices) => gallop_mask_indices_for_patches(
@@ -1207,44 +1196,56 @@ fn gallop_lower_bound<T: Ord>(values: &[T], start: usize, needle: &T) -> usize {
     low + values[low..high].partition_point(|value| value < needle)
 }
 
-/// No later mask index can match a patch.
-struct NoMoreMatches;
-
-/// Finds the patches for a sorted sequence of mask indices, for masks that are sparser than
-/// the patches.
+/// Finds the patch of each mask index, for masks that are sparser than the patches.
 ///
-/// The search compares values in the patch index type, so the patches do not need conversion.
-struct PatchGallop<'a, T> {
-    patch_indices: &'a [T],
+/// Only the mask indices up to the last patch can match, so we do not visit the mask indices
+/// after it. The search compares values in the patch index type, so the patches do not need
+/// conversion.
+fn gallop_patches_for_mask_indices<T: IntegerPType>(
+    patch_indices: &[T],
     offset: usize,
-    patch_position: usize,
-    mask_position: usize,
-    new_patch_indices: &'a mut BufferMut<u64>,
-    kept_patches: &'a mut Vec<usize>,
-}
+    mask: &MaskValues,
+    new_patch_indices: &mut BufferMut<u64>,
+    kept_patches: &mut Vec<usize>,
+) -> VortexResult<()> {
+    let Some(&last_patch_index) = patch_indices.last() else {
+        return Ok(());
+    };
+    let last_mask_index = patch_index_to_usize(last_patch_index, offset)?;
 
-impl<T: IntegerPType> PatchGallop<'_, T> {
-    fn next_mask_index(&mut self, mask_index: usize) -> Result<(), NoMoreMatches> {
-        // Mask indices are sorted, so no later mask index fits in `T` either.
-        let needle = mask_index
-            .checked_add(self.offset)
-            .and_then(<T as NumCast>::from)
-            .ok_or(NoMoreMatches)?;
+    let mut patch_position = 0;
+    let mut mask_position = 0;
 
-        self.patch_position = gallop_lower_bound(self.patch_indices, self.patch_position, &needle);
-        if self.patch_position == self.patch_indices.len() {
-            return Err(NoMoreMatches);
+    let mut visit = |mask_index: usize| {
+        // The needle is at most the last patch index, so it fits in `T`, and the search always
+        // stops at a patch.
+        let needle = <T as NumCast>::from(mask_index + offset)
+            .vortex_expect("mask index is at most the last patch index");
+
+        patch_position = gallop_lower_bound(patch_indices, patch_position, &needle);
+        if patch_indices[patch_position] == needle {
+            new_patch_indices.push(mask_position as u64);
+            kept_patches.push(patch_position);
+            patch_position += 1;
         }
 
-        if self.patch_indices[self.patch_position] == needle {
-            self.new_patch_indices.push(self.mask_position as u64);
-            self.kept_patches.push(self.patch_position);
-            self.patch_position += 1;
-        }
+        mask_position += 1;
+    };
 
-        self.mask_position += 1;
-        Ok(())
+    match mask.cached_indices() {
+        Some(mask_indices) => {
+            let end = mask_indices.partition_point(|&mask_index| mask_index <= last_mask_index);
+            mask_indices[..end]
+                .iter()
+                .for_each(|&mask_index| visit(mask_index));
+        }
+        None => mask
+            .bit_buffer()
+            .slice(..=last_mask_index)
+            .for_each_set_index(visit),
     }
+
+    Ok(())
 }
 
 /// Finds the mask position of each patch, for patches that are not sparser than the mask.
