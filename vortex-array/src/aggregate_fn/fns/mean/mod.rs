@@ -222,6 +222,7 @@ mod tests {
 
     use super::*;
     use crate::VortexSessionExecute;
+    use crate::aggregate_fn::AggregateFnVTableExt;
     use crate::aggregate_fn::DynGroupedAccumulator;
     use crate::aggregate_fn::GroupedAccumulator;
     use crate::array_session;
@@ -231,6 +232,7 @@ mod tests {
     use crate::arrays::FixedSizeListArray;
     use crate::arrays::PrimitiveArray;
     use crate::dtype::DecimalDType;
+    use crate::expr::stats::Precision;
     use crate::validity::Validity;
 
     #[test]
@@ -288,6 +290,36 @@ mod tests {
         let mut ctx = array_session().create_execution_ctx();
         let result = mean(&chunked.into_array(), &mut ctx)?;
         assert_eq!(result.as_primitive().as_::<f64>(), Some(3.0));
+        Ok(())
+    }
+
+    #[test]
+    fn mean_chunked_ignores_cached_finalized_mean() -> VortexResult<()> {
+        let first = PrimitiveArray::from_option_iter([Some(2.0f64), None, Some(4.0), Some(6.0)])
+            .into_array();
+        let second = PrimitiveArray::from_option_iter([Some(20.0f64), None]).into_array();
+        let aggregate = Mean::combined().bind(PairOptions(
+            NumericalAggregateOpts::skip_nans(),
+            NumericalAggregateOpts::skip_nans(),
+        ));
+        let mut ctx = array_session().create_execution_ctx();
+        let cached_mean = first.aggregations().compute_result(&aggregate, &mut ctx)?;
+        assert_eq!(f64::try_from(&cached_mean)?, 4.0);
+        assert!(
+            aggregate
+                .partial_from_result(first.dtype(), &cached_mean)?
+                .is_none()
+        );
+
+        let chunked =
+            ChunkedArray::try_new(vec![first.clone(), second], first.dtype().clone())?.into_array();
+        // Three participating values in the first chunk and one in the second give mean 8,
+        // whereas averaging their finalized means would give 12.
+        assert_eq!(f64::try_from(&mean(&chunked, &mut ctx)?)?, 8.0);
+        assert_eq!(
+            first.aggregations().get_result(&aggregate),
+            Precision::Exact(cached_mean)
+        );
         Ok(())
     }
 

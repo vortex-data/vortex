@@ -169,11 +169,14 @@ pub mod bound {
 mod tests {
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use super::StatFn;
+    use super::StatOptions;
     use super::all_nan;
     use super::all_non_nan;
     use super::all_non_null;
@@ -185,6 +188,19 @@ mod tests {
     use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::aggregate_fn::AggregateFnVTable;
+    use crate::aggregate_fn::AggregateFnVTableExt;
+    use crate::aggregate_fn::EmptyOptions;
+    use crate::aggregate_fn::NumericalAggregateOpts;
+    use crate::aggregate_fn::fns::all_nan::AllNan;
+    use crate::aggregate_fn::fns::all_null::AllNull;
+    use crate::aggregate_fn::fns::is_sorted::IsSorted;
+    use crate::aggregate_fn::fns::is_sorted::IsSortedOptions;
+    use crate::aggregate_fn::fns::max::Max;
+    use crate::aggregate_fn::fns::min::Min;
+    use crate::aggregate_fn::fns::nan_count::NanCount;
+    use crate::aggregate_fn::fns::null_count::NullCount;
+    use crate::aggregate_fn::fns::sum::Sum;
     use crate::array_session;
     use crate::arrays::Chunked;
     use crate::arrays::ChunkedArray;
@@ -198,9 +214,9 @@ mod tests {
     use crate::expr::bound as bound_expr;
     use crate::expr::root;
     use crate::expr::stats::Precision;
-    use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
-    use crate::scalar::ScalarValue;
+    use crate::scalar_fn::ScalarFnVTable;
+    use crate::scalar_fn::VecExecutionArgs;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
@@ -224,10 +240,10 @@ mod tests {
     fn stat_expr_reads_cached_sum() -> VortexResult<()> {
         let array = buffer![1i32, 2, 3].into_array();
         let sum_scalar = Scalar::primitive(6i64, Nullability::Nullable);
-        array.statistics().set(
-            Stat::Sum,
-            Precision::exact(sum_scalar.into_value().vortex_expect("non-null sum")),
-        );
+        array.aggregations().insert_result(
+            Sum.bind(NumericalAggregateOpts::skip_nans()),
+            Precision::exact(sum_scalar),
+        )?;
 
         let result = array
             .apply(&sum(root()))?
@@ -264,10 +280,10 @@ mod tests {
     fn stat_expr_reads_cached_sum_per_chunk() -> VortexResult<()> {
         let chunk0 = buffer![1i32, 2].into_array();
         let sum_scalar = Scalar::primitive(3i64, Nullability::Nullable);
-        chunk0.statistics().set(
-            Stat::Sum,
-            Precision::exact(sum_scalar.into_value().vortex_expect("non-null sum")),
-        );
+        chunk0.aggregations().insert_result(
+            Sum.bind(NumericalAggregateOpts::skip_nans()),
+            Precision::exact(sum_scalar),
+        )?;
         let chunk1 = buffer![4i32, 5, 6].into_array();
         let chunked = ChunkedArray::try_new(
             vec![chunk0, chunk1],
@@ -300,14 +316,10 @@ mod tests {
         let array =
             PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), None]).into_array();
         let null_count_scalar = Scalar::primitive(2u64, Nullability::NonNullable);
-        array.statistics().set(
-            Stat::NullCount,
-            Precision::exact(
-                null_count_scalar
-                    .into_value()
-                    .vortex_expect("non-null null_count"),
-            ),
-        );
+        array.aggregations().insert_result(
+            NullCount.bind(EmptyOptions),
+            Precision::exact(null_count_scalar),
+        )?;
 
         let result = array
             .apply(&null_count(root()))?
@@ -324,9 +336,10 @@ mod tests {
     #[test]
     fn stat_expr_reads_cached_all_null_from_null_count() -> VortexResult<()> {
         let array = PrimitiveArray::from_option_iter::<i32, _>([None, None, None]).into_array();
-        array
-            .statistics()
-            .set(Stat::NullCount, Precision::exact(ScalarValue::from(3u64)));
+        array.aggregations().insert_result(
+            NullCount.bind(EmptyOptions),
+            Precision::exact(Scalar::from(3u64)),
+        )?;
 
         let result = array
             .apply(&all_null(root()))?
@@ -343,9 +356,10 @@ mod tests {
     #[test]
     fn stat_expr_reads_cached_all_null_false_from_inexact_low_null_count() -> VortexResult<()> {
         let array = PrimitiveArray::from_option_iter::<i32, _>([None, Some(2), None]).into_array();
-        array
-            .statistics()
-            .set(Stat::NullCount, Precision::inexact(ScalarValue::from(2u64)));
+        array.aggregations().insert_result(
+            NullCount.bind(EmptyOptions),
+            Precision::inexact(Scalar::from(2u64)),
+        )?;
 
         let result = array
             .apply(&all_null(root()))?
@@ -362,9 +376,10 @@ mod tests {
     #[test]
     fn stat_expr_returns_null_for_inexact_full_null_count_as_all_null() -> VortexResult<()> {
         let array = PrimitiveArray::from_option_iter::<i32, _>([None, Some(2), None]).into_array();
-        array
-            .statistics()
-            .set(Stat::NullCount, Precision::inexact(ScalarValue::from(3u64)));
+        array.aggregations().insert_result(
+            NullCount.bind(EmptyOptions),
+            Precision::inexact(Scalar::from(3u64)),
+        )?;
 
         let result = array
             .apply(&all_null(root()))?
@@ -381,9 +396,10 @@ mod tests {
     #[test]
     fn stat_expr_reads_cached_all_non_null_from_null_count() -> VortexResult<()> {
         let array = buffer![1i32, 2, 3].into_array();
-        array
-            .statistics()
-            .set(Stat::NullCount, Precision::exact(ScalarValue::from(0u64)));
+        array.aggregations().insert_result(
+            NullCount.bind(EmptyOptions),
+            Precision::exact(Scalar::from(0u64)),
+        )?;
 
         let result = array
             .apply(&all_non_null(root()))?
@@ -400,9 +416,10 @@ mod tests {
     #[test]
     fn stat_expr_reads_cached_all_non_null_true_from_inexact_zero_null_count() -> VortexResult<()> {
         let array = buffer![1i32, 2, 3].into_array();
-        array
-            .statistics()
-            .set(Stat::NullCount, Precision::inexact(ScalarValue::from(0u64)));
+        array.aggregations().insert_result(
+            NullCount.bind(EmptyOptions),
+            Precision::inexact(Scalar::from(0u64)),
+        )?;
 
         let result = array
             .apply(&all_non_null(root()))?
@@ -420,9 +437,10 @@ mod tests {
     fn stat_expr_returns_null_for_inexact_nonzero_null_count_as_all_non_null() -> VortexResult<()> {
         let array =
             PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), None]).into_array();
-        array
-            .statistics()
-            .set(Stat::NullCount, Precision::inexact(ScalarValue::from(2u64)));
+        array.aggregations().insert_result(
+            NullCount.bind(EmptyOptions),
+            Precision::inexact(Scalar::from(2u64)),
+        )?;
 
         let result = array
             .apply(&all_non_null(root()))?
@@ -454,9 +472,10 @@ mod tests {
         let array =
             PrimitiveArray::from_option_iter([Some(f32::NAN), Some(f32::NAN), Some(f32::NAN)])
                 .into_array();
-        array
-            .statistics()
-            .set(Stat::NaNCount, Precision::exact(ScalarValue::from(3u64)));
+        array.aggregations().insert_result(
+            NanCount.bind(EmptyOptions),
+            Precision::exact(Scalar::from(3u64)),
+        )?;
 
         let result = array
             .apply(&all_nan(root()))?
@@ -475,9 +494,10 @@ mod tests {
         let array =
             PrimitiveArray::from_option_iter([Some(f32::NAN), Some(1.0f32), Some(f32::NAN)])
                 .into_array();
-        array
-            .statistics()
-            .set(Stat::NaNCount, Precision::inexact(ScalarValue::from(2u64)));
+        array.aggregations().insert_result(
+            NanCount.bind(EmptyOptions),
+            Precision::inexact(Scalar::from(2u64)),
+        )?;
 
         let result = array
             .apply(&all_nan(root()))?
@@ -496,9 +516,10 @@ mod tests {
         let array =
             PrimitiveArray::from_option_iter([Some(f32::NAN), Some(1.0f32), Some(f32::NAN)])
                 .into_array();
-        array
-            .statistics()
-            .set(Stat::NaNCount, Precision::inexact(ScalarValue::from(3u64)));
+        array.aggregations().insert_result(
+            NanCount.bind(EmptyOptions),
+            Precision::inexact(Scalar::from(3u64)),
+        )?;
 
         let result = array
             .apply(&all_nan(root()))?
@@ -515,9 +536,10 @@ mod tests {
     #[test]
     fn stat_expr_reads_cached_all_non_nan_true_from_inexact_zero_nan_count() -> VortexResult<()> {
         let array = buffer![1.0f32, 2.0, 3.0].into_array();
-        array
-            .statistics()
-            .set(Stat::NaNCount, Precision::inexact(ScalarValue::from(0u64)));
+        array.aggregations().insert_result(
+            NanCount.bind(EmptyOptions),
+            Precision::inexact(Scalar::from(0u64)),
+        )?;
 
         let result = array
             .apply(&all_non_nan(root()))?
@@ -535,9 +557,10 @@ mod tests {
     fn stat_expr_returns_null_for_inexact_nonzero_nan_count_as_all_non_nan() -> VortexResult<()> {
         let array = PrimitiveArray::from_option_iter([Some(1.0f32), Some(f32::NAN), Some(3.0)])
             .into_array();
-        array
-            .statistics()
-            .set(Stat::NaNCount, Precision::inexact(ScalarValue::from(1u64)));
+        array.aggregations().insert_result(
+            NanCount.bind(EmptyOptions),
+            Precision::inexact(Scalar::from(1u64)),
+        )?;
 
         let result = array
             .apply(&all_non_nan(root()))?
@@ -551,24 +574,74 @@ mod tests {
         Ok(())
     }
 
+    #[rstest]
+    #[case::all_null(false)]
+    #[case::all_nan(true)]
+    fn stat_expr_uses_input_length_for_count_metadata(#[case] nan: bool) -> VortexResult<()> {
+        let (array, count_fn, all_fn) = if nan {
+            (
+                buffer![f64::NAN, f64::NAN].into_array(),
+                NanCount.bind(EmptyOptions),
+                AllNan.bind(EmptyOptions),
+            )
+        } else {
+            (
+                PrimitiveArray::from_option_iter([None::<f64>, None]).into_array(),
+                NullCount.bind(EmptyOptions),
+                AllNull.bind(EmptyOptions),
+            )
+        };
+        array
+            .aggregations()
+            .insert_result(count_fn, Precision::Exact(Scalar::from(2u64)))?;
+
+        let args = VecExecutionArgs::new(vec![array], 5);
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = StatFn.execute(&StatOptions::new(all_fn), &args, &mut ctx)?;
+        let expected =
+            ConstantArray::new(Scalar::bool(true, Nullability::Nullable), 5).into_array();
+        assert_arrays_eq!(result, expected, &mut ctx);
+
+        Ok(())
+    }
+
+    #[test]
+    fn stat_expr_does_not_reconstruct_sorted_partial_from_boolean() -> VortexResult<()> {
+        let array = buffer![1i32, 2, 3].into_array();
+        let options = IsSortedOptions { strict: false };
+        array.aggregations().insert_result(
+            IsSorted.bind(options.clone()),
+            Precision::Exact(Scalar::from(true)),
+        )?;
+        let partial_dtype = IsSorted
+            .partial_dtype(&options, array.dtype())
+            .expect("sortedness supports primitive inputs");
+
+        let result = array
+            .apply(&stat(root(), IsSorted.bind(options)))?
+            .execute::<Canonical>(&mut SESSION.create_execution_ctx())?
+            .into_array();
+        let expected = ConstantArray::new(Scalar::null(partial_dtype), 3).into_array();
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
+
+        Ok(())
+    }
+
     #[test]
     fn stat_expr_reads_cached_min_and_max() -> VortexResult<()> {
         let array = buffer![3i32, 1, 2].into_array();
-        array
-            .statistics()
-            .set(Stat::Min, Precision::exact(ScalarValue::from(1i32)));
-        array
-            .statistics()
-            .set(Stat::Max, Precision::exact(ScalarValue::from(3i32)));
+        array.aggregations().insert_result(
+            Min.bind(NumericalAggregateOpts::skip_nans()),
+            Precision::exact(Scalar::primitive(1i32, Nullability::Nullable)),
+        )?;
+        array.aggregations().insert_result(
+            Max.bind(NumericalAggregateOpts::skip_nans()),
+            Precision::exact(Scalar::primitive(3i32, Nullability::Nullable)),
+        )?;
 
         let min_result = array
             .clone()
-            .apply(&stat(
-                root(),
-                Stat::Min
-                    .aggregate_fn()
-                    .vortex_expect("min should have an aggregate function"),
-            ))?
+            .apply(&stat(root(), Min.bind(NumericalAggregateOpts::skip_nans())))?
             .execute::<Canonical>(&mut SESSION.create_execution_ctx())?
             .into_array();
         let expected_min =
@@ -580,12 +653,7 @@ mod tests {
         );
 
         let max_result = array
-            .apply(&stat(
-                root(),
-                Stat::Max
-                    .aggregate_fn()
-                    .vortex_expect("max should have an aggregate function"),
-            ))?
+            .apply(&stat(root(), Max.bind(NumericalAggregateOpts::skip_nans())))?
             .execute::<Canonical>(&mut SESSION.create_execution_ctx())?
             .into_array();
         let expected_max =

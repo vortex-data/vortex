@@ -278,11 +278,11 @@ pub fn reader_get_statistics(
         return None;
     };
     let index = fields.find(column)?;
-    let stats_sets = reader.file_stats().stats_sets();
+    let field_stats = reader.file_stats().fields();
 
     let dtype = fields.field_by_index(index)?;
 
-    let stats = ColumnStatisticsAggregate::new(stats_sets.get(index)?);
+    let stats = ColumnStatisticsAggregate::new(field_stats.get(index)?);
     match ColumnStatistics::try_from(stats, dtype) {
         Ok(stats) => Some(stats),
         Err(e) => vortex_panic!(e),
@@ -330,7 +330,7 @@ pub fn footer_get_statistics(footer: &Footer, index: usize) -> Option<ColumnStat
     };
     let stats = footer.statistics()?;
     let dtype = fields.field_by_index(index)?;
-    let stats = stats.stats_sets().get(index)?;
+    let stats = stats.fields().get(index)?;
     let stats = ColumnStatisticsAggregate::new(stats);
     match ColumnStatistics::try_from(stats, dtype) {
         Ok(stats) => Some(stats),

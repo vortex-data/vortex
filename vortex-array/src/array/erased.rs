@@ -28,6 +28,14 @@ use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::VTable;
 use crate::VortexSessionExecute;
+use crate::aggregate_fn::AggregateFnVTableExt;
+use crate::aggregate_fn::EmptyOptions;
+use crate::aggregate_fn::NumericalAggregateOpts;
+use crate::aggregate_fn::fns::is_constant::IsConstant;
+use crate::aggregate_fn::fns::is_sorted::IsSorted;
+use crate::aggregate_fn::fns::max::Max;
+use crate::aggregate_fn::fns::min::Min;
+use crate::aggregate_fn::fns::null_count::NullCount;
 use crate::aggregate_fn::fns::sum::sum;
 use crate::array::ArrayData;
 use crate::array::ArrayId;
@@ -44,14 +52,11 @@ use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
 use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProviderExt;
 use crate::legacy_session;
 use crate::matcher::Matcher;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
-use crate::scalar::ScalarValue;
-use crate::stats::StatsSetRef;
+use crate::stats::AggregationsRef;
 use crate::validity::Validity;
 
 /// A depth-first pre-order iterator over an Array.
@@ -232,19 +237,20 @@ impl ArrayRef {
             .into_array()
             .optimize()?;
 
-        // Propagate some stats from the original array to the sliced array.
+        // A non-empty contiguous slice preserves true constantness and sortedness facts.
         if !sliced.is::<Constant>() {
-            self.statistics().with_iter(|iter| {
-                sliced.statistics().inherit(iter.filter(|(stat, value)| {
-                    matches!(
-                        stat,
-                        Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted
-                    ) && value
+            for (aggregate, result) in self.aggregations().snapshot_results().iter() {
+                if (aggregate.is::<IsConstant>() || aggregate.is::<IsSorted>())
+                    && result
                         .as_ref()
                         .as_exact()
-                        .is_some_and(|v| matches!(v, ScalarValue::Bool(true)))
-                }));
-            });
+                        .is_some_and(|value| value.as_bool().value() == Some(true))
+                {
+                    sliced
+                        .aggregations()
+                        .insert_result(aggregate.clone(), result.clone())?;
+                }
+            }
         }
 
         Ok(sliced)
@@ -343,7 +349,10 @@ impl ArrayRef {
         match self.validity()? {
             Validity::NonNullable | Validity::AllValid => Ok(true),
             Validity::AllInvalid => Ok(false),
-            Validity::Array(a) => Ok(a.statistics().compute_min::<bool>(ctx).unwrap_or(false)),
+            Validity::Array(a) => Ok(a
+                .aggregations()
+                .compute_as::<bool>(&Min.bind(NumericalAggregateOpts::skip_nans()), ctx)
+                .unwrap_or(false)),
         }
     }
 
@@ -356,14 +365,19 @@ impl ArrayRef {
         match self.validity()? {
             Validity::NonNullable | Validity::AllValid => Ok(false),
             Validity::AllInvalid => Ok(true),
-            Validity::Array(a) => Ok(!a.statistics().compute_max::<bool>(ctx).unwrap_or(true)),
+            Validity::Array(a) => Ok(!a
+                .aggregations()
+                .compute_as::<bool>(&Max.bind(NumericalAggregateOpts::skip_nans()), ctx)
+                .unwrap_or(true)),
         }
     }
 
     /// Returns the number of valid elements in the array.
     pub fn valid_count(&self, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
         let len = self.len();
-        if let Precision::Exact(invalid_count) = self.statistics().get_as::<usize>(Stat::NullCount)
+        if let Precision::Exact(invalid_count) = self
+            .aggregations()
+            .get_result_as::<usize>(&NullCount.bind(EmptyOptions))?
         {
             return Ok(len - invalid_count);
         }
@@ -381,8 +395,10 @@ impl ArrayRef {
         };
         vortex_ensure!(count <= len, "Valid count exceeds array length");
 
-        self.statistics()
-            .set(Stat::NullCount, Precision::exact(len - count));
+        self.aggregations().insert_result(
+            NullCount.bind(EmptyOptions),
+            Precision::Exact(Scalar::from(u64::try_from(len - count)?)),
+        )?;
 
         Ok(count)
     }
@@ -421,9 +437,9 @@ impl ArrayRef {
         self.0.data.append_to_builder(self, builder, ctx)
     }
 
-    /// Returns the statistics of the array.
-    pub fn statistics(&self) -> StatsSetRef<'_> {
-        self.0.stats.to_ref(self)
+    /// Returns the finalized aggregate cache for this immutable input.
+    pub fn aggregations(&self) -> AggregationsRef<'_> {
+        self.0.aggregations.to_ref(self)
     }
 
     /// Does the array match the given matcher.
@@ -601,8 +617,8 @@ impl ArrayRef {
     /// # Safety
     ///
     /// If this returns `Ok`, the caller must guarantee that each replacement slot represents the
-    /// same logical values as the original slot. Only physical representation may change. Existing
-    /// parent statistics are preserved and must remain valid.
+    /// same logical values as the original slot. Only physical representation may change. Representation-invariant
+    /// parent aggregate results are preserved and must remain valid.
     pub unsafe fn with_slots(self, slots: ArraySlots) -> VortexResult<ArrayRef> {
         let old_slots = self.slots();
         vortex_ensure!(
@@ -647,7 +663,7 @@ impl ArrayRef {
     ///
     /// If this returns `Ok`, the caller must guarantee that the replacement buffers represent the
     /// same logical values as the original buffers. Only the buffer handle implementation,
-    /// placement, or backing storage may change. Existing statistics are preserved and must remain
+    /// placement, or backing storage may change. Representation-invariant aggregate results are preserved and must remain
     /// valid.
     pub unsafe fn with_buffers(
         self,

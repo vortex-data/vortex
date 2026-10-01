@@ -396,11 +396,10 @@ impl Validity {
         }
     }
 
-    /// Convert into a non-nullable variant, computing statistics if necessary.
+    /// Convert into a non-nullable variant after checking the physical validity mask.
     ///
-    /// Returns `None` when the array contains invalid values (so the cast cannot be performed),
-    /// either because it is [`Validity::AllInvalid`] or because the validity array's minimum is
-    /// `false`.
+    /// Returns `None` when any value is invalid. Aggregate results cannot prove that dropping
+    /// nullability preserves the validity required by unchecked constructors.
     #[inline]
     pub fn into_non_nullable(self, len: usize, ctx: &mut ExecutionCtx) -> Option<Validity> {
         match self {
@@ -408,23 +407,18 @@ impl Validity {
             Self::NonNullable => Some(Self::NonNullable),
             Self::AllValid => Some(Self::NonNullable),
             Self::AllInvalid => None,
-            Self::Array(is_valid) => {
-                is_valid
-                    .statistics()
-                    .compute_min::<bool>(ctx)
-                    .vortex_expect("validity array must support min")
-                    .then(|| {
-                        // min true => all true
-                        Self::NonNullable
-                    })
-            }
+            Self::Array(is_valid) => Self::Array(is_valid)
+                .execute_mask(len, ctx)
+                .vortex_expect("validity array must execute as a mask")
+                .all_true()
+                .then_some(Self::NonNullable),
         }
     }
 
     /// Convert into a non-nullable variant without running execution.
     ///
-    /// This is the cheap counterpart to [`Self::into_non_nullable`]: it inspects already-computed
-    /// statistics rather than triggering execution.
+    /// This is the cheap counterpart to [`Self::into_non_nullable`]: it inspects constant validity
+    /// variants rather than triggering execution.
     ///
     /// Return values:
     /// - `Ok(Some(NonNullable))` — the cast is provably safe.
@@ -453,7 +447,7 @@ impl Validity {
     ///   [`Self::trivially_cast_nullability`]. If it returns `Ok(None)`, the rule returns `Ok(None)`
     ///   and the cast is deferred to execution.
     /// - **`CastKernel` impls** (executed via [`ExecuteParentKernel`]) call this method, which
-    ///   may run the underlying validity array to compute statistics.
+    ///   may execute the underlying validity mask.
     ///
     /// Returns `Err` when nullability cannot be cast (for example, casting to non-nullable while
     /// invalid values are present).
@@ -649,18 +643,85 @@ impl IntoArray for &MaskValues {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_buffer::BitBuffer;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
     use vortex_mask::Mask;
+    use vortex_session::SessionExt;
 
     use crate::ArrayRef;
+    use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::aggregate_fn::AggregateFnRef;
+    use crate::aggregate_fn::AggregateFnVTable;
+    use crate::aggregate_fn::AggregateFnVTableExt;
+    use crate::aggregate_fn::NumericalAggregateOpts;
+    use crate::aggregate_fn::fns::min::Min;
+    use crate::aggregate_fn::kernels::DynAggregateKernel;
+    use crate::aggregate_fn::session::AggregateFnSession;
+    use crate::array::VTable;
     use crate::array_session;
+    use crate::arrays::Bool;
+    use crate::arrays::DecimalArray;
+    use crate::arrays::MaskedArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::bool::BoolArrayExt;
+    use crate::builtins::ArrayBuiltins;
+    use crate::dtype::DType;
+    use crate::dtype::DecimalDType;
     use crate::dtype::Nullability;
+    use crate::scalar::Scalar;
     use crate::validity::BoolArray;
     use crate::validity::Validity;
+
+    #[derive(Debug)]
+    struct FalseValidityMin;
+
+    impl DynAggregateKernel for FalseValidityMin {
+        fn aggregate(
+            &self,
+            _aggregate: &AggregateFnRef,
+            _array: &ArrayRef,
+            _ctx: &mut ExecutionCtx,
+        ) -> VortexResult<Option<Scalar>> {
+            Ok(Some(Scalar::bool(true, Nullability::Nullable)))
+        }
+    }
+
+    #[test]
+    fn non_nullable_cast_checks_mask_despite_false_aggregate_result() -> VortexResult<()> {
+        static KERNEL: FalseValidityMin = FalseValidityMin;
+        let session = array_session();
+        session
+            .get::<AggregateFnSession>()
+            .register_aggregate_kernel(Bool.id(), Some(Min.id()), &KERNEL);
+        let mut ctx = session.create_execution_ctx();
+        let mask = BoolArray::from_iter([false, true]).into_array();
+        let aggregate = Min.bind(NumericalAggregateOpts::skip_nans());
+        assert!(
+            mask.aggregations()
+                .compute_as::<bool>(&aggregate, &mut ctx)?
+        );
+        let validity = Validity::Array(mask);
+        let nullable_bool = BoolArray::new(BitBuffer::from_iter([true, false]), validity.clone());
+        assert!(nullable_bool.maybe_execute_mask(&mut ctx)?.is_none());
+        assert!(validity.clone().into_non_nullable(2, &mut ctx).is_none());
+
+        // The mask rejection above prevents reaching unchecked decimal construction with a
+        // newly valid value outside the precision range if this regression returns.
+        let array = PrimitiveArray::new(buffer![1000i32, 1], validity).into_array();
+        assert!(MaskedArray::try_new(array.clone(), Validity::AllValid).is_err());
+        let dtype = DType::Decimal(DecimalDType::new(2, 0), Nullability::NonNullable);
+        assert!(
+            array
+                .cast(dtype)?
+                .execute::<DecimalArray>(&mut ctx)
+                .is_err()
+        );
+        Ok(())
+    }
 
     #[rstest]
     #[case(Validity::AllValid, 5, &[2, 4], Validity::AllValid, Validity::AllValid)]
@@ -837,7 +898,7 @@ mod tests {
         #[case] lhs: Validity,
         #[case] rhs: Validity,
         #[case] expected: bool,
-    ) -> vortex_error::VortexResult<()> {
+    ) -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
         assert_eq!(lhs.mask_eq(&rhs, 3, &mut ctx)?, expected);
         Ok(())

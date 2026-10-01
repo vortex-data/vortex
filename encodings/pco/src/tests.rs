@@ -197,6 +197,7 @@ fn test_serde() -> VortexResult<()> {
             &SerializeOptions {
                 offset: 0,
                 include_padding: true,
+                ..Default::default()
             },
         )?
         .into_iter()

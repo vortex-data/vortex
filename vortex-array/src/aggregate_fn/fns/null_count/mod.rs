@@ -15,20 +15,21 @@ use crate::aggregate_fn::Accumulator;
 use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
+use crate::aggregate_fn::AggregateFnVTableExt;
 use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::EmptyOptions;
 use crate::dtype::DType;
 use crate::dtype::Nullability::NonNullable;
 use crate::dtype::PType;
 use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
 use crate::scalar::Scalar;
-use crate::scalar::ScalarValue;
 
 /// Return the number of null values in an array.
 pub fn null_count(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
-    if let Precision::Exact(null_count_scalar) = array.statistics().get(Stat::NullCount) {
+    if let Precision::Exact(null_count_scalar) = array
+        .aggregations()
+        .get_result(&NullCount.bind(EmptyOptions))
+    {
         return usize::try_from(&null_count_scalar)
             .map_err(|e| vortex_err!("Failed to convert null count stat to usize: {e}"));
     }
@@ -44,8 +45,8 @@ pub fn null_count(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<usiz
     let count_usize = usize::try_from(count).vortex_expect("Cannot be more nulls than usize::MAX");
 
     array
-        .statistics()
-        .set(Stat::NullCount, Precision::Exact(ScalarValue::from(count)));
+        .aggregations()
+        .insert_result(NullCount.bind(EmptyOptions), Precision::Exact(result))?;
 
     Ok(count_usize)
 }
@@ -59,6 +60,10 @@ pub struct NullCount;
 impl AggregateFnVTable for NullCount {
     type Options = EmptyOptions;
     type Partial = u64;
+
+    fn is_representation_invariant(&self, _options: &Self::Options) -> bool {
+        true
+    }
 
     fn id(&self) -> AggregateFnId {
         static ID: CachedId = CachedId::new("vortex.null_count");
@@ -101,6 +106,14 @@ impl AggregateFnVTable for NullCount {
             .as_primitive()
             .typed_value::<u64>()
             .vortex_expect("null_count partial should not be null"))
+    }
+
+    fn partial_from_result(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+        result: Scalar,
+    ) -> VortexResult<Option<Self::Partial>> {
+        self.partial_from_scalar(args, result).map(Some)
     }
 
     fn merge_partials(
@@ -184,6 +197,7 @@ mod tests {
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::Accumulator;
+    use crate::aggregate_fn::AggregateFnVTableExt;
     use crate::aggregate_fn::DynAccumulator;
     use crate::aggregate_fn::EmptyOptions;
     use crate::aggregate_fn::fns::null_count::NullCount;
@@ -194,8 +208,6 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::expr::stats::Precision;
-    use crate::expr::stats::Stat;
-    use crate::expr::stats::StatsProviderExt;
 
     #[test]
     fn null_count_with_nulls() -> VortexResult<()> {
@@ -205,7 +217,9 @@ mod tests {
 
         assert_eq!(null_count(&array, &mut ctx)?, 2);
         assert_eq!(
-            array.statistics().get_as::<u64>(Stat::NullCount),
+            array
+                .aggregations()
+                .get_result_as::<u64>(&NullCount.bind(EmptyOptions))?,
             Precision::exact(2u64)
         );
         Ok(())

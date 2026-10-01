@@ -21,6 +21,12 @@ use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::TypedArrayRef;
 use vortex_array::VortexSessionExecute;
+#[cfg(debug_assertions)]
+use vortex_array::aggregate_fn::AggregateFn;
+#[cfg(debug_assertions)]
+use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
+#[cfg(debug_assertions)]
+use vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions;
 use vortex_array::array_slots;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::ListViewArray;
@@ -355,16 +361,11 @@ impl RunEndData {
         #[cfg(debug_assertions)]
         {
             // Run ends must be strictly sorted for binary search to work correctly.
-            let pre_validation = ends.statistics().to_owned();
+            let aggregate = AggregateFn::new(IsSorted, IsSortedOptions { strict: true }).erased();
+            let mut accumulator = aggregate.accumulator(ends.dtype())?;
+            accumulator.accumulate(ends, ctx)?;
+            let is_sorted = bool::try_from(&accumulator.finish()?)?;
 
-            let is_sorted = ends
-                .statistics()
-                .compute_is_strict_sorted(ctx)
-                .unwrap_or(false);
-
-            // Preserve the original statistics since compute_is_strict_sorted may have mutated them.
-            // We don't want to run with different stats in debug mode and outside.
-            ends.statistics().inherit(pre_validation.iter());
             debug_assert!(is_sorted);
         }
 

@@ -116,7 +116,9 @@ pub trait BoolArrayExt: TypedArrayRef<Bool> {
         let all_valid = match &BoolArrayExt::validity(self) {
             Validity::NonNullable | Validity::AllValid => true,
             Validity::AllInvalid => false,
-            Validity::Array(a) => a.statistics().compute_min::<bool>(ctx).unwrap_or(false),
+            validity @ Validity::Array(_) => {
+                validity.execute_mask(self.as_ref().len(), ctx)?.all_true()
+            }
         };
         Ok(all_valid.then(|| Mask::from_buffer(self.to_bit_buffer())))
     }

@@ -30,6 +30,7 @@ use crate::aggregate_fn::Accumulator;
 use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
+use crate::aggregate_fn::AggregateFnVTableExt;
 use crate::aggregate_fn::DynAccumulator;
 use crate::arrays::Constant;
 use crate::arrays::Null;
@@ -39,8 +40,6 @@ use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::StructFields;
 use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProviderExt;
 use crate::scalar::Scalar;
 
 /// Options for the `is_sorted` aggregate function.
@@ -73,15 +72,9 @@ pub fn is_strict_sorted(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResul
 }
 
 fn is_sorted_impl(array: &ArrayRef, strict: bool, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
-    let stat = if strict {
-        Stat::IsStrictSorted
-    } else {
-        Stat::IsSorted
-    };
-
-    // Short-circuit using cached array statistics.
-    if let Precision::Exact(value) = array.statistics().get_as::<bool>(stat) {
-        return Ok(value);
+    let aggregate_fn = IsSorted.bind(IsSortedOptions { strict });
+    if let Precision::Exact(value) = array.aggregations().get_result(&aggregate_fn) {
+        return bool::try_from(&value);
     }
 
     // Arrays with 0 or 1 elements are (strict) sorted.
@@ -92,7 +85,7 @@ fn is_sorted_impl(array: &ArrayRef, strict: bool, ctx: &mut ExecutionCtx) -> Vor
     // Constant and null arrays are always sorted, but not strict sorted.
     if array.is::<Constant>() || array.is::<Null>() {
         let result = !strict;
-        cache_is_sorted(array, strict, result);
+        cache_is_sorted(array, strict, result)?;
         return Ok(result);
     }
 
@@ -118,12 +111,12 @@ fn is_sorted_impl(array: &ArrayRef, strict: bool, ctx: &mut ExecutionCtx) -> Vor
             // If we have a potential null value - it has to be the first one.
             1 => {
                 if !array.is_invalid(0, ctx)? {
-                    cache_is_sorted(array, strict, false);
+                    cache_is_sorted(array, strict, false)?;
                     return Ok(false);
                 }
             }
             _ => {
-                cache_is_sorted(array, strict, false);
+                cache_is_sorted(array, strict, false)?;
                 return Ok(false);
             }
         }
@@ -138,26 +131,27 @@ fn is_sorted_impl(array: &ArrayRef, strict: bool, ctx: &mut ExecutionCtx) -> Vor
     let result = result_scalar.as_bool().value().unwrap_or(false);
 
     // Cache the computed result as statistics.
-    cache_is_sorted(array, strict, result);
+    cache_is_sorted(array, strict, result)?;
 
     Ok(result)
 }
 
-fn cache_is_sorted(array: &ArrayRef, strict: bool, result: bool) {
-    let array_stats = array.statistics();
-    if strict {
-        if result {
-            array_stats.set(Stat::IsSorted, Precision::Exact(true.into()));
-            array_stats.set(Stat::IsStrictSorted, Precision::Exact(true.into()));
-        } else {
-            array_stats.set(Stat::IsStrictSorted, Precision::Exact(false.into()));
-        }
-    } else if result {
-        array_stats.set(Stat::IsSorted, Precision::Exact(true.into()));
-    } else {
-        array_stats.set(Stat::IsSorted, Precision::Exact(false.into()));
-        array_stats.set(Stat::IsStrictSorted, Precision::Exact(false.into()));
+fn cache_is_sorted(array: &ArrayRef, strict: bool, result: bool) -> VortexResult<()> {
+    let aggregations = array.aggregations();
+    aggregations.insert_result(
+        IsSorted.bind(IsSortedOptions { strict }),
+        Precision::Exact(Scalar::from(result)),
+    )?;
+
+    // Strictly sorted input is sorted; unsorted input cannot be strictly sorted.
+    if strict && result || !strict && !result {
+        aggregations.insert_result(
+            IsSorted.bind(IsSortedOptions { strict: !strict }),
+            Precision::Exact(Scalar::from(result)),
+        )?;
     }
+
+    Ok(())
 }
 
 /// Aggregate function vtable for `is_sorted`.
@@ -242,6 +236,10 @@ pub fn make_is_sorted_partial_dtype(element_dtype: &DType) -> DType {
 impl AggregateFnVTable for IsSorted {
     type Options = IsSortedOptions;
     type Partial = IsSortedPartial;
+
+    fn is_representation_invariant(&self, _options: &Self::Options) -> bool {
+        true
+    }
 
     fn id(&self) -> AggregateFnId {
         static ID: CachedId = CachedId::new("vortex.is_sorted");

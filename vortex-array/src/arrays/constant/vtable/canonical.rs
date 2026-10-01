@@ -400,8 +400,6 @@ mod tests {
     use std::sync::Arc;
     use std::sync::LazyLock;
 
-    use enum_iterator::all;
-    use itertools::Itertools;
     use rstest::rstest;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
@@ -410,6 +408,18 @@ mod tests {
     use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::aggregate_fn::AggregateFn;
+    use crate::aggregate_fn::EmptyOptions;
+    use crate::aggregate_fn::NumericalAggregateOpts;
+    use crate::aggregate_fn::fns::is_constant::IsConstant;
+    use crate::aggregate_fn::fns::is_sorted::IsSorted;
+    use crate::aggregate_fn::fns::is_sorted::IsSortedOptions;
+    use crate::aggregate_fn::fns::max::Max;
+    use crate::aggregate_fn::fns::min::Min;
+    use crate::aggregate_fn::fns::nan_count::NanCount;
+    use crate::aggregate_fn::fns::null_count::NullCount;
+    use crate::aggregate_fn::fns::sum::Sum;
+    use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
     use crate::arrays::Chunked;
     use crate::arrays::Constant;
     use crate::arrays::ConstantArray;
@@ -431,8 +441,6 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::half::f16;
-    use crate::expr::stats::Stat;
-    use crate::expr::stats::StatsProvider;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 
@@ -469,23 +477,35 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let scalar = Scalar::bool(true, Nullability::NonNullable);
         let const_array = ConstantArray::new(scalar, 4).into_array();
-        let stats = const_array
-            .statistics()
-            .compute_all(&all::<Stat>().collect_vec(), &mut ctx)?;
-        let canonical = const_array.execute::<Canonical>(&mut ctx)?.into_array();
-        let canonical_stats = canonical.statistics();
-
-        let stats_ref = stats.as_typed_ref(canonical.dtype());
-
-        for stat in all::<Stat>() {
-            if stat.dtype(canonical.dtype()).is_none() {
-                continue;
+        let aggregates = [
+            AggregateFn::new(Min, NumericalAggregateOpts::default()).erased(),
+            AggregateFn::new(Max, NumericalAggregateOpts::default()).erased(),
+            AggregateFn::new(Sum, NumericalAggregateOpts::default()).erased(),
+            AggregateFn::new(NullCount, EmptyOptions).erased(),
+            AggregateFn::new(NanCount, EmptyOptions).erased(),
+            AggregateFn::new(IsSorted, IsSortedOptions { strict: false }).erased(),
+            AggregateFn::new(IsSorted, IsSortedOptions { strict: true }).erased(),
+            AggregateFn::new(IsConstant, EmptyOptions).erased(),
+            AggregateFn::new(UncompressedSizeInBytes, EmptyOptions).erased(),
+        ];
+        for aggregate in &aggregates {
+            if aggregate.return_dtype(const_array.dtype()).is_some() {
+                const_array
+                    .aggregations()
+                    .compute_result(aggregate, &mut ctx)?;
             }
-            assert_eq!(
-                canonical_stats.get(stat),
-                stats_ref.get(stat),
-                "stat mismatch {stat}"
-            );
+        }
+        let results = const_array.aggregations().snapshot_results();
+        let canonical = const_array.execute::<Canonical>(&mut ctx)?.into_array();
+
+        for (aggregate, result) in results.iter() {
+            if aggregate.is_representation_invariant() {
+                assert_eq!(
+                    canonical.aggregations().get_result(aggregate),
+                    *result,
+                    "aggregate mismatch {aggregate}"
+                );
+            }
         }
         Ok(())
     }

@@ -25,6 +25,7 @@ internals/vtables
 internals/execution
 internals/scan-planning
 internals/stats-pruning
+internals/aggregate-statistics
 internals/io
 internals/serialization
 internals/cuda

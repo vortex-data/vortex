@@ -15,6 +15,11 @@ use rstest::rstest;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::AggregateFnVTableExt;
+use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::aggregate_fn::fns::max::Max;
+use vortex_array::aggregate_fn::fns::min::Min;
+use vortex_array::aggregate_fn::fns::sum::Sum;
 use vortex_array::array_session;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
@@ -54,6 +59,7 @@ use vortex_array::expr::lt_eq;
 use vortex_array::expr::or;
 use vortex_array::expr::root;
 use vortex_array::expr::select;
+use vortex_array::expr::stats::Precision;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
 use vortex_array::extension::datetime::TimestampOptions;
@@ -62,7 +68,7 @@ use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::fns::pack::Pack;
 use vortex_array::scalar_fn::fns::pack::PackOptions;
-use vortex_array::stats::PRUNING_STATS;
+use vortex_array::stats::default_file_aggregates;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::validity::Validity;
@@ -1394,10 +1400,7 @@ async fn file_take() -> VortexResult<()> {
 }
 
 #[tokio::test]
-#[should_panic(
-    expected = "FileStatsAccumulator temporarily does not support nullable top-level structs"
-)]
-async fn write_nullable_top_level_struct() {
+async fn write_nullable_top_level_struct() -> VortexResult<()> {
     let ages = PrimitiveArray::from_option_iter([Some(25), Some(31), None, Some(57), None]);
 
     let array = StructArray::try_new(
@@ -1405,16 +1408,26 @@ async fn write_nullable_top_level_struct() {
         vec![ages.into_array()],
         5,
         Validity::AllValid,
-    )
-    .unwrap()
+    )?
     .into_array();
 
     let mut writer = vec![];
-    SESSION
+    let Err(error) = SESSION
         .write_options()
         .write(&mut writer, array.to_array_stream())
         .await
-        .unwrap();
+    else {
+        panic!("writing a nullable top-level struct must fail");
+    };
+
+    assert!(
+        error
+            .to_string()
+            .contains("File summaries require a non-nullable top-level struct")
+    );
+    assert!(writer.is_empty());
+
+    Ok(())
 }
 
 async fn round_trip(
@@ -2114,7 +2127,7 @@ async fn test_writer_with_statistics() -> VortexResult<()> {
     let mut buf = ByteBufferMut::empty();
     let mut writer = SESSION
         .write_options()
-        .with_file_statistics(PRUNING_STATS.to_vec())
+        .with_file_statistics(default_file_aggregates())
         .writer(&mut buf, array.dtype().clone());
 
     writer.push(array).await?;
@@ -2123,6 +2136,64 @@ async fn test_writer_with_statistics() -> VortexResult<()> {
     assert!(summary.footer().statistics().is_some());
     assert_eq!(summary.row_count(), 5);
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn write_summary_matches_footer_results() -> VortexResult<()> {
+    let array = StructArray::from_fields(&[
+        ("numbers", buffer![i64::MAX, 1].into_array()),
+        (
+            "strings",
+            VarBinArray::from(vec!["a".repeat(80), "z".repeat(80)]).into_array(),
+        ),
+    ])?
+    .into_array();
+    let mut buf = ByteBufferMut::empty();
+    let summary = SESSION
+        .write_options()
+        .write(&mut buf, array.to_array_stream())
+        .await?;
+    let written = summary.footer().statistics().unwrap();
+    assert_eq!(
+        written.fields()[0].get_result(&Sum.bind(NumericalAggregateOpts::skip_nans())),
+        Precision::Exact(Scalar::null(DType::Primitive(
+            PType::I64,
+            Nullability::Nullable
+        )))
+    );
+    assert_eq!(
+        written.fields()[1].get_result(&Min.bind(NumericalAggregateOpts::skip_nans())),
+        Precision::Inexact(Scalar::utf8("a".repeat(64), Nullability::Nullable))
+    );
+    assert_eq!(
+        written.fields()[1].get_result(&Max.bind(NumericalAggregateOpts::skip_nans())),
+        Precision::Inexact(Scalar::utf8("z".repeat(63) + "{", Nullability::Nullable))
+    );
+
+    let file = SESSION.open_options().open_buffer(ByteBuffer::from(buf))?;
+    let decoded = file.file_stats().unwrap();
+    assert_eq!(decoded.dtypes(), written.dtypes());
+    assert_eq!(decoded.fields().len(), written.fields().len());
+    for (written, decoded) in written.fields().iter().zip(decoded.fields().iter()) {
+        for (aggregate, value) in written.iter() {
+            assert_eq!(decoded.get_result(aggregate), *value);
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn unsupported_file_aggregate_is_rejected_before_writing() -> VortexResult<()> {
+    let array = buffer![1.0f64, f64::NAN].into_array();
+    let mut buf = ByteBufferMut::empty();
+    let result = SESSION
+        .write_options()
+        .with_file_statistics(vec![Sum.bind(NumericalAggregateOpts::include_nans())])
+        .write(&mut buf, array.to_array_stream())
+        .await;
+    assert!(result.is_err());
+    assert!(buf.is_empty());
     Ok(())
 }
 

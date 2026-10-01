@@ -5,6 +5,10 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::aggregate_fn::AggregateFn;
+use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::aggregate_fn::fns::max::Max;
+use vortex_array::aggregate_fn::fns::min::Min;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
@@ -74,7 +78,15 @@ fn compare_eq(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
     let mut comparison = compare_dtp(lhs.days(), ts_parts.days, CompareOperator::Eq, nullability)?;
-    if comparison.statistics().compute_max::<bool>(ctx) == Some(false) {
+    if comparison
+        .aggregations()
+        .compute_as::<bool>(
+            &AggregateFn::new(Max, NumericalAggregateOpts::default()).erased(),
+            ctx,
+        )
+        .ok()
+        == Some(false)
+    {
         // All values are different.
         return Ok(Some(comparison));
     }
@@ -87,7 +99,15 @@ fn compare_eq(
     )?
     .binary(comparison, Operator::And)?;
 
-    if comparison.statistics().compute_max::<bool>(ctx) == Some(false) {
+    if comparison
+        .aggregations()
+        .compute_as::<bool>(
+            &AggregateFn::new(Max, NumericalAggregateOpts::default()).erased(),
+            ctx,
+        )
+        .ok()
+        == Some(false)
+    {
         // All values are different.
         return Ok(Some(comparison));
     }
@@ -115,7 +135,15 @@ fn compare_ne(
         CompareOperator::NotEq,
         nullability,
     )?;
-    if comparison.statistics().compute_min::<bool>(ctx) == Some(true) {
+    if comparison
+        .aggregations()
+        .compute_as::<bool>(
+            &AggregateFn::new(Min, NumericalAggregateOpts::default()).erased(),
+            ctx,
+        )
+        .ok()
+        == Some(true)
+    {
         // All values are different.
         return Ok(Some(comparison));
     }
@@ -128,7 +156,15 @@ fn compare_ne(
     )?
     .binary(comparison, Operator::Or)?;
 
-    if comparison.statistics().compute_min::<bool>(ctx) == Some(true) {
+    if comparison
+        .aggregations()
+        .compute_as::<bool>(
+            &AggregateFn::new(Min, NumericalAggregateOpts::default()).erased(),
+            ctx,
+        )
+        .ok()
+        == Some(true)
+    {
         // All values are different.
         return Ok(Some(comparison));
     }
@@ -151,7 +187,15 @@ fn compare_lt(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
     let days_lt = compare_dtp(lhs.days(), ts_parts.days, CompareOperator::Lt, nullability)?;
-    if days_lt.statistics().compute_min::<bool>(ctx) == Some(true) {
+    if days_lt
+        .aggregations()
+        .compute_as::<bool>(
+            &AggregateFn::new(Min, NumericalAggregateOpts::default()).erased(),
+            ctx,
+        )
+        .ok()
+        == Some(true)
+    {
         // All values on the lhs are smaller.
         return Ok(Some(days_lt));
     }
@@ -166,7 +210,15 @@ fn compare_gt(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
     let days_gt = compare_dtp(lhs.days(), ts_parts.days, CompareOperator::Gt, nullability)?;
-    if days_gt.statistics().compute_min::<bool>(ctx) == Some(true) {
+    if days_gt
+        .aggregations()
+        .compute_as::<bool>(
+            &AggregateFn::new(Min, NumericalAggregateOpts::default()).erased(),
+            ctx,
+        )
+        .ok()
+        == Some(true)
+    {
         // All values on the lhs are larger.
         return Ok(Some(days_gt));
     }
@@ -227,17 +279,26 @@ fn compare_dtp(
 
 #[cfg(test)]
 mod test {
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::ExecutionCtx;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::AggregateFnRef;
+    use vortex_array::aggregate_fn::AggregateFnVTable;
     use vortex_array::aggregate_fn::fns::sum::sum;
+    use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
+    use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
     use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
+    use vortex_array::arrays::DecimalArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DecimalDType;
     use vortex_array::dtype::IntegerPType;
     use vortex_array::extension::datetime::TimeUnit;
     use vortex_array::extension::datetime::Timestamp;
@@ -245,10 +306,88 @@ mod test {
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
+    use vortex_mask::Mask;
 
     use super::*;
     use crate::DateTimeParts;
     use crate::DateTimePartsArray;
+
+    #[derive(Debug)]
+    struct StatefulMaxKernel(AtomicUsize);
+
+    impl DynAggregateKernel for StatefulMaxKernel {
+        fn aggregate(
+            &self,
+            aggregate_fn: &AggregateFnRef,
+            batch: &ArrayRef,
+            _ctx: &mut ExecutionCtx,
+        ) -> VortexResult<Option<Scalar>> {
+            if !aggregate_fn.is::<Max>() || !batch.dtype().is_boolean() {
+                return Ok(None);
+            }
+
+            Ok(Some(Scalar::bool(
+                self.0.fetch_add(1, Ordering::Relaxed) != 0,
+                Nullability::Nullable,
+            )))
+        }
+    }
+
+    #[test]
+    fn decimal_cast_resolves_stateful_comparison_validity_once() -> VortexResult<()> {
+        static KERNEL: StatefulMaxKernel = StatefulMaxKernel(AtomicUsize::new(0));
+        KERNEL.0.store(0, Ordering::Relaxed);
+
+        let session = array_session();
+        crate::initialize(&session);
+        let mut ctx = session.create_execution_ctx();
+        let timestamp = Scalar::extension::<Timestamp>(
+            TimestampOptions {
+                unit: TimeUnit::Seconds,
+                tz: None,
+            },
+            0i64.into(),
+        );
+        let rhs = ConstantArray::new(timestamp, 2).into_array();
+        let lhs = DateTimeParts::try_new(
+            rhs.dtype().clone(),
+            buffer![0i32, 0].into_array(),
+            buffer![1i32, 0].into_array(),
+            buffer![0i32, 0].into_array(),
+        )?
+        .into_array();
+        let comparison = lhs.binary(rhs, Operator::Eq)?;
+        let expected = Mask::from_iter([false, true]);
+        assert_eq!(comparison.clone().execute::<Mask>(&mut ctx)?, expected);
+
+        session.aggregate_fns().register_aggregate_kernel(
+            comparison.encoding_id(),
+            Some(Max.id()),
+            &KERNEL,
+        );
+
+        // The first false maximum returns only the all-true days comparison. Later executions
+        // compare seconds too, so this safely registered kernel makes the lazy mask change.
+        assert_eq!(
+            comparison.clone().execute::<Mask>(&mut ctx)?,
+            Mask::AllTrue(2)
+        );
+        assert_eq!(comparison.clone().execute::<Mask>(&mut ctx)?, expected);
+
+        KERNEL.0.store(0, Ordering::Relaxed);
+        let source =
+            PrimitiveArray::new(buffer![1000i32, 1], Validity::Array(comparison)).into_array();
+        let casted = source
+            .cast(DType::Decimal(
+                DecimalDType::new(2, 0),
+                Nullability::NonNullable,
+            ))?
+            .execute::<DecimalArray>(&mut ctx);
+        let error = casted.expect_err("the resolved validity makes 1000 a valid value");
+        assert!(error.to_string().contains("does not fit in precision"));
+        assert_eq!(KERNEL.0.load(Ordering::Relaxed), 1);
+        Ok(())
+    }
 
     fn dtp_array_from_timestamp<T: IntegerPType>(
         value: T,

@@ -4,7 +4,6 @@
 use pyo3::prelude::*;
 use pyo3::types::PyType;
 use vortex::array::ArrayId;
-use vortex::array::stats::ArrayStats;
 use vortex::dtype::DType;
 
 use crate::arrays::PyArray;
@@ -21,7 +20,6 @@ pub struct PyPythonArray {
     pub(crate) id: ArrayId,
     pub(crate) len: usize,
     pub(crate) dtype: DType,
-    pub(crate) stats: ArrayStats,
 }
 
 #[pymethods]
@@ -37,7 +35,6 @@ impl PyPythonArray {
             id,
             len,
             dtype: dtype.into_inner(),
-            stats: Default::default(),
         }))
     }
 }

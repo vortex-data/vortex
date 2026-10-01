@@ -32,9 +32,9 @@ use vortex_array::SerializeMetadata;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::TryFromBytes;
-use vortex_array::expr::stats::Stat;
-use vortex_array::stats::as_stat_bitset_bytes;
-use vortex_array::stats::stats_from_bitset_bytes;
+use vortex_array::stats::compat::LegacyStat;
+use vortex_array::stats::compat::as_stat_bitset_bytes;
+use vortex_array::stats::compat::stats_from_bitset_bytes;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -277,7 +277,7 @@ impl LegacyStatsLayout {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ZoneMapSchema {
-    LegacyStats(Arc<[Stat]>),
+    LegacyStats(Arc<[LegacyStat]>),
     AggregateFns(Arc<[AggregateFnRef]>),
 }
 
@@ -363,7 +363,7 @@ impl ZonedData {
         match &self.zone_map_schema {
             ZoneMapSchema::LegacyStats(stats) => stats
                 .iter()
-                .filter_map(Stat::aggregate_fn)
+                .filter_map(LegacyStat::aggregate_fn)
                 .collect::<Vec<_>>()
                 .into(),
             ZoneMapSchema::AggregateFns(aggregate_fns) => Arc::clone(aggregate_fns),
@@ -375,7 +375,7 @@ fn present_aggregates(schema: &ZoneMapSchema) -> Arc<[String]> {
     match schema {
         ZoneMapSchema::LegacyStats(stats) => stats
             .iter()
-            .filter_map(Stat::aggregate_fn)
+            .filter_map(LegacyStat::aggregate_fn)
             .map(|aggregate_fn| aggregate_fn.to_string())
             .collect::<Vec<_>>()
             .into(),
@@ -463,7 +463,7 @@ impl DeserializeMetadata for LegacyStatsMetadata {
         // read and let the reader disable zoned pruning for those layouts instead of rejecting
         // deserialization outright.
         let zone_len = u32::try_from_le_bytes(&metadata[0..4])?;
-        let present_stats: Arc<[Stat]> = stats_from_bitset_bytes(&metadata[4..]).into();
+        let present_stats: Arc<[LegacyStat]> = stats_from_bitset_bytes(&metadata[4..]).into();
 
         Ok(Self {
             zone_len,
@@ -503,7 +503,7 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::stats::as_stat_bitset_bytes;
+    use vortex_array::stats::compat::as_stat_bitset_bytes;
     use vortex_session::VortexSession;
     use vortex_session::registry::ReadContext;
 
@@ -568,9 +568,9 @@ mod tests {
     fn test_deserialize_legacy_stat_bitset_as_legacy_stats() {
         let mut serialized = u32::MAX.to_le_bytes().to_vec();
         serialized.extend(as_stat_bitset_bytes(&[
-            Stat::IsStrictSorted,
-            Stat::IsSorted,
-            Stat::Max,
+            LegacyStat::IsStrictSorted,
+            LegacyStat::IsSorted,
+            LegacyStat::Max,
         ]));
         let deserialized = LegacyStatsMetadata::deserialize(&serialized).unwrap();
         let ZoneMapSchema::LegacyStats(legacy_stats) = deserialized.zone_map_schema else {
@@ -580,7 +580,11 @@ mod tests {
         assert!(legacy_stats.is_sorted());
         assert_eq!(
             legacy_stats.as_ref(),
-            &[Stat::IsSorted, Stat::IsStrictSorted, Stat::Max]
+            &[
+                LegacyStat::IsSorted,
+                LegacyStat::IsStrictSorted,
+                LegacyStat::Max
+            ]
         );
     }
 

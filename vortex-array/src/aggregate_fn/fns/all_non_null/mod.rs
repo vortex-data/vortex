@@ -27,6 +27,10 @@ impl AggregateFnVTable for AllNonNull {
     type Options = EmptyOptions;
     type Partial = bool;
 
+    fn is_representation_invariant(&self, _options: &Self::Options) -> bool {
+        true
+    }
+
     fn id(&self) -> AggregateFnId {
         static ID: CachedId = CachedId::new("vortex.all_non_null");
         *ID
@@ -65,6 +69,14 @@ impl AggregateFnVTable for AllNonNull {
         scalar: Scalar,
     ) -> VortexResult<Self::Partial> {
         bool::try_from(&scalar)
+    }
+
+    fn partial_from_result(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+        result: Scalar,
+    ) -> VortexResult<Option<Self::Partial>> {
+        self.partial_from_scalar(args, result).map(Some)
     }
 
     fn merge_partials(

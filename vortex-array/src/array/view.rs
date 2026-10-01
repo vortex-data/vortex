@@ -12,7 +12,7 @@ use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::VTable;
 use crate::dtype::DType;
-use crate::stats::StatsSetRef;
+use crate::stats::AggregationsRef;
 use crate::validity::Validity;
 
 /// A lightweight, `Copy`-able typed view into an [`ArrayRef`].
@@ -76,9 +76,9 @@ impl<'a, V: VTable> ArrayView<'a, V> {
         self.array.encoding_id()
     }
 
-    /// Returns the array's statistics set.
-    pub fn statistics(&self) -> StatsSetRef<'_> {
-        self.array.statistics()
+    /// Returns the array's finalized aggregate cache.
+    pub fn aggregations(&self) -> AggregationsRef<'_> {
+        self.array.aggregations()
     }
 
     /// Returns the array's validity representation.

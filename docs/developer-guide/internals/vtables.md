@@ -231,7 +231,7 @@ pub struct Array<V: ArrayVTable> {
     dtype: DType,
     len: usize,
     array: V::Array,    // encoding-specific data (buffers, children, etc.)
-    stats: ArrayStats,
+    aggregations: Aggregations,
 }
 
 impl<V: ArrayVTable> Deref for Array<V> {

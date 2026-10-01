@@ -186,8 +186,11 @@ mod tests {
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::Accumulator;
+    use crate::aggregate_fn::AggregateFnVTableExt;
     use crate::aggregate_fn::DynAccumulator;
+    use crate::aggregate_fn::EmptyOptions;
     use crate::aggregate_fn::NumericalAggregateOpts;
+    use crate::aggregate_fn::fns::nan_count::NanCount;
     use crate::aggregate_fn::fns::sum::Sum;
     use crate::aggregate_fn::fns::sum::sum;
     use crate::array_session;
@@ -198,9 +201,7 @@ mod tests {
     use crate::dtype::Nullability::Nullable;
     use crate::dtype::PType;
     use crate::expr::stats::Precision;
-    use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
-    use crate::scalar::ScalarValue;
     use crate::validity::Validity;
 
     #[test]
@@ -379,8 +380,10 @@ mod tests {
         // from the stat rather than a scan.
         let arr =
             PrimitiveArray::new(buffer![1.0f64, 2.0, 3.0], Validity::NonNullable).into_array();
-        arr.statistics()
-            .set(Stat::NaNCount, Precision::Exact(ScalarValue::from(1u64)));
+        arr.aggregations().insert_result(
+            NanCount.bind(EmptyOptions),
+            Precision::Exact(Scalar::from(1u64)),
+        )?;
         let result = sum_with_options(&arr, NumericalAggregateOpts::include_nans())?;
         assert!(result.as_primitive().typed_value::<f64>().unwrap().is_nan());
         Ok(())
@@ -391,10 +394,14 @@ mod tests {
         // With an exact NaNCount of zero, the planted exact Sum stat is usable as-is.
         let arr =
             PrimitiveArray::new(buffer![1.0f64, 2.0, 3.0], Validity::NonNullable).into_array();
-        arr.statistics()
-            .set(Stat::NaNCount, Precision::Exact(ScalarValue::from(0u64)));
-        arr.statistics()
-            .set(Stat::Sum, Precision::Exact(ScalarValue::from(42.0f64)));
+        arr.aggregations().insert_result(
+            NanCount.bind(EmptyOptions),
+            Precision::Exact(Scalar::from(0u64)),
+        )?;
+        arr.aggregations().insert_result(
+            Sum.bind(NumericalAggregateOpts::skip_nans()),
+            Precision::Exact(Scalar::primitive(42.0f64, Nullable)),
+        )?;
         let result = sum_with_options(&arr, NumericalAggregateOpts::include_nans())?;
         assert_eq!(result.as_primitive().typed_value::<f64>(), Some(42.0));
         Ok(())

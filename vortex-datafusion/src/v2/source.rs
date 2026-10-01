@@ -122,7 +122,7 @@ use crate::convert::exprs::DefaultExpressionConvertor;
 use crate::convert::exprs::ExpressionConvertor;
 use crate::convert::exprs::ProcessedProjection;
 use crate::convert::exprs::make_vortex_predicate;
-use crate::convert::stats::stats_set_to_df;
+use crate::convert::stats::aggregate_results_to_df;
 
 /// Builder for [`VortexDataSource`].
 ///
@@ -257,7 +257,7 @@ impl VortexDataSourceBuilder {
         .await?
         .iter()
         .zip(fields.fields())
-        .map(|(stats, dtype)| stats_set_to_df(stats, &dtype))
+        .map(|(stats, dtype)| aggregate_results_to_df(stats, &dtype))
         .collect::<VortexResult<Vec<_>>>()?;
 
         Ok(VortexDataSource {

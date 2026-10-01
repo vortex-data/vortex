@@ -9,10 +9,12 @@ use num_traits::PrimInt;
 use num_traits::WrappingSub;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::aggregate_fn::AggregateFn;
+use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::aggregate_fn::fns::min::Min;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
-use vortex_array::expr::stats::Stat;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
@@ -20,7 +22,6 @@ use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
-use vortex_error::vortex_err;
 use vortex_mask::AllOr;
 
 use crate::FL_CHUNK_SIZE;
@@ -31,10 +32,10 @@ use crate::FoRData;
 impl FoRData {
     pub fn encode(array: PrimitiveArray, ctx: &mut ExecutionCtx) -> VortexResult<FoRArray> {
         let array_ref = array.clone().into_array();
-        let min = array_ref
-            .statistics()
-            .compute_stat(Stat::Min, ctx)?
-            .ok_or_else(|| vortex_err!("Min stat not found"))?;
+        let min = array_ref.aggregations().compute_result(
+            &AggregateFn::new(Min, NumericalAggregateOpts::default()).erased(),
+            ctx,
+        )?;
 
         let encoded = match_each_integer_ptype!(array.ptype(), |T| {
             encode_primitive::<T>(array, T::try_from(&min)?, ctx)?.into_array()
@@ -263,7 +264,6 @@ mod test {
     use vortex_array::arrays::primitive::PrimitiveArrayExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::stats::StatsProvider;
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
@@ -313,7 +313,7 @@ mod test {
     fn test_zeros() {
         let mut ctx = SESSION.create_execution_ctx();
         let array = PrimitiveArray::new(buffer![0i32; 100], Validity::NonNullable);
-        assert_eq!(array.statistics().len(), 0);
+        assert_eq!(array.aggregations().snapshot_results().iter().count(), 0);
 
         let dtype = array.dtype().clone();
         let compressed = FoRData::encode(array, &mut ctx).unwrap();

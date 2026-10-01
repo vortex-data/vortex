@@ -19,9 +19,11 @@ use std::hash::Hasher;
 use std::sync::Arc;
 
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 
 use crate::aggregate_fn::Accumulator;
 use crate::aggregate_fn::AccumulatorRef;
+use crate::aggregate_fn::AggregateDTypes;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnSatisfaction;
@@ -29,6 +31,7 @@ use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::GroupedAccumulator;
 use crate::aggregate_fn::GroupedAccumulatorRef;
 use crate::dtype::DType;
+use crate::scalar::Scalar;
 
 /// An object-safe, sealed trait for bound aggregate function dispatch.
 ///
@@ -41,6 +44,12 @@ pub(super) trait DynAggregateFn: 'static + Send + Sync + super::sealed::Sealed {
 
     fn can_satisfy(&self, requested: &AggregateFnRef) -> AggregateFnSatisfaction;
     fn return_dtype(&self, input_dtype: &DType) -> Option<DType>;
+    fn is_representation_invariant(&self) -> bool;
+    fn partial_from_result(
+        &self,
+        input_dtype: &DType,
+        result: &Scalar,
+    ) -> VortexResult<Option<Scalar>>;
     fn state_dtype(&self, input_dtype: &DType) -> Option<DType>;
     fn accumulator(&self, input_dtype: &DType) -> VortexResult<AccumulatorRef>;
     fn accumulator_grouped(&self, input_dtype: &DType) -> VortexResult<GroupedAccumulatorRef>;
@@ -85,6 +94,45 @@ impl<V: AggregateFnVTable> DynAggregateFn for AggregateFnInner<V> {
 
     fn return_dtype(&self, input_dtype: &DType) -> Option<DType> {
         V::return_dtype(&self.vtable, &self.options, input_dtype)
+    }
+
+    fn is_representation_invariant(&self) -> bool {
+        V::is_representation_invariant(&self.vtable, &self.options)
+    }
+
+    fn partial_from_result(
+        &self,
+        input_dtype: &DType,
+        result: &Scalar,
+    ) -> VortexResult<Option<Scalar>> {
+        if self.return_dtype(input_dtype).is_none() || self.state_dtype(input_dtype).is_none() {
+            return Ok(None);
+        }
+        let dtypes = AggregateDTypes::try_new(&self.vtable, &self.options, input_dtype.clone())?;
+        vortex_ensure!(
+            result.dtype() == &dtypes.return_dtype,
+            "Aggregate {} requires result dtype {}, got {}",
+            self.id(),
+            dtypes.return_dtype,
+            result.dtype()
+        );
+        let Some(partial) = self
+            .vtable
+            .partial_from_result(dtypes.args(&self.options), result.clone())?
+        else {
+            return Ok(None);
+        };
+        let state = self
+            .vtable
+            .to_scalar(dtypes.args(&self.options), &partial)?;
+        vortex_ensure!(
+            state.dtype() == &dtypes.partial_dtype,
+            "Aggregate {} requires partial dtype {}, got {}",
+            self.id(),
+            dtypes.partial_dtype,
+            state.dtype()
+        );
+        Ok(Some(state))
     }
 
     fn state_dtype(&self, input_dtype: &DType) -> Option<DType> {

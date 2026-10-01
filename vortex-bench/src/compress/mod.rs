@@ -22,7 +22,6 @@ use serde::Serialize;
 use tempfile::NamedTempFile;
 use tempfile::TempDir;
 use vortex::array::ArrayRef;
-use vortex::expr::stats::Stat;
 use vortex::utils::aliases::hash_map::HashMap;
 
 use crate::Format;
@@ -161,9 +160,7 @@ impl Uncompressed {
 
 /// Clear cached statistics on `array` and every array beneath it.
 fn clear_stats(array: &ArrayRef) {
-    for stat in Stat::all() {
-        array.statistics().clear(stat);
-    }
+    array.aggregations().clear();
     for child in array.children_iter() {
         clear_stats(child);
     }

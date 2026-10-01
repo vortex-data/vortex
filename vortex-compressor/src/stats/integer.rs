@@ -8,10 +8,13 @@ use std::hash::Hash;
 use num_traits::PrimInt;
 use rustc_hash::FxBuildHasher;
 use vortex_array::ExecutionCtx;
+use vortex_array::aggregate_fn::AggregateFn;
+use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::aggregate_fn::fns::max::Max;
+use vortex_array::aggregate_fn::fns::min::Min;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::NativeValue;
 use vortex_array::dtype::IntegerPType;
-use vortex_array::expr::stats::Stat;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
@@ -365,13 +368,19 @@ where
 
     let array_ref = array.as_ref();
     let min = array_ref
-        .statistics()
-        .compute_as::<T>(Stat::Min, ctx)
+        .aggregations()
+        .compute_as::<T>(
+            &AggregateFn::new(Min, NumericalAggregateOpts::default()).erased(),
+            ctx,
+        )
         .vortex_expect("min should be computed");
 
     let max = array_ref
-        .statistics()
-        .compute_as::<T>(Stat::Max, ctx)
+        .aggregations()
+        .compute_as::<T>(
+            &AggregateFn::new(Max, NumericalAggregateOpts::default()).erased(),
+            ctx,
+        )
         .vortex_expect("max should be computed");
 
     // Initialize loop state.

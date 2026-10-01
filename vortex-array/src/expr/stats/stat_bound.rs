@@ -2,16 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
 use crate::expr::stats::bound::IntersectionResult;
-
-/// `StatType` define the bound of a given statistic. (e.g. `Max` is an upper bound),
-/// this is used to extract the bound from a `Precision` value, (e.g. `p::bound<Max>()`).
-pub trait StatType<T> {
-    type Bound: StatBound<T>;
-
-    const STAT: Stat;
-}
 
 /// `StatBound` defines the operations that can be performed on a bound.
 /// The main bounds are Upper (e.g. max) and Lower (e.g. min).

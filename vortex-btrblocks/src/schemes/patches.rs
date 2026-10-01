@@ -4,6 +4,7 @@
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::aggregate_fn::fns::is_constant::is_constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
@@ -23,11 +24,7 @@ pub fn compress_patches(patches: Patches, ctx: &mut ExecutionCtx) -> VortexResul
 
     // Check if the values are constant.
     let values = patches.values();
-    let values = if values
-        .statistics()
-        .compute_is_constant(ctx)
-        .unwrap_or_default()
-    {
+    let values = if is_constant(values, ctx).unwrap_or_default() {
         ConstantArray::new(values.execute_scalar(0, ctx)?, values.len()).into_array()
     } else {
         values.clone()

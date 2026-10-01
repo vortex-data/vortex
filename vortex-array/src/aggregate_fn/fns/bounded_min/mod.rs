@@ -78,6 +78,10 @@ impl AggregateFnVTable for BoundedMin {
     type Options = BoundedMinOptions;
     type Partial = BoundedMinPartial;
 
+    fn is_representation_invariant(&self, _options: &Self::Options) -> bool {
+        true
+    }
+
     fn id(&self) -> AggregateFnId {
         static ID: CachedId = CachedId::new("vortex.bounded_min");
         *ID
@@ -163,6 +167,14 @@ impl AggregateFnVTable for BoundedMin {
             BoundedMinState::Value(scalar)
         };
         Ok(BoundedMinPartial { state })
+    }
+
+    fn partial_from_result(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+        result: Scalar,
+    ) -> VortexResult<Option<Self::Partial>> {
+        self.partial_from_scalar(args, result).map(Some)
     }
 
     fn merge_partials(

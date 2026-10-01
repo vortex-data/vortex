@@ -11,6 +11,8 @@ use rand::prelude::*;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::aggregate_fn::fns::min_max::min_max;
 use vortex_array::array_session;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builtins::ArrayBuiltins;
@@ -18,7 +20,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::expr::stats::Stat;
 use vortex_session::VortexSession;
 
 #[global_allocator]
@@ -45,9 +46,12 @@ fn cast_u16_to_u32(bencher: Bencher, n: usize) {
     }))
     .into_array();
     // Pre-compute min/max so values_fit_in is a cache hit during the benchmark.
-    arr.statistics()
-        .compute_all(&[Stat::Min, Stat::Max], &mut SESSION.create_execution_ctx())
-        .ok();
+    min_max(
+        &arr,
+        &mut SESSION.create_execution_ctx(),
+        NumericalAggregateOpts::default(),
+    )
+    .ok();
     bencher
         .with_inputs(|| (arr.clone(), SESSION.create_execution_ctx()))
         .bench_refs(|(a, ctx)| {

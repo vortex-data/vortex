@@ -34,17 +34,23 @@ use jni::sys::jobject;
 use object_store::ObjectStore;
 use object_store::path::Path as ObjectStorePath;
 use vortex::array::ArrayRef;
+use vortex::array::aggregate_fn::AggregateFnRef;
+use vortex::array::aggregate_fn::AggregateFnVTableExt;
+use vortex::array::aggregate_fn::EmptyOptions;
+use vortex::array::aggregate_fn::NumericalAggregateOpts;
+use vortex::array::aggregate_fn::fns::max::Max;
+use vortex::array::aggregate_fn::fns::min::Min;
+use vortex::array::aggregate_fn::fns::nan_count::NanCount;
+use vortex::array::aggregate_fn::fns::null_count::NullCount;
 use vortex::array::scalar::PValue;
 use vortex::array::scalar::Scalar;
 use vortex::array::scalar::ScalarValue;
-use vortex::array::stats::StatsSet;
+use vortex::array::stats::AggregateResults;
 use vortex::array::stream::ArrayStreamAdapter;
 use vortex::dtype::DType;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
-use vortex::expr::stats::Stat;
-use vortex::expr::stats::StatsProvider;
 use vortex::file::CountingVortexWrite;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteSummary;
@@ -182,14 +188,13 @@ fn checked_jlong(value: u64, name: &str) -> VortexResult<jlong> {
 }
 
 fn exact_count_jlong(
-    stats: Option<&StatsSet>,
-    dtype: Option<&DType>,
-    stat: Stat,
+    stats: Option<&AggregateResults>,
+    aggregate: &AggregateFnRef,
 ) -> VortexResult<jlong> {
     stats
-        .zip(dtype.and_then(|dt| stat.dtype(dt)))
-        .and_then(|(stats, dt)| stats.get_as::<u64>(stat, &dt).as_exact())
-        .map(|value| checked_jlong(value, stat.name()))
+        .and_then(|stats| stats.get_result(aggregate).as_exact())
+        .and_then(|value| u64::try_from(&value).ok())
+        .map(|value| checked_jlong(value, &aggregate.to_string()))
         .transpose()
         .map(|value| value.unwrap_or(-1))
 }
@@ -293,22 +298,19 @@ fn write_summary_to_java<'local>(
     )?;
 
     for (column_index, compressed_size) in column_sizes.into_iter().enumerate() {
-        let (stats, dtype) = file_stats
-            .and_then(|all_stats| {
-                all_stats
-                    .stats_sets()
-                    .get(column_index)
-                    .zip(all_stats.dtypes().get(column_index))
-            })
-            .map_or((None, None), |(stats, dtype)| (Some(stats), Some(dtype)));
-        let null_count = exact_count_jlong(stats, dtype, Stat::NullCount)?;
-        let nan_count = exact_count_jlong(stats, dtype, Stat::NaNCount)?;
-        let lower_bound = stats
-            .zip(dtype)
-            .and_then(|(stats, dtype)| stats.as_typed_ref(dtype).get(Stat::Min).into_inner());
-        let upper_bound = stats
-            .zip(dtype)
-            .and_then(|(stats, dtype)| stats.as_typed_ref(dtype).get(Stat::Max).into_inner());
+        let stats = file_stats.and_then(|all_stats| all_stats.fields().get(column_index));
+        let null_count = exact_count_jlong(stats, &NullCount.bind(EmptyOptions))?;
+        let nan_count = exact_count_jlong(stats, &NanCount.bind(EmptyOptions))?;
+        let lower_bound = stats.and_then(|stats| {
+            stats
+                .get_result(&Min.bind(NumericalAggregateOpts::skip_nans()))
+                .into_inner()
+        });
+        let upper_bound = stats.and_then(|stats| {
+            stats
+                .get_result(&Max.bind(NumericalAggregateOpts::skip_nans()))
+                .into_inner()
+        });
         let column = env.with_local_frame_returning_local::<_, JObject, JNIError>(16, |env| {
             let lower_bound = match lower_bound {
                 Some(value) => scalar_to_java(env, value)?,
@@ -582,4 +584,51 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_close(
         writer.close()?;
         Ok(())
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex::array::aggregate_fn::AggregateFnVTableExt;
+    use vortex::array::aggregate_fn::EmptyOptions;
+    use vortex::array::aggregate_fn::fns::null_count::NullCount;
+    use vortex::array::stats::AggregateResults;
+    use vortex::dtype::DType;
+    use vortex::dtype::PType;
+    use vortex::error::VortexResult;
+    use vortex::expr::stats::Precision;
+
+    use super::exact_count_jlong;
+
+    #[test]
+    fn java_counts_require_exact_metadata() -> VortexResult<()> {
+        let aggregate = NullCount.bind(EmptyOptions);
+        let dtype = DType::from(PType::I32);
+        let exact = AggregateResults::try_new(
+            &dtype,
+            [(aggregate.clone(), Precision::Exact(3u64.into()))],
+        )?;
+        let inexact = AggregateResults::try_new(
+            &dtype,
+            [(aggregate.clone(), Precision::Inexact(3u64.into()))],
+        )?;
+        assert_eq!(exact_count_jlong(Some(&exact), &aggregate)?, 3);
+        assert_eq!(exact_count_jlong(Some(&inexact), &aggregate)?, -1);
+        assert_eq!(
+            exact_count_jlong(Some(&AggregateResults::default()), &aggregate)?,
+            -1
+        );
+        assert_eq!(exact_count_jlong(None, &aggregate)?, -1);
+        Ok(())
+    }
+
+    #[test]
+    fn java_counts_reject_overflow() -> VortexResult<()> {
+        let aggregate = NullCount.bind(EmptyOptions);
+        let results = AggregateResults::try_new(
+            &DType::from(PType::I32),
+            [(aggregate.clone(), Precision::Exact(u64::MAX.into()))],
+        )?;
+        assert!(exact_count_jlong(Some(&results), &aggregate).is_err());
+        Ok(())
+    }
 }

@@ -87,6 +87,23 @@ impl AggregateFnRef {
         self.0.return_dtype(input_dtype)
     }
 
+    /// Whether cached results survive value-preserving physical rewrites.
+    pub fn is_representation_invariant(&self) -> bool {
+        self.0.is_representation_invariant()
+    }
+
+    /// Convert a finalized result to a partial only when this aggregate supports recovery.
+    ///
+    /// The returned scalar has the aggregate's state dtype. Aggregates whose finalization loses
+    /// merging information decline conversion, even when their scalar dtypes happen to match.
+    pub fn partial_from_result(
+        &self,
+        input_dtype: &DType,
+        result: &crate::scalar::Scalar,
+    ) -> VortexResult<Option<crate::scalar::Scalar>> {
+        self.0.partial_from_result(input_dtype, result)
+    }
+
     /// DType of the intermediate accumulator state.
     ///
     /// Returns `None` if the input dtype is not supported by the aggregate function.

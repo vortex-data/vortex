@@ -8,7 +8,24 @@ use futures::StreamExt as _;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::VortexSessionExecute;
-use vortex_array::expr::stats::Stat;
+use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::aggregate_fn::AggregateFnVTableExt;
+use vortex_array::aggregate_fn::EmptyOptions;
+use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
+use vortex_array::aggregate_fn::fns::is_constant::is_constant;
+use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
+use vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions;
+use vortex_array::aggregate_fn::fns::is_sorted::is_sorted;
+use vortex_array::aggregate_fn::fns::is_sorted::is_strict_sorted;
+use vortex_array::aggregate_fn::fns::max::Max;
+use vortex_array::aggregate_fn::fns::min::Min;
+use vortex_array::aggregate_fn::fns::min_max::min_max;
+use vortex_array::aggregate_fn::fns::min_max::supports_min_max;
+use vortex_array::aggregate_fn::fns::nan_count::NanCount;
+use vortex_array::aggregate_fn::fns::null_count::NullCount;
+use vortex_array::aggregate_fn::fns::sum::Sum;
+use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_error::VortexResult;
 use vortex_io::session::RuntimeSessionExt;
@@ -57,7 +74,7 @@ impl CompressorPlugin for BtrBlocksCompressor {
 pub struct CompressingStrategy {
     child: Arc<dyn LayoutStrategy>,
     compressor: Arc<dyn CompressorPlugin>,
-    stats: Arc<[Stat]>,
+    aggregates: Arc<[AggregateFnRef]>,
     concurrency: usize,
 }
 
@@ -67,7 +84,7 @@ impl CompressingStrategy {
         Self {
             child: Arc::new(child),
             compressor: Arc::new(compressor),
-            stats: Stat::all().collect(),
+            aggregates: default_chunk_aggregates(),
             concurrency: get_available_parallelism().unwrap_or(1),
         }
     }
@@ -77,10 +94,12 @@ impl CompressingStrategy {
         self
     }
 
-    /// Override the set of statistics computed on each chunk before compression.
-    /// Defaults to `Stat::all()`.
-    pub fn with_stats(mut self, stats: &[Stat]) -> Self {
-        self.stats = stats.into();
+    /// Select the finalized results cached on each chunk before compression.
+    ///
+    /// The default includes extrema, sum, counts, sortedness, constantness, and uncompressed size.
+    /// Functions that do not support the chunk's dtype are omitted.
+    pub fn with_aggregates(mut self, aggregates: &[AggregateFnRef]) -> Self {
+        self.aggregates = aggregates.into();
         self
     }
 }
@@ -97,7 +116,7 @@ impl LayoutStrategy for CompressingStrategy {
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
         let compressor = Arc::clone(&self.compressor);
-        let stats = Arc::clone(&self.stats);
+        let aggregates = Arc::clone(&self.aggregates);
         let session = session.clone();
         let compute_session = session.clone();
 
@@ -105,13 +124,12 @@ impl LayoutStrategy for CompressingStrategy {
         let stream = stream
             .map(move |chunk| {
                 let compressor = Arc::clone(&compressor);
-                let stats = Arc::clone(&stats);
+                let aggregates = Arc::clone(&aggregates);
                 let session = compute_session.clone();
                 handle.spawn_cpu(move || {
                     let (sequence_id, chunk) = chunk?;
                     let mut ctx = session.create_execution_ctx();
-                    // Compute the stats for the chunk prior to compression
-                    chunk.statistics().compute_all(&stats, &mut ctx)?;
+                    cache_chunk_results(&chunk, &aggregates, &mut ctx)?;
                     Ok((sequence_id, compressor.compress_chunk(&chunk, &mut ctx)?))
                 })
             })
@@ -127,4 +145,57 @@ impl LayoutStrategy for CompressingStrategy {
             )
             .await
     }
+}
+
+fn default_chunk_aggregates() -> Arc<[AggregateFnRef]> {
+    vec![
+        IsConstant.bind(EmptyOptions),
+        IsSorted.bind(IsSortedOptions { strict: false }),
+        IsSorted.bind(IsSortedOptions { strict: true }),
+        Max.bind(NumericalAggregateOpts::skip_nans()),
+        Min.bind(NumericalAggregateOpts::skip_nans()),
+        Sum.bind(NumericalAggregateOpts::skip_nans()),
+        NullCount.bind(EmptyOptions),
+        UncompressedSizeInBytes.bind(EmptyOptions),
+        NanCount.bind(EmptyOptions),
+    ]
+    .into()
+}
+
+fn cache_chunk_results(
+    chunk: &ArrayRef,
+    aggregates: &[AggregateFnRef],
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    let supports_extrema = supports_min_max(chunk.dtype());
+    let min = Min.bind(NumericalAggregateOpts::skip_nans());
+    let max = Max.bind(NumericalAggregateOpts::skip_nans());
+    let fuse_min_max = supports_extrema && aggregates.contains(&min) && aggregates.contains(&max);
+
+    if fuse_min_max {
+        min_max(chunk, ctx, NumericalAggregateOpts::skip_nans())?;
+    }
+    for aggregate in aggregates {
+        if aggregate.is::<IsConstant>() {
+            is_constant(chunk, ctx)?;
+            continue;
+        }
+        if let Some(options) = aggregate.as_opt::<IsSorted>() {
+            if options.strict {
+                is_strict_sorted(chunk, ctx)?;
+            } else {
+                is_sorted(chunk, ctx)?;
+            }
+            continue;
+        }
+        if aggregate.return_dtype(chunk.dtype()).is_none()
+            || ((aggregate.is::<Min>() || aggregate.is::<Max>()) && !supports_extrema)
+            || (fuse_min_max && (aggregate == &min || aggregate == &max))
+        {
+            continue;
+        }
+        chunk.aggregations().compute_result(aggregate, ctx)?;
+    }
+
+    Ok(())
 }

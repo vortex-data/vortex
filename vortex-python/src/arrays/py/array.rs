@@ -14,8 +14,6 @@ use vortex::array::Array;
 use vortex::array::ArrayParts;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
-use vortex::array::stats::ArrayStats;
-use vortex::array::stats::StatsSet;
 use vortex::dtype::DType;
 
 use crate::arrays::py::PyPythonArray;
@@ -32,7 +30,6 @@ pub struct PythonArray {
     pub(super) object: Arc<Py<PyAny>>,
     pub(super) len: usize,
     pub(super) dtype: DType,
-    pub(super) stats: ArrayStats,
 }
 
 impl Display for PythonArray {
@@ -54,7 +51,6 @@ impl<'py> FromPyObject<'_, 'py> for PythonArray {
             object: Arc::new(ob.to_owned().unbind()),
             len: python_array.len,
             dtype: python_array.dtype.clone(),
-            stats: python_array.stats.clone(),
         })
     }
 }
@@ -74,9 +70,8 @@ impl IntoArray for PythonArray {
         let vtable = self.vtable.clone();
         let dtype = self.dtype.clone();
         let len = self.len;
-        let stats = StatsSet::from(self.stats.clone());
         match Array::try_from_parts(ArrayParts::new(vtable, dtype, len, self)) {
-            Ok(array) => array.with_stats_set(stats).into_array(),
+            Ok(array) => array.into_array(),
             Err(err) => unreachable!(
                 "PythonArray metadata extracted from PyPythonArray must be valid: {err}"
             ),
