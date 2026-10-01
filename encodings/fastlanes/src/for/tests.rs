@@ -9,12 +9,15 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::filter::FilterKernel;
 use vortex_array::assert_arrays_eq;
 use vortex_array::compute::conformance::consistency::test_array_consistency;
+use vortex_array::compute::conformance::filter::test_filter_conformance;
 use vortex_array::dtype::NativePType;
 use vortex_array::session::ArraySessionExt;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::FL_CHUNK_SIZE;
@@ -238,5 +241,46 @@ fn fused_decode_sliced(
     );
     assert_eq!(usize::from(sliced_for.offset()), start % FL_CHUNK_SIZE);
     assert_arrays_eq!(sliced, expected.into_array().slice(start..end)?, &mut ctx);
+    Ok(())
+}
+
+#[rstest]
+#[case::unsigned(unsigned())]
+#[case::signed_wrapping(signed_wrapping())]
+#[case::nullable(nullable())]
+#[case::bitpacked(fused(3))]
+#[case::bitpacked_patches(fused(2))]
+fn filter_per_chunk(#[case] arrays: VortexResult<(FoRArray, PrimitiveArray)>) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let (array, expected) = arrays?;
+    test_filter_conformance(&array.clone().into_array(), &mut ctx);
+
+    // Sparse enough for the kernel, with rows from every chunk.
+    let mask = Mask::from_indices(array.len(), (0..array.len()).step_by(97));
+    let result = <FoR as FilterKernel>::filter(array.as_view(), &mask, &mut ctx)?
+        .expect("per-chunk filter kernel");
+    assert_arrays_eq!(result, expected.into_array().filter(mask)?, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn filter_per_chunk_sliced() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let (array, expected) = unsigned()?;
+    let sliced = array.into_array().slice(1000..2500)?;
+    let mask = Mask::from_indices(1500, [0, 23, 24, 1047, 1048, 1499]);
+    let result = <FoR as FilterKernel>::filter(sliced.as_::<FoR>(), &mask, &mut ctx)?
+        .expect("per-chunk filter kernel");
+    let expected = expected.into_array().slice(1000..2500)?.filter(mask)?;
+    assert_arrays_eq!(result, expected, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn filter_per_chunk_declines_dense_masks() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let (array, _) = unsigned()?;
+    let mask = Mask::from_indices(array.len(), (0..array.len()).step_by(2));
+    assert!(<FoR as FilterKernel>::filter(array.as_view(), &mask, &mut ctx)?.is_none());
     Ok(())
 }

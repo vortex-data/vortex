@@ -6,16 +6,24 @@ mod compare;
 pub(crate) mod is_constant;
 pub(crate) mod is_sorted;
 
+use num_traits::WrappingAdd;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::TakeExecute;
+use vortex_array::arrays::filter::FilterKernel;
 use vortex_array::arrays::filter::FilterReduce;
+use vortex_array::dtype::NativePType;
+use vortex_array::match_each_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
+use vortex_mask::MaskValues;
 
+use crate::FL_CHUNK_SIZE;
 use crate::FoR;
+use crate::bitpacking::compute::filter::unpack_then_filter_threshold;
 use crate::r#for::array::FoRArrayExt;
 use crate::r#for::array::FoRArraySlotsExt;
 
@@ -43,6 +51,53 @@ impl FilterReduce for FoR {
         };
         FoR::try_new(array.encoded().filter(mask.clone())?, reference).map(|a| Some(a.into_array()))
     }
+}
+
+impl FilterKernel for FoR {
+    fn filter(
+        array: ArrayView<'_, Self>,
+        mask: &Mask,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        // A single reference is filtered by `FilterReduce` instead.
+        if array.constant_reference().is_some() {
+            return Ok(None);
+        }
+        let Some(mask_values) = mask.values() else {
+            return Ok(None);
+        };
+        // With a dense enough mask, decoding everything and then filtering is faster, as for
+        // BitPacked.
+        if mask_values.density() > unpack_then_filter_threshold(array.ptype()) {
+            return Ok(None);
+        }
+
+        let filtered = array
+            .encoded()
+            .filter(mask.clone())?
+            .execute::<PrimitiveArray>(ctx)?;
+        let references = array.references().clone().execute::<PrimitiveArray>(ctx)?;
+        let offset = usize::from(array.offset());
+        match_each_integer_ptype!(array.ptype(), |T| {
+            add_filtered_references::<T>(filtered, mask_values, &references, offset).map(Some)
+        })
+    }
+}
+
+/// Add each filtered value's reference, looked up from the chunk it was filtered from.
+fn add_filtered_references<T: NativePType + WrappingAdd>(
+    filtered: PrimitiveArray,
+    mask: &MaskValues,
+    references: &PrimitiveArray,
+    offset: usize,
+) -> VortexResult<ArrayRef> {
+    let references = references.as_slice::<T>();
+    let validity = filtered.validity()?;
+    let mut values = filtered.into_buffer_mut::<T>();
+    for (value, &index) in values.iter_mut().zip(mask.indices()) {
+        *value = value.wrapping_add(&references[(offset + index) / FL_CHUNK_SIZE]);
+    }
+    Ok(PrimitiveArray::new(values.freeze(), validity).into_array())
 }
 
 #[cfg(test)]

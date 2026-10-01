@@ -5,7 +5,7 @@ mod between;
 mod cast;
 mod compare;
 mod compare_fused;
-mod filter;
+pub(crate) mod filter;
 pub(crate) mod is_constant;
 mod slice;
 mod stream_predicate;
