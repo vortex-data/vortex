@@ -14,13 +14,7 @@ use crate::r#for::array::FoRArrayExt;
 use crate::r#for::array::FoRArraySlotsExt;
 impl CastReduce for FoR {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        // Only a nullability change is pushed down: it leaves the values, and so the non-nullable
-        // references, as they are.
-        //
-        // Changing the type would cast the encoded values as values, but they are offsets from the
-        // reference modulo 2^n. E.g. `i8` values -128..=127 have the reference -128, so 127 is
-        // stored as 255, which wraps to -1, and would decode as -129 in `i16`. Decline, so the
-        // decoded values are cast instead.
+        // Only push down nullability change.
         if !array.dtype().eq_ignore_nullability(dtype) {
             return Ok(None);
         }
@@ -106,8 +100,6 @@ mod tests {
         );
     }
 
-    /// A type change decodes first, rather than casting the FoR offsets as values. `None` expects an
-    /// error.
     #[rstest]
     // 127 is stored as 255, which wraps to -1 in `i8`, and would decode as -129 in `i16`.
     #[case::widen_wrapped_offset(
