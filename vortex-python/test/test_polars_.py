@@ -165,6 +165,14 @@ def test_is_not_null_predicate_pushdown(tmp_path):
 
 def test_polars_date_literals():
     frame = pl.DataFrame({"x": [date(2024, 1, 1), None, date(2024, 1, 3)]})
+def test_polars_date_literals(tmp_path):
+    frame = pl.DataFrame(
+        {"id": [0, 1, 2, 3], "x": [date(2024, 1, 1), date(2024, 1, 2), None, date(2024, 1, 3)]}
+    )
     expr = pl.col("x") >= date(2024, 1, 2)
-    actual = vx.array(frame.to_arrow()).apply(polars_to_vortex(expr)).to_arrow_array()
-    assert actual.equals(frame.select(expr).to_series().to_arrow())
+    path = tmp_path / "date_literals.vortex"
+    vx.io.write(vx.array(frame.to_arrow()), str(path))
+    expected_frame = frame.lazy().filter(expr).collect()
+    actual = vx.open(str(path)).to_polars().filter(expr).collect()
+    assert_frame_equal(actual, expected_frame)
+    assert actual["id"].to_list() == [1, 3]
