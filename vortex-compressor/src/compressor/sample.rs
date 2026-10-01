@@ -6,6 +6,7 @@
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::prelude::StdRng;
+use vortex_array::ArrayInput;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
@@ -19,7 +20,6 @@ use crate::scheme::CompressorContext;
 use crate::scheme::EstimateScore;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
-use crate::stats::ArrayAndStats;
 use crate::trace;
 
 /// The size of each sampled run.
@@ -143,8 +143,8 @@ fn partition_indices(length: usize, num_partitions: u32) -> Vec<(usize, usize)> 
 
 /// Estimates compression ratio by compressing a ~1% sample of the data.
 ///
-/// Creates a new [`ArrayAndStats`] for the sample so that stats are generated from the sample, not
-/// the full array.
+/// Creates a new [`ArrayInput`] for the canonical sample, keeping its aggregate results separate
+/// from the full input.
 ///
 /// # Errors
 ///
@@ -160,14 +160,15 @@ pub(super) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
         array.clone()
     } else {
         let sample_count = sample_count_approx_one_percent(array.len());
-        // `ArrayAndStats` expects a canonical array (so that it can easily compute lazy stats).
         let canonical: Canonical = sample(array, SAMPLE_SIZE, sample_count).execute(exec_ctx)?;
         canonical.into_array()
     };
 
-    let sample_data = ArrayAndStats::new(sample_array, scheme.stats_options());
+    let sample_data = ArrayInput::new(sample_array);
     let error_ctx = trace::enabled_error_context(&compress_ctx);
-    let sample_ctx = compress_ctx.with_sampling();
+    let sample_ctx = compress_ctx
+        .with_aggregate_requirements(scheme.aggregate_requirements())
+        .with_sampling();
 
     let compressed = match scheme.compress(compressor, &sample_data, sample_ctx, exec_ctx) {
         Ok(compressed) => compressed,

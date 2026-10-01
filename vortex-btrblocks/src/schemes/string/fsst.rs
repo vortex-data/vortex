@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use vortex_array::ArrayId;
+use vortex_array::ArrayInput;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
@@ -14,6 +15,7 @@ use vortex_array::VTable;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBin;
 use vortex_array::arrays::VarBinArray;
+use vortex_array::arrays::VarBinView;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::arrays::varbin::VarBinArraySlotsExt;
 use vortex_compressor::scheme::CompressionEstimate;
@@ -26,7 +28,6 @@ use vortex_fsst::FSSTSymbolTable;
 use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_train_compressor;
 
-use crate::ArrayAndStats;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::Scheme;
@@ -61,7 +62,7 @@ impl Scheme for FSSTScheme {
 
     fn expected_compression_ratio(
         &self,
-        _data: &ArrayAndStats,
+        _data: &ArrayInput,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
@@ -71,11 +72,11 @@ impl Scheme for FSSTScheme {
     fn compress(
         &self,
         compressor: &CascadingCompressor,
-        data: &ArrayAndStats,
+        data: &ArrayInput,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let utf8 = data.array_as_varbinview().into_owned().into_array();
+        let utf8 = data.array().as_::<VarBinView>().into_owned().into_array();
         let compressor_fsst = fsst_train_compressor(&utf8, exec_ctx)?;
         let fsst = fsst_compress(&utf8, &compressor_fsst, exec_ctx)?;
 

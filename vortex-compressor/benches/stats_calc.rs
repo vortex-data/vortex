@@ -10,13 +10,18 @@ mod benchmarks {
 
     use divan::Bencher;
     use num_traits::AsPrimitive;
+    use vortex_array::ArrayInput;
+    use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::AggregateFn;
+    use vortex_array::aggregate_fn::EmptyOptions;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::dtype::NativePType;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
-    use vortex_compressor::stats::GenerateStatsOptions;
-    use vortex_compressor::stats::IntegerStats;
+    use vortex_compressor::aggregates;
+    use vortex_compressor::aggregates::RunSummary;
+    use vortex_error::VortexExpect;
     use vortex_session::VortexSession;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
@@ -78,15 +83,24 @@ mod benchmarks {
     {
         let values = generate::<T>(distribution);
         bencher
-            .with_inputs(|| (&values, SESSION.create_execution_ctx()))
-            .bench_refs(|(values, ctx)| {
-                IntegerStats::generate_opts(
-                    values,
-                    GenerateStatsOptions {
-                        count_distinct_values,
-                    },
-                    ctx,
+            .with_inputs(|| {
+                (
+                    ArrayInput::new(values.clone().into_array()),
+                    SESSION.create_execution_ctx(),
                 )
+            })
+            .bench_refs(|(values, ctx)| {
+                let range = aggregates::integer_range(values, ctx);
+                let count = aggregates::valid_count(values, ctx);
+                if count_distinct_values {
+                    let frequencies = aggregates::integer_frequencies(values, ctx);
+                    divan::black_box((range, count, frequencies));
+                } else {
+                    let runs = values
+                        .compute_partial(&AggregateFn::new(RunSummary, EmptyOptions), ctx)
+                        .vortex_expect("integer run benchmark request succeeds");
+                    divan::black_box((range, count, runs));
+                }
             });
     }
 

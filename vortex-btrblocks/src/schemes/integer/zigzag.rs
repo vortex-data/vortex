@@ -4,12 +4,19 @@
 //! ZigZag integer encoding for signed integers.
 
 use vortex_array::ArrayId;
+use vortex_array::ArrayInput;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
+use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::aggregate_fn::AggregateFnVTableExt;
+use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::aggregate_fn::fns::min_max::MinMax;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_compressor::aggregates;
 use vortex_compressor::builtins::BinaryDictScheme;
 use vortex_compressor::builtins::FloatDictScheme;
 use vortex_compressor::builtins::IntDictScheme;
@@ -27,7 +34,6 @@ use vortex_zigzag::zigzag_encode;
 
 use super::RunEndScheme;
 use super::SparseScheme;
-use crate::ArrayAndStats;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::Scheme;
@@ -48,6 +54,10 @@ impl Scheme for ZigZagScheme {
 
     fn produced_encodings(&self) -> Vec<ArrayId> {
         vec![ZigZag.id()]
+    }
+
+    fn aggregate_requirements(&self) -> Vec<AggregateFnRef> {
+        vec![MinMax.bind(NumericalAggregateOpts::skip_nans())]
     }
 
     /// Children: encoded=0.
@@ -99,7 +109,7 @@ impl Scheme for ZigZagScheme {
 
     fn expected_compression_ratio(
         &self,
-        data: &ArrayAndStats,
+        data: &ArrayInput,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
@@ -108,10 +118,10 @@ impl Scheme for ZigZagScheme {
         if compress_ctx.finished_cascading() {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
-        let stats = data.integer_stats(exec_ctx);
+        let range = aggregates::integer_range(data, exec_ctx);
 
         // ZigZag is only useful when there are negative values.
-        if !stats.erased().min_is_negative() {
+        if !range.min_is_negative() {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
@@ -121,12 +131,12 @@ impl Scheme for ZigZagScheme {
     fn compress(
         &self,
         compressor: &CascadingCompressor,
-        data: &ArrayAndStats,
+        data: &ArrayInput,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         // Zigzag encode the values, then recursively compress the inner values.
-        let zag = zigzag_encode(data.array_as_primitive())?;
+        let zag = zigzag_encode(data.array().as_::<Primitive>())?;
         let encoded = zag.encoded().clone().execute::<PrimitiveArray>(exec_ctx)?;
 
         let compressed = compressor.compress_child(

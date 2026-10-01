@@ -5,6 +5,7 @@ use std::sync::LazyLock;
 
 use parking_lot::Mutex;
 use vortex_array::ArrayId;
+use vortex_array::ArrayInput;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
@@ -42,8 +43,6 @@ use crate::scheme::EstimateScore;
 use crate::scheme::EstimateVerdict;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
-use crate::stats::ArrayAndStats;
-use crate::stats::GenerateStatsOptions;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
@@ -51,9 +50,9 @@ fn compressor() -> CascadingCompressor {
     CascadingCompressor::new(vec![&IntDictScheme, &FloatDictScheme, &StringDictScheme])
 }
 
-fn estimate_test_data() -> ArrayAndStats {
+fn estimate_test_data() -> ArrayInput {
     let array = PrimitiveArray::new(buffer![1i32, 2, 3, 4], Validity::NonNullable).into_array();
-    ArrayAndStats::new(array, GenerateStatsOptions::default())
+    ArrayInput::new(array)
 }
 
 fn matches_integer_primitive(canonical: &Canonical) -> bool {
@@ -78,7 +77,7 @@ impl Scheme for DirectRatioScheme {
 
     fn expected_compression_ratio(
         &self,
-        _data: &ArrayAndStats,
+        _data: &ArrayInput,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
@@ -88,7 +87,7 @@ impl Scheme for DirectRatioScheme {
     fn compress(
         &self,
         _compressor: &CascadingCompressor,
-        _data: &ArrayAndStats,
+        _data: &ArrayInput,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
@@ -114,7 +113,7 @@ impl Scheme for ImmediateAlwaysUseScheme {
 
     fn expected_compression_ratio(
         &self,
-        _data: &ArrayAndStats,
+        _data: &ArrayInput,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
@@ -124,7 +123,7 @@ impl Scheme for ImmediateAlwaysUseScheme {
     fn compress(
         &self,
         _compressor: &CascadingCompressor,
-        _data: &ArrayAndStats,
+        _data: &ArrayInput,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
@@ -150,7 +149,7 @@ impl Scheme for CallbackAlwaysUseScheme {
 
     fn expected_compression_ratio(
         &self,
-        _data: &ArrayAndStats,
+        _data: &ArrayInput,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
@@ -162,7 +161,7 @@ impl Scheme for CallbackAlwaysUseScheme {
     fn compress(
         &self,
         _compressor: &CascadingCompressor,
-        _data: &ArrayAndStats,
+        _data: &ArrayInput,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
@@ -188,7 +187,7 @@ impl Scheme for CallbackSkipScheme {
 
     fn expected_compression_ratio(
         &self,
-        _data: &ArrayAndStats,
+        _data: &ArrayInput,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
@@ -200,7 +199,7 @@ impl Scheme for CallbackSkipScheme {
     fn compress(
         &self,
         _compressor: &CascadingCompressor,
-        _data: &ArrayAndStats,
+        _data: &ArrayInput,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
@@ -226,7 +225,7 @@ impl Scheme for CallbackRatioScheme {
 
     fn expected_compression_ratio(
         &self,
-        _data: &ArrayAndStats,
+        _data: &ArrayInput,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
@@ -238,7 +237,7 @@ impl Scheme for CallbackRatioScheme {
     fn compress(
         &self,
         _compressor: &CascadingCompressor,
-        _data: &ArrayAndStats,
+        _data: &ArrayInput,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
@@ -264,7 +263,7 @@ impl Scheme for HugeRatioScheme {
 
     fn expected_compression_ratio(
         &self,
-        _data: &ArrayAndStats,
+        _data: &ArrayInput,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
@@ -274,7 +273,7 @@ impl Scheme for HugeRatioScheme {
     fn compress(
         &self,
         _compressor: &CascadingCompressor,
-        _data: &ArrayAndStats,
+        _data: &ArrayInput,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
@@ -300,7 +299,7 @@ impl Scheme for ZeroBytesSamplingScheme {
 
     fn expected_compression_ratio(
         &self,
-        _data: &ArrayAndStats,
+        _data: &ArrayInput,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
@@ -310,7 +309,7 @@ impl Scheme for ZeroBytesSamplingScheme {
     fn compress(
         &self,
         _compressor: &CascadingCompressor,
-        data: &ArrayAndStats,
+        data: &ArrayInput,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
@@ -513,7 +512,7 @@ impl Scheme for ThresholdObservingScheme {
 
     fn expected_compression_ratio(
         &self,
-        _data: &ArrayAndStats,
+        _data: &ArrayInput,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
@@ -528,7 +527,7 @@ impl Scheme for ThresholdObservingScheme {
     fn compress(
         &self,
         _compressor: &CascadingCompressor,
-        _data: &ArrayAndStats,
+        _data: &ArrayInput,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
@@ -554,7 +553,7 @@ impl Scheme for CallbackMatchingRatioScheme {
 
     fn expected_compression_ratio(
         &self,
-        _data: &ArrayAndStats,
+        _data: &ArrayInput,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
@@ -566,7 +565,7 @@ impl Scheme for CallbackMatchingRatioScheme {
     fn compress(
         &self,
         _compressor: &CascadingCompressor,
-        _data: &ArrayAndStats,
+        _data: &ArrayInput,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
@@ -716,12 +715,10 @@ fn all_null_array_compresses_to_constant() -> VortexResult<()> {
 
 /// Regression test for <https://github.com/vortex-data/vortex/issues/7227>.
 ///
-/// `estimate_compression_ratio_with_sampling` must use the *scheme's* stats options
-/// (which request distinct-value counting) rather than the context's stats options
-/// (which may not). With the old code this panicked inside `dictionary_encode` because
-/// distinct values were never computed for the sample.
+/// Sampling uses the scheme's aggregate requirements for its own input cache. Dictionary
+/// preparation must work even when the caller's context has no distinct request.
 #[test]
-fn sampling_uses_scheme_stats_options() -> VortexResult<()> {
+fn sampling_uses_scheme_aggregate_requirements() -> VortexResult<()> {
     // Low-cardinality float array so FloatDictScheme considers it compressible.
     let array = PrimitiveArray::new(
         buffer![1.0f32, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0],
@@ -731,7 +728,7 @@ fn sampling_uses_scheme_stats_options() -> VortexResult<()> {
 
     let compressor = CascadingCompressor::new(vec![&FloatDictScheme]);
 
-    // A context with default stats_options (count_distinct_values = false) and
+    // A context without distinct aggregate requirements and
     // marked as a sample so the function skips the sampling step and compresses
     // the array directly.
     let ctx = CompressorContext::new().with_sampling();

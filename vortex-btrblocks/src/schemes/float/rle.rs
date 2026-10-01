@@ -4,10 +4,16 @@
 //! Run-length float encoding.
 
 use vortex_array::ArrayId;
+use vortex_array::ArrayInput;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::VTable;
+use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::aggregate_fn::AggregateFnVTableExt;
+use vortex_array::aggregate_fn::EmptyOptions;
+use vortex_compressor::aggregates;
+use vortex_compressor::aggregates::RunSummary;
 use vortex_compressor::scheme::AncestorExclusion;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
@@ -16,7 +22,6 @@ use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexResult;
 use vortex_fastlanes::RLE;
 
-use crate::ArrayAndStats;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::Scheme;
@@ -42,6 +47,10 @@ impl Scheme for FloatRLEScheme {
         vec![RLE.id()]
     }
 
+    fn aggregate_requirements(&self) -> Vec<AggregateFnRef> {
+        vec![RunSummary.bind(EmptyOptions)]
+    }
+
     /// Children: values=0, indices=1, offsets=2.
     fn num_children(&self) -> usize {
         3
@@ -57,7 +66,7 @@ impl Scheme for FloatRLEScheme {
 
     fn expected_compression_ratio(
         &self,
-        data: &ArrayAndStats,
+        data: &ArrayInput,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
@@ -66,7 +75,7 @@ impl Scheme for FloatRLEScheme {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        if data.float_stats(exec_ctx).average_run_length() < RUN_LENGTH_THRESHOLD {
+        if aggregates::average_run_length(data, &compress_ctx, exec_ctx) < RUN_LENGTH_THRESHOLD {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
@@ -76,7 +85,7 @@ impl Scheme for FloatRLEScheme {
     fn compress(
         &self,
         compressor: &CascadingCompressor,
-        data: &ArrayAndStats,
+        data: &ArrayInput,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {

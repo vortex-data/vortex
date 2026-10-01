@@ -5,11 +5,11 @@
 
 use std::fmt;
 
+use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_error::VortexExpect;
 
 use crate::compressor::ROOT_SCHEME_ID;
 use crate::scheme::SchemeId;
-use crate::stats::GenerateStatsOptions;
 
 // TODO(connor): Why is this 3??? This doesn't seem smart or adaptive.
 /// Maximum cascade depth for compression.
@@ -27,8 +27,8 @@ pub struct CompressorContext {
     /// Remaining cascade depth allowed.
     allowed_cascading: usize,
 
-    /// Merged stats options from all eligible schemes at this compression site.
-    merged_stats_options: GenerateStatsOptions,
+    /// Bound aggregate requests from eligible schemes at this compression site.
+    aggregate_requirements: Vec<AggregateFnRef>,
 
     // TODO(connor): Replace this with an `im::Vector`
     /// The cascade chain: `(scheme_id, child_index)` pairs from root to current depth.
@@ -48,7 +48,7 @@ impl CompressorContext {
         Self {
             is_sample: false,
             allowed_cascading: MAX_CASCADE,
-            merged_stats_options: GenerateStatsOptions::default(),
+            aggregate_requirements: Vec::new(),
             cascade_history: Vec::new(),
         }
     }
@@ -67,9 +67,9 @@ impl CompressorContext {
         self.is_sample
     }
 
-    /// Returns the merged stats generation options for this compression site.
-    pub fn merged_stats_options(&self) -> GenerateStatsOptions {
-        self.merged_stats_options
+    /// Whether an eligible scheme requested this aggregate and its options.
+    pub fn requests_aggregate(&self, aggregate: &AggregateFnRef) -> bool {
+        self.aggregate_requirements.contains(aggregate)
     }
 
     /// Returns the cascade chain of `(scheme_id, child_index)` pairs.
@@ -101,9 +101,9 @@ impl CompressorContext {
         self
     }
 
-    /// Returns a context with the given stats options.
-    pub(crate) fn with_merged_stats_options(mut self, opts: GenerateStatsOptions) -> Self {
-        self.merged_stats_options = opts;
+    /// Set the bound requests for this input, replacing its parent's requirements.
+    pub(crate) fn with_aggregate_requirements(mut self, requirements: Vec<AggregateFnRef>) -> Self {
+        self.aggregate_requirements = requirements;
         self
     }
 

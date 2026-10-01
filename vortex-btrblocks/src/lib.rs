@@ -82,18 +82,13 @@ pub use canonical_compressor::BtrBlocksCompressor;
 pub use schemes::patches::compress_patches;
 pub use session::CompressionSession;
 pub use session::CompressionSessionExt;
+pub use vortex_array::ArrayInput;
 pub use vortex_compressor::CascadingCompressor;
 pub use vortex_compressor::scheme::CompressorContext;
 pub use vortex_compressor::scheme::MAX_CASCADE;
 pub use vortex_compressor::scheme::Scheme;
 pub use vortex_compressor::scheme::SchemeExt;
 pub use vortex_compressor::scheme::SchemeId;
-pub use vortex_compressor::stats::ArrayAndStats;
-pub use vortex_compressor::stats::BoolStats;
-pub use vortex_compressor::stats::FloatStats;
-pub use vortex_compressor::stats::GenerateStatsOptions;
-pub use vortex_compressor::stats::IntegerStats;
-pub use vortex_compressor::stats::StringStats;
 
 #[cfg(test)]
 static SESSION: std::sync::LazyLock<vortex_session::VortexSession> =

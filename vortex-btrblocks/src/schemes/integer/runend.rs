@@ -4,12 +4,19 @@
 //! Run-end integer encoding.
 
 use vortex_array::ArrayId;
+use vortex_array::ArrayInput;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
+use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::aggregate_fn::AggregateFnVTableExt;
+use vortex_array::aggregate_fn::EmptyOptions;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_compressor::aggregates;
+use vortex_compressor::aggregates::RunSummary;
 use vortex_compressor::builtins::BinaryDictScheme;
 use vortex_compressor::builtins::FloatDictScheme;
 use vortex_compressor::builtins::IntDictScheme;
@@ -26,7 +33,6 @@ use vortex_runend::compress::runend_encode;
 
 use super::IntRLEScheme;
 use super::SparseScheme;
-use crate::ArrayAndStats;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::Scheme;
@@ -50,6 +56,10 @@ impl Scheme for RunEndScheme {
 
     fn produced_encodings(&self) -> Vec<ArrayId> {
         vec![RunEnd.id()]
+    }
+
+    fn aggregate_requirements(&self) -> Vec<AggregateFnRef> {
+        vec![RunSummary.bind(EmptyOptions)]
     }
 
     /// Children: values=0, ends=1.
@@ -105,12 +115,12 @@ impl Scheme for RunEndScheme {
 
     fn expected_compression_ratio(
         &self,
-        data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
+        data: &ArrayInput,
+        compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         // If the run length is below the threshold, drop it.
-        if data.integer_stats(exec_ctx).average_run_length() < RUN_END_THRESHOLD {
+        if aggregates::average_run_length(data, &compress_ctx, exec_ctx) < RUN_END_THRESHOLD {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
@@ -120,12 +130,12 @@ impl Scheme for RunEndScheme {
     fn compress(
         &self,
         compressor: &CascadingCompressor,
-        data: &ArrayAndStats,
+        data: &ArrayInput,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         // Run-end encode the ends.
-        let (ends, values) = runend_encode(data.array_as_primitive(), exec_ctx);
+        let (ends, values) = runend_encode(data.array().as_::<Primitive>(), exec_ctx);
 
         let values_primitive = values.execute::<PrimitiveArray>(exec_ctx)?;
         let compressed_values = compressor.compress_child(
@@ -141,7 +151,7 @@ impl Scheme for RunEndScheme {
 
         // SAFETY: compression doesn't affect invariants.
         Ok(unsafe {
-            RunEnd::new_unchecked(compressed_ends, compressed_values, 0, data.array_len())
+            RunEnd::new_unchecked(compressed_ends, compressed_values, 0, data.array().len())
                 .into_array()
         })
     }

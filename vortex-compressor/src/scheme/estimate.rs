@@ -5,12 +5,12 @@
 
 use std::fmt;
 
+use vortex_array::ArrayInput;
 use vortex_array::ExecutionCtx;
 use vortex_error::VortexResult;
 
 use crate::CascadingCompressor;
 use crate::scheme::CompressorContext;
-use crate::stats::ArrayAndStats;
 
 /// Closure type for [`DeferredEstimate::Callback`].
 ///
@@ -27,7 +27,7 @@ use crate::stats::ArrayAndStats;
 #[rustfmt::skip]
 pub type EstimateFn = dyn FnOnce(
         &CascadingCompressor,
-        &ArrayAndStats,
+        &ArrayInput,
         Option<EstimateScore>,
         CompressorContext,
         &mut ExecutionCtx,

@@ -4,6 +4,7 @@
 //! Temporal compression scheme using datetime-part decomposition.
 
 use vortex_array::ArrayId;
+use vortex_array::ArrayInput;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
@@ -24,7 +25,6 @@ use vortex_datetime_parts::TemporalParts;
 use vortex_datetime_parts::split_temporal;
 use vortex_error::VortexResult;
 
-use crate::ArrayAndStats;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::Scheme;
@@ -66,7 +66,7 @@ impl Scheme for TemporalScheme {
 
     fn expected_compression_ratio(
         &self,
-        _data: &ArrayAndStats,
+        _data: &ArrayInput,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
@@ -77,7 +77,7 @@ impl Scheme for TemporalScheme {
     fn compress(
         &self,
         compressor: &CascadingCompressor,
-        data: &ArrayAndStats,
+        data: &ArrayInput,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {

@@ -4,6 +4,7 @@
 //! Decimal compression scheme using byte-part decomposition.
 
 use vortex_array::ArrayId;
+use vortex_array::ArrayInput;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
@@ -20,7 +21,6 @@ use vortex_decimal_byte_parts::decimal_byte_parts_v2_id;
 use vortex_decimal_byte_parts::split_decimal;
 use vortex_error::VortexResult;
 
-use crate::ArrayAndStats;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::Scheme;
@@ -114,7 +114,7 @@ impl Scheme for DecimalScheme {
 
     fn expected_compression_ratio(
         &self,
-        _data: &ArrayAndStats,
+        _data: &ArrayInput,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
@@ -125,7 +125,7 @@ impl Scheme for DecimalScheme {
     fn compress(
         &self,
         compressor: &CascadingCompressor,
-        data: &ArrayAndStats,
+        data: &ArrayInput,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {

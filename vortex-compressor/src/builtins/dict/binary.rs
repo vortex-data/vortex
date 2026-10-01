@@ -7,11 +7,17 @@
 //! for external compatibility.
 
 use vortex_array::ArrayId;
+use vortex_array::ArrayInput;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
+use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::aggregate_fn::AggregateFnVTableExt;
+use vortex_array::aggregate_fn::EmptyOptions;
+use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::aggregate_fn::fns::count::Count;
 use vortex_array::arrays::Dict;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -19,10 +25,11 @@ use vortex_array::arrays::dict::DictArrayExt;
 use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::builders::dict::dict_encode;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::CascadingCompressor;
+use crate::aggregates;
+use crate::aggregates::VarBinViewPrefixDistinct;
 use crate::builtins::IntDictScheme;
 use crate::scheme::ChildSelection;
 use crate::scheme::CompressionEstimate;
@@ -32,8 +39,6 @@ use crate::scheme::DescendantExclusion;
 use crate::scheme::EstimateVerdict;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
-use crate::stats::ArrayAndStats;
-use crate::stats::GenerateStatsOptions;
 
 /// Dictionary encoding for low-cardinality binary values.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -52,10 +57,11 @@ impl Scheme for BinaryDictScheme {
         vec![Dict.id()]
     }
 
-    fn stats_options(&self) -> GenerateStatsOptions {
-        GenerateStatsOptions {
-            count_distinct_values: true,
-        }
+    fn aggregate_requirements(&self) -> Vec<AggregateFnRef> {
+        vec![
+            VarBinViewPrefixDistinct.bind(EmptyOptions),
+            Count.bind(NumericalAggregateOpts::include_nans()),
+        ]
     }
 
     /// Children: values=0, codes=1.
@@ -77,22 +83,20 @@ impl Scheme for BinaryDictScheme {
 
     fn expected_compression_ratio(
         &self,
-        data: &ArrayAndStats,
+        data: &ArrayInput,
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
-        let stats = data.varbinview_stats(exec_ctx);
+        let value_count = aggregates::valid_count(data, exec_ctx);
 
-        if stats.value_count() == 0 {
+        if value_count == 0 {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        let estimated_distinct_values_count = stats.estimated_distinct_count().vortex_expect(
-            "this must be present since `DictScheme` declared that we need distinct values",
-        );
+        let estimated_distinct_values_count = aggregates::view_prefix_distinct(data, exec_ctx);
 
         // If > 50% of the values are distinct, skip dictionary scheme.
-        if estimated_distinct_values_count > stats.value_count() / 2 {
+        if estimated_distinct_values_count > value_count / 2 {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
@@ -103,7 +107,7 @@ impl Scheme for BinaryDictScheme {
     fn compress(
         &self,
         compressor: &CascadingCompressor,
-        data: &ArrayAndStats,
+        data: &ArrayInput,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {

@@ -4,24 +4,32 @@
 //! BitPacking integer encoding.
 
 use vortex_array::ArrayId;
+use vortex_array::ArrayInput;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
+use vortex_array::aggregate_fn::AggregateFn;
+use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::aggregate_fn::AggregateFnVTableExt;
+use vortex_array::aggregate_fn::EmptyOptions;
+use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::aggregate_fn::fns::min_max::MinMax;
 use vortex_array::arrays::Patched;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
+use vortex_compressor::aggregates;
+use vortex_compressor::aggregates::BitWidthHistogram;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexResult;
 use vortex_fastlanes::BitPacked;
-use vortex_fastlanes::bitpack_compress::bit_width_histogram;
 use vortex_fastlanes::bitpack_compress::bitpack_encode;
 use vortex_fastlanes::bitpack_compress::find_best_bit_width;
 
-use crate::ArrayAndStats;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::Scheme;
@@ -48,16 +56,23 @@ impl Scheme for BitPackingScheme {
         encodings
     }
 
+    fn aggregate_requirements(&self) -> Vec<AggregateFnRef> {
+        vec![
+            MinMax.bind(NumericalAggregateOpts::skip_nans()),
+            BitWidthHistogram.bind(EmptyOptions),
+        ]
+    }
+
     fn expected_compression_ratio(
         &self,
-        data: &ArrayAndStats,
+        data: &ArrayInput,
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
-        let stats = data.integer_stats(exec_ctx);
+        let range = aggregates::integer_range(data, exec_ctx);
 
         // BitPacking only works for non-negative values.
-        if stats.erased().min_is_negative() {
+        if range.min_is_negative() {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
@@ -67,14 +82,15 @@ impl Scheme for BitPackingScheme {
     fn compress(
         &self,
         _compressor: &CascadingCompressor,
-        data: &ArrayAndStats,
+        data: &ArrayInput,
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let primitive_array = data.array_as_primitive();
+        let primitive_array = data.array().as_::<Primitive>();
 
-        let histogram = bit_width_histogram(primitive_array, exec_ctx)?;
-        let bw = find_best_bit_width(primitive_array.ptype(), &histogram)?;
+        let histogram =
+            data.compute_partial(&AggregateFn::new(BitWidthHistogram, EmptyOptions), exec_ctx)?;
+        let bw = find_best_bit_width(primitive_array.ptype(), histogram.as_slice())?;
 
         // If best bw is determined to be the current bit-width, return the original array.
         if bw as usize == primitive_array.ptype().bit_width() {
@@ -83,7 +99,7 @@ impl Scheme for BitPackingScheme {
 
         // Otherwise we can bitpack the array.
         let primitive_array = primitive_array.into_owned();
-        let packed = bitpack_encode(&primitive_array, bw, Some(&histogram), exec_ctx)?;
+        let packed = bitpack_encode(&primitive_array, bw, Some(histogram.as_slice()), exec_ctx)?;
 
         let packed_stats = packed.aggregations().snapshot_results();
         let packed_dtype = packed.dtype().clone();

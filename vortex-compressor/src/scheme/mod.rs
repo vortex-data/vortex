@@ -24,14 +24,14 @@ pub use exclusion::AncestorExclusion;
 pub use exclusion::ChildSelection;
 pub use exclusion::DescendantExclusion;
 use vortex_array::ArrayId;
+use vortex_array::ArrayInput;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
+use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_error::VortexResult;
 
 use crate::CascadingCompressor;
-use crate::stats::ArrayAndStats;
-use crate::stats::GenerateStatsOptions;
 
 /// Unique identifier for a compression scheme.
 ///
@@ -101,9 +101,9 @@ impl fmt::Display for SchemeId {
 /// available, asking the compressor to estimate via sampling. Implementors should return an
 /// immediate [`CompressionEstimate::Verdict`] when possible.
 ///
-/// Schemes that need statistics that may be expensive to compute should override [`stats_options`]
-/// to declare what they require. The compressor merges all eligible schemes' options before
-/// generating stats, so each stat is always computed at most once for a given array.
+/// Schemes declare their summaries through [`aggregate_requirements`]. The compressor combines
+/// eligible requests before constant detection. Summaries are computed lazily through [`ArrayInput`],
+/// and dictionary preparation retains the typed aggregate state used during estimation.
 ///
 /// A scheme implementation should be deterministic for a fixed input array and context. The
 /// compressor uses scheme order for deterministic tie-breaking, so non-deterministic estimates make
@@ -113,7 +113,7 @@ impl fmt::Display for SchemeId {
 /// [`matches`]: Scheme::matches
 /// [`compress`]: Scheme::compress
 /// [`expected_compression_ratio`]: Scheme::expected_compression_ratio
-/// [`stats_options`]: Scheme::stats_options
+/// [`aggregate_requirements`]: Scheme::aggregate_requirements
 /// [`num_children`]: Scheme::num_children
 /// [`descendant_exclusions`]: Scheme::descendant_exclusions
 /// [`ancestor_exclusions`]: Scheme::ancestor_exclusions
@@ -144,11 +144,12 @@ pub trait Scheme: AsDynScheme + Debug + Send + Sync {
         self.as_dyn()
     }
 
-    /// Returns the stats generation options this scheme requires. The compressor merges all
-    /// eligible schemes' options before generating stats so that a single stats pass satisfies
-    /// every scheme.
-    fn stats_options(&self) -> GenerateStatsOptions {
-        GenerateStatsOptions::default()
+    /// Aggregate summaries this scheme may request when estimating or encoding its input.
+    ///
+    /// Requests include bound options. The compressor combines eligible schemes' requests before
+    /// constant detection, then computes summaries lazily through the input's shared cache.
+    fn aggregate_requirements(&self) -> Vec<AggregateFnRef> {
+        Vec::new()
     }
 
     /// The number of child arrays this scheme produces when cascading. Returns 0 for leaf
@@ -201,7 +202,7 @@ pub trait Scheme: AsDynScheme + Debug + Send + Sync {
     /// schemes, so implementations only see constant arrays when `ctx.is_sample()` is `true`.
     fn expected_compression_ratio(
         &self,
-        _data: &ArrayAndStats,
+        _data: &ArrayInput,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate;
@@ -214,7 +215,7 @@ pub trait Scheme: AsDynScheme + Debug + Send + Sync {
     fn compress(
         &self,
         compressor: &CascadingCompressor,
-        data: &ArrayAndStats,
+        data: &ArrayInput,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef>;

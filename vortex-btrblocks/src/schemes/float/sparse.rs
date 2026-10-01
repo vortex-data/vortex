@@ -4,13 +4,21 @@
 //! Sparse encoding for null-dominated float arrays.
 
 use vortex_array::ArrayId;
+use vortex_array::ArrayInput;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
+use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::aggregate_fn::AggregateFnVTableExt;
+use vortex_array::aggregate_fn::EmptyOptions;
+use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::aggregate_fn::fns::count::Count;
+use vortex_array::aggregate_fn::fns::null_count::NullCount;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
+use vortex_compressor::aggregates;
 use vortex_compressor::scheme::ChildSelection;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DescendantExclusion;
@@ -19,7 +27,6 @@ use vortex_error::VortexResult;
 use vortex_sparse::Sparse;
 use vortex_sparse::SparseExt as _;
 
-use crate::ArrayAndStats;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::Scheme;
@@ -45,6 +52,13 @@ impl Scheme for NullDominatedSparseScheme {
         vec![Sparse.id()]
     }
 
+    fn aggregate_requirements(&self) -> Vec<AggregateFnRef> {
+        vec![
+            Count.bind(NumericalAggregateOpts::include_nans()),
+            NullCount.bind(EmptyOptions),
+        ]
+    }
+
     /// Children: indices=0.
     fn num_children(&self) -> usize {
         1
@@ -60,13 +74,12 @@ impl Scheme for NullDominatedSparseScheme {
 
     fn expected_compression_ratio(
         &self,
-        data: &ArrayAndStats,
+        data: &ArrayInput,
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
-        let len = data.array_len() as f64;
-        let stats = data.float_stats(exec_ctx);
-        let value_count = stats.value_count();
+        let len = data.array().len() as f64;
+        let value_count = aggregates::valid_count(data, exec_ctx);
 
         // All-null arrays should be compressed as constant instead anyways.
         if value_count == 0 {
@@ -74,7 +87,7 @@ impl Scheme for NullDominatedSparseScheme {
         }
 
         // If the majority (90%) of values is null, this will compress well.
-        if stats.null_count() as f64 / len > 0.9 {
+        if aggregates::null_count(data, exec_ctx) as f64 / len > 0.9 {
             return CompressionEstimate::Verdict(EstimateVerdict::Ratio(len / value_count as f64));
         }
 
@@ -85,7 +98,7 @@ impl Scheme for NullDominatedSparseScheme {
     fn compress(
         &self,
         compressor: &CascadingCompressor,
-        data: &ArrayAndStats,
+        data: &ArrayInput,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {

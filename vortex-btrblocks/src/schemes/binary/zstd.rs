@@ -4,16 +4,17 @@
 //! Zstd compression for binary arrays.
 
 use vortex_array::ArrayId;
+use vortex_array::ArrayInput;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
+use vortex_array::arrays::VarBinView;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
 use vortex_error::VortexResult;
 
-use crate::ArrayAndStats;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::Scheme;
@@ -37,7 +38,7 @@ impl Scheme for ZstdScheme {
 
     fn expected_compression_ratio(
         &self,
-        _data: &ArrayAndStats,
+        _data: &ArrayInput,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
@@ -47,12 +48,13 @@ impl Scheme for ZstdScheme {
     fn compress(
         &self,
         _compressor: &CascadingCompressor,
-        data: &ArrayAndStats,
+        data: &ArrayInput,
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let compacted = data
-            .array_as_varbinview()
+            .array()
+            .as_::<VarBinView>()
             .into_owned()
             .compact_buffers(exec_ctx)?;
         Ok(

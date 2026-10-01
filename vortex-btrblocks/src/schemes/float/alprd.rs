@@ -8,11 +8,13 @@ use vortex_alp::ALPRDArrayOwnedExt;
 use vortex_alp::RDEncoder;
 use vortex_alp::RDEncoderExt;
 use vortex_array::ArrayId;
+use vortex_array::ArrayInput;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::PType;
 use vortex_compressor::scheme::CompressionEstimate;
@@ -21,7 +23,6 @@ use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
-use crate::ArrayAndStats;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::Scheme;
@@ -46,12 +47,12 @@ impl Scheme for ALPRDScheme {
 
     fn expected_compression_ratio(
         &self,
-        data: &ArrayAndStats,
+        data: &ArrayInput,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         // We don't support ALPRD for f16.
-        if data.array_as_primitive().ptype() == PType::F16 {
+        if data.array().as_::<Primitive>().ptype() == PType::F16 {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
@@ -61,11 +62,11 @@ impl Scheme for ALPRDScheme {
     fn compress(
         &self,
         _compressor: &CascadingCompressor,
-        data: &ArrayAndStats,
+        data: &ArrayInput,
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let primitive_array = data.array_as_primitive();
+        let primitive_array = data.array().as_::<Primitive>();
 
         let encoder = match primitive_array.ptype() {
             PType::F32 => RDEncoder::new(primitive_array.as_slice::<f32>()),

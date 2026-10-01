@@ -7,12 +7,18 @@
 //! for external compatibility.
 
 use vortex_array::ArrayId;
+use vortex_array::ArrayInput;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
+use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::aggregate_fn::AggregateFnVTableExt;
+use vortex_array::aggregate_fn::EmptyOptions;
+use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::aggregate_fn::fns::count::Count;
 use vortex_array::arrays::Dict;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::Primitive;
@@ -22,19 +28,17 @@ use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::CascadingCompressor;
+use crate::aggregates;
+use crate::aggregates::IntegerFrequencies;
+use crate::aggregates::IntegerFrequenciesPartial;
 use crate::scheme::CompressionEstimate;
 use crate::scheme::CompressorContext;
 use crate::scheme::EstimateVerdict;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
-use crate::stats::ArrayAndStats;
-use crate::stats::GenerateStatsOptions;
-use crate::stats::IntegerErasedStats;
-use crate::stats::IntegerStats;
 
 /// Dictionary encoding for low-cardinality integer values.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -53,10 +57,11 @@ impl Scheme for IntDictScheme {
         vec![Dict.id()]
     }
 
-    fn stats_options(&self) -> GenerateStatsOptions {
-        GenerateStatsOptions {
-            count_distinct_values: true,
-        }
+    fn aggregate_requirements(&self) -> Vec<AggregateFnRef> {
+        vec![
+            IntegerFrequencies.bind(EmptyOptions),
+            Count.bind(NumericalAggregateOpts::include_nans()),
+        ]
     }
 
     /// Children: values=0, codes=1.
@@ -66,23 +71,22 @@ impl Scheme for IntDictScheme {
 
     fn expected_compression_ratio(
         &self,
-        data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
+        data: &ArrayInput,
+        compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
-        let bit_width = data.array_as_primitive().ptype().bit_width();
-        let stats = data.integer_stats(exec_ctx);
+        let bit_width = data.array().as_::<Primitive>().ptype().bit_width();
+        let frequencies = aggregates::integer_frequencies(data, exec_ctx);
+        let value_count = aggregates::valid_count(data, exec_ctx);
 
-        if stats.value_count() == 0 {
+        if value_count == 0 {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        let distinct_values_count = stats.distinct_count().vortex_expect(
-            "this must be present since `DictScheme` declared that we need distinct values",
-        );
+        let distinct_values_count = frequencies.distinct_count();
 
         // If > 50% of the values are distinct, skip dictionary scheme.
-        if distinct_values_count > stats.value_count() / 2 {
+        if distinct_values_count > value_count / 2 {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
@@ -94,15 +98,16 @@ impl Scheme for IntDictScheme {
         // Assume codes are compressed RLE + BitPacking.
         let codes_bw = u32::BITS - distinct_values_count.leading_zeros();
 
-        let n_runs = (stats.value_count() / stats.average_run_length()) as usize;
+        let n_runs =
+            (value_count / aggregates::average_run_length(data, &compress_ctx, exec_ctx)) as usize;
 
         // Assume that codes will either be BitPack or RLE-BitPack.
-        let codes_size_bp = codes_bw as usize * stats.value_count() as usize;
+        let codes_size_bp = codes_bw as usize * value_count as usize;
         let codes_size_rle_bp = usize::checked_mul(codes_bw as usize + 32, n_runs);
 
         let codes_size = usize::min(codes_size_bp, codes_size_rle_bp.unwrap_or(usize::MAX));
 
-        let before = stats.value_count() as usize * bit_width;
+        let before = value_count as usize * bit_width;
 
         CompressionEstimate::Verdict(EstimateVerdict::Ratio(
             before as f64 / (values_size + codes_size) as f64,
@@ -112,12 +117,12 @@ impl Scheme for IntDictScheme {
     fn compress(
         &self,
         compressor: &CascadingCompressor,
-        data: &ArrayAndStats,
+        data: &ArrayInput,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let stats = data.integer_stats(exec_ctx);
-        let dict = dictionary_encode(data.array_as_primitive(), &stats)?;
+        let frequencies = aggregates::integer_frequencies(data, exec_ctx);
+        let dict = dictionary_encode(data.array().as_::<Primitive>(), &frequencies)?;
 
         // Values = child 0.
         let compressed_values =
@@ -144,12 +149,10 @@ impl Scheme for IntDictScheme {
     }
 }
 
-/// Encodes a typed integer array into a [`DictArray`] using the pre-computed distinct values.
+/// Encodes a typed integer array into a [`DictArray`] using retained native distinct values.
 macro_rules! typed_encode {
-    ($source_array:ident, $stats:ident, $typed:ident, $typ:ty) => {{
-        let distinct = $typed.distinct().vortex_expect(
-            "this must be present since `DictScheme` declared that we need distinct values",
-        );
+    ($source_array:ident, $typed:ident, $typ:ty) => {{
+        let distinct = $typed.frequencies();
 
         let values_validity = match $source_array.validity()? {
             Validity::NonNullable => Validity::NonNullable,
@@ -157,7 +160,7 @@ macro_rules! typed_encode {
         };
         let codes_validity = $source_array.validity()?;
 
-        let values: Buffer<$typ> = distinct.distinct_values().keys().map(|x| x.0).collect();
+        let values: Buffer<$typ> = distinct.keys().map(|x| x.0).collect();
 
         let max_code = values.len();
         let codes = if max_code <= u8::MAX as usize {
@@ -186,7 +189,7 @@ macro_rules! typed_encode {
     }};
 }
 
-/// Compresses an integer array into a dictionary array according to attached stats.
+/// Compresses an integer array into a dictionary array using retained aggregate frequencies.
 ///
 /// # Errors
 ///
@@ -197,17 +200,17 @@ macro_rules! typed_encode {
 )]
 pub fn dictionary_encode(
     array: ArrayView<'_, Primitive>,
-    stats: &IntegerStats,
+    frequencies: &IntegerFrequenciesPartial,
 ) -> VortexResult<DictArray> {
-    match stats.erased() {
-        IntegerErasedStats::U8(typed) => typed_encode!(array, stats, typed, u8),
-        IntegerErasedStats::U16(typed) => typed_encode!(array, stats, typed, u16),
-        IntegerErasedStats::U32(typed) => typed_encode!(array, stats, typed, u32),
-        IntegerErasedStats::U64(typed) => typed_encode!(array, stats, typed, u64),
-        IntegerErasedStats::I8(typed) => typed_encode!(array, stats, typed, i8),
-        IntegerErasedStats::I16(typed) => typed_encode!(array, stats, typed, i16),
-        IntegerErasedStats::I32(typed) => typed_encode!(array, stats, typed, i32),
-        IntegerErasedStats::I64(typed) => typed_encode!(array, stats, typed, i64),
+    match frequencies {
+        IntegerFrequenciesPartial::U8(typed) => typed_encode!(array, typed, u8),
+        IntegerFrequenciesPartial::U16(typed) => typed_encode!(array, typed, u16),
+        IntegerFrequenciesPartial::U32(typed) => typed_encode!(array, typed, u32),
+        IntegerFrequenciesPartial::U64(typed) => typed_encode!(array, typed, u64),
+        IntegerFrequenciesPartial::I8(typed) => typed_encode!(array, typed, i8),
+        IntegerFrequenciesPartial::I16(typed) => typed_encode!(array, typed, i16),
+        IntegerFrequenciesPartial::I32(typed) => typed_encode!(array, typed, i32),
+        IntegerFrequenciesPartial::I64(typed) => typed_encode!(array, typed, i64),
     }
 }
 
@@ -261,6 +264,7 @@ impl_encode!(i64);
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::ArrayInput;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
@@ -272,24 +276,19 @@ mod tests {
     use vortex_error::VortexResult;
 
     use super::dictionary_encode;
-    use crate::stats::IntegerStats;
+    use crate::aggregates;
 
     #[test]
-    fn test_dict_encode_integer_stats() -> VortexResult<()> {
+    fn test_dict_encode_integer_frequencies() -> VortexResult<()> {
         let mut ctx = vortex_array::array_session().create_execution_ctx();
         let data = buffer![100i32, 200, 100, 0, 100];
         let validity =
             Validity::Array(BoolArray::from_iter([true, true, true, false, true]).into_array());
         let array = PrimitiveArray::new(data, validity);
 
-        let stats = IntegerStats::generate_opts(
-            &array,
-            crate::stats::GenerateStatsOptions {
-                count_distinct_values: true,
-            },
-            &mut ctx,
-        );
-        let dict_array = dictionary_encode(array.as_view(), &stats)?;
+        let input = ArrayInput::new(array.clone().into_array());
+        let frequencies = aggregates::integer_frequencies(&input, &mut ctx);
+        let dict_array = dictionary_encode(array.as_view(), &frequencies)?;
         assert_eq!(dict_array.values().len(), 2);
         assert_eq!(dict_array.codes().len(), 5);
 

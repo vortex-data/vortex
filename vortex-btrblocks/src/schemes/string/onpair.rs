@@ -4,12 +4,14 @@
 //! OnPair short-string compression (dict-12).
 
 use vortex_array::ArrayId;
+use vortex_array::ArrayInput;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::VarBinView;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
@@ -21,7 +23,6 @@ use vortex_onpair::OnPairArrayExt;
 use vortex_onpair::OnPairArraySlotsExt;
 use vortex_onpair::onpair_compress;
 
-use crate::ArrayAndStats;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::Scheme;
@@ -63,7 +64,7 @@ impl Scheme for OnPairScheme {
 
     fn expected_compression_ratio(
         &self,
-        _data: &ArrayAndStats,
+        _data: &ArrayInput,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
@@ -73,11 +74,11 @@ impl Scheme for OnPairScheme {
     fn compress(
         &self,
         compressor: &CascadingCompressor,
-        data: &ArrayAndStats,
+        data: &ArrayInput,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let utf8 = data.array_as_varbinview().into_owned();
+        let utf8 = data.array().as_::<VarBinView>().into_owned();
         let encoded = onpair_compress(utf8.as_array(), DEFAULT_CONFIG, exec_ctx)?;
         let Some(onpair_array) = encoded.as_opt::<OnPair>() else {
             return Ok(encoded);

@@ -3,6 +3,7 @@
 
 //! Core cascading compression flow.
 
+use vortex_array::ArrayInput;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::CanonicalValidity;
@@ -36,8 +37,6 @@ use crate::scheme::CompressorContext;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
 use crate::scheme::SchemeId;
-use crate::stats::ArrayAndStats;
-use crate::stats::GenerateStatsOptions;
 use crate::trace;
 
 impl CascadingCompressor {
@@ -222,9 +221,8 @@ impl CascadingCompressor {
 
     /// The main scheme-selection entry point for a single leaf array.
     ///
-    /// Filters allowed schemes by [`matches`] and exclusion rules, merges their [`stats_options`]
-    /// into a single [`GenerateStatsOptions`], and picks the winner by estimated compression
-    /// ratio.
+    /// Filters allowed schemes by [`matches`] and exclusion rules, combines their aggregate
+    /// requirements, and picks the winner by estimated compression ratio.
     ///
     /// If a winner is found and its compressed output is actually smaller, that output is
     /// returned. Otherwise, the original array is returned unchanged.
@@ -233,7 +231,6 @@ impl CascadingCompressor {
     /// scheme evaluation (constant detection is skipped while compressing samples).
     ///
     /// [`matches`]: Scheme::matches
-    /// [`stats_options`]: Scheme::stats_options
     fn choose_and_compress(
         &self,
         canonical: Canonical,
@@ -261,19 +258,24 @@ impl CascadingCompressor {
 
         let before_nbytes = array.nbytes();
 
-        let merged_opts = eligible_schemes
-            .iter()
-            .fold(GenerateStatsOptions::default(), |acc, s| {
-                acc.merge(s.stats_options())
-            });
-        let compress_ctx = compress_ctx.with_merged_stats_options(merged_opts);
+        let mut requirements = Vec::new();
+        for scheme in &eligible_schemes {
+            for aggregate in scheme.aggregate_requirements() {
+                if !requirements.contains(&aggregate) {
+                    requirements.push(aggregate);
+                }
+            }
+        }
+        let compress_ctx = compress_ctx.with_aggregate_requirements(requirements);
 
-        let data = ArrayAndStats::new(array, merged_opts);
+        let data = ArrayInput::new(array);
 
         // Constant detection is built into the compressor: a constant leaf always short-circuits
         // scheme selection. Samples are exempt because a constant sample does not imply that the
         // full array is constant.
-        if !compress_ctx.is_sample() && constant::is_constant_for_compression(&data, exec_ctx)? {
+        if !compress_ctx.is_sample()
+            && constant::is_constant_for_compression(&data, &compress_ctx, exec_ctx)?
+        {
             let _winner_span =
                 trace::winner_compress_span(constant::CONSTANT_SCHEME_ID, before_nbytes).entered();
             let compressed = constant::compress_constant(data.array(), exec_ctx)?;

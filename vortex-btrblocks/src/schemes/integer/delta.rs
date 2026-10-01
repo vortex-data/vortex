@@ -4,12 +4,14 @@
 //! FastLanes Delta integer encoding.
 
 use vortex_array::ArrayId;
+use vortex_array::ArrayInput;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_compressor::aggregates;
 use vortex_compressor::builtins::BinaryDictScheme;
 use vortex_compressor::builtins::FloatDictScheme;
 use vortex_compressor::builtins::IntDictScheme;
@@ -25,10 +27,8 @@ use vortex_error::VortexResult;
 use vortex_fastlanes::Delta;
 use vortex_fastlanes::FL_CHUNK_SIZE;
 
-use crate::ArrayAndStats;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
-use crate::GenerateStatsOptions;
 use crate::Scheme;
 use crate::SchemeExt;
 
@@ -139,7 +139,7 @@ impl Scheme for DeltaScheme {
 
     fn expected_compression_ratio(
         &self,
-        data: &ArrayAndStats,
+        data: &ArrayInput,
         compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
@@ -148,7 +148,7 @@ impl Scheme for DeltaScheme {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
         // Too short to transpose into FastLanes chunks meaningfully.
-        if data.array_len() < MIN_DELTA_LEN {
+        if data.array().len() < MIN_DELTA_LEN {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
@@ -172,9 +172,8 @@ impl Scheme for DeltaScheme {
                 // difference that gets bit-packed, not the lag-1 difference (which the transpose
                 // makes optimistic), so it is what truly drives the compressed size.
                 let (_bases, deltas) = vortex_fastlanes::delta_compress(&primitive, exec_ctx)?;
-                let delta_stats =
-                    ArrayAndStats::new(deltas.into_array(), GenerateStatsOptions::default());
-                let span = delta_stats.integer_stats(exec_ctx).erased().max_minus_min();
+                let delta_stats = ArrayInput::new(deltas.into_array());
+                let span = aggregates::integer_range(&delta_stats, exec_ctx).max_minus_min();
 
                 // Bits needed to FoR-pack the residuals. A zero span means constant deltas, which
                 // SequenceScheme already captures more cheaply, so defer to it.
@@ -195,7 +194,7 @@ impl Scheme for DeltaScheme {
     fn compress(
         &self,
         compressor: &CascadingCompressor,
-        data: &ArrayAndStats,
+        data: &ArrayInput,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {

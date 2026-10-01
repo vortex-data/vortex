@@ -10,7 +10,7 @@
 //! Encoding-agnostic compression framework for Vortex arrays.
 //!
 //! This crate provides the core compression engine: the [`Scheme`](scheme::Scheme) trait,
-//! sampling-based ratio estimation, cascaded compression, and statistics infrastructure for
+//! sampling-based ratio estimation, cascaded compression, and aggregate summaries for
 //! deciding the best encoding scheme for an array.
 //!
 //! This crate contains no encoding dependencies. Batteries-included compressors are provided by
@@ -62,9 +62,9 @@
 //! From those fields you can derive per-scheme savings, rejection counts, and estimator accuracy
 //! with a short `jq` query.
 
+pub mod aggregates;
 pub mod builtins;
 pub mod scheme;
-pub mod stats;
 
 mod compressor;
 pub use compressor::CascadingCompressor;

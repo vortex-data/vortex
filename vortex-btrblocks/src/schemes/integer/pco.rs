@@ -4,17 +4,18 @@
 //! Pco (pcodec) integer compression.
 
 use vortex_array::ArrayId;
+use vortex_array::ArrayInput;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
+use vortex_array::arrays::Primitive;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexResult;
 
-use crate::ArrayAndStats;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::Scheme;
@@ -38,14 +39,17 @@ impl Scheme for PcoScheme {
 
     fn expected_compression_ratio(
         &self,
-        data: &ArrayAndStats,
+        data: &ArrayInput,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         use vortex_array::dtype::PType;
 
         // Pco does not support I8 or U8.
-        if matches!(data.array_as_primitive().ptype(), PType::I8 | PType::U8) {
+        if matches!(
+            data.array().as_::<Primitive>().ptype(),
+            PType::I8 | PType::U8
+        ) {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
@@ -55,12 +59,12 @@ impl Scheme for PcoScheme {
     fn compress(
         &self,
         _compressor: &CascadingCompressor,
-        data: &ArrayAndStats,
+        data: &ArrayInput,
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         Ok(vortex_pco::Pco::from_primitive(
-            data.array_as_primitive(),
+            data.array().as_::<Primitive>(),
             pco::DEFAULT_COMPRESSION_LEVEL,
             8192,
             exec_ctx,

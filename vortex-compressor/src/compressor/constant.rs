@@ -10,18 +10,28 @@
 //!
 //! [`Scheme`]: crate::scheme::Scheme
 
+use vortex_array::ArrayInput;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::aggregate_fn::fns::is_constant::is_constant;
+use vortex_array::aggregate_fn::AggregateFnVTableExt;
+use vortex_array::aggregate_fn::EmptyOptions;
+use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
+use vortex_array::aggregate_fn::fns::sum::Sum;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::MaskedArray;
 use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
+use crate::aggregates;
+use crate::aggregates::FloatDistinct;
+use crate::aggregates::IntegerFrequencies;
+use crate::aggregates::VarBinViewPrefixDistinct;
+use crate::scheme::CompressorContext;
 use crate::scheme::SchemeId;
-use crate::stats::ArrayAndStats;
 
 /// Synthetic scheme ID reported in traces when the compressor's built-in constant encoding wins.
 pub(crate) const CONSTANT_SCHEME_ID: SchemeId = SchemeId {
@@ -34,59 +44,58 @@ pub(crate) const CONSTANT_SCHEME_ID: SchemeId = SchemeId {
 /// The caller must have already handled empty and all-null arrays.
 ///
 /// Uses the cheapest available evidence per type: distinct counts when another scheme already
-/// requested them, `O(1)` conclusions from type stats where possible, and otherwise a vectorized
-/// equality scan via [`is_constant`].
+/// requested them, integer extrema or boolean counts where possible, and otherwise a vectorized
+/// equality scan via [`IsConstant`].
 ///
-/// Note that for types where the check falls through to [`is_constant`] (floats without distinct
+/// Note that for types where the check falls through to [`IsConstant`] (floats without distinct
 /// counts, strings, binary, decimals, and extension types), arrays that contain any nulls are
-/// reported as not constant, while stats-based checks detect constant valid values under nulls.
+/// reported as not constant, while numeric summaries detect constant valid values under nulls.
 /// This mirrors the behavior of the per-type constant schemes this module replaced.
 pub(crate) fn is_constant_for_compression(
-    data: &ArrayAndStats,
+    data: &ArrayInput,
+    compress_ctx: &CompressorContext,
     exec_ctx: &mut ExecutionCtx,
 ) -> VortexResult<bool> {
     let dtype = data.array().dtype();
 
     if matches!(dtype, DType::Bool(_)) {
-        return Ok(data.bool_stats(exec_ctx).is_constant());
+        let value_count = aggregates::valid_count(data, exec_ctx);
+        let true_count = data
+            .compute_result(&Sum.bind(NumericalAggregateOpts::skip_nans()), exec_ctx)?
+            .as_primitive()
+            .typed_value::<u64>()
+            .vortex_expect("nonempty valid boolean input has a sum");
+        return Ok(value_count > 0 && (true_count == 0 || true_count == u64::from(value_count)));
     }
 
     if dtype.is_int() {
-        let stats = data.integer_stats(exec_ctx);
-
-        // Distinct counts are only computed when a registered scheme requested them.
-        if let Some(distinct_count) = stats.distinct_count() {
-            return Ok(distinct_count == 1);
+        if compress_ctx.requests_aggregate(&IntegerFrequencies.bind(EmptyOptions)) {
+            return Ok(aggregates::integer_frequencies(data, exec_ctx).distinct_count() == 1);
         }
-
-        // If max - min == 0 over the valid values, there is only one distinct value.
-        return Ok(stats.erased().max_minus_min() == 0);
+        return Ok(aggregates::integer_range(data, exec_ctx).max_minus_min() == 0);
     }
 
-    if dtype.is_float() {
-        let stats = data.float_stats(exec_ctx);
-
-        if let Some(distinct_count) = stats.distinct_count() {
-            return Ok(distinct_count == 1);
-        }
-
-        return is_constant(data.array(), exec_ctx);
+    if dtype.is_float() && compress_ctx.requests_aggregate(&FloatDistinct.bind(EmptyOptions)) {
+        return Ok(aggregates::float_distinct(data, exec_ctx).distinct_count() == 1);
     }
 
-    if dtype.is_utf8() || dtype.is_binary() {
-        let stats = data.varbinview_stats(exec_ctx);
-
-        // The estimated distinct count is a lower bound on the actual distinct count, so a value
-        // above 1 proves the array is not constant without scanning it.
-        if stats.estimated_distinct_count().is_some_and(|c| c > 1) {
-            return Ok(false);
-        }
-
-        return is_constant(data.array(), exec_ctx);
+    if (dtype.is_utf8() || dtype.is_binary())
+        && compress_ctx.requests_aggregate(&VarBinViewPrefixDistinct.bind(EmptyOptions))
+        && aggregates::view_prefix_distinct(data, exec_ctx) > 1
+    {
+        return Ok(false);
     }
 
-    // Decimal, extension, and any other leaf type: fall back to the generic constant check.
-    is_constant(data.array(), exec_ctx)
+    // The generic constant contract includes nulls. Preserve the compressor's existing fallback
+    // policy for floats without distinct requests, strings, decimals, and extension leaves.
+    if aggregates::null_count(data, exec_ctx) > 0 {
+        return Ok(false);
+    }
+    Ok(data
+        .compute_result(&IsConstant.bind(EmptyOptions), exec_ctx)?
+        .as_bool()
+        .value()
+        .unwrap_or(false))
 }
 
 /// Encodes an array whose valid values are all equal.
@@ -141,6 +150,7 @@ mod tests {
     use vortex_session::VortexSession;
 
     use crate::CascadingCompressor;
+    use crate::builtins::FloatDictScheme;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
@@ -168,6 +178,27 @@ mod tests {
 
         let compressed = empty_compressor().compress(&array, &mut ctx)?;
         assert!(compressed.is::<Masked>());
+        Ok(())
+    }
+
+    #[rstest::rstest]
+    #[case::no_schemes(false)]
+    #[case::dictionary(true)]
+    fn nullable_float_constant_uses_requested_distinctness(
+        #[case] dictionary: bool,
+    ) -> VortexResult<()> {
+        let validity =
+            Validity::Array(BoolArray::from_iter((0..100).map(|i| i % 10 != 0)).into_array());
+        let array = PrimitiveArray::new(buffer![7.0f32; 100], validity).into_array();
+        let compressor = CascadingCompressor::new(if dictionary {
+            vec![&FloatDictScheme]
+        } else {
+            Vec::new()
+        });
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let compressed = compressor.compress(&array, &mut ctx)?;
+        assert_eq!(compressed.is::<Masked>(), dictionary);
         Ok(())
     }
 

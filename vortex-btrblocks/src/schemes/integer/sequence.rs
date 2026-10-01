@@ -4,10 +4,18 @@
 //! Sequence integer encoding for sequential patterns.
 
 use vortex_array::ArrayId;
+use vortex_array::ArrayInput;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::VTable;
+use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::aggregate_fn::AggregateFnVTableExt;
+use vortex_array::aggregate_fn::EmptyOptions;
+use vortex_array::aggregate_fn::fns::null_count::NullCount;
+use vortex_array::arrays::Primitive;
+use vortex_compressor::aggregates;
+use vortex_compressor::aggregates::IntegerFrequencies;
 use vortex_compressor::builtins::BinaryDictScheme;
 use vortex_compressor::builtins::FloatDictScheme;
 use vortex_compressor::builtins::IntDictScheme;
@@ -24,7 +32,6 @@ use vortex_error::vortex_err;
 use vortex_sequence::Sequence;
 use vortex_sequence::sequence_encode;
 
-use crate::ArrayAndStats;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::Scheme;
@@ -45,6 +52,10 @@ impl Scheme for SequenceScheme {
 
     fn produced_encodings(&self) -> Vec<ArrayId> {
         vec![Sequence.id()]
+    }
+
+    fn aggregate_requirements(&self) -> Vec<AggregateFnRef> {
+        vec![NullCount.bind(EmptyOptions)]
     }
 
     /// Sequence encoding on dictionary codes just adds a layer of indirection without compressing
@@ -73,7 +84,7 @@ impl Scheme for SequenceScheme {
 
     fn expected_compression_ratio(
         &self,
-        data: &ArrayAndStats,
+        data: &ArrayInput,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
@@ -82,18 +93,17 @@ impl Scheme for SequenceScheme {
         if compress_ctx.is_sample() {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
-        let stats = data.integer_stats(exec_ctx);
 
         // `SequenceArray` does not support nulls.
-        if stats.null_count() > 0 {
+        if aggregates::null_count(data, exec_ctx) > 0 {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
         // If the distinct_values_count was computed, and not all values are unique, then this
         // cannot be encoded as a sequence array.
-        if stats
-            .distinct_count()
-            .is_some_and(|count| count as usize != data.array_len())
+        if compress_ctx.requests_aggregate(&IntegerFrequencies.bind(EmptyOptions))
+            && aggregates::integer_frequencies(data, exec_ctx).distinct_count() as usize
+                != data.array().len()
         {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
@@ -105,7 +115,7 @@ impl Scheme for SequenceScheme {
                 // `SequenceArray` stores exactly two scalars (base and multiplier), so the best
                 // achievable compression ratio is `array_len / 2`.
                 let compressed_size = 2usize;
-                let max_ratio = data.array_len() as f64 / compressed_size as f64;
+                let max_ratio = data.array().len() as f64 / compressed_size as f64;
 
                 // If we cannot beat the best so far, then we do not want to even try sequence
                 // encoding the data.
@@ -116,7 +126,7 @@ impl Scheme for SequenceScheme {
 
                 // TODO(connor): We should pass this array back to the compressor in the case that
                 // we do want to sequence encode this so that we do not need to recompress.
-                if sequence_encode(data.array_as_primitive(), exec_ctx)?.is_none() {
+                if sequence_encode(data.array().as_::<Primitive>(), exec_ctx)?.is_none() {
                     return Ok(EstimateVerdict::Skip);
                 }
                 // TODO(connor): Should we get the actual ratio here?
@@ -128,16 +138,14 @@ impl Scheme for SequenceScheme {
     fn compress(
         &self,
         _compressor: &CascadingCompressor,
-        data: &ArrayAndStats,
+        data: &ArrayInput,
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let stats = data.integer_stats(exec_ctx);
-
-        if stats.null_count() > 0 {
+        if aggregates::null_count(data, exec_ctx) > 0 {
             vortex_bail!("sequence encoding does not support nulls");
         }
-        sequence_encode(data.array_as_primitive(), exec_ctx)?
+        sequence_encode(data.array().as_::<Primitive>(), exec_ctx)?
             .ok_or_else(|| vortex_err!("cannot sequence encode array"))
     }
 }

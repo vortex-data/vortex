@@ -16,7 +16,6 @@ version = { workspace = true }
 [dependencies]
 itertools = { workspace = true }
 num-traits = { workspace = true }
-parking_lot = { workspace = true }
 rand = { workspace = true }
 rustc-hash = { workspace = true }
 tracing = { workspace = true, features = ["std", "attributes"] }
@@ -24,14 +23,15 @@ vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
 vortex-mask = { workspace = true }
+vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
 
 [dev-dependencies]
 divan = { workspace = true }
 mimalloc = { workspace = true }
+parking_lot = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
-vortex-session = { workspace = true }
 
 [lints]
 workspace = true

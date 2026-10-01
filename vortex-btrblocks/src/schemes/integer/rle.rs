@@ -4,13 +4,20 @@
 //! Run-length integer encoding and shared RLE compression helpers.
 
 use vortex_array::ArrayId;
+use vortex_array::ArrayInput;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
+use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::aggregate_fn::AggregateFnVTableExt;
+use vortex_array::aggregate_fn::EmptyOptions;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
+use vortex_compressor::aggregates;
+use vortex_compressor::aggregates::RunSummary;
 use vortex_compressor::scheme::AncestorExclusion;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
@@ -22,7 +29,6 @@ use vortex_fastlanes::RLEArrayExt;
 use vortex_fastlanes::RLEArraySlotsExt;
 
 use super::RUN_LENGTH_THRESHOLD;
-use crate::ArrayAndStats;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::Scheme;
@@ -38,11 +44,11 @@ pub struct IntRLEScheme;
 pub(crate) fn rle_compress(
     scheme: &dyn Scheme,
     compressor: &CascadingCompressor,
-    data: &ArrayAndStats,
+    data: &ArrayInput,
     compress_ctx: CompressorContext,
     exec_ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let rle_array = RLE::encode(data.array_as_primitive(), exec_ctx)?;
+    let rle_array = RLE::encode(data.array().as_::<Primitive>(), exec_ctx)?;
 
     let rle_values_primitive = rle_array
         .values()
@@ -110,6 +116,10 @@ impl Scheme for IntRLEScheme {
         vec![RLE.id()]
     }
 
+    fn aggregate_requirements(&self) -> Vec<AggregateFnRef> {
+        vec![RunSummary.bind(EmptyOptions)]
+    }
+
     /// Children: values=0, indices=1, offsets=2.
     fn num_children(&self) -> usize {
         3
@@ -125,7 +135,7 @@ impl Scheme for IntRLEScheme {
 
     fn expected_compression_ratio(
         &self,
-        data: &ArrayAndStats,
+        data: &ArrayInput,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
@@ -133,7 +143,7 @@ impl Scheme for IntRLEScheme {
         if compress_ctx.finished_cascading() {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
-        if data.integer_stats(exec_ctx).average_run_length() < RUN_LENGTH_THRESHOLD {
+        if aggregates::average_run_length(data, &compress_ctx, exec_ctx) < RUN_LENGTH_THRESHOLD {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
@@ -143,7 +153,7 @@ impl Scheme for IntRLEScheme {
     fn compress(
         &self,
         compressor: &CascadingCompressor,
-        data: &ArrayAndStats,
+        data: &ArrayInput,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {

@@ -4,16 +4,25 @@
 //! Sparse integer encoding for single-value-dominated arrays.
 
 use vortex_array::ArrayId;
+use vortex_array::ArrayInput;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
+use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::aggregate_fn::AggregateFnVTableExt;
+use vortex_array::aggregate_fn::EmptyOptions;
+use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::aggregate_fn::fns::count::Count;
+use vortex_array::aggregate_fn::fns::null_count::NullCount;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::scalar::Scalar;
+use vortex_compressor::aggregates;
+use vortex_compressor::aggregates::IntegerFrequencies;
 use vortex_compressor::builtins::IntDictScheme;
 use vortex_compressor::scheme::ChildSelection;
 use vortex_compressor::scheme::CompressionEstimate;
@@ -26,10 +35,8 @@ use vortex_sparse::SparseExt as _;
 
 use super::IntRLEScheme;
 use super::RunEndScheme;
-use crate::ArrayAndStats;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
-use crate::GenerateStatsOptions;
 use crate::Scheme;
 use crate::SchemeExt;
 
@@ -50,10 +57,12 @@ impl Scheme for SparseScheme {
         vec![Sparse.id(), Constant.id()]
     }
 
-    fn stats_options(&self) -> GenerateStatsOptions {
-        GenerateStatsOptions {
-            count_distinct_values: true,
-        }
+    fn aggregate_requirements(&self) -> Vec<AggregateFnRef> {
+        vec![
+            IntegerFrequencies.bind(EmptyOptions),
+            Count.bind(NumericalAggregateOpts::include_nans()),
+            NullCount.bind(EmptyOptions),
+        ]
     }
 
     /// Children: values=0, indices=1.
@@ -86,13 +95,12 @@ impl Scheme for SparseScheme {
 
     fn expected_compression_ratio(
         &self,
-        data: &ArrayAndStats,
+        data: &ArrayInput,
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
-        let len = data.array_len() as f64;
-        let stats = data.integer_stats(exec_ctx);
-        let value_count = stats.value_count();
+        let len = data.array().len() as f64;
+        let value_count = aggregates::valid_count(data, exec_ctx);
 
         // All-null arrays should be compressed as constant instead anyways.
         if value_count == 0 {
@@ -100,16 +108,14 @@ impl Scheme for SparseScheme {
         }
 
         // If the majority (90%) of values is null, this will compress well.
-        if stats.null_count() as f64 / len > 0.9 {
+        if aggregates::null_count(data, exec_ctx) as f64 / len > 0.9 {
             return CompressionEstimate::Verdict(EstimateVerdict::Ratio(len / value_count as f64));
         }
 
-        let (_, most_frequent_count) = stats
-            .erased()
-            .most_frequent_value_and_count()
-            .vortex_expect(
-                "this must be present since `SparseScheme` declared that we need distinct values",
-            );
+        let frequencies = aggregates::integer_frequencies(data, exec_ctx);
+        let (_, most_frequent_count) = frequencies.most_frequent_value_and_count().vortex_expect(
+            "this must be present since `SparseScheme` declared that we need distinct values",
+        );
 
         // If the most frequent value is the only value, we should compress as constant instead.
         if most_frequent_count == value_count {
@@ -132,18 +138,16 @@ impl Scheme for SparseScheme {
     fn compress(
         &self,
         compressor: &CascadingCompressor,
-        data: &ArrayAndStats,
+        data: &ArrayInput,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let len = data.array_len();
-        let stats = data.integer_stats(exec_ctx);
+        let len = data.array().len();
+        let frequencies = aggregates::integer_frequencies(data, exec_ctx);
         let array = data.array();
 
-        let (most_frequent_value, most_frequent_count) = stats
-            .erased()
-            .most_frequent_value_and_count()
-            .vortex_expect(
+        let (most_frequent_value, most_frequent_count) =
+            frequencies.most_frequent_value_and_count().vortex_expect(
                 "this must be present since `SparseScheme` declared that we need distinct values",
             );
 

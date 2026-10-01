@@ -28,7 +28,6 @@ pub use sequence::SequenceScheme;
 pub use sparse::SparseScheme;
 // Re-export builtin schemes from vortex-compressor.
 pub use vortex_compressor::builtins::IntDictScheme;
-pub use vortex_compressor::stats::IntegerStats;
 pub use zigzag::ZigZagScheme;
 
 /// Threshold for the average run length in an array before we consider run-length encoding.

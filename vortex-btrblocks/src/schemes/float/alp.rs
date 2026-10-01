@@ -8,12 +8,14 @@ use vortex_alp::ALPArrayExt;
 use vortex_alp::ALPArraySlotsExt;
 use vortex_alp::alp_encode;
 use vortex_array::ArrayId;
+use vortex_array::ArrayInput;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
 use vortex_array::arrays::Patched;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::PType;
@@ -22,7 +24,6 @@ use vortex_compressor::scheme::DeferredEstimate;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexResult;
 
-use crate::ArrayAndStats;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::Scheme;
@@ -57,7 +58,7 @@ impl Scheme for ALPScheme {
 
     fn expected_compression_ratio(
         &self,
-        data: &ArrayAndStats,
+        data: &ArrayInput,
         compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
@@ -68,7 +69,7 @@ impl Scheme for ALPScheme {
         }
 
         // We don't support ALP for f16.
-        if data.array_as_primitive().ptype() == PType::F16 {
+        if data.array().as_::<Primitive>().ptype() == PType::F16 {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
@@ -78,11 +79,11 @@ impl Scheme for ALPScheme {
     fn compress(
         &self,
         compressor: &CascadingCompressor,
-        data: &ArrayAndStats,
+        data: &ArrayInput,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let alp_encoded = alp_encode(data.array_as_primitive(), None, exec_ctx)?;
+        let alp_encoded = alp_encode(data.array().as_::<Primitive>(), None, exec_ctx)?;
 
         // Compress the ALP ints.
         let compressed_alp_ints = compressor.compress_child(

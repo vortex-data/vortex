@@ -3,6 +3,7 @@
 
 //! Scheme selection: estimating each eligible scheme and choosing the winner.
 
+use vortex_array::ArrayInput;
 use vortex_array::ExecutionCtx;
 use vortex_error::VortexResult;
 
@@ -16,7 +17,6 @@ use crate::scheme::EstimateScore;
 use crate::scheme::EstimateVerdict;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
-use crate::stats::ArrayAndStats;
 use crate::trace;
 
 /// Winner estimate carried from scheme selection into result tracing.
@@ -65,7 +65,7 @@ impl CascadingCompressor {
     pub(super) fn choose_best_scheme(
         &self,
         schemes: &[&'static dyn Scheme],
-        data: &ArrayAndStats,
+        data: &ArrayInput,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<(&'static dyn Scheme, WinnerEstimate)>> {

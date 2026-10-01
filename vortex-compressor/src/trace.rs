@@ -32,26 +32,10 @@ pub(super) fn compress_span(
     )
 }
 
-/// Builds a span covering on-demand materialization of a cached stats type.
-///
-/// Child of whatever span is active when a stats accessor first fires. Typically that's
-/// [`verdict_pass_span`]; entering this span disambiguates stats cost from the rest of Pass 1.
-/// `kind` is usually `std::any::type_name::<T>()` so the args identify which group was generated
-/// (e.g. `IntegerStats`, `FloatStats`).
-#[inline]
-pub(super) fn generate_stats_span(kind: &'static str) -> tracing::Span {
-    tracing::debug_span!(
-        target: TARGET_TRACE,
-        "generate_stats",
-        stats_kind = kind,
-    )
-}
-
 /// Builds a span covering Pass 1 of scheme selection (the cheap-verdict pass).
 ///
-/// Stats batches merged across eligible schemes are materialized lazily by the first
-/// `expected_compression_ratio` call that touches them. Grouping those calls under one span makes
-/// the stats cost (and unexpectedly slow verdicts) visible independently of per-candidate sampling.
+/// Aggregate requests are materialized lazily by the first estimate that needs them. This span
+/// includes aggregate work and separates it from per-candidate sampling.
 #[inline]
 pub(super) fn verdict_pass_span() -> tracing::Span {
     tracing::debug_span!(

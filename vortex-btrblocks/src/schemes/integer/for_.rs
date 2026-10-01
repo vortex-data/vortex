@@ -4,11 +4,18 @@
 //! Frame of Reference integer encoding.
 
 use vortex_array::ArrayId;
+use vortex_array::ArrayInput;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::aggregate_fn::AggregateFnVTableExt;
+use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::aggregate_fn::fns::min_max::MinMax;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_compressor::aggregates;
 use vortex_compressor::builtins::BinaryDictScheme;
 use vortex_compressor::builtins::FloatDictScheme;
 use vortex_compressor::builtins::IntDictScheme;
@@ -26,7 +33,6 @@ use vortex_fastlanes::for_v1_id;
 use vortex_fastlanes::for_v2_id;
 
 use super::BitPackingScheme;
-use crate::ArrayAndStats;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::Scheme;
@@ -96,6 +102,10 @@ impl Scheme for FoRScheme {
         }
     }
 
+    fn aggregate_requirements(&self) -> Vec<AggregateFnRef> {
+        vec![MinMax.bind(NumericalAggregateOpts::skip_nans())]
+    }
+
     fn refine(&self, allowed: &dyn Fn(&ArrayId) -> bool) -> &dyn Scheme {
         if allowed(&for_v2_id()) {
             &FOR_V2
@@ -136,7 +146,7 @@ impl Scheme for FoRScheme {
 
     fn expected_compression_ratio(
         &self,
-        data: &ArrayAndStats,
+        data: &ArrayInput,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
@@ -151,15 +161,15 @@ impl Scheme for FoRScheme {
         // array's, so the ratio can understate v2. It also skips arrays where only per-chunk
         // references would help, such as those whose minimum is zero, or whose single-reference
         // width is no narrower than plain BitPacking.
-        let stats = data.integer_stats(exec_ctx);
+        let range = aggregates::integer_range(data, exec_ctx);
 
         // Only apply when the min is not already zero.
-        if stats.erased().min_is_zero() {
+        if range.min_is_zero() {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
         // Difference between max and min.
-        let for_bitwidth = match stats.erased().max_minus_min().checked_ilog2() {
+        let for_bitwidth = match range.max_minus_min().checked_ilog2() {
             Some(l) => l + 1,
             // If max-min == 0, the we should be compressing this as a constant array.
             None => return CompressionEstimate::Verdict(EstimateVerdict::Skip),
@@ -168,11 +178,10 @@ impl Scheme for FoRScheme {
         // If BitPacking can be applied (only non-negative values) and FoR doesn't reduce bit width
         // compared to BitPacking, don't use FoR since it has a small amount of overhead (storing
         // the reference) for effectively no benefits.
-        if let Some(max_log) = stats
-            .erased()
+        if let Some(max_log) = range
             .max_ilog2()
             // Only skip FoR when min >= 0, otherwise BitPacking can't be applied without ZigZag.
-            .filter(|_| !stats.erased().min_is_negative())
+            .filter(|_| !range.min_is_negative())
         {
             let bitpack_bitwidth = max_log + 1;
             if for_bitwidth >= bitpack_bitwidth {
@@ -181,7 +190,8 @@ impl Scheme for FoRScheme {
         }
 
         let full_width: u32 = data
-            .array_as_primitive()
+            .array()
+            .as_::<Primitive>()
             .ptype()
             .bit_width()
             .try_into()
@@ -195,7 +205,7 @@ impl Scheme for FoRScheme {
     fn compress(
         &self,
         compressor: &CascadingCompressor,
-        data: &ArrayAndStats,
+        data: &ArrayInput,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
@@ -214,8 +224,7 @@ impl Scheme for FoRScheme {
         // NOTE: we could delegate in the future if we had another downstream codec that performs
         //  as well.
         let leaf_ctx = compress_ctx.clone().as_leaf();
-        let biased_data =
-            ArrayAndStats::new(biased.into_array(), compress_ctx.merged_stats_options());
+        let biased_data = ArrayInput::new(biased.into_array());
         let compressed = BitPackingScheme.compress(compressor, &biased_data, leaf_ctx, exec_ctx)?;
 
         // TODO(connor): This should really be `new_unchecked`.
