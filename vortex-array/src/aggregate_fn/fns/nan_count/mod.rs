@@ -15,12 +15,10 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::Columnar;
 use crate::ExecutionCtx;
-use crate::aggregate_fn::Accumulator;
 use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::AggregateFnVTableExt;
-use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::EmptyOptions;
 use crate::dtype::DType;
 use crate::dtype::Nullability::NonNullable;
@@ -35,9 +33,8 @@ use crate::scalar::Scalar;
 /// See [`NanCount`] for details.
 pub fn nan_count(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
     // Short-circuit using cached array statistics.
-    if let Precision::Exact(nan_count_scalar) = array
-        .aggregations()
-        .get_result(&NanCount.bind(EmptyOptions))
+    if let Precision::Exact(nan_count_scalar) =
+        ctx.aggregate_result(array, &NanCount.bind(EmptyOptions))
     {
         return usize::try_from(&nan_count_scalar)
             .map_err(|e| vortex_err!("Failed to convert NaN count stat to usize: {e}"));
@@ -57,9 +54,7 @@ pub fn nan_count(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<usize
     }
 
     // Compute using Accumulator<NanCount>.
-    let mut acc = Accumulator::try_new(NanCount, EmptyOptions, array.dtype().clone())?;
-    acc.accumulate(array, ctx)?;
-    let result = acc.finish()?;
+    let result = ctx.compute_aggregate_result(array, &NanCount.bind(EmptyOptions))?;
 
     let count = result
         .as_primitive()
@@ -68,9 +63,7 @@ pub fn nan_count(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<usize
     let count_usize = usize::try_from(count).vortex_expect("Cannot be more nans than usize::MAX");
 
     // Cache the computed NaN count as a statistic.
-    array
-        .aggregations()
-        .insert_result(NanCount.bind(EmptyOptions), Precision::Exact(result))?;
+    ctx.insert_aggregate_result(array, NanCount.bind(EmptyOptions), Precision::Exact(result))?;
 
     Ok(count_usize)
 }

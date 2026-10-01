@@ -123,6 +123,8 @@ mod expression;
 pub mod extension;
 pub mod flatbuffers;
 mod hash;
+pub mod input;
+pub use input::ArrayInput;
 pub mod iter;
 pub mod kernel;
 pub mod mask;

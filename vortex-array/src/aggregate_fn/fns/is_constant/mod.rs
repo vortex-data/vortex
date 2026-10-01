@@ -30,12 +30,10 @@ use crate::Canonical;
 use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::aggregate_fn::Accumulator;
 use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::AggregateFnVTableExt;
-use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::EmptyOptions;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::max::Max;
@@ -89,10 +87,7 @@ fn arrays_value_equal(a: &ArrayRef, b: &ArrayRef, ctx: &mut ExecutionCtx) -> Vor
 /// Empty arrays are not constant.
 pub fn is_constant(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
     // Short-circuit using cached array statistics.
-    if let Precision::Exact(value) = array
-        .aggregations()
-        .get_result(&IsConstant.bind(EmptyOptions))
-    {
+    if let Precision::Exact(value) = ctx.aggregate_result(array, &IsConstant.bind(EmptyOptions)) {
         return bool::try_from(&value);
     }
 
@@ -103,7 +98,8 @@ pub fn is_constant(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<boo
 
     // Array of length 1 is always constant.
     if array.len() == 1 {
-        array.aggregations().insert_result(
+        ctx.insert_aggregate_result(
+            array,
             IsConstant.bind(EmptyOptions),
             Precision::Exact(Scalar::from(true)),
         )?;
@@ -112,7 +108,8 @@ pub fn is_constant(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<boo
 
     // Constant and null arrays are always constant.
     if array.is::<Constant>() || array.is::<Null>() {
-        array.aggregations().insert_result(
+        ctx.insert_aggregate_result(
+            array,
             IsConstant.bind(EmptyOptions),
             Precision::Exact(Scalar::from(true)),
         )?;
@@ -121,7 +118,8 @@ pub fn is_constant(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<boo
 
     let all_invalid = array.all_invalid(ctx)?;
     if all_invalid {
-        array.aggregations().insert_result(
+        ctx.insert_aggregate_result(
+            array,
             IsConstant.bind(EmptyOptions),
             Precision::Exact(Scalar::from(true)),
         )?;
@@ -132,7 +130,8 @@ pub fn is_constant(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<boo
 
     // If we have some nulls but not all nulls, array can't be constant.
     if !all_valid && !all_invalid {
-        array.aggregations().insert_result(
+        ctx.insert_aggregate_result(
+            array,
             IsConstant.bind(EmptyOptions),
             Precision::Exact(Scalar::from(false)),
         )?;
@@ -140,23 +139,18 @@ pub fn is_constant(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<boo
     }
 
     // We already know here that the array is all valid, so we check for min/max stats.
-    let min_stat = array
-        .aggregations()
-        .get_result(&Min.bind(NumericalAggregateOpts::skip_nans()));
-    let max_stat = array
-        .aggregations()
-        .get_result(&Max.bind(NumericalAggregateOpts::skip_nans()));
+    let min_stat = ctx.aggregate_result(array, &Min.bind(NumericalAggregateOpts::skip_nans()));
+    let max_stat = ctx.aggregate_result(array, &Max.bind(NumericalAggregateOpts::skip_nans()));
 
     if let Precision::Exact(min) = min_stat.as_ref()
         && let Precision::Exact(max) = max_stat.as_ref()
         && min == max
         && (!array.dtype().is_float()
-            || array
-                .aggregations()
-                .get_result_as::<u64>(&NanCount.bind(EmptyOptions))?
+            || ctx.aggregate_result_as::<u64>(array, &NanCount.bind(EmptyOptions))?
                 == Precision::exact(0u64))
     {
-        array.aggregations().insert_result(
+        ctx.insert_aggregate_result(
+            array,
             IsConstant.bind(EmptyOptions),
             Precision::Exact(Scalar::from(true)),
         )?;
@@ -173,14 +167,13 @@ pub fn is_constant(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<boo
     }
 
     // Compute using Accumulator<IsConstant>.
-    let mut acc = Accumulator::try_new(IsConstant, EmptyOptions, array.dtype().clone())?;
-    acc.accumulate(array, ctx)?;
-    let result_scalar = acc.finish()?;
+    let result_scalar = ctx.compute_aggregate_result(array, &IsConstant.bind(EmptyOptions))?;
 
     let result = result_scalar.as_bool().value().unwrap_or(false);
 
     // Cache the computed is_constant as a statistic.
-    array.aggregations().insert_result(
+    ctx.insert_aggregate_result(
+        array,
         IsConstant.bind(EmptyOptions),
         Precision::Exact(Scalar::from(result)),
     )?;

@@ -1,16 +1,26 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
+
 use rstest::rstest;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
+use crate::ArrayInput;
 use crate::ArrayRef;
+use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
+use crate::aggregate_fn::AggregateArgs;
+use crate::aggregate_fn::AggregateFn;
+use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnRef;
+use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::AggregateFnVTableExt;
 use crate::aggregate_fn::EmptyOptions;
 use crate::aggregate_fn::NumericalAggregateOpts;
@@ -23,8 +33,11 @@ use crate::aggregate_fn::session::AggregateFnSessionExt;
 use crate::array_session;
 use crate::arrays::ConstantArray;
 use crate::arrays::PrimitiveArray;
+use crate::dtype::DType;
 use crate::dtype::Nullability;
+use crate::dtype::PType;
 use crate::expr::stats::Precision;
+use crate::input::AggregateCacheMode;
 use crate::scalar::Scalar;
 use crate::stats::Aggregations;
 
@@ -225,4 +238,319 @@ fn dtype_changing_reduction_drops_cached_results() -> VortexResult<()> {
         Precision::Exact(0u64.into())
     );
     Ok(())
+}
+
+#[rstest]
+#[case(AggregateCacheMode::Array)]
+#[case(AggregateCacheMode::Input)]
+#[case(AggregateCacheMode::Disabled)]
+fn typed_first_reuses_state_for_finalization(#[case] mode: AggregateCacheMode) -> VortexResult<()> {
+    let array = buffer![1i32, 2, 3].into_array();
+    let input = ArrayInput::new(array.clone()).with_cache_mode(mode);
+    let calls = Arc::new(AtomicUsize::new(0));
+    let aggregate = tracked_rows::<0>(&calls, false);
+    let key = tracked_rows::<0>(&calls, false).erased();
+    let mut ctx = array_session().create_execution_ctx();
+
+    let first = input.compute_partial(&aggregate, &mut ctx)?;
+    let second = input.compute_partial(&aggregate, &mut ctx)?;
+    assert_eq!(first.rows, 3);
+    assert!(input.snapshot_results().iter().next().is_none());
+    assert_eq!(input.compute_result(&key, &mut ctx)?, 3u64.into());
+    if mode == AggregateCacheMode::Disabled {
+        assert!(!Arc::ptr_eq(&first, &second));
+        assert_eq!(calls.load(Ordering::Relaxed), 3);
+        assert_eq!(input.get_result(&key), Precision::Absent);
+    } else {
+        assert!(Arc::ptr_eq(&first, &second));
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
+        assert_eq!(input.get_result(&key), Precision::Exact(3u64.into()));
+    }
+
+    let retained = Arc::downgrade(&first);
+    drop(first);
+    drop(second);
+    drop(input);
+    // The retained state contains the original array. Keeping that array alive must not keep
+    // input-owned typed state alive through the array's cache.
+    assert!(retained.upgrade().is_none());
+    assert_eq!(array.len(), 3);
+    Ok(())
+}
+
+#[test]
+fn scoped_array_mode_finalizes_the_input_partial() -> VortexResult<()> {
+    let input = ArrayInput::new(buffer![1i32, 2, 3].into_array())
+        .with_cache_mode(AggregateCacheMode::Array);
+    let calls = Arc::new(AtomicUsize::new(0));
+    let aggregate = tracked_rows::<0>(&calls, false);
+    let key = tracked_rows::<0>(&calls, false).erased();
+    let mut ctx = array_session().create_execution_ctx();
+
+    input.compute_partial(&aggregate, &mut ctx)?;
+    let mut scoped = ctx.with_aggregate_input(&input);
+    assert_eq!(
+        scoped.compute_aggregate_result(input.array(), &key)?,
+        3u64.into()
+    );
+    assert_eq!(calls.load(Ordering::Relaxed), 1);
+    assert_eq!(
+        input.array().aggregations().get_result(&key),
+        Precision::Exact(3u64.into())
+    );
+    Ok(())
+}
+
+#[test]
+fn retained_null_false_and_zero_are_known_results() -> VortexResult<()> {
+    let input = ArrayInput::new(buffer![u64::MAX, 1].into_array());
+    let sum = AggregateFn::new(Sum, NumericalAggregateOpts::skip_nans());
+    let constant = AggregateFn::new(IsConstant, EmptyOptions);
+    let count = AggregateFn::new(NullCount, EmptyOptions);
+    let mut ctx = array_session().create_execution_ctx();
+
+    input.compute_partial(&sum, &mut ctx)?;
+    input.compute_partial(&constant, &mut ctx)?;
+    input.compute_partial(&count, &mut ctx)?;
+    let sum_key = sum.erased();
+    let constant_key = constant.erased();
+    let count_key = count.erased();
+    assert!(input.compute_result(&sum_key, &mut ctx)?.is_null());
+    assert_eq!(input.compute_result(&constant_key, &mut ctx)?, false.into());
+    assert_eq!(input.compute_result(&count_key, &mut ctx)?, 0u64.into());
+    assert!(input.get_result(&sum_key).as_exact().unwrap().is_null());
+    assert_eq!(
+        input.get_result(&constant_key),
+        Precision::Exact(false.into())
+    );
+    assert_eq!(input.get_result(&count_key), Precision::Exact(0u64.into()));
+    assert_eq!(input.snapshot_results().iter().count(), 3);
+    Ok(())
+}
+
+#[test]
+fn scalar_first_does_not_manufacture_typed_state() -> VortexResult<()> {
+    let input = ArrayInput::new(buffer![1i32, 2, 3].into_array());
+    let calls = Arc::new(AtomicUsize::new(0));
+    let aggregate = tracked_rows::<0>(&calls, false);
+    let key = tracked_rows::<0>(&calls, false).erased();
+    let mut ctx = array_session().create_execution_ctx();
+
+    assert_eq!(input.compute_result(&key, &mut ctx)?, 3u64.into());
+    let partial = input.compute_partial(&aggregate, &mut ctx)?;
+    assert_eq!(partial.rows, 3);
+    assert!(partial.batch.is_some());
+    assert_eq!(calls.load(Ordering::Relaxed), 2);
+    Ok(())
+}
+
+#[test]
+fn typed_keys_include_options_and_concrete_vtable() -> VortexResult<()> {
+    let input = ArrayInput::new(buffer![1i32, 2, 3].into_array());
+    let calls = Arc::new(AtomicUsize::new(0));
+    let skipped = tracked_rows::<0>(&calls, false);
+    let included = AggregateFn::new(
+        skipped.vtable().clone(),
+        NumericalAggregateOpts::include_nans(),
+    );
+    let other_vtable = tracked_rows::<1>(&calls, false);
+    let mut ctx = array_session().create_execution_ctx();
+
+    let first = input.compute_partial(&skipped, &mut ctx)?;
+    let included_partial = input.compute_partial(&included, &mut ctx)?;
+    let other_partial = input.compute_partial(&other_vtable, &mut ctx)?;
+    assert_eq!(first.rows, 3);
+    assert_eq!(included_partial.rows, 103);
+    assert_eq!(other_partial.rows, 4);
+    assert!(!Arc::ptr_eq(&first, &included_partial));
+    assert!(!Arc::ptr_eq(&first, &other_partial));
+    assert_eq!(calls.load(Ordering::Relaxed), 3);
+    assert!(Arc::ptr_eq(
+        &first,
+        &input.compute_partial(&skipped, &mut ctx)?
+    ));
+    assert!(Arc::ptr_eq(
+        &other_partial,
+        &input.compute_partial(&other_vtable, &mut ctx)?
+    ));
+    Ok(())
+}
+
+#[test]
+fn clear_removes_typed_states_and_snapshots_omit_them() -> VortexResult<()> {
+    let array = buffer![1i32, 2, 3].into_array();
+    let store = Aggregations::default();
+    let cache = store.to_ref(&array);
+    let calls = Arc::new(AtomicUsize::new(0));
+    let aggregate = tracked_rows::<0>(&calls, false);
+    let mut ctx = array_session().create_execution_ctx();
+
+    let partial = cache.compute_partial(&aggregate, &mut ctx)?;
+    let retained = Arc::downgrade(&partial);
+    drop(partial);
+    assert!(retained.upgrade().is_some());
+    assert!(cache.snapshot_results().iter().next().is_none());
+    cache.clear();
+    assert!(retained.upgrade().is_none());
+    assert_eq!(cache.compute_partial(&aggregate, &mut ctx)?.rows, 3);
+    assert_eq!(calls.load(Ordering::Relaxed), 2);
+    Ok(())
+}
+
+#[test]
+fn accumulation_errors_do_not_retain_typed_state() {
+    let input = ArrayInput::new(buffer![1i32].into_array());
+    let calls = Arc::new(AtomicUsize::new(0));
+    let aggregate = tracked_rows::<0>(&calls, true);
+    let mut ctx = array_session().create_execution_ctx();
+
+    assert!(input.compute_partial(&aggregate, &mut ctx).is_err());
+    assert!(input.compute_partial(&aggregate, &mut ctx).is_err());
+    assert_eq!(calls.load(Ordering::Relaxed), 2);
+    assert!(input.snapshot_results().iter().next().is_none());
+}
+
+fn tracked_rows<const KIND: u64>(
+    calls: &Arc<AtomicUsize>,
+    fail: bool,
+) -> AggregateFn<TrackedRows<KIND>> {
+    AggregateFn::new(
+        TrackedRows {
+            calls: Arc::clone(calls),
+            fail,
+        },
+        NumericalAggregateOpts::skip_nans(),
+    )
+}
+
+#[derive(Clone)]
+struct TrackedRows<const KIND: u64> {
+    calls: Arc<AtomicUsize>,
+    fail: bool,
+}
+
+// Intentionally has no Clone implementation, and retains the batch to exercise input ownership.
+struct RowsState {
+    rows: u64,
+    batch: Option<ArrayRef>,
+}
+
+impl<const KIND: u64> AggregateFnVTable for TrackedRows<KIND> {
+    type Options = NumericalAggregateOpts;
+    type Partial = RowsState;
+
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "test-only id shared by distinct vtable types"
+    )]
+    fn id(&self) -> AggregateFnId {
+        AggregateFnId::new("vortex.test.retained_rows")
+    }
+
+    fn return_dtype(&self, _options: &Self::Options, _dtype: &DType) -> Option<DType> {
+        Some(DType::Primitive(PType::U64, Nullability::NonNullable))
+    }
+
+    fn partial_dtype(&self, options: &Self::Options, dtype: &DType) -> Option<DType> {
+        self.return_dtype(options, dtype)
+    }
+
+    fn empty_partial(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+    ) -> VortexResult<Self::Partial> {
+        Ok(RowsState {
+            rows: 0,
+            batch: None,
+        })
+    }
+
+    fn partial_from_result(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        _result: Scalar,
+    ) -> VortexResult<Option<Self::Partial>> {
+        panic!("a finalized row count cannot recover the retained batch")
+    }
+
+    fn partial_from_scalar(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        scalar: Scalar,
+    ) -> VortexResult<Self::Partial> {
+        Ok(RowsState {
+            rows: u64::try_from(&scalar)?,
+            batch: None,
+        })
+    }
+
+    fn merge_partials(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        first: Self::Partial,
+        second: Self::Partial,
+    ) -> VortexResult<Self::Partial> {
+        Ok(RowsState {
+            rows: first.rows + second.rows,
+            batch: second.batch.or(first.batch),
+        })
+    }
+
+    fn to_scalar(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        partial: &Self::Partial,
+    ) -> VortexResult<Scalar> {
+        Ok(partial.rows.into())
+    }
+
+    fn is_saturated(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        _partial: &Self::Partial,
+    ) -> bool {
+        false
+    }
+
+    fn try_accumulate(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+        partial: &mut Self::Partial,
+        batch: &ArrayRef,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        if self.fail {
+            vortex_bail!("intentional accumulation failure");
+        }
+        partial.rows += batch.len() as u64 + KIND + if args.options.skip_nans { 0 } else { 100 };
+        partial.batch = Some(batch.clone());
+        Ok(true)
+    }
+
+    fn accumulate(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        _partial: &mut Self::Partial,
+        _batch: &Columnar,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        vortex_bail!("raw accumulation handles all batches")
+    }
+
+    fn finalize(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        partials: ArrayRef,
+    ) -> VortexResult<ArrayRef> {
+        Ok(partials)
+    }
+
+    fn finalize_scalar(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+        partial: &Self::Partial,
+    ) -> VortexResult<Scalar> {
+        self.to_scalar(args, partial)
+    }
 }

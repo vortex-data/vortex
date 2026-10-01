@@ -26,12 +26,10 @@ use crate::Canonical;
 use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::aggregate_fn::Accumulator;
 use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::AggregateFnVTableExt;
-use crate::aggregate_fn::DynAccumulator;
 use crate::arrays::Constant;
 use crate::arrays::Null;
 use crate::builtins::ArrayBuiltins;
@@ -73,7 +71,7 @@ pub fn is_strict_sorted(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResul
 
 fn is_sorted_impl(array: &ArrayRef, strict: bool, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
     let aggregate_fn = IsSorted.bind(IsSortedOptions { strict });
-    if let Precision::Exact(value) = array.aggregations().get_result(&aggregate_fn) {
+    if let Precision::Exact(value) = ctx.aggregate_result(array, &aggregate_fn) {
         return bool::try_from(&value);
     }
 
@@ -85,7 +83,7 @@ fn is_sorted_impl(array: &ArrayRef, strict: bool, ctx: &mut ExecutionCtx) -> Vor
     // Constant and null arrays are always sorted, but not strict sorted.
     if array.is::<Constant>() || array.is::<Null>() {
         let result = !strict;
-        cache_is_sorted(array, strict, result)?;
+        cache_is_sorted(array, strict, result, ctx)?;
         return Ok(result);
     }
 
@@ -111,41 +109,44 @@ fn is_sorted_impl(array: &ArrayRef, strict: bool, ctx: &mut ExecutionCtx) -> Vor
             // If we have a potential null value - it has to be the first one.
             1 => {
                 if !array.is_invalid(0, ctx)? {
-                    cache_is_sorted(array, strict, false)?;
+                    cache_is_sorted(array, strict, false, ctx)?;
                     return Ok(false);
                 }
             }
             _ => {
-                cache_is_sorted(array, strict, false)?;
+                cache_is_sorted(array, strict, false, ctx)?;
                 return Ok(false);
             }
         }
     }
 
     // Compute using Accumulator<IsSorted>.
-    let mut acc =
-        Accumulator::try_new(IsSorted, IsSortedOptions { strict }, array.dtype().clone())?;
-    acc.accumulate(array, ctx)?;
-    let result_scalar = acc.finish()?;
+    let result_scalar = ctx.compute_aggregate_result(array, &aggregate_fn)?;
 
     let result = result_scalar.as_bool().value().unwrap_or(false);
 
     // Cache the computed result as statistics.
-    cache_is_sorted(array, strict, result)?;
+    cache_is_sorted(array, strict, result, ctx)?;
 
     Ok(result)
 }
 
-fn cache_is_sorted(array: &ArrayRef, strict: bool, result: bool) -> VortexResult<()> {
-    let aggregations = array.aggregations();
-    aggregations.insert_result(
+fn cache_is_sorted(
+    array: &ArrayRef,
+    strict: bool,
+    result: bool,
+    ctx: &ExecutionCtx,
+) -> VortexResult<()> {
+    ctx.insert_aggregate_result(
+        array,
         IsSorted.bind(IsSortedOptions { strict }),
         Precision::Exact(Scalar::from(result)),
     )?;
 
     // Strictly sorted input is sorted; unsorted input cannot be strictly sorted.
     if strict && result || !strict && !result {
-        aggregations.insert_result(
+        ctx.insert_aggregate_result(
+            array,
             IsSorted.bind(IsSortedOptions { strict: !strict }),
             Precision::Exact(Scalar::from(result)),
         )?;

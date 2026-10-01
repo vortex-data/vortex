@@ -123,7 +123,7 @@ impl<V: AggregateFnVTable> Accumulator<V> {
         // A finalized result can only replace partial state when the aggregate explicitly
         // supports that conversion. Rich states can carry information lost during finalization.
         if use_cache
-            && let Precision::Exact(result) = batch.aggregations().get_result(&self.aggregate_fn)
+            && let Precision::Exact(result) = ctx.aggregate_result(batch, &self.aggregate_fn)
             && let Some(partial) = self
                 .vtable
                 .partial_from_result(self.dtypes.args(&self.options), result)?

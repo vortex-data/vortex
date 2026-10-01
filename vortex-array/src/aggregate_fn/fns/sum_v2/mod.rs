@@ -229,16 +229,13 @@ impl AggregateFnVTable for SumV2 {
         args: AggregateArgs<'_, Self::Options>,
         partial: &mut Self::Partial,
         batch: &ArrayRef,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<bool> {
         if args.options.skip_nans || !matches!(&partial.sum, SumState::Float(_)) {
             return Ok(false);
         }
 
-        match batch
-            .aggregations()
-            .get_result_as::<u64>(&NanCount.bind(EmptyOptions))?
-        {
+        match ctx.aggregate_result_as::<u64>(batch, &NanCount.bind(EmptyOptions))? {
             Precision::Exact(0) => Ok(false),
             Precision::Exact(_) => {
                 let SumState::Float(sum) = &mut partial.sum else {

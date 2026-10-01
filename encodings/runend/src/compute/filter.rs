@@ -6,11 +6,13 @@ use std::ops::AddAssign;
 
 use num_traits::AsPrimitive;
 use num_traits::NumCast;
+use vortex_array::ArrayInput;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::arrays::filter::FilterKernel;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_unsigned_integer_ptype;
@@ -24,7 +26,6 @@ use vortex_mask::Mask;
 use crate::RunEnd;
 use crate::array::RunEndArrayExt;
 use crate::array::RunEndArraySlotsExt;
-use crate::compute::take::take_indices_unchecked;
 
 /// Takes directly below this average number of selected rows per source run.
 ///
@@ -56,12 +57,13 @@ impl FilterKernel for RunEnd {
             || selected_rows < MIN_RUN_FILTER_SELECTED_ROWS;
 
         if use_direct_take {
-            return Ok(Some(take_indices_unchecked(
+            let indices =
+                ArrayInput::from_mask_indices_with_cache_mode(mask, ctx.aggregate_cache_mode())?;
+            return <RunEnd as TakeExecute>::take(
                 array,
-                mask_values.indices(),
-                &Validity::NonNullable,
-                ctx,
-            )?));
+                indices.array(),
+                &mut ctx.with_aggregate_input(&indices),
+            );
         }
 
         let primitive_run_ends = array.ends().clone().execute::<PrimitiveArray>(ctx)?;

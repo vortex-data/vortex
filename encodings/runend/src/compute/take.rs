@@ -7,10 +7,22 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::aggregate_fn::AggregateFnVTableExt;
+use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
+use vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions;
+use vortex_array::aggregate_fn::fns::max::Max;
+use vortex_array::aggregate_fn::fns::min::Min;
+use vortex_array::aggregate_fn::fns::min_max::MinMax;
+use vortex_array::aggregate_fn::fns::min_max::MinMaxResult;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::TakeExecute;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::dtype::UnsignedPType;
+use vortex_array::expr::stats::Precision;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::scalar::Scalar;
@@ -47,6 +59,12 @@ impl TakeExecute for RunEnd {
         let indices_validity = primitive_indices.validity()?;
         let indices_mask = indices_validity.execute_mask(primitive_indices.len(), ctx)?;
 
+        let cached_stats = cached_valid_indices_stats(
+            primitive_indices.as_ref(),
+            &indices_mask,
+            array.len(),
+            ctx,
+        )?;
         let taken = match_each_integer_ptype!(primitive_indices.ptype(), |P| {
             take_indices(
                 array,
@@ -54,6 +72,7 @@ impl TakeExecute for RunEnd {
                 &indices_validity,
                 &indices_mask,
                 true,
+                cached_stats,
                 ctx,
             )?
         });
@@ -72,7 +91,7 @@ pub fn take_indices_unchecked<T: AsPrimitive<usize>>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let validity_mask = validity.execute_mask(indices.len(), ctx)?;
-    take_indices(array, indices, validity, &validity_mask, false, ctx)
+    take_indices(array, indices, validity, &validity_mask, false, None, ctx)
 }
 
 fn take_indices<T: AsPrimitive<usize>>(
@@ -81,6 +100,7 @@ fn take_indices<T: AsPrimitive<usize>>(
     validity: &Validity,
     validity_mask: &Mask,
     check_bounds: bool,
+    cached_stats: Option<ValidIndicesStats>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     if validity_mask.all_false() {
@@ -90,7 +110,10 @@ fn take_indices<T: AsPrimitive<usize>>(
         );
     }
 
-    let stats = valid_indices_stats(indices, validity_mask, array.len(), check_bounds)?;
+    let stats = match cached_stats {
+        Some(stats) => stats,
+        None => valid_indices_stats(indices, validity_mask, array.len(), check_bounds)?,
+    };
     let ends = array.ends().clone().execute::<PrimitiveArray>(ctx)?;
 
     let physical_indices = match_each_unsigned_integer_ptype!(ends.ptype(), |I| {
@@ -131,6 +154,62 @@ fn take_indices<T: AsPrimitive<usize>>(
 struct ValidIndicesStats {
     count: usize,
     sorted: bool,
+}
+
+/// Reuse only facts that describe the valid subsequence and prove bounds for this take target.
+/// Nulls sort before values for IsSorted; a false nullable result says nothing about the order of
+/// valid indices. A true result does prove their order. Bounds are retested against each target.
+fn cached_valid_indices_stats(
+    indices: &ArrayRef,
+    validity: &Mask,
+    array_len: usize,
+    ctx: &ExecutionCtx,
+) -> VortexResult<Option<ValidIndicesStats>> {
+    let sorted =
+        match ctx.aggregate_result(indices, &IsSorted.bind(IsSortedOptions { strict: false })) {
+            Precision::Exact(value) => match value.as_bool().value() {
+                Some(true) => true,
+                Some(false) if validity.all_true() => false,
+                _ => return Ok(None),
+            },
+            _ => return Ok(None),
+        };
+    let options = NumericalAggregateOpts::skip_nans();
+    let min = ctx.aggregate_result(indices, &Min.bind(options));
+    let max = ctx.aggregate_result(indices, &Max.bind(options));
+    let bounds = match (min.into_inner(), max.into_inner()) {
+        (Some(min), Some(max)) => Some(MinMaxResult { min, max }),
+        _ => match ctx.aggregate_result(indices, &MinMax.bind(options)) {
+            Precision::Exact(value) => MinMaxResult::from_scalar(value)?,
+            _ => None,
+        },
+    };
+    let Some(bounds) = bounds else {
+        return Ok(None);
+    };
+    // Integer conversion rejects negative and architecture-unrepresentable bounds. Inexact Min
+    // is a lower bound and Inexact Max an upper bound, so successful tests cover every valid row.
+    let unsigned = DType::Primitive(PType::U64, Nullability::NonNullable);
+    let min = bounds
+        .min
+        .cast(&unsigned)
+        .ok()
+        .and_then(|v| u64::try_from(&v).ok());
+    let max = bounds
+        .max
+        .cast(&unsigned)
+        .ok()
+        .and_then(|v| u64::try_from(&v).ok());
+    if min
+        .zip(max)
+        .is_some_and(|(min, max)| min <= max && max < array_len as u64)
+    {
+        return Ok(Some(ValidIndicesStats {
+            count: validity.true_count(),
+            sorted,
+        }));
+    }
+    Ok(None)
 }
 
 fn physical_indices_with_stats<I, T, O>(
@@ -488,19 +567,28 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_array::ArrayInput;
     use vortex_array::ArrayRef;
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::AggregateFnVTableExt;
+    use vortex_array::aggregate_fn::NumericalAggregateOpts;
+    use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
+    use vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions;
+    use vortex_array::aggregate_fn::fns::min_max::MinMax;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::take::test_take_conformance;
+    use vortex_array::input::AggregateCacheMode;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
     use vortex_mask::Mask;
     use vortex_session::VortexSession;
 
+    use super::cached_valid_indices_stats;
     use super::physical_indices_binary;
     use super::physical_indices_linear_sorted;
     use super::physical_indices_linear_unsorted;
@@ -767,5 +855,104 @@ mod tests {
     })]
     fn test_take_sliced_runend_conformance(#[case] sliced: ArrayRef) {
         test_take_conformance(&sliced, &mut SESSION.create_execution_ctx());
+    }
+
+    #[rstest]
+    #[case(AggregateCacheMode::Array)]
+    #[case(AggregateCacheMode::Input)]
+    #[case(AggregateCacheMode::Disabled)]
+    fn known_mask_indices_are_rechecked_for_each_take_target(
+        #[case] mode: AggregateCacheMode,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let source = ArrayInput::new(
+            RunEnd::new(
+                buffer![3u32, 6].into_array(),
+                buffer![10i32, 20].into_array(),
+                &mut ctx,
+            )
+            .into_array(),
+        );
+        let indices =
+            ArrayInput::from_mask_indices_with_cache_mode(&Mask::from_indices(6, [0, 2, 5]), mode)?;
+        let result = source.execute_take(&indices, &mut ctx)?;
+        assert_arrays_eq!(
+            result.into_array(),
+            buffer![10i32, 10, 20].into_array(),
+            &mut ctx
+        );
+        let shorter = ArrayInput::new(source.array().slice(0..4)?);
+        assert!(shorter.execute_take(&indices, &mut ctx).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn nullable_false_sortedness_does_not_describe_valid_indices() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let indices = ArrayInput::new(
+            PrimitiveArray::from_option_iter([Some(0u64), None, Some(2), Some(5)]).into_array(),
+        );
+        let sorted = IsSorted.bind(IsSortedOptions { strict: false });
+        assert_eq!(indices.compute_result(&sorted, &mut ctx)?, false.into());
+        indices.compute_result(&MinMax.bind(NumericalAggregateOpts::skip_nans()), &mut ctx)?;
+        let primitive = indices.array().as_::<vortex_array::arrays::Primitive>();
+        let mask = primitive
+            .validity()?
+            .execute_mask(indices.array().len(), &mut ctx)?;
+        assert!(
+            cached_valid_indices_stats(
+                indices.array(),
+                &mask,
+                6,
+                &ctx.with_aggregate_input(&indices)
+            )?
+            .is_none()
+        );
+        let source = ArrayInput::new(
+            RunEnd::new(
+                buffer![3u32, 6].into_array(),
+                buffer![10i32, 20].into_array(),
+                &mut ctx,
+            )
+            .into_array(),
+        );
+        assert_arrays_eq!(
+            source.execute_take(&indices, &mut ctx)?.into_array(),
+            PrimitiveArray::from_option_iter([Some(10i32), None, Some(10), Some(20)]),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn cached_bounds_ignore_null_slots_and_reject_negative_valid_indices() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let source = ArrayInput::new(
+            RunEnd::new(
+                buffer![3u32, 6].into_array(),
+                buffer![10i32, 20].into_array(),
+                &mut ctx,
+            )
+            .into_array(),
+        );
+        let indices = ArrayInput::new(
+            PrimitiveArray::new(
+                buffer![-100i64, 1, 4],
+                Validity::from_iter([false, true, true]),
+            )
+            .into_array(),
+        );
+        indices.compute_result(&MinMax.bind(NumericalAggregateOpts::skip_nans()), &mut ctx)?;
+        indices.compute_result(&IsSorted.bind(IsSortedOptions { strict: false }), &mut ctx)?;
+        assert_arrays_eq!(
+            source.execute_take(&indices, &mut ctx)?.into_array(),
+            PrimitiveArray::from_option_iter([None, Some(10i32), Some(20)]),
+            &mut ctx
+        );
+        let invalid = ArrayInput::new(buffer![-1i64, 2].into_array());
+        invalid.compute_result(&MinMax.bind(NumericalAggregateOpts::skip_nans()), &mut ctx)?;
+        invalid.compute_result(&IsSorted.bind(IsSortedOptions { strict: false }), &mut ctx)?;
+        assert!(source.execute_take(&invalid, &mut ctx).is_err());
+        Ok(())
     }
 }

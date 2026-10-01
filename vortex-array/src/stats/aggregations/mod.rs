@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Cache finalized aggregate results for one immutable input.
+//! Cache finalized results and explicitly retained partial states for one immutable input.
 //!
 //! [`Aggregations`] stores results without owning its input. [`AggregationsRef`] binds the store
-//! to the array that owns it. Streaming states remain owned by accumulators; a finalized result
-//! can be reused as a partial only when its aggregate explicitly supports that conversion.
+//! to its input. Typed retention is opt-in: it preserves an accumulator's state without a scalar
+//! roundtrip. Finalized results can become streaming partials only when the aggregate explicitly
+//! supports that conversion.
+
+mod partial;
 
 use std::sync::Arc;
 
@@ -15,6 +18,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
+use self::partial::PartialEntry;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateFnRef;
@@ -30,14 +34,20 @@ use crate::stats::AggregateResults;
 
 type CachedResults = Vec<(AggregateFnRef, Precision<Scalar>)>;
 
-/// Shared finalized results for one immutable input.
+/// Shared aggregate results and optional typed partial states for one immutable input.
 ///
 /// Keys include the function and all of its options. Cloning this handle shares its cache; only
 /// owners of the same input may share a handle. A new physical representation receives a fresh
 /// store and inherits only representation-invariant results.
 #[derive(Clone, Debug, Default)]
 pub struct Aggregations {
-    entries: Arc<RwLock<CachedResults>>,
+    entries: Arc<RwLock<AggregationEntries>>,
+}
+
+#[derive(Debug, Default)]
+struct AggregationEntries {
+    results: CachedResults,
+    partials: Vec<PartialEntry>,
 }
 
 /// Borrowed access to an input and its finalized aggregate cache.
@@ -59,7 +69,7 @@ impl Aggregations {
     }
 
     pub(crate) fn snapshot_results(&self) -> AggregateResults {
-        AggregateResults::from_validated(self.entries.read().clone())
+        AggregateResults::from_validated(self.entries.read().results.clone())
     }
 
     pub(crate) fn inherit_results(&self, results: &AggregateResults) {
@@ -70,7 +80,7 @@ impl Aggregations {
             .collect::<Vec<_>>();
         let mut entries = self.entries.write();
         for (aggregate, result) in inherited {
-            insert(&mut entries, aggregate, result);
+            insert(&mut entries.results, aggregate, result);
         }
     }
 }
@@ -81,6 +91,7 @@ impl AggregationsRef<'_> {
         self.aggregations
             .entries
             .read()
+            .results
             .iter()
             .find(|(key, _)| key == aggregate)
             .map(|(_, result)| result.clone())
@@ -111,9 +122,13 @@ impl AggregationsRef<'_> {
             return Ok(result);
         }
 
-        let mut accumulator = aggregate.accumulator(self.array.dtype())?;
-        accumulator.accumulate_uncached(self.array, ctx)?;
-        let result = accumulator.finish()?;
+        let result = if let Some(result) = self.finalize_retained_result(aggregate)? {
+            result
+        } else {
+            let mut accumulator = aggregate.accumulator(self.array.dtype())?;
+            accumulator.accumulate_uncached(self.array, ctx)?;
+            accumulator.finish()?
+        };
         self.insert_result(aggregate.clone(), Precision::Exact(result.clone()))?;
 
         Ok(result)
@@ -131,9 +146,11 @@ impl AggregationsRef<'_> {
         T::try_from(&self.compute_result(aggregate, ctx)?)
     }
 
-    /// Remove all cached results without changing the input.
+    /// Remove finalized results and retained typed states without changing the input.
     pub fn clear(&self) {
-        self.aggregations.entries.write().clear();
+        let cleared = std::mem::take(&mut *self.aggregations.entries.write());
+        // A custom state's destructor can reenter the store. Drop retained states after unlocking.
+        drop(cleared);
     }
 
     /// Snapshot finalized results without retaining a lock or an input reference.
@@ -185,7 +202,11 @@ impl AggregationsRef<'_> {
             );
         }
 
-        insert(&mut self.aggregations.entries.write(), aggregate, result);
+        insert(
+            &mut self.aggregations.entries.write().results,
+            aggregate,
+            result,
+        );
         Ok(())
     }
 
@@ -219,7 +240,7 @@ impl AggregationsRef<'_> {
         // kernels. This path preserves known metadata for inputs those kernels cannot compute.
         let mut entries = self.aggregations.entries.write();
         for (aggregate, result) in results.iter() {
-            insert(&mut entries, aggregate.clone(), result.clone());
+            insert(&mut entries.results, aggregate.clone(), result.clone());
         }
     }
 }

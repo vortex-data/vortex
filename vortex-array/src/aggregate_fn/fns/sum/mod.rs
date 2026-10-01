@@ -46,9 +46,7 @@ use crate::scalar::Scalar;
 ///
 /// See [`Sum`] for details.
 pub fn sum(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
-    array
-        .aggregations()
-        .compute_result(&Sum.bind(NumericalAggregateOpts::skip_nans()), ctx)
+    ctx.compute_aggregate_result(array, &Sum.bind(NumericalAggregateOpts::skip_nans()))
 }
 
 /// Sum an array, starting from zero.
@@ -218,23 +216,19 @@ impl AggregateFnVTable for Sum {
         args: AggregateArgs<'_, Self::Options>,
         partial: &mut Self::Partial,
         batch: &ArrayRef,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<bool> {
         // NaN-aware shortcircuits only apply to NaN-including float sums; everything else takes
         // the default dispatch path.
         if args.options.skip_nans || !matches!(partial.current, Some(SumState::Float(_))) {
             return Ok(false);
         }
-        match batch
-            .aggregations()
-            .get_result_as::<u64>(&NanCount.bind(EmptyOptions))?
-        {
+        match ctx.aggregate_result_as::<u64>(batch, &NanCount.bind(EmptyOptions))? {
             Precision::Exact(0) => {
                 // NaN-free batch: the cached NaN-skipping sum (if any) equals the
                 // NaN-including sum.
-                if let Precision::Exact(sum) = batch
-                    .aggregations()
-                    .get_result(&Sum.bind(NumericalAggregateOpts::skip_nans()))
+                if let Precision::Exact(sum) =
+                    ctx.aggregate_result(batch, &Sum.bind(NumericalAggregateOpts::skip_nans()))
                 {
                     let sum = if sum.dtype() == args.return_dtype {
                         sum

@@ -56,26 +56,24 @@ pub fn min_max(
     ctx: &mut ExecutionCtx,
     options: NumericalAggregateOpts,
 ) -> VortexResult<Option<MinMaxResult>> {
-    let aggregations = array.aggregations();
     let mut cached_options = options;
     if !options.skip_nans && array.dtype().is_float() {
-        match aggregations.get_result_as::<u64>(&NanCount.bind(EmptyOptions))? {
+        match ctx.aggregate_result_as::<u64>(array, &NanCount.bind(EmptyOptions))? {
             Precision::Exact(0) => cached_options = NumericalAggregateOpts::skip_nans(),
             Precision::Exact(_) => {
                 let result = Some(nan_minmax_result(array.dtype()));
-                cache_min_max_result(array, options, result.as_ref())?;
+                cache_min_max_result(array, options, result.as_ref(), ctx)?;
                 return Ok(result);
             }
             _ => {}
         }
     }
 
-    let mut cached_extrema = aggregations
-        .get_result(&Min.bind(cached_options))
+    let mut cached_extrema = ctx
+        .aggregate_result(array, &Min.bind(cached_options))
         .as_exact()
         .zip(
-            aggregations
-                .get_result(&Max.bind(cached_options))
+            ctx.aggregate_result(array, &Max.bind(cached_options))
                 .as_exact(),
         );
 
@@ -92,10 +90,13 @@ pub fn min_max(
         } else {
             NumericalAggregateOpts::skip_nans()
         };
-        cached_extrema = aggregations
-            .get_result(&Min.bind(other_options))
+        cached_extrema = ctx
+            .aggregate_result(array, &Min.bind(other_options))
             .as_exact()
-            .zip(aggregations.get_result(&Max.bind(other_options)).as_exact());
+            .zip(
+                ctx.aggregate_result(array, &Max.bind(other_options))
+                    .as_exact(),
+            );
     }
 
     if let Some((min, max)) = cached_extrema {
@@ -119,8 +120,8 @@ pub fn min_max(
     }
 
     let result =
-        MinMaxResult::from_scalar(aggregations.compute_result(&MinMax.bind(options), ctx)?)?;
-    cache_min_max_result(array, options, result.as_ref())?;
+        MinMaxResult::from_scalar(ctx.compute_aggregate_result(array, &MinMax.bind(options))?)?;
+    cache_min_max_result(array, options, result.as_ref(), ctx)?;
 
     Ok(result)
 }
@@ -129,15 +130,15 @@ fn cache_min_max_result(
     array: &ArrayRef,
     options: NumericalAggregateOpts,
     result: Option<&MinMaxResult>,
+    ctx: &ExecutionCtx,
 ) -> VortexResult<()> {
     let dtype = array.dtype().as_nullable();
     let (min, max) = match result {
         Some(result) => (result.min.cast(&dtype)?, result.max.cast(&dtype)?),
         None => (Scalar::null(dtype.clone()), Scalar::null(dtype)),
     };
-    let aggregations = array.aggregations();
-    aggregations.insert_result(Min.bind(options), Precision::Exact(min))?;
-    aggregations.insert_result(Max.bind(options), Precision::Exact(max))?;
+    ctx.insert_aggregate_result(array, Min.bind(options), Precision::Exact(min))?;
+    ctx.insert_aggregate_result(array, Max.bind(options), Precision::Exact(max))?;
 
     Ok(())
 }
@@ -397,26 +398,21 @@ impl AggregateFnVTable for MinMax {
         args: AggregateArgs<'_, Self::Options>,
         partial: &mut Self::Partial,
         batch: &ArrayRef,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<bool> {
         // NaN-aware shortcircuits only apply to NaN-including float min/max; everything else
         // takes the default dispatch path.
         if args.options.skip_nans || !args.dtype.is_float() {
             return Ok(false);
         }
-        match batch
-            .aggregations()
-            .get_result_as::<u64>(&NanCount.bind(EmptyOptions))?
-        {
+        match ctx.aggregate_result_as::<u64>(batch, &NanCount.bind(EmptyOptions))? {
             Precision::Exact(0) => {
                 // NaN-free batch: the cached NaN-skipping extrema (if any) are valid.
-                let cached_min = batch
-                    .aggregations()
-                    .get_result(&Min.bind(NumericalAggregateOpts::skip_nans()))
+                let cached_min = ctx
+                    .aggregate_result(batch, &Min.bind(NumericalAggregateOpts::skip_nans()))
                     .as_exact();
-                let cached_max = batch
-                    .aggregations()
-                    .get_result(&Max.bind(NumericalAggregateOpts::skip_nans()))
+                let cached_max = ctx
+                    .aggregate_result(batch, &Max.bind(NumericalAggregateOpts::skip_nans()))
                     .as_exact();
                 if let Some((min, max)) = cached_min.zip(cached_max) {
                     // Null extrema represent a batch with no participating values.

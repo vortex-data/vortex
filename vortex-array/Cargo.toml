@@ -313,3 +313,7 @@ harness = false
 [[bench]]
 name = "slice_dict_primitive"
 harness = false
+
+[[bench]]
+name = "aggregate_input"
+harness = false

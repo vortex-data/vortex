@@ -216,6 +216,30 @@ impl ArrayRef {
 
     /// Performs a constant-time slice of the array.
     pub fn slice(&self, range: Range<usize>) -> VortexResult<ArrayRef> {
+        let sliced = self.slice_without_aggregate_results(range)?;
+        // A non-empty contiguous slice preserves true constantness and sortedness facts.
+        if !ArrayRef::ptr_eq(&sliced, self) && !sliced.is_empty() && !sliced.is::<Constant>() {
+            for (aggregate, result) in self.aggregations().snapshot_results().iter() {
+                if (aggregate.is::<IsConstant>() || aggregate.is::<IsSorted>())
+                    && result
+                        .as_ref()
+                        .as_exact()
+                        .is_some_and(|value| value.as_bool().value() == Some(true))
+                {
+                    sliced
+                        .aggregations()
+                        .insert_result(aggregate.clone(), result.clone())?;
+                }
+            }
+        }
+
+        Ok(sliced)
+    }
+
+    pub(crate) fn slice_without_aggregate_results(
+        &self,
+        range: Range<usize>,
+    ) -> VortexResult<ArrayRef> {
         let len = self.len();
         let start = range.start;
         let stop = range.end;
@@ -233,27 +257,9 @@ impl ArrayRef {
             return Ok(Canonical::empty(self.dtype()).into_array());
         }
 
-        let sliced = SliceArray::try_new(self.clone(), range)?
+        SliceArray::try_new(self.clone(), range)?
             .into_array()
-            .optimize()?;
-
-        // A non-empty contiguous slice preserves true constantness and sortedness facts.
-        if !sliced.is::<Constant>() {
-            for (aggregate, result) in self.aggregations().snapshot_results().iter() {
-                if (aggregate.is::<IsConstant>() || aggregate.is::<IsSorted>())
-                    && result
-                        .as_ref()
-                        .as_exact()
-                        .is_some_and(|value| value.as_bool().value() == Some(true))
-                {
-                    sliced
-                        .aggregations()
-                        .insert_result(aggregate.clone(), result.clone())?;
-                }
-            }
-        }
-
-        Ok(sliced)
+            .optimize()
     }
 
     /// Wraps the array in a [`FilterArray`] such that it is logically filtered by the given mask.
@@ -349,9 +355,9 @@ impl ArrayRef {
         match self.validity()? {
             Validity::NonNullable | Validity::AllValid => Ok(true),
             Validity::AllInvalid => Ok(false),
-            Validity::Array(a) => Ok(a
-                .aggregations()
-                .compute_as::<bool>(&Min.bind(NumericalAggregateOpts::skip_nans()), ctx)
+            Validity::Array(a) => Ok(ctx
+                .compute_aggregate_result(&a, &Min.bind(NumericalAggregateOpts::skip_nans()))
+                .and_then(|value| bool::try_from(&value))
                 .unwrap_or(false)),
         }
     }
@@ -365,9 +371,9 @@ impl ArrayRef {
         match self.validity()? {
             Validity::NonNullable | Validity::AllValid => Ok(false),
             Validity::AllInvalid => Ok(true),
-            Validity::Array(a) => Ok(!a
-                .aggregations()
-                .compute_as::<bool>(&Max.bind(NumericalAggregateOpts::skip_nans()), ctx)
+            Validity::Array(a) => Ok(!ctx
+                .compute_aggregate_result(&a, &Max.bind(NumericalAggregateOpts::skip_nans()))
+                .and_then(|value| bool::try_from(&value))
                 .unwrap_or(true)),
         }
     }
@@ -375,9 +381,8 @@ impl ArrayRef {
     /// Returns the number of valid elements in the array.
     pub fn valid_count(&self, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
         let len = self.len();
-        if let Precision::Exact(invalid_count) = self
-            .aggregations()
-            .get_result_as::<usize>(&NullCount.bind(EmptyOptions))?
+        if let Precision::Exact(invalid_count) =
+            ctx.aggregate_result_as::<usize>(self, &NullCount.bind(EmptyOptions))?
         {
             return Ok(len - invalid_count);
         }
@@ -395,7 +400,8 @@ impl ArrayRef {
         };
         vortex_ensure!(count <= len, "Valid count exceeds array length");
 
-        self.aggregations().insert_result(
+        ctx.insert_aggregate_result(
+            self,
             NullCount.bind(EmptyOptions),
             Precision::Exact(Scalar::from(u64::try_from(len - count)?)),
         )?;

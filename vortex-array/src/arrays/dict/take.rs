@@ -9,6 +9,7 @@ use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::aggregate_fn::AggregateFn;
+use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::EmptyOptions;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::is_constant::IsConstant;
@@ -103,7 +104,7 @@ where
         }
         let result = <V as TakeReduce>::take(array, parent.codes())?;
         if let Some(taken) = &result {
-            propagate_take_stats(array.array(), taken, parent.codes())?;
+            propagate_take_stats(array.array(), taken, parent.codes(), None)?;
         }
         Ok(result)
     }
@@ -134,7 +135,7 @@ where
         }
         let result = <V as TakeExecute>::take(array, parent.codes(), ctx)?;
         if let Some(taken) = &result {
-            propagate_take_stats(array.array(), taken, parent.codes())?;
+            propagate_take_stats(array.array(), taken, parent.codes(), Some(ctx))?;
         }
         Ok(result)
     }
@@ -144,7 +145,18 @@ pub(crate) fn propagate_take_stats(
     source: &ArrayRef,
     target: &ArrayRef,
     indices: &ArrayRef,
+    ctx: Option<&ExecutionCtx>,
 ) -> VortexResult<()> {
+    let get_result = |aggregate: &AggregateFnRef| {
+        ctx.map_or_else(
+            || source.aggregations().get_result(aggregate),
+            |ctx| ctx.aggregate_result(source, aggregate),
+        )
+    };
+    let insert_result = |aggregate, result| match ctx {
+        Some(ctx) => ctx.insert_aggregate_result(target, aggregate, result),
+        None => target.aggregations().insert_result(aggregate, result),
+    };
     let indices_all_valid = matches!(
         indices.validity()?,
         Validity::NonNullable | Validity::AllValid
@@ -153,27 +165,27 @@ pub(crate) fn propagate_take_stats(
     if indices_all_valid
         && !target.is_empty()
         && matches!(
-            source.aggregations().get_result_as::<bool>(&is_constant)?,
+            get_result(&is_constant)
+                .map(|value| bool::try_from(&value))
+                .transpose()?,
             Precision::Exact(true)
         )
     {
         // Taking valid indices preserves a non-empty constant input's constantness.
-        target
-            .aggregations()
-            .insert_result(is_constant, Precision::Exact(true.into()))?;
+        insert_result(is_constant, Precision::Exact(true.into()))?;
     }
 
     for aggregate in [
         AggregateFn::new(Min, NumericalAggregateOpts::default()).erased(),
         AggregateFn::new(Max, NumericalAggregateOpts::default()).erased(),
     ] {
-        let bound = source.aggregations().get_result(&aggregate).into_inexact();
+        let bound = get_result(&aggregate).into_inexact();
         if bound
             .as_ref()
             .into_inner()
             .is_some_and(|value| !value.is_null())
         {
-            target.aggregations().insert_result(aggregate, bound)?;
+            insert_result(aggregate, bound)?;
         }
     }
 

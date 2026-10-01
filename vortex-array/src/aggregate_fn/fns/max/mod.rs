@@ -188,23 +188,19 @@ impl AggregateFnVTable for Max {
         args: AggregateArgs<'_, Self::Options>,
         partial: &mut Self::Partial,
         batch: &ArrayRef,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<bool> {
         // NaN-aware shortcircuits only apply to the NaN-including float maximum; everything else
         // takes the default dispatch path.
         if args.options.skip_nans || !args.dtype.is_float() {
             return Ok(false);
         }
-        match batch
-            .aggregations()
-            .get_result_as::<u64>(&NanCount.bind(EmptyOptions))?
-        {
+        match ctx.aggregate_result_as::<u64>(batch, &NanCount.bind(EmptyOptions))? {
             Precision::Exact(0) => {
                 // NaN-free batch: the cached NaN-skipping maximum (if any) is valid. `to_scalar`
                 // re-casts to the result dtype, so the cached scalar can merge as-is.
-                if let Some(max) = batch
-                    .aggregations()
-                    .get_result(&Max.bind(NumericalAggregateOpts::skip_nans()))
+                if let Some(max) = ctx
+                    .aggregate_result(batch, &Max.bind(NumericalAggregateOpts::skip_nans()))
                     .as_exact()
                 {
                     partial.merge(args, max);

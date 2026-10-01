@@ -38,6 +38,8 @@ use crate::array::ArrayId;
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity_in;
 use crate::dtype::DType;
+use crate::input::AggregateCacheMode;
+use crate::input::AggregateInputFrame;
 use crate::matcher::Matcher;
 use crate::memory::BufferAllocatorRef;
 use crate::memory::MemorySessionExt;
@@ -353,6 +355,8 @@ pub struct ExecutionCtx {
     // OnceLock avoids cloning the session allocator when a context does not allocate.
     allocator: OnceLock<BufferAllocatorRef>,
     execute_parent_kernels: Arc<ParentExecutionKernels>,
+    pub(crate) aggregate_cache_mode: AggregateCacheMode,
+    pub(crate) aggregate_inputs: Option<Arc<AggregateInputFrame>>,
     #[cfg(debug_assertions)]
     id: usize,
     #[cfg(debug_assertions)]
@@ -371,6 +375,8 @@ impl ExecutionCtx {
             session,
             allocator: OnceLock::new(),
             execute_parent_kernels,
+            aggregate_cache_mode: AggregateCacheMode::Array,
+            aggregate_inputs: None,
             #[cfg(debug_assertions)]
             id: {
                 static EXEC_CTX_ID: AtomicUsize = AtomicUsize::new(0);

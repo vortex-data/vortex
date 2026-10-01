@@ -37,12 +37,10 @@ use crate::Canonical;
 use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::aggregate_fn::Accumulator;
 use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::AggregateFnVTableExt;
-use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::EmptyOptions;
 use crate::array::ArrayView;
 use crate::arrays::Constant;
@@ -68,25 +66,23 @@ pub fn uncompressed_size_in_bytes(array: &ArrayRef, ctx: &mut ExecutionCtx) -> V
 }
 
 fn uncompressed_size_in_bytes_u64(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<u64> {
-    if let Precision::Exact(size_scalar) = array
-        .aggregations()
-        .get_result(&UncompressedSizeInBytes.bind(EmptyOptions))
+    if let Precision::Exact(size_scalar) =
+        ctx.aggregate_result(array, &UncompressedSizeInBytes.bind(EmptyOptions))
     {
         return u64::try_from(&size_scalar)
             .map_err(|e| vortex_err!("Failed to convert uncompressed size stat to u64: {e}"));
     }
 
-    let mut acc =
-        Accumulator::try_new(UncompressedSizeInBytes, EmptyOptions, array.dtype().clone())?;
-    acc.accumulate(array, ctx)?;
-    let result = acc.finish()?;
+    let result =
+        ctx.compute_aggregate_result(array, &UncompressedSizeInBytes.bind(EmptyOptions))?;
 
     let size = result
         .as_primitive()
         .typed_value::<u64>()
         .vortex_expect("uncompressed_size_in_bytes result should not be null");
 
-    array.aggregations().insert_result(
+    ctx.insert_aggregate_result(
+        array,
         UncompressedSizeInBytes.bind(EmptyOptions),
         Precision::Exact(result),
     )?;

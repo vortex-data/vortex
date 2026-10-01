@@ -19,10 +19,12 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::aggregate_fn;
-use crate::aggregate_fn::AggregateFn;
+use crate::aggregate_fn::AggregateFnVTableExt;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::max::Max;
 use crate::aggregate_fn::fns::min::Min;
+use crate::aggregate_fn::fns::min_max::MinMax;
+use crate::aggregate_fn::fns::min_max::MinMaxResult;
 use crate::array::ArrayView;
 use crate::arrays::DecimalArray;
 use crate::arrays::Primitive;
@@ -39,6 +41,7 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::ToI256;
 use crate::dtype::i256;
+use crate::expr::stats::Precision;
 use crate::match_each_decimal_value_type;
 use crate::match_each_integer_ptype;
 use crate::match_each_native_ptype;
@@ -107,7 +110,7 @@ impl CastKernel for Primitive {
         if same_rep {
             if !values_fit_in(array, new_ptype, ctx, true) {
                 vortex_bail!(
-                    Compute: "Cannot cast {} to {} — values exceed target range",
+                    Compute: "Cannot cast {} to {}: values exceed target range",
                     src_ptype, new_ptype,
                 );
             }
@@ -160,6 +163,7 @@ fn cast_to_decimal(
                 decimal_dtype,
                 validity,
                 &valid_values,
+                ctx,
             )
         });
     }
@@ -176,16 +180,24 @@ fn cast_unscaled_same_width_signed_integer_to_decimal<S>(
     decimal_dtype: DecimalDType,
     validity: Validity,
     valid_values: &Mask,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef>
 where
     S: IntegerPType + NativeDecimalType + ToI256,
 {
     let values = array.as_slice::<S>();
-    validate_unscaled_signed_integer_values_to_decimal(values, decimal_dtype, valid_values)
-        .map_err(|idx| primitive_to_decimal_cast_error(values[idx], decimal_dtype))?;
+    let target_dtype = DType::Decimal(decimal_dtype, Nullability::NonNullable);
+    if !ctx
+        .verified_integer_bounds_fit(array.array(), &target_dtype)
+        .unwrap_or(false)
+    {
+        validate_unscaled_signed_integer_values_to_decimal(values, decimal_dtype, valid_values)
+            .map_err(|idx| primitive_to_decimal_cast_error(values[idx], decimal_dtype))?;
+    }
 
     // SAFETY: `S::DECIMAL_TYPE` has the same physical representation as the source ptype, and
-    // the validation above proves every valid value fits the requested decimal precision.
+    // either the input owner's private validation proof or the native validation above establishes
+    // that every valid value fits the decimal precision. Registered aggregates cannot mint proof.
     Ok(unsafe {
         DecimalArray::new_unchecked_handle(
             array.buffer_handle().clone(),
@@ -478,7 +490,7 @@ where
 {
     let overflow = || {
         vortex_err!(
-            Compute: "Cannot cast {} to {} — value exceeds target range",
+            Compute: "Cannot cast {} to {}: value exceeds target range",
             F::PTYPE, T::PTYPE,
         )
     };
@@ -512,7 +524,7 @@ where
     // Skip the fallible kernel when type widening or (cached) min/max prove every value fits.
     let target_dtype = DType::Primitive(T::PTYPE, Nullability::NonNullable);
     let infallible = casts_losslessly_to(F::PTYPE, T::PTYPE)
-        || cached_values_fit_in(array, &target_dtype).unwrap_or(false);
+        || cached_values_fit_in(array, &target_dtype, ctx).unwrap_or(false);
 
     let len = array.len();
 
@@ -619,7 +631,7 @@ fn values_fit_in(
     compute: bool,
 ) -> bool {
     let target_dtype = DType::Primitive(target_ptype, Nullability::NonNullable);
-    if let Some(fits) = cached_values_fit_in(array, &target_dtype) {
+    if let Some(fits) = cached_values_fit_in(array, &target_dtype, ctx) {
         return fits;
     }
     if !compute {
@@ -631,17 +643,27 @@ fn values_fit_in(
         .is_none_or(|mm| mm.min.cast(&target_dtype).is_ok() && mm.max.cast(&target_dtype).is_ok())
 }
 
-/// Cached-only check: returns `Some(fits)` if both `Min` and `Max` are present as `Exact` in the
-/// stats cache, otherwise `None`.
-fn cached_values_fit_in(array: ArrayView<'_, Primitive>, target_dtype: &DType) -> Option<bool> {
-    let stats = array.array().aggregations();
-    let min = stats
-        .get_result(&AggregateFn::new(Min, NumericalAggregateOpts::default()).erased())
-        .as_exact()?;
-    let max = stats
-        .get_result(&AggregateFn::new(Max, NumericalAggregateOpts::default()).erased())
-        .as_exact()?;
-    Some(min.cast(target_dtype).is_ok() && max.cast(target_dtype).is_ok())
+/// Cached-only range check. Inexact Min and Max are conservative integer bounds.
+fn cached_values_fit_in(
+    array: ArrayView<'_, Primitive>,
+    target_dtype: &DType,
+    ctx: &ExecutionCtx,
+) -> Option<bool> {
+    let options = NumericalAggregateOpts::skip_nans();
+    let min = ctx.aggregate_result(array.array(), &Min.bind(options));
+    let max = ctx.aggregate_result(array.array(), &Max.bind(options));
+    if let Some((min, max)) = min.into_inner().zip(max.into_inner()) {
+        return Some(min.cast(target_dtype).is_ok() && max.cast(target_dtype).is_ok());
+    }
+    let Precision::Exact(result) = ctx.aggregate_result(array.array(), &MinMax.bind(options))
+    else {
+        return None;
+    };
+    MinMaxResult::from_scalar(result).ok().map(|bounds| {
+        bounds.is_none_or(|bounds| {
+            bounds.min.cast(target_dtype).is_ok() && bounds.max.cast(target_dtype).is_ok()
+        })
+    })
 }
 
 #[cfg(test)]
