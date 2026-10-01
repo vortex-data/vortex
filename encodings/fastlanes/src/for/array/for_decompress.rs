@@ -5,6 +5,7 @@ use std::iter;
 use std::mem;
 use std::mem::MaybeUninit;
 
+use fastlanes::BitPacking;
 use fastlanes::FoR;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
@@ -12,12 +13,12 @@ use num_traits::PrimInt;
 use num_traits::WrappingAdd;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::PrimitiveBuilder;
 use vortex_array::builders::UninitRange;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PhysicalPType;
-use vortex_array::dtype::UnsignedPType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::patches::Patches;
@@ -51,14 +52,11 @@ fn decompress_one_ref(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
     // Try to do fused unpack.
-    if array.ptype().is_unsigned_int()
-        && let Some(bp) = array.encoded().as_opt::<BitPacked>()
-    {
+    if let Some(bp) = array.encoded().as_opt::<BitPacked>() {
         return fused_decompress(array, bp, ctx);
     }
 
-    // Otherwise execute array and add references.
-    add_reference(array, reference, ctx)
+    add_reference(array, reference)
 }
 
 /// Unpack a BitPacked child and add the constant reference in one pass.
@@ -67,12 +65,14 @@ pub(crate) fn fused_decompress(
     bp: ArrayView<'_, BitPacked>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
-    match_each_unsigned_integer_ptype!(for_.ptype(), |T| {
+    match_each_integer_ptype!(for_.ptype(), |T| {
         fused_decompress_typed::<T>(for_, bp, ctx)
     })
 }
 
-fn fused_decompress_typed<T: PhysicalPType<Physical = T> + UnsignedPType + FoR + WrappingAdd>(
+fn fused_decompress_typed<
+    T: PhysicalPType<Physical: FoR + BitPacking> + AsPrimitive<T::Physical> + WrappingAdd,
+>(
     for_: &FoRArray,
     bp: ArrayView<'_, BitPacked>,
     ctx: &mut ExecutionCtx,
@@ -88,23 +88,17 @@ fn fused_decompress_typed<T: PhysicalPType<Physical = T> + UnsignedPType + FoR +
 }
 
 /// Decode `encoded`, then add `reference` to every value.
-fn add_reference(
-    array: &FoRArray,
-    reference: &Scalar,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<PrimitiveArray> {
+fn add_reference(array: &FoRArray, reference: &Scalar) -> VortexResult<PrimitiveArray> {
     match_each_integer_ptype!(array.ptype(), |T| {
-        add_reference_typed::<T>(array, reference, ctx)
+        add_reference_typed::<T>(array, reference)
     })
 }
 
 fn add_reference_typed<T: NativePType + WrappingAdd + PrimInt>(
     array: &FoRArray,
     reference: &Scalar,
-    ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
-    // TODO(ngates): Do we need this to be into_encoded() somehow?
-    let encoded = array.encoded().clone().execute::<PrimitiveArray>(ctx)?;
+    let encoded = array.encoded().as_::<Primitive>().into_owned();
     let min = reference
         .as_primitive()
         .typed_value::<T>()
@@ -131,8 +125,7 @@ fn decompress_primitive<T: NativePType + WrappingAdd + PrimInt>(
 /// Decompress an array whose chunks have different references.
 fn decompress_many_refs(array: &FoRArray, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
     // Try to do fused unpack. BitPacked chunks line up with FoR chunks when the offsets match.
-    if array.ptype().is_unsigned_int()
-        && let Some(bp) = array.encoded().as_opt::<BitPacked>()
+    if let Some(bp) = array.encoded().as_opt::<BitPacked>()
         && bp.offset() == array.offset()
     {
         return fused_decompress_many_refs(array, bp, ctx);
@@ -150,12 +143,12 @@ fn add_references_typed<T: NativePType + WrappingAdd + PrimInt>(
     array: &FoRArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
-    let encoded = array.encoded().clone().execute::<PrimitiveArray>(ctx)?;
+    let encoded = array.encoded().as_::<Primitive>().into_owned();
     if encoded.is_empty() {
         return Ok(encoded);
     }
     let validity = encoded.validity()?;
-    let references = array.references().clone().execute::<PrimitiveArray>(ctx)?;
+    let references = array.references().as_::<Primitive>().into_owned();
     let references = references.as_slice::<T>();
 
     // The first chunk may be partial when the array was sliced.
@@ -222,19 +215,19 @@ fn fused_decompress_many_refs(
     bp: ArrayView<'_, BitPacked>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
-    match_each_unsigned_integer_ptype!(for_.ptype(), |T| {
+    match_each_integer_ptype!(for_.ptype(), |T| {
         fused_decompress_many_refs_typed::<T>(for_, bp, ctx)
     })
 }
 
 fn fused_decompress_many_refs_typed<
-    T: PhysicalPType<Physical = T> + UnsignedPType + FoR + WrappingAdd,
+    T: PhysicalPType<Physical: FoR + BitPacking> + AsPrimitive<T::Physical> + WrappingAdd,
 >(
     for_: &FoRArray,
     bp: ArrayView<'_, BitPacked>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
-    let references = for_.references().clone().execute::<PrimitiveArray>(ctx)?;
+    let references = for_.references().as_::<Primitive>().into_owned();
     let references = references.as_slice::<T>();
     fused_unpack(for_, bp, |chunk| references[chunk], ctx)
 }
@@ -243,7 +236,9 @@ fn fused_decompress_many_refs_typed<
 ///
 /// `chunk_reference` maps the index of a chunk, counted from the first chunk of `bp`, to its
 /// reference.
-fn fused_unpack<T: PhysicalPType<Physical = T> + UnsignedPType + FoR + WrappingAdd>(
+fn fused_unpack<
+    T: PhysicalPType<Physical: FoR + BitPacking> + AsPrimitive<T::Physical> + WrappingAdd,
+>(
     for_: &FoRArray,
     bp: ArrayView<'_, BitPacked>,
     chunk_reference: impl Fn(usize) -> T,
@@ -280,21 +275,27 @@ fn fused_unpack<T: PhysicalPType<Physical = T> + UnsignedPType + FoR + WrappingA
 ///
 /// Full chunks unpack straight into `output`. A partial first or last chunk unpacks into a scratch
 /// chunk, and only its values in `output` are copied over.
-fn unpack_chunks<T: PhysicalPType<Physical = T> + UnsignedPType + FoR>(
+fn unpack_chunks<
+    T: PhysicalPType<Physical: FoR + BitPacking> + AsPrimitive<T::Physical> + WrappingAdd,
+>(
     bp: ArrayView<'_, BitPacked>,
     chunk_reference: impl Fn(usize) -> T,
     output: &mut [MaybeUninit<T>],
 ) -> VortexResult<()> {
     let offset = usize::from(bp.offset());
     let bit_width = bp.bit_width() as usize;
-    let mut scratch = [const { MaybeUninit::<T>::uninit() }; FL_CHUNK_SIZE];
+    // SAFETY: `T::Physical` is `T` with the same size and alignment, and the unpack is the same
+    // wrapping addition in two's complement whichever signedness `T` has.
+    let output =
+        unsafe { mem::transmute::<&mut [MaybeUninit<T>], &mut [MaybeUninit<T::Physical>]>(output) };
+    let mut scratch = [const { MaybeUninit::<T::Physical>::uninit() }; FL_CHUNK_SIZE];
     for_each_packed_chunk::<T, _>(
-        bp.packed_slice::<T>(),
+        bp.packed_slice::<T::Physical>(),
         bit_width,
         offset,
         bp.len(),
         |packed, range| {
-            let reference = chunk_reference(range.start / FL_CHUNK_SIZE);
+            let reference = chunk_reference(range.start / FL_CHUNK_SIZE).as_();
             // `range` counts from the start of the first chunk, and the output starts at `offset`.
             let skip = offset.saturating_sub(range.start);
             let dst = &mut output[range.start + skip - offset..range.end - offset];
@@ -410,6 +411,18 @@ mod tests {
         let array = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7));
         let bp = BitPackedData::encode(&array.into_array(), 2, &mut ctx)?;
         let compressed = FoR::try_new(bp.clone().into_array(), 10u32.into())?;
+        let decompressed = fused_decompress(&compressed, bp.as_view(), &mut ctx)?;
+        assert_arrays_eq!(decompressed, expect, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_decompress_fused_signed_patches() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let expect = PrimitiveArray::from_iter((0i64..1024).map(|x| x % 7 - 1_000_000));
+        let array = PrimitiveArray::from_iter((0i64..1024).map(|x| x % 7));
+        let bp = BitPackedData::encode(&array.into_array(), 2, &mut ctx)?;
+        let compressed = FoR::try_new(bp.clone().into_array(), (-1_000_000i64).into())?;
         let decompressed = fused_decompress(&compressed, bp.as_view(), &mut ctx)?;
         assert_arrays_eq!(decompressed, expect, &mut ctx);
         Ok(())

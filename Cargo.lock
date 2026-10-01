@@ -11158,6 +11158,7 @@ version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
  "fastlanes 0.7.2",
+ "hegeltest",
  "itertools 0.14.0",
  "lending-iterator",
  "mimalloc",
