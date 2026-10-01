@@ -8,10 +8,15 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Constant;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::compute::conformance::consistency::test_array_consistency;
 use vortex_array::dtype::NativePType;
+use vortex_array::scalar_fn::fns::binary::CompareKernel;
+use vortex_array::scalar_fn::fns::operators::CompareOperator;
+use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::session::ArraySessionExt;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
@@ -238,5 +243,35 @@ fn fused_decode_sliced(
     );
     assert_eq!(usize::from(sliced_for.offset()), start % FL_CHUNK_SIZE);
     assert_arrays_eq!(sliced, expected.into_array().slice(start..end)?, &mut ctx);
+    Ok(())
+}
+
+#[rstest]
+#[case::whole(0, 5000)]
+#[case::sliced(1000, 3100)]
+fn compare_per_chunk(
+    #[case] start: usize,
+    #[case] end: usize,
+    #[values(CompareOperator::Eq, CompareOperator::NotEq)] operator: CompareOperator,
+    #[values(2, 3)] bit_width: u8,
+    // Chunk 1 holds 1_000_003, and every chunk holds 3 in its FoR domain.
+    #[values(1_000_003, 3)] value: u32,
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let (array, expected) = fused(bit_width)?;
+    let array = array.into_array().slice(start..end)?;
+    let rhs = ConstantArray::new(value, array.len()).into_array();
+    let expected = expected
+        .into_array()
+        .slice(start..end)?
+        .binary(rhs.clone(), Operator::from(operator))?;
+
+    let result = <FoR as CompareKernel>::compare(array.as_::<FoR>(), &rhs, operator, &mut ctx)?;
+    // A sliced BitPacked child with patches is not BitPacked, so the kernel declines it.
+    let is_bitpacked = array.as_::<FoR>().encoded().is::<crate::BitPacked>();
+    assert_eq!(result.is_some(), is_bitpacked);
+    if let Some(result) = result {
+        assert_arrays_eq!(result, expected, &mut ctx);
+    }
     Ok(())
 }

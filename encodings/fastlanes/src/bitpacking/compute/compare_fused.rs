@@ -77,15 +77,37 @@ where
     <T as PhysicalPType>::Physical: BitPacking + NativePType + BitPackingCompare,
     F: Fn(T, T) -> bool + Copy,
 {
+    // A degenerate width has no packed payload for the fused kernel to consume; defer to the scalar
+    // streaming predicate, which handles every layout (including the empty array).
+    if array.is_empty() || array.bit_width() == 0 {
+        return stream_predicate::<T, _>(array, nullability, move |v| cmp(v, rhs), ctx);
+    }
+    stream_compare_fused_per_chunk::<T, _, _>(array, |_| rhs, nullability, cmp, ctx)
+}
+
+/// Like [`stream_compare_fused`], but compares each 1024-element block against its own constant:
+/// element `i` is compared against `rhs((offset + i) / 1024)`, where `offset` is the array's offset
+/// into its first block.
+///
+/// The array must be non-empty with a non-zero bit width.
+pub(crate) fn stream_compare_fused_per_chunk<T, F, R>(
+    array: ArrayView<'_, BitPacked>,
+    rhs: R,
+    nullability: Nullability,
+    cmp: F,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef>
+where
+    T: NativePType
+        + BitPackedIter
+        + FastLanesComparable<Bitpacked = <T as PhysicalPType>::Physical>,
+    <T as PhysicalPType>::Physical: BitPacking + NativePType + BitPackingCompare,
+    F: Fn(T, T) -> bool + Copy,
+    R: Fn(usize) -> T,
+{
     let len = array.len();
     let bit_width = array.bit_width() as usize;
     let offset = array.offset() as usize;
-
-    // A degenerate width has no packed payload for the fused kernel to consume; defer to the scalar
-    // streaming predicate, which handles every layout (including the empty array).
-    if len == 0 || bit_width == 0 {
-        return stream_predicate::<T, _>(array, nullability, move |v| cmp(v, rhs), ctx);
-    }
 
     // Over-allocate to whole 1024-bit blocks in padded coordinates so every block - including the
     // trailing partial - has room for a full untranspose at a 64-bit-word-aligned offset.
@@ -112,7 +134,13 @@ where
                     <<T as PhysicalPType>::Physical as BitPackingCompare>::unchecked_unpack_cmp::<
                         T,
                         _,
-                    >(bit_width, packed_chunk, &mut lane_major, cmp, rhs);
+                    >(
+                        bit_width,
+                        packed_chunk,
+                        &mut lane_major,
+                        cmp,
+                        rhs(range.start / CHUNK_SIZE),
+                    );
                 }
                 transpose_bits::<<T as PhysicalPType>::Physical>(&lane_major, out);
             },
@@ -135,7 +163,7 @@ where
             for (&global, &value) in indices.iter().zip(values) {
                 let global: usize = global.as_();
                 let idx = global - p_off;
-                bits.set_to(idx, cmp(value, rhs))
+                bits.set_to(idx, cmp(value, rhs((offset + idx) / CHUNK_SIZE)))
             }
         });
     }

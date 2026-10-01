@@ -3,48 +3,58 @@
 
 use std::ops::Shr;
 
+use fastlanes::BitPacking;
+use fastlanes::BitPackingCompare;
+use fastlanes::FastLanesComparable;
 use num_traits::WrappingSub;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PhysicalPType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::binary::CompareKernel;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_buffer::Buffer;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 
+use crate::BitPacked;
+use crate::BitPackedArrayExt;
 use crate::FoR;
+use crate::bitpacking::compute::compare_fused::stream_compare_fused_per_chunk;
 use crate::r#for::array::FoRArrayExt;
 use crate::r#for::array::FoRArraySlotsExt;
+use crate::unpack_iter::BitPacked as BitPackedIter;
 
 impl CompareKernel for FoR {
     fn compare(
         lhs: ArrayView<'_, Self>,
         rhs: &ArrayRef,
         operator: CompareOperator,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         if let Some(constant) = rhs.as_constant()
             && let Some(constant) = constant.as_primitive_opt()
         {
             match_each_integer_ptype!(constant.ptype(), |T| {
-                return compare_constant(
-                    lhs,
-                    constant
-                        .typed_value::<T>()
-                        .vortex_expect("null scalar handled in adaptor"),
-                    rhs.dtype().nullability(),
-                    operator,
-                );
+                let constant = constant
+                    .typed_value::<T>()
+                    .vortex_expect("null scalar handled in adaptor");
+                let nullability = rhs.dtype().nullability();
+                if lhs.constant_reference().is_none() {
+                    return compare_constant_per_chunk(lhs, constant, nullability, operator, ctx);
+                }
+                return compare_constant(lhs, constant, nullability, operator);
             })
         }
 
@@ -69,8 +79,6 @@ where
         return Ok(None);
     }
 
-    // TODO(mk): support many references.
-
     let Some(reference) = lhs.constant_reference() else {
         return Ok(None);
     };
@@ -91,6 +99,64 @@ where
             Operator::from(operator),
         )
         .map(Some)
+}
+
+/// Compare an array with per-chunk references against `rhs`.
+///
+/// Each chunk moves `rhs` into its own FoR domain, and the BitPacked child compares every chunk
+/// against its own constant while unpacking, so no reference is ever added to the values.
+fn compare_constant_per_chunk<T>(
+    lhs: ArrayView<'_, FoR>,
+    rhs: T,
+    nullability: Nullability,
+    operator: CompareOperator,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>>
+where
+    T: NativePType
+        + WrappingSub
+        + BitPackedIter
+        + FastLanesComparable<Bitpacked = <T as PhysicalPType>::Physical>,
+    <T as PhysicalPType>::Physical: BitPacking + NativePType + BitPackingCompare,
+{
+    // As with a single reference, only equality survives the wrapping subtraction.
+    if !matches!(operator, CompareOperator::Eq | CompareOperator::NotEq) {
+        return Ok(None);
+    }
+
+    // BitPacked blocks line up with FoR chunks when the offsets match.
+    let Some(bp) = lhs.encoded().as_opt::<BitPacked>() else {
+        return Ok(None);
+    };
+    if bp.is_empty() || bp.bit_width() == 0 || bp.offset() != lhs.offset() {
+        return Ok(None);
+    }
+
+    let references = lhs.references().clone().execute::<PrimitiveArray>(ctx)?;
+    let rhs: Buffer<T> = references
+        .as_slice::<T>()
+        .iter()
+        .map(|reference| rhs.wrapping_sub(reference))
+        .collect();
+
+    let nullability = lhs.dtype().nullability() | nullability;
+    let result = match operator {
+        CompareOperator::Eq => stream_compare_fused_per_chunk::<T, _, _>(
+            bp,
+            |chunk| rhs[chunk],
+            nullability,
+            |a, b| a.is_eq(b),
+            ctx,
+        ),
+        _ => stream_compare_fused_per_chunk::<T, _, _>(
+            bp,
+            |chunk| rhs[chunk],
+            nullability,
+            |a, b| !a.is_eq(b),
+            ctx,
+        ),
+    };
+    result.map(Some)
 }
 
 #[cfg(test)]
