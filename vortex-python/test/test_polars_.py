@@ -149,3 +149,11 @@ def test_unsigned_predicate_pushdown(tmp_path, arrow_type, threshold):
     result = vx.open(str(path)).to_polars().filter(expr).collect()
     assert_frame_equal(result, expected)
     assert result["id"].to_list() == [1, 2]
+
+
+def test_is_not_null_predicate_pushdown(tmp_path):
+    table = pa.table({"id": [0, 1, 2], "value": ["first", None, "last"]})
+    path = tmp_path / "non_null.vortex"
+    vx.io.write(vx.array(table), str(path))
+    result = vx.open(str(path)).to_polars().filter(pl.col("value").is_not_null()).collect()
+    assert result["id"].to_list() == [0, 2]
