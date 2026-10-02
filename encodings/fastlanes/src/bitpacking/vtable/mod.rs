@@ -44,7 +44,9 @@ use crate::BitPackedDataParts;
 use crate::BitWidths;
 use crate::FL_CHUNK_SIZE;
 use crate::bitpack_decompress::unpack_array;
+use crate::bitpack_decompress::unpack_array_blocked;
 use crate::bitpack_decompress::unpack_into_primitive_builder;
+use crate::bitpack_decompress::unpack_into_primitive_builder_blocked;
 use crate::bitpacking::array::BitPackedSlots;
 use crate::bitpacking::array::BitPackedSlotsView;
 use crate::bitpacking::array::PATCH_SLOTS;
@@ -186,15 +188,18 @@ impl VTable for BitPacked {
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
+        let bit_widths = array.bit_widths();
         match_each_integer_ptype!(array.dtype().as_ptype(), |T| {
-            unpack_into_primitive_builder::<T>(
-                array,
-                builder
-                    .as_any_mut()
-                    .downcast_mut()
-                    .vortex_expect("bit packed array must canonicalize into a primitive array"),
-                ctx,
-            )
+            let builder = builder
+                .as_any_mut()
+                .downcast_mut()
+                .vortex_expect("bit packed array must canonicalize into a primitive array");
+            match &bit_widths {
+                BitWidths::Global(_) => unpack_into_primitive_builder::<T>(array, builder, ctx),
+                BitWidths::Blocked(offsets) => {
+                    unpack_into_primitive_builder_blocked::<T>(array, offsets, builder, ctx)
+                }
+            }
         })
     }
 
@@ -211,9 +216,11 @@ impl VTable for BitPacked {
         );
         require_validity!(array, BitPackedSlots::VALIDITY_CHILD);
 
-        Ok(ExecutionResult::done(
-            unpack_array(array.as_view(), ctx)?.into_array(),
-        ))
+        let decoded = match array.bit_widths() {
+            BitWidths::Global(_) => unpack_array(array.as_view(), ctx)?,
+            BitWidths::Blocked(offsets) => unpack_array_blocked(array.as_view(), &offsets, ctx)?,
+        };
+        Ok(ExecutionResult::done(decoded.into_array()))
     }
 
     fn reduce_parent(

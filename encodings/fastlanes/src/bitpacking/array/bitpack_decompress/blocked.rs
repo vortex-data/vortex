@@ -15,7 +15,10 @@ use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::PrimitiveBuilder;
-use vortex_array::dtype::NativePType;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::dtype::PhysicalPType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
@@ -33,19 +36,19 @@ use crate::bitpacking::array::validate_primitive_offsets;
 use crate::unpack_iter::BitPacked as BitPackedUnpack;
 
 /// Unpacks a bit-packed array with block `offsets` into a primitive array.
-pub(super) fn unpack_array(
+pub fn unpack_array_blocked(
     array: ArrayView<'_, BitPacked>,
-    offsets: ArrayRef,
+    offsets: &ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
     match_each_integer_ptype!(array.dtype().as_ptype(), |P| {
-        unpack_primitive_array::<P>(array, offsets, ctx)
+        unpack_primitive_array_blocked::<P>(array, offsets, ctx)
     })
 }
 
-pub(super) fn unpack_primitive_array<T: BitPackedUnpack>(
+pub fn unpack_primitive_array_blocked<T: BitPackedUnpack>(
     array: ArrayView<'_, BitPacked>,
-    offsets: ArrayRef,
+    offsets: &ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
     let mut builder = PrimitiveBuilder::with_capacity_in(
@@ -53,91 +56,34 @@ pub(super) fn unpack_primitive_array<T: BitPackedUnpack>(
         array.len(),
         ctx.allocator(),
     );
-    unpack_into_primitive_builder::<T>(array, offsets, &mut builder, ctx)?;
+    unpack_into_primitive_builder_blocked::<T>(array, offsets, &mut builder, ctx)?;
     assert_eq!(builder.len(), array.len());
     Ok(builder.finish_into_primitive())
 }
 
 /// Unpack a bit-packed array with block `offsets` directly into a same-typed `PrimitiveBuilder`.
 ///
-/// Full blocks unpack straight into the output, except in multi-block u64 arrays: direct stores of
-/// their 8 KiB blocks were slower in benchmarks, so those go through scratch.
-pub(super) fn unpack_into_primitive_builder<T: BitPackedUnpack>(
+/// The offsets are executed and validated before the builder is touched. Full blocks are unpacked
+/// straight into the output; a partial first or last block is unpacked into a scratch block.
+pub(crate) fn unpack_into_primitive_builder_blocked<T: BitPackedUnpack>(
     array: ArrayView<'_, BitPacked>,
-    offsets: ArrayRef,
+    offsets: &ArrayRef,
     builder: &mut PrimitiveBuilder<T>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
-    let unpack_full_block = (size_of::<T>() < size_of::<u64>() || array.len() <= FL_CHUNK_SIZE)
-        .then_some(unpack_block_into::<T> as UnpackFullBlock<T, T>);
-    unpack_into_builder_with(array, offsets, builder, ctx, |v: T| v, unpack_full_block)
-}
-
-/// Unpack a bit-packed array of physical type `F` with block `offsets` into a
-/// `PrimitiveBuilder<T>`, applying `map` to each value.
-///
-/// Every block unpacks into a scratch block and is written through `map`. The caller must ensure
-/// that every valid source value is representable in `T` under `map`.
-pub(super) fn unpack_map_into_builder<F, T, M>(
-    array: ArrayView<'_, BitPacked>,
-    offsets: ArrayRef,
-    builder: &mut PrimitiveBuilder<T>,
-    ctx: &mut ExecutionCtx,
-    map: M,
-) -> VortexResult<()>
-where
-    F: BitPackedUnpack,
-    T: NativePType,
-    M: Fn(F) -> T,
-{
-    unpack_into_builder_with(array, offsets, builder, ctx, map, None)
-}
-
-/// Unpack one full block of `T` packed at `bit_width` straight into `output`.
-type UnpackFullBlock<F, T> =
-    unsafe fn(usize, &[<F as PhysicalPType>::Physical], &mut [MaybeUninit<T>]);
-
-/// # Safety
-///
-/// `packed` must hold one block at `bit_width` bits, `bit_width` must fit `T`, and `output` must
-/// have room for exactly one block.
-unsafe fn unpack_block_into<T: BitPackedUnpack>(
-    bit_width: usize,
-    packed: &[T::Physical],
-    output: &mut [MaybeUninit<T>],
-) {
-    // SAFETY: `T` and its physical type have the same layout, and the caller upholds the block
-    // invariants of `unchecked_unpack`.
-    unsafe {
-        let output: &mut [T::Physical] = mem::transmute(output);
-        BitPacking::unchecked_unpack(bit_width, packed, output);
-    }
-}
-
-/// Execute and validate the block offsets before touching the builder, then decode every block.
-fn unpack_into_builder_with<F, T, M>(
-    array: ArrayView<'_, BitPacked>,
-    offsets: ArrayRef,
-    builder: &mut PrimitiveBuilder<T>,
-    ctx: &mut ExecutionCtx,
-    map: M,
-    unpack_full_block: Option<UnpackFullBlock<F, T>>,
-) -> VortexResult<()>
-where
-    F: BitPackedUnpack,
-    T: NativePType,
-    M: Fn(F) -> T,
-{
     if array.is_empty() {
         return Ok(());
     }
     assert_eq!(
-        F::PTYPE,
+        T::PTYPE,
         array.dtype().as_ptype(),
         "Requested type doesn't match the array ptype"
     );
 
-    let offsets = offsets.execute::<PrimitiveArray>(ctx)?;
+    // Decoding one offset type compiles the block loop once per value type.
+    let offsets = offsets
+        .cast(DType::Primitive(PType::U64, Nullability::NonNullable))?
+        .execute::<PrimitiveArray>(ctx)?;
     let num_blocks = (array.len() + usize::from(array.offset())).div_ceil(FL_CHUNK_SIZE);
     vortex_ensure!(
         offsets.len() == num_blocks + 1,
@@ -145,35 +91,13 @@ where
         num_blocks + 1,
         offsets.len()
     );
-    let buffer = offsets.buffer_handle().try_to_host_sync()?;
-    match_each_unsigned_integer_ptype!(offsets.ptype(), |I| {
-        let offsets = Buffer::<I>::from_byte_buffer(buffer);
-        validate_primitive_offsets(
-            &offsets,
-            array.dtype().as_ptype().bit_width() as u64,
-            array.packed().len(),
-        )?;
-        decode_into_builder::<F, T, I, M>(array, &offsets, builder, ctx, map, unpack_full_block)
-    })
-}
+    let offsets = Buffer::<u64>::from_byte_buffer(offsets.buffer_handle().try_to_host_sync()?);
+    validate_primitive_offsets(
+        &offsets,
+        array.dtype().as_ptype().bit_width() as u64,
+        array.packed().len(),
+    )?;
 
-/// Append the validity and the blocks between validated `offsets` to `builder`, then apply any
-/// patches.
-fn decode_into_builder<F, T, I, M>(
-    array: ArrayView<'_, BitPacked>,
-    offsets: &[I],
-    builder: &mut PrimitiveBuilder<T>,
-    ctx: &mut ExecutionCtx,
-    map: M,
-    unpack_full_block: Option<UnpackFullBlock<F, T>>,
-) -> VortexResult<()>
-where
-    F: BitPackedUnpack,
-    T: NativePType,
-    I: Copy,
-    u64: From<I>,
-    M: Fn(F) -> T,
-{
     let len = array.len();
     let validity = array.validity()?.execute_mask(len, ctx)?;
     let mut uninit_range = builder.uninit_range(len);
@@ -186,10 +110,10 @@ where
     // SAFETY: `decode_blocks` writes a value to every slot in this range.
     let uninit_slice = unsafe { uninit_range.slice_uninit_mut(0, len) };
 
-    decode_blocks(array, offsets, uninit_slice, &map, unpack_full_block);
+    decode_blocks(array, &offsets, uninit_slice);
 
     if let Some(patches) = array.patches() {
-        apply_patches_to_uninit_range(&mut uninit_range, &patches, ctx, &map)?;
+        apply_patches_to_uninit_range(&mut uninit_range, &patches, ctx, |v: T| v)?;
     }
 
     // SAFETY: A correct validity mask of `len` values was set via `append_mask`, and the same
@@ -201,49 +125,39 @@ where
 }
 
 /// Decode the blocks between validated `offsets` into `output`.
-fn decode_blocks<F, T, I, M>(
+fn decode_blocks<T: BitPackedUnpack>(
     array: ArrayView<'_, BitPacked>,
-    offsets: &[I],
+    offsets: &[u64],
     output: &mut [MaybeUninit<T>],
-    map: &M,
-    unpack_full_block: Option<UnpackFullBlock<F, T>>,
-) where
-    F: BitPackedUnpack,
-    T: NativePType,
-    I: Copy,
-    u64: From<I>,
-    M: Fn(F) -> T,
-{
-    let packed = array.packed_slice::<F::Physical>();
-    let mut scratch = [const { MaybeUninit::<F>::uninit() }; FL_CHUNK_SIZE];
-    let base = u64::from(offsets[0]);
+) {
+    let packed = array.packed_slice::<T::Physical>();
+    let mut scratch = [const { MaybeUninit::<T>::uninit() }; FL_CHUNK_SIZE];
+    let base = offsets[0];
     let mut skip = usize::from(array.offset());
     let mut written = 0;
     for pair in offsets.windows(2) {
         // Validation bounds these differences by the packed buffer's usize length.
-        let start = (u64::from(pair[0]) - base) as usize;
-        let end = (u64::from(pair[1]) - base) as usize;
+        let start = (pair[0] - base) as usize;
+        let end = (pair[1] - base) as usize;
         let bit_width = (end - start) / 128;
-        let block = &packed[start / size_of::<F>()..end / size_of::<F>()];
+        let block = &packed[start / size_of::<T>()..end / size_of::<T>()];
         let len = (FL_CHUNK_SIZE - skip).min(output.len() - written);
         let dst = &mut output[written..][..len];
-        if len == FL_CHUNK_SIZE
-            && let Some(unpack_full_block) = unpack_full_block
-        {
+        if len == FL_CHUNK_SIZE {
             // SAFETY: The boundaries have been validated against the packed length and physical
-            // type, and `dst` holds exactly one block.
-            unsafe { unpack_full_block(bit_width, block, dst) };
-        } else {
-            // SAFETY: The boundaries have been validated against the packed length and physical
-            // type. The scratch buffer holds exactly one complete FastLanes block.
-            let values = unsafe {
-                let unpacked: &mut [F::Physical] = mem::transmute(&mut scratch[..]);
-                BitPacking::unchecked_unpack(bit_width, block, unpacked);
-                mem::transmute::<&[MaybeUninit<F>], &[F]>(&scratch[..])
-            };
-            for (slot, &value) in dst.iter_mut().zip(&values[skip..][..len]) {
-                slot.write(map(value));
+            // type, and `dst` holds exactly one block. `T` and its physical type have the same
+            // layout.
+            unsafe {
+                let dst: &mut [T::Physical] = mem::transmute(dst);
+                BitPacking::unchecked_unpack(bit_width, block, dst);
             }
+        } else {
+            // SAFETY: As above, with the scratch block as the destination.
+            unsafe {
+                let unpacked: &mut [T::Physical] = mem::transmute(&mut scratch[..]);
+                BitPacking::unchecked_unpack(bit_width, block, unpacked);
+            }
+            dst.copy_from_slice(&scratch[skip..][..len]);
         }
         written += len;
         skip = 0;
@@ -254,7 +168,7 @@ fn decode_blocks<F, T, I, M>(
 /// Decode a single value of a bit-packed array with block `offsets`, without applying patches.
 ///
 /// Only the boundaries of the value's block are read and validated.
-pub(crate) fn unpack_single_blocked(
+pub fn unpack_single_blocked(
     array: ArrayView<'_, BitPacked>,
     offsets: &ArrayRef,
     index: usize,
@@ -345,7 +259,6 @@ mod tests {
     use crate::bitpack_compress::bitpack_encode_blocked;
     use crate::bitpack_compress::bitpack_primitive;
     use crate::bitpack_compress::bitpack_to_best_bit_widths;
-    use crate::bitpack_decompress::unpack_map_into_builder;
     use crate::test::SESSION;
 
     fn variable(
@@ -464,28 +377,6 @@ mod tests {
     }
 
     #[test]
-    fn same_type_mapped_decode_applies_map_to_full_blocks() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-        let (array, expected) = variable(PType::U32, 17, 4000, false)?;
-        let mut builder = PrimitiveBuilder::<u32>::with_capacity_in(
-            Nullability::NonNullable,
-            array.len(),
-            ctx.allocator(),
-        );
-        unpack_map_into_builder::<u32, u32, _>(array.as_view(), &mut builder, &mut ctx, |value| {
-            value.wrapping_add(1)
-        })?;
-        let expected = PrimitiveArray::from_iter(
-            expected
-                .as_slice::<u32>()
-                .iter()
-                .map(|value| value.wrapping_add(1)),
-        );
-        assert_arrays_eq!(builder.finish_into_primitive(), expected, &mut ctx);
-        Ok(())
-    }
-
-    #[test]
     fn decode_zero_width_blocks_with_constant_offsets() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let array = BitPacked::try_new_with_block_offsets(
@@ -501,8 +392,8 @@ mod tests {
         Ok(())
     }
 
-    #[rstest]
-    fn decode_with_nulls_and_patches(#[values(false, true)] mapped: bool) -> VortexResult<()> {
+    #[test]
+    fn decode_with_nulls_and_patches() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let (array, expected) = variable(PType::U32, 17, 3100, true)?;
         let mut values: Vec<_> = expected
@@ -537,40 +428,17 @@ mod tests {
             array.len(),
             array.offset(),
         )?;
-        if mapped {
-            let mut builder = PrimitiveBuilder::<u64>::with_capacity_in(
-                Nullability::Nullable,
-                array.len() + 2,
-                ctx.allocator(),
-            );
-            builder.append_null();
-            unpack_map_into_builder::<u32, u64, _>(
-                array.as_view(),
-                &mut builder,
-                &mut ctx,
-                u64::from,
-            )?;
-            builder.append_value(7);
-            let expected = PrimitiveArray::from_option_iter(
-                [None]
-                    .into_iter()
-                    .chain(values.into_iter().map(|value| value.map(u64::from)))
-                    .chain([Some(7)]),
-            );
-            assert_arrays_eq!(builder.finish_into_primitive(), expected, &mut ctx);
-        } else {
-            let mut builder = PrimitiveBuilder::<u32>::with_capacity_in(
-                Nullability::Nullable,
-                array.len() + 2,
-                ctx.allocator(),
-            );
-            builder.append_null();
-            array.append_to_builder(&mut builder, &mut ctx)?;
-            builder.append_value(7);
-            let appended =
-                PrimitiveArray::from_option_iter([None].into_iter().chain(values).chain([Some(7)]));
-            assert_arrays_eq!(builder.finish_into_primitive(), appended, &mut ctx);
-        }
+        let mut builder = PrimitiveBuilder::<u32>::with_capacity_in(
+            Nullability::Nullable,
+            array.len() + 2,
+            ctx.allocator(),
+        );
+        builder.append_null();
+        array.append_to_builder(&mut builder, &mut ctx)?;
+        builder.append_value(7);
+        let appended =
+            PrimitiveArray::from_option_iter([None].into_iter().chain(values).chain([Some(7)]));
+        assert_arrays_eq!(builder.finish_into_primitive(), appended, &mut ctx);
         for index in [0, 1007, 1008, 2031, 2032, 2048, 3099] {
             assert_eq!(
                 array.execute_scalar(index, &mut ctx)?,
@@ -713,6 +581,19 @@ mod tests {
         let bit_widths = [0, u8::try_from(ptype.bit_width())?, 1, 3];
         let encoded = bitpack_encode_blocked(&array, &bit_widths, None, &mut ctx)?;
         assert_arrays_eq!(encoded, array, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn for_decodes_blocked_child() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = blocked_values::<u32>(4000);
+        let encoded =
+            bitpack_to_best_bit_widths(&PrimitiveArray::from_iter(values.clone()), &mut ctx)?;
+        let array = FoR::try_new(encoded.into_array(), 1000u32.into())?;
+        let expected =
+            PrimitiveArray::from_iter(values.into_iter().map(|value| value.wrapping_add(1000)));
+        assert_arrays_eq!(array, expected, &mut ctx);
         Ok(())
     }
 }

@@ -150,7 +150,11 @@ fn block_range(
     packed_len: usize,
 ) -> VortexResult<Range<usize>> {
     vortex_ensure!(
-        base <= start && start <= end && end - base <= packed_len as u64,
+        base <= start && start <= end,
+        "Block boundaries {start} and {end} are decreasing (base {base})"
+    );
+    vortex_ensure!(
+        end - base <= packed_len as u64,
         "Block boundaries {start} and {end} are outside the packed buffer (base {base})"
     );
     let size = end - start;

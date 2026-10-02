@@ -14,8 +14,9 @@ use num_traits::AsPrimitive;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
+use vortex_fastlanes::BitPackedArraySlotsExt;
 use vortex_fastlanes::bitpack_compress::bitpack_encode_blocked;
-use vortex_fastlanes::bitpack_decompress::unpack_array;
+use vortex_fastlanes::bitpack_decompress::unpack_array_blocked;
 use vortex_session::VortexSession;
 
 #[global_allocator]
@@ -34,8 +35,6 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 /// 64 blocks per array: shorter iterations are noisy on the walltime legs.
 const NUM_BLOCKS: usize = 64;
 
-/// `u32` unpacks full blocks straight into the output, while multi-block `u64` arrays unpack
-/// through scratch.
 #[vortex_bench_support::cpu_features]
 #[divan::bench(types = [u32, u64])]
 fn bitpack_blocked_decompress<T>(bencher: Bencher)
@@ -57,8 +56,14 @@ where
         &mut SESSION.create_execution_ctx(),
     )
     .unwrap();
+    let offsets = array.block_offsets().unwrap().clone();
 
     bencher.counter(ItemsCount::new(array.len())).bench(|| {
-        unpack_array(array.as_view(), &mut SESSION.create_execution_ctx()).unwrap()
+        unpack_array_blocked(
+            array.as_view(),
+            &offsets,
+            &mut SESSION.create_execution_ctx(),
+        )
+        .unwrap()
     });
 }

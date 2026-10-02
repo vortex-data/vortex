@@ -283,16 +283,18 @@ fn too_wide_block_panics_in_debug(
 }
 
 #[rstest]
-#[case::unaligned(buffer![0u64, 384, 1023])]
-#[case::decreasing(buffer![0u64, 640, 128])]
-#[case::wrong_span(buffer![0u64, 512, 896])]
-#[case::too_wide(buffer![0u64, 4224, 4352])]
+#[case::unaligned(buffer![0u64, 384, 1023], 1024, "supported bit width")]
+#[case::decreasing(buffer![0u64, 640, 128], 1024, "decreasing")]
+#[case::wrong_span(buffer![0u64, 512, 896], 1024, "span")]
+#[case::too_wide(buffer![0u64, 4224, 4352], 4352, "supported bit width")]
 fn invalid_encoded_offsets_leave_builder_unchanged(
     #[case] offsets: vortex_buffer::Buffer<u64>,
+    #[case] packed_len: usize,
+    #[case] error: &str,
 ) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let array = BitPacked::try_new_with_block_offsets(
-        BufferHandle::new_host(ByteBuffer::zeroed(1024)),
+        BufferHandle::new_host(ByteBuffer::zeroed(packed_len)),
         PType::U32,
         Validity::AllValid,
         None,
@@ -306,7 +308,11 @@ fn invalid_encoded_offsets_leave_builder_unchanged(
         ctx.allocator(),
     );
     builder.append_null();
-    assert!(array.append_to_builder(&mut builder, &mut ctx).is_err());
+    let err = array
+        .append_to_builder(&mut builder, &mut ctx)
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains(error), "{err}");
     builder.append_value(7);
     assert_arrays_eq!(
         builder.finish_into_primitive(),
