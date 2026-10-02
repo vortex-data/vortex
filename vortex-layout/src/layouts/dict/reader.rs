@@ -26,6 +26,8 @@ use vortex_array::expr::direct_bound_annotations;
 use vortex_array::expr::label_bound_tree;
 use vortex_array::expr::root;
 use vortex_array::expr::transform::partition_bound_annotations;
+use vortex_array::expr::traversal::TraversalOrder;
+use vortex_array::expr::traversal::pre_order_visit_down;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::scalar_fn::is_negative_cost;
 use vortex_error::VortexError;
@@ -177,6 +179,42 @@ impl DictReader {
 // "outer" expects this name as input.
 const PUSHDOWN_ANNOTATION: &str = "";
 
+/// Returns whether the expression references the scope root anywhere in its tree.
+fn references_root(expr: &BoundExpression) -> bool {
+    let mut found = false;
+    pre_order_visit_down(expr, |node| {
+        if node.is_root() {
+            found = true;
+            Ok(TraversalOrder::Stop)
+        } else {
+            Ok(TraversalOrder::Continue)
+        }
+    })
+    .vortex_expect("bound expression traversal cannot fail");
+    found
+}
+
+/// Returns whether every scalar function in the tree is infallible.
+///
+/// Evaluating the filter against the dictionary values touches values that no row may
+/// reference, so a fallible function could fail during pruning when row-wise evaluation
+/// would succeed. Generic dictionary pruning is therefore restricted to infallible trees
+/// (see the soundness caveat on `DictReader::values_eval`).
+fn is_infallible(expr: &BoundExpression) -> bool {
+    let mut infallible = true;
+    pre_order_visit_down(expr, |node| {
+        if let Some(scalar_fn) = node.as_scalar()
+            && !scalar_fn.signature().is_infallible()
+        {
+            infallible = false;
+            return Ok(TraversalOrder::Stop);
+        }
+        Ok(TraversalOrder::Continue)
+    })
+    .vortex_expect("bound expression traversal cannot fail");
+    infallible
+}
+
 /// Split expression into two parts:
 ///
 /// left is the outer part that we want to apply to array after canonicalizing.
@@ -242,14 +280,47 @@ impl LayoutReader for DictReader {
     fn pruning_evaluation(
         &self,
         _row_range: &Range<u64>,
-        _expr: &BoundExpression,
+        expr: &BoundExpression,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
         // NOTE: we can get the values here, convert expression to the codes domain, and push down
         // to the codes child. We don't do that here because:
         // - Reading values only for an approx filter is expensive
         // - In practice, all stats based pruning evaluation should be already done upstream of this dict reader
-        Ok(MaskFuture::ready(mask))
+        //
+        // Generic exception: any boolean filter that references the root and is infallible can
+        // be evaluated against just the (small) dictionary values via the `values_eval` cache.
+        // If no dictionary value matches (nulls treated as false, matching filter semantics),
+        // every row is false and we prune the whole range without fetching the codes child at
+        // all. This covers `list_contains(root, needle)` as well as `eq`, `like`, etc. without
+        // matching on any particular expression id. The evaluated result is cached, so a
+        // non-pruned range reuses it in `filter_evaluation` instead of paying for a second
+        // values read.
+        if !matches!(expr.dtype(), DType::Bool(_)) {
+            return Ok(MaskFuture::ready(mask));
+        }
+        if !references_root(expr) {
+            return Ok(MaskFuture::ready(mask));
+        }
+        if !is_infallible(expr) {
+            return Ok(MaskFuture::ready(mask));
+        }
+        let len = mask.len();
+        if mask.all_false() {
+            return Ok(MaskFuture::ready(mask));
+        }
+        let values_eval = self.values_eval(expr.clone());
+        let session = self.session.clone();
+        Ok(MaskFuture::new(len, async move {
+            let values_result = values_eval.await.map_err(VortexError::from)?;
+            let mut ctx = session.create_execution_ctx();
+            let values_mask = values_result.null_as_false().execute(&mut ctx)?;
+            if values_mask.all_false() {
+                Ok(Mask::new_false(len))
+            } else {
+                Ok(mask)
+            }
+        }))
     }
 
     fn filter_evaluation(
