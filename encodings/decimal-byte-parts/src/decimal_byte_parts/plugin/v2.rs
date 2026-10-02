@@ -74,7 +74,11 @@ pub(super) fn deserialize(parts: ArrayDeserialization<'_>) -> VortexResult<Decim
         lower_part_count <= MAX_LOWER_PARTS,
         "v2 carries at most {MAX_LOWER_PARTS} lower parts, got {lower_part_count}"
     );
-    vortex_ensure_eq!(parts.children.len(), 1 + lower_part_count);
+    vortex_ensure_eq!(
+        parts.children.len(),
+        1 + lower_part_count,
+        "v2 expects the msp child plus one child per lower part"
+    );
 
     let msp_ptype = PType::try_from(metadata.msp_ptype)?;
     vortex_ensure!(

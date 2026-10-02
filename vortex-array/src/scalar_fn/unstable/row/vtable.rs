@@ -421,7 +421,9 @@ mod tests {
         };
 
         assert!(
-            error.to_string().contains("expected a u64 column"),
+            error
+                .to_string()
+                .contains("row input column has the wrong ptype"),
             "unexpected error: {error}",
         );
         Ok(())

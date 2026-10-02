@@ -312,7 +312,7 @@ mod tests {
             .unwrap();
         assert!(
             err.to_string()
-                .contains("StructArray has 1 fields, but target Arrow type has 2 fields")
+                .contains("StructArray field count must match the target Arrow type")
         );
         Ok(())
     }

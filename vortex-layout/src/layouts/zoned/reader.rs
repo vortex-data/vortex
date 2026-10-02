@@ -536,7 +536,7 @@ mod test {
     #[rstest]
     #[case::too_few_zones(2)]
     #[case::too_many_zones(5)]
-    #[should_panic(expected = "declares 3 zones")]
+    #[should_panic(expected = "zone count must cover 9 rows of")]
     fn new_reader_rejects_mismatched_zone_count(
         #[from(stats_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
         #[case] zone_len: usize,

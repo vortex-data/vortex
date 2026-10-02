@@ -168,8 +168,16 @@ impl UnionVariants {
 impl UnionVariants {
     /// Validate that `names`, `dtypes`, and `type_ids` are mutually consistent.
     fn validate_shape(names: &FieldNames, n_dtypes: usize, type_ids: &[u8]) -> VortexResult<()> {
-        vortex_ensure_eq!(names.len(), n_dtypes);
-        vortex_ensure_eq!(names.len(), type_ids.len());
+        vortex_ensure_eq!(
+            names.len(),
+            n_dtypes,
+            "union names and dtypes length mismatch"
+        );
+        vortex_ensure_eq!(
+            names.len(),
+            type_ids.len(),
+            "union names and type_ids length mismatch"
+        );
         vortex_ensure!(
             !names.is_empty(),
             "union must have at least one variant (for now)"
