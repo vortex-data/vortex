@@ -275,7 +275,8 @@ impl ArrayRef {
             }
 
             let expected_len = current_array.len();
-            let expected_dtype = current_array.dtype().clone();
+            // Only the debug postcondition compares dtypes, so skip the clone otherwise.
+            let expected_dtype = cfg!(debug_assertions).then(|| current_array.dtype().clone());
             let stats = current_array.statistics().to_array_stats();
             let encoding_id = current_array.encoding_id();
             trace_op!(record_execute_encoding(&current_array));
@@ -613,7 +614,7 @@ fn finalize_done(
     result: ArrayRef,
     mut builder: Option<Box<dyn ArrayBuilder>>,
     expected_len: usize,
-    expected_dtype: DType,
+    expected_dtype: Option<DType>,
     stats: ArrayStats,
     encoding_id: ArrayId,
 ) -> VortexResult<(ArrayRef, Option<Box<dyn ArrayBuilder>>)> {
@@ -629,11 +630,13 @@ fn finalize_done(
             "Result length mismatch for {:?}",
             encoding_id
         );
-        vortex_ensure!(
-            output.dtype() == &expected_dtype,
-            "Executed canonical dtype mismatch for {:?}",
-            encoding_id
-        );
+        if let Some(expected_dtype) = expected_dtype {
+            vortex_ensure!(
+                output.dtype() == &expected_dtype,
+                "Executed canonical dtype mismatch for {:?}",
+                encoding_id
+            );
+        }
     }
 
     output.statistics().transfer_from(&stats);
