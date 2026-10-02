@@ -19,14 +19,14 @@ use itertools::Itertools;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
+use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
-use vortex_array::expr::stats::Stat;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::iter::ArrayIteratorExt;
 use vortex_array::session::ArraySessionExt;
 use vortex_array::stats::PRUNING_STATS;
-use vortex_array::stats::compat::legacy_stats_to_results;
+use vortex_array::stats::compat::validate_summary_aggregates;
 use vortex_array::stream::ArrayStream;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
@@ -39,6 +39,7 @@ use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_io::IoBuf;
 use vortex_io::VortexWrite;
@@ -85,7 +86,7 @@ pub struct VortexWriteOptions {
     buffered_bytes: BufferedBytesTracker,
     exclude_dtype: bool,
     max_variable_length_statistics_size: usize,
-    file_statistics: Vec<Stat>,
+    file_statistics: Vec<AggregateFnRef>,
     metadata: HashMap<String, ByteBuffer>,
 }
 
@@ -107,7 +108,10 @@ impl VortexWriteOptions {
             buffered_bytes: BufferedBytesTracker::new(),
             session,
             exclude_dtype: false,
-            file_statistics: PRUNING_STATS.to_vec(),
+            file_statistics: PRUNING_STATS
+                .iter()
+                .filter_map(|stat| stat.aggregate_fn())
+                .collect(),
             max_variable_length_statistics_size: 64,
             metadata: HashMap::default(),
         }
@@ -155,10 +159,23 @@ impl VortexWriteOptions {
         self
     }
 
-    /// Configure which statistics to compute at the file level.
+    /// Select finalized aggregate results to store for each top-level file field.
     ///
-    /// Pass an empty vector to omit file-level statistics.
-    pub fn with_file_statistics(mut self, file_statistics: Vec<Stat>) -> Self {
+    /// The historical footer supports NaN-skipping [`Min`], [`Max`], and [`Sum`], [`NullCount`],
+    /// [`NanCount`], [`UncompressedSizeInBytes`], [`IsConstant`], and [`IsSorted`] with either
+    /// strictness option. Other functions, options, and duplicate selections are rejected before
+    /// writing bytes. Unsupported field types omit individual results. Pass an empty vector to
+    /// omit file statistics.
+    ///
+    /// [`Min`]: vortex_array::aggregate_fn::fns::min::Min
+    /// [`Max`]: vortex_array::aggregate_fn::fns::max::Max
+    /// [`Sum`]: vortex_array::aggregate_fn::fns::sum::Sum
+    /// [`NullCount`]: vortex_array::aggregate_fn::fns::null_count::NullCount
+    /// [`NanCount`]: vortex_array::aggregate_fn::fns::nan_count::NanCount
+    /// [`UncompressedSizeInBytes`]: vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes
+    /// [`IsConstant`]: vortex_array::aggregate_fn::fns::is_constant::IsConstant
+    /// [`IsSorted`]: vortex_array::aggregate_fn::fns::is_sorted::IsSorted
+    pub fn with_file_statistics(mut self, file_statistics: Vec<AggregateFnRef>) -> Self {
         self.file_statistics = file_statistics;
         self
     }
@@ -236,6 +253,13 @@ impl VortexWriteOptions {
         stream: SendableArrayStream,
     ) -> VortexResult<WriteSummary> {
         validate_metadata_segments(&self.metadata)?;
+        validate_summary_aggregates(&self.file_statistics)?;
+        for (index, aggregate) in self.file_statistics.iter().enumerate() {
+            vortex_ensure!(
+                !self.file_statistics[..index].contains(aggregate),
+                "Duplicate file aggregate: {aggregate}"
+            );
+        }
 
         let enforce_editions = !self.disable_editions;
         // The array context is built here, rather than when the options were constructed, so that
@@ -269,9 +293,7 @@ impl VortexWriteOptions {
 
         let stream = SequentialStreamAdapter::new(
             dtype.clone(),
-            stream
-                .try_filter(|chunk| ready(!chunk.is_empty()))
-                .map(move |result| result.map(|chunk| (ptr.advance(), chunk))),
+            stream.map(move |result| result.map(|chunk| (ptr.advance(), chunk))),
         )
         .sendable();
         let (file_stats, stream) = accumulate_stats(
@@ -279,7 +301,12 @@ impl VortexWriteOptions {
             self.file_statistics.clone().into(),
             self.max_variable_length_statistics_size,
             &self.session,
-        );
+        )?;
+        let stream = SequentialStreamAdapter::new(
+            dtype.clone(),
+            stream.try_filter(|(_, chunk)| ready(!chunk.is_empty())),
+        )
+        .sendable();
 
         // First, write the magic bytes.
         write.write_all(ByteBuffer::copy_from(MAGIC_BYTES)).await?;
@@ -324,22 +351,10 @@ impl VortexWriteOptions {
         let statistics = if self.file_statistics.is_empty() {
             None
         } else {
-            let field_dtypes = match &dtype {
-                DType::Struct(fields, _) => fields.fields().collect::<Vec<_>>(),
-                _ => vec![dtype.clone()],
-            };
-            let stats = file_stats.stats_sets();
-            assert_eq!(
-                stats.len(),
-                field_dtypes.len(),
-                "stats length must match fields"
-            );
-            let results = stats
-                .iter()
-                .zip(&field_dtypes)
-                .map(|(stats, dtype)| legacy_stats_to_results(dtype, stats))
-                .collect::<VortexResult<Vec<_>>>()?;
-            Some(FileStatistics::new(results.into(), field_dtypes.into()))
+            Some(FileStatistics::new_with_dtype(
+                file_stats.results()?.into(),
+                &dtype,
+            ))
         };
         let mut footer = Footer::new(
             Arc::clone(&layout),

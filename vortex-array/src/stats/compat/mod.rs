@@ -10,6 +10,7 @@
 mod footer;
 pub use footer::legacy_stats_to_results;
 pub use footer::read_summary;
+pub use footer::validate_summary_aggregates;
 pub use footer::write_summary;
 
 #[cfg(test)]
