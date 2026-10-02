@@ -26,6 +26,7 @@ use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::array_slots;
+use vortex_array::arrays::Primitive;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::VarBinBuilder;
@@ -36,6 +37,8 @@ use vortex_array::dtype::OffsetBuilderPType;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_varbin_builder;
+use vortex_array::require_child;
+use vortex_array::require_validity;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
@@ -601,6 +604,29 @@ impl VTable for OnPair {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let array = require_child!(
+            array,
+            array.uncompressed_lengths(),
+            OnPairSlots::UNCOMPRESSED_LENGTHS => Primitive
+        );
+        let array = require_child!(
+            array,
+            array.codes_offsets(),
+            OnPairSlots::CODES_OFFSETS => Primitive
+        );
+        let array = require_child!(array, array.codes(), OnPairSlots::CODES => Primitive);
+        // The dictionary is built from its offsets once and memoised, so its child is only
+        // required while that has not happened.
+        let array = if array.data().dictionary.get().is_some() {
+            array
+        } else {
+            require_child!(
+                array,
+                array.dict_offsets(),
+                OnPairSlots::DICT_OFFSETS => Primitive
+            )
+        };
+        require_validity!(array, OnPairSlots::VALIDITY);
         canonicalize_onpair(array.as_view(), ctx).map(ExecutionResult::done)
     }
 

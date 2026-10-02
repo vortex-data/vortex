@@ -32,7 +32,7 @@ use crate::OnPair;
 use crate::OnPairArraySlotsExt;
 use crate::array::dict_view;
 use crate::decode::code_boundary_at;
-use crate::decode::collect_widened;
+use crate::decode::collect_widened_range;
 
 pub(super) fn canonicalize_onpair(
     array: ArrayView<'_, OnPair>,
@@ -111,7 +111,7 @@ impl<'a> OnPairDecodePlan<'a> {
         // array materialises only its own codes rather than the whole column's. The
         // contiguous decoder walks `codes` in order and never reads the per-row
         // boundaries, so an empty boundary slice is sound.
-        let codes = collect_widened::<u16>(&array.codes().slice(code_start..code_end)?, ctx)?;
+        let codes = collect_widened_range::<u16>(array.codes(), code_start..code_end, ctx)?;
         let dict = dict_view(array, ctx)?;
 
         Ok(Self {

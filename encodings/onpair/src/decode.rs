@@ -4,13 +4,17 @@
 //! Helpers for turning [`OnPair`] slot children into the inputs the upstream
 //! `onpair` decoder consumes.
 
+use std::ops::Range;
+
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
+use vortex_array::match_each_integer_ptype;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -26,8 +30,39 @@ pub(crate) fn collect_widened<T: NativePType>(
     arr: &ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Buffer<T>> {
+    collect_widened_range(arr, 0..arr.len(), ctx)
+}
+
+/// Canonicalise `range` of a slot child to the decoder's native primitive width.
+///
+/// A child that `OnPair::execute` has already required to be primitive is widened in place,
+/// without a cast array or a nested execution; any other child is cast and executed.
+pub(crate) fn collect_widened_range<T: NativePType>(
+    arr: &ArrayRef,
+    range: Range<usize>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Buffer<T>> {
+    if let Some(primitive) = arr.as_opt::<Primitive>()
+        && !primitive.dtype().is_nullable()
+    {
+        if primitive.ptype() == T::PTYPE {
+            return Ok(primitive.into_owned().into_buffer::<T>().slice(range));
+        }
+        return match_each_integer_ptype!(primitive.ptype(), |P| {
+            primitive.as_slice::<P>()[range]
+                .iter()
+                .map(|&value| {
+                    T::from(value).ok_or_else(|| {
+                        vortex_err!("OnPair value {value} does not fit {}", T::PTYPE)
+                    })
+                })
+                .collect::<VortexResult<Vec<T>>>()
+                .map(Buffer::from)
+        });
+    }
     let dtype = DType::Primitive(T::PTYPE, arr.dtype().nullability());
     Ok(arr
+        .slice(range)?
         .cast(dtype)?
         .execute::<PrimitiveArray>(ctx)?
         .into_buffer::<T>())
