@@ -23,6 +23,9 @@ mod array;
 pub mod bind;
 pub mod expr;
 pub mod flatbuffers;
+mod results;
+pub use results::AggregateResults;
+
 pub mod rewrite;
 pub mod session;
 mod stats_set;
