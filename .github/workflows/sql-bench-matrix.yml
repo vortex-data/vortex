@@ -103,6 +103,11 @@ jobs:
       FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
       # Makes python output nicer
       COLUMNS: 120
+      # BENCHMARK EXPERIMENT -- revert before merging.
+      # `prepare-data` and the query runs share this job, so these cover both writing the
+      # Vortex files and reading them back.
+      VORTEX_DIRECT_IO: "1"
+      VORTEX_SEGMENT_PADDING: "always"
     strategy:
       fail-fast: false
       matrix:

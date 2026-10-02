@@ -16,19 +16,26 @@ use vortex_layout::segments::SegmentSink;
 use vortex_layout::sequence::SequenceId;
 
 use crate::footer::SegmentSpec;
+use crate::segments::SegmentPadding;
 
 pub struct BufferedSegmentSink {
     buffers: kanal::AsyncSender<ByteBuffer>,
     byte_offset: AtomicU64,
     segment_specs: Mutex<Vec<SegmentSpec>>,
+    padding: SegmentPadding,
 }
 
 impl BufferedSegmentSink {
-    pub fn new(send: kanal::AsyncSender<ByteBuffer>, byte_offset: u64) -> Self {
+    pub fn new(
+        send: kanal::AsyncSender<ByteBuffer>,
+        byte_offset: u64,
+        padding: SegmentPadding,
+    ) -> Self {
         Self {
             buffers: send,
             byte_offset: AtomicU64::new(byte_offset),
             segment_specs: Default::default(),
+            padding,
         }
     }
 
@@ -70,7 +77,9 @@ impl SegmentSink for BufferedSegmentSink {
 
             // Add any padding required to align the segment.
             let byte_offset = self.byte_offset.load(Ordering::Relaxed);
-            let padding = byte_offset.next_multiple_of(alignment.as_usize() as u64) - byte_offset;
+            let padding = self
+                .padding
+                .padding(byte_offset, u64::from(length), alignment);
             let offset = byte_offset + padding;
             specs.push(SegmentSpec {
                 offset,
