@@ -143,15 +143,18 @@ impl CanonicalCudaExt for Canonical {
                 )))
             }
             Canonical::Decimal(decimal) => {
+                #[expect(
+                    clippy::disallowed_methods,
+                    reason = "CanonicalCudaExt threads no session through"
+                )]
+                let mut ctx = legacy_session().create_execution_ctx();
                 let DecimalDataParts {
                     decimal_dtype,
                     values,
                     values_type,
                     validity,
                     ..
-                } = decimal
-                    .materialize_values(&mut crate::cuda_session().create_execution_ctx())?
-                    .into_data_parts();
+                } = decimal.materialize_values(&mut ctx)?.into_data_parts();
                 let validity = validity_into_host(validity).await?;
                 Ok(Canonical::Decimal(unsafe {
                     DecimalArray::new_unchecked_handle(

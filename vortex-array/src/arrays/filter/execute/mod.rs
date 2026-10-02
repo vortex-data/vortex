@@ -18,6 +18,7 @@
 //! Fixed-width canonical arrays then use the strategy ladder in [`buffer`].
 
 use std::ops::Range;
+use std::sync::Arc;
 
 use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexExpect;
@@ -141,7 +142,7 @@ pub(super) fn execute_filter(
         Canonical::Decimal(a) => Canonical::Decimal(
             DecimalArray::try_new_values(
                 a.values()
-                    .filter(Mask::Values(mask.clone()))
+                    .filter(Mask::Values(Arc::clone(mask)))
                     .vortex_expect("Decimal child filter"),
                 a.decimal_dtype(),
             )

@@ -9,12 +9,15 @@ use vortex_error::VortexResult;
 
 use super::Decimal;
 use super::DecimalArray;
+use super::DecimalArrayExt;
 use super::DecimalPlugin;
 use super::vtable::DecimalMetadata;
 use crate::ArrayDeserialization;
 use crate::ArrayPlugin;
+use crate::ArrayRef;
 use crate::IntoArray;
 use crate::RecursiveCanonical;
+use crate::TEST_SESSION;
 use crate::VTable;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::AggregateFnVTableExt;
@@ -26,12 +29,12 @@ use crate::aggregate_fn::fns::is_sorted::IsSortedOptions;
 use crate::aggregate_fn::fns::is_sorted::is_sorted;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::min_max::min_max;
-use crate::array_session;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::DictArray;
 use crate::arrays::Narrow;
 use crate::arrays::NarrowArray;
+use crate::arrays::PrimitiveArray;
 use crate::arrays::narrow::NarrowArraySlotsExt;
 use crate::assert_arrays_eq;
 use crate::buffer::BufferHandle;
@@ -48,22 +51,26 @@ use crate::scalar::Scalar;
 use crate::scalar_fn::fns::between::BetweenOptions;
 use crate::scalar_fn::fns::between::StrictComparison;
 use crate::scalar_fn::fns::operators::Operator;
+use crate::validity::Validity;
 
 #[rstest]
-#[case(2, DecimalType::I8)]
-#[case(3, DecimalType::I16)]
-#[case(5, DecimalType::I32)]
-#[case(10, DecimalType::I64)]
-#[case(19, DecimalType::I128)]
-#[case(39, DecimalType::I256)]
+#[case::i8(2, DecimalType::I8)]
+#[case::i16(3, DecimalType::I16)]
+#[case::i32(5, DecimalType::I32)]
+#[case::i64(10, DecimalType::I64)]
+#[case::i128(19, DecimalType::I128)]
+#[case::i256(39, DecimalType::I256)]
 fn child_dtype_follows_precision(#[case] precision: u8, #[case] width: DecimalType) {
     let array = DecimalArray::from_option_iter(
         [Some(-1i8), None, Some(1)],
         DecimalDType::new(precision, 2),
     );
-    assert_eq!(array.values_dtype(), &integer_dtype(width, Nullability::Nullable));
-    assert_eq!(array.children().len(), 1);
-    assert!(array.buffer_handles().is_empty());
+    assert_eq!(
+        array.values_dtype(),
+        &integer_dtype(width, Nullability::Nullable)
+    );
+    assert_eq!(array.as_ref().children().len(), 1);
+    assert!(array.as_ref().buffer_handles().is_empty());
     assert_eq!(array.values_type(), DecimalType::I8);
     if width > DecimalType::I8 {
         assert!(array.values().is::<Narrow>());
@@ -73,17 +80,14 @@ fn child_dtype_follows_precision(#[case] precision: u8, #[case] width: DecimalTy
 #[test]
 fn rejects_wrong_logical_child_dtype() {
     assert!(
-        DecimalArray::try_new_values(
-            buffer![1i32, 2].into_array(),
-            DecimalDType::new(39, 0),
-        )
-        .is_err()
+        DecimalArray::try_new_values(buffer![1i32, 2].into_array(), DecimalDType::new(39, 0),)
+            .is_err()
     );
 }
 
 #[test]
 fn canonicalization_preserves_encoded_child() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = TEST_SESSION.create_execution_ctx();
     let dtype = DecimalDType::new(76, 2);
     let dictionary = DictArray::try_new(
         buffer![0u8, 1, 0, 1].into_array(),
@@ -96,27 +100,42 @@ fn canonicalization_preserves_encoded_child() -> VortexResult<()> {
     )?
     .into_array();
     let array = DecimalArray::try_new_values(values, dtype)?;
-    let canonical = array.clone().into_array().execute::<DecimalArray>(&mut ctx)?;
-    assert_eq!(canonical.values().as_::<Narrow>().values(), &dictionary);
+    let canonical = array
+        .clone()
+        .into_array()
+        .execute::<DecimalArray>(&mut ctx)?;
+    assert!(ArrayRef::ptr_eq(
+        canonical.values().as_::<Narrow>().values(),
+        &dictionary
+    ));
     assert_eq!(canonical.values_type(), DecimalType::I32);
-    assert!(canonical.buffer_handles().is_empty());
+    assert!(canonical.as_ref().buffer_handles().is_empty());
 
     let selected = canonical
         .take(buffer![3u32, 0].into_array())?
         .execute::<DecimalArray>(&mut ctx)?;
     assert_eq!(selected.values_type(), DecimalType::I32);
-    assert_arrays_eq!(selected, DecimalArray::from_iter([456i32, -123], dtype), &mut ctx);
+    assert_arrays_eq!(
+        selected,
+        DecimalArray::from_iter([456i32, -123], dtype),
+        &mut ctx
+    );
 
-    let recursive = array.into_array().execute::<RecursiveCanonical>(&mut ctx)?.0.into_decimal();
+    let recursive = array
+        .into_array()
+        .execute::<RecursiveCanonical>(&mut ctx)?
+        .0
+        .into_decimal();
     assert!(recursive.values().is::<Narrow>());
     assert_eq!(recursive.buffer_handle().len(), 4 * size_of::<i32>());
     assert_eq!(recursive.buffer::<i32>(), buffer![-123i32, 456, -123, 456]);
+
     Ok(())
 }
 
 #[test]
 fn wide_patch_widens_storage() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = TEST_SESSION.create_execution_ctx();
     let dtype = DecimalDType::new(39, 0);
     let value = 1i128 << 100;
     let patches = Patches::new(
@@ -127,22 +146,35 @@ fn wide_patch_widens_storage() -> VortexResult<()> {
         None,
     )?;
     let result = DecimalArray::from_iter([1i8, 2, 3], dtype).patch(&patches, &mut ctx)?;
-    assert_eq!(result.values_dtype(), &integer_dtype(DecimalType::I256, Nullability::NonNullable));
+    assert_eq!(
+        result.values_dtype(),
+        &integer_dtype(DecimalType::I256, Nullability::NonNullable)
+    );
     assert_eq!(result.values_type(), DecimalType::I128);
-    assert_arrays_eq!(result, DecimalArray::from_iter([1, value, 3], dtype), &mut ctx);
+    assert_arrays_eq!(
+        result,
+        DecimalArray::from_iter([1, value, 3], dtype),
+        &mut ctx
+    );
+
     Ok(())
 }
 
 #[rstest]
-#[case(Nullability::NonNullable)]
-#[case(Nullability::Nullable)]
+#[case::nonnullable(Nullability::NonNullable)]
+#[case::nullable(Nullability::Nullable)]
 fn fill_null_accepts_a_wider_logical_value(#[case] nullability: Nullability) -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = TEST_SESSION.create_execution_ctx();
     let dtype = DecimalDType::new(39, 0);
     let value = 1i128 << 100;
     let array = DecimalArray::from_option_iter([Some(1i8), None, Some(-2)], dtype);
     let result = array
-        .fill_null(Scalar::decimal(DecimalValue::I128(value), dtype, nullability))?
+        .into_array()
+        .fill_null(Scalar::decimal(
+            DecimalValue::I128(value),
+            dtype,
+            nullability,
+        ))?
         .execute::<DecimalArray>(&mut ctx)?
         .materialize_values(&mut ctx)?;
     assert_eq!(result.dtype(), &DType::Decimal(dtype, nullability));
@@ -155,36 +187,89 @@ fn fill_null_accepts_a_wider_logical_value(#[case] nullability: Nullability) -> 
             .cast(DType::Decimal(dtype, nullability))?,
         &mut ctx
     );
+
+    Ok(())
+}
+
+#[rstest]
+#[case::same_precision(39)]
+#[case::wider_precision(76)]
+fn nonnullable_cast_checks_encoded_child_validity(
+    #[case] precision: u8,
+    #[values(true, false)] second_valid: bool,
+) -> VortexResult<()> {
+    let mut ctx = TEST_SESSION.create_execution_ctx();
+    let source = DecimalDType::new(39, 2);
+    let target = DecimalDType::new(precision, 2);
+    let dictionary = DictArray::try_new(
+        buffer![0u8, 1].into_array(),
+        PrimitiveArray::new(
+            buffer![1i8, -2],
+            Validity::Array(BoolArray::from_iter([true, second_valid]).into_array()),
+        )
+        .into_array(),
+    )?;
+    let values = NarrowArray::try_new(
+        dictionary.into_array(),
+        integer_dtype(DecimalType::I256, Nullability::Nullable),
+    )?;
+    let array = DecimalArray::try_new_values(values.into_array(), source)?;
+    let result = array
+        .into_array()
+        .cast(DType::Decimal(target, Nullability::NonNullable))?
+        .execute::<DecimalArray>(&mut ctx);
+
+    if second_valid {
+        assert_arrays_eq!(
+            result?,
+            DecimalArray::from_iter([1i8, -2], target),
+            &mut ctx
+        );
+    } else {
+        assert!(result.is_err());
+    }
+
     Ok(())
 }
 
 #[test]
 fn aggregates_and_comparisons_keep_decimal_semantics() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = TEST_SESSION.create_execution_ctx();
     let dtype = DecimalDType::new(39, 2);
     let array = DecimalArray::from_iter([-128i8, -1, 0, 127], dtype).into_array();
     let bounds = min_max(&array, &mut ctx, NumericalAggregateOpts::default())?
         .vortex_expect("Non-empty bounds");
-    assert_eq!(bounds.min, Scalar::decimal(DecimalValue::I8(-128), dtype, Nullability::NonNullable));
-    assert_eq!(bounds.max, Scalar::decimal(DecimalValue::I8(127), dtype, Nullability::NonNullable));
+    assert_eq!(
+        bounds.min,
+        Scalar::decimal(DecimalValue::I8(-128), dtype, Nullability::NonNullable)
+    );
+    assert_eq!(
+        bounds.max,
+        Scalar::decimal(DecimalValue::I8(127), dtype, Nullability::NonNullable)
+    );
     assert!(is_sorted(&array, &mut ctx)?);
     let rhs = ConstantArray::new(
         Scalar::decimal(DecimalValue::I128(1000), dtype, Nullability::NonNullable),
         4,
     )
     .into_array();
-    assert_arrays_eq!(array.binary(rhs, Operator::Lt)?, BoolArray::from_iter([true; 4]), &mut ctx);
+    assert_arrays_eq!(
+        array.binary(rhs, Operator::Lt)?,
+        BoolArray::from_iter([true; 4]),
+        &mut ctx
+    );
+
     Ok(())
 }
 
 #[rstest]
-#[case(1000i128, 2000i128)]
-#[case(-2000i128, -1000i128)]
+#[case::above_storage(1000i128, 2000i128)]
+#[case::below_storage(-2000i128, -1000i128)]
 fn between_outside_storage_range_preserves_nulls(
     #[case] lower: i128,
     #[case] upper: i128,
 ) -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = TEST_SESSION.create_execution_ctx();
     let dtype = DecimalDType::new(39, 0);
     let array = DecimalArray::from_option_iter([Some(-1i8), None, Some(1)], dtype);
     let bound = |value| {
@@ -208,12 +293,13 @@ fn between_outside_storage_range_preserves_nulls(
         BoolArray::from_iter([Some(false), None, Some(false)]),
         &mut ctx
     );
+
     Ok(())
 }
 
 #[test]
 fn partial_aggregates_preserve_decimal_boundaries() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = TEST_SESSION.create_execution_ctx();
     let dtype = DecimalDType::new(76, 2);
     let input_dtype = DType::Decimal(dtype, Nullability::Nullable);
     for aggregate in [
@@ -226,7 +312,9 @@ fn partial_aggregates_preserve_decimal_boundaries() -> VortexResult<()> {
         for values in [vec![None, Some(-128i8), Some(0)], vec![Some(0), Some(127)]] {
             let compact = DecimalArray::from_option_iter(values.clone(), dtype);
             let wide = DecimalArray::from_option_iter(
-                values.into_iter().map(|value| value.map(|value| i256::from_i128(i128::from(value)))),
+                values
+                    .into_iter()
+                    .map(|value| value.map(|value| i256::from_i128(i128::from(value)))),
                 dtype,
             );
             actual.accumulate(&compact.into_array(), &mut ctx)?;
@@ -235,24 +323,29 @@ fn partial_aggregates_preserve_decimal_boundaries() -> VortexResult<()> {
         }
         assert_eq!(actual.final_scalar()?, expected.final_scalar()?);
     }
+
     Ok(())
 }
 
 #[test]
 fn legacy_wire_keeps_narrow_storage() -> VortexResult<()> {
-    let session = array_session();
-    let array = DecimalArray::from_option_iter(
-        [Some(10i32), None, Some(-20)],
-        DecimalDType::new(76, 2),
-    )
-    .into_array();
-    let wire = DecimalPlugin.serialize(&array, &session)?.vortex_expect("Serializable decimal");
+    let session = &TEST_SESSION;
+    let array =
+        DecimalArray::from_option_iter([Some(10i32), None, Some(-20)], DecimalDType::new(76, 2))
+            .into_array();
+    let wire = DecimalPlugin
+        .serialize(&array, session)?
+        .vortex_expect("Serializable decimal");
     assert_eq!(wire.buffers[0].len(), 3 * size_of::<i32>());
     assert_eq!(
         DecimalMetadata::decode(wire.metadata.as_slice())?.values_type,
         DecimalType::I32 as i32
     );
-    let buffers = wire.buffers.into_iter().map(BufferHandle::new_host).collect::<Vec<_>>();
+    let buffers = wire
+        .buffers
+        .into_iter()
+        .map(BufferHandle::new_host)
+        .collect::<Vec<_>>();
     let decoded = DecimalPlugin.deserialize(
         ArrayDeserialization::new(
             VTable::id(&Decimal),
@@ -262,9 +355,10 @@ fn legacy_wire_keeps_narrow_storage() -> VortexResult<()> {
             &buffers,
             &wire.children,
         ),
-        &session,
+        session,
     )?;
     assert_eq!(decoded.as_::<Decimal>().values_type(), DecimalType::I32);
     assert_arrays_eq!(decoded, array, &mut session.create_execution_ctx());
+
     Ok(())
 }

@@ -81,10 +81,7 @@ pub fn assemble_decimal(
     assemble_wide_decimal_from_arrays(msp, lower_parts, validity, decimal_dtype, exec_ctx)
 }
 
-fn assemble_narrow_decimal(
-    msp: &ArrayRef,
-    decimal_dtype: DecimalDType,
-) -> VortexResult<ArrayRef> {
+fn assemble_narrow_decimal(msp: &ArrayRef, decimal_dtype: DecimalDType) -> VortexResult<ArrayRef> {
     let values_type = DecimalType::smallest_decimal_value_type(&decimal_dtype);
     let dtype = integer_dtype(values_type, msp.dtype().nullability());
     let values = if msp.dtype().as_ptype().byte_width() < values_type.byte_width() {
@@ -203,6 +200,7 @@ where
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::array_session;
@@ -397,13 +395,21 @@ mod tests {
             buffer![-10i32, 20].into_array(),
         )?
         .into_array();
-        let decimal = assemble_decimal(&msp, &[], dtype, &mut ctx)?
-            .execute::<DecimalArray>(&mut ctx)?;
+        let decimal =
+            assemble_decimal(&msp, &[], dtype, &mut ctx)?.execute::<DecimalArray>(&mut ctx)?;
 
-        assert_eq!(decimal.values().as_::<Narrow>().values(), &msp);
+        assert!(ArrayRef::ptr_eq(
+            decimal.values().as_::<Narrow>().values(),
+            &msp,
+        ));
         assert_eq!(decimal.values_type(), DecimalType::I32);
-        assert!(decimal.buffer_handles().is_empty());
-        assert_arrays_eq!(decimal, DecimalArray::from_iter([20i32, -10, 20], dtype), &mut ctx);
+        assert!(decimal.as_ref().buffer_handles().is_empty());
+        assert_arrays_eq!(
+            decimal,
+            DecimalArray::from_iter([20i32, -10, 20], dtype),
+            &mut ctx
+        );
+
         Ok(())
     }
 

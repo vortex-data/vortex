@@ -25,6 +25,14 @@ impl CastReduce for DecimalByteParts {
             return Ok(None);
         };
 
+        if array
+            .validity()?
+            .trivially_cast_nullability(*target_nullability, array.len())?
+            .is_none()
+        {
+            return Ok(None);
+        }
+
         // Cast the msp array to handle nullability change
         let new_msp = array
             .msp()

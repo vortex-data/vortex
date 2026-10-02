@@ -88,6 +88,7 @@ pub fn mask_canonical_array(
             .into_array()
         }
         Canonical::Decimal(array) => {
+            let array = array.materialize_values(ctx)?;
             let new_validity = mask_validity(&array.validity()?, mask, ctx);
             match_each_decimal_value_type!(array.values_type(), |D| {
                 DecimalArray::new(array.buffer::<D>(), array.decimal_dtype(), new_validity)

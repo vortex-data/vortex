@@ -11,9 +11,11 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::array_session;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::DictArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::MapArray;
+use vortex_array::arrays::NarrowArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
@@ -21,14 +23,17 @@ use vortex_array::arrays::listview::ListViewArrayExt;
 use vortex_array::arrays::listview::ListViewArraySlotsExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
+use vortex_array::dtype::DecimalType;
 use vortex_array::dtype::MapDType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::i256;
+use vortex_array::dtype::integer::integer_dtype;
 use vortex_array::extension::datetime::Date;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::validity::Validity;
 use vortex_buffer::buffer;
+use vortex_error::VortexError;
 use vortex_error::VortexResult;
 
 use crate::RowEncoder;
@@ -758,6 +763,34 @@ fn decimal_keys_comparable_across_chunk_widths(#[case] descending: bool) -> Vort
     Ok(())
 }
 
+#[rstest]
+#[case::ascending(false)]
+#[case::descending(true)]
+fn decimal_keys_accept_encoded_integer_children(#[case] descending: bool) -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let dtype = DecimalDType::new(76, 2);
+    let dictionary = DictArray::try_new(
+        buffer![0u8, 1, 2, 0].into_array(),
+        PrimitiveArray::from_option_iter([Some(-123i32), None, Some(456)]).into_array(),
+    )?;
+    let values = NarrowArray::try_new(
+        dictionary.into_array(),
+        integer_dtype(DecimalType::I256, Nullability::Nullable),
+    )?;
+    let encoded = DecimalArray::try_new_values(values.into_array(), dtype)?.into_array();
+    let expected =
+        DecimalArray::from_option_iter([Some(-123i32), None, Some(456), Some(-123)], dtype)
+            .into_array();
+    let field = RowSortField::new(descending, true);
+
+    assert_eq!(
+        collect_row_bytes(&convert_columns(&[encoded], &[field], &mut ctx)?),
+        collect_row_bytes(&convert_columns(&[expected], &[field], &mut ctx)?),
+    );
+
+    Ok(())
+}
+
 /// A null slot's backing value is unspecified and might not fit the dtype-derived key width;
 /// encoding must ignore it rather than report a spurious overflow.
 #[test]
@@ -792,10 +825,7 @@ fn decimal_value_not_fitting_key_width_errors() {
 
     let err = convert_columns(&[chunk], &[field], &mut ctx)
         .expect_err("a valid value wider than the key width must be rejected");
-    assert!(
-        err.to_string().contains("does not fit"),
-        "expected a does-not-fit error, got: {err}"
-    );
+    assert!(matches!(err, VortexError::Compute(..)), "got: {err}");
 }
 
 #[test]

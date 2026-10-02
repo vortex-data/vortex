@@ -11,9 +11,10 @@ use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::bool::BoolArrayExt;
+use vortex_array::arrays::decimal::converted_buffer;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
-use vortex_array::match_each_decimal_value_type;
+use vortex_array::dtype::i256;
 use vortex_array::match_each_native_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_array::search_sorted::IndexOrd;
@@ -101,34 +102,28 @@ pub fn search_sorted_canonical_array(
                 SearchPrimitiveSlice(opt_values).search_sorted(&Some(to_find), side)
             })
         }
-        DType::Decimal(d, _) => {
-            let decimal_array = array.clone().execute::<DecimalArray>(ctx)?;
-            let validity = decimal_array
-                .as_ref()
+        DType::Decimal(..) => {
+            let decimal_array = array
+                .clone()
+                .execute::<DecimalArray>(ctx)?
+                .materialize_values(ctx)?;
+            let mask = decimal_array
                 .validity()?
-                .execute_mask(decimal_array.as_ref().len(), ctx)?
-                .to_bit_buffer();
-            match_each_decimal_value_type!(decimal_array.values_type(), |D| {
-                let buf = decimal_array.buffer::<D>();
-                let opt_values = buf
-                    .as_slice()
-                    .iter()
-                    .copied()
-                    .zip(validity.iter())
-                    .map(|(b, v)| v.then_some(b))
-                    .collect::<Vec<_>>();
-                let to_find: D = scalar
-                    .as_decimal()
-                    .decimal_value()
-                    .map(|v| {
-                        v.cast::<D>().ok_or_else(|| {
-                            vortex_err!("cannot cast value {v} to decimal value type {d}")
-                        })
-                    })
-                    .transpose()?
-                    .ok_or_else(|| vortex_err!("unexpected null scalar"))?;
-                SearchNullableSlice(opt_values).search_sorted(&Some(to_find), side)
-            })
+                .execute_mask(decimal_array.len(), ctx)?;
+            let values = converted_buffer::<i256>(&decimal_array, &mask)?;
+            let values = values
+                .iter()
+                .copied()
+                .zip(mask.iter())
+                .map(|(value, valid)| valid.then_some(value))
+                .collect::<Vec<_>>();
+            let to_find = scalar
+                .as_decimal()
+                .decimal_value()
+                .ok_or_else(|| vortex_err!("Expected a non-null decimal search scalar"))?
+                .as_i256();
+
+            SearchNullableSlice(values).search_sorted(&Some(to_find), side)
         }
         DType::Utf8(_) | DType::Binary(_) => {
             let utf8 = array.clone().execute::<VarBinViewArray>(ctx)?;

@@ -56,7 +56,10 @@ pub fn slice_canonical_array(
             })
         }
         DType::Decimal(decimal_dtype, _) => {
-            let decimal_array = array.clone().execute::<DecimalArray>(ctx)?;
+            let decimal_array = array
+                .clone()
+                .execute::<DecimalArray>(ctx)?
+                .materialize_values(ctx)?;
             Ok(
                 match_each_decimal_value_type!(decimal_array.values_type(), |D| {
                     DecimalArray::new(

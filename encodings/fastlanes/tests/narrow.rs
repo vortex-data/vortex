@@ -85,10 +85,19 @@ fn decimal_canonicalization_keeps_bitpacked_storage() -> VortexResult<()> {
     )?
     .into_array();
     let array = DecimalArray::try_new_values(values, dtype)?;
-    let canonical = array.clone().into_array().execute::<DecimalArray>(&mut ctx)?;
-    assert!(canonical.values().as_::<Narrow>().values().is::<BitPacked>());
+    let canonical = array
+        .clone()
+        .into_array()
+        .execute::<DecimalArray>(&mut ctx)?;
+    assert!(
+        canonical
+            .values()
+            .as_::<Narrow>()
+            .values()
+            .is::<BitPacked>()
+    );
     assert_eq!(canonical.values_type(), DecimalType::I32);
-    assert!(canonical.buffer_handles().is_empty());
+    assert!(canonical.as_ref().buffer_handles().is_empty());
     assert_eq!(
         sum(array.as_ref(), &mut ctx)?,
         Scalar::decimal(DecimalValue::I32(11), dtype, Nullability::Nullable)

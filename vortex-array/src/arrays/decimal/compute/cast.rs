@@ -8,9 +8,7 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_compute::lane_kernels::IndexedSourceExt;
 use vortex_error::VortexError;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
@@ -63,6 +61,14 @@ impl CastReduce for Decimal {
             return Ok(None);
         }
 
+        if array
+            .validity()?
+            .trivially_cast_nullability(*to_nullability, array.len())?
+            .is_none()
+        {
+            return Ok(None);
+        }
+
         let values_dtype = array.values_dtype().with_nullability(*to_nullability);
         Ok(Some(
             DecimalArray::try_new_values(array.values().cast(values_dtype)?, *to_decimal_dtype)?
@@ -83,6 +89,10 @@ impl CastKernel for Decimal {
         if let DType::Decimal(target, nullability) = dtype {
             let source = array.decimal_dtype();
             if source.scale() == target.scale() && source.precision() <= target.precision() {
+                // Canonical decimals retain lazy children. Check validity before changing nullability.
+                array
+                    .validity()?
+                    .cast_nullability(*nullability, array.len(), ctx)?;
                 let values = array
                     .values()
                     .cast(array.values_dtype().with_nullability(*nullability))?;

@@ -258,7 +258,7 @@ impl Array<Decimal> {
         if let Some(validity_len) = validity.maybe_len() {
             vortex_ensure!(
                 validity_len == len,
-                "Decimal validity length {validity_len} does not match {len}"
+                InvalidArgument: "Decimal validity must have {len} entries, got {validity_len}"
             );
         }
         let values = integer::from_buffer(IntegerBuffer {
