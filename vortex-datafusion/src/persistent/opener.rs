@@ -264,6 +264,7 @@ impl FileOpener for VortexOpener {
             let projection =
                 projection.try_map_exprs(|p| simplifier.simplify(expr_adapter.rewrite(p)?))?;
 
+            // TODO: support lambda pushdown.
             let projection_pushdown = projection_pushdown && !contains_lambda(&projection)?;
 
             let ProcessedProjection {
