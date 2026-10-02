@@ -174,7 +174,7 @@ logical_plan [
                     }
                 ],
                 "extra_info": {
-                    "Order By": "count_star()"
+                    "Order By": "c"
                 }
             }
         ],
@@ -194,69 +194,86 @@ logical_opt [
                         "name": "PROJECTION",
                         "children": [
                             {
-                                "name": "AGGREGATE",
+                                "name": "PROJECTION",
                                 "children": [
                                     {
-                                        "name": "PROJECTION",
+                                        "name": "AGGREGATE",
                                         "children": [
                                             {
                                                 "name": "PROJECTION",
                                                 "children": [
                                                     {
-                                                        "name": "READ_VORTEX",
-                                                        "children": [],
+                                                        "name": "PROJECTION",
+                                                        "children": [
+                                                            {
+                                                                "name": "READ_VORTEX",
+                                                                "children": [],
+                                                                "extra_info": {
+                                                                    "Filters": "($.SearchPhrase != \"\")",
+                                                                    "Function": "Vortex Scan",
+                                                                    "SELECT projections": "SearchEngineID: cast($.SearchEngineID as u8?)",
+                                                                    "Estimated Cardinality": "200000"
+                                                                }
+                                                            }
+                                                        ],
                                                         "extra_info": {
-                                                            "Filters": "($.SearchPhrase != \"\")",
-                                                            "Function": "Vortex Scan",
+                                                            "Expressions": [
+                                                                "ClientIP",
+                                                                "IsRefresh",
+                                                                "ResolutionWidth",
+                                                                "SearchEngineID"
+                                                            ],
                                                             "Estimated Cardinality": "200000"
                                                         }
                                                     }
                                                 ],
                                                 "extra_info": {
                                                     "Expressions": [
-                                                        "ClientIP",
-                                                        "IsRefresh",
-                                                        "ResolutionWidth",
-                                                        "SearchEngineID"
+                                                        "#0",
+                                                        "#1",
+                                                        "#2",
+                                                        "#3"
                                                     ],
                                                     "Estimated Cardinality": "200000"
                                                 }
                                             }
                                         ],
                                         "extra_info": {
-                                            "Expressions": [
-                                                "#0",
-                                                "#1",
-                                                "#2",
-                                                "__internal_compress_integral_utinyint(#3, 0)"
+                                            "Groups": [
+                                                "SearchEngineID",
+                                                "ClientIP"
                                             ],
-                                            "Estimated Cardinality": "200000"
+                                            "Expressions": [
+                                                "count_star()",
+                                                "sum(IsRefresh)",
+                                                "sum(ResolutionWidth)"
+                                            ],
+                                            "Estimated Cardinality": "199543"
                                         }
                                     }
                                 ],
                                 "extra_info": {
-                                    "Groups": [
-                                        "SearchEngineID",
-                                        "ClientIP"
-                                    ],
                                     "Expressions": [
-                                        "count_star()",
-                                        "sum(IsRefresh)",
-                                        "avg(ResolutionWidth)"
+                                        "CAST(#0 AS SMALLINT)",
+                                        "#1",
+                                        "#2",
+                                        "#3",
+                                        "#4",
+                                        "#2"
                                     ],
-                                    "Estimated Cardinality": "199999"
+                                    "Estimated Cardinality": "199543"
                                 }
                             }
                         ],
                         "extra_info": {
                             "Expressions": [
-                                "__internal_decompress_integral_smallint(#0, 0)",
+                                "#0",
                                 "#1",
                                 "#2",
                                 "#3",
-                                "#4"
+                                "\"/\"(CAST(#4 AS DOUBLE), CAST(#5 AS DOUBLE))"
                             ],
-                            "Estimated Cardinality": "199999"
+                            "Estimated Cardinality": "199543"
                         }
                     }
                 ],
@@ -268,7 +285,7 @@ logical_opt [
                         "sum(IsRefresh)",
                         "avg(ResolutionWidth)"
                     ],
-                    "Estimated Cardinality": "199999"
+                    "Estimated Cardinality": "199543"
                 }
             }
         ],
@@ -286,10 +303,10 @@ physical_plan [
                 "name": "PROJECTION",
                 "children": [
                     {
-                        "name": "HASH_GROUP_BY",
+                        "name": "PROJECTION",
                         "children": [
                             {
-                                "name": "PROJECTION",
+                                "name": "HASH_GROUP_BY",
                                 "children": [
                                     {
                                         "name": "PROJECTION",
@@ -300,6 +317,7 @@ physical_plan [
                                                 "extra_info": {
                                                     "Function": "Vortex Scan",
                                                     "Filters": "($.SearchPhrase != \"\")",
+                                                    "SELECT projections": "SearchEngineID: cast($.SearchEngineID as u8?)",
                                                     "Projections": [
                                                         "ClientIP",
                                                         "IsRefresh",
@@ -312,55 +330,58 @@ physical_plan [
                                         ],
                                         "extra_info": {
                                             "Projections": [
-                                                "#0",
-                                                "#1",
-                                                "#2",
-                                                "__internal_compress_integral_utinyint(#3, 0)"
+                                                "SearchEngineID",
+                                                "ClientIP",
+                                                "IsRefresh",
+                                                "ResolutionWidth"
                                             ],
                                             "Estimated Cardinality": "200000"
                                         }
                                     }
                                 ],
                                 "extra_info": {
-                                    "Projections": [
-                                        "SearchEngineID",
-                                        "ClientIP",
-                                        "IsRefresh",
-                                        "ResolutionWidth"
+                                    "Groups": [
+                                        "#0",
+                                        "#1"
                                     ],
-                                    "Estimated Cardinality": "200000"
+                                    "Aggregates": [
+                                        "count_star()",
+                                        "sum(#2)",
+                                        "sum(#3)"
+                                    ],
+                                    "Estimated Cardinality": "199543"
                                 }
                             }
                         ],
                         "extra_info": {
-                            "Groups": [
-                                "#0",
-                                "#1"
+                            "Projections": [
+                                "CAST(#0 AS SMALLINT)",
+                                "#1",
+                                "#2",
+                                "#3",
+                                "#4",
+                                "#2"
                             ],
-                            "Aggregates": [
-                                "count_star()",
-                                "sum(#2)",
-                                "avg(#3)"
-                            ],
-                            "Estimated Cardinality": "199999"
+                            "Estimated Cardinality": "199543"
                         }
                     }
                 ],
                 "extra_info": {
                     "Projections": [
-                        "__internal_decompress_integral_smallint(#0, 0)",
+                        "#0",
                         "#1",
                         "#2",
                         "#3",
-                        "#4"
+                        "\"/\"(CAST(#4 AS DOUBLE), CAST(#5 AS DOUBLE))"
                     ],
-                    "Estimated Cardinality": "199999"
+                    "Estimated Cardinality": "199543"
                 }
             }
         ],
         "extra_info": {
             "Top": "10",
-            "Order By": "count_star() DESC"
+            "Order By": "c DESC",
+            "Estimated Cardinality": "10"
         }
     }
 ]

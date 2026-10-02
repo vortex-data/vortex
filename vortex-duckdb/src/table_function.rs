@@ -31,8 +31,6 @@ use vortex::expr::BoundExpression;
 use vortex::expr::Expression;
 use vortex::metrics::tracing::get_global_labels;
 use vortex::scalar::Scalar;
-use vortex::scalar_fn::fns::binary::Binary;
-use vortex::scalar_fn::fns::operators::Operator;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::convert::PushedAggregate;
@@ -416,35 +414,15 @@ pub fn pushdown_complex_filter(
         return Ok(false);
     };
 
-    // Duckdb calls pushdown_complex_filter during planning phase.
-    // If all filters are pushed down, duckdb enables a LEFT_DELIM_JOIN ->
-    // COMPARISON_JOIN (HASH_JOIN) optimization:
-    // duckdb/src/optimizer/deliminator.cpp: Deliminator::HasSelection,
-    // Deliminator::Optimize.
-    //
-    // This leads to a massive regression on tpch sf=10 q17 and other
-    // benchmarks.
-    //
-    // This bug is reported to Duckdb
-    // https://github.com/duckdb/duckdb/issues/22669
-    //
-    // As a hack, report equality filters as not pushed.
-    // We can also report only the first filter as not pushed, but this
-    // has a negative performance impact.
-    let report_pushed = !expr
-        .as_opt::<Binary>()
-        .map(|op| *op == Operator::Eq)
-        .unwrap_or(false);
-
     // Only table filters may be optional, any complex filter is
     // non-optional by definition.
     bind_data
         .has_non_optional_filter
         .store(true, Ordering::Relaxed);
 
-    debug!(%expr, report_pushed, "pushed down expression");
+    debug!(%expr, "pushed down expression");
     bind_data.filters.push(expr);
-    Ok(report_pushed)
+    Ok(true)
 }
 
 pub fn pushdown_projection_expression(

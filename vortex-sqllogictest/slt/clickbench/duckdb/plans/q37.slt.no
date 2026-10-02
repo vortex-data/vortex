@@ -171,7 +171,7 @@ logical_plan [
                     }
                 ],
                 "extra_info": {
-                    "Order By": "count_star()"
+                    "Order By": "PageViews"
                 }
             }
         ],
@@ -205,20 +205,20 @@ logical_opt [
                                                 "($.Title != \"\")"
                                             ],
                                             "Function": "Vortex Scan",
-                                            "Estimated Cardinality": "40000"
+                                            "Estimated Cardinality": "200000"
                                         }
                                     }
                                 ],
                                 "extra_info": {
                                     "Expressions": "Title",
-                                    "Estimated Cardinality": "40000"
+                                    "Estimated Cardinality": "200000"
                                 }
                             }
                         ],
                         "extra_info": {
                             "Groups": "Title",
                             "Expressions": "count_star()",
-                            "Estimated Cardinality": "36253"
+                            "Estimated Cardinality": "126424"
                         }
                     }
                 ],
@@ -227,7 +227,7 @@ logical_opt [
                         "Title",
                         "PageViews"
                     ],
-                    "Estimated Cardinality": "36253"
+                    "Estimated Cardinality": "126424"
                 }
             }
         ],
@@ -253,31 +253,34 @@ physical_plan [
                                 "extra_info": {
                                     "Function": "Vortex Scan",
                                     "Filters": [
-                                        "CounterID=62",
-                                        "IsRefresh=0",
-                                        "DontCountHits=0"
+                                        "($.CounterID = 62i32)",
+                                        "(2013-07-01T00:00:00Z <= $.EventDate <= 2013-07-31T00:00:00Z)",
+                                        "($.DontCountHits = 0i16)",
+                                        "($.IsRefresh = 0i16)",
+                                        "($.Title != \"\")"
                                     ],
                                     "Projections": "Title",
-                                    "Estimated Cardinality": "40000"
+                                    "Estimated Cardinality": "200000"
                                 }
                             }
                         ],
                         "extra_info": {
                             "Projections": "Title",
-                            "Estimated Cardinality": "40000"
+                            "Estimated Cardinality": "200000"
                         }
                     }
                 ],
                 "extra_info": {
                     "Groups": "#0",
                     "Aggregates": "count_star()",
-                    "Estimated Cardinality": "36253"
+                    "Estimated Cardinality": "126424"
                 }
             }
         ],
         "extra_info": {
             "Top": "10",
-            "Order By": "count_star() DESC"
+            "Order By": "PageViews DESC",
+            "Estimated Cardinality": "10"
         }
     }
 ]

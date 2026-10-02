@@ -176,7 +176,7 @@ logical_plan [
                     }
                 ],
                 "extra_info": {
-                    "Order By": "count_star()"
+                    "Order By": "c"
                 }
             }
         ],
@@ -193,45 +193,146 @@ logical_opt [
                 "name": "PROJECTION",
                 "children": [
                     {
-                        "name": "AGGREGATE",
+                        "name": "CTE",
                         "children": [
                             {
                                 "name": "PROJECTION",
                                 "children": [
                                     {
-                                        "name": "READ_VORTEX",
-                                        "children": [],
+                                        "name": "PROJECTION",
+                                        "children": [
+                                            {
+                                                "name": "PROJECTION",
+                                                "children": [
+                                                    {
+                                                        "name": "READ_VORTEX",
+                                                        "children": [],
+                                                        "extra_info": {
+                                                            "Filters": [
+                                                                "$.Title like \"%Google%\"",
+                                                                "vortex.not($.URL like \"%.google.%\")",
+                                                                "($.SearchPhrase != \"\")"
+                                                            ],
+                                                            "Function": "Vortex Scan",
+                                                            "Estimated Cardinality": "200000"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Expressions": [
+                                                        "Title",
+                                                        "UserID",
+                                                        "URL",
+                                                        "SearchPhrase"
+                                                    ],
+                                                    "Estimated Cardinality": "200000"
+                                                }
+                                            }
+                                        ],
                                         "extra_info": {
-                                            "Filters": [
-                                                "$.Title like \"%Google%\"",
-                                                "vortex.not($.URL like \"%.google.%\")",
-                                                "($.SearchPhrase != \"\")"
+                                            "Expressions": [
+                                                "#0",
+                                                "#1",
+                                                "#2",
+                                                "#3"
                                             ],
-                                            "Function": "Vortex Scan",
                                             "Estimated Cardinality": "200000"
                                         }
                                     }
                                 ],
                                 "extra_info": {
                                     "Expressions": [
-                                        "Title",
-                                        "UserID",
-                                        "URL",
-                                        "SearchPhrase"
+                                        "#0",
+                                        "#1",
+                                        "#2",
+                                        "#3"
                                     ],
                                     "Estimated Cardinality": "200000"
+                                }
+                            },
+                            {
+                                "name": "PROJECTION",
+                                "children": [
+                                    {
+                                        "name": "COMPARISON_JOIN",
+                                        "children": [
+                                            {
+                                                "name": "AGGREGATE",
+                                                "children": [
+                                                    {
+                                                        "name": "CTE_SCAN",
+                                                        "children": [],
+                                                        "extra_info": {
+                                                            "CTE Index": "13",
+                                                            "Estimated Cardinality": "200000"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Groups": "SearchPhrase",
+                                                    "Expressions": [
+                                                        "min(URL)",
+                                                        "min(Title)",
+                                                        "count_star()"
+                                                    ],
+                                                    "Estimated Cardinality": "100000"
+                                                }
+                                            },
+                                            {
+                                                "name": "AGGREGATE",
+                                                "children": [
+                                                    {
+                                                        "name": "AGGREGATE",
+                                                        "children": [
+                                                            {
+                                                                "name": "CTE_SCAN",
+                                                                "children": [],
+                                                                "extra_info": {
+                                                                    "CTE Index": "13",
+                                                                    "Estimated Cardinality": "200000"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Groups": [
+                                                                "SearchPhrase",
+                                                                "UserID"
+                                                            ],
+                                                            "Expressions": "",
+                                                            "Estimated Cardinality": "100000"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Groups": "#0",
+                                                    "Expressions": "count_star()",
+                                                    "Estimated Cardinality": "50000"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Join Type": "INNER",
+                                            "Conditions": "(#0 IS NOT DISTINCT FROM #0)",
+                                            "Estimated Cardinality": "25000"
+                                        }
+                                    }
+                                ],
+                                "extra_info": {
+                                    "Expressions": [
+                                        "#3",
+                                        "#0",
+                                        "#1",
+                                        "#2",
+                                        "#4"
+                                    ],
+                                    "Estimated Cardinality": "25000"
                                 }
                             }
                         ],
                         "extra_info": {
-                            "Groups": "SearchPhrase",
-                            "Expressions": [
-                                "min(URL)",
-                                "min(Title)",
-                                "count_star()",
-                                "count(DISTINCT UserID)"
-                            ],
-                            "Estimated Cardinality": "126424"
+                            "CTE Name": "__aggregate_cte_13",
+                            "Table Index": "13",
+                            "Estimated Cardinality": "25000"
                         }
                     }
                 ],
@@ -243,7 +344,7 @@ logical_opt [
                         "c",
                         "count(DISTINCT UserID)"
                     ],
-                    "Estimated Cardinality": "126424"
+                    "Estimated Cardinality": "25000"
                 }
             }
         ],
@@ -258,57 +359,152 @@ physical_plan [
         "name": "TOP_N",
         "children": [
             {
-                "name": "HASH_GROUP_BY",
+                "name": "CTE",
                 "children": [
+                    {
+                        "name": "READ_VORTEX",
+                        "children": [],
+                        "extra_info": {
+                            "Function": "Vortex Scan",
+                            "Filters": [
+                                "$.Title like \"%Google%\"",
+                                "vortex.not($.URL like \"%.google.%\")",
+                                "($.SearchPhrase != \"\")"
+                            ],
+                            "Projections": [
+                                "Title",
+                                "UserID",
+                                "URL",
+                                "SearchPhrase"
+                            ],
+                            "Estimated Cardinality": "200000"
+                        }
+                    },
                     {
                         "name": "PROJECTION",
                         "children": [
                             {
-                                "name": "READ_VORTEX",
-                                "children": [],
+                                "name": "HASH_JOIN",
+                                "children": [
+                                    {
+                                        "name": "HASH_GROUP_BY",
+                                        "children": [
+                                            {
+                                                "name": "PROJECTION",
+                                                "children": [
+                                                    {
+                                                        "name": "CTE_SCAN",
+                                                        "children": [],
+                                                        "extra_info": {
+                                                            "CTE Index": "13",
+                                                            "Estimated Cardinality": "200000"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Projections": [
+                                                        "SearchPhrase",
+                                                        "URL",
+                                                        "Title"
+                                                    ],
+                                                    "Estimated Cardinality": "200000"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Groups": "#0",
+                                            "Aggregates": [
+                                                "min(#1)",
+                                                "min(#2)",
+                                                "count_star()"
+                                            ],
+                                            "Estimated Cardinality": "100000"
+                                        }
+                                    },
+                                    {
+                                        "name": "HASH_GROUP_BY",
+                                        "children": [
+                                            {
+                                                "name": "PROJECTION",
+                                                "children": [
+                                                    {
+                                                        "name": "HASH_GROUP_BY",
+                                                        "children": [
+                                                            {
+                                                                "name": "PROJECTION",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "CTE_SCAN",
+                                                                        "children": [],
+                                                                        "extra_info": {
+                                                                            "CTE Index": "13",
+                                                                            "Estimated Cardinality": "200000"
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Projections": [
+                                                                        "SearchPhrase",
+                                                                        "UserID"
+                                                                    ],
+                                                                    "Estimated Cardinality": "200000"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Groups": [
+                                                                "#0",
+                                                                "#1"
+                                                            ],
+                                                            "Aggregates": "",
+                                                            "Estimated Cardinality": "100000"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Projections": "#0",
+                                                    "Estimated Cardinality": "100000"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Groups": "#0",
+                                            "Aggregates": "count_star()",
+                                            "Estimated Cardinality": "50000"
+                                        }
+                                    }
+                                ],
                                 "extra_info": {
-                                    "Function": "Vortex Scan",
-                                    "Filters": [
-                                        "$.Title like \"%Google%\"",
-                                        "vortex.not($.URL like \"%.google.%\")",
-                                        "($.SearchPhrase != \"\")"
-                                    ],
-                                    "Projections": [
-                                        "Title",
-                                        "UserID",
-                                        "URL",
-                                        "SearchPhrase"
-                                    ],
-                                    "Estimated Cardinality": "200000"
+                                    "Join Type": "INNER",
+                                    "Conditions": "#0 IS NOT DISTINCT FROM #0",
+                                    "Estimated Cardinality": "25000"
                                 }
                             }
                         ],
                         "extra_info": {
                             "Projections": [
-                                "SearchPhrase",
-                                "URL",
-                                "Title",
-                                "UserID"
+                                "#3",
+                                "#0",
+                                "#1",
+                                "#2",
+                                "#4"
                             ],
-                            "Estimated Cardinality": "200000"
+                            "Estimated Cardinality": "25000"
                         }
                     }
                 ],
                 "extra_info": {
-                    "Groups": "#0",
-                    "Aggregates": [
-                        "min(#1)",
-                        "min(#2)",
-                        "count_star()",
-                        "count(DISTINCT #3)"
-                    ],
-                    "Estimated Cardinality": "126424"
+                    "CTE Name": "__aggregate_cte_13",
+                    "Table Index": "13",
+                    "Execution Mode": "PIPELINE_DEPENDENT",
+                    "Estimated Cardinality": "25000"
                 }
             }
         ],
         "extra_info": {
             "Top": "10",
-            "Order By": "count_star() DESC"
+            "Order By": "c DESC",
+            "Estimated Cardinality": "10"
         }
     }
 ]

@@ -113,8 +113,8 @@ logical_plan [
         ],
         "extra_info": {
             "Order By": [
-                "memory.main.lineitem.l_returnflag",
-                "memory.main.lineitem.l_linestatus"
+                "l_returnflag",
+                "l_linestatus"
             ]
         }
     }
@@ -127,65 +127,83 @@ logical_opt [
                 "name": "PROJECTION",
                 "children": [
                     {
-                        "name": "AGGREGATE",
+                        "name": "PROJECTION",
                         "children": [
                             {
-                                "name": "PROJECTION",
+                                "name": "AGGREGATE",
                                 "children": [
                                     {
                                         "name": "PROJECTION",
                                         "children": [
                                             {
-                                                "name": "READ_VORTEX",
-                                                "children": [],
+                                                "name": "PROJECTION",
+                                                "children": [
+                                                    {
+                                                        "name": "READ_VORTEX",
+                                                        "children": [],
+                                                        "extra_info": {
+                                                            "Filters": "($.l_shipdate <= 1998-09-02)",
+                                                            "Function": "Vortex Scan",
+                                                            "Estimated Cardinality": "120114"
+                                                        }
+                                                    }
+                                                ],
                                                 "extra_info": {
-                                                    "Filters": "($.l_shipdate <= 1998-09-02)",
-                                                    "Function": "Vortex Scan",
+                                                    "Expressions": [
+                                                        "l_quantity",
+                                                        "l_extendedprice",
+                                                        "l_discount",
+                                                        "l_tax",
+                                                        "l_returnflag",
+                                                        "l_linestatus"
+                                                    ],
                                                     "Estimated Cardinality": "120114"
                                                 }
                                             }
                                         ],
                                         "extra_info": {
                                             "Expressions": [
+                                                "l_returnflag",
+                                                "l_linestatus",
                                                 "l_quantity",
                                                 "l_extendedprice",
-                                                "l_discount",
+                                                "(l_extendedprice * (1.00 - l_discount))",
                                                 "l_tax",
-                                                "l_returnflag",
-                                                "l_linestatus"
+                                                "l_discount"
                                             ],
                                             "Estimated Cardinality": "120114"
                                         }
                                     }
                                 ],
                                 "extra_info": {
-                                    "Expressions": [
+                                    "Groups": [
                                         "l_returnflag",
-                                        "l_linestatus",
-                                        "l_quantity",
-                                        "l_extendedprice",
-                                        "(l_extendedprice * (1.00 - l_discount))",
-                                        "l_tax",
-                                        "l_discount"
+                                        "l_linestatus"
                                     ],
-                                    "Estimated Cardinality": "120114"
+                                    "Expressions": [
+                                        "sum(l_quantity)",
+                                        "sum(l_extendedprice)",
+                                        "sum(#4)",
+                                        "sum((#4 * (1.00 + l_tax)))",
+                                        "sum(l_discount)",
+                                        "count_star()"
+                                    ],
+                                    "Estimated Cardinality": "120113"
                                 }
                             }
                         ],
                         "extra_info": {
-                            "Groups": [
-                                "l_returnflag",
-                                "l_linestatus"
-                            ],
                             "Expressions": [
-                                "sum(l_quantity)",
-                                "sum(l_extendedprice)",
-                                "sum(#4)",
-                                "sum((#4 * (1.00 + l_tax)))",
-                                "avg(l_quantity)",
-                                "avg(l_extendedprice)",
-                                "avg(l_discount)",
-                                "count_star()"
+                                "#0",
+                                "#1",
+                                "#2",
+                                "#3",
+                                "#4",
+                                "#5",
+                                "\"/\"(CAST(#2 AS DOUBLE), CAST(#7 AS DOUBLE))",
+                                "\"/\"(CAST(#3 AS DOUBLE), CAST(#7 AS DOUBLE))",
+                                "\"/\"(CAST(#6 AS DOUBLE), CAST(#7 AS DOUBLE))",
+                                "#7"
                             ],
                             "Estimated Cardinality": "120113"
                         }
@@ -210,9 +228,10 @@ logical_opt [
         ],
         "extra_info": {
             "Order By": [
-                "memory.main.lineitem.l_returnflag",
-                "memory.main.lineitem.l_linestatus"
-            ]
+                "l_returnflag",
+                "l_linestatus"
+            ],
+            "Estimated Cardinality": "120113"
         }
     }
 ]
@@ -221,27 +240,44 @@ physical_plan [
         "name": "ORDER_BY",
         "children": [
             {
-                "name": "HASH_GROUP_BY",
+                "name": "PROJECTION",
                 "children": [
                     {
-                        "name": "PROJECTION",
+                        "name": "HASH_GROUP_BY",
                         "children": [
                             {
                                 "name": "PROJECTION",
                                 "children": [
                                     {
-                                        "name": "READ_VORTEX",
-                                        "children": [],
+                                        "name": "PROJECTION",
+                                        "children": [
+                                            {
+                                                "name": "READ_VORTEX",
+                                                "children": [],
+                                                "extra_info": {
+                                                    "Function": "Vortex Scan",
+                                                    "Filters": "($.l_shipdate <= 1998-09-02)",
+                                                    "Projections": [
+                                                        "l_quantity",
+                                                        "l_extendedprice",
+                                                        "l_discount",
+                                                        "l_tax",
+                                                        "l_returnflag",
+                                                        "l_linestatus"
+                                                    ],
+                                                    "Estimated Cardinality": "120114"
+                                                }
+                                            }
+                                        ],
                                         "extra_info": {
-                                            "Function": "Vortex Scan",
-                                            "Filters": "($.l_shipdate <= 1998-09-02)",
                                             "Projections": [
+                                                "l_returnflag",
+                                                "l_linestatus",
                                                 "l_quantity",
                                                 "l_extendedprice",
-                                                "l_discount",
+                                                "(l_extendedprice * (1.00 - l_discount))",
                                                 "l_tax",
-                                                "l_returnflag",
-                                                "l_linestatus"
+                                                "l_discount"
                                             ],
                                             "Estimated Cardinality": "120114"
                                         }
@@ -253,8 +289,8 @@ physical_plan [
                                         "l_linestatus",
                                         "l_quantity",
                                         "l_extendedprice",
-                                        "(l_extendedprice * (1.00 - l_discount))",
-                                        "l_tax",
+                                        "#4",
+                                        "(#4 * (1.00 + l_tax))",
                                         "l_discount"
                                     ],
                                     "Estimated Cardinality": "120114"
@@ -262,35 +298,34 @@ physical_plan [
                             }
                         ],
                         "extra_info": {
-                            "Projections": [
-                                "l_returnflag",
-                                "l_linestatus",
-                                "l_quantity",
-                                "l_extendedprice",
-                                "#4",
-                                "(#4 * (1.00 + l_tax))",
-                                "l_quantity",
-                                "l_extendedprice",
-                                "l_discount"
+                            "Groups": [
+                                "#0",
+                                "#1"
                             ],
-                            "Estimated Cardinality": "120114"
+                            "Aggregates": [
+                                "sum(#2)",
+                                "sum(#3)",
+                                "sum(#4)",
+                                "sum(#5)",
+                                "sum(#6)",
+                                "count_star()"
+                            ],
+                            "Estimated Cardinality": "120113"
                         }
                     }
                 ],
                 "extra_info": {
-                    "Groups": [
+                    "Projections": [
                         "#0",
-                        "#1"
-                    ],
-                    "Aggregates": [
-                        "sum(#2)",
-                        "sum(#3)",
-                        "sum(#4)",
-                        "sum(#5)",
-                        "avg(#6)",
-                        "avg(#7)",
-                        "avg(#8)",
-                        "count_star()"
+                        "#1",
+                        "#2",
+                        "#3",
+                        "#4",
+                        "#5",
+                        "\"/\"(CAST(#2 AS DOUBLE), CAST(#7 AS DOUBLE))",
+                        "\"/\"(CAST(#3 AS DOUBLE), CAST(#7 AS DOUBLE))",
+                        "\"/\"(CAST(#6 AS DOUBLE), CAST(#7 AS DOUBLE))",
+                        "#7"
                     ],
                     "Estimated Cardinality": "120113"
                 }
@@ -298,9 +333,10 @@ physical_plan [
         ],
         "extra_info": {
             "Order By": [
-                "memory.main.lineitem.l_returnflag ASC",
-                "memory.main.lineitem.l_linestatus ASC"
-            ]
+                "l_returnflag ASC",
+                "l_linestatus ASC"
+            ],
+            "Estimated Cardinality": "120113"
         }
     }
 ]

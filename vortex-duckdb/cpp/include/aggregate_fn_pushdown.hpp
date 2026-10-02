@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 #pragma once
-#include "optimizer.hpp"
 #include "duckdb/optimizer/optimizer_extension.hpp"
+#include "duckdb/optimizer/type_pushdown.hpp"
 
 using namespace duckdb;
+
+using LogicalOperatorPtr = unique_ptr<LogicalOperator>;
 
 // Push UNGROUPED_AGGREGATE's of form agg(T) and count_star() into GET.
 LogicalOperatorPtr TryPushdownAggregateFunctions(ClientContext &context, LogicalOperatorPtr plan);

@@ -21,7 +21,7 @@ CREATE VIEW decimals AS SELECT * FROM '${WORK_DIR}/decimal_to_integer.vortex';
 # DuckDB rounds decimal fractions instead of truncating them. Decimal casts must
 # stay outside the Vortex scan even though Vortex now supports integer targets.
 query TT
-EXPLAIN SELECT CAST(value AS BIGINT) AS integer_value FROM decimals;
+EXPLAIN (FORMAT JSON) SELECT CAST(value AS BIGINT) AS integer_value FROM decimals;
 ----
 <REGEX>:.*PROJECTION.*
 

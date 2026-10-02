@@ -141,80 +141,43 @@ logical_opt [
                 "name": "AGGREGATE",
                 "children": [
                     {
-                        "name": "FILTER",
+                        "name": "COMPARISON_JOIN",
                         "children": [
                             {
-                                "name": "FILTER",
-                                "children": [
-                                    {
-                                        "name": "COMPARISON_JOIN",
-                                        "children": [
-                                            {
-                                                "name": "PROJECTION",
-                                                "children": [
-                                                    {
-                                                        "name": "READ_VORTEX",
-                                                        "children": [],
-                                                        "extra_info": {
-                                                            "Filters": "",
-                                                            "Function": "Vortex Scan",
-                                                            "Estimated Cardinality": "20000"
-                                                        }
-                                                    }
-                                                ],
-                                                "extra_info": {
-                                                    "Expressions": [
-                                                        "p_partkey",
-                                                        "p_brand",
-                                                        "p_size",
-                                                        "p_container"
-                                                    ],
-                                                    "Estimated Cardinality": "20000"
-                                                }
-                                            },
-                                            {
-                                                "name": "PROJECTION",
-                                                "children": [
-                                                    {
-                                                        "name": "READ_VORTEX",
-                                                        "children": [],
-                                                        "extra_info": {
-                                                            "Filters": [
-                                                                "vortex.list.contains([\"AIR\", \"AIR REG\"], $.l_shipmode)",
-                                                                "($.l_shipinstruct = \"DELIVER IN PERSON\")"
-                                                            ],
-                                                            "Function": "Vortex Scan",
-                                                            "Estimated Cardinality": "24022"
-                                                        }
-                                                    }
-                                                ],
-                                                "extra_info": {
-                                                    "Expressions": [
-                                                        "l_partkey",
-                                                        "l_quantity",
-                                                        "l_extendedprice",
-                                                        "l_discount"
-                                                    ],
-                                                    "Estimated Cardinality": "24022"
-                                                }
-                                            }
-                                        ],
-                                        "extra_info": {
-                                            "Join Type": "INNER",
-                                            "Conditions": "(p_partkey = l_partkey)",
-                                            "Estimated Cardinality": "24022"
-                                        }
-                                    }
-                                ],
+                                "name": "READ_VORTEX",
+                                "children": [],
                                 "extra_info": {
-                                    "Expressions": "(((l_quantity >= 1.00) AND (l_quantity <= 11.00) AND (p_size <= 5) AND (p_brand = 'Brand#12') AND ((p_container = 'SM CASE') OR (p_container = 'SM BOX') OR (p_container = 'SM PACK') OR (p_container = 'SM PKG'))) OR ((l_quantity >= 10.00) AND (l_quantity <= 20.00) AND (p_size <= 10) AND (p_brand = 'Brand#23') AND ((p_container = 'MED BAG') OR (p_container = 'MED BOX') OR (p_container = 'MED PKG') OR (p_container = 'MED PACK'))) OR ((l_quantity >= 20.00) AND (l_quantity <= 30.00) AND (p_size <= 15) AND (p_brand = 'Brand#34') AND ((p_container = 'LG CASE') OR (p_container = 'LG BOX') OR (p_container = 'LG PACK') OR (p_container = 'LG PKG'))))",
-                                    "Estimated Cardinality": "24022"
+                                    "Filters": [
+                                        "vortex.list.contains([\"AIR\", \"AIR REG\"], $.l_shipmode)",
+                                        "(((($.l_quantity >= decimal128(100, precision=15, scale=2)) and ($.l_quantity <= decimal128(1100, precision=15, scale=2))) or (($.l_quantity >= decimal128(1000, precision=15, scale=2)) and ($.l_quantity <= decimal128(2000, precision=15, scale=2)))) or (($.l_quantity >= decimal128(2000, precision=15, scale=2)) and ($.l_quantity <= decimal128(3000, precision=15, scale=2))))",
+                                        "($.l_shipinstruct = \"DELIVER IN PERSON\")"
+                                    ],
+                                    "Function": "Vortex Scan",
+                                    "Estimated Cardinality": "120114"
+                                }
+                            },
+                            {
+                                "name": "READ_VORTEX",
+                                "children": [],
+                                "extra_info": {
+                                    "Filters": [
+                                        "(((((($.p_brand = \"Brand#12\") and vortex.list.contains([\"SM CASE\", \"SM BOX\", \"SM PACK\", \"SM PKG\"], $.p_container)) and ($.p_size >= 1i32)) and ($.p_size <= 5i32)) or (((($.p_brand = \"Brand#23\") and vortex.list.contains([\"MED BAG\", \"MED BOX\", \"MED PKG\", \"MED PACK\"], $.p_container)) and ($.p_size >= 1i32)) and ($.p_size <= 10i32))) or (((($.p_brand = \"Brand#34\") and vortex.list.contains([\"LG CASE\", \"LG BOX\", \"LG PACK\", \"LG PKG\"], $.p_container)) and ($.p_size >= 1i32)) and ($.p_size <= 15i32)))",
+                                        "((($.p_brand = \"Brand#12\") or ($.p_brand = \"Brand#23\")) or ($.p_brand = \"Brand#34\"))",
+                                        "((vortex.list.contains([\"SM CASE\", \"SM BOX\", \"SM PACK\", \"SM PKG\"], $.p_container) or vortex.list.contains([\"MED BAG\", \"MED BOX\", \"MED PKG\", \"MED PACK\"], $.p_container)) or vortex.list.contains([\"LG CASE\", \"LG BOX\", \"LG PACK\", \"LG PKG\"], $.p_container))",
+                                        "(((($.p_size >= 1i32) or ($.p_size <= 5i32)) or ($.p_size <= 10i32)) or ($.p_size <= 15i32))"
+                                    ],
+                                    "Function": "Vortex Scan",
+                                    "Estimated Cardinality": "4000"
                                 }
                             }
                         ],
                         "extra_info": {
-                            "Expressions": "",
-                            "Estimated Cardinality": "24022"
+                            "Join Type": "INNER",
+                            "Conditions": [
+                                "(l_partkey = p_partkey)",
+                                "(((l_quantity >= 1.00) AND (l_quantity <= 11.00) AND (p_size <= 5) AND (p_brand = 'Brand#12') AND (p_container IN ('SM CASE', 'SM BOX', 'SM PACK', 'SM PKG'))) OR ((l_quantity >= 10.00) AND (l_quantity <= 20.00) AND (p_size <= 10) AND (p_brand = 'Brand#23') AND (p_container IN ('MED BAG', 'MED BOX', 'MED PKG', 'MED PACK'))) OR ((l_quantity >= 20.00) AND (l_quantity <= 30.00) AND (p_size <= 15) AND (p_brand = 'Brand#34') AND (p_container IN ('LG CASE', 'LG BOX', 'LG PACK', 'LG PKG'))))"
+                            ],
+                            "Estimated Cardinality": "4804"
                         }
                     }
                 ],
@@ -239,74 +202,67 @@ physical_plan [
                 "name": "PROJECTION",
                 "children": [
                     {
-                        "name": "PROJECTION",
+                        "name": "HASH_JOIN",
                         "children": [
                             {
-                                "name": "FILTER",
-                                "children": [
-                                    {
-                                        "name": "HASH_JOIN",
-                                        "children": [
-                                            {
-                                                "name": "READ_VORTEX",
-                                                "children": [],
-                                                "extra_info": {
-                                                    "Function": "Vortex Scan",
-                                                    "Projections": [
-                                                        "p_partkey",
-                                                        "p_brand",
-                                                        "p_size",
-                                                        "p_container"
-                                                    ],
-                                                    "Estimated Cardinality": "20000"
-                                                }
-                                            },
-                                            {
-                                                "name": "READ_VORTEX",
-                                                "children": [],
-                                                "extra_info": {
-                                                    "Function": "Vortex Scan",
-                                                    "Filters": "l_shipinstruct='DELIVER IN PERSON'",
-                                                    "Projections": [
-                                                        "l_partkey",
-                                                        "l_quantity",
-                                                        "l_extendedprice",
-                                                        "l_discount"
-                                                    ],
-                                                    "Estimated Cardinality": "24022"
-                                                }
-                                            }
-                                        ],
-                                        "extra_info": {
-                                            "Join Type": "INNER",
-                                            "Conditions": "p_partkey = l_partkey",
-                                            "Estimated Cardinality": "24022"
-                                        }
-                                    }
-                                ],
+                                "name": "READ_VORTEX",
+                                "children": [],
                                 "extra_info": {
-                                    "Expression": "(((l_quantity >= 1.00) AND (l_quantity <= 11.00) AND (p_size <= 5) AND (p_brand = 'Brand#12') AND ((p_container = 'SM CASE') OR (p_container = 'SM BOX') OR (p_container = 'SM PACK') OR (p_container = 'SM PKG'))) OR ((l_quantity >= 10.00) AND (l_quantity <= 20.00) AND (p_size <= 10) AND (p_brand = 'Brand#23') AND ((p_container = 'MED BAG') OR (p_container = 'MED BOX') OR (p_container = 'MED PKG') OR (p_container = 'MED PACK'))) OR ((l_quantity >= 20.00) AND (l_quantity <= 30.00) AND (p_size <= 15) AND (p_brand = 'Brand#34') AND ((p_container = 'LG CASE') OR (p_container = 'LG BOX') OR (p_container = 'LG PACK') OR (p_container = 'LG PKG'))))",
-                                    "Estimated Cardinality": "24022"
+                                    "Function": "Vortex Scan",
+                                    "Filters": [
+                                        "vortex.list.contains([\"AIR\", \"AIR REG\"], $.l_shipmode)",
+                                        "(((($.l_quantity >= decimal128(100, precision=15, scale=2)) and ($.l_quantity <= decimal128(1100, precision=15, scale=2))) or (($.l_quantity >= decimal128(1000, precision=15, scale=2)) and ($.l_quantity <= decimal128(2000, precision=15, scale=2)))) or (($.l_quantity >= decimal128(2000, precision=15, scale=2)) and ($.l_quantity <= decimal128(3000, precision=15, scale=2))))",
+                                        "($.l_shipinstruct = \"DELIVER IN PERSON\")"
+                                    ],
+                                    "Projections": [
+                                        "l_partkey",
+                                        "l_quantity",
+                                        "l_extendedprice",
+                                        "l_discount"
+                                    ],
+                                    "Estimated Cardinality": "120114"
+                                }
+                            },
+                            {
+                                "name": "READ_VORTEX",
+                                "children": [],
+                                "extra_info": {
+                                    "Function": "Vortex Scan",
+                                    "Filters": [
+                                        "(((((($.p_brand = \"Brand#12\") and vortex.list.contains([\"SM CASE\", \"SM BOX\", \"SM PACK\", \"SM PKG\"], $.p_container)) and ($.p_size >= 1i32)) and ($.p_size <= 5i32)) or (((($.p_brand = \"Brand#23\") and vortex.list.contains([\"MED BAG\", \"MED BOX\", \"MED PKG\", \"MED PACK\"], $.p_container)) and ($.p_size >= 1i32)) and ($.p_size <= 10i32))) or (((($.p_brand = \"Brand#34\") and vortex.list.contains([\"LG CASE\", \"LG BOX\", \"LG PACK\", \"LG PKG\"], $.p_container)) and ($.p_size >= 1i32)) and ($.p_size <= 15i32)))",
+                                        "((($.p_brand = \"Brand#12\") or ($.p_brand = \"Brand#23\")) or ($.p_brand = \"Brand#34\"))",
+                                        "((vortex.list.contains([\"SM CASE\", \"SM BOX\", \"SM PACK\", \"SM PKG\"], $.p_container) or vortex.list.contains([\"MED BAG\", \"MED BOX\", \"MED PKG\", \"MED PACK\"], $.p_container)) or vortex.list.contains([\"LG CASE\", \"LG BOX\", \"LG PACK\", \"LG PKG\"], $.p_container))",
+                                        "(((($.p_size >= 1i32) or ($.p_size <= 5i32)) or ($.p_size <= 10i32)) or ($.p_size <= 15i32))"
+                                    ],
+                                    "Projections": [
+                                        "p_partkey",
+                                        "p_brand",
+                                        "p_size",
+                                        "p_container"
+                                    ],
+                                    "Estimated Cardinality": "4000"
                                 }
                             }
                         ],
                         "extra_info": {
-                            "Projections": [
-                                "#4",
-                                "#5"
+                            "Join Type": "INNER",
+                            "Conditions": [
+                                "l_partkey = p_partkey",
+                                "(((l_quantity >= 1.00) AND (l_quantity <= 11.00) AND (p_size <= 5) AND (p_brand = 'Brand#12') AND (p_container IN ('SM CASE', 'SM BOX', 'SM PACK', 'SM PKG'))) OR ((l_quantity >= 10.00) AND (l_quantity <= 20.00) AND (p_size <= 10) AND (p_brand = 'Brand#23') AND (p_container IN ('MED BAG', 'MED BOX', 'MED PKG', 'MED PACK'))) OR ((l_quantity >= 20.00) AND (l_quantity <= 30.00) AND (p_size <= 15) AND (p_brand = 'Brand#34') AND (p_container IN ('LG CASE', 'LG BOX', 'LG PACK', 'LG PKG'))))"
                             ],
-                            "Estimated Cardinality": "24022"
+                            "Estimated Cardinality": "4804"
                         }
                     }
                 ],
                 "extra_info": {
                     "Projections": "(l_extendedprice * (1.00 - l_discount))",
-                    "Estimated Cardinality": "24022"
+                    "Estimated Cardinality": "4804"
                 }
             }
         ],
         "extra_info": {
-            "Aggregates": "sum(#0)"
+            "Aggregates": "sum(#0)",
+            "Estimated Cardinality": "1"
         }
     }
 ]

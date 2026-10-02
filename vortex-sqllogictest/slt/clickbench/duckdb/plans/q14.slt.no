@@ -168,7 +168,7 @@ logical_plan [
                     }
                 ],
                 "extra_info": {
-                    "Order By": "count_star()"
+                    "Order By": "c"
                 }
             }
         ],
@@ -202,6 +202,7 @@ logical_opt [
                                                         "extra_info": {
                                                             "Filters": "($.SearchPhrase != \"\")",
                                                             "Function": "Vortex Scan",
+                                                            "SELECT projections": "SearchEngineID: cast($.SearchEngineID as u8?)",
                                                             "Estimated Cardinality": "200000"
                                                         }
                                                     }
@@ -217,7 +218,7 @@ logical_opt [
                                         ],
                                         "extra_info": {
                                             "Expressions": [
-                                                "__internal_compress_integral_utinyint(#0, 0)",
+                                                "#0",
                                                 "#1"
                                             ],
                                             "Estimated Cardinality": "200000"
@@ -230,17 +231,17 @@ logical_opt [
                                         "SearchPhrase"
                                     ],
                                     "Expressions": "count_star()",
-                                    "Estimated Cardinality": "199999"
+                                    "Estimated Cardinality": "199543"
                                 }
                             }
                         ],
                         "extra_info": {
                             "Expressions": [
-                                "__internal_decompress_integral_smallint(#0, 0)",
+                                "CAST(#0 AS SMALLINT)",
                                 "#1",
                                 "#2"
                             ],
-                            "Estimated Cardinality": "199999"
+                            "Estimated Cardinality": "199543"
                         }
                     }
                 ],
@@ -250,7 +251,7 @@ logical_opt [
                         "SearchPhrase",
                         "c"
                     ],
-                    "Estimated Cardinality": "199999"
+                    "Estimated Cardinality": "199543"
                 }
             }
         ],
@@ -274,26 +275,15 @@ physical_plan [
                                 "name": "PROJECTION",
                                 "children": [
                                     {
-                                        "name": "PROJECTION",
-                                        "children": [
-                                            {
-                                                "name": "READ_VORTEX",
-                                                "children": [],
-                                                "extra_info": {
-                                                    "Function": "Vortex Scan",
-                                                    "Filters": "($.SearchPhrase != \"\")",
-                                                    "Projections": [
-                                                        "SearchEngineID",
-                                                        "SearchPhrase"
-                                                    ],
-                                                    "Estimated Cardinality": "200000"
-                                                }
-                                            }
-                                        ],
+                                        "name": "READ_VORTEX",
+                                        "children": [],
                                         "extra_info": {
+                                            "Function": "Vortex Scan",
+                                            "Filters": "($.SearchPhrase != \"\")",
+                                            "SELECT projections": "SearchEngineID: cast($.SearchEngineID as u8?)",
                                             "Projections": [
-                                                "__internal_compress_integral_utinyint(#0, 0)",
-                                                "#1"
+                                                "SearchEngineID",
+                                                "SearchPhrase"
                                             ],
                                             "Estimated Cardinality": "200000"
                                         }
@@ -314,23 +304,24 @@ physical_plan [
                                 "#1"
                             ],
                             "Aggregates": "count_star()",
-                            "Estimated Cardinality": "199999"
+                            "Estimated Cardinality": "199543"
                         }
                     }
                 ],
                 "extra_info": {
                     "Projections": [
-                        "__internal_decompress_integral_smallint(#0, 0)",
+                        "CAST(#0 AS SMALLINT)",
                         "#1",
                         "#2"
                     ],
-                    "Estimated Cardinality": "199999"
+                    "Estimated Cardinality": "199543"
                 }
             }
         ],
         "extra_info": {
             "Top": "10",
-            "Order By": "count_star() DESC"
+            "Order By": "c DESC",
+            "Estimated Cardinality": "10"
         }
     }
 ]

@@ -119,7 +119,7 @@ impl<E: IntegerPType> ColumnExporter for RunEndExporter<E> {
         }
         debug_assert!(sel_vec_slice.is_empty());
 
-        vector.reuse_dictionary(&self.values_dict, &sel_vec);
+        vector.reuse_dictionary(&self.values_dict, &sel_vec, len);
         Ok(())
     }
 }

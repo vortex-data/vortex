@@ -68,6 +68,7 @@ use vortex_spatial::scalar_fn::intersects::SpatialIntersects;
 
 use crate::SESSION;
 use crate::convert::dtype::FromLogicalType;
+use crate::convert::table_filter::dynamic_filter_expr;
 use crate::cpp::DUCKDB_TYPE;
 use crate::cpp::DUCKDB_VX_EXPR_TYPE;
 use crate::duckdb;
@@ -81,9 +82,10 @@ use crate::duckdb::ExpressionClass::BoundComparison;
 use crate::duckdb::ExpressionClass::BoundConjunction;
 use crate::duckdb::ExpressionClass::BoundConstant;
 use crate::duckdb::ExpressionClass::BoundRef;
+use crate::duckdb::ExpressionRef;
 use crate::projection::DuckdbField;
 
-fn from_bound_str(value: &duckdb::ExpressionRef) -> VortexResult<String> {
+fn from_bound_str(value: &ExpressionRef) -> VortexResult<String> {
     match value.as_class().vortex_expect("unknown class") {
         BoundConstant(constant) => Ok(constant.value.as_string().as_str().to_owned()),
         _ => vortex_bail!("Expected string expression, got {:?}", value.as_class_id()),
@@ -91,7 +93,7 @@ fn from_bound_str(value: &duckdb::ExpressionRef) -> VortexResult<String> {
 }
 
 /// Whether the expression's return type is a `LIST` or fixed-size `ARRAY`.
-fn returns_a_list(expr: &duckdb::ExpressionRef) -> bool {
+fn returns_a_list(expr: &ExpressionRef) -> bool {
     matches!(
         expr.return_type().as_type_id(),
         DUCKDB_TYPE::DUCKDB_TYPE_LIST | DUCKDB_TYPE::DUCKDB_TYPE_ARRAY
@@ -105,7 +107,7 @@ fn build_list_length(expr: Expression, nullability: Nullability) -> Expression {
 }
 
 /// Read an `f64` from a constant expression (the `ST_DWithin` radius); `None` for non-constants.
-fn from_bound_f64(value: &duckdb::ExpressionRef) -> VortexResult<Option<f64>> {
+fn from_bound_f64(value: &ExpressionRef) -> VortexResult<Option<f64>> {
     match value.as_class().vortex_expect("unknown class") {
         BoundConstant(constant) => Ok(Some(f64::try_from(&Scalar::try_from(constant.value)?)?)),
         _ => Ok(None),
@@ -144,10 +146,7 @@ fn is_native_spatial_column(fields: Option<&[DuckdbField]>, name: &str) -> bool 
 
 /// Lower a spatial operand: a `GEOMETRY` literal arrives as WKB, decoded once to its native type so the
 /// pushed `SpatialDistance` stays native; a column must be native geometry. `None` skips the push.
-fn spatial_operand(
-    value: &duckdb::ExpressionRef,
-    ctx: ConvertCtx<'_>,
-) -> VortexResult<Option<Expression>> {
+fn spatial_operand(value: &ExpressionRef, ctx: ConvertCtx<'_>) -> VortexResult<Option<Expression>> {
     match value.as_class() {
         Some(BoundConstant(constant)) => {
             let scalar = Scalar::try_from(constant.value)?;
@@ -175,7 +174,7 @@ fn spatial_operand(
 /// Lower all geometry operands of a spatial function. Returns `None`, skipping the push, when any
 /// operand is neither a constant geometry nor a native geometry column.
 fn spatial_operands(
-    children: &[&duckdb::ExpressionRef],
+    children: &[&ExpressionRef],
     ctx: ConvertCtx<'_>,
 ) -> VortexResult<Option<Vec<Expression>>> {
     children
@@ -249,6 +248,19 @@ fn try_from_bound_function(
     func: &BoundFunction,
     ctx: ConvertCtx<'_>,
 ) -> VortexResult<Option<Expression>> {
+    if let Some(child) = func.optional() {
+        return try_from_expression_inner(child, ctx).or_else(|_| Ok(None));
+    };
+    if let Some(dynamic) = func.dynamic() {
+        let children: Vec<_> = func.children().collect();
+        vortex_ensure!(children.len() == 1);
+        let dtype = DType::from_logical_type(children[0].return_type(), Nullability::Nullable)?;
+        let Some(child) = try_from_expression_inner(children[0], ctx)? else {
+            return Ok(None);
+        };
+        return Ok(Some(dynamic_filter_expr(dynamic, dtype, child)?));
+    }
+
     let expr = match func.scalar_function.name() {
         "strlen" => {
             let children: Vec<_> = func.children().collect();
@@ -333,7 +345,6 @@ fn try_from_bound_function(
                 return Ok(None);
             }
         }
-        // Spatial UDFs are handled here; non-spatial names return `None` inside.
         name => return try_from_spatial_function(name, func, ctx),
     };
 
@@ -341,7 +352,7 @@ fn try_from_bound_function(
 }
 
 pub fn try_from_bound_expression(
-    value: &duckdb::ExpressionRef,
+    value: &ExpressionRef,
     fields: &[DuckdbField],
 ) -> VortexResult<Option<Expression>> {
     try_from_expression_inner(
@@ -354,7 +365,7 @@ pub fn try_from_bound_expression(
 }
 
 pub(super) fn try_from_bound_expression_with_col_sub(
-    value: &duckdb::ExpressionRef,
+    value: &ExpressionRef,
     col_sub: &Expression,
 ) -> VortexResult<Option<Expression>> {
     // No fields: scan-time table filters never carry spatial functions, because
@@ -399,7 +410,7 @@ fn can_push_cast(cast: &duckdb::BoundCast<'_>, target: &duckdb::LogicalTypeRef) 
 // Example: we support CAST but not TRY_CAST.
 // Example: optional filters may fail to parse on our side (we return
 // Ok(None)), so we don't allow pushing these.
-pub fn can_push_expression(value: &duckdb::ExpressionRef) -> bool {
+pub fn can_push_expression(value: &ExpressionRef) -> bool {
     let Some(class) = value.as_class() else {
         return false;
     };
@@ -457,7 +468,7 @@ fn list_length_on_field(field: &DuckdbField) -> Expression {
 }
 
 pub fn try_from_projection_expression(
-    value: &duckdb::ExpressionRef,
+    value: &ExpressionRef,
     field: &DuckdbField,
 ) -> VortexResult<Option<Expression>> {
     let Some(class) = value.as_class() else {
@@ -550,7 +561,7 @@ impl PushedAggregate {
 
 /// Check if this is an aggregate function we can handle in Vortex
 pub fn try_from_projection_aggregate(
-    expr: &duckdb::ExpressionRef,
+    expr: &ExpressionRef,
 ) -> VortexResult<Option<PushedAggregate>> {
     let Some(expr) = expr.as_class() else {
         return Ok(None);
@@ -572,7 +583,7 @@ pub fn try_from_projection_aggregate(
 // If you want to add support for other expressions, also change
 // can_push_expression
 fn try_from_expression_inner(
-    value: &duckdb::ExpressionRef,
+    value: &ExpressionRef,
     ctx: ConvertCtx<'_>,
 ) -> VortexResult<Option<Expression>> {
     let Some(class) = value.as_class() else {

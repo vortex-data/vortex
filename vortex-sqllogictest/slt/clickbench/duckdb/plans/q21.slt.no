@@ -171,7 +171,7 @@ logical_plan [
                     }
                 ],
                 "extra_info": {
-                    "Order By": "count_star()"
+                    "Order By": "c"
                 }
             }
         ],
@@ -289,7 +289,8 @@ physical_plan [
         ],
         "extra_info": {
             "Top": "10",
-            "Order By": "count_star() DESC"
+            "Order By": "c DESC",
+            "Estimated Cardinality": "10"
         }
     }
 ]

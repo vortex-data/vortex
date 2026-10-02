@@ -151,30 +151,58 @@ logical_opt [
         "name": "PROJECTION",
         "children": [
             {
-                "name": "AGGREGATE",
+                "name": "PROJECTION",
                 "children": [
                     {
                         "name": "PROJECTION",
                         "children": [
                             {
-                                "name": "READ_VORTEX",
-                                "children": [],
+                                "name": "AGGREGATE",
+                                "children": [
+                                    {
+                                        "name": "AGGREGATE",
+                                        "children": [
+                                            {
+                                                "name": "PROJECTION",
+                                                "children": [
+                                                    {
+                                                        "name": "READ_VORTEX",
+                                                        "children": [],
+                                                        "extra_info": {
+                                                            "Filters": "",
+                                                            "Function": "Vortex Scan",
+                                                            "Estimated Cardinality": "1000000"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Expressions": "SearchPhrase",
+                                                    "Estimated Cardinality": "1000000"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Groups": "SearchPhrase",
+                                            "Expressions": "",
+                                            "Estimated Cardinality": "500000"
+                                        }
+                                    }
+                                ],
                                 "extra_info": {
-                                    "Filters": "",
-                                    "Function": "Vortex Scan",
-                                    "Estimated Cardinality": "1000000"
+                                    "Groups": "",
+                                    "Expressions": "count_star()",
+                                    "Estimated Cardinality": "1"
                                 }
                             }
                         ],
                         "extra_info": {
-                            "Expressions": "SearchPhrase",
-                            "Estimated Cardinality": "1000000"
+                            "Expressions": "#0",
+                            "Estimated Cardinality": "1"
                         }
                     }
                 ],
                 "extra_info": {
-                    "Groups": "",
-                    "Expressions": "count(DISTINCT SearchPhrase)",
+                    "Expressions": "#0",
                     "Estimated Cardinality": "1"
                 }
             }
@@ -190,26 +218,37 @@ physical_plan [
         "name": "UNGROUPED_AGGREGATE",
         "children": [
             {
-                "name": "PROJECTION",
+                "name": "HASH_GROUP_BY",
                 "children": [
                     {
-                        "name": "READ_VORTEX",
-                        "children": [],
+                        "name": "PROJECTION",
+                        "children": [
+                            {
+                                "name": "READ_VORTEX",
+                                "children": [],
+                                "extra_info": {
+                                    "Function": "Vortex Scan",
+                                    "Projections": "SearchPhrase",
+                                    "Estimated Cardinality": "1000000"
+                                }
+                            }
+                        ],
                         "extra_info": {
-                            "Function": "Vortex Scan",
                             "Projections": "SearchPhrase",
                             "Estimated Cardinality": "1000000"
                         }
                     }
                 ],
                 "extra_info": {
-                    "Projections": "SearchPhrase",
-                    "Estimated Cardinality": "1000000"
+                    "Groups": "#0",
+                    "Aggregates": "",
+                    "Estimated Cardinality": "500000"
                 }
             }
         ],
         "extra_info": {
-            "Aggregates": "count(DISTINCT #0)"
+            "Aggregates": "count_star()",
+            "Estimated Cardinality": "1"
         }
     }
 ]

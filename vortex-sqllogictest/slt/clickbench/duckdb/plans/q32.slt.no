@@ -166,7 +166,7 @@ logical_plan [
                     }
                 ],
                 "extra_info": {
-                    "Order By": "count_star()"
+                    "Order By": "c"
                 }
             }
         ],
@@ -183,41 +183,56 @@ logical_opt [
                 "name": "PROJECTION",
                 "children": [
                     {
-                        "name": "AGGREGATE",
+                        "name": "PROJECTION",
                         "children": [
                             {
-                                "name": "PROJECTION",
+                                "name": "AGGREGATE",
                                 "children": [
                                     {
-                                        "name": "READ_VORTEX",
-                                        "children": [],
+                                        "name": "PROJECTION",
+                                        "children": [
+                                            {
+                                                "name": "READ_VORTEX",
+                                                "children": [],
+                                                "extra_info": {
+                                                    "Filters": "",
+                                                    "Function": "Vortex Scan",
+                                                    "Estimated Cardinality": "1000000"
+                                                }
+                                            }
+                                        ],
                                         "extra_info": {
-                                            "Filters": "",
-                                            "Function": "Vortex Scan",
+                                            "Expressions": [
+                                                "WatchID",
+                                                "ClientIP",
+                                                "IsRefresh",
+                                                "ResolutionWidth"
+                                            ],
                                             "Estimated Cardinality": "1000000"
                                         }
                                     }
                                 ],
                                 "extra_info": {
-                                    "Expressions": [
+                                    "Groups": [
                                         "WatchID",
-                                        "ClientIP",
-                                        "IsRefresh",
-                                        "ResolutionWidth"
+                                        "ClientIP"
                                     ],
-                                    "Estimated Cardinality": "1000000"
+                                    "Expressions": [
+                                        "count_star()",
+                                        "sum(IsRefresh)",
+                                        "sum(ResolutionWidth)"
+                                    ],
+                                    "Estimated Cardinality": "999999"
                                 }
                             }
                         ],
                         "extra_info": {
-                            "Groups": [
-                                "WatchID",
-                                "ClientIP"
-                            ],
                             "Expressions": [
-                                "count_star()",
-                                "sum(IsRefresh)",
-                                "avg(ResolutionWidth)"
+                                "#0",
+                                "#1",
+                                "#2",
+                                "#3",
+                                "\"/\"(CAST(#4 AS DOUBLE), CAST(#2 AS DOUBLE))"
                             ],
                             "Estimated Cardinality": "999999"
                         }
@@ -246,16 +261,30 @@ physical_plan [
         "name": "TOP_N",
         "children": [
             {
-                "name": "HASH_GROUP_BY",
+                "name": "PROJECTION",
                 "children": [
                     {
-                        "name": "PROJECTION",
+                        "name": "HASH_GROUP_BY",
                         "children": [
                             {
-                                "name": "READ_VORTEX",
-                                "children": [],
+                                "name": "PROJECTION",
+                                "children": [
+                                    {
+                                        "name": "READ_VORTEX",
+                                        "children": [],
+                                        "extra_info": {
+                                            "Function": "Vortex Scan",
+                                            "Projections": [
+                                                "WatchID",
+                                                "ClientIP",
+                                                "IsRefresh",
+                                                "ResolutionWidth"
+                                            ],
+                                            "Estimated Cardinality": "1000000"
+                                        }
+                                    }
+                                ],
                                 "extra_info": {
-                                    "Function": "Vortex Scan",
                                     "Projections": [
                                         "WatchID",
                                         "ClientIP",
@@ -267,25 +296,26 @@ physical_plan [
                             }
                         ],
                         "extra_info": {
-                            "Projections": [
-                                "WatchID",
-                                "ClientIP",
-                                "IsRefresh",
-                                "ResolutionWidth"
+                            "Groups": [
+                                "#0",
+                                "#1"
                             ],
-                            "Estimated Cardinality": "1000000"
+                            "Aggregates": [
+                                "count_star()",
+                                "sum(#2)",
+                                "sum(#3)"
+                            ],
+                            "Estimated Cardinality": "999999"
                         }
                     }
                 ],
                 "extra_info": {
-                    "Groups": [
+                    "Projections": [
                         "#0",
-                        "#1"
-                    ],
-                    "Aggregates": [
-                        "count_star()",
-                        "sum(#2)",
-                        "avg(#3)"
+                        "#1",
+                        "#2",
+                        "#3",
+                        "\"/\"(CAST(#4 AS DOUBLE), CAST(#2 AS DOUBLE))"
                     ],
                     "Estimated Cardinality": "999999"
                 }
@@ -293,7 +323,8 @@ physical_plan [
         ],
         "extra_info": {
             "Top": "10",
-            "Order By": "count_star() DESC"
+            "Order By": "c DESC",
+            "Estimated Cardinality": "10"
         }
     }
 ]

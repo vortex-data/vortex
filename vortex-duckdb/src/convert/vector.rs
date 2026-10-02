@@ -20,6 +20,7 @@ use vortex::buffer::BitBuffer;
 use vortex::buffer::Buffer;
 use vortex::buffer::BufferAllocatorRef;
 use vortex::buffer::BufferMut;
+use vortex::buffer::trusted_len::TrustedLen;
 use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
 use vortex::dtype::DecimalType;
@@ -49,6 +50,7 @@ use crate::cpp::duckdb_timestamp_ms;
 use crate::cpp::duckdb_timestamp_ns;
 use crate::cpp::duckdb_timestamp_s;
 use crate::duckdb::DataChunkRef;
+use crate::duckdb::ValidityRef;
 use crate::duckdb::VectorRef;
 use crate::exporter::precision_to_duckdb_storage_size;
 
@@ -83,11 +85,24 @@ fn vector_as_slice<T: NativePType>(vector: &VectorRef, len: usize) -> ArrayRef {
     .into_array()
 }
 
-fn vector_i128_values(vector: &VectorRef, len: usize) -> impl Iterator<Item = i128> {
+fn vector_i128_values(vector: &VectorRef, len: usize) -> impl TrustedLen<Item = i128> {
     let base = unsafe { crate::cpp::duckdb_vector_get_data(vector.as_ptr()) }.cast::<i128>();
     // In batch copy, columns are 8 byte aligned, so reading vector's values
     // as &[i128] is UB. Read data unaligned specifically
     (0..len).map(move |i| unsafe { base.add(i).read_unaligned() })
+}
+
+fn buffer_zeroing_invalid<T: Copy + Default>(
+    values: impl TrustedLen<Item = T>,
+    validity: &ValidityRef<'_>,
+) -> Buffer<T> {
+    Buffer::from_trusted_len_iter(values.enumerate().map(|(i, v)| {
+        if validity.is_valid(i) {
+            v
+        } else {
+            T::default()
+        }
+    }))
 }
 
 fn vector_mapped<T, P: NativePType, F: Fn(&T) -> P>(
@@ -303,24 +318,38 @@ pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<Arr
             let logical_type = vector.logical_type();
             let (precision, scale) = logical_type.as_decimal();
             let decimal_dtype = DecimalDType::try_new(precision, scale.try_into()?)?;
-            let validity = vector.validity_ref(len).to_validity();
+            let validity_ref = vector.validity_ref(len);
+            let validity = validity_ref.to_validity();
 
             // https://duckdb.org/docs/stable/sql/data_types/numeric.html#fixed-point-decimals
             match precision_to_duckdb_storage_size(&decimal_dtype)? {
                 DecimalType::I16 => {
                     let data = vector.as_slice_with_len::<i16>(len);
-                    DecimalArray::try_new(Buffer::copy_from(data), decimal_dtype, validity)
+                    DecimalArray::try_new(
+                        buffer_zeroing_invalid(data.iter().copied(), &validity_ref),
+                        decimal_dtype,
+                        validity,
+                    )
                 }
                 DecimalType::I32 => {
                     let data = vector.as_slice_with_len::<i32>(len);
-                    DecimalArray::try_new(Buffer::copy_from(data), decimal_dtype, validity)
+                    DecimalArray::try_new(
+                        buffer_zeroing_invalid(data.iter().copied(), &validity_ref),
+                        decimal_dtype,
+                        validity,
+                    )
                 }
                 DecimalType::I64 => {
                     let data = vector.as_slice_with_len::<i64>(len);
-                    DecimalArray::try_new(Buffer::copy_from(data), decimal_dtype, validity)
+                    DecimalArray::try_new(
+                        buffer_zeroing_invalid(data.iter().copied(), &validity_ref),
+                        decimal_dtype,
+                        validity,
+                    )
                 }
                 DecimalType::I128 => {
-                    let data = Buffer::from_iter(vector_i128_values(vector, len));
+                    let data =
+                        buffer_zeroing_invalid(vector_i128_values(vector, len), &validity_ref);
                     DecimalArray::try_new(data, decimal_dtype, validity)
                 }
                 _ => vortex_bail!("Unsupported decimal precision: {precision}"),
@@ -405,7 +434,7 @@ pub fn data_chunk_to_vortex(
     let columns = (0..chunk.column_count())
         .map(|i| {
             let vector = chunk.get_vector(i);
-            vector.flatten(len);
+            vector.flatten();
             flat_vector_to_vortex(vector, len.as_())
         })
         .collect::<VortexResult<Vec<_>>>()?;
