@@ -25,6 +25,7 @@ use vortex::array::iter::ArrayIterator;
 use vortex::array::iter::ArrayIteratorAdapter;
 use vortex::array::iter::ArrayIteratorExt;
 use vortex::dtype::DType;
+use vortex::error::vortex_err;
 use vortex_arrow::ArrowSessionExt;
 
 use crate::arrays::PyArrayRef;
@@ -85,7 +86,8 @@ impl PyArrayIterator {
 
     /// Returns the next chunk from the iterator.
     fn __next__(&self, py: Python) -> PyVortexResult<Option<PyArrayRef>> {
-        py.detach(|| {
+        py.check_signals()?;
+        let next = py.detach(|| {
             Ok(self
                 .iter
                 .lock()
@@ -93,20 +95,29 @@ impl PyArrayIterator {
                 .and_then(|iter| iter.next())
                 .transpose()?
                 .map(PyArrayRef::from))
-        })
+        })?;
+        py.check_signals()?;
+        Ok(next)
     }
 
     /// Read all chunks into a single :class:`vortex.Array`. If there are multiple chunks,
     /// this will be a :class:`vortex.ChunkedArray`, otherwise it will be a single array.
     fn read_all(&self, py: Python) -> PyVortexResult<PyArrayRef> {
-        let array = py.detach(|| {
-            if let Some(iter) = self.iter.lock().take() {
-                iter.read_all()
-            } else {
-                // Otherwise, we continue to return an empty array.
-                Ok(Canonical::empty(&self.dtype).into_array())
+        let Some(mut iter) = self.iter.lock().take() else {
+            // Otherwise, we continue to return an empty array.
+            return Ok(PyArrayRef::from(Canonical::empty(&self.dtype).into_array()));
+        };
+        let dtype = iter.dtype().clone();
+        let mut chunks = Vec::new();
+        loop {
+            py.check_signals()?;
+            match py.detach(|| iter.next()) {
+                Some(chunk) => chunks.push(chunk?),
+                None => break,
             }
-        })?;
+        }
+        py.check_signals()?;
+        let array = ArrayIteratorAdapter::new(dtype, chunks.into_iter().map(Ok)).read_all()?;
         Ok(PyArrayRef::from(array))
     }
 
@@ -128,6 +139,7 @@ impl PyArrayIterator {
         let record_batch_reader: Box<dyn RecordBatchReader + Send> =
             Box::new(RecordBatchIterator::new(
                 iter.map(move |chunk| {
+                    Python::attach(|py| py.check_signals()).map_err(|e| vortex_err!("{}", e))?;
                     let target = target.clone();
                     session().arrow().execute_arrow(
                         chunk?,
