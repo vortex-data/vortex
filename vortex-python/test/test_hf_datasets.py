@@ -345,7 +345,6 @@ def test_streaming_filter_and_limit_combined(tmp_path: Path) -> None:
         [{"text": "a", "label": 0}, {"text": "b", "label": 1}, {"text": "c", "label": 1}],
     )
 
-    # Vortex cannot scan with a filter and a limit at once; load_dataset must still honor both.
     dataset = vx_datasets.load_dataset(
         tmp_path / "train.vortex", split="train", filter=ve.column("label") == 1, limit=1
     )
