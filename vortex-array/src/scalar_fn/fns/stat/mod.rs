@@ -2,6 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Scalar function implementation for aggregate-backed stat expressions.
+//!
+//! This layer reads cached results and broadcasts recoverable partials. A missing result or a
+//! declined result-to-partial conversion produces a typed null.
 
 use std::fmt::Display;
 use std::fmt::Formatter;
@@ -18,13 +21,12 @@ use crate::aggregate_fn::fns::all_nan::AllNan;
 use crate::aggregate_fn::fns::all_non_nan::AllNonNan;
 use crate::aggregate_fn::fns::all_non_null::AllNonNull;
 use crate::aggregate_fn::fns::all_null::AllNull;
+use crate::aggregate_fn::fns::nan_count::NAN_COUNT;
+use crate::aggregate_fn::fns::null_count::NULL_COUNT;
 use crate::arrays::ConstantArray;
 use crate::dtype::DType;
 use crate::expr::display::ExprDisplay;
 use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
-use crate::expr::stats::StatsProviderExt;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 use crate::scalar_fn::Arity;
@@ -63,17 +65,19 @@ impl Display for StatOptions {
 /// predicate produces a cheap, row-aligned approximation whose constant runs let downstream
 /// filters drop entire stretches at once. For example, `value < 10` is prunable as
 /// `stat(value, max) < 10` (rows where the bound is false are guaranteed false) or
-/// `stat(value, min) >= 10` (rows where it is true are guaranteed true) — the zone-map /
+/// `stat(value, min) >= 10` (rows where it is true are guaranteed true), the zone-map /
 /// min-max-index pattern, expressed as an ordinary expression so the existing scalar
 /// machinery can rewrite, fold, and execute it.
 ///
 /// The result is row-aligned with the input, at whatever granularity the input carries the
 /// stat at: e.g. a flat array yields a single broadcast `ConstantArray`; a chunked array
 /// yields a constant per chunk; a zone-mapped array would yield a run-end-encoded array,
-/// one run per zone. If the requested stat is not available, the result is a null constant.
+/// one run per zone. This function reads cached results without scanning the input. The aggregate's
+/// result-to-partial hook supplies the partial representation. If the result is missing or the
+/// aggregate declines conversion, the result is a null constant of the declared partial dtype.
 ///
 /// Pruning only makes sense for aggregates that can prove something about every row in the scope
-/// — `min`, `max`, `all_null`, `all_non_null`, bloom filters, etc. Non-idempotent aggregates like
+/// such as `min`, `max`, `all_null`, `all_non_null`, and bloom filters. Non-idempotent aggregates like
 /// `sum`, `count`, `mean`, `null_count`, and `nan_count` still produce a meaningful per-chunk
 /// value but do **not** bound any single row.
 #[derive(Clone)]
@@ -147,50 +151,49 @@ fn stat_array(
     len: usize,
 ) -> VortexResult<ArrayRef> {
     let value = if aggregate_fn.is::<AllNull>() {
-        let len = u64::try_from(len)?;
-        match array.statistics().get_as::<u64>(Stat::NullCount) {
+        let len = u64::try_from(array.len())?;
+        match array.aggregations().get_result_as::<u64>(&NULL_COUNT)? {
             Precision::Exact(count) => Some(count == len),
             Precision::Inexact(count) => (count < len).then_some(false),
             Precision::Absent => None,
         }
         .map(ScalarValue::Bool)
     } else if aggregate_fn.is::<AllNonNull>() {
-        match array.statistics().get_as::<u64>(Stat::NullCount) {
+        match array.aggregations().get_result_as::<u64>(&NULL_COUNT)? {
             Precision::Exact(count) => Some(count == 0),
             Precision::Inexact(0) => Some(true),
             Precision::Inexact(_) | Precision::Absent => None,
         }
         .map(ScalarValue::Bool)
     } else if aggregate_fn.is::<AllNan>() {
-        let len = u64::try_from(len)?;
-        match array.statistics().get_as::<u64>(Stat::NaNCount) {
+        let len = u64::try_from(array.len())?;
+        match array.aggregations().get_result_as::<u64>(&NAN_COUNT)? {
             Precision::Exact(count) => Some(count == len),
             Precision::Inexact(count) => (count < len).then_some(false),
             Precision::Absent => None,
         }
         .map(ScalarValue::Bool)
     } else if aggregate_fn.is::<AllNonNan>() {
-        match array.statistics().get_as::<u64>(Stat::NaNCount) {
+        match array.aggregations().get_result_as::<u64>(&NAN_COUNT)? {
             Precision::Exact(count) => Some(count == 0),
             Precision::Inexact(0) => Some(true),
             Precision::Inexact(_) | Precision::Absent => None,
         }
         .map(ScalarValue::Bool)
-    } else if let Some(stat) = Stat::from_aggregate_fn(aggregate_fn) {
-        array
-            .statistics()
-            .with_typed_stats_set(|stats| stats.get(stat))
-            // We don't mind whether the stat is approxed or not, since these are row-wise bounds.
-            .into_inner()
-            .and_then(Scalar::into_value)
     } else {
-        tracing::trace!(
-            "No legacy Stat slot for aggregate {}; stat expression will resolve to null",
-            aggregate_fn
-        );
-        None
+        array
+            .aggregations()
+            .get_result(aggregate_fn)
+            .into_inner()
+            .map(|result| aggregate_fn.partial_from_result(array.dtype(), &result))
+            .transpose()?
+            .flatten()
+            .and_then(Scalar::into_value)
     };
 
     let scalar = Scalar::try_new(dtype, value)?;
     Ok(ConstantArray::new(scalar, len).into_array())
 }
+
+#[cfg(test)]
+mod tests;
