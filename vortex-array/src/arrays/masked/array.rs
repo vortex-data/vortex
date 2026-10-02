@@ -84,7 +84,9 @@ impl Array<Masked> {
         let validity_slot = validity_to_child(&validity, len);
         let data = MaskedData::try_new(
             len,
-            child.all_valid(&mut legacy_session().create_execution_ctx())?,
+            child
+                .validity()?
+                .execute_no_nulls(child.len(), &mut legacy_session().create_execution_ctx())?,
             validity,
         )?;
         Ok(unsafe {

@@ -396,11 +396,10 @@ impl Validity {
         }
     }
 
-    /// Convert into a non-nullable variant, computing statistics if necessary.
+    /// Convert into a non-nullable variant after checking the physical validity mask.
     ///
-    /// Returns `None` when the array contains invalid values (so the cast cannot be performed),
-    /// either because it is [`Validity::AllInvalid`] or because the validity array's minimum is
-    /// `false`.
+    /// Returns `None` when any value is invalid. Aggregate results cannot prove that dropping
+    /// nullability preserves the validity required by unchecked constructors.
     #[inline]
     pub fn into_non_nullable(self, len: usize, ctx: &mut ExecutionCtx) -> Option<Validity> {
         match self {
@@ -408,23 +407,18 @@ impl Validity {
             Self::NonNullable => Some(Self::NonNullable),
             Self::AllValid => Some(Self::NonNullable),
             Self::AllInvalid => None,
-            Self::Array(is_valid) => {
-                is_valid
-                    .statistics()
-                    .compute_min::<bool>(ctx)
-                    .vortex_expect("validity array must support min")
-                    .then(|| {
-                        // min true => all true
-                        Self::NonNullable
-                    })
-            }
+            validity @ Self::Array(_) => validity
+                .execute_mask(len, ctx)
+                .vortex_expect("validity array must execute as a mask")
+                .all_true()
+                .then_some(Self::NonNullable),
         }
     }
 
     /// Convert into a non-nullable variant without running execution.
     ///
-    /// This is the cheap counterpart to [`Self::into_non_nullable`]: it inspects already-computed
-    /// statistics rather than triggering execution.
+    /// This is the cheap counterpart to [`Self::into_non_nullable`]: it inspects constant validity
+    /// variants rather than triggering execution.
     ///
     /// Return values:
     /// - `Ok(Some(NonNullable))` — the cast is provably safe.
@@ -453,7 +447,7 @@ impl Validity {
     ///   [`Self::trivially_cast_nullability`]. If it returns `Ok(None)`, the rule returns `Ok(None)`
     ///   and the cast is deferred to execution.
     /// - **`CastKernel` impls** (executed via [`ExecuteParentKernel`]) call this method, which
-    ///   may run the underlying validity array to compute statistics.
+    ///   may execute the underlying validity mask.
     ///
     /// Returns `Err` when nullability cannot be cast (for example, casting to non-nullable while
     /// invalid values are present).
@@ -649,18 +643,61 @@ impl IntoArray for &MaskValues {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use smallvec::smallvec;
+    use vortex_buffer::BitBuffer;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::array::ArrayParts;
     use crate::array_session;
+    use crate::arrays::Masked;
+    use crate::arrays::MaskedArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::bool::BoolArrayExt;
+    use crate::arrays::masked::MaskedData;
     use crate::dtype::Nullability;
+    use crate::expr::stats::Precision;
+    use crate::expr::stats::Stat;
     use crate::validity::BoolArray;
     use crate::validity::Validity;
+
+    #[rstest]
+    #[case::invalid_with_cached_true([false, true], true, false)]
+    #[case::valid_with_cached_false([true, true], false, true)]
+    fn validity_checks_ignore_cached_minimum(
+        #[case] values: [bool; 2],
+        #[case] cached_minimum: bool,
+        #[case] all_valid: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let mask = BoolArray::from_iter(values).into_array();
+        mask.statistics()
+            .set(Stat::Min, Precision::Exact(cached_minimum.into()));
+        let validity = Validity::Array(mask);
+
+        assert_eq!(
+            validity.clone().into_non_nullable(2, &mut ctx).is_some(),
+            all_valid
+        );
+
+        let bools = BoolArray::new(BitBuffer::from_iter([true, false]), validity.clone());
+        assert_eq!(bools.maybe_execute_mask(&mut ctx)?.is_some(), all_valid);
+
+        let child = PrimitiveArray::new(buffer![1i32, 2], validity).into_array();
+        assert_eq!(
+            MaskedArray::try_new(child.clone(), Validity::AllValid).is_ok(),
+            all_valid
+        );
+        let parts = ArrayParts::new(Masked, child.dtype().as_nullable(), child.len(), MaskedData)
+            .with_slots(smallvec![Some(child), None]);
+        assert_eq!(MaskedArray::try_from_parts(parts).is_ok(), all_valid);
+        Ok(())
+    }
 
     #[rstest]
     #[case(Validity::AllValid, 5, &[2, 4], Validity::AllValid, Validity::AllValid)]
@@ -837,7 +874,7 @@ mod tests {
         #[case] lhs: Validity,
         #[case] rhs: Validity,
         #[case] expected: bool,
-    ) -> vortex_error::VortexResult<()> {
+    ) -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
         assert_eq!(lhs.mask_eq(&rhs, 3, &mut ctx)?, expected);
         Ok(())
