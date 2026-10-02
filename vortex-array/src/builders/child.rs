@@ -3,7 +3,7 @@
 
 use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -74,11 +74,10 @@ impl ChildBuilder {
     /// nested builders forwarding their [`ExecutionCtx`] here do not have to explain why they
     /// don't.
     pub fn append_array(&mut self, array: &ArrayRef, _ctx: &mut ExecutionCtx) -> VortexResult<()> {
-        vortex_ensure!(
-            array.dtype() == &self.dtype,
-            "Cannot append an array of dtype {} to a child builder of dtype {}",
+        vortex_ensure_eq!(
             array.dtype(),
-            self.dtype,
+            &self.dtype,
+            "Cannot append an array to a child builder of a different dtype",
         );
 
         if array.is_empty() {

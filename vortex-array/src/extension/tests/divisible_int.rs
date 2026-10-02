@@ -8,6 +8,7 @@ use std::fmt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 
 use crate::dtype::DType;
 use crate::dtype::PType;
@@ -44,7 +45,7 @@ impl ExtVTable for DivisibleInt {
     }
 
     fn deserialize_metadata(&self, data: &[u8]) -> VortexResult<Self::Metadata> {
-        vortex_ensure!(data.len() == 8, "divisible int metadata must be 8 bytes");
+        vortex_ensure_eq!(data.len(), 8, "divisible int metadata has the wrong length");
         let bytes: [u8; 8] = data
             .try_into()
             .map_err(|_| vortex_error::vortex_err!("divisible int metadata must be 8 bytes"))?;

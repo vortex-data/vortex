@@ -56,7 +56,7 @@ where
         vortex_ensure_eq!(
             sink_row_count,
             row_count,
-            "the output sink must address exactly {row_count} rows, got {sink_row_count}",
+            "the output sink has the wrong row count",
         );
 
         let views = Args::views_if_no_consts(&columns);
@@ -140,7 +140,7 @@ where
         vortex_ensure_eq!(
             initialized_row_count,
             row_count,
-            "the initialized output sink must address exactly {row_count} rows, got {initialized_row_count}",
+            "the initialized output sink has the wrong row count",
         );
 
         if let Some(views) = views {
@@ -204,8 +204,7 @@ where
     vortex_ensure_eq!(
         valid.true_count(),
         filtered_len,
-        "the filtered batch must contain one row per valid row: {} valid rows, got {filtered_len}",
-        valid.true_count(),
+        "the filtered batch must contain one row per valid row",
     );
 
     let original_len = valid.len();
@@ -228,7 +227,7 @@ where
         vortex_ensure_eq!(
             initialized_row_count,
             original_len,
-            "the initialized output sink must address exactly {original_len} rows, got {initialized_row_count}",
+            "the initialized output sink has the wrong row count",
         );
 
         let mut filtered_index = 0;
@@ -324,8 +323,7 @@ where
     vortex_ensure_eq!(
         valid_rows.len(),
         row_count,
-        "the validity mask must address exactly {row_count} rows, got {}",
-        valid_rows.len(),
+        "the validity mask has the wrong row count",
     );
 
     Ok(Some(ValidRowsSetup {
@@ -421,7 +419,7 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("initialized output sink must address exactly 2 rows, got 1"),
+                .contains("initialized output sink has the wrong row count"),
             "unexpected error: {error}",
         );
 

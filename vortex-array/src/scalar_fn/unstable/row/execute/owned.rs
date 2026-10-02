@@ -136,8 +136,7 @@ where
     vortex_ensure_eq!(
         valid.true_count(),
         filtered_len,
-        "the filtered batch must contain one row per valid row: {} valid rows, got {filtered_len}",
-        valid.true_count(),
+        "the filtered batch must contain one row per valid row",
     );
 
     let prepared = prepare(Args::const_values(&columns));
@@ -216,8 +215,7 @@ where
     vortex_ensure_eq!(
         valid_rows.len(),
         row_count,
-        "the validity mask must address exactly {row_count} rows, got {}",
-        valid_rows.len(),
+        "the validity mask has the wrong row count",
     );
 
     let prepared = prepare(Args::const_values(&columns));
