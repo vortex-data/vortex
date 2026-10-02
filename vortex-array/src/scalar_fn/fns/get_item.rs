@@ -91,18 +91,17 @@ impl GetItem {
             return Ok(None);
         };
 
-        let mut field = struct_node.child(idx);
+        let field = struct_node.child(idx);
+        if !pack.nullability.is_nullable() {
+            return Ok(Some(field));
+        }
 
         // A nullable pack intersects its validity into the field, so mask the field with an
         // all-true literal to make its dtype nullable.
-        if pack.nullability.is_nullable() {
-            field = struct_node.new_node(
-                Mask.bind(EmptyOptions),
-                &[field, struct_node.new_node(Literal.bind(true.into()), &[])?],
-            )?;
-        }
-
-        Ok(Some(field))
+        Ok(Some(struct_node.new_node(
+            Mask.bind(EmptyOptions),
+            &[field, struct_node.new_node(Literal.bind(true.into()), &[])?],
+        )?))
     }
 }
 
