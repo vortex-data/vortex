@@ -362,12 +362,14 @@ fn v2_rejects_malformed_parts() -> VortexResult<()> {
     assert!(deserialize(&metadata, &[]).is_err());
     let offset_past_block = BitPackedV2Metadata {
         offset: 1024,
-        ..metadata.clone()
+        block_offsets_ptype: metadata.block_offsets_ptype,
+        patches: None,
     };
     assert!(deserialize(&offset_past_block, std::slice::from_ref(&block_offsets)).is_err());
     let signed = BitPackedV2Metadata {
+        offset: 0,
         block_offsets_ptype: PType::I32 as i32,
-        ..metadata
+        patches: None,
     };
     let signed_offsets =
         block_offsets.cast(DType::Primitive(PType::I32, Nullability::NonNullable))?;
