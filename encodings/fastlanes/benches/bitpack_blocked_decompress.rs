@@ -45,9 +45,8 @@ where
     // Block widths cycle from 1 to 16 bits, so the blocks take different unpacking kernels.
     let bit_widths: Vec<u8> = (1..=16).cycle().take(NUM_BLOCKS).collect();
     let values = PrimitiveArray::from_iter(bit_widths.iter().flat_map(|&bit_width| {
-        (0..1024u64).map(move |i| {
-            AsPrimitive::<T>::as_(i.wrapping_mul(7919) & ((1 << bit_width) - 1))
-        })
+        (0..1024u64)
+            .map(move |i| AsPrimitive::<T>::as_(i.wrapping_mul(7919) & ((1 << bit_width) - 1)))
     }));
     let array = bitpack_encode_blocked(
         &values,
