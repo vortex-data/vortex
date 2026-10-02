@@ -9,6 +9,7 @@
 //! [`PrimitiveArray`](crate::arrays::PrimitiveArray).
 
 mod aggregates;
+pub(crate) use aggregates::register_aggregate_kernels;
 mod compare;
 mod encoding;
 mod rules;
@@ -86,7 +87,6 @@ pub(super) fn validate_dtypes(storage: &DType, logical: &DType) -> VortexResult<
 
 pub(crate) fn initialize(session: &VortexSession) {
     compare::initialize(session);
-    aggregates::initialize(session);
 }
 
 #[cfg(test)]

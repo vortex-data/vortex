@@ -6,14 +6,16 @@
 //! Supported aggregates preserve integer ordering or use wide sum states. Partial states are cast
 //! to the logical dtype so later batches observe the same boundaries as canonical integers.
 
+use std::sync::LazyLock;
+
 use vortex_error::VortexResult;
-use vortex_session::VortexSession;
 
 use super::Narrow;
 use super::NarrowArraySlotsExt;
 use crate::ArrayRef;
 use crate::ArrayVTable;
 use crate::ExecutionCtx;
+use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::fns::all_non_null::AllNonNull;
@@ -30,11 +32,16 @@ use crate::aggregate_fn::fns::null_count::NullCount;
 use crate::aggregate_fn::fns::sum::Sum;
 use crate::aggregate_fn::fns::sum_v2::SumV2;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
-use crate::aggregate_fn::session::AggregateFnSessionExt;
+use crate::aggregate_fn::session::AggregateFnSession;
 use crate::scalar::Scalar;
 
-pub(super) fn initialize(session: &VortexSession) {
-    for id in [
+pub(crate) fn register_aggregate_kernels(session: &AggregateFnSession) {
+    // One fallback avoids cloning the registry for each supported aggregate.
+    session.register_aggregate_kernel(Narrow.id(), None::<AggregateFnId>, &NarrowAggregateKernel);
+}
+
+static SUPPORTED_AGGREGATES: LazyLock<[AggregateFnId; 13]> = LazyLock::new(|| {
+    [
         MinMax.id(),
         Min.id(),
         Max.id(),
@@ -48,14 +55,8 @@ pub(super) fn initialize(session: &VortexSession) {
         NullCount.id(),
         AllNull.id(),
         AllNonNull.id(),
-    ] {
-        session.aggregate_fns().register_aggregate_kernel(
-            Narrow.id(),
-            Some(id),
-            &NarrowAggregateKernel,
-        );
-    }
-}
+    ]
+});
 
 #[derive(Debug)]
 struct NarrowAggregateKernel;
@@ -67,6 +68,10 @@ impl DynAggregateKernel for NarrowAggregateKernel {
         batch: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Scalar>> {
+        if !SUPPORTED_AGGREGATES.contains(&aggregate_fn.id()) {
+            return Ok(None);
+        }
+
         let Some(array) = batch.as_opt::<Narrow>() else {
             return Ok(None);
         };

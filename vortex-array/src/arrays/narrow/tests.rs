@@ -5,6 +5,7 @@ use rstest::rstest;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_session::registry::ReadContext;
@@ -21,6 +22,7 @@ use crate::TEST_SESSION;
 use crate::VTable;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::AggregateFnVTableExt;
+use crate::aggregate_fn::EmptyOptions;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::is_constant::IsConstant;
 use crate::aggregate_fn::fns::is_sorted::IsSorted;
@@ -28,6 +30,9 @@ use crate::aggregate_fn::fns::is_sorted::IsSortedOptions;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::sum::Sum;
 use crate::aggregate_fn::fns::sum_v2::SumV2;
+use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
+use crate::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
+use crate::aggregate_fn::session::AggregateFnSessionExt;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::DictArray;
@@ -341,10 +346,17 @@ fn test_aggregate_partial_states() -> VortexResult<()> {
         MinMax.bind(NumericalAggregateOpts::default()),
         Sum.bind(NumericalAggregateOpts::default()),
         SumV2.bind(NumericalAggregateOpts::default()),
-        IsConstant.bind(crate::aggregate_fn::EmptyOptions),
+        IsConstant.bind(EmptyOptions),
         IsSorted.bind(IsSortedOptions { strict: false }),
     ];
     for aggregate in fns {
+        assert!(
+            TEST_SESSION
+                .aggregate_fns()
+                .find_aggregate_kernel(Narrow.id(), aggregate.id())
+                .is_some()
+        );
+
         let dtype = DType::Primitive(PType::I64, Nullability::Nullable);
         let mut expected = aggregate.accumulator(&dtype)?;
         let mut actual = aggregate.accumulator(&dtype)?;
@@ -357,6 +369,25 @@ fn test_aggregate_partial_states() -> VortexResult<()> {
         }
         assert_eq!(actual.final_scalar()?, expected.final_scalar()?);
     }
+
+    Ok(())
+}
+
+#[test]
+fn test_unsupported_aggregate_keeps_logical_width() -> VortexResult<()> {
+    let mut ctx = TEST_SESSION.create_execution_ctx();
+    let array =
+        NarrowArray::try_new(buffer![-1i8, 0, 1].into_array(), PType::I64.into())?.into_array();
+    let aggregate = UncompressedSizeInBytes.bind(EmptyOptions);
+    let kernel = TEST_SESSION
+        .aggregate_fns()
+        .find_aggregate_kernel(Narrow.id(), aggregate.id())
+        .vortex_expect("Narrow registers a fallback aggregate kernel");
+    assert!(kernel.aggregate(&aggregate, &array, &mut ctx)?.is_none());
+    assert_eq!(
+        uncompressed_size_in_bytes(&array, &mut ctx)?,
+        3 * size_of::<i64>()
+    );
 
     Ok(())
 }
