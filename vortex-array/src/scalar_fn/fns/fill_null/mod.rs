@@ -169,6 +169,9 @@ fn fill_null_canonical(
     if let Some(result) = short_circuit(&arr, fill_value)? {
         return Ok(result);
     }
+    if crate::extension::integer::WideInteger::width(arr.dtype()).is_some() {
+        return crate::integer::fill_null(&arr, fill_value, ctx);
+    }
     match canonical {
         CanonicalView::Bool(a) => <Bool as FillNullKernel>::fill_null(a, fill_value, ctx)?
             .ok_or_else(|| vortex_err!("FillNullKernel for BoolArray returned None")),

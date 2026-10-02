@@ -53,6 +53,14 @@ impl Scalar {
             return Scalar::try_new(target_dtype.clone(), self.value().cloned());
         }
 
+        if (crate::extension::integer::WideInteger::width(self.dtype()).is_some()
+            || crate::extension::integer::WideInteger::width(target_dtype).is_some())
+            && crate::dtype::integer::signed_integer_type(self.dtype()).is_some()
+            && crate::dtype::integer::signed_integer_type(target_dtype).is_some()
+        {
+            return crate::integer::cast_scalar(self, target_dtype);
+        }
+
         // TODO(connor): This isn't really correct for extension types.
         // If the target is an extension type, then we want to cast to its storage type.
         if let Some(ext_dtype) = target_dtype.as_extension_opt() {

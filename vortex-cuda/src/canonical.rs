@@ -149,7 +149,9 @@ impl CanonicalCudaExt for Canonical {
                     values_type,
                     validity,
                     ..
-                } = decimal.into_data_parts();
+                } = decimal
+                    .materialize_values(&mut crate::cuda_session().create_execution_ctx())?
+                    .into_data_parts();
                 let validity = validity_into_host(validity).await?;
                 Ok(Canonical::Decimal(unsafe {
                     DecimalArray::new_unchecked_handle(

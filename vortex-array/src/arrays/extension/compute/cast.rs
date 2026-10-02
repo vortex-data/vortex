@@ -15,6 +15,12 @@ use crate::scalar_fn::fns::cast::CastReduce;
 
 impl CastReduce for Extension {
     fn cast(array: ArrayView<'_, Extension>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+        if crate::extension::integer::WideInteger::width(array.dtype()).is_some()
+            && crate::dtype::integer::signed_integer_type(dtype).is_some()
+        {
+            return Ok(None);
+        }
+
         if !array.dtype().eq_ignore_nullability(dtype) {
             // Target is not the same extension type.
             // Delegate to the storage array's cast.

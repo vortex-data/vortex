@@ -130,7 +130,7 @@ impl Scheme for DecimalScheme {
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let decimal = data.array().clone().execute::<DecimalArray>(exec_ctx)?;
-        let decimal = narrowed_decimal(decimal);
+        let decimal = narrowed_decimal(decimal, exec_ctx)?;
         if self.mode == DecimalSchemeMode::V1
             && matches!(decimal.values_type(), DecimalType::I128 | DecimalType::I256)
         {

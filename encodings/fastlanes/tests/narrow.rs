@@ -15,13 +15,19 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::sum::sum;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::Narrow;
 use vortex_array::arrays::NarrowArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::narrow::NarrowArraySlotsExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::DecimalDType;
+use vortex_array::dtype::DecimalType;
+use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::dtype::integer::integer_dtype;
+use vortex_array::scalar::DecimalValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_buffer::buffer;
@@ -63,6 +69,34 @@ fn test_narrow_bitpacked_child() -> VortexResult<()> {
     assert_eq!(
         array.execute::<PrimitiveArray>(&mut ctx)?.as_slice::<u64>(),
         &[0, 1, 3, 7]
+    );
+
+    Ok(())
+}
+
+#[test]
+fn decimal_canonicalization_keeps_bitpacked_storage() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let dtype = DecimalDType::new(76, 2);
+    let packed = BitPacked::encode(&buffer![0i32, 1, 3, 7].into_array(), 3, &mut ctx)?;
+    let values = NarrowArray::try_new(
+        packed.into_array(),
+        integer_dtype(DecimalType::I256, Nullability::NonNullable),
+    )?
+    .into_array();
+    let array = DecimalArray::try_new_values(values, dtype)?;
+    let canonical = array.clone().into_array().execute::<DecimalArray>(&mut ctx)?;
+    assert!(canonical.values().as_::<Narrow>().values().is::<BitPacked>());
+    assert_eq!(canonical.values_type(), DecimalType::I32);
+    assert!(canonical.buffer_handles().is_empty());
+    assert_eq!(
+        sum(array.as_ref(), &mut ctx)?,
+        Scalar::decimal(DecimalValue::I32(11), dtype, Nullability::Nullable)
+    );
+    assert_arrays_eq!(
+        array.filter(Mask::from_iter([true, false, true, true]))?,
+        DecimalArray::from_iter([0i32, 3, 7], dtype),
+        &mut ctx
     );
 
     Ok(())

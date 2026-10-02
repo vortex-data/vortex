@@ -7,8 +7,9 @@ use crate::ExecutionCtx;
 use crate::array::ArrayView;
 use crate::array::OperationsVTable;
 use crate::arrays::Decimal;
-use crate::match_each_decimal_value_type;
-use crate::scalar::DecimalValue;
+use crate::arrays::decimal::DecimalArrayExt;
+use crate::arrays::decimal::DecimalArraySlotsExt;
+use crate::integer;
 use crate::scalar::Scalar;
 
 impl OperationsVTable<Decimal> for Decimal {
@@ -17,15 +18,14 @@ impl OperationsVTable<Decimal> for Decimal {
     fn scalar_at(
         array: ArrayView<'_, Decimal>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        Ok(match_each_decimal_value_type!(array.values_type(), |D| {
-            Scalar::decimal(
-                DecimalValue::from(array.buffer::<D>()[index]),
-                array.decimal_dtype(),
-                array.dtype().nullability(),
-            )
-        }))
+        let value = array.values().execute_scalar(index, ctx)?;
+        Ok(Scalar::decimal(
+            integer::scalar_value(&value)?,
+            array.decimal_dtype(),
+            array.dtype().nullability(),
+        ))
     }
 }
 
@@ -38,6 +38,7 @@ mod tests {
     use crate::array_session;
     use crate::arrays::Decimal;
     use crate::arrays::DecimalArray;
+    use crate::arrays::decimal::DecimalArrayExt;
     use crate::dtype::DecimalDType;
     use crate::dtype::Nullability;
     use crate::scalar::DecimalValue;
@@ -56,8 +57,11 @@ mod tests {
         let sliced = array.slice(1..3).unwrap();
         assert_eq!(sliced.len(), 2);
 
-        let decimal = sliced.as_::<Decimal>();
-        assert_eq!(decimal.buffer::<i128>(), buffer![200i128, 300i128]);
+        let decimal = sliced
+            .as_::<Decimal>()
+            .materialize_values(&mut array_session().create_execution_ctx())
+            .unwrap();
+        assert_eq!(decimal.buffer::<i16>(), buffer![200i16, 300i16]);
     }
 
     #[test]

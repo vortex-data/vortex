@@ -9,6 +9,8 @@
 use std::ops::Range;
 
 use vortex_error::VortexResult;
+use vortex_error::VortexExpect;
+use vortex_session::VortexSession;
 use vortex_mask::Mask;
 
 use super::Narrow;
@@ -20,6 +22,7 @@ use crate::ArrayParts;
 use crate::ArrayRef;
 use crate::ArrayView;
 use crate::IntoArray;
+use crate::ExecutionCtx;
 use crate::arrays::ConstantArray;
 use crate::arrays::Dict;
 use crate::arrays::DictArray;
@@ -38,6 +41,13 @@ use crate::arrays::slice::SliceReduceAdaptor;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::PType;
+use crate::dtype::integer::integer_byte_width;
+use crate::dtype::integer::signed_integer_type;
+use crate::optimizer::kernels::ArrayKernelsExt;
+use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::fns::fill_null::FillNull;
+use crate::scalar_fn::fns::fill_null::FillNullExecuteAdaptor;
+use crate::scalar_fn::fns::fill_null::FillNullKernel;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar::Scalar;
@@ -69,6 +79,10 @@ pub(super) const RULES: ParentRuleSet<Narrow> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&ZipReduceAdaptor(Narrow)),
     ParentRuleSet::lift(&ZipFalseReduce),
 ]);
+
+pub(super) fn initialize(session: &VortexSession) {
+    session.kernels().register_execute_parent_kernel(FillNull.id(), Narrow, FillNullExecuteAdaptor(Narrow));
+}
 
 pub(super) fn rewrap(
     array: ArrayView<'_, Narrow>,
@@ -108,6 +122,9 @@ impl MaskReduce for Narrow {
 
 impl CastReduce for Narrow {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+        if PType::try_from(array.dtype()).is_err() || PType::try_from(dtype).is_err() {
+            return cast_wide_integer(array, dtype);
+        }
         let (Ok(target), Ok(storage)) = (
             PType::try_from(dtype),
             PType::try_from(array.values().dtype()),
@@ -363,4 +380,23 @@ fn two_compares(
     let rhs = array.as_ref().binary(upper.clone(), upper_op)?;
 
     lhs.binary(rhs, Operator::And)
+}
+
+fn cast_wide_integer(array: ArrayView<'_, Narrow>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    let Some(width) = integer_byte_width(dtype) else { return Ok(None); };
+    if signed_integer_type(dtype).is_some() != signed_integer_type(array.dtype()).is_some() {
+        return Ok(None);
+    }
+    let storage_dtype = array.values().dtype().with_nullability(dtype.nullability());
+    if width <= integer_byte_width(&storage_dtype).vortex_expect("Narrow validates the integer child") {
+        return array.values().cast(dtype.clone()).map(Some);
+    }
+    Ok(Some(NarrowArray::try_new(array.values().cast(storage_dtype)?, dtype.clone())?.into_array()))
+}
+
+impl FillNullKernel for Narrow {
+    fn fill_null(array: ArrayView<'_, Self>, fill_value: &Scalar, ctx: &mut ExecutionCtx) -> VortexResult<Option<ArrayRef>> {
+        if signed_integer_type(array.dtype()).is_none() { return Ok(None); }
+        crate::integer::fill_null(array.array(), fill_value, ctx).map(Some)
+    }
 }

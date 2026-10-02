@@ -446,7 +446,9 @@ async fn export_decimal(
         values,
         values_type,
         validity,
-    } = decimal.into_data_parts();
+    } = decimal
+        .materialize_values(ctx.execution_ctx())?
+        .into_data_parts();
 
     let (validity_buffer, null_count) = export_arrow_validity_buffer(validity, len, 0, ctx).await?;
     let target_type = cuda_decimal_value_type(decimal_dtype);

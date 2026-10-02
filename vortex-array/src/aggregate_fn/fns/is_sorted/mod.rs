@@ -254,6 +254,11 @@ impl AggregateFnVTable for IsSorted {
 
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         match input_dtype {
+            DType::Extension(_)
+                if crate::extension::integer::WideInteger::width(input_dtype).is_some() =>
+            {
+                Some(DType::Bool(Nullability::NonNullable))
+            }
             DType::Null
             | DType::List(..)
             | DType::FixedSizeList(..)
@@ -272,6 +277,11 @@ impl AggregateFnVTable for IsSorted {
 
     fn partial_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         match input_dtype {
+            DType::Extension(_)
+                if crate::extension::integer::WideInteger::width(input_dtype).is_some() =>
+            {
+                Some(make_is_sorted_partial_dtype(input_dtype))
+            }
             DType::Null
             | DType::List(..)
             | DType::FixedSizeList(..)

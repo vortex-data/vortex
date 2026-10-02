@@ -129,6 +129,14 @@ impl ScalarFnVTable for Cast {
     ) -> VortexResult<ArrayRef> {
         let input = args.get(0)?;
 
+        if (crate::extension::integer::WideInteger::width(input.dtype()).is_some()
+            || crate::extension::integer::WideInteger::width(target_dtype).is_some())
+            && crate::dtype::integer::signed_integer_type(input.dtype()).is_some()
+            && crate::dtype::integer::signed_integer_type(target_dtype).is_some()
+        {
+            return crate::integer::cast_array(&input, target_dtype, ctx);
+        }
+
         let Some(columnar) = input.as_opt::<AnyColumnar>() else {
             return input.execute::<ArrayRef>(ctx)?.cast(target_dtype.clone());
         };

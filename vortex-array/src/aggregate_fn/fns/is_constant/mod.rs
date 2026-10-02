@@ -417,7 +417,7 @@ impl AggregateFnVTable for IsConstant {
                     Canonical::Primitive(p) => check_primitive_constant(p),
                     Canonical::Bool(b) => check_bool_constant(b),
                     Canonical::VarBinView(v) => check_varbinview_constant(v),
-                    Canonical::Decimal(d) => check_decimal_constant(d),
+                    Canonical::Decimal(d) => check_decimal_constant(d, ctx)?,
                     Canonical::Struct(s) => check_struct_constant(s, ctx)?,
                     Canonical::Extension(e) => check_extension_constant(e, ctx)?,
                     Canonical::List(l) => check_listview_constant(l, ctx)?,

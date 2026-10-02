@@ -32,6 +32,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::ConstantArray;
+use crate::arrays::DecimalArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::Filter;
 use crate::arrays::Map;
@@ -137,9 +138,15 @@ pub(super) fn execute_filter(
         Canonical::Primitive(a) => {
             Canonical::Primitive(fixed_width::filter::filter(&a, mask, allocator))
         }
-        Canonical::Decimal(a) => {
-            Canonical::Decimal(fixed_width::filter::filter(&a, mask, allocator))
-        }
+        Canonical::Decimal(a) => Canonical::Decimal(
+            DecimalArray::try_new_values(
+                a.values()
+                    .filter(Mask::Values(mask.clone()))
+                    .vortex_expect("Decimal child filter"),
+                a.decimal_dtype(),
+            )
+            .vortex_expect("Filtered decimal retains its integer dtype"),
+        ),
         Canonical::VarBinView(a) => {
             Canonical::VarBinView(varbinview::filter_varbinview(&a, mask, allocator))
         }

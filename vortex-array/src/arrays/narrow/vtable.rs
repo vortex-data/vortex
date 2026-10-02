@@ -31,7 +31,11 @@ use crate::array::with_empty_buffers;
 use crate::buffer::BufferHandle;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
+use crate::dtype::DecimalType;
 use crate::dtype::PType;
+use crate::dtype::integer::integer_dtype;
+use crate::extension::integer::IntegerWidth;
+use crate::extension::integer::WideInteger;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
 use crate::vtable::OperationsVTable;
@@ -89,7 +93,12 @@ impl VTable for Narrow {
         array: ArrayView<'_, Self>,
         _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(vec![PType::try_from(array.values().dtype())? as u8]))
+        let tag = match WideInteger::width(array.values().dtype()) {
+            Some(IntegerWidth::I128) => 128,
+            Some(IntegerWidth::I256) => 129,
+            None => PType::try_from(array.values().dtype())? as u8,
+        };
+        Ok(Some(vec![tag]))
     }
 
     fn deserialize(
@@ -110,9 +119,15 @@ impl VTable for Narrow {
             ));
         };
 
-        let storage_ptype = PType::try_from(i32::from(*storage_ptype))
-            .map_err(|err| vortex_err!("Invalid Narrow storage type: {err}"))?;
-        let storage_dtype = DType::Primitive(storage_ptype, dtype.nullability());
+        let storage_dtype = match storage_ptype {
+            128 => integer_dtype(DecimalType::I128, dtype.nullability()),
+            129 => integer_dtype(DecimalType::I256, dtype.nullability()),
+            tag => DType::Primitive(
+                PType::try_from(i32::from(*tag))
+                    .map_err(|err| vortex_err!("Invalid Narrow storage type: {err}"))?,
+                dtype.nullability(),
+            ),
+        };
         validate_dtypes(&storage_dtype, dtype)?;
 
         let values = children.get(0, &storage_dtype, len)?;

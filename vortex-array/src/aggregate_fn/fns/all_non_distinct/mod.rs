@@ -281,7 +281,7 @@ fn check_canonical_identical(
         (Canonical::Primitive(lhs), Canonical::Primitive(rhs)) => {
             check_primitive_identical(lhs, rhs)
         }
-        (Canonical::Decimal(lhs), Canonical::Decimal(rhs)) => check_decimal_identical(lhs, rhs),
+        (Canonical::Decimal(lhs), Canonical::Decimal(rhs)) => check_decimal_identical(lhs, rhs, ctx),
         (Canonical::VarBinView(lhs), Canonical::VarBinView(rhs)) => {
             check_varbinview_identical(lhs, rhs)
         }

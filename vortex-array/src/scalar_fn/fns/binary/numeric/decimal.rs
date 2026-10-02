@@ -44,7 +44,6 @@ use crate::IntoArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::DecimalArray;
-use crate::arrays::decimal::DecimalArrayExt;
 use crate::arrays::decimal::widened_buffer;
 use crate::dtype::BigCast;
 use crate::dtype::DType;
@@ -162,7 +161,7 @@ impl DecimalOperand {
                 None => Ok(None),
             },
             Columnar::Canonical(array) => {
-                let values = array.as_decimal().to_owned();
+                let values = array.as_decimal().materialize_values(ctx)?;
                 let validity = values.validity()?;
                 Ok(Some(Self::Array { values, validity }))
             }

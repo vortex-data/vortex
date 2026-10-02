@@ -14,6 +14,9 @@ pub(super) fn check_extension_sorted(
     strict: bool,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<bool> {
+    if crate::extension::integer::WideInteger::width(array.dtype()).is_some() {
+        return super::decimal::check_signed_integer_sorted(array.as_ref(), strict, ctx);
+    }
     if strict {
         is_strict_sorted(array.storage_array(), ctx)
     } else {

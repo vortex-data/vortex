@@ -137,6 +137,10 @@ pub use varbinview::VarBinViewArray;
 pub mod variant;
 pub use variant::Variant;
 pub use variant::VariantArray;
+
+pub mod wide_integer;
+pub use wide_integer::WideIntegerArray;
+pub use wide_integer::WideIntegerEncoding;
 use vortex_session::VortexSession;
 
 pub(crate) fn initialize(session: &VortexSession) {
@@ -157,6 +161,7 @@ pub(crate) fn initialize(session: &VortexSession) {
     varbin::initialize(session);
     varbinview::initialize(session);
     variant::initialize(session);
+    wide_integer::initialize(session);
 }
 
 #[cfg(feature = "arbitrary")]

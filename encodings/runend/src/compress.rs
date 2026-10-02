@@ -300,6 +300,7 @@ pub fn runend_decode_decimal(
     length: usize,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
+    let values = values.materialize_values(ctx)?;
     let validity_mask = values
         .as_ref()
         .validity()?

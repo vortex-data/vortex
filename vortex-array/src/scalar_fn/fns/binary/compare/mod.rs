@@ -47,6 +47,7 @@ use crate::validity::Validity;
 mod boolean;
 mod bytes;
 mod decimal;
+mod integer;
 mod nested;
 mod primitive;
 #[cfg(test)]
@@ -177,6 +178,12 @@ fn compare_arrays(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let nullability = Nullability::from(lhs.dtype().is_nullable() || rhs.dtype().is_nullable());
+
+    if crate::extension::integer::WideInteger::width(lhs.dtype()).is_some()
+        || crate::extension::integer::WideInteger::width(rhs.dtype()).is_some()
+    {
+        return integer::compare_integer(lhs, rhs, op, nullability, ctx);
+    }
 
     // Extension arrays compare through their storage. When both sides are extensions they must
     // agree on the full extension dtype (a timestamp in milliseconds must not compare its raw

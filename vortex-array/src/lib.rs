@@ -123,6 +123,7 @@ mod expression;
 pub mod extension;
 pub mod flatbuffers;
 mod hash;
+pub(crate) mod integer;
 pub mod iter;
 pub mod kernel;
 pub mod mask;

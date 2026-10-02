@@ -5,8 +5,7 @@
 //!
 //! [`NarrowArray`] stores no buffers of its own and derives validity from its child. Selection,
 //! comparison, and aggregate operations can use that child without widening to the logical dtype.
-//! Canonical execution returns a widening cast to
-//! [`PrimitiveArray`](crate::arrays::PrimitiveArray).
+//! Canonical execution widens to the logical integer dtype.
 
 mod aggregates;
 pub(crate) use aggregates::register_aggregate_kernels;
@@ -29,7 +28,8 @@ use crate::ArrayRef;
 use crate::EmptyArrayData;
 use crate::array_slots;
 use crate::dtype::DType;
-use crate::dtype::PType;
+use crate::dtype::integer::integer_byte_width;
+use crate::dtype::integer::signed_integer_type;
 
 /// An integer encoding with a narrower child of the same signedness.
 #[derive(Clone, Debug)]
@@ -70,15 +70,16 @@ impl NarrowArray {
 }
 
 pub(super) fn validate_dtypes(storage: &DType, logical: &DType) -> VortexResult<()> {
-    let storage_ptype = PType::try_from(storage)?;
-    let logical_ptype = PType::try_from(logical)?;
-    vortex_ensure!(
-        storage_ptype.is_int() && logical_ptype.is_int(),
-        "Narrow requires integer dtypes, got {storage} and {logical}"
+    let storage_width = integer_byte_width(storage)
+        .ok_or_else(|| vortex_error::vortex_err!("Expected integer storage, got {storage}"))?;
+    let logical_width = integer_byte_width(logical)
+        .ok_or_else(|| vortex_error::vortex_err!("Expected integer dtype, got {logical}"))?;
+    vortex_ensure_eq!(
+        signed_integer_type(storage).is_some(),
+        signed_integer_type(logical).is_some()
     );
-    vortex_ensure_eq!(storage_ptype.is_signed_int(), logical_ptype.is_signed_int());
     vortex_ensure!(
-        storage_ptype.byte_width() < logical_ptype.byte_width(),
+        storage_width < logical_width,
         "Narrow requires storage narrower than {logical}, got {storage}"
     );
     vortex_ensure_eq!(storage.nullability(), logical.nullability());
@@ -89,6 +90,7 @@ pub(super) fn validate_dtypes(storage: &DType, logical: &DType) -> VortexResult<
 pub(crate) fn initialize(session: &VortexSession) {
     numeric::initialize(session);
     compare::initialize(session);
+    rules::initialize(session);
 }
 
 #[cfg(test)]
