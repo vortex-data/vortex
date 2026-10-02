@@ -1,18 +1,34 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex::array::stats::StatsSet;
+use std::sync::LazyLock;
+
+use vortex::array::aggregate_fn::AggregateFnRef;
+use vortex::array::aggregate_fn::AggregateFnVTableExt;
+use vortex::array::aggregate_fn::EmptyOptions;
+use vortex::array::aggregate_fn::NumericalAggregateOpts;
+use vortex::array::aggregate_fn::fns::max::Max;
+use vortex::array::aggregate_fn::fns::min::Min;
+use vortex::array::aggregate_fn::fns::null_count::NullCount;
+use vortex::array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
+use vortex::array::stats::AggregateResults;
 use vortex::dtype::DType;
 use vortex::error::VortexExpect as _;
 use vortex::error::VortexResult;
-use vortex::expr::stats::Precision;
-use vortex::expr::stats::Stat;
 use vortex::scalar::Scalar;
 use vortex::scalar::ScalarValue;
 
 use crate::convert::ToDuckDBScalar as _;
 use crate::duckdb::LogicalType;
 use crate::duckdb::Value;
+
+static MIN: LazyLock<AggregateFnRef> =
+    LazyLock::new(|| Min.bind(NumericalAggregateOpts::skip_nans()));
+static MAX: LazyLock<AggregateFnRef> =
+    LazyLock::new(|| Max.bind(NumericalAggregateOpts::skip_nans()));
+static NULL_COUNT: LazyLock<AggregateFnRef> = LazyLock::new(|| NullCount.bind(EmptyOptions));
+static UNCOMPRESSED_SIZE: LazyLock<AggregateFnRef> =
+    LazyLock::new(|| UncompressedSizeInBytes.bind(EmptyOptions));
 
 #[derive(Debug)]
 pub struct ColumnStatistics {
@@ -62,29 +78,30 @@ pub struct ColumnStatisticsAggregate {
 }
 
 impl ColumnStatisticsAggregate {
-    pub fn new(stats: &StatsSet) -> Self {
-        let min = match stats.get(Stat::Min) {
-            Precision::Exact(min) => Some(min),
-            _ => None,
-        };
-        let max = match stats.get(Stat::Max) {
-            Precision::Exact(max) => Some(max),
-            _ => None,
-        };
+    pub fn new(stats: &AggregateResults) -> Self {
+        let min = stats
+            .get_result(&MIN)
+            .as_exact()
+            .and_then(|v| v.value().cloned());
+        let max = stats
+            .get_result(&MAX)
+            .as_exact()
+            .and_then(|v| v.value().cloned());
 
-        let max_string_length =
-            if let Precision::Exact(value) = stats.get(Stat::UncompressedSizeInBytes) {
-                // DuckDB's string length is u32
+        let max_string_length = stats
+            .get_result(&UNCOMPRESSED_SIZE)
+            .as_exact()
+            .map(|value| {
+                // DuckDB's string length is u32.
                 #[allow(clippy::cast_possible_truncation)]
-                Some(value.as_primitive().as_u64().vortex_expect("not a u64") as u32)
-            } else {
-                None
-            };
-
-        let has_null = match stats.get(Stat::NullCount) {
-            Precision::Exact(cnt) => cnt.as_primitive().as_u64().vortex_expect("not a u64") > 0,
-            _ => true,
-        };
+                {
+                    u64::try_from(&value).vortex_expect("not a u64") as u32
+                }
+            });
+        let has_null = stats
+            .get_result(&NULL_COUNT)
+            .as_exact()
+            .is_none_or(|value| u64::try_from(&value).vortex_expect("not a u64") > 0);
 
         Self {
             min,

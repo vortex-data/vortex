@@ -13,7 +13,6 @@ use vortex_array::dtype::StructFields;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::bound::lit;
 use vortex_array::expr::stats::Stat;
-use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::cast::Cast;
 use vortex_array::scalar_fn::fns::get_item::GetItem;
 use vortex_array::scalar_fn::fns::literal::Literal;
@@ -91,14 +90,14 @@ impl FileStatsBinder<'_> {
 
         let field_name = field_path.parts()[0].as_name()?;
         let field_idx = self.struct_fields.find(field_name)?;
-        let field_stats = self.file_stats.stats_sets().get(field_idx)?;
+        let field_stats = self.file_stats.results().get(field_idx)?;
 
-        let stat_value = field_stats.get(stat).as_exact()?;
-        let field_dtype = self.struct_fields.field_by_index(field_idx)?;
-        let stat_dtype = stat.dtype(&field_dtype)?;
-        let stat_scalar = Scalar::try_new(stat_dtype, Some(stat_value)).ok()?;
-
-        Some(lit(stat_scalar))
+        let aggregate = stat.aggregate_fn()?;
+        let scalar = field_stats.get_result(&aggregate).as_exact()?;
+        if scalar.is_null() {
+            return None;
+        }
+        Some(lit(scalar))
     }
 }
 

@@ -54,6 +54,8 @@ use vortex_array::expr::lt_eq;
 use vortex_array::expr::or;
 use vortex_array::expr::root;
 use vortex_array::expr::select;
+use vortex_array::expr::stats::Precision;
+use vortex_array::expr::stats::Stat;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
 use vortex_array::extension::datetime::TimestampOptions;
@@ -2120,9 +2122,37 @@ async fn test_writer_with_statistics() -> VortexResult<()> {
     writer.push(array).await?;
     let summary = writer.finish().await?;
 
-    assert!(summary.footer().statistics().is_some());
+    let file_stats = summary
+        .footer()
+        .statistics()
+        .vortex_expect("writer statistics");
+    let (results, dtype) = file_stats.get(0);
+    assert_eq!(dtype, &DType::from(PType::U32));
+    for (stat, expected) in [
+        (Stat::Min, Scalar::primitive(1u32, Nullability::NonNullable)),
+        (Stat::Max, Scalar::primitive(5u32, Nullability::NonNullable)),
+        (Stat::Sum, Scalar::primitive(15u64, Nullability::Nullable)),
+        (Stat::NullCount, Scalar::from(0u64)),
+    ] {
+        let aggregate = stat.aggregate_fn().vortex_expect("numeric request");
+        assert_eq!(results.get_result(&aggregate), Precision::Exact(expected));
+    }
+    assert!(
+        results
+            .get_result(&Stat::NaNCount.aggregate_fn().vortex_expect("NaN request"))
+            .is_absent()
+    );
     assert_eq!(summary.row_count(), 5);
 
+    let reopened = SESSION.open_options().open_buffer(ByteBuffer::from(buf))?;
+    let decoded = reopened
+        .footer()
+        .statistics()
+        .vortex_expect("decoded statistics");
+    assert_eq!(decoded.results().len(), 1);
+    for (aggregate, value) in results.iter() {
+        assert_eq!(decoded.results()[0].get_result(aggregate), *value);
+    }
     Ok(())
 }
 

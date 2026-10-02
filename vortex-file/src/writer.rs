@@ -26,6 +26,7 @@ use vortex_array::iter::ArrayIterator;
 use vortex_array::iter::ArrayIteratorExt;
 use vortex_array::session::ArraySessionExt;
 use vortex_array::stats::PRUNING_STATS;
+use vortex_array::stats::compat::legacy_stats_to_results;
 use vortex_array::stream::ArrayStream;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
@@ -323,10 +324,22 @@ impl VortexWriteOptions {
         let statistics = if self.file_statistics.is_empty() {
             None
         } else {
-            Some(FileStatistics::new_with_dtype(
-                file_stats.stats_sets().into(),
-                &dtype,
-            ))
+            let field_dtypes = match &dtype {
+                DType::Struct(fields, _) => fields.fields().collect::<Vec<_>>(),
+                _ => vec![dtype.clone()],
+            };
+            let stats = file_stats.stats_sets();
+            assert_eq!(
+                stats.len(),
+                field_dtypes.len(),
+                "stats length must match fields"
+            );
+            let results = stats
+                .iter()
+                .zip(&field_dtypes)
+                .map(|(stats, dtype)| legacy_stats_to_results(dtype, stats))
+                .collect::<VortexResult<Vec<_>>>()?;
+            Some(FileStatistics::new(results.into(), field_dtypes.into()))
         };
         let mut footer = Footer::new(
             Arc::clone(&layout),

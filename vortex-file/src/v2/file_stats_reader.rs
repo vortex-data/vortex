@@ -185,6 +185,7 @@ mod tests {
     use vortex_array::extension::datetime::TimeUnit;
     use vortex_array::scalar::ScalarValue;
     use vortex_array::stats::StatsSet;
+    use vortex_array::stats::compat::legacy_stats_to_results;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
@@ -210,26 +211,28 @@ mod tests {
             .with::<RuntimeSession>()
     });
 
-    fn test_file_stats(min: i32, max: i32) -> FileStatistics {
+    fn test_file_stats(min: i32, max: i32) -> VortexResult<FileStatistics> {
         let mut stats = StatsSet::default();
         stats.set(Stat::Min, Precision::exact(ScalarValue::from(min)));
         stats.set(Stat::Max, Precision::exact(ScalarValue::from(max)));
-        FileStatistics::new(
-            Arc::from([stats]),
-            Arc::from([DType::Primitive(PType::I32, Nullability::NonNullable)]),
-        )
+        let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        Ok(FileStatistics::new(
+            Arc::from([legacy_stats_to_results(&dtype, &stats)?]),
+            Arc::from([dtype]),
+        ))
     }
 
-    fn test_file_null_count_stats(null_count: u64) -> FileStatistics {
+    fn test_file_null_count_stats(null_count: u64) -> VortexResult<FileStatistics> {
         let mut stats = StatsSet::default();
         stats.set(
             Stat::NullCount,
             Precision::exact(ScalarValue::from(null_count)),
         );
-        FileStatistics::new(
-            Arc::from([stats]),
-            Arc::from([DType::Primitive(PType::I32, Nullability::Nullable)]),
-        )
+        let dtype = DType::Primitive(PType::I32, Nullability::Nullable);
+        Ok(FileStatistics::new(
+            Arc::from([legacy_stats_to_results(&dtype, &stats)?]),
+            Arc::from([dtype]),
+        ))
     }
 
     #[test]
@@ -259,7 +262,7 @@ mod tests {
             let child = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
 
             let reader =
-                FileStatsLayoutReader::new(child, test_file_stats(0, 100), SESSION.clone());
+                FileStatsLayoutReader::new(child, test_file_stats(0, 100)?, SESSION.clone());
 
             // col > 200 should be prunable since max is 100.
             let expr = gt(get_item("col", root()), lit(200i32)).bind(reader.dtype())?;
@@ -298,7 +301,7 @@ mod tests {
             let child = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
 
             let reader =
-                FileStatsLayoutReader::new(child, test_file_stats(0, 100), SESSION.clone());
+                FileStatsLayoutReader::new(child, test_file_stats(0, 100)?, SESSION.clone());
 
             // col > 50 should NOT be prunable since max is 100 (some rows could match).
             let expr = gt(get_item("col", root()), lit(50i32)).bind(reader.dtype())?;
@@ -336,7 +339,7 @@ mod tests {
 
             let child = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
             let reader =
-                FileStatsLayoutReader::new(child, test_file_stats(0, 100), SESSION.clone());
+                FileStatsLayoutReader::new(child, test_file_stats(0, 100)?, SESSION.clone());
 
             let expr = gt(checked_add(get_item("col", root()), lit(5i32)), lit(102i32))
                 .bind(reader.dtype())?;
@@ -389,7 +392,10 @@ mod tests {
             // File-level stats: 1 null in deleted_at.
             let mut stats = StatsSet::default();
             stats.set(Stat::NullCount, Precision::exact(ScalarValue::from(1u64)));
-            let file_stats = FileStatistics::new(Arc::from([stats]), Arc::from([ts_dtype]));
+            let file_stats = FileStatistics::new(
+                Arc::from([legacy_stats_to_results(&ts_dtype, &stats)?]),
+                Arc::from([ts_dtype]),
+            );
 
             let reader = FileStatsLayoutReader::new(child, file_stats, SESSION.clone());
 
@@ -436,7 +442,7 @@ mod tests {
             let child = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
 
             let reader =
-                FileStatsLayoutReader::new(child, test_file_null_count_stats(5), SESSION.clone());
+                FileStatsLayoutReader::new(child, test_file_null_count_stats(5)?, SESSION.clone());
 
             let expr = is_not_null(get_item("col", root())).bind(reader.dtype())?;
             let mask = Mask::new_true(5);

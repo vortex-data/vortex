@@ -281,7 +281,7 @@ impl Display for Stat {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use enum_iterator::all;
     use rstest::rstest;
 
@@ -316,9 +316,9 @@ mod test {
     }
 
     #[rstest]
-    #[case(Stat::Min, Min.bind(NumericalAggregateOpts::include_nans()))]
-    #[case(Stat::Max, Max.bind(NumericalAggregateOpts::include_nans()))]
-    #[case(Stat::Sum, Sum.bind(NumericalAggregateOpts::include_nans()))]
+    #[case::min(Stat::Min, Min.bind(NumericalAggregateOpts::include_nans()))]
+    #[case::max(Stat::Max, Max.bind(NumericalAggregateOpts::include_nans()))]
+    #[case::sum(Stat::Sum, Sum.bind(NumericalAggregateOpts::include_nans()))]
     fn finalized_numerical_keys_skip_nans(
         #[case] stat: Stat,
         #[case] include_nans: crate::aggregate_fn::AggregateFnRef,
@@ -331,9 +331,9 @@ mod test {
     }
 
     #[rstest]
-    #[case(Stat::IsConstant)]
-    #[case(Stat::IsSorted)]
-    #[case(Stat::IsStrictSorted)]
+    #[case::constant(Stat::IsConstant)]
+    #[case::non_strict_sorted(Stat::IsSorted)]
+    #[case::strict_sorted(Stat::IsStrictSorted)]
     fn finalized_flags_do_not_supply_partial_requests(#[case] stat: Stat) {
         let key = stat.finalized_aggregate_fn();
         assert!(stat.aggregate_fn().is_none());
