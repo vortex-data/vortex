@@ -52,7 +52,7 @@ name = "bitpacking_take"
 harness = false
 
 [[bench]]
-name = "bitpacked_decode"
+name = "bitpack_blocked_decompress"
 harness = false
 
 [[bench]]

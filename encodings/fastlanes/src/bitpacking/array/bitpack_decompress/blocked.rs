@@ -61,7 +61,7 @@ pub(super) fn unpack_primitive_array<T: BitPackedUnpack>(
 /// Unpack a bit-packed array with block `offsets` directly into a same-typed `PrimitiveBuilder`.
 ///
 /// Full blocks unpack straight into the output, except in multi-block u64 arrays: direct stores of
-/// their 8 KiB blocks regressed in the `bitpacked_decode` benchmark, so those go through scratch.
+/// their 8 KiB blocks were slower in benchmarks, so those go through scratch.
 pub(super) fn unpack_into_primitive_builder<T: BitPackedUnpack>(
     array: ArrayView<'_, BitPacked>,
     offsets: ArrayRef,
