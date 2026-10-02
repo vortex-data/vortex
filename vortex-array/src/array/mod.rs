@@ -503,10 +503,7 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
                 );
             }
 
-            result
-                .array()
-                .statistics()
-                .set_iter(crate::stats::StatsSet::from(stats).into_iter());
+            result.array().statistics().transfer_from(&stats);
         }
 
         Ok(result)

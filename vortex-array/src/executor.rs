@@ -48,7 +48,6 @@ use crate::optimizer::kernels::execute_parent_key;
 use crate::optimizer::kernels::execute_parent_marker_key;
 use crate::optimizer::optimize_with_kernels;
 use crate::stats::ArrayStats;
-use crate::stats::StatsSet;
 use crate::trace_op;
 
 /// Returns the maximum number of iterations to attempt when executing an array before giving up and returning
@@ -637,9 +636,7 @@ fn finalize_done(
         );
     }
 
-    output
-        .statistics()
-        .set_iter(StatsSet::from(stats).into_iter());
+    output.statistics().transfer_from(&stats);
     Ok((output, None))
 }
 
