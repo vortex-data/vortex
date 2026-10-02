@@ -17,6 +17,7 @@ use vortex_compressor::scheme::DeferredEstimate;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexResult;
 use vortex_fastlanes::BitPacked;
+use vortex_fastlanes::bitpacked_v1_id;
 use vortex_fastlanes::bitpack_compress::bit_width_histogram;
 use vortex_fastlanes::bitpack_compress::bitpack_encode;
 use vortex_fastlanes::bitpack_compress::find_best_bit_width;
@@ -41,7 +42,8 @@ impl Scheme for BitPackingScheme {
     }
 
     fn produced_encodings(&self) -> Vec<ArrayId> {
-        let mut encodings = vec![BitPacked.id()];
+        // Global-width arrays serialize under the frozen v1 ID.
+        let mut encodings = vec![bitpacked_v1_id()];
         if use_experimental_patches() {
             encodings.push(Patched.id());
         }
