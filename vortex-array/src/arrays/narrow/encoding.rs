@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Select the stored width of an integer array.
+//!
+//! Bounds exclude null payloads. Narrowing changes the physical representation while preserving
+//! the logical dtype and validity.
+
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
@@ -23,7 +28,10 @@ impl NarrowArray {
     /// type fits. Floating-point arrays are rejected.
     pub fn encode(array: PrimitiveArray, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let ptype = array.ptype();
-        vortex_ensure!(ptype.is_int(), "Narrow requires integer values, got {ptype}");
+        vortex_ensure!(
+            ptype.is_int(),
+            "Narrow requires integer values, got {ptype}"
+        );
         if ptype.byte_width() == 1 {
             return Ok(array.into_array());
         }
@@ -47,7 +55,10 @@ impl NarrowArray {
                 continue;
             }
 
-            let values = array.as_ref().cast(storage_dtype)?.execute::<PrimitiveArray>(ctx)?;
+            let values = array
+                .as_ref()
+                .cast(storage_dtype)?
+                .execute::<PrimitiveArray>(ctx)?;
             return Ok(Self::try_new(values.into_array(), array.dtype().clone())?.into_array());
         }
 

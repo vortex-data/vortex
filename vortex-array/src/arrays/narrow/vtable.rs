@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Implement the Narrow storage and execution contract.
+//!
+//! The values child owns the buffers and validity. Deserialization validates its dtype before
+//! construction; canonical execution yields a cast to the logical integer width.
+
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -159,7 +164,10 @@ impl OperationsVTable<Narrow> for Narrow {
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        array.values().execute_scalar(index, ctx)?.cast(array.dtype())
+        array
+            .values()
+            .execute_scalar(index, ctx)?
+            .cast(array.dtype())
     }
 }
 

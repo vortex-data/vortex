@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Aggregate Narrow values without widening the input buffer.
+//!
+//! Supported aggregates preserve integer ordering or use wide sum states. Partial states are cast
+//! to the logical dtype so later batches observe the same boundaries as canonical integers.
+
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 

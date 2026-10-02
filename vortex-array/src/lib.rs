@@ -157,6 +157,10 @@ pub fn initialize(session: &VortexSession) {
     }
 }
 
+/// Shared default session for unit tests.
+#[cfg(test)]
+pub(crate) static TEST_SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
+
 /// Builds a fresh [`VortexSession`] registered with all of vortex-array's built-in session
 /// variables: arrays, dtypes, scalar functions, stats, optimizer kernels, aggregate functions,
 /// and memory.

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#![cfg(test)]
+
 use std::sync::LazyLock;
 
 use vortex_array::IntoArray;
@@ -45,7 +47,10 @@ fn test_narrow_bitpacked_child() -> VortexResult<()> {
         &mut ctx
     );
     assert_arrays_eq!(
-        array.binary(ConstantArray::new(Scalar::from(3u64), 4).into_array(), Operator::Lt)?,
+        array.binary(
+            ConstantArray::new(Scalar::from(3u64), 4).into_array(),
+            Operator::Lt
+        )?,
         BoolArray::from_iter([true, true, false, false]),
         &mut ctx
     );

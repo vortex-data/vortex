@@ -8,15 +8,11 @@
 //! Canonical execution returns a widening cast to
 //! [`PrimitiveArray`](crate::arrays::PrimitiveArray).
 
-mod encoding;
-
-mod vtable;
-
-mod rules;
-
-mod compare;
-
 mod aggregates;
+mod compare;
+mod encoding;
+mod rules;
+mod vtable;
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;

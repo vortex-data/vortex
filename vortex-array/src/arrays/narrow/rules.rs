@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Push selection and compatible scalar operations into Narrow values.
+//!
+//! Each reduction preserves the logical integer width and derives result nullability from the
+//! transformed child. Operations that require wider values fall back to canonical execution.
+
 use std::ops::Range;
 
 use vortex_error::VortexResult;
@@ -85,7 +90,10 @@ impl CastReduce for Narrow {
 }
 
 impl FillNullReduce for Narrow {
-    fn fill_null(array: ArrayView<'_, Self>, fill_value: &Scalar) -> VortexResult<Option<ArrayRef>> {
+    fn fill_null(
+        array: ArrayView<'_, Self>,
+        fill_value: &Scalar,
+    ) -> VortexResult<Option<ArrayRef>> {
         let storage_dtype = array
             .values()
             .dtype()

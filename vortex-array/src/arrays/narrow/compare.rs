@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Compare Narrow integers at a sufficient stored width.
+//!
+//! Two children use their wider stored dtype. Constants outside the stored range yield a known
+//! comparison result while preserving the array validity.
+
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
