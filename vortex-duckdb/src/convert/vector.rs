@@ -20,6 +20,7 @@ use vortex::buffer::BitBuffer;
 use vortex::buffer::Buffer;
 use vortex::buffer::BufferAllocatorRef;
 use vortex::buffer::BufferMut;
+use vortex::buffer::trusted_len::TrustedLen;
 use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
 use vortex::dtype::DecimalType;
@@ -83,7 +84,7 @@ fn vector_as_slice<T: NativePType>(vector: &VectorRef, len: usize) -> ArrayRef {
     .into_array()
 }
 
-fn vector_i128_values(vector: &VectorRef, len: usize) -> impl Iterator<Item = i128> {
+fn vector_i128_values(vector: &VectorRef, len: usize) -> impl TrustedLen<Item = i128> {
     let base = unsafe { crate::cpp::duckdb_vector_get_data(vector.as_ptr()) }.cast::<i128>();
     // In batch copy, columns are 8 byte aligned, so reading vector's values
     // as &[i128] is UB. Read data unaligned specifically

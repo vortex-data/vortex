@@ -10,6 +10,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
+use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -162,18 +163,29 @@ impl DecimalBuilder {
         array: &DecimalArray,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
+        let len = array.as_ref().len();
+        let mask = array.as_ref().validity()?.execute_mask(len, ctx)?;
+
         match_each_decimal_value_type!(array.values_type(), |D| {
             // Extends the values buffer from another buffer of type D where D can be coerced to the
             // builder type.
-            self.values.extend(array.buffer::<D>().iter().copied());
+            let buffer = array.buffer::<D>();
+            match &mask {
+                Mask::AllTrue(_) => self.values.extend(buffer.iter().copied()),
+                Mask::AllFalse(_) => self.values.push_n(D::default(), len),
+                Mask::Values(values) => {
+                    let mut prev = 0;
+                    for (start, end) in values.slices() {
+                        self.values.push_n(D::default(), start - prev);
+                        self.values.extend(buffer[*start..*end].iter().copied());
+                        prev = *end;
+                    }
+                    self.values.push_n(D::default(), len - prev);
+                }
+            }
         });
 
-        self.nulls.append_validity_mask(
-            &array
-                .as_ref()
-                .validity()?
-                .execute_mask(array.as_ref().len(), ctx)?,
-        );
+        self.nulls.append_validity_mask(&mask);
         Ok(())
     }
 
@@ -328,14 +340,21 @@ impl_from_buffer!(i256, I256);
 #[cfg(test)]
 mod tests {
     use vortex_buffer::BufferAllocatorRef;
+    use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
 
+    use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::array_session;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
     use crate::builders::DecimalBuilder;
+    use crate::builders::builder_with_capacity_in;
     use crate::builders::decimal::DecimalArray;
+    use crate::dtype::DType;
     use crate::dtype::DecimalDType;
+    use crate::dtype::Nullability;
+    use crate::validity::Validity;
 
     #[test]
     fn test_mixed_extend() {
@@ -369,6 +388,32 @@ mod tests {
                     .unwrap()
             );
         }
+    }
+
+    #[test]
+    fn test_widening_extend_with_null() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let decimal_dtype = DecimalDType::new(2, 1);
+
+        let array = DecimalArray::try_new(
+            buffer![15i16, 999],
+            decimal_dtype,
+            Validity::from_iter([true, false]),
+        )?;
+
+        let mut builder = builder_with_capacity_in(
+            &DType::Decimal(decimal_dtype, Nullability::Nullable),
+            array.len(),
+            BufferAllocatorRef::static_ref(),
+        );
+        array
+            .into_array()
+            .append_to_builder(builder.as_mut(), &mut ctx)?;
+        let result = builder.finish();
+
+        let expected = DecimalArray::from_option_iter([Some(15i8), None], decimal_dtype);
+        assert_arrays_eq!(&result, &expected, &mut ctx);
+        Ok(())
     }
 
     #[test]
