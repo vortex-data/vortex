@@ -3,6 +3,7 @@
 
 //! Integer compression schemes.
 
+mod affine;
 mod bitpacking;
 mod delta;
 mod for_;
@@ -15,6 +16,9 @@ mod zigzag;
 #[cfg(feature = "pco")]
 mod pco;
 
+pub use affine::AffineScheme;
+pub use affine::ModeChoice;
+pub use affine::choose_mode;
 pub use bitpacking::BitPackingScheme;
 pub use delta::DeltaScheme;
 pub(crate) use for_::FOR_V1;
