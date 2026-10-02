@@ -27,12 +27,9 @@ pub trait OperationsVTable<V: VTable> {
 
     /// Read the scalar at `index` of the array in `state`, including its nullness.
     ///
-    /// Bounds have been checked; the row may be null, and a null row must come back as
-    /// `Scalar::null` of the array's dtype. Resolving nullness is the encoding's job so that a
-    /// wrapper reading through a child walks the tree once: the child's scalar already carries
-    /// its nullness, and the wrapper passes it through. An encoding that holds its own validity
-    /// checks the row through [`ProbeState::is_valid`], which a repeated read resolves once and
-    /// keeps.
+    /// Caller must guarantee `index < len`. The row may be null, and a null row must come back
+    /// as `Scalar::null` of the array's dtype. Check the array's own validity with
+    /// [`ProbeState::is_valid`].
     ///
     /// `state` carries the typed view of the array and, for a read through a
     /// [`RepeatedArrayProbe`](crate::RepeatedArrayProbe), the state that probe keeps. Read
@@ -40,8 +37,7 @@ pub trait OperationsVTable<V: VTable> {
     /// encoding having to know it. Take encoding state from [`ProbeState::retained`]. The scalar
     /// must retain the source's logical dtype, including nullability.
     ///
-    /// The default checks validity and then reads through [`Self::scalar_at`], so migrating an
-    /// encoding to `probe_scalar` also takes over the null check.
+    /// The default checks validity and then reads through [`Self::scalar_at`].
     fn probe_scalar(
         state: &mut ProbeState<'_, V>,
         index: usize,
@@ -59,11 +55,8 @@ pub trait OperationsVTable<V: VTable> {
     ///
     /// ## Preconditions
     ///
-    /// Bounds-checking has already been performed by the time this function is called, and the
-    /// default [`Self::probe_scalar`] calls this only for a valid row, so an encoding that keeps
-    /// the default may assume the row is non-null. An encoding that overrides `probe_scalar` and
-    /// delegates `scalar_at` to it resolves nullness there instead. Implementations may assume
-    /// `index < len`.
+    /// Bounds-checking has already been performed by the time this function is called,
+    /// and the index is guaranteed to be non-null. Implementations may assume `index < len`.
     ///
     /// ## Postconditions
     ///

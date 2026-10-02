@@ -222,8 +222,9 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ExecutionResult>;
 
-    /// Read the scalar at `index`, including its nullness, for a one-off access; nothing is
-    /// retained. Bounds have been checked.
+    /// Read the scalar at `index`, including its nullness, retaining nothing.
+    ///
+    /// Caller must guarantee `index < len`.
     ///
     /// Kept apart from [`Self::probe_scalar_retained`] so this entry is a bare trampoline into
     /// the encoding: sharing one function made the one-off path pay the retained branch's
@@ -235,8 +236,9 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar>;
 
-    /// Read the scalar at `index`, including its nullness, keeping preparation in `state` for
-    /// later reads. Bounds have been checked.
+    /// Read the scalar at `index`, including its nullness, keeping preparation in `state`.
+    ///
+    /// Caller must guarantee `index < len`.
     fn probe_scalar_retained(
         &self,
         this: &ArrayRef,
@@ -245,8 +247,9 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar>;
 
-    /// Whether the row at `index` is valid, through the validity slot kept in `state`. Bounds
-    /// have been checked.
+    /// Whether the row at `index` is valid, using the validity kept in `state`.
+    ///
+    /// Caller must guarantee `index < len`.
     fn probe_is_valid_retained(
         &self,
         this: &ArrayRef,

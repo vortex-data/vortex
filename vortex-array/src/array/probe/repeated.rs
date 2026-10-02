@@ -78,10 +78,7 @@ impl RepeatedArrayProbe {
     }
 }
 
-/// The resolved validity of a [`RepeatedState`], kept between reads.
-///
-/// Uniform validity is remembered as a flag; otherwise a probe over the validity array is kept,
-/// so validity reads keep their own preparation like any other child.
+/// The validity of a [`RepeatedState`], resolved on first use and kept between reads.
 enum ResolvedValidity {
     Uniform(bool),
     Array(RepeatedArrayProbe),
@@ -106,9 +103,7 @@ impl ResolvedValidity {
             Validity::NonNullable | Validity::AllValid => Self::Uniform(true),
             Validity::AllInvalid => Self::Uniform(false),
             Validity::Array(validity) => {
-                // A scalar function's validity is a lazy array whose rows each cost an
-                // evaluation of the function. Materialize it once rather than evaluating it
-                // again for every row this probe reads.
+                // ScalarFn validity is lazy; materialize it once instead of once per row.
                 // TODO(myrrc): remove this once the probing API can specify validity.
                 let validity = if array.is::<ScalarFn>() {
                     validity.execute::<BoolArray>(ctx)?.into_array()

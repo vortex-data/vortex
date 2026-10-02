@@ -1470,23 +1470,12 @@ pub fn test_array_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     test_probe_consistency(array, ctx);
 }
 
-/// Tests that the one-off and the retained row accessors agree with each other and with
-/// validity.
+/// Tests that one-off and repeated probes agree with each other and with validity.
 ///
 /// # Invariant
-/// For every index `i`, on both the array and a slice of it:
-/// - `array.probe().execute_scalar(i)` equals `array.repeated_probe().execute_scalar(i)`
-/// - `execute_is_valid(i)` equals `!execute_scalar(i).is_null()` on both accessors
-///
-/// # Test Details
-/// - Reads every row (every 7th row past 1024) through a one-off probe and one retained probe
-/// - Reads the retained probe forwards, then backwards, interleaving validity and scalar reads
-/// - Repeats the reads on a slice that drops the first and last row
-///
-/// # Why This Matters
-/// Encodings resolve nullness inside `probe_scalar`, while `is_valid` goes through the
-/// encoding's validity. A retained probe caches state, children and validity between reads, so
-/// the two accessors and the two views of nullness must never drift apart.
+/// For every index `i`, on the array and a slice of it:
+/// - `probe().execute_scalar(i)` equals `repeated_probe().execute_scalar(i)`
+/// - `execute_is_valid(i)` equals `!execute_scalar(i).is_null()` on both probes
 fn test_probe_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     check_probe_consistency(array, ctx);
     if array.len() > 2 {

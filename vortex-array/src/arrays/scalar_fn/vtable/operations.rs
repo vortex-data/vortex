@@ -18,9 +18,7 @@ use crate::scalar_fn::VecExecutionArgs;
 impl OperationsVTable<ScalarFn> for ScalarFn {
     type ProbeState = ();
 
-    /// Evaluating the function over the row's inputs yields the row's nullness along with its
-    /// value, and for some functions the validity is the function itself, so a separate validity
-    /// check first would evaluate it twice.
+    /// The evaluated scalar carries the row's nullness, so no separate validity check is needed.
     fn probe_scalar(
         state: &mut ProbeState<'_, ScalarFn>,
         index: usize,
