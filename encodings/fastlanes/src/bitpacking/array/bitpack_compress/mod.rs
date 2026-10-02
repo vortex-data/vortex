@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod blocked;
 mod global;
 
+pub use blocked::bitpack_encode_blocked;
+pub use blocked::bitpack_to_best_bit_widths;
+use fastlanes::BitPacking;
 pub use global::bitpack_encode;
 pub use global::bitpack_encode_unchecked;
 pub use global::bitpack_primitive;
@@ -16,18 +20,136 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
+use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_integer_ptype;
+use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
+use vortex_buffer::BitBuffer;
+use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
+
+use crate::BitPacked;
+use crate::BitPackedArray;
+use crate::BitWidths;
+use crate::FL_CHUNK_SIZE;
+
+/// Return an error unless `array` holds integers that are all non-negative, which bit-packing
+/// requires.
+#[expect(unused_comparisons, clippy::absurd_extreme_comparisons)]
+fn ensure_non_negative_integers(
+    array: &PrimitiveArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    vortex_ensure!(
+        array.ptype().is_int(),
+        InvalidArgument: "cannot bitpack {} array",
+        array.ptype()
+    );
+    if array.ptype().is_signed_int() {
+        let has_negative_values = match_each_integer_ptype!(array.ptype(), |P| {
+            array.statistics().compute_min::<P>(ctx).unwrap_or_default() < 0
+        });
+        if has_negative_values {
+            vortex_bail!(InvalidArgument: "cannot bitpack array containing negative integers")
+        }
+    }
+    Ok(())
+}
+
+/// Bitpack each 1024-value block of `parray` at `block_width(block)` bits.
+///
+/// # Safety
+///
+/// This promotes `parray` to its unsigned equivalent, like [`bitpack_unchecked`], so the caller
+/// must ensure that it holds no negative values.
+unsafe fn pack_blocks_unchecked(
+    parray: &PrimitiveArray,
+    block_width: &dyn Fn(usize) -> u8,
+) -> ByteBuffer {
+    let parray = parray.reinterpret_cast(parray.ptype().to_unsigned());
+    match_each_unsigned_integer_ptype!(parray.ptype(), |P| {
+        pack_blocks(parray.as_slice::<P>(), block_width).into_byte_buffer()
+    })
+}
+
+/// Bitpack each 1024-value block of `array` at `block_width(block)` bits, one block after another.
+fn pack_blocks<T: NativePType + BitPacking>(
+    array: &[T],
+    block_width: &dyn Fn(usize) -> u8,
+) -> Buffer<T> {
+    let block_len = |block: usize| 128 * usize::from(block_width(block)) / size_of::<T>();
+    let num_blocks = array.len().div_ceil(FL_CHUNK_SIZE);
+    let mut output = BufferMut::<T>::with_capacity((0..num_blocks).map(block_len).sum());
+    // The last block is padded with zeros to a full 1024 values.
+    let mut padded = [T::zero(); FL_CHUNK_SIZE];
+
+    for (block_idx, block) in array.chunks(FL_CHUNK_SIZE).enumerate() {
+        let input: &[T] = if block.len() == FL_CHUNK_SIZE {
+            block
+        } else {
+            padded[..block.len()].copy_from_slice(block);
+            &padded
+        };
+        let len = block_len(block_idx);
+        let output_len = output.len();
+        // SAFETY: `input` holds 1024 values and the output window is exactly one block packed at
+        // its width, within the capacity reserved above.
+        unsafe {
+            output.set_len(output_len + len);
+            BitPacking::unchecked_pack(
+                usize::from(block_width(block_idx)),
+                input,
+                &mut output[output_len..][..len],
+            );
+        }
+    }
+
+    output.freeze()
+}
+
+/// Assemble a [`BitPackedArray`] holding `array`'s packed values, validity and statistics.
+fn bitpacked_from_packed(
+    array: &PrimitiveArray,
+    packed: ByteBuffer,
+    patches: Option<Patches>,
+    bit_widths: BitWidths,
+) -> VortexResult<BitPackedArray> {
+    let packed = BufferHandle::new_host(packed);
+    let validity = array.validity()?;
+    let bitpacked = match bit_widths {
+        BitWidths::Global(bit_width) => BitPacked::try_new(
+            packed,
+            array.ptype(),
+            validity,
+            patches,
+            bit_width,
+            array.len(),
+            0,
+        )?,
+        BitWidths::Blocked(block_offsets) => BitPacked::try_new_with_block_offsets(
+            packed,
+            array.ptype(),
+            validity,
+            patches,
+            block_offsets,
+            array.len(),
+            0,
+        )?,
+    };
+    bitpacked.statistics().inherit_from(array.statistics());
+    Ok(bitpacked)
+}
 
 pub fn gather_patches(
     parray: &PrimitiveArray,
@@ -35,22 +157,32 @@ pub fn gather_patches(
     num_exceptions_hint: usize,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<Patches>> {
+    let validity_mask = parray
+        .as_ref()
+        .validity()?
+        .execute_mask(parray.len(), ctx)?;
+    gather_patches_with(parray, &|_| bit_width, num_exceptions_hint, validity_mask)
+}
+
+/// Gather the valid values that are wider than the bit width of their 1024-value block.
+fn gather_patches_with(
+    parray: &PrimitiveArray,
+    block_width: &dyn Fn(usize) -> u8,
+    num_exceptions_hint: usize,
+    validity_mask: Mask,
+) -> VortexResult<Option<Patches>> {
     let patch_validity = match parray.validity()? {
         Validity::NonNullable => Validity::NonNullable,
         _ => Validity::AllValid,
     };
 
     let array_len = parray.len();
-    let validity_mask = parray
-        .as_ref()
-        .validity()?
-        .execute_mask(parray.len(), ctx)?;
 
     let patches = if array_len < u8::MAX as usize {
         match_each_integer_ptype!(parray.ptype(), |T| {
             gather_patches_impl::<T, u8>(
                 parray.as_slice::<T>(),
-                bit_width,
+                block_width,
                 num_exceptions_hint,
                 patch_validity,
                 validity_mask,
@@ -60,7 +192,7 @@ pub fn gather_patches(
         match_each_integer_ptype!(parray.ptype(), |T| {
             gather_patches_impl::<T, u16>(
                 parray.as_slice::<T>(),
-                bit_width,
+                block_width,
                 num_exceptions_hint,
                 patch_validity,
                 validity_mask,
@@ -70,7 +202,7 @@ pub fn gather_patches(
         match_each_integer_ptype!(parray.ptype(), |T| {
             gather_patches_impl::<T, u32>(
                 parray.as_slice::<T>(),
-                bit_width,
+                block_width,
                 num_exceptions_hint,
                 patch_validity,
                 validity_mask,
@@ -80,7 +212,7 @@ pub fn gather_patches(
         match_each_integer_ptype!(parray.ptype(), |T| {
             gather_patches_impl::<T, u64>(
                 parray.as_slice::<T>(),
-                bit_width,
+                block_width,
                 num_exceptions_hint,
                 patch_validity,
                 validity_mask,
@@ -93,7 +225,7 @@ pub fn gather_patches(
 
 fn gather_patches_impl<T, P>(
     data: &[T],
-    bit_width: u8,
+    block_width: &dyn Fn(usize) -> u8,
     num_exceptions_hint: usize,
     patch_validity: Validity,
     validity_mask: Mask,
@@ -108,10 +240,12 @@ where
     let total_chunks = data.len().div_ceil(1024);
     let mut chunk_offsets: BufferMut<u64> = BufferMut::with_capacity(total_chunks);
 
+    let mut bit_width = 0;
     for ((idx, value), valid) in data.iter().enumerate().zip(validity_mask.iter()) {
         if (idx % 1024) == 0 {
-            // Record the patch index offset for each chunk.
+            // Record the patch index offset and bit width for each chunk.
             chunk_offsets.push(values.len() as u64);
+            bit_width = block_width(idx / 1024);
         }
 
         if (value.leading_zeros() as usize) < T::PTYPE.bit_width() - bit_width as usize && valid {
@@ -132,7 +266,6 @@ where
         )?))
     }
 }
-
 pub fn bit_width_histogram(
     array: ArrayView<'_, Primitive>,
     ctx: &mut ExecutionCtx,
@@ -146,38 +279,37 @@ fn bit_width_histogram_typed<T: NativePType + PrimInt>(
     array: ArrayView<'_, Primitive>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Vec<usize>> {
+    let mut bit_widths = vec![0usize; size_of::<T>() * 8 + 1];
+    let validity = array.validity()?.execute_mask(array.as_ref().len(), ctx)?;
+    add_bit_widths(
+        &mut bit_widths,
+        array.as_slice::<T>(),
+        validity.bit_buffer(),
+    );
+    Ok(bit_widths)
+}
+
+/// Count the bit width of each of `values` into `histogram`, counting null values as zero-width.
+fn add_bit_widths<T: NativePType + PrimInt>(
+    histogram: &mut [usize],
+    values: &[T],
+    validity: AllOr<&BitBuffer>,
+) {
     let bit_width: fn(T) -> usize =
         |v: T| (8 * size_of::<T>()) - (PrimInt::leading_zeros(v) as usize);
-
-    let mut bit_widths = vec![0usize; size_of::<T>() * 8 + 1];
-    match array
-        .validity()?
-        .execute_mask(array.as_ref().len(), ctx)?
-        .bit_buffer()
-    {
+    match validity {
         AllOr::All => {
-            // All values are valid.
-            for v in array.as_slice::<T>() {
-                bit_widths[bit_width(*v)] += 1;
+            for v in values {
+                histogram[bit_width(*v)] += 1;
             }
         }
-        AllOr::None => {
-            // All values are invalid
-            bit_widths[0] = array.len();
-        }
+        AllOr::None => histogram[0] += values.len(),
         AllOr::Some(buffer) => {
-            // Some values are valid
-            for (is_valid, v) in buffer.iter().zip_eq(array.as_slice::<T>()) {
-                if is_valid {
-                    bit_widths[bit_width(*v)] += 1;
-                } else {
-                    bit_widths[0] += 1;
-                }
+            for (is_valid, v) in buffer.iter().zip_eq(values) {
+                histogram[if is_valid { bit_width(*v) } else { 0 }] += 1;
             }
         }
     }
-
-    Ok(bit_widths)
 }
 
 pub fn find_best_bit_width(ptype: PType, bit_width_freq: &[usize]) -> VortexResult<u8> {

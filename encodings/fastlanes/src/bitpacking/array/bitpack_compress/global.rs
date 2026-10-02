@@ -5,25 +5,23 @@
 
 use fastlanes::BitPacking;
 use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
-use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::NativePType;
-use vortex_array::match_each_integer_ptype;
-use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_buffer::Buffer;
-use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use super::bit_width_histogram;
+use super::bitpacked_from_packed;
+use super::ensure_non_negative_integers;
 use super::find_best_bit_width;
 use super::gather_patches;
-use crate::BitPacked;
+use super::pack_blocks;
+use super::pack_blocks_unchecked;
 use crate::BitPackedArray;
+use crate::BitWidths;
 use crate::bitpack_decompress;
 
 pub fn bitpack_to_best_bit_width(
@@ -35,27 +33,17 @@ pub fn bitpack_to_best_bit_width(
     bitpack_encode(array, best_bit_width, Some(&bit_width_freq), ctx)
 }
 
-#[expect(unused_comparisons, clippy::absurd_extreme_comparisons)]
 pub fn bitpack_encode(
     array: &PrimitiveArray,
     bit_width: u8,
     bit_width_freq: Option<&[usize]>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<BitPackedArray> {
+    ensure_non_negative_integers(array, ctx)?;
     let bit_width_freq = match bit_width_freq {
         Some(freq) => freq,
         None => &bit_width_histogram(array.as_view(), ctx)?,
     };
-
-    // Check array contains no negative values.
-    if array.ptype().is_signed_int() {
-        let has_negative_values = match_each_integer_ptype!(array.ptype(), |P| {
-            array.statistics().compute_min::<P>(ctx).unwrap_or_default() < 0
-        });
-        if has_negative_values {
-            vortex_bail!(InvalidArgument: "cannot bitpack_encode array containing negative integers")
-        }
-    }
 
     let num_exceptions = bitpack_decompress::count_exceptions(bit_width, bit_width_freq);
 
@@ -73,18 +61,7 @@ pub fn bitpack_encode(
         .then(|| gather_patches(array, bit_width, num_exceptions, ctx))
         .transpose()?
         .flatten();
-
-    let bitpacked = BitPacked::try_new(
-        BufferHandle::new_host(packed),
-        array.ptype(),
-        array.validity()?,
-        patches,
-        bit_width,
-        array.len(),
-        0,
-    )?;
-    bitpacked.statistics().inherit_from(array.statistics());
-    Ok(bitpacked)
+    bitpacked_from_packed(array, packed, patches, BitWidths::Global(bit_width))
 }
 
 /// Bitpack an array into the specified bit-width without checking statistics.
@@ -101,20 +78,7 @@ pub unsafe fn bitpack_encode_unchecked(
 ) -> VortexResult<BitPackedArray> {
     // SAFETY: non-negativity of input checked by caller.
     let packed = unsafe { bitpack_unchecked(&array, bit_width) };
-
-    let arr_ref = array.clone().into_array();
-    let bitpacked = BitPacked::try_new(
-        BufferHandle::new_host(packed),
-        array.ptype(),
-        array.validity()?,
-        None,
-        bit_width,
-        array.len(),
-        0,
-    )
-    .vortex_expect("bitpacked array construction should succeed");
-    bitpacked.statistics().inherit_from(arr_ref.statistics());
-    Ok(bitpacked)
+    bitpacked_from_packed(&array, packed, None, BitWidths::Global(bit_width))
 }
 
 /// Bitpack a [PrimitiveArray] to the given width.
@@ -129,64 +93,15 @@ pub unsafe fn bitpack_encode_unchecked(
 /// It is the caller's responsibility to ensure that `parray` is non-negative before calling
 /// this function.
 pub unsafe fn bitpack_unchecked(parray: &PrimitiveArray, bit_width: u8) -> ByteBuffer {
-    let parray = parray.reinterpret_cast(parray.ptype().to_unsigned());
-    match_each_unsigned_integer_ptype!(parray.ptype(), |P| {
-        bitpack_primitive(parray.as_slice::<P>(), bit_width).into_byte_buffer()
-    })
+    // SAFETY: the caller ensures that `parray` is non-negative.
+    unsafe { pack_blocks_unchecked(parray, &|_| bit_width) }
 }
 
 /// Bitpack a slice of primitives down to the given width.
 ///
 /// See `bitpack` for more caller information.
 pub fn bitpack_primitive<T: NativePType + BitPacking>(array: &[T], bit_width: u8) -> Buffer<T> {
-    if bit_width == 0 {
-        return Buffer::<T>::empty();
-    }
-    let bit_width = bit_width as usize;
-
-    // How many fastlanes vectors we will process.
-    let num_chunks = array.len().div_ceil(1024);
-    let num_full_chunks = array.len() / 1024;
-    let packed_len = 128 * bit_width / size_of::<T>();
-    // packed_len says how many values of size T we're going to include.
-    // 1024 * bit_width / 8 == the number of bytes we're going to get.
-    // then we divide by the size of T to get the number of elements.
-
-    // Allocate a result byte array.
-    let mut output = BufferMut::<T>::with_capacity(num_chunks * packed_len);
-
-    // Loop over all but the last chunk.
-    (0..num_full_chunks).for_each(|i| {
-        let start_elem = i * 1024;
-        let output_len = output.len();
-        unsafe {
-            output.set_len(output_len + packed_len);
-            BitPacking::unchecked_pack(
-                bit_width,
-                &array[start_elem..][..1024],
-                &mut output[output_len..][..packed_len],
-            );
-        };
-    });
-
-    // Pad the last chunk with zeros to a full 1024 elements.
-    if num_chunks != num_full_chunks {
-        let last_chunk_size = array.len() % 1024;
-        let mut last_chunk: [T; 1024] = [T::zero(); 1024];
-        last_chunk[..last_chunk_size].copy_from_slice(&array[array.len() - last_chunk_size..]);
-
-        let output_len = output.len();
-        unsafe {
-            output.set_len(output_len + packed_len);
-            BitPacking::unchecked_pack(
-                bit_width,
-                &last_chunk,
-                &mut output[output_len..][..packed_len],
-            );
-        };
-    }
-
-    output.freeze()
+    pack_blocks(array, &|_| bit_width)
 }
 
 #[cfg(test)]
@@ -195,6 +110,7 @@ mod tests {
 
     use rand::SeedableRng;
     use rand::rngs::StdRng;
+    use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::assert_arrays_eq;
