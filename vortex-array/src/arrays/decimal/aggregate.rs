@@ -6,15 +6,17 @@
 //! Child aggregates keep their stored width. Boundary values in partial states are converted back
 //! to decimal scalars without rescaling; decimal sum and arithmetic keep their own kernels.
 
+use std::sync::LazyLock;
+
 use itertools::Itertools;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_session::VortexSession;
 
 use super::Decimal;
 use crate::ArrayRef;
 use crate::ArrayVTable;
 use crate::ExecutionCtx;
+use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::fns::all_non_null::AllNonNull;
@@ -29,15 +31,20 @@ use crate::aggregate_fn::fns::min::Min;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::null_count::NullCount;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
-use crate::aggregate_fn::session::AggregateFnSessionExt;
+use crate::aggregate_fn::session::AggregateFnSession;
 use crate::arrays::decimal::DecimalArraySlotsExt;
 use crate::dtype::DType;
 use crate::integer;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 
-pub(super) fn initialize(session: &VortexSession) {
-    for id in [
+pub(crate) fn register_aggregate_kernels(session: &AggregateFnSession) {
+    // One fallback avoids cloning the registry for each supported aggregate.
+    session.register_aggregate_kernel(Decimal.id(), None::<AggregateFnId>, &DecimalAggregateKernel);
+}
+
+static SUPPORTED_AGGREGATES: LazyLock<[AggregateFnId; 11]> = LazyLock::new(|| {
+    [
         MinMax.id(),
         Min.id(),
         Max.id(),
@@ -49,14 +56,8 @@ pub(super) fn initialize(session: &VortexSession) {
         NullCount.id(),
         AllNull.id(),
         AllNonNull.id(),
-    ] {
-        session.aggregate_fns().register_aggregate_kernel(
-            Decimal.id(),
-            Some(id),
-            &DecimalAggregateKernel,
-        );
-    }
-}
+    ]
+});
 
 #[derive(Debug)]
 struct DecimalAggregateKernel;
@@ -68,6 +69,10 @@ impl DynAggregateKernel for DecimalAggregateKernel {
         batch: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Scalar>> {
+        if !SUPPORTED_AGGREGATES.contains(&aggregate_fn.id()) {
+            return Ok(None);
+        }
+
         let Some(array) = batch.as_opt::<Decimal>() else {
             return Ok(None);
         };

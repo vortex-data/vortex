@@ -10,6 +10,7 @@
 //! [`NarrowArray`]: crate::arrays::NarrowArray
 
 mod aggregate;
+pub(crate) use aggregate::register_aggregate_kernels;
 
 mod array;
 pub use array::DecimalArrayExt;
@@ -43,7 +44,6 @@ pub struct Decimal;
 pub type DecimalArray = Array<Decimal>;
 
 pub(crate) fn initialize(session: &vortex_session::VortexSession) {
-    aggregate::initialize(session);
     vtable::initialize(session);
 }
 

@@ -44,6 +44,7 @@ use crate::arrays::Chunked;
 use crate::arrays::Dict;
 use crate::arrays::Primitive;
 use crate::arrays::chunked::compute::aggregate::ChunkedArrayAggregate;
+use crate::arrays::decimal;
 use crate::arrays::dict::compute::is_constant::DictIsConstantKernel;
 use crate::arrays::dict::compute::is_sorted::DictIsSortedKernel;
 use crate::arrays::dict::compute::min_max::DictMinMaxKernel;
@@ -123,6 +124,7 @@ impl Default for AggregateFnSession {
         this.register_aggregate_kernel(Dict.id(), Some(IsConstant.id()), &DictIsConstantKernel);
         this.register_aggregate_kernel(Dict.id(), Some(IsSorted.id()), &DictIsSortedKernel);
 
+        decimal::register_aggregate_kernels(&this);
         narrow::register_aggregate_kernels(&this);
 
         // Register the built-in grouped aggregate kernels.

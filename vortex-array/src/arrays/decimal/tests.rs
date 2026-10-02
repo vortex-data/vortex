@@ -29,6 +29,8 @@ use crate::aggregate_fn::fns::is_sorted::IsSortedOptions;
 use crate::aggregate_fn::fns::is_sorted::is_sorted;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::min_max::min_max;
+use crate::aggregate_fn::fns::sum::Sum;
+use crate::aggregate_fn::session::AggregateFnSessionExt;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::DictArray;
@@ -334,6 +336,13 @@ fn partial_aggregates_preserve_decimal_boundaries() -> VortexResult<()> {
         IsSorted.bind(IsSortedOptions { strict: false }),
         IsConstant.bind(EmptyOptions),
     ] {
+        assert!(
+            TEST_SESSION
+                .aggregate_fns()
+                .find_aggregate_kernel(VTable::id(&Decimal), aggregate.id())
+                .is_some()
+        );
+
         let mut expected = aggregate.accumulator(&input_dtype)?;
         let mut actual = aggregate.accumulator(&input_dtype)?;
         for values in [vec![None, Some(-128i8), Some(0)], vec![Some(0), Some(127)]] {
@@ -350,6 +359,32 @@ fn partial_aggregates_preserve_decimal_boundaries() -> VortexResult<()> {
         }
         assert_eq!(actual.final_scalar()?, expected.final_scalar()?);
     }
+
+    Ok(())
+}
+
+#[test]
+fn sum_uses_the_decimal_kernel() -> VortexResult<()> {
+    let mut ctx = TEST_SESSION.create_execution_ctx();
+    let dtype = DecimalDType::new(39, 2);
+    let array = DecimalArray::from_iter([10i8, 20], dtype).into_array();
+    let aggregate = Sum.bind(NumericalAggregateOpts::default());
+    let kernel = TEST_SESSION
+        .aggregate_fns()
+        .find_aggregate_kernel(VTable::id(&Decimal), aggregate.id())
+        .vortex_expect("Decimal registers a fallback aggregate kernel");
+    assert!(kernel.aggregate(&aggregate, &array, &mut ctx)?.is_none());
+
+    let mut accumulator = aggregate.accumulator(array.dtype())?;
+    accumulator.accumulate(&array, &mut ctx)?;
+    assert_eq!(
+        accumulator.final_scalar()?,
+        Scalar::decimal(
+            DecimalValue::I8(30),
+            DecimalDType::new(49, 2),
+            Nullability::Nullable,
+        )
+    );
 
     Ok(())
 }
