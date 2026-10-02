@@ -16,8 +16,10 @@ use vortex::expr::list_contains;
 use vortex::expr::lit;
 use vortex::expr::not;
 use vortex::expr::or_collect;
+use vortex::expr::pack;
 use vortex::expr::root;
 use vortex::expr::select;
+use vortex::layout::layouts::row_idx::row_idx;
 use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::operators::Operator;
@@ -107,6 +109,66 @@ pub unsafe extern "C-unwind" fn vx_expression_literal(
     try_or(err, ptr::null_mut(), || {
         Ok(vx_expression::new(lit(vx_scalar::as_ref(scalar).clone())))
     })
+}
+
+/// Create an expression yielding each row's position within the file scanned.
+///
+/// Recovers a row's original position after a filter dropped the rows around it,
+/// as Iceberg positional deletes need. Only valid inside a scan; else it errors.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vx_expression_row_idx() -> *mut vx_expression {
+    vx_expression::new(row_idx())
+}
+
+/// Create a struct-valued expression from named child expressions.
+///
+/// Where vx_expression_select trims a struct to some of its fields, pack builds
+/// one from arbitrary expressions - how fields inside a nested struct get pruned.
+///
+/// "names" and "expressions" must both point to arrays of "len" entries, paired
+/// by position. "nullable" sets the resulting struct's nullability. Names are
+/// copied.
+///
+/// Returns NULL if len == 0, if either array is NULL, if any entry of
+/// "expressions" is NULL, or if a name is not valid UTF-8.
+///
+/// Example:
+///
+/// vx_expression* root = vx_expression_root();
+/// vx_expression* addr = vx_expression_get_item(vx_view_from_cstr("addr"), root);
+/// vx_expression* city = vx_expression_get_item(vx_view_from_cstr("city"), addr);
+/// vx_view names[] = {vx_view_from_cstr("city")};
+/// const vx_expression* parts[] = {city};
+/// vx_expression* packed = vx_expression_pack(names, parts, 1, false);
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vx_expression_pack(
+    names: *const vx_view,
+    expressions: *const *const vx_expression,
+    len: usize,
+    nullable: bool,
+) -> *mut vx_expression {
+    if len == 0 || names.is_null() || expressions.is_null() {
+        return ptr::null_mut();
+    }
+
+    let names = match unsafe { to_field_names(names, len) } {
+        Ok(names) => names,
+        Err(_) => return ptr::null_mut(),
+    };
+
+    let exprs = unsafe { slice::from_raw_parts(expressions, len) };
+    // `as_ref` panics on NULL and this is `extern "C"`, so an unchecked entry
+    // would abort the process instead of reporting an error.
+    if exprs.iter().any(|expr| expr.is_null()) {
+        return ptr::null_mut();
+    }
+
+    let elements = names
+        .into_iter()
+        .zip(exprs.iter().map(|e| vx_expression::as_ref(*e).clone()))
+        .collect::<Vec<_>>();
+
+    vx_expression::new(pack(elements, nullable.into()))
 }
 
 /// Create an expression that selects (includes) specific fields from a child
@@ -319,6 +381,7 @@ mod tests {
     use vortex::array::arrays::StructArray;
     use vortex::array::arrays::VarBinViewArray;
     use vortex::array::arrays::bool::BoolArrayExt;
+    use vortex::array::assert_arrays_eq;
     use vortex::array::validity::Validity;
     use vortex::buffer::Buffer;
     use vortex::buffer::buffer;
@@ -338,6 +401,7 @@ mod tests {
     use crate::expression::vx_expression_list_contains;
     use crate::expression::vx_expression_literal;
     use crate::expression::vx_expression_or;
+    use crate::expression::vx_expression_pack;
     use crate::expression::vx_expression_root;
     use crate::expression::vx_expression_select;
     use crate::scalar::vx_scalar_free;
@@ -615,6 +679,67 @@ mod tests {
             vx_expression_free(expression_value);
             vx_expression_free(expression);
             vx_array_free(array);
+
+            vx_expression_free(root);
+        }
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_pack() {
+        let mut ctx = array_session().create_execution_ctx();
+        let (array, names_array, ages_array) = struct_array();
+        unsafe {
+            let root = vx_expression_root();
+            let name = vx_expression_get_item(vx_view::from_str("name"), root);
+            let age = vx_expression_get_item(vx_view::from_str("age"), root);
+
+            let names = [vx_view::from_str("who"), vx_view::from_str("how_old")];
+            let parts = [name.cast_const(), age.cast_const()];
+            let packed = vx_expression_pack(names.as_ptr(), parts.as_ptr(), 2, false);
+            assert!(!packed.is_null());
+
+            let array = vx_array::new(array.into_array());
+            let mut error = ptr::null_mut();
+            let applied = vx_array_apply(array, packed, &raw mut error);
+            assert!(error.is_null());
+            assert!(!applied.is_null());
+            {
+                let expected = StructArray::try_new(
+                    ["who", "how_old"].into(),
+                    vec![names_array.into_array(), ages_array.into_array()],
+                    3,
+                    Validity::NonNullable,
+                )
+                .unwrap();
+                assert_arrays_eq!(vx_array::as_ref(applied), expected, &mut ctx);
+            }
+
+            vx_array_free(applied);
+            vx_array_free(array);
+            vx_expression_free(packed);
+            vx_expression_free(age);
+            vx_expression_free(name);
+            vx_expression_free(root);
+        }
+    }
+
+    /// A NULL entry must be reported as NULL, not abort. `vx_expression_pack`
+    /// is `extern "C"`, so the panic from dereferencing one cannot unwind out.
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_pack_rejects_invalid_arguments() {
+        unsafe {
+            let root = vx_expression_root();
+            let names = [vx_view::from_str("a"), vx_view::from_str("b")];
+            let parts = [root.cast_const(), root.cast_const()];
+
+            assert!(vx_expression_pack(names.as_ptr(), parts.as_ptr(), 0, false).is_null());
+            assert!(vx_expression_pack(ptr::null(), parts.as_ptr(), 2, false).is_null());
+            assert!(vx_expression_pack(names.as_ptr(), ptr::null(), 2, false).is_null());
+
+            let with_null = [root.cast_const(), ptr::null()];
+            assert!(vx_expression_pack(names.as_ptr(), with_null.as_ptr(), 2, false).is_null());
 
             vx_expression_free(root);
         }
