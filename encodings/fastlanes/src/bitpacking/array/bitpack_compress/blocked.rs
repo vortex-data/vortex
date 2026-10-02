@@ -138,7 +138,7 @@ fn bitpack_blocked_primitive<T: NativePType + BitPacking>(
     let block_len = |bit_width: u8| 128 * usize::from(bit_width) / size_of::<T>();
     let mut output =
         BufferMut::<T>::with_capacity(bit_widths.iter().map(|&width| block_len(width)).sum());
-    let mut pack_block = |input: &[T], bit_width: u8| {
+    let mut pack_block = |input: &[T; FL_CHUNK_SIZE], bit_width: u8| {
         let len = block_len(bit_width);
         let output_len = output.len();
         // SAFETY: `input` holds 1024 values and the output window is exactly one block packed at
@@ -153,12 +153,11 @@ fn bitpack_blocked_primitive<T: NativePType + BitPacking>(
         }
     };
 
-    let mut blocks = array.chunks_exact(FL_CHUNK_SIZE);
-    for (block, &bit_width) in blocks.by_ref().zip(bit_widths) {
+    let (blocks, remainder) = array.as_chunks::<FL_CHUNK_SIZE>();
+    for (block, &bit_width) in blocks.iter().zip(bit_widths) {
         pack_block(block, bit_width);
     }
     // Only a partial last block is zero-padded, so that the zeroing stays off the common path.
-    let remainder = blocks.remainder();
     if !remainder.is_empty() {
         let mut padded = [T::zero(); FL_CHUNK_SIZE];
         padded[..remainder.len()].copy_from_slice(remainder);
