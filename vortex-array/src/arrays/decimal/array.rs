@@ -26,7 +26,9 @@ use crate::array_slots;
 use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
 use crate::arrays::NarrowArray;
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::WideIntegerEncoding;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::buffer::BufferHandle;
 use crate::builtins::ArrayBuiltins;
@@ -123,8 +125,14 @@ pub trait DecimalArrayExt: TypedArrayRef<Decimal> + DecimalArraySlotsExt {
     /// Decodes stored values without expanding [`NarrowArray`] to its logical width.
     ///
     /// Empty and all-null arrays retain their stored width. The returned array supports native
-    /// buffer access and keeps the same decimal dtype and validity.
+    /// buffer access and keeps the same decimal dtype and validity. Already materialized arrays
+    /// are returned unchanged.
     fn materialize_values(&self, ctx: &mut ExecutionCtx) -> VortexResult<DecimalArray> {
+        let values = integer::storage_child(self.values());
+        if values.is::<Primitive>() || values.is::<WideIntegerEncoding>() {
+            return Ok(self.to_owned());
+        }
+
         let values = integer::from_buffer(integer::materialize(self.values(), ctx)?)?;
         DecimalArray::from_integer_values(values, self.decimal_dtype())
     }

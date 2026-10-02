@@ -114,6 +114,19 @@ fn wider_native_input_materializes_at_logical_width() -> VortexResult<()> {
     Ok(())
 }
 
+#[rstest]
+#[case::primitive(DecimalArray::from_iter([-1i8, 1], DecimalDType::new(2, 0)))]
+#[case::narrow_primitive(DecimalArray::from_option_iter([Some(-1i8), None], DecimalDType::new(10, 0)))]
+#[case::wide(DecimalArray::from_iter([-1i128, 1], DecimalDType::new(38, 0)))]
+#[case::narrow_wide(DecimalArray::from_option_iter([Some(-1i128), None], DecimalDType::new(76, 0)))]
+fn materialization_reuses_native_children(#[case] array: DecimalArray) -> VortexResult<()> {
+    let mut ctx = TEST_SESSION.create_execution_ctx();
+    let materialized = array.materialize_values(&mut ctx)?;
+    assert!(ArrayRef::ptr_eq(array.as_ref(), materialized.as_ref()));
+
+    Ok(())
+}
+
 #[test]
 fn canonicalization_preserves_encoded_child() -> VortexResult<()> {
     let mut ctx = TEST_SESSION.create_execution_ctx();
