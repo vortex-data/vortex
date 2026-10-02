@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use fastlanes::BitPacking;
 use itertools::Itertools;
 use num_traits::PrimInt;
 use vortex_array::ArrayView;
@@ -30,6 +29,7 @@ use vortex_mask::Mask;
 use crate::BitPacked;
 use crate::BitPackedArray;
 use crate::bitpack_decompress;
+use crate::bitpacking::array::kernels::BitPackedPhysical;
 
 pub fn bitpack_to_best_bit_width(
     array: &PrimitiveArray,
@@ -143,10 +143,11 @@ pub unsafe fn bitpack_unchecked(parray: &PrimitiveArray, bit_width: u8) -> ByteB
 /// Bitpack a slice of primitives down to the given width.
 ///
 /// See `bitpack` for more caller information.
-pub fn bitpack_primitive<T: NativePType + BitPacking>(array: &[T], bit_width: u8) -> Buffer<T> {
+pub fn bitpack_primitive<T: BitPackedPhysical>(array: &[T], bit_width: u8) -> Buffer<T> {
     if bit_width == 0 {
         return Buffer::<T>::empty();
     }
+    let pack = T::resolve_pack(bit_width);
     let bit_width = bit_width as usize;
 
     // How many fastlanes vectors we will process.
@@ -164,14 +165,15 @@ pub fn bitpack_primitive<T: NativePType + BitPacking>(array: &[T], bit_width: u8
     (0..num_full_chunks).for_each(|i| {
         let start_elem = i * 1024;
         let output_len = output.len();
+        // SAFETY: The capacity holds every block, so the new slots exist; the input is exactly
+        // 1024 values and the output exactly one block, which `pack` fully initializes.
         unsafe {
             output.set_len(output_len + packed_len);
-            BitPacking::unchecked_pack(
-                bit_width,
+            pack(
                 &array[start_elem..][..1024],
                 &mut output[output_len..][..packed_len],
             );
-        };
+        }
     });
 
     // Pad the last chunk with zeros to a full 1024 elements.
@@ -181,14 +183,12 @@ pub fn bitpack_primitive<T: NativePType + BitPacking>(array: &[T], bit_width: u8
         last_chunk[..last_chunk_size].copy_from_slice(&array[array.len() - last_chunk_size..]);
 
         let output_len = output.len();
+        // SAFETY: The capacity holds every block, so the new slots exist; the input is exactly
+        // 1024 values and the output exactly one block, which `pack` fully initializes.
         unsafe {
             output.set_len(output_len + packed_len);
-            BitPacking::unchecked_pack(
-                bit_width,
-                &last_chunk,
-                &mut output[output_len..][..packed_len],
-            );
-        };
+            pack(&last_chunk, &mut output[output_len..][..packed_len]);
+        }
     }
 
     output.freeze()

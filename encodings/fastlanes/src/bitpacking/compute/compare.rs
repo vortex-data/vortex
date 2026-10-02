@@ -11,8 +11,6 @@
 //! [`BitPackedArray`]: crate::BitPackedArray
 //! [`BitBuffer`]: vortex_buffer::BitBuffer
 
-use fastlanes::BitPacking;
-use fastlanes::BitPackingCompare;
 use fastlanes::FastLanesComparable;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
@@ -78,7 +76,6 @@ where
     T: NativePType
         + BitPackedIter
         + FastLanesComparable<Bitpacked = <T as PhysicalPType>::Physical>,
-    <T as PhysicalPType>::Physical: BitPacking + NativePType + BitPackingCompare,
 {
     match operator {
         CompareOperator::Eq => {

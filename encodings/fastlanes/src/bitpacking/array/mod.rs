@@ -27,11 +27,15 @@ use vortex_error::vortex_err;
 
 pub mod bitpack_compress;
 pub mod bitpack_decompress;
+pub mod kernels;
 pub mod unpack_iter;
 
 use crate::BitPackedArray;
 use crate::FL_CHUNK_SIZE;
 use crate::bitpack_compress::bitpack_encode;
+use crate::bitpacking::array::kernels::BitPackedKernels;
+use crate::bitpacking::array::kernels::BitPackedPhysical;
+use crate::bitpacking::array::kernels::ResolvedKernels;
 use crate::unpack_iter::BitPacked as BitPackedIter;
 use crate::unpack_iter::BitUnpackedChunks;
 
@@ -71,15 +75,23 @@ pub struct BitPackedData {
     /// The offset within the first block (created with a slice).
     /// 0 <= offset < 1024
     pub(super) offset: u16,
-    pub(super) bit_width: u8,
     pub(super) packed: BufferHandle,
     /// Patch metadata for reconstructing Patches from slots.
     pub(super) patches_data: Option<PatchesData>,
+    /// FastLanes kernels for the physical type and bit width of this array, resolved at
+    /// construction so that decoding never dispatches on the runtime bit width. Also the only
+    /// record of the bit width.
+    kernels: ResolvedKernels,
 }
 
 impl Display for BitPackedData {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "bit_width: {}, offset: {}", self.bit_width, self.offset)
+        write!(
+            f,
+            "bit_width: {}, offset: {}",
+            self.bit_width(),
+            self.offset
+        )
     }
 }
 
@@ -118,7 +130,7 @@ impl BitPackedData {
     ///
     /// # Validation
     ///
-    /// * The `ptype` must be an integer
+    /// * The `ptype` must be an integer and `bit_width` must not exceed its width
     /// * `validity` must have `length` len
     /// * Any patches must have any `array_len` equal to `length`
     /// * The `packed` buffer must be exactly sized to hold `length` values of `bit_width` rounded
@@ -128,10 +140,10 @@ impl BitPackedData {
     pub fn try_new(
         packed: BufferHandle,
         patches: Option<Patches>,
+        ptype: PType,
         bit_width: u8,
         offset: u16,
     ) -> VortexResult<Self> {
-        vortex_ensure!(bit_width <= 64, "Unsupported bit width {bit_width}");
         vortex_ensure!(
             offset < 1024,
             "Offset must be less than the full block i.e., 1024, got {offset}"
@@ -139,9 +151,9 @@ impl BitPackedData {
 
         Ok(Self {
             offset,
-            bit_width,
             packed,
             patches_data: patches.as_ref().map(PatchesData::from_patches),
+            kernels: ResolvedKernels::try_new(ptype, bit_width)?,
         })
     }
 
@@ -242,7 +254,20 @@ impl BitPackedData {
     /// Bit-width of the packed values
     #[inline]
     pub fn bit_width(&self) -> u8 {
-        self.bit_width
+        self.kernels.bit_width()
+    }
+
+    /// The FastLanes kernels for this array's bit width, resolved when the array was built.
+    ///
+    /// `P` must be the physical type of the array, i.e. the unsigned counterpart of its
+    /// [`PType`].
+    ///
+    /// # Panics
+    ///
+    /// If `P` is not the array's physical type.
+    #[inline]
+    pub fn kernels<P: BitPackedPhysical>(&self) -> BitPackedKernels<P> {
+        self.kernels.typed::<P>()
     }
 
     #[inline]
@@ -329,6 +354,12 @@ pub trait BitPackedArrayExt: BitPackedArraySlotsExt {
             self.as_ref().len(),
             scratch,
         )
+    }
+
+    /// The FastLanes kernels for this array's bit width, see [`BitPackedData::kernels`].
+    #[inline]
+    fn kernels<P: BitPackedPhysical>(&self) -> BitPackedKernels<P> {
+        BitPackedData::kernels::<P>(self)
     }
 }
 
