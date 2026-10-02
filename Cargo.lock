@@ -11389,6 +11389,7 @@ dependencies = [
 name = "vortex-layout"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "arcref",
  "arrow-array 59.3.0",
  "arrow-schema 59.3.0",
@@ -11404,12 +11405,14 @@ dependencies = [
  "kanal",
  "mimalloc",
  "moka",
+ "object_store 0.13.2",
  "once_cell",
  "parking_lot",
  "paste",
  "pin-project-lite",
  "prost 0.14.4",
  "rand 0.10.3",
+ "roaring",
  "rstest",
  "rustc-hash",
  "sketches-ddsketch",
@@ -11423,7 +11426,9 @@ dependencies = [
  "vortex-arrow",
  "vortex-btrblocks",
  "vortex-buffer",
+ "vortex-edition",
  "vortex-error",
+ "vortex-file",
  "vortex-io",
  "vortex-mask",
  "vortex-metrics",
