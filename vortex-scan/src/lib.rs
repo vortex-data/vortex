@@ -144,6 +144,13 @@ pub struct ScanRequest {
     pub ordered: bool,
     /// Optional limit on the number of rows returned by scan. Limits are applied after all
     /// filtering and row selection.
+    ///
+    /// The limit is a *per-partition* upper bound, not a global one: each partition produced by
+    /// the scan may independently return up to `limit` rows. When a scan produces more than one
+    /// partition, the consumer that reads across partitions is responsible for enforcing the
+    /// limit globally over their combined output (for example by slicing the batch that crosses
+    /// the limit and stopping once it is met). This keeps sources free of a cross-partition
+    /// coordinator while still letting them prune I/O per partition using the pushed-down limit.
     pub limit: Option<u64>,
 }
 
