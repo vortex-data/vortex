@@ -23,6 +23,7 @@ use vortex_error::VortexResult;
 
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
+use crate::BitWidths;
 use crate::unpack_iter::BitPacked as BitPackedUnpack;
 
 /// BitPacked-specific is_constant kernel with SIMD support.
@@ -43,6 +44,10 @@ impl DynAggregateKernel for BitPackedIsConstantKernel {
         let Some(array) = batch.as_opt::<BitPacked>() else {
             return Ok(None);
         };
+        // Blocks packed at different widths fall back to decoding.
+        if !matches!(array.bit_widths(), BitWidths::Global(_)) {
+            return Ok(None);
+        }
 
         let result = match_each_integer_ptype!(array.dtype().as_ptype(), |P| {
             bitpacked_is_constant::<P, { IS_CONST_LANE_WIDTH / size_of::<P>() }>(array, ctx)?

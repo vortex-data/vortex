@@ -15,8 +15,10 @@ use vortex_array::scalar_fn::fns::cast::CastKernel;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
 use crate::bitpacking::BitPacked;
+use crate::bitpacking::BitWidths;
 use crate::bitpacking::array::BitPackedArrayExt;
 use crate::bitpacking::array::bitpack_decompress::unpack_map_into_builder;
 
@@ -36,6 +38,9 @@ fn build_with_validity(
     dtype: &DType,
     new_validity: Validity,
 ) -> VortexResult<ArrayRef> {
+    let BitWidths::Global(bit_width) = array.bit_widths() else {
+        vortex_bail!("BitPacked array has per-block bit widths");
+    };
     Ok(BitPacked::try_new(
         array.packed().clone(),
         dtype.as_ptype(),
@@ -44,7 +49,7 @@ fn build_with_validity(
             .patches()
             .map(|patches| patches.map_values(|values| values.cast(dtype.clone())))
             .transpose()?,
-        array.bit_width(),
+        bit_width,
         array.len(),
         array.offset(),
     )?
@@ -53,6 +58,10 @@ fn build_with_validity(
 
 impl CastReduce for BitPacked {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+        // Blocks packed at different widths fall back to decoding.
+        if !matches!(array.bit_widths(), BitWidths::Global(_)) {
+            return Ok(None);
+        }
         if !array.dtype().eq_ignore_nullability(dtype) {
             return Ok(None);
         }
@@ -72,6 +81,10 @@ impl CastKernel for BitPacked {
         dtype: &DType,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        // Blocks packed at different widths fall back to decoding.
+        if !matches!(array.bit_widths(), BitWidths::Global(_)) {
+            return Ok(None);
+        }
         // Nullability-only change: keep the values bit-packed, just adjust validity.
         if array.dtype().eq_ignore_nullability(dtype) {
             let new_validity =

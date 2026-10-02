@@ -21,10 +21,12 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
 use super::chunked_indices;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
+use crate::BitWidths;
 use crate::bitpack_decompress;
 
 // TODO(connor): This is duplicated in `encodings/fastlanes/src/bitpacking/kernels/mod.rs`.
@@ -39,6 +41,10 @@ impl TakeExecute for BitPacked {
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        // Blocks packed at different widths fall back to decoding.
+        if !matches!(array.bit_widths(), BitWidths::Global(_)) {
+            return Ok(None);
+        }
         // If the indices are large enough, it's faster to flatten and take the primitive array.
         if indices.len() * UNPACK_CHUNK_THRESHOLD > array.len() {
             let prim = array.array().clone().execute::<PrimitiveArray>(ctx)?;
@@ -81,7 +87,10 @@ fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
     }
 
     let offset = array.offset() as usize;
-    let bit_width = array.bit_width() as usize;
+    let BitWidths::Global(bit_width) = array.bit_widths() else {
+        vortex_bail!("BitPacked array has per-block bit widths");
+    };
+    let bit_width = bit_width as usize;
 
     let packed = array.packed_slice::<T>();
 

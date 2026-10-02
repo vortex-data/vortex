@@ -26,8 +26,10 @@ use vortex::encodings::fastlanes::BitPacked;
 use vortex::encodings::fastlanes::BitPackedArray;
 use vortex::encodings::fastlanes::BitPackedArrayExt;
 use vortex::encodings::fastlanes::BitPackedDataParts;
+use vortex::encodings::fastlanes::BitWidths;
 use vortex::encodings::fastlanes::unpack_iter::BitPacked as BitPackedUnpack;
 use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 
@@ -61,8 +63,11 @@ pub(crate) fn bitpacked_slice_view(
     let block_start = offset_start - bitpacked_offset;
     let block_stop = offset_stop.div_ceil(PATCH_CHUNK_SIZE) * PATCH_CHUNK_SIZE;
 
-    let encoded_start = (block_start / 8) * bp.bit_width() as usize;
-    let encoded_stop = (block_stop / 8) * bp.bit_width() as usize;
+    let BitWidths::Global(bit_width) = bp.bit_widths() else {
+        vortex_bail!("CUDA does not support BitPacked arrays with per-block bit widths");
+    };
+    let encoded_start = (block_start / 8) * bit_width as usize;
+    let encoded_stop = (block_stop / 8) * bit_width as usize;
 
     Ok((
         bp.packed().slice(encoded_start..encoded_stop),
@@ -91,12 +96,15 @@ impl BitPackedExecutor {
         let offset = slice.data().slice_range().start;
         let len = array.len();
         let (packed, bitpacked_offset, patch_range) = bitpacked_slice_view(bp, offset, len)?;
+        let BitWidths::Global(bit_width) = bp.bit_widths() else {
+            vortex_bail!("CUDA does not support BitPacked arrays with per-block bit widths");
+        };
         let sliced = BitPacked::try_new(
             packed,
             bp.ptype(bp.dtype()),
             child.validity()?.slice(patch_range.clone())?,
             bp.patches(),
-            bp.bit_width(),
+            bit_width,
             len,
             bitpacked_offset,
         )?;
@@ -162,12 +170,15 @@ where
 {
     let BitPackedDataParts {
         offset,
-        bit_width,
+        bit_widths,
         len,
         packed,
         patches,
         validity,
     } = BitPacked::into_parts(array);
+    let BitWidths::Global(bit_width) = bit_widths else {
+        vortex_bail!("CUDA does not support BitPacked arrays with per-block bit widths");
+    };
 
     vortex_ensure!(len > 0, "Non empty array");
     let offset = offset as usize;

@@ -18,6 +18,7 @@ use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_mask::Mask;
 use vortex_mask::MaskValuesRef;
 
@@ -26,6 +27,7 @@ use super::take::UNPACK_CHUNK_THRESHOLD;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::BitPackedData;
+use crate::BitWidths;
 
 /// The threshold over which it is faster to fully unpack the entire [`BitPackedArray`](crate::BitPackedArray) and then
 /// filter the result than to unpack only specific bitpacked values into the output buffer.
@@ -49,6 +51,10 @@ impl FilterKernel for BitPacked {
         mask: &Mask,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        // Blocks packed at different widths fall back to decoding.
+        if !matches!(array.bit_widths(), BitWidths::Global(_)) {
+            return Ok(None);
+        }
         let values = match mask {
             Mask::AllTrue(_) | Mask::AllFalse(_) => {
                 return Ok(None);
@@ -110,7 +116,10 @@ fn filter_primitive_without_patches<U: UnsignedPType + BitPacking>(
     array: ArrayView<'_, BitPacked>,
     selection: &MaskValuesRef,
 ) -> VortexResult<(Buffer<U>, Validity)> {
-    let values = filter_with_indices(array.data(), selection.indices());
+    let BitWidths::Global(bit_width) = array.bit_widths() else {
+        vortex_bail!("BitPacked array has per-block bit widths");
+    };
+    let values = filter_with_indices(array.data(), bit_width, selection.indices());
     let validity = array
         .validity()?
         .filter(&Mask::Values(MaskValuesRef::clone(selection)))?;
@@ -120,10 +129,11 @@ fn filter_primitive_without_patches<U: UnsignedPType + BitPacking>(
 
 fn filter_with_indices<T: NativePType + BitPacking>(
     array: &BitPackedData,
+    bit_width: u8,
     indices: &[usize],
 ) -> BufferMut<T> {
     let offset = array.offset() as usize;
-    let bit_width = array.bit_width() as usize;
+    let bit_width = bit_width as usize;
     let mut values = BufferMut::with_capacity(indices.len());
 
     // Some re-usable memory to store per-chunk indices.

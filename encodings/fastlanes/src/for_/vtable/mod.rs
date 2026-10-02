@@ -35,6 +35,8 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::BitPacked;
+use crate::BitPackedArrayExt;
+use crate::BitWidths;
 use crate::FoRData;
 use crate::for_::array::FoRArrayExt;
 use crate::for_::array::FoRArraySlotsExt;
@@ -149,9 +151,11 @@ impl VTable for FoR {
             require_child!(array, array.references(), FoRSlots::REFERENCES => Primitive)
         };
         // The fused unpack reads a bit-packed child's buffers directly. Its chunks line up with
-        // the FoR chunks when the references are constant or the offsets match.
+        // the FoR chunks when the references are constant or the offsets match. Blocks packed at
+        // different widths are decoded first.
         let fused = array.encoded().as_opt::<BitPacked>().is_some_and(|bp| {
-            array.constant_reference().is_some() || bp.offset() == array.offset()
+            matches!(bp.bit_widths(), BitWidths::Global(_))
+                && (array.constant_reference().is_some() || bp.offset() == array.offset())
         });
         let array = if fused {
             array

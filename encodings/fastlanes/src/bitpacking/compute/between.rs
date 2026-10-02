@@ -22,6 +22,8 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::BitPacked;
+use crate::BitPackedArrayExt;
+use crate::BitWidths;
 use crate::bitpacking::compute::stream_predicate::stream_predicate;
 
 impl BetweenKernel for BitPacked {
@@ -32,6 +34,10 @@ impl BetweenKernel for BitPacked {
         options: &BetweenOptions,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        // Blocks packed at different widths fall back to decoding.
+        if !matches!(array.bit_widths(), BitWidths::Global(_)) {
+            return Ok(None);
+        }
         // Only accelerate constant-bounds between; vary-by-row bounds fall through to the
         // default `compare + and` pipeline.
         let (Some(lower_const), Some(upper_const)) = (lower.as_constant(), upper.as_constant())
