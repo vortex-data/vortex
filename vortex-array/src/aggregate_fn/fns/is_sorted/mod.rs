@@ -73,14 +73,8 @@ pub fn is_strict_sorted(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResul
 }
 
 fn is_sorted_impl(array: &ArrayRef, strict: bool, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
-    let stat = if strict {
-        Stat::IsStrictSorted
-    } else {
-        Stat::IsSorted
-    };
-
     // Short-circuit using cached array statistics.
-    if let Precision::Exact(value) = array.statistics().get_as::<bool>(stat) {
+    if let Some(value) = cached_is_sorted(array, strict) {
         return Ok(value);
     }
 
@@ -169,6 +163,22 @@ fn cache_is_sorted(array: &ArrayRef, strict: bool, result: bool) {
         array_stats.set(Stat::IsSorted, Precision::Exact(false.into()));
         array_stats.set(Stat::IsStrictSorted, Precision::Exact(false.into()));
     }
+}
+
+/// The exact sortedness cached on `array`, including what the other sortedness stat implies.
+fn cached_is_sorted(array: &ArrayRef, strict: bool) -> Option<bool> {
+    let stats = array.statistics();
+    let (stat, implied_stat, implied) = if strict {
+        // Not sorted implies not strictly sorted.
+        (Stat::IsStrictSorted, Stat::IsSorted, false)
+    } else {
+        // Strictly sorted implies sorted.
+        (Stat::IsSorted, Stat::IsStrictSorted, true)
+    };
+    if let Precision::Exact(value) = stats.get_as::<bool>(stat) {
+        return Some(value);
+    }
+    (stats.get_as::<bool>(implied_stat) == Precision::Exact(implied)).then_some(implied)
 }
 
 /// Aggregate function vtable for `is_sorted`.
@@ -443,6 +453,31 @@ impl AggregateFnVTable for IsSorted {
         partial: &Self::Partial,
     ) -> bool {
         !partial.is_sorted
+    }
+
+    /// Reuse a batch's cached sortedness instead of decoding it, reading only its boundary values.
+    fn try_accumulate(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+        partial: &mut Self::Partial,
+        batch: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
+        if batch.is_empty() {
+            return Ok(false);
+        }
+        let Some(is_sorted) = cached_is_sorted(batch, args.options.strict) else {
+            return Ok(false);
+        };
+
+        let batch_partial = IsSortedPartial {
+            is_sorted,
+            first_value: Some(boundary_value(batch.execute_scalar(0, ctx)?)),
+            last_value: Some(boundary_value(batch.execute_scalar(batch.len() - 1, ctx)?)),
+        };
+        let acc = std::mem::replace(partial, IsSortedPartial::empty());
+        *partial = self.merge_partials(args, acc, batch_partial)?;
+        Ok(true)
     }
 
     fn accumulate(
@@ -922,6 +957,66 @@ mod tests {
         let chunked = ChunkedArray::try_new([lhs, rhs], dtype)?.into_array();
         assert_eq!(is_sorted(&chunked, &mut ctx)?, sorted);
         assert_eq!(is_strict_sorted(&chunked, &mut ctx)?, strict_sorted);
+        Ok(())
+    }
+
+    fn with_cached_sorted(values: [i32; 2], sorted: bool) -> ArrayRef {
+        let array = PrimitiveArray::from_iter(values).into_array();
+        array
+            .statistics()
+            .set(Stat::IsSorted, Precision::Exact(sorted.into()));
+        array
+    }
+
+    /// Chunks with cached sortedness are not decoded: the cached verdict is trusted, so a chunk
+    /// whose stat claims it is sorted counts as sorted, while boundaries are still checked.
+    #[rstest]
+    #[case::cached_sorted_trusted(with_cached_sorted([3, 1], true), with_cached_sorted([4, 5], true), true)]
+    #[case::cached_unsorted(with_cached_sorted([1, 2], false), with_cached_sorted([3, 4], true), false)]
+    #[case::cached_boundary(with_cached_sorted([1, 5], true), with_cached_sorted([4, 6], true), false)]
+    fn test_chunked_reuses_cached_is_sorted(
+        #[case] lhs: ArrayRef,
+        #[case] rhs: ArrayRef,
+        #[case] expected: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let dtype = lhs.dtype().clone();
+        let chunked = ChunkedArray::try_new([lhs, rhs], dtype)?.into_array();
+        assert_eq!(is_sorted(&chunked, &mut ctx)?, expected);
+        Ok(())
+    }
+
+    /// A cached strict verdict answers the non-strict question, and a cached non-strict `false`
+    /// answers the strict one.
+    #[test]
+    fn test_cached_is_sorted_implications() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let strict = PrimitiveArray::from_iter([3i32, 1]).into_array();
+        strict
+            .statistics()
+            .set(Stat::IsStrictSorted, Precision::Exact(true.into()));
+        assert!(is_sorted(&strict, &mut ctx)?);
+
+        let unsorted = PrimitiveArray::from_iter([1i32, 2]).into_array();
+        unsorted
+            .statistics()
+            .set(Stat::IsSorted, Precision::Exact(false.into()));
+        assert!(!is_strict_sorted(&unsorted, &mut ctx)?);
+        Ok(())
+    }
+
+    /// A chunked timestamp column reuses the sortedness cached on its chunks.
+    #[test]
+    fn test_chunked_temporal_reuses_cached_is_sorted() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        // The first chunk is unsorted but cached as sorted, so the cached verdict is used.
+        let lhs = timestamp(PrimitiveArray::from_iter([3i64, 1]));
+        lhs.statistics()
+            .set(Stat::IsSorted, Precision::Exact(true.into()));
+        let rhs = timestamp(PrimitiveArray::from_iter([4i64, 5]));
+        let dtype = lhs.dtype().clone();
+        let chunked = ChunkedArray::try_new([lhs, rhs], dtype)?.into_array();
+        assert!(is_sorted(&chunked, &mut ctx)?);
         Ok(())
     }
 }
