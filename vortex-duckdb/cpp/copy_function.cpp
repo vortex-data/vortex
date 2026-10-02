@@ -14,10 +14,12 @@
 #include "duckdb/parser/keyword_helper.hpp"
 #include "duckdb/parser/parsed_data/create_copy_function_info.hpp"
 
+void refreshLogLevel();
 unique_ptr<FunctionData> copy_to_bind(ClientContext &,
                                       CopyFunctionBindInput &,
                                       const vector<string> &names,
                                       const vector<LogicalType> &types) {
+    refreshLogLevel();
     vector<const char *> ffi_names(names.size());
     for (size_t i = 0; i < names.size(); ++i) {
         ffi_names[i] = names[i].c_str();

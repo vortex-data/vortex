@@ -8,9 +8,14 @@
 #include "spatial_overrides.hpp"
 #include "cast_pushdown.hpp"
 #include "vortex_duckdb.h"
+#include "table_function.h"
+#include "vortex.h"
 
 #include "duckdb/catalog/catalog.hpp"
 #include "duckdb/common/assert.hpp"
+#include "duckdb/logging/log_manager.hpp"
+#include "duckdb/logging/log_type.hpp"
+#include "duckdb/logging/logger.hpp"
 #include "duckdb/common/types.hpp"
 #include "duckdb/common/types/data_chunk.hpp"
 #include "duckdb/common/types/geometry_crs.hpp"
@@ -26,40 +31,11 @@
 #include "duckdb/parser/tableref/table_function_ref.hpp"
 
 #include <cstring>
+#include <mutex>
 #include <string>
+#include <vector>
 
 using namespace duckdb;
-
-extern "C" char *duckdb_vx_value_to_string(duckdb_value value) {
-    if (!value) {
-        return nullptr;
-    }
-
-    try {
-        // Cast the value to DuckDB's internal Value type
-        auto *ddb_value = reinterpret_cast<Value *>(value);
-
-        if (!ddb_value) {
-            return nullptr;
-        }
-
-        // Use the ToString method to get the string representation
-        std::string str_value = ddb_value->ToString();
-
-        size_t str_len = str_value.length() + 1;
-        char *result = static_cast<char *>(duckdb_malloc(str_len));
-        if (!result) {
-            return nullptr;
-        }
-
-        // Copy the string and null terminate
-        std::memcpy(result, str_value.c_str(), str_len);
-        return result;
-
-    } catch (...) {
-        return nullptr;
-    }
-}
 
 CData::CData(void *data_ptr, duckdb_delete_callback_t callback) : data(data_ptr), delete_callback(callback) {
 }
@@ -298,4 +274,98 @@ extern "C" duckdb_state duckdb_vx_optimizer_extension_register(duckdb_database f
         return DuckDBError;
     }
     return DuckDBSuccess;
+}
+
+static constexpr const char *VORTEX_LOG_TYPE = "Vortex";
+// Acquired only for messages which passed logging filter
+static std::mutex log_lock;
+/*
+ * We want to log events outside vortex-duckdb crate so we can't rely on
+ * ClientContext. We however may have multiple databases open in process,
+ * think parallel tests. We don't want to log only for latest database as
+ * that's incorrect, so we store all databases and query them on logging.
+ * This is quite expensive, so logging should be turned off for Vortex by
+ * default
+ */
+static std::vector<weak_ptr<DatabaseInstance>> log_dbs;
+
+static std::vector<shared_ptr<DatabaseInstance>> logDBs() {
+    std::lock_guard<std::mutex> guard(log_lock);
+    std::vector<shared_ptr<DatabaseInstance>> alive;
+    alive.reserve(log_dbs.size());
+    for (auto it = log_dbs.begin(); it != log_dbs.end();) {
+        if (auto db = it->lock()) {
+            alive.push_back(std::move(db));
+            ++it;
+        } else {
+            it = log_dbs.erase(it);
+        }
+    }
+    return alive;
+}
+
+// Get new logging level before query execution from Duckdb to Vortex
+void refreshLogLevel() {
+    uint8_t min_level = UINT8_MAX;
+    for (const auto &db : logDBs()) {
+        Logger &logger = Logger::Get(*db);
+        for (const auto level : {DUCKDB_VX_LOG_LEVEL_TRACE,
+                                 DUCKDB_VX_LOG_LEVEL_DEBUG,
+                                 DUCKDB_VX_LOG_LEVEL_INFO,
+                                 DUCKDB_VX_LOG_LEVEL_WARNING,
+                                 DUCKDB_VX_LOG_LEVEL_ERROR}) {
+            if (static_cast<uint8_t>(level) >= min_level) {
+                break;
+            }
+            if (logger.ShouldLog(VORTEX_LOG_TYPE, static_cast<LogLevel>(level))) {
+                min_level = static_cast<uint8_t>(level);
+                break;
+            }
+        }
+    }
+    duckdb_logging_set_min_level(min_level);
+}
+
+extern "C" duckdb_state duckdb_vx_logging_register(duckdb_database ffi_db) {
+    D_ASSERT(ffi_db);
+    const DatabaseWrapper &wrapper = *reinterpret_cast<DatabaseWrapper *>(ffi_db);
+    shared_ptr<DatabaseInstance> db = wrapper.database->instance;
+    try {
+        LogManager &manager = db->GetLogManager();
+        if (!manager.LookupLogType(VORTEX_LOG_TYPE)) {
+            manager.RegisterLogType(make_uniq<LogType>(VORTEX_LOG_TYPE, LogLevel::LOG_DEBUG));
+        }
+    } catch (const std::exception &e) {
+        ErrorData data(e);
+        DUCKDB_LOG_ERROR(*db, "Failed to initialize vortex logging:\t" + data.Message());
+        return DuckDBError;
+    }
+    {
+        std::lock_guard lk(log_lock);
+        bool found = false;
+        for (auto it = log_dbs.begin(); it != log_dbs.end();) {
+            if (auto existing = it->lock()) {
+                found |= existing.get() == db.get();
+                ++it;
+            } else {
+                it = log_dbs.erase(it);
+            }
+        }
+        if (!found) {
+            log_dbs.emplace_back(db);
+        }
+    }
+    refreshLogLevel();
+    return DuckDBSuccess;
+}
+
+extern "C" void duckdb_vx_log(DUCKDB_VX_LOG_LEVEL level, const char *message, size_t length) {
+    const LogLevel log_level = static_cast<LogLevel>(level);
+    const std::string text(message, length);
+    for (const auto &db : logDBs()) {
+        Logger &logger = Logger::Get(*db);
+        if (logger.ShouldLog(VORTEX_LOG_TYPE, log_level)) {
+            logger.WriteLog(VORTEX_LOG_TYPE, log_level, text);
+        }
+    }
 }

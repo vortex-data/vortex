@@ -4,7 +4,6 @@
 use std::ffi::CStr;
 use std::ffi::CString;
 use std::fmt::Debug;
-use std::fmt::Display;
 use std::fmt::Formatter;
 use std::ptr;
 
@@ -288,21 +287,6 @@ impl Value {
                 crs_ptr,
             ))
         })
-    }
-}
-
-impl Display for ValueRef {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let ptr = unsafe { cpp::duckdb_vx_value_to_string(self.as_ptr()) };
-        write!(f, "{}", unsafe { CStr::from_ptr(ptr) }.to_string_lossy())?;
-        unsafe { cpp::duckdb_free(ptr.cast()) };
-        Ok(())
-    }
-}
-
-impl Display for Value {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        Display::fmt(&**self, f)
     }
 }
 

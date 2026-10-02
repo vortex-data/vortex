@@ -26,10 +26,6 @@ void duckdb_vx_error_free(duckdb_vx_error err);
 // Create an opaque data object with a delete callback.
 duckdb_vx_data duckdb_vx_data_create(void *data_ptr, duckdb_delete_callback_t delete_callback);
 
-/// Convert a DuckDB value to a string representation.
-/// The returned string must be freed with duckdb_free.
-char *duckdb_vx_value_to_string(duckdb_value value);
-
 const char *duckdb_data_chunk_to_string(duckdb_data_chunk chunk, duckdb_vx_error *err);
 
 void duckdb_data_chunk_verify(duckdb_data_chunk chunk, duckdb_vx_error *err);
@@ -72,6 +68,18 @@ duckdb_value duckdb_vx_value_create_geometry(const uint8_t *wkb, idx_t len, cons
 /// The returned `data` pointer must be freed with `duckdb_free`. Returns `{nullptr, 0}`
 /// if `value` is null or not a GEOMETRY value.
 duckdb_blob duckdb_vx_value_get_geometry(duckdb_value value);
+
+// LogLevel duckdb/logging/logging.hpp LogLevel
+typedef enum DUCKDB_VX_LOG_LEVEL {
+    DUCKDB_VX_LOG_LEVEL_TRACE = 10,
+    DUCKDB_VX_LOG_LEVEL_DEBUG = 20,
+    DUCKDB_VX_LOG_LEVEL_INFO = 30,
+    DUCKDB_VX_LOG_LEVEL_WARNING = 40,
+    DUCKDB_VX_LOG_LEVEL_ERROR = 50,
+} DUCKDB_VX_LOG_LEVEL;
+
+duckdb_state duckdb_vx_logging_register(duckdb_database ffi_db);
+void duckdb_vx_log(DUCKDB_VX_LOG_LEVEL level, const char *message, size_t length);
 
 #ifdef __cplusplus
 }

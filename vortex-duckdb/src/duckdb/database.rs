@@ -72,6 +72,14 @@ impl DatabaseRef {
         Ok(())
     }
 
+    pub fn register_logging(&self) -> VortexResult<()> {
+        duckdb_try!(
+            unsafe { cpp::duckdb_vx_logging_register(self.as_ptr()) },
+            "Failed to register Vortex logging"
+        );
+        Ok(())
+    }
+
     pub fn register_optimizer_extension(&self) -> VortexResult<()> {
         duckdb_try!(
             unsafe { cpp::duckdb_vx_optimizer_extension_register(self.as_ptr()) },

@@ -25,6 +25,20 @@ body:
         1. ...
         2. ...
         3. ...
+
+        If this is a Duckdb extension bug, please include output of
+        `LOAD vortex; SELECT vortex_version()` query in the issue.
+
+        If you think something's wrong with a query in Duckdb extension,
+        execute and paste output of
+
+        ```sql
+        CALL enable_logging('Vortex', level = 'debug');
+        -- your query goes here
+        CALL disable_logging();
+        SELECT message FROM duckdb_logs WHERE type = 'Vortex';
+        -- EXPLAIN of your query goes here
+        ```
     validations:
       required: true
 

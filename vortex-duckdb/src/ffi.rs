@@ -507,3 +507,8 @@ pub unsafe extern "C-unwind" fn duckdb_copy_function_get_written_column_statisti
         Ok(true)
     })
 }
+
+#[unsafe(no_mangle)]
+extern "C-unwind" fn duckdb_logging_set_min_level(level: u8) {
+    crate::logging::set_min_level(level);
+}

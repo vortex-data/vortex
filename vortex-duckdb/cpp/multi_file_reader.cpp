@@ -9,6 +9,8 @@
 
 #include "duckdb/execution/operator/scan/physical_table_scan.hpp"
 
+void refreshLogLevel();
+
 unique_ptr<FunctionData> VortexBindData::Copy() const {
     auto result = make_uniq<VortexBindData>();
     if (ffi_bind_data) {
@@ -101,6 +103,7 @@ void VortexReaderInterface::BindReader(ClientContext &context,
                                        vector<LogicalType> &types,
                                        vector<string> &names,
                                        MultiFileBindData &bind_data) {
+    refreshLogLevel();
     BaseFileReaderOptions options;
 
     VortexBindResult result = {types, names};

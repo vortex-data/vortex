@@ -538,6 +538,7 @@ fn bindgen_c2rust(crate_dir: &Path, duckdb_include_dir: &Path) {
         .must_use_type("duckdb_state")
         .rustified_enum("duckdb_state")
         .rustified_enum("DUCKDB_VX_EXPR_CLASS")
+        .rustified_enum("DUCKDB_VX_LOG_LEVEL")
         .rustified_enum("DUCKDB_VX_EXPR_TYPE")
         .rustified_enum("DUCKDB_VX_TABLE_FILTER_TYPE")
         .rustified_non_exhaustive_enum("DUCKDB_TYPE")

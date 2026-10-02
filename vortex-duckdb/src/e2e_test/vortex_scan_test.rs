@@ -1163,3 +1163,31 @@ fn test_duplicate_struct_fields() {
             .is_err()
     );
 }
+
+#[test]
+fn test_logging() {
+    crate::logging::init_tracing();
+    let file = RUNTIME.block_on(write_single_column_vortex_file(
+        "n",
+        buffer![1i32, 2, 3, 4, 5].into_array(),
+    ));
+    let conn = database_connection();
+    let path = file.path().to_string_lossy();
+
+    conn.query("CALL enable_logging('Vortex', level = 'debug')")
+        .unwrap();
+    conn.query(&format!("SELECT count(*) FROM '{path}' WHERE n > 2"))
+        .unwrap();
+
+    let logs = conn
+        .query(
+            "SELECT count(*) FROM duckdb_logs \
+             WHERE type = 'Vortex' AND message LIKE '%pushed down expression%'",
+        )
+        .unwrap();
+    let chunk = logs.into_iter().next().unwrap();
+    let count = chunk
+        .get_vector(0)
+        .as_slice_with_len::<i64>(chunk.len().as_())[0];
+    assert!(count > 0);
+}

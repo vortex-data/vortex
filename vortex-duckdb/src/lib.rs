@@ -6,7 +6,6 @@
 use std::ffi::c_char;
 use std::ffi::c_void;
 use std::sync::LazyLock;
-use std::sync::OnceLock;
 
 use vortex::VortexSessionDefault;
 use vortex::cloud::Registry;
@@ -29,6 +28,7 @@ pub mod duckdb;
 mod exporter;
 mod ffi;
 mod file_reader;
+mod logging;
 mod projection;
 mod table_function;
 
@@ -57,24 +57,11 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     session
 });
 
-// Duckdb's logger requires a *Context as first argument which
-// would be hard to integrate with tracing::. We use logging for
-// debugging only anyway, so that's good enough.
-fn init_tracing() {
-    static ONCE: OnceLock<()> = OnceLock::new();
-    ONCE.get_or_init(|| {
-        drop(
-            tracing_subscriber::fmt()
-                .with_writer(std::io::stdout)
-                .try_init(),
-        );
-    });
-}
-
 /// Initialize the Vortex extension by registering the extension functions.
 /// Note: This also registers extension options. If you want to register options
 /// separately (e.g., before creating connections), call `register_extension_options` first.
 pub fn initialize(db: &DatabaseRef) -> VortexResult<()> {
+    db.register_logging()?;
     db.register_table_functions()?;
     db.register_version_function(env!("VORTEX_VERSION"))?;
     db.register_optimizer_extension()?;
@@ -83,7 +70,7 @@ pub fn initialize(db: &DatabaseRef) -> VortexResult<()> {
 
 /// Initialize the DuckDB extension from a raw DuckDB database pointer.
 pub unsafe fn initialize_extension_from_raw(db: *mut c_void) {
-    init_tracing();
+    logging::init_tracing();
     let database = unsafe { Database::borrow(db.cast()) };
 
     database

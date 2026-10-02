@@ -148,6 +148,8 @@ bool duckdb_copy_function_get_written_column_statistics(const void *global_data,
                                                         duckdb_vx_written_column_statistics *out,
                                                         duckdb_vx_error *error_out);
 
+extern void duckdb_logging_set_min_level(uint8_t level);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus
