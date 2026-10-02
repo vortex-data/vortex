@@ -10,23 +10,14 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
 use vortex_array::arrays::Patched;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
-use vortex_array::buffer::BufferHandle;
-use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
-use vortex_array::dtype::PType;
-use vortex_array::patches::Patches;
-use vortex_array::validity::Validity;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_fastlanes::BitPacked;
-use vortex_fastlanes::BitPackedArray;
 use vortex_fastlanes::BitWidths;
 use vortex_fastlanes::bitpack_compress::bit_width_histogram;
 use vortex_fastlanes::bitpack_compress::bitpack_encode;
@@ -56,9 +47,9 @@ pub(crate) static BITPACKING_V2: BitPackingScheme = BitPackingScheme::v2();
 
 /// BitPacking encoding for non-negative integers.
 ///
-/// The v1 mode packs every value at one bit width. The v2 mode chooses a width for each
-/// 1024-element block. Arrays whose blocks all choose the same width keep one bit width and
-/// serialize as `fastlanes.bitpacked`, while the others serialize as `fastlanes.bitpacked.v2`.
+/// The v1 mode packs every value at one bit width, and serializes as `fastlanes.bitpacked`. The v2
+/// mode always chooses a width for each 1024-element block, and serializes as
+/// `fastlanes.bitpacked.v2`.
 ///
 /// The default uses v1. [`refine`](Scheme::refine) picks v2 when the v2 ID is allowed and v1
 /// otherwise.
@@ -99,10 +90,10 @@ impl Scheme for BitPackingScheme {
     }
 
     fn produced_encodings(&self) -> Vec<ArrayId> {
-        // Global-width arrays serialize under the frozen v1 ID.
         let mut encodings = match self.mode {
+            // Global-width arrays serialize under the frozen v1 ID.
             BitPackingSchemeMode::V1 => vec![bitpacked_v1_id()],
-            BitPackingSchemeMode::V2 => vec![bitpacked_v1_id(), bitpacked_v2_id()],
+            BitPackingSchemeMode::V2 => vec![bitpacked_v2_id()],
         };
         if use_experimental_patches() {
             encodings.push(Patched.id());
@@ -217,8 +208,7 @@ impl Scheme for BitPackingScheme {
 }
 
 impl BitPackingScheme {
-    /// Bit-pack each 1024-element block at its own best width, keeping one bit width when every
-    /// block chooses the same one.
+    /// Bit-pack each 1024-element block at its own best width.
     fn compress_blocked(
         &self,
         compressor: &CascadingCompressor,
@@ -235,32 +225,18 @@ impl BitPackingScheme {
         let BitWidths::Blocked(block_offsets) = parts.bit_widths else {
             vortex_bail!("Blocked bit-packing must produce block offsets");
         };
-
-        let bit_widths = match global_bit_width(&block_offsets, exec_ctx)? {
-            // Like v1, keep the original array when every block needs its full width.
-            Some(bit_width) if usize::from(bit_width) == ptype.bit_width() => {
-                return Ok(primitive_array.into_array());
-            }
-            // The blocks are packed back to back, so equal widths are also one global width.
-            Some(bit_width) => BitWidths::Global(bit_width),
-            None => BitWidths::Blocked(compressor.compress_child(
-                &block_offsets,
-                &compress_ctx,
-                self.id(),
-                0,
-                exec_ctx,
-            )?),
-        };
+        let block_offsets =
+            compressor.compress_child(&block_offsets, &compress_ctx, self.id(), 0, exec_ctx)?;
 
         let array = if use_experimental_patches() {
             let patches = parts.patches.take();
             // Transpose patches into G-ALP style PatchedArray, wrapping an inner BitPackedArray.
-            let array = new_bitpacked(
+            let array = BitPacked::try_new_with_block_offsets(
                 parts.packed,
                 ptype,
                 parts.validity,
                 None,
-                bit_widths,
+                block_offsets,
                 parts.len,
                 parts.offset,
             )?
@@ -279,12 +255,12 @@ impl BitPackingScheme {
                 .take()
                 .map(|p| compress_patches(p, exec_ctx))
                 .transpose()?;
-            new_bitpacked(
+            BitPacked::try_new_with_block_offsets(
                 parts.packed,
                 ptype,
                 parts.validity,
                 patches,
-                bit_widths,
+                block_offsets,
                 parts.len,
                 parts.offset,
             )?
@@ -293,53 +269,6 @@ impl BitPackingScheme {
         };
 
         Ok(array)
-    }
-}
-
-/// The bit width shared by every block between `block_offsets`, or `None` if the widths differ.
-fn global_bit_width(
-    block_offsets: &ArrayRef,
-    exec_ctx: &mut ExecutionCtx,
-) -> VortexResult<Option<u8>> {
-    let boundaries = block_offsets
-        .cast(DType::Primitive(PType::U64, Nullability::NonNullable))?
-        .execute::<PrimitiveArray>(exec_ctx)?;
-    let mut bit_widths = boundaries
-        .as_slice::<u64>()
-        .windows(2)
-        .map(|pair| (pair[1] - pair[0]) / 128);
-    let Some(first) = bit_widths.next() else {
-        return Ok(Some(0));
-    };
-    if !bit_widths.all(|bit_width| bit_width == first) {
-        return Ok(None);
-    }
-    Ok(Some(u8::try_from(first)?))
-}
-
-/// Construct a bit-packed array at `bit_widths`.
-fn new_bitpacked(
-    packed: BufferHandle,
-    ptype: PType,
-    validity: Validity,
-    patches: Option<Patches>,
-    bit_widths: BitWidths,
-    len: usize,
-    offset: u16,
-) -> VortexResult<BitPackedArray> {
-    match bit_widths {
-        BitWidths::Global(bit_width) => {
-            BitPacked::try_new(packed, ptype, validity, patches, bit_width, len, offset)
-        }
-        BitWidths::Blocked(block_offsets) => BitPacked::try_new_with_block_offsets(
-            packed,
-            ptype,
-            validity,
-            patches,
-            block_offsets,
-            len,
-            offset,
-        ),
     }
 }
 

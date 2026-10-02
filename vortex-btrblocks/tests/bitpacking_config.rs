@@ -67,8 +67,7 @@ fn drifting() -> ArrayRef {
     PrimitiveArray::from_iter((0..8192u32).map(|i| i % (2 << (i / 1024)))).into_array()
 }
 
-/// Values that need 7 bits in every block, so the blocks keep one bit width and the array
-/// serializes as `fastlanes.bitpacked`.
+/// Values that need 7 bits in every block.
 fn uniform() -> ArrayRef {
     PrimitiveArray::from_iter((0..8192u32).map(|i| i % 128)).into_array()
 }
@@ -102,18 +101,13 @@ fn bitpacking_only() -> BtrBlocksCompressorBuilder {
     BtrBlocksCompressorBuilder::empty().with_new_scheme(&BITPACKING_V1)
 }
 
+/// v2 produces per-block bit widths even when every block chooses the same width.
 #[rstest]
-#[case::drifting(drifting(), true)]
-#[case::uniform(uniform(), false)]
-fn v2_serializes_varying_widths_as_v2(
-    #[case] array: ArrayRef,
-    #[case] expect_v2: bool,
-) -> VortexResult<()> {
+#[case::drifting(drifting())]
+#[case::uniform(uniform())]
+fn v2_always_serializes_as_v2(#[case] array: ArrayRef) -> VortexResult<()> {
     let ids = compress_roundtrip(bitpacking_only(), &array)?;
-    assert_eq!(ids.contains(&bitpacked_v2_id()), expect_v2);
-    if !expect_v2 {
-        assert!(ids.contains(&bitpacked_v1_id()));
-    }
+    assert!(ids.contains(&bitpacked_v2_id()));
     Ok(())
 }
 
@@ -141,6 +135,7 @@ fn core_edition_keeps_global_width() -> VortexResult<()> {
 #[test]
 fn cuda_preset_keeps_global_width() -> VortexResult<()> {
     let ids = compress_roundtrip(bitpacking_only().only_cuda_compatible(), &drifting())?;
+    assert!(ids.contains(&bitpacked_v1_id()));
     assert!(!ids.contains(&bitpacked_v2_id()));
     Ok(())
 }
