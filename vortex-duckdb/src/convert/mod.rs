@@ -10,6 +10,7 @@ mod vector;
 pub use dtype::FromLogicalType;
 pub use expr::PushedAggregate;
 pub use expr::can_push_expression;
+pub use expr::is_folded_date_comparison;
 pub use expr::try_from_bound_expression;
 pub use expr::try_from_projection_aggregate;
 pub use expr::try_from_projection_expression;
