@@ -92,6 +92,7 @@ mod tests {
     use vortex_array::scalar_fn::fns::like::Like;
     use vortex_array::scalar_fn::fns::like::LikeKernel;
     use vortex_array::scalar_fn::fns::like::LikeOptions;
+    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
@@ -282,6 +283,42 @@ mod tests {
         Ok(())
     }
 
+    /// `%suffix` must be evaluated by the kernel, not handed back for
+    /// decompression. Asserting the result is `Some` is what distinguishes
+    /// pushdown from the fallback path — the boolean answer is the same either way.
+    #[test]
+    fn test_like_kernel_pushes_down_suffix() -> VortexResult<()> {
+        let fsst = make_fsst(
+            &[Some("abc"), Some("xabc"), Some("abcx")],
+            Nullability::NonNullable,
+        );
+        let mut ctx = SESSION.create_execution_ctx();
+        let fsst_v = fsst.as_view();
+
+        let pattern = ConstantArray::new("%abc", fsst.len()).into_array();
+        let result =
+            <FSST as LikeKernel>::like(fsst_v, &pattern, LikeOptions::default(), &mut ctx)?
+                .vortex_expect("suffix pattern must be pushed down, not fall back");
+        let expected = BoolArray::from_iter([true, true, false]);
+        assert_arrays_eq!(&result, &expected, &mut ctx);
+
+        // Negated form goes through the same matcher.
+        let result = <FSST as LikeKernel>::like(
+            fsst_v,
+            &pattern,
+            LikeOptions {
+                negated: true,
+                case_insensitive: false,
+            },
+            &mut ctx,
+        )?
+        .vortex_expect("negated suffix pattern must be pushed down");
+        let expected = BoolArray::from_iter([false, false, true]);
+        assert_arrays_eq!(&result, &expected, &mut ctx);
+
+        Ok(())
+    }
+
     /// Patterns we can't handle should return `None` (fall back).
     #[test]
     fn test_like_kernel_falls_back_for_complex_pattern() -> VortexResult<()> {
@@ -304,11 +341,11 @@ mod tests {
         let result = <FSST as LikeKernel>::like(fsst_v, &pattern, opts, &mut ctx)?;
         assert!(result.is_none(), "ilike should fall back");
 
-        // Suffix patterns are still unsupported, even when the suffix is an escaped literal.
-        let pattern = ConstantArray::new(r"%\%", fsst.len()).into_array();
+        // A `%` in the middle is none of prefix, contains or suffix.
+        let pattern = ConstantArray::new("a%b", fsst.len()).into_array();
         let result =
             <FSST as LikeKernel>::like(fsst_v, &pattern, LikeOptions::default(), &mut ctx)?;
-        assert!(result.is_none(), "escaped suffix pattern should fall back");
+        assert!(result.is_none(), "mid-pattern % should fall back");
 
         Ok(())
     }
