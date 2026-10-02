@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 
@@ -15,8 +16,10 @@ impl FixedWidthArray for Primitive {
         array.ptype().byte_width()
     }
 
-    fn values(array: ArrayView<'_, Self>) -> ByteBuffer {
-        array.buffer_handle().to_host_sync()
+    fn values<T: Copy>(array: ArrayView<'_, Self>) -> Buffer<T> {
+        let values = array.buffer_handle().to_host_sync();
+        let alignment = values.alignment();
+        Buffer::from_byte_buffer_aligned(values, alignment)
     }
 
     fn with_values(

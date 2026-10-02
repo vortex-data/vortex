@@ -2,47 +2,36 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools as _;
+use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
-use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::dtype::UnsignedPType;
 
-pub(super) fn take_slices<S: UnsignedPType, L: UnsignedPType>(
-    values: &ByteBuffer,
-    byte_width: usize,
-    record_count: usize,
+pub(super) fn take_slices<T: Copy, S: UnsignedPType, L: UnsignedPType>(
+    values: &Buffer<T>,
     starts: &[S],
     lengths: &[L],
     output_len: usize,
     allocator: &BufferAllocatorRef,
-) -> VortexResult<ByteBuffer> {
+) -> VortexResult<Buffer<T>> {
     let slices = starts
         .iter()
         .zip_eq(lengths)
         .map(|(&start, &length)| (start.as_(), length.as_()));
-    copy_slices(
-        values,
-        byte_width,
-        record_count,
-        slices,
-        output_len,
-        allocator,
-    )
+    copy_slices(values, slices, output_len, allocator)
 }
 
-pub(super) fn take_slices_constant_length<S: UnsignedPType>(
-    values: &ByteBuffer,
-    byte_width: usize,
-    record_count: usize,
+pub(super) fn take_slices_constant_length<T: Copy, S: UnsignedPType>(
+    values: &Buffer<T>,
     starts: &[S],
     length: usize,
     output_len: usize,
     allocator: &BufferAllocatorRef,
-) -> VortexResult<ByteBuffer> {
+) -> VortexResult<Buffer<T>> {
     let computed_len = starts
         .len()
         .checked_mul(length)
@@ -53,40 +42,28 @@ pub(super) fn take_slices_constant_length<S: UnsignedPType>(
     );
     copy_slices(
         values,
-        byte_width,
-        record_count,
         starts.iter().map(|start| (start.as_(), length)),
         output_len,
         allocator,
     )
 }
 
-fn copy_slices(
-    values: &ByteBuffer,
-    byte_width: usize,
-    record_count: usize,
+// Keeping this kernel separate improves the take_fsl benchmark's small-range copies.
+#[inline(never)]
+fn copy_slices<T: Copy>(
+    values: &Buffer<T>,
     slices: impl IntoIterator<Item = (usize, usize)>,
     output_len: usize,
     allocator: &BufferAllocatorRef,
-) -> VortexResult<ByteBuffer> {
-    let input_byte_len = record_count
-        .checked_mul(byte_width)
-        .ok_or_else(|| vortex_err!("Fixed-width values buffer length overflows usize"))?;
-    vortex_ensure!(
-        values.len() == input_byte_len,
-        "Fixed-width values buffer length does not match record count"
-    );
-
-    let output_byte_len = output_len
-        .checked_mul(byte_width)
+) -> VortexResult<Buffer<T>> {
+    output_len
+        .checked_mul(size_of::<T>())
         .ok_or_else(|| vortex_err!("PiecewiseSequenceArray output length overflows usize"))?;
-    let mut result = BufferMut::<u8>::with_capacity_aligned_in(
-        output_byte_len,
-        values.alignment(),
-        allocator.clone(),
-    );
-    let spare = &mut result.spare_capacity_mut()[..output_byte_len];
+    let mut result =
+        BufferMut::<T>::with_capacity_aligned_in(output_len, values.alignment(), allocator.clone());
+    let spare = &mut result.spare_capacity_mut()[..output_len];
     let mut cursor = 0usize;
+    let record_count = values.len();
 
     for (start, length) in slices {
         let end = start
@@ -96,21 +73,17 @@ fn copy_slices(
             end <= record_count,
             "PiecewiseSequenceArray slice {start}..{end} exceeds array length {record_count}"
         );
-        // These multiplications cannot overflow because `end <= record_count` and the complete
-        // values buffer length was checked above.
-        let byte_start = start * byte_width;
-        let byte_length = length * byte_width;
-        let source = &values[byte_start..][..byte_length];
-        spare[cursor..][..source.len()].write_copy_of_slice(source);
-        cursor += source.len();
+        let source = &values[start..end];
+        spare[cursor..][..length].write_copy_of_slice(source);
+        cursor += length;
     }
 
     // SAFETY: The loop initialized the prefix `0..cursor` of the spare capacity.
     unsafe { result.set_len(cursor) };
     vortex_ensure!(
-        result.len() == output_byte_len,
-        "PiecewiseSequenceArray expanded length {} does not match declared length {output_byte_len}",
+        result.len() == output_len,
+        "PiecewiseSequenceArray expanded length {} does not match declared length {output_len}",
         result.len()
     );
-    Ok(result.freeze().into_byte_buffer())
+    Ok(result.freeze())
 }
