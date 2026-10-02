@@ -279,6 +279,14 @@ BENCHMARKS = (
             "pr-full": DEFAULT,
         },
     ),
+    BenchmarkCase(
+        id="tsbs-nvme",
+        benchmark=Benchmark.TSBS,
+        name="TSBS cpu-only on NVME",
+        runs={
+            "pr-full": DEFAULT,
+        },
+    ),
 )
 
 CATALOG = Catalog(presets=PRESETS, benchmarks=BENCHMARKS)

@@ -63,6 +63,7 @@ class Benchmark(Enum):
     STATPOPGEN = "statpopgen"
     SPATIALBENCH = "spatialbench"
     TSM_BENCH = "tsm-bench"
+    TSBS = "tsbs"
     VORTEX_QUERIES = "vortex"
 
 

@@ -266,7 +266,7 @@ Benchmarks run automatically on all commits to `develop` and can be run on-deman
   on S3, and Vortex queries.
 - **SQL Extended** -- `action/bench-sql-extended` runs the `pr-full` preset: every regular SQL
   benchmark, including `vortex-compact` and DuckDB-format targets, plus the time-series suites
-  (TSM-Bench), which run under no other label.
+  (TSM-Bench and TSBS), which run under no other label.
 - **SQL Compact** -- `action/bench-sql-compact` runs the `pr-compact` preset, which benchmarks
   `vortex-compact` plus Parquet control rows used to distinguish code changes from runner drift.
 - **All CPU benchmarks** -- `action/bench-all` runs random access, compression, string encoding,

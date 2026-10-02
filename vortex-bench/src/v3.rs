@@ -286,6 +286,7 @@ fn canonical_tpc_scale_factor(scale_factor: &str) -> String {
 /// | `PublicBi { name }`         | `public-bi`    | dataset name (e.g. `cms-provider`) | `None`               | Sub-dataset name lives in `dataset_variant`. |
 /// | `SpatialBench { scale_factor }` | `spatialbench` | `None`         | SF as string | Same canonicalization as TPC-H; no historical v2 records to merge with. |
 /// | `TsmBench`                  | `tsm-bench`    | `None`              | `None`                                              | Live-only suite over TSM-Bench's `d1` dataset. |
+/// | `Tsbs`                      | `tsbs`         | `None`              | `None`                                              | Live-only suite over TSBS `cpu-only` at a fixed scale. |
 /// | `VortexQueries` | `vortex` | `None` | `None` | Own microbenchmarks |
 pub fn benchmark_dataset_dims(d: &BenchmarkDataset) -> (String, Option<String>, Option<String>) {
     match d {
@@ -323,6 +324,7 @@ pub fn benchmark_dataset_dims(d: &BenchmarkDataset) -> (String, Option<String>, 
         BenchmarkDataset::GhArchive => ("gharchive".to_string(), None, None),
         BenchmarkDataset::Appian => ("appian".to_string(), None, None),
         BenchmarkDataset::TsmBench => ("tsm-bench".to_string(), None, None),
+        BenchmarkDataset::Tsbs => ("tsbs".to_string(), None, None),
         BenchmarkDataset::VortexQueries => ("vortex".to_string(), None, None),
     }
 }
@@ -739,6 +741,7 @@ mod tests {
             (BenchmarkDataset::GhArchive, "gharchive"),
             (BenchmarkDataset::Appian, "appian"),
             (BenchmarkDataset::TsmBench, "tsm-bench"),
+            (BenchmarkDataset::Tsbs, "tsbs"),
         ] {
             let (ds, variant, sf) = benchmark_dataset_dims(&case);
             assert_eq!(ds, expected, "dataset for {case:?}");

@@ -33,7 +33,7 @@ REGULAR_IDS = (
     "appian-nvme",
     "vortex-queries",
 )
-EXTENDED_ONLY_IDS = ("tsm-bench-nvme",)
+EXTENDED_ONLY_IDS = ("tsm-bench-nvme", "tsbs-nvme")
 COMPACT_IDS = tuple(
     benchmark_id for benchmark_id in REGULAR_IDS if benchmark_id not in {"polarsignals", "vortex-queries"}
 )
