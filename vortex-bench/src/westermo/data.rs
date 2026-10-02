@@ -23,10 +23,10 @@ use anyhow::ensure;
 use arrow_array::ArrayRef;
 use arrow_array::DictionaryArray;
 use arrow_array::Float64Array;
+use arrow_array::Int64Array;
 use arrow_array::RecordBatch;
 use arrow_array::StringArray;
 use arrow_array::StructArray;
-use arrow_array::TimestampMillisecondArray;
 use arrow_array::UInt32Array;
 use arrow_array::types::UInt32Type;
 use arrow_schema::Schema;
@@ -135,7 +135,7 @@ fn series_batch(schema: &Arc<Schema>, system: &SystemTable, metric: usize) -> Re
         .collect::<Result<Vec<_>>>()?;
     let labels = StructArray::try_new(label_fields(), label_arrays, None)?;
 
-    let ts = TimestampMillisecondArray::from(system.timestamps_ms.clone()).with_timezone("UTC");
+    let ts = Int64Array::from(system.timestamps_ms.clone());
 
     Ok(RecordBatch::try_new(
         Arc::clone(schema),
@@ -200,7 +200,7 @@ pub(super) fn convert_to_parquet(inputs: &[(String, PathBuf)], output_path: &Pat
 mod tests {
     use arrow_array::Array;
     use arrow_array::cast::AsArray;
-    use arrow_array::types::TimestampMillisecondType;
+    use arrow_array::types::Int64Type;
 
     use super::*;
 
@@ -246,7 +246,7 @@ mod tests {
             assert_eq!(values.value(0), expected);
         }
 
-        let ts = batch.column(1).as_primitive::<TimestampMillisecondType>();
+        let ts = batch.column(1).as_primitive::<Int64Type>();
         assert_eq!(ts.values().as_ref(), &[0, 30_000, 90_000]);
         Ok(())
     }

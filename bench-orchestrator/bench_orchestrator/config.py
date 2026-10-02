@@ -86,10 +86,9 @@ ENGINE_FORMATS: dict[Engine, list[Format]] = {
 
 # Engines each benchmark can run on. Benchmarks default to *every* engine; list one here only to
 # restrict it. SpatialBench's queries use DuckDB-specific `ST_*` spatial SQL that DataFusion has no
-# functions for yet. Westermo's queries use DataFusion's `arrow_cast` and regex match operators.
+# functions for yet.
 BENCHMARK_ENGINES: dict[Benchmark, frozenset[Engine]] = {
     Benchmark.SPATIALBENCH: frozenset({Engine.DUCKDB}),
-    Benchmark.WESTERMO: frozenset({Engine.DATAFUSION}),
 }
 
 
