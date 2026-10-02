@@ -40,9 +40,10 @@ use crate::arrays::Filter;
 use crate::arrays::FilterArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::Slice;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
-use crate::arrays::filter::FilterArraySlotsExt;
+use crate::arrays::slice::SliceArraySlotsExt;
 use crate::assert_arrays_eq;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -385,7 +386,7 @@ optimize root=vortex.filter(i32, len=4) session=false
 }
 
 #[test]
-fn trace_optimize_parent_reduce_fixpoint_attempts() -> VortexResult<()> {
+fn trace_optimize_contiguous_filter() -> VortexResult<()> {
     let values = PrimitiveArray::from_iter([0i32, 1, 2, 3, 4, 5]).into_array();
     let inner = FilterArray::try_new(
         values,
@@ -402,8 +403,8 @@ fn trace_optimize_parent_reduce_fixpoint_attempts() -> VortexResult<()> {
         || outer.optimize(),
     )?;
 
-    let optimized_filter = traced.output.as_::<Filter>();
-    assert!(optimized_filter.child().is::<Primitive>());
+    let optimized_slice = traced.output.as_::<Slice>();
+    assert!(optimized_slice.child().is::<Filter>());
     assert_arrays_eq!(
         traced.output,
         PrimitiveArray::from_iter([2i32, 3]),
@@ -411,8 +412,8 @@ fn trace_optimize_parent_reduce_fixpoint_attempts() -> VortexResult<()> {
     );
     insta::assert_snapshot!(traced.trace.to_string(), @r"
     optimize root=vortex.filter(i32, len=2) session=false
-      reduce_parent static:FilterReduceAdaptor(Filter) slot=0 parent=vortex.filter(i32, len=2) child=vortex.filter(i32, len=4) -> vortex.filter(i32, len=2)
-      done output=vortex.filter(i32, len=2)
+      reduce TrivialFilterRule: vortex.filter(i32, len=2) -> vortex.slice(i32, len=2)
+      done output=vortex.slice(i32, len=2)
     ");
 
     let mut ctx = ExecutionCtx::new(VortexSession::empty().with::<ArraySession>());
@@ -457,9 +458,6 @@ fn trace_optimize_parent_reduce_fixpoint_attempts() -> VortexResult<()> {
 
 /// A filter whose mask is not one contiguous run cannot be answered as a slice, so it has to
 /// execute through its child.
-///
-/// The test above happens to build a contiguous combined mask, which short-circuits before the
-/// child is reached; without this case no trace would cover an executed filter at all.
 #[test]
 fn trace_execute_filter_with_scattered_mask() -> VortexResult<()> {
     let values = PrimitiveArray::from_iter([0i32, 1, 2, 3, 4, 5]).into_array();
