@@ -205,9 +205,13 @@ impl Array<Decimal> {
         decimal_dtype: DecimalDType,
     ) -> VortexResult<Self> {
         let required = DecimalType::smallest_decimal_value_type(&decimal_dtype);
-        let dtype = integer_dtype(required, values.dtype().nullability());
         let stored = signed_integer_type(values.dtype())
             .vortex_expect("Decimal constructors use signed integer values");
+        if stored == required {
+            return Self::try_new_values(values, decimal_dtype);
+        }
+
+        let dtype = integer_dtype(required, values.dtype().nullability());
         let values = if stored < required {
             NarrowArray::try_new(values, dtype)?.into_array()
         } else {
