@@ -6,6 +6,7 @@ use std::sync::LazyLock;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::sum::sum;
+use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Narrow;
 use vortex_array::arrays::NarrowArray;
@@ -45,7 +46,7 @@ fn test_narrow_bitpacked_child() -> VortexResult<()> {
     );
     assert_arrays_eq!(
         array.binary(ConstantArray::new(Scalar::from(3u64), 4).into_array(), Operator::Lt)?,
-        buffer![true, true, false, false].into_array(),
+        BoolArray::from_iter([true, true, false, false]),
         &mut ctx
     );
     assert_eq!(sum(&array, &mut ctx)?, Scalar::from(11u64).into_nullable());

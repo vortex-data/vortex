@@ -30,6 +30,7 @@ use crate::aggregate_fn::fns::is_sorted::IsSortedOptions;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::sum::Sum;
 use crate::aggregate_fn::fns::sum_v2::SumV2;
+use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::DictArray;
 use crate::arrays::PrimitiveArray;
@@ -76,9 +77,11 @@ fn test_signed_encoding(#[case] values: Vec<i64>, #[case] storage: PType) -> Vor
     let mut ctx = SESSION.create_execution_ctx();
     let input = PrimitiveArray::from_iter(values);
     let encoded = NarrowArray::encode(input.clone(), &mut ctx)?;
-    let values = encoded.as_opt::<Narrow>().map_or(&encoded, |array| array.values());
+    let stored_ptype = encoded.as_opt::<Narrow>().map_or(encoded.dtype().as_ptype(), |array| {
+        array.values().dtype().as_ptype()
+    });
 
-    assert_eq!(values.dtype().as_ptype(), storage);
+    assert_eq!(stored_ptype, storage);
     assert_eq!(encoded.dtype(), input.dtype());
     assert_arrays_eq!(encoded, input.into_array(), &mut ctx);
 
@@ -94,9 +97,11 @@ fn test_unsigned_encoding(#[case] values: Vec<u64>, #[case] storage: PType) -> V
     let mut ctx = SESSION.create_execution_ctx();
     let input = PrimitiveArray::from_iter(values);
     let encoded = NarrowArray::encode(input.clone(), &mut ctx)?;
-    let values = encoded.as_opt::<Narrow>().map_or(&encoded, |array| array.values());
+    let stored_ptype = encoded.as_opt::<Narrow>().map_or(encoded.dtype().as_ptype(), |array| {
+        array.values().dtype().as_ptype()
+    });
 
-    assert_eq!(values.dtype().as_ptype(), storage);
+    assert_eq!(stored_ptype, storage);
     assert_eq!(encoded.dtype(), input.dtype());
     assert_arrays_eq!(encoded, input.into_array(), &mut ctx);
 
@@ -209,7 +214,7 @@ fn test_selection_and_fill_null() -> VortexResult<()> {
 
     let masked = array
         .clone()
-        .mask(buffer![true, true, false, true].into_array())?
+        .mask(BoolArray::from_iter([true, true, false, true]).into_array())?
         .optimize()?;
     assert!(masked.is::<Narrow>());
     assert_arrays_eq!(
@@ -332,7 +337,7 @@ fn test_aggregate_partial_states() -> VortexResult<()> {
         Sum.bind(NumericalAggregateOpts::default()),
         SumV2.bind(NumericalAggregateOpts::default()),
         IsConstant.bind(crate::aggregate_fn::EmptyOptions),
-        IsSorted.bind(IsSortedOptions::default()),
+        IsSorted.bind(IsSortedOptions { strict: false }),
     ];
     for aggregate in fns {
         let dtype = DType::Primitive(PType::I64, Nullability::Nullable);

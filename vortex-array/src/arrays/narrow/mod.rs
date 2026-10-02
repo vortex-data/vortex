@@ -5,7 +5,8 @@
 //!
 //! [`NarrowArray`] stores no buffers of its own and derives validity from its child. Selection,
 //! comparison, and aggregate operations can use that child without widening to the logical dtype.
-//! Canonical execution returns a widening cast to [`PrimitiveArray`].
+//! Canonical execution returns a widening cast to
+//! [`PrimitiveArray`](crate::arrays::PrimitiveArray).
 
 mod encoding;
 
@@ -26,7 +27,6 @@ use crate::ArrayParts;
 use crate::ArrayRef;
 use crate::EmptyArrayData;
 use crate::array_slots;
-use crate::arrays::PrimitiveArray;
 use crate::dtype::DType;
 use crate::dtype::PType;
 
