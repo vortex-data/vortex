@@ -24,6 +24,7 @@ use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use crate::BitPacked;
+use crate::BitPackedData;
 use crate::FL_CHUNK_SIZE;
 use crate::FoR;
 use crate::FoRArray;
@@ -254,7 +255,7 @@ fn fused_decode_sliced(
 
 /// Fused decode over a BitPacked child equals `encoded.wrapping_add(reference)` per element, for
 /// every integer type, with references anywhere in the type's range, with or without patches,
-/// nulls and per-chunk references.
+/// nulls, per-chunk references and per-block bit widths.
 #[hegel::test]
 fn fused_decode_is_wrapping_add(tc: TestCase) {
     match tc.draw(gs::integers::<u8>().max_value(7)) {
@@ -329,7 +330,19 @@ where
     let encoded_array =
         PrimitiveArray::from_option_iter(encoded.iter().zip(&valid).map(|(&e, &v)| v.then_some(e)));
 
-    let bp = BitPacked::encode(&encoded_array.into_array(), bit_width, &mut ctx)?;
+    let bp = if tc.draw(gs::booleans()) {
+        // Each block draws its own width, from zero to the native width, so values wider than
+        // their block's width become patches.
+        let num_blocks = len.div_ceil(FL_CHUNK_SIZE);
+        let bit_widths: Vec<u8> = tc.draw(
+            gs::vecs(gs::integers().max_value(T::PTYPE.bit_width() as u8))
+                .min_size(num_blocks)
+                .max_size(num_blocks),
+        );
+        BitPackedData::encode_blocked(&encoded_array.into_array(), &bit_widths, &mut ctx)?
+    } else {
+        BitPacked::encode(&encoded_array.into_array(), bit_width, &mut ctx)?
+    };
     let array = if constant {
         FoR::try_new(bp.into_array(), references[0].into())?
     } else {
@@ -341,7 +354,8 @@ where
     };
     assert_arrays_eq!(array, expected, &mut ctx);
 
-    // A slice keeps the fused path without patches and takes the unfused one with them.
+    // A slice keeps the fused path with a global width and no patches, and takes the unfused one
+    // otherwise.
     let start = tc.draw(gs::integers().min_value(0).max_value(len));
     let end = tc.draw(gs::integers().min_value(start).max_value(len));
     assert_arrays_eq!(

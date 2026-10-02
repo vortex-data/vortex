@@ -4,6 +4,8 @@
 mod blocked;
 mod global;
 
+pub(crate) use blocked::execute_block_offsets;
+pub(crate) use blocked::for_each_packed_block;
 pub use blocked::unpack_array_blocked;
 pub(crate) use blocked::unpack_into_primitive_builder_blocked;
 pub use blocked::unpack_primitive_array_blocked;

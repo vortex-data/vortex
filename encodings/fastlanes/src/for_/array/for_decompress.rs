@@ -4,6 +4,7 @@
 use std::iter;
 use std::mem;
 use std::mem::MaybeUninit;
+use std::ops::Range;
 
 use fastlanes::BitPacking;
 use fastlanes::FoR;
@@ -28,7 +29,6 @@ use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
 use crate::BitPacked;
@@ -36,6 +36,8 @@ use crate::BitPackedArrayExt;
 use crate::BitWidths;
 use crate::FL_CHUNK_SIZE;
 use crate::FoRArray;
+use crate::bitpack_decompress::execute_block_offsets;
+use crate::bitpack_decompress::for_each_packed_block;
 use crate::for_::array::FoRArrayExt;
 use crate::for_::array::FoRArraySlotsExt;
 use crate::unpack_iter::for_each_packed_chunk;
@@ -257,7 +259,7 @@ fn fused_unpack<
 
     // SAFETY: `unpack_chunks` initializes every value in this range.
     let output = unsafe { uninit_range.slice_uninit_mut(0, len) };
-    unpack_chunks(bp, &chunk_reference, output)?;
+    unpack_chunks(bp, &chunk_reference, output, ctx)?;
 
     if let Some(patches) = bp.patches() {
         let offset = usize::from(bp.offset());
@@ -283,37 +285,43 @@ fn unpack_chunks<
     bp: ArrayView<'_, BitPacked>,
     chunk_reference: impl Fn(usize) -> T,
     output: &mut [MaybeUninit<T>],
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
     let offset = usize::from(bp.offset());
-    let BitWidths::Global(bit_width) = bp.bit_widths() else {
-        vortex_bail!("BitPacked array has per-block bit widths");
-    };
-    let bit_width = bit_width as usize;
     // SAFETY: `T::Physical` is `T` with the same size and alignment, and the unpack is the same
     // wrapping addition in two's complement whichever signedness `T` has.
     let output =
         unsafe { mem::transmute::<&mut [MaybeUninit<T>], &mut [MaybeUninit<T::Physical>]>(output) };
     let mut scratch = [const { MaybeUninit::<T::Physical>::uninit() }; FL_CHUNK_SIZE];
-    for_each_packed_chunk::<T, _>(
-        bp.packed_slice::<T::Physical>(),
-        bit_width,
-        offset,
-        bp.len(),
-        |packed, range| {
-            let reference = chunk_reference(range.start / FL_CHUNK_SIZE).as_();
-            // `range` counts from the start of the first chunk, and the output starts at `offset`.
-            let skip = offset.saturating_sub(range.start);
-            let dst = &mut output[range.start + skip - offset..range.end - offset];
-            if dst.len() == FL_CHUNK_SIZE {
-                // SAFETY: `packed` holds one chunk at `bit_width` and `dst` has room for a chunk.
-                unsafe { unfor_pack_into(bit_width, packed, reference, dst) };
-            } else {
-                // SAFETY: as above, with `scratch` as the destination.
-                unsafe { unfor_pack_into(bit_width, packed, reference, &mut scratch) };
-                dst.copy_from_slice(&scratch[skip..range.len()]);
-            }
-        },
-    )
+    let mut unpack_chunk = |packed: &[T::Physical], bit_width: usize, range: Range<usize>| {
+        let reference = chunk_reference(range.start / FL_CHUNK_SIZE).as_();
+        // `range` counts from the start of the first chunk, and the output starts at `offset`.
+        let skip = offset.saturating_sub(range.start);
+        let dst = &mut output[range.start + skip - offset..range.end - offset];
+        if dst.len() == FL_CHUNK_SIZE {
+            // SAFETY: `packed` holds one chunk at `bit_width` and `dst` has room for a chunk.
+            unsafe { unfor_pack_into(bit_width, packed, reference, dst) };
+        } else {
+            // SAFETY: as above, with `scratch` as the destination.
+            unsafe { unfor_pack_into(bit_width, packed, reference, &mut scratch) };
+            dst.copy_from_slice(&scratch[skip..range.len()]);
+        }
+    };
+    let packed = bp.packed_slice::<T::Physical>();
+    match bp.bit_widths() {
+        BitWidths::Global(bit_width) => {
+            let bit_width = usize::from(bit_width);
+            for_each_packed_chunk::<T, _>(packed, bit_width, offset, bp.len(), |packed, range| {
+                unpack_chunk(packed, bit_width, range)
+            })
+        }
+        BitWidths::Blocked(offsets) => {
+            // The validated offsets bound every block to its bit width within `packed`.
+            let offsets = execute_block_offsets(bp, &offsets, ctx)?;
+            for_each_packed_block::<T, _>(packed, &offsets, offset, bp.len(), unpack_chunk);
+            Ok(())
+        }
+    }
 }
 
 /// Unpack one chunk into `dst` and add `reference` to every value.

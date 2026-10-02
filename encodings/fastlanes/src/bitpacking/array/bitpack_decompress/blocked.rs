@@ -5,6 +5,7 @@
 
 use std::mem;
 use std::mem::MaybeUninit;
+use std::ops::Range;
 
 use fastlanes::BitPacking;
 use num_traits::AsPrimitive;
@@ -15,10 +16,6 @@ use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::PrimitiveBuilder;
-use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
-use vortex_array::dtype::PType;
 use vortex_array::dtype::PhysicalPType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
@@ -80,23 +77,7 @@ pub(crate) fn unpack_into_primitive_builder_blocked<T: BitPackedUnpack>(
         "Requested type doesn't match the array ptype"
     );
 
-    // Decoding one offset type compiles the block loop once per value type.
-    let offsets = offsets
-        .cast(DType::Primitive(PType::U64, Nullability::NonNullable))?
-        .execute::<PrimitiveArray>(ctx)?;
-    let num_blocks = (array.len() + usize::from(array.offset())).div_ceil(FL_CHUNK_SIZE);
-    vortex_ensure!(
-        offsets.len() == num_blocks + 1,
-        "Expected {} block boundaries, got {}",
-        num_blocks + 1,
-        offsets.len()
-    );
-    let offsets = Buffer::<u64>::from_byte_buffer(offsets.buffer_handle().try_to_host_sync()?);
-    validate_primitive_offsets(
-        &offsets,
-        array.dtype().as_ptype().bit_width() as u64,
-        array.packed().len(),
-    )?;
+    let offsets = execute_block_offsets(array, offsets, ctx)?;
 
     let len = array.len();
     let validity = array.validity()?.execute_mask(len, ctx)?;
@@ -122,6 +103,66 @@ pub(crate) fn unpack_into_primitive_builder_blocked<T: BitPackedUnpack>(
         uninit_range.finish();
     }
     Ok(())
+}
+
+/// Execute the block `offsets` of `array` to host `u64` boundaries and validate them against its
+/// packed buffer.
+pub(crate) fn execute_block_offsets(
+    array: ArrayView<'_, BitPacked>,
+    offsets: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Buffer<u64>> {
+    let offsets = offsets.clone().execute::<PrimitiveArray>(ctx)?;
+    let num_blocks = (array.len() + usize::from(array.offset())).div_ceil(FL_CHUNK_SIZE);
+    vortex_ensure!(
+        offsets.len() == num_blocks + 1,
+        "Expected {} block boundaries, got {}",
+        num_blocks + 1,
+        offsets.len()
+    );
+    // Decoding one offset type compiles the block loop once per value type. Widening the few
+    // boundaries here is cheaper than executing a cast.
+    let host = offsets.buffer_handle().try_to_host_sync()?;
+    let offsets: Buffer<u64> = match_each_unsigned_integer_ptype!(offsets.ptype(), |I| {
+        Buffer::<I>::from_byte_buffer(host)
+            .iter()
+            .map(|&offset| AsPrimitive::<u64>::as_(offset))
+            .collect()
+    });
+    validate_primitive_offsets(
+        &offsets,
+        array.dtype().as_ptype().bit_width() as u64,
+        array.packed().len(),
+    )?;
+    Ok(offsets)
+}
+
+/// Walk the packed blocks between `offsets` from [`execute_block_offsets`] in array order, passing
+/// each block's packed values, bit width and range of positions counted from the start of the
+/// first block.
+pub(crate) fn for_each_packed_block<T, F>(
+    packed: &[T::Physical],
+    offsets: &[u64],
+    offset: usize,
+    len: usize,
+    mut f: F,
+) where
+    T: PhysicalPType,
+    F: FnMut(&[T::Physical], usize, Range<usize>),
+{
+    let base = offsets[0];
+    let padded_len = offset + len;
+    for (block, pair) in offsets.windows(2).enumerate() {
+        // Validation bounds these differences by the packed buffer's usize length.
+        let start = (pair[0] - base) as usize;
+        let end = (pair[1] - base) as usize;
+        let range_start = block * FL_CHUNK_SIZE;
+        f(
+            &packed[start / size_of::<T>()..end / size_of::<T>()],
+            (end - start) / 128,
+            range_start..(range_start + FL_CHUNK_SIZE).min(padded_len),
+        );
+    }
 }
 
 /// Decode the blocks between validated `offsets` into `output`.
@@ -594,6 +635,49 @@ mod tests {
         let expected =
             PrimitiveArray::from_iter(values.into_iter().map(|value| value.wrapping_add(1000)));
         assert_arrays_eq!(array, expected, &mut ctx);
+        Ok(())
+    }
+
+    /// FoR fuses with a blocked child that starts within its first block, holds zero and native
+    /// width blocks and has encoded offsets.
+    #[rstest]
+    #[case::full_blocks(0, 4096)]
+    #[case::partial_first_and_last(17, 4000)]
+    #[case::one_value_header(1023, 2050)]
+    fn for_fuses_blocked_child(
+        #[values(PType::U8, PType::I16, PType::U32, PType::I64)] ptype: PType,
+        #[case] offset: u16,
+        #[case] len: usize,
+        #[values(false, true)] chunked: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let (array, values) = variable(ptype, offset, len, true)?;
+        let num_chunks = (usize::from(offset) + len).div_ceil(FL_CHUNK_SIZE);
+        match_each_integer_ptype!(ptype, |T| {
+            let references: Vec<T> = (0..num_chunks)
+                .map(|chunk| AsPrimitive::<T>::as_(1_000_003u64 * (chunk as u64 + 1)))
+                .collect();
+            let expected = PrimitiveArray::from_iter(
+                values.as_slice::<T>().iter().enumerate().map(|(i, value)| {
+                    let chunk = if chunked {
+                        (usize::from(offset) + i) / FL_CHUNK_SIZE
+                    } else {
+                        0
+                    };
+                    value.wrapping_add(references[chunk])
+                }),
+            );
+            let array = if chunked {
+                FoR::try_new_chunked(
+                    array.into_array(),
+                    PrimitiveArray::from_iter(references).into_array(),
+                    offset,
+                )?
+            } else {
+                FoR::try_new(array.into_array(), references[0].into())?
+            };
+            assert_arrays_eq!(array, expected, &mut ctx);
+        });
         Ok(())
     }
 }

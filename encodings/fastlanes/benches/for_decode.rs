@@ -3,7 +3,9 @@
 
 //! Benchmarks decoding a FoR array with a reference per 1024-element chunk, over a primitive child
 //! and over a BitPacked child. An unsigned BitPacked child decodes through a fused unpack, and a
-//! signed one through BitPacked decoding followed by adding the references in place.
+//! signed one through BitPacked decoding followed by adding the references in place. The blocked
+//! BitPacked child packs every block at the same width as the global one, so the two compare the
+//! cost of per-block bit widths alone.
 //!
 //! Every benchmark carries `#[cpu_features]`, so it is measured on each walltime CPU-feature leg
 //! rather than in simulation: the loops under test are auto-vectorized, so the build decides
@@ -26,6 +28,7 @@ use vortex_array::dtype::NativePType;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_fastlanes::BitPacked;
+use vortex_fastlanes::BitPackedData;
 use vortex_fastlanes::FoR;
 use vortex_fastlanes::FoRArraySlotsExt;
 use vortex_session::VortexSession;
@@ -55,22 +58,33 @@ fn values<T: NativePType + TryFrom<usize>>(len: usize) -> Buffer<T> {
         .collect()
 }
 
-fn for_array<T: NativePType + TryFrom<usize>>(len: usize, bitpacked: bool) -> ArrayRef {
+#[derive(Clone, Copy)]
+enum Child {
+    Primitive,
+    BitPacked,
+    BlockedBitPacked,
+}
+
+fn for_array<T: NativePType + TryFrom<usize>>(len: usize, child: Child) -> ArrayRef {
     let mut ctx = SESSION.create_execution_ctx();
     let array = PrimitiveArray::new(values::<T>(len), Validity::NonNullable);
     let for_array = FoR::encode_chunked(array, &mut ctx).unwrap();
-    if !bitpacked {
-        return for_array.into_array();
-    }
-    let packed = BitPacked::encode(for_array.encoded(), BIT_WIDTH, &mut ctx).unwrap();
+    let packed = match child {
+        Child::Primitive => return for_array.into_array(),
+        Child::BitPacked => BitPacked::encode(for_array.encoded(), BIT_WIDTH, &mut ctx).unwrap(),
+        Child::BlockedBitPacked => {
+            let bit_widths = vec![BIT_WIDTH; len.div_ceil(1024)];
+            BitPackedData::encode_blocked(for_array.encoded(), &bit_widths, &mut ctx).unwrap()
+        }
+    };
     FoR::try_new_chunked(packed.into_array(), for_array.references().clone(), 0)
         .unwrap()
         .into_array()
 }
 
-fn run<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usize, bitpacked: bool) {
+fn run<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usize, child: Child) {
     let len = bytes / size_of::<T>();
-    let array = for_array::<T>(len, bitpacked);
+    let array = for_array::<T>(len, child);
     bencher
         .counter(ItemsCount::new(len))
         .with_inputs(|| (&array, SESSION.create_execution_ctx()))
@@ -80,11 +94,20 @@ fn run<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usize, bitpacke
 #[vortex_bench_support::cpu_features]
 #[divan::bench(types = [i64], args = INPUT_BYTES)]
 fn decode_chunked<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usize) {
-    run::<T>(bencher, bytes, false);
+    run::<T>(bencher, bytes, Child::Primitive);
 }
 
 #[vortex_bench_support::cpu_features]
 #[divan::bench(types = [u32, i64], args = INPUT_BYTES)]
 fn decode_bitpacked_chunked<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usize) {
-    run::<T>(bencher, bytes, true);
+    run::<T>(bencher, bytes, Child::BitPacked);
+}
+
+#[vortex_bench_support::cpu_features]
+#[divan::bench(types = [u32, i64], args = INPUT_BYTES)]
+fn decode_blocked_bitpacked_chunked<T: NativePType + TryFrom<usize>>(
+    bencher: Bencher,
+    bytes: usize,
+) {
+    run::<T>(bencher, bytes, Child::BlockedBitPacked);
 }
