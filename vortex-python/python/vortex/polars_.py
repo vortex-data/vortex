@@ -146,6 +146,8 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
         _inputs = [_polars_to_vortex(e) for e in expr["input"]]
 
         fn = expr["function"]
+        if isinstance(fn, dict) and "FieldByName" in fn.get("StructExpr", {}):
+            return ve.get_item(fn["StructExpr"]["FieldByName"], _inputs[0])
         if "Boolean" in fn:
             fn = fn["Boolean"]
 
