@@ -26,6 +26,7 @@ use serde::Serialize;
 use statpopgen::StatPopGenBenchmark;
 use tpcds::TpcDsBenchmark;
 use tpch::benchmark::TpcHBenchmark;
+use tsmbench::TsmBenchBenchmark;
 pub use utils::file::*;
 pub use utils::logging::*;
 use vortex::compressor::BtrBlocksCompressorBuilder;
@@ -59,6 +60,7 @@ pub mod spatialbench;
 pub mod statpopgen;
 pub mod tpcds;
 pub mod tpch;
+pub mod tsmbench;
 pub mod utils;
 pub mod v3;
 pub mod vector_dataset;
@@ -348,6 +350,8 @@ pub enum BenchmarkArg {
     PublicBi,
     #[clap(name = "spatialbench")]
     SpatialBench,
+    #[clap(name = "tsm-bench")]
+    TsmBench,
     #[clap(name = "vortex")]
     VortexQueries,
 }
@@ -420,6 +424,11 @@ pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn 
             let scale_factor = opts.get(SCALE_FACTOR_KEY).unwrap_or(DEFAULT_SCALE_FACTOR);
             let remote_data_dir = opts.get_as::<String>(REMOTE_DATA_KEY);
             let benchmark = SpatialBenchBenchmark::new(scale_factor.to_string(), remote_data_dir)?;
+            Ok(Box::new(benchmark) as _)
+        }
+        BenchmarkArg::TsmBench => {
+            let remote_data_dir = opts.get_as::<String>(REMOTE_DATA_KEY);
+            let benchmark = TsmBenchBenchmark::new(remote_data_dir)?;
             Ok(Box::new(benchmark) as _)
         }
         BenchmarkArg::VortexQueries => {

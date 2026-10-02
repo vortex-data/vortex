@@ -270,6 +270,15 @@ BENCHMARKS = (
             "develop": DEFAULT,
         },
     ),
+    # Time-series suites run only under action/bench-sql-extended.
+    BenchmarkCase(
+        id="tsm-bench-nvme",
+        benchmark=Benchmark.TSM_BENCH,
+        name="TSM-Bench on NVME",
+        runs={
+            "pr-full": DEFAULT,
+        },
+    ),
 )
 
 CATALOG = Catalog(presets=PRESETS, benchmarks=BENCHMARKS)

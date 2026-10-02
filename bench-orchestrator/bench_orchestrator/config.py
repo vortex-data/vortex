@@ -62,6 +62,7 @@ class Benchmark(Enum):
     PUBLIC_BI = "public-bi"
     STATPOPGEN = "statpopgen"
     SPATIALBENCH = "spatialbench"
+    TSM_BENCH = "tsm-bench"
     VORTEX_QUERIES = "vortex"
 
 
