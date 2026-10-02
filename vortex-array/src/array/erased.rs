@@ -232,36 +232,67 @@ impl ArrayRef {
             .into_array()
             .optimize()?;
 
-        // Propagate some stats from the original array to the sliced array.
-        if !sliced.is::<Constant>() {
-            self.statistics().with_iter(|iter| {
-                sliced.statistics().inherit(iter.filter(|(stat, value)| {
-                    matches!(
-                        stat,
-                        Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted
-                    ) && value
-                        .as_ref()
-                        .as_exact()
-                        .is_some_and(|v| matches!(v, ScalarValue::Bool(true)))
-                }));
-            });
-        }
+        // A contiguous range keeps every ordering property of the original array.
+        self.inherit_true_order_stats(&sliced, |_| true);
 
         Ok(sliced)
     }
 
     /// Wraps the array in a [`FilterArray`] such that it is logically filtered by the given mask.
     pub fn filter(&self, mask: Mask) -> VortexResult<ArrayRef> {
-        FilterArray::try_new(self.clone(), mask)?
+        let filtered = FilterArray::try_new(self.clone(), mask)?
             .into_array()
-            .optimize()
+            .optimize()?;
+
+        // A subsequence keeps every ordering property of the original array.
+        self.inherit_true_order_stats(&filtered, |_| true);
+
+        Ok(filtered)
     }
 
     /// Wraps the array in a [`DictArray`] such that it is logically taken by the given indices.
     pub fn take(&self, indices: ArrayRef) -> VortexResult<ArrayRef> {
-        DictArray::try_new(indices, self.clone())?
+        let taken = DictArray::try_new(indices.clone(), self.clone())?
             .into_array()
-            .optimize()
+            .optimize()?;
+
+        // Null indices produce nulls anywhere in the output, so only all-valid indices keep the
+        // ordering properties. Order then follows the indices' cached order.
+        if !indices.dtype().is_nullable() {
+            let indices_stats = indices.statistics();
+            let indices_are = |stat| indices_stats.get_as::<bool>(stat) == Precision::Exact(true);
+            self.inherit_true_order_stats(&taken, |stat| match stat {
+                Stat::IsSorted => indices_are(Stat::IsSorted) || indices_are(Stat::IsStrictSorted),
+                Stat::IsStrictSorted => indices_are(Stat::IsStrictSorted),
+                _ => true,
+            });
+        }
+
+        Ok(taken)
+    }
+
+    /// Copies the exact `true` [`Stat::IsConstant`], [`Stat::IsSorted`] and
+    /// [`Stat::IsStrictSorted`] stats of this array that `preserved` keeps onto `derived`.
+    fn inherit_true_order_stats(&self, derived: &ArrayRef, preserved: impl Fn(Stat) -> bool) {
+        if derived.is::<Constant>() {
+            return;
+        }
+        // Collect before writing: `derived` can be this same array, sharing its stats lock.
+        let inherited: Vec<_> = self.statistics().with_iter(|iter| {
+            iter.filter(|(stat, value)| {
+                matches!(
+                    stat,
+                    Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted
+                ) && value
+                    .as_ref()
+                    .as_exact()
+                    .is_some_and(|v| matches!(v, ScalarValue::Bool(true)))
+                    && preserved(*stat)
+            })
+            .cloned()
+            .collect()
+        });
+        derived.statistics().inherit(inherited.iter());
     }
 
     /// Fetch the scalar at the given index.
@@ -846,5 +877,85 @@ impl<V: VTable> Matcher for V {
         let inner = array.0.data.as_any().downcast_ref::<ArrayData<V>>()?;
         // # Safety checked by `downcast_ref`.
         Some(unsafe { ArrayView::new_unchecked(array, &inner.data) })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
+    use vortex_mask::Mask;
+
+    use crate::ArrayRef;
+    use crate::IntoArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::expr::stats::Precision;
+    use crate::expr::stats::Stat;
+    use crate::expr::stats::StatsProviderExt;
+
+    fn strict_sorted() -> ArrayRef {
+        let array = buffer![1i32, 2, 3, 4].into_array();
+        array
+            .statistics()
+            .set(Stat::IsStrictSorted, Precision::Exact(true.into()));
+        array
+            .statistics()
+            .set(Stat::IsSorted, Precision::Exact(true.into()));
+        array
+    }
+
+    fn cached(array: &ArrayRef, stat: Stat) -> Precision<bool> {
+        array.statistics().get_as::<bool>(stat)
+    }
+
+    #[test]
+    fn filter_keeps_sortedness() -> VortexResult<()> {
+        let filtered = strict_sorted().filter(Mask::from_iter([true, false, true, true]))?;
+        assert_eq!(cached(&filtered, Stat::IsSorted), Precision::Exact(true));
+        assert_eq!(
+            cached(&filtered, Stat::IsStrictSorted),
+            Precision::Exact(true)
+        );
+        Ok(())
+    }
+
+    fn indices(values: [u32; 3], stat: Option<Stat>) -> ArrayRef {
+        let array = buffer![values[0], values[1], values[2]].into_array();
+        if let Some(stat) = stat {
+            array.statistics().set(stat, Precision::Exact(true.into()));
+        }
+        array
+    }
+
+    #[rstest]
+    #[case::strict_indices(indices([0, 1, 3], Some(Stat::IsStrictSorted)), true, true)]
+    #[case::sorted_indices(indices([0, 1, 1], Some(Stat::IsSorted)), true, false)]
+    #[case::unknown_indices(indices([0, 1, 3], None), false, false)]
+    #[case::nullable_indices(
+        PrimitiveArray::from_option_iter([Some(0u32), Some(1), Some(3)]).into_array(),
+        false,
+        false
+    )]
+    fn take_keeps_sortedness_of_sorted_indices(
+        #[case] indices: ArrayRef,
+        #[case] sorted: bool,
+        #[case] strict: bool,
+    ) -> VortexResult<()> {
+        if indices.dtype().is_nullable() {
+            indices
+                .statistics()
+                .set(Stat::IsStrictSorted, Precision::Exact(true.into()));
+        }
+        let taken = strict_sorted().take(indices)?;
+        assert_eq!(
+            cached(&taken, Stat::IsSorted) == Precision::Exact(true),
+            sorted
+        );
+        assert_eq!(
+            cached(&taken, Stat::IsStrictSorted) == Precision::Exact(true),
+            strict
+        );
+        Ok(())
     }
 }
