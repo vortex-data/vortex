@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! FoR scheme refinement by allowed serialized IDs, and per-chunk references.
+//! BitPacking scheme refinement by allowed serialized IDs, and per-block bit widths.
 
 #![cfg(test)]
 
@@ -19,7 +19,6 @@ use vortex_array::serde::SerializeOptions;
 use vortex_array::serde::SerializedArray;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_btrblocks::schemes::integer::BitPackingScheme;
-use vortex_btrblocks::schemes::integer::FoRScheme;
 use vortex_buffer::ByteBufferMut;
 use vortex_edition::EDITION_DECLARATIONS;
 use vortex_edition::EDITION_FAMILIES;
@@ -27,13 +26,12 @@ use vortex_edition::EditionSession;
 use vortex_edition::EditionSessionExt;
 use vortex_edition::declarations::core::CORE_2026_08_3;
 use vortex_error::VortexResult;
-use vortex_fastlanes::for_v1_id;
-use vortex_fastlanes::for_v2_id;
+use vortex_fastlanes::bitpacked_v1_id;
+use vortex_fastlanes::bitpacked_v2_id;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
-static FOR_V1: FoRScheme = FoRScheme::v1();
-static BITPACKING: BitPackingScheme = BitPackingScheme::v1();
+static BITPACKING_V1: BitPackingScheme = BitPackingScheme::v1();
 
 /// Registers the fastlanes encodings, and enables no editions.
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
@@ -42,8 +40,8 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     session
 });
 
-/// Like [`SESSION`], with the latest core edition enabled: it allows `fastlanes.for` but not
-/// `fastlanes.for.v2`.
+/// Like [`SESSION`], with the latest core edition enabled: it allows `fastlanes.bitpacked` but not
+/// `fastlanes.bitpacked.v2`.
 static CORE_SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = vortex_array::array_session().with::<EditionSession>();
     for family in EDITION_FAMILIES {
@@ -64,19 +62,14 @@ static CORE_SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     session
 });
 
-/// Values from a billion that step up by a million every chunk. One reference needs 23 bits and
-/// plain BitPacking 30, so FoR is estimated to pay off, and per-chunk references then pack to 7.
+/// Values whose 1024-value blocks need 1 to 8 bits.
 fn drifting() -> ArrayRef {
-    PrimitiveArray::from_iter(
-        (0..8192u32).map(|i| 1_000_000_000 + (i / 1024) * 1_000_000 + i % 100),
-    )
-    .into_array()
+    PrimitiveArray::from_iter((0..8192u32).map(|i| i % (2 << (i / 1024)))).into_array()
 }
 
-/// Values clustered around one base: every chunk has the same minimum, so the references compress
-/// to a constant and the array serializes as `fastlanes.for`.
-fn clustered() -> ArrayRef {
-    PrimitiveArray::from_iter((0..8192u32).map(|i| 1_000_000 + i % 100)).into_array()
+/// Values that need 7 bits in every block.
+fn uniform() -> ArrayRef {
+    PrimitiveArray::from_iter((0..8192u32).map(|i| i % 128)).into_array()
 }
 
 /// Compresses `array`, round trips it through serialization, and returns the serialized IDs.
@@ -103,65 +96,46 @@ fn compress_roundtrip(
     Ok(array_ctx.to_ids())
 }
 
-/// Only FoR and BitPacking, with every serialized ID allowed, so FoR refines to v2.
-fn for_only() -> BtrBlocksCompressorBuilder {
-    BtrBlocksCompressorBuilder::empty()
-        .with_new_scheme(&FOR_V1)
-        .with_new_scheme(&BITPACKING)
+/// Only BitPacking, with every serialized ID allowed, so it refines to v2.
+fn bitpacking_only() -> BtrBlocksCompressorBuilder {
+    BtrBlocksCompressorBuilder::empty().with_new_scheme(&BITPACKING_V1)
 }
 
+/// v2 produces per-block bit widths even when every block chooses the same width.
 #[rstest]
-#[case::drifting(drifting(), true)]
-#[case::clustered(clustered(), false)]
-fn v2_serializes_varying_references_as_v2(
-    #[case] array: ArrayRef,
-    #[case] expect_v2: bool,
-) -> VortexResult<()> {
-    let ids = compress_roundtrip(for_only(), &array)?;
-    assert!(ids.contains(&for_v1_id()) != expect_v2);
-    assert_eq!(ids.contains(&for_v2_id()), expect_v2);
-    Ok(())
-}
-
-/// FoR is estimated as single-reference FoR, which is conservative for v2. Here one reference needs
-/// 23 bits, as many as plain BitPacking, so FoR is skipped even though per-chunk references would
-/// pack to 7.
-#[test]
-fn estimate_skips_arrays_only_chunk_references_narrow() -> VortexResult<()> {
-    let array = PrimitiveArray::from_iter(
-        (0..8192u32).map(|i| 1_000_000 + (i / 1024) * 1_000_000 + i % 100),
-    )
-    .into_array();
-    let ids = compress_roundtrip(for_only(), &array)?;
-    assert!(!ids.contains(&for_v1_id()));
-    assert!(!ids.contains(&for_v2_id()));
-    Ok(())
-}
-
-#[test]
-fn core_edition_keeps_single_reference() -> VortexResult<()> {
-    let ids = compress_roundtrip(
-        BtrBlocksCompressorBuilder::from_session(&CORE_SESSION),
-        &drifting(),
-    )?;
-    assert!(!ids.contains(&for_v2_id()));
+#[case::drifting(drifting())]
+#[case::uniform(uniform())]
+fn v2_always_serializes_as_v2(#[case] array: ArrayRef) -> VortexResult<()> {
+    let ids = compress_roundtrip(bitpacking_only(), &array)?;
+    assert!(ids.contains(&bitpacked_v2_id()));
     Ok(())
 }
 
 #[test]
 fn nullable_drifting_roundtrip() -> VortexResult<()> {
     let array = PrimitiveArray::from_option_iter(
-        (0..8192i64).map(|i| (i % 7 != 0).then_some(-5_000_000 + (i / 1024) * 1_000_000 + i % 50)),
+        (0..8192u64).map(|i| (i % 7 != 0).then_some(i % (2 << (i / 1024)))),
     )
     .into_array();
-    let ids = compress_roundtrip(for_only(), &array)?;
-    assert!(ids.contains(&for_v2_id()));
+    let ids = compress_roundtrip(bitpacking_only(), &array)?;
+    assert!(ids.contains(&bitpacked_v2_id()));
     Ok(())
 }
 
 #[test]
-fn cuda_preset_keeps_single_reference() -> VortexResult<()> {
-    let ids = compress_roundtrip(for_only().only_cuda_compatible(), &drifting())?;
-    assert!(!ids.contains(&for_v2_id()));
+fn core_edition_keeps_global_width() -> VortexResult<()> {
+    let ids = compress_roundtrip(
+        BtrBlocksCompressorBuilder::from_session(&CORE_SESSION),
+        &drifting(),
+    )?;
+    assert!(!ids.contains(&bitpacked_v2_id()));
+    Ok(())
+}
+
+#[test]
+fn cuda_preset_keeps_global_width() -> VortexResult<()> {
+    let ids = compress_roundtrip(bitpacking_only().only_cuda_compatible(), &drifting())?;
+    assert!(ids.contains(&bitpacked_v1_id()));
+    assert!(!ids.contains(&bitpacked_v2_id()));
     Ok(())
 }

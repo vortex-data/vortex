@@ -5,6 +5,7 @@
 
 use vortex_array::ArrayId;
 use vortex_decimal_byte_parts::decimal_byte_parts_v2_id;
+use vortex_fastlanes::bitpacked_v2_id;
 use vortex_fastlanes::for_v2_id;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_set::HashSet;
@@ -94,9 +95,9 @@ impl CompressionMode {
     fn excluded_encodings(self) -> Vec<ArrayId> {
         match self {
             Self::All | Self::Default | Self::Compact => Vec::new(),
-            // Multi-part DecimalByteParts arrays and FoR arrays with per-chunk references have no
-            // CUDA decode kernel.
-            Self::Cuda => vec![decimal_byte_parts_v2_id(), for_v2_id()],
+            // Multi-part DecimalByteParts arrays, FoR arrays with per-chunk references and
+            // BitPacked arrays with per-block bit widths have no CUDA decode kernel.
+            Self::Cuda => vec![decimal_byte_parts_v2_id(), for_v2_id(), bitpacked_v2_id()],
         }
     }
 }
