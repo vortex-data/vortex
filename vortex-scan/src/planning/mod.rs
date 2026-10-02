@@ -6,6 +6,10 @@
 //! Pending planners can move between workers. Live planners and morsels belong to
 //! their worker; stage-specific phases remain private to those implementations.
 
+pub mod driver;
 pub mod morsel;
 pub mod next;
 pub mod planner;
+
+#[cfg(test)]
+mod tests;
