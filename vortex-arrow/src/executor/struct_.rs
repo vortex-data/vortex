@@ -25,6 +25,7 @@ use vortex_array::matcher::Matcher;
 use vortex_array::scalar_fn::fns::pack::Pack;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 
 use crate::ArrowArrayExecutor;
 use crate::executor::infer_nearest_arrow_field;
@@ -142,11 +143,10 @@ fn create_from_fields(
 ) -> VortexResult<ArrowArrayRef> {
     match fields {
         Ok(fields) => {
-            vortex_ensure!(
-                vortex_fields.len() == fields.len(),
-                "StructArray has {} fields, but target Arrow type has {} fields",
+            vortex_ensure_eq!(
                 vortex_fields.len(),
-                fields.len()
+                fields.len(),
+                "StructArray field count must match the target Arrow type"
             );
 
             let mut arrow_arrays = Vec::with_capacity(vortex_fields.len());

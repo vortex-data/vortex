@@ -62,6 +62,7 @@ use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::ArcSwapMap;
 use vortex_session::SessionExt;
@@ -447,8 +448,9 @@ impl ArrowSession {
                         entries.data_type()
                     );
                 };
-                vortex_ensure!(
-                    fields.len() == 2,
+                vortex_ensure_eq!(
+                    fields.len(),
+                    2,
                     "Arrow map entries struct must contain exactly two fields"
                 );
                 vortex_ensure!(
@@ -507,12 +509,7 @@ impl ArrowSession {
         batch: RecordBatch,
         schema: &Schema,
     ) -> VortexResult<ArrayRef> {
-        vortex_ensure!(
-            batch.num_columns() == schema.fields().len(),
-            "RecordBatch has {} columns but schema has {} fields",
-            batch.num_columns(),
-            schema.fields().len()
-        );
+        vortex_ensure_eq!(batch.num_columns(), schema.fields().len());
         let length = batch.num_rows();
         let names = FieldNames::from_iter(
             schema
@@ -569,8 +566,9 @@ impl ArrowSession {
 
                 match plugin.execute_arrow(current, target_field, ctx)? {
                     ArrowExport::Exported(arrow) => {
-                        vortex_ensure!(
-                            arrow.len() == len,
+                        vortex_ensure_eq!(
+                            arrow.len(),
+                            len,
                             "Arrow array length does not match Vortex array length after conversion to {:?}",
                             arrow
                         );

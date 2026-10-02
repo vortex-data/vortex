@@ -26,7 +26,7 @@ use vortex::error::VortexError;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
-use vortex::error::vortex_ensure;
+use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
@@ -252,7 +252,7 @@ fn try_from_bound_function(
     let expr = match func.scalar_function.name() {
         "strlen" => {
             let children: Vec<_> = func.children().collect();
-            vortex_ensure!(children.len() == 1);
+            vortex_ensure_eq!(children.len(), 1);
             let Some(col) = try_from_expression_inner(children[0], ctx)? else {
                 return Ok(None);
             };
@@ -265,7 +265,7 @@ fn try_from_bound_function(
         }
         "struct_extract" => {
             let children: Vec<_> = func.children().collect();
-            vortex_ensure!(children.len() == 2);
+            vortex_ensure_eq!(children.len(), 2);
             let Some(child) = try_from_expression_inner(children[0], ctx)? else {
                 return Ok(None);
             };
@@ -274,7 +274,7 @@ fn try_from_bound_function(
         }
         like @ ("~~" | "!~~") => {
             let children: Vec<_> = func.children().collect();
-            vortex_ensure!(children.len() == 2);
+            vortex_ensure_eq!(children.len(), 2);
             let Some(string) = try_from_expression_inner(children[0], ctx)? else {
                 return Ok(None);
             };
@@ -289,7 +289,7 @@ fn try_from_bound_function(
         }
         matchers @ ("contains" | "prefix" | "suffix") => {
             let children: Vec<_> = func.children().collect();
-            vortex_ensure!(children.len() == 2);
+            vortex_ensure_eq!(children.len(), 2);
             let Some(value) = try_from_expression_inner(children[0], ctx)? else {
                 return Ok(None);
             };
@@ -318,7 +318,7 @@ fn try_from_bound_function(
         // len/length semantics depend on the return type of underlying expr.
         "len" | "length" => {
             let children: Vec<_> = func.children().collect();
-            vortex_ensure!(children.len() == 1);
+            vortex_ensure_eq!(children.len(), 1);
             let child = children[0];
 
             if returns_a_list(child) {
@@ -649,7 +649,7 @@ fn try_from_expression_inner(
             | DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_IS_NULL
             | DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_IS_NOT_NULL => {
                 let children: Vec<_> = operator.children().collect();
-                vortex_ensure!(children.len() == 1);
+                vortex_ensure_eq!(children.len(), 1);
                 let Some(child) = try_from_expression_inner(children[0], ctx)? else {
                     return Ok(None);
                 };

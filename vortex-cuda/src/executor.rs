@@ -37,6 +37,7 @@ use vortex::dtype::PType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
+use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
 
 use crate::CudaSession;
@@ -397,7 +398,7 @@ pub(crate) async fn execute_validity_cuda(
         return Ok(validity);
     };
 
-    vortex_ensure!(array.len() == len, "validity array length mismatch");
+    vortex_ensure_eq!(array.len(), len, "validity array length mismatch");
     vortex_ensure!(
         matches!(array.dtype(), DType::Bool(Nullability::NonNullable)),
         "validity array must be non-nullable boolean, got {}",

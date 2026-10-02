@@ -41,7 +41,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 
 use crate::executor::bool::to_arrow_bool;
 use crate::executor::byte::to_arrow_byte_array;
@@ -203,8 +203,9 @@ pub(crate) fn execute_arrow_naive(
         }
     }?;
 
-    vortex_ensure!(
-        arrow.len() == len,
+    vortex_ensure_eq!(
+        arrow.len(),
+        len,
         "Arrow array length does not match Vortex array length after conversion to {:?}",
         arrow
     );

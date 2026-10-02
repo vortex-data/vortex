@@ -607,8 +607,9 @@ pub(crate) fn map_from_arrow_parts(
             entries.dtype()
         );
     };
-    vortex_ensure!(
-        struct_dtype.nfields() == 2,
+    vortex_ensure_eq!(
+        struct_dtype.nfields(),
+        2,
         "Arrow map entries struct must contain exactly two fields"
     );
 
@@ -725,7 +726,7 @@ pub fn nulls(nulls: Option<&NullBuffer>, nullable: bool) -> VortexResult<Validit
         vortex_ensure_eq!(
             null_count,
             0,
-            "Cannot convert an Arrow array containing {null_count} nulls into a non-nullable Vortex array"
+            "Cannot convert an Arrow array containing nulls into a non-nullable Vortex array"
         );
         Ok(Validity::NonNullable)
     }
