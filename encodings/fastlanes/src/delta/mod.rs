@@ -10,6 +10,9 @@ pub use array::delta_compress::delta_compress;
 
 mod compute;
 
+#[cfg(test)]
+mod tests;
+
 mod vtable;
 pub use vtable::Delta;
 pub use vtable::DeltaArray;

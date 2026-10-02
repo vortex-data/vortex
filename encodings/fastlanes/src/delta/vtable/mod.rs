@@ -21,7 +21,9 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::serde::ArrayChildren;
+use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
+use vortex_array::vtable::validity_to_child;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -30,6 +32,7 @@ use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::DeltaData;
+use crate::FL_CHUNK_SIZE;
 use crate::delta::array::DeltaArrayExt;
 use crate::delta::array::DeltaArraySlotsExt;
 use crate::delta::array::DeltaSlots;
@@ -89,6 +92,7 @@ impl VTable for Delta {
         validate_parts(
             delta_slots.bases,
             delta_slots.deltas,
+            delta_slots.validity_child,
             data.offset,
             dtype,
             len,
@@ -155,26 +159,37 @@ impl VTable for Delta {
             buffers.len()
         );
         vortex_ensure!(
-            children.len() == 2,
-            "DeltaArray expects 2 children, got {}",
+            children.len() == 2 || children.len() == 3,
+            "DeltaArray expects 2 or 3 children, got {}",
             children.len()
         );
         let metadata = DeltaMetadata::decode(metadata)?;
         let ptype = PType::try_from(dtype)?;
         let lanes = lane_count(ptype);
 
-        // Compute the length of the bases array
         let deltas_len = usize::try_from(metadata.deltas_len)
             .map_err(|_| vortex_err!("deltas_len {} overflowed usize", metadata.deltas_len))?;
-        let num_chunks = deltas_len / 1024;
-        let remainder_base_size = if deltas_len % 1024 > 0 { 1 } else { 0 };
-        let bases_len = num_chunks * lanes + remainder_base_size;
+        vortex_ensure!(
+            deltas_len.is_multiple_of(FL_CHUNK_SIZE),
+            "deltas length must be a multiple of {FL_CHUNK_SIZE}"
+        );
+        let bases_len = deltas_len / FL_CHUNK_SIZE * lanes;
 
-        let bases = children.get(0, dtype, bases_len)?;
-        let deltas = children.get(1, dtype, deltas_len)?;
+        let bases = children.get(0, &dtype.as_nonnullable(), bases_len)?;
+        let deltas = children.get(1, &dtype.as_nonnullable(), deltas_len)?;
+        let validity_child = if children.len() == 3 {
+            Some(children.get(2, &Validity::DTYPE, len)?)
+        } else {
+            None
+        };
 
         let data = DeltaData::try_new(metadata.offset as usize)?;
-        let slots = DeltaSlots { bases, deltas }.into_slots();
+        let slots = DeltaSlots {
+            bases,
+            deltas,
+            validity_child,
+        }
+        .into_slots();
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
@@ -189,15 +204,22 @@ impl VTable for Delta {
 pub struct Delta;
 
 impl Delta {
+    /// Construct Delta from nonnullable numeric children and logical validity.
     pub fn try_new(
         bases: ArrayRef,
         deltas: ArrayRef,
+        validity: Validity,
         offset: usize,
         len: usize,
     ) -> VortexResult<DeltaArray> {
-        let dtype = bases.dtype().with_nullability(deltas.dtype().nullability());
+        let dtype = bases.dtype().with_nullability(validity.nullability());
         let data = DeltaData::try_new(offset)?;
-        let slots = DeltaSlots { bases, deltas }.into_slots();
+        let slots = DeltaSlots {
+            bases,
+            deltas,
+            validity_child: validity_to_child(&validity, len),
+        }
+        .into_slots();
         Array::try_from_parts(ArrayParts::new(Delta, dtype, len, data).with_slots(slots))
     }
 
@@ -208,24 +230,35 @@ impl Delta {
     ) -> VortexResult<DeltaArray> {
         let logical_len = array.len();
         let (bases, deltas) = delta_compress(array, ctx)?;
-        Self::try_new(bases.into_array(), deltas.into_array(), 0, logical_len)
+        Self::try_new(
+            bases.into_array(),
+            deltas.into_array(),
+            array.validity()?,
+            0,
+            logical_len,
+        )
     }
 }
 
 fn validate_parts(
     bases: &ArrayRef,
     deltas: &ArrayRef,
+    validity_child: Option<&ArrayRef>,
     offset: usize,
     dtype: &DType,
     len: usize,
 ) -> VortexResult<()> {
     vortex_ensure!(
-        offset + len <= deltas.len(),
+        offset <= deltas.len() && len <= deltas.len() - offset,
         "offset + len, {offset} + {len}, must be less than or equal to the size of deltas: {}",
         deltas.len()
     );
     vortex_ensure!(
-        bases.dtype().eq_ignore_nullability(deltas.dtype()),
+        !bases.dtype().is_nullable() && !deltas.dtype().is_nullable(),
+        "DeltaArray: bases and deltas must be nonnullable"
+    );
+    vortex_ensure!(
+        bases.dtype() == deltas.dtype(),
         "DeltaArray: bases and deltas must have the same dtype, got {} and {}",
         bases.dtype(),
         deltas.dtype()
@@ -237,11 +270,25 @@ fn validate_parts(
         bases.dtype()
     );
 
-    let expected_dtype = bases.dtype().with_nullability(deltas.dtype().nullability());
+    let expected_dtype = bases.dtype().with_nullability(dtype.nullability());
     vortex_ensure!(
         dtype == &expected_dtype,
         "DeltaArray dtype mismatch: expected {expected_dtype}, got {dtype}"
     );
+    if let Some(validity) = validity_child {
+        vortex_ensure!(
+            dtype.is_nullable(),
+            "DeltaArray: validity requires a nullable dtype"
+        );
+        vortex_ensure!(
+            validity.dtype() == &Validity::DTYPE,
+            "DeltaArray: validity must be nonnullable bool"
+        );
+        vortex_ensure!(
+            validity.len() == len,
+            "DeltaArray: validity length must equal logical length {len}"
+        );
+    }
 
     let lanes = lane_count(bases.dtype().as_ptype());
 
@@ -251,8 +298,8 @@ fn validate_parts(
         deltas.len(),
     );
     vortex_ensure!(
-        bases.len().is_multiple_of(lanes),
-        "bases length ({}) must be a multiple of LANES ({lanes})",
+        bases.len() == deltas.len() / FL_CHUNK_SIZE * lanes,
+        "bases length ({}) must equal the number of chunks times LANES ({lanes})",
         bases.len(),
     );
     Ok(())

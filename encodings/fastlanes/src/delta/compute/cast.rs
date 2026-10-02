@@ -4,7 +4,6 @@
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
-use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability::NonNullable;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
@@ -29,11 +28,22 @@ impl CastReduce for Delta {
             return Ok(None);
         }
 
-        let casted_bases = array.bases().cast(dtype.with_nullability(NonNullable))?;
-        let casted_deltas = array.deltas().cast(dtype.clone())?;
+        let validity = array.validity()?;
+        let validity = if dtype.is_nullable() {
+            validity.into_nullable()
+        } else {
+            validity
+        };
 
         Ok(Some(
-            Delta::try_new(casted_bases, casted_deltas, array.offset(), array.len())?.into_array(),
+            Delta::try_new(
+                array.bases().clone(),
+                array.deltas().clone(),
+                validity,
+                array.offset(),
+                array.len(),
+            )?
+            .into_array(),
         ))
     }
 }
@@ -54,9 +64,11 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
     use vortex_session::VortexSession;
 
     use crate::Delta;
+    use crate::DeltaArraySlotsExt;
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = vortex_array::array_session();
         crate::initialize(&session);
@@ -111,7 +123,6 @@ mod tests {
 
     #[test]
     fn test_cast_delta_add_nullability() -> VortexResult<()> {
-        // Same ptype, only adding nullability — handled by the kernel without decompressing.
         let values = PrimitiveArray::from_iter([10u32, 20, 5, 30, 15]);
         let array = Delta::try_from_primitive_array(&values, &mut SESSION.create_execution_ctx())?;
 
@@ -123,6 +134,11 @@ mod tests {
             casted.dtype(),
             &DType::Primitive(PType::U32, Nullability::Nullable)
         );
+        let reduced = casted
+            .as_opt::<Delta>()
+            .ok_or_else(|| vortex_err!("expected nullability cast to preserve Delta"))?;
+        assert!(!reduced.deltas().dtype().is_nullable());
+        assert!(!reduced.bases().dtype().is_nullable());
         assert_arrays_eq!(
             casted,
             PrimitiveArray::from_option_iter([Some(10u32), Some(20), Some(5), Some(30), Some(15)]),
@@ -133,8 +149,6 @@ mod tests {
 
     #[test]
     fn test_cast_delta_nullability_preserves_nulls() -> VortexResult<()> {
-        // A nullable Delta array carries its validity in the deltas child; a same-ptype
-        // nullability cast must round-trip the null positions.
         let values =
             PrimitiveArray::from_option_iter([Some(10u32), None, Some(30), Some(15), None]);
         let array = Delta::try_from_primitive_array(&values, &mut SESSION.create_execution_ctx())?;
