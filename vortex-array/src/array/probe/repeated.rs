@@ -5,7 +5,6 @@ use std::any::Any;
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -59,10 +58,6 @@ impl RepeatedArrayProbe {
     }
 
     /// Whether the row at `index` is valid, through the retained validity.
-    ///
-    /// The validity slot lives in the encoding's [`RepeatedState`], the same one
-    /// [`ProbeState::is_valid`](crate::ProbeState::is_valid) reaches, so a validity read and a
-    /// scalar read share one resolved validity and one probe over it.
     pub fn execute_is_valid(&mut self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
         check_bounds(&self.array, index)?;
         if !self.array.dtype().is_nullable() {
@@ -83,37 +78,20 @@ impl RepeatedArrayProbe {
     }
 }
 
-/// The validity slot of a [`RepeatedState`]: a nullable array's validity, resolved on first use
-/// and kept between reads.
+/// The resolved validity of a [`RepeatedState`], kept between reads.
 ///
 /// Uniform validity is remembered as a flag; otherwise a probe over the validity array is kept,
 /// so validity reads keep their own preparation like any other child.
-#[derive(Default)]
-enum ValiditySlot {
-    /// Not yet resolved.
-    #[default]
-    Empty,
+enum ResolvedValidity {
     Uniform(bool),
     Array(RepeatedArrayProbe),
 }
 
-impl ValiditySlot {
-    /// Whether row `index` of `array` is valid, resolving the slot on first use.
-    ///
-    /// Matches the slot directly so the per-row check builds nothing with a destructor, which
-    /// would pin the hot path.
+impl ResolvedValidity {
+    /// Whether row `index` is valid.
     #[inline]
-    fn is_valid(
-        &mut self,
-        array: &ArrayRef,
-        index: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<bool> {
-        if matches!(self, Self::Empty) {
-            *self = Self::resolve(array, ctx)?;
-        }
+    fn is_valid(&mut self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
         match self {
-            Self::Empty => unreachable!("validity slot was just resolved"),
             Self::Uniform(valid) => Ok(*valid),
             Self::Array(probe) => is_valid_scalar(probe.execute_scalar(index, ctx)?, index),
         }
@@ -168,7 +146,7 @@ pub(crate) struct RepeatedState<S> {
     /// requested stay empty.
     slots: Vec<Option<RepeatedArrayProbe>>,
     /// The source's validity, resolved on first use.
-    validity: ValiditySlot,
+    validity: Option<ResolvedValidity>,
 }
 
 impl<S: Default> Default for RepeatedState<S> {
@@ -176,7 +154,7 @@ impl<S: Default> Default for RepeatedState<S> {
         Self {
             state: S::default(),
             slots: Vec::new(),
-            validity: ValiditySlot::Empty,
+            validity: None,
         }
     }
 }
@@ -201,7 +179,11 @@ impl<S> RepeatedState<S> {
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<bool> {
-        self.validity.is_valid(array, index, ctx)
+        let validity = match &mut self.validity {
+            Some(validity) => validity,
+            slot @ None => slot.insert(ResolvedValidity::resolve(array, ctx)?),
+        };
+        validity.is_valid(index, ctx)
     }
 }
 
@@ -261,7 +243,7 @@ mod tests {
         check_reads(probe.as_probe(), &mut ctx)?;
 
         let state = repeated_state::<()>(&mut probe.state)?;
-        assert!(matches!(state.validity, ValiditySlot::Array(_)));
+        assert!(matches!(state.validity, Some(ResolvedValidity::Array(_))));
         Ok(())
     }
 
@@ -272,7 +254,10 @@ mod tests {
         let mut probe = array.repeated_probe();
         assert!(probe.execute_is_valid(1, &mut ctx)?);
         let state = repeated_state::<()>(&mut probe.state)?;
-        assert!(matches!(state.validity, ValiditySlot::Uniform(true)));
+        assert!(matches!(
+            state.validity,
+            Some(ResolvedValidity::Uniform(true))
+        ));
         assert_eq!(probe.execute_scalar(1, &mut ctx)?, Scalar::from(Some(2i32)));
         Ok(())
     }
@@ -282,7 +267,8 @@ mod tests {
         let mut ctx = crate::array_session().create_execution_ctx();
         let mut probe = nullable_ints().repeated_probe();
         assert!(!probe.execute_is_valid(1, &mut ctx)?);
-        let ValiditySlot::Array(validity) = &repeated_state::<()>(&mut probe.state)?.validity
+        let Some(ResolvedValidity::Array(validity)) =
+            &repeated_state::<()>(&mut probe.state)?.validity
         else {
             return Err(vortex_err!("validity slot should hold a probe"));
         };
