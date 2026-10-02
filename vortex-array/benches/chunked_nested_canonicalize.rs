@@ -44,10 +44,9 @@ fn canonicalize(bencher: Bencher, chunk: ArrayRef, nchunks: usize) {
 #[divan::bench(args = CHUNKS, consts = [1, 8])]
 fn structs<const FIELDS: usize>(bencher: Bencher, nchunks: usize) {
     let field = PrimitiveArray::from_iter(0..ROWS as u64).into_array();
-    let chunk = StructArray::try_from_iter(
-        (0..FIELDS).map(|idx| (format!("field_{idx}"), field.clone())),
-    )
-    .unwrap();
+    let chunk =
+        StructArray::try_from_iter((0..FIELDS).map(|idx| (format!("field_{idx}"), field.clone())))
+            .unwrap();
     canonicalize(bencher, chunk.into_array(), nchunks);
 }
 

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools as _;
+use num_traits::AsPrimitive;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -84,9 +85,8 @@ pub(super) fn swizzle_fixed_size_list(array: ChunkedArray) -> VortexResult<Array
     // SAFETY: all chunks share the parent's FSL dtype, so their elements share element_dtype
     // and their lengths sum to list_size * array.len(). The parent supplies the combined validity.
     Ok(unsafe {
-        let elements =
-            ChunkedArray::new_unchecked(element_chunks, element_dtype.as_ref().clone())
-                .into_array();
+        let elements = ChunkedArray::new_unchecked(element_chunks, element_dtype.as_ref().clone())
+            .into_array();
         FixedSizeListArray::new_unchecked(elements, *list_size, validity, array.len()).into_array()
     })
 }
@@ -128,72 +128,24 @@ pub(super) fn swizzle_list(array: ChunkedArray, ctx: &mut ExecutionCtx) -> Vorte
         }
         let offsets_out = &mut offsets.as_mut_slice()[row..row + chunk.len()];
         let sizes_out = &mut sizes.as_mut_slice()[row..row + chunk.len()];
-        let (child, start, end, chunk_zero_copy_to_list) = if let Some(list) = chunk.as_opt::<List>() {
-            let chunk_offsets = list.offsets().clone().execute::<PrimitiveArray>(ctx)?;
-            match_each_integer_ptype!(chunk_offsets.ptype(), |O| {
-                for ((out, size), pair) in offsets_out
-                    .iter_mut()
-                    .zip(sizes_out.iter_mut())
-                    .zip(chunk_offsets.as_slice::<O>().windows(2))
-                {
-                    let start = u64::try_from(pair[0])
-                        .vortex_expect("validated list offset is nonnegative");
-                    let end = u64::try_from(pair[1])
-                        .vortex_expect("validated list offset is nonnegative");
-                    *out = start;
-                    *size = end - start;
-                }
-            });
-            let last = chunk.len() - 1;
-            (
-                list.elements().clone(),
-                offsets_out[0],
-                offsets_out[last] + sizes_out[last],
-                true,
-            )
+        let window = if let Some(list) = chunk.as_opt::<List>() {
+            list_window(list, offsets_out, sizes_out, ctx)?
         } else {
-            let list = chunk.as_::<ListView>();
-            let chunk_offsets = list.offsets().clone().execute::<PrimitiveArray>(ctx)?;
-            let chunk_sizes = list.sizes().clone().execute::<PrimitiveArray>(ctx)?;
-            match_each_integer_ptype!(chunk_offsets.ptype(), |O| {
-                for (out, &offset) in offsets_out.iter_mut().zip(chunk_offsets.as_slice::<O>()) {
-                    *out = u64::try_from(offset)
-                        .vortex_expect("validated list offset is nonnegative");
-                }
-            });
-            match_each_integer_ptype!(chunk_sizes.ptype(), |S| {
-                for (out, &size) in sizes_out.iter_mut().zip(chunk_sizes.as_slice::<S>()) {
-                    *out = u64::try_from(size).vortex_expect("validated list size is nonnegative");
-                }
-            });
-            // Exact views bound their window with the first and last row. Other layouts need
-            // both extrema so that overlaps and interior gaps remain unchanged.
-            let (start, end) = if list.is_zero_copy_to_list() {
-                let last = chunk.len() - 1;
-                (offsets_out[0], offsets_out[last] + sizes_out[last])
-            } else {
-                offsets_out.iter().zip(sizes_out.iter()).fold(
-                    (u64::MAX, 0),
-                    |(start, end), (&offset, &size)| (start.min(offset), end.max(offset + size)),
-                )
-            };
-            (
-                list.elements().clone(),
-                start,
-                end,
-                list.is_zero_copy_to_list(),
-            )
+            list_view_window(chunk.as_::<ListView>(), offsets_out, sizes_out, ctx)?
         };
-        let start = usize::try_from(start).vortex_expect("offset is bounded by elements.len()");
-        let end = usize::try_from(end).vortex_expect("view end is bounded by elements.len()");
+
+        let start =
+            usize::try_from(window.start).vortex_expect("offset is bounded by elements.len()");
+        let end =
+            usize::try_from(window.end).vortex_expect("view end is bounded by elements.len()");
         let next_base = element_base
             .checked_add(end - start)
             .ok_or_else(|| vortex_err!("combined list elements length overflow"))?;
         for offset in offsets_out {
             *offset = (*offset - start as u64) + element_base as u64;
         }
-        elements.push(child.slice(start..end)?);
-        zero_copy_to_list &= chunk_zero_copy_to_list;
+        elements.push(window.elements.slice(start..end)?);
+        zero_copy_to_list &= window.zero_copy_to_list;
         element_base = next_base;
         row += chunk.len();
     }
@@ -207,10 +159,91 @@ pub(super) fn swizzle_list(array: ChunkedArray, ctx: &mut ExecutionCtx) -> Vorte
             ChunkedArray::new_unchecked(elements, element_dtype.as_ref().clone()).into_array();
         let offsets =
             PrimitiveArray::new_unchecked(offsets.freeze(), Validity::NonNullable).into_array();
-        let sizes = PrimitiveArray::new_unchecked(sizes.freeze(), Validity::NonNullable).into_array();
+        let sizes =
+            PrimitiveArray::new_unchecked(sizes.freeze(), Validity::NonNullable).into_array();
         ListViewArray::new_unchecked(elements, offsets, sizes, validity)
             .with_zero_copy_to_list(zero_copy_to_list)
             .into_array()
+    })
+}
+
+/// The range of child elements that one list chunk references.
+struct ElementWindow {
+    elements: ArrayRef,
+    start: u64,
+    end: u64,
+    zero_copy_to_list: bool,
+}
+
+/// Writes the `u64` offsets and sizes of a [`List`] chunk and returns its element window.
+fn list_window(
+    list: ArrayView<'_, List>,
+    offsets_out: &mut [u64],
+    sizes_out: &mut [u64],
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ElementWindow> {
+    let chunk_offsets = list.offsets().clone().execute::<PrimitiveArray>(ctx)?;
+    match_each_integer_ptype!(chunk_offsets.ptype(), |O| {
+        for ((out, size), pair) in offsets_out
+            .iter_mut()
+            .zip(sizes_out.iter_mut())
+            .zip(chunk_offsets.as_slice::<O>().windows(2))
+        {
+            let start: u64 = pair[0].as_();
+            let end: u64 = pair[1].as_();
+            *out = start;
+            *size = end - start;
+        }
+    });
+
+    let last = offsets_out.len() - 1;
+    Ok(ElementWindow {
+        elements: list.elements().clone(),
+        start: offsets_out[0],
+        end: offsets_out[last] + sizes_out[last],
+        zero_copy_to_list: true,
+    })
+}
+
+/// Writes the `u64` offsets and sizes of a [`ListView`] chunk and returns its element window.
+fn list_view_window(
+    list: ArrayView<'_, ListView>,
+    offsets_out: &mut [u64],
+    sizes_out: &mut [u64],
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ElementWindow> {
+    let chunk_offsets = list.offsets().clone().execute::<PrimitiveArray>(ctx)?;
+    let chunk_sizes = list.sizes().clone().execute::<PrimitiveArray>(ctx)?;
+    match_each_integer_ptype!(chunk_offsets.ptype(), |O| {
+        for (out, &offset) in offsets_out.iter_mut().zip(chunk_offsets.as_slice::<O>()) {
+            *out = offset.as_();
+        }
+    });
+    match_each_integer_ptype!(chunk_sizes.ptype(), |S| {
+        for (out, &size) in sizes_out.iter_mut().zip(chunk_sizes.as_slice::<S>()) {
+            *out = size.as_();
+        }
+    });
+
+    // Exact views bound their window with the first and last row. Other layouts need
+    // both extrema so that overlaps and interior gaps remain unchanged.
+    let (start, end) = if list.is_zero_copy_to_list() {
+        let last = offsets_out.len() - 1;
+        (offsets_out[0], offsets_out[last] + sizes_out[last])
+    } else {
+        offsets_out
+            .iter()
+            .zip(sizes_out.iter())
+            .fold((u64::MAX, 0), |(start, end), (&offset, &size)| {
+                (start.min(offset), end.max(offset + size))
+            })
+    };
+
+    Ok(ElementWindow {
+        elements: list.elements().clone(),
+        start,
+        end,
+        zero_copy_to_list: list.is_zero_copy_to_list(),
     })
 }
 
