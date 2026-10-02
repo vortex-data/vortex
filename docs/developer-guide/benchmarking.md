@@ -265,7 +265,8 @@ Benchmarks run automatically on all commits to `develop` and can be run on-deman
   that excludes `vortex-compact`, Clickbench Sorted, Appian, statpopgen, FineWeb on S3, TPC-H SF=10
   on S3, and Vortex queries.
 - **SQL Extended** -- `action/bench-sql-extended` runs the `pr-full` preset: every regular SQL
-  benchmark, including `vortex-compact` and DuckDB-format targets.
+  benchmark, including `vortex-compact` and DuckDB-format targets, plus the Westermo metrics
+  suite, which runs only under this label.
 - **SQL Compact** -- `action/bench-sql-compact` runs the `pr-compact` preset, which benchmarks
   `vortex-compact` plus Parquet control rows used to distinguish code changes from runner drift.
 - **All CPU benchmarks** -- `action/bench-all` runs random access, compression, string encoding,
