@@ -63,7 +63,7 @@ impl ArrayOptimizer for ArrayRef {
     }
 
     fn optimize_ctx(&self, session: &VortexSession) -> VortexResult<ArrayRef> {
-        Ok(optimize_owned(self.clone(), Some(session))?.0)
+        Ok(optimize_owned(self.clone(), Some(&session.kernels()))?.0)
     }
 
     fn optimize_recursive(&self, session: &VortexSession) -> VortexResult<ArrayRef> {
@@ -71,14 +71,23 @@ impl ArrayOptimizer for ArrayRef {
     }
 }
 
+/// Optimize `array` against an explicit kernel registry, as [`ArrayOptimizer::optimize_ctx`]
+/// does with the session's registry. The executor calls this with the registry captured in its
+/// [`ExecutionCtx`](crate::ExecutionCtx), skipping the session variable lookup on every rewrite.
+pub(crate) fn optimize_with_kernels(
+    array: &ArrayRef,
+    kernels: &ArrayKernels,
+) -> VortexResult<ArrayRef> {
+    Ok(optimize_owned(array.clone(), Some(kernels))?.0)
+}
+
 fn optimize_owned(
     mut current_array: ArrayRef,
-    session: Option<&VortexSession>,
+    session_kernels: Option<&ArrayKernels>,
 ) -> VortexResult<(ArrayRef, bool)> {
     let mut any_optimizations = false;
-    let session_kernels = session.map(|session| session.kernels());
 
-    trace_op!(record_optimize_start(&current_array, session.is_some()));
+    trace_op!(record_optimize_start(&current_array, session_kernels.is_some()));
 
     for _ in 0..=MAX_OPTIMIZER_REWRITE_PASS {
         trace_op!(record_optimize_loop_start(&current_array));
@@ -100,7 +109,7 @@ fn optimize_owned(
             };
 
             // Session kernels take precedence over the child's static parent-reduce rules.
-            if let Some(session_kernels) = &session_kernels
+            if let Some(session_kernels) = session_kernels
                 && let Some(new_array) =
                     try_session_parent_reduce(session_kernels, &current_array, child, slot_idx)?
             {
@@ -175,7 +184,8 @@ fn try_optimize_recursive(
 ) -> VortexResult<(ArrayRef, bool)> {
     trace_op!(record_optimize_recursive_start(&current_array));
 
-    let (mut current_array, mut any_optimizations) = optimize_owned(current_array, Some(session))?;
+    let (mut current_array, mut any_optimizations) =
+        optimize_owned(current_array, Some(&session.kernels()))?;
 
     let mut new_slots = SmallVec::with_capacity(current_array.slots().len());
     let mut any_slot_optimized = false;
