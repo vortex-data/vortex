@@ -173,7 +173,7 @@ fn aggregates_and_comparisons_keep_decimal_semantics() -> VortexResult<()> {
         4,
     )
     .into_array();
-    assert_arrays_eq!(array.binary(rhs, Operator::Lt)?, buffer![true; 4].into_array(), &mut ctx);
+    assert_arrays_eq!(array.binary(rhs, Operator::Lt)?, BoolArray::from_iter([true; 4]), &mut ctx);
     Ok(())
 }
 

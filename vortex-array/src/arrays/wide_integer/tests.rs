@@ -13,6 +13,7 @@ use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::is_sorted::is_sorted;
 use crate::aggregate_fn::fns::min_max::min_max;
 use crate::array_session;
+use crate::arrays::BoolArray;
 use crate::arrays::Narrow;
 use crate::arrays::NarrowArray;
 use crate::arrays::PrimitiveArray;
@@ -59,7 +60,7 @@ fn test_signed_order_and_full_integer_range(#[case] width: DecimalType) -> Vorte
     let reversed = values.take(buffer![6u32, 5, 4, 3, 2, 1, 0].into_array())?;
     assert_arrays_eq!(
         values.binary(reversed, Operator::Lt)?,
-        buffer![true, true, true, false, false, false, false].into_array(),
+        BoolArray::from_iter([true, true, true, false, false, false, false]),
         &mut ctx
     );
     assert!(is_sorted(&values, &mut ctx)?);

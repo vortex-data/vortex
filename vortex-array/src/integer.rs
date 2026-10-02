@@ -33,6 +33,7 @@ use crate::arrays::WideIntegerEncoding;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 use crate::arrays::narrow::NarrowArraySlotsExt;
+use crate::arrays::narrow::NarrowSlots;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::arrays::wide_integer::WideIntegerArrayExt;
 use crate::buffer::BufferHandle;
@@ -78,7 +79,9 @@ pub(crate) struct IntegerBuffer {
 /// Returns the innermost stored child without materializing or widening it.
 pub(crate) fn storage_child(mut array: &ArrayRef) -> &ArrayRef {
     while let Some(narrow) = array.as_opt::<Narrow>() {
-        array = narrow.values();
+        array = narrow.slots()[NarrowSlots::VALUES]
+            .as_ref()
+            .vortex_expect("Narrow validation requires a values child");
     }
 
     array
@@ -88,10 +91,10 @@ pub(crate) fn storage_child(mut array: &ArrayRef) -> &ArrayRef {
 pub(crate) fn buffer_handle(array: &ArrayRef) -> VortexResult<&BufferHandle> {
     let array = storage_child(array);
     if let Some(primitive) = array.as_opt::<Primitive>() {
-        return Ok(primitive.buffer_handle());
+        return Ok(primitive.data().buffer_handle());
     }
     if let Some(wide) = array.as_opt::<WideIntegerEncoding>() {
-        return Ok(wide.buffer_handle());
+        return Ok(wide.data().buffer_handle());
     }
 
     vortex_bail!(
@@ -138,7 +141,7 @@ pub(crate) fn materialize(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexRes
         .clone()
         .execute::<FixedSizeListArray>(ctx)?;
     let bytes = storage.elements().clone().execute::<PrimitiveArray>(ctx)?;
-    let alignment = match_each_decimal_value_type!(values_type, |T| Alignment::of::<T>());
+    let alignment = match_each_decimal_value_type!(values_type, |T| { Alignment::of::<T>() });
     let values = BufferHandle::new_host(bytes.to_buffer::<u8>().aligned(alignment));
 
     Ok(IntegerBuffer {

@@ -59,6 +59,12 @@ pub struct WideIntegerData {
     pub(super) values_type: DecimalType,
 }
 
+impl WideIntegerData {
+    pub(crate) fn buffer_handle(&self) -> &BufferHandle {
+        &self.values
+    }
+}
+
 impl fmt::Display for WideIntegerData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "values_type: {}", self.values_type)
@@ -130,7 +136,7 @@ impl WideIntegerArray {
             "Expected a whole number of {values_type} values, got {} bytes",
             values.len()
         );
-        let alignment = match_each_decimal_value_type!(values_type, |T| Alignment::of::<T>());
+        let alignment = match_each_decimal_value_type!(values_type, |T| { Alignment::of::<T>() });
         vortex_ensure!(
             values.is_aligned_to(alignment),
             "Expected integer buffer alignment {alignment:?}, got {:?}",

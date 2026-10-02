@@ -63,7 +63,7 @@ impl VTable for WideIntegerEncoding {
             matches!(data.values_type, DecimalType::I128 | DecimalType::I256),
             "Expected wide integer storage"
         );
-        let alignment = match_each_decimal_value_type!(data.values_type, |T| Alignment::of::<T>());
+        let alignment = match_each_decimal_value_type!(data.values_type, |T| { Alignment::of::<T>() });
         vortex_ensure!(
             data.values.is_aligned_to(alignment),
             "Integer storage is not aligned to {alignment:?}"
