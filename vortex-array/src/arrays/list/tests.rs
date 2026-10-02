@@ -389,7 +389,6 @@ fn test_offset_to_0() {
     let mut builder = ListBuilder::<u32>::with_capacity_in(
         Arc::new(I32.into()),
         Nullability::NonNullable,
-        10,
         5,
         vortex_buffer::BufferAllocatorRef::static_ref(),
     );

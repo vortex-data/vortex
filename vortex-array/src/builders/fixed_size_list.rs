@@ -5,7 +5,6 @@ use std::any::Any;
 use std::sync::Arc;
 
 use vortex_buffer::BufferAllocatorRef;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -14,7 +13,9 @@ use vortex_error::vortex_panic;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::ChunkedArray;
+use crate::arrays::FixedSizeList;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 use crate::builders::ArrayBuilder;
@@ -192,7 +193,7 @@ impl FixedSizeListBuilder {
     /// elements builder.
     pub(crate) fn append_fixed_size_list_array(
         &mut self,
-        array: &FixedSizeListArray,
+        array: ArrayView<'_, FixedSizeList>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         if array.is_empty() {
@@ -246,14 +247,16 @@ impl FixedSizeListBuilder {
             "elements length must be equal to the array length times the list size"
         );
 
-        // TODO(connor): Use `new_unchecked` here.
-        FixedSizeListArray::try_new(
-            self.elements_builder.finish(),
-            self.list_size(),
-            self.nulls.finish_with_nullability(self.dtype.nullability()),
-            final_len,
-        )
-        .vortex_expect("tried to create an invalid `FixedSizeListArray` from a builder")
+        // SAFETY: the assert above checks the element count, and every append records one
+        // validity entry per list. The child builder preserves the element dtype.
+        unsafe {
+            FixedSizeListArray::new_unchecked(
+                self.elements_builder.finish(),
+                self.list_size(),
+                self.nulls.finish_with_nullability(self.dtype.nullability()),
+                final_len,
+            )
+        }
     }
 
     /// The [`DType`] of the inner elements. Note that this is **not** the same as the [`DType`] of
@@ -338,6 +341,11 @@ impl ArrayBuilder for FixedSizeListBuilder {
 
     /// This will increase the capacity if extending with this `array` would go past the original
     /// capacity.
+    fn reserve_chunks(&mut self, additional: usize) {
+        self.elements_builder.reserve_chunks(additional);
+        self.nulls.reserve_runs(additional);
+    }
+
     fn reserve_exact(&mut self, additional: usize) {
         self.elements_builder
             .reserve_exact(additional * self.list_size() as usize);

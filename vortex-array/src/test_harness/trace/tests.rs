@@ -588,7 +588,7 @@ fn trace_execution_chunked_append_child_flow() -> VortexResult<()> {
         AppendChild slot=3 parent=vortex.chunked(i32, len=5) child=vortex.primitive(i32, len=2)
         builder append child=vortex.primitive(i32, len=2)
       iter 3 current=vortex.chunked(i32, len=5) builder_active=true
-        Done array=vortex.primitive(i32, len=0)
+        Done array=vortex.chunked(i32, len=5)
         builder finish output=vortex.primitive(i32, len=5)
       iter 4 current=vortex.primitive(i32, len=5) builder_active=false
       return output=vortex.primitive(i32, len=5)

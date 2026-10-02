@@ -9,12 +9,14 @@ use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
+use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::array_session;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
+use crate::arrays::FixedSizeListArray;
 use crate::arrays::ListArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
@@ -22,6 +24,7 @@ use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::dict_test::gen_dict_primitive_chunks;
+use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::arrays::struct_::StructArrayExt;
 use crate::assert_arrays_eq;
 use crate::builders::builder_with_capacity_in;
@@ -165,6 +168,176 @@ fn execute_path_repeated_shared_chunked_dict_execution() {
 
     assert_arrays_eq!(first, expected, &mut ctx);
     assert_arrays_eq!(second, expected, &mut ctx);
+}
+
+#[rstest::rstest]
+#[case(false, 2)]
+#[case(true, 2)]
+#[case(false, 0)]
+#[case(true, 0)]
+fn execute_path_repeated_shared_chunked_fsl(
+    #[case] nested: bool,
+    #[case] list_size: u32,
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let elements = PrimitiveArray::from_iter(0..(2 * list_size)).into_array();
+    let chunk = FixedSizeListArray::new(elements, list_size, Validity::from_iter([true, false]), 2)
+        .into_array();
+    let child = if nested {
+        ChunkedArray::try_new(vec![chunk.clone()], chunk.dtype().clone())?.into_array()
+    } else {
+        chunk.clone()
+    };
+    let array =
+        ChunkedArray::try_new(vec![child.clone(), child], chunk.dtype().clone())?.into_array();
+    let expected = FixedSizeListArray::new(
+        PrimitiveArray::from_iter((0..(2 * list_size)).chain(0..(2 * list_size))).into_array(),
+        list_size,
+        Validity::from_iter([true, false, true, false]),
+        4,
+    );
+
+    for _ in 0..2 {
+        let output = array.clone().execute::<Canonical>(&mut ctx)?.into_array();
+        assert_arrays_eq!(output, expected.clone(), &mut ctx);
+        assert_arrays_eq!(
+            array.as_::<Chunked>().chunk(0).clone(),
+            chunk.clone(),
+            &mut ctx
+        );
+        assert_arrays_eq!(
+            array.as_::<Chunked>().chunk(1).clone(),
+            chunk.clone(),
+            &mut ctx
+        );
+    }
+    Ok(())
+}
+
+#[rstest::rstest]
+#[case(false, 0)]
+#[case(true, 0)]
+#[case(false, 2)]
+#[case(true, 2)]
+fn swizzle_shared_structs(#[case] nested: bool, #[case] nfields: usize) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let field = buffer![10u64, 20].into_array();
+    let names = (0..nfields).map(|idx| format!("field_{idx}")).collect();
+    let chunk = StructArray::try_new(
+        names,
+        std::iter::repeat_n(field.clone(), nfields),
+        2,
+        Validity::from_iter([true, false]),
+    )?;
+    let expected = StructArray::try_new(
+        chunk.names().clone(),
+        std::iter::repeat_n(buffer![10u64, 20, 10, 20].into_array(), nfields),
+        4,
+        Validity::from_iter([true, false, true, false]),
+    )?;
+    let child = if nested {
+        ChunkedArray::try_new(vec![chunk.clone().into_array()], chunk.dtype().clone())?.into_array()
+    } else {
+        chunk.clone().into_array()
+    };
+    let array =
+        ChunkedArray::try_new(vec![child.clone(), child], chunk.dtype().clone())?.into_array();
+
+    for _ in 0..2 {
+        let output = array.clone().execute::<StructArray>(&mut ctx)?;
+        if !nested {
+            for idx in 0..nfields {
+                assert!(ArrayRef::ptr_eq(
+                    output.unmasked_field(idx).as_::<Chunked>().chunk(0),
+                    &field,
+                ));
+            }
+        }
+        assert_arrays_eq!(output, expected.clone(), &mut ctx);
+    }
+    Ok(())
+}
+
+#[rstest::rstest]
+#[case(false, false, false)]
+#[case(true, false, false)]
+#[case(false, true, false)]
+#[case(true, true, false)]
+#[case(false, true, true)]
+#[case(true, true, true)]
+fn swizzle_shared_lists(
+    #[case] nested: bool,
+    #[case] views: bool,
+    #[case] overlapping: bool,
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let validity = Validity::from_iter([true, false, true]);
+    let chunk = if overlapping {
+        ListViewArray::new(
+            buffer![99i32, 10, 11, 12, 88].into_array(),
+            buffer![2i64, 2, 1].into_array(),
+            buffer![2i16, 1, 2].into_array(),
+            validity,
+        )
+        .into_array()
+    } else if views {
+        let view = ListViewArray::new(
+            buffer![99i32, 11, 12, 42, 10, 11, 88].into_array(),
+            buffer![1u32, 3, 4].into_array(),
+            buffer![2u16, 1, 2].into_array(),
+            validity,
+        );
+        // SAFETY: the views are contiguous and non-overlapping, with unreferenced ends.
+        unsafe { view.with_zero_copy_to_list(true) }.into_array()
+    } else {
+        ListArray::try_new(
+            buffer![99i32, 11, 12, 42, 10, 11, 88].into_array(),
+            buffer![1i32, 3, 4, 6].into_array(),
+            validity,
+        )?
+        .into_array()
+    };
+    let child = if nested {
+        ChunkedArray::try_new(vec![chunk.clone()], chunk.dtype().clone())?.into_array()
+    } else {
+        chunk.clone()
+    };
+    let array =
+        ChunkedArray::try_new(vec![child.clone(), child], chunk.dtype().clone())?.into_array();
+    let expected = ListArray::try_new(
+        buffer![11i32, 12, 0, 10, 11, 11, 12, 0, 10, 11].into_array(),
+        buffer![0u64, 2, 3, 5, 7, 8, 10].into_array(),
+        Validity::from_iter([true, false, true, true, false, true]),
+    )?;
+
+    for _ in 0..2 {
+        let output = array.clone().execute::<ListViewArray>(&mut ctx)?;
+        assert_eq!(output.elements().len(), if overlapping { 6 } else { 10 });
+        assert_eq!(output.is_zero_copy_to_list(), !overlapping);
+        assert_arrays_eq!(output, expected.clone(), &mut ctx);
+    }
+    Ok(())
+}
+
+#[test]
+fn swizzle_empty_list_rows() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let chunk = ListArray::try_new(
+        buffer![1u64, 2, 3].into_array(),
+        buffer![2u32, 2, 2].into_array(),
+        Validity::from_iter([true, false]),
+    )?
+    .into_array();
+    let array = ChunkedArray::try_new(vec![chunk.clone(), chunk.clone()], chunk.dtype().clone())?;
+    let output = array.into_array().execute::<ListViewArray>(&mut ctx)?;
+    let expected = ListArray::try_new(
+        Buffer::<u64>::empty().into_array(),
+        buffer![0u32, 0, 0, 0, 0].into_array(),
+        Validity::from_iter([true, false, true, false]),
+    )?;
+    assert!(output.elements().is_empty());
+    assert_arrays_eq!(output, expected, &mut ctx);
+    Ok(())
 }
 
 #[test]

@@ -11,6 +11,8 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::ExecutionCtx;
+use crate::array::TypedArrayRef;
+use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::Ref;
 use crate::builders::VarBinViewBuilder;
@@ -63,6 +65,41 @@ impl VarBinViewArray {
         Ok((bytes_referenced as f64 / buffer_total_bytes as f64) < DEFAULT_COMPACTION_THRESHOLD)
     }
 
+    /// Returns a compacted copy of the input array using selective buffer compaction.
+    ///
+    /// This method analyzes each buffer's utilization and applies one of three strategies:
+    /// - **KeepFull** (zero-copy): Well-utilized buffers are kept unchanged
+    /// - **Slice** (zero-copy): Buffers with contiguous ranges of used data are sliced to that range
+    /// - **Rewrite**: Poorly-utilized buffers have their data copied to new compact buffers
+    ///
+    /// By preserving or slicing well-utilized buffers, compaction becomes zero-copy in many cases.
+    ///
+    /// # Arguments
+    ///
+    /// * `buffer_utilization_threshold` - Threshold in range [0, 1]. Buffers with utilization
+    ///   below this value will be compacted. Use 0.0 for no compaction, 1.0 for aggressive
+    ///   compaction of any buffer with wasted space.
+    pub fn compact_with_threshold(
+        &self,
+        buffer_utilization_threshold: f64, // [0, 1]
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<VarBinViewArray> {
+        let mut builder = VarBinViewBuilder::with_compaction_in(
+            self.dtype().clone(),
+            self.len(),
+            buffer_utilization_threshold,
+            ctx.allocator().clone(),
+        );
+        builder.append_varbinview_array(self.as_view(), ctx)?;
+        Ok(builder.finish_into_varbinview())
+    }
+}
+
+/// Read-only compaction statistics over a `VarBinView` array.
+///
+/// These live on a trait rather than on [`VarBinViewArray`] so that a borrowed
+/// [`ArrayView`](crate::array::ArrayView) can ask for them without cloning the array behind it.
+pub(crate) trait VarBinViewCompactExt: TypedArrayRef<VarBinView> {
     /// Iterates over all valid, non-inlined views, calling the provided
     /// closure for each one.
     #[allow(clippy::inline_always)]
@@ -103,10 +140,7 @@ impl VarBinViewArray {
         Ok(total)
     }
 
-    pub(crate) fn buffer_utilizations(
-        &self,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Vec<BufferUtilization>> {
+    fn buffer_utilizations(&self, ctx: &mut ExecutionCtx) -> VortexResult<Vec<BufferUtilization>> {
         let mut utilizations: Vec<BufferUtilization> = self
             .data_buffers()
             .iter()
@@ -122,36 +156,9 @@ impl VarBinViewArray {
 
         Ok(utilizations)
     }
-
-    /// Returns a compacted copy of the input array using selective buffer compaction.
-    ///
-    /// This method analyzes each buffer's utilization and applies one of three strategies:
-    /// - **KeepFull** (zero-copy): Well-utilized buffers are kept unchanged
-    /// - **Slice** (zero-copy): Buffers with contiguous ranges of used data are sliced to that range
-    /// - **Rewrite**: Poorly-utilized buffers have their data copied to new compact buffers
-    ///
-    /// By preserving or slicing well-utilized buffers, compaction becomes zero-copy in many cases.
-    ///
-    /// # Arguments
-    ///
-    /// * `buffer_utilization_threshold` - Threshold in range [0, 1]. Buffers with utilization
-    ///   below this value will be compacted. Use 0.0 for no compaction, 1.0 for aggressive
-    ///   compaction of any buffer with wasted space.
-    pub fn compact_with_threshold(
-        &self,
-        buffer_utilization_threshold: f64, // [0, 1]
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<VarBinViewArray> {
-        let mut builder = VarBinViewBuilder::with_compaction_in(
-            self.dtype().clone(),
-            self.len(),
-            buffer_utilization_threshold,
-            ctx.allocator().clone(),
-        );
-        builder.append_varbinview_array(self, ctx)?;
-        Ok(builder.finish_into_varbinview())
-    }
 }
+
+impl<T: TypedArrayRef<VarBinView>> VarBinViewCompactExt for T {}
 
 pub(crate) struct BufferUtilization {
     len: u32,
@@ -204,6 +211,7 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
 
+    use super::VarBinViewCompactExt;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::array_session;

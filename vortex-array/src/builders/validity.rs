@@ -77,7 +77,24 @@ impl ValidityBuilder {
 
         self.flush_pending();
         self.runs_len += len;
+
+        if let Some((last, last_len)) = self.runs.last_mut()
+            && !matches!(last, Validity::Array(_))
+            && std::mem::discriminant(last) == std::mem::discriminant(&validity)
+        {
+            *last_len += len;
+            return;
+        }
+
         self.runs.push((validity, len));
+    }
+
+    /// Reserves room for `additional` more runs.
+    ///
+    /// See [`ArrayBuilder::reserve_chunks`](crate::builders::ArrayBuilder::reserve_chunks); a
+    /// nested builder records one run per appended array.
+    pub fn reserve_runs(&mut self, additional: usize) {
+        self.runs.reserve(additional);
     }
 
     /// Allocates space for `additional` more bits in the null buffer.
@@ -116,7 +133,6 @@ impl ValidityBuilder {
         }
         validity
     }
-
     /// Moves whatever the null buffer holds into `runs`, keeping the runs in logical order.
     fn flush_pending(&mut self) {
         let len = self.pending.len();
