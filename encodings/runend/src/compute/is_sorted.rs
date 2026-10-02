@@ -19,7 +19,8 @@ use crate::array::RunEndArraySlotsExt;
 /// RunEnd-specific is_sorted kernel.
 ///
 /// Non-strict: values array sorted implies the run-end array is sorted.
-/// Strict: must canonicalize since runs repeat values.
+/// Strict: a run longer than one row repeats its value, so the array is not strictly sorted;
+/// otherwise canonicalize.
 #[derive(Debug)]
 pub(crate) struct RunEndIsSortedKernel;
 
@@ -39,8 +40,11 @@ impl DynAggregateKernel for RunEndIsSortedKernel {
         };
 
         let result = if options.strict {
-            // Strict sort with run-end encoding means we need to canonicalize
-            // since run-end encoding repeats values.
+            // Fewer runs than rows means some run repeats a value, which is never strictly sorted.
+            if array.values().len() < batch.len() {
+                return Ok(Some(IsSorted::make_partial(batch, false, true, ctx)?));
+            }
+            // Otherwise canonicalize, since the runs themselves are not checked here.
             is_strict_sorted(
                 &array
                     .array()
@@ -59,5 +63,36 @@ impl DynAggregateKernel for RunEndIsSortedKernel {
             options.strict,
             ctx,
         )?))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::fns::is_sorted::is_sorted;
+    use vortex_array::aggregate_fn::fns::is_sorted::is_strict_sorted;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_error::VortexResult;
+
+    use crate::RunEnd;
+    use crate::tests::SESSION;
+
+    #[rstest]
+    #[case::repeated_run(PrimitiveArray::from_iter([1i32, 1, 2, 3]), true, false)]
+    #[case::single_rows(PrimitiveArray::from_iter([1i32, 2, 3]), true, true)]
+    #[case::unsorted(PrimitiveArray::from_iter([3i32, 3, 1]), false, false)]
+    #[case::repeated_nulls(PrimitiveArray::from_option_iter([None, None, Some(1i32)]), true, false)]
+    fn runend_is_sorted(
+        #[case] values: PrimitiveArray,
+        #[case] sorted: bool,
+        #[case] strict: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let array = RunEnd::encode(values.into_array(), &mut ctx)?.into_array();
+        assert_eq!(is_sorted(&array, &mut ctx)?, sorted);
+        assert_eq!(is_strict_sorted(&array, &mut ctx)?, strict);
+        Ok(())
     }
 }
