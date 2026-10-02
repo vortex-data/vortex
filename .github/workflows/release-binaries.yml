@@ -1,14 +1,64 @@
 name: Release Binaries
 
 on:
-  release:
-    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag of the existing draft release (e.g., 0.62.0)"
+        required: true
+        type: string
+      commit:
+        description: "Commit SHA to release; an existing tag must point to this commit"
+        required: true
+        type: string
+
+concurrency:
+  group: release-binaries-${{ inputs.tag }}
+  cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    outputs:
+      sha: ${{ steps.prepare.outputs.sha }}
+      release-id: ${{ steps.prepare.outputs.release-id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          ref: ${{ inputs.commit }}
+          fetch-depth: 0
+      - name: Validate draft and pin release tag
+        id: prepare
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_COMMIT: ${{ inputs.commit }}
+        run: |
+          [[ "$RELEASE_COMMIT" =~ ^[0-9a-fA-F]{40}$ ]] || { echo "Provide a full commit SHA" >&2; exit 1; }
+          git check-ref-format "refs/tags/$RELEASE_TAG"
+          sha=$(git rev-parse HEAD)
+          release=$(gh release view "$RELEASE_TAG" --json databaseId,isDraft,tagName)
+          jq -e --arg tag "$RELEASE_TAG" '.isDraft and .tagName == $tag' <<< "$release"
+          if git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
+            [[ $(git rev-parse "refs/tags/$RELEASE_TAG^{commit}") == "$sha" ]] || {
+              echo "Release tag points to a different commit" >&2
+              exit 1
+            }
+          else
+            gh api "repos/$GITHUB_REPOSITORY/git/refs" -X POST \
+              -f ref="refs/tags/$RELEASE_TAG" -f sha="$sha"
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "release-id=$(jq -r .databaseId <<< "$release")" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: prepare
     name: Build ${{ matrix.target }}
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
@@ -38,6 +88,10 @@ jobs:
             runner: runs-on=${{ github.run_id }}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=release-vx-amd64-linux
             fallback_runner: ubuntu-24.04
             archive: tgz
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
+            fallback_runner: windows-latest
+            archive: zip
     steps:
       - uses: runs-on/action@v2
         if: github.repository == 'vortex-data/vortex' && contains(matrix.target, 'linux')
@@ -46,6 +100,7 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
+          ref: ${{ needs.prepare.outputs.sha }}
           fetch-depth: 0
 
       - uses: ./.github/actions/setup-rust
@@ -68,8 +123,8 @@ jobs:
         if: contains(matrix.target, 'linux')
         run: cargo zigbuild --release --package vortex-tui --bin vx --target ${{ matrix.target }}.2.31
 
-      - name: Build release binary (macOS)
-        if: contains(matrix.target, 'apple-darwin')
+      - name: Build release binary (macOS and Windows)
+        if: runner.os != 'Linux'
         run: cargo build --release --package vortex-tui --bin vx --target ${{ matrix.target }}
 
       - name: Create archive (tgz)
@@ -80,11 +135,64 @@ jobs:
 
       - name: Create archive (zip)
         if: matrix.archive == 'zip'
+        shell: pwsh
         run: |
-          cd target/${{ matrix.target }}/release
-          zip ../../../vx-${{ matrix.target }}.zip vx.exe
+          Compress-Archive -Path target/${{ matrix.target }}/release/vx.exe -DestinationPath vx-${{ matrix.target }}.zip
 
-      - name: Upload release asset
-        run: gh release upload "${{ github.event.release.tag_name }}" vx-${{ matrix.target }}.${{ matrix.archive == 'tgz' && 'tar.gz' || 'zip' }}
+      - name: Stage release asset
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        with:
+          name: vx-${{ matrix.target }}
+          path: vx-${{ matrix.target }}.${{ matrix.archive == 'tgz' && 'tar.gz' || 'zip' }}
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true
+
+  upload:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8
+        with:
+          pattern: vx-*
+          path: dist/
+          merge-multiple: true
+      - name: Attach binaries to draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_ID: ${{ needs.prepare.outputs.release-id }}
+          RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
+        run: |
+          release=$(gh release view "$RELEASE_TAG" --json databaseId,isDraft,tagName)
+          jq -e --argjson id "$RELEASE_ID" --arg tag "$RELEASE_TAG" \
+            '.isDraft and .databaseId == $id and .tagName == $tag' <<< "$release"
+          git fetch --force origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          [[ $(git rev-parse "refs/tags/$RELEASE_TAG^{commit}") == "$RELEASE_SHA" ]] || {
+            echo "Release tag changed during the build" >&2
+            exit 1
+          }
+          assets=(
+            dist/vx-aarch64-apple-darwin.tar.gz
+            dist/vx-x86_64-apple-darwin.tar.gz
+            dist/vx-aarch64-unknown-linux-gnu.tar.gz
+            dist/vx-x86_64-unknown-linux-gnu.tar.gz
+            dist/vx-x86_64-pc-windows-msvc.zip
+          )
+          for asset in "${assets[@]}"; do
+            test -s "$asset"
+          done
+          # Retries may replace assets while the release is still a draft.
+          gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
+          {
+            echo "All five binaries are attached to the draft release."
+            echo "Review and publish it at https://github.com/$GITHUB_REPOSITORY/releases."
+            echo "Publication locks the assets when release immutability is enabled and starts package publishing."
+          } >> "$GITHUB_STEP_SUMMARY"
