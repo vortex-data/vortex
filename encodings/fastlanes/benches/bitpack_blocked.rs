@@ -2,13 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Benchmarks `bitpack_encode_blocked`, which packs every 1024-value block at its own bit width.
-//!
-//! Every value fits its block's width and none is null, so no patches are gathered and the
-//! benchmark measures the packing kernel. It carries `#[cpu_features]`, so it is measured on each
-//! walltime CPU-feature leg rather than in simulation: the packing loops are auto-vectorized, so
-//! the build decides their speed.
-//!
-//! Run with `cargo bench -p vortex-fastlanes --bench bitpack_blocked`.
 
 #![expect(clippy::unwrap_used)]
 
