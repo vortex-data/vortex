@@ -120,9 +120,6 @@ fn pack_variant_chunks(
         }
         Some(first_shredded) => {
             let shredded_dtype = first_shredded.dtype().clone();
-            let mut shredded_chunks = Vec::with_capacity(variant_chunks.len());
-            shredded_chunks.push(first_shredded.clone());
-
             for chunk in &variant_chunks[1..] {
                 let shredded = chunk.shredded().ok_or_else(|| {
                     vortex_err!(
@@ -135,9 +132,14 @@ fn pack_variant_chunks(
                     shredded_dtype,
                     shredded.dtype()
                 );
-                shredded_chunks.push(shredded.clone());
             }
 
+            let shredded_chunks = variant_chunks.iter().map(|chunk| {
+                chunk
+                    .shredded()
+                    .vortex_expect("validated shredded presence")
+                    .clone()
+            });
             Some(ChunkedArray::try_new(shredded_chunks, shredded_dtype)?.into_array())
         }
     };
@@ -170,7 +172,6 @@ fn swizzle_list_chunks(
     // Since each list array in `chunks` has offsets local to each array, we can reuse the existing
     // array's child `elements` as the chunks and recompute offsets.
 
-    let mut list_elements_chunks = Vec::with_capacity(chunks.len());
     let mut num_elements = 0;
 
     // TODO(connor)[ListView]: We could potentially choose a smaller type here, but that would make
@@ -184,48 +185,48 @@ fn swizzle_list_chunks(
     let sizes_slice_out = sizes.as_mut_slice();
     let mut next_list = 0usize;
 
-    for chunk in chunks {
-        let chunk_array = chunk.clone().execute::<ListViewArray>(ctx)?;
-        // By rebuilding as zero-copy to `List` and trimming all elements (to prevent gaps), we make
-        // the final output `ListView` also zero-copyable to `List`.
-        let chunk_array = chunk_array.rebuild(ListViewRebuildMode::MakeExact, ctx)?;
+    let element_chunks = chunks
+        .iter()
+        .map(|chunk| -> VortexResult<_> {
+            let chunk_array = chunk.clone().execute::<ListViewArray>(ctx)?;
+            // By rebuilding as zero-copy to `List` and trimming all elements (to prevent gaps), we make
+            // the final output `ListView` also zero-copyable to `List`.
+            let chunk_array = chunk_array.rebuild(ListViewRebuildMode::MakeExact, ctx)?;
 
-        // Add the `elements` of the current array as a new chunk.
-        list_elements_chunks.push(chunk_array.elements().clone());
+            // Cast offsets and sizes to `u64`.
+            let offsets_arr = chunk_array
+                .offsets()
+                .clone()
+                .cast(DType::Primitive(PType::U64, Nullability::NonNullable))
+                .vortex_expect("Must be able to fit array offsets in u64")
+                .execute::<PrimitiveArray>(ctx)?;
 
-        // Cast offsets and sizes to `u64`.
-        let offsets_arr = chunk_array
-            .offsets()
-            .clone()
-            .cast(DType::Primitive(PType::U64, Nullability::NonNullable))
-            .vortex_expect("Must be able to fit array offsets in u64")
-            .execute::<PrimitiveArray>(ctx)?;
+            let sizes_arr = chunk_array
+                .sizes()
+                .clone()
+                .cast(DType::Primitive(PType::U64, Nullability::NonNullable))
+                .vortex_expect("Must be able to fit array offsets in u64")
+                .execute::<PrimitiveArray>(ctx)?;
 
-        let sizes_arr = chunk_array
-            .sizes()
-            .clone()
-            .cast(DType::Primitive(PType::U64, Nullability::NonNullable))
-            .vortex_expect("Must be able to fit array offsets in u64")
-            .execute::<PrimitiveArray>(ctx)?;
+            let offsets_slice = offsets_arr.as_slice::<u64>();
+            let sizes_slice = sizes_arr.as_slice::<u64>();
 
-        let offsets_slice = offsets_arr.as_slice::<u64>();
-        let sizes_slice = sizes_arr.as_slice::<u64>();
+            // Append offsets and sizes, adjusting offsets to point into the combined array.
+            for (&offset, &size) in offsets_slice.iter().zip(sizes_slice.iter()) {
+                offsets_out[next_list] = offset + num_elements;
+                sizes_slice_out[next_list] = size;
+                next_list += 1;
+            }
 
-        // Append offsets and sizes, adjusting offsets to point into the combined array.
-        for (&offset, &size) in offsets_slice.iter().zip(sizes_slice.iter()) {
-            offsets_out[next_list] = offset + num_elements;
-            sizes_slice_out[next_list] = size;
-            next_list += 1;
-        }
-
-        num_elements += chunk_array.elements().len() as u64;
-    }
+            num_elements += chunk_array.elements().len() as u64;
+            Ok(chunk_array.elements().clone())
+        });
+    let chunked_elements = element_chunks.process_results(|elements| {
+        // SAFETY: elements come from valid ListView arrays with the same element dtype.
+        unsafe { ChunkedArray::new_unchecked_sized(elements, elem_dtype.clone(), chunks.len()) }
+            .into_array()
+    })?;
     debug_assert_eq!(next_list, len);
-
-    // SAFETY: elements are sliced from valid `ListViewArray`s (from `to_listview()`).
-    let chunked_elements =
-        unsafe { ChunkedArray::new_unchecked(list_elements_chunks, elem_dtype.clone()) }
-            .into_array();
 
     let offsets = PrimitiveArray::new(offsets.freeze(), Validity::NonNullable).into_array();
     let sizes = PrimitiveArray::new(sizes.freeze(), Validity::NonNullable).into_array();
@@ -260,16 +261,20 @@ fn swizzle_fixed_size_list_chunks(
 ) -> VortexResult<FixedSizeListArray> {
     let len: usize = chunks.iter().map(|c| c.len()).sum();
 
-    let mut element_chunks = Vec::with_capacity(chunks.len());
-    for chunk in chunks {
-        let chunk_array = chunk.clone().execute::<FixedSizeListArray>(ctx)?;
-        // A canonical `FixedSizeListArray` keeps its `elements` child trimmed to exactly
-        // `list_size * chunk.len()` starting at the first list, so the children concatenate
-        // cleanly into the combined `elements` array.
-        element_chunks.push(chunk_array.elements().clone());
-    }
-
-    let chunked_elements = ChunkedArray::try_new(element_chunks, elem_dtype.clone())?.into_array();
+    let element_chunks = chunks
+        .iter()
+        .map(|chunk| -> VortexResult<_> {
+            let chunk_array = chunk.clone().execute::<FixedSizeListArray>(ctx)?;
+            // A canonical `FixedSizeListArray` keeps its `elements` child trimmed to exactly
+            // `list_size * chunk.len()` starting at the first list, so the children concatenate
+            // cleanly into the combined `elements` array.
+            Ok(chunk_array.elements().clone())
+        });
+    let chunked_elements = element_chunks.process_results(|elements| {
+        // SAFETY: every fixed-size-list chunk has the same element dtype.
+        unsafe { ChunkedArray::new_unchecked_sized(elements, elem_dtype.clone(), chunks.len()) }
+            .into_array()
+    })?;
 
     FixedSizeListArray::try_new(chunked_elements, list_size, validity, len)
 }

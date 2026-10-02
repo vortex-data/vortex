@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use itertools::Itertools;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
@@ -177,20 +178,22 @@ fn merge_typed_as_variant(
     let dtype = DType::Variant(Nullability::Nullable);
     // TODO(variant): replace this with a Variant builder once one exists.
     // Chunked<Variant> canonicalizes to VariantArray, so this row-wise fallback is safe.
-    let mut chunks = Vec::with_capacity(typed.len());
+    let chunks = (0..typed.len())
+        .map(|idx| -> VortexResult<_> {
+            let typed_scalar = typed.execute_scalar(idx, ctx)?;
+            let fallback_scalar = fallback
+                .as_ref()
+                .map(|fallback| fallback.execute_scalar(idx, ctx))
+                .transpose()?;
+            let scalar = merge_typed_scalar_as_variant(typed_scalar, fallback_scalar, &dtype)?;
 
-    for idx in 0..typed.len() {
-        let typed_scalar = typed.execute_scalar(idx, ctx)?;
-        let fallback_scalar = fallback
-            .as_ref()
-            .map(|fallback| fallback.execute_scalar(idx, ctx))
-            .transpose()?;
-        let scalar = merge_typed_scalar_as_variant(typed_scalar, fallback_scalar, &dtype)?;
-
-        chunks.push(ConstantArray::new(scalar, 1).into_array());
-    }
-
-    let core_storage = ChunkedArray::try_new(chunks, dtype)?.into_array();
+            Ok(ConstantArray::new(scalar, 1).into_array())
+        });
+    let core_storage = chunks.process_results(|chunks| {
+        // SAFETY: each output scalar is constructed with the requested variant dtype.
+        unsafe { ChunkedArray::new_unchecked_sized(chunks, dtype.clone(), typed.len()) }
+            .into_array()
+    })?;
     VariantArray::try_new(core_storage, None).map(|array| array.into_array())
 }
 

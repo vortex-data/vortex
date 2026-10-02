@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use itertools::Itertools;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -30,17 +31,23 @@ impl ZipKernel for Chunked {
         let dtype = if_true
             .dtype()
             .union_nullability(if_false.dtype().nullability());
-        let mut out_chunks = Vec::with_capacity(if_true.nchunks() + if_false.nchunks());
-
-        for pair in if_true.paired_chunks(&if_false) {
-            let pair = pair?;
-            let mask_slice = mask.slice(pair.pos)?;
-            out_chunks.push(mask_slice.zip(pair.left, pair.right)?);
-        }
-
-        // SAFETY: chunks originate from zipping slices of inputs that share dtype/nullability.
-        let chunked = unsafe { ChunkedArray::new_unchecked(out_chunks, dtype) };
-        Ok(Some(chunked.into_array()))
+        let chunks = if_true
+            .paired_chunks(&if_false)
+            .map(|pair| {
+                let pair = pair?;
+                mask.slice(pair.pos)?.zip(pair.left, pair.right)
+            });
+        chunks.process_results(|chunks| {
+            // SAFETY: chunks originate from zipping slices of inputs that share dtype/nullability.
+            Some(unsafe {
+                ChunkedArray::new_unchecked_sized(
+                    chunks,
+                    dtype,
+                    if_true.nchunks() + if_false.nchunks(),
+                )
+                .into_array()
+            })
+        })
     }
 }
 

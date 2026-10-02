@@ -386,7 +386,7 @@ fn tile_fixed_size_list_elements(
             // SAFETY: every chunk is `tile` itself, so they share its dtype and none is empty.
             unsafe {
                 ChunkedArray::new_unchecked(
-                    std::iter::repeat_n(tile, len).collect::<Vec<_>>(),
+                    std::iter::repeat_n(tile, len),
                     element_dtype.clone(),
                 )
             }

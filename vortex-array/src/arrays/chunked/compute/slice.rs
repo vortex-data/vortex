@@ -3,7 +3,6 @@
 
 use std::ops::Range;
 
-use itertools::Itertools;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -32,7 +31,7 @@ impl SliceKernel for Chunked {
             // SAFETY: empty chunked array trivially satisfies all validations
             unsafe {
                 return Ok(Some(
-                    ChunkedArray::new_unchecked(vec![], array.dtype().clone()).into_array(),
+                    ChunkedArray::new_unchecked([], array.dtype().clone()).into_array(),
                 ));
             }
         }
@@ -47,18 +46,15 @@ impl SliceKernel for Chunked {
             ));
         }
 
-        let mut chunks = (offset_chunk..length_chunk + 1)
-            .map(|i| array.chunk(i).clone())
-            .collect_vec();
-        if let Some(c) = chunks.first_mut() {
-            *c = c.slice(offset_in_first_chunk..c.len())?;
-        }
-
-        if length_in_last_chunk == 0 {
-            chunks.pop();
-        } else if let Some(c) = chunks.last_mut() {
-            *c = c.slice(0..length_in_last_chunk)?;
-        }
+        let first = array.chunk(offset_chunk);
+        let first = first.slice(offset_in_first_chunk..first.len())?;
+        let middle = (offset_chunk + 1..length_chunk).map(|i| array.chunk(i).clone());
+        let last = if length_in_last_chunk == 0 {
+            None
+        } else {
+            Some(array.chunk(length_chunk).slice(0..length_in_last_chunk)?)
+        };
+        let chunks = std::iter::once(first).chain(middle).chain(last);
 
         // SAFETY: chunks are slices of the original valid chunks, preserving their dtype.
         // All chunks maintain the same dtype as the original array.

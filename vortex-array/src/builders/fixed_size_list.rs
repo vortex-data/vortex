@@ -177,7 +177,7 @@ impl FixedSizeListBuilder {
         // SAFETY: every chunk is `array` itself, so they share its dtype and none is empty.
         let tiled = unsafe {
             ChunkedArray::new_unchecked(
-                std::iter::repeat_n(array.clone(), n).collect::<Vec<_>>(),
+                std::iter::repeat_n(array.clone(), n),
                 self.element_dtype().clone(),
             )
         };
