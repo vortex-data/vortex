@@ -11,6 +11,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::registry::Id;
@@ -295,7 +296,7 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
             let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
             let validity = <V::ValidityVTable as ValidityVTable<V>>::validity(view)?;
             if let Validity::Array(array) = &validity {
-                vortex_ensure!(array.len() == this.len(), "Validity array length mismatch");
+                vortex_ensure_eq!(array.len(), this.len(), "Validity array length mismatch");
                 vortex_ensure!(
                     matches!(array.dtype(), DType::Bool(Nullability::NonNullable)),
                     "Validity array is not non-nullable boolean: {}",
@@ -436,8 +437,9 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
         let Some(reduced) = V::reduce(view)? else {
             return Ok(None);
         };
-        vortex_ensure!(
-            reduced.len() == this.len(),
+        vortex_ensure_eq!(
+            reduced.len(),
+            this.len(),
             "Reduced array length mismatch from {} to {}",
             this.encoding_id(),
             reduced.encoding_id()
@@ -467,14 +469,16 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
             return Ok(None);
         };
 
-        vortex_ensure!(
-            reduced.len() == parent.len(),
+        vortex_ensure_eq!(
+            reduced.len(),
+            parent.len(),
             "Reduced array length mismatch from {} to {}",
             parent.encoding_id(),
             reduced.encoding_id()
         );
-        vortex_ensure!(
-            reduced.dtype() == parent.dtype(),
+        vortex_ensure_eq!(
+            reduced.dtype(),
+            parent.dtype(),
             "Reduced array dtype mismatch from {} to {}",
             parent.encoding_id(),
             reduced.encoding_id()
@@ -491,13 +495,15 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
 
         if matches!(result.step(), ExecutionStep::Done) {
             if cfg!(debug_assertions) {
-                vortex_ensure!(
-                    result.array().len() == len,
+                vortex_ensure_eq!(
+                    result.array().len(),
+                    len,
                     "Result length mismatch for {:?}",
                     self.vtable
                 );
-                vortex_ensure!(
-                    result.array().dtype() == &dtype,
+                vortex_ensure_eq!(
+                    result.array().dtype(),
+                    &dtype,
                     "Executed canonical dtype mismatch for {:?}",
                     self.vtable
                 );

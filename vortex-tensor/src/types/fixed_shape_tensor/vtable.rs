@@ -58,8 +58,7 @@ impl ExtVTable for FixedShapeTensor {
         vortex_ensure_eq!(
             element_count,
             *list_size as usize,
-            "FixedShapeTensor logical shape product ({element_count}) does not match \
-             FixedSizeList size ({list_size})"
+            "FixedShapeTensor logical shape product must match FixedSizeList size"
         );
 
         Ok(())

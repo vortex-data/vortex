@@ -4,6 +4,7 @@
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 
 use crate::ArrayParts;
 use crate::ArrayRef;
@@ -110,20 +111,18 @@ impl VTable for Primitive {
         let DType::Primitive(_, nullability) = dtype else {
             vortex_bail!("Expected primitive dtype, got {dtype:?}");
         };
-        vortex_ensure!(
-            data.len() == len,
-            "PrimitiveArray length {} does not match outer length {}",
+        vortex_ensure_eq!(
             data.len(),
-            len
+            len,
+            "PrimitiveArray length does not match outer length",
         );
         let validity =
             crate::array::child_to_validity(slots[PrimitiveSlots::VALIDITY].as_ref(), *nullability);
         if let Some(validity_len) = validity.maybe_len() {
-            vortex_ensure!(
-                validity_len == len,
-                "PrimitiveArray validity len {} does not match outer length {}",
+            vortex_ensure_eq!(
                 validity_len,
-                len
+                len,
+                "PrimitiveArray validity len does not match outer length",
             );
         }
 

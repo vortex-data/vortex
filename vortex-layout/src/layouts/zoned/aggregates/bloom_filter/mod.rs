@@ -325,11 +325,7 @@ impl AggregateFnVTable for BloomFilter {
 
         // `deserialize` validates the byte length, but it cannot know the options the filter was
         // built with, so compare the block count here.
-        vortex_ensure_eq!(
-            partial.len(),
-            args.options.blocks_count().get() as usize,
-            "expected equal blocks count"
-        );
+        vortex_ensure_eq!(partial.len(), args.options.blocks_count().get() as usize);
 
         Ok(partial)
     }

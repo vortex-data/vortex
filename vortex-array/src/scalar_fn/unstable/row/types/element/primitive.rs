@@ -40,11 +40,7 @@ unsafe impl<T: NativePType> InputElement for T {
         let DType::Primitive(ptype, _) = dtype else {
             vortex_bail!("expected a {expected} column, got {dtype}");
         };
-        vortex_ensure_eq!(
-            *ptype,
-            expected,
-            "expected a {expected} column, got {dtype}"
-        );
+        vortex_ensure_eq!(*ptype, expected, "row input column has the wrong ptype");
         Ok(())
     }
 

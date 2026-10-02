@@ -13,6 +13,7 @@ use validity::ValidityArray;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
@@ -83,15 +84,17 @@ impl VTable for ScalarFn {
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         let scalar_fn = data.scalar_fn();
-        vortex_ensure!(
-            scalar_fn.id() == self.id,
-            "ScalarFnArray data scalar_fn does not match vtable"
+        vortex_ensure_eq!(
+            scalar_fn.id(),
+            self.id,
+            "ScalarFnArray data scalar_fn does not match vtable",
         );
 
         let missing_children = slots.iter().filter(|slot| slot.is_none()).count();
-        vortex_ensure!(
-            missing_children == 0,
-            "ScalarFnArray requires every child slot to be present, got {missing_children} missing"
+        vortex_ensure_eq!(
+            missing_children,
+            0,
+            "ScalarFnArray requires every child slot to be present",
         );
 
         let arity = scalar_fn.signature().arity();
@@ -110,9 +113,10 @@ impl VTable for ScalarFn {
             .flatten()
             .map(|c| c.dtype().clone())
             .collect_vec();
-        vortex_ensure!(
-            scalar_fn.return_dtype(&child_dtypes)? == *dtype,
-            "ScalarFnArray dtype does not match scalar function return dtype"
+        vortex_ensure_eq!(
+            scalar_fn.return_dtype(&child_dtypes)?,
+            *dtype,
+            "ScalarFnArray dtype does not match scalar function return dtype",
         );
         Ok(())
     }

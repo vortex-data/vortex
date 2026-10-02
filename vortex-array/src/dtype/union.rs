@@ -171,16 +171,12 @@ impl UnionVariants {
         vortex_ensure_eq!(
             names.len(),
             n_dtypes,
-            "length mismatch between names ({}) and dtypes ({})",
-            names.len(),
-            n_dtypes
+            "union names and dtypes length mismatch"
         );
         vortex_ensure_eq!(
             names.len(),
             type_ids.len(),
-            "length mismatch between names ({}) and type_ids ({})",
-            names.len(),
-            type_ids.len()
+            "union names and type_ids length mismatch"
         );
         vortex_ensure!(
             !names.is_empty(),

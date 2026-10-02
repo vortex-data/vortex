@@ -19,6 +19,7 @@ use decimal::execute_numeric_decimal;
 use row::execute_numeric_primitive;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 
 use crate::ArrayRef;
 use crate::Canonical;
@@ -49,11 +50,10 @@ pub(crate) fn execute_numeric(
         dtype
     );
 
-    vortex_ensure!(
-        lhs.len() == rhs.len(),
-        "numeric operator requires equal lengths, got {} and {}",
+    vortex_ensure_eq!(
         lhs.len(),
-        rhs.len()
+        rhs.len(),
+        "numeric operator requires equal lengths"
     );
 
     if lhs.is_empty() {

@@ -37,6 +37,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -145,22 +146,19 @@ impl VTable for TransposedBool {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        vortex_ensure!(
-            dtype == &DType::Bool(Nullability::NonNullable),
-            "TransposedBoolArray must have non-nullable boolean dtype, got {dtype}"
+        vortex_ensure_eq!(
+            dtype,
+            &DType::Bool(Nullability::NonNullable),
+            "TransposedBoolArray must have non-nullable boolean dtype"
         );
-        vortex_ensure!(
-            slots.len() == 1,
-            "TransposedBoolArray expects one slot, got {}",
-            slots.len()
-        );
+        vortex_ensure_eq!(slots.len(), 1, "TransposedBoolArray expects one slot");
         let transposed = slots[TRANSPOSED_SLOT]
             .as_ref()
             .vortex_expect("TransposedBoolArray transposed slot");
-        vortex_ensure!(
-            transposed.dtype() == &DType::Bool(Nullability::NonNullable),
-            "TransposedBoolArray transposed child must be a non-nullable boolean array, got {}",
-            transposed.dtype()
+        vortex_ensure_eq!(
+            transposed.dtype(),
+            &DType::Bool(Nullability::NonNullable),
+            "TransposedBoolArray transposed child must be a non-nullable boolean array"
         );
         vortex_ensure!(
             transposed.len().is_multiple_of(FL_CHUNK_SIZE),

@@ -85,7 +85,7 @@ fn decode_tensor_storage<T: NativePType>(
         vortex_ensure_eq!(
             stride,
             row_width,
-            "per-row tensor stride must equal its width, got {stride}",
+            "per-row tensor stride must equal its width",
         );
         let Some(expected_elements) = row_count.checked_mul(stride) else {
             vortex_bail!(
@@ -94,12 +94,7 @@ fn decode_tensor_storage<T: NativePType>(
         };
         expected_elements
     };
-    vortex_ensure_eq!(
-        elements.len(),
-        expected_elements,
-        "tensor row storage must contain {expected_elements} elements, got {}",
-        elements.len(),
-    );
+    vortex_ensure_eq!(elements.len(), expected_elements);
 
     Ok(TensorRows {
         elements,
@@ -126,7 +121,7 @@ unsafe impl<T: Float + NativePType> InputElement for TensorRow<T> {
         vortex_ensure_eq!(
             tensor_match.element_ptype(),
             expected_element_ptype,
-            "tensor row input must use {expected_element_ptype} elements, got {dtype}",
+            "tensor row input {dtype} has the wrong element type",
         );
 
         Ok(())
@@ -161,12 +156,7 @@ unsafe impl<T: Float + NativePType> InputElement for TensorRow<T> {
         };
 
         let decoded = decode_tensor_storage::<T>(&storage, 1, row_width, ctx)?;
-        vortex_ensure_eq!(
-            decoded.elements.len(),
-            row_width,
-            "decoded tensor constant must contain {row_width} elements, got {}",
-            decoded.elements.len(),
-        );
+        vortex_ensure_eq!(decoded.elements.len(), row_width);
 
         Ok(decoded.elements)
     }

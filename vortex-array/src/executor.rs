@@ -26,7 +26,7 @@ use std::sync::atomic::Ordering;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
@@ -602,13 +602,15 @@ fn finalize_done(
     };
 
     if cfg!(debug_assertions) {
-        vortex_ensure!(
-            output.len() == expected_len,
+        vortex_ensure_eq!(
+            output.len(),
+            expected_len,
             "Result length mismatch for {:?}",
             encoding_id
         );
-        vortex_ensure!(
-            output.dtype() == &expected_dtype,
+        vortex_ensure_eq!(
+            output.dtype(),
+            &expected_dtype,
             "Executed canonical dtype mismatch for {:?}",
             encoding_id
         );
@@ -634,12 +636,14 @@ fn execute_parent_for_child(
         for (_plugin_idx, plugin) in plugins.as_ref().iter().enumerate() {
             if let Some(result) = plugin.execute_parent(child, parent, slot_idx, ctx)? {
                 if cfg!(debug_assertions) {
-                    vortex_ensure!(
-                        result.len() == parent.len(),
+                    vortex_ensure_eq!(
+                        result.len(),
+                        parent.len(),
                         "Executed parent canonical length mismatch"
                     );
-                    vortex_ensure!(
-                        result.dtype() == parent.dtype(),
+                    vortex_ensure_eq!(
+                        result.dtype(),
+                        parent.dtype(),
                         "Executed parent canonical dtype mismatch"
                     );
                 }

@@ -11,6 +11,7 @@ use smallvec::smallvec;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -153,14 +154,14 @@ impl VTable for StackParent {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        vortex_ensure!(dtype == &test_dtype(), "unexpected stack parent dtype");
-        vortex_ensure!(len == 3, "unexpected stack parent length");
-        vortex_ensure!(slots.len() == 1, "stack parent must have one child slot");
+        vortex_ensure_eq!(dtype, &test_dtype(), "unexpected stack parent dtype");
+        vortex_ensure_eq!(len, 3, "unexpected stack parent length");
+        vortex_ensure_eq!(slots.len(), 1, "unexpected stack parent slot count");
         let Some(child) = &slots[0] else {
             vortex_bail!("stack parent child slot is missing");
         };
-        vortex_ensure!(child.dtype() == dtype, "stack parent child dtype mismatch");
-        vortex_ensure!(child.len() == len, "stack parent child length mismatch");
+        vortex_ensure_eq!(child.dtype(), dtype, "stack parent child dtype mismatch");
+        vortex_ensure_eq!(child.len(), len, "stack parent child length mismatch");
         Ok(())
     }
 
@@ -267,8 +268,8 @@ impl VTable for StackChild {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        vortex_ensure!(dtype == &test_dtype(), "unexpected stack child dtype");
-        vortex_ensure!(len == 3, "unexpected stack child length");
+        vortex_ensure_eq!(dtype, &test_dtype(), "unexpected stack child dtype");
+        vortex_ensure_eq!(len, 3, "unexpected stack child length");
         vortex_ensure!(slots.is_empty(), "stack child must not have slots");
         Ok(())
     }

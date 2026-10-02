@@ -8,7 +8,7 @@ use prost::Message;
 use smallvec::smallvec;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
@@ -104,13 +104,13 @@ impl VTable for Dict {
         let view = DictSlotsView::from_slots(slots);
         let codes = view.codes;
         let values = view.values;
-        vortex_ensure!(codes.len() == len, "DictArray codes length mismatch");
-        vortex_ensure!(
+        vortex_ensure_eq!(codes.len(), len, "DictArray codes length mismatch");
+        vortex_ensure_eq!(
             values
                 .dtype()
-                .union_nullability(codes.dtype().nullability())
-                == *dtype,
-            "DictArray dtype does not match codes/values dtype"
+                .union_nullability(codes.dtype().nullability()),
+            *dtype,
+            "DictArray dtype does not match codes/values dtype",
         );
         Ok(())
     }

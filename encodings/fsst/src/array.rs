@@ -55,6 +55,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
@@ -174,11 +175,7 @@ impl VTable for FSST {
         array: ArrayView<'_, Self>,
         buffers: &[BufferHandle],
     ) -> VortexResult<ArrayParts<Self>> {
-        vortex_ensure!(
-            buffers.len() == 3,
-            "Expected 3 buffers, got {}",
-            buffers.len()
-        );
+        vortex_ensure_eq!(buffers.len(), 3);
         let symbols = Buffer::<Symbol>::from_byte_buffer(buffers[0].clone().try_to_host_sync()?);
         let symbol_lengths = Buffer::<u8>::from_byte_buffer(buffers[1].clone().try_to_host_sync()?);
         let data = FSSTData::try_new(symbols, symbol_lengths, buffers[2].clone(), array.len())?;
@@ -745,11 +742,10 @@ impl FSSTData {
         codes_bytes: BufferHandle,
         len: usize,
     ) -> VortexResult<Self> {
-        vortex_ensure!(
-            symbols.len() == symbol_lengths.len(),
-            InvalidArgument: "symbols and symbol_lengths arrays must have same length, found {} and {}",
+        vortex_ensure_eq!(
             symbols.len(),
-            symbol_lengths.len()
+            symbol_lengths.len(),
+            InvalidArgument: "symbols and symbol_lengths arrays must have same length"
         );
         vortex_ensure!(
             symbols.len() <= FSST_SYMBOL_TABLE_LEN,

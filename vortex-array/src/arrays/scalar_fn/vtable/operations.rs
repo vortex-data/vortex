@@ -168,7 +168,7 @@ mod tests {
 
         assert!(
             err.to_string()
-                .contains("ScalarFnArray requires every child slot to be present, got 1 missing")
+                .contains("ScalarFnArray requires every child slot to be present")
         );
     }
 

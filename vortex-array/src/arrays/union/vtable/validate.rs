@@ -6,7 +6,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
 
 use crate::ArrayRef;
-use crate::arrays::union::UnionSlots;
 use crate::arrays::union::union_type_ids_dtype;
 use crate::dtype::DType;
 
@@ -22,23 +21,19 @@ pub(super) fn validate_union_components(
     vortex_ensure_eq!(
         variant_arrays.len(),
         variants.len(),
-        "UnionArray has {} slots but expected {}",
-        UnionSlots::CHILDREN_OFFSET + variant_arrays.len(),
-        UnionSlots::CHILDREN_OFFSET + variants.len()
+        "UnionArray variant slot count does not match variant count",
     );
 
     let expected_union_type_ids_dtype = union_type_ids_dtype(*nullability);
     vortex_ensure_eq!(
         type_ids.dtype(),
         &expected_union_type_ids_dtype,
-        "UnionArray type_ids must have dtype {expected_union_type_ids_dtype}, got {}",
-        type_ids.dtype()
+        "UnionArray type_ids has unexpected dtype",
     );
     vortex_ensure_eq!(
         type_ids.len(),
         len,
-        "UnionArray type_ids length {} does not match outer length {len}",
-        type_ids.len()
+        "UnionArray type_ids length does not match outer length",
     );
 
     for (index, (variant_dtype, child)) in
@@ -47,14 +42,12 @@ pub(super) fn validate_union_components(
         vortex_ensure_eq!(
             child.len(),
             len,
-            "UnionArray child {index} length {} does not match outer length {len}",
-            child.len()
+            "UnionArray child {index} length does not match outer length",
         );
         vortex_ensure_eq!(
             child.dtype(),
             &variant_dtype,
-            "UnionArray child {index} has dtype {} but expected {variant_dtype}",
-            child.dtype()
+            "UnionArray child {index} has unexpected dtype",
         );
     }
 

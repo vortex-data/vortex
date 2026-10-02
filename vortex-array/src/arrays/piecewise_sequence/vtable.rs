@@ -4,7 +4,7 @@
 use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
@@ -61,16 +61,12 @@ impl VTable for PiecewiseSequence {
         _len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        vortex_ensure!(
-            dtype == &DType::from(PType::U64),
-            "PiecewiseSequenceArray dtype must be u64, got {dtype}"
+        vortex_ensure_eq!(
+            dtype,
+            &DType::from(PType::U64),
+            "PiecewiseSequenceArray dtype must be u64",
         );
-        vortex_ensure!(
-            slots.len() == PiecewiseSequenceSlots::NAMES.len(),
-            "PiecewiseSequenceArray requires {} slots, got {}",
-            PiecewiseSequenceSlots::NAMES.len(),
-            slots.len()
-        );
+        vortex_ensure_eq!(slots.len(), PiecewiseSequenceSlots::NAMES.len());
         let starts = slots[PiecewiseSequenceSlots::STARTS]
             .as_ref()
             .ok_or_else(|| vortex_err!("PiecewiseSequenceArray starts slot must be present"))?;

@@ -59,18 +59,14 @@ impl ExtVTable for Uuid {
         vortex_ensure_eq!(
             *list_size as usize,
             UUID_BYTE_LEN,
-            "UUID storage FixedSizeList must have size {UUID_BYTE_LEN}, got {list_size}"
+            "UUID storage FixedSizeList size mismatch"
         );
 
         let DType::Primitive(ptype, elem_nullability) = element_dtype.as_ref() else {
             vortex_bail!("UUID element dtype must be Primitive(U8), got {element_dtype}");
         };
 
-        vortex_ensure_eq!(
-            *ptype,
-            PType::U8,
-            "UUID element dtype must be U8, got {ptype}"
-        );
+        vortex_ensure_eq!(*ptype, PType::U8, "UUID element dtype must be U8");
         vortex_ensure!(
             !elem_nullability.is_nullable(),
             "UUID element dtype must be non-nullable"
@@ -87,8 +83,7 @@ impl ExtVTable for Uuid {
         vortex_ensure_eq!(
             elements.len(),
             UUID_BYTE_LEN,
-            "UUID scalar must have exactly {UUID_BYTE_LEN} bytes, got {}",
-            elements.len()
+            "UUID scalar byte length mismatch"
         );
 
         let mut bytes = [0u8; UUID_BYTE_LEN];
@@ -112,11 +107,7 @@ impl ExtVTable for Uuid {
                 .ok_or_else(|| vortex_err!("UUID has unrecognized version nibble"))?
                 as u8;
 
-            vortex_ensure_eq!(
-                expected,
-                actual,
-                "UUID version mismatch: expected v{expected}, got v{actual}",
-            );
+            vortex_ensure_eq!(expected, actual, "UUID version mismatch");
         }
 
         Ok(parsed)

@@ -85,15 +85,14 @@ fn validate_output(
     vortex_ensure_eq!(
         values.len(),
         expected_len,
-        "the {id} kernel output must contain {expected_len} rows, got {}",
-        values.len(),
+        "the {id} kernel output has the wrong row count",
     );
     let values_with_result_nullability =
         values.dtype().with_nullability(result_dtype.nullability());
-    vortex_ensure!(
-        values_with_result_nullability == *result_dtype,
-        "the {id} output dtype must match {result_dtype} except for outer nullability, got {}",
-        values.dtype(),
+    vortex_ensure_eq!(
+        values_with_result_nullability,
+        *result_dtype,
+        "the {id} output dtype must match the result dtype except for outer nullability",
     );
 
     Ok(())

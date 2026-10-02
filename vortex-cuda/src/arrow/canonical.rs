@@ -60,6 +60,7 @@ use vortex::encodings::fsst::FSST;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
+use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
 use vortex::extension::datetime::AnyTemporal;
 use vortex_onpair::OnPair;
@@ -422,10 +423,10 @@ async fn export_dictionary_codes(
     };
 
     let parts = codes.into_data_parts();
-    vortex_ensure!(
-        parts.ptype == target_ptype,
-        "dictionary codes export produced {}",
-        parts.ptype
+    vortex_ensure_eq!(
+        parts.ptype,
+        target_ptype,
+        "dictionary codes export produced an unexpected ptype"
     );
     Ok(parts)
 }
@@ -1308,9 +1309,10 @@ async fn export_arrow_list_offsets(
     };
 
     let PrimitiveDataParts { ptype, buffer, .. } = offsets.into_data_parts();
-    vortex_ensure!(
-        ptype == PType::I32,
-        "list offsets cast to i32 produced {ptype}"
+    vortex_ensure_eq!(
+        ptype,
+        PType::I32,
+        "list offsets cast to i32 produced an unexpected ptype"
     );
 
     ctx.ensure_on_device(buffer).await

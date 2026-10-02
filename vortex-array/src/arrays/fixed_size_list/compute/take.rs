@@ -8,6 +8,7 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
@@ -184,9 +185,10 @@ fn take_piecewise_fsl(
         element_starts.push(u64::try_from(start * list_size)?);
         element_lengths.push(u64::try_from(length * list_size)?);
     }
-    vortex_ensure!(
-        total_len == new_len,
-        "PiecewiseSequenceArray expanded length {total_len} does not match declared length {new_len}"
+    vortex_ensure_eq!(
+        total_len,
+        new_len,
+        "PiecewiseSequenceArray expanded length does not match declared length",
     );
 
     let new_elements =

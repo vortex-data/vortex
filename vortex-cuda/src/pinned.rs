@@ -18,6 +18,7 @@ use parking_lot::Mutex;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
+use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
 use vortex::utils::aliases::hash_map::HashMap;
 
@@ -357,11 +358,10 @@ impl PooledPinnedBuffer {
             range,
             pinned.logical_len
         );
-        vortex_ensure!(
-            range.len() == destination.len(),
-            "pinned host buffer range length {} does not match destination length {}",
+        vortex_ensure_eq!(
             range.len(),
-            destination.len()
+            destination.len(),
+            "pinned host buffer range length does not match destination length"
         );
 
         let source = PinnedByteBufferView {
