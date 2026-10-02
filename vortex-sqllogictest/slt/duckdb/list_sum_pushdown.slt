@@ -1,0 +1,88 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# DuckDB binds list_sum(col) as list_aggr(col, 'sum'). Over DOUBLE[] it is pushed into the scan as
+# Vortex list_sum and must keep DuckDB's semantics: null elements are skipped, null, empty and
+# all-null lists sum to NULL, and NaN poisons the sum.
+
+include ../setup.slt.no
+
+statement ok
+COPY (
+    SELECT * FROM (VALUES
+        (1, [1.5, 2.25]::DOUBLE[], [1, 2]::INTEGER[]),
+        (2, [1.0, 'nan'::DOUBLE], [3]::INTEGER[]),
+        (3, []::DOUBLE[], []::INTEGER[]),
+        (4, NULL::DOUBLE[], NULL::INTEGER[]),
+        (5, [NULL, -1.5]::DOUBLE[], [NULL]::INTEGER[]),
+        (6, [NULL]::DOUBLE[], [4, NULL]::INTEGER[])
+    ) AS t(id, d, i)
+) TO '${WORK_DIR}/list-sum.vortex';
+
+query TT
+EXPLAIN (FORMAT json)
+SELECT list_sum(d) FROM '${WORK_DIR}/list-sum.vortex';
+----
+<REGEX>:"SELECT projections".*vortex\.list\.sum
+
+query IR
+SELECT id, list_sum(d) FROM '${WORK_DIR}/list-sum.vortex' ORDER BY id;
+----
+1 3.75
+2 NaN
+3 NULL
+4 NULL
+5 -1.5
+6 NULL
+
+# The list_aggregate spelling binds to the same function.
+query TT
+EXPLAIN (FORMAT json)
+SELECT list_aggregate(d, 'sum') FROM '${WORK_DIR}/list-sum.vortex';
+----
+<REGEX>:"SELECT projections".*vortex\.list\.sum
+
+query IR
+SELECT id, list_aggregate(d, 'sum') FROM '${WORK_DIR}/list-sum.vortex' ORDER BY id;
+----
+1 3.75
+2 NaN
+3 NULL
+4 NULL
+5 -1.5
+6 NULL
+
+# DuckDB sums integer lists into HUGEINT, which Vortex can't produce, so they stay in DuckDB.
+query TT
+EXPLAIN (FORMAT json)
+SELECT list_sum(i) FROM '${WORK_DIR}/list-sum.vortex';
+----
+<!REGEX>:.*vortex\.list\.sum.*
+
+query II
+SELECT id, list_sum(i) FROM '${WORK_DIR}/list-sum.vortex' ORDER BY id;
+----
+1 3
+2 3
+3 NULL
+4 NULL
+5 NULL
+6 4
+
+# Other list aggregates aren't pushed down.
+query TT
+EXPLAIN (FORMAT json)
+SELECT list_aggregate(d, 'max') FROM '${WORK_DIR}/list-sum.vortex';
+----
+<!REGEX>:.*vortex\.list\.sum.*
+
+# Two different functions over the same column conflict, so neither is pushed down.
+query IRI
+SELECT id, list_sum(d), len(d) FROM '${WORK_DIR}/list-sum.vortex' ORDER BY id;
+----
+1 3.75 2
+2 NaN 2
+3 NULL 0
+4 NULL NULL
+5 -1.5 2
+6 NULL 1

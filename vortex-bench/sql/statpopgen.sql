@@ -53,3 +53,7 @@ SELECT *
                1.0 - CAST(LIST_SUM("GT") AS DOUBLE) / (2 * LIST_SUM(LIST_TRANSFORM("GT", lambda g: g IS NOT NULL))) AS reference_allele_frequency
           FROM statpopgen)
  WHERE reference_allele_frequency > 0.9 OR reference_allele_frequency < 0.1;
+-- 11. Count the alternate alleles of each variant.
+SELECT "CHROM", "POS", LIST_SUM("GT") AS n_alts FROM statpopgen;
+-- 12. Count all the alternate alleles in the dataset.
+SELECT SUM(LIST_SUM("GT")) AS n_alts FROM statpopgen;

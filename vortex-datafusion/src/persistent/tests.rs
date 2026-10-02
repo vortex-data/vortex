@@ -188,6 +188,57 @@ async fn test_addition_pushdown() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// `array_sum` is pushed into the scan as Vortex `list_sum` and must keep DataFusion's semantics:
+/// null elements are skipped, null/empty/all-null lists sum to null, and NaN poisons the sum.
+#[tokio::test]
+async fn test_array_sum_pushdown() -> anyhow::Result<()> {
+    let query = "SELECT id, array_sum(xs) AS int_sum, array_sum(ys) AS float_sum \
+                 FROM written_sums ORDER BY id";
+
+    let mut results = Vec::new();
+    for projection_pushdown in [false, true] {
+        let ctx = TestSessionContext::new(projection_pushdown);
+        datafusion_functions_nested::register_all(&mut *ctx.session.state_ref().write())?;
+
+        ctx.session
+            .sql(
+                "CREATE EXTERNAL TABLE written_sums \
+                        (id INT NOT NULL, xs INT[], ys DOUBLE[]) \
+                    STORED AS vortex \
+                    LOCATION '/sums/'",
+            )
+            .await?;
+        ctx.session
+            .sql(
+                "INSERT INTO written_sums VALUES \
+                    (1, make_array(1, NULL, 2), make_array(1.5, 2.5)), \
+                    (2, CAST(make_array() AS INT[]), make_array(1.5, CAST('NaN' AS DOUBLE))), \
+                    (3, NULL, NULL), \
+                    (4, make_array(CAST(NULL AS INT)), make_array(CAST(NULL AS DOUBLE), -1.0))",
+            )
+            .await?
+            .collect()
+            .await?;
+
+        let batches = ctx.session.sql(query).await?.collect().await?;
+        results.push(pretty_format_batches(&batches)?.to_string());
+    }
+
+    assert_eq!(results[0], results[1]);
+    assert_snapshot!(results[1], @r"
+    +----+---------+-----------+
+    | id | int_sum | float_sum |
+    +----+---------+-----------+
+    | 1  | 3.0     | 4.0       |
+    | 2  |         | NaN       |
+    | 3  |         |           |
+    | 4  |         | -1.0      |
+    +----+---------+-----------+
+    ");
+
+    Ok(())
+}
+
 #[tokio::test]
 async fn test_octet_length_pushdown() -> anyhow::Result<()> {
     let ctx = TestSessionContext::new(true);
@@ -290,6 +341,128 @@ async fn test_lambda_projection_with_pushdown() -> anyhow::Result<()> {
         +----+---------+-------+-------------+
         ");
 
+    Ok(())
+}
+
+/// Returns the projection the Vortex scan evaluates, as printed by `EXPLAIN`, or `none` when the
+/// scan only reads columns.
+async fn vortex_scan_projection(ctx: &SessionContext, sql: &str) -> anyhow::Result<String> {
+    let explain = ctx.sql(&format!("EXPLAIN {sql}")).await?.collect().await?;
+    let plan = pretty_format_batches(&explain)?.to_string();
+    let marker = "vortex_projection: ";
+    // The plan omits the projection when the scan only reads columns.
+    let Some(start) = plan.find(marker).map(|start| start + marker.len()) else {
+        return Ok("none".to_string());
+    };
+    let end = plan[start..]
+        .find(" |")
+        .map_or(plan.len(), |end| start + end);
+    Ok(plan[start..end].trim_end_matches(',').to_string())
+}
+
+/// Creates the `written_lists` table used by the list pushdown tests.
+async fn create_list_table(ctx: &TestSessionContext) -> anyhow::Result<()> {
+    datafusion_functions_nested::register_all(&mut *ctx.session.state_ref().write())?;
+    ctx.session
+        .sql(
+            "CREATE EXTERNAL TABLE written_lists \
+                    (id INT NOT NULL, xs BIGINT UNSIGNED[]) \
+                STORED AS vortex \
+                LOCATION '/lists/'",
+        )
+        .await?;
+    ctx.session
+        .sql(
+            "INSERT INTO written_lists VALUES \
+                (1, make_array(0, 1, NULL, 2)), \
+                (2, make_array(1, 1)), \
+                (3, NULL), \
+                (4, CAST(make_array() AS BIGINT UNSIGNED[])), \
+                (5, make_array(CAST(NULL AS BIGINT UNSIGNED)))",
+        )
+        .await?
+        .collect()
+        .await?;
+    ctx.session
+        .sql("SET datafusion.sql_parser.dialect = 'duckdb'")
+        .await?
+        .collect()
+        .await?;
+    Ok(())
+}
+
+/// `array_transform` lambdas that only use their element are pushed into the scan as Vortex
+/// `list_map`, and sub-expressions DataFusion can't push whole are split around.
+#[tokio::test]
+async fn test_lambda_and_partial_projection_pushdown() -> anyhow::Result<()> {
+    let query = "SELECT id, \
+                    array_sum(array_transform(xs, lambda g: g IS NOT NULL)) AS n_called, \
+                    array_sum(array_transform(xs, lambda g: g = 1)) AS n_het, \
+                    abs(array_sum(xs)) AS n_alts, \
+                    CAST(array_sum(xs) AS DOUBLE) \
+                        / (2 * array_sum(array_transform(xs, lambda g: g IS NOT NULL))) AS freq \
+                 FROM written_lists ORDER BY id";
+
+    let mut results = Vec::new();
+    for projection_pushdown in [false, true] {
+        let ctx = if projection_pushdown {
+            TestSessionContext::with_expression_pushdown()
+        } else {
+            TestSessionContext::new(false)
+        };
+        create_list_table(&ctx).await?;
+        let batches = ctx.session.sql(query).await?.collect().await?;
+        results.push(pretty_format_batches(&batches)?.to_string());
+
+        if projection_pushdown {
+            assert_snapshot!(vortex_scan_projection(&ctx.session, query).await?, @"pack(id: $.id, n_called: cast(vortex.list.sum(vortex.list.map($.xs, $ => is_not_null($)), opts=skip_nans=false) as f64?), n_het: cast(vortex.list.sum(vortex.list.map($.xs, $ => ($ = 1u64)), opts=skip_nans=false) as f64?), __vortex_pushed_3: cast(vortex.list.sum(cast($.xs as list(f64?)?), opts=skip_nans=false) as f64?), freq: (cast(vortex.list.sum(cast($.xs as list(f64?)?), opts=skip_nans=false) as f64?) / (2f64 * cast(vortex.list.sum(vortex.list.map($.xs, $ => is_not_null($)), opts=skip_nans=false) as f64?))))");
+        }
+    }
+
+    assert_eq!(results[0], results[1]);
+    assert_snapshot!(results[1], @r"
+    +----+----------+-------+--------+------+
+    | id | n_called | n_het | n_alts | freq |
+    +----+----------+-------+--------+------+
+    | 1  | 3.0      | 1.0   | 3.0    | 0.5  |
+    | 2  | 2.0      | 2.0   | 2.0    | 0.5  |
+    | 3  |          |       |        |      |
+    | 4  |          |       |        |      |
+    | 5  | 0.0      |       |        |      |
+    +----+----------+-------+--------+------+
+    ");
+    Ok(())
+}
+
+/// Aggregate arguments such as the `array_sum` in `SUM(array_sum(xs))` are moved into the Vortex
+/// scan by [`VortexExpressionPushdown`](crate::VortexExpressionPushdown).
+#[tokio::test]
+async fn test_aggregate_argument_pushdown() -> anyhow::Result<()> {
+    let query = "SELECT id % 2 AS parity, SUM(array_sum(xs)) AS n_alts, COUNT(*) AS n \
+                 FROM written_lists GROUP BY id % 2 ORDER BY parity";
+
+    let without_rule = TestSessionContext::new(true);
+    create_list_table(&without_rule).await?;
+    let expected = without_rule.session.sql(query).await?.collect().await?;
+    assert_snapshot!(vortex_scan_projection(&without_rule.session, query).await?, @"none");
+
+    let with_rule = TestSessionContext::with_expression_pushdown();
+    create_list_table(&with_rule).await?;
+    let actual = with_rule.session.sql(query).await?.collect().await?;
+    assert_snapshot!(vortex_scan_projection(&with_rule.session, query).await?, @"pack(id: $.id, __vortex_aggregate_arg_0: cast(vortex.list.sum(cast($.xs as list(f64?)?), opts=skip_nans=false) as f64?))");
+
+    assert_eq!(
+        pretty_format_batches(&expected)?.to_string(),
+        pretty_format_batches(&actual)?.to_string()
+    );
+    assert_snapshot!(pretty_format_batches(&actual)?, @r"
+    +--------+--------+---+
+    | parity | n_alts | n |
+    +--------+--------+---+
+    | 0      | 2.0    | 2 |
+    | 1      | 3.0    | 3 |
+    +--------+--------+---+
+    ");
     Ok(())
 }
 

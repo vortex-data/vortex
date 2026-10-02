@@ -123,7 +123,7 @@ pub fn execute_rows<F: RowFn>(
         return execute_nullary_rows(function, options, args.row_count(), ctx);
     }
 
-    let batch = prepare_batch(function, options, args)?;
+    let batch = prepare_batch(function, options, args, ctx)?;
     batch.execute(
         |args, ctx| execute_row_kernel(function, options, args, ctx),
         |args, ctx| execute_dense_attempt(function, options, args, ctx),
@@ -222,10 +222,14 @@ fn prepare_batch<F: RowFn>(
     function: &F,
     options: &F::Options,
     args: &dyn ExecutionArgs,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<RowFnExecutionArgs> {
-    RowFnExecutionArgs::new(RowFn::id(function), args, |arg_dtypes| {
-        function.dispatch(options, arg_dtypes, BatchPlanner::<F>::new(arg_dtypes))
-    })
+    RowFnExecutionArgs::new(
+        RowFn::id(function),
+        args,
+        |arg_dtypes| function.dispatch(options, arg_dtypes, BatchPlanner::<F>::new(arg_dtypes)),
+        ctx,
+    )
 }
 
 #[cfg(test)]

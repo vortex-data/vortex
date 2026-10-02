@@ -29,7 +29,7 @@ logical_plan
 01)Projection: CAST(decimals.value AS Int64) AS integer_value
 02)--SubqueryAlias: decimals
 03)----TableScan: ${WORK_DIR}/decimal_to_integer.vortex projection=[value]
-physical_plan DataSourceExec: file_groups={1 group: [[${WORK_DIR}/decimal_to_integer.vortex]]}, projection=[CAST(value@1 AS Int64) as integer_value], file_type=vortex
+physical_plan DataSourceExec: file_groups={1 group: [[${WORK_DIR}/decimal_to_integer.vortex]]}, projection=[CAST(value@1 AS Int64) as integer_value], file_type=vortex, vortex_projection: pack(integer_value: cast($.value as i64?))
 
 # Fractions truncate toward zero; large integers remain exact and nulls survive.
 query I

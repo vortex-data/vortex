@@ -154,6 +154,7 @@ datafusion-functions-nested = { version = "55.0.0" }
 datafusion-physical-expr = { version = "55.0.0" }
 datafusion-physical-expr-adapter = { version = "55.0.0" }
 datafusion-physical-expr-common = { version = "55.0.0" }
+datafusion-physical-optimizer = { version = "55.0.0" }
 datafusion-physical-plan = { version = "55.0.0" }
 datafusion-pruning = { version = "55.0.0" }
 datafusion-sqllogictest = { version = "55.0.0" }

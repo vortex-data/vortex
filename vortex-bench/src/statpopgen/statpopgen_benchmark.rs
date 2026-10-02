@@ -140,13 +140,13 @@ impl Benchmark for StatPopGenBenchmark {
         let n_rows = self.n_rows as usize;
         match self.scale_factor {
             1 => Some(vec![
-                1, 1, n_rows, n_rows, n_rows, n_rows, n_rows, 1, 47, 891,
+                1, 1, n_rows, n_rows, n_rows, n_rows, n_rows, 1, 47, 891, 945, n_rows, 1,
             ]),
             10 => Some(vec![
-                1, 1, n_rows, n_rows, n_rows, n_rows, n_rows, 1, 47, 8507,
+                1, 1, n_rows, n_rows, n_rows, n_rows, n_rows, 1, 47, 8507, 9401, n_rows, 1,
             ]),
             100 => Some(vec![
-                1, 1, n_rows, n_rows, n_rows, n_rows, n_rows, 1, 47, 85877,
+                1, 1, n_rows, n_rows, n_rows, n_rows, n_rows, 1, 47, 85877, 92035, n_rows, 1,
             ]),
             _ => None,
         }

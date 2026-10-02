@@ -52,6 +52,7 @@ use vortex::scalar_fn::fns::between::StrictComparison;
 use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::like::Like;
 use vortex::scalar_fn::fns::like::LikeOptions;
+use vortex::scalar_fn::fns::list_sum::ListSum;
 use vortex::scalar_fn::fns::literal::Literal;
 use vortex::scalar_fn::fns::operators::Operator;
 use vortex_spatial::extension::LineString;
@@ -456,6 +457,49 @@ fn list_length_on_field(field: &DuckdbField) -> Expression {
     build_list_length(col, field.dtype.nullability())
 }
 
+/// Applies `list_sum` to a duckdb `DOUBLE[]` field for `list_aggr(col, 'sum')`, which is how
+/// duckdb binds `list_sum(col)`.
+///
+/// Only `DOUBLE` elements are supported: duckdb sums integer lists into `HUGEINT`, which Vortex
+/// can't produce, and casts `FLOAT` lists to `DOUBLE[]` before the call. Like duckdb, null
+/// elements are skipped, null, empty and all-null lists sum to null, and NaN poisons the sum.
+fn list_sum_on_field(
+    func: &BoundFunction<'_>,
+    value: &duckdb::ExpressionRef,
+    field: &DuckdbField,
+) -> Option<Expression> {
+    let children: Vec<_> = func.children().collect();
+    let [_, aggregate] = children.as_slice() else {
+        return None;
+    };
+    let is_sum = matches!(
+        aggregate.return_type().as_type_id(),
+        DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR
+    ) && matches!(
+        aggregate.as_class(),
+        Some(BoundConstant(constant))
+            if constant.value.as_string().as_str().eq_ignore_ascii_case("sum")
+    );
+    let is_double_list = matches!(
+        &field.dtype,
+        DType::List(element, _) if matches!(element.as_ref(), DType::Primitive(PType::F64, _))
+    );
+    let returns_double = matches!(
+        value.return_type().as_type_id(),
+        DUCKDB_TYPE::DUCKDB_TYPE_DOUBLE
+    );
+    if !(is_sum && is_double_list && returns_double) {
+        return None;
+    }
+
+    let col = get_item(field.name.as_str(), root());
+    let sum = ListSum.new_expr(NumericalAggregateOpts::include_nans(), [col]);
+    Some(cast(
+        sum,
+        DType::Primitive(PType::F64, Nullability::Nullable),
+    ))
+}
+
 pub fn try_from_projection_expression(
     value: &duckdb::ExpressionRef,
     field: &DuckdbField,
@@ -481,6 +525,9 @@ pub fn try_from_projection_expression(
                 "len" | "length" => {
                     matches!(field.dtype, DType::List(..) | DType::FixedSizeList(..))
                         .then(|| list_length_on_field(field))
+                }
+                "list_aggr" | "list_aggregate" | "array_aggr" | "array_aggregate" => {
+                    list_sum_on_field(&func, value, field)
                 }
                 _ => None,
             }

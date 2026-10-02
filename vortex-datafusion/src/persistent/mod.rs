@@ -24,6 +24,7 @@
 
 mod access_plan;
 mod cache;
+mod expression_pushdown;
 mod format;
 pub mod metrics;
 mod opener;
@@ -33,6 +34,7 @@ mod source;
 mod stream;
 
 pub use access_plan::VortexAccessPlan;
+pub use expression_pushdown::VortexExpressionPushdown;
 pub use format::VortexFormat;
 pub use format::VortexFormatFactory;
 pub use format::VortexTableOptions;
