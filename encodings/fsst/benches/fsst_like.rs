@@ -115,6 +115,18 @@ impl Dataset {
             Self::Rare => "%xyzzy%",
         }
     }
+
+    fn suffix_pattern(&self) -> &'static str {
+        match self {
+            Self::Urls => "%index.html",
+            Self::Cb => "%reviews",
+            Self::Log => "%bot.html)\"",
+            Self::Json => "%}",
+            Self::Path => "%main.rs",
+            Self::Email => "%gmail.com",
+            Self::Rare => "%xyzzy",
+        }
+    }
 }
 
 fn bench_like(bencher: Bencher, fsst: &FSSTArray, pattern: &str) {
@@ -146,4 +158,12 @@ fn fsst_prefix(bencher: Bencher, dataset: &Dataset) {
 ])]
 fn fsst_contains(bencher: Bencher, dataset: &Dataset) {
     bench_like(bencher, dataset.fsst_array(), dataset.contains_pattern());
+}
+
+#[divan::bench(args = [
+    Dataset::Urls, Dataset::Cb, Dataset::Log, Dataset::Json,
+    Dataset::Path, Dataset::Email, Dataset::Rare,
+])]
+fn fsst_suffix(bencher: Bencher, dataset: &Dataset) {
+    bench_like(bencher, dataset.fsst_array(), dataset.suffix_pattern());
 }
