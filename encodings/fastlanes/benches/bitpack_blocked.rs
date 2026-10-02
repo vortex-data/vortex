@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Compares bit-packing every 1024-value block at its own width with packing the whole array at
-//! one width, on synthetic distributions.
+//! Benchmarks `bitpack_encode_blocked`, which packs every 1024-value block at its own bit width.
 //!
-//! Sized to finish quickly. Run with `cargo bench -p vortex-fastlanes --bench bitpack_blocked`.
+//! Every value fits its block's width and none is null, so no patches are gathered and the
+//! benchmark measures the packing kernel. It carries `#[cpu_features]`, so it is measured on each
+//! walltime CPU-feature leg rather than in simulation: the packing loops are auto-vectorized, so
+//! the build decides their speed.
+//!
+//! Run with `cargo bench -p vortex-fastlanes --bench bitpack_blocked`.
 
 #![expect(clippy::unwrap_used)]
 
@@ -15,8 +19,7 @@ use divan::counter::ItemsCount;
 use mimalloc::MiMalloc;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_fastlanes::bitpack_compress::bitpack_to_best_bit_width;
-use vortex_fastlanes::bitpack_compress::bitpack_to_best_bit_widths;
+use vortex_fastlanes::bitpack_compress::bitpack_encode_blocked;
 use vortex_session::VortexSession;
 
 #[global_allocator]
@@ -32,43 +35,25 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     session
 });
 
-const LEN: u32 = 64 * 1024;
+/// 64 blocks of `u32`, 256 KiB in all: shorter iterations are noisy on the walltime legs.
+const NUM_BLOCKS: usize = 64;
 
-const DISTRIBUTIONS: &[&str] = &["uniform", "drift", "outliers", "zero_heavy"];
+#[vortex_bench_support::cpu_features]
+#[divan::bench]
+fn bitpack_blocked_compress(bencher: Bencher) {
+    // Block widths cycle from 1 to 16 bits, so the blocks take different packing kernels.
+    let bit_widths: Vec<u8> = (1..=16).cycle().take(NUM_BLOCKS).collect();
+    let array = PrimitiveArray::from_iter(bit_widths.iter().flat_map(|&bit_width| {
+        (0..1024u32).map(move |i| i.wrapping_mul(7919) & ((1 << bit_width) - 1))
+    }));
 
-/// `LEN` values whose per-block widths follow `distribution`.
-fn values(distribution: &str) -> PrimitiveArray {
-    PrimitiveArray::from_iter((0..LEN).map(|i| {
-        let noise = i.wrapping_mul(7919);
-        let block = i / 1024;
-        match distribution {
-            // Every block is 7 bits wide.
-            "uniform" => noise % 128,
-            // Block widths cycle from 1 to 16 bits.
-            "drift" => noise % (2 << (block % 16)),
-            // 7-bit values with a 21-bit outlier every 1000 values.
-            "outliers" if i % 1000 == 0 => 1 << 20,
-            "outliers" => noise % 128,
-            // One block in four holds 12-bit values; the rest are zero.
-            "zero_heavy" if block % 4 == 0 => noise % 4096,
-            "zero_heavy" => 0,
-            _ => unreachable!("unknown distribution {distribution}"),
-        }
-    }))
-}
-
-#[divan::bench(args = DISTRIBUTIONS)]
-fn bitpack_global_compress(bencher: Bencher, distribution: &str) {
-    let array = values(distribution);
-    bencher
-        .counter(ItemsCount::new(LEN))
-        .bench(|| bitpack_to_best_bit_width(&array, &mut SESSION.create_execution_ctx()).unwrap());
-}
-
-#[divan::bench(args = DISTRIBUTIONS)]
-fn bitpack_blocked_compress(bencher: Bencher, distribution: &str) {
-    let array = values(distribution);
-    bencher
-        .counter(ItemsCount::new(LEN))
-        .bench(|| bitpack_to_best_bit_widths(&array, &mut SESSION.create_execution_ctx()).unwrap());
+    bencher.counter(ItemsCount::new(array.len())).bench(|| {
+        bitpack_encode_blocked(
+            &array,
+            &bit_widths,
+            Some(0),
+            &mut SESSION.create_execution_ctx(),
+        )
+        .unwrap()
+    });
 }
