@@ -10,9 +10,12 @@ use crate::Executable;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
+use crate::arrays::scalar_fn::ExactScalarFn;
+use crate::builtins::ArrayBuiltins;
 use crate::columnar::Columnar;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
+use crate::scalar_fn::fns::fill_null::FillNull;
 use crate::validity::Validity;
 
 impl Executable for Mask {
@@ -70,6 +73,13 @@ impl NullAsFalse {
         // Non-nullable input needs no coercion; defer to the strict `Mask` execution.
         if !array.dtype().is_nullable() {
             return array.execute::<Mask>(ctx);
+        }
+
+        // Let encodings push the coercion into their children, e.g. RunEnd fills its run values.
+        // The result is non-nullable, so no validity buffer is decoded only to be discarded.
+        let filled = array.fill_null(false)?;
+        if !filled.is::<ExactScalarFn<FillNull>>() {
+            return filled.execute::<Mask>(ctx);
         }
 
         let len = array.len();

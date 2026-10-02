@@ -110,6 +110,17 @@ fn create_bool_test_data(
 
 // Medium size: 10k elements with various run lengths and distributions
 const BOOL_ARGS: &[BoolBenchArgs] = &[
+    // Shape of a selective predicate over short runs, e.g. TPC-DS store_sales ticket columns.
+    BoolBenchArgs {
+        total_length: 65_536,
+        avg_run_length: 6,
+        distribution: BoolDistribution::MostlyFalse,
+    },
+    BoolBenchArgs {
+        total_length: 65_536,
+        avg_run_length: 6,
+        distribution: BoolDistribution::Alternating,
+    },
     BoolBenchArgs {
         total_length: 10_000,
         avg_run_length: 2,
@@ -314,6 +325,18 @@ fn create_nullable_bool_test_data(
 }
 
 const NULLABLE_BOOL_ARGS: &[NullableBoolBenchArgs] = &[
+    NullableBoolBenchArgs {
+        total_length: 65_536,
+        avg_run_length: 6,
+        distribution: BoolDistribution::MostlyFalse,
+        validity: ValidityDistribution::MostlyValid,
+    },
+    NullableBoolBenchArgs {
+        total_length: 65_536,
+        avg_run_length: 6,
+        distribution: BoolDistribution::MostlyTrue,
+        validity: ValidityDistribution::MostlyValid,
+    },
     // Alternating with different validity
     NullableBoolBenchArgs {
         total_length: 10_000,

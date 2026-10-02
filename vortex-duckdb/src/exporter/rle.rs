@@ -250,10 +250,11 @@ mod tests {
         let rle = two_chunk_rle()?;
         let sliced = rle.into_array().slice(1500..1510)?;
         let chunk_str = chunk_string(sliced, 0, 10)?;
+        // The slice executes into the RLE kernel, so the RLE exporter still emits a dictionary.
         assert_eq!(
             chunk_str,
             r#"Chunk - [1 Columns]
-- FLAT INTEGER: 10 = [ 20, 20, 20, 20, 20, 20, 20, 20, 20, 20]
+- DICTIONARY INTEGER: 10 = [ 20, 20, 20, 20, 20, 20, 20, 20, 20, 20]
 "#
         );
         Ok(())
