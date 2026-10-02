@@ -3,6 +3,8 @@
 
 //! Core cascading compression flow.
 
+use std::sync::Arc;
+
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::CanonicalValidity;
@@ -31,6 +33,7 @@ use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
 use super::CascadingCompressor;
+use super::ChunkHistory;
 use super::constant;
 use crate::scheme::CompressorContext;
 use crate::scheme::Scheme;
@@ -53,13 +56,54 @@ impl CascadingCompressor {
         array: &ArrayRef,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
+        self.compress_with_ctx(array, CompressorContext::new(), exec_ctx)
+    }
+
+    /// Compresses one chunk of a stream, sharing scheme decisions with the stream's other chunks
+    /// through `history`.
+    ///
+    /// Each compression site runs the full scheme search until its recent searches agree on a
+    /// winner. After that, the winner is applied directly, falling back to a full search if the
+    /// achieved ratio leaves the bounds derived from the searched chunks. See [`ChunkHistory`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if canonicalization or compression fails.
+    pub fn compress_with_history(
+        &self,
+        array: &ArrayRef,
+        history: &Arc<ChunkHistory>,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let ctx = CompressorContext::new().with_chunk_history(Arc::clone(history));
+        self.compress_with_ctx(array, ctx, exec_ctx)
+    }
+
+    /// Compresses nested slot `slot` of the array at `parent_ctx`'s site.
+    pub(super) fn compress_nested(
+        &self,
+        array: &ArrayRef,
+        parent_ctx: &CompressorContext,
+        slot: usize,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        self.compress_with_ctx(array, parent_ctx.nested(slot), exec_ctx)
+    }
+
+    /// Canonicalizes, compacts, and compresses `array` starting from `compress_ctx`.
+    fn compress_with_ctx(
+        &self,
+        array: &ArrayRef,
+        compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
         let before_nbytes = array.nbytes();
         let span = trace::compress_span(array.len(), array.dtype(), before_nbytes);
         let _enter = span.enter();
 
         let canonical = array.clone().execute::<CanonicalValidity>(exec_ctx)?.0;
         let compact = canonical.compact(exec_ctx)?;
-        let compressed = self.compress_canonical(compact, CompressorContext::new(), exec_ctx)?;
+        let compressed = self.compress_canonical(compact, compress_ctx, exec_ctx)?;
 
         trace::record_compress_outcome(&span, before_nbytes, compressed.nbytes());
 
@@ -122,7 +166,8 @@ impl CascadingCompressor {
             Canonical::Struct(struct_array) => {
                 let fields = struct_array
                     .iter_unmasked_fields()
-                    .map(|field| self.compress(field, exec_ctx))
+                    .enumerate()
+                    .map(|(i, field)| self.compress_nested(field, &compress_ctx, i, exec_ctx))
                     .collect::<Result<Vec<_>, _>>()?;
 
                 Ok(StructArray::try_new(
@@ -134,10 +179,12 @@ impl CascadingCompressor {
                 .into_array())
             }
             Canonical::Union(union_array) => {
-                let type_ids = self.compress(union_array.type_ids(), exec_ctx)?;
+                let type_ids =
+                    self.compress_nested(union_array.type_ids(), &compress_ctx, 0, exec_ctx)?;
                 let children = union_array
                     .iter_children()
-                    .map(|child| self.compress(child, exec_ctx))
+                    .enumerate()
+                    .map(|(i, child)| self.compress_nested(child, &compress_ctx, i + 1, exec_ctx))
                     .collect::<Result<Vec<_>, _>>()?;
 
                 Ok(
@@ -155,7 +202,8 @@ impl CascadingCompressor {
             }
             Canonical::Map(map_array) => self.compress_map_array(map_array, compress_ctx, exec_ctx),
             Canonical::FixedSizeList(fsl_array) => {
-                let compressed_elems = self.compress(fsl_array.elements(), exec_ctx)?;
+                let compressed_elems =
+                    self.compress_nested(fsl_array.elements(), &compress_ctx, 0, exec_ctx)?;
 
                 Ok(FixedSizeListArray::try_new(
                     compressed_elems,
@@ -172,7 +220,7 @@ impl CascadingCompressor {
                 // Try scheme-based compression first.
                 let scheme_compressed = self.choose_and_compress(
                     Canonical::Extension(ext_array.clone()),
-                    compress_ctx,
+                    compress_ctx.clone(),
                     exec_ctx,
                 )?;
 
@@ -189,7 +237,8 @@ impl CascadingCompressor {
 
                 // Also compress the underlying storage array. Some extension schemes can beat the
                 // extension storage but still lose to ordinary storage compression.
-                let compressed_storage = self.compress(ext_array.storage_array(), exec_ctx)?;
+                let compressed_storage =
+                    self.compress_nested(ext_array.storage_array(), &compress_ctx, 0, exec_ctx)?;
                 let storage_compressed =
                     ExtensionArray::new(ext_array.ext_dtype().clone(), compressed_storage)
                         .into_array();
@@ -295,9 +344,41 @@ impl CascadingCompressor {
             return Ok(data.into_array());
         }
 
+        let history_site = compress_ctx.chunk_history_site();
+
+        // Apply the scheme that won this site in previous chunks without searching, as long as it
+        // still compresses within bounds.
+        if let Some((history, key)) = &history_site
+            && let Some(plan) = history.plan(key)
+        {
+            let Some(planned_id) = plan.scheme else {
+                return Ok(data.into_array());
+            };
+            if let Some(&scheme) = eligible_schemes.iter().find(|s| s.id() == planned_id) {
+                let _winner_span =
+                    trace::winner_compress_span(scheme.id(), before_nbytes).entered();
+                let compressed = scheme.compress(self, &data, compress_ctx.clone(), exec_ctx)?;
+
+                let after_nbytes = compressed.nbytes();
+                let actual_ratio =
+                    (after_nbytes != 0).then(|| before_nbytes as f64 / after_nbytes as f64);
+                let accepted = after_nbytes < before_nbytes
+                    && actual_ratio.is_none_or(|ratio| ratio >= plan.min_ratio);
+                trace::record_winner_compress_result(after_nbytes, None, actual_ratio, accepted);
+
+                if accepted {
+                    return Ok(compressed);
+                }
+            }
+            history.invalidate(key);
+        }
+
         let Some((winner, winner_estimate)) =
             self.choose_best_scheme(&eligible_schemes, &data, compress_ctx.clone(), exec_ctx)?
         else {
+            if let Some((history, key)) = &history_site {
+                history.record_search(key, None, 1.0);
+            }
             return Ok(data.into_array());
         };
 
@@ -325,6 +406,18 @@ impl CascadingCompressor {
             actual_ratio,
             accepted,
         );
+
+        if let Some((history, key)) = &history_site {
+            if accepted {
+                history.record_search(
+                    key,
+                    Some(winner.id()),
+                    actual_ratio.unwrap_or(f64::INFINITY),
+                );
+            } else {
+                history.record_search(key, None, 1.0);
+            }
+        }
 
         if accepted {
             Ok(compressed)

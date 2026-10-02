@@ -4,10 +4,13 @@
 //! Compression context for recursive compression.
 
 use std::fmt;
+use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 
+use crate::compressor::ChunkHistory;
 use crate::compressor::ROOT_SCHEME_ID;
+use crate::compressor::SiteKey;
 use crate::scheme::SchemeId;
 use crate::stats::GenerateStatsOptions;
 
@@ -38,6 +41,13 @@ pub struct CompressorContext {
     /// [`descendant_exclusions`]: crate::scheme::Scheme::descendant_exclusions
     /// [`ancestor_exclusions`]: crate::scheme::Scheme::ancestor_exclusions
     cascade_history: Vec<(SchemeId, usize)>,
+
+    /// Scheme decisions shared with the other chunks of the stream, if any.
+    chunk_history: Option<Arc<ChunkHistory>>,
+
+    /// Slot indices of the nested arrays (struct fields, list elements, ...) leading from the
+    /// chunk root to this compression site. Used with `cascade_history` to key `chunk_history`.
+    structural_path: Vec<usize>,
 }
 
 impl CompressorContext {
@@ -50,7 +60,42 @@ impl CompressorContext {
             allowed_cascading: MAX_CASCADE,
             merged_stats_options: GenerateStatsOptions::default(),
             cascade_history: Vec::new(),
+            chunk_history: None,
+            structural_path: Vec::new(),
         }
+    }
+
+    /// Returns a context that shares scheme decisions through `history`.
+    pub(crate) fn with_chunk_history(mut self, history: Arc<ChunkHistory>) -> Self {
+        self.chunk_history = Some(history);
+        self
+    }
+
+    /// Returns a fresh context for compressing nested slot `slot` of the array at this site.
+    ///
+    /// Like a top-level compression it starts with a full cascade budget. It keeps the chunk
+    /// history unless this is sample compression, so samples never record decisions.
+    pub(crate) fn nested(&self, slot: usize) -> Self {
+        let mut structural_path = self.structural_path.clone();
+        structural_path.push(slot);
+        Self {
+            chunk_history: self.chunk_history.clone().filter(|_| !self.is_sample),
+            structural_path,
+            ..Self::new()
+        }
+    }
+
+    /// Returns the chunk history and this site's key in it, or `None` if decisions should not be
+    /// shared from here.
+    pub(crate) fn chunk_history_site(&self) -> Option<(Arc<ChunkHistory>, SiteKey)> {
+        if self.is_sample {
+            return None;
+        }
+        let history = Arc::clone(self.chunk_history.as_ref()?);
+        Some((
+            history,
+            (self.structural_path.clone(), self.cascade_history.clone()),
+        ))
     }
 }
 

@@ -42,7 +42,8 @@ impl CascadingCompressor {
     ) -> VortexResult<ArrayRef> {
         let list_array = list_array.reset_offsets(true, exec_ctx)?;
 
-        let compressed_elems = self.compress(list_array.elements(), exec_ctx)?;
+        let compressed_elems =
+            self.compress_nested(list_array.elements(), &compress_ctx, 0, exec_ctx)?;
 
         // Record the root scheme with the offsets child index so root exclusion rules apply.
         let offset_ctx =
@@ -72,7 +73,8 @@ impl CascadingCompressor {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let compressed_elems = self.compress(list_view.elements(), exec_ctx)?;
+        let compressed_elems =
+            self.compress_nested(list_view.elements(), &compress_ctx, 0, exec_ctx)?;
 
         let offset_ctx = compress_ctx
             .clone()

@@ -10,6 +10,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::VortexSessionExecute;
 use vortex_array::expr::stats::Stat;
 use vortex_btrblocks::BtrBlocksCompressor;
+use vortex_btrblocks::ChunkHistory;
 use vortex_error::VortexResult;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
@@ -29,11 +30,31 @@ use crate::sequence::SequentialStreamExt;
 /// API consumers are free to implement this trait to provide new plugin compressors.
 pub trait CompressorPlugin: Send + Sync + 'static {
     fn compress_chunk(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef>;
+
+    /// Compresses one chunk of a stream. `history` is shared by all chunks of the stream, so a
+    /// compressor can reuse decisions made for earlier chunks.
+    fn compress_stream_chunk(
+        &self,
+        chunk: &ArrayRef,
+        _history: &Arc<ChunkHistory>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        self.compress_chunk(chunk, ctx)
+    }
 }
 
 impl CompressorPlugin for Arc<dyn CompressorPlugin> {
     fn compress_chunk(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         self.as_ref().compress_chunk(chunk, ctx)
+    }
+
+    fn compress_stream_chunk(
+        &self,
+        chunk: &ArrayRef,
+        history: &Arc<ChunkHistory>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        self.as_ref().compress_stream_chunk(chunk, history, ctx)
     }
 }
 
@@ -49,6 +70,15 @@ where
 impl CompressorPlugin for BtrBlocksCompressor {
     fn compress_chunk(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         self.compress(chunk, ctx)
+    }
+
+    fn compress_stream_chunk(
+        &self,
+        chunk: &ArrayRef,
+        history: &Arc<ChunkHistory>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        self.compress_with_history(chunk, history, ctx)
     }
 }
 
@@ -100,19 +130,24 @@ impl LayoutStrategy for CompressingStrategy {
         let stats = Arc::clone(&self.stats);
         let session = session.clone();
         let compute_session = session.clone();
+        let history = Arc::new(ChunkHistory::default());
 
         let handle = session.handle();
         let stream = stream
             .map(move |chunk| {
                 let compressor = Arc::clone(&compressor);
                 let stats = Arc::clone(&stats);
+                let history = Arc::clone(&history);
                 let session = compute_session.clone();
                 handle.spawn_cpu(move || {
                     let (sequence_id, chunk) = chunk?;
                     let mut ctx = session.create_execution_ctx();
                     // Compute the stats for the chunk prior to compression
                     chunk.statistics().compute_all(&stats, &mut ctx)?;
-                    Ok((sequence_id, compressor.compress_chunk(&chunk, &mut ctx)?))
+                    Ok((
+                        sequence_id,
+                        compressor.compress_stream_chunk(&chunk, &history, &mut ctx)?,
+                    ))
                 })
             })
             .buffered(self.concurrency);

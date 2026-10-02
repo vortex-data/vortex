@@ -83,6 +83,8 @@ pub use schemes::patches::compress_patches;
 pub use session::CompressionSession;
 pub use session::CompressionSessionExt;
 pub use vortex_compressor::CascadingCompressor;
+pub use vortex_compressor::ChunkHistory;
+pub use vortex_compressor::ChunkHistoryOptions;
 pub use vortex_compressor::scheme::CompressorContext;
 pub use vortex_compressor::scheme::MAX_CASCADE;
 pub use vortex_compressor::scheme::Scheme;

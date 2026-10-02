@@ -5,9 +5,14 @@
 
 mod cascade;
 mod constant;
+mod history;
 mod sample;
 mod select;
 mod structural;
+
+pub use history::ChunkHistory;
+pub use history::ChunkHistoryOptions;
+pub(crate) use history::SiteKey;
 
 use crate::builtins::IntDictScheme;
 use crate::scheme::ChildSelection;

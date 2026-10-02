@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
 use std::sync::LazyLock;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 
 use parking_lot::Mutex;
 use vortex_array::ArrayId;
@@ -28,6 +31,7 @@ use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use super::CascadingCompressor;
+use super::ChunkHistory;
 use super::ROOT_SCHEME_ID;
 use super::sample::estimate_compression_ratio_with_sampling;
 use super::select::WinnerEstimate;
@@ -843,5 +847,77 @@ fn map_compression_preserves_repeated_entry_children() -> VortexResult<()> {
     assert!(compressed.is::<Map>());
     assert_eq!(compressed.dtype(), array.dtype());
     assert_arrays_eq!(&compressed, &array, &mut exec_ctx);
+    Ok(())
+}
+
+/// Number of times [`CountingDictScheme`] was asked for an estimate at the root site.
+static COUNTING_DICT_ESTIMATES: AtomicUsize = AtomicUsize::new(0);
+
+/// Delegates to [`IntDictScheme`], counting how often the compressor searches with it.
+#[derive(Debug)]
+struct CountingDictScheme;
+
+impl Scheme for CountingDictScheme {
+    fn scheme_name(&self) -> &'static str {
+        "test.counting_dict"
+    }
+
+    fn matches(&self, canonical: &Canonical) -> bool {
+        IntDictScheme.matches(canonical)
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        IntDictScheme.produced_encodings()
+    }
+
+    fn stats_options(&self) -> GenerateStatsOptions {
+        IntDictScheme.stats_options()
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        data: &ArrayAndStats,
+        compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> CompressionEstimate {
+        if compress_ctx.cascade_history().is_empty() {
+            COUNTING_DICT_ESTIMATES.fetch_add(1, Ordering::Relaxed);
+        }
+        IntDictScheme.expected_compression_ratio(data, compress_ctx, exec_ctx)
+    }
+
+    fn compress(
+        &self,
+        compressor: &CascadingCompressor,
+        data: &ArrayAndStats,
+        compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        IntDictScheme.compress(compressor, data, compress_ctx, exec_ctx)
+    }
+}
+
+#[test]
+fn chunk_history_skips_search_until_out_of_bounds() -> VortexResult<()> {
+    let compressor = CascadingCompressor::new(vec![&CountingDictScheme]);
+    let history = Arc::new(ChunkHistory::default());
+    let mut exec_ctx = SESSION.create_execution_ctx();
+
+    let low_cardinality = PrimitiveArray::from_iter((0..4096i32).map(|i| i % 4)).into_array();
+    let high_cardinality = PrimitiveArray::from_iter(0..4096i32).into_array();
+
+    for _ in 0..6 {
+        let compressed =
+            compressor.compress_with_history(&low_cardinality, &history, &mut exec_ctx)?;
+        assert_arrays_eq!(&compressed, &low_cardinality, &mut exec_ctx);
+    }
+    // Only the three warmup chunks searched.
+    assert_eq!(COUNTING_DICT_ESTIMATES.load(Ordering::Relaxed), 3);
+
+    // Dict no longer compresses, so the reuse is rejected and the site searches again.
+    let compressed =
+        compressor.compress_with_history(&high_cardinality, &history, &mut exec_ctx)?;
+    assert_arrays_eq!(&compressed, &high_cardinality, &mut exec_ctx);
+    assert_eq!(COUNTING_DICT_ESTIMATES.load(Ordering::Relaxed), 4);
     Ok(())
 }
