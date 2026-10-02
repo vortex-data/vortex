@@ -54,6 +54,8 @@ use vortex_array::expr::lt_eq;
 use vortex_array::expr::or;
 use vortex_array::expr::root;
 use vortex_array::expr::select;
+use vortex_array::expr::stats::Precision;
+use vortex_array::expr::stats::Stat;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
 use vortex_array::extension::datetime::TimestampOptions;
@@ -2123,6 +2125,50 @@ async fn test_writer_with_statistics() -> VortexResult<()> {
     assert!(summary.footer().statistics().is_some());
     assert_eq!(summary.row_count(), 5);
 
+    Ok(())
+}
+
+/// Sortedness is accumulated across written chunks, checking their boundaries, and persisted in
+/// the footer statistics.
+#[tokio::test]
+async fn test_file_statistics_sortedness() -> VortexResult<()> {
+    let chunk = |ts: [i64; 2], other: [i32; 2]| -> VortexResult<ArrayRef> {
+        let ts = TemporalArray::new_timestamp(
+            PrimitiveArray::from_iter(ts).into_array(),
+            TimeUnit::Microseconds,
+            None,
+        );
+        Ok(StructArray::from_fields(&[
+            ("ts", ts.into_array()),
+            ("other", PrimitiveArray::from_iter(other).into_array()),
+        ])?
+        .into_array())
+    };
+    // `other` is sorted within each chunk but not across the chunk boundary.
+    let chunks = [chunk([1, 2], [1, 5])?, chunk([3, 4], [2, 6])?];
+
+    let mut buf = ByteBufferMut::empty();
+    let mut writer = SESSION
+        .write_options()
+        .with_file_statistics(vec![Stat::IsSorted, Stat::IsStrictSorted])
+        .writer(&mut buf, chunks[0].dtype().clone());
+    for chunk in chunks {
+        writer.push(chunk).await?;
+    }
+    writer.finish().await?;
+
+    let file = SESSION.open_options().open_buffer(ByteBuffer::from(buf))?;
+    let stats = file.file_stats().vortex_expect("file statistics");
+    let sortedness = |field_idx: usize, stat: Stat| {
+        stats
+            .get(field_idx)
+            .0
+            .get_as::<bool>(stat, &DType::Bool(Nullability::NonNullable))
+    };
+    assert_eq!(sortedness(0, Stat::IsSorted), Precision::Exact(true));
+    assert_eq!(sortedness(0, Stat::IsStrictSorted), Precision::Exact(true));
+    assert_eq!(sortedness(1, Stat::IsSorted), Precision::Exact(false));
+    assert_eq!(sortedness(1, Stat::IsStrictSorted), Precision::Exact(false));
     Ok(())
 }
 
