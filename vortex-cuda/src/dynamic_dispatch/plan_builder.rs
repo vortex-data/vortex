@@ -90,7 +90,7 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
         return matches!(arr.dtype().as_ptype(), PType::F32 | PType::F64);
     }
     if id == BitPacked.id() {
-        return matches!(array.as_::<BitPacked>().bit_widths(), BitWidths::Global(_));
+        return is_bitpacked_with_global_bit_width(array);
     }
     if id == Dict.id() {
         let arr = array.as_::<Dict>();
@@ -192,7 +192,7 @@ pub fn has_standalone_kernel(array: &ArrayRef) -> bool {
 fn is_bitpacked_with_global_bit_width(array: &ArrayRef) -> bool {
     array
         .as_opt::<BitPacked>()
-        .is_some_and(|array| matches!(array.bit_widths(), BitWidths::Global(_)))
+        .is_some_and(|array| array.bit_widths().is_global())
 }
 
 /// Patch payload attached to the op that consumes it.
@@ -574,14 +574,12 @@ impl FusedPlan {
             let bp = child.as_::<BitPacked>();
             let offset = slice_arr.data().slice_range().start;
             let len = array.len();
-            let (packed, bitpacked_offset, patch_range) = bitpacked_slice_view(bp, offset, len)?;
+            let (packed, bit_width, bitpacked_offset, patch_range) =
+                bitpacked_slice_view(bp, offset, len)?;
 
             let source_ptype = ptype_to_tag(PType::try_from(bp.dtype()).map_err(|_| {
                 vortex_err!("BitPacked must have primitive dtype, got {:?}", bp.dtype())
             })?);
-            let BitWidths::Global(bit_width) = bp.bit_widths() else {
-                vortex_bail!("CUDA does not support BitPacked arrays with per-block bit widths");
-            };
             let buf_index = self.source_buffers.len();
             self.source_buffers.push(Some(packed));
             return Ok(Stage::new(

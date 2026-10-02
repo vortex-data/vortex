@@ -50,12 +50,13 @@ pub(crate) struct BitPackedExecutor;
 /// Bit-unpack kernels decode full FastLanes chunks, so the packed buffer is
 /// widened to chunk boundaries and `offset` is converted into the in-chunk
 /// starting position. The returned logical range is passed to patch
-/// materialization so exception metadata is sliced consistently.
+/// materialization so exception metadata is sliced consistently. The global
+/// bit width of `bp` is returned alongside the view.
 pub(crate) fn bitpacked_slice_view(
     bp: ArrayView<'_, BitPacked>,
     offset: usize,
     len: usize,
-) -> VortexResult<(BufferHandle, u16, Range<usize>)> {
+) -> VortexResult<(BufferHandle, u8, u16, Range<usize>)> {
     let patch_range = offset..offset + len;
     let offset_start = patch_range.start + bp.offset() as usize;
     let offset_stop = offset_start + len;
@@ -71,6 +72,7 @@ pub(crate) fn bitpacked_slice_view(
 
     Ok((
         bp.packed().slice(encoded_start..encoded_stop),
+        bit_width,
         u16::try_from(bitpacked_offset)?,
         patch_range,
     ))
@@ -95,10 +97,8 @@ impl BitPackedExecutor {
         let bp = child.as_::<BitPacked>();
         let offset = slice.data().slice_range().start;
         let len = array.len();
-        let (packed, bitpacked_offset, patch_range) = bitpacked_slice_view(bp, offset, len)?;
-        let BitWidths::Global(bit_width) = bp.bit_widths() else {
-            vortex_bail!("CUDA does not support BitPacked arrays with per-block bit widths");
-        };
+        let (packed, bit_width, bitpacked_offset, patch_range) =
+            bitpacked_slice_view(bp, offset, len)?;
         let sliced = BitPacked::try_new(
             packed,
             bp.ptype(bp.dtype()),

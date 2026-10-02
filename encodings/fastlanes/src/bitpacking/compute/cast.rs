@@ -15,7 +15,6 @@ use vortex_array::scalar_fn::fns::cast::CastKernel;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 
 use crate::bitpacking::BitPacked;
 use crate::bitpacking::BitWidths;
@@ -35,12 +34,10 @@ fn is_widening_int_cast(src: PType, tgt: PType) -> bool {
 
 fn build_with_validity(
     array: ArrayView<'_, BitPacked>,
+    bit_width: u8,
     dtype: &DType,
     new_validity: Validity,
 ) -> VortexResult<ArrayRef> {
-    let BitWidths::Global(bit_width) = array.bit_widths() else {
-        vortex_bail!("BitPacked array has per-block bit widths");
-    };
     Ok(BitPacked::try_new(
         array.packed().clone(),
         dtype.as_ptype(),
@@ -58,10 +55,9 @@ fn build_with_validity(
 
 impl CastReduce for BitPacked {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        // Blocks packed at different widths fall back to decoding.
-        if !matches!(array.bit_widths(), BitWidths::Global(_)) {
+        let BitWidths::Global(bit_width) = array.bit_widths() else {
             return Ok(None);
-        }
+        };
         if !array.dtype().eq_ignore_nullability(dtype) {
             return Ok(None);
         }
@@ -71,7 +67,7 @@ impl CastReduce for BitPacked {
         else {
             return Ok(None);
         };
-        build_with_validity(array, dtype, new_validity).map(Some)
+        build_with_validity(array, bit_width, dtype, new_validity).map(Some)
     }
 }
 
@@ -81,17 +77,16 @@ impl CastKernel for BitPacked {
         dtype: &DType,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        // Blocks packed at different widths fall back to decoding.
-        if !matches!(array.bit_widths(), BitWidths::Global(_)) {
+        let BitWidths::Global(bit_width) = array.bit_widths() else {
             return Ok(None);
-        }
+        };
         // Nullability-only change: keep the values bit-packed, just adjust validity.
         if array.dtype().eq_ignore_nullability(dtype) {
             let new_validity =
                 array
                     .validity()?
                     .cast_nullability(dtype.nullability(), array.len(), ctx)?;
-            return build_with_validity(array, dtype, new_validity).map(Some);
+            return build_with_validity(array, bit_width, dtype, new_validity).map(Some);
         }
 
         // Widening integer cast: unpack each FastLanes chunk into a cache-resident scratch buffer

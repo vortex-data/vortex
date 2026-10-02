@@ -21,7 +21,8 @@ impl EncodingSubclass for PyFastLanesBitPackedArray {
 
 #[pymethods]
 impl PyFastLanesBitPackedArray {
-    /// Returns the bit width shared by every block, or `None` if blocks have different widths.
+    /// Returns the global bit width of the packed values, or `None` if the array has per-block
+    /// bit widths.
     #[getter]
     fn bit_width(self_: PyRef<'_, Self>) -> Option<u8> {
         match self_.as_super().inner().as_::<BitPacked>().bit_widths() {

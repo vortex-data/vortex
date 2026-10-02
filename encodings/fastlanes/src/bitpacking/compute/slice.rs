@@ -12,7 +12,6 @@ use vortex_array::arrays::slice::SliceKernel;
 use vortex_array::arrays::slice::SliceReduce;
 use vortex_array::patches::Patches;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 
 use crate::BitPacked;
 use crate::BitWidths;
@@ -20,16 +19,15 @@ use crate::bitpacking::array::BitPackedArrayExt;
 
 impl SliceReduce for BitPacked {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        // Blocks packed at different widths fall back to decoding.
-        if !matches!(array.bit_widths(), BitWidths::Global(_)) {
+        let BitWidths::Global(bit_width) = array.bit_widths() else {
             return Ok(None);
-        }
+        };
         // We cannot access buffers (to slice the patches).
         if array.patches().is_some() {
             return Ok(None);
         }
 
-        Ok(Some(slice_bitpacked(array, range, None)?))
+        Ok(Some(slice_bitpacked(array, bit_width, range, None)?))
     }
 }
 
@@ -39,22 +37,22 @@ impl SliceKernel for BitPacked {
         range: Range<usize>,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        // Blocks packed at different widths fall back to decoding.
-        if !matches!(array.bit_widths(), BitWidths::Global(_)) {
+        let BitWidths::Global(bit_width) = array.bit_widths() else {
             return Ok(None);
-        }
+        };
         let patches = array
             .patches()
             .map(|p| p.slice(range.clone()))
             .transpose()?
             .flatten();
 
-        Ok(Some(slice_bitpacked(array, range, patches)?))
+        Ok(Some(slice_bitpacked(array, bit_width, range, patches)?))
     }
 }
 
 fn slice_bitpacked(
     array: ArrayView<'_, BitPacked>,
+    bit_width: u8,
     range: Range<usize>,
     patches: Option<Patches>,
 ) -> VortexResult<ArrayRef> {
@@ -64,9 +62,6 @@ fn slice_bitpacked(
     let block_start = max(0, offset_start - offset);
     let block_stop = offset_stop.div_ceil(1024) * 1024;
 
-    let BitWidths::Global(bit_width) = array.bit_widths() else {
-        vortex_bail!("BitPacked array has per-block bit widths");
-    };
     let encoded_start = (block_start / 8) * bit_width as usize;
     let encoded_stop = (block_stop / 8) * bit_width as usize;
 

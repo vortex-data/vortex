@@ -18,7 +18,6 @@ use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_mask::Mask;
 use vortex_mask::MaskValuesRef;
 
@@ -51,10 +50,9 @@ impl FilterKernel for BitPacked {
         mask: &Mask,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        // Blocks packed at different widths fall back to decoding.
-        if !matches!(array.bit_widths(), BitWidths::Global(_)) {
+        let BitWidths::Global(bit_width) = array.bit_widths() else {
             return Ok(None);
-        }
+        };
         let values = match mask {
             Mask::AllTrue(_) | Mask::AllFalse(_) => {
                 return Ok(None);
@@ -71,7 +69,8 @@ impl FilterKernel for BitPacked {
         // Filter and patch using the correct unsigned type for FastLanes, then cast to signed if needed.
         let primitive =
             match_each_unsigned_integer_ptype!(array.dtype().as_ptype().to_unsigned(), |U| {
-                let (buffer, validity) = filter_primitive_without_patches::<U>(array, values)?;
+                let (buffer, validity) =
+                    filter_primitive_without_patches::<U>(array, bit_width, values)?;
                 // reinterpret_cast for signed types.
                 let primitive = PrimitiveArray::new(buffer, validity);
                 if array.dtype().as_ptype().is_signed_int() {
@@ -114,11 +113,9 @@ impl FilterKernel for BitPacked {
 /// Returns a tuple of (values buffer, validity mask).
 fn filter_primitive_without_patches<U: UnsignedPType + BitPacking>(
     array: ArrayView<'_, BitPacked>,
+    bit_width: u8,
     selection: &MaskValuesRef,
 ) -> VortexResult<(Buffer<U>, Validity)> {
-    let BitWidths::Global(bit_width) = array.bit_widths() else {
-        vortex_bail!("BitPacked array has per-block bit widths");
-    };
     let values = filter_with_indices(array.data(), bit_width, selection.indices());
     let validity = array
         .validity()?

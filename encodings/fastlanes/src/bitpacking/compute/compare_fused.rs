@@ -44,12 +44,10 @@ use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 
 use super::stream_predicate::stream_predicate;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
-use crate::BitWidths;
 use crate::unpack_iter::BitPacked as BitPackedIter;
 use crate::unpack_iter::for_each_packed_chunk;
 
@@ -67,6 +65,7 @@ const WORDS_PER_CHUNK: usize = CHUNK_SIZE / U64_BITS;
 /// [`BitPackedArray`]: crate::BitPackedArray
 pub(super) fn stream_compare_fused<T, F>(
     array: ArrayView<'_, BitPacked>,
+    bit_width: u8,
     rhs: T,
     nullability: Nullability,
     cmp: F,
@@ -80,9 +79,6 @@ where
     F: Fn(T, T) -> bool + Copy,
 {
     let len = array.len();
-    let BitWidths::Global(bit_width) = array.bit_widths() else {
-        vortex_bail!("BitPacked array has per-block bit widths");
-    };
     let bit_width = bit_width as usize;
     let offset = array.offset() as usize;
 

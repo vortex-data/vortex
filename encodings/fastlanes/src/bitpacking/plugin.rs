@@ -31,6 +31,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::BitPacked;
@@ -230,7 +231,7 @@ impl ArrayPlugin for BitPackedPatchedPlugin {
         let ptype = bitpacked.dtype().as_ptype();
         let validity = bitpacked.validity()?;
         let BitWidths::Global(bw) = bitpacked.bit_widths() else {
-            vortex_bail!("BitPacked patched plugin cannot serialize per-block bit widths");
+            vortex_panic!("BitPacked plugin always deserializes a global bit width");
         };
         let len = bitpacked.len();
         let offset = bitpacked.offset();

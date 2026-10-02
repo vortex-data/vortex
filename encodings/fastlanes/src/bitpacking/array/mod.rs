@@ -140,6 +140,14 @@ pub enum BitWidths {
     Blocked(ArrayRef),
 }
 
+impl BitWidths {
+    /// Returns `true` if every block is packed at one bit width.
+    #[inline]
+    pub fn is_global(&self) -> bool {
+        matches!(self, Self::Global(_))
+    }
+}
+
 pub struct BitPackedDataParts {
     pub offset: u16,
     pub bit_widths: BitWidths,

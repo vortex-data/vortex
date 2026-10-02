@@ -23,7 +23,6 @@ use vortex_error::VortexResult;
 
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
-use crate::BitWidths;
 use crate::unpack_iter::BitPacked as BitPackedUnpack;
 
 /// BitPacked-specific is_constant kernel with SIMD support.
@@ -44,8 +43,7 @@ impl DynAggregateKernel for BitPackedIsConstantKernel {
         let Some(array) = batch.as_opt::<BitPacked>() else {
             return Ok(None);
         };
-        // Blocks packed at different widths fall back to decoding.
-        if !matches!(array.bit_widths(), BitWidths::Global(_)) {
+        if !array.bit_widths().is_global() {
             return Ok(None);
         }
 
