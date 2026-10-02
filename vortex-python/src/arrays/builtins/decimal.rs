@@ -5,8 +5,9 @@ use pyo3::PyRef;
 use pyo3::pyclass;
 use pyo3::pymethods;
 use vortex::array::arrays::Decimal;
+use vortex::array::arrays::decimal::DecimalArrayExt;
+use vortex::error::VortexExpect;
 
-use crate::arrays::native::AsArrayRef;
 use crate::arrays::native::EncodingSubclass;
 use crate::arrays::native::PyNativeArray;
 
@@ -22,11 +23,19 @@ impl EncodingSubclass for PyDecimalArray {
 impl PyDecimalArray {
     #[getter]
     fn precision(slf: PyRef<Self>) -> u8 {
-        slf.as_array_ref().precision()
+        slf.as_super()
+            .inner()
+            .as_opt::<Decimal>()
+            .vortex_expect("PyDecimalArray wraps a Decimal array")
+            .precision()
     }
 
     #[getter]
     fn scale(slf: PyRef<Self>) -> i8 {
-        slf.as_array_ref().scale()
+        slf.as_super()
+            .inner()
+            .as_opt::<Decimal>()
+            .vortex_expect("PyDecimalArray wraps a Decimal array")
+            .scale()
     }
 }

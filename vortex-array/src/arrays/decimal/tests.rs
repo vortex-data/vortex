@@ -85,6 +85,33 @@ fn rejects_wrong_logical_child_dtype() {
     );
 }
 
+#[rstest]
+#[case::i128_to_i64(DecimalArray::from_iter([i128::MAX], DecimalDType::new(10, 0)))]
+#[case::i256_to_i128(DecimalArray::from_iter([i256::from_parts(0, 1)], DecimalDType::new(38, 0)))]
+fn wider_native_input_cast_checks_overflow(#[case] array: DecimalArray) {
+    let mut ctx = TEST_SESSION.create_execution_ctx();
+    let err = array.materialize_values(&mut ctx).unwrap_err();
+    assert!(
+        err.to_string().contains("Integer does not fit"),
+        "got: {err}"
+    );
+}
+
+#[test]
+fn wider_native_input_materializes_at_logical_width() -> VortexResult<()> {
+    let mut ctx = TEST_SESSION.create_execution_ctx();
+    let dtype = DecimalDType::new(10, 2);
+    let array = DecimalArray::from_iter([0i128, 1, -2], dtype).materialize_values(&mut ctx)?;
+    assert_eq!(array.values_type(), DecimalType::I64);
+    assert_arrays_eq!(
+        array,
+        DecimalArray::from_iter([0i64, 1, -2], dtype),
+        &mut ctx
+    );
+
+    Ok(())
+}
+
 #[test]
 fn canonicalization_preserves_encoded_child() -> VortexResult<()> {
     let mut ctx = TEST_SESSION.create_execution_ctx();
