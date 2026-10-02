@@ -6,6 +6,7 @@ use std::fmt::Formatter;
 
 use itertools::Itertools;
 use prost::Message;
+use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -34,7 +35,6 @@ use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
-use crate::scalar_fn::fns::get_item::GetItem;
 use crate::scalar_fn::fns::pack::Pack;
 use crate::scalar_fn::fns::pack::PackOptions;
 
@@ -222,34 +222,47 @@ impl ScalarFnVTable for Select {
             )?));
         }
 
-        // We cannot always convert a `select` into a `pack(get_item(f1), get_item(f2), ...)`.
-        // This is because `get_item` does a validity intersection of the struct validity with its
-        // fields, which is not the same as just "masking" out the unwanted fields (a selection).
+        // We cannot always convert a `select` into a projection of its child fields. This is
+        // because reading a field does a validity intersection of the struct validity with the
+        // field, which is not the same as just "masking" out the unwanted fields (a selection).
         //
         // We can, however, make this simplification when the child of the `select` is already a
-        // `pack` and we know that `get_item` will do no validity intersections.
-        let child_is_pack = child_struct.is::<Pack>();
-
-        // `get_item` only performs validity intersection when the struct is nullable but the field
-        // is not. This would change the semantics of a `select`, so we can only simplify when this
-        // won't happen.
+        // `pack` and we know that reading a field will do no validity intersections.
+        //
+        // The intersection only happens when the struct is nullable but the field is not. That
+        // would change the semantics of a `select`, so we can only simplify when it won't happen.
         let would_intersect_validity =
             struct_nullability.is_nullable() && !all_included_fields_are_nullable;
 
-        if child_is_pack && !would_intersect_validity {
-            let fields = included_fields
+        if let Some(child_pack) = child_struct.as_opt::<Pack>()
+            && !would_intersect_validity
+        {
+            // Take the field expressions straight out of the child `pack` rather than wrap the
+            // `pack` in `get_item`. The guard above proves the two are equivalent here, and the
+            // optimizer visits children before their parent, so a `get_item` introduced now
+            // would never be simplified away.
+            let fields: Vec<BoundExpression> = included_fields
                 .iter()
-                .map(|name| GetItem.try_new_bound_expr(name.clone(), [child_struct.clone()]))
-                .collect::<VortexResult<Vec<_>>>()?;
-            let pack_expr = Pack.try_new_bound_expr(
+                .map(|name| {
+                    let idx = child_pack.names.find(name).ok_or_else(|| {
+                        vortex_err!(
+                            "Cannot find field {} in pack fields {:?}",
+                            name,
+                            child_pack.names
+                        )
+                    })?;
+
+                    Ok(child_struct.child(idx).clone())
+                })
+                .try_collect::<_, _, VortexError>()?;
+
+            return Ok(Some(Pack.try_new_bound_expr(
                 PackOptions {
                     names: included_fields,
                     nullability: struct_nullability,
                 },
                 fields,
-            )?;
-
-            return Ok(Some(pack_expr));
+            )?));
         }
 
         Ok(None)
