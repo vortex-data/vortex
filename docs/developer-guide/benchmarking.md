@@ -257,6 +257,8 @@ Benchmarks run automatically on all commits to `develop` and can be run on-deman
 - **Post-commit** -- compression, string encoding, random access, and SQL benchmarks run on every
   commit to `develop`, with results uploaded for historical tracking.
 - **Random access** -- `action/bench-random-access` runs only the random-access benchmark.
+- **Random access (S3)** -- `action/bench-random-access-s3` runs the random-access benchmark
+  against data uploaded to S3 instead of local disk.
 - **Compression** -- `action/bench-compress` runs only the compression benchmark.
 - **String encoding** -- `action/bench-string` runs only the string encoding benchmark.
 - **GPU compression** -- `action/bench-gpu-compress` runs the allow-listed Vortex decompression

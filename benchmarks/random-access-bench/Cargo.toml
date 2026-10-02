@@ -23,6 +23,7 @@ rand = { workspace = true }
 rand_distr = { workspace = true }
 tabled = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
+url = { workspace = true }
 vortex-bench = { workspace = true }
 
 [features]

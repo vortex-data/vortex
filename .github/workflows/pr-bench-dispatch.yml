@@ -35,6 +35,11 @@ jobs:
     uses: ./.github/workflows/pr-bench-random-access.yml
     secrets: inherit
 
+  all-random-access-s3-bench:
+    needs: remove-all-label
+    uses: ./.github/workflows/pr-bench-random-access-s3.yml
+    secrets: inherit
+
   all-compression-bench:
     needs: remove-all-label
     uses: ./.github/workflows/pr-bench-compress.yml
@@ -66,6 +71,22 @@ jobs:
   random-access-bench:
     needs: remove-random-access-label
     uses: ./.github/workflows/pr-bench-random-access.yml
+    secrets: inherit
+
+  remove-random-access-s3-label:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event.label.name == 'action/bench-random-access-s3'
+    steps:
+      - uses: actions-ecosystem/action-remove-labels@2ce5d41b4b6aa8503e285553f75ed56e0a40bae0  # v1
+        if: github.event.pull_request.head.repo.full_name == 'vortex-data/vortex'
+        with:
+          labels: action/bench-random-access-s3
+          fail_on_error: true
+
+  random-access-s3-bench:
+    needs: remove-random-access-s3-label
+    uses: ./.github/workflows/pr-bench-random-access-s3.yml
     secrets: inherit
 
   remove-compress-label:
