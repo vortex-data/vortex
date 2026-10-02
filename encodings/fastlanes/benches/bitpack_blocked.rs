@@ -58,7 +58,7 @@ fn values(distribution: &str) -> PrimitiveArray {
 }
 
 #[divan::bench(args = DISTRIBUTIONS)]
-fn best_bit_width(bencher: Bencher, distribution: &str) {
+fn bitpack_global_compress(bencher: Bencher, distribution: &str) {
     let array = values(distribution);
     bencher
         .counter(ItemsCount::new(LEN))
@@ -66,7 +66,7 @@ fn best_bit_width(bencher: Bencher, distribution: &str) {
 }
 
 #[divan::bench(args = DISTRIBUTIONS)]
-fn blocked(bencher: Bencher, distribution: &str) {
+fn bitpack_blocked_compress(bencher: Bencher, distribution: &str) {
     let array = values(distribution);
     bencher
         .counter(ItemsCount::new(LEN))
