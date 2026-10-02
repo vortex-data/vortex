@@ -11,6 +11,8 @@ use vortex_array::arrays::slice::SliceExecuteAdaptor;
 use vortex_array::optimizer::kernels::ArrayKernelsExt;
 use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::scalar_fn::fns::between::Between;
+use vortex_array::scalar_fn::fns::between::BetweenExecuteAdaptor;
 use vortex_array::scalar_fn::fns::between::BetweenReduceAdaptor;
 use vortex_array::scalar_fn::fns::binary::Binary;
 use vortex_array::scalar_fn::fns::binary::CompareExecuteAdaptor;
@@ -24,6 +26,7 @@ use crate::ALP;
 
 pub(super) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
+    kernels.register_execute_parent_kernel(Between.id(), ALP, BetweenExecuteAdaptor(ALP));
     kernels.register_execute_parent_kernel(Binary.id(), ALP, CompareExecuteAdaptor(ALP));
     kernels.register_execute_parent_kernel(Filter.id(), ALP, FilterExecuteAdaptor(ALP));
     kernels.register_execute_parent_kernel(Mask.id(), ALP, MaskExecuteAdaptor(ALP));
