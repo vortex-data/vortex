@@ -55,6 +55,7 @@ pub mod scope;
 pub mod stats;
 pub mod transform;
 pub mod traversal;
+pub mod variable;
 
 pub use analysis::*;
 pub use bound_expression::*;
@@ -107,9 +108,11 @@ pub use exprs::pack;
 pub use exprs::root;
 pub use exprs::select;
 pub use exprs::select_exclude;
+pub use exprs::var;
 pub use exprs::variant_get;
 pub use exprs::zip_expr;
 pub use scope::*;
+pub use variable::*;
 
 #[cfg(feature = "_test-harness")]
 pub mod test_harness {
