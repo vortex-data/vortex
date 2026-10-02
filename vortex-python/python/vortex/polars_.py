@@ -149,6 +149,8 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
         if "Boolean" in fn:
             fn = fn["Boolean"]
 
+            if fn == "Not":
+                return ve.not_(_inputs[0])
             if "IsIn" in fn:
                 fn = fn["IsIn"]
                 if fn["nulls_equal"]:
