@@ -12,6 +12,7 @@ use vortex_buffer::BitBufferView;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
@@ -274,10 +275,10 @@ impl BoolData {
     ) -> VortexResult<Self> {
         vortex_ensure!(offset < 8, "BitBuffer offset must be <8, got {}", offset);
         if let Some(validity_len) = validity.maybe_len() {
-            vortex_ensure!(
-                validity_len == len,
-                "BoolArray of size {} cannot be built with validity of size {validity_len}",
+            vortex_ensure_eq!(
+                validity_len,
                 len,
+                "BoolArray validity length does not match array length",
             );
         }
 
@@ -314,10 +315,10 @@ impl BoolData {
         );
 
         if let Some(validity_len) = validity.maybe_len() {
-            vortex_ensure!(
-                validity_len == bits.len(),
-                "BoolArray of size {} cannot be built with validity of size {validity_len}",
-                bits.len()
+            vortex_ensure_eq!(
+                validity_len,
+                bits.len(),
+                "BoolArray validity length does not match array length",
             );
         }
 

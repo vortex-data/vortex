@@ -8,6 +8,7 @@ use vortex_buffer::Alignment;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_session::VortexSession;
 
 use crate::ArrayParts;
@@ -126,22 +127,18 @@ impl VTable for Decimal {
         let DType::Decimal(_, nullability) = dtype else {
             vortex_bail!("Expected decimal dtype, got {dtype:?}");
         };
-        vortex_ensure!(
-            data.len() == len,
-            InvalidArgument:
-            "DecimalArray length {} does not match outer length {}",
+        vortex_ensure_eq!(
             data.len(),
-            len
+            len,
+            InvalidArgument: "DecimalArray length does not match outer length",
         );
         let validity =
             crate::array::child_to_validity(slots[DecimalSlots::VALIDITY].as_ref(), *nullability);
         if let Some(validity_len) = validity.maybe_len() {
-            vortex_ensure!(
-                validity_len == len,
-                InvalidArgument:
-                "DecimalArray validity len {} does not match outer length {}",
+            vortex_ensure_eq!(
                 validity_len,
-                len
+                len,
+                InvalidArgument: "DecimalArray validity len does not match outer length",
             );
         }
 

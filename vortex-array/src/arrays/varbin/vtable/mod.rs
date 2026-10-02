@@ -8,6 +8,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::registry::CachedId;
 
@@ -94,20 +95,14 @@ impl VTable for VarBin {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == VarBinSlots::COUNT,
-            "VarBinArray expected {} slots, found {}",
-            VarBinSlots::COUNT,
-            slots.len()
-        );
+        vortex_ensure_eq!(slots.len(), VarBinSlots::COUNT);
         let offsets = slots[VarBinSlots::OFFSETS]
             .as_ref()
             .vortex_expect("VarBinArray offsets slot");
-        vortex_ensure!(
-            offsets.len().saturating_sub(1) == len,
-            "VarBinArray length {} does not match outer length {}",
+        vortex_ensure_eq!(
             offsets.len().saturating_sub(1),
-            len
+            len,
+            "VarBinArray length does not match outer length",
         );
         vortex_ensure!(
             matches!(dtype, DType::Binary(_) | DType::Utf8(_)),
@@ -135,11 +130,7 @@ impl VTable for VarBin {
         array: ArrayView<'_, Self>,
         buffers: &[BufferHandle],
     ) -> VortexResult<ArrayParts<Self>> {
-        vortex_ensure!(
-            buffers.len() == 1,
-            "Expected 1 buffer, got {}",
-            buffers.len()
-        );
+        vortex_ensure_eq!(buffers.len(), 1);
         let mut data = array.data().clone();
         data.bytes = buffers[0].clone();
         Ok(

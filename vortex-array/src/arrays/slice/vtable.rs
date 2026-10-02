@@ -11,6 +11,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
@@ -85,17 +86,15 @@ impl VTable for Slice {
         let child = slots[SliceSlots::CHILD]
             .as_ref()
             .vortex_expect("validated child slot");
-        vortex_ensure!(
-            child.dtype() == dtype,
-            "SliceArray dtype {} does not match outer dtype {}",
+        vortex_ensure_eq!(
             child.dtype(),
-            dtype
+            dtype,
+            "SliceArray dtype does not match outer dtype",
         );
-        vortex_ensure!(
-            data.len() == len,
-            "SliceArray length {} does not match outer length {}",
+        vortex_ensure_eq!(
             data.len(),
-            len
+            len,
+            "SliceArray length does not match outer length",
         );
         vortex_ensure!(
             data.range.end <= child.len(),
