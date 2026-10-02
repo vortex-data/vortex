@@ -22,6 +22,7 @@ use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesData;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::child_to_validity;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
@@ -68,10 +69,11 @@ pub(crate) const PATCH_SLOTS: PatchSlotIndices = PatchSlotIndices {
     chunk_offsets: BitPackedSlots::PATCH_CHUNK_OFFSETS,
 };
 
-/// Check that `offsets` holds `num_blocks + 1` boundaries spanning `packed_len` bytes, each block a
-/// whole number of 128-byte rows with a bit width supported by `ptype`.
+/// Check that `offsets` holds `num_blocks + 1` non-nullable unsigned boundaries.
 ///
-/// Boundaries are only inspected when they are materialized on the host.
+/// Debug builds also assert that host-resident boundaries span `packed_len` bytes, each block a
+/// whole number of 128-byte rows with a bit width supported by `ptype`. Release builds don't check
+/// the boundary values, so decoders must bounds-check them.
 pub(crate) fn validate_block_offsets(
     offsets: &ArrayRef,
     ptype: PType,
@@ -89,16 +91,17 @@ pub(crate) fn validate_block_offsets(
         num_blocks + 1,
         offsets.len()
     );
-    let max_bit_width = ptype.bit_width() as u64;
-    if let Some(primitive) = offsets.as_opt::<Primitive>()
+    if cfg!(debug_assertions)
+        && let Some(primitive) = offsets.as_opt::<Primitive>()
         && primitive.buffer_handle().is_on_host()
     {
+        let max_bit_width = ptype.bit_width() as u64;
         match_each_unsigned_integer_ptype!(primitive.ptype(), |T| {
             validate_primitive_offsets(primitive.as_slice::<T>(), max_bit_width, packed_len)
+                .vortex_expect("invalid BitPacked block offsets")
         })
-    } else {
-        Ok(())
     }
+    Ok(())
 }
 
 /// Check that each block between `boundaries` is a whole number of 128-byte rows of at most
@@ -284,7 +287,7 @@ impl BitPackedData {
             Self::validate_patches(patches, ptype, length)?;
         }
 
-        // Validate packed buffer. Block offsets are validated against it separately.
+        // Validate packed buffer. Block offsets are only checked against it in debug builds.
         if let Some(bit_width) = bit_width {
             vortex_ensure!(
                 usize::from(bit_width) <= ptype.bit_width(),

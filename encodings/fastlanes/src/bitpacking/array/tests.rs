@@ -124,29 +124,29 @@ fn unsigned_block_offsets_are_supported(
     Ok(())
 }
 
+#[cfg(debug_assertions)]
 #[rstest]
 #[case::unaligned([0, 127])]
 #[case::decreasing([128, 0])]
 #[case::wrong_span([0, 0])]
-fn invalid_unsigned_block_offsets_are_rejected(
+#[should_panic(expected = "invalid BitPacked block offsets")]
+fn invalid_unsigned_block_boundaries_panic_in_debug(
     #[case] boundaries: [u8; 2],
     #[values(PType::U8, PType::U16, PType::U32, PType::U64)] ptype: PType,
 ) {
     let offsets = match_each_unsigned_integer_ptype!(ptype, |T| {
         PrimitiveArray::from_iter(boundaries.map(T::from)).into_array()
     });
-    assert!(
-        BitPacked::try_new_with_block_offsets(
-            BufferHandle::new_host(ByteBuffer::zeroed(128)),
-            PType::U32,
-            Validity::NonNullable,
-            None,
-            offsets,
-            1024,
-            0,
-        )
-        .is_err()
-    );
+    BitPacked::try_new_with_block_offsets(
+        BufferHandle::new_host(ByteBuffer::zeroed(128)),
+        PType::U32,
+        Validity::NonNullable,
+        None,
+        offsets,
+        1024,
+        0,
+    )
+    .unwrap();
 }
 
 #[rstest]
@@ -188,9 +188,6 @@ fn casts_with_block_offsets_decline(
 
 #[rstest]
 #[case::too_few_boundaries(buffer![0u64, 896, 1792].into_array())]
-#[case::unaligned_block(buffer![0u64, 896, 1791, 2688].into_array())]
-#[case::decreasing(buffer![0u64, 896, 768, 2688].into_array())]
-#[case::span_disagrees_with_packed_len(buffer![0u64, 768, 1536, 2304].into_array())]
 #[case::signed(buffer![0i32, 896, 1792, 2688].into_array())]
 #[case::float(buffer![0f32, 896.0, 1792.0, 2688.0].into_array())]
 #[case::nullable(
@@ -201,19 +198,20 @@ fn invalid_block_offsets_are_rejected(#[case] offsets: ArrayRef) -> VortexResult
     Ok(())
 }
 
+#[cfg(debug_assertions)]
 #[rstest]
-fn block_width_must_fit_ptype(
-    #[values(
-        PType::U8, PType::I8, PType::U16, PType::I16, PType::U32, PType::I32, PType::U64,
-        PType::I64
-    )]
-    ptype: PType,
-    #[values(false, true)] block_offsets: bool,
-    #[values(false, true)] too_wide: bool,
-) -> VortexResult<()> {
-    let bit_width = u8::try_from(ptype.bit_width())? + u8::from(too_wide);
+#[case::unaligned_block(buffer![0u64, 896, 1791, 2688])]
+#[case::decreasing(buffer![0u64, 896, 768, 2688])]
+#[case::span_disagrees_with_packed_len(buffer![0u64, 768, 1536, 2304])]
+#[should_panic(expected = "invalid BitPacked block offsets")]
+fn invalid_block_boundaries_panic_in_debug(#[case] offsets: vortex_buffer::Buffer<u64>) {
+    with_block_offsets(&uniform().unwrap(), offsets.into_array()).unwrap();
+}
+
+/// One block of `ptype` values packed at `bit_width`, either globally or through block offsets.
+fn single_block(ptype: PType, bit_width: u8, block_offsets: bool) -> VortexResult<BitPackedArray> {
     let packed = BufferHandle::new_host(ByteBuffer::zeroed(128 * usize::from(bit_width)));
-    let result = if block_offsets {
+    if block_offsets {
         let end = 128 * u64::from(bit_width);
         BitPacked::try_new_with_block_offsets(
             packed,
@@ -234,9 +232,47 @@ fn block_width_must_fit_ptype(
             1024,
             0,
         )
-    };
-    assert_eq!(result.is_err(), too_wide);
+    }
+}
+
+#[rstest]
+fn bit_width_must_fit_ptype(
+    #[values(
+        PType::U8, PType::I8, PType::U16, PType::I16, PType::U32, PType::I32, PType::U64,
+        PType::I64
+    )]
+    ptype: PType,
+    #[values(false, true)] too_wide: bool,
+) -> VortexResult<()> {
+    let bit_width = u8::try_from(ptype.bit_width())? + u8::from(too_wide);
+    assert_eq!(single_block(ptype, bit_width, false).is_err(), too_wide);
     Ok(())
+}
+
+#[rstest]
+fn block_offsets_can_fill_ptype(
+    #[values(
+        PType::U8, PType::I8, PType::U16, PType::I16, PType::U32, PType::I32, PType::U64,
+        PType::I64
+    )]
+    ptype: PType,
+) -> VortexResult<()> {
+    single_block(ptype, u8::try_from(ptype.bit_width())?, true)?;
+    Ok(())
+}
+
+#[cfg(debug_assertions)]
+#[rstest]
+#[should_panic(expected = "invalid BitPacked block offsets")]
+fn too_wide_block_panics_in_debug(
+    #[values(
+        PType::U8, PType::I8, PType::U16, PType::I16, PType::U32, PType::I32, PType::U64,
+        PType::I64
+    )]
+    ptype: PType,
+) {
+    let bit_width = u8::try_from(ptype.bit_width()).unwrap() + 1;
+    single_block(ptype, bit_width, true).unwrap();
 }
 
 #[rstest]
