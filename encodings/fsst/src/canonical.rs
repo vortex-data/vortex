@@ -76,7 +76,14 @@ impl FsstDecodePlan {
         fsst_array: ArrayView<'_, FSST>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Self> {
-        let codes = fsst_array.codes().sliced_bytes();
+        let codes = fsst_array.codes();
+        let last_offset = codes.offset_at(codes.len());
+        vortex_ensure!(
+            last_offset <= codes.bytes().len(),
+            "FSST last codes offset {last_offset} exceeds codes bytes length {}",
+            codes.bytes().len()
+        );
+        let codes = codes.sliced_bytes();
         let lengths = fsst_array
             .uncompressed_lengths()
             .clone()
