@@ -30,6 +30,9 @@ use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::Nullability;
+use vortex_array::expr::stats::Precision;
+use vortex_array::expr::stats::Stat;
+use vortex_array::expr::stats::StatsProviderExt;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::validity::Validity;
 #[cfg(feature = "zstd")]
@@ -169,5 +172,37 @@ fn test_cuda_binary_zstd_follows_editions(
     let compressed = assert_roundtrip(&compressor, &input)?;
     assert_eq!(compressed.encoding_id(), expected);
 
+    Ok(())
+}
+
+/// Compression keeps the sortedness computed on its input, whichever scheme wins.
+#[rstest]
+#[case::integers({
+    let mut rng = StdRng::seed_from_u64(0);
+    let mut value = 1_000_000i64;
+    PrimitiveArray::from_iter((0..4096).map(|_| {
+        value += 1 + i64::from(rng.next_u32() % 200);
+        value
+    }))
+    .into_array()
+})]
+#[case::timestamps(TemporalArray::new_timestamp(
+    PrimitiveArray::from_iter((0..4096i64).map(|i| 1_700_000_000_000_000 + i * i)).into_array(),
+    TimeUnit::Microseconds,
+    None,
+).into_array())]
+fn test_compress_keeps_sortedness(#[case] input: ArrayRef) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    input
+        .statistics()
+        .compute_all(&[Stat::IsStrictSorted], &mut ctx)?;
+    let compressed = assert_roundtrip(
+        &BtrBlocksCompressorBuilder::from_session(&SESSION).build(),
+        &input,
+    )?;
+    assert_eq!(
+        compressed.statistics().get_as::<bool>(Stat::IsStrictSorted),
+        Precision::Exact(true)
+    );
     Ok(())
 }

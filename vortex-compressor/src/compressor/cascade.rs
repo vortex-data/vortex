@@ -27,6 +27,7 @@ use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::arrays::union::UnionArrayExt;
 use vortex_array::arrays::union::UnionArraySlotsExt;
 use vortex_array::arrays::variant::VariantArraySlotsExt;
+use vortex_array::expr::stats::Stat;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
@@ -39,6 +40,21 @@ use crate::scheme::SchemeId;
 use crate::stats::ArrayAndStats;
 use crate::stats::GenerateStatsOptions;
 use crate::trace;
+
+/// Copies the sortedness stats of `input` onto its lossless `compressed` form.
+///
+/// Most schemes build new arrays without the input's statistics, so without this an exact
+/// sortedness computed before compression (or set by a parent scheme on a child, such as run-end
+/// ends) would be lost.
+fn inherit_order_stats(input: &ArrayRef, compressed: &ArrayRef) {
+    // Collect before writing: `compressed` can be `input` itself, sharing its stats lock.
+    let inherited: Vec<_> = input.statistics().with_iter(|iter| {
+        iter.filter(|(stat, _)| matches!(stat, Stat::IsSorted | Stat::IsStrictSorted))
+            .cloned()
+            .collect()
+    });
+    compressed.statistics().inherit(inherited.iter());
+}
 
 impl CascadingCompressor {
     /// Compresses an array using cascading adaptive compression.
@@ -60,6 +76,7 @@ impl CascadingCompressor {
         let canonical = array.clone().execute::<CanonicalValidity>(exec_ctx)?.0;
         let compact = canonical.compact(exec_ctx)?;
         let compressed = self.compress_canonical(compact, CompressorContext::new(), exec_ctx)?;
+        inherit_order_stats(array, &compressed);
 
         trace::record_compress_outcome(&span, before_nbytes, compressed.nbytes());
 
@@ -94,7 +111,9 @@ impl CascadingCompressor {
         let child_ctx = parent_ctx
             .clone()
             .descend_with_scheme(parent_id, child_index);
-        self.compress_canonical(compact, child_ctx, exec_ctx)
+        let compressed = self.compress_canonical(compact, child_ctx, exec_ctx)?;
+        inherit_order_stats(child, &compressed);
+        Ok(compressed)
     }
 
     /// Compresses a canonical array by dispatching to type-specific logic.
