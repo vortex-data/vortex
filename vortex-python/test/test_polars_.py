@@ -7,6 +7,7 @@ import os
 import polars as pl
 import pyarrow as pa
 import pytest
+from polars.testing import assert_frame_equal
 
 import vortex as vx
 import vortex.expr as ve
@@ -71,3 +72,23 @@ def test_to_polars_with_projection_and_filter(vxf: vx.VortexFile) -> None:
     df = vxf.to_polars().select("index", "value").filter(pl.col("index") < 100).collect()
     assert df.columns == ["index", "value"]
     assert len(df) == 100
+
+
+@pytest.mark.parametrize(
+    "arrow_type, threshold",
+    [(pa.uint8(), 50), (pa.uint16(), 500), (pa.uint32(), 500), (pa.uint64(), 500)],
+)
+def test_unsigned_predicate_pushdown(tmp_path, arrow_type, threshold):
+    table = pa.table(
+        {
+            "id": [0, 1, 2],
+            "value": pa.array([threshold - 1, threshold, threshold + 1], type=arrow_type),
+        }
+    )
+    path = tmp_path / "unsigned.vortex"
+    vx.io.write(vx.array(table), str(path))
+    expr = pl.col("value") >= threshold
+    expected = pl.from_arrow(table).lazy().filter(expr).collect()
+    result = vx.open(str(path)).to_polars().filter(expr).collect()
+    assert_frame_equal(result, expected)
+    assert result["id"].to_list() == [1, 2]
