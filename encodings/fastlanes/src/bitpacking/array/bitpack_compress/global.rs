@@ -139,26 +139,41 @@ pub fn bitpack_primitive<T: NativePType + BitPacking>(array: &[T], bit_width: u8
         return Buffer::<T>::empty();
     }
     let bit_width = bit_width as usize;
+    let packed_len = 128 * bit_width / size_of::<T>();
+    bitpack_blocks(
+        array,
+        array.len().div_ceil(1024) * packed_len,
+        move |_| bit_width,
+    )
+}
 
+/// Bitpack each 1024-value block of `array` at `bit_width(block)` bits, one block after another,
+/// into a buffer with room for `capacity` values.
+pub(super) fn bitpack_blocks<T: NativePType + BitPacking>(
+    array: &[T],
+    capacity: usize,
+    bit_width: impl Fn(usize) -> usize,
+) -> Buffer<T> {
     // How many fastlanes vectors we will process.
     let num_chunks = array.len().div_ceil(1024);
     let num_full_chunks = array.len() / 1024;
-    let packed_len = 128 * bit_width / size_of::<T>();
     // packed_len says how many values of size T we're going to include.
     // 1024 * bit_width / 8 == the number of bytes we're going to get.
     // then we divide by the size of T to get the number of elements.
+    let packed_len = |chunk: usize| 128 * bit_width(chunk) / size_of::<T>();
 
     // Allocate a result byte array.
-    let mut output = BufferMut::<T>::with_capacity(num_chunks * packed_len);
+    let mut output = BufferMut::<T>::with_capacity(capacity);
 
     // Loop over all but the last chunk.
     (0..num_full_chunks).for_each(|i| {
         let start_elem = i * 1024;
         let output_len = output.len();
+        let packed_len = packed_len(i);
         unsafe {
             output.set_len(output_len + packed_len);
             BitPacking::unchecked_pack(
-                bit_width,
+                bit_width(i),
                 &array[start_elem..][..1024],
                 &mut output[output_len..][..packed_len],
             );
@@ -172,10 +187,11 @@ pub fn bitpack_primitive<T: NativePType + BitPacking>(array: &[T], bit_width: u8
         last_chunk[..last_chunk_size].copy_from_slice(&array[array.len() - last_chunk_size..]);
 
         let output_len = output.len();
+        let packed_len = packed_len(num_full_chunks);
         unsafe {
             output.set_len(output_len + packed_len);
             BitPacking::unchecked_pack(
-                bit_width,
+                bit_width(num_full_chunks),
                 &last_chunk,
                 &mut output[output_len..][..packed_len],
             );
@@ -188,6 +204,17 @@ pub fn bitpack_primitive<T: NativePType + BitPacking>(array: &[T], bit_width: u8
 pub fn gather_patches(
     parray: &PrimitiveArray,
     bit_width: u8,
+    num_exceptions_hint: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<Patches>> {
+    gather_patches_with(parray, move |_| bit_width, num_exceptions_hint, ctx)
+}
+
+/// Gather the valid values of `parray` that are wider than `bit_width(block)`, the bit width of
+/// their 1024-value block.
+pub(super) fn gather_patches_with(
+    parray: &PrimitiveArray,
+    bit_width: impl Fn(usize) -> u8,
     num_exceptions_hint: usize,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<Patches>> {
@@ -249,7 +276,7 @@ pub fn gather_patches(
 
 fn gather_patches_impl<T, P>(
     data: &[T],
-    bit_width: u8,
+    bit_width: impl Fn(usize) -> u8,
     num_exceptions_hint: usize,
     patch_validity: Validity,
     validity_mask: Mask,
@@ -270,7 +297,9 @@ where
             chunk_offsets.push(values.len() as u64);
         }
 
-        if (value.leading_zeros() as usize) < T::PTYPE.bit_width() - bit_width as usize && valid {
+        if (value.leading_zeros() as usize) < T::PTYPE.bit_width() - bit_width(idx / 1024) as usize
+            && valid
+        {
             indices.push(P::from(idx).vortex_expect("cast index from usize"));
             values.push(*value);
         }

@@ -3,7 +3,6 @@
 
 //! Bit-packing every 1024-value block of an array at its own bit width.
 
-use fastlanes::BitPacking;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use num_traits::PrimInt;
@@ -13,18 +12,13 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::buffer::BufferHandle;
-use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
-use vortex_array::patches::Patches;
-use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
-use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_mask::AllOr;
@@ -32,6 +26,8 @@ use vortex_mask::Mask;
 
 use super::ensure_non_negative_integers;
 use super::find_best_bit_width;
+use super::global::bitpack_blocks;
+use super::global::gather_patches_with;
 use crate::BitPacked;
 use crate::BitPackedArray;
 use crate::FL_CHUNK_SIZE;
@@ -93,12 +89,11 @@ pub fn bitpack_encode_blocked(
     let patches = if num_exceptions == Some(0) {
         None
     } else {
-        let validity_mask = array.validity()?.execute_mask(array.len(), ctx)?;
-        gather_blocked_patches(
+        gather_patches_with(
             array,
-            bit_widths,
+            |block| bit_widths[block],
             num_exceptions.unwrap_or(0),
-            &validity_mask,
+            ctx,
         )?
     };
 
@@ -126,112 +121,15 @@ pub fn bitpack_encode_blocked(
 unsafe fn bitpack_blocked_unchecked(array: &PrimitiveArray, bit_widths: &[u8]) -> ByteBuffer {
     let array = array.reinterpret_cast(array.ptype().to_unsigned());
     match_each_unsigned_integer_ptype!(array.ptype(), |T| {
-        bitpack_blocked_primitive(array.as_slice::<T>(), bit_widths).into_byte_buffer()
-    })
-}
-
-/// Bitpack each 1024-value block of `array` at its width in `bit_widths`, one block after another.
-fn bitpack_blocked_primitive<T: NativePType + BitPacking>(
-    array: &[T],
-    bit_widths: &[u8],
-) -> Buffer<T> {
-    let block_len = |bit_width: u8| 128 * usize::from(bit_width) / size_of::<T>();
-    let mut output =
-        BufferMut::<T>::with_capacity(bit_widths.iter().map(|&width| block_len(width)).sum());
-    let mut pack_block = |input: &[T; FL_CHUNK_SIZE], bit_width: u8| {
-        let len = block_len(bit_width);
-        let output_len = output.len();
-        // SAFETY: `input` holds 1024 values and the output window is exactly one block packed at
-        // its width, within the capacity reserved above.
-        unsafe {
-            output.set_len(output_len + len);
-            BitPacking::unchecked_pack(
-                usize::from(bit_width),
-                input,
-                &mut output[output_len..][..len],
-            );
-        }
-    };
-
-    let (blocks, remainder) = array.as_chunks::<FL_CHUNK_SIZE>();
-    for (block, &bit_width) in blocks.iter().zip(bit_widths) {
-        pack_block(block, bit_width);
-    }
-    // Only a partial last block is zero-padded, so that the zeroing stays off the common path.
-    if !remainder.is_empty() {
-        let mut padded = [T::zero(); FL_CHUNK_SIZE];
-        padded[..remainder.len()].copy_from_slice(remainder);
-        pack_block(&padded, bit_widths[array.len() / FL_CHUNK_SIZE]);
-    }
-
-    output.freeze()
-}
-
-/// Gather the valid values of `array` that are wider than the bit width of their 1024-value block.
-fn gather_blocked_patches(
-    array: &PrimitiveArray,
-    bit_widths: &[u8],
-    num_exceptions_hint: usize,
-    validity_mask: &Mask,
-) -> VortexResult<Option<Patches>> {
-    let patch_validity = match array.validity()? {
-        Validity::NonNullable => Validity::NonNullable,
-        _ => Validity::AllValid,
-    };
-    let index_ptype = PType::min_unsigned_ptype_for_value(array.len() as u64);
-    match_each_integer_ptype!(array.ptype(), |T| {
-        match_each_unsigned_integer_ptype!(index_ptype, |I| {
-            gather_blocked_patches_typed::<T, I>(
-                array.as_slice::<T>(),
-                bit_widths,
-                num_exceptions_hint,
-                patch_validity,
-                validity_mask,
-            )
+        let capacity = bit_widths
+            .iter()
+            .map(|&bit_width| 128 * usize::from(bit_width) / size_of::<T>())
+            .sum();
+        bitpack_blocks(array.as_slice::<T>(), capacity, |block| {
+            usize::from(bit_widths[block])
         })
+        .into_byte_buffer()
     })
-}
-
-fn gather_blocked_patches_typed<T, I>(
-    values: &[T],
-    bit_widths: &[u8],
-    num_exceptions_hint: usize,
-    patch_validity: Validity,
-    validity_mask: &Mask,
-) -> VortexResult<Option<Patches>>
-where
-    T: NativePType + PrimInt,
-    I: IntegerPType,
-{
-    let mut indices = BufferMut::<I>::with_capacity(num_exceptions_hint);
-    let mut patch_values = BufferMut::<T>::with_capacity(num_exceptions_hint);
-    let mut chunk_offsets = BufferMut::<u64>::with_capacity(bit_widths.len());
-
-    let mut bit_width = 0;
-    for ((idx, value), valid) in values.iter().enumerate().zip(validity_mask.iter()) {
-        if idx % FL_CHUNK_SIZE == 0 {
-            // Record the patch index offset and bit width of each block.
-            chunk_offsets.push(patch_values.len() as u64);
-            bit_width = bit_widths[idx / FL_CHUNK_SIZE];
-        }
-
-        if valid && (value.leading_zeros() as usize) < T::PTYPE.bit_width() - usize::from(bit_width)
-        {
-            indices.push(I::from(idx).vortex_expect("cast index from usize"));
-            patch_values.push(*value);
-        }
-    }
-
-    if indices.is_empty() {
-        return Ok(None);
-    }
-    Ok(Some(Patches::new(
-        values.len(),
-        0,
-        indices.into_array(),
-        PrimitiveArray::new(patch_values, patch_validity).into_array(),
-        Some(chunk_offsets.into_array()),
-    )?))
 }
 
 /// Byte boundaries of blocks packed at `widths`, in the narrowest unsigned type that holds them.
