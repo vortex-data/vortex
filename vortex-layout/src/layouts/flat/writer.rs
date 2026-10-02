@@ -3,19 +3,7 @@
 
 use async_trait::async_trait;
 use futures::StreamExt;
-use vortex_array::dtype::DType;
-use vortex_array::expr::stats::Precision;
-use vortex_array::expr::stats::Stat;
-use vortex_array::expr::stats::StatsProvider;
-use vortex_array::scalar::Scalar;
-use vortex_array::scalar::ScalarTruncation;
-use vortex_array::scalar::lower_bound;
-use vortex_array::scalar::upper_bound;
 use vortex_array::serde::SerializeOptions;
-use vortex_array::stats::StatsSetRef;
-use vortex_buffer::BufferString;
-use vortex_buffer::ByteBuffer;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
@@ -32,11 +20,12 @@ use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequencePointer;
 
+/// Serialize one chunk and its cached finalized results into a flat layout.
 #[derive(Clone)]
 pub struct FlatLayoutStrategy {
     /// Whether to include padding for memory-mapped reads.
     pub include_padding: bool,
-    /// Maximum length of variable length statistics
+    /// Maximum length of serialized string and binary extrema in bytes.
     pub max_variable_length_statistics_size: usize,
 }
 
@@ -63,22 +52,6 @@ impl FlatLayoutStrategy {
     }
 }
 
-fn truncate_scalar_stat<F: Fn(Scalar) -> Option<(Scalar, bool)>>(
-    statistics: StatsSetRef<'_>,
-    stat: Stat,
-    truncation: F,
-) {
-    if let Some(sv) = statistics.get(stat).into_inner() {
-        if let Some((truncated_value, truncated)) = truncation(sv) {
-            if truncated && let Some(v) = truncated_value.into_value() {
-                statistics.set(stat, Precision::Inexact(v));
-            }
-        } else {
-            statistics.clear(stat)
-        }
-    }
-}
-
 #[async_trait]
 impl LayoutStrategy for FlatLayoutStrategy {
     async fn write_stream(
@@ -102,52 +75,13 @@ impl LayoutStrategy for FlatLayoutStrategy {
 
         let row_count = chunk.len() as u64;
 
-        match chunk.dtype() {
-            DType::Utf8(n) => {
-                truncate_scalar_stat(chunk.statistics(), Stat::Min, |v| {
-                    lower_bound(
-                        BufferString::from_scalar(v)
-                            .vortex_expect("utf8 scalar must be a BufferString"),
-                        self.max_variable_length_statistics_size,
-                        *n,
-                    )
-                });
-                truncate_scalar_stat(chunk.statistics(), Stat::Max, |v| {
-                    upper_bound(
-                        BufferString::from_scalar(v)
-                            .vortex_expect("utf8 scalar must be a BufferString"),
-                        self.max_variable_length_statistics_size,
-                        *n,
-                    )
-                });
-            }
-            DType::Binary(n) => {
-                truncate_scalar_stat(chunk.statistics(), Stat::Min, |v| {
-                    lower_bound(
-                        ByteBuffer::from_scalar(v)
-                            .vortex_expect("binary scalar must be a ByteBuffer"),
-                        self.max_variable_length_statistics_size,
-                        *n,
-                    )
-                });
-                truncate_scalar_stat(chunk.statistics(), Stat::Max, |v| {
-                    upper_bound(
-                        ByteBuffer::from_scalar(v)
-                            .vortex_expect("binary scalar must be a ByteBuffer"),
-                        self.max_variable_length_statistics_size,
-                        *n,
-                    )
-                });
-            }
-            _ => {}
-        }
-
         let buffers = chunk.serialize(
             ctx.array_ctx(),
             session,
             &SerializeOptions {
                 offset: 0,
                 include_padding: self.include_padding,
+                max_variable_length_statistics_size: Some(self.max_variable_length_statistics_size),
             },
         )?;
         // there is at least the flatbuffer and the length
@@ -179,6 +113,13 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::AggregateFnVTableExt;
+    use vortex_array::aggregate_fn::NumericalAggregateOpts;
+    use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
+    use vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions;
+    use vortex_array::aggregate_fn::fns::max::Max;
+    use vortex_array::aggregate_fn::fns::min::Min;
+    use vortex_array::aggregate_fn::fns::min_max::min_max;
     use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
@@ -192,12 +133,10 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::expr::root;
     use vortex_array::expr::stats::Precision;
-    use vortex_array::expr::stats::Stat;
-    use vortex_array::expr::stats::StatsProviderExt;
+    use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBufferMut;
     use vortex_buffer::buffer;
-    use vortex_error::VortexExpect;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
     use vortex_mask::AllOr;
@@ -210,11 +149,8 @@ mod tests {
     use crate::test::SESSION;
     use crate::test::new_session;
 
-    // Currently, flat layouts do not force compute stats during write, they only retain
-    // pre-computed stats.
-    #[should_panic]
     #[test]
-    fn flat_stats() {
+    fn flat_layout_does_not_compute_results() {
         block_on(|handle| async {
             let session = new_session().with_handle(handle);
             let ctx = ArrayContext::empty();
@@ -247,8 +183,10 @@ mod tests {
                 .unwrap();
 
             assert_eq!(
-                result.statistics().get_as::<bool>(Stat::IsSorted),
-                Precision::Exact(true)
+                result
+                    .aggregations()
+                    .get_result(&IsSorted.bind(IsSortedOptions { strict: false })),
+                Precision::Absent
             );
         })
     }
@@ -269,19 +207,14 @@ mod tests {
             builder.append_value("Another string that's meant to be smaller than the previous value, though still need extra padding");
             let array = builder.finish();
             let mut stats_ctx = session.create_execution_ctx();
-            array.statistics().set_iter(
-                array
-                    .statistics()
-                    .compute_all(&Stat::all().collect::<Vec<_>>(), &mut stats_ctx)
-                    .vortex_expect("stats computation should succeed for test array")
-                    .into_iter(),
-            );
+            min_max(&array, &mut stats_ctx, NumericalAggregateOpts::skip_nans()).unwrap();
+            let original_results = array.aggregations().snapshot_results();
 
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     ctx.into(),
                     Arc::<TestSegments>::clone(&segments),
-                    array.into_array().to_array_stream().sequenced(ptr),
+                    array.clone().into_array().to_array_stream().sequenced(ptr),
                     eof,
                     &session,
                 )
@@ -302,19 +235,29 @@ mod tests {
                 .await
                 .unwrap();
 
+            for (aggregate, value) in original_results.iter() {
+                assert_eq!(array.aggregations().get_result(aggregate), *value);
+            }
+
             assert_eq!(
-                result.statistics().get_as::<String>(Stat::Min),
+                result
+                    .aggregations()
+                    .get_result(&Min.bind(NumericalAggregateOpts::skip_nans())),
                 // The typo is correct, we need this to be truncated.
-                Precision::Inexact(
+                Precision::Inexact(Scalar::utf8(
                     // spellchecker:ignore-next-line
-                    "Another string that's meant to be smaller than the previous valu".to_string()
-                )
+                    "Another string that's meant to be smaller than the previous valu",
+                    Nullability::Nullable,
+                ))
             );
             assert_eq!(
-                result.statistics().get_as::<String>(Stat::Max),
-                Precision::Inexact(
-                    "Long value to test that the statistics are actually truncated, j".to_string()
-                )
+                result
+                    .aggregations()
+                    .get_result(&Max.bind(NumericalAggregateOpts::skip_nans())),
+                Precision::Inexact(Scalar::utf8(
+                    "Long value to test that the statistics are actually truncated, j",
+                    Nullability::Nullable,
+                ))
             );
         })
     }

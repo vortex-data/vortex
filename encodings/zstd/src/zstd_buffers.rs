@@ -97,7 +97,19 @@ impl ZstdBuffers {
             ArrayParts::new(ZstdBuffers, array.dtype().clone(), array.len(), data)
                 .with_slots(slots),
         )?;
-        compressed.statistics().inherit_from(array.statistics());
+        if array.dtype() == compressed.dtype() && array.len() == compressed.len() {
+            for (aggregate, result) in array.aggregations().snapshot_results().iter() {
+                if aggregate.is_representation_invariant() {
+                    // SAFETY: buffer compression reconstructs the same values and null positions
+                    // at the same dtype and length.
+                    unsafe {
+                        compressed
+                            .aggregations()
+                            .seed_result(aggregate.clone(), result.clone())?;
+                    }
+                }
+            }
+        }
         Ok(compressed)
     }
 
@@ -558,13 +570,13 @@ mod tests {
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::AggregateFn;
+    use vortex_array::aggregate_fn::NumericalAggregateOpts;
+    use vortex_array::aggregate_fn::fns::min::Min;
     use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::expr::stats::Precision;
-    use vortex_array::expr::stats::Stat;
-    use vortex_array::expr::stats::StatsProvider;
     use vortex_array::serde::SerializeOptions;
     use vortex_array::serde::SerializedArray;
     use vortex_array::session::ArraySessionExt;
@@ -661,11 +673,20 @@ mod tests {
     #[test]
     fn test_compress_inherits_stats() -> VortexResult<()> {
         let input = make_primitive_array();
-        input.statistics().set(Stat::Min, Precision::exact(0i32));
+        let mut ctx = array_session().create_execution_ctx();
+        input.aggregations().compute_result(
+            &AggregateFn::new(Min, NumericalAggregateOpts::default()).erased(),
+            &mut ctx,
+        )?;
 
         let compressed = ZstdBuffers::compress(&input, 3, &array_session())?;
 
-        assert!(!compressed.statistics().get(Stat::Min).is_absent());
+        assert!(
+            !compressed
+                .aggregations()
+                .get_result(&AggregateFn::new(Min, NumericalAggregateOpts::default()).erased())
+                .is_absent()
+        );
         Ok(())
     }
 

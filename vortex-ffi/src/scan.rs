@@ -448,6 +448,9 @@ mod tests {
     use std::ptr;
 
     use vortex::VortexSessionDefault;
+    use vortex::array::aggregate_fn::NumericalAggregateOpts;
+    use vortex::array::aggregate_fn::fns::is_sorted::is_sorted;
+    use vortex::array::aggregate_fn::fns::min_max::min_max;
     use vortex::array::arrays::StructArray;
     use vortex::session::VortexSession;
     use vortex_array::VortexSessionExecute;
@@ -591,11 +594,13 @@ mod tests {
             let (array, _) = scan(&raw const opts);
             {
                 let array = vx_array::as_ref(array);
-                let stats = array.statistics();
-                assert!(stats.compute_is_sorted(&mut ctx).unwrap());
-                assert_eq!(stats.compute_min(&mut ctx), Some(0));
+                assert!(is_sorted(array, &mut ctx).unwrap());
+                let bounds = min_max(array, &mut ctx, NumericalAggregateOpts::skip_nans())
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(bounds.min.as_primitive().as_::<usize>(), Some(0));
                 assert_eq!(
-                    stats.compute_max(&mut ctx),
+                    bounds.max.as_primitive().as_::<usize>(),
                     Some(200 * (SAMPLE_ROWS - 1) + 199)
                 );
             }

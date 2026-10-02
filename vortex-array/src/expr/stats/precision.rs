@@ -10,7 +10,6 @@ use vortex_error::VortexExpect;
 use crate::dtype::DType;
 use crate::expr::stats::IntersectionResult;
 use crate::expr::stats::StatBound;
-use crate::expr::stats::StatType;
 use crate::partial_ord::partial_min;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
@@ -209,18 +208,6 @@ impl Precision<&ScalarValue> {
             Scalar::try_new(dtype, Some(v.clone()))
                 .vortex_expect("`Precision<ScalarValue>` was invalid")
         })
-    }
-}
-
-/// This allows a stat with a `Precision` to be interpreted as a bound.
-impl<T> Precision<T> {
-    /// Applied the stat associated bound to the precision value
-    pub fn bound<S: StatType<T>>(self) -> Option<S::Bound> {
-        if self.is_absent() {
-            None
-        } else {
-            Some(S::Bound::lift(self))
-        }
     }
 }
 

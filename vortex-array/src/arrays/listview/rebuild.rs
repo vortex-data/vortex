@@ -333,7 +333,7 @@ impl ListViewArray {
     fn rebuild_trim_elements(&self, ctx: &mut ExecutionCtx) -> VortexResult<ListViewArray> {
         let (start, end) = self.referenced_element_bounds(ctx)?;
 
-        // SAFETY: we calculated valid start and end bounds
+        // SAFETY: physical offsets and sizes establish the full referenced range.
         unsafe { self.trim_elements(start, end) }
     }
 

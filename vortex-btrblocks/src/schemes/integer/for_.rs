@@ -232,10 +232,21 @@ impl Scheme for FoRScheme {
                 FoR::try_new_chunked(compressed, references, for_array.offset())?
             }
         };
-        for_compressed
-            .as_ref()
-            .statistics()
-            .inherit_from(for_array.as_ref().statistics());
+        if for_array.as_ref().dtype() == for_compressed.dtype()
+            && for_array.as_ref().len() == for_compressed.len()
+        {
+            for (aggregate, result) in for_array.as_ref().aggregations().snapshot_results().iter() {
+                if aggregate.is_representation_invariant() {
+                    // SAFETY: compressing the biased child preserves the frame's logical values
+                    // at the same dtype and length.
+                    unsafe {
+                        for_compressed
+                            .aggregations()
+                            .seed_result(aggregate.clone(), result.clone())?;
+                    }
+                }
+            }
+        }
 
         Ok(for_compressed.into_array())
     }

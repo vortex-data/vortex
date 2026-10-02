@@ -95,6 +95,7 @@ mod tests {
     use vortex_error::VortexResult;
 
     use super::*;
+    use crate::aggregate_fn::fns::nan_count::NanCount;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
@@ -105,7 +106,6 @@ mod tests {
     use crate::expr::lit;
     use crate::expr::or;
     use crate::expr::root;
-    use crate::expr::stats::Stat;
     use crate::stats::all_non_nan;
     use crate::stats::nan_count;
 
@@ -144,11 +144,7 @@ mod tests {
             aggregate_fn: &AggregateFnRef,
             _stat_dtype: &DType,
         ) -> VortexResult<Option<BoundExpression>> {
-            let Some(stat) = Stat::from_aggregate_fn(aggregate_fn) else {
-                return Ok(None);
-            };
-
-            if stat == Stat::NaNCount && self.bind_nan_count {
+            if aggregate_fn.is::<NanCount>() && self.bind_nan_count {
                 Ok(Some(
                     get_item("f_nan_count", root()).bind(&self.stats_scope)?,
                 ))

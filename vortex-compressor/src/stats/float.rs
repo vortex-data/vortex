@@ -9,6 +9,7 @@ use itertools::Itertools;
 use num_traits::Float;
 use rustc_hash::FxBuildHasher;
 use vortex_array::ExecutionCtx;
+use vortex_array::aggregate_fn::fns::null_count::null_count;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::NativeValue;
 use vortex_array::dtype::NativePType;
@@ -16,7 +17,6 @@ use vortex_array::dtype::PType;
 use vortex_array::dtype::half::f16;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
 use vortex_utils::aliases::hash_set::HashSet;
@@ -196,10 +196,7 @@ where
         });
     }
 
-    let null_count = array
-        .statistics()
-        .compute_null_count(ctx)
-        .ok_or_else(|| vortex_err!("Failed to compute null_count"))?;
+    let null_count = null_count(array.as_ref(), ctx)?;
     let value_count = array.len() - null_count;
 
     // Keep a HashMap of T, then convert the keys into PValue afterward since value is

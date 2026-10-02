@@ -16,7 +16,7 @@ The FlatBuffer contains an `ArrayNode` tree where each node records:
 - Array-specific metadata bytes.
 - References to child `ArrayNode`s.
 - Indices into the buffer table.
-- Optional statistics (min, max, null count, sort order, etc.).
+- Optional finalized aggregate hints (min, max, null count, sort order, etc.).
 
 The buffer table records each buffer's padding, alignment exponent, compression, and length.
 Buffers are laid out contiguously after the metadata, with padding inserted to satisfy each
@@ -32,6 +32,14 @@ On the wire, a serialized array is:
 through the session's plugin registry and calls the plugin's `deserialize` method with the metadata,
 buffers, and children. The plugin validates that wire format and constructs an array supported by
 the current implementation.
+
+Node hints retain the historical `ArrayStats` wire fields. The decoder validates these fields and
+normalizes extrema to the nullable aggregate result type. Sortedness and constantness flags remain
+finalized booleans because they cannot reconstruct mergeable partials.
+
+Serialization projects a snapshot of the array cache into the available wire fields. Unsupported
+functions or options have no node field. A variable-length limit truncates the snapshot's extrema
+into bounds while preserving the exact values in the live cache.
 
 ## IPC Format
 

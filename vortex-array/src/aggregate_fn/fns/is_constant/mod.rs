@@ -34,8 +34,13 @@ use crate::aggregate_fn::Accumulator;
 use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
+use crate::aggregate_fn::AggregateFnVTableExt;
 use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::EmptyOptions;
+use crate::aggregate_fn::NumericalAggregateOpts;
+use crate::aggregate_fn::fns::max::Max;
+use crate::aggregate_fn::fns::min::Min;
+use crate::aggregate_fn::fns::nan_count::NanCount;
 use crate::arrays::Constant;
 use crate::arrays::Null;
 use crate::builtins::ArrayBuiltins;
@@ -44,9 +49,6 @@ use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::StructFields;
 use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
-use crate::expr::stats::StatsProviderExt;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::operators::Operator;
 
@@ -81,18 +83,17 @@ fn arrays_value_equal(a: &ArrayRef, b: &ArrayRef, ctx: &mut ExecutionCtx) -> Vor
     Ok(eq_result.true_count() == valid_count)
 }
 
-/// Compute whether an array has constant values.
+/// Compute whether every value in a nonempty array is equal, including nulls.
 ///
-/// An array is constant IFF at least one of the following conditions apply:
-/// 1. It has at least one element (**Note** - an empty array isn't constant).
-/// 2. It's encoded as a [`ConstantArray`](crate::arrays::ConstantArray) or [`NullArray`](crate::arrays::NullArray)
-/// 3. Has an exact statistic attached to it, saying its constant.
-/// 4. Is all invalid.
-/// 5. Is all valid AND has minimum and maximum statistics that are equal.
+/// Cached exact results and matching extrema on an all-valid, NaN-free array can avoid a scan.
+/// Empty arrays are not constant.
 pub fn is_constant(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
     // Short-circuit using cached array statistics.
-    if let Precision::Exact(value) = array.statistics().get_as::<bool>(Stat::IsConstant) {
-        return Ok(value);
+    if let Precision::Exact(value) = array
+        .aggregations()
+        .get_result(&IsConstant.bind(EmptyOptions))
+    {
+        return bool::try_from(&value);
     }
 
     // Empty arrays are not constant.
@@ -102,25 +103,28 @@ pub fn is_constant(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<boo
 
     // Array of length 1 is always constant.
     if array.len() == 1 {
-        array
-            .statistics()
-            .set(Stat::IsConstant, Precision::Exact(true.into()));
+        array.aggregations().insert_result(
+            IsConstant.bind(EmptyOptions),
+            Precision::Exact(Scalar::from(true)),
+        )?;
         return Ok(true);
     }
 
     // Constant and null arrays are always constant.
     if array.is::<Constant>() || array.is::<Null>() {
-        array
-            .statistics()
-            .set(Stat::IsConstant, Precision::Exact(true.into()));
+        array.aggregations().insert_result(
+            IsConstant.bind(EmptyOptions),
+            Precision::Exact(Scalar::from(true)),
+        )?;
         return Ok(true);
     }
 
     let all_invalid = array.all_invalid(ctx)?;
     if all_invalid {
-        array
-            .statistics()
-            .set(Stat::IsConstant, Precision::Exact(true.into()));
+        array.aggregations().insert_result(
+            IsConstant.bind(EmptyOptions),
+            Precision::Exact(Scalar::from(true)),
+        )?;
         return Ok(true);
     }
 
@@ -128,25 +132,34 @@ pub fn is_constant(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<boo
 
     // If we have some nulls but not all nulls, array can't be constant.
     if !all_valid && !all_invalid {
-        array
-            .statistics()
-            .set(Stat::IsConstant, Precision::Exact(false.into()));
+        array.aggregations().insert_result(
+            IsConstant.bind(EmptyOptions),
+            Precision::Exact(Scalar::from(false)),
+        )?;
         return Ok(false);
     }
 
     // We already know here that the array is all valid, so we check for min/max stats.
-    let min_stat = array.statistics().get(Stat::Min);
-    let max_stat = array.statistics().get(Stat::Max);
+    let min_stat = array
+        .aggregations()
+        .get_result(&Min.bind(NumericalAggregateOpts::skip_nans()));
+    let max_stat = array
+        .aggregations()
+        .get_result(&Max.bind(NumericalAggregateOpts::skip_nans()));
 
     if let Precision::Exact(min) = min_stat.as_ref()
         && let Precision::Exact(max) = max_stat.as_ref()
         && min == max
-        && (Stat::NaNCount.dtype(array.dtype()).is_none()
-            || array.statistics().get_as::<u64>(Stat::NaNCount) == Precision::exact(0u64))
+        && (!array.dtype().is_float()
+            || array
+                .aggregations()
+                .get_result_as::<u64>(&NanCount.bind(EmptyOptions))?
+                == Precision::exact(0u64))
     {
-        array
-            .statistics()
-            .set(Stat::IsConstant, Precision::Exact(true.into()));
+        array.aggregations().insert_result(
+            IsConstant.bind(EmptyOptions),
+            Precision::Exact(Scalar::from(true)),
+        )?;
         return Ok(true);
     }
 
@@ -167,9 +180,10 @@ pub fn is_constant(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<boo
     let result = result_scalar.as_bool().value().unwrap_or(false);
 
     // Cache the computed is_constant as a statistic.
-    array
-        .statistics()
-        .set(Stat::IsConstant, Precision::Exact(result.into()));
+    array.aggregations().insert_result(
+        IsConstant.bind(EmptyOptions),
+        Precision::Exact(Scalar::from(result)),
+    )?;
 
     Ok(result)
 }
@@ -267,6 +281,10 @@ pub fn make_is_constant_partial_dtype(element_dtype: &DType) -> DType {
 impl AggregateFnVTable for IsConstant {
     type Options = EmptyOptions;
     type Partial = IsConstantPartial;
+
+    fn is_representation_invariant(&self, _options: &Self::Options) -> bool {
+        true
+    }
 
     fn id(&self) -> AggregateFnId {
         static ID: CachedId = CachedId::new("vortex.is_constant");
@@ -474,9 +492,11 @@ mod tests {
     use crate::aggregate_fn::AggregateFnVTable;
     use crate::aggregate_fn::DynAccumulator;
     use crate::aggregate_fn::EmptyOptions;
+    use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::fns::is_constant::IsConstant;
     use crate::aggregate_fn::fns::is_constant::IsConstantPartial;
     use crate::aggregate_fn::fns::is_constant::is_constant;
+    use crate::aggregate_fn::fns::min_max::min_max;
     use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
@@ -491,7 +511,6 @@ mod tests {
     use crate::dtype::MapDType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 
@@ -542,13 +561,11 @@ mod tests {
         let mut ctx = array_session().create_execution_ctx();
 
         let arr = buffer![0, 1].into_array();
-        arr.statistics()
-            .compute_all(&[Stat::Min, Stat::Max], &mut ctx)?;
+        min_max(&arr, &mut ctx, NumericalAggregateOpts::skip_nans())?;
         assert!(!is_constant(&arr, &mut ctx)?);
 
         let arr = buffer![0, 0].into_array();
-        arr.statistics()
-            .compute_all(&[Stat::Min, Stat::Max], &mut ctx)?;
+        min_max(&arr, &mut ctx, NumericalAggregateOpts::skip_nans())?;
         assert!(is_constant(&arr, &mut ctx)?);
 
         let arr = PrimitiveArray::from_option_iter([Some(0), Some(0)]).into_array();
@@ -561,15 +578,13 @@ mod tests {
         let mut ctx = array_session().create_execution_ctx();
 
         let arr = PrimitiveArray::from_iter([0.0, 0.0, f32::NAN]).into_array();
-        arr.statistics()
-            .compute_all(&[Stat::Min, Stat::Max], &mut ctx)?;
+        min_max(&arr, &mut ctx, NumericalAggregateOpts::skip_nans())?;
         assert!(!is_constant(&arr, &mut ctx)?);
 
         let arr =
             PrimitiveArray::from_option_iter([Some(f32::NEG_INFINITY), Some(f32::NEG_INFINITY)])
                 .into_array();
-        arr.statistics()
-            .compute_all(&[Stat::Min, Stat::Max], &mut ctx)?;
+        min_max(&arr, &mut ctx, NumericalAggregateOpts::skip_nans())?;
         assert!(is_constant(&arr, &mut ctx)?);
         Ok(())
     }

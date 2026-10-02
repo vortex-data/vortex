@@ -6,10 +6,10 @@ use std::fmt::Formatter;
 use std::sync::Arc;
 
 use num_traits::AsPrimitive;
+use num_traits::ToPrimitive;
 use vortex_buffer::BitBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
@@ -18,8 +18,9 @@ use crate::ArrayRef;
 use crate::ArraySlots;
 use crate::ExecutionCtx;
 use crate::VortexSessionExecute;
+use crate::aggregate_fn::AggregateFn;
 use crate::aggregate_fn::NumericalAggregateOpts;
-use crate::aggregate_fn::fns::min_max::min_max;
+use crate::aggregate_fn::fns::sum::Sum;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
@@ -31,15 +32,11 @@ use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::bool;
 use crate::arrays::primitive::PrimitiveArrayExt;
-use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
-use crate::dtype::PType;
-use crate::expr::stats::Stat;
 use crate::legacy_session;
 use crate::match_each_integer_ptype;
 use crate::match_each_unsigned_integer_ptype;
-use crate::scalar_fn::fns::operators::Operator;
 use crate::validity::Validity;
 
 #[array_slots(ListView)]
@@ -490,11 +487,13 @@ pub trait ListViewArrayExt: ListViewArraySlotsExt {
             return Ok(0.0);
         }
 
-        // compute_stat short-circuits on a cached exact Sum and otherwise computes
+        // Reuse the exact cached sum when the sizes have already been inspected.
         let sizes_sum = sizes
-            .statistics()
-            .compute_stat(Stat::Sum, ctx)?
-            .vortex_expect("sizes array has integer ptype elements")
+            .aggregations()
+            .compute_result(
+                &AggregateFn::new(Sum, NumericalAggregateOpts::default()).erased(),
+                ctx,
+            )?
             .as_primitive()
             .as_::<u64>()
             .vortex_expect("integer ptypes can be upcast to u64");
@@ -513,9 +512,10 @@ pub trait ListViewArrayExt: ListViewArraySlotsExt {
     /// unreferenced leading or trailing slack that a
     /// [`TrimElements`](super::ListViewRebuildMode::TrimElements) rebuild would reclaim.
     ///
-    /// For **zero-copy-to-list** arrays this is `O(1)`: views are sorted and non-overlapping with
-    /// no interior gaps, so the bounds are exactly `[first_offset, last_offset + last_size)`.
-    /// Otherwise it computes min/max statistics over `offsets` and `offsets + sizes`.
+    /// After materializing offsets and sizes, **zero-copy-to-list** arrays need only the first
+    /// offset and the final view's end. Their validated ordering and lack of overlap establish
+    /// those endpoints. Other arrays need a scan of the physical offsets and sizes. Cached
+    /// aggregate results cannot prove the bounds required by an unchecked trim.
     ///
     /// # Preconditions
     ///
@@ -527,39 +527,54 @@ pub trait ListViewArrayExt: ListViewArraySlotsExt {
             "referenced_element_bounds requires a non-empty array"
         );
 
-        if self.is_zero_copy_to_list() {
-            let start = self.offset_at(0);
-            let end = self.offset_at(n_lists - 1) + self.size_at(n_lists - 1);
-            return Ok((start, end));
-        }
+        let offsets = self.offsets().clone().execute::<PrimitiveArray>(ctx)?;
+        let sizes = self.sizes().clone().execute::<PrimitiveArray>(ctx)?;
+        let offsets = offsets.reinterpret_cast(offsets.ptype().to_unsigned());
+        let sizes = sizes.reinterpret_cast(sizes.ptype().to_unsigned());
 
-        let start = self
-            .offsets()
-            .statistics()
-            .compute_min::<usize>(ctx)
-            .vortex_expect("offsets must report a usize min statistic");
+        match_each_unsigned_integer_ptype!(offsets.ptype(), |O| {
+            match_each_unsigned_integer_ptype!(sizes.ptype(), |S| {
+                let offsets = offsets.as_slice::<O>();
+                let sizes = sizes.as_slice::<S>();
+                vortex_ensure!(offsets.len() == n_lists && sizes.len() == n_lists);
 
-        // Cast offsets and sizes to the widest integer type so that `offset + size` cannot overflow
-        // the narrower input width.
-        let wide_dtype = DType::from(if self.offsets().dtype().as_ptype().is_unsigned_int() {
-            PType::U64
-        } else {
-            PType::I64
-        });
-        let offsets = self.offsets().cast(wide_dtype.clone())?;
-        let sizes = self.sizes().cast(wide_dtype)?;
-        let end = min_max(
-            &offsets.binary(sizes, Operator::Add)?,
-            ctx,
-            NumericalAggregateOpts::default(),
-        )?
-        .vortex_expect("non-empty array must report a min/max")
-        .max
-        .as_primitive()
-        .as_::<usize>()
-        .vortex_expect("max `offset + size` must fit in a usize");
+                if self.is_zero_copy_to_list() {
+                    let start = offsets[0]
+                        .to_usize()
+                        .ok_or_else(|| vortex_err!("list offset must fit in usize"))?;
+                    let last_offset = offsets[n_lists - 1]
+                        .to_usize()
+                        .ok_or_else(|| vortex_err!("list offset must fit in usize"))?;
+                    let last_size = sizes[n_lists - 1]
+                        .to_usize()
+                        .ok_or_else(|| vortex_err!("list size must fit in usize"))?;
+                    let end = last_offset
+                        .checked_add(last_size)
+                        .ok_or_else(|| vortex_err!("list view end must fit in usize"))?;
+                    vortex_ensure!(start <= end && end <= self.elements().len());
+                    return Ok((start, end));
+                }
 
-        Ok((start, end))
+                let mut start = usize::MAX;
+                let mut end = 0;
+                for (&offset, &size) in offsets.iter().zip(sizes) {
+                    let offset = offset
+                        .to_usize()
+                        .ok_or_else(|| vortex_err!("list offset must fit in usize"))?;
+                    let size = size
+                        .to_usize()
+                        .ok_or_else(|| vortex_err!("list size must fit in usize"))?;
+                    let view_end = offset
+                        .checked_add(size)
+                        .ok_or_else(|| vortex_err!("list view end must fit in usize"))?;
+                    vortex_ensure!(view_end <= self.elements().len());
+                    start = start.min(offset);
+                    end = end.max(view_end);
+                }
+
+                Ok((start, end))
+            })
+        })
     }
 }
 impl<T: TypedArrayRef<ListView>> ListViewArrayExt for T {}
@@ -734,15 +749,6 @@ fn validate_zctl(
     offsets_primitive: PrimitiveArray,
     sizes_primitive: PrimitiveArray,
 ) -> VortexResult<()> {
-    // Offsets must be sorted (but not strictly sorted, zero-length lists are allowed), even
-    // if there are null views.
-    let mut ctx = legacy_session().create_execution_ctx();
-    if let Some(is_sorted) = offsets_primitive.statistics().compute_is_sorted(&mut ctx) {
-        vortex_ensure!(is_sorted, "offsets must be sorted");
-    } else {
-        vortex_bail!("offsets must report is_sorted statistic");
-    }
-
     // Validate that offset[i] + size[i] <= offset[i+1] for all items
     // This ensures views are non-overlapping and properly ordered for zero-copy-to-list
     fn validate_monotonic_ends<O: IntegerPType, S: IntegerPType>(

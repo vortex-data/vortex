@@ -391,7 +391,7 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
     }
 
     fn with_slots(&self, this: &ArrayRef, slots: ArraySlots) -> VortexResult<ArrayRef> {
-        let stats = this.statistics().to_owned();
+        let stats = this.aggregations().snapshot_results();
         Ok(Array::<V>::try_from_parts(
             ArrayParts::new(
                 self.vtable.clone(),
@@ -401,16 +401,16 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
             )
             .with_slots(slots),
         )?
-        .with_stats_set(stats)
+        .with_aggregations(stats)
         .into_array())
     }
 
     fn with_buffers(&self, this: &ArrayRef, buffers: Vec<BufferHandle>) -> VortexResult<ArrayRef> {
         let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        let stats = this.statistics().to_owned();
+        let stats = this.aggregations().snapshot_results();
         Ok(
             Array::<V>::try_from_parts(V::with_buffers(&self.vtable, view, &buffers)?)?
-                .with_stats_set(stats)
+                .with_aggregations(stats)
                 .into_array(),
         )
     }
@@ -425,7 +425,11 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
                 this.dtype().clone(),
                 self.data.clone(),
                 slots,
-                this.statistics().to_array_stats(),
+                {
+                    let aggregations = crate::stats::Aggregations::default();
+                    aggregations.inherit_results(&this.aggregations().snapshot_results());
+                    aggregations
+                },
             )
         };
         ArrayRef::from_inner(Arc::new(store))
@@ -486,7 +490,7 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
     fn execute(&self, this: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let len = this.len();
         let dtype = this.dtype().clone();
-        let stats = this.statistics().to_array_stats();
+        let stats = this.aggregations().snapshot_results();
         let result = unsafe { self.execute_unchecked(this, ctx)? };
 
         if matches!(result.step(), ExecutionStep::Done) {
@@ -503,10 +507,9 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
                 );
             }
 
-            result
-                .array()
-                .statistics()
-                .set_iter(crate::stats::StatsSet::from(stats).into_iter());
+            if result.array().dtype() == &dtype && result.array().len() == len {
+                result.array().aggregations().inherit_results(&stats);
+            }
         }
 
         Ok(result)

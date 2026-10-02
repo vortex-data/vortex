@@ -4,10 +4,10 @@
 //! Variable-length byte/string compression statistics.
 
 use vortex_array::ExecutionCtx;
+use vortex_array::aggregate_fn::fns::null_count::null_count;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_err;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use super::GenerateStatsOptions;
@@ -50,10 +50,7 @@ impl StringStats {
         opts: GenerateStatsOptions,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Self> {
-        let null_count = input
-            .statistics()
-            .compute_null_count(ctx)
-            .ok_or_else(|| vortex_err!("Failed to compute null_count"))?;
+        let null_count = null_count(input.as_ref(), ctx)?;
         let value_count = input.len() - null_count;
         let estimated_distinct_count = opts
             .count_distinct_values

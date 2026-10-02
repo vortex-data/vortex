@@ -13,6 +13,13 @@ use object_store::registry::ObjectStoreRegistry;
 use parking_lot::Mutex;
 use static_assertions::assert_impl_all;
 use vortex::array::ArrayRef;
+use vortex::array::aggregate_fn::AggregateFnVTableExt;
+use vortex::array::aggregate_fn::EmptyOptions;
+use vortex::array::aggregate_fn::NumericalAggregateOpts;
+use vortex::array::aggregate_fn::fns::max::Max;
+use vortex::array::aggregate_fn::fns::min::Min;
+use vortex::array::aggregate_fn::fns::nan_count::NanCount;
+use vortex::array::aggregate_fn::fns::null_count::NullCount;
 use vortex::array::stream::ArrayStreamAdapter;
 use vortex::dtype::DType;
 use vortex::dtype::FieldName;
@@ -24,7 +31,6 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 use vortex::expr::stats::Precision;
-use vortex::expr::stats::Stat;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteSummary;
 use vortex::file::multi::parse_uri_or_path;
@@ -35,7 +41,6 @@ use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::Task;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::scalar::Scalar;
-use vortex::scalar::ScalarValue;
 
 use crate::REGISTRY;
 use crate::RUNTIME;
@@ -212,7 +217,7 @@ fn file_stats_from_summary(summary: &WriteSummary) -> WrittenFileStats {
     let num_columns = summary
         .footer()
         .statistics()
-        .map_or(0, |s| s.stats_sets().len());
+        .map_or(0, |s| s.fields().len());
     WrittenFileStats {
         row_count: summary.row_count(),
         file_size_bytes: summary.size(),
@@ -223,9 +228,9 @@ fn file_stats_from_summary(summary: &WriteSummary) -> WrittenFileStats {
 }
 
 /// Per-column statistics from a finished write's summary and its precomputed compressed sizes
-/// (`column_sizes`, indexed the same as the footer's stats sets).
+/// (`column_sizes`, indexed the same as the footer's field summaries).
 ///
-/// Only top-level columns are covered: the footer exposes one statistics set per top-level field,
+/// Only top-level columns are covered: the footer exposes one summary per top-level field,
 /// so nested struct/list leaf columns are not reported (parquet, by contrast, recurses to leaf
 /// paths). Flat tables - the common DuckLake case - are fully covered.
 fn column_stats_from_summary(
@@ -237,22 +242,25 @@ fn column_stats_from_summary(
         .footer()
         .statistics()
         .ok_or_else(|| vortex_err!("written file has no statistics"))?;
-    let stats_sets = file_stats.stats_sets();
-    if column_index >= stats_sets.len() {
+    let fields = file_stats.fields();
+    if column_index >= fields.len() {
         vortex_bail!(
-            "column index {column_index} out of range for {} statistics sets",
-            stats_sets.len()
+            "column index {column_index} out of range for {} field summaries",
+            fields.len()
         );
     }
-    let stats = &stats_sets[column_index];
-    let dtype = &file_stats.dtypes()[column_index];
+    let stats = &fields[column_index];
 
     Ok(WrittenColumnStats {
-        min: exact_scalar_to_duckdb(stats.get(Stat::Min), dtype)?,
-        max: exact_scalar_to_duckdb(stats.get(Stat::Max), dtype)?,
-        null_count: exact_u64(stats.get(Stat::NullCount)),
+        min: exact_scalar_to_duckdb(
+            stats.get_result(&Min.bind(NumericalAggregateOpts::skip_nans())),
+        )?,
+        max: exact_scalar_to_duckdb(
+            stats.get_result(&Max.bind(NumericalAggregateOpts::skip_nans())),
+        )?,
+        null_count: exact_u64(stats.get_result(&NullCount.bind(EmptyOptions))),
         // NaNCount is exact only for float columns, so this is emitted just for them (as in parquet).
-        has_nan: exact_u64(stats.get(Stat::NaNCount)).map(|count| count > 0),
+        has_nan: exact_u64(stats.get_result(&NanCount.bind(EmptyOptions))).map(|count| count > 0),
         num_values: summary.row_count(),
         // On-disk compressed size; excludes bytes not attributable to a column (e.g. struct validity).
         column_size_bytes: column_sizes.get(column_index).copied(),
@@ -261,22 +269,17 @@ fn column_stats_from_summary(
 
 /// Convert an exact scalar statistic to a DuckDB value, propagating a conversion failure rather than
 /// dropping it. `Ok(None)` when the statistic is not exactly known.
-fn exact_scalar_to_duckdb(
-    stat: Precision<ScalarValue>,
-    dtype: &DType,
-) -> VortexResult<Option<Value>> {
+fn exact_scalar_to_duckdb(stat: Precision<Scalar>) -> VortexResult<Option<Value>> {
     match stat {
-        Precision::Exact(value) => Ok(Some(
-            Scalar::try_new(dtype.clone(), Some(value))?.try_to_duckdb_scalar()?,
-        )),
+        Precision::Exact(value) => Ok(Some(value.try_to_duckdb_scalar()?)),
         _ => Ok(None),
     }
 }
 
 /// Extract an exact `u64` statistic (e.g. a count), or `None` if not exactly known.
-fn exact_u64(stat: Precision<ScalarValue>) -> Option<u64> {
+fn exact_u64(stat: Precision<Scalar>) -> Option<u64> {
     match stat {
-        Precision::Exact(value) => value.as_primitive().as_u64(),
+        Precision::Exact(value) => value.as_primitive().as_::<u64>(),
         _ => None,
     }
 }
@@ -331,40 +334,54 @@ pub fn copy_to_initialize_global(
 #[cfg(test)]
 mod tests {
     use vortex::array::IntoArray;
+    use vortex::array::aggregate_fn::AggregateFnRef;
     use vortex::array::arrays::StructArray;
-    use vortex::array::stats::PRUNING_STATS;
+    use vortex::array::stats::default_file_aggregates;
     use vortex::buffer::ByteBufferMut;
     use vortex::buffer::buffer;
 
     use super::*;
+    use crate::duckdb::ExtractedValue;
 
-    /// Writes a one-column file and returns its summary, with `file_statistics` controlling which
-    /// statistics the footer carries (empty means none at all).
-    fn write_summary(file_statistics: Vec<Stat>) -> WriteSummary {
+    /// Writes a one-column file with the selected aggregates in its footer.
+    fn write_summary(file_aggregates: Vec<AggregateFnRef>) -> VortexResult<WriteSummary> {
         RUNTIME.block_on(async {
-            let array = StructArray::from_fields(&[("i", buffer![1u32, 2, 3].into_array())])
-                .unwrap()
-                .into_array();
+            let array =
+                StructArray::from_fields(&[("i", buffer![1u32, 2, 3].into_array())])?.into_array();
             let mut buf = ByteBufferMut::empty();
             let mut writer = SESSION
                 .write_options()
-                .with_file_statistics(file_statistics)
+                .with_file_statistics(file_aggregates)
                 .writer(&mut buf, array.dtype().clone());
-            writer.push(array).await.unwrap();
-            writer.finish().await.unwrap()
+            writer.push(array).await?;
+            writer.finish().await
         })
     }
 
     #[test]
-    fn column_stats_out_of_range_is_an_error() {
-        let summary = write_summary(PRUNING_STATS.to_vec());
-        assert!(column_stats_from_summary(&summary, 0, &[]).is_ok());
+    fn written_column_statistics() -> VortexResult<()> {
+        let summary = write_summary(default_file_aggregates())?;
+        let stats = column_stats_from_summary(&summary, 0, &[42])?;
+        assert!(matches!(
+            stats.min.as_ref().map(|value| value.extract()),
+            Some(ExtractedValue::UInteger(1))
+        ));
+        assert!(matches!(
+            stats.max.as_ref().map(|value| value.extract()),
+            Some(ExtractedValue::UInteger(3))
+        ));
+        assert_eq!(stats.null_count, Some(0));
+        assert_eq!(stats.has_nan, None);
+        assert_eq!(stats.num_values, 3);
+        assert_eq!(stats.column_size_bytes, Some(42));
         assert!(column_stats_from_summary(&summary, 1, &[]).is_err());
+        Ok(())
     }
 
     #[test]
-    fn column_stats_without_file_statistics_is_an_error() {
-        let summary = write_summary(vec![]);
+    fn column_stats_without_file_aggregates_is_an_error() -> VortexResult<()> {
+        let summary = write_summary(vec![])?;
         assert!(column_stats_from_summary(&summary, 0, &[]).is_err());
+        Ok(())
     }
 }

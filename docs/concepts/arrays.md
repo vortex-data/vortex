@@ -95,20 +95,20 @@ These can be found in the `encodings/` directory of the Vortex repository.
 | `ZigZag`               | Zig-zag integer encoding to remove negative integers         |
 | `ZStd`                 | Compression-optimized binary compression with zstd           |
 
-## Statistics
+## Aggregate Results
 
-Arrays carry their own statistics with them, allowing many compute functions to short-circuit or optimize their
-implementations. Currently, the available statistics are:
+Arrays cache finalized aggregate results through `array.aggregations()`. Compute functions can reuse
+these results to avoid scanning values again. The cache key includes the aggregate function and all
+of its options, so requests that include or skip NaNs remain distinct.
 
-* `null_count`: The number of null values in the array.
-* `true_count`: The number of `true` values in a boolean array.
-* `run_count`: The number of consecutive runs in an array.
-* `is_constant`: Whether the array only holds a single unique value
-* `is_sorted`: Whether the array values are sorted.
-* `is_strict_sorted`: Whether the array values are sorted and unique.
-* `min`: The minimum value in the array.
-* `max`: The maximum value in the array.
-* `uncompressed_size`: The size of the array in memory before any compression.
+A missing entry is unknown. An exact null is a known result, such as an overflowing sum. An inexact
+entry is a bound whose meaning depends on the aggregate, for example a lower bound for `Min` or an
+upper bound for `Max`.
+
+Finalized results do not always contain enough information to merge chunks. Sortedness also needs
+chunk boundary values, and constantness needs a representative value. Accumulators keep these
+partials separately. See the [aggregate statistics guide](../developer-guide/internals/aggregate-statistics.md)
+for the API and wire compatibility rules.
 
 ## Execution
 

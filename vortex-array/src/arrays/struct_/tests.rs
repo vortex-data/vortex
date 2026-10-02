@@ -7,6 +7,7 @@ use vortex_error::VortexResult;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
+use crate::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
 use crate::array_session;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
@@ -164,9 +165,11 @@ fn test_uncompressed_size_in_bytes() -> VortexResult<()> {
         .execute::<Canonical>(&mut array_session().create_execution_ctx())?
         .into_array()
         .nbytes();
-    let uncompressed_size = struct_array
-        .statistics()
-        .compute_uncompressed_size_in_bytes(&mut array_session().create_execution_ctx());
+    let uncompressed_size = uncompressed_size_in_bytes(
+        struct_array.as_ref(),
+        &mut array_session().create_execution_ctx(),
+    )
+    .ok();
 
     assert_eq!(canonical_size, 2);
     assert_eq!(uncompressed_size, Some(4000));

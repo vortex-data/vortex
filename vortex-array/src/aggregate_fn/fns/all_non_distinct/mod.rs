@@ -124,6 +124,10 @@ impl AggregateFnVTable for AllNonDistinct {
     type Options = EmptyOptions;
     type Partial = AllNonDistinctPartial;
 
+    fn is_representation_invariant(&self, _options: &Self::Options) -> bool {
+        true
+    }
+
     fn id(&self) -> AggregateFnId {
         static ID: CachedId = CachedId::new("vortex.all_non_distinct");
         *ID

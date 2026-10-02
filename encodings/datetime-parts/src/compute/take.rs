@@ -5,12 +5,13 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::aggregate_fn::AggregateFn;
+use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::aggregate_fn::fns::min::Min;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::Nullability;
-use vortex_array::expr::stats::Stat;
-use vortex_array::expr::stats::StatsProvider;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
@@ -63,8 +64,8 @@ fn take_datetime_parts(
 
     let seconds_fill = array
         .seconds()
-        .statistics()
-        .get(Stat::Min)
+        .aggregations()
+        .get_result(&AggregateFn::new(Min, NumericalAggregateOpts::default()).erased())
         .into_inner()
         .unwrap_or_else(|| Scalar::primitive(0i64, Nullability::NonNullable))
         .cast(array.seconds().dtype())?;
@@ -72,8 +73,8 @@ fn take_datetime_parts(
 
     let subseconds_fill = array
         .subseconds()
-        .statistics()
-        .get(Stat::Min)
+        .aggregations()
+        .get_result(&AggregateFn::new(Min, NumericalAggregateOpts::default()).erased())
         .into_inner()
         .unwrap_or_else(|| Scalar::primitive(0i64, Nullability::NonNullable))
         .cast(array.subseconds().dtype())?;

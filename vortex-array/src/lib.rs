@@ -14,7 +14,7 @@
 //! # Core Handles
 //!
 //! [`ArrayRef`] is the erased, shared handle used by most public APIs. It carries the logical
-//! [`DType`], row count, encoding id, children, buffers, and statistics for an
+//! [`DType`], row count, encoding id, children, buffers, and finalized aggregate results for an
 //! array tree. Use it when an API should accept any encoding.
 //!
 //! [`Array<V>`] is the typed owned handle for a known encoding `V: VTable`. It wraps an

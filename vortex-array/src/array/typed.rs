@@ -29,14 +29,14 @@ use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::dtype::DType;
 use crate::legacy_session;
-use crate::stats::ArrayStats;
-use crate::stats::StatsSet;
-use crate::stats::StatsSetRef;
+use crate::stats::AggregateResults;
+use crate::stats::Aggregations;
+use crate::stats::AggregationsRef;
 use crate::validity::Validity;
 
 /// The combined allocation behind [`ArrayRef`].
 ///
-/// Stores common metadata (len, dtype, encoding_id, slots, stats) together with the
+/// Stores common metadata (len, dtype, encoding_id, slots, aggregations) together with the
 /// encoding-specific `data` (a concrete [`ArrayData<V>`] erased to `dyn DynArrayData`).
 ///
 /// `ArrayRef` stores `Arc<ArrayInner<dyn DynArrayData>>` — a single 16-byte fat pointer.
@@ -47,7 +47,7 @@ pub(crate) struct ArrayInner<D: ?Sized> {
     pub(crate) encoding_id: ArrayId,
     pub(crate) dtype: DType,
     pub(crate) slots: ArraySlots,
-    pub(crate) stats: ArrayStats,
+    pub(crate) aggregations: Aggregations,
     pub(crate) data: D, // must be last for unsized coercion
 }
 
@@ -125,7 +125,7 @@ impl<V: VTable> ArrayInner<ArrayData<V>> {
             encoding_id: new.vtable.id(),
             dtype: new.dtype,
             slots: new.slots,
-            stats: ArrayStats::default(),
+            aggregations: Aggregations::default(),
             data: ArrayData {
                 vtable: new.vtable,
                 data: new.data,
@@ -143,14 +143,14 @@ impl<V: VTable> ArrayInner<ArrayData<V>> {
         dtype: DType,
         data: V::TypedArrayData,
         slots: ArraySlots,
-        stats: ArrayStats,
+        aggregations: Aggregations,
     ) -> Self {
         ArrayInner {
             len,
             encoding_id: vtable.id(),
             dtype,
             slots,
-            stats,
+            aggregations,
             data: ArrayData { vtable, data },
         }
     }
@@ -236,7 +236,7 @@ impl<V: VTable> Array<V> {
                 new.dtype,
                 new.data,
                 new.slots,
-                ArrayStats::default(),
+                Aggregations::default(),
             )
         };
         let inner = ArrayRef::from_inner(Arc::new(store));
@@ -291,9 +291,9 @@ impl<V: VTable> Array<V> {
         self.inner.encoding_id()
     }
 
-    /// Returns this array's statistics set.
-    pub fn statistics(&self) -> StatsSetRef<'_> {
-        self.inner.statistics()
+    /// Returns this array's finalized aggregate cache.
+    pub fn aggregations(&self) -> AggregationsRef<'_> {
+        self.inner.aggregations()
     }
 
     /// Returns a reference to the encoding-specific data.
@@ -331,9 +331,9 @@ impl<V: VTable> Array<V> {
         }
     }
 
-    /// Replace the array's statistics set and return the same typed handle.
-    pub fn with_stats_set(self, stats: StatsSet) -> Self {
-        self.statistics().replace(stats);
+    /// Transfer representation-invariant finalized results after a physical rewrite.
+    pub(crate) fn with_aggregations(self, results: AggregateResults) -> Self {
+        self.inner.aggregations().inherit_results(&results);
         self
     }
 

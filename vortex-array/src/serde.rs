@@ -33,11 +33,12 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::TryFromBytes;
 use crate::flatbuffers::FlatBuffer;
-use crate::flatbuffers::WriteFlatBuffer;
 use crate::flatbuffers::array as fba;
 use crate::flatbuffers::array::Compression;
 use crate::session::ArraySessionExt;
-use crate::stats::StatsSet;
+use crate::stats::compat::read_summary;
+use crate::stats::compat::truncate_results;
+use crate::stats::compat::write_node_summary;
 
 /// Options for serializing an array.
 #[derive(Default, Debug)]
@@ -47,6 +48,9 @@ pub struct SerializeOptions {
     pub offset: usize,
     /// Whether to include sufficient zero-copy padding.
     pub include_padding: bool,
+    /// Maximum byte length for variable-length extrema in serialized hints.
+    /// Truncation changes only the serialized snapshot.
+    pub max_variable_length_statistics_size: Option<usize>,
 }
 
 impl ArrayRef {
@@ -68,7 +72,8 @@ impl ArrayRef {
     ) -> VortexResult<Vec<ByteBuffer>> {
         // Resolve the wire representation once. Serializers may choose historical IDs and may
         // provide downgraded buffers or children that differ from the in-memory array tree.
-        let root = ArrayNodeFlatBuffer::try_new(ctx, session, self)?;
+        let mut root = ArrayNodeFlatBuffer::try_new(ctx, session, self)?;
+        root.max_variable_length_statistics_size = options.max_variable_length_statistics_size;
         let array_buffers = root.array.buffers();
 
         // Allocate result buffers, including a possible padding buffer for each.
@@ -216,6 +221,7 @@ impl ArraySerializationTree {
 pub struct ArrayNodeFlatBuffer<'a> {
     ctx: &'a ArrayContext,
     array: ArraySerializationTree,
+    max_variable_length_statistics_size: Option<usize>,
 }
 
 impl<'a> ArrayNodeFlatBuffer<'a> {
@@ -232,7 +238,11 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
                 n_buffers_recursive
             );
         };
-        Ok(Self { ctx, array })
+        Ok(Self {
+            ctx,
+            array,
+            max_variable_length_statistics_size: None,
+        })
     }
 
     pub fn try_write_flatbuffer<'fb>(
@@ -280,7 +290,12 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
         let children = Some(fbb.create_vector(&children));
 
         let buffers = Some(fbb.create_vector_from_iter((0..nbuffers).map(|i| i + buffer_idx)));
-        let stats = Some(array.source.statistics().write_flatbuffer(fbb)?);
+        let results = array.source.aggregations().snapshot_results();
+        let results = match self.max_variable_length_statistics_size {
+            Some(limit) => truncate_results(&results, limit)?,
+            None => results,
+        };
+        let stats = Some(write_node_summary(&results, array.source.dtype(), fbb)?);
 
         Ok(fba::ArrayNode::create(
             fbb,
@@ -367,7 +382,9 @@ impl SerializedArray {
             .ok_or_else(|| vortex_err!("Unknown encoding index: {}", encoding_idx))?;
         let Some(plugin) = session.arrays().registry().get(&encoding_id) else {
             if session.allows_unknown() {
-                return self.decode_foreign(encoding_id, dtype, len, ctx);
+                let decoded = self.decode_foreign(encoding_id, dtype, len, ctx)?;
+                self.load_node_results(&decoded, session)?;
+                return Ok(decoded);
             }
             vortex_bail!("Unknown encoding: {}", encoding_id);
         };
@@ -416,14 +433,19 @@ impl SerializedArray {
             decoded.encoding_id(),
         );
 
-        // Populate statistics from the serialized array.
-        if let Some(stats) = self.flatbuffer().stats() {
-            decoded
-                .statistics()
-                .set_iter(StatsSet::from_flatbuffer(&stats, dtype, session)?.into_iter());
-        }
-
+        self.load_node_results(&decoded, session)?;
         Ok(decoded)
+    }
+
+    fn load_node_results(&self, array: &ArrayRef, session: &VortexSession) -> VortexResult<()> {
+        if let Some(stats) = self.flatbuffer().stats() {
+            array.aggregations().load_historical_results(read_summary(
+                &stats,
+                array.dtype(),
+                session,
+            )?);
+        }
+        Ok(())
     }
 
     fn decode_foreign(
@@ -773,6 +795,7 @@ mod tests {
     use std::sync::atomic::Ordering;
 
     use vortex_buffer::ByteBufferMut;
+    use vortex_buffer::buffer;
     use vortex_error::vortex_ensure;
     use vortex_session::registry::CachedId;
 
@@ -782,9 +805,23 @@ mod tests {
     use crate::ArraySerialization;
     use crate::ArrayVTable;
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::aggregate_fn::AggregateFnVTableExt;
+    use crate::aggregate_fn::NumericalAggregateOpts;
+    use crate::aggregate_fn::fns::is_sorted::IsSorted;
+    use crate::aggregate_fn::fns::is_sorted::IsSortedOptions;
+    use crate::aggregate_fn::fns::max::Max;
+    use crate::aggregate_fn::fns::min::Min;
     use crate::array_session;
     use crate::arrays::Primitive;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::Struct;
+    use crate::arrays::StructArray;
+    use crate::arrays::VarBinView;
+    use crate::arrays::VarBinViewArray;
+    use crate::arrays::struct_::StructArrayExt;
+    use crate::expr::stats::Precision;
+    use crate::validity::Validity;
 
     static SERIALIZER_CALLS: AtomicUsize = AtomicUsize::new(0);
 
@@ -912,6 +949,166 @@ mod tests {
             blob.extend_from_slice(buffer.as_ref());
         }
         Ok(blob.freeze())
+    }
+
+    #[test]
+    fn node_hints_preserve_null_extrema_and_final_booleans() -> VortexResult<()> {
+        let session = array_session();
+        let mut execution = session.create_execution_ctx();
+        let array = PrimitiveArray::from_option_iter([None::<i32>, None]).into_array();
+        let min = Min.bind(NumericalAggregateOpts::skip_nans());
+        let sorted = IsSorted.bind(IsSortedOptions { strict: false });
+        let expected_min = array.aggregations().compute_result(&min, &mut execution)?;
+        let expected_sorted = array
+            .aggregations()
+            .compute_result(&sorted, &mut execution)?;
+        let validity_id = array.validity()?.to_array(array.len()).encoding_id();
+        let ctx = restricted_context(&[old_primitive_id(), validity_id]);
+        let serialized = SerializedArray::try_from(serialize_blob(&array, &ctx, &session)?)?;
+        let decoded = serialized.decode(
+            array.dtype(),
+            array.len(),
+            &ReadContext::new(ctx.to_ids()),
+            &session,
+        )?;
+
+        assert!(expected_min.is_null());
+        assert_eq!(
+            decoded.aggregations().get_result(&min),
+            Precision::Exact(expected_min)
+        );
+        assert_eq!(
+            decoded.aggregations().get_result(&sorted),
+            Precision::Exact(expected_sorted.clone())
+        );
+        assert!(
+            sorted
+                .partial_from_result(decoded.dtype(), &expected_sorted)?
+                .is_none()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn recognized_child_node_hints_survive_round_trip() -> VortexResult<()> {
+        let session = array_session();
+        let mut execution = session.create_execution_ctx();
+        let child = buffer![1i32, 2, 3].into_array();
+        let min = Min.bind(NumericalAggregateOpts::skip_nans());
+        let sorted = IsSorted.bind(IsSortedOptions { strict: false });
+        let expected_min = child.aggregations().compute_result(&min, &mut execution)?;
+        let expected_sorted = child
+            .aggregations()
+            .compute_result(&sorted, &mut execution)?;
+        let array = StructArray::try_new(["values"].into(), [child], 3, Validity::NonNullable)?
+            .into_array();
+        let ctx = restricted_context(&[ArrayVTable::id(&Struct), old_primitive_id()]);
+        let serialized = SerializedArray::try_from(serialize_blob(&array, &ctx, &session)?)?;
+        let decoded = serialized.decode(
+            array.dtype(),
+            array.len(),
+            &ReadContext::new(ctx.to_ids()),
+            &session,
+        )?;
+        let decoded_struct = decoded.as_::<Struct>();
+        let decoded_child = decoded_struct.unmasked_field(0);
+
+        assert_eq!(decoded_child.encoding_id(), old_primitive_id());
+        assert_eq!(
+            decoded_child.aggregations().get_result(&min),
+            Precision::Exact(expected_min)
+        );
+        assert_eq!(
+            decoded_child.aggregations().get_result(&sorted),
+            Precision::Exact(expected_sorted)
+        );
+        assert!(
+            decoded
+                .aggregations()
+                .snapshot_results()
+                .iter()
+                .next()
+                .is_none()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn node_truncation_preserves_exact_live_results() -> VortexResult<()> {
+        let session = array_session();
+        let mut execution = session.create_execution_ctx();
+        let array = VarBinViewArray::from_iter_str(["abcdefgh", "qrstuvwx"]).into_array();
+        let min = Min.bind(NumericalAggregateOpts::skip_nans());
+        let max = Max.bind(NumericalAggregateOpts::skip_nans());
+        let exact_min = array.aggregations().compute_result(&min, &mut execution)?;
+        let exact_max = array.aggregations().compute_result(&max, &mut execution)?;
+        let ctx = restricted_context(&[ArrayVTable::id(&VarBinView)]);
+        let mut blob = ByteBufferMut::empty();
+        for buffer in array.serialize(
+            &ctx,
+            &session,
+            &SerializeOptions {
+                max_variable_length_statistics_size: Some(3),
+                ..Default::default()
+            },
+        )? {
+            blob.extend_from_slice(buffer.as_ref());
+        }
+        let serialized = SerializedArray::try_from(blob.freeze())?;
+        let decoded = serialized.decode(
+            array.dtype(),
+            array.len(),
+            &ReadContext::new(ctx.to_ids()),
+            &session,
+        )?;
+        assert!(
+            decoded
+                .aggregations()
+                .get_result(&min)
+                .as_inexact()
+                .is_some()
+        );
+        assert!(
+            decoded
+                .aggregations()
+                .get_result(&max)
+                .as_inexact()
+                .is_some()
+        );
+        assert_eq!(
+            array.aggregations().get_result(&min),
+            Precision::Exact(exact_min)
+        );
+        assert_eq!(
+            array.aggregations().get_result(&max),
+            Precision::Exact(exact_max)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn foreign_root_preserves_hints_with_known_dtype() -> VortexResult<()> {
+        let writer = versioned_primitive_session();
+        let mut execution = writer.create_execution_ctx();
+        let array = PrimitiveArray::from_iter(0..8i32).into_array();
+        let min = Min.bind(NumericalAggregateOpts::skip_nans());
+        let result = array.aggregations().compute_result(&min, &mut execution)?;
+        let ctx = restricted_context(&[new_primitive_id()]);
+        let serialized = SerializedArray::try_from(serialize_blob(&array, &ctx, &writer)?)?;
+        let reader = array_session();
+        reader.allow_unknown();
+        let decoded = serialized.decode(
+            array.dtype(),
+            array.len(),
+            &ReadContext::new(ctx.to_ids()),
+            &reader,
+        )?;
+        assert_eq!(decoded.encoding_id(), new_primitive_id());
+        assert_eq!(
+            decoded.aggregations().get_result(&min),
+            Precision::Exact(result)
+        );
+        Ok(())
     }
 
     #[test]

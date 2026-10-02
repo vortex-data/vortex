@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use smallvec::SmallVec;
 use vortex_error::VortexResult;
 
 use super::Dict;
@@ -9,19 +8,21 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::aggregate_fn::AggregateFn;
+use crate::aggregate_fn::EmptyOptions;
+use crate::aggregate_fn::NumericalAggregateOpts;
+use crate::aggregate_fn::fns::is_constant::IsConstant;
+use crate::aggregate_fn::fns::max::Max;
+use crate::aggregate_fn::fns::min::Min;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::ConstantArray;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
-use crate::expr::stats::StatsProviderExt;
 use crate::kernel::ExecuteParentKernel;
 use crate::matcher::Matcher;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::scalar::Scalar;
-use crate::stats::StatsSet;
 use crate::validity::Validity;
 
 pub trait TakeReduce: VTable {
@@ -148,25 +149,33 @@ pub(crate) fn propagate_take_stats(
         indices.validity()?,
         Validity::NonNullable | Validity::AllValid
     );
-    target.statistics().with_mut_typed_stats_set(|mut st| {
-        if indices_all_valid {
-            let is_constant = source.statistics().get_as::<bool>(Stat::IsConstant);
-            if matches!(is_constant, Precision::Exact(true)) {
-                // Any combination of elements from a constant array is still const
-                st.set(Stat::IsConstant, Precision::exact(true));
-            }
-        }
-        let inexact_min_max = [Stat::Min, Stat::Max]
-            .into_iter()
-            .filter_map(|stat| match source.statistics().get(stat).into_inexact() {
-                Precision::Exact(scalar) | Precision::Inexact(scalar) => {
-                    scalar.into_value().map(|sv| (stat, Precision::Inexact(sv)))
-                }
-                Precision::Absent => None,
-            })
-            .collect::<SmallVec<_>>();
-        st.combine_sets(
-            &(unsafe { StatsSet::new_unchecked(inexact_min_max) }).as_typed_ref(source.dtype()),
+    let is_constant = AggregateFn::new(IsConstant, EmptyOptions).erased();
+    if indices_all_valid
+        && !target.is_empty()
+        && matches!(
+            source.aggregations().get_result_as::<bool>(&is_constant)?,
+            Precision::Exact(true)
         )
-    })
+    {
+        // Taking valid indices preserves a non-empty constant input's constantness.
+        target
+            .aggregations()
+            .insert_result(is_constant, Precision::Exact(true.into()))?;
+    }
+
+    for aggregate in [
+        AggregateFn::new(Min, NumericalAggregateOpts::default()).erased(),
+        AggregateFn::new(Max, NumericalAggregateOpts::default()).erased(),
+    ] {
+        let bound = source.aggregations().get_result(&aggregate).into_inexact();
+        if bound
+            .as_ref()
+            .into_inner()
+            .is_some_and(|value| !value.is_null())
+        {
+            target.aggregations().insert_result(aggregate, bound)?;
+        }
+    }
+
+    Ok(())
 }

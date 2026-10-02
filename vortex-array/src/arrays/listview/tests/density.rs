@@ -16,13 +16,17 @@ use super::common::create_sparse_overlapping_listview;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
+use crate::aggregate_fn::AggregateFn;
+use crate::aggregate_fn::NumericalAggregateOpts;
+use crate::aggregate_fn::fns::min::Min;
+use crate::aggregate_fn::fns::sum::Sum;
 use crate::arrays::ListViewArray;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::arrays::listview::tests::common::create_empty_elements_listview;
+use crate::dtype::Nullability;
 use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::scalar::ScalarValue;
+use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 const EPS: f32 = 1e-6;
@@ -110,11 +114,12 @@ fn empty_elements_returns_one() -> VortexResult<()> {
 fn estimate_uses_cached_sum_stat() -> VortexResult<()> {
     let mut ctx = test_execution_ctx();
     let lv = create_basic_listview();
-    // Pre-populate Stat::Sum with a deliberately-wrong 5 so we can prove
+    // Pre-populate Sum with a deliberately wrong 5 so we can prove
     // estimate_density reads from the cache instead of computing fresh.
-    lv.sizes()
-        .statistics()
-        .set(Stat::Sum, Precision::Exact(ScalarValue::from(5u64)));
+    lv.sizes().aggregations().insert_result(
+        AggregateFn::new(Sum, NumericalAggregateOpts::default()).erased(),
+        Precision::Exact(Scalar::primitive(5u64, Nullability::Nullable)),
+    )?;
 
     let est = lv.upper_bound_density(&mut ctx)?;
     assert!((est - 0.5).abs() < EPS);
@@ -174,5 +179,21 @@ fn referenced_bounds_non_zero_copy() -> VortexResult<()> {
     let lv = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable);
     assert!(!lv.is_zero_copy_to_list());
     assert_eq!(lv.referenced_element_bounds(&mut ctx)?, (2, 7));
+    Ok(())
+}
+
+#[test]
+fn referenced_bounds_ignore_cached_minimum() -> VortexResult<()> {
+    let mut ctx = test_execution_ctx();
+    let elements = buffer![0i32, 1, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
+    let offsets = buffer![5u32, 2].into_array();
+    offsets.aggregations().insert_result(
+        AggregateFn::new(Min, NumericalAggregateOpts::default()).erased(),
+        Precision::Exact(Scalar::primitive(5u32, Nullability::Nullable)),
+    )?;
+    let sizes = buffer![2u32, 2].into_array();
+    let array = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable);
+
+    assert_eq!(array.referenced_element_bounds(&mut ctx)?, (2, 7));
     Ok(())
 }

@@ -45,8 +45,7 @@ use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::kernels::ParentExecutionKernels;
 use crate::optimizer::kernels::execute_parent_key;
-use crate::stats::ArrayStats;
-use crate::stats::StatsSet;
+use crate::stats::AggregateResults;
 use crate::trace_op;
 
 /// Returns the maximum number of iterations to attempt when executing an array before giving up and returning
@@ -268,7 +267,7 @@ impl ArrayRef {
 
             let expected_len = current_array.len();
             let expected_dtype = current_array.dtype().clone();
-            let stats = current_array.statistics().to_array_stats();
+            let stats = current_array.aggregations().snapshot_results();
             let encoding_id = current_array.encoding_id();
             trace_op!(record_execute_encoding(&current_array));
             let result = current_array.execute_encoding_unchecked(ctx)?;
@@ -470,7 +469,7 @@ impl Executable for ArrayRef {
         trace_op!(record_single_step_phase_none("canonical", &array));
 
         if let Some(reduced) = array.reduce()? {
-            reduced.statistics().inherit_from(array.statistics());
+            reduced.aggregations().inherit_from(array.aggregations())?;
             trace_op!(record_single_step_applied("reduce", &array, &reduced));
             return Ok(reduced);
         }
@@ -479,7 +478,9 @@ impl Executable for ArrayRef {
         for (slot_idx, slot) in array.slots().iter().enumerate() {
             let Some(child) = slot else { continue };
             if let Some(reduced_parent) = child.reduce_parent(&array, slot_idx)? {
-                reduced_parent.statistics().inherit_from(array.statistics());
+                reduced_parent
+                    .aggregations()
+                    .inherit_from(array.aggregations())?;
                 trace_op!(record_single_step_applied(
                     "reduce_parent",
                     &array,
@@ -511,8 +512,8 @@ impl Executable for ArrayRef {
                     executed_parent
                 ));
                 executed_parent
-                    .statistics()
-                    .inherit_from(array.statistics());
+                    .aggregations()
+                    .inherit_from(array.aggregations())?;
                 trace_op!(record_single_step_applied(
                     "execute_parent",
                     &array,
@@ -592,7 +593,7 @@ fn finalize_done(
     mut builder: Option<Box<dyn ArrayBuilder>>,
     expected_len: usize,
     expected_dtype: DType,
-    stats: ArrayStats,
+    stats: AggregateResults,
     encoding_id: ArrayId,
 ) -> VortexResult<(ArrayRef, Option<Box<dyn ArrayBuilder>>)> {
     let output = if let Some(mut builder) = builder.take() {
@@ -614,9 +615,9 @@ fn finalize_done(
         );
     }
 
-    output
-        .statistics()
-        .set_iter(StatsSet::from(stats).into_iter());
+    if output.dtype() == &expected_dtype && output.len() == expected_len {
+        output.aggregations().inherit_results(&stats);
+    }
     Ok((output, None))
 }
 
@@ -685,8 +686,8 @@ fn try_execute_parent(
                 executed_parent
             ));
             executed_parent
-                .statistics()
-                .inherit_from(array.statistics());
+                .aggregations()
+                .inherit_from(array.aggregations())?;
             return Ok(Some(executed_parent));
         }
     }

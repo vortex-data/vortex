@@ -20,7 +20,7 @@ use vortex_array::expr::BoundExpression;
 use vortex_array::expr::analysis::referenced_field_paths;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::iter::ArrayIteratorAdapter;
-use vortex_array::stats::StatsSet;
+use vortex_array::stats::AggregateResults;
 use vortex_array::stream::ArrayStream;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_error::VortexExpect;
@@ -78,7 +78,7 @@ pub struct ScanBuilder<A> {
     map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
     metrics_registry: Option<Arc<dyn MetricsRegistry>>,
     /// Should we try to prune the file (using stats) on open.
-    file_stats: Option<Arc<[StatsSet]>>,
+    file_stats: Option<Arc<[AggregateResults]>>,
     /// Maximal number of rows to read (after filtering)
     limit: Option<u64>,
     /// The row-offset assigned to the first row of the file. Used by the `row_idx` expression,

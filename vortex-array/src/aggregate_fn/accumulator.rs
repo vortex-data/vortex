@@ -20,8 +20,6 @@ use crate::columnar::AnyColumnar;
 use crate::dtype::DType;
 use crate::executor::max_iterations;
 use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
 use crate::scalar::Scalar;
 
 /// Reference-counted type-erased accumulator.
@@ -94,6 +92,118 @@ impl<V: AggregateFnVTable> Accumulator<V> {
             .partial_from_scalar(self.dtypes.args(&self.options), scalar)?;
         self.fold_partial(other)
     }
+
+    /// Consume the accumulator and return its typed partial state.
+    ///
+    /// An accumulator with no input returns the aggregate's empty partial state.
+    pub fn into_partial(mut self) -> VortexResult<V::Partial> {
+        match self.partial.take() {
+            Some(partial) => Ok(partial),
+            None => self.empty_partial(),
+        }
+    }
+
+    fn accumulate_impl(
+        &mut self,
+        batch: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+        use_cache: bool,
+    ) -> VortexResult<()> {
+        if self.is_saturated() {
+            return Ok(());
+        }
+
+        vortex_ensure!(
+            batch.dtype() == &self.dtypes.dtype,
+            "Input DType mismatch: expected {}, got {}",
+            self.dtypes.dtype,
+            batch.dtype()
+        );
+
+        // A finalized result can only replace partial state when the aggregate explicitly
+        // supports that conversion. Rich states can carry information lost during finalization.
+        if use_cache
+            && let Precision::Exact(result) = batch.aggregations().get_result(&self.aggregate_fn)
+            && let Some(partial) = self
+                .vtable
+                .partial_from_result(self.dtypes.args(&self.options), result)?
+        {
+            self.fold_partial(partial)?;
+            return Ok(());
+        }
+
+        let session = ctx.session().clone();
+
+        // 1. Kernel registry first: a registered `(encoding, aggregate_fn)` kernel is strictly
+        //    more specific than the vtable's `try_accumulate` short-circuit. Checking the
+        //    registry first gives kernels for `Combined<V>` aggregates a chance to fire;
+        //    `Combined::try_accumulate` always returns true, so a later kernel check would be
+        //    unreachable.
+        {
+            let kernel = session
+                .aggregate_fns()
+                .find_aggregate_kernel(batch.encoding_id(), self.aggregate_fn.id());
+            if let Some(kernel) = kernel
+                && let Some(result) = kernel.aggregate(&self.aggregate_fn, batch, ctx)?
+            {
+                vortex_ensure!(
+                    result.dtype() == &self.dtypes.partial_dtype,
+                    "Aggregate kernel returned {}, expected {}",
+                    result.dtype(),
+                    self.dtypes.partial_dtype,
+                );
+                self.fold_partial_scalar(result)?;
+                return Ok(());
+            }
+        }
+
+        // 2. Allow the vtable to short-circuit on the raw array before decompression.
+        self.ensure_partial()?;
+        let partial = self.partial.as_mut().vortex_expect("partial materialized");
+        if self
+            .vtable
+            .try_accumulate(self.dtypes.args(&self.options), partial, batch, ctx)?
+        {
+            return Ok(());
+        }
+
+        // 3. Iteratively check the registry against each intermediate encoding, executing one
+        //    step between checks. Mirrors the loop in `GroupedAccumulator::accumulate_list_view`.
+        //    Iteration 0 re-checks the initial encoding, a redundant HashMap miss, the price of
+        //    keeping the loop body uniform. Terminates on `AnyColumnar` (Canonical or Constant)
+        //    since the vtable's `accumulate(&Columnar)` handles both cases directly.
+        let mut batch = batch.clone();
+        for _ in 0..max_iterations() {
+            if batch.is::<AnyColumnar>() {
+                break;
+            }
+
+            if let Some(kernel) = session
+                .aggregate_fns()
+                .find_aggregate_kernel(batch.encoding_id(), self.aggregate_fn.id())
+                && let Some(result) = kernel.aggregate(&self.aggregate_fn, &batch, ctx)?
+            {
+                vortex_ensure!(
+                    result.dtype() == &self.dtypes.partial_dtype,
+                    "Aggregate kernel returned {}, expected {}",
+                    result.dtype(),
+                    self.dtypes.partial_dtype,
+                );
+                self.fold_partial_scalar(result)?;
+                return Ok(());
+            }
+
+            batch = batch.execute(ctx)?;
+        }
+
+        // 4. Otherwise, execute the batch until it is columnar and accumulate it into the state.
+        let columnar = batch.execute::<Columnar>(ctx)?;
+
+        self.ensure_partial()?;
+        let partial = self.partial.as_mut().vortex_expect("partial materialized");
+        self.vtable
+            .accumulate(self.dtypes.args(&self.options), partial, &columnar, ctx)
+    }
 }
 
 /// A trait object for type-erased accumulators, used for dynamic dispatch when the aggregate
@@ -101,6 +211,12 @@ impl<V: AggregateFnVTable> Accumulator<V> {
 pub trait DynAccumulator: 'static + Send {
     /// Accumulate a new array into the accumulator's state.
     fn accumulate(&mut self, batch: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()>;
+
+    /// Accumulate an array without substituting its cached finalized result.
+    ///
+    /// Encoding kernels and aggregate helpers may still use metadata for their own inputs.
+    fn accumulate_uncached(&mut self, batch: &ArrayRef, ctx: &mut ExecutionCtx)
+    -> VortexResult<()>;
 
     /// Drain another accumulator's state into this one, resetting `other`.
     ///
@@ -151,112 +267,15 @@ impl dyn DynAccumulator {
 
 impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
     fn accumulate(&mut self, batch: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
-        if self.is_saturated() {
-            return Ok(());
-        }
+        self.accumulate_impl(batch, ctx, true)
+    }
 
-        vortex_ensure!(
-            batch.dtype() == &self.dtypes.dtype,
-            "Input DType mismatch: expected {}, got {}",
-            self.dtypes.dtype,
-            batch.dtype()
-        );
-
-        // 0. Legacy stats bridge: if this aggregate is still cached under a legacy Stat slot,
-        //    consume that exact stat before kernel dispatch or decode.
-        if let Some(stat) = Stat::from_aggregate_fn(&self.aggregate_fn)
-            && let Precision::Exact(partial) = batch.statistics().get(stat)
-        {
-            let partial = if partial.dtype() == &self.dtypes.partial_dtype {
-                partial
-            } else {
-                vortex_ensure!(
-                    partial
-                        .dtype()
-                        .eq_ignore_nullability(&self.dtypes.partial_dtype),
-                    "Aggregate {} read legacy stat {} with dtype {}, expected {}",
-                    self.aggregate_fn,
-                    stat,
-                    partial.dtype(),
-                    self.dtypes.partial_dtype,
-                );
-                partial.cast(&self.dtypes.partial_dtype)?
-            };
-            self.fold_partial_scalar(partial)?;
-            return Ok(());
-        }
-
-        let session = ctx.session().clone();
-
-        // 1. Kernel registry first: a registered `(encoding, aggregate_fn)` kernel is strictly
-        //    more specific than the vtable's `try_accumulate` short-circuit. Checking the
-        //    registry first gives kernels for `Combined<V>` aggregates a chance to fire —
-        //    `Combined::try_accumulate` always returns true, so a later kernel check would be
-        //    unreachable.
-        {
-            let kernel = session
-                .aggregate_fns()
-                .find_aggregate_kernel(batch.encoding_id(), self.aggregate_fn.id());
-            if let Some(kernel) = kernel
-                && let Some(result) = kernel.aggregate(&self.aggregate_fn, batch, ctx)?
-            {
-                vortex_ensure!(
-                    result.dtype() == &self.dtypes.partial_dtype,
-                    "Aggregate kernel returned {}, expected {}",
-                    result.dtype(),
-                    self.dtypes.partial_dtype,
-                );
-                self.fold_partial_scalar(result)?;
-                return Ok(());
-            }
-        }
-
-        // 2. Allow the vtable to short-circuit on the raw array before decompression.
-        self.ensure_partial()?;
-        let partial = self.partial.as_mut().vortex_expect("partial materialized");
-        if self
-            .vtable
-            .try_accumulate(self.dtypes.args(&self.options), partial, batch, ctx)?
-        {
-            return Ok(());
-        }
-
-        // 3. Iteratively check the registry against each intermediate encoding, executing one
-        //    step between checks. Mirrors the loop in `GroupedAccumulator::accumulate_list_view`.
-        //    Iteration 0 re-checks the initial encoding — a redundant HashMap miss, the price of
-        //    keeping the loop body uniform. Terminates on `AnyColumnar` (Canonical or Constant)
-        //    since the vtable's `accumulate(&Columnar)` handles both cases directly.
-        let mut batch = batch.clone();
-        for _ in 0..max_iterations() {
-            if batch.is::<AnyColumnar>() {
-                break;
-            }
-
-            if let Some(kernel) = session
-                .aggregate_fns()
-                .find_aggregate_kernel(batch.encoding_id(), self.aggregate_fn.id())
-                && let Some(result) = kernel.aggregate(&self.aggregate_fn, &batch, ctx)?
-            {
-                vortex_ensure!(
-                    result.dtype() == &self.dtypes.partial_dtype,
-                    "Aggregate kernel returned {}, expected {}",
-                    result.dtype(),
-                    self.dtypes.partial_dtype,
-                );
-                self.fold_partial_scalar(result)?;
-                return Ok(());
-            }
-
-            batch = batch.execute(ctx)?;
-        }
-
-        // 4. Otherwise, execute the batch until it is columnar and accumulate it into the state.
-        let columnar = batch.execute::<Columnar>(ctx)?;
-
-        self.ensure_partial()?;
-        let partial = self.partial.as_mut().vortex_expect("partial materialized");
-        self.vtable
-            .accumulate(self.dtypes.args(&self.options), partial, &columnar, ctx)
+    fn accumulate_uncached(
+        &mut self,
+        batch: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        self.accumulate_impl(batch, ctx, false)
     }
 
     fn merge_from(&mut self, other: &mut dyn DynAccumulator) -> VortexResult<()> {
@@ -368,10 +387,15 @@ mod tests {
     use crate::aggregate_fn::AccumulatorRef;
     use crate::aggregate_fn::AggregateFnRef;
     use crate::aggregate_fn::AggregateFnVTable;
+    use crate::aggregate_fn::AggregateFnVTableExt;
     use crate::aggregate_fn::DynAccumulator;
+    use crate::aggregate_fn::EmptyOptions;
     use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::combined::Combined;
     use crate::aggregate_fn::combined::PairOptions;
+    use crate::aggregate_fn::fns::is_constant::IsConstant;
+    use crate::aggregate_fn::fns::is_sorted::IsSorted;
+    use crate::aggregate_fn::fns::is_sorted::IsSortedOptions;
     use crate::aggregate_fn::fns::mean::Mean;
     use crate::aggregate_fn::fns::min::Min;
     use crate::aggregate_fn::fns::sum::Sum;
@@ -384,11 +408,9 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::expr::stats::Precision;
-    use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
-    use crate::scalar::ScalarValue;
 
-    /// Mean partial sentinel `{sum: 42.0, count: 1}` — distinguishable from the
+    /// Mean partial sentinel `{sum: 42.0, count: 1}`, distinguishable from the
     /// natural fan-out result `{sum: 7.0, count: 1}` that `Combined::try_accumulate`
     /// would produce for `dict_of_seven()`.
     #[derive(Debug)]
@@ -462,7 +484,7 @@ mod tests {
     }
 
     /// Kernel registered for `(Dict, Combined<Mean>)` fires in preference to
-    /// `Combined::try_accumulate`'s fan-out path — proves the dispatch reorder.
+    /// `Combined::try_accumulate`'s fan-out path, proves the dispatch reorder.
     #[test]
     fn combined_kernel_fires() -> VortexResult<()> {
         static KERNEL: SentinelMeanPartialKernel = SentinelMeanPartialKernel;
@@ -532,7 +554,7 @@ mod tests {
         let partial = acc.flush()?;
 
         let s = partial.as_struct();
-        // `Sum` child returned the sentinel 42.0 — proves the (Dict, Sum) kernel fired
+        // `Sum` child returned the sentinel 42.0, proves the (Dict, Sum) kernel fired
         // via `Combined<Mean>`'s fan-out. `Count`'s native `try_accumulate` reads the
         // batch's valid_count, so count is the real 1.
         assert_eq!(
@@ -556,15 +578,51 @@ mod tests {
         let mut ctx = session.create_execution_ctx();
 
         let batch = dict_of_seven();
-        batch
-            .statistics()
-            .set(Stat::Sum, Precision::Exact(ScalarValue::from(11.0f64)));
+        batch.aggregations().insert_result(
+            Sum.bind(NumericalAggregateOpts::skip_nans()),
+            Precision::Exact(Scalar::primitive(11.0f64, Nullability::Nullable)),
+        )?;
 
         let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
         let mut acc = Accumulator::try_new(Sum, NumericalAggregateOpts::default(), dtype)?;
         acc.accumulate(&batch, &mut ctx)?;
 
         assert_eq!(acc.finish()?.as_primitive().as_::<f64>(), Some(11.0));
+        Ok(())
+    }
+
+    #[test]
+    fn cached_sorted_final_preserves_batch_boundaries() -> VortexResult<()> {
+        let mut ctx = fresh_session().create_execution_ctx();
+        let batch = buffer![1i32, 2].into_array();
+        let options = IsSortedOptions { strict: false };
+        batch.aggregations().insert_result(
+            IsSorted.bind(options.clone()),
+            Precision::Exact(Scalar::from(true)),
+        )?;
+
+        let mut acc = Accumulator::try_new(IsSorted, options, batch.dtype().clone())?;
+        acc.accumulate(&batch, &mut ctx)?;
+        acc.accumulate(&buffer![0i32].into_array(), &mut ctx)?;
+
+        assert!(!bool::try_from(&acc.finish()?)?);
+        Ok(())
+    }
+
+    #[test]
+    fn cached_constant_final_preserves_representative_value() -> VortexResult<()> {
+        let mut ctx = fresh_session().create_execution_ctx();
+        let batch = buffer![1i32, 1].into_array();
+        batch.aggregations().insert_result(
+            IsConstant.bind(EmptyOptions),
+            Precision::Exact(Scalar::from(true)),
+        )?;
+
+        let mut acc = Accumulator::try_new(IsConstant, EmptyOptions, batch.dtype().clone())?;
+        acc.accumulate(&batch, &mut ctx)?;
+        acc.accumulate(&buffer![2i32].into_array(), &mut ctx)?;
+
+        assert!(!bool::try_from(&acc.finish()?)?);
         Ok(())
     }
 

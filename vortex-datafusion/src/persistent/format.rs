@@ -45,15 +45,19 @@ use futures::stream;
 use object_store::ObjectMeta;
 use object_store::ObjectStore;
 use vortex::VortexSessionDefault;
+use vortex::array::aggregate_fn::AggregateFnVTableExt;
+use vortex::array::aggregate_fn::EmptyOptions;
+use vortex::array::aggregate_fn::NumericalAggregateOpts;
+use vortex::array::aggregate_fn::fns::is_constant::IsConstant;
+use vortex::array::aggregate_fn::fns::max::Max;
+use vortex::array::aggregate_fn::fns::min::Min;
+use vortex::array::aggregate_fn::fns::null_count::NullCount;
+use vortex::array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use vortex::array::memory::MemorySessionExt;
-use vortex::dtype::DType;
-use vortex::dtype::Nullability;
-use vortex::dtype::PType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::expr::stats::Precision;
-use vortex::expr::stats::Stat;
 use vortex::file::EOF_SIZE;
 use vortex::file::MAX_POSTSCRIPT_SIZE;
 use vortex::file::OpenOptionsSessionExt;
@@ -61,7 +65,6 @@ use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::io::object_store::ObjectStoreReadAt;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::scalar::Scalar;
-use vortex::scalar::ScalarValue as VortexScalarValue;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 
@@ -666,27 +669,26 @@ impl FileFormat for VortexFormat {
                     column_statistics.push(ColumnStatistics::default());
                     continue;
                 };
-                let (stats_set, stats_dtype) = file_stats.get(col_idx);
+                let (results, _) = file_stats.get(col_idx);
 
                 // Update the total size in bytes.
-                let column_size =
-                    stats_set.get_as::<usize>(Stat::UncompressedSizeInBytes, &PType::U64.into());
+                let column_size = results
+                    .get_result(&UncompressedSizeInBytes.bind(EmptyOptions))
+                    .and_then(|value| usize::try_from(&value).ok());
 
                 let min = scalar_stat_to_df(
-                    Stat::Min,
-                    stats_set.get(Stat::Min),
-                    stats_dtype,
+                    results.get_result(&Min.bind(NumericalAggregateOpts::skip_nans())),
                     field.data_type(),
                 );
 
                 let max = scalar_stat_to_df(
-                    Stat::Max,
-                    stats_set.get(Stat::Max),
-                    stats_dtype,
+                    results.get_result(&Max.bind(NumericalAggregateOpts::skip_nans())),
                     field.data_type(),
                 );
 
-                let null_count = stats_set.get_as::<usize>(Stat::NullCount, &PType::U64.into());
+                let null_count = results
+                    .get_result(&NullCount.bind(EmptyOptions))
+                    .and_then(|value| usize::try_from(&value).ok());
 
                 column_statistics.push(ColumnStatistics {
                     null_count: null_count.to_df(),
@@ -694,10 +696,9 @@ impl FileFormat for VortexFormat {
                     max_value: max,
                     sum_value: DFPrecision::Absent,
                     distinct_count: is_constant_to_distinct_count(
-                        stats_set.get_as::<bool>(
-                            Stat::IsConstant,
-                            &DType::Bool(Nullability::NonNullable),
-                        ),
+                        results
+                            .get_result(&IsConstant.bind(EmptyOptions))
+                            .and_then(|value| bool::try_from(&value).ok()),
                     ),
                     byte_size: column_size.to_df(),
                 })
@@ -770,23 +771,11 @@ impl FileFormat for VortexFormat {
 }
 
 fn scalar_stat_to_df(
-    stat: Stat,
-    value: Precision<VortexScalarValue>,
-    stats_dtype: &DType,
+    value: Precision<Scalar>,
     target_dtype: &DataType,
 ) -> DFPrecision<DFScalarValue> {
-    let Some(stat_dtype) = stat.dtype(stats_dtype) else {
-        return DFPrecision::Absent;
-    };
-
     value
-        .and_then(|stat_value| {
-            let scalar = Scalar::try_new(stat_dtype, Some(stat_value))
-                .ok()?
-                .try_to_df()
-                .ok()?;
-            scalar.cast_to(target_dtype).ok()
-        })
+        .and_then(|value| value.try_to_df().ok()?.cast_to(target_dtype).ok())
         .to_df()
 }
 
@@ -851,15 +840,10 @@ mod tests {
     fn test_scalar_stat_to_df_cast(
         #[case] value: ScalarValue,
         #[case] expected: ScalarValue,
-        #[values(Stat::Min, Stat::Max)] stat: Stat,
         #[values(true, false)] exact: bool,
     ) -> VortexResult<()> {
         let session = VortexSession::default();
-        let scalar = scalar_from_df(&value, &session)?;
-        let value = scalar
-            .value()
-            .cloned()
-            .ok_or_else(|| vortex_err!("expected non-null scalar"))?;
+        let value = scalar_from_df(&value, &session)?;
         let target_dtype = expected.data_type();
         let (value, expected) = if exact {
             (Precision::Exact(value), DFPrecision::Exact(expected))
@@ -867,10 +851,7 @@ mod tests {
             (Precision::Inexact(value), DFPrecision::Inexact(expected))
         };
 
-        assert_eq!(
-            scalar_stat_to_df(stat, value, scalar.dtype(), &target_dtype),
-            expected
-        );
+        assert_eq!(scalar_stat_to_df(value, &target_dtype), expected);
         Ok(())
     }
 
@@ -888,16 +869,11 @@ mod tests {
     fn test_scalar_stat_to_df_failed_cast(
         #[case] value: ScalarValue,
         #[case] target_dtype: DataType,
-        #[values(Stat::Min, Stat::Max)] stat: Stat,
     ) -> VortexResult<()> {
         let session = VortexSession::default();
-        let scalar = scalar_from_df(&value, &session)?;
-        let value = scalar
-            .value()
-            .cloned()
-            .ok_or_else(|| vortex_err!("expected non-null scalar"))?;
+        let value = scalar_from_df(&value, &session)?;
         assert_eq!(
-            scalar_stat_to_df(stat, Precision::Exact(value), scalar.dtype(), &target_dtype),
+            scalar_stat_to_df(Precision::Exact(value), &target_dtype),
             DFPrecision::Absent
         );
         Ok(())

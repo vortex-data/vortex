@@ -22,7 +22,20 @@ use vortex::layout::LayoutStrategy;
 use vortex::layout::layouts::flat::Flat;
 use vortex::layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_array::ExecutionCtx;
-use vortex_array::expr::stats::Stat;
+use vortex_array::aggregate_fn::AggregateFn;
+use vortex_array::aggregate_fn::EmptyOptions;
+use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
+use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
+use vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions;
+use vortex_array::aggregate_fn::fns::max::Max;
+use vortex_array::aggregate_fn::fns::min::Min;
+use vortex_array::aggregate_fn::fns::min_max::supports_min_max;
+use vortex_array::aggregate_fn::fns::nan_count::NanCount;
+use vortex_array::aggregate_fn::fns::null_count::NullCount;
+use vortex_array::aggregate_fn::fns::sum::Sum;
+use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
+use vortex_array::dtype::DType;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_buffer::ByteBuffer;
@@ -40,10 +53,31 @@ fn runtime() -> VortexResult<Runtime> {
 /// cached on each array node. This function walks the entire tree and forces computation of
 /// all stats so they are present in the serialized output.
 pub fn compute_all_stats(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
-    let all_stats: Vec<Stat> = Stat::all().collect();
+    let aggregates = [
+        AggregateFn::new(Min, NumericalAggregateOpts::default()).erased(),
+        AggregateFn::new(Max, NumericalAggregateOpts::default()).erased(),
+        AggregateFn::new(Sum, NumericalAggregateOpts::default()).erased(),
+        AggregateFn::new(NullCount, EmptyOptions).erased(),
+        AggregateFn::new(NanCount, EmptyOptions).erased(),
+        AggregateFn::new(IsSorted, IsSortedOptions { strict: false }).erased(),
+        AggregateFn::new(IsSorted, IsSortedOptions { strict: true }).erased(),
+        AggregateFn::new(IsConstant, EmptyOptions).erased(),
+        AggregateFn::new(UncompressedSizeInBytes, EmptyOptions).erased(),
+    ];
     for node in array.depth_first_traversal() {
-        let computed = node.statistics().compute_all(&all_stats, ctx)?;
-        node.statistics().set_iter(computed.into_iter());
+        let mut storage_dtype = node.dtype();
+        while let DType::Extension(ext) = storage_dtype {
+            storage_dtype = ext.storage_dtype();
+        }
+        let supports_extrema = supports_min_max(storage_dtype);
+
+        for aggregate in &aggregates {
+            let is_extremum = aggregate.is::<Min>() || aggregate.is::<Max>();
+            if aggregate.return_dtype(node.dtype()).is_some() && (!is_extremum || supports_extrema)
+            {
+                node.aggregations().compute_result(aggregate, ctx)?;
+            }
+        }
     }
     Ok(())
 }
@@ -165,4 +199,50 @@ pub fn read_layout_tree(bytes: ByteBuffer) -> VortexResult<()> {
 
         Ok(())
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
+    use vortex_array::arrays::FixedSizeListArray;
+    use vortex_array::arrays::ListArray;
+    use vortex_array::expr::stats::Precision;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::buffer;
+
+    use super::*;
+
+    #[test]
+    fn compute_all_stats_nested_list() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let elements = buffer![1i32, 2, 3, 4].into_array();
+        let inner = FixedSizeListArray::try_new(elements.clone(), 2, Validity::NonNullable, 2)?
+            .into_array();
+        let outer = ListArray::try_new(
+            inner.clone(),
+            buffer![0u32, 1, 2].into_array(),
+            Validity::NonNullable,
+        )?
+        .into_array();
+
+        compute_all_stats(&outer, &mut ctx)?;
+
+        let min = AggregateFn::new(Min, NumericalAggregateOpts::default()).erased();
+        let max = AggregateFn::new(Max, NumericalAggregateOpts::default()).erased();
+        for node in [&outer, &inner] {
+            assert_eq!(node.aggregations().get_result(&min), Precision::Absent);
+            assert_eq!(node.aggregations().get_result(&max), Precision::Absent);
+        }
+        assert_eq!(
+            elements.aggregations().get_result_as::<i32>(&min)?,
+            Precision::Exact(1)
+        );
+        assert_eq!(
+            elements.aggregations().get_result_as::<i32>(&max)?,
+            Precision::Exact(4)
+        );
+        Ok(())
+    }
 }

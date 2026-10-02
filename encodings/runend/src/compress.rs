@@ -6,6 +6,9 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::aggregate_fn::AggregateFn;
+use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
+use vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DecimalArray;
@@ -19,7 +22,6 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::stats::Precision;
-use vortex_array::expr::stats::Stat;
 use vortex_array::match_each_decimal_value_type;
 use vortex_array::match_each_native_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
@@ -50,8 +52,14 @@ pub fn runend_encode(
         Validity::AllInvalid => {
             // We can trivially return an all-null REE array
             let ends = PrimitiveArray::new(buffer![array.len() as u64], Validity::NonNullable);
-            ends.statistics()
-                .set(Stat::IsStrictSorted, Precision::Exact(true.into()));
+            // SAFETY: runend_encode emits increasing exclusive ends, including the single all-null run.
+            unsafe {
+                ends.aggregations().seed_result(
+                    AggregateFn::new(IsSorted, IsSortedOptions { strict: true }).erased(),
+                    Precision::Exact(true.into()),
+                )
+            }
+            .vortex_expect("run ends have a boolean sortedness result");
             return (
                 ends,
                 ConstantArray::new(Scalar::null(array.dtype().clone()), 1).into_array(),
@@ -91,8 +99,14 @@ pub fn runend_encode(
         .narrow(ctx)
         .vortex_expect("Ends must succeed downcasting");
 
-    ends.statistics()
-        .set(Stat::IsStrictSorted, Precision::Exact(true.into()));
+    // SAFETY: runend_encode emits increasing exclusive ends, including the single all-null run.
+    unsafe {
+        ends.aggregations().seed_result(
+            AggregateFn::new(IsSorted, IsSortedOptions { strict: true }).erased(),
+            Precision::Exact(true.into()),
+        )
+    }
+    .vortex_expect("run ends have a boolean sortedness result");
 
     (ends, values)
 }

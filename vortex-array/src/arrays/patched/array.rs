@@ -196,7 +196,10 @@ impl Patched {
         );
 
         vortex_ensure!(
-            patches.values().all_valid(ctx)?,
+            patches
+                .values()
+                .validity()?
+                .execute_no_nulls(patches.values().len(), ctx)?,
             "PatchedArray cannot be built from Patches with nulls"
         );
 

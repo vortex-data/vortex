@@ -39,7 +39,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::stats::Precision;
-use vortex_array::stats::StatsSet;
+use vortex_array::stats::AggregateResults;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::stream::SendableArrayStream;
@@ -317,8 +317,8 @@ impl DataSource for MultiLayoutDataSource {
         }))
     }
 
-    async fn field_statistics(&self, _field_path: &FieldPath) -> VortexResult<StatsSet> {
-        Ok(StatsSet::default())
+    async fn field_statistics(&self, _field_path: &FieldPath) -> VortexResult<AggregateResults> {
+        Ok(AggregateResults::default())
     }
 }
 

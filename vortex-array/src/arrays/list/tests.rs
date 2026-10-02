@@ -4,6 +4,7 @@
 use std::sync::Arc;
 use std::sync::LazyLock;
 
+use rstest::rstest;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
@@ -15,6 +16,12 @@ use super::*;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
+use crate::aggregate_fn::AggregateFn;
+use crate::aggregate_fn::NumericalAggregateOpts;
+use crate::aggregate_fn::fns::is_sorted::IsSorted;
+use crate::aggregate_fn::fns::is_sorted::IsSortedOptions;
+use crate::aggregate_fn::fns::max::Max;
+use crate::aggregate_fn::fns::min::Min;
 use crate::array_session;
 use crate::arrays::FilterArray;
 use crate::arrays::List;
@@ -25,11 +32,47 @@ use crate::builders::ListBuilder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType::I32;
+use crate::expr::stats::Precision;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 /// A shared session for `List` tests, used to create execution contexts.
 static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
+
+#[rstest]
+#[case::unsorted(vec![0i32, 2, 1])]
+#[case::negative(vec![0i32, -1, 1])]
+#[case::out_of_bounds(vec![0i32, 4])]
+fn validate_offsets_independently_of_cached_results(#[case] values: Vec<i32>) -> VortexResult<()> {
+    let offsets = PrimitiveArray::from_iter(values).into_array();
+    offsets.aggregations().insert_result(
+        AggregateFn::new(IsSorted, IsSortedOptions { strict: false }).erased(),
+        Precision::Exact(true.into()),
+    )?;
+    for (aggregate, value) in [
+        (
+            AggregateFn::new(Min, NumericalAggregateOpts::default()).erased(),
+            0i32,
+        ),
+        (
+            AggregateFn::new(Max, NumericalAggregateOpts::default()).erased(),
+            3i32,
+        ),
+    ] {
+        offsets.aggregations().insert_result(
+            aggregate,
+            Precision::Exact(Scalar::primitive(value, Nullability::Nullable)),
+        )?;
+    }
+
+    let list = ListArray::try_new(
+        buffer![1i32, 2, 3].into_array(),
+        offsets,
+        Validity::NonNullable,
+    );
+    assert!(list.is_err());
+    Ok(())
+}
 
 #[test]
 fn test_empty_list_array() {

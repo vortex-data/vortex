@@ -6,11 +6,10 @@ use std::fmt::Formatter;
 use std::sync::Arc;
 
 use num_traits::AsPrimitive;
+use num_traits::ToPrimitive;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
 use crate::ArraySlots;
@@ -18,8 +17,6 @@ use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
-use crate::aggregate_fn::NumericalAggregateOpts;
-use crate::aggregate_fn::fns::min_max::min_max;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
@@ -30,9 +27,10 @@ use crate::arrays::ConstantArray;
 use crate::arrays::List;
 use crate::arrays::ListArray;
 use crate::arrays::Primitive;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
-use crate::dtype::NativePType;
 use crate::legacy_session;
 use crate::match_each_integer_ptype;
 use crate::match_each_native_ptype;
@@ -207,57 +205,27 @@ impl ListData {
             offsets.dtype()
         );
 
-        // We can safely unwrap the DType as primitive now
-        let offsets_ptype = offsets.dtype().as_ptype();
         let mut ctx = legacy_session().create_execution_ctx();
-
-        // Offsets must be sorted (but not strictly sorted, zero-length lists are allowed)
-        if let Some(is_sorted) = offsets.statistics().compute_is_sorted(&mut ctx) {
-            vortex_ensure!(is_sorted, InvalidArgument: "offsets must be sorted");
-        } else {
-            vortex_bail!(InvalidArgument: "offsets must report is_sorted statistic");
-        }
-
-        // Validate that offsets min is non-negative, and max does not exceed the length of
-        // the elements array.
-        if let Some(min_max) = min_max(offsets, &mut ctx, NumericalAggregateOpts::default())? {
-            match_each_integer_ptype!(offsets_ptype, |P| {
-                #[allow(clippy::absurd_extreme_comparisons, unused_comparisons)]
-                {
-                    let max = min_max
-                        .max
-                        .as_primitive()
-                        .as_::<P>()
-                        .vortex_expect("offsets type must fit offsets values");
-                    let min = min_max
-                        .min
-                        .as_primitive()
-                        .as_::<P>()
-                        .vortex_expect("offsets type must fit offsets values");
-
-                    vortex_ensure!(
-                        min >= 0,
-                        InvalidArgument: "offsets minimum {min} outside valid range [0, {max}]"
-                    );
-
-                    vortex_ensure!(
-                        max <= P::try_from(elements.len()).unwrap_or_else(|_| vortex_panic!(
-                            "Offsets type {} must be able to fit elements length {}",
-                            <P as NativePType>::PTYPE,
-                            elements.len()
-                        )),
-                        InvalidArgument: "Max offset {max} is beyond the length of the elements array {}",
-                        elements.len()
-                    );
-                }
-            })
-        } else {
-            // TODO(aduffy): fallback to slower validation pathway?
-            vortex_bail!(
-                InvalidArgument: "offsets array with encoding {} must support min_max compute function",
-                offsets.encoding_id()
+        let offsets = offsets.clone().execute::<PrimitiveArray>(&mut ctx)?;
+        match_each_integer_ptype!(offsets.ptype(), |P| {
+            let values = offsets.as_slice::<P>();
+            vortex_ensure!(
+                values.windows(2).all(|pair| pair[0] <= pair[1]),
+                InvalidArgument: "offsets must be sorted"
             );
-        };
+
+            let min = values[0];
+            let max = values[values.len() - 1];
+            vortex_ensure!(
+                min.to_usize().is_some(),
+                InvalidArgument: "offsets minimum {min} outside valid range [0, {max}]"
+            );
+            vortex_ensure!(
+                max.to_usize().is_some_and(|max| max <= elements.len()),
+                InvalidArgument: "Max offset {max} is beyond the length of the elements array {}",
+                elements.len()
+            );
+        });
 
         // If a validity array is present, it must be the same length as the ListArray
         if let Some(validity_len) = validity.maybe_len() {

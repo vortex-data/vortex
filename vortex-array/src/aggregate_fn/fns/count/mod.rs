@@ -36,6 +36,10 @@ impl AggregateFnVTable for Count {
     type Options = NumericalAggregateOpts;
     type Partial = u64;
 
+    fn is_representation_invariant(&self, _options: &Self::Options) -> bool {
+        true
+    }
+
     fn id(&self) -> AggregateFnId {
         static ID: CachedId = CachedId::new("vortex.count");
         *ID
@@ -69,6 +73,14 @@ impl AggregateFnVTable for Count {
             .as_primitive()
             .typed_value::<u64>()
             .vortex_expect("count partial should not be null"))
+    }
+
+    fn partial_from_result(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+        result: Scalar,
+    ) -> VortexResult<Option<Self::Partial>> {
+        self.partial_from_scalar(args, result).map(Some)
     }
 
     fn merge_partials(
@@ -107,7 +119,7 @@ impl AggregateFnVTable for Count {
         let mut count = batch.valid_count(ctx)? as u64;
         // NaN values are excluded from the count of a float input when they are skipped.
         if args.options.skip_nans && args.dtype.is_float() {
-            // `nan_count` shortcircuits on an exact `Stat::NaNCount` before scanning the batch.
+            // `nan_count` uses its exact cached result before scanning the batch.
             count = count.saturating_sub(nan_count(batch, ctx)? as u64);
         }
         *state += count;
@@ -157,9 +169,12 @@ mod tests {
     use crate::aggregate_fn::Accumulator;
     use crate::aggregate_fn::AggregateDTypes;
     use crate::aggregate_fn::AggregateFnVTable;
+    use crate::aggregate_fn::AggregateFnVTableExt;
     use crate::aggregate_fn::DynAccumulator;
+    use crate::aggregate_fn::EmptyOptions;
     use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::fns::count::Count;
+    use crate::aggregate_fn::fns::nan_count::NanCount;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
@@ -167,9 +182,7 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::expr::stats::Precision;
-    use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
-    use crate::scalar::ScalarValue;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
@@ -317,9 +330,10 @@ mod tests {
         // the stat rather than a scan.
         let array =
             PrimitiveArray::new(buffer![1.0f64, 2.0, 3.0, 4.0], Validity::NonNullable).into_array();
-        array
-            .statistics()
-            .set(Stat::NaNCount, Precision::Exact(ScalarValue::from(3u64)));
+        array.aggregations().insert_result(
+            NanCount.bind(EmptyOptions),
+            Precision::Exact(Scalar::from(3u64)),
+        )?;
         let mut ctx = SESSION.create_execution_ctx();
         assert_eq!(count(&array, &mut ctx)?, 1);
         Ok(())

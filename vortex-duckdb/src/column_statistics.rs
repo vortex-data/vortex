@@ -1,12 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex::array::stats::StatsSet;
+use vortex::array::aggregate_fn::AggregateFnVTableExt;
+use vortex::array::aggregate_fn::EmptyOptions;
+use vortex::array::aggregate_fn::NumericalAggregateOpts;
+use vortex::array::aggregate_fn::fns::max::Max;
+use vortex::array::aggregate_fn::fns::min::Min;
+use vortex::array::aggregate_fn::fns::null_count::NullCount;
+use vortex::array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
+use vortex::array::stats::AggregateResults;
 use vortex::dtype::DType;
 use vortex::error::VortexExpect as _;
 use vortex::error::VortexResult;
 use vortex::expr::stats::Precision;
-use vortex::expr::stats::Stat;
 use vortex::scalar::Scalar;
 use vortex::scalar::ScalarValue;
 
@@ -62,27 +68,31 @@ pub struct ColumnStatisticsAggregate {
 }
 
 impl ColumnStatisticsAggregate {
-    pub fn new(stats: &StatsSet) -> Self {
-        let min = match stats.get(Stat::Min) {
-            Precision::Exact(min) => Some(min),
+    pub fn new(stats: &AggregateResults) -> Self {
+        let min = match stats.get_result(&Min.bind(NumericalAggregateOpts::skip_nans())) {
+            Precision::Exact(min) => min.into_value(),
             _ => None,
         };
-        let max = match stats.get(Stat::Max) {
-            Precision::Exact(max) => Some(max),
+        let max = match stats.get_result(&Max.bind(NumericalAggregateOpts::skip_nans())) {
+            Precision::Exact(max) => max.into_value(),
             _ => None,
         };
 
-        let max_string_length =
-            if let Precision::Exact(value) = stats.get(Stat::UncompressedSizeInBytes) {
+        let max_string_length = match stats
+            .get_result(&UncompressedSizeInBytes.bind(EmptyOptions))
+            .as_exact()
+        {
+            Some(value) => {
                 // DuckDB's string length is u32
                 #[allow(clippy::cast_possible_truncation)]
-                Some(value.as_primitive().as_u64().vortex_expect("not a u64") as u32)
-            } else {
-                None
-            };
+                let size = value.as_primitive().as_::<u64>().vortex_expect("not a u64") as u32;
+                Some(size)
+            }
+            None => None,
+        };
 
-        let has_null = match stats.get(Stat::NullCount) {
-            Precision::Exact(cnt) => cnt.as_primitive().as_u64().vortex_expect("not a u64") > 0,
+        let has_null = match stats.get_result(&NullCount.bind(EmptyOptions)) {
+            Precision::Exact(cnt) => cnt.as_primitive().as_::<u64>().vortex_expect("not a u64") > 0,
             _ => true,
         };
 
@@ -92,5 +102,52 @@ impl ColumnStatisticsAggregate {
             max_string_length,
             has_null,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex::array::aggregate_fn::AggregateFnVTableExt;
+    use vortex::array::aggregate_fn::EmptyOptions;
+    use vortex::array::aggregate_fn::NumericalAggregateOpts;
+    use vortex::array::aggregate_fn::fns::max::Max;
+    use vortex::array::aggregate_fn::fns::min::Min;
+    use vortex::array::aggregate_fn::fns::null_count::NullCount;
+    use vortex::array::stats::AggregateResults;
+    use vortex::dtype::DType;
+    use vortex::dtype::Nullability;
+    use vortex::dtype::PType;
+    use vortex::error::VortexResult;
+    use vortex::expr::stats::Precision;
+    use vortex::scalar::Scalar;
+
+    use super::ColumnStatisticsAggregate;
+
+    #[test]
+    fn planning_uses_only_exact_results() -> VortexResult<()> {
+        let results = AggregateResults::try_new(
+            &DType::from(PType::I32),
+            [
+                (
+                    Min.bind(NumericalAggregateOpts::skip_nans()),
+                    Precision::Exact(Scalar::primitive(1i32, Nullability::Nullable)),
+                ),
+                (
+                    Max.bind(NumericalAggregateOpts::skip_nans()),
+                    Precision::Inexact(Scalar::primitive(9i32, Nullability::Nullable)),
+                ),
+                (NullCount.bind(EmptyOptions), Precision::Exact(0u64.into())),
+            ],
+        )?;
+        let stats = ColumnStatisticsAggregate::new(&results);
+        assert_eq!(stats.min, Some(1i32.into()));
+        assert!(stats.max.is_none());
+        assert!(!stats.has_null);
+
+        let missing = ColumnStatisticsAggregate::new(&AggregateResults::default());
+        assert!(missing.has_null);
+        assert!(missing.min.is_none());
+        assert!(missing.max.is_none());
+        Ok(())
     }
 }

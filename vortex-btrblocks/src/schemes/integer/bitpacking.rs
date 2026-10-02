@@ -85,8 +85,10 @@ impl Scheme for BitPackingScheme {
         let primitive_array = primitive_array.into_owned();
         let packed = bitpack_encode(&primitive_array, bw, Some(&histogram), exec_ctx)?;
 
-        let packed_stats = packed.statistics().to_owned();
-        let ptype = packed.dtype().as_ptype();
+        let packed_stats = packed.aggregations().snapshot_results();
+        let packed_dtype = packed.dtype().clone();
+        let packed_len = packed.len();
+        let ptype = packed_dtype.as_ptype();
         let mut parts = BitPacked::into_parts(packed);
 
         let array = if use_experimental_patches() {
@@ -105,9 +107,7 @@ impl Scheme for BitPackingScheme {
 
             match patches {
                 None => array,
-                Some(p) => Patched::from_array_and_patches(array, &p, exec_ctx)?
-                    .with_stats_set(packed_stats)
-                    .into_array(),
+                Some(p) => Patched::from_array_and_patches(array, &p, exec_ctx)?.into_array(),
             }
         } else {
             // Compress patches and place back into BitPackedArray.
@@ -126,9 +126,22 @@ impl Scheme for BitPackingScheme {
                 parts.len,
                 parts.offset,
             )?
-            .with_stats_set(packed_stats)
             .into_array()
         };
+
+        if &packed_dtype == array.dtype() && packed_len == array.len() {
+            for (aggregate, result) in packed_stats.iter() {
+                if aggregate.is_representation_invariant() {
+                    // SAFETY: recompressing and relocating patches preserves values and null
+                    // positions at the same dtype and length.
+                    unsafe {
+                        array
+                            .aggregations()
+                            .seed_result(aggregate.clone(), result.clone())?;
+                    }
+                }
+            }
+        }
 
         Ok(array)
     }

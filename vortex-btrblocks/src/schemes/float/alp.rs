@@ -93,20 +93,18 @@ impl Scheme for ALPScheme {
             exec_ctx,
         )?;
 
-        let alp_stats = alp_encoded.as_array().statistics().to_owned();
+        let alp_stats = alp_encoded.as_array().aggregations().snapshot_results();
         let exponents = alp_encoded.exponents();
 
-        if use_experimental_patches() {
+        let array = if use_experimental_patches() {
             let patches = alp_encoded.patches();
 
             // Create ALP array without interior patches.
             let alp_array = ALP::new(compressed_alp_ints, exponents, None).into_array();
 
             match patches {
-                None => Ok(alp_array),
-                Some(p) => Ok(Patched::from_array_and_patches(alp_array, &p, exec_ctx)?
-                    .with_stats_set(alp_stats)
-                    .into_array()),
+                None => alp_array,
+                Some(p) => Patched::from_array_and_patches(alp_array, &p, exec_ctx)?.into_array(),
             }
         } else {
             let patches = alp_encoded
@@ -114,7 +112,25 @@ impl Scheme for ALPScheme {
                 .map(|p| compress_patches(p, exec_ctx))
                 .transpose()?;
 
-            Ok(ALP::new(compressed_alp_ints, exponents, patches).into_array())
+            ALP::new(compressed_alp_ints, exponents, patches).into_array()
+        };
+
+        if alp_encoded.as_array().dtype() == array.dtype()
+            && alp_encoded.as_array().len() == array.len()
+        {
+            for (aggregate, result) in alp_stats.iter() {
+                if aggregate.is_representation_invariant() {
+                    // SAFETY: recompressing ALP integers and patches preserves values and null
+                    // positions at the same dtype and length.
+                    unsafe {
+                        array
+                            .aggregations()
+                            .seed_result(aggregate.clone(), result.clone())?;
+                    }
+                }
+            }
         }
+
+        Ok(array)
     }
 }

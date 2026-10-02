@@ -8,7 +8,6 @@ use std::hash::Hasher;
 
 use num_traits::AsPrimitive;
 use prost::Message;
-use smallvec::smallvec;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -19,6 +18,9 @@ use vortex_array::ArrayView;
 use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
+use vortex_array::aggregate_fn::AggregateFn;
+use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
+use vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
@@ -26,7 +28,6 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::Nullability::NonNullable;
 use vortex_array::dtype::PType;
 use vortex_array::expr::stats::Precision as StatPrecision;
-use vortex_array::expr::stats::Stat;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_pvalue;
 use vortex_array::proto::scalar::ScalarValue as ProtoScalarValue;
@@ -34,7 +35,6 @@ use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::stats::StatsSet;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
@@ -449,26 +449,31 @@ impl ValidityVTable<Sequence> for Sequence {
 pub struct Sequence;
 
 impl Sequence {
-    fn stats(multiplier: PValue) -> StatsSet {
+    fn seed_sortedness(array: SequenceArray, multiplier: PValue) -> VortexResult<SequenceArray> {
         // A sequence A[i] = base + i * multiplier is sorted iff multiplier >= 0,
-        // and strictly sorted iff multiplier > 0.
-        let (is_sorted, is_strict_sorted) = match_each_pvalue!(
-            multiplier,
-            uint: |v| { (true, v > 0) },
-            int: |v| { (v >= 0, v > 0) },
-            float: |_v| { unreachable!("float multiplier not supported") }
-        );
+        // and strictly sorted iff multiplier > 0. Empty and singleton inputs satisfy both.
+        let (is_sorted, is_strict_sorted) = if array.len() <= 1 {
+            (true, true)
+        } else {
+            match_each_pvalue!(
+                multiplier,
+                uint: |v| { (true, v > 0) },
+                int: |v| { (v >= 0, v > 0) },
+                float: |_v| { unreachable!("float multiplier not supported") }
+            )
+        };
 
-        // SAFETY: we don't have duplicate stats.
-        unsafe {
-            StatsSet::new_unchecked(smallvec![
-                (Stat::IsSorted, StatPrecision::Exact(is_sorted.into())),
-                (
-                    Stat::IsStrictSorted,
-                    StatPrecision::Exact(is_strict_sorted.into()),
-                ),
-            ])
+        for (strict, result) in [(false, is_sorted), (true, is_strict_sorted)] {
+            // SAFETY: validated sequence arithmetic preserves the multiplier's order without overflow.
+            unsafe {
+                array.aggregations().seed_result(
+                    AggregateFn::new(IsSorted, IsSortedOptions { strict }).erased(),
+                    StatPrecision::Exact(result.into()),
+                )?;
+            }
         }
+
+        Ok(array)
     }
 
     /// Construct a new [`SequenceArray`] from pre-validated parts.
@@ -488,10 +493,11 @@ impl Sequence {
         let dtype = DType::Primitive(ptype, nullability);
         let (base, multiplier) = SequenceData::normalize(base, multiplier, ptype)
             .vortex_expect("SequenceArray parts must be representable in the output ptype");
-        let stats = Self::stats(multiplier);
         let data = unsafe { SequenceData::new_unchecked(base, multiplier) };
-        unsafe { Array::from_parts_unchecked(ArrayParts::new(Sequence, dtype, length, data)) }
-            .with_stats_set(stats)
+        let array =
+            unsafe { Array::from_parts_unchecked(ArrayParts::new(Sequence, dtype, length, data)) };
+        Self::seed_sortedness(array, multiplier)
+            .vortex_expect("sequence sortedness results have boolean dtype")
     }
 
     /// Construct a new [`SequenceArray`] from its components.
@@ -504,11 +510,10 @@ impl Sequence {
     ) -> VortexResult<SequenceArray> {
         let dtype = DType::Primitive(ptype, nullability);
         let data = SequenceData::try_new(base, multiplier, ptype, nullability, length)?;
-        let stats = Self::stats(data.multiplier());
-        Ok(
-            unsafe { Array::from_parts_unchecked(ArrayParts::new(Sequence, dtype, length, data)) }
-                .with_stats_set(stats),
-        )
+        let multiplier = data.multiplier();
+        let array =
+            unsafe { Array::from_parts_unchecked(ArrayParts::new(Sequence, dtype, length, data)) };
+        Self::seed_sortedness(array, multiplier)
     }
 
     /// Construct a new typed [`SequenceArray`] from base/multiplier values.
@@ -521,11 +526,10 @@ impl Sequence {
         let ptype = T::PTYPE;
         let dtype = DType::Primitive(ptype, nullability);
         let data = SequenceData::try_new_typed(base, multiplier, nullability, length)?;
-        let stats = Self::stats(data.multiplier());
-        Ok(
-            unsafe { Array::from_parts_unchecked(ArrayParts::new(Sequence, dtype, length, data)) }
-                .with_stats_set(stats),
-        )
+        let multiplier = data.multiplier();
+        let array =
+            unsafe { Array::from_parts_unchecked(ArrayParts::new(Sequence, dtype, length, data)) };
+        Self::seed_sortedness(array, multiplier)
     }
 }
 
@@ -539,14 +543,15 @@ mod tests {
     use vortex_array::EqMode;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::AggregateFn;
+    use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
+    use vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::expr::stats::Precision as StatPrecision;
-    use vortex_array::expr::stats::Stat;
-    use vortex_array::expr::stats::StatsProviderExt;
     use vortex_array::scalar::PValue;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar::ScalarValue;
@@ -565,6 +570,24 @@ mod tests {
         crate::initialize(&session);
         session
     });
+
+    #[rstest]
+    #[case::singleton_decreasing(1, -1)]
+    #[case::singleton_constant(1, 0)]
+    fn short_sequences_seed_sortedness(
+        #[case] len: usize,
+        #[case] multiplier: i64,
+    ) -> VortexResult<()> {
+        let array = Sequence::try_new_typed(0i64, multiplier, Nullability::NonNullable, len)?;
+        for strict in [false, true] {
+            let aggregate = AggregateFn::new(IsSorted, IsSortedOptions { strict }).erased();
+            assert_eq!(
+                array.aggregations().get_result_as::<bool>(&aggregate)?,
+                StatPrecision::Exact(true)
+            );
+        }
+        Ok(())
+    }
 
     #[test]
     fn test_sequence_canonical() {
@@ -616,14 +639,14 @@ mod tests {
     fn positive_multiplier_is_strict_sorted() -> VortexResult<()> {
         let arr = Sequence::try_new_typed(0i64, 3, Nullability::NonNullable, 4)?;
 
-        let is_sorted = arr
-            .statistics()
-            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsSorted));
+        let is_sorted = arr.aggregations().get_result_as::<bool>(
+            &AggregateFn::new(IsSorted, IsSortedOptions { strict: false }).erased(),
+        )?;
         assert_eq!(is_sorted, StatPrecision::Exact(true));
 
-        let is_strict_sorted = arr
-            .statistics()
-            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsStrictSorted));
+        let is_strict_sorted = arr.aggregations().get_result_as::<bool>(
+            &AggregateFn::new(IsSorted, IsSortedOptions { strict: true }).erased(),
+        )?;
         assert_eq!(is_strict_sorted, StatPrecision::Exact(true));
         Ok(())
     }
@@ -632,14 +655,14 @@ mod tests {
     fn zero_multiplier_is_sorted_not_strict() -> VortexResult<()> {
         let arr = Sequence::try_new_typed(5i64, 0, Nullability::NonNullable, 4)?;
 
-        let is_sorted = arr
-            .statistics()
-            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsSorted));
+        let is_sorted = arr.aggregations().get_result_as::<bool>(
+            &AggregateFn::new(IsSorted, IsSortedOptions { strict: false }).erased(),
+        )?;
         assert_eq!(is_sorted, StatPrecision::Exact(true));
 
-        let is_strict_sorted = arr
-            .statistics()
-            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsStrictSorted));
+        let is_strict_sorted = arr.aggregations().get_result_as::<bool>(
+            &AggregateFn::new(IsSorted, IsSortedOptions { strict: true }).erased(),
+        )?;
         assert_eq!(is_strict_sorted, StatPrecision::Exact(false));
         Ok(())
     }
@@ -648,14 +671,14 @@ mod tests {
     fn negative_multiplier_not_sorted() -> VortexResult<()> {
         let arr = Sequence::try_new_typed(10i64, -1, Nullability::NonNullable, 4)?;
 
-        let is_sorted = arr
-            .statistics()
-            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsSorted));
+        let is_sorted = arr.aggregations().get_result_as::<bool>(
+            &AggregateFn::new(IsSorted, IsSortedOptions { strict: false }).erased(),
+        )?;
         assert_eq!(is_sorted, StatPrecision::Exact(false));
 
-        let is_strict_sorted = arr
-            .statistics()
-            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsStrictSorted));
+        let is_strict_sorted = arr.aggregations().get_result_as::<bool>(
+            &AggregateFn::new(IsSorted, IsSortedOptions { strict: true }).erased(),
+        )?;
         assert_eq!(is_strict_sorted, StatPrecision::Exact(false));
         Ok(())
     }
@@ -667,13 +690,13 @@ mod tests {
         let large_multiplier = (i64::MAX as u64) + 1;
         let arr = Sequence::try_new_typed(0, large_multiplier, Nullability::NonNullable, 2)?;
 
-        let is_sorted = arr
-            .statistics()
-            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsSorted));
+        let is_sorted = arr.aggregations().get_result_as::<bool>(
+            &AggregateFn::new(IsSorted, IsSortedOptions { strict: false }).erased(),
+        )?;
 
-        let is_strict_sorted = arr
-            .statistics()
-            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsStrictSorted));
+        let is_strict_sorted = arr.aggregations().get_result_as::<bool>(
+            &AggregateFn::new(IsSorted, IsSortedOptions { strict: true }).erased(),
+        )?;
 
         assert_eq!(is_sorted, StatPrecision::Exact(true));
         assert_eq!(is_strict_sorted, StatPrecision::Exact(true));
