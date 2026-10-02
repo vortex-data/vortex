@@ -120,3 +120,11 @@ def variant_get(child: IntoExpr, path: VariantPath, dtype: DType | None = None) 
 
 # Serialization
 def deserialize(data: bytes) -> Expr: ...
+
+def replace_time_zone(
+    child: IntoExpr,
+    time_zone: str | None,
+    *,
+    ambiguous: IntoExpr = "raise",
+    non_existent: Literal["raise", "null"] = "raise",
+) -> Expr: ...

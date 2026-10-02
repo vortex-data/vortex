@@ -217,3 +217,11 @@ pub struct CaseWhenOpts {
     #[prost(uint32, tag = "1")]
     pub num_children: u32,
 }
+/// Options for `vortex.replace_time_zone`. Ambiguity policy is an expression child.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ReplaceTimeZoneOpts {
+    #[prost(string, optional, tag = "1")]
+    pub time_zone: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(bool, tag = "2")]
+    pub null_on_non_existent: bool,
+}

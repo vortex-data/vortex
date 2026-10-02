@@ -104,6 +104,7 @@ pub use exprs::not_like;
 pub use exprs::or;
 pub use exprs::or_collect;
 pub use exprs::pack;
+pub use exprs::replace_time_zone;
 pub use exprs::root;
 pub use exprs::select;
 pub use exprs::select_exclude;
