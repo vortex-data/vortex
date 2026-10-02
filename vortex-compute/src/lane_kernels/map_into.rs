@@ -253,20 +253,46 @@ pub trait IndexedSourceExt: IndexedSource + Sized {
             )
         };
 
+        #[allow(clippy::inline_always)]
+        #[inline(always)]
+        fn chunk<S, R, Fail, Apply>(
+            values: &S,
+            out: &mut [MaybeUninit<R>],
+            apply: &Apply,
+            base: usize,
+            count: usize,
+        ) -> Fail
+        where
+            S: IndexedSource,
+            Fail: Copy + Default + BitOrAssign,
+            Apply: Fn(S::Item) -> (R, Fail),
+        {
+            let mut failed = Fail::default();
+            for offset in 0..count {
+                let idx = base + offset;
+                // SAFETY: the caller proves base + count <= values.len() == out.len().
+                let value = unsafe { values.get_unchecked(idx) };
+                let (result, failure) = apply(value);
+                failed |= failure;
+                // SAFETY: the same chunk bounds prove idx < out.len().
+                unsafe { out.get_unchecked_mut(idx).write(result) };
+            }
+            failed
+        }
+
         let values = self;
         let len = values.len();
         assert_eq!(out.len(), len, "out must have the same length as values");
 
+        // Fixed trip counts let LLVM unroll checked loops independently of the surrounding code.
+        let chunks_count = len / CHUNK_LEN;
+        let remainder = len % CHUNK_LEN;
         let mut failed = Fail::default();
-        for idx in 0..len {
-            // SAFETY: idx < len by the loop bound, and out.len() == len.
-            let val = unsafe { values.get_unchecked(idx) };
-
-            let (result, failure) = apply(val);
-            failed |= failure;
-
-            // SAFETY: idx < len == out.len().
-            unsafe { out.get_unchecked_mut(idx).write(result) };
+        for chunk_idx in 0..chunks_count {
+            failed |= chunk(&values, out, &apply, chunk_idx * CHUNK_LEN, CHUNK_LEN);
+        }
+        if remainder != 0 {
+            failed |= chunk(&values, out, &apply, chunks_count * CHUNK_LEN, remainder);
         }
         failed
     }
@@ -619,6 +645,25 @@ mod tests {
         assert!(failed);
         // Failing lanes still write their (wrapped) value.
         assert_eq!(write_t(out)[76], 76);
+    }
+
+    #[test]
+    fn map_checked_into_chunk_boundaries() {
+        for len in [0usize, 1, 63, 64, 65, 127, 128, 129] {
+            let values: Vec<u32> = (0..len as u32).collect();
+            let mut out = vec![MaybeUninit::<u32>::uninit(); len];
+            let failed = values.as_slice().map_checked_into(&mut out, |value| {
+                let failure = if value % 64 == 0 {
+                    1u32 << (value / 64)
+                } else {
+                    0
+                };
+                (value + 1, failure)
+            });
+
+            assert_eq!(failed, (1u32 << len.div_ceil(64)) - 1, "length {len}");
+            assert_eq!(write_t(out), (1..=len as u32).collect::<Vec<_>>());
+        }
     }
 
     #[test]
