@@ -175,6 +175,19 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
         None
     }
 
+    /// Recover a mergeable partial from a finalized result when no merge information was lost.
+    ///
+    /// The recovered state must behave like the state that produced `result`, including ordered
+    /// merges and saturation. Return `None` when finalization loses information needed for merging.
+    /// Equal result and state dtypes alone do not establish this contract. The default declines.
+    fn partial_from_result(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        _result: Scalar,
+    ) -> VortexResult<Option<Self::Partial>> {
+        Ok(None)
+    }
+
     /// DType of the intermediate partial accumulator state.
     ///
     /// Use a struct dtype when multiple fields are needed

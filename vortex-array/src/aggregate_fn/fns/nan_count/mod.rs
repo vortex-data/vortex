@@ -134,6 +134,14 @@ impl AggregateFnVTable for NanCount {
             .vortex_expect("nan_count partial should not be null"))
     }
 
+    fn partial_from_result(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+        result: Scalar,
+    ) -> VortexResult<Option<Self::Partial>> {
+        self.partial_from_scalar(args, result).map(Some)
+    }
+
     fn merge_partials(
         &self,
         _args: AggregateArgs<'_, Self::Options>,

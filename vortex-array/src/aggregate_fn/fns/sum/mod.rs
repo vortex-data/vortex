@@ -169,6 +169,14 @@ impl AggregateFnVTable for Sum {
         Ok(SumPartial { current })
     }
 
+    fn partial_from_result(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+        result: Scalar,
+    ) -> VortexResult<Option<Self::Partial>> {
+        self.partial_from_scalar(args, result).map(Some)
+    }
+
     fn merge_partials(
         &self,
         args: AggregateArgs<'_, Self::Options>,
