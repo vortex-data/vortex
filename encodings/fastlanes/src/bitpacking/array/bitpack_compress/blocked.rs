@@ -25,9 +25,9 @@ use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
 use super::ensure_non_negative_integers;
+use super::bitpack_blocks;
 use super::find_best_bit_width;
-use super::global::bitpack_blocks;
-use super::global::gather_patches_with;
+use super::gather_patches_with;
 use crate::BitPacked;
 use crate::BitPackedArray;
 use crate::FL_CHUNK_SIZE;
