@@ -6,6 +6,8 @@
 //! The existing [`DecimalType`] enum names the six native signed storage widths. These helpers map
 //! those widths to integer dtypes, including the built-in wide integer extensions.
 
+use std::sync::LazyLock;
+
 use super::DType;
 use super::DecimalType;
 use super::Nullability;
@@ -13,22 +15,31 @@ use super::PType;
 use crate::extension::integer::IntegerWidth;
 use crate::extension::integer::WideInteger;
 
+// Wide integer dtypes have only two widths and two nullabilities. Sharing them avoids allocating
+// extension metadata and its byte-storage dtype each time a decimal result is constructed.
+static WIDE_INTEGER_DTYPES: LazyLock<[[DType; 2]; 2]> = LazyLock::new(|| {
+    [IntegerWidth::I128, IntegerWidth::I256].map(|width| {
+        [Nullability::NonNullable, Nullability::Nullable]
+            .map(|nullability| DType::Extension(WideInteger::new(width, nullability).erased()))
+    })
+});
+
 /// Returns the signed integer dtype with the requested native width.
 pub fn integer_dtype(values_type: DecimalType, nullability: Nullability) -> DType {
-    let ptype = match values_type {
-        DecimalType::I8 => PType::I8,
-        DecimalType::I16 => PType::I16,
-        DecimalType::I32 => PType::I32,
-        DecimalType::I64 => PType::I64,
-        DecimalType::I128 => {
-            return DType::Extension(WideInteger::new(IntegerWidth::I128, nullability).erased());
-        }
-        DecimalType::I256 => {
-            return DType::Extension(WideInteger::new(IntegerWidth::I256, nullability).erased());
-        }
+    let width_index = match values_type {
+        DecimalType::I8 => return DType::Primitive(PType::I8, nullability),
+        DecimalType::I16 => return DType::Primitive(PType::I16, nullability),
+        DecimalType::I32 => return DType::Primitive(PType::I32, nullability),
+        DecimalType::I64 => return DType::Primitive(PType::I64, nullability),
+        DecimalType::I128 => 0,
+        DecimalType::I256 => 1,
+    };
+    let nullability_index = match nullability {
+        Nullability::NonNullable => 0,
+        Nullability::Nullable => 1,
     };
 
-    DType::Primitive(ptype, nullability)
+    WIDE_INTEGER_DTYPES[width_index][nullability_index].clone()
 }
 
 /// Returns the native signed width for a primitive or built-in wide integer dtype.
