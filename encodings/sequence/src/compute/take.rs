@@ -14,7 +14,9 @@ use vortex_array::dtype::Nullability;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
-use vortex_buffer::Buffer;
+use vortex_buffer::BufferAllocatorRef;
+use vortex_buffer::BufferMut;
+use vortex_compute::lane_kernels::IndexedSourceExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
@@ -24,6 +26,8 @@ use crate::Sequence;
 use crate::eval;
 use crate::eval::SequenceValue;
 
+/// Evaluates the sequence at every index. Out-of-bounds indices are reported through the lane
+/// kernel so the hot loop stays branch-free, and null indices are exempt from the bounds check.
 fn take_inner<T: IntegerPType, O: SequenceValue>(
     base: O,
     multiplier: O,
@@ -31,39 +35,40 @@ fn take_inner<T: IntegerPType, O: SequenceValue>(
     indices_mask: Mask,
     result_nullability: Nullability,
     len: usize,
+    allocator: BufferAllocatorRef,
 ) -> ArrayRef {
-    match indices_mask.bit_buffer() {
-        AllOr::All => PrimitiveArray::new(
-            Buffer::from_trusted_len_iter(indices.iter().map(|i| {
-                if i.as_() >= len {
-                    vortex_panic!(OutOfBounds: i.as_(), 0, len);
-                }
-                eval::wrapping_value(base, multiplier, i.as_())
-            })),
-            Validity::from(result_nullability),
-        )
-        .into_array(),
-        AllOr::None => ConstantArray::new(
-            Scalar::null(DType::Primitive(O::PTYPE, Nullability::Nullable)),
-            indices.len(),
-        )
-        .into_array(),
-        AllOr::Some(b) => {
-            let buffer =
-                Buffer::from_trusted_len_iter(indices.iter().enumerate().map(|(mask_index, i)| {
-                    if b.value(mask_index) {
-                        if i.as_() >= len {
-                            vortex_panic!(OutOfBounds: i.as_(), 0, len);
-                        }
+    let value_at = |index: T| {
+        let index: usize = index.as_();
+        (index < len).then(|| eval::wrapping_value(base, multiplier, index))
+    };
 
-                        eval::wrapping_value(base, multiplier, i.as_())
-                    } else {
-                        O::zero()
-                    }
-                }));
-            PrimitiveArray::new(buffer, Validity::from(b.clone())).into_array()
+    let mut buffer = BufferMut::<O>::with_capacity_in(indices.len(), allocator);
+    let out = &mut buffer.spare_capacity_mut()[..indices.len()];
+    let validity = match indices_mask.bit_buffer() {
+        AllOr::All => {
+            if let Err(position) = indices.try_map_into(out, value_at) {
+                vortex_panic!(OutOfBounds: indices[position].as_(), 0, len);
+            }
+            Validity::from(result_nullability)
         }
-    }
+        AllOr::None => {
+            return ConstantArray::new(
+                Scalar::null(DType::Primitive(O::PTYPE, Nullability::Nullable)),
+                indices.len(),
+            )
+            .into_array();
+        }
+        AllOr::Some(bits) => {
+            if let Err(position) = indices.try_map_masked_into(bits, out, value_at) {
+                vortex_panic!(OutOfBounds: indices[position].as_(), 0, len);
+            }
+            Validity::from(bits.clone())
+        }
+    };
+    // SAFETY: the lane kernel wrote every lane before returning `Ok`.
+    unsafe { buffer.set_len(indices.len()) };
+
+    PrimitiveArray::new(buffer.freeze(), validity).into_array()
 }
 
 fn take_with_typed_indices<T: IntegerPType>(
@@ -71,6 +76,7 @@ fn take_with_typed_indices<T: IntegerPType>(
     indices: &[T],
     indices_mask: Mask,
     result_nullability: Nullability,
+    allocator: BufferAllocatorRef,
 ) -> VortexResult<ArrayRef> {
     match_each_integer_ptype!(array.dtype().as_ptype(), |O| {
         let (base, multiplier) = array.wrapping_parts::<O>()?;
@@ -81,6 +87,7 @@ fn take_with_typed_indices<T: IntegerPType>(
             indices_mask,
             result_nullability,
             array.len(),
+            allocator,
         ))
     })
 }
@@ -90,6 +97,7 @@ fn take_sequence(
     indices: &PrimitiveArray,
     indices_mask: Mask,
     result_nullability: Nullability,
+    allocator: BufferAllocatorRef,
 ) -> VortexResult<ArrayRef> {
     match_each_integer_ptype!(indices.ptype(), |T| {
         take_with_typed_indices::<T>(
@@ -97,6 +105,7 @@ fn take_sequence(
             indices.as_slice::<T>(),
             indices_mask,
             result_nullability,
+            allocator,
         )
     })
 }
@@ -111,7 +120,14 @@ impl TakeExecute for Sequence {
         let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
         let result_nullability = array.dtype().nullability() | indices.dtype().nullability();
 
-        take_sequence(array, &indices, mask, result_nullability).map(Some)
+        take_sequence(
+            array,
+            &indices,
+            mask,
+            result_nullability,
+            ctx.allocator().clone(),
+        )
+        .map(Some)
     }
 }
 
