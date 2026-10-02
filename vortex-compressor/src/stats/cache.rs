@@ -67,6 +67,19 @@ impl StatsCache {
             new_arc
         }
     }
+
+    /// Returns a cached value when one exists.
+    fn get<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
+        let type_id = TypeId::of::<T>();
+        let guard = self.entries.lock();
+        let position = guard.iter().position(|(id, _)| *id == type_id)?;
+        Some(
+            Arc::clone(&guard[position].1)
+                .downcast::<T>()
+                .ok()
+                .vortex_expect("we just checked the TypeID"),
+        )
+    }
 }
 
 /// An array bundled with its lazily-computed statistics cache.
@@ -206,5 +219,10 @@ impl ArrayAndStats {
     /// For extension schemes with custom stats types.
     pub fn get_or_insert_with<T: Send + Sync + 'static>(&self, f: impl FnOnce() -> T) -> Arc<T> {
         self.cache.get_or_insert_with::<T>(f)
+    }
+
+    /// Returns a custom cached value when one exists.
+    pub(crate) fn get<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
+        self.cache.get::<T>()
     }
 }
