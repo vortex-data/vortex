@@ -30,9 +30,8 @@ use vortex_error::vortex_ensure;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
-use super::best_bit_width;
-use super::bytes_per_exception;
 use super::ensure_non_negative_integers;
+use super::find_best_bit_width;
 use crate::BitPacked;
 use crate::BitPackedArray;
 use crate::FL_CHUNK_SIZE;
@@ -258,8 +257,6 @@ fn block_bit_widths<T: NativePType + PrimInt>(
     values: &[T],
     validity_mask: &Mask,
 ) -> VortexResult<(Vec<u8>, usize)> {
-    let bytes_per_exception = bytes_per_exception(T::PTYPE);
-
     let mut histogram = vec![0usize; size_of::<T>() * 8 + 1];
     let mut widths = Vec::with_capacity(values.len().div_ceil(FL_CHUNK_SIZE));
     let mut num_exceptions = 0;
@@ -272,7 +269,7 @@ fn block_bit_widths<T: NativePType + PrimInt>(
         let block_validity = validity_mask.slice(start..start + block.len());
         add_bit_widths(&mut histogram, block, block_validity.bit_buffer());
 
-        let width = best_bit_width(&histogram, bytes_per_exception)?;
+        let width = find_best_bit_width(T::PTYPE, &histogram)?;
         num_exceptions += bitpack_decompress::count_exceptions(width, &histogram);
         widths.push(width);
     }
