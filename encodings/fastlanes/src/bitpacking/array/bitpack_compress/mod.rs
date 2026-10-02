@@ -91,28 +91,28 @@ fn pack_blocks<T: NativePType + BitPacking>(
     let block_len = |block: usize| 128 * usize::from(block_width(block)) / size_of::<T>();
     let num_blocks = array.len().div_ceil(FL_CHUNK_SIZE);
     let mut output = BufferMut::<T>::with_capacity((0..num_blocks).map(block_len).sum());
-    // The last block is padded with zeros to a full 1024 values.
-    let mut padded = [T::zero(); FL_CHUNK_SIZE];
-
-    for (block_idx, block) in array.chunks(FL_CHUNK_SIZE).enumerate() {
-        let input: &[T] = if block.len() == FL_CHUNK_SIZE {
-            block
-        } else {
-            padded[..block.len()].copy_from_slice(block);
-            &padded
-        };
-        let len = block_len(block_idx);
+    let mut pack_block = |block_idx: usize, input: &[T]| {
+        let width = usize::from(block_width(block_idx));
+        let len = 128 * width / size_of::<T>();
         let output_len = output.len();
         // SAFETY: `input` holds 1024 values and the output window is exactly one block packed at
         // its width, within the capacity reserved above.
         unsafe {
             output.set_len(output_len + len);
-            BitPacking::unchecked_pack(
-                usize::from(block_width(block_idx)),
-                input,
-                &mut output[output_len..][..len],
-            );
+            BitPacking::unchecked_pack(width, input, &mut output[output_len..][..len]);
         }
+    };
+
+    let mut blocks = array.chunks_exact(FL_CHUNK_SIZE);
+    for (block_idx, block) in blocks.by_ref().enumerate() {
+        pack_block(block_idx, block);
+    }
+    // Only a partial last block is zero-padded, so that the zeroing stays off the common path.
+    let remainder = blocks.remainder();
+    if !remainder.is_empty() {
+        let mut padded = [T::zero(); FL_CHUNK_SIZE];
+        padded[..remainder.len()].copy_from_slice(remainder);
+        pack_block(num_blocks - 1, &padded);
     }
 
     output.freeze()
