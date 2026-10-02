@@ -149,6 +149,11 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
         if "Boolean" in fn:
             fn = fn["Boolean"]
 
+            if "IsBetween" in fn:
+                closed = fn["IsBetween"]["closed"]
+                lower = operator.ge if closed in ("Both", "Left") else operator.gt
+                upper = operator.le if closed in ("Both", "Right") else operator.lt
+                return lower(_inputs[0], _inputs[1]) & upper(_inputs[0], _inputs[2])
             if "IsIn" in fn:
                 fn = fn["IsIn"]
                 if fn["nulls_equal"]:
