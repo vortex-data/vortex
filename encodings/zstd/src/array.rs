@@ -57,6 +57,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
@@ -384,12 +385,11 @@ fn append_to_varbinview(
     builder.append_views_built_at(&mask, |next_buffer_index| {
         let (buffers, valid_views) =
             try_reconstruct_views(&value_bytes, next_buffer_index, MAX_BUFFER_LEN)?;
-        vortex_ensure!(
-            valid_views.len() == mask.true_count(),
-            "Corrupt zstd metadata: the decompressed frames hold {} values for the {} valid rows \
-             of the slice",
+        vortex_ensure_eq!(
             valid_views.len(),
-            mask.true_count()
+            mask.true_count(),
+            "Corrupt zstd metadata: the decompressed frames must hold one value per valid row of \
+             the slice"
         );
 
         let views = match mask.bit_buffer() {
@@ -961,39 +961,23 @@ impl ZstdData {
             self.slice_stop,
             self.unsliced_n_rows
         );
-        vortex_ensure!(
-            self.slice_stop - self.slice_start == len,
-            "Slice length {} does not match array length {}",
-            self.slice_stop - self.slice_start,
-            len
-        );
+        vortex_ensure_eq!(self.slice_stop - self.slice_start, len);
         if let Some(validity_len) = validity.maybe_len() {
-            vortex_ensure!(
-                validity_len == self.unsliced_n_rows,
-                "Validity length {} does not match unsliced row count {}",
-                validity_len,
-                self.unsliced_n_rows
-            );
+            vortex_ensure_eq!(validity_len, self.unsliced_n_rows);
         }
 
         match &self.dictionary {
-            Some(dictionary) => vortex_ensure!(
-                usize::try_from(self.metadata.dictionary_size)? == dictionary.len(),
-                "Dictionary size metadata {} does not match buffer size {}",
-                self.metadata.dictionary_size,
+            Some(dictionary) => vortex_ensure_eq!(
+                usize::try_from(self.metadata.dictionary_size)?,
                 dictionary.len()
             ),
-            None => vortex_ensure!(
-                self.metadata.dictionary_size == 0,
+            None => vortex_ensure_eq!(
+                self.metadata.dictionary_size,
+                0,
                 "Dictionary metadata present without dictionary buffer"
             ),
         }
-        vortex_ensure!(
-            self.frames.len() == self.metadata.frames.len(),
-            "Frame count {} does not match metadata frame count {}",
-            self.frames.len(),
-            self.metadata.frames.len()
-        );
+        vortex_ensure_eq!(self.frames.len(), self.metadata.frames.len());
         for (index, (frame, metadata)) in self.frames.iter().zip(&self.metadata.frames).enumerate()
         {
             validate_frame_content_size(frame.as_slice(), metadata.uncompressed_size, index)?;
@@ -1359,8 +1343,9 @@ impl ZstdData {
                 // The same fallback would read a byte count as a value count for variable-width
                 // values, which misattributes values to frames. A single frame holds every stored
                 // value, so that case is still recoverable; anything else is not.
-                vortex_ensure!(
-                    self.frames.len() == 1,
+                vortex_ensure_eq!(
+                    self.frames.len(),
+                    1,
                     "Zstd frame metadata for a variable-width array is missing its value count"
                 );
                 unsliced_mask.true_count()

@@ -13,6 +13,7 @@ use lending_iterator::prelude::LendingIterator;
 use vortex_array::dtype::PhysicalPType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 
 use crate::BitPackedData;
 use crate::FL_CHUNK_SIZE;
@@ -348,11 +349,7 @@ fn validate_packed<T: PhysicalPType>(
     );
     let elems_per_chunk = 128 * bit_width / size_of::<T>();
     let num_chunks = (offset + len).div_ceil(CHUNK_SIZE);
-    vortex_ensure!(
-        packed_len == num_chunks * elems_per_chunk,
-        "Invalid packed length: got {packed_len}, expected {}",
-        num_chunks * elems_per_chunk
-    );
+    vortex_ensure_eq!(packed_len, num_chunks * elems_per_chunk);
     Ok((num_chunks, (offset + len) % CHUNK_SIZE))
 }
 

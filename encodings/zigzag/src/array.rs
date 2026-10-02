@@ -33,7 +33,7 @@ use vortex_array::vtable::ValidityVTableFromChild;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
@@ -67,15 +67,8 @@ impl VTable for ZigZag {
     ) -> VortexResult<()> {
         let encoded = ZigZagSlotsView::from_slots(slots).encoded;
         let expected_dtype = ZigZagData::dtype_from_encoded_dtype(encoded.dtype())?;
-        vortex_ensure!(
-            dtype == &expected_dtype,
-            "expected dtype {expected_dtype}, got {dtype}"
-        );
-        vortex_ensure!(
-            encoded.len() == len,
-            "expected len {len}, got {}",
-            encoded.len()
-        );
+        vortex_ensure_eq!(dtype, &expected_dtype);
+        vortex_ensure_eq!(encoded.len(), len);
         Ok(())
     }
 

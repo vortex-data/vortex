@@ -15,6 +15,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 
 use super::decimal_byte_parts_v2_id;
@@ -73,12 +74,7 @@ pub(super) fn deserialize(parts: ArrayDeserialization<'_>) -> VortexResult<Decim
         lower_part_count <= MAX_LOWER_PARTS,
         "v2 carries at most {MAX_LOWER_PARTS} lower parts, got {lower_part_count}"
     );
-    vortex_ensure!(
-        parts.children.len() == 1 + lower_part_count,
-        "expected {} children, got {}",
-        1 + lower_part_count,
-        parts.children.len()
-    );
+    vortex_ensure_eq!(parts.children.len(), 1 + lower_part_count);
 
     let msp_ptype = PType::try_from(metadata.msp_ptype)?;
     vortex_ensure!(

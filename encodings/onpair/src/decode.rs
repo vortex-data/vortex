@@ -15,6 +15,7 @@ use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 
 use crate::OnPair;
@@ -83,11 +84,10 @@ pub(crate) fn collect_codes_window(
 ) -> VortexResult<CodesWindow> {
     let len = array.len();
     let offsets = collect_widened::<u64>(array.codes_offsets(), ctx)?;
-    vortex_ensure!(
-        offsets.len() == len + 1,
-        "OnPair codes_offsets has {} entries, expected len + 1 = {}",
+    vortex_ensure_eq!(
         offsets.len(),
-        len + 1
+        len + 1,
+        "OnPair codes_offsets must have len + 1 entries"
     );
     vortex_ensure!(
         offsets.is_sorted(),
