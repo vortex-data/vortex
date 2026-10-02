@@ -1,0 +1,169 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TTTIIRRRR
+WITH v1 AS
+  (SELECT i_category,
+          i_brand,
+          cc_name,
+          d_year,
+          d_moy,
+          sum(cs_sales_price) sum_sales,
+          avg(sum(cs_sales_price)) OVER (PARTITION BY i_category,
+                                                      i_brand,
+                                                      cc_name,
+                                                      d_year) avg_monthly_sales,
+                                        rank() OVER (PARTITION BY i_category,
+                                                                  i_brand,
+                                                                  cc_name
+                                                     ORDER BY d_year,
+                                                              d_moy) rn
+   FROM item,
+        catalog_sales,
+        date_dim,
+        call_center
+   WHERE cs_item_sk = i_item_sk
+     AND cs_sold_date_sk = d_date_sk
+     AND cc_call_center_sk= cs_call_center_sk
+     AND (d_year = 1999
+          OR (d_year = 1999-1
+              AND d_moy =12)
+          OR (d_year = 1999+1
+              AND d_moy =1))
+   GROUP BY i_category,
+            i_brand,
+            cc_name,
+            d_year,
+            d_moy),
+     v2 AS
+  (SELECT v1.i_category,
+          v1.i_brand,
+          v1.cc_name,
+          v1.d_year,
+          v1.d_moy,
+          v1.avg_monthly_sales,
+          v1.sum_sales,
+          v1_lag.sum_sales psum,
+          v1_lead.sum_sales nsum
+   FROM v1,
+        v1 v1_lag,
+        v1 v1_lead
+   WHERE v1.i_category = v1_lag.i_category
+     AND v1.i_category = v1_lead.i_category
+     AND v1.i_brand = v1_lag.i_brand
+     AND v1.i_brand = v1_lead.i_brand
+     AND v1. cc_name = v1_lag. cc_name
+     AND v1. cc_name = v1_lead. cc_name
+     AND v1.rn = v1_lag.rn + 1
+     AND v1.rn = v1_lead.rn - 1)
+SELECT *
+FROM v2
+WHERE d_year = 1999
+  AND avg_monthly_sales > 0
+  AND CASE
+          WHEN avg_monthly_sales > 0 THEN abs(sum_sales - avg_monthly_sales) / avg_monthly_sales
+          ELSE NULL
+      END > 0.1
+ORDER BY sum_sales - avg_monthly_sales NULLS FIRST, 1, 2, 3, 4, 5, 6, 7, 8, 9
+LIMIT 100;
+----
+Shoes exportiedu pack #1 NY Metro 1999 4 2602.29 873.07 1310.05 1389.46
+Music amalgscholar #1 NY Metro 1999 2 2401.3075 681.32 1389.52 1162.4
+Shoes edu packedu pack #1 NY Metro 1999 4 2813.558333 1206 1308.62 1285.33
+Shoes edu packedu pack #1 NY Metro 1999 5 2813.558333 1285.33 1206 1630.6
+Shoes edu packedu pack #1 NY Metro 1999 3 2813.558333 1308.62 1314.48 1206
+Shoes edu packedu pack #1 NY Metro 1999 2 2813.558333 1314.48 2001.46 1308.62
+Shoes exportiedu pack #1 NY Metro 1999 6 2602.29 1110.61 1389.46 1836.41
+Women importoamalg #1 NY Metro 1999 7 2038.780833 576.6 1092.99 3063.85
+Children exportiexporti #1 NY Metro 1999 6 2153.514166 784.44 1794.57 1441.37
+Shoes importoedu pack #1 NY Metro 1999 7 1890.239166 543.47 858.31 3200.51
+Music importoscholar #1 NY Metro 1999 4 2141.603333 798.59 1616.7 1017.38
+Men exportiimporto #1 NY Metro 1999 2 2370.8225 1075.45 1161.87 1734.46
+Shoes exportiedu pack #1 NY Metro 1999 3 2602.29 1310.05 1568.11 873.07
+Men exportiimporto #1 NY Metro 1999 7 2370.8225 1079.96 1315.93 3101.7
+Men exportiimporto #1 NY Metro 1999 4 2370.8225 1094.67 1734.46 1798.16
+Children exportiexporti #1 NY Metro 1999 3 2153.514166 880.89 890.98 1694.32
+Men edu packimporto #1 NY Metro 1999 4 2291.821666 1020.53 1402.19 2029.94
+Women importoamalg #1 NY Metro 1999 3 2038.780833 769.04 1863.24 1397.9
+Children exportiexporti #1 NY Metro 1999 2 2153.514166 890.98 1257.34 880.89
+Music amalgscholar #1 NY Metro 1999 3 2401.3075 1162.4 681.32 1328.39
+Men amalgimporto #1 NY Metro 1999 6 1639.644166 416.84 753.86 1258.98
+Shoes exportiedu pack #1 NY Metro 1999 5 2602.29 1389.46 873.07 1110.61
+Men exportiimporto #1 NY Metro 1999 1 2370.8225 1161.87 4568.43 1075.45
+Men importoimporto #1 NY Metro 1999 6 1632.786666 433.37 870.65 451.49
+Children amalgexporti #2 NY Metro 1999 3 1480.400833 287.62 744.35 906.31
+Shoes edu packedu pack #1 NY Metro 1999 6 2813.558333 1630.6 1285.33 2000.51
+Men importoimporto #1 NY Metro 1999 7 1632.786666 451.49 433.37 1927.32
+Shoes exportiedu pack #1 NY Metro 1999 1 2602.29 1449.65 5320.92 1568.11
+Men edu packimporto #1 NY Metro 1999 2 2291.821666 1142.84 1533.79 1402.19
+Children edu packexporti #1 NY Metro 1999 4 1755.691666 620.26 873.64 939.59
+Music importoscholar #1 NY Metro 1999 5 2141.603333 1017.38 798.59 1523.93
+Shoes amalgedu pack #1 NY Metro 1999 2 2076.091666 961.61 1157.56 1237.39
+Music exportischolar #2 NY Metro 1999 1 1745.665833 632.92 3396.05 666.22
+Music exportischolar #2 NY Metro 1999 2 1745.665833 666.22 632.92 1907.27
+Women edu packamalg #1 NY Metro 1999 6 2191.3575 1112.11 1243.11 1158.76
+Music amalgscholar #1 NY Metro 1999 4 2401.3075 1328.39 1162.4 1513.15
+Music exportischolar #2 NY Metro 1999 7 1745.665833 683.52 1101.46 1864.65
+Men exportiimporto #1 NY Metro 1999 6 2370.8225 1315.93 1798.16 1079.96
+Shoes amalgedu pack #1 NY Metro 1999 5 2076.091666 1032.32 1474.85 1239.28
+Shoes exportiedu pack #1 NY Metro 1999 2 2602.29 1568.11 1449.65 1310.05
+Women edu packamalg #1 NY Metro 1999 7 2191.3575 1158.76 1112.11 3304.19
+Music importoscholar #1 NY Metro 1999 7 2141.603333 1109.23 1523.93 3967.27
+Shoes importoedu pack #1 NY Metro 1999 6 1890.239166 858.31 1461.71 543.47
+Women importoamalg #1 NY Metro 1999 1 2038.780833 1016.92 4390.23 1863.24
+Women amalgamalg #1 NY Metro 1999 7 1789.3575 775 1013.89 2516.91
+Music amalgscholar #1 NY Metro 1999 1 2401.3075 1389.52 5021.71 681.32
+Women importoamalg #1 NY Metro 1999 5 2038.780833 1039.57 1397.9 1092.99
+Music edu packscholar #1 NY Metro 1999 2 1386.475 416.5 842.63 774.34
+Women edu packamalg #1 NY Metro 1999 2 2191.3575 1235.91 2000.24 1641.12
+Women edu packamalg #1 NY Metro 1999 5 2191.3575 1243.11 1493.45 1112.11
+Women importoamalg #1 NY Metro 1999 6 2038.780833 1092.99 1039.57 576.6
+Children importoexporti #1 NY Metro 1999 5 1708.808333 763.82 855.31 1058.09
+Children importoexporti #1 NY Metro 1999 2 1708.808333 765.13 1058.78 874.53
+Shoes importoedu pack #1 NY Metro 1999 2 1890.239166 961.79 1135.45 969.71
+Children edu packexporti #1 NY Metro 1999 6 1755.691666 828.28 939.59 1055.99
+Women amalgamalg #1 NY Metro 1999 1 1789.3575 865.04 3096.08 1406.06
+Men amalgimporto #1 NY Metro 1999 4 1639.644166 718.97 723.18 753.86
+Shoes importoedu pack #1 NY Metro 1999 3 1890.239166 969.71 961.79 1081.31
+Women exportiamalg #1 NY Metro 1999 3 1816.345 896.51 1180.68 1004.3
+Shoes amalgedu pack #1 NY Metro 1999 1 2076.091666 1157.56 4851.83 961.61
+Women edu packamalg #2 NY Metro 1999 2 1164.193333 246.19 438.15 650.31
+Men amalgimporto #1 NY Metro 1999 3 1639.644166 723.18 1318.53 718.97
+Children amalgexporti #2 NY Metro 1999 6 1480.400833 565.16 1320.93 822.3
+Men edu packimporto #1 NY Metro 1999 6 2291.821666 1377.59 2029.94 1478.46
+Children importoexporti #1 NY Metro 1999 7 1708.808333 811.65 1058.09 2369.43
+Children exportiexporti #1 NY Metro 1999 1 2153.514166 1257.34 5213.08 890.98
+Children exportiexporti #2 NY Metro 1999 3 1129.004166 235.48 779.12 882.08
+Men edu packimporto #1 NY Metro 1999 3 2291.821666 1402.19 1142.84 1020.53
+Music amalgscholar #1 NY Metro 1999 5 2401.3075 1513.15 1328.39 1542.36
+Men amalgimporto #1 NY Metro 1999 5 1639.644166 753.86 718.97 416.84
+Children edu packexporti #1 NY Metro 1999 3 1755.691666 873.64 1033.22 620.26
+Women amalgamalg #1 NY Metro 1999 4 1789.3575 926.57 1350.76 1227.87
+Music amalgscholar #1 NY Metro 1999 6 2401.3075 1542.36 1513.15 1755.15
+Women exportiamalg #1 NY Metro 1999 1 1816.345 960.06 4665.37 1180.68
+Children importoexporti #1 NY Metro 1999 4 1708.808333 855.31 874.53 763.82
+Shoes amalgedu pack #1 NY Metro 1999 3 2076.091666 1237.39 961.61 1474.85
+Shoes amalgedu pack #1 NY Metro 1999 6 2076.091666 1239.28 1032.32 1672.49
+Children importoexporti #1 NY Metro 1999 3 1708.808333 874.53 765.13 855.31
+Women exportiamalg #2 NY Metro 1999 3 1079.29 257.18 867.45 629.83
+Children edu packexporti #1 NY Metro 1999 5 1755.691666 939.59 620.26 828.28
+Men edu packimporto #1 NY Metro 1999 7 2291.821666 1478.46 1377.59 3272.8
+Shoes edu packedu pack #1 NY Metro 1999 7 2813.558333 2000.51 1630.6 3445.38
+Shoes edu packedu pack #1 NY Metro 1999 1 2813.558333 2001.46 6906.05 1314.48
+Women exportiamalg #1 NY Metro 1999 4 1816.345 1004.3 896.51 1036.58
+Shoes importoedu pack #1 NY Metro 1999 4 1890.239166 1081.31 969.71 1461.71
+Children amalgexporti #1 NY Metro 1999 5 1337.524166 529.1 747.16 748.13
+Children exportiexporti #2 NY Metro 1999 1 1129.004166 332.93 1966.19 779.12
+Men importoimporto #1 NY Metro 1999 4 1632.786666 836.87 963.29 870.65
+Men edu packimporto #2 NY Metro 1999 3 1178.875833 385.75 772.58 661.81
+Music importoscholar #1 NY Metro 1999 2 2141.603333 1356.69 1584.68 1616.7
+Women exportiamalg #1 NY Metro 1999 5 1816.345 1036.58 1004.3 1282.58
+Men importoimporto #1 NY Metro 1999 2 1632.786666 856.94 1055.89 963.29
+Women amalgamalg #1 NY Metro 1999 6 1789.3575 1013.89 1227.87 775
+Shoes exportiedu pack #1 NY Metro 1999 7 2602.29 1836.41 1110.61 2968.36
+Men importoimporto #1 NY Metro 1999 5 1632.786666 870.65 836.87 433.37
+Men edu packimporto #1 NY Metro 1999 1 2291.821666 1533.79 5258.73 1142.84
+Shoes importoedu pack #1 NY Metro 1999 1 1890.239166 1135.45 4076.29 961.79
+Music importoscholar #2 NY Metro 1999 6 801.986666 55.54 620.74 599.05
+Children amalgexporti #1 NY Metro 1999 7 1337.524166 598.17 748.13 2881.1
+Children amalgexporti #2 NY Metro 1999 2 1480.400833 744.35 1214.92 287.62
