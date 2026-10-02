@@ -10,6 +10,7 @@ use vortex_error::VortexResult;
 use super::Decimal;
 use super::DecimalArray;
 use super::DecimalArrayExt;
+use super::DecimalArraySlotsExt;
 use super::DecimalPlugin;
 use super::vtable::DecimalMetadata;
 use crate::ArrayDeserialization;
@@ -270,6 +271,48 @@ fn nonnullable_cast_checks_encoded_child_validity(
     } else {
         assert!(result.is_err());
     }
+
+    Ok(())
+}
+
+#[rstest]
+#[case::same_integer_width(18, DecimalType::I64)]
+#[case::wider_integer_width(39, DecimalType::I256)]
+fn precision_widening_cast_preserves_encoded_child(
+    #[case] precision: u8,
+    #[case] width: DecimalType,
+) -> VortexResult<()> {
+    let mut ctx = TEST_SESSION.create_execution_ctx();
+    let dictionary = DictArray::try_new(
+        buffer![0u8, 1, 0].into_array(),
+        buffer![1i32, -2].into_array(),
+    )?
+    .into_array();
+    let values = NarrowArray::try_new(
+        dictionary.clone(),
+        integer_dtype(DecimalType::I64, Nullability::NonNullable),
+    )?;
+    let source = DecimalArray::try_new_values(values.into_array(), DecimalDType::new(10, 2))?;
+    let target = DecimalDType::new(precision, 2);
+    let casted = source
+        .into_array()
+        .cast(DType::Decimal(target, Nullability::NonNullable))?;
+    let decimal = casted
+        .as_opt::<Decimal>()
+        .vortex_expect("Widening precision reduces without executing the child");
+    assert_eq!(
+        decimal.values_dtype(),
+        &integer_dtype(width, Nullability::NonNullable)
+    );
+    assert!(ArrayRef::ptr_eq(
+        decimal.values().as_::<Narrow>().values(),
+        &dictionary
+    ));
+    assert_arrays_eq!(
+        casted,
+        DecimalArray::from_iter([1i32, -2, 1], target),
+        &mut ctx
+    );
 
     Ok(())
 }

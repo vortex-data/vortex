@@ -45,8 +45,6 @@ use crate::validity::Validity;
 
 impl CastReduce for Decimal {
     fn cast(array: ArrayView<'_, Decimal>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        // Only nullability changes within the same decimal dtype are reducible without execution.
-        // Precision/scale changes need the kernel.
         let DType::Decimal(to_decimal_dtype, to_nullability) = dtype else {
             return Ok(None);
         };
@@ -57,7 +55,9 @@ impl CastReduce for Decimal {
             );
         };
 
-        if from_decimal_dtype != to_decimal_dtype {
+        if from_decimal_dtype.scale() != to_decimal_dtype.scale()
+            || from_decimal_dtype.precision() > to_decimal_dtype.precision()
+        {
             return Ok(None);
         }
 
@@ -71,8 +71,11 @@ impl CastReduce for Decimal {
 
         let values_dtype = array.values_dtype().with_nullability(*to_nullability);
         Ok(Some(
-            DecimalArray::try_new_values(array.values().cast(values_dtype)?, *to_decimal_dtype)?
-                .into_array(),
+            DecimalArray::from_integer_values(
+                array.values().cast(values_dtype)?,
+                *to_decimal_dtype,
+            )?
+            .into_array(),
         ))
     }
 }
