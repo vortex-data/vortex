@@ -46,9 +46,14 @@ impl Display for SharedData {
 #[expect(async_fn_in_trait)]
 pub trait SharedArrayExt: TypedArrayRef<Shared> + SharedArraySlotsExt {
     fn current_array_ref(&self) -> &ArrayRef {
+        self.cached_array_ref().unwrap_or_else(|| self.source())
+    }
+
+    /// The materialised array, if the source has been computed successfully.
+    fn cached_array_ref(&self) -> Option<&ArrayRef> {
         match self.cached.get() {
-            Some(Ok(arr)) => arr,
-            _ => self.source(),
+            Some(Ok(arr)) => Some(arr),
+            _ => None,
         }
     }
 
