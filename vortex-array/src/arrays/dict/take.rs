@@ -12,6 +12,7 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::ConstantArray;
+use crate::arrays::Primitive;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
@@ -126,6 +127,11 @@ where
     ) -> VortexResult<Option<ArrayRef>> {
         // Only handle the values child (index 1), not the codes child (index 0).
         if child_idx != 1 {
+            return Ok(None);
+        }
+        // Taking executes the codes, so decline until the scheduler has made them primitive
+        // through `Dict::execute` rather than executing them inline here.
+        if !parent.codes().is::<Primitive>() {
             return Ok(None);
         }
         if let Some(result) = short_circuit::<V>(array, parent.codes()) {
