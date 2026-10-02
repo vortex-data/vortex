@@ -11,7 +11,7 @@
 //!
 //! The module is split into:
 //!
-//! - [`source`] — the [`IndexedSource`] trait, [`LaneZip`], and read-only adapters.
+//! - [`source`] — the [`IndexedSource`] trait, [`LaneZip`], [`Repeat`], and read-only adapters.
 //! - [`sink`] — the [`IndexedSink`] trait and [`ReinterpretSink`].
 //! - [`map_into`] — out-of-place kernels via [`IndexedSourceExt`] (writes into a
 //!   caller-provided `&mut [MaybeUninit<R>]`).
@@ -33,6 +33,7 @@ pub use sink::IndexedSink;
 pub use sink::ReinterpretSink;
 pub use source::IndexedSource;
 pub use source::LaneZip;
+pub use source::Repeat;
 
 /// Loop-tiling chunk length for the **no-mask** kernels ([`IndexedSourceExt::map_into`],
 /// [`IndexedSourceExt::try_map_into`], [`IndexedSinkExt::map_into_in_place`]).
