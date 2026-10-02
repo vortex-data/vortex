@@ -33,6 +33,7 @@ use crate::duckdb::Expression;
 use crate::duckdb::LogicalType;
 use crate::duckdb::LogicalTypeRef;
 use crate::duckdb::TableInitInput;
+use crate::duckdb::Value;
 use crate::duckdb::try_or;
 use crate::duckdb::try_or_null;
 use crate::file_reader::OpenFileReader;
@@ -495,6 +496,7 @@ pub unsafe extern "C-unwind" fn duckdb_copy_function_get_written_column_statisti
             return Ok(false);
         };
         let out = unsafe { &mut *out };
+        out.column_key = Value::from(stats.column_key.as_str()).into_ptr();
         out.min = stats.min.map_or(ptr::null_mut(), |v| v.into_ptr());
         out.max = stats.max.map_or(ptr::null_mut(), |v| v.into_ptr());
         out.has_null_count = stats.null_count.is_some();

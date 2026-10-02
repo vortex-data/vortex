@@ -1,12 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex::array::stats::StatsSet;
+use vortex::aggregate_fn::AggregateFnRef;
+use vortex::aggregate_fn::AggregateFnVTableExt;
+use vortex::aggregate_fn::EmptyOptions;
+use vortex::aggregate_fn::NumericalAggregateOpts;
+use vortex::aggregate_fn::fns::max::Max;
+use vortex::aggregate_fn::fns::min::Min;
+use vortex::aggregate_fn::fns::null_count::NullCount;
+use vortex::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use vortex::dtype::DType;
 use vortex::error::VortexExpect as _;
 use vortex::error::VortexResult;
 use vortex::expr::stats::Precision;
-use vortex::expr::stats::Stat;
+use vortex::layout::layouts::file_stats::AggregateStats;
 use vortex::scalar::Scalar;
 use vortex::scalar::ScalarValue;
 
@@ -62,29 +69,22 @@ pub struct ColumnStatisticsAggregate {
 }
 
 impl ColumnStatisticsAggregate {
-    pub fn new(stats: &StatsSet) -> Self {
-        let min = match stats.get(Stat::Min) {
-            Precision::Exact(min) => Some(min),
-            _ => None,
-        };
-        let max = match stats.get(Stat::Max) {
-            Precision::Exact(max) => Some(max),
+    pub fn new(aggregates: &AggregateStats) -> Self {
+        let exact = |aggregate_fn: AggregateFnRef| match aggregates.get(&aggregate_fn) {
+            Precision::Exact(value) => value.into_value(),
             _ => None,
         };
 
-        let max_string_length =
-            if let Precision::Exact(value) = stats.get(Stat::UncompressedSizeInBytes) {
-                // DuckDB's string length is u32
-                #[allow(clippy::cast_possible_truncation)]
-                Some(value.as_primitive().as_u64().vortex_expect("not a u64") as u32)
-            } else {
-                None
-            };
+        let min = exact(Min.bind(NumericalAggregateOpts::skip_nans()));
+        let max = exact(Max.bind(NumericalAggregateOpts::skip_nans()));
 
-        let has_null = match stats.get(Stat::NullCount) {
-            Precision::Exact(cnt) => cnt.as_primitive().as_u64().vortex_expect("not a u64") > 0,
-            _ => true,
-        };
+        // DuckDB's string length is u32
+        #[allow(clippy::cast_possible_truncation)]
+        let max_string_length = exact(UncompressedSizeInBytes.bind(EmptyOptions))
+            .map(|value| value.as_primitive().as_u64().vortex_expect("not a u64") as u32);
+
+        let has_null = exact(NullCount.bind(EmptyOptions))
+            .is_none_or(|count| count.as_primitive().as_u64().vortex_expect("not a u64") > 0);
 
         Self {
             min,

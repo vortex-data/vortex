@@ -164,6 +164,21 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
         }
     }
 
+    /// Return whether the result accumulated in `partial` can satisfy `requested`.
+    ///
+    /// Refines [`Self::can_satisfy`], which only sees the options, with what was actually
+    /// accumulated: e.g. a byte-bounded maximum whose inputs all fit within the bound exactly
+    /// satisfies the unbounded maximum. Must never report a stronger satisfaction than is true for
+    /// `partial`. The default implementation ignores `partial`.
+    fn partial_can_satisfy(
+        &self,
+        options: &Self::Options,
+        _partial: &Self::Partial,
+        requested: &AggregateFnRef,
+    ) -> AggregateFnSatisfaction {
+        self.can_satisfy(options, requested)
+    }
+
     /// The return [`DType`] of the aggregate.
     ///
     /// Returns `None` if the aggregate function cannot be applied to the input dtype.

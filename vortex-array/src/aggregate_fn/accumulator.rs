@@ -14,6 +14,7 @@ use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateDTypes;
 use crate::aggregate_fn::AggregateFn;
 use crate::aggregate_fn::AggregateFnRef;
+use crate::aggregate_fn::AggregateFnSatisfaction;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::session::AggregateFnSessionExt;
 use crate::columnar::AnyColumnar;
@@ -116,6 +117,10 @@ pub trait DynAccumulator: 'static + Send {
 
     /// Whether the accumulator's result is fully determined.
     fn is_saturated(&self) -> bool;
+
+    /// Whether the current result can satisfy `requested`, taking the accumulated state into
+    /// account. See [`AggregateFnVTable::partial_can_satisfy`].
+    fn can_satisfy(&self, requested: &AggregateFnRef) -> AggregateFnSatisfaction;
 
     /// Reset the accumulator's state to the empty group.
     fn reset(&mut self);
@@ -297,6 +302,15 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
             self.vtable
                 .is_saturated(self.dtypes.args(&self.options), partial)
         })
+    }
+
+    fn can_satisfy(&self, requested: &AggregateFnRef) -> AggregateFnSatisfaction {
+        let options = self.aggregate_fn.as_::<V>();
+        // Without a partial nothing was accumulated yet, so only the options can be consulted.
+        match &self.partial {
+            Some(partial) => self.vtable.partial_can_satisfy(options, partial, requested),
+            None => self.vtable.can_satisfy(options, requested),
+        }
     }
 
     fn reset(&mut self) {

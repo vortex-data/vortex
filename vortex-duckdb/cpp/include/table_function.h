@@ -83,6 +83,9 @@ typedef struct {
 
 // Per-column statistics of a written Vortex file.
 typedef struct {
+    // Owned VARCHAR value holding the column's quoted, dot-separated path (e.g. `"s"."b"`), the key
+    // format DuckLake expects; the caller must destroy it.
+    duckdb_value column_key;
     // Owned values, null if absent; the caller must destroy them.
     duckdb_value min;
     duckdb_value max;

@@ -54,11 +54,50 @@ table PostscriptSegment {
 // [postscript]
 
 // [footer]
+/// An `AggregateSpec` describes an aggregate function recorded in the file statistics.
+table AggregateSpec {
+    id: string (required);
+}
+
+/// The accumulated state of one aggregate function over one file statistics entry.
+table AggregateState {
+    /// Index of the aggregate function's ID in `FileStatistics.aggregate_specs`.
+    aggregate_spec: uint16;
+    /// The aggregate function's serialized options.
+    options: [ubyte];
+    /// Protobuf serialized `vortex.scalar.ScalarValue` of the aggregate's partial state, typed by
+    /// the aggregate's partial dtype for the entry's dtype. A null value means no value was
+    /// accumulated.
+    partial: [ubyte] (required);
+}
+
+/// The aggregate states of one file statistics entry.
+table FieldAggregates {
+    aggregates: [AggregateState];
+}
+
 /// The `FileStatistics` object contains file-level statistics for the Vortex file.
 table FileStatistics {
-    /// Statistics for each field in the root schema. If the root schema is not a struct, there will
-    /// be a single entry in this array.
+    /// Statistics for each top-level field in the root schema, in schema order. If the root schema
+    /// is not a struct, there will be a single entry in this array. Does not recurse into nested
+    /// struct fields; see `nested_field_aggregates` for that.
+    ///
+    /// Kept in this legacy shape for backward compatibility with readers that predate
+    /// `nested_field_aggregates`, which strictly validate this array's length against the number
+    /// of top-level struct fields.
     field_stats: [ArrayStats];
+    /// Dictionary-encoded aggregate function IDs referenced by `nested_field_aggregates`, up to
+    /// u16::MAX.
+    aggregate_specs: [AggregateSpec];
+    /// Aggregate states following a post-order walk of the root `DType` tree: each leaf field gets
+    /// an entry, and each nullable struct additionally gets a trailing entry for its own null
+    /// count, inserted after its children's entries.
+    ///
+    /// Readers that know about this field should prefer it over `field_stats` when present,
+    /// skipping aggregates they don't recognize. It is absent for files written before nested
+    /// file stats were supported, and readers that don't know about it fall back to
+    /// `field_stats`'s legacy top-level-fields-only layout.
+    nested_field_aggregates: [FieldAggregates];
 }
 
 /// The `Registry` object stores dictionary-encoded configuration for segments,

@@ -27,6 +27,7 @@ pub(crate) use builder::aggregate_partials;
 use prost::Message;
 pub use schema::MAX_IS_TRUNCATED;
 pub use schema::MIN_IS_TRUNCATED;
+pub(crate) use schema::default_bounded_stat_max_bytes;
 use vortex_array::DeserializeMetadata;
 use vortex_array::SerializeMetadata;
 use vortex_array::aggregate_fn::AggregateFnRef;

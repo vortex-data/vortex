@@ -33,18 +33,24 @@ use jni::sys::jlong;
 use jni::sys::jobject;
 use object_store::ObjectStore;
 use object_store::path::Path as ObjectStorePath;
+use vortex::aggregate_fn::AggregateFnRef;
+use vortex::aggregate_fn::AggregateFnVTableExt;
+use vortex::aggregate_fn::EmptyOptions;
+use vortex::aggregate_fn::NumericalAggregateOpts;
+use vortex::aggregate_fn::fns::max::Max;
+use vortex::aggregate_fn::fns::min::Min;
+use vortex::aggregate_fn::fns::nan_count::NanCount;
+use vortex::aggregate_fn::fns::null_count::NullCount;
 use vortex::array::ArrayRef;
 use vortex::array::scalar::PValue;
 use vortex::array::scalar::Scalar;
 use vortex::array::scalar::ScalarValue;
-use vortex::array::stats::StatsSet;
 use vortex::array::stream::ArrayStreamAdapter;
 use vortex::dtype::DType;
+use vortex::dtype::FieldPath;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
-use vortex::expr::stats::Stat;
-use vortex::expr::stats::StatsProvider;
 use vortex::file::CountingVortexWrite;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteSummary;
@@ -56,6 +62,7 @@ use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::Task;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::BufferedBytesTracker;
+use vortex::layout::layouts::file_stats::AggregateStats;
 use vortex::session::VortexSession;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex_arrow::ArrowSessionExt;
@@ -182,14 +189,13 @@ fn checked_jlong(value: u64, name: &str) -> VortexResult<jlong> {
 }
 
 fn exact_count_jlong(
-    stats: Option<&StatsSet>,
-    dtype: Option<&DType>,
-    stat: Stat,
+    aggregates: Option<&AggregateStats>,
+    aggregate_fn: &AggregateFnRef,
 ) -> VortexResult<jlong> {
-    stats
-        .zip(dtype.and_then(|dt| stat.dtype(dt)))
-        .and_then(|(stats, dt)| stats.get_as::<u64>(stat, &dt).as_exact())
-        .map(|value| checked_jlong(value, stat.name()))
+    aggregates
+        .and_then(|aggregates| aggregates.get(aggregate_fn).as_exact())
+        .and_then(|count| u64::try_from(&count).ok())
+        .map(|value| checked_jlong(value, &aggregate_fn.to_string()))
         .transpose()
         .map(|value| value.unwrap_or(-1))
 }
@@ -285,6 +291,7 @@ fn write_summary_to_java<'local>(
 ) -> Result<JObject<'local>, JNIError> {
     let column_sizes = summary.compressed_column_sizes()?;
     let file_stats = summary.footer().statistics();
+    let struct_fields = summary.footer().dtype().as_struct_fields_opt();
     let columns = env.new_object_array(
         i32::try_from(column_sizes.len())
             .map_err(|_| vortex_err!("column count exceeds Java array range"))?,
@@ -293,22 +300,25 @@ fn write_summary_to_java<'local>(
     )?;
 
     for (column_index, compressed_size) in column_sizes.into_iter().enumerate() {
-        let (stats, dtype) = file_stats
-            .and_then(|all_stats| {
-                all_stats
-                    .stats_sets()
-                    .get(column_index)
-                    .zip(all_stats.dtypes().get(column_index))
+        let aggregates = struct_fields
+            .and_then(|fields| fields.names().get(column_index))
+            .zip(file_stats)
+            .and_then(|(name, all_stats)| {
+                all_stats.get_by_path(&FieldPath::from_name(name.clone()))
             })
-            .map_or((None, None), |(stats, dtype)| (Some(stats), Some(dtype)));
-        let null_count = exact_count_jlong(stats, dtype, Stat::NullCount)?;
-        let nan_count = exact_count_jlong(stats, dtype, Stat::NaNCount)?;
-        let lower_bound = stats
-            .zip(dtype)
-            .and_then(|(stats, dtype)| stats.as_typed_ref(dtype).get(Stat::Min).into_inner());
-        let upper_bound = stats
-            .zip(dtype)
-            .and_then(|(stats, dtype)| stats.as_typed_ref(dtype).get(Stat::Max).into_inner());
+            .map(|(aggregates, _)| aggregates);
+        let null_count = exact_count_jlong(aggregates, &NullCount.bind(EmptyOptions))?;
+        let nan_count = exact_count_jlong(aggregates, &NanCount.bind(EmptyOptions))?;
+        let lower_bound = aggregates.and_then(|aggregates| {
+            aggregates
+                .get(&Min.bind(NumericalAggregateOpts::skip_nans()))
+                .into_inner()
+        });
+        let upper_bound = aggregates.and_then(|aggregates| {
+            aggregates
+                .get(&Max.bind(NumericalAggregateOpts::skip_nans()))
+                .into_inner()
+        });
         let column = env.with_local_frame_returning_local::<_, JObject, JNIError>(16, |env| {
             let lower_bound = match lower_bound {
                 Some(value) => scalar_to_java(env, value)?,
