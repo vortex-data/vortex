@@ -1084,8 +1084,20 @@ fn test_decimal_scalar_mul_rejects_unrepresentable_scale() {
     );
 }
 
-#[test]
-fn test_decimal_scalar_mismatched_decimal_types() {
+#[rstest]
+// 0.01 + 0.001 = 0.011, aligned to the finer scale.
+#[case::add(NumericOperator::Add, 11, DecimalDType::new(12, 3))]
+// 0.01 - 0.001 = 0.009
+#[case::sub(NumericOperator::Sub, 9, DecimalDType::new(12, 3))]
+// 0.01 * 0.001 = 0.00001
+#[case::mul(NumericOperator::Mul, 1, DecimalDType::new(21, 5))]
+// 0.01 / 0.001 = 10.000000
+#[case::div(NumericOperator::Div, 10_000_000, DecimalDType::new(17, 6))]
+fn test_decimal_scalar_mixed_decimal_types(
+    #[case] op: NumericOperator,
+    #[case] expected: i64,
+    #[case] result_dtype: DecimalDType,
+) -> VortexResult<()> {
     let lhs = Scalar::decimal(
         DecimalValue::I64(1),
         DecimalDType::new(10, 2),
@@ -1097,11 +1109,19 @@ fn test_decimal_scalar_mismatched_decimal_types() {
         Nullability::NonNullable,
     );
 
-    assert!(
-        lhs.as_decimal()
-            .checked_binary_numeric(&rhs.as_decimal(), NumericOperator::Add)
-            .is_err()
+    let result = lhs
+        .as_decimal()
+        .checked_binary_numeric(&rhs.as_decimal(), op)?
+        .ok_or_else(|| vortex_err!("unexpected overflow"))?;
+    assert_eq!(
+        result,
+        Scalar::decimal(
+            DecimalValue::I64(expected),
+            result_dtype,
+            Nullability::NonNullable
+        )
     );
+    Ok(())
 }
 
 #[test]
