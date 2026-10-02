@@ -11,6 +11,7 @@ use vortex_error::VortexResult;
 
 use super::FoR;
 use crate::FL_CHUNK_SIZE;
+use crate::FoRReferences;
 use crate::r#for::array::FoRArrayExt;
 use crate::r#for::array::FoRArraySlotsExt;
 impl OperationsVTable<FoR> for FoR {
@@ -23,8 +24,13 @@ impl OperationsVTable<FoR> for FoR {
     ) -> VortexResult<Scalar> {
         let encoded_pvalue = array.encoded().execute_scalar(index, ctx)?;
         let encoded_pvalue = encoded_pvalue.as_primitive();
-        let chunk = (usize::from(array.offset()) + index) / FL_CHUNK_SIZE;
-        let reference = array.references().execute_scalar(chunk, ctx)?;
+        let reference = match array.references() {
+            FoRReferences::Global(reference) => reference.clone(),
+            FoRReferences::Blocked(references) => {
+                let chunk = (usize::from(array.offset()) + index) / FL_CHUNK_SIZE;
+                references.execute_scalar(chunk, ctx)?
+            }
+        };
         let reference = reference.as_primitive();
 
         Ok(match_each_integer_ptype!(array.ptype(), |P| {

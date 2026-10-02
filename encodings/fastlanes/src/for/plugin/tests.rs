@@ -20,6 +20,8 @@ use vortex_session::registry::ReadContext;
 use super::*;
 use crate::FoRArray;
 use crate::r#for::array::FoRArraySlotsExt;
+use crate::r#for::tests::blocked;
+use crate::r#for::tests::global;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = vortex_array::array_session();
@@ -57,7 +59,7 @@ fn serde_roundtrip(#[case] array: VortexResult<FoRArray>) -> VortexResult<()> {
     assert_eq!(serialization.serialized_id, for_v1_id());
     assert_eq!(
         serialization.metadata,
-        ScalarValue::to_proto_bytes::<Vec<u8>>(array.constant_reference().unwrap().value())
+        ScalarValue::to_proto_bytes::<Vec<u8>>(global(&array)?.value())
     );
 
     let read = roundtrip(array.as_array())?;
@@ -91,7 +93,7 @@ fn v2_roundtrip(#[case] range: std::ops::Range<usize>) -> VortexResult<()> {
 
     let read = roundtrip(&array)?;
     assert_eq!(read.encoding_id(), VTable::id(&FoR));
-    assert!(read.as_::<FoR>().constant_reference().is_none());
+    blocked(&read.as_::<FoR>().into_owned())?;
     assert_arrays_eq!(read, array, &mut SESSION.create_execution_ctx());
     Ok(())
 }
@@ -118,7 +120,7 @@ fn deserialize_v2_parts(
 fn v2_rejects_malformed_parts() -> VortexResult<()> {
     let array = chunked()?;
     let encoded = array.encoded().clone();
-    let references = array.references().clone();
+    let references = blocked(&array)?;
     let metadata = v2::FoRV2Metadata { offset: 0 };
 
     assert!(deserialize_v2_parts(&metadata, &[encoded.clone(), references.clone()]).is_ok());

@@ -9,6 +9,7 @@ use vortex_array::dtype::DType;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
+use crate::FoRReferences;
 use crate::r#for::FoR;
 use crate::r#for::array::FoRArrayExt;
 use crate::r#for::array::FoRArraySlotsExt;
@@ -20,10 +21,13 @@ impl CastReduce for FoR {
         }
 
         let casted_child = array.encoded().cast(dtype.clone())?;
-        Ok(Some(
-            FoR::try_new_chunked(casted_child, array.references().clone(), array.offset())?
-                .into_array(),
-        ))
+        let casted = match array.references() {
+            FoRReferences::Global(reference) => FoR::try_new(casted_child, reference.clone())?,
+            FoRReferences::Blocked(references) => {
+                FoR::try_new_chunked(casted_child, references.clone(), array.offset())?
+            }
+        };
+        Ok(Some(casted.into_array()))
     }
 }
 

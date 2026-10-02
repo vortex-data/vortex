@@ -559,13 +559,16 @@ mod tests {
     use vortex::encodings::fastlanes::BitPackedArray;
     use vortex::encodings::fastlanes::BitPackedArrayExt;
     use vortex::encodings::fastlanes::FoR;
+    use vortex::encodings::fastlanes::FoRArray;
     use vortex::encodings::fastlanes::FoRArrayExt;
     use vortex::encodings::fastlanes::FoRArraySlotsExt;
+    use vortex::encodings::fastlanes::FoRReferences;
     use vortex::encodings::runend::RunEnd;
     use vortex::encodings::sequence::Sequence;
     use vortex::encodings::zigzag::ZigZag;
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
+    use vortex::error::vortex_bail;
     use vortex::mask::Mask;
     use vortex_array::ExecutionCtx;
     use vortex_array::VortexSessionExecute;
@@ -583,6 +586,14 @@ mod tests {
     use crate::executor::CudaDispatchMode;
     use crate::hybrid_dispatch::try_gpu_dispatch;
     use crate::session::CudaSession;
+
+    /// The reference of a FoR array built by `FoR::encode`, which is always global.
+    fn global_reference(array: &FoRArray) -> VortexResult<Scalar> {
+        match array.references() {
+            FoRReferences::Global(reference) => Ok(reference.clone()),
+            FoRReferences::Blocked(_) => vortex_bail!("FoR::encode uses a global reference"),
+        }
+    }
 
     fn bitpacked_array_u32(bit_width: u8, len: usize, ctx: &mut ExecutionCtx) -> BitPackedArray {
         let max_val = (1u64 << bit_width).saturating_sub(1);
@@ -971,13 +982,7 @@ mod tests {
         let bp = BitPacked::encode(for_arr.encoded(), 6, &mut ctx)?;
 
         let tree = ALP::new(
-            FoR::try_new(
-                bp.into_array(),
-                for_arr
-                    .constant_reference()
-                    .vortex_expect("constant reference"),
-            )?
-            .into_array(),
+            FoR::try_new(bp.into_array(), global_reference(&for_arr)?)?.into_array(),
             exponents,
             None,
         );
@@ -1910,13 +1915,7 @@ mod tests {
         let bp = BitPacked::encode(for_arr.encoded(), 6, &mut ctx)?;
 
         let tree = ALP::new(
-            FoR::try_new(
-                bp.into_array(),
-                for_arr
-                    .constant_reference()
-                    .vortex_expect("constant reference"),
-            )?
-            .into_array(),
+            FoR::try_new(bp.into_array(), global_reference(&for_arr)?)?.into_array(),
             exponents,
             None,
         );

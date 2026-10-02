@@ -48,13 +48,16 @@ use vortex::encodings::fastlanes::BitPackedArray;
 use vortex::encodings::fastlanes::BitPackedArrayExt;
 use vortex::encodings::fastlanes::BitPackedData;
 use vortex::encodings::fastlanes::FoR;
+use vortex::encodings::fastlanes::FoRArray;
 use vortex::encodings::fastlanes::FoRArrayExt;
 use vortex::encodings::fastlanes::FoRArraySlotsExt;
 use vortex::encodings::fastlanes::FoRData;
+use vortex::encodings::fastlanes::FoRReferences;
 use vortex::encodings::runend::RunEnd;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
+use vortex::error::vortex_panic;
 use vortex_cuda::CudaBufferExt;
 use vortex_cuda::CudaDispatchMode;
 use vortex_cuda::CudaExecutionCtx;
@@ -74,6 +77,14 @@ use crate::bench_config::BENCH_SIZES;
 /// This deliberately does not use `CudaDispatchPlan::execute` because the
 /// benchmark pre-allocates the output buffer and device plan once, then reuses
 /// them across iterations.
+/// The reference of a FoR array built by `FoR::encode`, which is always global.
+fn global_reference(array: &FoRArray) -> Scalar {
+    match array.references() {
+        FoRReferences::Global(reference) => reference.clone(),
+        FoRReferences::Blocked(_) => vortex_panic!("FoR::encode uses a global reference"),
+    }
+}
+
 fn run_timed<T: DeviceRepr + NativePType>(
     cuda_ctx: &mut CudaExecutionCtx,
     array_len: usize,
@@ -360,14 +371,9 @@ fn bench_dict_bp_codes_alp_for_bp_values_dynanmic_dispatch(c: &mut Criterion) {
         let bp = BitPackedData::encode(for_arr.encoded(), values_bit_width, &mut ctx)
             .vortex_expect("bitpack values");
         let values_tree = ALP::new(
-            FoR::try_new(
-                bp.into_array(),
-                for_arr
-                    .constant_reference()
-                    .vortex_expect("constant reference"),
-            )
-            .vortex_expect("for_new")
-            .into_array(),
+            FoR::try_new(bp.into_array(), global_reference(&for_arr))
+                .vortex_expect("for_new")
+                .into_array(),
             exponents,
             None,
         );
@@ -668,19 +674,12 @@ fn bench_dict_bp_codes_alp_for_bp_values_composed_standalone(c: &mut Criterion) 
         let bp = BitPackedData::encode(for_arr.encoded(), values_bit_width, &mut ctx)
             .vortex_expect("bitpack values");
         let values_bp = bp;
-        let values_reference: i32 = (&for_arr
-            .constant_reference()
-            .vortex_expect("constant reference"))
+        let values_reference: i32 = (&global_reference(&for_arr))
             .try_into()
             .vortex_expect("values reference");
-        let values_for = FoR::try_new(
-            values_bp.clone().into_array(),
-            for_arr
-                .constant_reference()
-                .vortex_expect("constant reference"),
-        )
-        .vortex_expect("for_new")
-        .into_array();
+        let values_for = FoR::try_new(values_bp.clone().into_array(), global_reference(&for_arr))
+            .vortex_expect("for_new")
+            .into_array();
         let _values_alp = ALP::new(values_for, exponents, None).into_array();
 
         let codes: Vec<u32> = (0..*len).map(|i| (i % dict_size) as u32).collect();
@@ -773,14 +772,9 @@ fn bench_alp_for_bitpacked_f64(c: &mut Criterion) {
             assert!(bp.patches().is_none(), "expected only ALP patches");
 
             let tree = ALP::new(
-                FoR::try_new(
-                    bp.into_array(),
-                    for_arr
-                        .constant_reference()
-                        .vortex_expect("constant reference"),
-                )
-                .vortex_expect("for_new")
-                .into_array(),
+                FoR::try_new(bp.into_array(), global_reference(&for_arr))
+                    .vortex_expect("for_new")
+                    .into_array(),
                 alp_exponents,
                 patches,
             );
@@ -898,14 +892,9 @@ fn bench_alp_for_bitpacked(c: &mut Criterion) {
             .vortex_expect("bitpack encode");
 
         let tree = ALP::new(
-            FoR::try_new(
-                bp.into_array(),
-                for_arr
-                    .constant_reference()
-                    .vortex_expect("constant reference"),
-            )
-            .vortex_expect("for_new")
-            .into_array(),
+            FoR::try_new(bp.into_array(), global_reference(&for_arr))
+                .vortex_expect("for_new")
+                .into_array(),
             exponents,
             None,
         );

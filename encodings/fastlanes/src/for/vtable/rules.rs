@@ -13,6 +13,7 @@ use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
 use vortex_error::VortexResult;
 
 use crate::FoR;
+use crate::FoRReferences;
 use crate::r#for::array::FoRArrayExt;
 use crate::r#for::array::FoRArraySlotsExt;
 
@@ -37,13 +38,13 @@ impl ArrayParentReduceRule<FoR> for FoRFilterPushDownRule {
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         // TODO(mk): support many references.
-        let Some(reference) = child.constant_reference() else {
+        let FoRReferences::Global(reference) = child.references() else {
             return Ok(None);
         };
         Ok(Some(
             FoR::try_new(
                 child.encoded().filter(parent.filter_mask().clone())?,
-                reference,
+                reference.clone(),
             )?
             .into_array(),
         ))

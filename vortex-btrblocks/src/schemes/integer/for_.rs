@@ -22,6 +22,7 @@ use vortex_error::VortexResult;
 use vortex_fastlanes::FoR;
 use vortex_fastlanes::FoRArrayExt;
 use vortex_fastlanes::FoRArraySlotsExt;
+use vortex_fastlanes::FoRReferences;
 use vortex_fastlanes::for_v1_id;
 use vortex_fastlanes::for_v2_id;
 
@@ -219,16 +220,11 @@ impl Scheme for FoRScheme {
         let compressed = BitPackingScheme.compress(compressor, &biased_data, leaf_ctx, exec_ctx)?;
 
         // TODO(connor): This should really be `new_unchecked`.
-        let for_compressed = match for_array.constant_reference() {
-            Some(reference) => FoR::try_new(compressed, reference)?,
-            None => {
-                let references = compressor.compress_child(
-                    for_array.references(),
-                    &compress_ctx,
-                    self.id(),
-                    0,
-                    exec_ctx,
-                )?;
+        let for_compressed = match for_array.references() {
+            FoRReferences::Global(reference) => FoR::try_new(compressed, reference.clone())?,
+            FoRReferences::Blocked(references) => {
+                let references =
+                    compressor.compress_child(references, &compress_ctx, self.id(), 0, exec_ctx)?;
                 FoR::try_new_chunked(compressed, references, for_array.offset())?
             }
         };

@@ -27,7 +27,7 @@ pub(super) struct FoRV2Metadata {
     pub(super) offset: u32,
 }
 
-pub(super) fn serialize(array: ArrayView<'_, FoR>) -> ArraySerialization {
+pub(super) fn serialize(array: ArrayView<'_, FoR>, references: &ArrayRef) -> ArraySerialization {
     let metadata = FoRV2Metadata {
         offset: u32::from(array.offset()),
     };
@@ -35,7 +35,7 @@ pub(super) fn serialize(array: ArrayView<'_, FoR>) -> ArraySerialization {
         for_v2_id(),
         metadata.encode_to_vec(),
         vec![],
-        vec![array.encoded().clone(), array.references().clone()],
+        vec![array.encoded().clone(), references.clone()],
     )
 }
 

@@ -33,6 +33,7 @@ use vortex::encodings::fastlanes::BitPackedArrayExt;
 use vortex::encodings::fastlanes::FoR;
 use vortex::encodings::fastlanes::FoRArrayExt;
 use vortex::encodings::fastlanes::FoRArraySlotsExt;
+use vortex::encodings::fastlanes::FoRReferences;
 use vortex::encodings::runend::RunEnd;
 use vortex::encodings::runend::RunEndArrayExt;
 use vortex::encodings::runend::RunEndArraySlotsExt;
@@ -128,7 +129,7 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
             _ => false,
         };
     }
-    (id == FoR.id() && array.as_::<FoR>().constant_reference().is_some())
+    (id == FoR.id() && matches!(array.as_::<FoR>().references(), FoRReferences::Global(_)))
         || id == ZigZag.id()
         || id == Primitive.id()
         || id == Slice.id()
@@ -167,7 +168,7 @@ pub fn has_standalone_kernel(array: &ArrayRef) -> bool {
     // FoR fuses with BitPacked (FFOR) and Slice(BitPacked) in one launch.
     if id == FoR.id() {
         let for_arr = array.as_::<FoR>();
-        if for_arr.constant_reference().is_none() {
+        if !matches!(for_arr.references(), FoRReferences::Global(_)) {
             return false;
         }
         let child = for_arr.encoded();
@@ -641,9 +642,10 @@ impl FusedPlan {
         pending_subtrees: &mut Vec<ArrayRef>,
     ) -> VortexResult<Stage> {
         let for_arr = array.as_::<FoR>();
-        let ref_pvalue = for_arr
-            .constant_reference()
-            .ok_or_else(|| vortex_err!("FoR references must be constant"))?
+        let FoRReferences::Global(reference) = for_arr.references() else {
+            vortex_bail!("FoR references must be global")
+        };
+        let ref_pvalue = reference
             .as_primitive()
             .pvalue()
             .ok_or_else(|| vortex_err!("FoR reference scalar is null"))?;

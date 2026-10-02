@@ -12,8 +12,10 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
+use vortex_array::dtype::Nullability;
 use vortex_array::expr::stats::Stat;
 use vortex_array::match_each_integer_ptype;
+use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
@@ -76,6 +78,7 @@ fn encode_chunked_typed<T: NativePType + WrappingSub + PrimInt>(
 ) -> VortexResult<FoRArray>
 where
     u8: AsPrimitive<T>,
+    PValue: From<T>,
 {
     let validity = array.validity()?;
     let mask = validity.execute_mask(array.len(), ctx)?;
@@ -92,8 +95,17 @@ where
             );
         }
     };
+    let encoded = PrimitiveArray::new(encoded, validity).into_array();
+    // Every chunk has the same minimum, so one global reference serves them all.
+    if references.iter().all_equal() {
+        let reference = references.first().copied().unwrap_or_else(T::zero);
+        return FoR::try_new(
+            encoded,
+            Scalar::primitive(reference, Nullability::NonNullable),
+        );
+    }
     FoR::try_new_chunked(
-        PrimitiveArray::new(encoded, validity).into_array(),
+        encoded,
         PrimitiveArray::new(references, Validity::NonNullable).into_array(),
         0,
     )
@@ -271,9 +283,9 @@ mod test {
     use vortex_session::VortexSession;
 
     use super::*;
-    use crate::r#for::array::FoRArrayExt;
     use crate::r#for::array::FoRArraySlotsExt;
     use crate::r#for::array::for_decompress::decompress;
+    use crate::r#for::tests::global;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = array_session();
@@ -286,10 +298,7 @@ mod test {
         let mut ctx = SESSION.create_execution_ctx();
         let array = PrimitiveArray::new((1i32..10).collect::<Buffer<_>>(), Validity::NonNullable);
         let compressed = FoRData::encode(array.clone(), &mut ctx).unwrap();
-        assert_eq!(
-            i32::try_from(&compressed.constant_reference().unwrap()).unwrap(),
-            1
-        );
+        assert_eq!(i32::try_from(&global(&compressed).unwrap()).unwrap(), 1);
 
         assert_arrays_eq!(compressed, array, &mut ctx);
     }
@@ -304,7 +313,7 @@ mod test {
         );
         let compressed = FoRData::encode(array, &mut ctx).unwrap();
         assert_eq!(
-            u32::try_from(&compressed.constant_reference().unwrap()).unwrap(),
+            u32::try_from(&global(&compressed).unwrap()).unwrap(),
             1_000_000u32
         );
     }
@@ -317,14 +326,8 @@ mod test {
 
         let dtype = array.dtype().clone();
         let compressed = FoRData::encode(array, &mut ctx).unwrap();
-        assert_eq!(compressed.constant_reference().unwrap().dtype(), &dtype);
-        assert!(
-            compressed
-                .constant_reference()
-                .unwrap()
-                .dtype()
-                .is_signed_int()
-        );
+        assert_eq!(global(&compressed).unwrap().dtype(), &dtype);
+        assert!(global(&compressed).unwrap().dtype().is_signed_int());
         assert!(compressed.encoded().dtype().is_signed_int());
 
         let encoded = compressed.encoded().execute_scalar(0, &mut ctx).unwrap();
@@ -338,9 +341,7 @@ mod test {
         let compressed = FoRData::encode(array.clone(), &mut ctx)?;
         assert_eq!(
             i8::MIN,
-            compressed
-                .constant_reference()
-                .unwrap()
+            global(&compressed)?
                 .as_primitive()
                 .typed_value::<i8>()
                 .unwrap()

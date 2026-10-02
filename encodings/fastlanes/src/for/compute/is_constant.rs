@@ -11,6 +11,7 @@ use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
 use crate::FoR;
+use crate::FoRReferences;
 use crate::r#for::array::FoRArrayExt;
 use crate::r#for::array::FoRArraySlotsExt;
 
@@ -35,7 +36,7 @@ impl DynAggregateKernel for FoRIsConstantKernel {
             return Ok(None);
         };
         // TODO(mk): support many references.
-        if array.constant_reference().is_none() {
+        if !matches!(array.references(), FoRReferences::Global(_)) {
             return Ok(None);
         }
 

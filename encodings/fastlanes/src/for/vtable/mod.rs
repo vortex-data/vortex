@@ -16,12 +16,12 @@ use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
-use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::require_child;
+use vortex_array::require_opt_child;
 use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::smallvec::smallvec;
@@ -35,6 +35,7 @@ use vortex_session::VortexSession;
 
 use crate::BitPacked;
 use crate::FoRData;
+use crate::FoRReferences;
 use crate::r#for::array::FoRArrayExt;
 use crate::r#for::array::FoRArraySlotsExt;
 use crate::r#for::array::FoRSlots;
@@ -60,12 +61,13 @@ pub(crate) fn initialize(session: &VortexSession) {
 impl ArrayHash for FoRData {
     fn array_hash<H: Hasher>(&self, state: &mut H, _accuracy: EqMode) {
         self.offset.hash(state);
+        self.global_reference.hash(state);
     }
 }
 
 impl ArrayEq for FoRData {
     fn array_eq(&self, other: &Self, _accuracy: EqMode) -> bool {
-        self.offset == other.offset
+        self.offset == other.offset && self.global_reference == other.global_reference
     }
 }
 
@@ -87,7 +89,14 @@ impl VTable for FoR {
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         let slots = FoRSlotsView::from_slots(slots);
-        validate_parts(slots.encoded, slots.references, data.offset, dtype, len)
+        validate_parts(
+            slots.encoded,
+            data.global_reference.as_ref(),
+            slots.blocked_references,
+            data.offset,
+            dtype,
+            len,
+        )
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -142,15 +151,15 @@ impl VTable for FoR {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let array = if array.constant_reference().is_some() {
-            array
-        } else {
-            require_child!(array, array.references(), FoRSlots::REFERENCES => Primitive)
-        };
+        require_opt_child!(
+            array,
+            array.blocked_references(),
+            FoRSlots::BLOCKED_REFERENCES => Primitive
+        );
         // The fused unpack reads a bit-packed child's buffers directly. Its chunks line up with
-        // the FoR chunks when the references are constant or the offsets match.
+        // the FoR chunks when the reference is global or the offsets match.
         let fused = array.encoded().as_opt::<BitPacked>().is_some_and(|bp| {
-            array.constant_reference().is_some() || bp.offset() == array.offset()
+            matches!(array.references(), FoRReferences::Global(_)) || bp.offset() == array.offset()
         });
         let array = if fused {
             array
@@ -165,31 +174,48 @@ impl VTable for FoR {
 pub struct FoR;
 
 impl FoR {
-    /// Construct a new FoR array from an encoded array and a reference scalar.
+    /// Construct a FoR array with one global reference.
     pub fn try_new(encoded: ArrayRef, reference: Scalar) -> VortexResult<FoRArray> {
         vortex_ensure!(!reference.is_null(), "Reference value cannot be null");
         let dtype = reference
             .dtype()
             .with_nullability(encoded.dtype().nullability());
         let reference = reference.cast(&dtype.as_nonnullable())?;
-        let references = ConstantArray::new(reference, num_chunks(0, encoded.len())).into_array();
-        Self::try_new_chunked(encoded, references, 0)
+        Self::try_from_parts(encoded, Some(reference), None, 0)
     }
 
     /// Construct a FoR array with one reference per 1024-element chunk.
     ///
     /// `references` must be a non-nullable integer array of the encoded array's type, with one
     /// entry for each chunk spanned by `offset + encoded.len()` elements. `offset` is the position
-    /// of the first element within the first chunk.
+    /// of the first element within the first chunk. Constant references become a global reference.
     pub fn try_new_chunked(
         encoded: ArrayRef,
         references: ArrayRef,
         offset: u16,
     ) -> VortexResult<FoRArray> {
+        if let Some(reference) = references.as_constant() {
+            let num_chunks = num_chunks(offset, encoded.len());
+            vortex_ensure!(
+                references.len() == num_chunks,
+                "FoR expects {num_chunks} references, got {}",
+                references.len()
+            );
+            return Self::try_new(encoded, reference);
+        }
+        Self::try_from_parts(encoded, None, Some(references), offset)
+    }
+
+    fn try_from_parts(
+        encoded: ArrayRef,
+        global_reference: Option<Scalar>,
+        blocked_references: Option<ArrayRef>,
+        offset: u16,
+    ) -> VortexResult<FoRArray> {
         let dtype = encoded.dtype().clone();
         let len = encoded.len();
-        let data = FoRData::try_new(offset)?;
-        let slots = smallvec![Some(encoded), Some(references)];
+        let data = FoRData::try_new(offset, global_reference)?;
+        let slots = smallvec![Some(encoded), blocked_references];
         Array::try_from_parts(ArrayParts::new(FoR, dtype, len, data).with_slots(slots))
     }
 
@@ -206,7 +232,8 @@ impl FoR {
 
 fn validate_parts(
     encoded: &ArrayRef,
-    references: &ArrayRef,
+    global_reference: Option<&Scalar>,
+    blocked_references: Option<&ArrayRef>,
     offset: u16,
     dtype: &DType,
     len: usize,
@@ -223,17 +250,33 @@ fn validate_parts(
         encoded.len()
     );
     let references_dtype = dtype.as_nonnullable();
-    vortex_ensure!(
-        references.dtype() == &references_dtype,
-        "FoR references dtype mismatch: expected {references_dtype}, got {}",
-        references.dtype()
-    );
-    let num_chunks = num_chunks(offset, len);
-    vortex_ensure!(
-        references.len() == num_chunks,
-        "FoR expects {num_chunks} references, got {}",
-        references.len()
-    );
+    match (global_reference, blocked_references) {
+        (Some(reference), None) => {
+            vortex_ensure!(!reference.is_null(), "FoR global reference cannot be null");
+            vortex_ensure!(
+                reference.dtype() == &references_dtype,
+                "FoR global reference dtype mismatch: expected {references_dtype}, got {}",
+                reference.dtype()
+            );
+        }
+        (None, Some(references)) => {
+            vortex_ensure!(
+                references.dtype() == &references_dtype,
+                "FoR references dtype mismatch: expected {references_dtype}, got {}",
+                references.dtype()
+            );
+            let num_chunks = num_chunks(offset, len);
+            vortex_ensure!(
+                references.len() == num_chunks,
+                "FoR expects {num_chunks} references, got {}",
+                references.len()
+            );
+        }
+        (Some(_), Some(_)) => {
+            vortex_bail!("FoR cannot have both a global reference and blocked references")
+        }
+        (None, None) => vortex_bail!("FoR needs either a global reference or blocked references"),
+    }
     Ok(())
 }
 

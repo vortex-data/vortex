@@ -11,17 +11,21 @@ use vortex_error::VortexResult;
 
 use crate::FL_CHUNK_SIZE;
 use crate::FoR;
+use crate::FoRReferences;
 use crate::r#for::array::FoRArrayExt;
 use crate::r#for::array::FoRArraySlotsExt;
 
 impl SliceReduce for FoR {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        // Every chunk shares one reference, so the result needs no offset.
-        if let Some(reference) = array.constant_reference() {
-            return Ok(Some(
-                FoR::try_new(array.encoded().slice(range)?, reference)?.into_array(),
-            ));
-        }
+        let references = match array.references() {
+            // A global reference needs no offset.
+            FoRReferences::Global(reference) => {
+                return Ok(Some(
+                    FoR::try_new(array.encoded().slice(range)?, reference.clone())?.into_array(),
+                ));
+            }
+            FoRReferences::Blocked(references) => references,
+        };
 
         // Keep the references of the chunks the slice overlaps, and record how far into the first
         // of them the slice starts.
@@ -33,9 +37,7 @@ impl SliceReduce for FoR {
         // Adding the array's own offset first makes this work for already-sliced arrays too.
         let start = usize::from(array.offset()) + range.start;
         let end = usize::from(array.offset()) + range.end;
-        let references = array
-            .references()
-            .slice(start / FL_CHUNK_SIZE..end.div_ceil(FL_CHUNK_SIZE))?;
+        let references = references.slice(start / FL_CHUNK_SIZE..end.div_ceil(FL_CHUNK_SIZE))?;
         let offset = u16::try_from(start % FL_CHUNK_SIZE)?;
         Ok(Some(
             FoR::try_new_chunked(array.encoded().slice(range)?, references, offset)?.into_array(),

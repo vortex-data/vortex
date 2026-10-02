@@ -16,6 +16,7 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::FoR;
+use crate::FoRReferences;
 use crate::r#for::array::FoRArrayExt;
 use crate::r#for::array::FoRArraySlotsExt;
 
@@ -26,11 +27,11 @@ impl TakeExecute for FoR {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         // TODO(mk): support many references.
-        let Some(reference) = array.constant_reference() else {
+        let FoRReferences::Global(reference) = array.references() else {
             return Ok(None);
         };
         Ok(Some(
-            FoR::try_new(array.encoded().take(indices.clone())?, reference)?.into_array(),
+            FoR::try_new(array.encoded().take(indices.clone())?, reference.clone())?.into_array(),
         ))
     }
 }
@@ -38,10 +39,11 @@ impl TakeExecute for FoR {
 impl FilterReduce for FoR {
     fn filter(array: ArrayView<'_, Self>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         // TODO(mk): support many references.
-        let Some(reference) = array.constant_reference() else {
+        let FoRReferences::Global(reference) = array.references() else {
             return Ok(None);
         };
-        FoR::try_new(array.encoded().filter(mask.clone())?, reference).map(|a| Some(a.into_array()))
+        FoR::try_new(array.encoded().filter(mask.clone())?, reference.clone())
+            .map(|a| Some(a.into_array()))
     }
 }
 

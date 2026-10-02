@@ -16,6 +16,7 @@ use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::FoR;
+use crate::FoRReferences;
 use crate::r#for::array::FoRArrayExt;
 
 #[cfg(test)]
@@ -63,9 +64,9 @@ impl ArrayPlugin for FoRPlugin {
         let view = array
             .as_opt::<FoR>()
             .ok_or_else(|| vortex_err!("FoR plugin cannot serialize {}", array.encoding_id()))?;
-        Ok(Some(match view.constant_reference() {
-            Some(reference) => v1::serialize(view, &reference),
-            None => v2::serialize(view),
+        Ok(Some(match view.references() {
+            FoRReferences::Global(reference) => v1::serialize(view, reference),
+            FoRReferences::Blocked(references) => v2::serialize(view, references),
         }))
     }
 
