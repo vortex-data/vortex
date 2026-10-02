@@ -92,6 +92,10 @@ async fn main() -> anyhow::Result<()> {
         {
             generate_duckdb(&base_path, &*benchmark)?;
         }
+
+        for format in &args.formats {
+            benchmark.prepare_format(*format, &base_path).await?;
+        }
     }
 
     Ok(())
