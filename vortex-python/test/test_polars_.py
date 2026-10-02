@@ -3,10 +3,12 @@
 
 import math
 import os
+from datetime import date
 
 import polars as pl
 import pyarrow as pa
 import pytest
+from polars.testing import assert_frame_equal
 
 import vortex as vx
 import vortex.expr as ve
@@ -71,3 +73,16 @@ def test_to_polars_with_projection_and_filter(vxf: vx.VortexFile) -> None:
     df = vxf.to_polars().select("index", "value").filter(pl.col("index") < 100).collect()
     assert df.columns == ["index", "value"]
     assert len(df) == 100
+
+
+def test_polars_date_literals(tmp_path):
+    frame = pl.DataFrame(
+        {"id": [0, 1, 2, 3], "x": [date(2024, 1, 1), date(2024, 1, 2), None, date(2024, 1, 3)]}
+    )
+    expr = pl.col("x") >= date(2024, 1, 2)
+    path = tmp_path / "date_literals.vortex"
+    vx.io.write(vx.array(frame.to_arrow()), str(path))
+    expected_frame = frame.lazy().filter(expr).collect()
+    actual = vx.open(str(path)).to_polars().filter(expr).collect()
+    assert_frame_equal(actual, expected_frame)
+    assert actual["id"].to_list() == [1, 3]
