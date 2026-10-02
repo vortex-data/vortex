@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Forward decimal aggregates that preserve unscaled integer ordering.
+//!
+//! Child aggregates keep their stored width. Boundary values in partial states are converted back
+//! to decimal scalars without rescaling; decimal sum and arithmetic keep their own kernels.
+
 use itertools::Itertools;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;

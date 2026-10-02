@@ -26,7 +26,9 @@ impl FillNullKernel for Decimal {
             .as_decimal()
             .decimal_value()
             .vortex_expect("Non-null decimal fill value");
-        let dtype = array.values_dtype().with_nullability(fill_value.dtype().nullability());
+        let dtype = array
+            .values_dtype()
+            .with_nullability(fill_value.dtype().nullability());
         let value = integer::scalar_from_integer(value, &dtype)?;
         let values = integer::fill_null(array.values(), &value, ctx)?;
         Ok(Some(

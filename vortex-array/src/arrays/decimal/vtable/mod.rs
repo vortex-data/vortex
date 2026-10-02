@@ -1,6 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Validate and execute the canonical decimal child representation.
+//!
+//! Legacy buffer metadata is decoded here for [`DecimalPlugin`](super::DecimalPlugin). The
+//! canonical array has no buffers, and its integer child owns both values and validity.
+
+mod kernel;
+mod operations;
+mod validity;
+
 use prost::Message;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -10,6 +19,8 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use super::Decimal;
+use super::DecimalArray;
 use crate::ArrayParts;
 use crate::ArrayRef;
 use crate::EmptyArrayData;
@@ -31,13 +42,6 @@ use crate::dtype::DecimalType;
 use crate::dtype::integer::integer_dtype;
 use crate::serde::ArrayChildren;
 
-mod kernel;
-mod operations;
-mod validity;
-
-/// Canonical decimal with one signed integer child and no own buffers.
-pub type DecimalArray = Array<Decimal>;
-
 pub(crate) fn initialize(session: &VortexSession) {
     kernel::initialize(session);
 }
@@ -45,6 +49,7 @@ pub(crate) fn initialize(session: &VortexSession) {
 /// Metadata used by the historical buffer-backed decimal wire representation.
 #[derive(prost::Message)]
 pub struct DecimalMetadata {
+    /// Native signed width used by the serialized values buffer.
     #[prost(enumeration = "DecimalType", tag = "1")]
     pub(super) values_type: i32,
 }
@@ -77,11 +82,16 @@ impl VTable for Decimal {
         buffers: &[BufferHandle],
     ) -> VortexResult<ArrayParts<Self>> {
         vortex_ensure!(buffers.is_empty(), "Decimal has no buffers");
-        Ok(ArrayParts::new(Self, array.dtype().clone(), array.len(), EmptyArrayData)
-            .with_slots(array.slots().iter().cloned().collect()))
+        Ok(
+            ArrayParts::new(Self, array.dtype().clone(), array.len(), EmptyArrayData)
+                .with_slots(array.slots().iter().cloned().collect()),
+        )
     }
 
-    fn serialize(_array: ArrayView<'_, Self>, _session: &VortexSession) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(
+        _array: ArrayView<'_, Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
         // The plugin writes the historical buffer representation instead of this child tree.
         Ok(None)
     }
@@ -171,12 +181,6 @@ impl VTable for Decimal {
         RULES.evaluate(array, parent, child_idx)
     }
 }
-
-/// Canonical encoding for scaled signed integer values.
-///
-/// Register [`crate::arrays::decimal::DecimalPlugin`] to read and write the historical wire representation.
-#[derive(Clone, Debug)]
-pub struct Decimal;
 
 #[cfg(test)]
 mod tests {

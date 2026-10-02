@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Check signed integer ordering at the stored width.
+//!
+//! Decimal children and wide integer extensions share numeric ordering. Nulls sort first, and
+//! strict ordering rejects repeated values, including repeated nulls.
+
 use itertools::Itertools;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
@@ -9,17 +14,8 @@ use vortex_mask::Mask;
 use super::IsSortedIteratorExt;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
-use crate::arrays::DecimalArray;
 use crate::integer;
 use crate::match_each_decimal_value_type;
-
-pub(super) fn check_decimal_sorted(
-    array: &DecimalArray,
-    strict: bool,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<bool> {
-    check_signed_integer_sorted(array.values(), strict, ctx)
-}
 
 pub(super) fn check_signed_integer_sorted(
     array: &ArrayRef,

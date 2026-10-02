@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Push decimal operations into their signed integer children.
+//!
+//! Selection and compatible casts remain lazy. Operations that need native buffers materialize
+//! only the stored width and preserve decimal precision and scale.
+
 mod between;
 mod cast;
 mod compare;

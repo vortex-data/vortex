@@ -1,8 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Validate native wide integer storage and expose its canonical byte representation.
+//!
+//! The buffer width must match the integer dtype. Canonical execution shares the same buffer as
+//! a fixed-size list of bytes; scalar access preserves signed numeric values.
+
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -63,16 +69,26 @@ impl VTable for WideIntegerEncoding {
             matches!(data.values_type, DecimalType::I128 | DecimalType::I256),
             "Expected wide integer storage"
         );
-        let alignment = match_each_decimal_value_type!(data.values_type, |T| { Alignment::of::<T>() });
+        let alignment =
+            match_each_decimal_value_type!(data.values_type, |T| { Alignment::of::<T>() });
         vortex_ensure!(
             data.values.is_aligned_to(alignment),
             "Integer storage is not aligned to {alignment:?}"
         );
-        vortex_ensure!(slots.len() == 1, "Expected one validity slot, got {}", slots.len());
-        let expected_dtype = integer_dtype(data.values_type, dtype.nullability());
-        vortex_ensure!(dtype == &expected_dtype, "Expected {expected_dtype}, got {dtype}");
         vortex_ensure!(
-            data.values.len().is_multiple_of(data.values_type.byte_width())
+            slots.len() == 1,
+            "Expected one validity slot, got {}",
+            slots.len()
+        );
+        let expected_dtype = integer_dtype(data.values_type, dtype.nullability());
+        vortex_ensure!(
+            dtype == &expected_dtype,
+            "Expected {expected_dtype}, got {dtype}"
+        );
+        vortex_ensure!(
+            data.values
+                .len()
+                .is_multiple_of(data.values_type.byte_width())
                 && data.values.len() / data.values_type.byte_width() == len,
             "Expected {len} integers, got {} bytes",
             data.values.len()
@@ -124,7 +140,10 @@ impl VTable for WideIntegerEncoding {
         .with_slots(rebuilt.slots().iter().cloned().collect()))
     }
 
-    fn serialize(_array: ArrayView<'_, Self>, _session: &VortexSession) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(
+        _array: ArrayView<'_, Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
@@ -137,7 +156,10 @@ impl VTable for WideIntegerEncoding {
         children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
-        vortex_ensure!(metadata.is_empty(), "Expected empty integer metadata, got {metadata:?}");
+        vortex_ensure!(
+            metadata.is_empty(),
+            "Expected empty integer metadata, got {metadata:?}"
+        );
         let values_type = signed_integer_type(dtype)
             .ok_or_else(|| vortex_err!("Expected a wide integer dtype, got {dtype}"))?;
         let array = WideIntegerArray::try_new_handle(
@@ -145,7 +167,10 @@ impl VTable for WideIntegerEncoding {
             values_type,
             fixed_width::deserialize_validity(dtype.nullability(), len, children)?,
         )?;
-        vortex_ensure!(array.len() == len, "Integer buffer length does not match declared length {len}");
+        vortex_ensure!(
+            array.len() == len,
+            "Integer buffer length does not match declared length {len}"
+        );
         Ok(ArrayParts::new(
             Self,
             array.dtype().clone(),
@@ -175,7 +200,8 @@ impl VTable for WideIntegerEncoding {
         );
         let storage = FixedSizeListArray::try_new(
             bytes.into_array(),
-            array.values_type().byte_width() as u32,
+            u32::try_from(array.values_type().byte_width())
+                .vortex_expect("DecimalType is at most 32 bytes"),
             array.integer_validity(),
             array.len(),
         )?;

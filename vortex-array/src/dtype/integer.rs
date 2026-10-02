@@ -52,3 +52,10 @@ pub fn integer_byte_width(dtype: &DType) -> Option<usize> {
 
     signed_integer_type(dtype).map(|values_type| values_type.byte_width())
 }
+
+/// Returns whether a checked signed cast crosses a wide integer dtype.
+pub(crate) fn is_wide_integer_cast(source: &DType, target: &DType) -> bool {
+    (WideInteger::width(source).is_some() || WideInteger::width(target).is_some())
+        && signed_integer_type(source).is_some()
+        && signed_integer_type(target).is_some()
+}

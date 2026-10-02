@@ -101,7 +101,11 @@ impl NarrowArray {
     /// Narrows signed primitive or wide integer values without changing their logical dtype.
     pub fn encode_signed(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let logical = signed_integer_type(array.dtype());
-        vortex_ensure!(logical.is_some(), "Expected signed integers, got {}", array.dtype());
+        vortex_ensure!(
+            logical.is_some(),
+            "Expected signed integers, got {}",
+            array.dtype()
+        );
         let logical = logical.vortex_expect("Signed integer dtype checked above");
         let storage = integer::storage_child(&array);
         let bounds = min_max(storage, ctx, NumericalAggregateOpts::default())?

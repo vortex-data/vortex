@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Compare unscaled decimal values through their integer children.
+//!
+//! Matching precision and scale allow the integer comparison kernels to retain compressed values
+//! and handle constants outside the stored range.
+
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -31,7 +36,9 @@ impl CompareKernel for Decimal {
             let Some(value) = value.as_decimal().decimal_value() else {
                 return Ok(None);
             };
-            let dtype = lhs.values_dtype().with_nullability(rhs.dtype().nullability());
+            let dtype = lhs
+                .values_dtype()
+                .with_nullability(rhs.dtype().nullability());
             ConstantArray::new(integer::scalar_from_integer(value, &dtype)?, rhs.len()).into_array()
         } else if let Some(rhs) = rhs.as_opt::<Decimal>() {
             rhs.values().clone()

@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Preserve the historical decimal wire representation.
+//!
+//! In-memory decimals have an integer child. This plugin serializes its materialized stored width
+//! so existing readers retain the same buffer and validity format.
+
 use prost::Message;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -37,7 +42,11 @@ impl ArrayPlugin for DecimalPlugin {
         array: &ArrayRef,
         session: &VortexSession,
     ) -> VortexResult<Option<ArraySerialization>> {
-        vortex_ensure!(array.is::<Decimal>(), "Decimal plugin cannot serialize {}", array.encoding_id());
+        vortex_ensure!(
+            array.is::<Decimal>(),
+            "Decimal plugin cannot serialize {}",
+            array.encoding_id()
+        );
         let mut ctx = session.create_execution_ctx();
         let array = array.as_::<Decimal>().materialize_values(&mut ctx)?;
         let metadata = DecimalMetadata {
@@ -58,7 +67,11 @@ impl ArrayPlugin for DecimalPlugin {
         parts: ArrayDeserialization<'_>,
         session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
-        vortex_ensure!(parts.serialized_id == self.id(), "Unknown decimal ID {}", parts.serialized_id);
+        vortex_ensure!(
+            parts.serialized_id == self.id(),
+            "Unknown decimal ID {}",
+            parts.serialized_id
+        );
         Ok(DecimalArray::try_from_parts(VTable::deserialize(
             &Decimal,
             parts.dtype,

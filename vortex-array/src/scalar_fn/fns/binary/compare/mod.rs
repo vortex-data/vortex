@@ -38,6 +38,7 @@ use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
+use crate::extension::integer::WideInteger;
 use crate::kernel::ExecuteParentKernel;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::binary::Binary;
@@ -179,9 +180,7 @@ fn compare_arrays(
 ) -> VortexResult<ArrayRef> {
     let nullability = Nullability::from(lhs.dtype().is_nullable() || rhs.dtype().is_nullable());
 
-    if crate::extension::integer::WideInteger::width(lhs.dtype()).is_some()
-        || crate::extension::integer::WideInteger::width(rhs.dtype()).is_some()
-    {
+    if WideInteger::width(lhs.dtype()).is_some() || WideInteger::width(rhs.dtype()).is_some() {
         return integer::compare_integer(lhs, rhs, op, nullability, ctx);
     }
 

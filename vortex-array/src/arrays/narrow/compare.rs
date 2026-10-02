@@ -58,11 +58,14 @@ impl CompareKernel for Narrow {
             ) {
                 let values_type = lhs_type.max(rhs_type);
                 return compare_values(
-                    &lhs.values().cast(integer_dtype(values_type, lhs.dtype().nullability()))?,
-                    &rhs.values().cast(integer_dtype(values_type, rhs.dtype().nullability()))?,
+                    &lhs.values()
+                        .cast(integer_dtype(values_type, lhs.dtype().nullability()))?,
+                    &rhs.values()
+                        .cast(integer_dtype(values_type, rhs.dtype().nullability()))?,
                     operator,
                     ctx,
-                ).map(Some);
+                )
+                .map(Some);
             }
             let ptype = if lhs.values().dtype().as_ptype().byte_width()
                 >= rhs.values().dtype().as_ptype().byte_width()

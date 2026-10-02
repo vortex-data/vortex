@@ -23,6 +23,7 @@ use crate::arrays::ScalarFnArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::expr::BoundExpression;
+use crate::extension::integer::WideInteger;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -169,7 +170,7 @@ fn fill_null_canonical(
     if let Some(result) = short_circuit(&arr, fill_value)? {
         return Ok(result);
     }
-    if crate::extension::integer::WideInteger::width(arr.dtype()).is_some() {
+    if WideInteger::width(arr.dtype()).is_some() {
         return crate::integer::fill_null(&arr, fill_value, ctx);
     }
     match canonical {

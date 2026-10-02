@@ -88,7 +88,10 @@ fn mask_validity_primitive(
 
 fn mask_validity_decimal(array: DecimalArray, validity: Validity) -> VortexResult<DecimalArray> {
     DecimalArray::try_new_values(
-        array.values().clone().mask(validity.to_array(array.len()))?,
+        array
+            .values()
+            .clone()
+            .mask(validity.to_array(array.len()))?,
         array.decimal_dtype(),
     )
 }

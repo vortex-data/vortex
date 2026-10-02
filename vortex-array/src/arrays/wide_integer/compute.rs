@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Operate on native wide integer buffers without converting them to byte lists.
+//!
+//! Selection preserves element boundaries and validity. Casts and fills use checked signed
+//! integer conversions when the required width changes.
+
 use std::ops::Range;
 
 use vortex_buffer::ByteBuffer;
@@ -11,8 +16,8 @@ use super::WideIntegerArray;
 use super::WideIntegerArrayExt;
 use super::WideIntegerEncoding;
 use crate::ArrayRef;
-use crate::ArrayView;
 use crate::ArrayVTable;
+use crate::ArrayView;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::Dict;
@@ -72,7 +77,11 @@ impl FixedWidthArray for WideIntegerEncoding {
         _len: usize,
         validity: Validity,
     ) -> VortexResult<WideIntegerArray> {
-        WideIntegerArray::try_new_handle(BufferHandle::new_host(values), array.values_type(), validity)
+        WideIntegerArray::try_new_handle(
+            BufferHandle::new_host(values),
+            array.values_type(),
+            validity,
+        )
     }
 }
 
@@ -81,7 +90,9 @@ impl SliceReduce for WideIntegerEncoding {
         let width = array.values_type().byte_width();
         Ok(Some(
             WideIntegerArray::try_new_handle(
-                array.buffer_handle().slice(range.start * width..range.end * width),
+                array
+                    .buffer_handle()
+                    .slice(range.start * width..range.end * width),
                 array.values_type(),
                 array.integer_validity().slice(range)?,
             )?
@@ -98,7 +109,9 @@ impl MaskReduce for WideIntegerEncoding {
             WideIntegerArray::try_new_handle(
                 array.buffer_handle().clone(),
                 array.values_type(),
-                array.integer_validity().and(Validity::Array(mask.clone()))?,
+                array
+                    .integer_validity()
+                    .and(Validity::Array(mask.clone()))?,
             )?
             .into_array(),
         ))

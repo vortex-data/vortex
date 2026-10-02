@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Reduce decimal parents to operations on their integer children.
+//!
+//! Rewrapping retains precision and scale while the child operation determines result validity
+//! and logical nullability.
+
 use std::ops::Range;
 
 use vortex_error::VortexExpect;
@@ -64,7 +69,10 @@ impl ArrayParentReduceRule<Decimal> for DecimalMaskedValidityRule {
     ) -> VortexResult<Option<ArrayRef>> {
         rewrap(
             array,
-            array.values().clone().mask(parent.validity()?.to_array(array.len()))?,
+            array
+                .values()
+                .clone()
+                .mask(parent.validity()?.to_array(array.len()))?,
         )
     }
 }
@@ -98,7 +106,10 @@ impl TakeExecute for Decimal {
 }
 
 impl FillNullReduce for Decimal {
-    fn fill_null(array: ArrayView<'_, Self>, fill_value: &Scalar) -> VortexResult<Option<ArrayRef>> {
+    fn fill_null(
+        array: ArrayView<'_, Self>,
+        fill_value: &Scalar,
+    ) -> VortexResult<Option<ArrayRef>> {
         let value = fill_value
             .as_decimal()
             .decimal_value()

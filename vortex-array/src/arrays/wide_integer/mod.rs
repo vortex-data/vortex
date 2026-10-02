@@ -4,7 +4,7 @@
 //! Native buffers for signed 128-bit and 256-bit integer extension dtypes.
 //!
 //! [`WideIntegerArray`] owns one integer buffer and an optional validity child. Its execution
-//! exposes that buffer as the extension dtype's fixed-size byte storage without widening or copying.
+//! exposes that buffer as the extension dtype's fixed-size byte storage without a copy.
 
 mod compute;
 pub(crate) use compute::initialize;
@@ -55,7 +55,9 @@ pub struct WideIntegerSlots {
 /// The native values of a [`WideIntegerArray`].
 #[derive(Clone, Debug)]
 pub struct WideIntegerData {
+    /// Aligned native values, containing only whole elements of `values_type`.
     pub(super) values: BufferHandle,
+    /// Native width validated against the logical dtype at construction.
     pub(super) values_type: DecimalType,
 }
 
@@ -113,7 +115,10 @@ impl WideIntegerArray {
     /// Only `i128` and `i256` are accepted. Smaller signed integer types use [`PrimitiveArray`].
     ///
     /// [`PrimitiveArray`]: crate::arrays::PrimitiveArray
-    pub fn try_new<T: NativeDecimalType>(values: Buffer<T>, validity: Validity) -> VortexResult<Self> {
+    pub fn try_new<T: NativeDecimalType>(
+        values: Buffer<T>,
+        validity: Validity,
+    ) -> VortexResult<Self> {
         Self::try_new_handle(
             BufferHandle::new_host(values.into_byte_buffer()),
             T::DECIMAL_TYPE,
@@ -145,13 +150,18 @@ impl WideIntegerArray {
 
         let len = values.len() / values_type.byte_width();
         let dtype = integer_dtype(values_type, validity.nullability());
-        let data = WideIntegerData { values, values_type };
-        Self::try_from_parts(ArrayParts::new(WideIntegerEncoding, dtype, len, data).with_slots(
-            WideIntegerSlots {
-                validity: validity_to_child(&validity, len),
-            }
-            .into_slots(),
-        ))
+        let data = WideIntegerData {
+            values,
+            values_type,
+        };
+        Self::try_from_parts(
+            ArrayParts::new(WideIntegerEncoding, dtype, len, data).with_slots(
+                WideIntegerSlots {
+                    validity: validity_to_child(&validity, len),
+                }
+                .into_slots(),
+            ),
+        )
     }
 }
 

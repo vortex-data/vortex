@@ -11,13 +11,12 @@ use crate::arrays::ExtensionArray;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
+use crate::dtype::integer::is_wide_integer_cast;
 use crate::scalar_fn::fns::cast::CastReduce;
 
 impl CastReduce for Extension {
     fn cast(array: ArrayView<'_, Extension>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        if crate::extension::integer::WideInteger::width(array.dtype()).is_some()
-            && crate::dtype::integer::signed_integer_type(dtype).is_some()
-        {
+        if is_wide_integer_cast(array.dtype(), dtype) {
             return Ok(None);
         }
 

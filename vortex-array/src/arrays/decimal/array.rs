@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Construct and materialize canonical decimal integer children.
+//!
+//! Logical width follows decimal precision. Native buffer access is available only after the
+//! stored child is materialized, so selection and canonicalization can preserve compressed values.
+
 use itertools::Itertools;
 use vortex_buffer::Alignment;
 use vortex_buffer::BitBufferMut;
@@ -115,7 +120,10 @@ pub trait DecimalArrayExt: TypedArrayRef<Decimal> + DecimalArraySlotsExt {
         Buffer::<T>::from_byte_buffer(self.buffer_handle().as_host().clone())
     }
 
-    /// Decodes the stored child without expanding a Narrow child to its logical width.
+    /// Decodes stored values without expanding [`NarrowArray`] to its logical width.
+    ///
+    /// Empty and all-null arrays retain their stored width. The returned array supports native
+    /// buffer access and keeps the same decimal dtype and validity.
     fn materialize_values(&self, ctx: &mut ExecutionCtx) -> VortexResult<DecimalArray> {
         let values = integer::from_buffer(integer::materialize(self.values(), ctx)?)?;
         DecimalArray::from_integer_values(values, self.decimal_dtype())
@@ -165,7 +173,8 @@ impl Array<Decimal> {
         DecimalArrayExt::buffer(self)
     }
 
-    /// Decodes stored values without expanding Narrow to its logical width.
+    /// Decodes stored values at the physical width described by
+    /// [`DecimalArrayExt::materialize_values`].
     pub fn materialize_values(&self, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         DecimalArrayExt::materialize_values(self, ctx)
     }
@@ -210,6 +219,10 @@ impl Array<Decimal> {
     }
 
     /// Creates a decimal from a native buffer with structural validation.
+    ///
+    /// Values must fit the declared precision; this constructor does not scan them to check that
+    /// requirement. A buffer wider than the precision's integer dtype is cast lazily. Call
+    /// [`Self::materialize_values`] before borrowing its native buffer.
     pub fn try_new<T: NativeDecimalType>(
         buffer: Buffer<T>,
         decimal_dtype: DecimalDType,
@@ -273,8 +286,8 @@ impl Array<Decimal> {
     ///
     /// # Safety
     ///
-    /// All non-null values must fit the declared decimal precision. The validity must match the
-    /// number of values. Structural validation is retained at the integer-child boundary.
+    /// Values must satisfy [`Self::try_new`]'s precision requirement. Violations can produce
+    /// incorrect results. Structural validation is retained at the integer-child boundary.
     pub unsafe fn new_unchecked<T: NativeDecimalType>(
         buffer: Buffer<T>,
         decimal_dtype: DecimalDType,
@@ -287,8 +300,8 @@ impl Array<Decimal> {
     ///
     /// # Safety
     ///
-    /// The values must be aligned, contain whole elements, and fit the declared decimal precision.
-    /// The validity must match the number of values.
+    /// Values must satisfy [`Self::try_new`]'s precision requirement. Violations can produce
+    /// incorrect results. Buffer alignment, element count, and validity length are still checked.
     pub unsafe fn new_unchecked_handle(
         values: BufferHandle,
         values_type: DecimalType,
@@ -381,7 +394,12 @@ impl Array<Decimal> {
             let values = Buffer::<T>::from_byte_buffer(values).into_mut();
             let patch_values = Buffer::<T>::from_byte_buffer(patch_values);
             match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
-                patch_typed(values, indices.as_slice::<I>(), patches.offset(), patch_values)
+                patch_typed(
+                    values,
+                    indices.as_slice::<I>(),
+                    patches.offset(),
+                    patch_values,
+                )
             })
         });
         Self::try_new_handle(values, target, array.decimal_dtype(), validity)

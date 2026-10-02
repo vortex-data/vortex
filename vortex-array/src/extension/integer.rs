@@ -75,7 +75,7 @@ impl WideInteger {
             width,
             DType::FixedSizeList(
                 Arc::new(PType::U8.into()),
-                width.byte_width() as u32,
+                u32::try_from(width.byte_width()).vortex_expect("IntegerWidth is at most 32 bytes"),
                 nullability,
             ),
         )
@@ -103,7 +103,9 @@ impl WideInteger {
         let mut bytes = [0u8; 32];
         for (out, value) in bytes.iter_mut().zip(values) {
             let Some(ScalarValue::Primitive(PValue::U8(value))) = value else {
-                return Err(vortex_err!("Expected a non-null integer byte, got {value:?}"));
+                return Err(vortex_err!(
+                    "Expected a non-null integer byte, got {value:?}"
+                ));
             };
             *out = *value;
         }
@@ -125,7 +127,9 @@ impl ExtVTable for WideInteger {
     }
 
     fn serialize_metadata(&self, metadata: &IntegerWidth) -> VortexResult<Vec<u8>> {
-        Ok(vec![metadata.byte_width() as u8])
+        Ok(vec![
+            u8::try_from(metadata.byte_width()).vortex_expect("IntegerWidth is at most 32 bytes"),
+        ])
     }
 
     fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<IntegerWidth> {
@@ -139,7 +143,8 @@ impl ExtVTable for WideInteger {
     fn validate_dtype(dtype: &ExtDType<Self>) -> VortexResult<()> {
         let expected = DType::FixedSizeList(
             Arc::new(PType::U8.into()),
-            dtype.metadata().byte_width() as u32,
+            u32::try_from(dtype.metadata().byte_width())
+                .vortex_expect("IntegerWidth is at most 32 bytes"),
             dtype.storage_dtype().nullability(),
         );
         vortex_ensure!(

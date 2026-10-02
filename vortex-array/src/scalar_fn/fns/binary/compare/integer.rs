@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Compare signed integer operands at a sufficient native width.
+//!
+//! Arrays materialize at their stored width. Non-null constants outside that range give a known
+//! comparison result, while the result retains the operands' validity.
+
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
@@ -25,7 +30,7 @@ enum IntegerOperand {
 }
 
 impl IntegerOperand {
-    fn new(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+    fn classify(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         if let Some(value) = array.as_constant() {
             return Ok(Self::Constant(
                 integer::scalar_value(&value)?,
@@ -57,8 +62,8 @@ pub(super) fn compare_integer(
         rhs.dtype()
     );
     let len = lhs.len();
-    let lhs = IntegerOperand::new(lhs, ctx)?;
-    let rhs = IntegerOperand::new(rhs, ctx)?;
+    let lhs = IntegerOperand::classify(lhs, ctx)?;
+    let rhs = IntegerOperand::classify(rhs, ctx)?;
     let validity = super::compare_validity(lhs.validity(), rhs.validity(), nullability)?;
     let bits = match (lhs, rhs) {
         (IntegerOperand::Array(lhs), IntegerOperand::Array(rhs)) => {
@@ -75,13 +80,11 @@ pub(super) fn compare_integer(
         (IntegerOperand::Constant(value, _), IntegerOperand::Array(array)) => {
             compare_constant(&array, value, op.swap(), ctx)?
         }
-        (IntegerOperand::Constant(lhs, _), IntegerOperand::Constant(rhs, _)) => {
-            BitBuffer::full_in(
-                super::ordering_predicate(op)(lhs.as_i256().cmp(&rhs.as_i256())),
-                len,
-                ctx.allocator().clone(),
-            )
-        }
+        (IntegerOperand::Constant(lhs, _), IntegerOperand::Constant(rhs, _)) => BitBuffer::full_in(
+            super::ordering_predicate(op)(lhs.as_i256().cmp(&rhs.as_i256())),
+            len,
+            ctx.allocator().clone(),
+        ),
     };
     Ok(BoolArray::try_new(bits, validity)?.into_array())
 }
@@ -109,6 +112,10 @@ fn compare_constant(
             CompareOperator::Lt | CompareOperator::Lte => !negative,
             CompareOperator::Gt | CompareOperator::Gte => negative,
         };
-        Ok(BitBuffer::full_in(result, values.len(), ctx.allocator().clone()))
+        Ok(BitBuffer::full_in(
+            result,
+            values.len(),
+            ctx.allocator().clone(),
+        ))
     })
 }

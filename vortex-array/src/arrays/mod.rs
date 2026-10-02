@@ -17,6 +17,8 @@
 //! traits document the stable contract; avoid depending on undocumented slot order or metadata
 //! details.
 
+use vortex_session::VortexSession;
+
 #[cfg(any(test, feature = "_test-harness"))]
 mod assertions;
 
@@ -141,7 +143,6 @@ pub use variant::VariantArray;
 pub mod wide_integer;
 pub use wide_integer::WideIntegerArray;
 pub use wide_integer::WideIntegerEncoding;
-use vortex_session::VortexSession;
 
 pub(crate) fn initialize(session: &VortexSession) {
     bool::initialize(session);
