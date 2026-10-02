@@ -11,7 +11,6 @@ use crate::IntoArray;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::min_max::min_max;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::PType;

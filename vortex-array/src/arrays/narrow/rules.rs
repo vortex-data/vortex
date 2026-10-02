@@ -86,7 +86,10 @@ impl CastReduce for Narrow {
 
 impl FillNullReduce for Narrow {
     fn fill_null(array: ArrayView<'_, Self>, fill_value: &Scalar) -> VortexResult<Option<ArrayRef>> {
-        let storage_dtype = array.values().dtype().as_nonnullable();
+        let storage_dtype = array
+            .values()
+            .dtype()
+            .with_nullability(fill_value.dtype().nullability());
         let Ok(fill_value) = fill_value.cast(&storage_dtype) else {
             // A valid logical value may require wider storage. Let canonical execution handle it.
             return Ok(None);

@@ -255,6 +255,27 @@ fn test_cast_preserves_checked_nullability() -> VortexResult<()> {
 }
 
 #[rstest]
+#[case(Nullability::NonNullable)]
+#[case(Nullability::Nullable)]
+fn test_fill_null_preserves_result_dtype(#[case] nullability: Nullability) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let child = PrimitiveArray::from_option_iter([Some(1i8), None]).into_array();
+    let dtype = DType::Primitive(PType::I64, Nullability::Nullable);
+    let array = NarrowArray::try_new(child, dtype)?.into_array();
+    let filled = array.fill_null(Scalar::primitive(2i64, nullability))?;
+    let expected_dtype = DType::Primitive(PType::I64, nullability);
+
+    assert_eq!(filled.dtype(), &expected_dtype);
+    assert!(filled.is::<Narrow>());
+    assert_arrays_eq!(
+        filled,
+        buffer![1i64, 2].into_array().cast(expected_dtype)?,
+        &mut ctx
+    );
+    Ok(())
+}
+
+#[rstest]
 #[case::eq(Operator::Eq)]
 #[case::ne(Operator::NotEq)]
 #[case::lt(Operator::Lt)]
