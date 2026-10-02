@@ -47,6 +47,31 @@ use crate::scalar::Scalar;
 /// Return the sum of an array.
 ///
 /// See [`Sum`] for details.
+/// The single quiet NaN that a float sum is reported as.
+///
+/// IEEE 754 does not specify the bit pattern produced by an *invalid* operation, and targets
+/// disagree: x86_64 yields `0xfff8_0000_0000_0000` (sign bit set) while aarch64 yields
+/// `0x7ff8_0000_0000_0000` (sign bit clear). A float sum reaches an invalid operation whenever a
+/// column holds both `+inf` and `-inf`, because the two infinities meet in the accumulator and
+/// `inf + -inf` is evaluated — with `skip_nans` set, NaN inputs are stepped over, which is what lets
+/// them meet.
+///
+/// Sums are persisted as `Stat::Sum`, so letting the platform's choice through makes the bytes of a
+/// written file depend on the architecture that wrote it. A NaN sum carries no payload information,
+/// so it is reported canonically instead. (`sum_v2` already writes `f64::NAN` explicitly for its
+/// non-`skip_nans` poisoning path; this makes the *computed* NaN agree with that.)
+pub(crate) const CANONICAL_NAN_BITS: u64 = 0x7ff8_0000_0000_0000;
+
+/// Report any NaN as [`CANONICAL_NAN_BITS`]; all other values pass through unchanged.
+#[inline]
+pub(crate) fn canonicalize_float_sum(sum: f64) -> f64 {
+    if sum.is_nan() {
+        f64::from_bits(CANONICAL_NAN_BITS)
+    } else {
+        sum
+    }
+}
+
 pub fn sum(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
     // Short-circuit using cached array statistics.
     if let Precision::Exact(sum_scalar) = array.statistics().get(Stat::Sum) {
@@ -197,7 +222,9 @@ impl AggregateFnVTable for Sum {
             None => Scalar::null(args.return_dtype.as_nullable()),
             Some(SumState::Unsigned(v)) => Scalar::primitive(*v, Nullability::Nullable),
             Some(SumState::Signed(v)) => Scalar::primitive(*v, Nullability::Nullable),
-            Some(SumState::Float(v)) => Scalar::primitive(*v, Nullability::Nullable),
+            Some(SumState::Float(v)) => {
+                Scalar::primitive(canonicalize_float_sum(*v), Nullability::Nullable)
+            }
             Some(SumState::Decimal(value)) => {
                 let decimal_dtype = *args
                     .return_dtype
@@ -549,6 +576,69 @@ mod tests {
     }
 
     // Multi-batch and reset tests
+
+
+    /// A float sum that reaches an IEEE *invalid* operation must report one canonical NaN.
+    ///
+    /// `+inf + -inf` is invalid, and IEEE 754 leaves the resulting bit pattern unspecified: x86_64
+    /// produces `0xfff8_0000_0000_0000` and aarch64 `0x7ff8_0000_0000_0000`. Sums are persisted as
+    /// `Stat::Sum`, so without canonicalisation the bytes of a written file depend on the
+    /// architecture that wrote them. Asserting on the exact bits is the point — before the fix this
+    /// failed on x86_64 and passed on aarch64.
+    #[test]
+    fn test_sum_float_invalid_operation_is_canonical_nan() {
+        const CANONICAL: u64 = 0x7ff8_0000_0000_0000;
+
+        fn sum_bits(array: &ArrayRef) -> u64 {
+            let mut ctx = array_session().create_execution_ctx();
+            let scalar = sum(array, &mut ctx).vortex_expect("sum");
+            f64::try_from(&scalar).vortex_expect("float sum").to_bits()
+        }
+
+        // Both infinities in one array: the accumulator evaluates `inf + -inf`.
+        let both_infinities = buffer![f64::INFINITY, f64::NEG_INFINITY].into_array();
+        assert_eq!(
+            sum_bits(&both_infinities),
+            CANONICAL,
+            "a NaN sum must be canonical, not the platform's default NaN"
+        );
+
+        // NaN inputs are skipped, so a NaN payload in the data must not reach the result either, and
+        // the infinities still meet. This is the shape that surfaced the bug in the wild.
+        let with_nan_payload = buffer![
+            f64::from_bits(0x7ff8_0000_dead_beef),
+            -0.0,
+            0.0,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::MIN_POSITIVE,
+            f64::from_bits(0x000f_ffff_ffff_ffff),
+        ]
+        .into_array();
+        assert_eq!(
+            sum_bits(&with_nan_payload),
+            CANONICAL,
+            "a NaN sum must not carry a payload from the data or from the platform"
+        );
+
+        // `sum_v2` finalises floats through its own path and must agree.
+        let mut ctx = array_session().create_execution_ctx();
+        let v2 = crate::aggregate_fn::fns::sum_v2::sum_v2(&both_infinities, &mut ctx)
+            .vortex_expect("sum_v2");
+        assert_eq!(
+            f64::try_from(&v2).vortex_expect("float sum").to_bits(),
+            CANONICAL,
+            "sum_v2 must canonicalise a NaN sum too"
+        );
+
+        // A finite sum is untouched.
+        let finite = buffer![1.5f64, 2.25, -0.75].into_array();
+        assert_eq!(f64::from_bits(sum_bits(&finite)), 3.0);
+
+        // So is a sum that legitimately overflows to an infinity: those bits ARE specified.
+        let overflow = buffer![f64::MAX, f64::MAX].into_array();
+        assert_eq!(f64::from_bits(sum_bits(&overflow)), f64::INFINITY);
+    }
 
     #[test]
     fn sum_multi_batch() -> VortexResult<()> {

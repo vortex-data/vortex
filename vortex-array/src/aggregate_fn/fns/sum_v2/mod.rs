@@ -485,7 +485,11 @@ fn sum_state_scalar(
     match &partial.sum {
         SumState::Unsigned(value) => Scalar::primitive(*value, nullability),
         SumState::Signed(value) => Scalar::primitive(*value, nullability),
-        SumState::Float(value) => Scalar::primitive(*value, nullability),
+        // Canonicalised for the same reason as in `sum`: an invalid operation's NaN bits are
+        // platform-dependent and this value is persisted as a statistic.
+        SumState::Float(value) => {
+            Scalar::primitive(crate::aggregate_fn::fns::sum::canonicalize_float_sum(*value), nullability)
+        }
         SumState::Decimal(value) => Scalar::decimal(
             *value,
             *return_dtype
