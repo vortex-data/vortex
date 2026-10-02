@@ -49,9 +49,6 @@ impl RepeatedArrayProbe {
     }
 
     /// Read the scalar at `index`, including its nullness, reusing retained preparation.
-    ///
-    /// Nullness is the encoding's to resolve, so a wrapper encoding that reads through a child
-    /// walks the tree once rather than once for validity and again for the value.
     pub fn execute_scalar(&mut self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
         check_bounds(&self.array, index)?;
         let result =
@@ -116,7 +113,7 @@ impl ValiditySlot {
             *self = Self::resolve(array, ctx)?;
         }
         match self {
-            Self::Empty => vortex_panic!("validity slot was just resolved"),
+            Self::Empty => unreachable!("validity slot was just resolved"),
             Self::Uniform(valid) => Ok(*valid),
             Self::Array(probe) => is_valid_scalar(probe.execute_scalar(index, ctx)?, index),
         }

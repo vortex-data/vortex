@@ -78,9 +78,6 @@ impl ArrayProbe<'_> {
 }
 
 /// One-off scalar read: nothing outlives the call.
-///
-/// Nullness is the encoding's to resolve, so a wrapper encoding that reads through a child walks
-/// the tree once rather than once for validity and again for the value.
 #[inline]
 fn execute_scalar_once(
     array: &ArrayRef,
@@ -105,8 +102,6 @@ fn execute_is_valid_once(
     is_valid_once(array, index, ctx)
 }
 
-/// Whether row `index` of `array` is valid, resolving the validity afresh. Bounds have been
-/// checked.
 #[inline]
 fn is_valid_once(array: &ArrayRef, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
     if !array.dtype().is_nullable() {
@@ -198,13 +193,7 @@ impl<'a, V: VTable> ProbeState<'a, V> {
     }
 
     /// Whether the row at `index` of the array being read is valid.
-    ///
-    /// For encodings that hold their own validity (leaves, or wrappers whose validity is not a
-    /// child's). A one-off read resolves the array's validity for this call; a repeated read
-    /// resolves it into the validity slot of the retained state on first use and reads through
-    /// the probe kept there after. Wrapper encodings that read through a child should not call
-    /// this: the child's scalar already carries its nullness, and checking here would walk the
-    /// tree twice.
+    /// Will use the cached state to resolve the query.
     #[inline]
     pub fn is_valid(&mut self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
         let array = self.array.array();
