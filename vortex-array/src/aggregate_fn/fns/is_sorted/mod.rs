@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Check ascending order across valid values and nulls.
+//!
+//! Partial states carry boundary values between batches. Signed integer children retain their
+//! stored width while decimal and extension arrays keep their logical scalar types.
+
 mod bool;
-mod decimal;
 mod extension;
+mod integer;
 mod primitive;
 mod varbin;
 
@@ -17,8 +22,8 @@ use vortex_error::vortex_bail;
 use vortex_session::registry::CachedId;
 
 use self::bool::check_bool_sorted;
-use self::decimal::check_decimal_sorted;
 use self::extension::check_extension_sorted;
+use self::integer::check_signed_integer_sorted;
 use self::primitive::check_primitive_sorted;
 use self::varbin::check_varbinview_sorted;
 use crate::ArrayRef;
@@ -41,6 +46,7 @@ use crate::dtype::StructFields;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProviderExt;
+use crate::extension::integer::WideInteger;
 use crate::scalar::Scalar;
 
 /// Options for the `is_sorted` aggregate function.
@@ -254,6 +260,9 @@ impl AggregateFnVTable for IsSorted {
 
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         match input_dtype {
+            DType::Extension(_) if WideInteger::width(input_dtype).is_some() => {
+                Some(DType::Bool(Nullability::NonNullable))
+            }
             DType::Null
             | DType::List(..)
             | DType::FixedSizeList(..)
@@ -272,6 +281,9 @@ impl AggregateFnVTable for IsSorted {
 
     fn partial_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         match input_dtype {
+            DType::Extension(_) if WideInteger::width(input_dtype).is_some() => {
+                Some(make_is_sorted_partial_dtype(input_dtype))
+            }
             DType::Null
             | DType::List(..)
             | DType::FixedSizeList(..)
@@ -509,7 +521,9 @@ impl AggregateFnVTable for IsSorted {
                     Canonical::VarBinView(v) => {
                         check_varbinview_sorted(v, args.options.strict, ctx)?
                     }
-                    Canonical::Decimal(d) => check_decimal_sorted(d, args.options.strict, ctx)?,
+                    Canonical::Decimal(d) => {
+                        check_signed_integer_sorted(d.values(), args.options.strict, ctx)?
+                    }
                     Canonical::Extension(e) => check_extension_sorted(e, args.options.strict, ctx)?,
                     Canonical::Null(_) => !args.options.strict,
                     // Struct, List, FixedSizeList should have been filtered out by return_dtype

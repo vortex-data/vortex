@@ -61,7 +61,10 @@ impl DecimalOperand {
             });
         }
 
-        let values = array.clone().execute::<DecimalArray>(ctx)?;
+        let values = array
+            .clone()
+            .execute::<DecimalArray>(ctx)?
+            .materialize_values(ctx)?;
         let validity = values.validity()?;
         Ok(Self::Array { values, validity })
     }
@@ -152,7 +155,7 @@ fn compare_decimal_constant(
     })
 }
 
-fn compare_slices<T: NativeDecimalType>(
+pub(super) fn compare_slices<T: NativeDecimalType>(
     lhs: &[T],
     rhs: &[T],
     op: CompareOperator,
@@ -168,7 +171,7 @@ fn compare_slices<T: NativeDecimalType>(
     }
 }
 
-fn compare_slice_constant<T: NativeDecimalType>(
+pub(super) fn compare_slice_constant<T: NativeDecimalType>(
     values: &[T],
     constant: T,
     op: CompareOperator,

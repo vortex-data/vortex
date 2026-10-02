@@ -432,9 +432,9 @@ async fn export_dictionary_codes(
 
 /// Exports decimals with value buffers cast to Arrow's Decimal32/64/128/256 layout.
 ///
-/// Decimal values are already decoded; this only adapts the physical buffer width. Storage-to-Arrow
-/// narrowing is rejected instead of checked on-device to avoid a device-to-host synchronization
-/// point.
+/// The integer child is materialized at its stored width before export. A checked cast in that
+/// child rejects overflow before values are copied to the device; smaller stored widths are widened
+/// to Arrow's precision-derived layout on the device.
 async fn export_decimal(
     decimal: DecimalArray,
     ctx: &mut CudaExecutionCtx,
@@ -445,7 +445,9 @@ async fn export_decimal(
         values,
         values_type,
         validity,
-    } = decimal.into_data_parts();
+    } = decimal
+        .materialize_values(ctx.execution_ctx())?
+        .into_data_parts();
 
     let (validity_buffer, null_count) = export_arrow_validity_buffer(validity, len, 0, ctx).await?;
     let target_type = cuda_decimal_value_type(decimal_dtype);
@@ -2253,7 +2255,7 @@ mod tests {
     }
 
     #[crate::test]
-    async fn test_export_decimal_narrowing_errors() -> VortexResult<()> {
+    async fn test_export_decimal_integer_overflow() -> VortexResult<()> {
         let mut ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
         let array = DecimalArray::from_iter([i256::from_parts(0, 1)], DecimalDType::new(38, 0))
@@ -2263,22 +2265,21 @@ mod tests {
             .export_device_array_with_schema(&mut ctx)
             .await
             .unwrap_err();
-        assert!(err.to_string().contains("narrowing would require"));
+        assert!(
+            err.to_string().contains("Integer does not fit i128"),
+            "got: {err}"
+        );
         Ok(())
     }
 
     #[crate::test]
-    async fn test_export_decimal_narrowing_from_arrow_import() -> VortexResult<()> {
-        let mut ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
-            .vortex_expect("failed to create execution context");
-        let array = DecimalArray::from_iter([0i128, 1, -2], DecimalDType::new(10, 2)).into_array();
-
-        let err = array
-            .export_device_array_with_schema(&mut ctx)
-            .await
-            .unwrap_err();
-        assert!(err.to_string().contains("narrowing would require"));
-        Ok(())
+    async fn test_export_decimal_from_wider_storage() -> VortexResult<()> {
+        assert_exported_decimal(
+            DecimalArray::from_iter([0i128, 1, -2], DecimalDType::new(10, 2)).into_array(),
+            DataType::Decimal64(10, 2),
+            vec![0i64, 1, -2],
+        )
+        .await
     }
 
     #[rstest]

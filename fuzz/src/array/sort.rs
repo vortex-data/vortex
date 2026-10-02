@@ -62,7 +62,10 @@ pub fn sort_canonical_array(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexR
             })
         }
         DType::Decimal(d, _) => {
-            let decimal_array = array.clone().execute::<DecimalArray>(ctx)?;
+            let decimal_array = array
+                .clone()
+                .execute::<DecimalArray>(ctx)?
+                .materialize_values(ctx)?;
             match_each_decimal_value_type!(decimal_array.values_type(), |D| {
                 let buf = decimal_array.buffer::<D>();
                 let mut opt_values = buf

@@ -38,6 +38,7 @@ use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
+use crate::extension::integer::WideInteger;
 use crate::kernel::ExecuteParentKernel;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::binary::Binary;
@@ -47,6 +48,7 @@ use crate::validity::Validity;
 mod boolean;
 mod bytes;
 mod decimal;
+mod integer;
 mod nested;
 mod primitive;
 #[cfg(test)]
@@ -181,6 +183,10 @@ fn compare_arrays(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let nullability = Nullability::from(lhs.dtype().is_nullable() || rhs.dtype().is_nullable());
+
+    if WideInteger::width(lhs.dtype()).is_some() || WideInteger::width(rhs.dtype()).is_some() {
+        return integer::compare_integer(lhs, rhs, op, nullability, ctx);
+    }
 
     // Extension arrays compare through their storage. When both sides are extensions they must
     // agree on the full extension dtype (a timestamp in milliseconds must not compare its raw

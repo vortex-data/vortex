@@ -72,7 +72,10 @@ pub fn filter_canonical_array(
             .into_array())
         }),
         DType::Decimal(d, _) => {
-            let decimal_array = array.clone().execute::<DecimalArray>(ctx)?;
+            let decimal_array = array
+                .clone()
+                .execute::<DecimalArray>(ctx)?
+                .materialize_values(ctx)?;
             match_each_decimal_value_type!(decimal_array.values_type(), |D| {
                 let buf = decimal_array.buffer::<D>();
                 Ok(DecimalArray::new(

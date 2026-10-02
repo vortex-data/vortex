@@ -10,6 +10,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::dtype::DType;
+use crate::dtype::integer::is_wide_integer_cast;
 use crate::scalar::Scalar;
 
 impl Scalar {
@@ -51,6 +52,10 @@ impl Scalar {
             );
 
             return Scalar::try_new(target_dtype.clone(), self.value().cloned());
+        }
+
+        if is_wide_integer_cast(self.dtype(), target_dtype) {
+            return crate::integer::cast_scalar(self, target_dtype);
         }
 
         // TODO(connor): This isn't really correct for extension types.

@@ -39,6 +39,7 @@ pub(crate) fn new_exporter(
     array: DecimalArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
+    let array = array.materialize_values(ctx)?;
     let len = array.len();
     let DecimalDataParts {
         validity,

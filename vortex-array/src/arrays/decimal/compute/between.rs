@@ -10,8 +10,8 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::BoolArray;
-use crate::arrays::ConstantArray;
 use crate::arrays::Decimal;
+use crate::arrays::decimal::DecimalArrayExt;
 use crate::dtype::NativeDecimalType;
 use crate::dtype::Nullability;
 use crate::dtype::i256;
@@ -40,6 +40,8 @@ impl BetweenKernel for Decimal {
         let nullability =
             arr.dtype().nullability() | lower.dtype().nullability() | upper.dtype().nullability();
 
+        let materialized = arr.materialize_values(ctx)?;
+        let arr = materialized.as_view();
         match_each_decimal_value_type!(arr.values_type(), |D| {
             between_unpack::<D>(arr, lower, upper, nullability, options, ctx)
         })
@@ -84,7 +86,11 @@ fn between_unpack<T: NativeDecimalType>(
         None => {
             if lower_dv.as_i256() >= i256::ZERO {
                 return Ok(Some(
-                    ConstantArray::new(Scalar::bool(false, nullability), arr.len()).into_array(),
+                    BoolArray::new(
+                        BitBuffer::full_in(false, arr.len(), ctx.allocator().clone()),
+                        arr.validity()?.union_nullability(nullability),
+                    )
+                    .into_array(),
                 ));
             }
             None
@@ -96,7 +102,11 @@ fn between_unpack<T: NativeDecimalType>(
         None => {
             if upper_dv.as_i256() < i256::ZERO {
                 return Ok(Some(
-                    ConstantArray::new(Scalar::bool(false, nullability), arr.len()).into_array(),
+                    BoolArray::new(
+                        BitBuffer::full_in(false, arr.len(), ctx.allocator().clone()),
+                        arr.validity()?.union_nullability(nullability),
+                    )
+                    .into_array(),
                 ));
             }
             None

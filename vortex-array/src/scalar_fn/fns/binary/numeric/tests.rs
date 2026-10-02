@@ -15,6 +15,7 @@ use crate::VortexSessionExecute;
 use crate::array_session;
 use crate::arrays::ConstantArray;
 use crate::arrays::DecimalArray;
+use crate::arrays::DictArray;
 use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
 use crate::builtins::ArrayBuiltins;
@@ -414,6 +415,30 @@ fn test_decimal_mixed_storage_widths() -> VortexResult<()> {
         DecimalArray::from_iter::<i64, _>(
             [300, 500],
             result_decimal_dtype(dtype, NumericOperator::Add)?,
+        ),
+        &mut ctx
+    );
+    Ok(())
+}
+
+#[test]
+fn test_decimal_encoded_integer_child() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let dtype = DecimalDType::new(10, 2);
+    let values = DictArray::try_new(
+        buffer![0u8, 1, 0].into_array(),
+        PrimitiveArray::from_option_iter([Some(900i32), None]).into_array(),
+    )?
+    .into_array();
+    let lhs = DecimalArray::from_integer_values(values, dtype)?.into_array();
+    let rhs = DecimalArray::from_iter::<i64, _>([150, 225, 150], dtype).into_array();
+
+    let result = decimal_binary(lhs, rhs, Operator::Mul)?;
+    assert_arrays_eq!(
+        result,
+        DecimalArray::from_option_iter::<i128, _>(
+            [Some(135_000), None, Some(135_000)],
+            result_decimal_dtype(dtype, NumericOperator::Mul)?,
         ),
         &mut ctx
     );

@@ -5,5 +5,7 @@
 
 pub mod datetime;
 
+pub mod integer;
+
 #[cfg(test)]
 mod tests;

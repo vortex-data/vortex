@@ -44,7 +44,6 @@ use crate::arrays::VarBinViewArray;
 use crate::arrays::Variant;
 use crate::arrays::VariantArray;
 use crate::arrays::bool::BoolDataParts;
-use crate::arrays::decimal::DecimalDataParts;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
 use crate::arrays::listview::ListViewDataParts;
@@ -632,7 +631,8 @@ impl Executable for Canonical {
 /// Recursively execute the array until it reaches canonical form along with its validity.
 ///
 /// Callers should prefer to execute into `Columnar` instead of this specific target.
-/// This target is useful when preparing arrays for writing.
+/// This target is useful when preparing arrays for writing. Decimal storage is decoded at its
+/// stored width and keeps the Narrow wrapper required by its precision-derived child dtype.
 pub struct CanonicalValidity(pub Canonical);
 
 impl Executable for CanonicalValidity {
@@ -663,20 +663,15 @@ impl Executable for CanonicalValidity {
                 })))
             }
             Canonical::Decimal(d) => {
-                let DecimalDataParts {
-                    decimal_dtype,
-                    values,
-                    values_type,
-                    validity,
-                } = d.into_data_parts();
-                Ok(CanonicalValidity(Canonical::Decimal(unsafe {
-                    DecimalArray::new_unchecked_handle(
-                        values,
-                        values_type,
-                        decimal_dtype,
-                        validity.execute(ctx)?,
-                    )
-                })))
+                let d = d.materialize_values(ctx)?;
+                Ok(CanonicalValidity(Canonical::Decimal(
+                    DecimalArray::try_new_handle(
+                        d.buffer_handle().clone(),
+                        d.values_type(),
+                        d.decimal_dtype(),
+                        d.validity()?.execute(ctx)?,
+                    )?,
+                )))
             }
             Canonical::VarBinView(vbv) => {
                 let VarBinViewDataParts {
@@ -786,6 +781,8 @@ impl Executable for CanonicalValidity {
 ///
 /// This method is useful to guarantee that all operators are fully executed,
 /// callers should prefer an execution target that's suitable for their use case instead of this one.
+/// Decimal values retain Narrow after decoding their stored child, so recursion does not
+/// expand compact decimal values to the integer width required by their precision.
 pub struct RecursiveCanonical(pub Canonical);
 
 // TODO: Currently only used for Variant, in the future
@@ -840,20 +837,15 @@ impl Executable for RecursiveCanonical {
                 })))
             }
             Canonical::Decimal(d) => {
-                let DecimalDataParts {
-                    decimal_dtype,
-                    values,
-                    values_type,
-                    validity,
-                } = d.into_data_parts();
-                Ok(RecursiveCanonical(Canonical::Decimal(unsafe {
-                    DecimalArray::new_unchecked_handle(
-                        values,
-                        values_type,
-                        decimal_dtype,
-                        validity.execute(ctx)?,
-                    )
-                })))
+                let d = d.materialize_values(ctx)?;
+                Ok(RecursiveCanonical(Canonical::Decimal(
+                    DecimalArray::try_new_handle(
+                        d.buffer_handle().clone(),
+                        d.values_type(),
+                        d.decimal_dtype(),
+                        d.validity()?.execute(ctx)?,
+                    )?,
+                )))
             }
             Canonical::VarBinView(vbv) => {
                 let VarBinViewDataParts {

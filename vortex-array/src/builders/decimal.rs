@@ -162,6 +162,7 @@ impl DecimalBuilder {
         array: &DecimalArray,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
+        let array = array.materialize_values(ctx)?;
         match_each_decimal_value_type!(array.values_type(), |D| {
             // Extends the values buffer from another buffer of type D where D can be coerced to the
             // builder type.

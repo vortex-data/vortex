@@ -22,6 +22,8 @@ use crate::arrays::ConstantArray;
 use crate::arrays::Primitive;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
+use crate::dtype::integer::integer_dtype;
+use crate::dtype::integer::signed_integer_type;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::fns::binary::Binary;
@@ -50,6 +52,21 @@ impl CompareKernel for Narrow {
         }
 
         if let Some(rhs) = rhs.as_opt::<Narrow>() {
+            if let (Some(lhs_type), Some(rhs_type)) = (
+                signed_integer_type(lhs.values().dtype()),
+                signed_integer_type(rhs.values().dtype()),
+            ) {
+                let values_type = lhs_type.max(rhs_type);
+                return compare_values(
+                    &lhs.values()
+                        .cast(integer_dtype(values_type, lhs.dtype().nullability()))?,
+                    &rhs.values()
+                        .cast(integer_dtype(values_type, rhs.dtype().nullability()))?,
+                    operator,
+                    ctx,
+                )
+                .map(Some);
+            }
             let ptype = if lhs.values().dtype().as_ptype().byte_width()
                 >= rhs.values().dtype().as_ptype().byte_width()
             {
@@ -86,7 +103,11 @@ impl CompareKernel for Narrow {
         }
 
         // An integer outside the child's type range is ordered against every stored value.
-        let below = lhs.dtype().is_signed_int() && i64::try_from(&constant)? < 0;
+        let below = if signed_integer_type(lhs.dtype()).is_some() {
+            crate::integer::scalar_value(&constant)?.as_i256() < crate::dtype::i256::ZERO
+        } else {
+            false
+        };
         let result = match operator {
             CompareOperator::Eq => false,
             CompareOperator::NotEq => true,

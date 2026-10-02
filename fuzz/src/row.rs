@@ -368,6 +368,7 @@ fn row_keys(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Vec<RowKey
             with_mask(keys, &a.into_array(), ctx)
         }
         Canonical::Decimal(a) => {
+            let a = a.materialize_values(ctx)?;
             let mask = a.as_ref().validity()?.execute_mask(len, ctx)?;
             match_each_decimal_value_type!(a.values_type(), |D| {
                 let buf = a.buffer::<D>();

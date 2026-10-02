@@ -15,6 +15,7 @@ use crate::dtype::DType;
 use crate::dtype::NativeDType;
 use crate::dtype::PType;
 use crate::dtype::StructFields;
+use crate::extension::integer::WideInteger;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 
@@ -407,6 +408,11 @@ fn partial_cmp_non_null_scalar_values(
     lhs: &ScalarValue,
     rhs: &ScalarValue,
 ) -> Option<Ordering> {
+    if let Some(width) = WideInteger::width(dtype) {
+        let lhs = WideInteger::unpack_value(width, lhs).ok()?;
+        let rhs = WideInteger::unpack_value(width, rhs).ok()?;
+        return lhs.partial_cmp(&rhs);
+    }
     // `Scalar::validate` guarantees that a scalar's value matches its dtype. Most of the scalar
     // value variants have only 1 method of comparison, regardless of the dtype.
     match (lhs, rhs) {
