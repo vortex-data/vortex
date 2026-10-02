@@ -9,19 +9,12 @@ use std::sync::LazyLock;
 
 use divan::Bencher;
 use divan::counter::ItemsCount;
-use fastlanes::BitPacking;
 use mimalloc::MiMalloc;
 use num_traits::AsPrimitive;
-use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::NativePType;
-use vortex_array::validity::Validity;
-use vortex_buffer::BufferMut;
-use vortex_fastlanes::BitPacked;
-use vortex_fastlanes::FL_CHUNK_SIZE;
-use vortex_fastlanes::bitpack_compress::bitpack_primitive;
+use vortex_fastlanes::bitpack_compress::bitpack_encode_blocked;
 use vortex_fastlanes::bitpack_decompress::unpack_array;
 use vortex_session::VortexSession;
 
@@ -47,27 +40,21 @@ const NUM_BLOCKS: usize = 64;
 #[divan::bench(types = [u32, u64])]
 fn bitpack_blocked_decompress<T>(bencher: Bencher)
 where
-    T: NativePType + BitPacking,
+    T: NativePType,
     u64: AsPrimitive<T>,
 {
     // Block widths cycle from 1 to 16 bits, so the blocks take different unpacking kernels.
-    let mut packed = BufferMut::<T>::with_capacity(NUM_BLOCKS * FL_CHUNK_SIZE);
-    let mut offsets = vec![0u32];
-    for bit_width in (1..=16u8).cycle().take(NUM_BLOCKS) {
-        let block: Vec<T> = (0..1024u64)
-            .map(|i| (i.wrapping_mul(7919) & ((1 << bit_width) - 1)).as_())
-            .collect();
-        packed.extend_from_slice(&bitpack_primitive(&block, bit_width));
-        offsets.push(u32::try_from(packed.len() * size_of::<T>()).unwrap());
-    }
-    let array = BitPacked::try_new_with_block_offsets(
-        BufferHandle::new_host(packed.freeze().into_byte_buffer()),
-        T::PTYPE,
-        Validity::NonNullable,
-        None,
-        PrimitiveArray::from_iter(offsets).into_array(),
-        NUM_BLOCKS * FL_CHUNK_SIZE,
-        0,
+    let bit_widths: Vec<u8> = (1..=16).cycle().take(NUM_BLOCKS).collect();
+    let values = PrimitiveArray::from_iter(bit_widths.iter().flat_map(|&bit_width| {
+        (0..1024u64).map(move |i| {
+            AsPrimitive::<T>::as_(i.wrapping_mul(7919) & ((1 << bit_width) - 1))
+        })
+    }));
+    let array = bitpack_encode_blocked(
+        &values,
+        &bit_widths,
+        Some(0),
+        &mut SESSION.create_execution_ctx(),
     )
     .unwrap();
 

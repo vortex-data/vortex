@@ -322,6 +322,7 @@ mod tests {
     use vortex_array::builders::PrimitiveBuilder;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::DType;
+    use vortex_array::dtype::NativePType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::PhysicalPType;
@@ -341,7 +342,9 @@ mod tests {
     use crate::BitWidths;
     use crate::FL_CHUNK_SIZE;
     use crate::FoR;
+    use crate::bitpack_compress::bitpack_encode_blocked;
     use crate::bitpack_compress::bitpack_primitive;
+    use crate::bitpack_compress::bitpack_to_best_bit_widths;
     use crate::bitpack_decompress::unpack_map_into_builder;
     use crate::test::SESSION;
 
@@ -637,6 +640,79 @@ mod tests {
         )?;
         assert_eq!(array.execute_scalar(0, &mut ctx)?, 0u32.into());
         assert!(array.execute_scalar(1024, &mut ctx).is_err());
+        Ok(())
+    }
+
+    /// Non-negative values whose 1024-value blocks need different bit widths, with outliers in the
+    /// first block.
+    fn blocked_values<T: NativePType>(len: usize) -> Vec<T>
+    where
+        u64: AsPrimitive<T>,
+    {
+        let max_bits =
+            u32::try_from(T::PTYPE.bit_width()).unwrap() - u32::from(T::PTYPE.is_signed_int());
+        let widths = [3, 0, max_bits.min(12), 5];
+        (0..len)
+            .map(|i| {
+                let width = if i < FL_CHUNK_SIZE && i % 97 == 0 {
+                    max_bits
+                } else {
+                    widths[(i / FL_CHUNK_SIZE) % widths.len()]
+                };
+                let mask = 1u64.checked_shl(width).map_or(u64::MAX, |bit| bit - 1);
+                (u64::MAX.wrapping_sub(i as u64) & mask).as_()
+            })
+            .collect()
+    }
+
+    #[rstest]
+    fn round_trip_best_bit_widths(
+        #[values(
+            PType::U8, PType::I8, PType::U16, PType::I16, PType::U32, PType::I32, PType::U64,
+            PType::I64
+        )]
+        ptype: PType,
+        #[values(1, 1024, 4000)] len: usize,
+        #[values(false, true)] nullable: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let array = match_each_integer_ptype!(ptype, |T| {
+            let values = blocked_values::<T>(len);
+            if nullable {
+                PrimitiveArray::from_option_iter(
+                    values
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, value)| (i % 7 != 3).then_some(value)),
+                )
+            } else {
+                PrimitiveArray::from_iter(values)
+            }
+        });
+        let encoded = bitpack_to_best_bit_widths(&array, &mut ctx)?;
+        assert!(matches!(encoded.bit_widths(), BitWidths::Blocked(_)));
+        assert_arrays_eq!(encoded, array, &mut ctx);
+        for index in [0, len / 2, len - 1] {
+            assert_eq!(
+                encoded.execute_scalar(index, &mut ctx)?,
+                array.execute_scalar(index, &mut ctx)?
+            );
+        }
+        Ok(())
+    }
+
+    #[rstest]
+    fn round_trip_explicit_bit_widths(
+        #[values(PType::U8, PType::I16, PType::U32, PType::I64)] ptype: PType,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let array = match_each_integer_ptype!(ptype, |T| {
+            PrimitiveArray::from_iter(blocked_values::<T>(4000))
+        });
+        // Zero and native widths, plus narrow widths that turn most values into patches.
+        let bit_widths = [0, u8::try_from(ptype.bit_width())?, 1, 3];
+        let encoded = bitpack_encode_blocked(&array, &bit_widths, None, &mut ctx)?;
+        assert_arrays_eq!(encoded, array, &mut ctx);
         Ok(())
     }
 }
