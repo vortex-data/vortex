@@ -93,14 +93,14 @@ BENCHMARKS = (
             "develop": FULL_LOCAL,
         },
     ),
+    # Not in the "pr" preset: the sorted variant is excluded from the default PR benchmark run.
     BenchmarkCase(
         id="clickbench-sorted-nvme",
         benchmark=Benchmark.CLICKBENCH_SORTED,
         name="Clickbench Sorted on NVME",
         runs={
-            "pr": DEFAULT,
             "pr-compact": COMPACT,
-            "pr-all": STANDARD,
+            "pr-all": COMPACT,
             "pr-full": DEFAULT_WITH_DUCKDB_PR_FULL,
             "develop": FULL_LOCAL,
         },

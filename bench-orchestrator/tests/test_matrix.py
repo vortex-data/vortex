@@ -42,7 +42,7 @@ EXPECTED_IDS = {
     "pr": tuple(
         benchmark_id
         for benchmark_id in REGULAR_IDS
-        if benchmark_id not in {"tpch-s3-10", "appian-nvme", "vortex-queries"}
+        if benchmark_id not in {"clickbench-sorted-nvme", "tpch-s3-10", "appian-nvme", "vortex-queries"}
     ),
     "pr-compact": COMPACT_IDS,
     "pr-all": PR_ALL_IDS,
