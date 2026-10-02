@@ -63,6 +63,7 @@ use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::search_sorted::SearchResult;
 use vortex_array::search_sorted::SearchSorted;
+use vortex_array::search_sorted::SearchSortedArray;
 use vortex_array::search_sorted::SearchSortedSide;
 use vortex_btrblocks::BtrBlocksCompressor;
 #[cfg(feature = "zstd")]
@@ -636,7 +637,7 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> VortexFuzzResult<bool> {
                 if !current_array.is_canonical() {
                     sorted = compress_array(&sorted, CompressorStrategy::Default, &mut ctx);
                 }
-                assert_search_sorted(sorted, s, side, expected.search(), i)?;
+                assert_search_sorted(sorted, s, side, expected.search(), i, &mut ctx)?;
             }
             Action::Filter(mask_val) => {
                 current_array = current_array
@@ -715,8 +716,9 @@ fn assert_search_sorted(
     side: SearchSortedSide,
     expected: SearchResult,
     step: usize,
+    ctx: &mut ExecutionCtx,
 ) -> VortexFuzzResult<()> {
-    let search_result = array
+    let search_result = SearchSortedArray::new(&array, ctx)
         .search_sorted(&s, side)
         .map_err(|e| VortexFuzzError::VortexError(e, Backtrace::capture()))?;
     if search_result != expected {

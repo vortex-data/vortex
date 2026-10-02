@@ -16,11 +16,11 @@ impl OperationsVTable<Sparse> for Sparse {
     fn scalar_at(
         array: ArrayView<'_, Sparse>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         Ok(array
             .patches()
-            .get_patched(index)?
+            .get_patched(index, ctx)?
             .unwrap_or_else(|| array.fill_scalar().clone()))
     }
 }

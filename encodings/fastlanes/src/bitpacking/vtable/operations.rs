@@ -16,11 +16,11 @@ impl OperationsVTable<BitPacked> for BitPacked {
     fn scalar_at(
         array: ArrayView<'_, BitPacked>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         Ok(
             if let Some(patches) = array.patches()
-                && let Some(patch) = patches.get_patched(index)?
+                && let Some(patch) = patches.get_patched(index, ctx)?
             {
                 patch
             } else {
