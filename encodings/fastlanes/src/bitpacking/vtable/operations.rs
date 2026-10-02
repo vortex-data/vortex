@@ -24,7 +24,7 @@ impl OperationsVTable<BitPacked> for BitPacked {
             {
                 patch
             } else {
-                bitpack_decompress::unpack_single(array, index)
+                bitpack_decompress::unpack_single(array, index)?
             },
         )
     }

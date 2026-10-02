@@ -28,10 +28,12 @@ use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
+use crate::BitWidths;
 use crate::FL_CHUNK_SIZE;
 use crate::FoRArray;
 use crate::for_::array::FoRArrayExt;
@@ -283,7 +285,10 @@ fn unpack_chunks<
     output: &mut [MaybeUninit<T>],
 ) -> VortexResult<()> {
     let offset = usize::from(bp.offset());
-    let bit_width = bp.bit_width() as usize;
+    let BitWidths::Global(bit_width) = bp.bit_widths() else {
+        vortex_bail!("BitPacked array has per-block bit widths");
+    };
+    let bit_width = bit_width as usize;
     // SAFETY: `T::Physical` is `T` with the same size and alignment, and the unpack is the same
     // wrapping addition in two's complement whichever signedness `T` has.
     let output =

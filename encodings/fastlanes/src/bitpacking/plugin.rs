@@ -31,12 +31,15 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::BitPacked;
 use crate::BitPackedArray;
 use crate::BitPackedArrayExt;
 use crate::BitPackedData;
+use crate::BitWidths;
+use crate::bitpacking::array::BitPackedSlots;
 
 #[derive(Clone, prost::Message)]
 pub struct BitPackedMetadata {
@@ -68,8 +71,11 @@ impl ArrayPlugin for BitPackedPlugin {
         let view = array.as_opt::<BitPacked>().ok_or_else(|| {
             vortex_err!("BitPacked plugin cannot serialize {}", array.encoding_id())
         })?;
+        let BitWidths::Global(bit_width) = view.bit_widths() else {
+            vortex_bail!("BitPacked plugin cannot serialize per-block bit widths");
+        };
         let metadata = BitPackedMetadata {
-            bit_width: view.bit_width() as u32,
+            bit_width: u32::from(bit_width),
             offset: view.offset() as u32,
             patches: view
                 .patches()
@@ -148,9 +154,10 @@ impl ArrayPlugin for BitPackedPlugin {
             .transpose()?;
 
         let slots = {
-            let mut s = ArraySlots::with_capacity(4);
+            let mut s = ArraySlots::with_capacity(BitPackedSlots::COUNT);
             PatchesData::push_slots(&mut s, patches.as_ref());
             s.push(validity_to_child(&validity, len));
+            s.push(None);
             s
         };
         let data = BitPackedData::try_new(
@@ -223,7 +230,9 @@ impl ArrayPlugin for BitPackedPatchedPlugin {
         let packed = bitpacked.packed().clone();
         let ptype = bitpacked.dtype().as_ptype();
         let validity = bitpacked.validity()?;
-        let bw = bitpacked.bit_width;
+        let BitWidths::Global(bw) = bitpacked.bit_widths() else {
+            vortex_panic!("BitPacked plugin always deserializes a global bit width");
+        };
         let len = bitpacked.len();
         let offset = bitpacked.offset();
 
