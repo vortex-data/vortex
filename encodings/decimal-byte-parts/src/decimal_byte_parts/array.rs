@@ -19,9 +19,11 @@ use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::TypedArrayRef;
 use vortex_array::array_slots;
+use vortex_array::arrays::Primitive;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
+use vortex_array::require_child;
 use vortex_array::scalar::DecimalValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
@@ -284,6 +286,15 @@ impl VTable for DecimalByteParts {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let array = require_child!(array, array.msp(), DecimalBytePartsSlots::MSP => Primitive);
+        for (idx, part) in array.lower_parts().iter().enumerate() {
+            if !part.is::<Primitive>() {
+                return Ok(ExecutionResult::execute_slot::<Primitive>(
+                    array.clone(),
+                    DecimalBytePartsSlots::LOWER_PARTS_OFFSET + idx,
+                ));
+            }
+        }
         let lower_parts = array.lower_parts().to_vec();
         let assembled = assemble_decimal(array.msp(), &lower_parts, array.decimal_dtype(), ctx)?;
 
