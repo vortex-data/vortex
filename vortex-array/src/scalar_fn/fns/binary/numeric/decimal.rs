@@ -38,11 +38,13 @@ use vortex_mask::Mask;
 
 use super::checked::checked_lanes;
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
+use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
 use crate::arrays::decimal::widened_buffer;
 use crate::dtype::BigCast;
@@ -145,7 +147,10 @@ enum DecimalOperand {
 
 impl DecimalOperand {
     fn try_new(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Option<Self>> {
-        let columnar = array.clone().execute::<Columnar>(ctx)?;
+        let columnar = match array.as_opt::<Decimal>() {
+            Some(array) => Columnar::Canonical(Canonical::Decimal(array.into_owned())),
+            None => array.clone().execute::<Columnar>(ctx)?,
+        };
 
         match columnar {
             Columnar::Constant(array) => match array.scalar().as_decimal().decimal_value() {
