@@ -274,10 +274,13 @@ impl VTable for Chunked {
                         array.with_next_builder_slot(slot_idx + 1),
                         slot_idx,
                     ))
-                } else {
+                } else if slot_idx == ChunkedSlots::CHUNKS_OFFSET {
+                    // No chunks, so nothing was appended and there is no builder to finish.
                     Ok(ExecutionResult::done(
                         Canonical::empty(array.dtype()).into_array(),
                     ))
+                } else {
+                    Ok(ExecutionResult::done_into_builder(array))
                 }
             }
         }

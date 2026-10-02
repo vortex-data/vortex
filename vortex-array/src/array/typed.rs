@@ -306,8 +306,12 @@ impl<V: VTable> Array<V> {
     /// Returns `None` when this handle is not the unique owner of the backing allocation.
     pub fn data_mut(&mut self) -> Option<&mut V::TypedArrayData> {
         let store = self.inner.inner_mut()?;
-        let array_inner = store.data.as_any_mut().downcast_mut::<ArrayData<V>>();
-        Some(&mut array_inner?.data)
+        // NOTE(ngates): use downcast_mut_unchecked when it becomes stable
+        debug_assert!(store.data.as_any().is::<ArrayData<V>>());
+        // SAFETY: `Array<V>` guarantees the inner is `ArrayData<V>`, as `downcast_inner` relies on.
+        let array_inner =
+            unsafe { &mut *std::ptr::from_mut(&mut store.data).cast::<ArrayData<V>>() };
+        Some(&mut array_inner.data)
     }
 
     /// Returns the full typed array construction parts if this handle owns the allocation.
